@@ -48,12 +48,14 @@ export const FEEDBACK_DESCRIPTION_LIMIT = 4_000;
 export const FEEDBACK_SUBJECT_LIMIT = 120;
 export const FEEDBACK_BODY_LIMIT = 6_000;
 
-const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu;
+const CONTROL_CHARACTERS =
+  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu;
 const DEFAULT_IGNORABLE_CHARACTERS = /\p{Default_Ignorable_Code_Point}/gu;
 const COMBINING_OVERLAYS = /[\u0334-\u0338]/gu;
 const COMBINING_MARKS = /\p{Mark}/gu;
 const UNPAIRED_SURROGATES = /[\uD800-\uDFFF]/gu;
-const ALLOWED_EMAIL = /[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,63}/giu;
+const ALLOWED_EMAIL =
+  /[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,63}/giu;
 
 const SECRET_PATTERNS: readonly RegExp[] = [
   /\b(?:seed|mnemonic|recovery\s+phrase|spending\s+key|viewing\s+key|password|passphrase|secret|private\s+key|auth(?:entication|orization)?(?:\s+token)?|access[\s_-]*token|session(?:\s+(?:id|token))?|oauth(?:\s+token)?|bearer|jwt|cookie|totp|otp|memo|balance|device(?:\s+(?:id|identifier|name))?|clipboard)\b\s*(?:(?:=|:|is)\s*)?[^\n]+/giu,
@@ -101,7 +103,8 @@ const PATH_PATTERNS: readonly RegExp[] = [
   /(?:^|\s)\.[A-Za-z_][A-Za-z0-9_-]*(?=\s|$)/gmu,
 ];
 
-const SECRET_LABEL_SKELETON = /\b(?:p[a4]ss[\s_-]*w[o0]rd|pass[\s_-]*phrase|passwort|senha|contrasena|mot[\s_-]*de[\s_-]*passe|auth(?:entication|orization)?|[o0]auth|sess[i1][o0]n|bearer|c[o0]{2}kie|t[o0]tp|mnemonic|seed|spend[i1]ng[\s_-]*key|v[i1]ew[i1]ng[\s_-]*key|private[\s_-]*key|access[\s_-]*t[o0]ken)\b/giu;
+const SECRET_LABEL_SKELETON =
+  /\b(?:p[a4]ss[\s_-]*w[o0]rd|pass[\s_-]*phrase|passwort|senha|contrasena|mot[\s_-]*de[\s_-]*passe|auth(?:entication|orization)?|[o0]auth|sess[i1][o0]n|bearer|c[o0]{2}kie|t[o0]tp|mnemonic|seed|spend[i1]ng[\s_-]*key|v[i1]ew[i1]ng[\s_-]*key|private[\s_-]*key|access[\s_-]*t[o0]ken)\b/giu;
 
 function hasSuspiciousMixedScriptToken(value: string): boolean {
   for (const match of value.matchAll(/[\p{Letter}\p{Mark}]+/gu)) {
@@ -117,21 +120,21 @@ function hasSuspiciousMixedScriptToken(value: string): boolean {
 }
 
 const SECURITY_CONFUSABLES: Readonly<Record<string, string>> = Object.freeze({
-  "а": "a",
-  "α": "a",
-  "е": "e",
-  "ε": "e",
-  "і": "i",
-  "ι": "i",
-  "о": "o",
-  "ο": "o",
-  "р": "p",
-  "ρ": "p",
-  "с": "c",
-  "ѕ": "s",
-  "ԝ": "w",
-  "г": "r",
-  "ԁ": "d",
+  а: "a",
+  α: "a",
+  е: "e",
+  ε: "e",
+  і: "i",
+  ι: "i",
+  о: "o",
+  ο: "o",
+  р: "p",
+  ρ: "p",
+  с: "c",
+  ѕ: "s",
+  ԝ: "w",
+  г: "r",
+  ԁ: "d",
 });
 
 function hasConfusableSensitiveLabel(value: string): boolean {
@@ -228,14 +231,21 @@ function decodeCommonEscapes(value: string): string {
   });
   for (;;) {
     const next = decoded
-      .replace(/&#(?:x([0-9a-f]+)|(\d+));/giu, (entity, hexadecimal, decimal) => {
-        const codePoint = Number.parseInt(hexadecimal ?? decimal, hexadecimal ? 16 : 10);
-        return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
-          ? String.fromCodePoint(codePoint)
-          : entity;
-      })
-      .replace(/&(amp|colon|equals|num|sol);/giu, (_entity, name: string) =>
-        namedEntities[name.toLowerCase()] ?? _entity,
+      .replace(
+        /&#(?:x([0-9a-f]+)|(\d+));/giu,
+        (entity, hexadecimal, decimal) => {
+          const codePoint = Number.parseInt(
+            hexadecimal ?? decimal,
+            hexadecimal ? 16 : 10,
+          );
+          return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+            ? String.fromCodePoint(codePoint)
+            : entity;
+        },
+      )
+      .replace(
+        /&(amp|colon|equals|num|sol);/giu,
+        (_entity, name: string) => namedEntities[name.toLowerCase()] ?? _entity,
       )
       .replace(/\\u\{([0-9a-f]{1,6})\}/giu, (escape, hexadecimal) => {
         const codePoint = Number.parseInt(hexadecimal, 16);
@@ -280,16 +290,17 @@ function isPrivateEntropyByteLength(byteLength: number): boolean {
 }
 
 function hasPercentEncodedPrivateEntropy(value: string): boolean {
-  if (!/^(?:%[0-9a-f]{2})+$/iu.test(value)) return false;
-  return isPrivateEntropyByteLength(value.length / 3);
+  return [...value.matchAll(/(?:%[0-9a-f]{2})+/giu)].some((match) =>
+    isPrivateEntropyByteLength(match[0].length / 3),
+  );
 }
 
 function hasEscapedPrivateEntropy(value: string): boolean {
-  if (!/^(?:\\x[0-9a-f]{2}|\\u00[0-9a-f]{2})+$/iu.test(value)) {
-    return false;
-  }
-  return isPrivateEntropyByteLength(
-    [...value.matchAll(/\\(?:x[0-9a-f]{2}|u00[0-9a-f]{2})/giu)].length,
+  return [...value.matchAll(/(?:\\x[0-9a-f]{2}|\\u00[0-9a-f]{2})+/giu)].some(
+    (match) =>
+      isPrivateEntropyByteLength(
+        [...match[0].matchAll(/\\(?:x[0-9a-f]{2}|u00[0-9a-f]{2})/giu)].length,
+      ),
   );
 }
 
@@ -300,22 +311,30 @@ function hasNumericEntityPrivateEntropy(value: string): boolean {
     if (next === canonical) break;
     canonical = next;
   }
-  if (!/^(?:&#(?:x[0-9a-f]+|\d+);)+$/iu.test(canonical)) {
-    return false;
-  }
-  const byteValues = [
-    ...canonical.matchAll(/&#(?:x([0-9a-f]+)|(\d+));/giu),
-  ].map((match) => {
+  let consecutiveByteCount = 0;
+  let previousEnd = -1;
+  const flush = () => {
+    const privateLength = isPrivateEntropyByteLength(consecutiveByteCount);
+    consecutiveByteCount = 0;
+    return privateLength;
+  };
+  for (const match of canonical.matchAll(/&#(?:x([0-9a-f]+)|(\d+));/giu)) {
+    if (match.index !== previousEnd && flush()) return true;
     const hexadecimal = match[1] !== undefined;
     const digits = match[1] ?? match[2];
     const significant = digits.replace(/^0+/u, "") || "0";
-    if (significant.length > (hexadecimal ? 2 : 3)) return Number.NaN;
-    return Number.parseInt(significant, hexadecimal ? 16 : 10);
-  });
-  return (
-    byteValues.every((byte) => byte >= 0 && byte <= 0xff) &&
-    isPrivateEntropyByteLength(byteValues.length)
-  );
+    const value =
+      significant.length <= (hexadecimal ? 2 : 3)
+        ? Number.parseInt(significant, hexadecimal ? 16 : 10)
+        : Number.NaN;
+    if (value >= 0 && value <= 0xff) {
+      consecutiveByteCount += 1;
+    } else if (flush()) {
+      return true;
+    }
+    previousEnd = (match.index ?? 0) + match[0].length;
+  }
+  return flush();
 }
 
 function decodeBase64Bytes(
@@ -323,7 +342,10 @@ function decodeBase64Bytes(
   compactWhitespace = false,
 ): Uint8Array | undefined {
   const compact = compactWhitespace ? value.replace(/\s+/gu, "") : value;
-  if (!/^[A-Za-z0-9+/_-]{16,}={0,2}$/.test(compact) || compact.length > FEEDBACK_BODY_LIMIT) {
+  if (
+    !/^[A-Za-z0-9+/_-]{16,}={0,2}$/.test(compact) ||
+    compact.length > FEEDBACK_BODY_LIMIT
+  ) {
     return undefined;
   }
   try {
@@ -332,9 +354,7 @@ function decodeBase64Bytes(
     const binary = atob(padded);
     const roundTrip = btoa(binary).replace(/=+$/u, "");
     if (roundTrip !== canonical.replace(/=+$/u, "")) return undefined;
-    return Uint8Array.from(binary, (character) =>
-      character.charCodeAt(0),
-    );
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
   } catch {
     return undefined;
   }
@@ -348,10 +368,7 @@ function hasBase64EncodedPrivateEntropy(
   // Any canonical encoding at a standard seed/private-key byte length is
   // indistinguishable from private entropy. Printability and UTF-8 validity
   // are attacker-controlled, so the boundary fails shut on length alone.
-  return (
-    bytes !== undefined &&
-    isPrivateEntropyByteLength(bytes.byteLength)
-  );
+  return bytes !== undefined && isPrivateEntropyByteLength(bytes.byteLength);
 }
 
 function decodeBase64(
@@ -407,9 +424,20 @@ function decodedValueContainsSensitiveContent(value: string): boolean {
 
     if (hasBase64EncodedPrivateEntropy(candidate)) return true;
     const base64Decoded = decodeBase64(candidate);
-    if (base64Decoded !== undefined && base64Decoded.length < candidate.length) {
+    if (
+      base64Decoded !== undefined &&
+      base64Decoded.length < candidate.length
+    ) {
       if (hasSensitiveContent(base64Decoded)) return true;
       pending.push(base64Decoded);
+    }
+
+    // A complete Base64 value may be wrapped by Markdown punctuation or an
+    // application's field syntax. Inspect maximal encoded substrings without
+    // compacting arbitrary prose or slicing a longer opaque token.
+    for (const encoded of candidate.matchAll(/[A-Za-z0-9+/_-]{16,}={0,2}/gu)) {
+      if (encoded[0] === candidate) continue;
+      if (decodedValueContainsSensitiveContent(encoded[0])) return true;
     }
   }
   return false;
@@ -472,9 +500,11 @@ function scrubEncodedTokens(
       const wrappedWidth = segments[0]?.replace(/=+$/u, "").length ?? 0;
       const canonicallyWrapped =
         wrappedWidth >= 4 &&
-        segments.slice(0, -1).every(
-          (segment) => segment.replace(/=+$/u, "").length === wrappedWidth,
-        ) &&
+        segments
+          .slice(0, -1)
+          .every(
+            (segment) => segment.replace(/=+$/u, "").length === wrappedWidth,
+          ) &&
         (segments[segments.length - 1]?.replace(/=+$/u, "").length ?? 0) <=
           wrappedWidth;
       const containsSensitiveText =
@@ -483,10 +513,7 @@ function scrubEncodedTokens(
           decodedValueContainsSensitiveContent(decoded));
       if (
         !containsSensitiveText &&
-        !(
-          canonicallyWrapped &&
-          hasBase64EncodedPrivateEntropy(candidate, true)
-        )
+        !(canonicallyWrapped && hasBase64EncodedPrivateEntropy(candidate, true))
       ) {
         return candidate;
       }
@@ -500,7 +527,10 @@ function scrubEncodedTokens(
   return { value: changed ? redactedValue : next, changed };
 }
 
-export function scrubFeedbackText(value: string, redactedValue: string): {
+export function scrubFeedbackText(
+  value: string,
+  redactedValue: string,
+): {
   text: string;
   findings: readonly ScrubFinding[];
 } {
@@ -557,9 +587,11 @@ export function scrubFeedbackText(value: string, redactedValue: string): {
   // Any partial removal risks leaving a second-pass-safe residual (for
   // example, the directory portion of a path). A field with any finding is
   // therefore replaced atomically; a second review is stable by construction.
-  if (findings.size > 0) return { text: redactedValue, findings: [...findings] };
-  text = text.replace(/zuuliAllowedEmail(\d+)Placeholder/gu, (_match, index) =>
-    allowedEmails[Number(index)] ?? redactedValue,
+  if (findings.size > 0)
+    return { text: redactedValue, findings: [...findings] };
+  text = text.replace(
+    /zuuliAllowedEmail(\d+)Placeholder/gu,
+    (_match, index) => allowedEmails[Number(index)] ?? redactedValue,
   );
   return { text, findings: [] };
 }

@@ -18,6 +18,7 @@ const BUILD_BLOCK =
 const DEFAULT_SUBJECT = "ZUULI feedback";
 const REDACTED_VALUE = "[removed: sensitive value]";
 const SUBJECT_PREFIX = "Subject";
+const PRIVATE_ENTROPY_LENGTHS = [16, 20, 24, 28, 32, 48, 64] as const;
 
 describe("feedback privacy boundary", () => {
   it("has no diagnostics input or traceback capture path", () => {
@@ -66,7 +67,9 @@ describe("feedback privacy boundary", () => {
       REDACTED_VALUE,
     );
     expect(reviewed.findings.length).toBeGreaterThan(0);
-    expect(feedbackDraftText(reviewed.draft, SUBJECT_PREFIX)).not.toContain(secret);
+    expect(feedbackDraftText(reviewed.draft, SUBJECT_PREFIX)).not.toContain(
+      secret,
+    );
     expect(feedbackDraftText(reviewed.draft, SUBJECT_PREFIX)).toContain(
       REDACTED_VALUE,
     );
@@ -229,6 +232,77 @@ describe("feedback privacy boundary", () => {
     },
   );
 
+  it.each(
+    PRIVATE_ENTROPY_LENGTHS.flatMap((byteLength) => {
+      const percent = "%AA".repeat(byteLength);
+      const javascript = Array.from({ length: byteLength }, (_, index) =>
+        index % 2 === 0 ? "\\xAA" : "\\u00AA",
+      ).join("");
+      const entity = Array.from({ length: byteLength }, (_, index) =>
+        index % 2 === 0 ? "&#000170;" : "&#x0000aa;",
+      ).join("");
+      return [
+        `prefix${percent}suffix`,
+        `[${percent}]`,
+        `prefix${javascript}suffix`,
+        `(${javascript})`,
+        `prefix${entity}suffix`,
+        `{${entity}}`,
+        `prefix${encodeURIComponent(entity)}suffix`,
+      ];
+    }),
+  )(
+    "blocks embedded private-byte runs at review and both transports: %s",
+    (attack) => {
+      const draft = { subject: DEFAULT_SUBJECT, body: attack };
+      const reviewed = reviewFeedbackDraft(draft, REDACTED_VALUE);
+      expect(reviewed.findings).toContain("encoded-sensitive-value");
+      expect(reviewed.draft.body).toBe(REDACTED_VALUE);
+      for (const channel of ["email", "github"] as const) {
+        const handoff = buildFeedbackHandoffUrl(channel, draft, REDACTED_VALUE);
+        expect(handoff.status).toBe("unsafe");
+        expect("url" in handoff).toBe(false);
+      }
+    },
+  );
+
+  it.each([
+    `(${btoa("password: hunter2")})`,
+    `value[${btoa("password: hunter2")}]end`,
+    `before:${btoa(btoa("password: hunter2"))}:after`,
+  ])(
+    "blocks delimited and nested Base64 substrings at review and transport: %s",
+    (attack) => {
+      const draft = { subject: DEFAULT_SUBJECT, body: attack };
+      expect(reviewFeedbackDraft(draft, REDACTED_VALUE).draft.body).toBe(
+        REDACTED_VALUE,
+      );
+      for (const channel of ["email", "github"] as const) {
+        const handoff = buildFeedbackHandoffUrl(channel, draft, REDACTED_VALUE);
+        expect(handoff.status).toBe("unsafe");
+        expect("url" in handoff).toBe(false);
+      }
+    },
+  );
+
+  it.each([
+    `prefix${"%AA".repeat(33)}suffix`,
+    `prefix${"\\xAA".repeat(33)}suffix`,
+    `prefix${"&#170;".repeat(33)}suffix`,
+    `(${btoa("This is a safe support reference.")})`,
+  ])("does not slice safe maximal encoded runs: %s", (body) => {
+    const draft = { subject: DEFAULT_SUBJECT, body };
+    expect(reviewFeedbackDraft(draft, REDACTED_VALUE)).toEqual({
+      draft,
+      findings: [],
+    });
+    for (const channel of ["email", "github"] as const) {
+      expect(
+        buildFeedbackHandoffUrl(channel, draft, REDACTED_VALUE).status,
+      ).toBe("ready");
+    }
+  });
+
   it("recurses through mixed percent and whitespace-wrapped base64 nesting", () => {
     const nested = percentEncode(
       btoa(btoa("Authorization: Bearer deepest-secret-token")),
@@ -246,9 +320,9 @@ describe("feedback privacy boundary", () => {
   const validTwentyFourWordMnemonic = `${"abandon ".repeat(23)}art`.trim();
 
   it("matches the shipping English BIP39 dictionary and checksum", () => {
-    expect(isValidEnglishBip39Mnemonic(validTwelveWordMnemonic.split(" "))).toBe(
-      true,
-    );
+    expect(
+      isValidEnglishBip39Mnemonic(validTwelveWordMnemonic.split(" ")),
+    ).toBe(true);
     expect(
       isValidEnglishBip39Mnemonic(validTwentyFourWordMnemonic.split(" ")),
     ).toBe(true);
@@ -267,35 +341,41 @@ describe("feedback privacy boundary", () => {
     validTwelveWordMnemonic.replace(/ /gu, "\n"),
     percentEncode(validTwelveWordMnemonic, 3),
     btoa(validTwelveWordMnemonic),
-  ])("removes unlabeled BIP39-shaped material at review and transport: %s", (phrase) => {
-    const draft = { subject: DEFAULT_SUBJECT, body: phrase };
-    const reviewed = reviewFeedbackDraft(draft, REDACTED_VALUE);
-    expect(reviewed.findings.length).toBeGreaterThan(0);
-    expect(reviewed.draft.body).toBe(REDACTED_VALUE);
-    for (const channel of ["email", "github"] as const) {
-      const handoff = buildFeedbackHandoffUrl(channel, draft, REDACTED_VALUE);
-      expect(handoff.status).toBe("unsafe");
-      expect("url" in handoff).toBe(false);
-    }
-  });
+  ])(
+    "removes unlabeled BIP39-shaped material at review and transport: %s",
+    (phrase) => {
+      const draft = { subject: DEFAULT_SUBJECT, body: phrase };
+      const reviewed = reviewFeedbackDraft(draft, REDACTED_VALUE);
+      expect(reviewed.findings.length).toBeGreaterThan(0);
+      expect(reviewed.draft.body).toBe(REDACTED_VALUE);
+      for (const channel of ["email", "github"] as const) {
+        const handoff = buildFeedbackHandoffUrl(channel, draft, REDACTED_VALUE);
+        expect(handoff.status).toBe("unsafe");
+        expect("url" in handoff).toBe(false);
+      }
+    },
+  );
 
   it.each([
     "Saved in /opt/zuuli/wallet.dat",
     "Read \\\\server\\share\\wallet.bin",
     "TauriInvokeError { code: 7, rust_backtrace: src/main.rs:42 }",
-  ])("is stable and leaves no second-pass path or trace residual: %s", (attack) => {
-    const first = reviewFeedbackDraft(
-      { subject: DEFAULT_SUBJECT, body: attack },
-      REDACTED_VALUE,
-    );
-    expect(first.draft.body).toBe(REDACTED_VALUE);
-    const second = reviewFeedbackDraft(first.draft, REDACTED_VALUE);
-    expect(second.findings).toEqual([]);
-    expect(second.draft).toEqual(first.draft);
-    expect(
-      buildFeedbackHandoffUrl("github", first.draft, REDACTED_VALUE).status,
-    ).toBe("ready");
-  });
+  ])(
+    "is stable and leaves no second-pass path or trace residual: %s",
+    (attack) => {
+      const first = reviewFeedbackDraft(
+        { subject: DEFAULT_SUBJECT, body: attack },
+        REDACTED_VALUE,
+      );
+      expect(first.draft.body).toBe(REDACTED_VALUE);
+      const second = reviewFeedbackDraft(first.draft, REDACTED_VALUE);
+      expect(second.findings).toEqual([]);
+      expect(second.draft).toEqual(first.draft);
+      expect(
+        buildFeedbackHandoffUrl("github", first.draft, REDACTED_VALUE).status,
+      ).toBe("ready");
+    },
+  );
 
   it.each(["email", "github"] as const)(
     "blocks %s secrets split across subject and body",
@@ -347,9 +427,9 @@ describe("feedback privacy boundary", () => {
         if (handoff.status !== "ready") continue;
         const query = handoff.url.slice(handoff.url.indexOf("?") + 1);
         const parameters = new URLSearchParams(query);
-        expect(
-          parameters.get(channel === "email" ? "subject" : "title"),
-        ).toBe(firstReview.draft.subject);
+        expect(parameters.get(channel === "email" ? "subject" : "title")).toBe(
+          firstReview.draft.subject,
+        );
         expect(parameters.get("body")).toBe(firstReview.draft.body);
       }
     },
@@ -371,27 +451,32 @@ describe("feedback privacy boundary", () => {
     "Please reply to alice+feedback12345678901234567890@mail.example.com",
     "username alice12345678901234567890",
     "Crash reference issue-1234",
-  ])("preserves explicitly typed identity or ordinary reference text: %s", (text) => {
-    const reviewed = createFeedbackDraft(
-      text,
-      BUILD_BLOCK,
-      DEFAULT_SUBJECT,
-      REDACTED_VALUE,
-    );
-    expect(reviewed.findings).toEqual([]);
-    expect(reviewed.draft.body).toContain(text);
-    for (const channel of ["email", "github"] as const) {
-      const handoff = buildFeedbackHandoffUrl(
-        channel,
-        reviewed.draft,
+  ])(
+    "preserves explicitly typed identity or ordinary reference text: %s",
+    (text) => {
+      const reviewed = createFeedbackDraft(
+        text,
+        BUILD_BLOCK,
+        DEFAULT_SUBJECT,
         REDACTED_VALUE,
       );
-      expect(handoff.status).toBe("ready");
-      if (handoff.status !== "ready") continue;
-      const fields = new URLSearchParams(handoff.url.slice(handoff.url.indexOf("?") + 1));
-      expect(fields.get("body")).toBe(reviewed.draft.body);
-    }
-  });
+      expect(reviewed.findings).toEqual([]);
+      expect(reviewed.draft.body).toContain(text);
+      for (const channel of ["email", "github"] as const) {
+        const handoff = buildFeedbackHandoffUrl(
+          channel,
+          reviewed.draft,
+          REDACTED_VALUE,
+        );
+        expect(handoff.status).toBe("ready");
+        if (handoff.status !== "ready") continue;
+        const fields = new URLSearchParams(
+          handoff.url.slice(handoff.url.indexOf("?") + 1),
+        );
+        expect(fields.get("body")).toBe(reviewed.draft.body);
+      }
+    },
+  );
 
   it.each([
     "the app crashed when i opened settings and tried to go back",
@@ -434,15 +519,18 @@ describe("feedback privacy boundary", () => {
     "settings screen stopped now",
     "the app stopped responding again",
     "the app crashed when opening settings",
-  ])("preserves ordinary editable-preview prose at both handoffs: %s", (body) => {
-    const draft = { subject: DEFAULT_SUBJECT, body };
-    const reviewed = reviewFeedbackDraft(draft, REDACTED_VALUE);
-    expect(reviewed).toEqual({ draft, findings: [] });
-    for (const channel of ["email", "github"] as const) {
-      const handoff = buildFeedbackHandoffUrl(channel, draft, REDACTED_VALUE);
-      expect(handoff.status).toBe("ready");
-    }
-  });
+  ])(
+    "preserves ordinary editable-preview prose at both handoffs: %s",
+    (body) => {
+      const draft = { subject: DEFAULT_SUBJECT, body };
+      const reviewed = reviewFeedbackDraft(draft, REDACTED_VALUE);
+      expect(reviewed).toEqual({ draft, findings: [] });
+      for (const channel of ["email", "github"] as const) {
+        const handoff = buildFeedbackHandoffUrl(channel, draft, REDACTED_VALUE);
+        expect(handoff.status).toBe("ready");
+      }
+    },
+  );
 
   it("revalidates edits and returns the changed preview instead of approving it", () => {
     const edited = reviewFeedbackDraft(
@@ -471,7 +559,9 @@ describe("feedback handoff", () => {
       if (result.status !== "ready") return;
 
       if (channel === "email") {
-        expect(result.url.startsWith(`mailto:${FEEDBACK_SUPPORT_EMAIL}?`)).toBe(true);
+        expect(result.url.startsWith(`mailto:${FEEDBACK_SUPPORT_EMAIL}?`)).toBe(
+          true,
+        );
         expect(result.url).toContain("subject=Unicode%20%2B%20reserved");
         expect(result.url).not.toContain("subject=Unicode+");
         const fields = Object.fromEntries(
@@ -489,7 +579,9 @@ describe("feedback handoff", () => {
         expect(fields.subject).toBe(draft.subject);
         expect(fields.body).toBe(draft.body);
       } else {
-        expect(result.url.startsWith(`${FEEDBACK_GITHUB_NEW_ISSUE_URL}?`)).toBe(true);
+        expect(result.url.startsWith(`${FEEDBACK_GITHUB_NEW_ISSUE_URL}?`)).toBe(
+          true,
+        );
       }
       const query = result.url.slice(result.url.indexOf("?") + 1);
       const parameters = new URLSearchParams(query);
@@ -503,11 +595,7 @@ describe("feedback handoff", () => {
 
   it("rejects over-limit GitHub URLs without truncating the reviewed report", () => {
     const longDraft = { subject: "ZUULI feedback", body: "💡".repeat(700) };
-    const result = buildFeedbackHandoffUrl(
-      "github",
-      longDraft,
-      REDACTED_VALUE,
-    );
+    const result = buildFeedbackHandoffUrl("github", longDraft, REDACTED_VALUE);
     expect(result.status).toBe("too-long");
     expect(longDraft.body).toHaveLength(1_400);
     expect(feedbackDraftText(longDraft, SUBJECT_PREFIX)).toContain(
