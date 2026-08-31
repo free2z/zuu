@@ -195,7 +195,7 @@ interface RawDyteMeeting {
   meeting_id: string;
   meeting_type: unknown;
   live_now: boolean;
-  price_per_minute?: string;
+  price_per_minute?: unknown;
 }
 
 // ─── Mappers ────────────────────────────────────────────────────────────────
@@ -647,6 +647,13 @@ export class LivestreamKindContractError extends Error {
   }
 }
 
+export class LivestreamPriceContractError extends Error {
+  constructor() {
+    super("Invalid PPV price in the free2z API contract.");
+    this.name = "LivestreamPriceContractError";
+  }
+}
+
 /** Parse an untrusted wire value without silently making a stream free or paid. */
 function streamKindFromType(value: unknown): StreamKind {
   if (
@@ -670,9 +677,21 @@ function typeFromStreamKind(value: StreamKind): DyteMeetingType {
 }
 
 /** PPV entry cost the backend enforces: ceil(price_per_minute*30) + 15 fee. */
-function ppvPrice(pricePerMinute?: string): number {
-  const ppm = Number(pricePerMinute || 0);
-  return Math.ceil(ppm * 30) + 15;
+function ppvPrice(pricePerMinute: unknown): number {
+  // CreatorMeeting.price_per_minute is Decimal(6, 2). Parse its wire form into
+  // hundredths so values such as 8.30 do not become 8.300000000000001 in JS
+  // and incorrectly round the 30-minute charge up by one.
+  if (typeof pricePerMinute !== "string") {
+    throw new LivestreamPriceContractError();
+  }
+  const match = /^(\d{1,4})(?:\.(\d{1,2}))?$/.exec(pricePerMinute);
+  if (!match) throw new LivestreamPriceContractError();
+
+  const hundredths =
+    BigInt(match[1]) * 100n + BigInt((match[2] ?? "").padEnd(2, "0") || "0");
+  if (hundredths <= 0n) throw new LivestreamPriceContractError();
+
+  return Number((hundredths * 30n + 99n) / 100n + 15n);
 }
 
 function mapLivestream(m: RawDyteMeeting): Livestream {
@@ -1807,22 +1826,27 @@ export const live = {
     }
     try {
       const s = await request<
-        Record<string, { meeting_type?: string; participants?: number }>
-      >(
-        `/api/dyte/${username}/live-status`,
-        { anonymous: true, cache: "no-store" },
-      );
+        Record<string, { meeting_type?: unknown; participants?: number }>
+      >(`/api/dyte/${username}/live-status`, {
+        anonymous: true,
+        cache: "no-store",
+      });
       const entries = Object.entries(s || {})
-        .filter(
-          ([key, entry]) =>
-            !expectedType ||
-            key === expectedType ||
-            entry.meeting_type === expectedType,
-        )
-        .map(([, entry]) => entry);
-      const participants = entries.reduce((n, e) => n + (e.participants ?? 0), 0);
+        .map(([key, entry]) => {
+          const keyKind = streamKindFromType(key);
+          const entryKind = streamKindFromType(entry?.meeting_type);
+          if (keyKind !== entryKind) throw new LivestreamKindContractError();
+          return { key, entry };
+        })
+        .filter(({ key }) => !expectedType || key === expectedType)
+        .map(({ entry }) => entry);
+      const participants = entries.reduce(
+        (n, e) => n + (e.participants ?? 0),
+        0,
+      );
       return { live: entries.length > 0, participants };
-    } catch {
+    } catch (error) {
+      if (error instanceof LivestreamKindContractError) throw error;
       return { live: false, participants: 0 };
     }
   },
