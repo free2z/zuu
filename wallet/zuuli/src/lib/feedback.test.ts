@@ -188,6 +188,16 @@ describe("feedback privacy boundary", () => {
     "\\x67".repeat(32),
     "\\u00AA".repeat(32),
     "\\u0067".repeat(32),
+    "\\x7e\\u007e".repeat(16),
+    Array.from({ length: 32 }, (_, index) =>
+      index % 2 === 0 ? "\\x7e" : "\\u007e",
+    ).join(" \n"),
+    "&#126;".repeat(32),
+    "&#126;&#x7e;".repeat(16),
+    Array.from({ length: 32 }, (_, index) =>
+      index % 2 === 0 ? "&#126;" : "&#x7e;",
+    ).join(" \n"),
+    "&amp;#126;".repeat(32),
   ] as const;
 
   it.each(exactReviewerCorpus)(
@@ -397,6 +407,7 @@ describe("feedback privacy boundary", () => {
     "the app crashed when opening settings",
     "Progress is 20% complete",
     "Use %20 only as an example",
+    "One entity &#126; is a tilde",
     "Ошибка при запуске",
     "Σφάλμα κατά την εκκίνηση",
   ])("preserves ordinary user prose: %s", (description) => {

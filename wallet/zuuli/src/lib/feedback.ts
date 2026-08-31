@@ -285,13 +285,31 @@ function hasPercentEncodedPrivateEntropy(value: string): boolean {
 }
 
 function hasEscapedPrivateEntropy(value: string): boolean {
-  if (/^(?:\\x[0-9a-f]{2})+$/iu.test(value)) {
-    return isPrivateEntropyByteLength(value.length / 4);
+  if (!/^(?:\\x[0-9a-f]{2}|\\u00[0-9a-f]{2})+$/iu.test(value)) {
+    return false;
   }
-  if (/^(?:\\u00[0-9a-f]{2})+$/iu.test(value)) {
-    return isPrivateEntropyByteLength(value.length / 6);
+  return isPrivateEntropyByteLength(
+    [...value.matchAll(/\\(?:x[0-9a-f]{2}|u00[0-9a-f]{2})/giu)].length,
+  );
+}
+
+function hasNumericEntityPrivateEntropy(value: string): boolean {
+  let canonical = value;
+  for (;;) {
+    const next = canonical.replace(/&amp;/giu, "&");
+    if (next === canonical) break;
+    canonical = next;
   }
-  return false;
+  if (!/^(?:&#(?:x[0-9a-f]{1,2}|\d{1,3});)+$/iu.test(canonical)) {
+    return false;
+  }
+  const byteValues = [
+    ...canonical.matchAll(/&#(?:x([0-9a-f]{1,2})|(\d{1,3}));/giu),
+  ].map((match) => Number.parseInt(match[1] ?? match[2], match[1] ? 16 : 10));
+  return (
+    byteValues.every((byte) => byte >= 0 && byte <= 0xff) &&
+    isPrivateEntropyByteLength(byteValues.length)
+  );
 }
 
 function decodeBase64Bytes(
@@ -352,8 +370,7 @@ function decodedValueContainsSensitiveContent(value: string): boolean {
   const pending =
     compact !== value &&
     (/^(?:%[0-9a-f]{2})+$/iu.test(compact) ||
-      /^(?:\\x[0-9a-f]{2})+$/iu.test(compact) ||
-      /^(?:\\u00[0-9a-f]{2})+$/iu.test(compact))
+      /^(?:\\x[0-9a-f]{2}|\\u00[0-9a-f]{2})+$/iu.test(compact))
       ? [value, compact]
       : [value];
   const seen = new Set<string>();
@@ -364,7 +381,8 @@ function decodedValueContainsSensitiveContent(value: string): boolean {
 
     if (
       hasPercentEncodedPrivateEntropy(candidate) ||
-      hasEscapedPrivateEntropy(candidate)
+      hasEscapedPrivateEntropy(candidate) ||
+      hasNumericEntityPrivateEntropy(candidate)
     ) {
       return true;
     }
@@ -420,6 +438,15 @@ function scrubEncodedTokens(
   );
   next = next.replace(
     /(?:(?:\\x[0-9a-f]{2}|\\u00[0-9a-f]{2})[ \t\r\n]+){1,}(?:\\x[0-9a-f]{2}|\\u00[0-9a-f]{2})/giu,
+    (candidate) => {
+      const compact = candidate.replace(/\s+/gu, "");
+      if (!decodedValueContainsSensitiveContent(compact)) return candidate;
+      changed = true;
+      return redactedValue;
+    },
+  );
+  next = next.replace(
+    /(?:(?:&(?:amp;)*#(?:x[0-9a-f]{1,2}|\d{1,3});)[ \t\r\n]+){1,}(?:&(?:amp;)*#(?:x[0-9a-f]{1,2}|\d{1,3});)/giu,
     (candidate) => {
       const compact = candidate.replace(/\s+/gu, "");
       if (!decodedValueContainsSensitiveContent(compact)) return candidate;
