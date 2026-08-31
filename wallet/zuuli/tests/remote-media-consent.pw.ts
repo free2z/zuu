@@ -1,6 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const ARTICLE = "/articles/remote-media-consent-audit";
+const FIRST_PARTY_HOSTS = new Set(["free2z.cash", "media.free2z.cash"]);
+const ONE_PIXEL_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64",
+);
 const OBSERVED_HOSTS = new Set([
   "cover.media.test",
   "redirect-target.media.test",
@@ -35,6 +40,25 @@ async function observeRemoteMedia(page: Page): Promise<ObservedRequest[]> {
   await page.route("**/*", async (route) => {
     const request = route.request();
     const target = new URL(request.url());
+    if (FIRST_PARTY_HOSTS.has(target.hostname)) {
+      if (target.pathname === "/uploadz/redirect-out") {
+        await route.fulfill({
+          status: 302,
+          headers: {
+            location: "https://redirect-target.media.test/first-party.svg",
+            "access-control-allow-origin": "*",
+          },
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: "image/png",
+          headers: { "access-control-allow-origin": "*" },
+          body: ONE_PIXEL_PNG,
+        });
+      }
+      return;
+    }
     if (!OBSERVED_HOSTS.has(target.hostname)) {
       await route.continue();
       return;

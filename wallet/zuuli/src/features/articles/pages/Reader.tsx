@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Markdown } from "@/components/common/Markdown";
+import { ImagePrivacySetting } from "@/components/common/ImagePrivacySetting";
 import { RemoteImage } from "@/components/common/RemoteMedia";
 import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { useAsync } from "@/hooks/useAsync";
@@ -129,6 +130,8 @@ export function Reader() {
     <article className="app-reader-content animate-slide-up w-full min-w-0 overflow-x-clip">
       <div className="mx-auto w-full min-w-0 max-w-3xl">
         <BackLink />
+
+        <ImagePrivacySetting className="mt-4" />
 
         {error ? (
           <SectionLoadError

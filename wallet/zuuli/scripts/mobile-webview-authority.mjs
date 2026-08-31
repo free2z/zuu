@@ -111,6 +111,7 @@ const REVIEWED_NON_WALLET_PERMISSIONS = [
 ];
 const REVIEWED_HTTP_URLS = [
   "https://free2z.cash/*",
+  "https://*.free2z.cash/*",
   "https://stage.free2z.cash/*",
 ];
 
@@ -236,6 +237,22 @@ export function assertMobileWebviewAuthority(mobile, tauriConfig) {
     frameSources[0] !== "'none'"
   ) {
     throw new Error("privileged native WebViews must declare frame-src 'none'");
+  }
+
+  const imageSources = cspDirective(csp, "img-src");
+  if (!imageSources?.includes("blob:")) {
+    throw new Error("packaged image CSP must allow validated local blob URLs");
+  }
+  const connectSources = cspDirective(csp, "connect-src");
+  for (const source of [
+    "https://free2z.cash",
+    "https://*.free2z.cash",
+  ]) {
+    if (!connectSources?.includes(source)) {
+      throw new Error(
+        "packaged connect CSP must retain trusted Free2Z image transport",
+      );
+    }
   }
 }
 

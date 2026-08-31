@@ -22,6 +22,8 @@ const requiredRealtimeKitSources = [
 ] as const;
 const expectedConnectSources = [
   "'self'",
+  "https://free2z.cash",
+  "https://*.free2z.cash",
   "https://free2z.com",
   "https://*.free2z.com",
   "https://*.zec.rocks",
