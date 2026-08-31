@@ -26,8 +26,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-use f2z_codec::types::PublicKey;
-use f2z_kt_core::types::{Handle, KemPublicKey};
+use f2z_codec::types::{Digest, PublicKey, RelayId, ShortBytes};
+use f2z_kt_core::entry::{DeviceCredential, DirectoryEntryTBS, EntryKind};
+use f2z_kt_core::types::{Handle, KemPublicKey, LogId};
 use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
 use f2z_msg_store::{Durability, MemoryBackend, Op, StorageBackend, StoreError};
 use tauri_plugin_f2zmsg::directory::{Directory, ResolvedIdentity, ResolvedPeer};
@@ -203,8 +204,14 @@ impl StorageBackend for FailOnceBackend {
 #[derive(Clone, Debug)]
 struct Published {
     identity_pk: String,
-    key_package: Vec<u8>,
+    /// The `DirectoryEntryTBS` a log would commit, real credential and all.
+    ///
+    /// §12.6: since a key package is no longer published in the directory, it
+    /// is claimed from the peer's relay one at a time and authenticated
+    /// against this entry — there is no other constructor.
+    entry: DirectoryEntryTBS,
     contact_relay_url: String,
+    contact_relay_id: RelayId,
     contact_addr: String,
 }
 
@@ -268,7 +275,9 @@ impl Directory for HarnessDirectory {
         Ok(ResolvedIdentity {
             resolution: self.resolution(handle, true),
             identity_pk: published.identity_pk,
+            entry: published.entry,
             contact_relay_url: published.contact_relay_url,
+            contact_relay_id: published.contact_relay_id,
             contact_addr: published.contact_addr,
         })
     }
@@ -278,8 +287,9 @@ impl Directory for HarnessDirectory {
         Ok(ResolvedPeer {
             resolution: self.resolution(handle, true),
             identity_pk: published.identity_pk,
-            key_package: published.key_package,
+            entry: published.entry,
             contact_relay_url: published.contact_relay_url,
+            contact_relay_id: published.contact_relay_id,
             contact_addr: published.contact_addr,
         })
     }
@@ -303,7 +313,11 @@ fn engine<B: StorageBackend>(backend: B, directory: Arc<HarnessDirectory>) -> En
     .with_directory(directory)
 }
 
-async fn enroll<B: StorageBackend>(engine: &Engine<B>, handle: &str, seed: u8) {
+async fn enroll<B: StorageBackend>(
+    engine: &Engine<B>,
+    handle: &str,
+    seed: u8,
+) -> (DeviceCredential, PublicKey) {
     let device = engine.prepare_device().await.expect("device keys");
     let account = AccountKeys::from_seed(&[seed; 64], 0).expect("account keys");
     let credential = account
@@ -330,6 +344,8 @@ async fn enroll<B: StorageBackend>(engine: &Engine<B>, handle: &str, seed: u8) {
         .unlock(account.backup_wrap.as_bytes())
         .await
         .expect("unlock");
+    let directory_auth_pk = PublicKey::new(*account.directory_auth.public().as_bytes());
+    (credential, directory_auth_pk)
 }
 
 async fn configure_relay<B: StorageBackend>(engine: &Engine<B>, url: &str) {
@@ -355,12 +371,32 @@ async fn publish<B: StorageBackend>(
     engine: &Engine<B>,
     directory: &HarnessDirectory,
     handle: &str,
+    credential: &DeviceCredential,
+    directory_auth_pk: PublicKey,
 ) {
-    let (contact_relay_url, contact_addr) = engine
+    let (contact_relay_url, contact_relay_id, contact_addr) = engine
         .contact_advert()
         .await
         .expect("contact advert")
         .expect("contact queue");
+    // §12.6: the real `DirectoryEntryTBS` a log would commit — the same shape
+    // `start_conversation`'s claimed key package is authenticated against.
+    let entry = DirectoryEntryTBS {
+        label: ShortBytes::new(f2z_kt_core::labels::LABEL_ENTRY.to_vec()).expect("entry label"),
+        kt_version: 1,
+        log_id: LogId::new([0x11; 32]),
+        handle: credential.credential.handle.clone(),
+        entry_version: 1,
+        kind: EntryKind::SameKey,
+        identity_pk: credential.credential.identity_pk,
+        directory_auth_pk,
+        devices: vec![credential.clone()].into(),
+        revocations: Vec::new().into(),
+        contact_endpoints: Vec::new().into(),
+        prev_entry_hash: Digest::new([0; 32]),
+        no_reset: 0,
+        created_at_ms: 0,
+    };
     directory.publish(
         handle,
         Published {
@@ -370,8 +406,9 @@ async fn publish<B: StorageBackend>(
                 .expect("device info")
                 .identity_fingerprint
                 .replace(' ', ""),
-            key_package: engine.key_package().await.expect("key package"),
+            entry,
             contact_relay_url,
+            contact_relay_id,
             contact_addr,
         },
     );
@@ -387,14 +424,28 @@ async fn two_relay_records_remain_behind_an_unavailable_group() {
     let bob_backend = FailOnceBackend::new();
     let bob = engine(bob_backend.clone(), Arc::clone(&directory));
 
-    enroll(&alice, "alice", 1).await;
-    enroll(&bob, "bob", 2).await;
+    let (alice_credential, alice_directory_auth_pk) = enroll(&alice, "alice", 1).await;
+    let (bob_credential, bob_directory_auth_pk) = enroll(&bob, "bob", 2).await;
     configure_relay(&alice, &url).await;
     configure_relay(&bob, &url).await;
     alice.start().await.expect("start alice");
     bob.start().await.expect("start bob");
-    publish(&alice, &directory, "alice").await;
-    publish(&bob, &directory, "bob").await;
+    publish(
+        &alice,
+        &directory,
+        "alice",
+        &alice_credential,
+        alice_directory_auth_pk,
+    )
+    .await;
+    publish(
+        &bob,
+        &directory,
+        "bob",
+        &bob_credential,
+        bob_directory_auth_pk,
+    )
+    .await;
 
     let conversation = alice
         .start_conversation("bob")

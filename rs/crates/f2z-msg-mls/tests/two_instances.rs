@@ -128,9 +128,16 @@ fn paired_with_bob_backend<B: StorageBackend>(
     let alice = device("alice", 11, 111);
     let (bob_credential, bob_signer) =
         issue_credential("bob", 22, 222, NOW - 1_000_000, bob_not_after_ms);
-    let bob = MlsEngine::new(bob_backend, bob_signer, bob_credential, NOW).expect("bob engine");
+    let bob =
+        MlsEngine::new(bob_backend, bob_signer, bob_credential.clone(), NOW).expect("bob engine");
 
     let bob_key_package = bob.generate_key_package().expect("key package");
+    // §12.6: the package is checked against the directory entry before it can
+    // become an argument to `add_member` at all. There is no other constructor.
+    let bob_entry = directory_entry(&[bob_credential]);
+    let bob_key_package = alice
+        .verify_key_package(&bob_key_package, &bob_entry, NOW)
+        .expect("the directory vouches for this package");
     let mut alice_group = alice.create_group(GROUP_ID).expect("create group");
     let (_commit, welcome) = alice
         .add_member(&mut alice_group, &bob_key_package, NOW)
