@@ -43,10 +43,12 @@ describe("participant count hydration contract", () => {
 
   it("preserves an authoritative zero and complete multi-room total", async () => {
     requestMock
-      .mockResolvedValueOnce({ broadcast: { participants: 0 } })
       .mockResolvedValueOnce({
-        broadcast: { participants: 9 },
-        "pay-per-view": { participants: 4 },
+        broadcast: { meeting_type: "broadcast", participants: 0 },
+      })
+      .mockResolvedValueOnce({
+        broadcast: { meeting_type: "broadcast", participants: 9 },
+        ppv: { meeting_type: "ppv", participants: 4 },
       });
 
     await expect(live.status("alice", "broadcast")).resolves.toEqual({
@@ -61,12 +63,14 @@ describe("participant count hydration contract", () => {
 
   it("makes missing or malformed partial hydration explicitly unavailable", async () => {
     requestMock
-      .mockResolvedValueOnce({ broadcast: {} })
+      .mockResolvedValueOnce({ broadcast: { meeting_type: "broadcast" } })
       .mockResolvedValueOnce({
-        broadcast: { participants: 9 },
-        "pay-per-view": {},
+        broadcast: { meeting_type: "broadcast", participants: 9 },
+        ppv: { meeting_type: "ppv" },
       })
-      .mockResolvedValueOnce({ broadcast: { participants: "9" } });
+      .mockResolvedValueOnce({
+        broadcast: { meeting_type: "broadcast", participants: "9" },
+      });
 
     await expect(live.status("alice")).resolves.toEqual({
       live: true,
