@@ -5360,6 +5360,7 @@ mod tests {
                 inbound: None,
                 outbound: Some(OutboundQueue {
                     relay_url: relay_url.into(),
+                    relay_id: String::new(),
                     send_addr: hex::encode(send_addr.as_bytes()),
                     send_key_seed: hex::encode(send_seed),
                     bind_state: Some(bind_state),
@@ -6393,6 +6394,7 @@ mod tests {
 
         let identical = QueueAdvert {
             relay_url: url.clone(),
+            relay_id: String::new(),
             // Hex case is representation, not queue identity. An uppercase
             // replay must remain the same compromised advert.
             send_addr: hex::encode(send_addr.as_bytes()).to_uppercase(),
@@ -6437,6 +6439,7 @@ mod tests {
         };
         let replacement = QueueAdvert {
             relay_url: url.clone(),
+            relay_id: String::new(),
             send_addr: hex::encode(replacement_send_addr.as_bytes()),
         };
         inner
@@ -6682,6 +6685,7 @@ mod tests {
         fail_on.store(6, Ordering::SeqCst);
         let replacement = QueueAdvert {
             relay_url: "ws://replacement.invalid/relay/v1".into(),
+            relay_id: String::new(),
             send_addr: hex::encode([47; 32]),
         };
         let replacement_error = inner

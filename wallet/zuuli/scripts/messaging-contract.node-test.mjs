@@ -301,7 +301,12 @@ function mutateRustFunction(source, name, mutate) {
 }
 
 const REVIEWED_BIND_CALLER_DIGESTS = {
-  deliver: "3c34dded90af4e40a73341f0ccca101c8a9147e52e939c62ec76c1b111f413d5",
+  // Rebased onto #769 (MLS KeyPackage publication): `deliver` now ensures a
+  // managed connection for the peer-advertised relay identity via
+  // `ensure_outbound_connection` before `ensure_bound`, rather than checking
+  // an already-configured connection map. The bind-state ordering and
+  // exactly-once reconciliation call this digest still pins are unchanged.
+  deliver: "46c1517b1b98b9cb2bee54b5716ecbb10b01d9dee70097a665e905eac9619ae9",
   send_control: "bb626950ad22adf6d76ccdf776ee0b120697d3bdf17fa46bd31a9448106dce4a",
 };
 
@@ -310,9 +315,17 @@ const REVIEWED_BIND_HELPER_DIGESTS = {
   acknowledge_alarm: "45679d36b649e2b4f94efe5fa410cb7a57d78d6c36304b39bae66b0dfcf7a7d5",
   append_and_confirm_binding: "616c0079ee090b81565faa6edb08a1d555e4974cc1f3be316240035df29e6a2c",
   persist_and_emit_send_address_stolen: "d354fa606aebbfd60e3c9da844c214e00916f6d0afb0966d596748ccda04157a",
-  ensure_bound: "4132da9eedf5ed84f82e523f619de13b7345b86ab1334690642e6757995ba64b",
+  // Rebased onto #769: `ensure_bound` now also calls
+  // `ensure_outbound_connection` (relay-identity-checked, on-demand connect)
+  // before reading the durable bind state; the OutcomeUnknown-before-BIND_SEND
+  // ordering and the compromise check above it are untouched, and are checked
+  // structurally above rather than only by this digest.
+  ensure_bound: "03f7df25348cccbcd288c57f1508a049412bf807573d2926c9f5e76eb4ae3618",
   persist_bind_state: "f9d9a95dee05a8ad5821707b315a39efb5bd7900e7492e6155214a9c7b5e9555",
-  set_peer_advert: "ed9eccea11aca60298f0549e47486e46a00db816ff320bea7512eca0fe0add61",
+  // Rebased onto #769: the peer advert now also carries `relay_id`, so a
+  // replaced `OutboundQueue` records it alongside the (now canonicalized)
+  // send address.
+  set_peer_advert: "acacf12342fdc59fb2f04ed19b79804baab1c53b5359b4e2d6e266515c2a0214",
   unenroll: "7010b1db1c2ad84340fa54fb6e068f9b6775644df6dd2cde86ab6e906009ffea",
   leave_conversation: "673121980c042560f89118c0f3e10e1e03433bf26471c4efaac6cec33fd0b376",
   flush_volatile_compromise_alarms: "b948b2da7ce0e2a51a95a72dda3e79f273eb69ef3c06e0b950ec5ad28ccbad22",

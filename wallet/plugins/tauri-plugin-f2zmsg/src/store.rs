@@ -838,6 +838,7 @@ mod tests {
         for state in [BindState::OutcomeUnknown, BindState::Confirmed] {
             let queue = OutboundQueue {
                 relay_url: "wss://relay.example".into(),
+                relay_id: String::new(),
                 send_addr: "00".into(),
                 send_key_seed: "11".into(),
                 bind_state: Some(state),

@@ -232,7 +232,15 @@ mod tests {
         // be a protocol violation, so widening production by one command fails
         // without copying the implementation's match tree into the test.
         let post_hello = &Command::ALL[1..];
-        let signed = &Command::ALL[4..13];
+        // Not a contiguous range of `Command::ALL`: §12.6 inserted
+        // `PublishKeyPackages` (recv-key signed) after the unsigned
+        // `ContactAppend`, so "signed" is exactly `auth() != Auth::None`
+        // rather than any slice of the code-ordered array.
+        let signed: Vec<Command> = Command::ALL
+            .into_iter()
+            .filter(|command| command.auth() != f2z_codec::commands::Auth::None)
+            .collect();
+        let signed = signed.as_slice();
         let queue_creations = &[Command::CreateQueue, Command::CreateContactQueue];
         let payloads = &[Command::Append, Command::ContactAppend];
         let sends = &[Command::BindSend, Command::Append, Command::ContactAppend];

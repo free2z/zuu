@@ -597,14 +597,8 @@ impl RelayConnection {
             packages: packages.into(),
             last_resort: last_resort.into(),
         };
-        self.call_signed::<ops::PublishKeyPackages>(
-            recv_key,
-            recv_addr,
-            &body,
-            CommandSide::Receive,
-            BindAttempt::Later,
-        )
-        .await
+        self.call_signed::<ops::PublishKeyPackages>(recv_key, recv_addr, &body, BindAttempt::Later)
+            .await
     }
 
     /// `CLAIM_KEY_PACKAGE` (§12.6), with a stamp scoped to `contact_addr`.
