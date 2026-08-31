@@ -22,6 +22,7 @@
 // asserts that absence rather than excusing it.
 
 import { strict as assert } from "node:assert";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -56,6 +57,24 @@ const wireCodesPath = fileURLToPath(
     import.meta.url,
   ),
 );
+const enginePath = fileURLToPath(
+  new URL(
+    "../../plugins/tauri-plugin-f2zmsg/src/engine.rs",
+    import.meta.url,
+  ),
+);
+const storePath = fileURLToPath(
+  new URL(
+    "../../plugins/tauri-plugin-f2zmsg/src/store.rs",
+    import.meta.url,
+  ),
+);
+const modelsPath = fileURLToPath(
+  new URL(
+    "../../plugins/tauri-plugin-f2zmsg/src/models.rs",
+    import.meta.url,
+  ),
+);
 
 const contract = readFileSync(contractPath, "utf8");
 const wire = readFileSync(wirePath, "utf8");
@@ -64,6 +83,9 @@ const events = readFileSync(eventsPath, "utf8");
 const registry = readFileSync(registryPath, "utf8");
 const relay = readFileSync(relayPath, "utf8");
 const wireCodes = readFileSync(wireCodesPath, "utf8");
+const engine = readFileSync(enginePath, "utf8");
+const store = readFileSync(storePath, "utf8");
+const models = readFileSync(modelsPath, "utf8");
 
 /// §2.2: these three need the wallet seed, so they live in
 /// `wallet/zuuli/src-tauri/src/messaging.rs` and are invoked with no `plugin:`
@@ -139,11 +161,134 @@ function difference(left, right) {
   return [...left].filter((value) => !right.has(value)).sort();
 }
 
+// Project Rust control flow while masking comments and string literals. The
+// complete shipping-caller digest therefore moves for executable edits, not
+// for prose or error-text changes.
+function rustCodeOnly(source) {
+  const masked = (value) => value.replace(/[^\r\n]/g, " ");
+  let output = "";
+  let index = 0;
+  while (index < source.length) {
+    if (source.startsWith("//", index)) {
+      const end = source.indexOf("\n", index + 2);
+      const boundary = end < 0 ? source.length : end;
+      output += masked(source.slice(index, boundary));
+      index = boundary;
+      continue;
+    }
+    if (source.startsWith("/*", index)) {
+      let depth = 1;
+      let cursor = index + 2;
+      while (cursor < source.length && depth > 0) {
+        if (source.startsWith("/*", cursor)) {
+          depth += 1;
+          cursor += 2;
+        } else if (source.startsWith("*/", cursor)) {
+          depth -= 1;
+          cursor += 2;
+        } else {
+          cursor += 1;
+        }
+      }
+      if (depth !== 0) throw new Error("unterminated Rust block comment");
+      output += masked(source.slice(index, cursor));
+      index = cursor;
+      continue;
+    }
+    const prefixed = source[index] === "b" && source[index + 1] === '"';
+    if (source[index] === '"' || prefixed) {
+      const start = index;
+      let cursor = prefixed ? index + 2 : index + 1;
+      let closed = false;
+      while (cursor < source.length) {
+        if (source[cursor] === "\\") cursor += 2;
+        else if (source[cursor] === '"') {
+          cursor += 1;
+          closed = true;
+          break;
+        } else cursor += 1;
+      }
+      if (!closed) throw new Error("unterminated Rust string");
+      output += masked(source.slice(start, cursor));
+      index = cursor;
+      continue;
+    }
+    output += source[index];
+    index += 1;
+  }
+  return output;
+}
+
+function normalizedRustFunction(source, name) {
+  const projected = rustCodeOnly(source);
+  const marker = `fn ${name}(`;
+  const declaration = projected.indexOf(marker);
+  if (declaration < 0 || projected.indexOf(marker, declaration + marker.length) >= 0) {
+    return null;
+  }
+  const bodyStart = projected.indexOf("{", declaration + marker.length);
+  if (bodyStart < 0) return null;
+  let depth = 1;
+  for (let index = bodyStart + 1; index < projected.length; index += 1) {
+    if (projected[index] === "{") depth += 1;
+    if (projected[index] === "}") depth -= 1;
+    if (depth === 0) {
+      return projected.slice(bodyStart + 1, index).replace(/\s+/g, " ").trim();
+    }
+  }
+  return null;
+}
+
+function mutateRustFunction(source, name, mutate) {
+  const projected = rustCodeOnly(source);
+  const marker = `fn ${name}(`;
+  const declaration = projected.indexOf(marker);
+  assert.ok(declaration >= 0, `${name} mutation target was not found`);
+  assert.equal(
+    projected.indexOf(marker, declaration + marker.length),
+    -1,
+    `${name} mutation target was not unique`,
+  );
+  const bodyStart = projected.indexOf("{", declaration + marker.length);
+  assert.ok(bodyStart >= 0, `${name} mutation body was not found`);
+  let depth = 1;
+  for (let index = bodyStart + 1; index < projected.length; index += 1) {
+    if (projected[index] === "{") depth += 1;
+    if (projected[index] === "}") depth -= 1;
+    if (depth === 0) {
+      const body = source.slice(bodyStart + 1, index);
+      const changed = mutate(body);
+      assert.notEqual(changed, body, `${name} mutation did not apply`);
+      return `${source.slice(0, bodyStart + 1)}${changed}${source.slice(index)}`;
+    }
+  }
+  assert.fail(`${name} mutation body was unterminated`);
+}
+
+const REVIEWED_BIND_CALLER_DIGESTS = {
+  deliver: "3c34dded90af4e40a73341f0ccca101c8a9147e52e939c62ec76c1b111f413d5",
+  send_control: "bb626950ad22adf6d76ccdf776ee0b120697d3bdf17fa46bd31a9448106dce4a",
+};
+
+const REVIEWED_BIND_HELPER_DIGESTS = {
+  append_and_confirm_binding: "616c0079ee090b81565faa6edb08a1d555e4974cc1f3be316240035df29e6a2c",
+  persist_and_emit_send_address_stolen: "d354fa606aebbfd60e3c9da844c214e00916f6d0afb0966d596748ccda04157a",
+  ensure_bound: "17b60d211595af28a4c8b94e838af6f489aa3020c4ce35ee90471c4f3c530b95",
+  persist_bind_state: "f9d9a95dee05a8ad5821707b315a39efb5bd7900e7492e6155214a9c7b5e9555",
+  set_peer_advert: "5c4d9c18a3504527555d06204ddb4debd15866a7fbf4b04cd79ab6f0e7884386",
+  unenroll: "47d9c9f95e73ec338ce4c687f3856da4c6f87ae09fc570658e39a26b72b9f509",
+  leave_conversation: "bd2efebc3b8fb5b1fc36414758876113a52f615ed60e61f9d9d3c49416b5c8f4",
+  mark_send_address_stolen_delivery: "3d2495c0d3ce5b117045b37cd798fe839ba9720d7c4b5d9047a0baaa8b1b2283",
+};
+
 function relayErrorContractFailures({
   clientContract = contract,
   wireSpec = wire,
   relayRuntime = relay,
   mapperRuntime = wireCodes,
+  engineRuntime = engine,
+  storeRuntime = store,
+  publicModels = models,
 } = {}) {
   const failures = [];
   const code10Rows = clientContract
@@ -185,6 +330,8 @@ function relayErrorContractFailures({
 
   const genericCommandContexts = relayRuntime.match(/proto\(error, C::COMMAND,/g) ?? [];
   const helloContexts = relayRuntime.match(/proto\(error, Command::Hello,/g) ?? [];
+  const bindCommandContexts =
+    relayRuntime.match(/proto\(error, Command::BindSend, attempt\)/g) ?? [];
   if (genericCommandContexts.length !== 4) {
     failures.push(
       `relay generic response paths carrying C::COMMAND: ${genericCommandContexts.length}`,
@@ -193,8 +340,267 @@ function relayErrorContractFailures({
   if (helloContexts.length !== 2) {
     failures.push(`relay HELLO paths carrying Command::Hello: ${helloContexts.length}`);
   }
+  if (bindCommandContexts.length !== 2) {
+    failures.push(
+      `relay BIND paths carrying exact Command::BindSend: ${bindCommandContexts.length}`,
+    );
+  }
   if (relayRuntime.includes("CommandSide")) {
     failures.push("relay response paths still erase exact command context");
+  }
+
+  for (const required of [
+    "durable `Fresh` → `OutcomeUnknown` write",
+    "same-key `APPEND`",
+    "never becomes `compromised`",
+    "intercepted before this public mapper",
+  ]) {
+    if (!clientContract.includes(required)) {
+      failures.push(`CLIENT-CONTRACT bind reconciliation is missing ${JSON.stringify(required)}`);
+    }
+  }
+  for (const required of [
+    "before sending its first bind, the client MUST durably",
+    "same-key `APPEND`",
+    "neither emits a public protocol",
+    "ordinary later bind remains a\nclient protocol defect",
+    "Only a genuinely\ndistinct replacement address enters `Fresh`",
+    "local bookkeeping MUST NOT rewrite relay acceptance as failure",
+  ]) {
+    if (!wireSpec.includes(required)) {
+      failures.push(`WIRE bind reconciliation is missing ${JSON.stringify(required)}`);
+    }
+  }
+
+  const ensureBound = engineRuntime.slice(
+    engineRuntime.indexOf("async fn ensure_bound"),
+    engineRuntime.indexOf("fn mark_delivery"),
+  );
+  const preflight = ensureBound.indexOf(
+    "persist_bind_state(&stored.conversation_id, BindState::OutcomeUnknown)",
+  );
+  const irreversibleBind = ensureBound.indexOf("connection.bind_send(");
+  const durableReload = ensureBound.indexOf(
+    "let current = self.conversation(&stored.conversation_id)?",
+  );
+  const compromisedCheck = ensureBound.indexOf("if self.send_address_is_stolen(&current)");
+  const stateRead = ensureBound.indexOf("outbound.effective_bind_state()");
+  if (preflight < 0 || irreversibleBind < 0 || preflight > irreversibleBind) {
+    failures.push("shipping engine does not durably enter OutcomeUnknown before BIND_SEND");
+  }
+  if (
+    durableReload < 0 ||
+    compromisedCheck < durableReload ||
+    stateRead < compromisedCheck
+  ) {
+    failures.push("shipping engine does not reject durable compromise before bind-state use");
+  }
+  const deliverBody = engineRuntime.slice(
+    engineRuntime.indexOf("    async fn deliver("),
+    engineRuntime.indexOf("    async fn ensure_bound("),
+  );
+  const sendControlBody = engineRuntime.slice(
+    engineRuntime.indexOf("    async fn send_control("),
+    engineRuntime.indexOf("/// The highest queue index"),
+  );
+  for (const [name, body] of [
+    ["deliver", deliverBody],
+    ["send_control", sendControlBody],
+  ]) {
+    const ensureCall = "self.ensure_bound(&current).await";
+    const ensureIndex = body.indexOf(ensureCall);
+    const compromiseIndex = body.indexOf("if self.send_address_is_stolen(&current)");
+    const appendIndex = body.indexOf(".append_and_confirm_binding(");
+    const appendCalls = body.match(/\.append_and_confirm_binding\(/g) ?? [];
+    if (
+      compromiseIndex < 0 ||
+      ensureIndex < compromiseIndex ||
+      appendIndex < ensureIndex ||
+      appendCalls.length !== 1
+    ) {
+      failures.push(
+        `${name} does not call ensure_bound then shared append reconciliation exactly once`,
+      );
+    }
+    if (name === "deliver") {
+      const statusWrites =
+        body.match(/mark_send_address_stolen_delivery\(msg_id, now\)/g) ?? [];
+      if (statusWrites.length !== 2) {
+        failures.push(`deliver theft delivery-state follow-through calls: ${statusWrites.length}`);
+      }
+    }
+    const normalized = normalizedRustFunction(engineRuntime, name);
+    const digest =
+      normalized === null
+        ? "missing"
+        : createHash("sha256").update(normalized).digest("hex");
+    if (digest !== REVIEWED_BIND_CALLER_DIGESTS[name]) {
+      failures.push(`${name} complete comment/literal-insensitive body digest: ${digest}`);
+    }
+  }
+
+  for (const name of [
+    "append_and_confirm_binding",
+    "persist_and_emit_send_address_stolen",
+    "ensure_bound",
+    "persist_bind_state",
+    "set_peer_advert",
+    "unenroll",
+    "leave_conversation",
+    "mark_send_address_stolen_delivery",
+  ]) {
+    const normalized = normalizedRustFunction(engineRuntime, name);
+    const digest =
+      normalized === null
+        ? "missing"
+        : createHash("sha256").update(normalized).digest("hex");
+    if (digest !== REVIEWED_BIND_HELPER_DIGESTS[name]) {
+      failures.push(`${name} complete comment/literal-insensitive body digest: ${digest}`);
+    }
+    if (name === "append_and_confirm_binding") {
+      const append = normalized?.indexOf(".append(send_key, send_addr, ciphertext)") ?? -1;
+      const confirmed = normalized?.indexOf(
+        "persist_bind_state(&stored.conversation_id, BindState::Confirmed)",
+      ) ?? -1;
+      const bestEffortConfirmation = normalized?.indexOf(
+        "let Err(error) = self.persist_bind_state(",
+      ) ?? -1;
+      if (
+        append < 0 ||
+        confirmed < append ||
+        bestEffortConfirmation < append
+      ) {
+        failures.push("same-key APPEND success must precede durable Confirmed state");
+      }
+    } else if (name === "persist_and_emit_send_address_stolen") {
+      const commit = normalized?.indexOf(".commit(") ?? -1;
+      const emit = normalized?.indexOf("self.sink.alarm(alarm)") ?? -1;
+      if (commit < 0 || emit < commit) {
+        failures.push("the atomic theft commit must precede alarm event emission");
+      }
+    } else if (name === "persist_bind_state") {
+      const explicitState = normalized?.indexOf("queue.bind_state = Some(state)") ?? -1;
+      const downgradeSafe = normalized?.indexOf(
+        "queue.bound = state != BindState::Fresh",
+      ) ?? -1;
+      if (explicitState < 0 || downgradeSafe < explicitState) {
+        failures.push("persisted bind state is not explicit and downgrade-safe");
+      }
+    } else if (name === "set_peer_advert") {
+      const parsedAddress = normalized?.indexOf("queue_address(&advert.send_addr)") ?? -1;
+      const identical = normalized?.indexOf("if identical") ?? -1;
+      const replacement = normalized?.indexOf("bind_state: Some(BindState::Fresh)") ?? -1;
+      const commit = normalized?.indexOf(".commit(") ?? -1;
+      const clearFallback = normalized?.indexOf(".compromised_conversations.remove(") ?? -1;
+      if (
+        parsedAddress < 0 ||
+        identical < parsedAddress ||
+        replacement < identical ||
+        commit < replacement ||
+        clearFallback < commit
+      ) {
+        failures.push("advert replay/replacement state is not canonical and commit-ordered");
+      }
+    } else if (name === "unenroll") {
+      const commit = normalized?.indexOf(".commit(") ?? -1;
+      const clearFallback = normalized?.indexOf("compromised_conversations.clear()") ?? -1;
+      if (commit < 0 || clearFallback < commit) {
+        failures.push("unenroll clears in-memory compromise before durable deletion");
+      }
+    } else if (name === "leave_conversation") {
+      const commit = normalized?.indexOf(".commit(") ?? -1;
+      const clearFallback = normalized?.indexOf(".compromised_conversations.remove(") ?? -1;
+      if (commit < 0 || clearFallback < commit) {
+        failures.push("leave_conversation clears queue compromise before durable removal");
+      }
+    } else if (name === "mark_send_address_stolen_delivery") {
+      if (
+        !normalized?.includes("Some(ErrorCode::SendAddressStolen)") ||
+        !normalized.includes("if let Err(error) = self.mark_delivery(")
+      ) {
+        failures.push("delivery-state failure can mask definitive theft");
+      }
+    }
+  }
+
+  const productionEngine = engineRuntime.slice(0, engineRuntime.indexOf("#[cfg(test)]"));
+  const freshConstructors =
+    productionEngine.match(/bind_state: Some\(BindState::Fresh\)/g) ?? [];
+  if (freshConstructors.length !== 2) {
+    failures.push(`production Fresh outbound constructors: ${freshConstructors.length}`);
+  }
+  for (const name of ["join_conversation", "set_peer_advert"]) {
+    const body = normalizedRustFunction(productionEngine, name);
+    if (!body?.includes("bind_state: Some(BindState::Fresh)")) {
+      failures.push(`${name} does not explicitly construct a Fresh outbound queue`);
+    }
+  }
+  for (const required of [
+    "BindAttempt::OutcomeUnknown",
+    "BindSendOutcome::AlreadyBoundAfterUnknown",
+    "async fn append_and_confirm_binding",
+    ".append(send_key, send_addr, ciphertext)",
+    "persist_bind_state(&stored.conversation_id, BindState::Confirmed)",
+    "failed_preflight_commit_sends_no_bind",
+    "dropped_applied_bind_restarts_and_same_key_append_confirms_without_alarm",
+    "fresh_dropped_applied_bind_restarts_and_reconciles_without_alarm",
+    "legacy_unknown_unbound_restart_binds_appends_and_confirms_without_alarm",
+    "fresh_already_bound_is_still_loud_theft",
+    "failed_atomic_theft_commit_uses_loud_in_memory_fallback_without_partial_state",
+    "failed_delivery_status_write_never_masks_or_reopens_theft",
+    "accepted_append_survives_failed_bind_confirmation_write",
+    "TransportHealth::Unavailable",
+    "AlarmKind::QueueSendAddressStolen",
+    "TransportHealth::Compromised",
+    "a stale pre-theft clone must send neither BIND_SEND nor APPEND",
+    "Confirmed must be persisted only after same-key APPEND succeeds",
+    "sticky retries must not emit a second alarm event",
+    "unenroll_clears_in_memory_compromise_only_after_durable_commit",
+    "a failed durable deletion must retain the in-memory blocker",
+    "leave_clears_queue_compromise_only_after_durable_removal",
+    "a failed durable removal must retain the queue blocker",
+    "status-write failure must never reopen BIND_SEND or APPEND",
+    "failed auxiliary confirmation must retain safe reconciliation state",
+  ]) {
+    if (!engineRuntime.includes(required)) {
+      failures.push(`shipping bind state machine is missing ${JSON.stringify(required)}`);
+    }
+  }
+  for (const required of [
+    "#[serde(default)]\n    pub bind_state: Option<BindState>",
+    "pub const fn effective_bind_state",
+    "legacy_bind_records_default_conservatively_and_preserve_confirmed_truth",
+    "bound: true",
+  ]) {
+    if (!storeRuntime.includes(required)) {
+      failures.push(`durable bind schema is missing ${JSON.stringify(required)}`);
+    }
+  }
+
+  for (const required of [
+    "Authenticated replay of an identical queue advert",
+    "genuinely distinct replacement advert installs a `Fresh`",
+    "does not delete the historical,\nnon-dismissible alarm",
+    "Relay acceptance remains the delivery truth",
+  ]) {
+    if (!clientContract.includes(required)) {
+      failures.push(`CLIENT-CONTRACT queue replacement rule is missing ${JSON.stringify(required)}`);
+    }
+  }
+
+  for (const required of [
+    "either the local engine faulted or a relay or directory reported its own `ERR_INTERNAL`",
+    "is deliberately excluded from that claim because both tables",
+  ]) {
+    if (!clientContract.includes(required)) {
+      failures.push(`public internal attribution is missing ${JSON.stringify(required)}`);
+    }
+  }
+  if (!mapperRuntime.includes("explicit component-internal fault")) {
+    failures.push("shipping mapper does not describe component-relative internal faults");
+  }
+  if (!publicModels.includes("component-internal fault: either this engine failed locally")) {
+    failures.push("public ErrorCode model does not describe component-relative internal faults");
   }
 
   return failures;
@@ -212,6 +618,22 @@ test("the contract and the bridge are the documents this test thinks they are", 
     registeredCommands().size > 0,
     "no commands parsed from the plugin's command registry",
   );
+});
+
+test("Rust body projection ignores nested comments and literal contents", () => {
+  const first = `fn fixture() {
+    /* outer { /* nested } */ still outer */
+    let text = "first { // not a comment"; // line comment }
+    let bytes = b"first bytes }";
+    do_work(text, bytes);
+  }`;
+  const second = `fn fixture() {
+    /* replacement /* deeper { } */ prose */
+    let text = "second } /* not a comment"; // different comment {
+    let bytes = b"different bytes {";
+    do_work(text, bytes);
+  }`;
+  assert.equal(normalizedRustFunction(first, "fixture"), normalizedRustFunction(second, "fixture"));
 });
 
 test("the bridge implements exactly the commands §3 declares", () => {
@@ -301,6 +723,310 @@ test("relay error binding rejects public-contract, mapper, and call-site mutatio
   assert.notEqual(callSiteMutation, relay, "call-site mutation did not apply");
   assert.notDeepEqual(
     relayErrorContractFailures({ relayRuntime: callSiteMutation }),
+    [],
+  );
+
+  const bindCallSiteMutation = relay.replace(
+    "proto(error, Command::BindSend, attempt)",
+    "proto(error, Command::Read, attempt)",
+  );
+  assert.notEqual(bindCallSiteMutation, relay, "BIND call-site mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ relayRuntime: bindCallSiteMutation }),
+    [],
+  );
+
+  const bindContractMutation = contract.replace(
+    "durable `Fresh` → `OutcomeUnknown` write",
+    "in-memory first-attempt marker",
+  );
+  assert.notEqual(bindContractMutation, contract, "bind contract mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ clientContract: bindContractMutation }),
+    [],
+  );
+
+  const bindWireMutation = wire.replace(
+    "ordinary later bind remains a\nclient protocol defect",
+    "ordinary later bind may also be reconciled",
+  );
+  assert.notEqual(bindWireMutation, wire, "bind WIRE mutation did not apply");
+  assert.notDeepEqual(relayErrorContractFailures({ wireSpec: bindWireMutation }), []);
+
+  const deliverCallerMutation = engine.replace(
+    ".append_and_confirm_binding(",
+    ".append_without_bind_reconciliation(",
+  );
+  assert.notEqual(deliverCallerMutation, engine, "deliver caller mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: deliverCallerMutation }),
+    [],
+  );
+
+  const sendControlAnchor = ".append_and_confirm_binding(";
+  const sendControlIndex = engine.lastIndexOf(sendControlAnchor);
+  const sendControlCallerMutation =
+    sendControlIndex < 0
+      ? engine
+      : `${engine.slice(0, sendControlIndex)}${engine
+          .slice(sendControlIndex)
+          .replace(
+            sendControlAnchor,
+            ".append_without_bind_reconciliation(",
+          )}`;
+  assert.notEqual(
+    sendControlCallerMutation,
+    engine,
+    "send_control caller mutation did not apply",
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: sendControlCallerMutation }),
+    [],
+  );
+
+  const deliverBindAnchor = "let bind = match self.ensure_bound(&current).await {";
+  const deliverEarlyReturn = engine.replace(
+    deliverBindAnchor,
+    `return Err(Error::internal("mutation"));\n        ${deliverBindAnchor}`,
+  );
+  assert.notEqual(deliverEarlyReturn, engine, "deliver early-return mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: deliverEarlyReturn }),
+    [],
+  );
+
+  const sendControlBindAnchor = "let bind = self.ensure_bound(&current).await?;";
+  const sendControlBind = engine.lastIndexOf(sendControlBindAnchor);
+  const sendControlEarlyReturn =
+    sendControlBind < 0
+      ? engine
+      : `${engine.slice(0, sendControlBind)}return Err(Error::internal("mutation"));\n        ${engine.slice(sendControlBind)}`;
+  assert.notEqual(
+    sendControlEarlyReturn,
+    engine,
+    "send_control early-return mutation did not apply",
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: sendControlEarlyReturn }),
+    [],
+  );
+
+  const compromiseGuard = "if self.send_address_is_stolen(&current)";
+  const compromiseMutation = engine.replace(
+    compromiseGuard,
+    "if false && self.send_address_is_stolen(&current)",
+  );
+  assert.notEqual(compromiseMutation, engine, "compromise guard mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: compromiseMutation }),
+    [],
+  );
+
+  const ensureCompromiseIndex = engine.lastIndexOf(compromiseGuard);
+  const ensureCompromiseMutation =
+    ensureCompromiseIndex < 0
+      ? engine
+      : `${engine.slice(0, ensureCompromiseIndex)}if false && ${engine.slice(ensureCompromiseIndex + 3)}`;
+  assert.notEqual(
+    ensureCompromiseMutation,
+    engine,
+    "ensure_bound compromise mutation did not apply",
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: ensureCompromiseMutation }),
+    [],
+  );
+
+  const preflightMutation = engine.replace(
+    "self.persist_bind_state(&stored.conversation_id, BindState::OutcomeUnknown)?;",
+    "// mutation: omitted durable preflight",
+  );
+  assert.notEqual(preflightMutation, engine, "preflight mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: preflightMutation }),
+    [],
+  );
+
+  const appendMutation = engine.replace(
+    ".append(send_key, send_addr, ciphertext)",
+    ".read(send_key, send_addr, ciphertext)",
+  );
+  assert.notEqual(appendMutation, engine, "APPEND reconciliation mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: appendMutation }),
+    [],
+  );
+
+  const theftStatusMutation = mutateRustFunction(engine, "deliver", (body) =>
+    body.replace(
+      "self.mark_send_address_stolen_delivery(msg_id, now);",
+      "let _mutation_skips_the_failed_delivery_write = (msg_id, now);",
+    ),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: theftStatusMutation }),
+    [],
+  );
+
+  const theftStatusFailureMutation = mutateRustFunction(
+    engine,
+    "mark_send_address_stolen_delivery",
+    (body) => body.replace(
+      "if let Err(error) =",
+      "if let Ok(error) =",
+    ),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: theftStatusFailureMutation }),
+    [],
+  );
+
+  const appendOrderMutation = mutateRustFunction(
+    engine,
+    "append_and_confirm_binding",
+    (body) => body.replace(
+      "        self.connections",
+      "        self.persist_bind_state(&stored.conversation_id, BindState::Confirmed)?;\n        self.connections",
+    ),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: appendOrderMutation }),
+    [],
+  );
+
+  const confirmationFailureMutation = mutateRustFunction(
+    engine,
+    "append_and_confirm_binding",
+    (body) => body.replace("&& let Err(error) =", "&& let Ok(error) ="),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: confirmationFailureMutation }),
+    [],
+  );
+
+  const alarmOrderMutation = mutateRustFunction(
+    engine,
+    "persist_and_emit_send_address_stolen",
+    (body) => body.replace(
+      "        self.records().commit(|records| {",
+      "        self.sink.alarm(alarm);\n        self.records().commit(|records| {",
+    ),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: alarmOrderMutation }),
+    [],
+  );
+
+  const downgradeMutation = mutateRustFunction(
+    engine,
+    "persist_bind_state",
+    (body) => body.replace(
+      "queue.bound = state != BindState::Fresh;",
+      "queue.bound = state == BindState::Confirmed;",
+    ),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: downgradeMutation }),
+    [],
+  );
+
+  const canonicalUnknownMutation = mutateRustFunction(
+    engine,
+    "ensure_bound",
+    (body) => body.replace(
+      "if outbound.bind_state != Some(BindState::OutcomeUnknown) || !outbound.bound {",
+      "if false {",
+    ),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: canonicalUnknownMutation }),
+    [],
+  );
+
+  for (const constructor of ["join_conversation", "set_peer_advert"]) {
+    const constructorMutation = mutateRustFunction(engine, constructor, (body) => body.replace(
+      "bind_state: Some(BindState::Fresh)",
+      "bind_state: Some(BindState::OutcomeUnknown)",
+    ));
+    assert.notDeepEqual(
+      relayErrorContractFailures({ engineRuntime: constructorMutation }),
+      [],
+      `${constructor} Fresh mutation escaped`,
+    );
+  }
+
+  const identicalAdvertMutation = mutateRustFunction(engine, "set_peer_advert", (body) =>
+    body.replace("        if identical {", "        if false && identical {"),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: identicalAdvertMutation }),
+    [],
+  );
+
+  const advertCommitOrderMutation = mutateRustFunction(engine, "set_peer_advert", (body) =>
+    body.replace(
+      "        self.records()",
+      "        if let Some(identity) = &old_identity { self.compromised_conversations.remove(identity); }\n        self.records()",
+    ),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: advertCommitOrderMutation }),
+    [],
+  );
+
+  const unenrollOrderMutation = mutateRustFunction(engine, "unenroll", (body) =>
+    body.replace(
+      "        let ids = inner.records().conversation_ids()?;",
+      "        inner.compromised_conversations.clear();\n        let ids = inner.records().conversation_ids()?;",
+    ),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: unenrollOrderMutation }),
+    [],
+  );
+
+  const leaveOrderMutation = mutateRustFunction(engine, "leave_conversation", (body) =>
+    body.replace(
+      "        inner.groups.remove(conversation_id);",
+      "        inner.compromised_conversations.remove(&old_identity.clone().unwrap());\n        inner.groups.remove(conversation_id);",
+    ),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: leaveOrderMutation }),
+    [],
+  );
+
+  const replacementContractMutation = contract.replace(
+    "Authenticated replay of an identical queue advert",
+    "Authenticated delivery of a queue advert",
+  );
+  assert.notEqual(
+    replacementContractMutation,
+    contract,
+    "replacement contract mutation did not apply",
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ clientContract: replacementContractMutation }),
+    [],
+  );
+
+  const internalContractMutation = contract.replace(
+    "either the local engine faulted or a relay or directory reported its own `ERR_INTERNAL`",
+    "the local engine faulted",
+  );
+  assert.notEqual(internalContractMutation, contract, "internal contract mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ clientContract: internalContractMutation }),
+    [],
+  );
+
+  const internalRuntimeMutation = models.replace(
+    "component-internal fault: either this engine failed locally",
+    "local engine fault",
+  );
+  assert.notEqual(internalRuntimeMutation, models, "internal runtime mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ publicModels: internalRuntimeMutation }),
     [],
   );
 });

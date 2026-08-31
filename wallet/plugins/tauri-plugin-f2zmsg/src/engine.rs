@@ -43,7 +43,7 @@
 //! and application records; `f2z-msg-store` can express that and `f2z-msg-mls`
 //! does not expose it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chacha20poly1305::aead::{Aead as _, KeyInit as _};
@@ -66,11 +66,11 @@ use crate::error::{Error, Result};
 use crate::events::EventSink;
 use crate::handle;
 use crate::models::*;
-use crate::relay::{ConnectionPolicy, RelayConnection};
+use crate::relay::{BindSendOutcome, ConnectionPolicy, RelayConnection};
 use crate::store::{
-    DeviceSecrets, InboundQueue, OutboundQueue, RecordStore, SealedSecrets, SharedBackend,
-    StoredContactRequest, StoredConversation, StoredDelivery, StoredIdentity, StoredMessage,
-    StoredQueues, StoredRelay, StoredWitnessSet, UnrecoverableCause,
+    BindState, DeviceSecrets, InboundQueue, OutboundQueue, RecordStore, SealedSecrets,
+    SharedBackend, StoredContactRequest, StoredConversation, StoredDelivery, StoredIdentity,
+    StoredMessage, StoredQueues, StoredRelay, StoredWitnessSet, UnrecoverableCause,
 };
 
 /// Domain-separated derivation of a conversation's receive-side queue key.
@@ -178,6 +178,22 @@ struct Inner<B: StorageBackend> {
     /// than a label: without it no queue key can be derived, so nothing can be
     /// read from or written to a relay.
     queue_seed: Option<[u8; 32]>,
+    /// Shared with the outer command façade. Successful security transitions
+    /// emit after their durable commit; a refused commit still emits the loud
+    /// in-memory fallback while the process-local blocker stays active.
+    sink: Arc<dyn EventSink>,
+    /// Definitive theft evidence whose durable write failed. Sticky for this
+    /// process so retries cannot continue on the compromised queue.
+    compromised_conversations: HashSet<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BindReadiness {
+    Confirmed,
+    /// An unknown-outcome retry received `ERR_ALREADY_BOUND`. The same-key
+    /// `APPEND` that immediately follows is the protocol's non-destructive
+    /// confirmation that this device owns the binding.
+    NeedsAppendConfirmation,
 }
 
 /// What the app crate hands back after issuing a credential from the seed.
@@ -232,6 +248,7 @@ impl<B: StorageBackend> Engine<B> {
     pub fn new(backend: B, sink: Arc<dyn EventSink>, platform: Platform) -> Result<Self> {
         let shared = SharedBackend::new(Arc::new(backend));
         let records = F2zStorageProvider::new(shared.clone());
+        let inner_sink = Arc::clone(&sink);
         let engine = Self {
             inner: tokio::sync::Mutex::new(Inner {
                 records,
@@ -246,6 +263,8 @@ impl<B: StorageBackend> Engine<B> {
                 pending_device: None,
                 dags: HashMap::new(),
                 queue_seed: None,
+                sink: inner_sink,
+                compromised_conversations: HashSet::new(),
             }),
             sink,
             directory: Arc::new(NoDirectory),
@@ -603,6 +622,11 @@ impl<B: StorageBackend> Engine<B> {
             }
             records.clear_identity()
         })?;
+        // `stop` deliberately retains this process-local evidence, but a
+        // completed unenrollment has durably removed every queue identity it
+        // could describe. Clear it only after that commit succeeds: otherwise
+        // a failed unenrollment could reopen an actively compromised queue.
+        inner.compromised_conversations.clear();
         inner.state = EngineState::NotEnrolled;
         let status = inner.status(&*self.directory)?;
         self.sink.engine_state(&status);
@@ -854,7 +878,8 @@ impl<B: StorageBackend> Engine<B> {
     /// `internal` when no such conversation exists.
     pub async fn leave_conversation(&self, conversation_id: &str) -> Result<()> {
         let mut inner = self.inner.lock().await;
-        let _ = inner.conversation(conversation_id)?;
+        let stored = inner.conversation(conversation_id)?;
+        let old_identity = outbound_identity(&stored);
         inner.groups.remove(conversation_id);
         // The DAG is derived from the records being removed here. Leaving it
         // behind would let a re-created conversation with the same id inherit a
@@ -863,7 +888,11 @@ impl<B: StorageBackend> Engine<B> {
         inner.dags.remove(conversation_id);
         inner
             .records()
-            .commit(|records| records.remove_conversation(conversation_id))
+            .commit(|records| records.remove_conversation(conversation_id))?;
+        if let Some(identity) = old_identity {
+            inner.compromised_conversations.remove(&identity);
+        }
+        Ok(())
     }
 
     // ------------------------------------------------------------------
@@ -2436,7 +2465,7 @@ impl<B: StorageBackend> Inner<B> {
             // alone would tell the UI a message can be sent when there is no
             // address to send it to — and §3.3's transport health is the field
             // a send affordance is supposed to be gated on.
-            transport_health: if stored.send_address_stolen {
+            transport_health: if self.send_address_is_stolen(stored) {
                 // §7.4: the send side of a queue this conversation depends on
                 // was bound by somebody else. Loud and non-dismissible — never
                 // a toast, never a retry.
@@ -2536,15 +2565,22 @@ impl<B: StorageBackend> Inner<B> {
         ciphertext: &[u8],
         now: i64,
     ) -> Result<DeliveryStatus> {
-        let Some(outbound) = stored.queues.outbound.clone() else {
+        // The caller may hold a clone from before queue replacement or theft.
+        // Durable state decides both the early failure and which relay we use.
+        let current = self.conversation(&stored.conversation_id)?;
+        if self.send_address_is_stolen(&current) {
+            self.mark_send_address_stolen_delivery(msg_id, now);
+            return Err(Error::new(
+                ErrorCode::SendAddressStolen,
+                "the send address is abandoned after ERR_ALREADY_BOUND",
+            ));
+        }
+        let Some(outbound) = current.queues.outbound.clone() else {
             // The peer has not said where to write yet. `pending`, not
             // `failed`: §8's `failed` means the engine gave up after its retry
             // budget, and nothing has been tried.
             return self.mark_delivery(msg_id, "pending", Some(ErrorCode::SendUnavailable), now);
         };
-        let send_key = signing_key(&outbound.send_key_seed)?;
-        let send_addr = queue_address(&outbound.send_addr)?;
-
         if let Err(error) = self.ensure_outbound_connection(&outbound).await {
             // §8: keep the message `pending` and retry with backoff. Do not
             // mark anything failed — an unreachable relay is not a delivery
@@ -2552,19 +2588,37 @@ impl<B: StorageBackend> Inner<B> {
             return self.mark_delivery(msg_id, "pending", Some(error.code()), now);
         }
 
-        self.ensure_bound(stored).await?;
-
-        let outcome = {
-            let Some(connection) = self.connections.get_mut(&outbound.relay_url) else {
-                return self.mark_delivery(
-                    msg_id,
-                    "pending",
-                    Some(ErrorCode::RelayUnreachable),
-                    now,
-                );
-            };
-            connection.append(&send_key, send_addr, ciphertext).await
+        let bind = match self.ensure_bound(&current).await {
+            Ok(bind) => bind,
+            Err(error) if error.code() == ErrorCode::SendAddressStolen => {
+                self.mark_send_address_stolen_delivery(msg_id, now);
+                return Err(error);
+            }
+            Err(error) => return Err(error),
         };
+
+        // `ensure_bound` re-reads durable state. Follow it from that same
+        // source of truth so a stale clone cannot append to a replaced queue.
+        let confirmed_current = self.conversation(&stored.conversation_id)?;
+        let outbound = confirmed_current.queues.outbound.clone().ok_or_else(|| {
+            Error::new(
+                ErrorCode::SendUnavailable,
+                "no advertised send address for this conversation",
+            )
+        })?;
+        let send_key = signing_key(&outbound.send_key_seed)?;
+        let send_addr = queue_address(&outbound.send_addr)?;
+
+        let outcome = self
+            .append_and_confirm_binding(
+                &confirmed_current,
+                &outbound,
+                &send_key,
+                send_addr,
+                ciphertext,
+                bind,
+            )
+            .await;
         match outcome {
             // §6.2: `accepted` is evidence that an `APPEND` returned status 0 at
             // ≥1 relay, and evidence of **nothing about the recipient**. The
@@ -2589,47 +2643,90 @@ impl<B: StorageBackend> Inner<B> {
     /// `APPEND` to an unbound address is refused with the same collapsed
     /// `ERR_UNAVAILABLE` as an absent queue — which would look like the peer
     /// having vanished rather than like our own missing step.
-    async fn ensure_bound(&mut self, stored: &StoredConversation) -> Result<()> {
-        let Some(outbound) = stored.queues.outbound.clone() else {
+    async fn ensure_bound(&mut self, stored: &StoredConversation) -> Result<BindReadiness> {
+        // Theft evidence is sticky and abandons this queue. Re-read it here so
+        // a stale caller clone can never retry BIND or APPEND after compromise.
+        let current = self.conversation(&stored.conversation_id)?;
+        if self.send_address_is_stolen(&current) {
+            return Err(Error::new(
+                ErrorCode::SendAddressStolen,
+                "the send address is abandoned after ERR_ALREADY_BOUND",
+            ));
+        }
+        let Some(outbound) = current.queues.outbound.clone() else {
             return Err(Error::new(
                 ErrorCode::SendUnavailable,
                 "no advertised send address for this conversation",
             ));
         };
         self.ensure_outbound_connection(&outbound).await?;
-        if outbound.bound {
-            return Ok(());
+        let state = outbound.effective_bind_state();
+        if state == BindState::Confirmed {
+            return Ok(BindReadiness::Confirmed);
         }
         let send_key = signing_key(&outbound.send_key_seed)?;
         let send_addr = queue_address(&outbound.send_addr)?;
+        if !self.connections.contains_key(&outbound.relay_url) {
+            return Err(Error::new(
+                ErrorCode::RelayUnreachable,
+                "relay not connected",
+            ));
+        }
+
+        // The durable transition MUST precede the irreversible command. A
+        // failed commit sends no BIND; a crash or dropped response after it
+        // restarts in OutcomeUnknown and can never manufacture theft evidence.
+        let attempt = match state {
+            BindState::Fresh => {
+                self.persist_bind_state(&stored.conversation_id, BindState::OutcomeUnknown)?;
+                crate::wire_codes::BindAttempt::FirstForFreshAdvert
+            }
+            BindState::OutcomeUnknown => {
+                // Canonicalize even legacy records before every unknown-outcome
+                // attempt. If this write fails, no BIND is sent; if a rollback
+                // reader opens the store later, legacy `bound: true` prevents
+                // it from manufacturing a fresh-attempt theft alarm.
+                if outbound.bind_state != Some(BindState::OutcomeUnknown) || !outbound.bound {
+                    self.persist_bind_state(&stored.conversation_id, BindState::OutcomeUnknown)?;
+                }
+                crate::wire_codes::BindAttempt::OutcomeUnknown
+            }
+            BindState::Confirmed => return Ok(BindReadiness::Confirmed),
+        };
         let connection = self
             .connections
             .get_mut(&outbound.relay_url)
             .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
-
-        // `FirstForFreshAdvert` is the truth here and it is what makes
-        // `ERR_ALREADY_BOUND` mean `send-address-stolen` rather than a client
-        // bug: this address came from an advert this device has not bound
-        // before, so somebody else holding the write capability is theft.
-        let attempt = crate::wire_codes::BindAttempt::FirstForFreshAdvert;
         match connection.bind_send(&send_key, send_addr, attempt).await {
-            Ok(()) => {
-                let mut updated = stored.clone();
-                if let Some(queue) = updated.queues.outbound.as_mut() {
-                    queue.bound = true;
-                }
-                self.records()
-                    .commit(|records| records.put_conversation(&updated))
+            Ok(BindSendOutcome::Bound) => {
+                self.persist_bind_state(&stored.conversation_id, BindState::Confirmed)?;
+                Ok(BindReadiness::Confirmed)
+            }
+            Ok(BindSendOutcome::AlreadyBoundAfterUnknown) => {
+                Ok(BindReadiness::NeedsAppendConfirmation)
             }
             Err(error) if error.code() == ErrorCode::SendAddressStolen => {
                 // §7.4 and §9: fatal, loud, non-dismissible. Mark the
-                // conversation compromised, raise an alarm, abandon the queue.
-                // Not a warning toast and not a log line.
-                let mut updated = stored.clone();
-                updated.send_address_stolen = true;
-                self.records()
-                    .commit(|records| records.put_conversation(&updated))?;
-                self.raise_alarm(AlarmKind::QueueSendAddressStolen, &stored.peer_handle)?;
+                // conversation compromised and persist its alarm atomically,
+                // then emit only after that commit. Not a warning toast and not
+                // a log line.
+                let alarm = send_address_stolen_alarm(&current.peer_handle);
+                if let Some(identity) = outbound_identity(&current) {
+                    self.compromised_conversations.insert(identity);
+                }
+                if let Err(commit_error) =
+                    self.persist_and_emit_send_address_stolen(&stored.conversation_id, &alarm)
+                {
+                    // Storage failure cannot make a definitive fresh-bind
+                    // refusal cease to be theft evidence. Keep the public
+                    // security result loud even though no partial flag/alarm
+                    // was persisted.
+                    tracing::error!(
+                        code = %commit_error.code(),
+                        "could not persist send-address-stolen evidence atomically"
+                    );
+                    self.sink.alarm(&alarm);
+                }
                 Err(error)
             }
             Err(error) => Err(error),
@@ -2651,6 +2748,61 @@ impl<B: StorageBackend> Inner<B> {
         self.endpoint_connection(&outbound.relay_url, relay_id)
             .await
             .map(|_| ())
+    }
+
+    /// Persist one bind-state transition without writing a stale caller clone.
+    fn persist_bind_state(&self, conversation_id: &str, state: BindState) -> Result<()> {
+        let mut updated = self.conversation(conversation_id)?;
+        let queue = updated.queues.outbound.as_mut().ok_or_else(|| {
+            Error::new(
+                ErrorCode::SendUnavailable,
+                "no advertised send address for this conversation",
+            )
+        })?;
+        queue.bind_state = Some(state);
+        // An old reader must never turn an unknown outcome back into a first
+        // attempt and manufacture theft evidence. It may append and receive an
+        // honest unavailable response; a new reader performs reconciliation.
+        queue.bound = state != BindState::Fresh;
+        self.records()
+            .commit(|records| records.put_conversation(&updated))
+    }
+
+    fn send_address_is_stolen(&self, stored: &StoredConversation) -> bool {
+        stored.send_address_stolen
+            || outbound_identity(stored)
+                .is_some_and(|identity| self.compromised_conversations.contains(&identity))
+    }
+
+    /// Send the same-key `APPEND` that reconciles an unknown `BIND_SEND`
+    /// outcome, and confirm the durable bind state only after it succeeds.
+    async fn append_and_confirm_binding(
+        &mut self,
+        stored: &StoredConversation,
+        outbound: &OutboundQueue,
+        send_key: &SigningKey,
+        send_addr: f2z_codec::types::QueueAddress,
+        ciphertext: &[u8],
+        bind: BindReadiness,
+    ) -> Result<()> {
+        self.connections
+            .get_mut(&outbound.relay_url)
+            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?
+            .append(send_key, send_addr, ciphertext)
+            .await?;
+        if bind == BindReadiness::NeedsAppendConfirmation
+            && let Err(error) =
+                self.persist_bind_state(&stored.conversation_id, BindState::Confirmed)
+        {
+            // The relay has accepted this ciphertext. An auxiliary local state
+            // write cannot rewrite that wire fact into a failed delivery;
+            // OutcomeUnknown safely reconciles again next time.
+            tracing::error!(
+                code = %error.code(),
+                "could not persist bind confirmation after accepted APPEND"
+            );
+        }
+        Ok(())
     }
 
     fn mark_delivery(
@@ -2677,26 +2829,38 @@ impl<B: StorageBackend> Inner<B> {
         Ok(delivery_view(&message))
     }
 
-    fn raise_alarm(&self, kind: AlarmKind, peer_handle: &str) -> Result<Alarm> {
-        let now = now_ms();
-        let alarm = Alarm {
-            alarm_id: format!("{}-{now}", kind_slug(kind)),
-            kind,
-            severity: AlarmSeverity::Critical,
-            raised_at: now,
-            dismissible: NeverDismissible,
-            handle: Some(peer_handle.to_owned()),
-            old_fingerprint: None,
-            new_fingerprint: None,
-            platform_assisted: false,
-            cooldown_ends_at: None,
-            acknowledged_at: None,
-        };
+    /// Best-effort delivery-record follow-through for definitive theft.
+    ///
+    /// Failure to write this secondary UX state must not mask or weaken the
+    /// security result: the queue remains abandoned and callers still receive
+    /// `send-address-stolen`.
+    fn mark_send_address_stolen_delivery(&self, msg_id: &str, now: i64) {
+        if let Err(error) =
+            self.mark_delivery(msg_id, "failed", Some(ErrorCode::SendAddressStolen), now)
+        {
+            tracing::error!(
+                code = %error.code(),
+                "could not persist failed delivery after send-address theft"
+            );
+        }
+    }
+
+    /// Atomically make theft evidence and its alarm durable, then emit once.
+    fn persist_and_emit_send_address_stolen(
+        &self,
+        conversation_id: &str,
+        alarm: &Alarm,
+    ) -> Result<()> {
+        let mut updated = self.conversation(conversation_id)?;
+        updated.send_address_stolen = true;
         let mut alarms = self.records().alarms()?;
         alarms.push(alarm.clone());
-        self.records()
-            .commit(|records| records.put_alarms(&alarms))?;
-        Ok(alarm)
+        self.records().commit(|records| {
+            records.put_conversation(&updated)?;
+            records.put_alarms(&alarms)
+        })?;
+        self.sink.alarm(alarm);
+        Ok(())
     }
 
     /// Encrypt and append a non-chat §7 payload: a hint, a purge request, a gap
@@ -2726,11 +2890,20 @@ impl<B: StorageBackend> Inner<B> {
         message_type: MessageType,
         body: &[u8],
     ) -> Result<()> {
-        let parents = self.dag(&stored.conversation_id)?.heads();
+        // Reject sticky compromise before advancing the local MLS group for a
+        // ciphertext the abandoned queue must never receive.
+        let current = self.conversation(&stored.conversation_id)?;
+        if self.send_address_is_stolen(&current) {
+            return Err(Error::new(
+                ErrorCode::SendAddressStolen,
+                "the send address is abandoned after ERR_ALREADY_BOUND",
+            ));
+        }
+        let parents = self.dag(&current.conversation_id)?.heads();
         let now = now_ms();
         let mut group = self
             .groups
-            .remove(&stored.conversation_id)
+            .remove(&current.conversation_id)
             .ok_or_else(|| Error::engine_not_running("send_control"))?;
         let sealed: Result<(AppMessage, Vec<u8>, u64, u32)> = (|| {
             let mls = self.mls_ref("send_control")?;
@@ -2751,21 +2924,26 @@ impl<B: StorageBackend> Inner<B> {
                 .map_err(|error| Error::internal(format!("encrypting: {error}")))?;
             Ok((framed, ciphertext, epoch, leaf))
         })();
-        self.groups.insert(stored.conversation_id.clone(), group);
+        self.groups.insert(current.conversation_id.clone(), group);
         let (_framed, ciphertext, _epoch, _leaf) = sealed?;
 
-        self.ensure_bound(stored).await?;
+        let bind = self.ensure_bound(&current).await?;
+        let confirmed_current = self.conversation(&current.conversation_id)?;
         let outbound =
-            stored.queues.outbound.clone().ok_or_else(|| {
+            confirmed_current.queues.outbound.clone().ok_or_else(|| {
                 Error::new(ErrorCode::SendUnavailable, "no advertised send address")
             })?;
         let send_key = signing_key(&outbound.send_key_seed)?;
         let send_addr = queue_address(&outbound.send_addr)?;
-        let connection = self
-            .connections
-            .get_mut(&outbound.relay_url)
-            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
-        connection.append(&send_key, send_addr, &ciphertext).await
+        self.append_and_confirm_binding(
+            &confirmed_current,
+            &outbound,
+            &send_key,
+            send_addr,
+            &ciphertext,
+            bind,
+        )
+        .await
     }
 }
 
@@ -2894,6 +3072,32 @@ fn kind_slug(kind: AlarmKind) -> &'static str {
         AlarmKind::WitnessThresholdUnmet => "witness-threshold-unmet",
         AlarmKind::DirectoryForkEvidence => "directory-fork-evidence",
     }
+}
+
+fn send_address_stolen_alarm(peer_handle: &str) -> Alarm {
+    let now = now_ms();
+    Alarm {
+        alarm_id: format!("{}-{now}", kind_slug(AlarmKind::QueueSendAddressStolen)),
+        kind: AlarmKind::QueueSendAddressStolen,
+        severity: AlarmSeverity::Critical,
+        raised_at: now,
+        dismissible: NeverDismissible,
+        handle: Some(peer_handle.to_owned()),
+        old_fingerprint: None,
+        new_fingerprint: None,
+        platform_assisted: false,
+        cooldown_ends_at: None,
+        acknowledged_at: None,
+    }
+}
+
+fn outbound_identity(stored: &StoredConversation) -> Option<String> {
+    stored.queues.outbound.as_ref().map(|outbound| {
+        format!(
+            "{}\n{}\n{}",
+            stored.conversation_id, outbound.relay_url, outbound.send_addr
+        )
+    })
 }
 
 fn expiry_for(stored: &StoredConversation, now: i64, global: RetentionPolicy) -> Option<i64> {
@@ -3207,6 +3411,7 @@ impl<B: StorageBackend> Inner<B> {
                     relay_id: introduction.advert.relay_id.clone(),
                     send_addr: introduction.advert.send_addr.clone(),
                     send_key_seed,
+                    bind_state: Some(BindState::Fresh),
                     bound: false,
                 }),
             },
@@ -3227,17 +3432,39 @@ impl<B: StorageBackend> Inner<B> {
     }
 
     /// Record where this device writes to reach the peer.
-    fn set_peer_advert(&self, conversation_id: &str, advert: &QueueAdvert) -> Result<()> {
+    fn set_peer_advert(&mut self, conversation_id: &str, advert: &QueueAdvert) -> Result<()> {
         let mut stored = self.conversation(conversation_id)?;
+        let advert_addr = queue_address(&advert.send_addr)?;
+        let canonical_send_addr = hex::encode(advert_addr.as_bytes());
+        let identical = stored.queues.outbound.as_ref().is_some_and(|outbound| {
+            outbound.relay_url == advert.relay_url
+                && queue_address(&outbound.send_addr).is_ok_and(|current| current == advert_addr)
+        });
+        if identical {
+            // Authenticated control messages may be delivered more than once.
+            // Replaying the same advert must preserve Confirmed/Unknown state
+            // and any active theft evidence; it is not a fresh bind attempt.
+            return Ok(());
+        }
+        let old_identity = outbound_identity(&stored);
         stored.queues.outbound = Some(OutboundQueue {
             relay_url: advert.relay_url.clone(),
             relay_id: advert.relay_id.clone(),
-            send_addr: advert.send_addr.clone(),
+            send_addr: canonical_send_addr,
             send_key_seed: hex::encode(self.queue_key(conversation_id, LABEL_QUEUE_SEND)?),
+            bind_state: Some(BindState::Fresh),
             bound: false,
         });
+        // The historical alarm remains in the alarm store. Compromise is an
+        // active property of the abandoned queue, not of every future queue in
+        // the conversation.
+        stored.send_address_stolen = false;
         self.records()
-            .commit(|records| records.put_conversation(&stored))
+            .commit(|records| records.put_conversation(&stored))?;
+        if let Some(identity) = old_identity {
+            self.compromised_conversations.remove(&identity);
+        }
+        Ok(())
     }
 
     /// `CLAIM_KEY_PACKAGE` from the peer's relay, then authenticate what came
@@ -4478,20 +4705,25 @@ fn capabilities_view(capabilities: &f2z_codec::commands::Capabilities) -> RelayC
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+    use f2z_codec::commands::Command;
     use f2z_codec::types::{Digest, PublicKey, RelayId, ShortBytes};
     use f2z_kt_core::entry::{DeviceCredential, DirectoryEntryTBS, EntryKind};
     use f2z_kt_core::types::{Handle, KemPublicKey, LogId};
     use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
     use f2z_msg_mls::{DeviceSigner, MlsEngine};
-    use f2z_msg_store::MemoryBackend;
+    use f2z_msg_store::{Durability, MemoryBackend, Op, SqliteBackend, StorageBackend, StoreError};
+    use f2z_relay_testkit::fake::FakeRelay;
+    use f2z_relay_testkit::faults::{Effect, Fault, Trigger};
     use openmls::prelude::{GroupId, MlsGroup};
     use openmls_traits::OpenMlsProvider as _;
 
+    use super::*;
     use super::{Engine, Introduction, QueueAdvert, acknowledgeable, routing_advert_digest};
     use crate::directory::{Directory, ResolvedIdentity, ResolvedPeer};
     use crate::error::{Error, Result};
-    use crate::events::{EventSink, NullSink};
+    use crate::events::{EventSink, NullSink, RecordingSink, names};
     use crate::models::{DirectoryResolution, EngineState, ErrorCode, Platform, RelayOperator};
     use crate::store::{StoredContactRequest, StoredRelay};
 
@@ -4873,6 +5105,144 @@ mod tests {
         );
     }
 
+    struct FailNextApply {
+        inner: MemoryBackend,
+        fail: Arc<AtomicBool>,
+    }
+
+    impl StorageBackend for FailNextApply {
+        fn get(&self, key: &[u8]) -> f2z_msg_store::Result<Option<Vec<u8>>> {
+            self.inner.get(key)
+        }
+
+        fn apply(&self, ops: &[Op]) -> f2z_msg_store::Result<()> {
+            if self.fail.swap(false, Ordering::SeqCst) {
+                return Err(StoreError::Backend("injected pre-bind commit failure"));
+            }
+            self.inner.apply(ops)
+        }
+
+        fn durability(&self) -> Durability {
+            Durability::None
+        }
+    }
+
+    struct FailApplyNumber {
+        inner: MemoryBackend,
+        calls: AtomicUsize,
+        fail_on: Arc<AtomicUsize>,
+    }
+
+    impl StorageBackend for FailApplyNumber {
+        fn get(&self, key: &[u8]) -> f2z_msg_store::Result<Option<Vec<u8>>> {
+            self.inner.get(key)
+        }
+
+        fn apply(&self, ops: &[Op]) -> f2z_msg_store::Result<()> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+            if self.fail_on.load(Ordering::SeqCst) == call {
+                return Err(StoreError::Backend("injected atomic theft commit failure"));
+            }
+            self.inner.apply(ops)
+        }
+
+        fn durability(&self) -> Durability {
+            Durability::None
+        }
+    }
+
+    fn conversation(
+        relay_url: &str,
+        send_addr: f2z_codec::types::QueueAddress,
+        send_seed: [u8; 32],
+        bind_state: BindState,
+    ) -> StoredConversation {
+        StoredConversation {
+            conversation_id: "conversation".into(),
+            peer_handle: "peer".into(),
+            peer_identity_fingerprint: "ff".into(),
+            group_id: "00".into(),
+            verification: VerificationState::Unverified,
+            created_at: 1,
+            last_message_at: None,
+            unread_count: 0,
+            retention: None,
+            ephemeral_hint: None,
+            receipt_policy: ReceiptPolicy::default(),
+            queues: StoredQueues {
+                inbound: None,
+                outbound: Some(OutboundQueue {
+                    relay_url: relay_url.into(),
+                    send_addr: hex::encode(send_addr.as_bytes()),
+                    send_key_seed: hex::encode(send_seed),
+                    bind_state: Some(bind_state),
+                    bound: bind_state != BindState::Fresh,
+                }),
+            },
+            send_address_stolen: false,
+            read_through: None,
+        }
+    }
+
+    fn test_engine<B: StorageBackend>(backend: B) -> Engine<B> {
+        Engine::new(backend, Arc::new(NullSink), Platform::ZuuliDesktop).expect("test engine")
+    }
+
+    fn pending_message() -> StoredMessage {
+        StoredMessage {
+            msg_id: "message".into(),
+            conversation_id: "conversation".into(),
+            outbound: true,
+            epoch: 1,
+            sender_leaf_index: 0,
+            parents: vec![],
+            sent_at: 2,
+            received_at: None,
+            envelope: hex::encode(b"envelope"),
+            retry_ciphertext: Some(hex::encode(b"unknown-outcome-reconciliation")),
+            text: Some("reconcile".into()),
+            client_ref: Some("client-ref".into()),
+            unrecoverable: None,
+            type_tag: Some("chat".into()),
+            ceremony: false,
+            expires_at: None,
+            delivery: StoredDelivery {
+                state: "pending".into(),
+                accepted_by_relays: 0,
+                configured_relays: 1,
+                devices_receipted: 0,
+                devices_expected: 1,
+                failure: None,
+                updated_at: 2,
+            },
+        }
+    }
+
+    async fn relay_connection(url: &str) -> RelayConnection {
+        let mut policy = ConnectionPolicy::default();
+        policy.policy.allow_insecure_transport = true;
+        policy.policy.require_channel_binding = false;
+        RelayConnection::connect(url, &policy)
+            .await
+            .expect("connect to test relay")
+    }
+
+    async fn create_send_address(
+        connection: &mut RelayConnection,
+    ) -> (SigningKey, f2z_codec::types::QueueAddress, [u8; 32]) {
+        let recv_key = SigningKey::from_seed(&[3; 32]);
+        let created = connection
+            .create_queue(&recv_key, MESSAGE_TTL_SECONDS, IDLE_TTL_SECONDS, None)
+            .await
+            .expect("create queue");
+        let send_seed = [7; 32];
+        (
+            SigningKey::from_seed(&send_seed),
+            created.send_addr,
+            send_seed,
+        )
+    }
+
     #[test]
     fn a_clean_batch_is_acknowledged_to_its_end() {
         assert_eq!(acknowledgeable(&[(0, true), (1, true), (2, true)]), Some(2));
@@ -4917,5 +5287,986 @@ mod tests {
             acknowledgeable(&[(97, true), (98, true), (99, false)]),
             Some(98)
         );
+    }
+
+    #[tokio::test]
+    async fn unenroll_clears_in_memory_compromise_only_after_durable_commit() {
+        let failed_commit = Arc::new(AtomicBool::new(false));
+        let failed_engine = test_engine(FailNextApply {
+            inner: MemoryBackend::new(),
+            fail: Arc::clone(&failed_commit),
+        });
+        failed_engine
+            .inner
+            .lock()
+            .await
+            .compromised_conversations
+            .insert("old-queue-identity".into());
+        failed_commit.store(true, Ordering::SeqCst);
+        assert_eq!(
+            failed_engine
+                .unenroll("delete my enrollment")
+                .await
+                .expect_err("the durable deletion must fail")
+                .code(),
+            ErrorCode::Internal
+        );
+        assert!(
+            failed_engine
+                .inner
+                .lock()
+                .await
+                .compromised_conversations
+                .contains("old-queue-identity"),
+            "a failed durable deletion must retain the in-memory blocker"
+        );
+
+        let successful_engine = test_engine(MemoryBackend::new());
+        successful_engine
+            .inner
+            .lock()
+            .await
+            .compromised_conversations
+            .insert("old-queue-identity".into());
+        successful_engine
+            .unenroll("delete my enrollment")
+            .await
+            .expect("durable unenrollment");
+        assert!(
+            successful_engine
+                .inner
+                .lock()
+                .await
+                .compromised_conversations
+                .is_empty(),
+            "a completed unenrollment must discard process-local queue identities"
+        );
+    }
+
+    #[tokio::test]
+    async fn leave_clears_queue_compromise_only_after_durable_removal() {
+        let queue_addr =
+            f2z_codec::types::QueueAddress::from_slice(&[9; 32]).expect("test queue address");
+        let stored = conversation(
+            "ws://relay.invalid/relay/v1",
+            queue_addr,
+            [7; 32],
+            BindState::Fresh,
+        );
+        let identity = outbound_identity(&stored).expect("outbound identity");
+
+        let failed_commit = Arc::new(AtomicBool::new(false));
+        let failed_engine = test_engine(FailNextApply {
+            inner: MemoryBackend::new(),
+            fail: Arc::clone(&failed_commit),
+        });
+        {
+            let mut inner = failed_engine.inner.lock().await;
+            inner
+                .records()
+                .commit(|records| records.put_conversation(&stored))
+                .expect("initial conversation");
+            inner.compromised_conversations.insert(identity.clone());
+        }
+        failed_commit.store(true, Ordering::SeqCst);
+        assert_eq!(
+            failed_engine
+                .leave_conversation("conversation")
+                .await
+                .expect_err("the durable removal must fail")
+                .code(),
+            ErrorCode::Internal
+        );
+        let failed_inner = failed_engine.inner.lock().await;
+        assert!(failed_inner.conversation("conversation").is_ok());
+        assert!(
+            failed_inner.compromised_conversations.contains(&identity),
+            "a failed durable removal must retain the queue blocker"
+        );
+        drop(failed_inner);
+
+        let successful_engine = test_engine(MemoryBackend::new());
+        {
+            let mut inner = successful_engine.inner.lock().await;
+            inner
+                .records()
+                .commit(|records| records.put_conversation(&stored))
+                .expect("initial conversation");
+            inner.compromised_conversations.insert(identity.clone());
+        }
+        successful_engine
+            .leave_conversation("conversation")
+            .await
+            .expect("durable conversation removal");
+        let successful_inner = successful_engine.inner.lock().await;
+        assert!(successful_inner.conversation("conversation").is_err());
+        assert!(
+            !successful_inner
+                .compromised_conversations
+                .contains(&identity),
+            "successful removal must discard the queue-scoped blocker"
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_preflight_commit_sends_no_bind() {
+        let relay = FakeRelay::with_defaults().expect("fake relay");
+        let server = relay.listen_loopback().await.expect("relay listener");
+        let url = server.url();
+        let mut connection = relay_connection(&url).await;
+        let (_send_key, send_addr, send_seed) = create_send_address(&mut connection).await;
+        let stored = conversation(&url, send_addr, send_seed, BindState::Fresh);
+
+        let fail = Arc::new(AtomicBool::new(false));
+        let engine = test_engine(FailNextApply {
+            inner: MemoryBackend::new(),
+            fail: Arc::clone(&fail),
+        });
+        let faults = relay.faults();
+        faults.arm(Fault::once(
+            Trigger::Command(Command::BindSend),
+            Effect::Drop,
+        ));
+        let mut inner = engine.inner.lock().await;
+        inner
+            .records()
+            .commit(|records| records.put_conversation(&stored))
+            .expect("initial conversation");
+        inner.connections.insert(url.clone(), connection);
+
+        fail.store(true, Ordering::SeqCst);
+        let error = inner
+            .ensure_bound(&stored)
+            .await
+            .expect_err("durable preflight must fail closed");
+        assert_eq!(error.code(), ErrorCode::Internal);
+        assert_eq!(
+            faults.armed(),
+            1,
+            "the relay must not observe BIND_SEND when the preflight commit fails"
+        );
+        assert_eq!(
+            inner
+                .conversation(&stored.conversation_id)
+                .expect("stored conversation")
+                .queues
+                .outbound
+                .expect("outbound")
+                .effective_bind_state(),
+            BindState::Fresh
+        );
+        let fresh = inner
+            .conversation(&stored.conversation_id)
+            .expect("fresh record")
+            .queues
+            .outbound
+            .expect("outbound");
+        assert_eq!(fresh.bind_state, Some(BindState::Fresh));
+        assert!(!fresh.bound);
+        faults.disarm();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dropped_applied_bind_restarts_and_same_key_append_confirms_without_alarm() {
+        let relay = FakeRelay::with_defaults().expect("fake relay");
+        let server = relay.listen_loopback().await.expect("relay listener");
+        let url = server.url();
+        let root = tempfile::tempdir().expect("tempdir");
+        let database = root.path().join("bind.sqlite3");
+
+        let mut connection = relay_connection(&url).await;
+        let (_send_key, send_addr, send_seed) = create_send_address(&mut connection).await;
+        let mut stored = conversation(&url, send_addr, send_seed, BindState::Fresh);
+        let legacy = stored.queues.outbound.as_mut().expect("legacy outbound");
+        legacy.bind_state = None;
+        legacy.bound = false;
+        let engine = Arc::new(test_engine(
+            SqliteBackend::open(&database).expect("durable database"),
+        ));
+        {
+            let mut inner = engine.inner.lock().await;
+            inner
+                .records()
+                .commit(|records| records.put_conversation(&stored))
+                .expect("initial conversation");
+            inner.connections.insert(url.clone(), connection);
+        }
+
+        let faults = relay.faults();
+        faults.arm(Fault::once(
+            Trigger::Command(Command::BindSend),
+            Effect::Drop,
+        ));
+        let crashing_engine = Arc::clone(&engine);
+        let stale = stored.clone();
+        let bind = tokio::spawn(async move {
+            crashing_engine
+                .inner
+                .lock()
+                .await
+                .ensure_bound(&stale)
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while faults.armed() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("relay applied BIND_SEND and dropped its response");
+        bind.abort();
+        let _ = bind.await;
+        drop(engine);
+
+        let restarted_sink = Arc::new(RecordingSink::new());
+        let restarted = Engine::new(
+            SqliteBackend::open(&database).expect("reopen database"),
+            restarted_sink.clone(),
+            Platform::ZuuliDesktop,
+        )
+        .expect("restarted engine");
+        let mut inner = restarted.inner.lock().await;
+        inner
+            .connections
+            .insert(url.clone(), relay_connection(&url).await);
+        let stale_after_restart = inner
+            .conversation("conversation")
+            .expect("durable conversation after restart");
+        assert_eq!(
+            stale_after_restart
+                .queues
+                .outbound
+                .as_ref()
+                .expect("outbound")
+                .effective_bind_state(),
+            BindState::OutcomeUnknown
+        );
+        let durable_unknown = stale_after_restart
+            .queues
+            .outbound
+            .as_ref()
+            .expect("outbound");
+        assert_eq!(durable_unknown.bind_state, Some(BindState::OutcomeUnknown));
+        assert!(
+            durable_unknown.bound,
+            "legacy readers must skip BIND_SEND for an unknown outcome"
+        );
+
+        // Change an unrelated field after taking the caller clone. Both state
+        // transitions must re-read the durable record rather than overwrite it.
+        let mut newer = stale_after_restart.clone();
+        newer.peer_handle = "newer-peer".into();
+        let mut stale_replaced_queue = stale_after_restart.clone();
+        stale_replaced_queue
+            .queues
+            .outbound
+            .as_mut()
+            .expect("stale outbound")
+            .relay_url = "ws://stale-replaced.invalid/relay/v1".into();
+        inner
+            .records()
+            .commit(|records| {
+                records.put_conversation(&newer)?;
+                records.put_message(&pending_message())
+            })
+            .expect("concurrent durable update");
+
+        faults.arm(Fault::once(
+            Trigger::Command(Command::Append),
+            Effect::Refuse(f2z_codec::ErrorCode::Unavailable),
+        ));
+        let unavailable = inner
+            .deliver(
+                &stale_replaced_queue,
+                "message",
+                b"unknown-outcome-reconciliation",
+                3,
+            )
+            .await
+            .expect("shipping delivery retains an unavailable reconciliation");
+        assert_eq!(unavailable.state, DeliveryState::Pending);
+        let still_unknown = inner
+            .conversation("conversation")
+            .expect("unknown outcome remains durable");
+        assert_eq!(
+            still_unknown
+                .queues
+                .outbound
+                .as_ref()
+                .expect("outbound")
+                .effective_bind_state(),
+            BindState::OutcomeUnknown,
+            "Confirmed must be persisted only after same-key APPEND succeeds"
+        );
+        assert!(!still_unknown.send_address_stolen);
+        assert!(inner.records().alarms().expect("alarms").is_empty());
+        assert!(restarted_sink.payloads(names::ALARM).is_empty());
+
+        let delivered = inner
+            .deliver(
+                &stale_replaced_queue,
+                "message",
+                b"unknown-outcome-reconciliation",
+                4,
+            )
+            .await
+            .expect("shipping delivery reconciles unknown-outcome BIND");
+        assert_eq!(delivered.state, DeliveryState::Accepted);
+
+        let confirmed = inner
+            .conversation("conversation")
+            .expect("confirmed conversation");
+        assert_eq!(confirmed.peer_handle, "newer-peer");
+        assert_eq!(
+            confirmed
+                .queues
+                .outbound
+                .as_ref()
+                .expect("outbound")
+                .effective_bind_state(),
+            BindState::Confirmed
+        );
+        let confirmed_queue = confirmed.queues.outbound.as_ref().expect("outbound");
+        assert_eq!(confirmed_queue.bind_state, Some(BindState::Confirmed));
+        assert!(confirmed_queue.bound);
+        assert!(!confirmed.send_address_stolen);
+        assert_eq!(
+            inner
+                .view(&confirmed)
+                .expect("public conversation")
+                .transport_health,
+            TransportHealth::Unavailable,
+            "a lost BIND response must never surface as compromised"
+        );
+        assert!(inner.records().alarms().expect("alarms").is_empty());
+        assert!(restarted_sink.payloads(names::ALARM).is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn fresh_dropped_applied_bind_restarts_and_reconciles_without_alarm() {
+        let relay = FakeRelay::with_defaults().expect("fake relay");
+        let server = relay.listen_loopback().await.expect("relay listener");
+        let url = server.url();
+        let root = tempfile::tempdir().expect("tempdir");
+        let database = root.path().join("fresh-bind.sqlite3");
+        let mut connection = relay_connection(&url).await;
+        let (_send_key, send_addr, send_seed) = create_send_address(&mut connection).await;
+        let fresh = conversation(&url, send_addr, send_seed, BindState::Fresh);
+
+        let engine = Arc::new(test_engine(
+            SqliteBackend::open(&database).expect("durable database"),
+        ));
+        {
+            let mut inner = engine.inner.lock().await;
+            inner
+                .records()
+                .commit(|records| records.put_conversation(&fresh))
+                .expect("initial Fresh conversation");
+            inner.connections.insert(url.clone(), connection);
+        }
+        let faults = relay.faults();
+        faults.arm(Fault::once(
+            Trigger::Command(Command::BindSend),
+            Effect::Drop,
+        ));
+        let crashing_engine = Arc::clone(&engine);
+        let stale = fresh.clone();
+        let bind = tokio::spawn(async move {
+            crashing_engine
+                .inner
+                .lock()
+                .await
+                .ensure_bound(&stale)
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while faults.armed() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("relay applied the first BIND_SEND and dropped its response");
+        bind.abort();
+        let _ = bind.await;
+        drop(engine);
+
+        let sink = Arc::new(RecordingSink::new());
+        let restarted = Engine::new(
+            SqliteBackend::open(&database).expect("reopen database"),
+            sink.clone(),
+            Platform::ZuuliDesktop,
+        )
+        .expect("restarted engine");
+        let mut inner = restarted.inner.lock().await;
+        inner
+            .connections
+            .insert(url.clone(), relay_connection(&url).await);
+        let unknown = inner.conversation("conversation").expect("unknown outcome");
+        let unknown_queue = unknown.queues.outbound.as_ref().expect("outbound");
+        assert_eq!(unknown_queue.bind_state, Some(BindState::OutcomeUnknown));
+        assert!(unknown_queue.bound);
+        inner
+            .records()
+            .commit(|records| records.put_message(&pending_message()))
+            .expect("pending message");
+
+        let delivered = inner
+            .deliver(&unknown, "message", b"unknown-outcome-reconciliation", 3)
+            .await
+            .expect("honest AlreadyBound reconciles through APPEND");
+        assert_eq!(delivered.state, DeliveryState::Accepted);
+        let confirmed = inner.conversation("conversation").expect("confirmed");
+        let confirmed_queue = confirmed.queues.outbound.as_ref().expect("outbound");
+        assert_eq!(confirmed_queue.bind_state, Some(BindState::Confirmed));
+        assert!(confirmed_queue.bound);
+        assert!(!confirmed.send_address_stolen);
+        assert!(inner.records().alarms().expect("alarms").is_empty());
+        assert!(sink.payloads(names::ALARM).is_empty());
+        assert_ne!(
+            inner
+                .view(&confirmed)
+                .expect("public view")
+                .transport_health,
+            TransportHealth::Compromised
+        );
+    }
+
+    #[tokio::test]
+    async fn accepted_append_survives_failed_bind_confirmation_write() {
+        let relay = FakeRelay::with_defaults().expect("fake relay");
+        let server = relay.listen_loopback().await.expect("relay listener");
+        let url = server.url();
+        let mut connection = relay_connection(&url).await;
+        let (send_key, send_addr, send_seed) = create_send_address(&mut connection).await;
+        connection
+            .bind_send(
+                &send_key,
+                send_addr,
+                crate::wire_codes::BindAttempt::FirstForFreshAdvert,
+            )
+            .await
+            .expect("pre-bind queue");
+
+        let stored = conversation(&url, send_addr, send_seed, BindState::OutcomeUnknown);
+        let fail_on = Arc::new(AtomicUsize::new(2));
+        let sink = Arc::new(RecordingSink::new());
+        let engine = Engine::new(
+            FailApplyNumber {
+                inner: MemoryBackend::new(),
+                calls: AtomicUsize::new(0),
+                fail_on: Arc::clone(&fail_on),
+            },
+            sink.clone(),
+            Platform::ZuuliDesktop,
+        )
+        .expect("test engine");
+        let mut inner = engine.inner.lock().await;
+        inner
+            .records()
+            .commit(|records| {
+                records.put_conversation(&stored)?;
+                records.put_message(&pending_message())
+            })
+            .expect("initial records");
+        inner.connections.insert(url, connection);
+
+        let accepted = inner
+            .deliver(&stored, "message", b"accepted-before-local-confirmation", 3)
+            .await
+            .expect("APPEND status 0 remains accepted");
+        assert_eq!(accepted.state, DeliveryState::Accepted);
+        let still_unknown = inner.conversation("conversation").expect("conversation");
+        assert_eq!(
+            still_unknown
+                .queues
+                .outbound
+                .as_ref()
+                .expect("outbound")
+                .effective_bind_state(),
+            BindState::OutcomeUnknown,
+            "failed auxiliary confirmation must retain safe reconciliation state"
+        );
+        assert_eq!(
+            inner
+                .records()
+                .message("message")
+                .expect("message lookup")
+                .expect("message")
+                .delivery
+                .state,
+            "accepted"
+        );
+        assert!(!still_unknown.send_address_stolen);
+        assert!(inner.records().alarms().expect("alarms").is_empty());
+        assert!(sink.payloads(names::ALARM).is_empty());
+
+        let mut next_message = pending_message();
+        next_message.msg_id = "message-2".into();
+        inner
+            .records()
+            .commit(|records| records.put_message(&next_message))
+            .expect("next pending message");
+        let accepted_next = inner
+            .deliver(
+                &still_unknown,
+                "message-2",
+                b"later-reconciliation-confirms",
+                4,
+            )
+            .await
+            .expect("later send safely reconciles again");
+        assert_eq!(accepted_next.state, DeliveryState::Accepted);
+        let confirmed = inner.conversation("conversation").expect("conversation");
+        assert_eq!(
+            confirmed
+                .queues
+                .outbound
+                .as_ref()
+                .expect("outbound")
+                .effective_bind_state(),
+            BindState::Confirmed
+        );
+        assert!(!confirmed.send_address_stolen);
+        assert!(inner.records().alarms().expect("alarms").is_empty());
+        assert!(sink.payloads(names::ALARM).is_empty());
+    }
+
+    #[tokio::test]
+    async fn legacy_unknown_unbound_restart_binds_appends_and_confirms_without_alarm() {
+        let relay = FakeRelay::with_defaults().expect("fake relay");
+        let server = relay.listen_loopback().await.expect("relay listener");
+        let url = server.url();
+        let root = tempfile::tempdir().expect("tempdir");
+        let database = root.path().join("legacy-unbound.sqlite3");
+        let mut connection = relay_connection(&url).await;
+        let (_send_key, send_addr, send_seed) = create_send_address(&mut connection).await;
+        let mut legacy = conversation(&url, send_addr, send_seed, BindState::Fresh);
+        let queue = legacy.queues.outbound.as_mut().expect("legacy outbound");
+        queue.bind_state = None;
+        queue.bound = false;
+
+        {
+            let initial = test_engine(SqliteBackend::open(&database).expect("database"));
+            let inner = initial.inner.lock().await;
+            inner
+                .records()
+                .commit(|records| {
+                    records.put_conversation(&legacy)?;
+                    records.put_message(&pending_message())
+                })
+                .expect("legacy record");
+        }
+
+        let sink = Arc::new(RecordingSink::new());
+        let restarted = Engine::new(
+            SqliteBackend::open(&database).expect("reopen database"),
+            sink.clone(),
+            Platform::ZuuliDesktop,
+        )
+        .expect("restarted engine");
+        let mut inner = restarted.inner.lock().await;
+        inner.connections.insert(url, connection);
+        let stale = inner.conversation("conversation").expect("legacy record");
+        let delivered = inner
+            .deliver(&stale, "message", b"legacy-unknown-unbound", 7)
+            .await
+            .expect("unknown retry may receive direct BIND success");
+        assert_eq!(delivered.state, DeliveryState::Accepted);
+        let confirmed = inner.conversation("conversation").expect("confirmed");
+        let outbound = confirmed.queues.outbound.as_ref().expect("outbound");
+        assert_eq!(outbound.bind_state, Some(BindState::Confirmed));
+        assert!(outbound.bound);
+        assert!(!confirmed.send_address_stolen);
+        assert!(inner.records().alarms().expect("alarms").is_empty());
+        assert!(sink.payloads(names::ALARM).is_empty());
+    }
+
+    #[tokio::test]
+    async fn fresh_already_bound_is_still_loud_theft() {
+        let relay = FakeRelay::with_defaults().expect("fake relay");
+        let server = relay.listen_loopback().await.expect("relay listener");
+        let url = server.url();
+        let mut connection = relay_connection(&url).await;
+        let (send_key, send_addr, send_seed) = create_send_address(&mut connection).await;
+        assert_eq!(
+            connection
+                .bind_send(
+                    &send_key,
+                    send_addr,
+                    crate::wire_codes::BindAttempt::FirstForFreshAdvert,
+                )
+                .await
+                .expect("pre-bind queue"),
+            BindSendOutcome::Bound
+        );
+
+        let stored = conversation(&url, send_addr, send_seed, BindState::Fresh);
+        let sink = Arc::new(RecordingSink::new());
+        let engine = Engine::new(MemoryBackend::new(), sink.clone(), Platform::ZuuliDesktop)
+            .expect("test engine");
+        let mut inner = engine.inner.lock().await;
+        inner
+            .records()
+            .commit(|records| {
+                records.put_conversation(&stored)?;
+                records.put_message(&pending_message())
+            })
+            .expect("initial conversation");
+        inner.connections.insert(url.clone(), connection);
+        let error = inner
+            .deliver(&stored, "message", b"must-not-enter-stolen-queue", 3)
+            .await
+            .expect_err("fresh AlreadyBound must be theft");
+        assert_eq!(error.code(), ErrorCode::SendAddressStolen);
+        assert!(
+            inner
+                .conversation("conversation")
+                .expect("conversation")
+                .send_address_stolen
+        );
+        let alarms = inner.records().alarms().expect("alarms");
+        assert_eq!(alarms.len(), 1);
+        assert_eq!(alarms[0].kind, AlarmKind::QueueSendAddressStolen);
+        let emitted = sink.payloads(names::ALARM);
+        assert_eq!(emitted.len(), 1);
+        let emitted_alarm: Alarm =
+            serde_json::from_value(emitted[0].clone()).expect("alarm event payload");
+        assert_eq!(emitted_alarm.kind, AlarmKind::QueueSendAddressStolen);
+        let compromised = inner
+            .conversation("conversation")
+            .and_then(|stored| inner.view(&stored))
+            .expect("public conversation");
+        assert_eq!(compromised.transport_health, TransportHealth::Compromised);
+        let failed = inner
+            .records()
+            .message("message")
+            .expect("message lookup")
+            .expect("failed message");
+        assert_eq!(failed.delivery.state, "failed");
+        assert_eq!(failed.delivery.failure, Some(ErrorCode::SendAddressStolen));
+        let faults = relay.faults();
+        faults.arm_all([
+            Fault::once(Trigger::Command(Command::BindSend), Effect::Drop),
+            Fault::once(Trigger::Command(Command::Append), Effect::Drop),
+        ]);
+        let retry = inner
+            .deliver(&stored, "message", b"must-not-reach-compromised-queue", 4)
+            .await
+            .expect_err("a compromised queue is abandoned");
+        assert_eq!(retry.code(), ErrorCode::SendAddressStolen);
+        let still_failed = inner
+            .records()
+            .message("message")
+            .expect("message lookup")
+            .expect("failed message");
+        assert_eq!(still_failed.delivery.state, "failed");
+        assert_eq!(
+            still_failed.delivery.failure,
+            Some(ErrorCode::SendAddressStolen)
+        );
+        assert_eq!(
+            faults.armed(),
+            2,
+            "a stale pre-theft clone must send neither BIND_SEND nor APPEND"
+        );
+        assert_eq!(
+            inner.records().alarms().expect("alarms").len(),
+            1,
+            "retries must not duplicate the theft alarm"
+        );
+        assert_eq!(
+            sink.payloads(names::ALARM).len(),
+            1,
+            "sticky retries must not emit a second alarm event"
+        );
+        faults.disarm();
+
+        let identical = QueueAdvert {
+            relay_url: url.clone(),
+            // Hex case is representation, not queue identity. An uppercase
+            // replay must remain the same compromised advert.
+            send_addr: hex::encode(send_addr.as_bytes()).to_uppercase(),
+        };
+        inner
+            .set_peer_advert("conversation", &identical)
+            .expect("idempotent advert replay");
+        let still_compromised = inner
+            .conversation("conversation")
+            .and_then(|current| inner.view(&current))
+            .expect("same queue remains compromised");
+        assert_eq!(
+            still_compromised.transport_health,
+            TransportHealth::Compromised
+        );
+
+        inner.queue_seed = Some([29; 32]);
+        let replacement_send_addr = {
+            let connection = inner.connections.get_mut(&url).expect("relay connection");
+            let recv_key = SigningKey::from_seed(&[31; 32]);
+            connection
+                .create_queue(&recv_key, MESSAGE_TTL_SECONDS, IDLE_TTL_SECONDS, None)
+                .await
+                .expect("replacement queue")
+                .send_addr
+        };
+        let replacement = QueueAdvert {
+            relay_url: url.clone(),
+            send_addr: hex::encode(replacement_send_addr.as_bytes()),
+        };
+        inner
+            .set_peer_advert("conversation", &replacement)
+            .expect("install distinct replacement advert");
+        let replaced = inner
+            .conversation("conversation")
+            .expect("replaced conversation");
+        let replacement_queue = replaced.queues.outbound.as_ref().expect("replacement");
+        assert_eq!(replacement_queue.effective_bind_state(), BindState::Fresh);
+        assert!(!replaced.send_address_stolen);
+
+        let delivered = inner
+            .deliver(&replaced, "message", b"replacement-queue-send", 6)
+            .await
+            .expect("distinct replacement binds and sends");
+        assert_eq!(delivered.state, DeliveryState::Accepted);
+        let recovered = inner
+            .conversation("conversation")
+            .expect("recovered conversation");
+        assert_ne!(
+            inner
+                .view(&recovered)
+                .expect("public conversation")
+                .transport_health,
+            TransportHealth::Compromised
+        );
+        assert_eq!(
+            recovered
+                .queues
+                .outbound
+                .as_ref()
+                .expect("replacement")
+                .effective_bind_state(),
+            BindState::Confirmed
+        );
+        assert_eq!(inner.records().alarms().expect("historical alarm").len(), 1);
+        assert_eq!(sink.payloads(names::ALARM).len(), 1);
+    }
+
+    #[tokio::test]
+    async fn failed_delivery_status_write_never_masks_or_reopens_theft() {
+        let relay = FakeRelay::with_defaults().expect("fake relay");
+        let server = relay.listen_loopback().await.expect("relay listener");
+        let url = server.url();
+        let mut connection = relay_connection(&url).await;
+        let (send_key, send_addr, send_seed) = create_send_address(&mut connection).await;
+        connection
+            .bind_send(
+                &send_key,
+                send_addr,
+                crate::wire_codes::BindAttempt::FirstForFreshAdvert,
+            )
+            .await
+            .expect("pre-bind queue");
+
+        let stored = conversation(&url, send_addr, send_seed, BindState::Fresh);
+        let sink = Arc::new(RecordingSink::new());
+        let fail_on = Arc::new(AtomicUsize::new(4));
+        let engine = Engine::new(
+            FailApplyNumber {
+                inner: MemoryBackend::new(),
+                calls: AtomicUsize::new(0),
+                fail_on: Arc::clone(&fail_on),
+            },
+            sink.clone(),
+            Platform::ZuuliDesktop,
+        )
+        .expect("test engine");
+        let mut inner = engine.inner.lock().await;
+        inner
+            .records()
+            .commit(|records| {
+                records.put_conversation(&stored)?;
+                records.put_message(&pending_message())
+            })
+            .expect("initial records");
+        inner.connections.insert(url, connection);
+
+        let error = inner
+            .deliver(&stored, "message", b"must-not-enter-stolen-queue", 3)
+            .await
+            .expect_err("delivery-state failure cannot mask theft");
+        assert_eq!(error.code(), ErrorCode::SendAddressStolen);
+        let compromised = inner.conversation("conversation").expect("conversation");
+        assert!(compromised.send_address_stolen);
+        assert_eq!(
+            inner
+                .view(&compromised)
+                .expect("public view")
+                .transport_health,
+            TransportHealth::Compromised
+        );
+        assert_eq!(inner.records().alarms().expect("alarms").len(), 1);
+        assert_eq!(sink.payloads(names::ALARM).len(), 1);
+        assert_eq!(
+            inner
+                .records()
+                .message("message")
+                .expect("message lookup")
+                .expect("message")
+                .delivery
+                .state,
+            "pending",
+            "the injected secondary write is the only failed transition"
+        );
+
+        let faults = relay.faults();
+        faults.arm_all([
+            Fault::once(Trigger::Command(Command::BindSend), Effect::Drop),
+            Fault::once(Trigger::Command(Command::Append), Effect::Drop),
+        ]);
+        fail_on.store(5, Ordering::SeqCst);
+        let retry = inner
+            .deliver(&stored, "message", b"still-must-not-enter-stolen-queue", 4)
+            .await
+            .expect_err("sticky theft survives a second status-write failure");
+        assert_eq!(retry.code(), ErrorCode::SendAddressStolen);
+        assert_eq!(
+            faults.armed(),
+            2,
+            "status-write failure must never reopen BIND_SEND or APPEND"
+        );
+        assert_eq!(inner.records().alarms().expect("alarms").len(), 1);
+        assert_eq!(sink.payloads(names::ALARM).len(), 1);
+        faults.disarm();
+    }
+
+    #[tokio::test]
+    async fn failed_atomic_theft_commit_uses_loud_in_memory_fallback_without_partial_state() {
+        let relay = FakeRelay::with_defaults().expect("fake relay");
+        let server = relay.listen_loopback().await.expect("relay listener");
+        let url = server.url();
+        let mut connection = relay_connection(&url).await;
+        let (send_key, send_addr, send_seed) = create_send_address(&mut connection).await;
+        connection
+            .bind_send(
+                &send_key,
+                send_addr,
+                crate::wire_codes::BindAttempt::FirstForFreshAdvert,
+            )
+            .await
+            .expect("pre-bind queue");
+
+        let fail_on = Arc::new(AtomicUsize::new(0));
+        let sink = Arc::new(RecordingSink::new());
+        let engine = Engine::new(
+            FailApplyNumber {
+                inner: MemoryBackend::new(),
+                calls: AtomicUsize::new(0),
+                fail_on: Arc::clone(&fail_on),
+            },
+            sink.clone(),
+            Platform::ZuuliDesktop,
+        )
+        .expect("test engine");
+        let stored = conversation(&url, send_addr, send_seed, BindState::Fresh);
+        let mut inner = engine.inner.lock().await;
+        inner
+            .records()
+            .commit(|records| records.put_conversation(&stored))
+            .expect("initial conversation");
+        inner.connections.insert(url, connection);
+        // One successful preflight apply, then fail the single atomic
+        // conversation+alarm transition.
+        fail_on.store(3, Ordering::SeqCst);
+        let error = inner
+            .ensure_bound(&stored)
+            .await
+            .expect_err("atomic theft transition fails");
+        assert_eq!(
+            error.code(),
+            ErrorCode::SendAddressStolen,
+            "a storage failure must not mask definitive first-bind theft evidence"
+        );
+
+        let after = inner
+            .conversation("conversation")
+            .expect("conversation remains readable");
+        assert_eq!(
+            after
+                .queues
+                .outbound
+                .as_ref()
+                .expect("outbound")
+                .effective_bind_state(),
+            BindState::OutcomeUnknown
+        );
+        assert!(!after.send_address_stolen);
+        assert!(inner.records().alarms().expect("alarms").is_empty());
+        let emitted = sink.payloads(names::ALARM);
+        assert_eq!(emitted.len(), 1);
+        let emitted_alarm: Alarm =
+            serde_json::from_value(emitted[0].clone()).expect("alarm event payload");
+        assert_eq!(emitted_alarm.kind, AlarmKind::QueueSendAddressStolen);
+        assert_eq!(
+            inner
+                .view(&after)
+                .expect("public conversation")
+                .transport_health,
+            TransportHealth::Compromised
+        );
+
+        inner
+            .records()
+            .commit(|records| records.put_message(&pending_message()))
+            .expect("retry message");
+        let faults = relay.faults();
+        faults.arm_all([
+            Fault::once(Trigger::Command(Command::BindSend), Effect::Drop),
+            Fault::once(Trigger::Command(Command::Append), Effect::Drop),
+        ]);
+        let retry = inner
+            .deliver(&stored, "message", b"must-not-send-after-theft", 5)
+            .await
+            .expect_err("in-memory theft evidence is sticky");
+        assert_eq!(retry.code(), ErrorCode::SendAddressStolen);
+        assert_eq!(faults.armed(), 2);
+        assert_eq!(sink.payloads(names::ALARM).len(), 1);
+
+        inner.queue_seed = Some([43; 32]);
+        fail_on.store(6, Ordering::SeqCst);
+        let replacement = QueueAdvert {
+            relay_url: "ws://replacement.invalid/relay/v1".into(),
+            send_addr: hex::encode([47; 32]),
+        };
+        let replacement_error = inner
+            .set_peer_advert("conversation", &replacement)
+            .expect_err("replacement commit fails atomically");
+        assert_eq!(replacement_error.code(), ErrorCode::Internal);
+        let durable_old = inner
+            .conversation("conversation")
+            .expect("old queue remains durable");
+        assert_eq!(
+            durable_old
+                .queues
+                .outbound
+                .as_ref()
+                .expect("old outbound")
+                .send_addr,
+            stored
+                .queues
+                .outbound
+                .as_ref()
+                .expect("fixture outbound")
+                .send_addr
+        );
+        let retry_after_failed_replacement = inner
+            .deliver(&stored, "message", b"still-must-not-send", 6)
+            .await
+            .expect_err("failed replacement retains old blocker");
+        assert_eq!(
+            retry_after_failed_replacement.code(),
+            ErrorCode::SendAddressStolen
+        );
+        assert_eq!(faults.armed(), 2);
+        faults.disarm();
     }
 }

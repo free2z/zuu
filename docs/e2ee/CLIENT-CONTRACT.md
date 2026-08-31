@@ -491,6 +491,33 @@ a freshly advertised address
 ([`WIRE.md` §7.4](./WIRE.md#74-the-consequence-said-plainly)). It is a loud,
 non-dismissible failure, not a retry and not a toast.
 
+The first bind is preceded by a durable `Fresh` → `OutcomeUnknown` write. If
+its response is lost, the engine retries internally with the same key. An
+`ERR_ALREADY_BOUND` in that durable unknown-outcome context is not exposed as
+an `ErrorCode` and makes no accusation: the engine attempts a same-key `APPEND`,
+whose success confirms the binding under the relay protocol's authorization
+semantics and durably records `Confirmed`. If reconciliation is unavailable,
+the state remains `OutcomeUnknown`; it never becomes `compromised` merely
+because the first response was lost.
+
+Relay acceptance remains the delivery truth if the same-key `APPEND` succeeds
+but the auxiliary `Confirmed` store write fails: the message is `accepted`, not
+rewritten as failed. The durable bind state remains `OutcomeUnknown`, and a
+later send safely repeats reconciliation and confirmation.
+
+Native-store compatibility is fail-safe in both directions. A record written
+before the three-state field existed is interpreted as `OutcomeUnknown` when
+its legacy `bound` flag is false and `Confirmed` when it is true. New
+`OutcomeUnknown` and `Confirmed` records also serialize `bound: true`, so an
+older reader skips `BIND_SEND` rather than mislabelling a retry as a fresh
+attempt; only a new reader performs the stateful reconciliation above.
+
+Authenticated replay of an identical queue advert — including a different hex
+case for the same address bytes — preserves the current bind and active
+compromise state. A genuinely distinct replacement advert installs a `Fresh`
+queue and may restore transport, but it does not delete the historical,
+non-dismissible alarm for the abandoned queue (`WIRE.md` §7.5).
+
 `reject_contact_request({ block: true })` is entirely local: there is no server
 that can enforce a block, because there is no server that knows who is talking
 to whom
@@ -1678,7 +1705,7 @@ type ErrorCode =
 | `storage-full` | | Local storage exhausted. Inbound stops being acknowledged — which is correct, because an un-ACKed message is still on the relay. Offer to reduce retention. |
 | `gap-unrecoverable` | | The sender no longer holds the plaintext. Render the `{ kind: "unrecoverable" }` marker in place ([`ARCHITECTURE.md` §8.4](./ARCHITECTURE.md#84-short-local-retention-and-gap-repair)). Never a silent hole. |
 | `not-supported-in-browser` | | A ZUULI-only operation was attempted in a browser (§10, §11.1). State the reason — it is a trust-model boundary, not a missing feature. |
-| `internal` | | Engine fault, carries no detail by design ([`WIRE.md` §10](./WIRE.md#10-error-codes)). Offer a report affordance. |
+| `internal` | | Component-internal fault: either the local engine faulted or a relay or directory reported its own `ERR_INTERNAL`. Carries no detail by design ([`WIRE.md` §10](./WIRE.md#10-error-codes)); offer a report affordance without guessing which internal detail failed. |
 
 "Retryable" means *the engine or the UI may retry automatically, with backoff*.
 Everything unmarked requires a user decision or is a defect; retrying it
@@ -1706,7 +1733,7 @@ how a wrong device clock ends up rendered as a relay defect.
 | 8 | `ERR_REPLAY` | `relay-protocol-violation` — a repeated `(signer_key, nonce)` is our CSPRNG's fault |
 | 9 | `ERR_CHANNEL_BINDING` | `relay-protocol-violation` — reserved and unused in v1, so receiving it *is* the violation |
 | 10 | `ERR_NO_ACCESS` | `relay-protocol-violation`. It is valid for a frame-internal creation/`BIND_SEND` self-check or a recv-side authorization failure; a state-dependent send-side refusal using code 10 is itself a protocol violation, because that refusal MUST be code 15. See the note below. |
-| 11 | `ERR_ALREADY_BOUND` | `send-address-stolen` on a first bind for a freshly advertised address (§3.3); `relay-protocol-violation` on any later bind, because we should not have tried |
+| 11 | `ERR_ALREADY_BOUND` | `send-address-stolen` on a first bind from durable `Fresh` state (§3.3); `relay-protocol-violation` on an ordinary later bind. A retry from durable `OutcomeUnknown` is intercepted before this public mapper and reconciled by same-key `APPEND`, so it emits neither code. |
 | 12 | `ERR_BAD_SIZE` | `relay-capability-mismatch` — our emitted size is not in the relay's `padding_sizes` |
 | 13 | `ERR_ACK_TOO_HIGH` | `relay-protocol-violation` — an `ACK` past the head is a client bug |
 | 14 | `ERR_QUOTA` | `relay-quota` |
@@ -1736,11 +1763,13 @@ how a wrong device clock ends up rendered as a relay defect.
 
 **Note what is not in either table.** `directory-proof-invalid`,
 `witness-threshold-unmet`, `relay-identity-mismatch`, `relay-unreachable`,
-`relay-refused-insecure`, `handle-ineligible` and the whole local group are
-**client-side outcomes, not wire codes**: the client computes them and no server
-sends them. Keeping them out of the mapping is deliberate — a code a relay or a
-log chooses can never, on its own, produce one of the codes that mean an
-attack.
+`relay-refused-insecure`, `handle-ineligible`, and the local-only members from
+`not-enrolled` through `not-supported-in-browser` are **client-side outcomes,
+not wire codes**: the client computes them and no server sends them. `internal`
+is deliberately excluded from that claim because both tables explicitly map a
+peer's `ERR_INTERNAL` to it. Keeping the client-side outcomes out of the mapping
+is deliberate — a code a relay or a log chooses can never, on its own, produce
+one of the codes that mean an attack.
 
 And there is **no unknown-handle code, in either direction**.
 [`KT.md` §9.5](./KT.md#95-error-codes) has none deliberately, and §3.10's
@@ -1752,10 +1781,16 @@ neither table names — one from a protocol version newer than this client, or a
 known code returned in a context these tables do not give it — maps to
 `relay-protocol-violation` if a relay returned it, and
 `directory-protocol-violation` if the log did. It is never mapped to `internal`,
-which means *our own engine* faulted, and it is never dropped. That is what
-"closed" buys a frontend: the set of values a component can receive is fixed, so
-a protocol that grows a code produces a defect report instead of an `undefined`
-branch.
+which is reserved for an explicit component-internal fault: either the local
+engine faulted or a peer reported its own `ERR_INTERNAL`. An unknown peer code
+is neither, and it is never dropped. That is what "closed" buys a frontend: the
+set of values a component can receive is fixed, so a protocol that grows a code
+produces a defect report instead of an `undefined` branch.
+
+The one pre-mapper exception is stateful rather than a second mapping:
+`ERR_ALREADY_BOUND` after a durably recorded unknown `BIND_SEND` outcome is
+consumed by the engine's same-key `APPEND` reconciliation described in §3.3.
+It never enters this table. Outside that exact state, the row above applies.
 
 **`ERR_NO_ACCESS` (10) — distinguish frame-internal self-checks from relay-state
 lookups.** [`WIRE.md` §5.1](./WIRE.md#51-construction)'s correction settles the

@@ -31,7 +31,9 @@ use serde::{Deserialize, Serialize};
 /// The mapping from `WIRE.md` §10 and `KT.md` §9.5 lives in
 /// [`crate::wire_codes`], including §8.1's default rule — a code neither table
 /// names maps to the *protocol violation* member for whichever peer returned
-/// it, never to [`ErrorCode::Internal`], which means our own engine faulted.
+/// it, never to [`ErrorCode::Internal`]. That member is reserved for an explicit
+/// component-internal fault: either this engine failed locally or a peer
+/// returned its own `ERR_INTERNAL`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
@@ -69,6 +71,7 @@ pub enum ErrorCode {
     StorageFull,
     GapUnrecoverable,
     NotSupportedInBrowser,
+    // explicit component-internal fault (local or reported by a peer)
     Internal,
 }
 

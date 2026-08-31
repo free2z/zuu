@@ -12,18 +12,22 @@
 //! newer than this client, or a known code returned in a context these tables
 //! do not give it — maps to `relay-protocol-violation` if a relay returned it
 //! and `directory-protocol-violation` if the log did. It is **never** mapped to
-//! `internal`, which means *our own engine* faulted, and it is never dropped.
+//! `internal`, which is reserved for an explicit component-internal fault:
+//! either this engine failed locally or a peer explicitly returned its own
+//! `ERR_INTERNAL`. An unknown peer code is neither, and it is never dropped.
 //! That is what "closed" buys a frontend: the set of values a component can
 //! receive is fixed, so a protocol that grows a code produces a defect report
 //! instead of an `undefined` branch.
 //!
 //! **What is deliberately absent.** `directory-proof-invalid`,
 //! `witness-threshold-unmet`, `relay-identity-mismatch`, `relay-unreachable`,
-//! `relay-refused-insecure`, `handle-ineligible` and the whole local group are
-//! **client-side outcomes, not wire codes**: the client computes them and no
-//! server sends them. Keeping them out of the mapping is the point — a code a
-//! relay or a log chooses can never, on its own, produce one of the codes that
-//! mean an attack.
+//! `relay-refused-insecure`, `handle-ineligible`, and the local-only members
+//! from `not-enrolled` through `not-supported-in-browser` are **client-side
+//! outcomes, not wire codes**: the client computes them and no server sends
+//! them. `internal` is excluded because each peer may explicitly report its own
+//! `ERR_INTERNAL`. Keeping the client-side outcomes out of the mapping is the
+//! point — a code a relay or a log chooses can never, on its own, produce one
+//! of the codes that mean an attack.
 
 use f2z_codec::ErrorCode as WireCode;
 use f2z_codec::commands::Command;
@@ -39,6 +43,9 @@ use crate::models::ErrorCode;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BindAttempt {
     FirstForFreshAdvert,
+    /// A durable preflight record proves a request may already have reached
+    /// the relay, but its response was not observed (§2.5).
+    OutcomeUnknown,
     Later,
 }
 
@@ -51,8 +58,7 @@ pub enum BindAttempt {
 /// alarm by labelling it a first bind.
 #[must_use]
 pub fn from_relay(code: WireCode, command: Command, attempt: BindAttempt) -> ErrorCode {
-    if matches!(attempt, BindAttempt::FirstForFreshAdvert) && !matches!(command, Command::BindSend)
-    {
+    if !matches!(attempt, BindAttempt::Later) && !matches!(command, Command::BindSend) {
         return ErrorCode::RelayProtocolViolation;
     }
 
@@ -143,7 +149,8 @@ pub fn from_relay(code: WireCode, command: Command, attempt: BindAttempt) -> Err
         // §8.1's default rule. `f2z_codec::ErrorCode` is `#[non_exhaustive]`,
         // so a code from a protocol version newer than this build arrives here.
         // It is a relay's code, so it becomes `relay-protocol-violation` — never
-        // `internal`, which means our own engine faulted, and never dropped.
+        // `internal`, which requires a local fault or explicit ERR_INTERNAL,
+        // and never dropped.
         _ => ErrorCode::RelayProtocolViolation,
     }
 }
@@ -238,6 +245,7 @@ mod tests {
                 allowed.push((code, *command, BindAttempt::Later, mapped));
                 if matches!(command, Command::BindSend) {
                     allowed.push((code, *command, BindAttempt::FirstForFreshAdvert, mapped));
+                    allowed.push((code, *command, BindAttempt::OutcomeUnknown, mapped));
                 }
             }
         };
@@ -283,7 +291,11 @@ mod tests {
 
         for code in WireCode::ALL {
             for command in Command::ALL {
-                for attempt in [BindAttempt::FirstForFreshAdvert, BindAttempt::Later] {
+                for attempt in [
+                    BindAttempt::FirstForFreshAdvert,
+                    BindAttempt::OutcomeUnknown,
+                    BindAttempt::Later,
+                ] {
                     let expected = allowed
                         .iter()
                         .find(|(allowed_code, allowed_command, allowed_attempt, _)| {
@@ -398,9 +410,9 @@ mod tests {
     }
 
     #[test]
-    fn only_the_relays_own_faults_map_to_internal() {
-        // `internal` means OUR engine faulted, so exactly one wire code on each
-        // side may reach it: the peer reporting its own fault.
+    fn only_an_explicit_peer_internal_fault_maps_to_internal() {
+        // `internal` is component-relative: local code may mint it for its own
+        // fault, while this mapper accepts exactly the peer's ERR_INTERNAL.
         for command in Command::ALL {
             let internal: Vec<WireCode> = WireCode::ALL
                 .into_iter()

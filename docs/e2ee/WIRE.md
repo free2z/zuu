@@ -226,6 +226,14 @@ like an attack and behaves like one.
    was not received has **unknown** status and MUST be retried under the retry
    rules in §8.3 and §7.3.
 
+`BIND_SEND` needs durable state because it is once-only. A new or replacement
+advert starts `Fresh`; before sending its first bind, the client MUST durably
+write `OutcomeUnknown`. A successful bind durably becomes `Confirmed`. A
+client that cannot durably establish freshness MUST interpret the state
+conservatively as `OutcomeUnknown`. Thus a failed preflight write sends no
+bind, while a crash after the relay applied one cannot turn an honest retry
+into theft evidence.
+
 A relay MUST cap the time between TCP accept and a valid `HELLO`
 (`handshake_timeout_ms`, default 10 000) and close on expiry.
 
@@ -707,7 +715,7 @@ is bounded by what the commands do:
 | `READ` | No-op; reads do not mutate. Reveals nothing the operator does not hold. |
 | `DELETE_QUEUE` | No-op after the first. |
 | `CREATE_QUEUE` | A second queue, at the operator's own expense, with addresses only the operator learns. |
-| `BIND_SEND` | No-op after the first (§7.3). |
+| `BIND_SEND` | Once-only: a replay after the first returns `ERR_ALREADY_BOUND`. A client retrying a durably unknown outcome handles that response internally under §7.3. |
 
 So the residual is "duplicate or no-op, at the operator's expense, against an
 adversary who could already refuse service." That is acceptable. It is **not**
@@ -1129,6 +1137,22 @@ signature by that key, forever.
 "reset by the recv key". A queue whose send side is bound to the wrong key is
 dead and must be replaced by a new queue (§7.5).
 
+There is one narrow retry rule for a durable `OutcomeUnknown`: retry
+`BIND_SEND` with the same key. Success confirms the binding directly. If the
+relay returns `ERR_ALREADY_BOUND`, the client MUST consume that response
+internally and issue a same-key `APPEND`; a successful `APPEND` confirms the
+binding under the protocol's authorization semantics and the client durably
+records `Confirmed`. If that `APPEND` is unavailable or its outcome is unknown,
+the bind remains `OutcomeUnknown`; the client neither emits a public protocol
+error nor accuses the relay of theft. This exception is reconciliation of an
+operation that may already have succeeded, not permission for an ordinary
+second bind.
+
+If the same-key `APPEND` returns status 0 but the client's auxiliary
+`Confirmed` store write fails, §8.4 still makes that message `accepted`. The
+bind remains durably `OutcomeUnknown`, and a later send repeats the safe
+reconciliation; local bookkeeping MUST NOT rewrite relay acceptance as failure.
+
 The alternative — letting the recv-side key rebind — was rejected because it
 turns the recv key into a control over the send side, and the recv key is the
 one that lives on the recipient's device with the ability to drain the queue. We
@@ -1147,6 +1171,11 @@ an address that arrived in a fresh `queue_advert` is a loud, non-dismissible
 failure.** Not a retry, not a warning toast, not a log line. The conversation is
 marked as compromised at the transport layer, the queue is abandoned, and the
 user is told that the relay it names behaved incorrectly.
+
+The durable `OutcomeUnknown` reconciliation in §7.3 is deliberately excluded:
+its `ERR_ALREADY_BOUND` is ambiguous rather than theft evidence and is never
+exposed through the public error mapper. Any ordinary later bind remains a
+client protocol defect.
 
 **This does not prevent the theft of the write capability. It makes it noisy.**
 The operator gets the capability; what it does not get is silence. That is the
@@ -1183,6 +1212,11 @@ than rediscovered later.
 
 Queue rotation is: **create a new queue, advertise it in-band, delete the old
 one.** There is no `ROTATE` command and there should not be one.
+
+An authenticated replay of the same relay and send-address bytes is idempotent:
+it preserves the existing bind state and any active compromise. Only a genuinely
+distinct replacement address enters `Fresh` and abandons the old queue's active
+transport state; the historical alarm from §7.4 remains non-dismissible.
 
 ```
 1. Recipient: CREATE_QUEUE           → (recv_addr', send_addr')

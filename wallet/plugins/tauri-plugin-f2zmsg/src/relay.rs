@@ -167,6 +167,19 @@ pub struct RelayConnection {
     closed: bool,
 }
 
+/// The internal result of the once-only bind operation.
+///
+/// `AlreadyBoundAfterUnknown` never crosses IPC. It is the ambiguity §2.5
+/// requires the engine to reconcile with an authenticated `APPEND`, rather
+/// than a public error code or a false theft alarm. Success confirms ownership
+/// under the relay protocol's authorization semantics; it does not prove an
+/// actively malicious relay honest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BindSendOutcome {
+    Bound,
+    AlreadyBoundAfterUnknown,
+}
+
 impl core::fmt::Debug for RelayConnection {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("RelayConnection")
@@ -417,26 +430,76 @@ impl RelayConnection {
     ///
     /// `attempt` is what turns `ERR_ALREADY_BOUND` into either
     /// `send-address-stolen` — a relay operator took the write capability, and
-    /// that is fatal, loud and non-dismissible (§7.4) — or
-    /// `relay-protocol-violation`, meaning we should not have tried. Pass
+    /// that is fatal, loud and non-dismissible (§7.4). On an ordinary
+    /// [`BindAttempt::Later`] it is `relay-protocol-violation`, meaning we
+    /// should not have tried. In a durable [`BindAttempt::OutcomeUnknown`]
+    /// context it is consumed here as [`BindSendOutcome::AlreadyBoundAfterUnknown`]
+    /// so the engine can reconcile with a same-key `APPEND`. Pass
     /// [`BindAttempt::FirstForFreshAdvert`] only when the address really did
     /// come from an advert this client has not bound before.
     ///
     /// # Errors
     ///
     /// As [`RelayConnection::call_signed`].
-    pub async fn bind_send(
+    pub(crate) async fn bind_send(
         &mut self,
         send_key: &SigningKey,
         send_addr: QueueAddress,
         attempt: BindAttempt,
-    ) -> Result<()> {
+    ) -> Result<BindSendOutcome> {
+        let outcome = self.bind_send_once(send_key, send_addr, attempt).await;
+        match outcome {
+            Err(error) if error.code() == ErrorCode::DeviceClockSkew => {
+                self.resync_clock().await?;
+                self.bind_send_once(send_key, send_addr, attempt).await
+            }
+            other => other,
+        }
+    }
+
+    async fn bind_send_once(
+        &mut self,
+        send_key: &SigningKey,
+        send_addr: QueueAddress,
+        attempt: BindAttempt,
+    ) -> Result<BindSendOutcome> {
         let body = BindSendRequest {
             send_key: send_key.public_key(),
         };
-        self.call_signed::<ops::BindSend>(send_key, send_addr, &body, attempt)
-            .await
-            .map(|_: Empty| ())
+        let request_id = self.take_request_id();
+        let ticket = self
+            .inflight
+            .issue::<ops::BindSend>(request_id)
+            .map_err(|error| proto(error, Command::BindSend, attempt))?;
+        let timestamp = self.relay_time_ms();
+        let nonce = self.nonce();
+        let signed = SignedCommand::<ops::BindSend>::create(
+            self.session.transcripts(),
+            request_id,
+            send_addr,
+            timestamp,
+            nonce,
+            send_key,
+            &body,
+        )
+        .map_err(|error| Error::internal(format!("building a signed command: {error:?}")))?;
+        let frame = signed
+            .frame()
+            .map_err(|error| Error::internal(format!("framing a signed command: {error:?}")))?;
+        self.send_frame(&frame).await?;
+        let (frame_id, response) = self.await_response().await?;
+        match self
+            .inflight
+            .complete::<ops::BindSend>(ticket, frame_id, &response)
+        {
+            Ok(Empty) => Ok(BindSendOutcome::Bound),
+            Err(f2z_relay_proto::ProtoError::Wire(f2z_codec::ErrorCode::AlreadyBound))
+                if matches!(attempt, BindAttempt::OutcomeUnknown) =>
+            {
+                Ok(BindSendOutcome::AlreadyBoundAfterUnknown)
+            }
+            Err(error) => Err(proto(error, Command::BindSend, attempt)),
+        }
     }
 
     /// `APPEND` (§6.3), padded to a published bucket first (§9).
