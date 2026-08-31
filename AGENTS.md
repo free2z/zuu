@@ -376,6 +376,16 @@ your machine will never show you. The specific traps we've hit:
   it against every target that block compiles for** — the required `gate`
   compiles for the CI host only and cannot catch this class at all, which is
   open issue **#321**.
+- **`wallet/zuuli` has two independent JS test suites, and only one is easy to
+  reach for.** Vitest (unit) is separate from Playwright (`tests/*.pw.ts`,
+  `npm run test:e2e`), and CI's `zuuli / frontend` job requires both. Vitest
+  green is not evidence Playwright is green: #822 and #803 both passed
+  `typecheck` + the full vitest suite locally, then failed CI on `tests/*.pw.ts`
+  — which assert rendered copy — after rebasing across the i18n kernel (#797)
+  that routes UI copy through `t(MESSAGE_KEYS...)`. Any change touching
+  user-visible copy, navigation, or component structure — especially a rebase
+  across an i18n change — needs `npm run test:e2e` (or `npm run verify`) before
+  push, not just vitest.
 
 So: for anything touching Rust deps/features, verify in a **clean Linux build
 with CI's toolchain** — a throwaway `ubuntu:24.04` container that installs the

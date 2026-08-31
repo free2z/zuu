@@ -37,6 +37,17 @@ npm run test:store-listing # offline listing contract and read-only audit tests
 
 The web dev server runs on **1423** so it never collides with zuuallet (1421).
 
+`wallet/zuuli` has **two independent test suites**: vitest (unit) and Playwright
+(`tests/*.pw.ts`, `npm run test:e2e`), and CI's `zuuli / frontend` job requires
+both — `npm run test` already chains them. **Vitest passing locally does not
+mean CI is green.** #822 and #803 both passed `typecheck` + the full vitest
+suite locally and then failed `zuuli / frontend` on `tests/*.pw.ts`, which
+assert rendered copy, after rebasing across the i18n kernel (#797) that routes
+UI copy through `t(MESSAGE_KEYS...)`. Any change touching user-visible copy,
+navigation, or component structure — **especially a rebase across an i18n
+change** — must run `npm run test:e2e` (or `npm run verify`, which chains
+typecheck → vitest → `test:e2e`) before pushing.
+
 The generated native projects are committed in `src-tauri/gen/apple` and
 `src-tauri/gen/android`; do not rerun `tauri ios init` or `tauri android init`
 casually because regeneration can overwrite intentional platform settings.
