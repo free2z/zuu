@@ -27,10 +27,13 @@
 //!
 //! # Where this is stricter than §4.4's enumerated list, and why
 //!
-//! §4.4 enumerates nine rules and its table names three authorization shapes.
-//! Four things follow from ADR 0014's case analysis but are not in the numbered
-//! list, and this module enforces all four. They are called out at the point of
-//! use below and repeated here so a reviewer sees them together:
+//! §4.4 enumerates rules and its table names three authorization shapes. Five
+//! things enforce constraints beyond a literal reading of the table, and this
+//! module enforces all five. The first four follow from ADR 0014's case
+//! analysis and were not originally in the numbered list; the fifth restates
+//! §4.4 rule 13, which is numbered but — until this fix — was unenforced here.
+//! They are called out at the point of use below and repeated here so a
+//! reviewer sees them together:
 //!
 //! 1. **A `same_key` entry MUST NOT change `identity_pk`.** Without this the
 //!    rule set has a hole large enough to drive ADR 0014 through: `same_key` is
@@ -47,6 +50,13 @@
 //!    outgoing key**, exactly as §4.4 rule 6 binds a `RotationProof`. §4.4
 //!    rule 7 mentions only the signature and the cooldown, which would leave a
 //!    reset signed for `@alice` at version 3 usable against `@bob`.
+//! 5. **A `same_key` entry MUST NOT change `directory_auth_pk`** (§4.4 rule
+//!    13, zuu#619). The mirror image of (1): a signature valid under the
+//!    *previous* `directory_auth_pk` proves nothing about the *new*
+//!    `directory_auth_pk` the entry publishes, so without this check the
+//!    outgoing directory-auth key can hand off the authority that signs every
+//!    future entry for the handle, on one signature, with `identity_pk` never
+//!    touched.
 
 use f2z_codec::canonical::decode_canonical;
 use f2z_codec::types::{Digest, PublicKey};
@@ -384,6 +394,20 @@ pub fn validate_submission(
                     // `identity_pk` — a key change with one signature, which
                     // ADR 0014 says the log MUST reject.
                     if entry.entry.identity_pk != *previous.identity_pk() {
+                        return Err(KtError::BadAuthorization);
+                    }
+                    // ADDITIONAL RULE 5 (KT.md §4.4 rule 13, zuu#619). The
+                    // mirror image of ADDITIONAL RULE 1: `same_key` is
+                    // authorized by the previous `directory_auth_pk`, so a
+                    // signature valid under that key proves nothing about the
+                    // NEW `directory_auth_pk` the entry publishes. Without
+                    // this check, whoever holds the outgoing directory-auth
+                    // key can hand off the authority that signs every future
+                    // entry for the handle to a key of their choosing, on one
+                    // signature, with `identity_pk` never touched — a
+                    // directory-write takeover wearing a routine same_key
+                    // label.
+                    if entry.entry.directory_auth_pk != *previous.directory_auth_pk() {
                         return Err(KtError::BadAuthorization);
                     }
                     previous.directory_auth_pk()
@@ -767,6 +791,32 @@ mod tests {
             accept(&directory, &smuggled, Some(&published), 0),
             Err(KtError::BadAuthorization),
             "a key change with one signature, wearing a same_key label",
+        );
+    }
+
+    #[test]
+    fn a_same_key_entry_must_not_change_the_directory_auth_key() {
+        // KT.md rule 13 (zuu#619, zuu#837), symmetric with rule 6's
+        // `identity_pk` constraint above. `same_key` is authorized by the
+        // PREVIOUS `directory_auth_pk` alone, so without this rule a party
+        // holding only that key hands directory-write authority for the
+        // handle to a key of their choosing, on one signature, with
+        // `identity_pk` untouched — a directory-write takeover wearing a
+        // routine-update label.
+        let directory = TestDirectory::new();
+        let genesis = directory.genesis();
+        let published = PublishedEntry::from_entry(&genesis).unwrap();
+
+        let mut hijacked = directory.same_key_update(&genesis);
+        hijacked.entry.directory_auth_pk = crate::testing::public_key_of(&signing_key(71));
+        // Correctly signed by the OUTGOING directory_auth_pk — the signature
+        // is not the gap; the entry never checks the field it publishes
+        // against the one it was authorized by.
+        let hijacked = directory.reauthorize_same_key(hijacked, &genesis);
+        assert_eq!(
+            accept(&directory, &hijacked, Some(&published), 0),
+            Err(KtError::BadAuthorization),
+            "a directory-write handoff with one signature, wearing a same_key label",
         );
     }
 
