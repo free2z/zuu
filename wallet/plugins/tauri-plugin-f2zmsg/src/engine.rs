@@ -2266,6 +2266,34 @@ enum Inbound {
     Delivery(DeliveryStatus),
 }
 
+/// Why one ciphertext was not applied.
+///
+/// Most refusals are local to one record: `apply_inbound` advances the durable
+/// cursor past them, and the rest of the relay batch can still be considered.
+/// [`EngineError::GroupStateUnavailable`] is different. Its record deliberately
+/// leaves the cursor untouched and removes the unusable group handle, so trying
+/// a later record from the same `READ` could reload the old durable group and
+/// advance the cursor past the ciphertext that must be retried first.
+enum InboundApplyError {
+    Continue(Error),
+    AbortBatch(Error),
+}
+
+impl From<Error> for InboundApplyError {
+    fn from(error: Error) -> Self {
+        Self::Continue(error)
+    }
+}
+
+impl InboundApplyError {
+    fn into_parts(self) -> (Error, bool) {
+        match self {
+            Self::Continue(error) => (error, false),
+            Self::AbortBatch(error) => (error, true),
+        }
+    }
+}
+
 impl<B: StorageBackend> Inner<B> {
     fn records(&self) -> RecordStore<'_, SharedBackend<B>> {
         RecordStore::new(&self.records)
@@ -2498,6 +2526,23 @@ impl<B: StorageBackend> Inner<B> {
         }
         self.groups = groups;
         Ok(())
+    }
+
+    /// Load one conversation's MLS group from the durable provider.
+    ///
+    /// Used on demand after [`EngineError::GroupStateUnavailable`], where the
+    /// old in-memory handle is deliberately absent. Failure must propagate so
+    /// the queue cursor and ACK boundary remain before the ciphertext.
+    fn reload_group(&self, stored: &StoredConversation) -> Result<MlsGroup> {
+        let group_id = hex::decode(&stored.group_id)
+            .map_err(|_| Error::internal("the stored MLS group id is not hexadecimal"))?;
+        let mls = self.mls_ref("reload_group")?;
+        MlsGroup::load(
+            mls.provider().storage(),
+            &GroupId::from_slice(group_id.as_slice()),
+        )
+        .map_err(|error| Error::internal(format!("reloading an MLS group: {error:?}")))?
+        .ok_or_else(|| Error::internal("the durable MLS group is missing"))
     }
 
     async fn subscribe_all(&mut self) {
@@ -2779,9 +2824,11 @@ impl<B: StorageBackend> Inner<B> {
 ///
 /// This is a free function taking outcomes rather than a `bool` threaded
 /// through the read loop, because the property is worth a test and a flag
-/// inside an async loop over a socket is not testable. `pump_conversation`'s
-/// local read cursor still advances past a failure, so the next pass does not
-/// spin on it; what does not advance is the deletion.
+/// inside an async loop over a socket is not testable. `pump_conversation`
+/// advances its local cursor past ordinary per-record failures, so the next
+/// pass does not spin on them; what does not advance is the deletion. An
+/// unusable MLS group instead aborts the batch before any later record can
+/// advance past the ciphertext that must be retried.
 fn acknowledgeable(outcomes: &[(u64, bool)]) -> Option<u64> {
     let mut highest = None;
     for (index, committed) in outcomes {
@@ -3822,8 +3869,11 @@ impl<B: StorageBackend> Inner<B> {
         // failure has to stop the acknowledgement there, or a message this
         // device could not write is deleted at the relay by an `ACK` for a
         // later one — §9 rule 1's failure mode reached by the back door. The
-        // local read cursor still advances past the failure, so the next pass
-        // does not spin on it; what does not advance is the deletion.
+        // An ordinary per-record refusal still advances the local read cursor,
+        // so the next pass does not spin on it; what does not advance is the
+        // deletion. An unusable MLS group is the exception: that batch stops
+        // at the failed ciphertext and keeps the local cursor there, because a
+        // later record must not leapfrog state that needs a fresh durable load.
         //
         // The consequence is the correct one and §8's `storage-full` row says
         // so in as many words: an un-ACKed message stays on the relay until its
@@ -3833,16 +3883,20 @@ impl<B: StorageBackend> Inner<B> {
             let index = queued.index;
             let outcome = match crate::relay::unpad(queued.payload.as_slice()) {
                 Ok(ciphertext) => self.apply_inbound(&mut stored, index, &ciphertext).await,
-                Err(error) => Err(error),
+                Err(error) => Err(InboundApplyError::Continue(error)),
             };
             match outcome {
                 Ok(mut produced) => {
                     events.append(&mut produced);
                     outcomes.push((index, true));
                 }
-                Err(error) => {
+                Err(failure) => {
+                    let (error, abort_batch) = failure.into_parts();
                     outcomes.push((index, false));
                     tracing::info!(conversation = %conversation_id, index, code = %error.code(), "inbound");
+                    if abort_batch {
+                        break;
+                    }
                 }
             }
         }
@@ -3891,7 +3945,7 @@ impl<B: StorageBackend> Inner<B> {
         stored: &mut StoredConversation,
         index: u64,
         ciphertext: &[u8],
-    ) -> Result<Vec<Inbound>> {
+    ) -> core::result::Result<Vec<Inbound>, InboundApplyError> {
         let conversation_id = stored.conversation_id.clone();
         let now = now_ms();
         // The MLS dedup key. Derived from the queue coordinates so a re-read
@@ -3899,8 +3953,16 @@ impl<B: StorageBackend> Inner<B> {
         // rather than double-applied.
         let record_key = format!("{conversation_id}:{index}").into_bytes();
 
-        let Some(mut group) = self.groups.remove(&conversation_id) else {
-            return Ok(Vec::new());
+        let mut group = match self.groups.remove(&conversation_id) {
+            Some(group) => group,
+            // A prior receive can leave its caller handle explicitly
+            // unusable when durable rollback reload itself fails. Do not
+            // silently treat that as a handled delivery: retry the durable
+            // load first, leaving the queue cursor untouched if it still
+            // cannot be read.
+            None => self
+                .reload_group(stored)
+                .map_err(InboundApplyError::AbortBatch)?,
         };
         let received: Result<core::result::Result<Received, EngineError>> = (|| {
             let mls = self.mls_ref("apply_inbound")?;
@@ -3911,7 +3973,13 @@ impl<B: StorageBackend> Inner<B> {
                 u64::try_from(now).unwrap_or_default(),
             ))
         })();
-        self.groups.insert(conversation_id.clone(), group);
+        let group_state_unavailable = matches!(
+            &received,
+            Ok(Err(EngineError::GroupStateUnavailable { .. }))
+        );
+        if !group_state_unavailable {
+            self.groups.insert(conversation_id.clone(), group);
+        }
         let received = received?;
 
         let (payload, sender, epoch) = match received {
@@ -3932,11 +4000,24 @@ impl<B: StorageBackend> Inner<B> {
                 // plaintext is genuinely gone — but §9 rule 7 forbids rendering
                 // it as nothing, so the transcript gets §3.4's marker instead.
                 self.advance(stored, index)?;
-                return self.record_unrecoverable(&conversation_id, index, now);
+                return self
+                    .record_unrecoverable(&conversation_id, index, now)
+                    .map_err(InboundApplyError::Continue);
+            }
+            Err(error @ EngineError::GroupStateUnavailable { .. }) => {
+                // `receive` says this exact handle may be ahead of durable
+                // state. It stays out of the live map, and this index stays at
+                // the head of the queue until `reload_group` succeeds on a
+                // later pass and redelivery can be attempted safely.
+                return Err(InboundApplyError::AbortBatch(Error::internal(format!(
+                    "decrypting: {error}"
+                ))));
             }
             Err(error) => {
                 self.advance(stored, index)?;
-                return Err(Error::internal(format!("decrypting: {error}")));
+                return Err(InboundApplyError::Continue(Error::internal(format!(
+                    "decrypting: {error}"
+                ))));
             }
         };
 

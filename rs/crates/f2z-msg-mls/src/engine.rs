@@ -22,6 +22,14 @@
 //! relay, un-acknowledged, and is redelivered — which is recoverable, and a
 //! half-applied epoch change is not.
 //!
+//! Rolling back storage is only half of that invariant after OpenMLS has
+//! advanced a private-message receive ratchet or merged a commit into the
+//! caller's [`MlsGroup`]. [`MlsEngine::receive`] reloads the durable
+//! pre-transaction group into that same handle before returning an error, so
+//! redelivery sees the state the store actually holds. If that reload itself
+//! fails, [`EngineError::GroupStateUnavailable`] tells the caller to discard
+//! the possibly advanced handle and attempt a fresh durable load.
+//!
 //! # Delete-on-ack, and what `record_key` is for
 //!
 //! [`MlsEngine::receive`] takes a `record_key`: the caller's identifier for
@@ -678,7 +686,10 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// [`EngineError::OutOfOrder`] for a message from an epoch this group is
     /// not in; [`EngineError::Credential`] if the sender's credential does not
     /// validate; [`EngineError::Mls`] if OpenMLS refused;
-    /// [`EngineError::Storage`] if the store did.
+    /// [`EngineError::Storage`] if the store did; or
+    /// [`EngineError::GroupStateUnavailable`] if rollback succeeded but its
+    /// durable state could not be reloaded. After that last outcome the caller
+    /// must discard `group` and load a fresh handle from durable storage.
     pub fn receive(
         &self,
         group: &mut MlsGroup,
@@ -694,101 +705,120 @@ impl<B: StorageBackend> MlsEngine<B> {
         }
 
         let protocol_message = parse_protocol_message(wire)?;
-
+        let group_id = group.group_id().clone();
+        let original_aad = group.aad().to_vec();
         let transaction = self.provider.store().begin()?;
 
-        let processed = group
-            .process_message(&self.provider, protocol_message)
-            .map_err(map_process_error)?;
+        let operation = || -> Result<Received> {
+            // Private-message processing advances the receive ratchet before
+            // content dispatch. Restoration therefore has to cover every
+            // failure from this call onward, not only the visibly mutating
+            // commit branches below.
+            let processed = group
+                .process_message(&self.provider, protocol_message)
+                .map_err(map_process_error)?;
 
-        // The credential the *sender* presented, validated against the leaf it
-        // came from. `ProcessedMessage::credential` is the leaf's credential and
-        // OpenMLS has already checked the framing signature under that leaf's
-        // signature key, so binding the credential to that key is the remaining
-        // half of §4.2's identity→device binding.
-        let sender_index = match processed.sender() {
-            Sender::Member(index) => Some(*index),
-            _ => None,
-        };
-        let epoch = processed.epoch().as_u64();
-        validate_credential_bytes(
-            basic_credential_identity(processed.credential())?,
-            group_signature_key(group, sender_index)?.as_slice(),
-            now_ms,
-        )?;
+            // The credential the *sender* presented, validated against the leaf it
+            // came from. `ProcessedMessage::credential` is the leaf's credential and
+            // OpenMLS has already checked the framing signature under that leaf's
+            // signature key, so binding the credential to that key is the remaining
+            // half of §4.2's identity→device binding.
+            let sender_index = match processed.sender() {
+                Sender::Member(index) => Some(*index),
+                _ => None,
+            };
+            let epoch = processed.epoch().as_u64();
+            validate_credential_bytes(
+                basic_credential_identity(processed.credential())?,
+                group_signature_key(group, sender_index)?.as_slice(),
+                now_ms,
+            )?;
 
-        let outcome = match processed.into_content() {
-            ProcessedMessageContent::ApplicationMessage(message) => Received::Application {
-                payload: message.into_bytes(),
-                sender: sender_index.map_or(0, |index| index.u32()),
-                epoch,
-            },
-            ProcessedMessageContent::ProposalMessage(proposal) => {
-                group
-                    .store_pending_proposal(self.provider.store(), *proposal)
-                    .map_err(|_| EngineError::Mls("store pending proposal"))?;
-                Received::ProposalQueued
-            }
-            ProcessedMessageContent::ExternalJoinProposalMessage(proposal) => {
-                group
-                    .store_pending_proposal(self.provider.store(), *proposal)
-                    .map_err(|_| EngineError::Mls("store external join proposal"))?;
-                Received::ProposalQueued
-            }
-            ProcessedMessageContent::StagedCommitMessage(staged) => {
-                group
-                    .merge_staged_commit(&self.provider, *staged)
-                    .map_err(|_| EngineError::Mls("merge staged commit"))?;
-                // Re-validated after the merge, because the commit may have
-                // *added* members whose credentials nobody has looked at.
-                self.validate_members(group, now_ms)?;
-                Received::EpochChanged {
-                    epoch: group.epoch().as_u64(),
-                }
-            }
-            // Both of these are **new in openmls 0.9** and both mean "this
-            // device authored it and the delivery service handed it back".
-            ProcessedMessageContent::OwnPrivateMessage => Received::Own,
-            ProcessedMessageContent::OwnPendingCommit => {
-                // 0.9 returns this when an incoming Commit's confirmation tag
-                // matches a commit *this* device has pending, so that the
-                // caller merges the pending commit rather than staging the
-                // echo. This engine never leaves one pending: `update` and
-                // `add_member` call `merge_pending_commit` before their bytes
-                // leave the method, precisely so that the device is in the new
-                // epoch the moment the caller has something to send. So the
-                // `Some` arm is not reachable today.
-                //
-                // It is written anyway, and it is not defensive padding: the
-                // alternative — assuming the invariant and returning
-                // `Received::Own` — would silently *skip an epoch change* if
-                // anyone ever split those two steps, and a group whose tree is
-                // one epoch behind its peers' is exactly the failure the
-                // transaction in this method exists to prevent. Merging is the
-                // only correct action when a pending commit exists, and doing
-                // nothing is the only correct action when none does.
-                if group.pending_commit().is_some() {
+            let outcome = match processed.into_content() {
+                ProcessedMessageContent::ApplicationMessage(message) => Received::Application {
+                    payload: message.into_bytes(),
+                    sender: sender_index.map_or(0, |index| index.u32()),
+                    epoch,
+                },
+                ProcessedMessageContent::ProposalMessage(proposal) => {
                     group
-                        .merge_pending_commit(&self.provider)
-                        .map_err(|_| EngineError::Mls("merge pending commit"))?;
+                        .store_pending_proposal(self.provider.store(), *proposal)
+                        .map_err(|_| EngineError::Mls("store pending proposal"))?;
+                    Received::ProposalQueued
+                }
+                ProcessedMessageContent::ExternalJoinProposalMessage(proposal) => {
+                    group
+                        .store_pending_proposal(self.provider.store(), *proposal)
+                        .map_err(|_| EngineError::Mls("store external join proposal"))?;
+                    Received::ProposalQueued
+                }
+                ProcessedMessageContent::StagedCommitMessage(staged) => {
+                    group
+                        .merge_staged_commit(&self.provider, *staged)
+                        .map_err(|_| EngineError::Mls("merge staged commit"))?;
+                    // Re-validated after the merge, because the commit may have
+                    // *added* members whose credentials nobody has looked at.
                     self.validate_members(group, now_ms)?;
                     Received::EpochChanged {
                         epoch: group.epoch().as_u64(),
                     }
-                } else {
-                    Received::Own
                 }
-            }
+                // Both of these are **new in openmls 0.9** and both mean "this
+                // device authored it and the delivery service handed it back".
+                ProcessedMessageContent::OwnPrivateMessage => Received::Own,
+                ProcessedMessageContent::OwnPendingCommit => {
+                    // 0.9 returns this when an incoming Commit's confirmation tag
+                    // matches a commit *this* device has pending, so that the
+                    // caller merges the pending commit rather than staging the
+                    // echo. This engine never leaves one pending: `update` and
+                    // `add_member` call `merge_pending_commit` before their bytes
+                    // leave the method, precisely so that the device is in the new
+                    // epoch the moment the caller has something to send. So the
+                    // `Some` arm is not reachable today.
+                    //
+                    // It is written anyway, and it is not defensive padding: the
+                    // alternative — assuming the invariant and returning
+                    // `Received::Own` — would silently *skip an epoch change* if
+                    // anyone ever split those two steps, and a group whose tree is
+                    // one epoch behind its peers' is exactly the failure the
+                    // transaction in this method exists to prevent. Merging is the
+                    // only correct action when a pending commit exists, and doing
+                    // nothing is the only correct action when none does.
+                    if group.pending_commit().is_some() {
+                        group
+                            .merge_pending_commit(&self.provider)
+                            .map_err(|_| EngineError::Mls("merge pending commit"))?;
+                        self.validate_members(group, now_ms)?;
+                        Received::EpochChanged {
+                            epoch: group.epoch().as_u64(),
+                        }
+                    } else {
+                        Received::Own
+                    }
+                }
+            };
+
+            // The durable "handled" record, in the same journal as everything
+            // above. This is the line that makes an `ACK` safe.
+            self.provider
+                .store()
+                .put_app(&handled_key(record_key), &[1])?;
+
+            transaction.commit()?;
+            Ok(outcome)
         };
 
-        // The durable "handled" record, in the same journal as everything
-        // above. This is the line that makes an `ACK` safe.
-        self.provider
-            .store()
-            .put_app(&handled_key(record_key), &[1])?;
-
-        transaction.commit()?;
-        Ok(outcome)
+        let result = operation();
+        if let Err(error) = result {
+            if let Err(reload) = self.restore_group_after_rollback(group, &group_id, original_aad) {
+                return Err(EngineError::GroupStateUnavailable {
+                    operation: Box::new(error),
+                    reload: Box::new(reload),
+                });
+            }
+            return Err(error);
+        }
+        result
     }
 
     /// Issue an `Update` commit: fresh leaf key, new epoch.
@@ -877,6 +907,24 @@ impl<B: StorageBackend> MlsEngine<B> {
                 now_ms,
             )?;
         }
+        Ok(())
+    }
+
+    /// Replace a group mutated inside a failed receive transaction with the
+    /// durable pre-transaction state. OpenMLS persists every durable group
+    /// field through the provider; AAD is intentionally ephemeral, so preserve
+    /// it explicitly across the reload.
+    fn restore_group_after_rollback(
+        &self,
+        group: &mut MlsGroup,
+        group_id: &GroupId,
+        aad: Vec<u8>,
+    ) -> Result<()> {
+        let Some(mut restored) = MlsGroup::load(self.provider.store(), group_id)? else {
+            return Err(EngineError::Mls("reload group after rollback"));
+        };
+        restored.set_aad(aad);
+        *group = restored;
         Ok(())
     }
 

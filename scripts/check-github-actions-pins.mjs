@@ -471,12 +471,17 @@ const REQUIRED_STEP_ENVIRONMENTS = new Map([
     ]),
   ],
   [
-    // The messaging plugin's `build.rs` watches this value, so a restored
-    // Cargo cache cannot turn its permission-drift assertion into a no-op.
-    // There is no schema nonce beside it: this plugin has no consuming app in
-    // the tree yet, so nothing generates target schemas from it.
+    // The messaging plugin's `build.rs` watches the nonce, so a restored Cargo
+    // cache cannot turn its permission-drift assertion into a no-op. The relay
+    // path binds the real-daemon regression to the binary built in the prior
+    // step rather than permitting a PATH substitution. There is no schema
+    // nonce: this plugin has no consuming app in the tree yet.
     "rust_msg_plugin\0Build and test the messaging plugin",
     new Map([
+      [
+        "F2Z_RELAY_BIN",
+        "${{ github.workspace }}/rs/target/debug/f2z-relay",
+      ],
       [
         "TAURI_PERMISSION_GENERATION_NONCE",
         "${{ github.run_id }}-${{ github.run_attempt }}",

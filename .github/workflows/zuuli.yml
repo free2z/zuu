@@ -615,15 +615,28 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: wallet/plugins/tauri-plugin-f2zmsg
+          workspaces: |
+            wallet/plugins/tauri-plugin-f2zmsg
+            rs
           key: zuuli-msg-plugin
 
-      # The acceptance criterion. `--features relay-harness` builds the
-      # `f2zmsg-peer` binary the integration test spawns twice against a real
-      # `ws://` listener; without it the test compiles to nothing and passes by
-      # not existing.
+      # The client crate cannot link the AGPL relay daemon. Build its actual
+      # production binary separately so the rollback/cursor regression can
+      # spawn it across that licence boundary rather than substituting the MIT
+      # FakeRelay behind a WebSocket.
+      - name: Build the production relay daemon for integration tests
+        run: |
+          cargo build --locked --manifest-path rs/Cargo.toml \
+            -p f2z-relay --bin f2z-relay
+
+      # The acceptance criteria. `--features relay-harness` builds the
+      # `f2zmsg-peer` binary for the two-process exchange and enables the exact
+      # two-record rollback regression against the production relay binary.
+      # Without it both integration tests compile to nothing and pass by not
+      # existing.
       - name: Build and test the messaging plugin
         env:
+          F2Z_RELAY_BIN: ${{ github.workspace }}/rs/target/debug/f2z-relay
           TAURI_PERMISSION_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           cargo test --locked --all-targets --features relay-harness \
