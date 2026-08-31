@@ -133,13 +133,20 @@ Recorded here only because it is an exit condition and exit conditions belong in
 one place. Do not duplicate the prose — `rs/deny.toml` explains why it is
 deliberately *not* banned, and #850 is the PR that wrote it down.
 
-**State on 2026-08-31:** #2163 merged upstream 2026-08-31; latest
+**State on 2026-08-31:** #2163 merged upstream 2026-08-31T07:18:26Z; latest
 `openmls_memory_storage` release is 0.6.0, published 2026-08-25 — before the
 fix. No release carries it. Read the release's source, not its version number.
 
-> Note for whoever follows the trail: PR #850's *title* cites
-> "openmls#2188", which does not exist. The body and `rs/deny.toml` both cite
-> **#2163**, which is the real PR. Trust the code comment.
+> Two upstream numbers, and they are not alternatives:
+> [openmls/openmls#2188](https://github.com/openmls/openmls/issues/2188) is the
+> **issue** — ours, "`clear_proposal_queue` removes a key nothing was stored
+> under, leaking every proposal body", closed as completed 2026-08-31 with
+> "Fixed by #2163" — and
+> [openmls/openmls#2163](https://github.com/openmls/openmls/pull/2163) is the
+> **pull request** that fixed it. PR #850's title cites the issue and
+> `rs/deny.toml` cites the PR; both are correct. The exit condition is keyed to
+> **#2163**, because a release either contains that commit or does not, whereas
+> a closed issue says nothing about what was published.
 
 ---
 
@@ -169,9 +176,15 @@ piece of housekeeping:
   --remote` will never move it again.
 * **`z/hhanh00/warp` is dormant**: last push 2024-12-22, ~20 months ago, not
   archived. Reference-only, and nobody should expect it to move.
+* **`z/hhanh00/zwallet` is recently touched, but the touch was a deprecation
+  notice.** Its last commit is 2026-08-23, `Update README to reflect Zcash
+  deprecation (#274)`; the one before it is 2026-06-04, a release chore. So
+  neither "dormant" nor "actively maintained" is the useful word — the fact a
+  reader needs when deciding whether to keep vendoring it is that its most
+  recent act upstream was to announce it is winding down.
 
-One claim worth correcting: **`z/hhanh00/zwallet` is *not* dormant** — last
-push 2026-08-23, eight days before this verification. Only `warp` is.
+Both are reference-only, so neither can break a build; the distinction matters
+only to whether we keep carrying them.
 
 ### `.gitmodules` `branch` fields
 

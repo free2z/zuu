@@ -160,12 +160,19 @@ const HOLD_TOKENS = [
 const NARRATIVE_TOKENS = [
   // 4. openmls_memory_storage — cross-referenced, never duplicated.
   "openmls_memory_storage",
+  // BOTH numbers, deliberately. #2188 is the issue and #2163 is the pull
+  // request that fixed it; an earlier draft of the register asserted that
+  // #2188 "does not exist" because `/pulls/2188` 404s for an issue number.
+  // Requiring both here means the register cannot lose the half that makes
+  // the other half unambiguous.
   "openmls/openmls#2163",
+  "openmls/openmls#2188",
   "rs/deny.toml",
   // 5. z/ submodule policy.
   "langchain/zcash/store.py",
   "z/zcash/zcash",
   "z/hhanh00/warp",
+  "z/hhanh00/zwallet",
 ];
 
 const VERIFIED_MARKER = /<!--\s*verified:\s*(\d{4}-\d{2}-\d{2})\s*-->/;
@@ -551,35 +558,69 @@ export async function upstreamFindings(snapshot, deps = {}) {
   for (const tracked of TRACKED) {
     // 2. Exit conditions.
     if (tracked.exitPr) {
-      const pull = await api(
-        `repos/${tracked.upstreamRepo}/pulls/${tracked.exitPr}`,
+      // RESOLVE VIA `/issues/{n}`, NEVER `/pulls/{n}`.
+      //
+      // On GitHub every pull request is also an issue, but not every issue is
+      // a pull request — and `/pulls/{n}` returns a bare 404 for an issue
+      // number. That 404 would surface here as a thrown error and exit 2,
+      // which dependency-register.yml reads as "the script or the network
+      // broke" rather than "someone registered an issue number". A wrong
+      // registration would then look exactly like an api.github.com outage.
+      //
+      // This is not hypothetical: the openmls defect tracked in section 4 of
+      // the register is issue #2188, fixed by pull request #2163, and
+      // confusing the two is what `/pulls/2188` 404ing already caused once.
+      // `/issues/{n}` resolves both shapes, and the `pull_request` key is what
+      // distinguishes them.
+      const reference = `${tracked.upstreamRepo}#${tracked.exitPr}`;
+      const issue = await api(
+        `repos/${tracked.upstreamRepo}/issues/${tracked.exitPr}`,
       );
-      if (pull.merged) {
+      const isPullRequest = issue.pull_request != null;
+      if (!isPullRequest) {
+        // An issue closing says the maintainers consider it handled; it does
+        // not say a release carries the fix, which is what retires a pin. So
+        // this is a finding about the *registration*, not about upstream.
+        note(
+          "drift",
+          `${tracked.id}: registered exit reference ${reference} is an issue, not a pull request`,
+          "An issue's state does not tell you whether the fix shipped. Register the pull " +
+            "request that closes it, so `merged` is the signal.",
+        );
+      } else if (issue.pull_request.merged_at) {
         note(
           "exit",
-          `${tracked.id}: ${tracked.upstreamRepo}#${tracked.exitPr} MERGED (${pull.merged_at}) — drop the fork`,
+          `${tracked.id}: ${reference} MERGED (${issue.pull_request.merged_at}) — drop the fork`,
           `Move the submodule back to https://github.com/${tracked.upstreamRepo} + \`${tracked.upstreamBranch}\`, ` +
             `drop the pin, and retire section for \`${tracked.id}\` in ${REGISTER_PATH}.`,
         );
-      } else if (pull.state === "closed") {
+      } else if (issue.state === "closed") {
         note(
           "drift",
-          `${tracked.id}: ${tracked.upstreamRepo}#${tracked.exitPr} was CLOSED without merging`,
+          `${tracked.id}: ${reference} was CLOSED without merging`,
           "The exit condition can never fire. Either reopen it upstream or the fork needs a new plan.",
         );
       }
+
       // Upstream gates fork-PR workflows behind maintainer approval, so this
       // is expected to be zero. It is recorded rather than asserted: the point
       // is that "wait for green upstream" is not a signal available here.
-      const checks = await api(
-        `repos/${tracked.upstreamRepo}/commits/${pull.head.sha}/check-runs`,
-      );
-      if (checks.total_count === 0) {
-        note(
-          "info",
-          `${tracked.id}: upstream has still run no CI on ${tracked.upstreamRepo}#${tracked.exitPr}`,
-          "`check-runs` total_count is 0. Our own `gate` / `rs / gate` remain the only evidence.",
+      //
+      // Only a pull request has a head commit to ask about.
+      if (isPullRequest) {
+        const pull = await api(
+          `repos/${tracked.upstreamRepo}/pulls/${tracked.exitPr}`,
         );
+        const checks = await api(
+          `repos/${tracked.upstreamRepo}/commits/${pull.head.sha}/check-runs`,
+        );
+        if (checks.total_count === 0) {
+          note(
+            "info",
+            `${tracked.id}: upstream has still run no CI on ${reference}`,
+            "`check-runs` total_count is 0. Our own `gate` / `rs / gate` remain the only evidence.",
+          );
+        }
       }
     }
     if (tracked.exitCrate) {
@@ -891,15 +932,20 @@ async function runUpstreamSelfTest() {
   /// Every reply an unremarkable week produces: PR open, no upstream CI, fork
   /// level with its base, both fork branches at one commit, every remote branch
   /// present.
+  ///
+  /// `/issues/{n}` carries a `pull_request` object, which is how GitHub marks
+  /// an issue that is also a pull request — the distinction the resolution
+  /// above depends on, so the fake has to reproduce it rather than flatten it.
   const quiet = () => ({
     githubJson: async (route) => {
-      if (/\/pulls\/\d+$/.test(route)) {
+      if (/\/issues\/\d+$/.test(route)) {
         return {
-          merged: false,
-          merged_at: null,
           state: "open",
-          head: { sha: "a".repeat(40) },
+          pull_request: { merged_at: null },
         };
+      }
+      if (/\/pulls\/\d+$/.test(route)) {
+        return { head: { sha: "a".repeat(40) } };
       }
       if (route.endsWith("/check-runs")) return { total_count: 4 };
       if (route.includes("/compare/")) {
@@ -930,12 +976,10 @@ async function runUpstreamSelfTest() {
       {
         ...quiet(),
         githubJson: async (route) => {
-          if (/\/pulls\/\d+$/.test(route)) {
+          if (/\/issues\/\d+$/.test(route)) {
             return {
-              merged: true,
-              merged_at: "2026-09-01T00:00:00Z",
               state: "closed",
-              head: { sha: "a".repeat(40) },
+              pull_request: { merged_at: "2026-09-01T00:00:00Z" },
             };
           }
           return quiet().githubJson(route);
@@ -949,19 +993,35 @@ async function runUpstreamSelfTest() {
       {
         ...quiet(),
         githubJson: async (route) => {
-          if (/\/pulls\/\d+$/.test(route)) {
-            return {
-              merged: false,
-              merged_at: null,
-              state: "closed",
-              head: { sha: "a".repeat(40) },
-            };
+          if (/\/issues\/\d+$/.test(route)) {
+            return { state: "closed", pull_request: { merged_at: null } };
           }
           return quiet().githubJson(route);
         },
       },
       baseline,
       "CLOSED without merging",
+    ],
+    [
+      // The defect the coordinator caught in review: `/pulls/{n}` 404s on an
+      // issue number, so registering an issue used to crash the run and read
+      // as an outage. It must now be a named finding instead.
+      "the registered exit reference is an issue, not a pull request",
+      {
+        ...quiet(),
+        githubJson: async (route) => {
+          if (/\/issues\/\d+$/.test(route)) {
+            // No `pull_request` key: this is what a plain issue looks like.
+            return { state: "closed", state_reason: "completed" };
+          }
+          if (/\/pulls\/\d+$/.test(route)) {
+            throw new Error("GET pulls -> 404 Not Found");
+          }
+          return quiet().githubJson(route);
+        },
+      },
+      baseline,
+      "is an issue, not a pull request",
     ],
     [
       "the fork falls behind its upstream base",
