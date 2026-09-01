@@ -511,7 +511,27 @@ async function constrainedViteConfigurationAudit(
       ],
       {
         cwd: project.projectRoot,
-        env: { ...process.env, NODE_OPTIONS: "" },
+        // This sandbox exists to audit reads, not to mint a releasable,
+        // provenance-stamped build: it deliberately does not grant
+        // `--allow-child-process` (Node's own permission model flags that
+        // escape hatch as dangerous enough to "invalidate the permission
+        // model"), so `wallet/zuuli/scripts/build-identity.mjs` can never
+        // shell out to `git` in here to confirm a clean checkout. Left
+        // alone, an inherited `GITHUB_ACTIONS`/`GITHUB_SHA` (or an
+        // explicit `ZUULI_RELEASE_SOURCE_SHA`) makes build-identity treat
+        // that unverifiable state as a dirty checkout carrying a declared
+        // source SHA, which it correctly refuses to vouch for. Stripping
+        // the declared-source-SHA inputs here keeps that guard's contract
+        // intact — the SAME real production config/build still runs, it
+        // just runs undeclared, the documented local-dev shape build-
+        // identity already supports (`sourceCommit: null`).
+        env: {
+          ...process.env,
+          NODE_OPTIONS: "",
+          GITHUB_ACTIONS: undefined,
+          GITHUB_SHA: undefined,
+          ZUULI_RELEASE_SOURCE_SHA: undefined,
+        },
         maxBuffer: 16 * 1024 * 1024,
       },
     );
