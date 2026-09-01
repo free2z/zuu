@@ -246,6 +246,13 @@ const UNGATED_WORKFLOWS = new Map([
       "scripts/check-zuuli-linux-image.mjs.",
   ],
   [
+    ".github/workflows/zuuli-store-capture-image.yml",
+    "Builds and publishes the pinned store-capture worker: its pull-request leg is path-filtered " +
+      "and its `publish` leg only runs on main. Its image sources, action pins, publication " +
+      "authority and required-gate selector are enforced on every pull request by " +
+      "scripts/check-zuuli-store-capture-image.mjs inside the wallet/zuuli gate.",
+  ],
+  [
     ".github/workflows/zuuli-packaging.yml",
     "Path-filtered Android/iOS/desktop packaging rehearsal, plus a weekly cache-free run. The Rust " +
       "and TypeScript surface it packages is gated through zuuli.yml; this workflow proves the " +

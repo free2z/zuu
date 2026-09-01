@@ -2,13 +2,21 @@ import { Toaster as Sonner } from "sonner";
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
+const viewportOffsets = {
+  right: "var(--toast-horizontal-offset)",
+  bottom: "var(--toast-bottom-offset)",
+  left: "var(--toast-horizontal-offset)",
+} as const;
+
 /** App-wide toast host. Import { toast } from "sonner" to fire toasts. */
 const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
       theme="dark"
-      className="toaster group"
+      className="app-toaster toaster group"
       position="bottom-right"
+      offset={viewportOffsets}
+      mobileOffset={viewportOffsets}
       toastOptions={{
         classNames: {
           toast:
