@@ -43,6 +43,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@free2z/wallet-shared": "file:../shared",
     "@cloudflare/realtimekit": "1.5.1",
     "@cloudflare/realtimekit-react": "1.5.1",
     "@cloudflare/realtimekit-react-ui": "1.2.0",

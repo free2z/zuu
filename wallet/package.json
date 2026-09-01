@@ -1,0 +1,7 @@
+{
+  "name": "@free2z/wallet-workspace",
+  "private": true,
+  "workspaces": [
+    "shared"
+  ]
+}

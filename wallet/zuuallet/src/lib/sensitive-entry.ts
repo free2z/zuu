@@ -3,7 +3,7 @@ import {
   SensitiveEntrySession,
   bindSensitiveEntryLifecycle,
   type SensitiveEntryPurpose,
-} from "../../../shared/sensitive-entry-session";
+} from "@free2z/wallet-shared";
 import * as api from "./tauri";
 
 const authority = {

@@ -14,7 +14,7 @@ const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 const changeDetectorDigest =
-  "68559def69ef345764693d2364b66e8a7a4d67006c746ec023fd48520af6a192";
+  "08fcca68b909a7349a7a1e4703d274104a9a7565ff60c75b7e82c90e7ac04c1b";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
@@ -22,19 +22,9 @@ const messagingContractInputs = [
   "docs/e2ee/CLIENT-CONTRACT.md",
   "docs/e2ee/WIRE.md",
 ];
-const classicSeedBoundaryInputs = [
-  "wallet/shared/sensitive-entry-session.ts",
-  "wallet/zuuallet/src/hooks/useWallet.ts",
-  "wallet/zuuallet/src/lib/mnemonic.ts",
-  "wallet/zuuallet/src/lib/sensitive-entry.ts",
-  "wallet/zuuallet/src/lib/sensitive-seed-session.ts",
-  "wallet/zuuallet/src/lib/sensitive-seed.ts",
-  "wallet/zuuallet/src/lib/tauri.ts",
-  "wallet/zuuallet/src/pages/CreateWallet.tsx",
-  "wallet/zuuallet/src/pages/RestoreWallet.tsx",
-  "wallet/zuuallet/src/pages/Settings.tsx",
-  "wallet/zuuallet/src/pages/Welcome.tsx",
-  "wallet/zuuallet/src/types/index.ts",
+const requiredWalletBoundarySelectors = [
+  "wallet/shared/*",
+  "wallet/zuuallet/*",
 ];
 
 function job(workflow, name) {
@@ -128,10 +118,14 @@ function check(
       "change detector differs from the reviewed fail-open/fail-closed selector step",
     );
   }
-  const zuuliCase = detector.match(
-    /case "\$file" in\n\s+([^\n]+)\)\n\s+zuuli=true/,
-  );
-  const selectedPatterns = zuuliCase?.[1].split("|").map((entry) => entry.trim()) ?? [];
+  const zuuliPatternSets = detector
+    .split("\n")
+    .map((line) => line.split("#", 1)[0].trim())
+    .filter((line) => line.endsWith(")"))
+    .map((line) => line.slice(0, -1).split("|").map((entry) => entry.trim()));
+  const selectedPatterns =
+    zuuliPatternSets.find((patterns) => patterns.includes(policyPath)) ?? [];
+  const allSelectedPatterns = new Set(zuuliPatternSets.flat());
   if (!selectedPatterns.includes(policyPath)) {
     failures.push("Android gate policy changes must select the full ZUULI suite");
   }
@@ -157,9 +151,9 @@ function check(
       );
     }
   }
-  for (const input of classicSeedBoundaryInputs) {
-    if (!selectedPatterns.includes(input)) {
-      failures.push(`classic seed-boundary input must select ZUULI: ${input}`);
+  for (const input of requiredWalletBoundarySelectors) {
+    if (!allSelectedPatterns.has(input)) {
+      failures.push(`wallet package-boundary input must select ZUULI: ${input}`);
     }
   }
 
@@ -292,6 +286,16 @@ function check(
 }
 
 function runSelfTest(workflow, toolchainEnv) {
+  const selectorMutation = (input) => {
+    for (const [from, to] of [
+      [`|${input}|`, "|"],
+      [`|${input})`, ")"],
+      [`${input}|`, ""],
+    ]) {
+      if (workflow.includes(from)) return [from, to];
+    }
+    throw new Error(`self-test selector fixture missing: ${input}`);
+  };
   const mutations = [
     [
       "the change detector restores a line-delimited Git producer",
@@ -372,16 +376,19 @@ function runSelfTest(workflow, toolchainEnv) {
       "|wallet/zuuli/src/features/chat/*|",
       "messaging changes must retain the full wallet/zuuli/* selector",
     ],
+    ...requiredWalletBoundarySelectors.map((input) => {
+      const [from, to] = selectorMutation(input);
+      return [
+        `wallet package-boundary input no longer selects ZUULI: ${input}`,
+        from,
+        to,
+      ];
+    }),
     ...messagingContractInputs.map((input) => [
       `messaging contract input no longer selects ZUULI: ${input}`,
       `|${input}|`,
       "|",
       `messaging contract input must select ZUULI: ${input}`,
-    ]),
-    ...classicSeedBoundaryInputs.map((input) => [
-      `classic seed-boundary input no longer selects ZUULI: ${input}`,
-      `|${input}|`,
-      "|",
     ]),
     [
       "the live policy invocation is removed",

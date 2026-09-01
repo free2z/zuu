@@ -309,23 +309,30 @@ const REQUIRED_NATIVE_CLIPPY_INPUTS = [
   "wallet/future-crate/clippy.toml",
   "wallet/future-crate/.clippy.toml",
 ];
-const REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS = [
-  "wallet/shared/sensitive-entry-session.ts",
-  "wallet/zuuallet/package.json",
-  "wallet/zuuallet/package-lock.json",
-  "wallet/zuuallet/src/hooks/useWallet.ts",
-  "wallet/zuuallet/src/lib/mnemonic.ts",
-  "wallet/zuuallet/src/lib/sensitive-entry.ts",
-  "wallet/zuuallet/src/lib/sensitive-seed-session.ts",
-  "wallet/zuuallet/src/lib/sensitive-seed.ts",
-  "wallet/zuuallet/src/lib/tauri.ts",
-  "wallet/zuuallet/src/pages/CreateWallet.tsx",
-  "wallet/zuuallet/src/pages/RestoreWallet.tsx",
-  "wallet/zuuallet/src/pages/Settings.tsx",
-  "wallet/zuuallet/src/pages/Welcome.tsx",
-  "wallet/zuuallet/src/pages/sensitive-entry-routes.test.tsx",
-  "wallet/zuuallet/src/types/index.ts",
-];
+function walletProjectBoundaryInputs(repoRoot) {
+  const walletRoot = path.join(repoRoot, "wallet");
+  const projects = fs
+    .readdirSync(walletRoot, { withFileTypes: true })
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .filter((entry) => {
+      if (entry.isSymbolicLink()) {
+        throw new Error(`wallet project population contains a symbolic link: wallet/${entry.name}`);
+      }
+      if (!entry.isDirectory()) return false;
+      const projectRoot = path.join(walletRoot, entry.name);
+      return (
+        fs.existsSync(path.join(projectRoot, "package.json")) &&
+        fs.statSync(path.join(projectRoot, "package.json")).isFile() &&
+        fs.existsSync(path.join(projectRoot, "src")) &&
+        fs.statSync(path.join(projectRoot, "src")).isDirectory()
+      );
+    })
+    .map((entry) => `wallet/${entry.name}/*`);
+  if (projects.length === 0) {
+    throw new Error("wallet project population contains no package manifest with a src directory");
+  }
+  return ["wallet/package.json", "wallet/package-lock.json", ...projects];
+}
 const REQUIRED_FRONTEND_PACKAGE_SCRIPTS = new Map([
   [
     "test",
@@ -345,7 +352,7 @@ const REQUIRED_FRONTEND_PACKAGE_SCRIPTS = new Map([
 const REQUIRED_CLASSIC_PACKAGE_SCRIPTS = new Map([
   [
     "test:sensitive-entry",
-    "vitest run src/pages/sensitive-entry-routes.test.tsx",
+    "vitest run src/pages/sensitive-entry-routes.test.tsx src/lib/sensitive-seed-session.test.ts src/lib/sensitive-entry-bridge.test.ts src/lib/sensitive-entry-hook.test.tsx",
   ],
 ]);
 const REQUIRED_FRONTEND_BUILD_TSCONFIG = Object.freeze({
@@ -409,6 +416,10 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "        run: |",
   "          npm run typecheck",
   "          npm run typecheck:tests",
+  "      - name: Verify wallet project boundaries",
+  "        run: |",
+  "          node --test scripts/project-boundary.node-test.mjs",
+  "          node scripts/project-boundary.mjs",
   "      - name: Verify RTL source policy",
   "        run: |",
   "          node --test scripts/rtl-source-policy.node-test.mjs",
@@ -1472,6 +1483,16 @@ function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
     "frontend Rust/WASM installation must be exact, pinned, unconditional, and non-decorative",
   );
   exactNamedStep(
+    "Verify wallet project boundaries",
+    [
+      "      - name: Verify wallet project boundaries",
+      "        run: |",
+      "          node --test scripts/project-boundary.node-test.mjs",
+      "          node scripts/project-boundary.mjs",
+    ].join("\n"),
+    "wallet project boundary must be self-tested and enforced exactly",
+  );
+  exactNamedStep(
     "Verify RTL source policy",
     [
       "      - name: Verify RTL source policy",
@@ -1502,7 +1523,7 @@ function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
   return failures;
 }
 
-function requiredWasmSelectorFailures(relativeFile, lines, changes) {
+function requiredWasmSelectorFailures(repoRoot, relativeFile, lines, changes) {
   const failures = [];
   const steps = policyJobSteps(
     relativeFile,
@@ -1549,10 +1570,17 @@ function requiredWasmSelectorFailures(relativeFile, lines, changes) {
       );
     }
   }
-  for (const input of REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS) {
-    if (!zuuliPatterns.has(input)) {
+  const allZuuliPatterns = new Set(
+    source
+      .split("\n")
+      .map((line) => line.split("#", 1)[0].trim())
+      .filter((line) => line.endsWith(")"))
+      .flatMap((line) => line.slice(0, -1).split("|")),
+  );
+  for (const input of walletProjectBoundaryInputs(repoRoot)) {
+    if (!allZuuliPatterns.has(input)) {
       failures.push(
-        `${relativeFile}:${detectors[0].start + 1}: ZUULI selector must run the seed boundary for classic input ${input}`,
+        `${relativeFile}:${detectors[0].start + 1}: ZUULI selector must run the project boundary for ${input}`,
       );
     }
   }
@@ -2669,7 +2697,7 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
     );
     if (enforceWasmBoundary) {
       failures.push(
-        ...requiredWasmSelectorFailures(relativeFile, lines, changes),
+        ...requiredWasmSelectorFailures(repoRoot, relativeFile, lines, changes),
       );
     }
     if (enforceNativeClippy) {
@@ -3651,6 +3679,80 @@ function runRustRootWorkflowMutationTests(repoRoot) {
   return cases;
 }
 
+function runWalletProjectDiscoveryTests(repoRoot) {
+  const fixtureRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "wallet-workflow-project-discovery-"),
+  );
+  try {
+    const walletRoot = path.join(fixtureRoot, "wallet");
+    fs.mkdirSync(walletRoot, { recursive: true });
+    for (const project of ["future-wallet", "shared", "zuuallet", "zuuli"]) {
+      const projectRoot = path.join(walletRoot, project);
+      fs.mkdirSync(path.join(projectRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(projectRoot, "package.json"),
+        `${JSON.stringify({ name: project, private: true })}\n`,
+      );
+    }
+    fs.mkdirSync(path.join(walletRoot, "documentation", "src"), {
+      recursive: true,
+    });
+    const inputs = walletProjectBoundaryInputs(fixtureRoot);
+    const expected = [
+      "wallet/package.json",
+      "wallet/package-lock.json",
+      "wallet/future-wallet/*",
+      "wallet/shared/*",
+      "wallet/zuuallet/*",
+      "wallet/zuuli/*",
+    ];
+    if (JSON.stringify(inputs) !== JSON.stringify(expected)) {
+      throw new Error(
+        `wallet project discovery population drifted: ${JSON.stringify(inputs)}`,
+      );
+    }
+    console.log("self-test: future wallet source project joins selector population: passed");
+
+    const relative = path.join(".github", "workflows", "zuuli.yml");
+    const source = fs.readFileSync(path.join(repoRoot, relative), "utf8");
+    const selectorFailures = (workflowSource) => {
+      const lines = workflowSource.split(/\r?\n/);
+      const failures = [];
+      const changes = policyWorkflowJobs(relative, lines, failures).get("changes");
+      if (!changes) {
+        failures.push(`${relative}: required workflow must contain the changes job`);
+        return failures;
+      }
+      failures.push(
+        ...requiredWasmSelectorFailures(fixtureRoot, relative, lines, changes),
+      );
+      return failures;
+    };
+    const missing = selectorFailures(source);
+    const needle =
+      "ZUULI selector must run the project boundary for wallet/future-wallet/*";
+    if (!missing.some((failure) => failure.includes(needle))) {
+      throw new Error(
+        `future wallet selector drift escaped policy: ${missing.join("; ") || "success"}`,
+      );
+    }
+    console.log("self-test: future wallet without selector coverage is rejected: passed");
+
+    const coveredSource = source.replace(
+      "|wallet/shared/*",
+      "|wallet/future-wallet/*|wallet/shared/*",
+    );
+    const covered = selectorFailures(coveredSource);
+    if (covered.some((failure) => failure.includes(needle))) {
+      throw new Error(`future wallet selector coverage was not recognized: ${covered.join("; ")}`);
+    }
+    console.log("self-test: future wallet exact selector coverage is recognized: passed");
+    return 3;
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
 function runCurrentWorkflowMutationTests(repoRoot) {
   const relative = path.join(".github", "workflows", "zuuli.yml");
   const source = fs.readFileSync(path.join(repoRoot, relative), "utf8");
@@ -4201,8 +4303,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "ZUULI selector must contain one active wallet/zuuli/* case pattern",
       source: source.replace(
-        "wallet/zuuli/*|wallet/plugins/*",
-        "wallet/zuuli/src/*|wallet/plugins/*",
+        "wallet/zuuli/*|wallet/zuuallet/*",
+        "wallet/zuuli/src/*|wallet/zuuallet/*",
       ),
     },
     {
@@ -4210,8 +4312,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "ZUULI selector must contain one active wallet/zuuli/* case pattern",
       source: source.replace(
-        "wallet/zuuli/*|wallet/plugins/*",
-        "wallet/zuuli/src/*|wallet/plugins/* # wallet/zuuli/*|",
+        "wallet/zuuli/*|wallet/zuuallet/*",
+        "wallet/zuuli/src/*|wallet/zuuallet/* # wallet/zuuli/*|",
       ),
     },
     {
@@ -4230,11 +4332,28 @@ function runCurrentWorkflowMutationTests(repoRoot) {
         "Zuuallet schema selector must cover scripts/check-librustzcash-compat.mjs",
       source: replaceLast(source, "|scripts/check-librustzcash-compat.mjs", ""),
     },
-    ...REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS.map((input) => ({
-      name: `real workflow selects classic seed-boundary input ${input}`,
-      needle: `ZUULI selector must run the seed boundary for classic input ${input}`,
+    ...walletProjectBoundaryInputs(repoRoot).map((input) => ({
+      name: `real workflow selects project-boundary input ${input}`,
+      needle:
+        input === "wallet/zuuli/*"
+          ? "ZUULI selector must contain one active wallet/zuuli/* case pattern"
+          : `ZUULI selector must run the project boundary for ${input}`,
       source: source.replace(`|${input}`, ""),
     })),
+    {
+      name: "real workflow rejects a deleted wallet project-boundary verdict",
+      needle: "wallet project boundary must be self-tested and enforced exactly",
+      source: replaceFrontend(
+        [
+          "      - name: Verify wallet project boundaries",
+          "        run: |",
+          "          node --test scripts/project-boundary.node-test.mjs",
+          "          node scripts/project-boundary.mjs",
+          "",
+        ].join("\n"),
+        "",
+      ),
+    },
     {
       name: "real workflow rejects a deleted RTL policy self-test",
       needle: "RTL source policy must be self-tested and enforced exactly",
@@ -4263,6 +4382,22 @@ function runCurrentWorkflowMutationTests(repoRoot) {
           "",
         ].join("\n"),
         "",
+      ),
+    },
+    {
+      name: "real workflow rejects a soft-failing wallet project-boundary verdict",
+      needle: "wallet project boundary must be self-tested and enforced exactly",
+      source: replaceFrontend(
+        "      - name: Verify wallet project boundaries",
+        "      - name: Verify wallet project boundaries\n        continue-on-error: true",
+      ),
+    },
+    {
+      name: "real workflow rejects a decorative wallet project-boundary verdict",
+      needle: "wallet project boundary must be self-tested and enforced exactly",
+      source: replaceFrontend(
+        "          node scripts/project-boundary.mjs",
+        "          true # node scripts/project-boundary.mjs",
       ),
     },
     {
@@ -4865,6 +5000,23 @@ function runFrontendBuildContractMutationTests(repoRoot) {
     },
     'package script "test:sensitive-entry" must equal',
   );
+  for (const testPath of [
+    "src/pages/sensitive-entry-routes.test.tsx",
+    "src/lib/sensitive-seed-session.test.ts",
+    "src/lib/sensitive-entry-bridge.test.ts",
+    "src/lib/sensitive-entry-hook.test.tsx",
+  ]) {
+    addMutation(
+      `live classic package contract rejects missing owned test ${testPath}`,
+      "wallet/zuuallet/package.json",
+      (manifest) => {
+        manifest.scripts["test:sensitive-entry"] = manifest.scripts[
+          "test:sensitive-entry"
+        ].replace(` ${testPath}`, "");
+      },
+      'package script "test:sensitive-entry" must equal',
+    );
+  }
   addMutation(
     "live production tsconfig rejects noCheck",
     "wallet/zuuli/tsconfig.build.json",
@@ -5975,12 +6127,14 @@ function runSelfTest(repoRoot) {
     console.log(`self-test: gate verdict: ${testCase.name}: passed`);
   }
   const currentWorkflowMutations = runCurrentWorkflowMutationTests(repoRoot);
+  const projectDiscoveryMutations = runWalletProjectDiscoveryTests(repoRoot);
   const frontendBuildMutations =
     runFrontendBuildContractMutationTests(repoRoot);
   const rustRootWorkflowMutations = runRustRootWorkflowMutationTests(repoRoot);
   console.log(
     `self-test: ${cases.length} source-policy, ${gateResultCases.length} gate-verdict, ` +
-      `${currentWorkflowMutations} current-workflow, ${frontendBuildMutations} frontend-build, ` +
+      `${currentWorkflowMutations} current-workflow, ${projectDiscoveryMutations} project-discovery, ` +
+      `${frontendBuildMutations} frontend-build, ` +
       `and ${rustRootWorkflowMutations} Rust-root ownership mutation case(s) passed.`,
   );
 }
