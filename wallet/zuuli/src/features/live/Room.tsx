@@ -294,8 +294,7 @@ function ConnectedStage({ ticket }: { ticket: DyteJoinTicket }) {
           {ticket.as === "host" ? "You're on air" : "You're connected"}
         </div>
         <p className="max-w-xs text-xs text-white/70">
-          Live video is powered by Dyte; this build shows the join/entitlement
-          flow end-to-end.
+          This build shows the join/entitlement flow end-to-end.
         </p>
       </div>
     </div>
@@ -528,8 +527,7 @@ function JoinPanel({
         ) : null}
 
         <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
-          Live video is powered by Dyte; this build shows the join/entitlement
-          flow end-to-end.
+          This build shows the join/entitlement flow end-to-end.
         </p>
       </div>
     </div>
