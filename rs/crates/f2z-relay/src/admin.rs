@@ -72,11 +72,42 @@ const MAX_REQUEST: usize = 2048;
 /// A bound on BYTES is not a bound on TIME: a client that connects and sends
 /// nothing holds a task and a descriptor for as long as it likes, and
 /// [`Scope::HealthOnly`] is reachable from the whole cluster rather than from
-/// loopback. Two seconds is chosen to be SHORTER than the probe's own
-/// `timeoutSeconds` (3-5s in the manifests): the server should give up before
-/// the client does, so a stuck peer is the server's descriptor to reclaim
-/// rather than the probe's deadline to miss.
+/// loopback. Two seconds is chosen to be SHORTER than the probes' own
+/// `timeoutSeconds` (see [`PROBE_TIMEOUT_FLOOR`]): the server should give up
+/// before the client does, so a stuck peer is the server's descriptor to
+/// reclaim rather than the probe's deadline to miss.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// The tightest `timeoutSeconds` among the k8s probes that dial this
+/// listener, pinned so [`REQUEST_TIMEOUT`]'s ordering against it cannot drift
+/// silently (#682).
+///
+/// This value lives half here and half in `k8s/f2z-relay/deployment.yaml` in
+/// the tuzi repo, which — as of the deployment this constant was last checked
+/// against — sets `startupProbe.timeoutSeconds: 5`,
+/// `readinessProbe.timeoutSeconds: 3`, and `livenessProbe.timeoutSeconds: 5`.
+/// Readiness is both the smallest of the three and the one that gates the
+/// Service/NEG, so it is the probe [`REQUEST_TIMEOUT`] has to beat: a relay
+/// that only outraces liveness would still let a stuck peer make the
+/// readiness probe time out first, pulling the pod out of rotation for the
+/// wrong reason.
+///
+/// Same shape as #665's `the_kubernetes_shape_is_valid_configuration`: a
+/// value that is correct today because a human copied it correctly, with
+/// nothing before this that would notice the two repos diverging. If either
+/// side's number moves, update this constant to match and re-derive
+/// `REQUEST_TIMEOUT` against it — the assertion below is what turns that
+/// drift into a build failure instead of a silent inversion.
+const PROBE_TIMEOUT_FLOOR: Duration = Duration::from_secs(3);
+
+/// Pins the ordering at compile time rather than only in a test that has to
+/// be run: if either constant above moves so `REQUEST_TIMEOUT` no longer
+/// beats `PROBE_TIMEOUT_FLOOR`, this fails to build.
+const _: () = assert!(
+    REQUEST_TIMEOUT.as_millis() < PROBE_TIMEOUT_FLOOR.as_millis(),
+    "REQUEST_TIMEOUT must stay shorter than PROBE_TIMEOUT_FLOOR (see its doc \
+     comment) so the relay gives up before the tightest k8s probe does"
+);
 
 /// How many requests this listener will have in flight at once.
 ///
@@ -297,5 +328,20 @@ mod tests {
                 .any(|character| character.is_ascii_digit())
         );
         assert_eq!(HEALTHZ_BODY, "ok\n");
+    }
+
+    #[test]
+    fn request_timeout_stays_shorter_than_the_probe_timeout_floor() {
+        // The invariant REQUEST_TIMEOUT's own doc claims but nothing pinned
+        // before #682: the server must give up before the tightest k8s probe
+        // does. See PROBE_TIMEOUT_FLOOR for where the other half of this
+        // relationship lives and why 3s (readiness) is the one that matters.
+        assert!(
+            REQUEST_TIMEOUT < PROBE_TIMEOUT_FLOOR,
+            "REQUEST_TIMEOUT ({REQUEST_TIMEOUT:?}) must stay below \
+             PROBE_TIMEOUT_FLOOR ({PROBE_TIMEOUT_FLOOR:?}); if you moved \
+             either one, re-check k8s/f2z-relay/deployment.yaml in tuzi and \
+             update whichever side is now wrong"
+        );
     }
 }
