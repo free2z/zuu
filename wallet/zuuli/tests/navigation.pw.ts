@@ -19,6 +19,22 @@ async function primaryNavigation(page: Page) {
   return navigation;
 }
 
+// The More dialog enters with `animate-slide-up` (a 0.24s translateY/opacity
+// tween — see tailwind.config.cjs). Reading its geometry while that
+// animation is still running is a real race: (1) its rows sit exactly at
+// the 44px `min-tap` floor with zero margin, so a mid-tween frame can read a
+// sub-pixel value just under 44px, and (2) while the CSS animation's own
+// per-frame transform is active it can paper over a resting-position bug —
+// see the `ltr:`/`rtl:` translate fix in Sidebar.tsx — that only becomes
+// visible once the animation's effect is removed. Wait for the dialog's own
+// entrance animations to actually finish (a real condition) before measuring
+// anything inside it, rather than racing the tween or padding with a sleep.
+async function waitForEntranceAnimations(element: Locator) {
+  await element.evaluate((node) =>
+    Promise.all(node.getAnimations().map((animation) => animation.finished)),
+  );
+}
+
 async function expectFiveItemGeometry(
   navigation: Locator,
   expectedLabels: readonly string[] = PRIMARY_LABELS,
@@ -111,6 +127,7 @@ for (const signedIn of [false, true]) {
 
       const dialog = page.getByRole("dialog", { name: "More" });
       await expect(dialog).toBeVisible();
+      await waitForEntranceAnimations(dialog);
       const dialogGeometry = await dialog.evaluate((element) => {
         const rect = element.getBoundingClientRect();
         return {
