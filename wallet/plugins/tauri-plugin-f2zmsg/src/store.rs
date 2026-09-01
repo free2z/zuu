@@ -244,13 +244,48 @@ pub struct InboundQueue {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OutboundQueue {
     pub relay_url: String,
+    /// The relay identity supplied with the peer's queue advert.
+    /// Empty only for stores written before adverts carried it; those continue
+    /// to work when the relay is already configured, but cannot open a new
+    /// connection without an identity to authenticate.
+    #[serde(default)]
+    pub relay_id: String,
     /// The peer's advertised send address, hex.
     pub send_addr: String,
     /// The seed for the send-side key we bind with, hex.
     pub send_key_seed: String,
-    /// Whether `BIND_SEND` has succeeded. Once-only and irreversible (§6.3), so
-    /// a second attempt is a client bug rather than a retry.
+    /// The durable state of the once-only `BIND_SEND` operation.
+    ///
+    /// Missing state is interpreted conservatively from the legacy `bound`
+    /// flag: false cannot prove no request was sent, while true is confirmed.
+    /// New and replaced adverts explicitly start [`BindState::Fresh`].
+    #[serde(default)]
+    pub bind_state: Option<BindState>,
+    /// Legacy compatibility for records written before `bind_state` existed.
+    /// New writes keep it in sync so older binaries still see confirmed binds.
+    #[serde(default)]
     pub bound: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BindState {
+    Fresh,
+    /// A request may have taken effect, but no response was durably observed.
+    OutcomeUnknown,
+    Confirmed,
+}
+
+impl OutboundQueue {
+    /// Interpret both the new state and legacy `bound` records conservatively.
+    #[must_use]
+    pub const fn effective_bind_state(&self) -> BindState {
+        match self.bind_state {
+            Some(state) => state,
+            None if self.bound => BindState::Confirmed,
+            None => BindState::OutcomeUnknown,
+        }
+    }
 }
 
 /// A conversation, as it survives a restart.
@@ -271,9 +306,10 @@ pub struct StoredConversation {
     pub ephemeral_hint: Option<EphemeralHintState>,
     pub receipt_policy: ReceiptPolicy,
     pub queues: StoredQueues,
-    /// Set when `WIRE.md` §7.4's `ERR_ALREADY_BOUND` on a first bind proves a
-    /// relay operator took the write capability. Sticky: it is evidence, not a
-    /// transient connection state.
+    /// Active compromise of this conversation's current outbound queue after
+    /// `WIRE.md` §7.4's `ERR_ALREADY_BOUND` on a first bind. A genuinely new
+    /// queue clears this flag; its non-dismissible alarm remains as sticky
+    /// historical evidence.
     pub send_address_stolen: bool,
     /// The last read message, so `unreadCount` survives a restart.
     pub read_through: Option<String>,
@@ -668,6 +704,26 @@ pub struct ContactQueue {
     pub recv_key_seed: String,
     pub next_index: u64,
     pub acked_through: Option<u64>,
+    /// Single-use key packages the relay held at the last publish (§12.6).
+    ///
+    /// The relay's own count, not this device's guess at one. It is the only
+    /// way to know how many were claimed while this device was away, and it is
+    /// what the low-water rule is applied to. `serde(default)` so a store
+    /// written before §12.6 opens as a pool of zero — which is the truth, and
+    /// which makes the next `start_engine` publish one.
+    #[serde(default)]
+    pub key_package_pool: u32,
+    /// Whether the relay holds a package of last resort for this device.
+    #[serde(default)]
+    pub has_last_resort: bool,
+    /// Expiry of the package of last resort this device most recently
+    /// published, in Unix milliseconds.
+    ///
+    /// This is deliberately local metadata: the relay treats key-package
+    /// bytes as opaque. An old store has no value, which makes the next online
+    /// pump rotate immediately instead of assuming an unbounded lifetime.
+    #[serde(default)]
+    pub last_resort_expires_at_ms: Option<i64>,
 }
 
 /// A pending first-contact request (§3.3), before it becomes a conversation.
@@ -689,6 +745,11 @@ pub struct StoredContactRequest {
     /// The peer's advertised send address and relay, hex/url.
     pub peer_send_addr: String,
     pub peer_relay_url: String,
+    #[serde(default)]
+    pub peer_relay_id: String,
+    /// Active device and signature authenticating the routing advert.
+    pub advert_device_pk: String,
+    pub advert_signature: String,
 }
 
 fn store_error(what: &str, error: &f2z_msg_store::StoreError) -> Error {
@@ -733,6 +794,62 @@ mod tests {
             },
             send_address_stolen: false,
             read_through: None,
+        }
+    }
+
+    #[test]
+    fn legacy_bind_records_default_conservatively_and_preserve_confirmed_truth() {
+        let legacy_false: OutboundQueue = serde_json::from_value(serde_json::json!({
+            "relay_url": "wss://relay.example",
+            "send_addr": "00",
+            "send_key_seed": "11",
+            "bound": false
+        }))
+        .expect("legacy unbound queue");
+        assert_eq!(
+            legacy_false.effective_bind_state(),
+            BindState::OutcomeUnknown,
+            "absence of the new state cannot prove an old client never sent BIND_SEND"
+        );
+
+        let legacy_true: OutboundQueue = serde_json::from_value(serde_json::json!({
+            "relay_url": "wss://relay.example",
+            "send_addr": "00",
+            "send_key_seed": "11",
+            "bound": true
+        }))
+        .expect("legacy bound queue");
+        assert_eq!(
+            legacy_true.effective_bind_state(),
+            BindState::Confirmed,
+            "legacy success evidence must remain confirmed"
+        );
+
+        let explicit_fresh: OutboundQueue = serde_json::from_value(serde_json::json!({
+            "relay_url": "wss://relay.example",
+            "send_addr": "00",
+            "send_key_seed": "11",
+            "bind_state": "fresh",
+            "bound": false
+        }))
+        .expect("new fresh queue");
+        assert_eq!(explicit_fresh.effective_bind_state(), BindState::Fresh);
+
+        for state in [BindState::OutcomeUnknown, BindState::Confirmed] {
+            let queue = OutboundQueue {
+                relay_url: "wss://relay.example".into(),
+                relay_id: String::new(),
+                send_addr: "00".into(),
+                send_key_seed: "11".into(),
+                bind_state: Some(state),
+                // The compatibility view makes an old reader skip a first-bind
+                // retry; only a new reader may perform stateful reconciliation.
+                bound: true,
+            };
+            let json = serde_json::to_value(&queue).expect("serialize queue");
+            assert_eq!(json["bound"], true, "downgrade view for {state:?}");
+            let roundtrip: OutboundQueue = serde_json::from_value(json).expect("roundtrip queue");
+            assert_eq!(roundtrip.effective_bind_state(), state);
         }
     }
 

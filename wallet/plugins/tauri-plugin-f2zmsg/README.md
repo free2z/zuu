@@ -216,8 +216,9 @@ crate is referenced in `zcash_primitives`' source at all.
 So, per `AGENTS.md`'s "branch, PR, pin, resume", **two transient pins**:
 
 * `z/zcash/librustzcash` → **free2z/librustzcash**
-  `f2z/drop-stale-rustcrypto-rc-pins`: upstream `main` at the previously
-  reviewed `330e4c0` plus that 4-line deletion.
+  `f2z/drop-stale-rustcrypto-rc-pins`: upstream `main` at the currently
+  reviewed `91f448b` plus that 4-line deletion, offered upstream as
+  zcash/librustzcash#3010 and rebased forward as upstream `main` moves.
 * `[patch.crates-io] bip32` → **free2z/crates** `f2z/bip32-secp256k1-0.29`,
   pinned by `rev`. iqlusioninc/crates `main` already moved bip32 onto the
   released RustCrypto lines — but the same branch bumped `secp256k1-ffi`
@@ -258,27 +259,40 @@ unchanged (§11.2: a client that cannot promise durability must not ACK); its
 blast radius was. `setup` now always registers its state and never returns
 `Err`, because failing soft is *not* skipping `app.manage(..)`:
 `F2zMsgExt::f2zmsg` is `state::<F2zMsg<R>>().inner()`, which panics on an
-unmanaged type, so all 43 commands would have panicked instead of refusing.
+unmanaged type, so every command that needs state would have panicked instead
+of refusing.
 `F2zMsg` holds the engine **or** the §8 code that stopped it being built,
 `F2zMsg::engine` returns a `Result` — so the compiler, not a convention, is what
-makes every command handle it — `get_engine_status` answers §6.1's `faulted`
-carrying that code, and everything else refuses with it.
+makes every engine-dependent command handle it. `get_engine_status` answers
+§6.1's `faulted` carrying that code, and pure `check_handle_eligibility` answers
+from its string alone; every remaining plugin command refuses with the fault.
 `wallet/zuuli/src-tauri/src/lib.rs`'s
-`an_unopenable_messaging_store_leaves_zuuli_running_and_every_command_refusing`
+`an_unopenable_messaging_store_routes_only_engine_free_commands`
 drives the census off `COMMANDS`, so a forty-fourth command cannot be added
 without stating how it behaves in that state.
 
 ## What is still not wired, and exactly why
 
-**The key-transparency directory has no client.** `f2z-kt` is a running server
-and `f2z-kt-core` is the client verifier, but nothing carries a `/kt/v1/lookup`
-between them. So `resolve_handle`, `start_conversation`,
-`accept_contact_request` and self-audit fail closed with
-`witness-threshold-unmet`, which is the truthful code: zero independent
-witnesses have cosigned anything. §6.4's matrix and §9 rule 5 make that the
-required behaviour rather than a placeholder — an unverified key at first
-contact *is* the MITM. Manual safety-number verification, which §8 tells the UI
-to offer instead, works in this build.
+**The shipping build has no directory configured, and that is not the same as
+having no client.** `KtDirectory` is `KT.md` §8 over HTTPS through
+`f2z-kt-client` and it is real; `NoDirectory` is the **default**, because a
+client cannot be configured without the log's identity, its signing key, the
+shipped witness list and *t*, and `KT.md` §12 has decided none of them. So
+`resolve_handle`, `start_conversation`, `accept_contact_request` and self-audit
+fail closed with `witness-threshold-unmet`, which is the truthful code: zero
+independent witnesses have cosigned anything. §6.4's matrix and §9 rule 5 make
+that the required behaviour rather than a placeholder — an unverified key at
+first contact *is* the MITM. Manual safety-number verification, which §8 tells
+the UI to offer instead, works in this build.
+
+Since `WIRE.md` §12.6 the *rest* of first contact is complete: `start_engine`
+publishes this device's MLS key packages to its relay, `start_conversation`
+claims one from the peer's relay, authenticates it against the directory entry
+the log proved, and sends the `Welcome`. The two-process harness runs that path
+over a real relay; `rs/crates/f2z-kt-client/tests/first_contact.rs` runs it
+against a real `f2z-kt` log and a real `f2z-witness` too, and lives there
+because both are AGPL-3.0 and this crate is on the client side of
+`rs/README.md`'s boundary.
 
 **A credential does not attest the key a peer encrypts to.** `DeviceCredential`
 binds a `device_kem_pk`, and the HPKE init key MLS actually uses is the one
@@ -287,6 +301,16 @@ OpenMLS generates inside each `KeyPackage`. Neither `f2z-msg-mls` nor
 before it exists, and the credential needs the key — so this crate supplies an
 opaque placeholder, exactly as `f2z-msg-mls`'s own tests do. `KT.md` §4.1
 requires only that it is non-empty. Breaking that circularity is upstream work.
+
+This is **not** a hole in `WIRE.md` §12.6's authentication, and the distinction
+is worth stating because the two look adjacent. §12.6 does not check
+`device_kem_pk` at all; it checks that the key package's `DeviceCredential` is
+one the directory entry publishes for this handle, signed by the identity key
+the log proved, and bound to the leaf it arrived in. A relay cannot forge that
+without the device's signing key. What the placeholder costs is a *second*,
+independent path to the same conclusion — see ADR 0015's rejected alternative 4
+for why using `device_kem_pk` as an init key would be worse than having no
+second path.
 
 **The local store is not encrypted at rest.** §6.1's `locked` is implemented as
 a state machine, and the device signing key is sealed under the seed-derived

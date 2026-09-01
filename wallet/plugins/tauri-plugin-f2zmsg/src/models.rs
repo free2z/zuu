@@ -31,7 +31,9 @@ use serde::{Deserialize, Serialize};
 /// The mapping from `WIRE.md` §10 and `KT.md` §9.5 lives in
 /// [`crate::wire_codes`], including §8.1's default rule — a code neither table
 /// names maps to the *protocol violation* member for whichever peer returned
-/// it, never to [`ErrorCode::Internal`], which means our own engine faulted.
+/// it, never to [`ErrorCode::Internal`]. That member is reserved for an explicit
+/// component-internal fault: either this engine failed locally or a peer
+/// returned its own `ERR_INTERNAL`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
@@ -69,6 +71,7 @@ pub enum ErrorCode {
     StorageFull,
     GapUnrecoverable,
     NotSupportedInBrowser,
+    // explicit component-internal fault (local or reported by a peer)
     Internal,
 }
 
@@ -314,8 +317,9 @@ pub enum VerificationState {
 }
 
 /// §3.3. `compromised` means the send side of a queue this conversation depends
-/// on was bound by somebody else (`WIRE.md` §7.4) — loud and non-dismissible,
-/// never a retry and never a toast.
+/// on was already bound to another or unknown key (`WIRE.md` §7.4) — loud and
+/// non-dismissible, never a retry and never a toast. The relay is attributed;
+/// the actor who performed the bind is not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TransportHealth {
@@ -412,6 +416,8 @@ pub struct Conversation {
     /// §3.5. Never render this silently.
     pub has_gaps: bool,
     pub transport_health: TransportHealth,
+    /// The current compromised outbound queue's relay, never alarm-history inference.
+    pub compromise_relay_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -717,6 +723,12 @@ pub struct Alarm {
     pub raised_at: i64,
     pub dismissible: NeverDismissible,
     pub handle: Option<String>,
+    /// The exact conversation this alarm attributes, when conversation-specific.
+    #[serde(default)]
+    pub conversation_id: Option<String>,
+    /// The relay this alarm attributes, when the alarm is relay-specific.
+    #[serde(default)]
+    pub relay_url: Option<String>,
     pub old_fingerprint: Option<String>,
     pub new_fingerprint: Option<String>,
     /// ADR 0014 platform reset — the UI says "platform-assisted".
@@ -1091,6 +1103,41 @@ mod tests {
         let json = serde_json::to_value(NeverDismissible).expect("serialize");
         assert_eq!(json, serde_json::json!(false));
         assert!(serde_json::from_value::<NeverDismissible>(serde_json::json!(true)).is_err());
+    }
+
+    #[test]
+    fn conversation_and_relay_attribution_serialize_and_old_alarms_default_to_none() {
+        let alarm = Alarm {
+            alarm_id: "alarm".into(),
+            kind: AlarmKind::QueueSendAddressStolen,
+            severity: AlarmSeverity::Critical,
+            raised_at: 7,
+            dismissible: NeverDismissible,
+            handle: Some("peer".into()),
+            conversation_id: Some("conversation-1".into()),
+            relay_url: Some("wss://relay.example/relay/v1".into()),
+            old_fingerprint: None,
+            new_fingerprint: None,
+            platform_assisted: false,
+            cooldown_ends_at: None,
+            acknowledged_at: None,
+        };
+        let json = serde_json::to_value(&alarm).expect("serialize alarm");
+        assert_eq!(json["conversationId"], "conversation-1");
+        assert_eq!(json["relayUrl"], "wss://relay.example/relay/v1");
+
+        let mut legacy = json;
+        legacy
+            .as_object_mut()
+            .expect("alarm object")
+            .remove("relayUrl");
+        legacy
+            .as_object_mut()
+            .expect("alarm object")
+            .remove("conversationId");
+        let legacy_alarm = serde_json::from_value::<Alarm>(legacy).expect("legacy alarm");
+        assert_eq!(legacy_alarm.conversation_id, None);
+        assert_eq!(legacy_alarm.relay_url, None);
     }
 
     #[test]

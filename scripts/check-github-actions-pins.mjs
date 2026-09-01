@@ -57,6 +57,8 @@ const RUST_ROOT_CONTRACTS = [
           "wallet/nested/future/source.rs",
           "wallet/Cargo.toml",
           "wallet/nested/future/Cargo.toml",
+          "docs/e2ee/CLIENT-CONTRACT.md",
+          "docs/e2ee/WIRE.md",
         ],
       },
       {
@@ -67,8 +69,14 @@ const RUST_ROOT_CONTRACTS = [
     excludedProbePaths: [
       "wallet/README.md",
       "wallet/docs/architecture.md",
-      "docs/e2ee/WIRE.md",
       "rs/crates/f2z-relay/src/lib.rs",
+      // Markdown under wallet/zuuli/ is prose about the app, not an input to
+      // any job the gate awaits, and `wallet/zuuli/*` would otherwise select
+      // the whole native matrix for a STATUS re-derivation. Probed at the root
+      // and at depth because the guard is a glob whose `*` spans `/`.
+      "wallet/zuuli/STATUS.md",
+      "wallet/zuuli/CLAUDE.md",
+      "wallet/zuuli/docs/e2ee/notes.md",
     ],
     jobs: [
       [
@@ -328,7 +336,7 @@ function walletProjectBoundaryInputs(repoRoot) {
 const REQUIRED_FRONTEND_PACKAGE_SCRIPTS = new Map([
   [
     "test",
-    "vitest run && node --test scripts/safe-area-contract.node-test.mjs scripts/android-device-catalog.node-test.mjs scripts/android-release-artifact.node-test.mjs scripts/aab-payload-digest.node-test.mjs scripts/auth-session-boundary.node-test.mjs scripts/mermaid-security.node-test.mjs scripts/send-review-boundary.node-test.mjs scripts/mobile-webview-authority.node-test.mjs scripts/seed-capture-boundary.node-test.mjs scripts/ui-copy-truncation.node-test.mjs scripts/fixture-privacy.node-test.mjs scripts/apple-credential-boundary.node-test.mjs scripts/macos-keychain-entitlements.node-test.mjs scripts/artifact-sbom.node-test.mjs scripts/release-tag-identity.node-test.mjs scripts/status-freshness.node-test.mjs scripts/wasm-boundary.node-test.mjs scripts/messaging-contract.node-test.mjs && node scripts/apple-credential-boundary.mjs && node scripts/macos-keychain-entitlements.mjs && playwright test",
+    "vitest run && node --test scripts/safe-area-contract.node-test.mjs scripts/android-device-catalog.node-test.mjs scripts/media-permission-manifests.node-test.mjs scripts/android-release-artifact.node-test.mjs scripts/aab-payload-digest.node-test.mjs scripts/auth-session-boundary.node-test.mjs scripts/mermaid-security.node-test.mjs scripts/send-review-boundary.node-test.mjs scripts/mobile-webview-authority.node-test.mjs scripts/seed-capture-boundary.node-test.mjs scripts/ui-copy-truncation.node-test.mjs scripts/fixture-privacy.node-test.mjs scripts/apple-credential-boundary.node-test.mjs scripts/macos-keychain-entitlements.node-test.mjs scripts/artifact-sbom.node-test.mjs scripts/release-tag-identity.node-test.mjs scripts/status-freshness.node-test.mjs scripts/wasm-boundary.node-test.mjs scripts/messaging-contract.node-test.mjs && node scripts/apple-credential-boundary.mjs && node scripts/macos-keychain-entitlements.mjs && playwright test",
   ],
   [
     "build",
@@ -482,12 +490,17 @@ const REQUIRED_STEP_ENVIRONMENTS = new Map([
     ]),
   ],
   [
-    // The messaging plugin's `build.rs` watches this value, so a restored
-    // Cargo cache cannot turn its permission-drift assertion into a no-op.
-    // There is no schema nonce beside it: this plugin has no consuming app in
-    // the tree yet, so nothing generates target schemas from it.
+    // The messaging plugin's `build.rs` watches the nonce, so a restored Cargo
+    // cache cannot turn its permission-drift assertion into a no-op. The relay
+    // path binds the real-daemon regression to the binary built in the prior
+    // step rather than permitting a PATH substitution. There is no schema
+    // nonce: this plugin has no consuming app in the tree yet.
     "rust_msg_plugin\0Build and test the messaging plugin",
     new Map([
+      [
+        "F2Z_RELAY_BIN",
+        "${{ github.workspace }}/rs/target/debug/f2z-relay",
+      ],
       [
         "TAURI_PERMISSION_GENERATION_NONCE",
         "${{ github.run_id }}-${{ github.run_attempt }}",
@@ -3406,7 +3419,51 @@ function runRustRootWorkflowMutationTests(repoRoot) {
           "wallet/*|",
           'must leave zuuli false for unrelated input "wallet/README.md"',
         ],
+        [
+          "messaging client-contract selector",
+          "docs/e2ee/CLIENT-CONTRACT.md|",
+          "",
+          'must actively select "docs/e2ee/CLIENT-CONTRACT.md"',
+        ],
+        [
+          "messaging wire-contract selector",
+          "docs/e2ee/WIRE.md|",
+          "",
+          'must actively select "docs/e2ee/WIRE.md"',
+        ],
       ];
+      // The markdown-only guard is a *negative* selector: it exists to keep
+      // `wallet/zuuli/*` from dragging prose into the native matrix. Its two
+      // failure directions are deleting it and narrowing it to the top level,
+      // so both are exercised against the live workflow.
+      assertWorkflowFailure(
+        contract,
+        source,
+        "wallet/ rejects deleting the ZUULI markdown-only guard",
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            '            if [[ "$file" == wallet/zuuli/*.md ]]; then\n' +
+              "              continue\n" +
+              "            fi\n",
+            "",
+          ),
+        'must leave zuuli false for unrelated input "wallet/zuuli/STATUS.md"',
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        "wallet/ rejects a ZUULI markdown-only guard that misses nested prose",
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            '"$file" == wallet/zuuli/*.md',
+            '"$file" == wallet/zuuli/STATUS.md',
+          ),
+        'must leave zuuli false for unrelated input "wallet/zuuli/docs/e2ee/notes.md"',
+      );
       for (const [guard, target, replacement, needle] of
         selectorPatternMutations) {
         const action = replacement ? "broadened" : "removed";

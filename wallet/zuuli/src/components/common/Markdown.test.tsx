@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Markdown, type MarkdownVariant } from "./Markdown";
+import { setStrictImagePrivacy } from "@/lib/media/image-privacy";
 
 /**
  * `MarkdownLink` calls `useNavigate()`, so every render needs a router in
@@ -29,6 +30,8 @@ function expectNoErrorFallback(markup: string) {
 }
 
 describe("Markdown images", () => {
+  afterAll(() => setStrictImagePrivacy(false));
+
   it("holds an article image behind destination-specific consent", () => {
     const markup = render(IMAGE, "article");
 
@@ -45,6 +48,30 @@ describe("Markdown images", () => {
     expect(markup).toContain('data-remote-media-host="example.com"');
     expect(markup).toContain('aria-label="Load image from example.com"');
     expectNoErrorFallback(markup);
+  });
+
+  it("auto-loads approved Free2Z images without a consent interstitial", () => {
+    const markup = render(
+      "![alt text](https://media.free2z.cash/y.png)",
+      "article",
+    );
+
+    expect(markup).toContain("data-first-party-media-loading");
+    expect(markup).not.toContain("data-remote-media-consent");
+    expect(markup).not.toContain("Load image");
+  });
+
+  it("keeps approved Free2Z images behind consent in strict mode", () => {
+    setStrictImagePrivacy(true);
+    const markup = render(
+      "![alt text](https://free2z.cash/y.png)",
+      "article",
+    );
+    setStrictImagePrivacy(false);
+
+    expect(markup).not.toContain("data-first-party-media-loading");
+    expect(markup).toContain("data-remote-media-consent");
+    expect(markup).toContain('aria-label="Load image from free2z.cash"');
   });
 
   it("leaves a relative src alone when the media base is same-origin (dev proxy)", () => {

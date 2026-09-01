@@ -45,14 +45,16 @@ use std::time::{Duration, Instant};
 use f2z_codec::canonical::{Canonical as _, decode_canonical};
 use f2z_codec::commands::{
     AckRequest, AckResponse, AppendRequest, BindSendRequest, ChallengePurpose, ChallengeRequest,
+    ClaimKeyPackageChallengeRequest, ClaimKeyPackageRequest, ClaimKeyPackageResponse, Command,
     ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse,
-    CreateQueueRequest, CreateQueueResponse, HelloRequest, PushEvent, ReadRequest, ReadResponse,
+    CreateQueueRequest, CreateQueueResponse, HelloRequest, KeyPackagePolicy,
+    PublishKeyPackagesRequest, PublishKeyPackagesResponse, PushEvent, ReadRequest, ReadResponse,
     SignedCapabilities, SubscribeResponse,
 };
 use f2z_codec::frame::{FramePayload, Push, RelayFrame, Response};
 use f2z_codec::padding::PaddingBuckets;
 use f2z_codec::pow::{PowParams, PowStamp};
-use f2z_codec::types::{ChannelBinding, Nonce, Payload, QueueAddress, RelayId, Salt};
+use f2z_codec::types::{ChannelBinding, KeyPackage, Nonce, Payload, QueueAddress, RelayId, Salt};
 use f2z_codec::{Challenge, PROTOCOL_VERSION};
 use f2z_relay_proto::capabilities::ClientPolicy;
 use f2z_relay_proto::command::{Empty, RelayCommand, SignedCommand, ops, unsigned_request};
@@ -60,13 +62,13 @@ use f2z_relay_proto::hello::{RelaySession, verify_hello_response};
 use f2z_relay_proto::inflight::InFlight;
 use f2z_relay_proto::key::SigningKey;
 use futures_util::{SinkExt as _, StreamExt as _};
-use rand::RngCore as _;
+use rand::Rng as _;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 
 use crate::error::{Error, Result};
 use crate::models::ErrorCode;
-use crate::wire_codes::{BindAttempt, CommandSide, from_proto};
+use crate::wire_codes::{BindAttempt, from_proto};
 
 /// `WIRE.md` §2.1's path.
 pub const RELAY_PATH: &str = "/relay/v1";
@@ -163,6 +165,19 @@ pub struct RelayConnection {
     relay_time_taken: Instant,
     /// Set once the peer closes, so a caller stops trying.
     closed: bool,
+}
+
+/// The internal result of the once-only bind operation.
+///
+/// `AlreadyBoundAfterUnknown` never crosses IPC. It is the ambiguity §2.5
+/// requires the engine to reconcile with an authenticated `APPEND`, rather
+/// than a public error code or a false theft alarm. Success confirms ownership
+/// under the relay protocol's authorization semantics; it does not prove an
+/// actively malicious relay honest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BindSendOutcome {
+    Bound,
+    AlreadyBoundAfterUnknown,
 }
 
 impl core::fmt::Debug for RelayConnection {
@@ -272,6 +287,20 @@ impl RelayConnection {
         self.call_unsigned::<ops::GetCapabilities>(&Empty).await
     }
 
+    /// Additive §12.6 key-package policy discovery.
+    pub async fn key_package_policy(&mut self) -> Result<KeyPackagePolicy> {
+        let policy = self
+            .call_unsigned::<ops::GetKeyPackagePolicy>(&Empty)
+            .await?;
+        policy.validate().map_err(|error| {
+            Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                format!("invalid key-package policy: {error:?}"),
+            )
+        })?;
+        Ok(policy)
+    }
+
     /// `CREATE_QUEUE` (§6.2), solving a stamp first when the relay demands one.
     ///
     /// # Errors
@@ -299,7 +328,6 @@ impl RelayConnection {
             recv_key,
             QueueAddress::zero(),
             &body,
-            CommandSide::Receive,
             BindAttempt::Later,
         )
         .await
@@ -331,7 +359,6 @@ impl RelayConnection {
             recv_key,
             QueueAddress::zero(),
             &body,
-            CommandSide::Receive,
             BindAttempt::Later,
         )
         .await
@@ -347,14 +374,8 @@ impl RelayConnection {
         recv_key: &SigningKey,
         recv_addr: QueueAddress,
     ) -> Result<SubscribeResponse> {
-        self.call_signed::<ops::Subscribe>(
-            recv_key,
-            recv_addr,
-            &Empty,
-            CommandSide::Receive,
-            BindAttempt::Later,
-        )
-        .await
+        self.call_signed::<ops::Subscribe>(recv_key, recv_addr, &Empty, BindAttempt::Later)
+            .await
     }
 
     /// `READ` (§6.2). Never mutates: reading does not delete, and that
@@ -376,14 +397,8 @@ impl RelayConnection {
             max_messages,
             max_bytes,
         };
-        self.call_signed::<ops::Read>(
-            recv_key,
-            recv_addr,
-            &body,
-            CommandSide::Receive,
-            BindAttempt::Later,
-        )
-        .await
+        self.call_signed::<ops::Read>(recv_key, recv_addr, &body, BindAttempt::Later)
+            .await
     }
 
     /// `ACK` (§6.2) — **the relay deletes its copy at this instant.**
@@ -407,40 +422,86 @@ impl RelayConnection {
         up_to_index: u64,
     ) -> Result<AckResponse> {
         let body = AckRequest { up_to_index };
-        self.call_signed::<ops::Ack>(
-            recv_key,
-            recv_addr,
-            &body,
-            CommandSide::Receive,
-            BindAttempt::Later,
-        )
-        .await
+        self.call_signed::<ops::Ack>(recv_key, recv_addr, &body, BindAttempt::Later)
+            .await
     }
 
     /// `BIND_SEND` (§6.3). Once-only and irreversible.
     ///
     /// `attempt` is what turns `ERR_ALREADY_BOUND` into either
-    /// `send-address-stolen` — a relay operator took the write capability, and
-    /// that is fatal, loud and non-dismissible (§7.4) — or
-    /// `relay-protocol-violation`, meaning we should not have tried. Pass
+    /// `send-address-stolen` — the fresh address was already bound to another
+    /// or unknown key, and that is fatal, loud and non-dismissible (§7.4).
+    /// The refusal identifies the relay that returned it, not who bound the
+    /// address. On an ordinary
+    /// [`BindAttempt::Later`] it is `relay-protocol-violation`, meaning we
+    /// should not have tried. In a durable [`BindAttempt::OutcomeUnknown`]
+    /// context it is consumed here as [`BindSendOutcome::AlreadyBoundAfterUnknown`]
+    /// so the engine can reconcile with a same-key `APPEND`. Pass
     /// [`BindAttempt::FirstForFreshAdvert`] only when the address really did
     /// come from an advert this client has not bound before.
     ///
     /// # Errors
     ///
     /// As [`RelayConnection::call_signed`].
-    pub async fn bind_send(
+    pub(crate) async fn bind_send(
         &mut self,
         send_key: &SigningKey,
         send_addr: QueueAddress,
         attempt: BindAttempt,
-    ) -> Result<()> {
+    ) -> Result<BindSendOutcome> {
+        let outcome = self.bind_send_once(send_key, send_addr, attempt).await;
+        match outcome {
+            Err(error) if error.code() == ErrorCode::DeviceClockSkew => {
+                self.resync_clock().await?;
+                self.bind_send_once(send_key, send_addr, attempt).await
+            }
+            other => other,
+        }
+    }
+
+    async fn bind_send_once(
+        &mut self,
+        send_key: &SigningKey,
+        send_addr: QueueAddress,
+        attempt: BindAttempt,
+    ) -> Result<BindSendOutcome> {
         let body = BindSendRequest {
             send_key: send_key.public_key(),
         };
-        self.call_signed::<ops::BindSend>(send_key, send_addr, &body, CommandSide::Send, attempt)
-            .await
-            .map(|_: Empty| ())
+        let request_id = self.take_request_id();
+        let ticket = self
+            .inflight
+            .issue::<ops::BindSend>(request_id)
+            .map_err(|error| proto(error, Command::BindSend, attempt))?;
+        let timestamp = self.relay_time_ms();
+        let nonce = self.nonce();
+        let signed = SignedCommand::<ops::BindSend>::create(
+            self.session.transcripts(),
+            request_id,
+            send_addr,
+            timestamp,
+            nonce,
+            send_key,
+            &body,
+        )
+        .map_err(|error| Error::internal(format!("building a signed command: {error:?}")))?;
+        let frame = signed
+            .frame()
+            .map_err(|error| Error::internal(format!("framing a signed command: {error:?}")))?;
+        self.send_frame(&frame).await?;
+        let (frame_id, response) = self.await_response().await?;
+        match self
+            .inflight
+            .complete::<ops::BindSend>(ticket, frame_id, &response)
+        {
+            Ok(Empty) => Ok(BindSendOutcome::Bound),
+            Err(f2z_relay_proto::ProtoError::Wire(f2z_codec::ErrorCode::AlreadyBound))
+                if matches!(attempt, BindAttempt::OutcomeUnknown) =>
+            {
+                Ok(BindSendOutcome::AlreadyBoundAfterUnknown)
+            }
+            Err(error) => Err(proto(error, Command::BindSend, attempt)),
+        }
     }
 
     /// `APPEND` (§6.3), padded to a published bucket first (§9).
@@ -458,15 +519,9 @@ impl RelayConnection {
     ) -> Result<()> {
         let payload = self.pad(ciphertext)?;
         let body = AppendRequest { payload };
-        self.call_signed::<ops::Append>(
-            send_key,
-            send_addr,
-            &body,
-            CommandSide::Send,
-            BindAttempt::Later,
-        )
-        .await
-        .map(|_: Empty| ())
+        self.call_signed::<ops::Append>(send_key, send_addr, &body, BindAttempt::Later)
+            .await
+            .map(|_: Empty| ())
     }
 
     /// `CONTACT_APPEND` (§12.2), with a stamp scoped to `contact_addr`.
@@ -501,6 +556,102 @@ impl RelayConnection {
         self.call_unsigned::<ops::ContactAppend>(&body)
             .await
             .map(|_: Empty| ())
+    }
+
+    /// `PUBLISH_KEY_PACKAGES` (§12.6). Signed by the contact queue's recv key.
+    ///
+    /// The pool is **appended to**, not replaced, and the relay skips a
+    /// byte-identical duplicate — so a publish whose response was lost is safe
+    /// to retry, which under §4.3's window and §2.5's unknown-status rule it
+    /// has to be.
+    ///
+    /// # Errors
+    ///
+    /// As [`RelayConnection::call_signed`]. `relay-capability-mismatch` if a
+    /// package does not fit the `<1..2^16-1>` wire vector, which no package
+    /// under this ciphersuite does — #385 measured 2 647 bytes.
+    pub async fn publish_key_packages(
+        &mut self,
+        recv_key: &SigningKey,
+        recv_addr: QueueAddress,
+        packages: &[Vec<u8>],
+        last_resort: Option<&[u8]>,
+    ) -> Result<PublishKeyPackagesResponse> {
+        let wrap = |bytes: &[u8]| {
+            KeyPackage::new(bytes.to_vec()).map_err(|error| {
+                Error::new(
+                    ErrorCode::RelayCapabilityMismatch,
+                    format!("a key package does not fit the wire vector: {error:?}"),
+                )
+            })
+        };
+        let packages = packages
+            .iter()
+            .map(|bytes| wrap(bytes))
+            .collect::<Result<Vec<_>>>()?;
+        let last_resort = match last_resort {
+            Some(bytes) => vec![wrap(bytes)?],
+            None => Vec::new(),
+        };
+        let body = PublishKeyPackagesRequest {
+            packages: packages.into(),
+            last_resort: last_resort.into(),
+        };
+        self.call_signed::<ops::PublishKeyPackages>(recv_key, recv_addr, &body, BindAttempt::Later)
+            .await
+    }
+
+    /// `CLAIM_KEY_PACKAGE` (§12.6), with a stamp scoped to `contact_addr`.
+    ///
+    /// The second proof of work first contact pays, and it is deliberately its
+    /// own challenge purpose: a stamp bought for a `CONTACT_APPEND` cannot be
+    /// spent here.
+    ///
+    /// **The bytes this returns are not trusted.** They come from a relay the
+    /// design assumes is hostile, and the caller MUST hand them to
+    /// `f2z_msg_mls::VerifiedKeyPackage::verify` against the directory entry
+    /// before anything else happens to them. The type system enforces that one
+    /// step further up: `MlsEngine::add_member` will not take bytes.
+    ///
+    /// # Errors
+    ///
+    /// `relay-unavailable` when the pool is empty and the peer published no
+    /// package of last resort — §12.6's exhaustion behaviour, and the same code
+    /// an address that does not exist returns, by §10's existence-oracle rule.
+    /// Otherwise as [`RelayConnection::call_unsigned`].
+    pub async fn claim_key_package(
+        &mut self,
+        contact_addr: QueueAddress,
+    ) -> Result<ClaimKeyPackageResponse> {
+        let issued = self
+            .call_unsigned::<ops::GetClaimKeyPackageChallenge>(&ClaimKeyPackageChallengeRequest {
+                contact_addr,
+            })
+            .await?;
+        issued.pow.validate().map_err(|_| {
+            Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                "relay issued invalid key-package claim proof-of-work parameters",
+            )
+        })?;
+        if !issued.pow.is_required() {
+            return Err(Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                "relay issued an unmetered key-package claim challenge",
+            ));
+        }
+        let challenge = issued.challenge;
+        let difficulty_bits = issued.pow.difficulty_bits;
+        let stamp = tokio::task::spawn_blocking(move || solve(challenge, difficulty_bits))
+            .await
+            .map_err(|error| {
+                Error::internal(format!("the stamp search did not finish: {error}"))
+            })?;
+        let body = ClaimKeyPackageRequest {
+            contact_addr,
+            stamp,
+        };
+        self.call_unsigned::<ops::ClaimKeyPackage>(&body).await
     }
 
     /// Any `MSG` push already queued, without waiting.
@@ -584,11 +735,10 @@ impl RelayConnection {
         key: &SigningKey,
         address: QueueAddress,
         body: &C::Request,
-        side: CommandSide,
         attempt: BindAttempt,
     ) -> Result<C::Response> {
         match self
-            .call_signed_once::<C>(key, address, body, side, attempt)
+            .call_signed_once::<C>(key, address, body, attempt)
             .await
         {
             Err(error) if error.code() == ErrorCode::DeviceClockSkew => {
@@ -604,7 +754,7 @@ impl RelayConnection {
                 // finds this branch.
                 tracing::debug!("relay reported a stale timestamp; resynchronising the offset");
                 self.resync_clock().await?;
-                self.call_signed_once::<C>(key, address, body, side, attempt)
+                self.call_signed_once::<C>(key, address, body, attempt)
                     .await
             }
             other => other,
@@ -633,14 +783,13 @@ impl RelayConnection {
         key: &SigningKey,
         address: QueueAddress,
         body: &C::Request,
-        side: CommandSide,
         attempt: BindAttempt,
     ) -> Result<C::Response> {
         let request_id = self.take_request_id();
         let ticket = self
             .inflight
             .issue::<C>(request_id)
-            .map_err(|error| proto(error, side, attempt))?;
+            .map_err(|error| proto(error, C::COMMAND, attempt))?;
         // Both are taken before the `&self.session` borrow the builder needs.
         let timestamp = self.relay_time_ms();
         let nonce = self.nonce();
@@ -661,7 +810,7 @@ impl RelayConnection {
         let (frame_id, response) = self.await_response().await?;
         self.inflight
             .complete::<C>(ticket, frame_id, &response)
-            .map_err(|error| proto(error, side, attempt))
+            .map_err(|error| proto(error, C::COMMAND, attempt))
     }
 
     /// Issue an unsigned command and wait for its answer.
@@ -674,18 +823,40 @@ impl RelayConnection {
         let ticket = self
             .inflight
             .issue::<C>(request_id)
-            .map_err(|error| proto(error, CommandSide::Receive, BindAttempt::Later))?;
+            .map_err(|error| proto(error, C::COMMAND, BindAttempt::Later))?;
         let frame = unsigned_request::<C>(request_id, body)
             .map_err(|error| Error::internal(format!("framing a command: {error:?}")))?;
         self.send_frame(&frame).await?;
         let (frame_id, response) = self.await_response().await?;
         self.inflight
             .complete::<C>(ticket, frame_id, &response)
-            .map_err(|error| proto(error, CommandSide::Receive, BindAttempt::Later))
+            .map_err(|error| proto(error, C::COMMAND, BindAttempt::Later))
     }
 
     /// Obtain a challenge and solve a stamp, when and only when the relay's
     /// published parameters require one (§13.1).
+    ///
+    /// # The search runs on a blocking thread, and that is not a nicety
+    ///
+    /// [`solve`] is an unbounded synchronous loop — a leading-zero-bit search
+    /// that takes seconds on a phone at the shipped difficulty, and §12.4 is
+    /// blunt that no tuning fixes that. Run inline on the async task it would
+    /// hold a runtime worker for the whole search, stalling **every other task
+    /// in the process**: the inbound pump that must ACK, the other relay
+    /// connections, and every Tauri command. Since `WIRE.md` §12.6 first
+    /// contact pays **two** stamps rather than one, so the window doubled.
+    ///
+    /// # The residual, stated rather than implied
+    ///
+    /// This moves the search off the worker; it does **not** make this
+    /// connection's socket readable while the search runs. A `RelayConnection`
+    /// is polled only from inside its own methods, so nothing answers §2.4's
+    /// server-driven Ping until this call returns, and a relay whose keepalive
+    /// is shorter than the search will close — correctly. The shipping relay's
+    /// interval is 25 s with two missed Pongs, so this is bounded well above a
+    /// realistic solve; a relay that published a tighter one would break first
+    /// contact here. Closing it for real needs a reader task owning the socket,
+    /// which is a change to this file's ownership model and not a line.
     async fn stamp_for(
         &mut self,
         purpose: ChallengePurpose,
@@ -701,7 +872,11 @@ impl RelayConnection {
                 .map_err(|error| Error::internal(format!("challenge scope: {error:?}")))?,
         };
         let issued = self.call_unsigned::<ops::GetChallenge>(&body).await?;
-        Ok(solve(issued.challenge, params.difficulty_bits))
+        let challenge = issued.challenge;
+        let difficulty_bits = params.difficulty_bits;
+        tokio::task::spawn_blocking(move || solve(challenge, difficulty_bits))
+            .await
+            .map_err(|error| Error::internal(format!("the stamp search did not finish: {error}")))
     }
 
     fn take_request_id(&mut self) -> u32 {
@@ -859,8 +1034,8 @@ pub fn unpad(payload: &[u8]) -> Result<Vec<u8>> {
     })
 }
 
-fn proto(error: f2z_relay_proto::ProtoError, side: CommandSide, attempt: BindAttempt) -> Error {
-    Error::new(from_proto(error, side, attempt), format!("{error:?}"))
+fn proto(error: f2z_relay_proto::ProtoError, command: Command, attempt: BindAttempt) -> Error {
+    Error::new(from_proto(error, command, attempt), format!("{error:?}"))
 }
 
 /// `HELLO` (§2.5 steps 2 and 3), run before a [`RelayConnection`] exists.
@@ -952,7 +1127,7 @@ async fn hello(
 
     let hello = inflight
         .complete::<ops::Hello>(ticket, request_id, &response)
-        .map_err(|error| proto(error, CommandSide::Receive, BindAttempt::Later))?;
+        .map_err(|error| proto(error, Command::Hello, BindAttempt::Later))?;
 
     // The MUST that everything else rests on.
     verify_hello_response(
@@ -962,5 +1137,5 @@ async fn hello(
         policy.expected_relay_id.as_ref(),
         &policy.policy,
     )
-    .map_err(|error| proto(error, CommandSide::Receive, BindAttempt::Later))
+    .map_err(|error| proto(error, Command::Hello, BindAttempt::Later))
 }

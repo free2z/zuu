@@ -22,6 +22,14 @@
 //! relay, un-acknowledged, and is redelivered — which is recoverable, and a
 //! half-applied epoch change is not.
 //!
+//! Rolling back storage is only half of that invariant after OpenMLS has
+//! advanced a private-message receive ratchet or merged a commit into the
+//! caller's [`MlsGroup`]. [`MlsEngine::receive`] reloads the durable
+//! pre-transaction group into that same handle before returning an error, so
+//! redelivery sees the state the store actually holds. If that reload itself
+//! fails, [`EngineError::GroupStateUnavailable`] tells the caller to discard
+//! the possibly advanced handle and attempt a fresh durable load.
+//!
 //! # Delete-on-ack, and what `record_key` is for
 //!
 //! [`MlsEngine::receive`] takes a `record_key`: the caller's identifier for
@@ -57,34 +65,33 @@ use f2z_msg_store::{Durability, StorageBackend};
 use openmls::prelude::*;
 // **Through the prelude, deliberately, and not as a dependency of this crate.**
 //
-// `openmls 0.9` moved to `tls_codec 0.5`, while `f2z-codec` and `f2z-kt-core`
-// — the crates that define free2z's own wire structures — are on `tls_codec
-// 0.4`. Both live in this graph. The two `tls_codec` traits below are used on
-// **OpenMLS's** types (`MlsMessageOut`, `MlsMessageIn`) and on nothing else, so
-// they must be the version OpenMLS derived them with; naming the crate directly
-// would let a future workspace bump resolve them to the other one and produce a
-// trait-not-implemented error whose cause is invisible. `openmls::prelude`
-// re-exports `tls_codec::{self, *}`, so this import cannot drift from what
-// OpenMLS itself uses.
+// The two `tls_codec` traits below are used on **OpenMLS's** types
+// (`MlsMessageOut`, `MlsMessageIn`) and on nothing else, so they must be the
+// version OpenMLS derived them with. `openmls::prelude` re-exports
+// `tls_codec::{self, *}`, so this import cannot drift from what OpenMLS itself
+// uses.
 //
-// Nothing crosses the seam. A `DeviceCredential` reaches MLS as the opaque
-// identity bytes of a `BasicCredential` (`credential::encode`, which is
-// `f2z-codec`'s canonical encoding), so no `tls_codec` *type* from either
-// version appears in an interface between the two halves — the same shape as
-// the two `ed25519-dalek` majors this workspace already carries.
+// This graph carried **two** majors of `tls_codec` until #853 — `openmls 0.9`
+// on 0.5, `f2z-codec` and `f2z-kt-core` on 0.4 — and the workspace is now on
+// 0.5 with them, so the two resolve to one crate today. The indirection stays
+// anyway: naming `tls_codec` directly here would make that unification
+// load-bearing, and the next time OpenMLS moves ahead of us the failure is a
+// trait-not-implemented error on a derive nobody edited.
+//
+// Nothing crosses the seam in either case. A `DeviceCredential` reaches MLS as
+// the opaque identity bytes of a `BasicCredential` (`credential::encode`, which
+// is `f2z-codec`'s canonical encoding), so no `tls_codec` *type* appears in an
+// interface between the two halves — the same shape as the two
+// `ed25519-dalek` majors this workspace still carries.
 use openmls::prelude::tls_codec::{Deserialize as _, Serialize as _};
 
 use crate::credential::{DeviceCredential, encode as encode_credential, validate_for_leaf};
 use crate::error::{CredentialError, EngineError, Result};
 use crate::exporter::ExportLabel;
+use crate::keypackage::VerifiedKeyPackage;
 use crate::provider::F2zProvider;
 use crate::signer::DeviceSigner;
 use crate::version::ProtocolVersion;
-
-/// RFC 9420's own protocol version, aliased because this crate has a
-/// [`ProtocolVersion`] of its own and the two are different things — see
-/// [`crate::version`].
-use openmls::prelude::ProtocolVersion as MlsProtocolVersion;
 
 /// The ciphersuite, and there is only one.
 ///
@@ -299,8 +306,188 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// [`EngineError::Mls`] if OpenMLS refused, [`EngineError::Storage`] if the
     /// store did.
     pub fn generate_key_package(&self) -> Result<Vec<u8>> {
+        self.build_key_package(false, None)
+    }
+
+    /// Sign the domain-separated routing advert that accompanies a first
+    /// contact `Welcome` before the joiner can receive MLS application data.
+    pub fn sign_routing_advert(&self, payload: &[u8]) -> Result<Vec<u8>> {
+        self.signer
+            .sign_bytes(payload)
+            .map(|signature| signature.to_vec())
+    }
+
+    /// Authenticate a first-contact routing advert against an active device
+    /// in the verified directory entry.
+    pub fn authenticate_routing_advert(
+        entry: &f2z_kt_core::entry::DirectoryEntryTBS,
+        device_pk: &[u8],
+        payload: &[u8],
+        signature: &[u8],
+        now_ms: u64,
+    ) -> Result<()> {
+        let credential = entry
+            .devices
+            .as_slice()
+            .iter()
+            .find(|credential| credential.credential.device_pk.as_bytes() == device_pk)
+            .ok_or(EngineError::Credential(CredentialError::DeviceKeyMismatch))?;
+        validate_for_leaf(credential, device_pk, now_ms)?;
+        if credential.credential.identity_pk != entry.identity_pk
+            || credential.credential.handle != entry.handle
+            || entry
+                .revocations
+                .as_slice()
+                .iter()
+                .any(|revoked| revoked.device_pk.as_bytes() == device_pk)
+        {
+            return Err(EngineError::Credential(CredentialError::DeviceKeyMismatch));
+        }
+        let public_key = f2z_codec::types::PublicKey::from_slice(device_pk)
+            .map_err(|_| EngineError::Signature)?;
+        let signature = f2z_codec::types::Signature::from_slice(signature)
+            .map_err(|_| EngineError::Signature)?;
+        f2z_kt_core::sig::verify(&public_key, payload, &signature)
+            .map_err(|_| EngineError::Signature)
+    }
+
+    /// Generate a **batch** of single-use key packages, in one transaction
+    /// (`WIRE.md` §12.6).
+    ///
+    /// One transaction and not `count` of them, because the private init keys
+    /// are what make the packages usable: a crash that stored three packages'
+    /// secrets and published four would publish one package whose `Welcome`
+    /// this device can never open, and the sender would have no way to tell
+    /// that from an ordinary delivery failure.
+    ///
+    /// The returned bytes are in generation order, which is also the order the
+    /// relay serves them in.
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Mls`] if OpenMLS refused, [`EngineError::Storage`] if the
+    /// store did.
+    pub fn generate_key_packages(
+        &self,
+        count: usize,
+        lifetime_seconds: Option<u64>,
+    ) -> Result<Vec<Vec<u8>>> {
         let transaction = self.provider.store().begin()?;
-        let bundle = KeyPackage::builder()
+        let mut packages = Vec::with_capacity(count);
+        for _ in 0..count {
+            packages.push(self.build_key_package_in_transaction(false, lifetime_seconds)?);
+        }
+        transaction.commit()?;
+        Ok(packages)
+    }
+
+    /// Generate the **package of last resort** — reusable, and marked as such
+    /// (RFC 9420's `last_resort` KeyPackage extension, `WIRE.md` §12.6).
+    ///
+    /// # What this trades, said here rather than only in the threat model
+    ///
+    /// RFC 9420 §10 has a client delete a key package's init key once it has
+    /// processed a `Welcome` addressed to it. A last-resort package is exempt
+    /// by construction: the relay serves it repeatedly once the pool is empty,
+    /// so its init secret must survive every use. Two initiators who both get
+    /// it therefore encrypt their `Welcome`s to one long-lived key, and an
+    /// attacker who later compromises that key can open every `Welcome` ever
+    /// sent to it. `THREAT-MODEL.md` §4.12 states the trade; this method is
+    /// where it is taken.
+    ///
+    /// The lifetime is the caller's, and it should be **shorter** than a device
+    /// credential's, not longer: the whole mitigation available for a reusable
+    /// key is that it stops being one.
+    ///
+    /// # Errors
+    ///
+    /// As [`MlsEngine::generate_key_packages`].
+    pub fn generate_last_resort_key_package(
+        &self,
+        lifetime_seconds: Option<u64>,
+    ) -> Result<Vec<u8>> {
+        self.build_key_package(true, lifetime_seconds)
+    }
+
+    /// Generate a package of last resort with an exact validity window.
+    ///
+    /// Unlike [`MlsEngine::generate_last_resort_key_package`], this does not
+    /// read the wall clock. It exists for clients that persist the expiry and
+    /// rotate the reusable package before it becomes unusable; using the same
+    /// timestamp for the package and the persisted schedule prevents clock
+    /// drift between those two security decisions.
+    ///
+    /// # Errors
+    ///
+    /// As [`MlsEngine::generate_key_packages`].
+    pub fn generate_last_resort_key_package_for_window(
+        &self,
+        not_before_seconds: u64,
+        not_after_seconds: u64,
+    ) -> Result<Vec<u8>> {
+        self.build_key_package_with_lifetime(
+            true,
+            Some(Lifetime::init(not_before_seconds, not_after_seconds)),
+        )
+    }
+
+    fn build_key_package(
+        &self,
+        last_resort: bool,
+        lifetime_seconds: Option<u64>,
+    ) -> Result<Vec<u8>> {
+        self.build_key_package_with_lifetime(last_resort, lifetime_seconds.map(Lifetime::new))
+    }
+
+    fn build_key_package_with_lifetime(
+        &self,
+        last_resort: bool,
+        lifetime: Option<Lifetime>,
+    ) -> Result<Vec<u8>> {
+        let transaction = self.provider.store().begin()?;
+        let wire = self.build_key_package_in_transaction_with_lifetime(last_resort, lifetime)?;
+        transaction.commit()?;
+        Ok(wire)
+    }
+
+    fn build_key_package_in_transaction(
+        &self,
+        last_resort: bool,
+        lifetime_seconds: Option<u64>,
+    ) -> Result<Vec<u8>> {
+        self.build_key_package_in_transaction_with_lifetime(
+            last_resort,
+            lifetime_seconds.map(Lifetime::new),
+        )
+    }
+
+    fn build_key_package_in_transaction_with_lifetime(
+        &self,
+        last_resort: bool,
+        lifetime: Option<Lifetime>,
+    ) -> Result<Vec<u8>> {
+        let mut builder = KeyPackage::builder();
+        if last_resort {
+            builder = builder
+                .mark_as_last_resort()
+                // RFC 9420 §7.2: every extension a key package carries MUST be
+                // listed in its leaf node's `capabilities`, and OpenMLS's
+                // `KeyPackage::validate` enforces it. `Capabilities::default()`
+                // lists no extensions at all, so marking the package without
+                // this line produces one that **this crate's own verifier
+                // refuses** — a pool of last-resort packages nobody can use.
+                .leaf_node_capabilities(Capabilities::new(
+                    None,
+                    None,
+                    Some(&[ExtensionType::LastResort]),
+                    None,
+                    None,
+                ));
+        }
+        if let Some(lifetime) = lifetime {
+            builder = builder.key_package_lifetime(lifetime);
+        }
+        let bundle = builder
             .build(
                 CIPHERSUITE,
                 &self.provider,
@@ -311,9 +498,26 @@ impl<B: StorageBackend> MlsEngine<B> {
         // Wrapped in an `MlsMessage`, not serialised bare. RFC 9420 §6 frames
         // every wire object the same way, and a bare `KeyPackage` on the wire is
         // one the recipient has to be told the type of out of band.
-        let wire = serialize(&MlsMessageOut::from(bundle.key_package().clone()))?;
-        transaction.commit()?;
-        Ok(wire)
+        serialize(&MlsMessageOut::from(bundle.key_package().clone()))
+    }
+
+    /// Check a key package a relay served, against the directory entry a
+    /// key-transparency lookup proved (`WIRE.md` §12.6).
+    ///
+    /// The convenience form of [`VerifiedKeyPackage::verify`]: this engine
+    /// already holds the crypto provider, so a caller does not have to.
+    /// [`MlsEngine::add_member`] takes what this returns and nothing else.
+    ///
+    /// # Errors
+    ///
+    /// As [`VerifiedKeyPackage::verify`].
+    pub fn verify_key_package(
+        &self,
+        wire: &[u8],
+        entry: &f2z_kt_core::entry::DirectoryEntryTBS,
+        now_ms: u64,
+    ) -> Result<VerifiedKeyPackage> {
+        VerifiedKeyPackage::verify(wire, entry, self.provider.crypto(), now_ms)
     }
 
     /// Create a new group.
@@ -343,10 +547,19 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// Add a member from their published `KeyPackage`, returning the commit and
     /// the `Welcome`, both ready for the wire.
     ///
-    /// The key package's credential is validated **before** it is proposed. A
-    /// device that added a peer and then discovered the credential did not bind
-    /// would have to remove them in a second epoch, and every other member
-    /// would have seen the bad credential in between.
+    /// **The argument is a [`VerifiedKeyPackage`], not bytes**, and that is the
+    /// whole of `WIRE.md` §12.6's authentication requirement expressed as a
+    /// type. A key package is fetched from a relay the design assumes is
+    /// hostile; one used without being checked against the directory entry the
+    /// key-transparency log proved is [#133](https://github.com/free2z/zuu/issues/133)
+    /// reintroduced at first contact. There is no constructor for that type
+    /// except the one that performs the check — see [`crate::keypackage`].
+    ///
+    /// The credential is validated again here, against this call's clock, and
+    /// **before** the Add is proposed: a device that added a peer and then
+    /// discovered the credential did not bind would have to remove them in a
+    /// second epoch, and every other member would have seen the bad credential
+    /// in between.
     ///
     /// # Errors
     ///
@@ -356,10 +569,10 @@ impl<B: StorageBackend> MlsEngine<B> {
     pub fn add_member(
         &self,
         group: &mut MlsGroup,
-        key_package_wire: &[u8],
+        key_package: &VerifiedKeyPackage,
         now_ms: u64,
     ) -> Result<(Vec<u8>, Vec<u8>)> {
-        let key_package = parse_key_package(key_package_wire, self.provider.crypto())?;
+        let key_package = key_package.inner().clone();
         validate_credential(key_package.leaf_node(), now_ms)?;
 
         let transaction = self.provider.store().begin()?;
@@ -391,6 +604,29 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// validate, [`EngineError::Mls`] if OpenMLS refused,
     /// [`EngineError::Storage`] if the store did.
     pub fn join_from_welcome(&self, welcome_wire: &[u8], now_ms: u64) -> Result<MlsGroup> {
+        self.join_from_welcome_inner(welcome_wire, now_ms, None)
+    }
+
+    /// Join only when the decrypted `Welcome` carries the expected group id.
+    ///
+    /// The equality check runs inside the same store transaction as OpenMLS's
+    /// join. A mismatch therefore rolls back every group record rather than
+    /// leaving state that works in memory but cannot be found after restart.
+    pub fn join_from_welcome_for_group_id(
+        &self,
+        welcome_wire: &[u8],
+        now_ms: u64,
+        expected_group_id: &[u8],
+    ) -> Result<MlsGroup> {
+        self.join_from_welcome_inner(welcome_wire, now_ms, Some(expected_group_id))
+    }
+
+    fn join_from_welcome_inner(
+        &self,
+        welcome_wire: &[u8],
+        now_ms: u64,
+        expected_group_id: Option<&[u8]>,
+    ) -> Result<MlsGroup> {
         let welcome = parse_welcome(welcome_wire)?;
 
         let transaction = self.provider.store().begin()?;
@@ -407,6 +643,10 @@ impl<B: StorageBackend> MlsEngine<B> {
         let group = staged
             .into_group(&self.provider)
             .map_err(|_| EngineError::Mls("welcome into group"))?;
+
+        if expected_group_id.is_some_and(|expected| group.group_id().as_slice() != expected) {
+            return Err(EngineError::GroupIdMismatch);
+        }
 
         self.validate_members(&group, now_ms)?;
         self.write_protocol_version(group.group_id().as_slice())?;
@@ -449,7 +689,10 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// [`EngineError::OutOfOrder`] for a message from an epoch this group is
     /// not in; [`EngineError::Credential`] if the sender's credential does not
     /// validate; [`EngineError::Mls`] if OpenMLS refused;
-    /// [`EngineError::Storage`] if the store did.
+    /// [`EngineError::Storage`] if the store did; or
+    /// [`EngineError::GroupStateUnavailable`] if rollback succeeded but its
+    /// durable state could not be reloaded. After that last outcome the caller
+    /// must discard `group` and load a fresh handle from durable storage.
     pub fn receive(
         &self,
         group: &mut MlsGroup,
@@ -465,101 +708,120 @@ impl<B: StorageBackend> MlsEngine<B> {
         }
 
         let protocol_message = parse_protocol_message(wire)?;
-
+        let group_id = group.group_id().clone();
+        let original_aad = group.aad().to_vec();
         let transaction = self.provider.store().begin()?;
 
-        let processed = group
-            .process_message(&self.provider, protocol_message)
-            .map_err(map_process_error)?;
+        let operation = || -> Result<Received> {
+            // Private-message processing advances the receive ratchet before
+            // content dispatch. Restoration therefore has to cover every
+            // failure from this call onward, not only the visibly mutating
+            // commit branches below.
+            let processed = group
+                .process_message(&self.provider, protocol_message)
+                .map_err(map_process_error)?;
 
-        // The credential the *sender* presented, validated against the leaf it
-        // came from. `ProcessedMessage::credential` is the leaf's credential and
-        // OpenMLS has already checked the framing signature under that leaf's
-        // signature key, so binding the credential to that key is the remaining
-        // half of §4.2's identity→device binding.
-        let sender_index = match processed.sender() {
-            Sender::Member(index) => Some(*index),
-            _ => None,
-        };
-        let epoch = processed.epoch().as_u64();
-        validate_credential_bytes(
-            basic_credential_identity(processed.credential())?,
-            group_signature_key(group, sender_index)?.as_slice(),
-            now_ms,
-        )?;
+            // The credential the *sender* presented, validated against the leaf it
+            // came from. `ProcessedMessage::credential` is the leaf's credential and
+            // OpenMLS has already checked the framing signature under that leaf's
+            // signature key, so binding the credential to that key is the remaining
+            // half of §4.2's identity→device binding.
+            let sender_index = match processed.sender() {
+                Sender::Member(index) => Some(*index),
+                _ => None,
+            };
+            let epoch = processed.epoch().as_u64();
+            validate_credential_bytes(
+                basic_credential_identity(processed.credential())?,
+                group_signature_key(group, sender_index)?.as_slice(),
+                now_ms,
+            )?;
 
-        let outcome = match processed.into_content() {
-            ProcessedMessageContent::ApplicationMessage(message) => Received::Application {
-                payload: message.into_bytes(),
-                sender: sender_index.map_or(0, |index| index.u32()),
-                epoch,
-            },
-            ProcessedMessageContent::ProposalMessage(proposal) => {
-                group
-                    .store_pending_proposal(self.provider.store(), *proposal)
-                    .map_err(|_| EngineError::Mls("store pending proposal"))?;
-                Received::ProposalQueued
-            }
-            ProcessedMessageContent::ExternalJoinProposalMessage(proposal) => {
-                group
-                    .store_pending_proposal(self.provider.store(), *proposal)
-                    .map_err(|_| EngineError::Mls("store external join proposal"))?;
-                Received::ProposalQueued
-            }
-            ProcessedMessageContent::StagedCommitMessage(staged) => {
-                group
-                    .merge_staged_commit(&self.provider, *staged)
-                    .map_err(|_| EngineError::Mls("merge staged commit"))?;
-                // Re-validated after the merge, because the commit may have
-                // *added* members whose credentials nobody has looked at.
-                self.validate_members(group, now_ms)?;
-                Received::EpochChanged {
-                    epoch: group.epoch().as_u64(),
-                }
-            }
-            // Both of these are **new in openmls 0.9** and both mean "this
-            // device authored it and the delivery service handed it back".
-            ProcessedMessageContent::OwnPrivateMessage => Received::Own,
-            ProcessedMessageContent::OwnPendingCommit => {
-                // 0.9 returns this when an incoming Commit's confirmation tag
-                // matches a commit *this* device has pending, so that the
-                // caller merges the pending commit rather than staging the
-                // echo. This engine never leaves one pending: `update` and
-                // `add_member` call `merge_pending_commit` before their bytes
-                // leave the method, precisely so that the device is in the new
-                // epoch the moment the caller has something to send. So the
-                // `Some` arm is not reachable today.
-                //
-                // It is written anyway, and it is not defensive padding: the
-                // alternative — assuming the invariant and returning
-                // `Received::Own` — would silently *skip an epoch change* if
-                // anyone ever split those two steps, and a group whose tree is
-                // one epoch behind its peers' is exactly the failure the
-                // transaction in this method exists to prevent. Merging is the
-                // only correct action when a pending commit exists, and doing
-                // nothing is the only correct action when none does.
-                if group.pending_commit().is_some() {
+            let outcome = match processed.into_content() {
+                ProcessedMessageContent::ApplicationMessage(message) => Received::Application {
+                    payload: message.into_bytes(),
+                    sender: sender_index.map_or(0, |index| index.u32()),
+                    epoch,
+                },
+                ProcessedMessageContent::ProposalMessage(proposal) => {
                     group
-                        .merge_pending_commit(&self.provider)
-                        .map_err(|_| EngineError::Mls("merge pending commit"))?;
+                        .store_pending_proposal(self.provider.store(), *proposal)
+                        .map_err(|_| EngineError::Mls("store pending proposal"))?;
+                    Received::ProposalQueued
+                }
+                ProcessedMessageContent::ExternalJoinProposalMessage(proposal) => {
+                    group
+                        .store_pending_proposal(self.provider.store(), *proposal)
+                        .map_err(|_| EngineError::Mls("store external join proposal"))?;
+                    Received::ProposalQueued
+                }
+                ProcessedMessageContent::StagedCommitMessage(staged) => {
+                    group
+                        .merge_staged_commit(&self.provider, *staged)
+                        .map_err(|_| EngineError::Mls("merge staged commit"))?;
+                    // Re-validated after the merge, because the commit may have
+                    // *added* members whose credentials nobody has looked at.
                     self.validate_members(group, now_ms)?;
                     Received::EpochChanged {
                         epoch: group.epoch().as_u64(),
                     }
-                } else {
-                    Received::Own
                 }
-            }
+                // Both of these are **new in openmls 0.9** and both mean "this
+                // device authored it and the delivery service handed it back".
+                ProcessedMessageContent::OwnPrivateMessage => Received::Own,
+                ProcessedMessageContent::OwnPendingCommit => {
+                    // 0.9 returns this when an incoming Commit's confirmation tag
+                    // matches a commit *this* device has pending, so that the
+                    // caller merges the pending commit rather than staging the
+                    // echo. This engine never leaves one pending: `update` and
+                    // `add_member` call `merge_pending_commit` before their bytes
+                    // leave the method, precisely so that the device is in the new
+                    // epoch the moment the caller has something to send. So the
+                    // `Some` arm is not reachable today.
+                    //
+                    // It is written anyway, and it is not defensive padding: the
+                    // alternative — assuming the invariant and returning
+                    // `Received::Own` — would silently *skip an epoch change* if
+                    // anyone ever split those two steps, and a group whose tree is
+                    // one epoch behind its peers' is exactly the failure the
+                    // transaction in this method exists to prevent. Merging is the
+                    // only correct action when a pending commit exists, and doing
+                    // nothing is the only correct action when none does.
+                    if group.pending_commit().is_some() {
+                        group
+                            .merge_pending_commit(&self.provider)
+                            .map_err(|_| EngineError::Mls("merge pending commit"))?;
+                        self.validate_members(group, now_ms)?;
+                        Received::EpochChanged {
+                            epoch: group.epoch().as_u64(),
+                        }
+                    } else {
+                        Received::Own
+                    }
+                }
+            };
+
+            // The durable "handled" record, in the same journal as everything
+            // above. This is the line that makes an `ACK` safe.
+            self.provider
+                .store()
+                .put_app(&handled_key(record_key), &[1])?;
+
+            transaction.commit()?;
+            Ok(outcome)
         };
 
-        // The durable "handled" record, in the same journal as everything
-        // above. This is the line that makes an `ACK` safe.
-        self.provider
-            .store()
-            .put_app(&handled_key(record_key), &[1])?;
-
-        transaction.commit()?;
-        Ok(outcome)
+        let result = operation();
+        if let Err(error) = result {
+            if let Err(reload) = self.restore_group_after_rollback(group, &group_id, original_aad) {
+                return Err(EngineError::GroupStateUnavailable {
+                    operation: Box::new(error),
+                    reload: Box::new(reload),
+                });
+            }
+            return Err(error);
+        }
+        result
     }
 
     /// Issue an `Update` commit: fresh leaf key, new epoch.
@@ -651,6 +913,24 @@ impl<B: StorageBackend> MlsEngine<B> {
         Ok(())
     }
 
+    /// Replace a group mutated inside a failed receive transaction with the
+    /// durable pre-transaction state. OpenMLS persists every durable group
+    /// field through the provider; AAD is intentionally ephemeral, so preserve
+    /// it explicitly across the reload.
+    fn restore_group_after_rollback(
+        &self,
+        group: &mut MlsGroup,
+        group_id: &GroupId,
+        aad: Vec<u8>,
+    ) -> Result<()> {
+        let Some(mut restored) = MlsGroup::load(self.provider.store(), group_id)? else {
+            return Err(EngineError::Mls("reload group after rollback"));
+        };
+        restored.set_aad(aad);
+        *group = restored;
+        Ok(())
+    }
+
     fn write_protocol_version(&self, group_id: &[u8]) -> Result<()> {
         self.provider.store().put_app(
             &version_key(group_id),
@@ -693,20 +973,6 @@ fn parse_message(wire: &[u8]) -> Result<MlsMessageIn> {
     Ok(message)
 }
 
-fn parse_key_package(wire: &[u8], crypto: &impl OpenMlsCrypto) -> Result<KeyPackage> {
-    match parse_message(wire)?.extract() {
-        // `validate` and not `into`: it checks the key package's own signature,
-        // the leaf node's signature, the lifetime, the extensions and that the
-        // init key differs from the encryption key. Skipping it would mean
-        // proposing an Add for a key package this device never verified, and
-        // every other member would then verify it and refuse the commit.
-        MlsMessageBodyIn::KeyPackage(key_package) => key_package
-            .validate(crypto, MlsProtocolVersion::Mls10)
-            .map_err(|_| EngineError::Mls("key package validation")),
-        _ => Err(EngineError::Mls("expected a key package")),
-    }
-}
-
 fn parse_welcome(wire: &[u8]) -> Result<Welcome> {
     match parse_message(wire)?.extract() {
         MlsMessageBodyIn::Welcome(welcome) => Ok(welcome),
@@ -721,7 +987,7 @@ fn parse_protocol_message(wire: &[u8]) -> Result<ProtocolMessage> {
 }
 
 /// The identity bytes out of a `BasicCredential`.
-fn basic_credential_identity(credential: &Credential) -> Result<&[u8]> {
+pub(crate) fn basic_credential_identity(credential: &Credential) -> Result<&[u8]> {
     if credential.credential_type() != CredentialType::Basic {
         return Err(EngineError::Credential(CredentialError::WrongType));
     }

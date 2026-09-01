@@ -1,5 +1,6 @@
 import { useState, type MouseEvent } from "react";
 import { NavLink, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Wordmark } from "@/components/brand/Logo";
 import {
   Dialog,
@@ -15,11 +16,12 @@ import {
   isNavigationRouteActive,
   mobileMoreNavigation,
   mobilePrimaryNavigation,
-  NAVIGATION_GROUP_LABELS,
+  NAVIGATION_GROUP_LABEL_KEYS,
   NAVIGATION_GROUP_ORDER,
   type NavigationRoute,
 } from "./navigation";
 import { useRouteScroll } from "@/hooks/useRouteScroll";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 
 const desktopLinkClass = ({ isActive }: { isActive: boolean }) =>
   cn(
@@ -52,6 +54,7 @@ function useActiveRouteRetap(item: NavigationRoute) {
 }
 
 function DesktopRoute({ item }: { item: NavigationRoute }) {
+  const { t } = useTranslation();
   const onClick = useActiveRouteRetap(item);
   const Icon = item.icon;
 
@@ -59,17 +62,20 @@ function DesktopRoute({ item }: { item: NavigationRoute }) {
     <NavLink
       to={item.to}
       end={item.end}
-      aria-label={item.accessibleLabel}
+      aria-label={t(item.accessibleLabelKey)}
       className={desktopLinkClass}
       onClick={onClick}
     >
       <Icon className="h-[18px] w-[18px]" aria-hidden />
-      <span aria-hidden>{item.label}</span>
+      <span className="min-w-0 break-words [overflow-wrap:anywhere]" aria-hidden>
+        {t(item.labelKey)}
+      </span>
     </NavLink>
   );
 }
 
 export function Sidebar() {
+  const { t } = useTranslation();
   const signedIn = useSession((state) => Boolean(state.user));
   const routes = desktopNavigation(signedIn);
 
@@ -80,7 +86,7 @@ export function Sidebar() {
       </div>
       <nav
         className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3"
-        aria-label="App navigation"
+        aria-label={t(MESSAGE_KEYS.navApp)}
       >
         {NAVIGATION_GROUP_ORDER.map((group) => {
           const groupRoutes = routes
@@ -97,7 +103,7 @@ export function Sidebar() {
                 id={`nav-group-${group}`}
                 className="mb-1 px-3 eyebrow text-muted-foreground"
               >
-                {NAVIGATION_GROUP_LABELS[group]}
+                {t(NAVIGATION_GROUP_LABEL_KEYS[group])}
               </h2>
               <div className="flex flex-col gap-1">
                 {groupRoutes.map((item) => (
@@ -113,15 +119,18 @@ export function Sidebar() {
 }
 
 function MobileRoute({ item }: { item: NavigationRoute }) {
+  const { t } = useTranslation();
   const onClick = useActiveRouteRetap(item);
   const visibleLabel =
-    item.mobile.area === "primary" ? item.mobile.label : item.label;
+    item.mobile.area === "primary"
+      ? t(item.mobile.labelKey)
+      : t(item.labelKey);
 
   return (
     <NavLink
       to={item.to}
       end={item.end}
-      aria-label={item.accessibleLabel}
+      aria-label={t(item.accessibleLabelKey)}
       data-navigation-id={item.id}
       onClick={onClick}
       className={({ isActive }) =>
@@ -149,13 +158,15 @@ function MobileMoreRoute({
   item: NavigationRoute;
   onSelect: () => void;
 }) {
+  const { t } = useTranslation();
   const onRetap = useActiveRouteRetap(item);
 
   return (
     <NavLink
       to={item.to}
       end={item.end}
-      aria-label={item.accessibleLabel}
+      aria-label={t(item.accessibleLabelKey)}
+      data-navigation-id={item.id}
       onClick={(event) => {
         onRetap(event);
         onSelect();
@@ -170,13 +181,16 @@ function MobileMoreRoute({
       }
     >
       <item.icon className="h-5 w-5 shrink-0" aria-hidden />
-      <span className="min-w-0">{item.label}</span>
+      <span className="min-w-0 break-words [overflow-wrap:anywhere]">
+        {t(item.labelKey)}
+      </span>
     </NavLink>
   );
 }
 
 /** Five stable destinations for narrow/mobile widths. */
 export function MobileTabBar() {
+  const { t } = useTranslation();
   const signedIn = useSession((state) => Boolean(state.user));
   const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -189,7 +203,7 @@ export function MobileTabBar() {
   return (
     <nav
       className="app-bottom-nav fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-card/95 backdrop-blur md:hidden"
-      aria-label="Primary navigation"
+      aria-label={t(MESSAGE_KEYS.navPrimary)}
       data-app-bottom-nav
     >
       {primaryItems.map((item) => {
@@ -203,7 +217,7 @@ export function MobileTabBar() {
             <DialogTrigger asChild>
               <button
                 type="button"
-                aria-label={item.accessibleLabel}
+                aria-label={t(item.accessibleLabelKey)}
                 aria-current={moreIsActive ? "page" : undefined}
                 data-navigation-id={item.id}
                 className={cn(
@@ -217,8 +231,8 @@ export function MobileTabBar() {
                   aria-hidden
                 >
                   {item.mobile.area === "primary"
-                    ? item.mobile.label
-                    : item.label}
+                    ? t(item.mobile.labelKey)
+                    : t(item.labelKey)}
                 </span>
               </button>
             </DialogTrigger>
@@ -228,12 +242,17 @@ export function MobileTabBar() {
               data-mobile-more-dialog
             >
               <div className="pr-12">
-                <DialogTitle>More</DialogTitle>
+                <DialogTitle>{t(MESSAGE_KEYS.navMore)}</DialogTitle>
                 <DialogDescription className="sr-only">
-                  Articles and account destinations
+                  {t(MESSAGE_KEYS.navMoreDescription, {
+                    count: moreItems.length,
+                  })}
                 </DialogDescription>
               </div>
-              <nav className="mt-2 grid gap-1" aria-label="More navigation">
+              <nav
+                className="mt-2 grid gap-1"
+                aria-label={t(MESSAGE_KEYS.navMoreNavigation)}
+              >
                 {moreItems.map((moreItem) => (
                   <MobileMoreRoute
                     key={moreItem.id}

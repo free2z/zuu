@@ -11,7 +11,7 @@
 //! a hex-only check passes while everything leaks. Building on the redacting
 //! newtypes makes the property structural instead of remembered.
 
-use f2z_codec::types::{Payload, PublicKey, QueueAddress};
+use f2z_codec::types::{KeyPackage, Payload, PublicKey, QueueAddress};
 use f2z_relay_proto::queue::{AppendQuota, QueueKind, QueueState};
 
 /// What `CREATE_QUEUE` (§6.2) or `CREATE_CONTACT_QUEUE` (§12.2) asks the store
@@ -329,4 +329,28 @@ mod tests {
         assert_eq!(ExpiryReason::IdleTtl.queue_event_reason(), 2);
         assert_eq!(ExpiryReason::MessageTtl.queue_event_reason(), 3);
     }
+}
+
+/// What a contact queue's key-package pool holds after a publish (§12.6).
+///
+/// Reported to the **owner** only, and only in the response to a command that
+/// owner signed. §6.3's rule that a response must carry no queue state is about
+/// a *sender* escalating into a reader; it does not apply to a device asking
+/// after its own pool, and there is no other way for one to know when to refill.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeyPackagePool {
+    /// Single-use packages held.
+    pub pool_size: u32,
+    /// Whether a package of last resort is stored.
+    pub has_last_resort: bool,
+}
+
+/// One package handed to a claimer (§12.6).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClaimedKeyPackage {
+    /// The package. Consumed if it came from the pool.
+    pub key_package: KeyPackage,
+    /// Whether this is the reusable package of last resort, which is to say
+    /// whether the pool was empty.
+    pub last_resort: bool,
 }

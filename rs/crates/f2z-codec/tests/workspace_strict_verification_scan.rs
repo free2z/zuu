@@ -561,6 +561,34 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
             call: "sig::verify",
         },
     },
+    // ---- f2z-msg-mls -------------------------------------------------------
+    //
+    // `WIRE.md` §12.6's key-package authentication. Neither of these verifies an
+    // Ed25519 signature itself: the `DeviceCredential`'s identity signature is
+    // checked by `credential::validate_for_leaf`, which reaches
+    // `f2z-kt-core`'s `sig::verify` — registered above, and the reason
+    // `f2z-msg-mls` does not carry a second Ed25519 verifier at all
+    // (`credential`'s module header states why an MLS peer and the log must
+    // agree about a credential). The key package's *own* signature and its
+    // leaf's are OpenMLS's, verified inside `KeyPackage::validate` through the
+    // libcrux provider, which is a different crypto core and is deliberately
+    // outside this scan's stated reach.
+    VerifyFn {
+        file: "f2z-msg-mls/src/keypackage.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::NotASignatureCheck {
+            via: "validate_for_leaf",
+        },
+    },
+    VerifyFn {
+        file: "f2z-msg-mls/src/engine.rs",
+        name: "verify_key_package",
+        occurrence: 0,
+        strictness: Strictness::NotASignatureCheck {
+            via: "VerifiedKeyPackage::verify",
+        },
+    },
     // ---- f2z-kt ------------------------------------------------------------
     VerifyFn {
         file: "f2z-kt/src/admit.rs",

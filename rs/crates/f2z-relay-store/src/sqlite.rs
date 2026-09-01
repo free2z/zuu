@@ -64,15 +64,16 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use f2z_codec::types::{Payload, PublicKey, QueueAddress};
+use f2z_codec::types::{KeyPackage, Payload, PublicKey, QueueAddress};
 use f2z_relay_proto::queue::{AckOutcome, AppendQuota, QueueKind, QueueState};
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
 use crate::durability::{Committed, Durability};
 use crate::error::{Result, StoreError};
 use crate::record::{
-    Append, Appended, Deleted, ExpiryReason, ExpiryReport, QueueExpiry, QueueRecord, QueueSpec,
-    ReadPage, ReadWindow, SendAuth, StoreStats, StoredMessage, idle_deadline, message_deadline,
+    Append, Appended, ClaimedKeyPackage, Deleted, ExpiryReason, ExpiryReport, KeyPackagePool,
+    QueueExpiry, QueueRecord, QueueSpec, ReadPage, ReadWindow, SendAuth, StoreStats, StoredMessage,
+    idle_deadline, message_deadline,
 };
 use crate::store::RelayStore;
 
@@ -184,7 +185,17 @@ mod counted {
 }
 
 /// The schema version stamped into `PRAGMA user_version`.
-const SCHEMA_VERSION: i32 = 1;
+///
+/// **2 since §12.6.** Version 1 is the queue-and-message schema; version 2 adds
+/// the `key_package` table and nothing else. The change is purely additive, so
+/// a version-1 database is upgraded in place by the `CREATE TABLE IF NOT
+/// EXISTS` in [`SCHEMA`] plus a stamp — see [`SqliteStore::prepare`]. A version
+/// this build does not know is still a hard refusal: opening a newer database
+/// read-write is how a downgrade silently drops rows.
+const SCHEMA_VERSION: i32 = 2;
+
+/// The first schema version, upgradable in place to [`SCHEMA_VERSION`].
+const SCHEMA_VERSION_WITHOUT_KEY_PACKAGES: i32 = 1;
 
 const SCHEMA: &str = "\
 CREATE TABLE IF NOT EXISTS queue (
@@ -218,6 +229,18 @@ CREATE TABLE IF NOT EXISTS message (
 ) WITHOUT ROWID;
 
 CREATE INDEX IF NOT EXISTS message_expiry ON message (expires_at_ms);
+
+CREATE TABLE IF NOT EXISTS key_package (
+    recv_addr    BLOB    NOT NULL,
+    seq          INTEGER NOT NULL,
+    last_resort  INTEGER NOT NULL,
+    package      BLOB    NOT NULL,
+    PRIMARY KEY (recv_addr, seq),
+    FOREIGN KEY (recv_addr) REFERENCES queue (recv_addr) ON DELETE CASCADE
+) WITHOUT ROWID;
+
+CREATE UNIQUE INDEX IF NOT EXISTS key_package_last_resort
+    ON key_package (recv_addr) WHERE last_resort = 1;
 ";
 
 /// Every column of `queue`, in the order [`record_from_row`] reads them.
@@ -296,7 +319,12 @@ impl SqliteStore {
 
         connection.execute_batch(SCHEMA)?;
         let version: i32 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        if version == 0 {
+        // 0 is a database this process just created. 1 is a pre-§12.6 relay's,
+        // and the batch above has already added the one table that separates
+        // it from 2, so the upgrade is the stamp. Anything else is refused:
+        // opening a database written by a *newer* build read-write is how a
+        // downgrade quietly discards rows it does not understand.
+        if version == 0 || version == SCHEMA_VERSION_WITHOUT_KEY_PACKAGES {
             connection.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
         } else if version != SCHEMA_VERSION {
             return Err(StoreError::Corrupt(
@@ -867,6 +895,173 @@ impl RelayStore for SqliteStore {
         crate::crash::fire(crate::crash::CrashPoint::AfterAckCommit);
 
         Ok(Committed::seal(self.durability(), outcome))
+    }
+
+    fn publish_key_packages(
+        &self,
+        recv_addr: &QueueAddress,
+        signer: &PublicKey,
+        packages: &[KeyPackage],
+        last_resort: Option<&KeyPackage>,
+        max_pool: u32,
+        now_ms: u64,
+    ) -> Result<Committed<KeyPackagePool>> {
+        let mut connection = self.lock_connection();
+        let tx = connection.begin(&self.commits)?;
+        let activity = self.flush_activity(&tx)?;
+
+        let record = load_by_recv(&tx, recv_addr)?.ok_or_else(StoreError::no_access)?;
+        record.state.authorize_recv(signer)?;
+        if !matches!(record.kind(), QueueKind::Contact) {
+            return Err(StoreError::not_permitted());
+        }
+
+        // The whole pool, so duplicates are decided against committed state
+        // rather than against what this batch happens to have inserted so far.
+        let mut held: Vec<Vec<u8>> = tx
+            .prepare_cached(
+                "SELECT package FROM key_package WHERE recv_addr = ?1 ORDER BY seq ASC",
+            )?
+            .query_map([recv_addr.as_ref()], |row| row.get::<_, Vec<u8>>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut pool_size = u64::try_from(tx.query_row(
+            "SELECT COUNT(*) FROM key_package WHERE recv_addr = ?1 AND last_resort = 0",
+            [recv_addr.as_ref()],
+            |row| row.get::<_, i64>(0),
+        )?)
+        .unwrap_or(0);
+        let mut next_seq: i64 = tx
+            .query_row(
+                "SELECT COALESCE(MAX(seq), -1) + 1 FROM key_package WHERE recv_addr = ?1",
+                [recv_addr.as_ref()],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        let max = u64::from(max_pool);
+        for package in packages {
+            if pool_size >= max {
+                break;
+            }
+            if held.iter().any(|stored| stored == package.as_slice()) {
+                continue;
+            }
+            tx.prepare_cached(
+                "INSERT INTO key_package (recv_addr, seq, last_resort, package) \
+                 VALUES (?1, ?2, 0, ?3)",
+            )?
+            .execute(rusqlite::params![
+                recv_addr.as_ref(),
+                next_seq,
+                package.as_slice()
+            ])?;
+            held.push(package.as_slice().to_vec());
+            pool_size = pool_size.saturating_add(1);
+            next_seq = next_seq.saturating_add(1);
+        }
+
+        if let Some(package) = last_resort {
+            // `held` is the complete pre-transaction state plus every package
+            // accepted above. A collision means this init key is already
+            // single-use (or is the current fallback), so replacing would
+            // either downgrade it to reusable or do needless work. In either
+            // case the existing fallback stays exactly as it was.
+            if !held.iter().any(|stored| stored == package.as_slice()) {
+                tx.execute(
+                    "DELETE FROM key_package WHERE recv_addr = ?1 AND last_resort = 1",
+                    [recv_addr.as_ref()],
+                )?;
+                tx.prepare_cached(
+                    "INSERT INTO key_package (recv_addr, seq, last_resort, package) \
+                     VALUES (?1, ?2, 1, ?3)",
+                )?
+                .execute(rusqlite::params![
+                    recv_addr.as_ref(),
+                    next_seq,
+                    package.as_slice()
+                ])?;
+            }
+        }
+        let has_last_resort: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM key_package WHERE recv_addr = ?1 AND last_resort = 1)",
+            [recv_addr.as_ref()],
+            |row| row.get(0),
+        )?;
+
+        self.commit(tx, activity)?;
+        self.record_activity(recv_addr, now_ms);
+        Ok(Committed::seal(
+            self.durability(),
+            KeyPackagePool {
+                pool_size: u32::try_from(pool_size).unwrap_or(u32::MAX),
+                has_last_resort,
+            },
+        ))
+    }
+
+    fn claim_key_package(
+        &self,
+        contact_addr: &QueueAddress,
+    ) -> Result<Committed<ClaimedKeyPackage>> {
+        let mut connection = self.lock_connection();
+        let tx = connection.begin(&self.commits)?;
+        let activity = self.flush_activity(&tx)?;
+
+        // Absent, and not-a-contact-queue, are one refusal — §10's rule holds
+        // for a published address exactly as it does for any other.
+        let record = load_by_send(&tx, contact_addr)?.ok_or_else(StoreError::unavailable)?;
+        if !matches!(record.kind(), QueueKind::Contact) {
+            return Err(StoreError::unavailable());
+        }
+        let recv_addr = record.recv_addr;
+
+        let pooled: Option<(i64, Vec<u8>)> = tx
+            .query_row(
+                "SELECT seq, package FROM key_package \
+                 WHERE recv_addr = ?1 AND last_resort = 0 ORDER BY seq ASC LIMIT 1",
+                [recv_addr.as_ref()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+
+        let claimed = match pooled {
+            Some((seq, package)) => {
+                // The delete and the answer are one transaction. A package
+                // handed out and not durably removed is handed out twice after
+                // a crash, which is the init-key reuse the pool exists to
+                // avoid — so the `Committed` this returns is load-bearing.
+                tx.execute(
+                    "DELETE FROM key_package WHERE recv_addr = ?1 AND seq = ?2",
+                    rusqlite::params![recv_addr.as_ref(), seq],
+                )?;
+                ClaimedKeyPackage {
+                    key_package: KeyPackage::new(package)
+                        .map_err(|_| StoreError::Corrupt("a stored key package is empty"))?,
+                    last_resort: false,
+                }
+            }
+            None => {
+                let package: Vec<u8> = tx
+                    .query_row(
+                        "SELECT package FROM key_package \
+                         WHERE recv_addr = ?1 AND last_resort = 1 LIMIT 1",
+                        [recv_addr.as_ref()],
+                        |row| row.get(0),
+                    )
+                    .optional()?
+                    .ok_or_else(StoreError::unavailable)?;
+                // Not deleted. That is the whole of §12.6's exhaustion
+                // behaviour and the whole of its cost.
+                ClaimedKeyPackage {
+                    key_package: KeyPackage::new(package)
+                        .map_err(|_| StoreError::Corrupt("a stored key package is empty"))?,
+                    last_resort: true,
+                }
+            }
+        };
+
+        self.commit(tx, activity)?;
+        Ok(Committed::seal(self.durability(), claimed))
     }
 
     fn delete_queue(

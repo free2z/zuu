@@ -197,6 +197,16 @@ const UNGATED_WORKFLOWS = new Map([
       "while a pull request is still open, so a required context from it could never report.",
   ],
   [
+    ".github/workflows/dependency-register.yml",
+    "Enforces docs/DEPENDENCIES.md. Its `offline` job is deterministic and could be gated, but its " +
+      "`upstream` job renders verdicts about third-party repositories — whether zcash/librustzcash " +
+      "merged a PR, how far upstream main has moved, whether a remote still publishes a branch — and " +
+      "a required context carrying those would let someone else's merge queue or an api.github.com " +
+      "outage redden main for a contributor who touched none of it. It runs weekly and files an issue " +
+      "instead. Gating the offline half alone means first splitting it behind a change detector, and " +
+      "its `on: pull_request: paths:` filter would otherwise leave a required context pending.",
+  ],
+  [
     ".github/workflows/docs-about-free2z.yml",
     "Advisory build of docs/about-free2z/**, selected by an `on: pull_request: paths:` filter; " +
       "gating it means first moving that filter into a change-detector job.",

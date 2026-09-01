@@ -5,13 +5,15 @@ import { fileURLToPath } from "node:url";
 
 // Exact commands exercised by the current mobile product. In particular this
 // omits the unused generic seed-reveal command, raw viewing/spending keys,
-// wallet deletion/switching/renaming, account creation, endpoint mutation, and
+// wallet deletion/renaming, account creation, endpoint mutation, and
 // send-all proposal authority. Backup-seed access remains because onboarding
 // currently uses that wallet-ID-bound command.
 export const REVIEWED_MOBILE_ZCASH_PERMISSIONS = [
   "zcash:allow-create-wallet",
   "zcash:allow-restore-wallet",
   "zcash:allow-get-wallet-status",
+  "zcash:allow-list-wallets",
+  "zcash:allow-switch-wallet",
   "zcash:allow-preview-legacy-wallet-import",
   "zcash:allow-retry-wallet-cleanup",
   "zcash:allow-get-backup-seed-phrase",
@@ -109,6 +111,7 @@ const REVIEWED_NON_WALLET_PERMISSIONS = [
 ];
 const REVIEWED_HTTP_URLS = [
   "https://free2z.cash/*",
+  "https://*.free2z.cash/*",
   "https://stage.free2z.cash/*",
 ];
 
@@ -234,6 +237,22 @@ export function assertMobileWebviewAuthority(mobile, tauriConfig) {
     frameSources[0] !== "'none'"
   ) {
     throw new Error("privileged native WebViews must declare frame-src 'none'");
+  }
+
+  const imageSources = cspDirective(csp, "img-src");
+  if (!imageSources?.includes("blob:")) {
+    throw new Error("packaged image CSP must allow validated local blob URLs");
+  }
+  const connectSources = cspDirective(csp, "connect-src");
+  for (const source of [
+    "https://free2z.cash",
+    "https://*.free2z.cash",
+  ]) {
+    if (!connectSources?.includes(source)) {
+      throw new Error(
+        "packaged connect CSP must retain trusted Free2Z image transport",
+      );
+    }
   }
 }
 

@@ -19,7 +19,7 @@
 )]
 
 use f2z_codec::ErrorCode;
-use f2z_codec::types::{Payload, PublicKey, QueueAddress};
+use f2z_codec::types::{KeyPackage, Payload, PublicKey, QueueAddress};
 use f2z_relay_proto::queue::{AppendQuota, QueueKind};
 use f2z_relay_store::{
     Append, ExpiryReason, MemoryStore, QueueSpec, ReadWindow, RelayStore, SendAuth, SqliteStore,
@@ -885,6 +885,301 @@ fn a_colliding_address_is_reported_rather_than_overwriting_a_live_queue() {
             .create_queue(&crossed)
             .expect_err("a send address equal to an existing receive address collides");
         assert!(matches!(error, StoreError::AddressCollision), "{name}");
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+    });
+}
+
+// ---------------------------------------------------------------------------
+// §12.6 — the key-package pool.
+//
+// Both stores, because the rules below are the code's and not SQLite's: the
+// duplicate skip, the clamp, the consumption and the last-resort fallback are
+// each one `if` away from being wrong in a way a `UNIQUE` constraint would not
+// catch.
+// ---------------------------------------------------------------------------
+
+fn package(byte: u8) -> KeyPackage {
+    KeyPackage::new(vec![byte; 64]).unwrap()
+}
+
+fn contact_queue(store: &dyn RelayStore) {
+    let _ = store
+        .create_queue(&spec(QueueKind::Contact, generous(), 86_400, 86_400))
+        .unwrap();
+}
+
+#[test]
+fn a_pooled_package_is_served_once_and_in_publication_order() {
+    both(|store, name| {
+        contact_queue(store);
+        let published = store
+            .publish_key_packages(&RECV, &RECV_KEY, &[package(1), package(2)], None, 64, 2_000)
+            .unwrap()
+            .into_inner();
+        assert_eq!(published.pool_size, 2, "{name}");
+        assert!(!published.has_last_resort, "{name}");
+
+        let first = store.claim_key_package(&SEND).unwrap().into_inner();
+        assert_eq!(first.key_package, package(1), "{name}: oldest first");
+        assert!(!first.last_resort, "{name}");
+        let second = store.claim_key_package(&SEND).unwrap().into_inner();
+        assert_eq!(second.key_package, package(2), "{name}");
+
+        // Consumed, and there is nothing behind them.
+        let error = store.claim_key_package(&SEND).expect_err("exhausted");
+        assert_eq!(code(&error), ErrorCode::Unavailable, "{name}");
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+    });
+}
+
+#[test]
+fn the_last_resort_package_is_reused_rather_than_consumed() {
+    both(|store, name| {
+        contact_queue(store);
+        let published = store
+            .publish_key_packages(&RECV, &RECV_KEY, &[], Some(&package(9)), 64, 2_000)
+            .unwrap()
+            .into_inner();
+        assert_eq!(published.pool_size, 0, "{name}");
+        assert!(published.has_last_resort, "{name}");
+
+        // Three times, same package, still there. This is the availability
+        // §12.6 buys and the forward secrecy `THREAT-MODEL.md` §4.12 pays.
+        for _ in 0..3 {
+            let claimed = store.claim_key_package(&SEND).unwrap().into_inner();
+            assert_eq!(claimed.key_package, package(9), "{name}");
+            assert!(claimed.last_resort, "{name}");
+        }
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+    });
+}
+
+#[test]
+fn republishing_the_same_batch_does_not_double_the_pool() {
+    both(|store, name| {
+        contact_queue(store);
+        let batch = [package(1), package(2)];
+        let _ = store
+            .publish_key_packages(&RECV, &RECV_KEY, &batch, None, 64, 2_000)
+            .unwrap();
+        let again = store
+            .publish_key_packages(&RECV, &RECV_KEY, &batch, None, 64, 3_000)
+            .unwrap()
+            .into_inner();
+        // A retried publish under a transport that can lose a response. Two
+        // copies of one package is two `Welcome`s to one init key.
+        assert_eq!(again.pool_size, 2, "{name}");
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+    });
+}
+
+#[test]
+fn a_pooled_publish_skips_bytes_already_held_as_last_resort() {
+    both(|store, name| {
+        contact_queue(store);
+        let duplicate = package(7);
+        let _ = store
+            .publish_key_packages(&RECV, &RECV_KEY, &[], Some(&duplicate), 64, 2_000)
+            .unwrap();
+        let published = store
+            .publish_key_packages(
+                &RECV,
+                &RECV_KEY,
+                std::slice::from_ref(&duplicate),
+                None,
+                64,
+                3_000,
+            )
+            .unwrap()
+            .into_inner();
+
+        assert_eq!(
+            published.pool_size, 0,
+            "{name}: last-resort bytes entered the pool"
+        );
+        assert!(published.has_last_resort, "{name}");
+        let claimed = store.claim_key_package(&SEND).unwrap().into_inner();
+        assert_eq!(claimed.key_package, duplicate, "{name}");
+        assert!(claimed.last_resort, "{name}: the surviving role changed");
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+    });
+}
+
+#[test]
+fn a_new_last_resort_that_duplicates_the_pool_is_skipped_without_replacing_the_old_one() {
+    both(|store, name| {
+        contact_queue(store);
+        let promoted = package(1);
+        let _ = store
+            .publish_key_packages(
+                &RECV,
+                &RECV_KEY,
+                &[promoted.clone(), package(2)],
+                Some(&package(9)),
+                64,
+                2_000,
+            )
+            .unwrap();
+        let published = store
+            .publish_key_packages(&RECV, &RECV_KEY, &[], Some(&promoted), 64, 3_000)
+            .unwrap()
+            .into_inner();
+
+        assert_eq!(
+            published.pool_size, 2,
+            "{name}: a single-use package left the pool"
+        );
+        for expected in [promoted, package(2)] {
+            let pooled = store.claim_key_package(&SEND).unwrap().into_inner();
+            assert_eq!(pooled.key_package, expected, "{name}: pool order changed");
+            assert!(
+                !pooled.last_resort,
+                "{name}: a single-use key became reusable"
+            );
+        }
+        let fallback = store.claim_key_package(&SEND).unwrap().into_inner();
+        assert_eq!(
+            fallback.key_package,
+            package(9),
+            "{name}: a rejected replacement retired the old fallback"
+        );
+        assert!(fallback.last_resort, "{name}");
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+    });
+}
+
+#[test]
+fn a_same_request_collision_keeps_the_bytes_only_in_the_single_use_pool() {
+    both(|store, name| {
+        contact_queue(store);
+        let promoted = package(1);
+        let published = store
+            .publish_key_packages(
+                &RECV,
+                &RECV_KEY,
+                &[promoted.clone(), package(2)],
+                Some(&promoted),
+                64,
+                2_000,
+            )
+            .unwrap()
+            .into_inner();
+
+        assert_eq!(
+            published.pool_size, 2,
+            "{name}: the candidate did not remain single-use"
+        );
+        assert!(
+            !published.has_last_resort,
+            "{name}: one init key occupies both roles"
+        );
+        for expected in [promoted, package(2)] {
+            let pooled = store.claim_key_package(&SEND).unwrap().into_inner();
+            assert_eq!(pooled.key_package, expected, "{name}");
+            assert!(
+                !pooled.last_resort,
+                "{name}: a single-use key became reusable"
+            );
+        }
+        let error = store
+            .claim_key_package(&SEND)
+            .expect_err("no fallback was accepted");
+        assert_eq!(code(&error), ErrorCode::Unavailable, "{name}");
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+    });
+}
+
+#[test]
+fn a_pool_is_clamped_from_the_end_of_the_batch() {
+    both(|store, name| {
+        contact_queue(store);
+        let batch: Vec<KeyPackage> = (1..=5).map(package).collect();
+        let published = store
+            .publish_key_packages(&RECV, &RECV_KEY, &batch, None, 3, 2_000)
+            .unwrap()
+            .into_inner();
+        assert_eq!(published.pool_size, 3, "{name}");
+        // The first three, deterministically — a client that reads `pool_size`
+        // back knows which of its packages the relay kept.
+        for expected in 1..=3u8 {
+            let claimed = store.claim_key_package(&SEND).unwrap().into_inner();
+            assert_eq!(claimed.key_package, package(expected), "{name}");
+        }
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+    });
+}
+
+#[test]
+fn a_standard_queue_refuses_a_pool_and_an_unknown_address_is_unavailable() {
+    both(|store, name| {
+        let _ = store
+            .create_queue(&spec(QueueKind::Standard, generous(), 86_400, 86_400))
+            .unwrap();
+        let error = store
+            .publish_key_packages(&RECV, &RECV_KEY, &[package(1)], None, 64, 2_000)
+            .expect_err("a standard queue has no published address to key a pool by");
+        assert_eq!(code(&error), ErrorCode::NotPermitted, "{name}");
+
+        // And a claim against its send address is the send-side collapse, not a
+        // hint that the address exists.
+        let error = store
+            .claim_key_package(&SEND)
+            .expect_err("not a contact queue");
+        assert_eq!(code(&error), ErrorCode::Unavailable, "{name}");
+        let error = store
+            .claim_key_package(&QueueAddress::new([0x5c; 32]))
+            .expect_err("no such address");
+        assert_eq!(code(&error), ErrorCode::Unavailable, "{name}");
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+    });
+}
+
+#[test]
+fn a_wrong_key_cannot_publish_into_someone_elses_pool() {
+    both(|store, name| {
+        contact_queue(store);
+        let error = store
+            .publish_key_packages(
+                &RECV,
+                &PublicKey::new([0x99; 32]),
+                &[package(1)],
+                None,
+                64,
+                2_000,
+            )
+            .expect_err("the receive key is the only thing that authorizes a pool");
+        // §10's existence-oracle rule: the same code an absent address gets.
+        assert_eq!(code(&error), ErrorCode::NoAccess, "{name}");
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+    });
+}
+
+#[test]
+fn deleting_a_queue_takes_its_pool_with_it() {
+    both(|store, name| {
+        contact_queue(store);
+        let _ = store
+            .publish_key_packages(
+                &RECV,
+                &RECV_KEY,
+                &[package(1)],
+                Some(&package(2)),
+                64,
+                2_000,
+            )
+            .unwrap();
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+        // §7.6 forbids a tombstone, and a pool that outlived its queue would be
+        // one — a claim against a deleted contact address would still answer.
+        let error = store.claim_key_package(&SEND).expect_err("deleted");
+        assert_eq!(code(&error), ErrorCode::Unavailable, "{name}");
+
+        // And the addresses are reusable, with nothing carried over.
+        contact_queue(store);
+        let error = store
+            .claim_key_package(&SEND)
+            .expect_err("a fresh queue holds nothing");
+        assert_eq!(code(&error), ErrorCode::Unavailable, "{name}");
         let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
     });
 }

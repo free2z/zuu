@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
-import { Loader2, Newspaper, PenLine, Search, Sparkles, X } from "lucide-react";
+import { Loader2, Newspaper, PenLine, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useRouteScroll } from "@/hooks/useRouteScroll";
 import { cn } from "@/lib/utils";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import {
   isArticleTagFilterable,
   MAX_ARTICLE_TAGS,
@@ -15,6 +17,7 @@ import {
 } from "@/lib/article-tags";
 import type { ArticleSort } from "@/lib/api/types";
 import { ArticleCard, ArticleCardSkeleton } from "../components/ArticleCard";
+import { TopicFilterAutocomplete } from "../components/TopicFilterAutocomplete";
 import { useArticleFeed } from "../useArticleFeed";
 
 /** The user-facing ranking options (backend `homeSort` values). */
@@ -25,6 +28,7 @@ const SORTS: { value: ArticleSort; label: string }[] = [
 ];
 
 export function Feed() {
+  const { t } = useTranslation();
   const { viewport } = useRouteScroll();
   const [params, setParams] = useSearchParams();
   const [sort, setSort] = useState<ArticleSort>("popular");
@@ -42,40 +46,25 @@ export function Feed() {
     return () => clearTimeout(id);
   }, [searchInput]);
 
-  const { items, count, loading, loadingMore, error, hasMore, loadMore, reload } =
-    useArticleFeed({ sort, tags: selectedTags, search });
-
-  // Accumulate tags seen across pages so the filter chips grow as you scroll,
-  // and never drop a tag the user has already selected.
-  const [knownTags, setKnownTags] = useState<string[]>([]);
-  useEffect(() => {
-    setKnownTags((prev) => {
-      const set = new Set(prev);
-      for (const article of items) {
-        for (const tag of sanitizeArticleTags(article.tags ?? [])) set.add(tag);
-      }
-      for (const t of selectedTags) set.add(t);
-      const merged = Array.from(set).sort();
-      return merged.length === prev.length && merged.every((t, i) => t === prev[i])
-        ? prev
-        : merged;
-    });
-  }, [items, selectedTags]);
+  const {
+    items,
+    count,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    loadMore,
+    reload,
+  } = useArticleFeed({ sort, tags: selectedTags, search });
 
   function updateSelectedTags(tags: string[]) {
-    const canonical = sanitizeArticleTags(tags).slice(0, MAX_ARTICLE_TAGS);
+    const canonical = sanitizeArticleTags(tags)
+      .filter(isArticleTagFilterable)
+      .slice(0, MAX_ARTICLE_TAGS);
     const next = new URLSearchParams(params);
     if (canonical.length > 0) next.set("tags", canonical.join(","));
     else next.delete("tags");
     setParams(next);
-  }
-
-  function toggleTag(tag: string) {
-    updateSelectedTags(
-      selectedTags.includes(tag)
-        ? selectedTags.filter((candidate) => candidate !== tag)
-        : [...selectedTags, tag],
-    );
   }
 
   // Infinite scroll: fire loadMore when the sentinel scrolls into view.
@@ -93,8 +82,6 @@ export function Feed() {
   }, [loadMore, sentinel, viewport]);
 
   const hasFilters = selectedTags.length > 0 || search.length > 0;
-  const showTagBar = knownTags.length > 0;
-
   const grid = useMemo(
     () => (
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -110,7 +97,6 @@ export function Feed() {
     <div className="animate-slide-up">
       <PageHeader
         title="Articles"
-        description="Long-form writing from the Zcash community — backed by free2z zpages."
         actions={
           <Button asChild>
             <Link to="/articles/new" aria-label="Write a new article">
@@ -136,8 +122,8 @@ export function Feed() {
               enterKeyHint="search"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search articles by meaning…"
-              aria-label="Search articles"
+              placeholder={t(MESSAGE_KEYS.navSearchAction)}
+              aria-label={t(MESSAGE_KEYS.articlesSearchAccessible)}
               data-custom-search-clear
               className="pl-9 pr-12"
             />
@@ -152,10 +138,6 @@ export function Feed() {
               </button>
             ) : null}
           </div>
-          <p className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
-            <Sparkles className="h-3 w-3 text-primary" aria-hidden />
-            Semantic search — results ranked by meaning, not just keywords.
-          </p>
         </div>
 
         <div
@@ -183,59 +165,16 @@ export function Feed() {
         </div>
       </div>
 
-      {/* Tag filter (AND semantics) */}
-      {showTagBar ? (
-        <div className="mb-6 flex flex-wrap items-center gap-2" aria-label="Filter by tag">
-          {knownTags.map((tag) => {
-            const on = selectedTags.includes(tag);
-            if (!isArticleTagFilterable(tag)) {
-              return (
-                <span
-                  key={tag}
-                  className="min-tap inline-flex max-w-full items-center rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground"
-                  title="This stored tag cannot be represented by the server's comma-delimited filter."
-                >
-                  <span className="min-w-0 break-words">{tag}</span>
-                </span>
-              );
-            }
-            return (
-              <button
-                key={tag}
-                type="button"
-                aria-pressed={on}
-                onClick={() => toggleTag(tag)}
-                className={cn(
-                  "min-tap max-w-full break-words rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  on
-                    ? "border-primary bg-primary/15 text-primary"
-                    : "border-border bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground",
-                )}
-              >
-                {tag}
-              </button>
-            );
-          })}
-          {selectedTags.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => updateSelectedTags([])}
-              className="min-tap inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <X className="h-3 w-3" aria-hidden />
-              Clear tags
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+      <TopicFilterAutocomplete
+        selected={selectedTags}
+        onChange={updateSelectedTags}
+      />
 
       {/* Result count */}
       {!loading && !error && items.length > 0 ? (
         <p className="mb-4 text-sm text-muted-foreground tabular-nums">
           {count.toLocaleString()} {count === 1 ? "article" : "articles"}
-          {selectedTags.length > 0
-            ? ` tagged ${selectedTags.join(" + ")}`
-            : ""}
+          {selectedTags.length > 0 ? ` tagged ${selectedTags.join(" + ")}` : ""}
         </p>
       ) : null}
 
@@ -260,9 +199,7 @@ export function Feed() {
       ) : items.length === 0 ? (
         <EmptyState
           icon={search ? Search : Newspaper}
-          title={
-            hasFilters ? "No matching articles" : "No articles yet"
-          }
+          title={hasFilters ? "No matching articles" : "No articles yet"}
           description={
             hasFilters
               ? "Nothing matched your search and filters. Try broadening them."
@@ -309,7 +246,10 @@ export function Feed() {
             </div>
           ) : hasMore ? (
             <div className="flex justify-center py-8 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" aria-label="Loading more" />
+              <Loader2
+                className="h-5 w-5 animate-spin"
+                aria-label="Loading more"
+              />
             </div>
           ) : (
             <p className="py-8 text-center text-sm text-muted-foreground">

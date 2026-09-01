@@ -5,13 +5,17 @@ import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TopBar } from "./TopBar";
+import { TestI18nProvider } from "@/i18n/test-provider";
+import type { SupportedLocale } from "@/i18n/locale";
 
 function renderTopBar({
   pushed = false,
   route = pushed ? "/wallet/fund" : "/",
+  locale = "en",
 }: {
   pushed?: boolean;
   route?: string;
+  locale?: SupportedLocale;
 } = {}) {
   vi.stubGlobal("window", {
     history: { state: { idx: pushed ? 1 : 0 } },
@@ -19,9 +23,11 @@ function renderTopBar({
 
   return renderToStaticMarkup(
     <MemoryRouter initialEntries={[route]}>
-      <TooltipProvider>
-        <TopBar />
-      </TooltipProvider>
+      <TestI18nProvider locale={locale}>
+        <TooltipProvider>
+          <TopBar />
+        </TooltipProvider>
+      </TestI18nProvider>
     </MemoryRouter>,
   );
 }
@@ -59,5 +65,15 @@ describe("TopBar account chrome", () => {
     expect(markup).not.toContain('aria-label="Search"');
     expect(markup).toContain('aria-label="Go back"');
     expect(markup).toContain('aria-label="Log in"');
+  });
+
+  it("renders the visible search placeholder from the selected catalog", () => {
+    const english = renderTopBar({ locale: "en" });
+    const spanish = renderTopBar({ locale: "es" });
+
+    expect(english).toContain('placeholder="Search creators and pages…"');
+    expect(english).not.toContain('placeholder="Buscar creadores y páginas…"');
+    expect(spanish).toContain('placeholder="Buscar creadores y páginas…"');
+    expect(spanish).not.toContain('placeholder="Search creators and pages…"');
   });
 });

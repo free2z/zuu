@@ -107,7 +107,7 @@ where
     // `tls_deserialize_exact_bytes` refuses trailing data, which is the first
     // half of §3.3's "no unknown trailing bytes" rule.
     let value = T::tls_deserialize_exact_bytes(bytes)?;
-    let encoded = SerializeBytes::tls_serialize(&value)?;
+    let encoded = SerializeBytes::tls_serialize_bytes(&value)?;
     if encoded.as_slice() != bytes {
         return Err(CodecError::NotCanonical);
     }
@@ -121,7 +121,7 @@ where
 /// [`CodecError::Decode`] if the value cannot be encoded — in practice, a
 /// vector longer than its length prefix can describe.
 pub fn encode<T: SerializeBytes>(value: &T) -> Result<Vec<u8>, CodecError> {
-    Ok(SerializeBytes::tls_serialize(value)?)
+    Ok(SerializeBytes::tls_serialize_bytes(value)?)
 }
 
 /// A wire structure that participates in re-encode equality.

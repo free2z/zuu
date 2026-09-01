@@ -41,6 +41,7 @@ import { useSession } from "@/store/session";
 import { formatTuzis, timeAgo, initials, truncateAddress } from "@/lib/format";
 import type { DyteJoinTicket, Livestream, StreamKind } from "@/lib/api/types";
 import { coverTone } from "@/lib/cover";
+import { participantCountCopy } from "@/lib/participant-count";
 import {
   parsePrivateInviteHash,
   privateInviteDisplayUrl,
@@ -55,6 +56,8 @@ import {
   runSingleFlight,
 } from "./membership";
 import { Stage } from "./Stage";
+import { viewerEntryState } from "./viewer-safety";
+import { classifyLiveFailure, safeLiveDiagnostic } from "./connection-failure";
 
 interface JustStarted {
   ticket: DyteJoinTicket;
@@ -76,6 +79,7 @@ export function Room() {
   const tuzis = useSession((s) => s.tuzis);
   const adjustTuzis = useSession((s) => s.adjustTuzis);
   const user = useSession((s) => s.user);
+  const sessionLoading = useSession((s) => s.loading);
 
   // A host who just went live already has their stream + ticket in navigation
   // state, so we can render the room immediately and skip the public listing
@@ -133,7 +137,9 @@ export function Room() {
         title: resolved.title,
         kind: resolved.kind,
         live: true,
-        participants: 1,
+        // Starting or joining locally does not reveal an authoritative room
+        // count. Never synthesize the host/viewer into this value.
+        participants: null,
         price_tuzis: resolved.price_tuzis,
         thumbnail: null,
         started_at: new Date().toISOString(),
@@ -145,6 +151,12 @@ export function Room() {
   // Connection ticket, set once the viewer/host is in.
   const [ticket, setTicket] = useState<DyteJoinTicket | null>(
     justStarted?.ticket ?? null,
+  );
+  // Private invites remain memory-only. Keeping the active secret here lets a
+  // failed viewer request obtain a fresh ticket without putting it in storage,
+  // diagnostics, query parameters, or the ticket itself.
+  const [activeJoinSecret, setActiveJoinSecret] = useState<string | undefined>(
+    inviteSecret ?? undefined,
   );
 
   useEffect(() => {
@@ -213,6 +225,13 @@ export function Room() {
   const kind = KIND_META[stream.kind] ?? KIND_META.broadcast;
   const creatorName = stream.creator.display_name ?? stream.creator.username;
   const seed = stream.username + stream.title;
+  const entryState = viewerEntryState({
+    sessionLoading,
+    viewerUsername: user?.username,
+    creatorUsername: stream.username,
+    kind: stream.kind,
+  });
+  const participants = participantCountCopy(stream.participants);
 
   return (
     <div className="space-y-6 animate-slide-up">
@@ -269,16 +288,27 @@ export function Room() {
             {stream.live ? (
               <div className="absolute right-4 top-4 flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white backdrop-blur">
                 <Users className="h-3.5 w-3.5" aria-hidden />
-                <span className="tabular-nums">
-                  {(stream.participants + (ticket ? 1 : 0)).toLocaleString()}
-                </span>{" "}
-                watching
+                <span className="tabular-nums">{participants.watching}</span>
               </div>
             ) : null}
 
             {/* Stage center: either the "off-air" identity or the real meeting */}
             {ticket ? (
-              <Stage ticket={ticket} />
+              <Stage
+                ticket={ticket}
+                {...(ticket.as === "participant"
+                  ? {
+                      refreshTicket: (previous: DyteJoinTicket) =>
+                        live.refreshParticipant(
+                          stream.username,
+                          stream.kind,
+                          previous,
+                          activeJoinSecret,
+                        ),
+                      onTicketRefreshed: setTicket,
+                    }
+                  : {})}
+              />
             ) : (
               <div className="absolute inset-0 grid place-items-center">
                 <div className="flex flex-col items-center gap-3 text-center">
@@ -349,16 +379,23 @@ export function Room() {
               />
             )
           ) : (
-            <JoinPanel
-              stream={stream}
-              tuzis={tuzis}
-              onJoined={(t) => {
-                setTicket(t);
-                if (stream.kind === "ppv" && stream.price_tuzis > 0) {
-                  adjustTuzis(-stream.price_tuzis);
-                }
-              }}
-            />
+            entryState === "checking-session" ? (
+              <ViewerIdentityCheck />
+            ) : entryState === "creator-blocked" ? (
+              <CreatorViewerGuard />
+            ) : (
+              <JoinPanel
+                stream={stream}
+                tuzis={tuzis}
+                onJoined={(t, secret) => {
+                  setActiveJoinSecret(secret);
+                  setTicket(t);
+                  if (stream.kind === "ppv" && stream.price_tuzis > 0) {
+                    adjustTuzis(-stream.price_tuzis);
+                  }
+                }}
+              />
+            )
           )}
         </div>
       </div>
@@ -395,7 +432,7 @@ function JoinPanel({
 }: {
   stream: Livestream;
   tuzis: number;
-  onJoined: (ticket: DyteJoinTicket) => void;
+  onJoined: (ticket: DyteJoinTicket, secret?: string) => void;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -503,14 +540,22 @@ function JoinPanel({
     try {
       const ticket = await runExclusive(async () => {
         if (action) await action();
-        return live.join(stream.username, stream.kind, joinSecret);
+        return live.join(
+          stream.username,
+          stream.kind,
+          joinSecret,
+          "participant",
+          { expectedMeetingId: stream.meetingId },
+        );
       });
       if (!ticket) return false;
-      onJoined(ticket);
+      onJoined(ticket, joinSecret);
       return true;
     } catch (e) {
+      const failure = classifyLiveFailure(e, "ticket-request");
+      console.warn("Livestream join failed", safeLiveDiagnostic(failure));
       toast.error("Could not join", {
-        description: e instanceof Error ? e.message : "Please try again.",
+        description: failure.message,
       });
       return false;
     }
@@ -568,7 +613,10 @@ function JoinPanel({
             // does not expose while replacing all authoritative account data.
             setUser({ ...useSession.getState().user, ...authoritative });
           },
-          join: () => live.join(stream.username, stream.kind),
+          join: () =>
+            live.join(stream.username, stream.kind, undefined, "participant", {
+              expectedMeetingId: stream.meetingId,
+            }),
         }),
       );
       if (!result) return;
@@ -982,6 +1030,40 @@ function JoinPanel({
   );
 }
 
+function CreatorViewerGuard() {
+  return (
+    <div className="rounded-xl border border-info/30 bg-info/[0.06] p-4">
+      <div className="flex items-center gap-2">
+        <Badge variant="sub" className="gap-1.5">
+          <ShieldCheck className="h-3 w-3" aria-hidden />
+          Creator-safe viewer link
+        </Badge>
+      </div>
+      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+        This public viewer page will never start, replace, or rotate your active
+        room. Open the stream from your Live creator controls instead.
+      </p>
+      <Button asChild variant="outline" className="mt-4 w-full">
+        <Link to="/live">Open Live controls</Link>
+      </Button>
+    </div>
+  );
+}
+
+function ViewerIdentityCheck() {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <Button className="w-full gap-2" size="lg" disabled>
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        Checking viewer session
+      </Button>
+      <p className="mt-3 text-center text-xs text-muted-foreground">
+        Verifying that this viewer action cannot affect creator controls.
+      </p>
+    </div>
+  );
+}
+
 function ConnectedDetails({
   ticket,
   stream,
@@ -1028,7 +1110,7 @@ function ConnectedDetails({
         </div>
       </dl>
       <Separator className="my-3" />
-      <ParticipantStrip count={stream.participants + 1} />
+      <ParticipantStrip count={stream.participants} />
       <Button variant="outline" className="mt-4 w-full gap-2" onClick={onLeave}>
         <LogOut className="h-4 w-4" aria-hidden />
         Leave
@@ -1047,6 +1129,7 @@ function HostControls({
   onEnd: () => void;
 }) {
   const inviteInput = useRef<HTMLInputElement>(null);
+  const participants = participantCountCopy(stream.participants);
   const inviteUrl =
     inviteSecret && typeof window !== "undefined"
       ? privateInviteDisplayUrl({
@@ -1083,10 +1166,7 @@ function HostControls({
         </Badge>
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <Users className="h-3.5 w-3.5" aria-hidden />
-          <span className="tabular-nums">
-            {(stream.participants + 1).toLocaleString()}
-          </span>{" "}
-          watching
+          <span className="tabular-nums">{participants.watching}</span>
         </span>
       </div>
       <p className="mt-3 text-xs text-muted-foreground">
@@ -1120,7 +1200,7 @@ function HostControls({
           </p>
         </div>
       ) : null}
-      <ParticipantStrip count={stream.participants + 1} />
+      <ParticipantStrip count={stream.participants} />
       <Button
         variant="destructive"
         className="mt-4 w-full gap-2"
@@ -1135,9 +1215,10 @@ function HostControls({
 
 // The real participant roster, active-speaker highlighting, and chat all
 // live inside the mounted `<Stage>` (RealtimeKit's own meeting UI) — this
-// strip is just a lightweight, always-real count for the ZUULI chrome
-// around it.
-function ParticipantStrip({ count }: { count: number }) {
+// strip is just lightweight ZUULI chrome around it. Its count stays explicitly
+// unavailable until authoritative hydration exists.
+function ParticipantStrip({ count }: { count: number | null }) {
+  const copy = participantCountCopy(count);
   return (
     <div>
       <div className="mb-2 eyebrow text-muted-foreground">
@@ -1146,9 +1227,8 @@ function ParticipantStrip({ count }: { count: number }) {
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Users className="h-3.5 w-3.5" aria-hidden />
         <span className="tabular-nums font-medium text-foreground">
-          {count.toLocaleString()}
+          {copy.watching}
         </span>
-        {count === 1 ? "person watching" : "people watching"}
       </div>
     </div>
   );

@@ -36,36 +36,43 @@
 //! **manual safety-number verification**, which is always available and is the
 //! strongest check in the system regardless of directory state.
 //!
-//! # The one thing a verified directory still cannot supply
+//! # The one thing a directory deliberately still does not supply
 //!
 //! **An MLS `KeyPackage`.** `KT.md` §4.1 is explicit that a `DirectoryEntry`
-//! carries *"no `KeyPackage`"*, and §1.2 lists `KeyPackage` publication and
-//! exhaustion among what the document deliberately does not fix — deferred out
-//! of `WIRE.md` §12.5 as "directory design" and still open, because a
-//! `KeyPackage` is per-device, consumed on use and republished, which is the
-//! wrong lifecycle for an append-only log.
+//! carries *"no `KeyPackage`"*, and the 2026-08-26 note there affirms it rather
+//! than reversing it: a key package is **consumed on use** and an append-only
+//! log cannot express consumption, which is why §4.1 excluded them and why they
+//! are still excluded.
 //!
-//! The consequence is precise and is worth stating where a reader will hit it:
+//! What changed is that there is now somewhere else for them to be.
+//! `WIRE.md` §12.6 puts a device's pool at the **relay**, keyed by the
+//! `contact_addr` this entry already publishes, and the fetcher authenticates
+//! what it gets against this entry. So the directory's job at first contact is
+//! to answer the question it was always the right thing to answer — *whose
+//! keys are these* — and [`ResolvedPeer`] carries the verified entry rather
+//! than a key package:
 //!
-//! - [`Directory::resolve`] — **works.** Everything §3.10 shows a user.
-//! - [`Directory::resolve_identity`] — **works.** Which is what
-//!   `accept_contact_request` needs, because the `Welcome` and the queue advert
-//!   arrive in the contact request itself and only the identity key has to be
-//!   confirmed against the directory.
-//! - [`Directory::resolve_peer`] — **cannot complete**, because
-//!   `start_conversation` must address a `Welcome` to a `KeyPackage` the peer
-//!   published, and no published `KeyPackage` exists to fetch. [`KtDirectory`]
-//!   performs the whole verified lookup anyway — so the pin, the alarms and the
-//!   threshold rule all still run — and then refuses, naming the gap.
+//! - [`Directory::resolve`] — everything §3.10 shows a user.
+//! - [`Directory::resolve_identity`] — what `accept_contact_request` needs:
+//!   the `Welcome` and the queue advert arrived inside the contact request, so
+//!   only the identity key has to be confirmed.
+//! - [`Directory::resolve_peer`] — the same lookup, plus the **verified
+//!   `DirectoryEntryTBS`**, which is what
+//!   `f2z_msg_mls::VerifiedKeyPackage::verify` checks a claimed package
+//!   against. Without it a relay would choose whose init key the `Welcome` is
+//!   encrypted to, which is [#133] one level down.
 //!
 //! [§13-Q]: https://github.com/free2z/zuu/issues/311
+//! [#133]: https://github.com/free2z/zuu/issues/133
 
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use f2z_codec::types::RelayId;
 use f2z_kt_client::{
     ClientConfig, ClientError, HttpTransport, KtClient, Resolution, ResolvedHandle,
 };
+use f2z_kt_core::entry::DirectoryEntryTBS;
 use f2z_kt_core::types::{Handle, LogId};
 use f2z_kt_core::{ConfiguredWitness, KtError, WitnessSet};
 
@@ -75,11 +82,17 @@ use crate::models::{DirectoryResolution, ErrorCode};
 /// Everything the engine needs about a peer before it can reach them.
 ///
 /// `DirectoryResolution` is the *frontend's* view — what §3.10 shows a user
-/// about a lookup. This is the engine's, and it carries the two things a
-/// lookup has to produce for first contact to be possible at all: the peer's
-/// current `KeyPackage`, and the `contact_addr` its `Welcome` is delivered to
-/// (`WIRE.md` §12.2). Both are published by the peer through the directory;
-/// neither is guessable.
+/// about a lookup. This is the engine's, and it carries the three things first
+/// contact cannot proceed without: where to reach the peer
+/// (`contact_relay_url` + `contact_addr`, `WIRE.md` §12.2), who the peer is
+/// (`identity_pk`), and **the verified entry itself**, which is what a claimed
+/// key package is authenticated against (§12.6).
+///
+/// The entry is carried whole rather than reduced to an identity key on
+/// purpose. `f2z_msg_mls::VerifiedKeyPackage::verify` needs the published
+/// device set and the revocations too, and a caller that had to assemble those
+/// separately could assemble them wrongly — which at this exact point is the
+/// MITM.
 #[derive(Clone, Debug)]
 pub struct ResolvedPeer {
     /// What the UI is told (§3.10).
@@ -87,10 +100,16 @@ pub struct ResolvedPeer {
     /// The peer's `identity_pk`, hex — the value a safety number is computed
     /// over and a key change is detected against.
     pub identity_pk: String,
-    /// An MLS `KeyPackage` the peer published, to add them to a new group.
-    pub key_package: Vec<u8>,
+    /// The `DirectoryEntryTBS` this lookup proved, against a witness-cosigned
+    /// root. **Not a copy a caller built** — the one the log's inclusion proof
+    /// covered.
+    pub entry: DirectoryEntryTBS,
     /// The relay the peer's contact queue lives on.
     pub contact_relay_url: String,
+    /// The relay identity committed beside the URL in the verified entry.
+    /// On-demand first-contact connections pin this value during the handshake;
+    /// retaining only the URL would discard the signed anti-substitution check.
+    pub contact_relay_id: RelayId,
     /// The published, never-bindable contact address, hex (§12.2).
     pub contact_addr: String,
 }
@@ -104,9 +123,9 @@ pub struct ResolvedPeer {
 /// What a directory can actually establish about a peer.
 ///
 /// Everything here is published in a `DirectoryEntry` and therefore provable
-/// against a witnessed root. [`ResolvedPeer`] is this plus an MLS `KeyPackage`,
-/// which is **not** published anywhere (`KT.md` §4.1, §1.2) — so this is the
-/// type that can be produced today and that is why it exists separately.
+/// against a witnessed root. [`ResolvedPeer`] is this plus the whole verified
+/// entry, which `accept_contact_request` does not need: the `Welcome` already
+/// arrived, so there is no key package to authenticate.
 #[derive(Clone, Debug)]
 pub struct ResolvedIdentity {
     /// What the UI is told (§3.10).
@@ -114,8 +133,13 @@ pub struct ResolvedIdentity {
     /// The peer's `identity_pk`, hex — the value a safety number is computed
     /// over and a key change is detected against.
     pub identity_pk: String,
+    /// The verified entry, needed to authenticate the active device that
+    /// signed the first routing advert beside its `Welcome`.
+    pub entry: DirectoryEntryTBS,
     /// The relay the peer's contact queue lives on.
     pub contact_relay_url: String,
+    /// The relay identity committed beside the URL in the verified entry.
+    pub contact_relay_id: RelayId,
     /// The published, never-bindable contact address, hex (`WIRE.md` §12.2).
     pub contact_addr: String,
 }
@@ -155,7 +179,7 @@ pub trait Directory: Send + Sync + 'static {
     /// As [`Directory::resolve`].
     fn resolve_identity(&self, handle: &str) -> crate::error::Result<ResolvedIdentity>;
 
-    /// The same lookup, plus the material first contact needs.
+    /// The same lookup, plus the verified entry first contact needs.
     ///
     /// Separate from [`Directory::resolve`] because `resolve_handle` is a
     /// *question a user asked* and answers `found: false` for a handle nobody
@@ -489,6 +513,40 @@ fn map_kt_code(error: KtError) -> ErrorCode {
     }
 }
 
+/// §12.2's published contact endpoint, out of a verified entry.
+///
+/// `k = 1` here, as everywhere else in this build: the first endpoint wins.
+/// `ARCHITECTURE.md` §13-G leaves the redundancy factor open, and a client that
+/// picked among several would be answering it.
+fn contact_endpoint(
+    handle: &str,
+    resolved: &ResolvedHandle,
+) -> crate::error::Result<(String, RelayId, String)> {
+    let endpoint = resolved
+        .entry()
+        .entry
+        .contact_endpoints
+        .as_slice()
+        .first()
+        .ok_or_else(|| {
+            Error::new(
+                ErrorCode::DirectoryProtocolViolation,
+                format!("{handle:?} publishes no contact endpoint (WIRE.md §12.2)"),
+            )
+        })?;
+    let relay_url = String::from_utf8(endpoint.relay_url.as_slice().to_vec()).map_err(|_| {
+        Error::new(
+            ErrorCode::DirectoryProtocolViolation,
+            format!("{handle:?} publishes a contact relay URL that is not UTF-8"),
+        )
+    })?;
+    Ok((
+        relay_url,
+        endpoint.relay_id,
+        hex::encode(endpoint.contact_addr.as_bytes()),
+    ))
+}
+
 /// §3.10's view of a resolution.
 fn to_resolution(handle: &str, resolution: &Resolution) -> DirectoryResolution {
     let standing = resolution.standing();
@@ -556,48 +614,44 @@ impl Directory for KtDirectory {
                 ),
             )
         })?;
-        let endpoint = resolved
-            .entry()
-            .entry
-            .contact_endpoints
-            .as_slice()
-            .first()
-            .ok_or_else(|| {
-                Error::new(
-                    ErrorCode::DirectoryProtocolViolation,
-                    format!("{handle:?} publishes no contact endpoint (WIRE.md §12.2)"),
-                )
-            })?;
-        let relay_url =
-            String::from_utf8(endpoint.relay_url.as_slice().to_vec()).map_err(|_| {
-                Error::new(
-                    ErrorCode::DirectoryProtocolViolation,
-                    format!("{handle:?} publishes a contact relay URL that is not UTF-8"),
-                )
-            })?;
+        let (relay_url, relay_id, contact_addr) = contact_endpoint(handle, resolved)?;
         Ok(ResolvedIdentity {
             identity_pk: hex::encode(resolved.identity_pk().as_bytes()),
+            entry: resolved.entry().entry.clone(),
             contact_relay_url: relay_url,
-            contact_addr: hex::encode(endpoint.contact_addr.as_bytes()),
+            contact_relay_id: relay_id,
+            contact_addr,
             resolution: to_resolution(handle, &resolution),
         })
     }
 
     fn resolve_peer(&self, handle: &str) -> crate::error::Result<ResolvedPeer> {
-        // The lookup runs in full first, deliberately. Everything it does is
-        // worth doing even though this call is about to fail: §6.3's checks,
-        // §8.3's threshold, the inclusion proof, the pin, and any alarm a key
-        // change would raise. Refusing before the lookup would mean a user who
-        // tries to start a conversation learns nothing about the peer's key
-        // having changed.
-        let _identity = self.resolve_identity(handle)?;
-        Err(Error::internal(format!(
-            "resolved {handle:?} against the directory, but starting a conversation needs an \
-             MLS KeyPackage and no directory publishes one: KT.md §4.1 states a DirectoryEntry \
-             carries \"no KeyPackage\", and §1.2 leaves KeyPackage publication and exhaustion \
-             open — deferred out of WIRE.md §12.5 as directory design. accept_contact_request \
-             is unaffected: it needs only the identity key, and that is verified"
-        )))
+        let resolution = self.lookup(handle)?;
+        let resolved = resolution.resolved().ok_or_else(|| {
+            // Absent, and **unproved** — the same reading `resolve_identity`
+            // gives it, and for the same reason: a handshake cannot proceed
+            // against a handle for which there is no entry to authenticate a
+            // key package against.
+            Error::new(
+                ErrorCode::DirectoryProtocolViolation,
+                format!(
+                    "the log asserts — without proving — that {handle:?} is not registered, \
+                     so there is nothing to authenticate a key package against"
+                ),
+            )
+        })?;
+        let endpoint = contact_endpoint(handle, resolved)?;
+        Ok(ResolvedPeer {
+            identity_pk: hex::encode(resolved.identity_pk().as_bytes()),
+            // The entry the inclusion proof covered, cloned out whole. §12.6's
+            // authentication is against *this*, and nothing between here and
+            // `VerifiedKeyPackage::verify` may narrow it.
+            entry: resolved.entry().entry.clone(),
+            contact_relay_url: endpoint.0,
+            contact_relay_id: endpoint.1,
+            contact_addr: endpoint.2,
+            resolution: to_resolution(handle, &resolution),
+        })
     }
 
     fn independent_witnesses(&self) -> u32 {

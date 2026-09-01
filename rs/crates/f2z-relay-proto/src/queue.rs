@@ -246,9 +246,11 @@ impl QueueState {
     /// - [`ErrorCode::AlreadyBound`] if the send side is already bound, **with
     ///   any key, including the same key**. §7.4 is explicit about what this
     ///   code means to a client that has just received a fresh advert: a loud,
-    ///   non-dismissible failure, because the most likely cause is that the
-    ///   relay operator read `send_addr` out of its own database and bound
-    ///   first. This does not prevent the theft; it makes it noisy.
+    ///   non-dismissible failure: the fresh address was already bound to
+    ///   another or unknown key. A malicious relay operator is one possible
+    ///   holder, as is anyone who learned a leaked, observed or decommissioned
+    ///   address. The refusal identifies its relay, not who bound the address.
+    ///   This does not prevent the theft; it makes it noisy.
     pub fn bind_send(&mut self, send_key: &PublicKey) -> Result<()> {
         if matches!(self.kind, QueueKind::Contact) {
             return Err(ProtoError::Wire(ErrorCode::NotPermitted));

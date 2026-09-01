@@ -13,6 +13,14 @@ name: wallet/zuuallet
 # It runs on PRs/pushes that touch the app or its dependency inputs, and a
 # weekly `upstream-canary` job proactively rebuilds against the *latest*
 # librustzcash + refreshed crates to catch upstream drift before we bump.
+#
+# The canary also answers a question that is not about Zuuallet at all: is the
+# free2z/librustzcash fork still needed? Zuuallet does not depend on
+# tauri-plugin-f2zmsg, so it builds happily against pristine upstream while the
+# pins that force the fork are fully present — the canary's blind spot. It now
+# also resolves wallet/zuuli/src-tauri against pristine upstream and asserts
+# that this *fails* for the documented reason. See the last step of
+# `upstream-canary`, and docs/DEPENDENCIES.md.
 
 on:
   pull_request:
@@ -367,10 +375,68 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: wallet/zuuallet/src-tauri
+          workspaces: |
+            wallet/zuuallet/src-tauri
+            wallet/zuuli/src-tauri
 
       - name: Refresh crates.io deps to latest compatible
         run: cargo update --manifest-path wallet/zuuallet/src-tauri/Cargo.toml
 
       - name: Build against latest upstream
         run: cargo build --manifest-path wallet/zuuallet/src-tauri/Cargo.toml
+
+      # -----------------------------------------------------------------------
+      # The blind spot this job had until this step existed, and why its
+      # polarity is inverted.
+      #
+      # Everything above builds wallet/zuuallet/src-tauri, and Zuuallet does not
+      # depend on tauri-plugin-f2zmsg. But the entire reason the librustzcash
+      # fork exists is that upstream's `block-buffer = "=0.11.0-rc.3"` /
+      # `crypto-common = "=0.2.0-rc.1"` workspace pins make **ZUULI** unable to
+      # link f2zmsg: `=0.2.0-rc.1` and the `^0.2` that `digest 0.11` requires
+      # cannot both be satisfied. So this canary was passing against pristine
+      # upstream while the exact condition that forces the fork was fully
+      # present — a green that meant nothing about the thing it was watching.
+      #
+      # Adding `cargo build` for zuuli would just be a mystery red every Monday,
+      # and a job that is always red teaches people to stop reading it. So the
+      # assertion is inverted: **failing to resolve, for the documented reason,
+      # is the expected and passing outcome** — it is this job confirming the
+      # fork is still required. Three verdicts:
+      #
+      #   * resolution fails naming crypto-common/block-buffer  -> PASS, the
+      #     fork is still needed; nothing to do.
+      #   * resolution fails for any other reason               -> FAIL, real
+      #     upstream breakage, which is what a canary is for.
+      #   * resolution SUCCEEDS                                 -> FAIL loudly.
+      #     Upstream has dropped the pins; the fork's premise is gone and it
+      #     should be retired. docs/DEPENDENCIES.md §1 is the exit checklist.
+      #
+      # Resolution, not compilation, because that is where the conflict lives:
+      # Cargo rejects the graph before a single crate is built, so this costs
+      # seconds and is the exact failure the fork removes.
+      # -----------------------------------------------------------------------
+      - name: Assert the librustzcash fork is still required (ZUULI vs pristine upstream)
+        run: |
+          set -uo pipefail
+          if cargo metadata --format-version 1 \
+              --manifest-path wallet/zuuli/src-tauri/Cargo.toml \
+              > /dev/null 2> zuuli-upstream-resolve.log; then
+            echo "::error::ZUULI now RESOLVES against pristine upstream librustzcash."
+            echo "The block-buffer / crypto-common pins that forced free2z/librustzcash"
+            echo "appear to be gone. Retire the fork: see docs/DEPENDENCIES.md section 1"
+            echo "and zcash/librustzcash#3010."
+            exit 1
+          fi
+          cat zuuli-upstream-resolve.log
+          if grep -q 'crypto-common' zuuli-upstream-resolve.log \
+            && grep -q '0.2.0-rc.1' zuuli-upstream-resolve.log; then
+            echo "Expected: ZUULI cannot resolve against pristine upstream librustzcash."
+            echo "This is the conflict free2z/librustzcash's one 4-line deletion removes,"
+            echo "so the fork is still required. Nothing to do."
+            exit 0
+          fi
+          echo "::error::ZUULI failed to resolve against pristine upstream for an"
+          echo "UNEXPECTED reason — not the known crypto-common conflict. Read the log"
+          echo "above: this is genuine upstream breakage, which is what this canary is for."
+          exit 1

@@ -87,8 +87,9 @@ jobs:
           node wallet/zuuli/scripts/wasm-boundary.mjs --self-test
           node wallet/zuuli/scripts/wasm-boundary.mjs
 
-      - name: Verify plugin command and permission parity
+      - name: Verify messaging contract, command, and permission parity
         run: |
+          node --test wallet/zuuli/scripts/messaging-contract.node-test.mjs
           node scripts/check-tauri-plugin-permissions.mjs --self-test
           node scripts/check-tauri-plugin-permissions.mjs
 
@@ -122,8 +123,27 @@ jobs:
           zuuli=false
           zuuallet_schema=false
           while IFS= read -r -d '' file; do
+            # Prose under wallet/zuuli/ — STATUS.md, README.md, CLAUDE.md,
+            # docs/**.md — describes the app; it is not compiled into it and no
+            # job below reads it. Without this guard the broad `wallet/zuuli/*`
+            # pattern in the arm below matches it, so a STATUS re-derivation —
+            # which every release needs at least once — pays the full ~40-minute
+            # native matrix.
+            #
+            # `==` inside `[[ ]]` is a glob match, not a string compare, and a
+            # glob `*` spans `/`, so this one pattern covers every depth:
+            # wallet/zuuli/STATUS.md and wallet/zuuli/docs/e2ee/notes.md alike.
+            #
+            # It is scoped to the wallet/zuuli/ prefix and so cannot reach the
+            # markdown that genuinely gates behaviour: docs/e2ee/CLIENT-CONTRACT.md,
+            # docs/e2ee/WIRE.md and docs/ZUULI-LINUX-BUILD-IMAGE.md all live
+            # outside that prefix and still select the full gate. It also runs
+            # only per-file, so it cannot affect the fail-open paths above.
+            if [[ "$file" == wallet/zuuli/*.md ]]; then
+              continue
+            fi
             case "$file" in
-              Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/package.json|wallet/package-lock.json|wallet/shared/*|wallet/zuuli/*|wallet/zuuallet/*|wallet/plugins/*|rs/crates/f2z-codec/*|rs/crates/f2z-kt-client/*|rs/crates/f2z-kt-core/*|rs/crates/f2z-msg-dag/*|rs/crates/f2z-msg-identity/*|rs/crates/f2z-msg-mls/*|rs/crates/f2z-msg-store/*|rs/crates/f2z-relay-proto/*|rs/crates/f2z-relay-testkit/*|rs/rust-toolchain.toml|wallet/zuuallet/package.json|wallet/zuuallet/package-lock.json|wallet/zuuallet/src/hooks/useWallet.ts|wallet/zuuallet/src/lib/mnemonic.ts|wallet/zuuallet/src/lib/sensitive-entry.ts|wallet/zuuallet/src/lib/sensitive-seed-session.ts|wallet/zuuallet/src/lib/sensitive-seed.ts|wallet/zuuallet/src/lib/tauri.ts|wallet/zuuallet/src/pages/CreateWallet.tsx|wallet/zuuallet/src/pages/RestoreWallet.tsx|wallet/zuuallet/src/pages/Settings.tsx|wallet/zuuallet/src/pages/Welcome.tsx|wallet/zuuallet/src/pages/sensitive-entry-routes.test.tsx|wallet/zuuallet/src/types/index.ts|wallet/rust-toolchain.toml|wallet/deny.toml|scripts/check-github-actions-pins.mjs|scripts/check-librustzcash-compat.mjs|scripts/check-rust-toolchain.sh|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|scripts/check-tauri-plugin-permissions.mjs|scripts/check-zuuli-linux-image.mjs|scripts/check-zuuli-android-gate.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-store-audit.yml|.github/workflows/zuuli-store-publish.yml|.github/workflows/zuuli-testflight-bootstrap.yml|.github/workflows/zuuli-testflight-recovery.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*|docs/ZUULI-LINUX-BUILD-IMAGE.md)
+              Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/package.json|wallet/package-lock.json|wallet/shared/*|wallet/zuuli/*|wallet/zuuallet/*|wallet/plugins/*|rs/crates/f2z-codec/*|rs/crates/f2z-kt-client/*|rs/crates/f2z-kt-core/*|rs/crates/f2z-msg-dag/*|rs/crates/f2z-msg-identity/*|rs/crates/f2z-msg-mls/*|rs/crates/f2z-msg-store/*|rs/crates/f2z-relay-proto/*|rs/crates/f2z-relay-testkit/*|rs/rust-toolchain.toml|wallet/zuuallet/package.json|wallet/zuuallet/package-lock.json|wallet/zuuallet/src/hooks/useWallet.ts|wallet/zuuallet/src/lib/mnemonic.ts|wallet/zuuallet/src/lib/sensitive-entry.ts|wallet/zuuallet/src/lib/sensitive-seed-session.ts|wallet/zuuallet/src/lib/sensitive-seed.ts|wallet/zuuallet/src/lib/tauri.ts|wallet/zuuallet/src/pages/CreateWallet.tsx|wallet/zuuallet/src/pages/RestoreWallet.tsx|wallet/zuuallet/src/pages/Settings.tsx|wallet/zuuallet/src/pages/Welcome.tsx|wallet/zuuallet/src/pages/sensitive-entry-routes.test.tsx|wallet/zuuallet/src/types/index.ts|wallet/rust-toolchain.toml|wallet/deny.toml|docs/e2ee/CLIENT-CONTRACT.md|docs/e2ee/WIRE.md|scripts/check-github-actions-pins.mjs|scripts/check-librustzcash-compat.mjs|scripts/check-rust-toolchain.sh|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|scripts/check-tauri-plugin-permissions.mjs|scripts/check-zuuli-linux-image.mjs|scripts/check-zuuli-android-gate.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-store-audit.yml|.github/workflows/zuuli-store-publish.yml|.github/workflows/zuuli-testflight-bootstrap.yml|.github/workflows/zuuli-testflight-recovery.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*|docs/ZUULI-LINUX-BUILD-IMAGE.md)
                 zuuli=true
                 ;;
             esac
@@ -620,15 +640,28 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: wallet/plugins/tauri-plugin-f2zmsg
+          workspaces: |
+            wallet/plugins/tauri-plugin-f2zmsg
+            rs
           key: zuuli-msg-plugin
 
-      # The acceptance criterion. `--features relay-harness` builds the
-      # `f2zmsg-peer` binary the integration test spawns twice against a real
-      # `ws://` listener; without it the test compiles to nothing and passes by
-      # not existing.
+      # The client crate cannot link the AGPL relay daemon. Build its actual
+      # production binary separately so the rollback/cursor regression can
+      # spawn it across that licence boundary rather than substituting the MIT
+      # FakeRelay behind a WebSocket.
+      - name: Build the production relay daemon for integration tests
+        run: |
+          cargo build --locked --manifest-path rs/Cargo.toml \
+            -p f2z-relay --bin f2z-relay
+
+      # The acceptance criteria. `--features relay-harness` builds the
+      # `f2zmsg-peer` binary for the two-process exchange and enables the exact
+      # two-record rollback regression against the production relay binary.
+      # Without it both integration tests compile to nothing and pass by not
+      # existing.
       - name: Build and test the messaging plugin
         env:
+          F2Z_RELAY_BIN: ${{ github.workspace }}/rs/target/debug/f2z-relay
           TAURI_PERMISSION_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           cargo test --locked --all-targets --features relay-harness \

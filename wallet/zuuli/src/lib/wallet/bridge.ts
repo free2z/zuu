@@ -24,6 +24,7 @@ import type {
   SyncStatus,
   TransactionEntry,
   WalletCreated,
+  WalletInfo,
   WalletRestored,
   WalletCleanupStatus,
   WalletStatus,
@@ -65,6 +66,16 @@ export const wallet = {
   async getWalletStatus(): Promise<WalletStatus> {
     if (useMock()) return mockWallet.getWalletStatus();
     return invoke("get_wallet_status");
+  },
+
+  async listWallets(): Promise<WalletInfo[]> {
+    if (useMock()) return mockWallet.listWallets();
+    return invoke("list_wallets");
+  },
+
+  async switchWallet(walletId: string): Promise<void> {
+    if (useMock()) return mockWallet.switchWallet(walletId);
+    return invoke("switch_wallet", { args: { walletId } });
   },
 
   async retryWalletCleanup(): Promise<WalletCleanupStatus> {

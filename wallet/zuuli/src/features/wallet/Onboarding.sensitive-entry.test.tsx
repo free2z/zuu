@@ -5,8 +5,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const route = vi.hoisted(() => ({
   clear: vi.fn(async () => {}),
-  restore: vi.fn(async () => ({ success: true })),
+  create: vi.fn(async () => ({
+    walletId: "wallet-created",
+    birthdayHeight: 123,
+  })),
+  restore: vi.fn(async () => ({ success: true, walletId: "wallet-restored" })),
+  refreshIdentity: vi.fn(async (_walletId: string) => {}),
+  bootstrap: vi.fn(async () => {}),
   useEntry: vi.fn(),
+  walletState: {
+    status: null as {
+      initialized: boolean;
+      activeWalletId: string | null;
+      backupRequired: boolean;
+    } | null,
+    activeWallet: null as {
+      id: string;
+      birthdayHeight: number | null;
+    } | null,
+  },
 }));
 
 vi.mock("@/lib/wallet/sensitive-entry", () => ({
@@ -14,14 +31,24 @@ vi.mock("@/lib/wallet/sensitive-entry", () => ({
 }));
 vi.mock("@/lib/wallet/bridge", () => ({
   wallet: {
+    createWallet: route.create,
     restoreWallet: route.restore,
   },
+}));
+vi.mock("@/store/wallet", () => ({
+  useWallet: Object.assign(
+    (selector: (state: unknown) => unknown) =>
+      selector({ ...route.walletState, bootstrap: route.bootstrap }),
+    {
+      getState: () => ({ refreshWalletIdentity: route.refreshIdentity }),
+    },
+  ),
 }));
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 
-import { RestorePane } from "./Onboarding";
+import { Onboarding, RestorePane } from "./Onboarding";
 
 let root: Root;
 let container: HTMLElement;
@@ -38,6 +65,13 @@ async function installDom() {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     Event: window.Event,
+    getComputedStyle:
+      window.getComputedStyle?.bind(window) ??
+      (() => ({ animationName: "none", display: "block" })),
+    requestAnimationFrame: (callback: FrameRequestCallback) => {
+      return window.setTimeout(() => callback(Date.now()), 0);
+    },
+    cancelAnimationFrame: (handle: number) => window.clearTimeout(handle),
     IS_REACT_ACT_ENVIRONMENT: true,
   })) {
     saved.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
@@ -83,8 +117,22 @@ function expectPrivateTextServices(element: HTMLTextAreaElement) {
 
 beforeEach(async () => {
   route.clear.mockReset().mockResolvedValue(undefined);
-  route.restore.mockReset().mockResolvedValue({ success: true });
+  route.create.mockReset().mockResolvedValue({
+    walletId: "wallet-created",
+    birthdayHeight: 123,
+  });
+  route.restore
+    .mockReset()
+    .mockResolvedValue({ success: true, walletId: "wallet-restored" });
+  route.refreshIdentity.mockReset().mockResolvedValue(undefined);
+  route.bootstrap.mockReset().mockResolvedValue(undefined);
   route.useEntry.mockReset();
+  route.walletState.status = {
+    initialized: false,
+    activeWalletId: null,
+    backupRequired: false,
+  };
+  route.walletState.activeWallet = null;
   await installDom();
 });
 
@@ -113,10 +161,13 @@ describe("ZUULI restore sensitive-entry route", () => {
     const events: string[] = [];
     route.restore.mockImplementation(async () => {
       events.push("restore");
-      return { success: true };
+      return { success: true, walletId: "wallet-restored" };
     });
     route.clear.mockImplementation(async () => {
       events.push("clear");
+    });
+    route.refreshIdentity.mockImplementation(async (walletId: string) => {
+      events.push(`refresh:${walletId}`);
     });
     const onRestored = vi.fn(() => events.push("exit"));
     await render(true, onRestored);
@@ -129,6 +180,84 @@ describe("ZUULI restore sensitive-entry route", () => {
     expect(submit.disabled).toBe(false);
     await act(async () => submit.click());
     await vi.waitFor(() => expect(onRestored).toHaveBeenCalledTimes(1));
-    expect(events).toEqual(["restore", "clear", "exit"]);
+    expect(events).toEqual([
+      "restore",
+      "clear",
+      "refresh:wallet-restored",
+      "exit",
+    ]);
+  });
+});
+
+describe("ZUULI create backup lifecycle", () => {
+  it("withholds create and restore authority while wallet identity is unknown", async () => {
+    route.walletState.status = null;
+    await act(async () => root.render(<Onboarding />));
+
+    expect(container.textContent).toContain("Wallet identity unavailable");
+    expect(container.textContent).toContain("Retry wallet identity");
+    expect(container.textContent).not.toContain("Create wallet");
+    expect(container.textContent).not.toContain("Restore wallet");
+  });
+
+  it("withholds setup authority when an initialized wallet reaches onboarding", async () => {
+    route.walletState.status = {
+      initialized: true,
+      activeWalletId: "wallet-existing",
+      backupRequired: false,
+    };
+    route.walletState.activeWallet = {
+      id: "wallet-existing",
+      birthdayHeight: 123,
+    };
+    await act(async () => root.render(<Onboarding />));
+
+    expect(container.textContent).toContain("Wallet identity unavailable");
+    expect(container.textContent).not.toContain("Create wallet");
+    expect(container.textContent).not.toContain("Restore wallet");
+  });
+
+  it("refreshes the exact created identity immediately and keeps seed reveal mounted", async () => {
+    const events: string[] = [];
+    route.create.mockImplementation(async () => {
+      events.push("create");
+      return { walletId: "wallet-created", birthdayHeight: 123 };
+    });
+    route.refreshIdentity.mockImplementation(async (walletId: string) => {
+      events.push(`refresh:${walletId}`);
+    });
+    await act(async () => root.render(<Onboarding />));
+
+    const create = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Create wallet"),
+    )!;
+    await act(async () => create.click());
+
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Back up your recovery phrase"),
+    );
+    expect(events).toEqual(["create", "refresh:wallet-created"]);
+  });
+
+  it("resumes backup only from a coherent active inventory identity", async () => {
+    route.walletState.status = {
+      initialized: true,
+      activeWalletId: "wallet-resume",
+      backupRequired: true,
+    };
+    route.walletState.activeWallet = {
+      id: "wallet-resume",
+      birthdayHeight: 456,
+    };
+    await act(async () => root.render(<Onboarding />));
+    expect(container.textContent).toContain("Back up your recovery phrase");
+
+    route.walletState.activeWallet = {
+      id: "wallet-resume",
+      birthdayHeight: null,
+    };
+    await act(async () => root.render(<Onboarding />));
+    expect(container.textContent).toContain("Wallet backup unavailable");
+    expect(container.textContent).not.toContain("Create a new wallet");
   });
 });

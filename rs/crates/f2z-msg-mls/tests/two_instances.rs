@@ -22,12 +22,16 @@
 )]
 
 use f2z_msg_mls::{EngineError, ExportLabel, MlsEngine, ProtocolVersion, Received};
-use f2z_msg_store::MemoryBackend;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use f2z_msg_store::{Durability, MemoryBackend, Op, StorageBackend, StoreError};
 
 mod common;
-use common::{NOW, device, issue_credential};
+use common::{NOW, device, directory_entry, issue_credential};
 
 const GROUP_ID: &[u8] = b"conversation-alice-bob";
+const TEST_AAD: &[u8] = b"free2z/test/non-empty-aad";
 
 /// Alice creates the group and adds Bob; Bob joins from the `Welcome`.
 fn paired() -> (
@@ -40,12 +44,104 @@ fn paired() -> (
     let bob = device("bob", 22, 222);
 
     let bob_key_package = bob.generate_key_package().expect("key package");
+    // §12.6: the package is checked against the directory entry before it can
+    // become an argument to `add_member` at all. There is no other constructor.
+    let bob_entry = directory_entry(&[bob.credential().clone()]);
+    let bob_key_package = alice
+        .verify_key_package(&bob_key_package, &bob_entry, NOW)
+        .expect("the directory vouches for this package");
 
     let mut alice_group = alice.create_group(GROUP_ID).expect("create group");
     let (_commit, welcome) = alice
         .add_member(&mut alice_group, &bob_key_package, NOW)
         .expect("add member");
 
+    let bob_group = bob.join_from_welcome(&welcome, NOW).expect("join");
+
+    (alice, alice_group, bob, bob_group)
+}
+
+#[derive(Clone, Debug)]
+struct FailableBackend {
+    inner: Arc<MemoryBackend>,
+    fail_apply: Arc<AtomicBool>,
+    fail_restore_get_after_apply: Arc<AtomicBool>,
+    fail_next_get: Arc<AtomicBool>,
+}
+
+impl FailableBackend {
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(MemoryBackend::new()),
+            fail_apply: Arc::new(AtomicBool::new(false)),
+            fail_restore_get_after_apply: Arc::new(AtomicBool::new(false)),
+            fail_next_get: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn set_fail_apply(&self, fail: bool) {
+        self.fail_apply.store(fail, Ordering::SeqCst);
+    }
+
+    fn fail_apply_and_restore_get_once(&self) {
+        self.fail_restore_get_after_apply
+            .store(true, Ordering::SeqCst);
+        self.fail_apply.store(true, Ordering::SeqCst);
+    }
+}
+
+impl StorageBackend for FailableBackend {
+    fn get(&self, key: &[u8]) -> f2z_msg_store::Result<Option<Vec<u8>>> {
+        if self.fail_next_get.swap(false, Ordering::SeqCst) {
+            return Err(StoreError::Backend("injected restore get failure"));
+        }
+        self.inner.get(key)
+    }
+
+    fn apply(&self, ops: &[Op]) -> f2z_msg_store::Result<()> {
+        if self.fail_apply.load(Ordering::SeqCst) {
+            if self
+                .fail_restore_get_after_apply
+                .swap(false, Ordering::SeqCst)
+            {
+                self.fail_next_get.store(true, Ordering::SeqCst);
+            }
+            return Err(StoreError::Backend("injected apply failure"));
+        }
+        self.inner.apply(ops)
+    }
+
+    fn durability(&self) -> Durability {
+        self.inner.durability()
+    }
+}
+
+fn paired_with_bob_backend<B: StorageBackend>(
+    bob_backend: B,
+    bob_not_after_ms: u64,
+) -> (
+    MlsEngine<MemoryBackend>,
+    openmls::prelude::MlsGroup,
+    MlsEngine<B>,
+    openmls::prelude::MlsGroup,
+) {
+    let alice = device("alice", 11, 111);
+    let (bob_credential, bob_signer) =
+        issue_credential("bob", 22, 222, NOW - 1_000_000, bob_not_after_ms);
+    let bob =
+        MlsEngine::new(bob_backend, bob_signer, bob_credential.clone(), NOW).expect("bob engine");
+
+    let bob_key_package = bob.generate_key_package().expect("key package");
+    // §12.6: the package is checked against the directory entry before it can
+    // become an argument to `add_member` at all. There is no other constructor.
+    let bob_entry = directory_entry(&[bob_credential]);
+    let bob_key_package = alice
+        .verify_key_package(&bob_key_package, &bob_entry, NOW)
+        .expect("the directory vouches for this package");
+    let mut alice_group = alice.create_group(GROUP_ID).expect("create group");
+    let (_commit, welcome) = alice
+        .add_member(&mut alice_group, &bob_key_package, NOW)
+        .expect("add member");
     let bob_group = bob.join_from_welcome(&welcome, NOW).expect("join");
 
     (alice, alice_group, bob, bob_group)
@@ -369,6 +465,165 @@ fn a_refused_delivery_leaves_no_handled_record() {
     bob.receive(&mut bob_group, &second, b"commit-2", NOW)
         .expect("the redelivery must not have been swallowed as a duplicate");
     assert_eq!(alice_group.epoch(), bob_group.epoch());
+}
+
+#[test]
+fn an_apply_failure_after_merging_restores_memory_and_redelivery_succeeds() {
+    let bob_backend = FailableBackend::new();
+    let (alice, mut alice_group, bob, mut bob_group) =
+        paired_with_bob_backend(bob_backend.clone(), NOW + 1_000_000);
+
+    alice_group.set_aad(TEST_AAD.to_vec());
+    bob_group.set_aad(TEST_AAD.to_vec());
+    let commit = alice.update(&mut alice_group).expect("update");
+    let epoch_before = bob_group.epoch();
+
+    bob_backend.set_fail_apply(true);
+    let outcome = bob.receive(&mut bob_group, &commit, b"commit-apply", NOW);
+    assert!(
+        matches!(
+            outcome,
+            Err(EngineError::Storage(StoreError::Backend(
+                "injected apply failure"
+            )))
+        ),
+        "the injected durable-store failure must be returned, got {outcome:?}"
+    );
+    assert_eq!(
+        bob_group.epoch(),
+        epoch_before,
+        "a commit refused after merge must restore the caller's group"
+    );
+    assert_eq!(
+        bob_group.aad(),
+        TEST_AAD,
+        "durable MLS state omits ephemeral AAD, so rollback must restore it explicitly"
+    );
+
+    bob_backend.set_fail_apply(false);
+    let redelivery = bob
+        .receive(&mut bob_group, &commit, b"commit-apply", NOW)
+        .expect("the unhandled commit must remain applicable after storage recovers");
+    assert_eq!(
+        redelivery,
+        Received::EpochChanged {
+            epoch: bob_group.epoch().as_u64()
+        }
+    );
+    assert_eq!(alice_group.epoch(), bob_group.epoch());
+}
+
+#[test]
+fn an_application_apply_failure_restores_the_receive_ratchet_for_redelivery() {
+    let bob_backend = FailableBackend::new();
+    let (alice, mut alice_group, bob, mut bob_group) =
+        paired_with_bob_backend(bob_backend.clone(), NOW + 1_000_000);
+    alice_group.set_aad(TEST_AAD.to_vec());
+    bob_group.set_aad(TEST_AAD.to_vec());
+    let wire = alice
+        .send(&mut alice_group, b"ratchet rollback")
+        .expect("send");
+
+    bob_backend.set_fail_apply(true);
+    let outcome = bob.receive(&mut bob_group, &wire, b"application-apply", NOW);
+    assert!(
+        matches!(
+            outcome,
+            Err(EngineError::Storage(StoreError::Backend(
+                "injected apply failure"
+            )))
+        ),
+        "the injected durable-store failure must be returned, got {outcome:?}"
+    );
+    assert_eq!(
+        bob_group.aad(),
+        TEST_AAD,
+        "application rollback must preserve non-empty AAD"
+    );
+
+    bob_backend.set_fail_apply(false);
+    let redelivery = bob
+        .receive(&mut bob_group, &wire, b"application-apply", NOW)
+        .expect("the restored receive ratchet must accept redelivery");
+    assert_eq!(redelivery.payload(), Some(b"ratchet rollback".as_slice()));
+}
+
+#[test]
+fn a_restore_read_failure_requires_a_fresh_group_before_redelivery() {
+    let bob_backend = FailableBackend::new();
+    let (alice, mut alice_group, bob, mut bob_group) =
+        paired_with_bob_backend(bob_backend.clone(), NOW + 1_000_000);
+    alice_group.set_aad(TEST_AAD.to_vec());
+    bob_group.set_aad(TEST_AAD.to_vec());
+    let commit = alice.update(&mut alice_group).expect("update");
+    let group_id = bob_group.group_id().clone();
+
+    bob_backend.fail_apply_and_restore_get_once();
+    let outcome = bob.receive(&mut bob_group, &commit, b"restore-read", NOW);
+    match outcome {
+        Err(EngineError::GroupStateUnavailable { operation, reload }) => {
+            assert!(matches!(
+                operation.as_ref(),
+                EngineError::Storage(StoreError::Backend("injected apply failure"))
+            ));
+            assert!(matches!(
+                reload.as_ref(),
+                EngineError::Storage(StoreError::Backend("injected restore get failure"))
+            ));
+        }
+        other => panic!("the caller must be told to discard the group, got {other:?}"),
+    }
+
+    // The handle passed above may contain the uncommitted epoch and is never
+    // reused. This is the same fresh durable load the ZUULI caller performs
+    // when it sees GroupStateUnavailable.
+    bob_backend.set_fail_apply(false);
+    let mut restored = openmls::prelude::MlsGroup::load(bob.provider().store(), &group_id)
+        .expect("fresh durable load")
+        .expect("durable pre-transaction group");
+    restored.set_aad(TEST_AAD.to_vec());
+    let redelivery = bob
+        .receive(&mut restored, &commit, b"restore-read", NOW)
+        .expect("redelivery through the freshly loaded group");
+    assert_eq!(
+        redelivery,
+        Received::EpochChanged {
+            epoch: restored.epoch().as_u64()
+        }
+    );
+    assert_eq!(alice_group.epoch(), restored.epoch());
+}
+
+#[test]
+fn post_merge_credential_failure_restores_memory_for_redelivery() {
+    let (alice, mut alice_group, bob, mut bob_group) =
+        paired_with_bob_backend(MemoryBackend::new(), NOW + 1);
+    let commit = alice.update(&mut alice_group).expect("update");
+    let epoch_before = bob_group.epoch();
+    let after_bob_expired = NOW + 2;
+
+    for attempt in 1..=2 {
+        let outcome = bob.receive(
+            &mut bob_group,
+            &commit,
+            b"commit-expired-member",
+            after_bob_expired,
+        );
+        assert!(
+            matches!(
+                outcome,
+                Err(EngineError::Credential(
+                    f2z_msg_mls::CredentialError::Expired
+                ))
+            ),
+            "redelivery {attempt} must reach post-merge credential validation, got {outcome:?}"
+        );
+        assert_eq!(
+            bob_group.epoch(),
+            epoch_before,
+            "redelivery {attempt} must restore the caller's pre-commit epoch"
+        );
+    }
 }
 
 #[test]

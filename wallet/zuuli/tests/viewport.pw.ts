@@ -7,6 +7,7 @@ import {
 const WIDTHS = [320, 360, 390, 414] as const;
 const ROUTES = [
   "/",
+  "/about",
   "/search",
   "/search?q=zcash",
   "/creator/demo-creator",

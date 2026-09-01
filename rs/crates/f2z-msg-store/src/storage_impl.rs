@@ -41,9 +41,10 @@
 //! store*, and upstream turns it into a panic in the middle of message
 //! processing.
 //!
-//! **2. `clear_proposal_queue` actually clears the queue.** Upstream builds the
-//! per-proposal key as `serde_json::to_vec(&(group_id, proposal_ref))` and
-//! removes *that* from the map — but every write goes in under
+//! **2. `clear_proposal_queue` actually clears the queue.** The released
+//! reference builds the per-proposal key as
+//! `serde_json::to_vec(&(group_id, proposal_ref))` and removes *that* from the
+//! map — but every write goes in under
 //! `build_key_from_vec(label, key, version)`, so the key it removes is one no
 //! entry was ever stored at. The refs list is deleted and the proposal bodies
 //! are left behind forever. Ported faithfully that would be a slow leak of
@@ -51,17 +52,38 @@
 //! fix is one line: go through the same `delete` helper every other deleter
 //! uses. `tests/provider.rs` pins it.
 //!
-//! **It is reported and it is still not fixed.** [openmls/openmls#2188][2188]
-//! carries a self-contained reproduction; the defect is present unchanged in
-//! `openmls_memory_storage` **0.6.0**, which this tree re-read line by line
-//! during the 0.9 migration (#723) rather than assuming the port still applied.
-//! Both differences above still stand against 0.6.0 — `clear_proposal_queue`
-//! still calls `values.remove(&serde_json::to_vec(&(group_id, proposal_ref))?)`
-//! against entries written through `write::<CURRENT_VERSION>(…)`, and
-//! `queued_proposals` still `unwrap()`s a dangling reference. **Do not "resync
-//! with upstream" by copying either of them back.**
+//! **It is reported, it is fixed upstream, and the fix is not released.**
+//! [openmls/openmls#2188][2188] carried a self-contained reproduction and was
+//! closed as fixed by [openmls/openmls#2163][2163], merged to `main` on
+//! 2026-08-31: upstream's `clear_proposal_queue` now wraps each per-proposal
+//! key in `build_key_from_vec::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, key)`
+//! before removing it, which is the correction difference 2 makes. **No
+//! release carries it.** `openmls_memory_storage` **0.6.0** was published
+//! 2026-08-25, six days before that merge, and is still the newest version and
+//! the one this graph resolves; it still calls
+//! `values.remove(&serde_json::to_vec(&(group_id, proposal_ref))?)` against
+//! entries written through `write::<CURRENT_VERSION>(…)`. This tree re-read it
+//! line by line during the 0.9 migration (#723) rather than assuming the port
+//! still applied.
+//!
+//! **Difference 1 stands against upstream `main` as well.** #2163 changed one
+//! line inside `clear_proposal_queue` and nothing else, so `main`'s
+//! `queued_proposals` still `unwrap()`s the `read` that returns `None`, and
+//! `main` still `unwrap()`s serialisation throughout. So **do not "resync with
+//! upstream" by copying either difference back** — difference 1 for that
+//! reason, difference 2 until an `openmls_memory_storage` release **newer than
+//! 0.6.0** carries #2163, which is the one event that retires it. `rs/deny.toml`
+//! records the same exit condition beside the dependency.
+//!
+//! None of this changes what is built here. The `MemoryStorage` #2163 fixes is
+//! linked only as `openmls_libcrux_crypto`'s own field and is never handed to
+//! OpenMLS — `rs/deny.toml` records why it is therefore not banned — and the
+//! reasons this crate exists (see [`crate`]: the transaction, the backend seam,
+//! the application namespace) are untouched by a fix to the reference
+//! implementation.
 //!
 //! [2188]: https://github.com/openmls/openmls/issues/2188
+//! [2163]: https://github.com/openmls/openmls/pull/2163
 //!
 //! [`F2zStorageProvider`]: crate::F2zStorageProvider
 //! [`StoreError`]: crate::StoreError

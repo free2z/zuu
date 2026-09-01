@@ -1550,8 +1550,7 @@ fn capabilities() -> Capabilities {
     }
 }
 
-/// The 38 fields of `Capabilities`, in the order `WIRE.md:1270-1330` prints
-/// them.
+/// The frozen v1 fields of `Capabilities`, in the order §11.1 prints them.
 fn capabilities_fields() -> Vec<Field> {
     vec![
         // uint16 protocol_versions<1..255> — a one-byte *byte* length, then the
@@ -1749,7 +1748,7 @@ fn signed_capabilities_is_the_document_then_a_signature() {
 fn every_command_code_is_the_uint16_the_table_assigns() {
     // WIRE.md:598-613. Codes are `uint16` and are **stable forever**, so they
     // are pinned as the two bytes they occupy rather than as integers.
-    let expected: [(Command, [u8; 2]); 14] = [
+    let expected: [(Command, [u8; 2]); 18] = [
         (Command::Hello, [0x00, 0x01]),
         (Command::GetCapabilities, [0x00, 0x02]),
         (Command::GetChallenge, [0x00, 0x03]),
@@ -1764,6 +1763,10 @@ fn every_command_code_is_the_uint16_the_table_assigns() {
         (Command::Append, [0x00, 0x21]),
         (Command::CreateContactQueue, [0x00, 0x30]),
         (Command::ContactAppend, [0x00, 0x31]),
+        (Command::PublishKeyPackages, [0x00, 0x32]),
+        (Command::ClaimKeyPackage, [0x00, 0x33]),
+        (Command::GetKeyPackagePolicy, [0x00, 0x34]),
+        (Command::GetClaimKeyPackageChallenge, [0x00, 0x35]),
     ];
     assert_eq!(expected.len(), Command::ALL.len());
     for (command, bytes) in expected {

@@ -356,18 +356,22 @@ export type StreamKind = "broadcast" | "subscriber" | "ppv" | "private";
 export interface LiveStatus {
   username: string;
   live: boolean;
-  participants: number;
+  /** Authoritative hydrated count, or null while the count is unavailable. */
+  participants: number | null;
   kind: StreamKind;
 }
 
 export interface Livestream {
   id: string;
+  /** Provider meeting selected by discovery; binds the subsequent join ticket. */
+  meetingId?: string;
   username: string;
   creator: SimpleCreator;
   title: string;
   kind: StreamKind;
   live: boolean;
-  participants: number;
+  /** Authoritative hydrated count, or null while the count is unavailable. */
+  participants: number | null;
   /** 2Z price to join (0 for free broadcast). */
   price_tuzis: number;
   thumbnail?: string | null;
@@ -379,6 +383,10 @@ export interface Livestream {
 export interface DyteJoinTicket {
   authToken: string;
   meetingId: string;
+  /** Provider tenant binding. Never render or include in diagnostics. */
+  environmentId?: string;
+  /** JWT expiry in seconds since Unix epoch, when the provider supplies it. */
+  expiresAt?: number;
   roomName?: string;
   as: "host" | "participant";
 }

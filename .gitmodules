@@ -24,7 +24,7 @@
 	# AGENTS.md "It's a real upstream regression -> branch, PR, pin, resume".
 	#
 	# free2z/librustzcash `f2z/drop-stale-rustcrypto-rc-pins` is upstream
-	# `main` at 330e4c0 plus one 4-line deletion (and its lockfile): the workspace's
+	# `main` at 91f448b plus one 4-line deletion (and its lockfile): the workspace's
 	# `block-buffer = "=0.11.0-rc.3"` / `crypto-common = "=0.2.0-rc.1"` pins
 	# and the two `zcash_primitives` lines that consume them. Both carry
 	# upstream's own comment "later RCs require edition2024" / "remove after
@@ -38,7 +38,12 @@
 	# link `tauri-plugin-f2zmsg` at all.
 	#
 	# Move this back to https://github.com/zcash/librustzcash + `main` the
-	# moment the upstream PR merges.
+	# moment the upstream PR (zcash/librustzcash#3010) merges. Until then the
+	# branch is rebased forward onto upstream `main` rather than left behind.
+	#
+	# Tracked as section 1 of docs/DEPENDENCIES.md; #3010's head is a
+	# *different* branch on the same fork, and the register says why that
+	# matters. scripts/check-dependency-register.mjs enforces both.
 	url = https://github.com/free2z/librustzcash
 	branch = f2z/drop-stale-rustcrypto-rc-pins
 [submodule "z/zcash/orchard"]
@@ -88,7 +93,13 @@
 [submodule "z/ZcashFoundation/z3"]
 	path = z/ZcashFoundation/z3
 	url = https://github.com/ZcashFoundation/z3
-	branch = dev
+	# Upstream renamed its default branch `dev` -> `main` on 2026-05-30
+	# (PR #39, `ci/main-default-branch`, commit 567a9b4 "ci: switch push
+	# triggers from dev to main"). No `dev` ref exists on the remote any
+	# more, so `git submodule update --remote` could not resolve this
+	# submodule at all. History was carried over, not forked: our previous
+	# pin 35d1adf is a linear ancestor of `main`.
+	branch = main
 [submodule "z/zodl-inc/zodl-android"]
 	path = z/zodl-inc/zodl-android
 	url = https://github.com/zodl-inc/zodl-android

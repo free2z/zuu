@@ -212,6 +212,46 @@ impl EntryBuilder {
         self
     }
 
+    /// Add a **real** device credential — one issued elsewhere, for a device
+    /// key that really exists.
+    ///
+    /// [`EntryBuilder::device`] fabricates both the device key and the KEM key
+    /// from a seed byte, which is right for testing the log's own rules and
+    /// wrong for testing anything downstream: `WIRE.md` §12.6's key-package
+    /// authentication compares an entry's device set against the credential
+    /// inside a real MLS `KeyPackage`, and a fabricated device key has no MLS
+    /// signer behind it. This takes the credential a real enrollment issued.
+    #[must_use]
+    pub fn credential(mut self, credential: DeviceCredential) -> Self {
+        self.devices.push(credential);
+        self
+    }
+
+    /// Add a **real** contact endpoint — one a relay actually issued.
+    ///
+    /// [`EntryBuilder::endpoint`] invents an address from a seed byte.
+    /// `WIRE.md` §12.6 keys a device's key-package pool by the published
+    /// `contact_addr`, so a test that claims from a relay needs the address
+    /// that relay handed out.
+    ///
+    /// # Panics
+    ///
+    /// If `relay_url` will not fit `opaque<0..255>`.
+    #[must_use]
+    pub fn contact_endpoint(
+        mut self,
+        relay_url: &str,
+        relay_id: RelayId,
+        contact_addr: QueueAddress,
+    ) -> Self {
+        self.endpoints.push(ContactEndpoint {
+            relay_url: ShortBytes::new(relay_url.as_bytes().to_vec()).unwrap(),
+            relay_id,
+            contact_addr,
+        });
+        self
+    }
+
     /// Add a contact endpoint.
     ///
     /// # Panics

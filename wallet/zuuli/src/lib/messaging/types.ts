@@ -49,6 +49,7 @@ export const ErrorCodeSchema = z.enum([
   "storage-full",
   "gap-unrecoverable",
   "not-supported-in-browser",
+  // component-internal (local engine or peer-reported relay/directory fault)
   "internal",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
@@ -240,6 +241,8 @@ export const ConversationSchema = z.object({
   /** §3.5. Never render this silently. */
   hasGaps: z.boolean(),
   transportHealth: TransportHealthSchema,
+  /** Current compromised outbound relay; never selected from alarm history. */
+  compromiseRelayUrl: z.string().nullable(),
 });
 export type Conversation = z.infer<typeof ConversationSchema>;
 
@@ -491,6 +494,8 @@ export const AlarmSchema = z.object({
   raisedAt: z.number().int(),
   dismissible: z.literal(false),
   handle: z.string().nullable(),
+  conversationId: z.string().nullable(),
+  relayUrl: z.string().nullable(),
   oldFingerprint: z.string().nullable(),
   newFingerprint: z.string().nullable(),
   /** ADR 0014 platform reset — say "platform-assisted". */

@@ -5,13 +5,24 @@ on:
     types: [closed]
   schedule:
     # Reclaim entries left by PRs closed before this workflow existed or by a
-    # transient failure of the close event.
+    # transient failure of the close event. Also runs the footprint guard
+    # below — see that job for why it needs its own schedule reasoning.
     - cron: "41 8 * * *"
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: >-
+          footprint-guard: report what would be evicted without deleting
+          anything. Ignored by the closed-PR sweep.
+        type: boolean
+        default: false
 
 # This workflow never checks out or executes PR code. `actions: write` is the
 # minimum GitHub permission that can delete caches; the implementation narrows
-# its use to entries under API-verified closed PR merge refs.
+# its use to entries under API-verified closed PR merge refs. The
+# footprint-guard job below reads its own script's source at the commit that
+# triggered the run via the read-only Contents API instead of a checkout action,
+# for the same reason: nothing here ever materializes a working tree.
 permissions:
   actions: write
   contents: none
@@ -98,3 +109,46 @@ jobs:
               exit 1
             fi
           done <<< "$cache_rows"
+
+  footprint-guard:
+    name: Guard total cache footprint below the eviction ceiling
+    # Never runs from `pull_request_target`: the closed-PR sweep above already
+    # owns that trigger, and this job's job-level `contents: read` (below) is
+    # scoped away from it deliberately.
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Overrides (does not add to) the workflow-level permissions above:
+    # `actions: write` to delete caches, `contents: read` only to fetch this
+    # one script file by exact commit SHA below (never a full checkout).
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: none
+    steps:
+      - name: Fetch the footprint-guard script at this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh api -H "Accept: application/vnd.github.raw" \
+            "repos/$GH_REPO/contents/scripts/check-actions-cache-footprint.mjs?ref=$SHA" \
+            > check-actions-cache-footprint.mjs
+      - name: Self-test the footprint-guard selection logic
+        run: node check-actions-cache-footprint.mjs --self-test
+      - name: Guard the live cache footprint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Explicit default: a schedule run deletes live; only an operator
+          # dispatching with dry_run=true gets a report-only pass.
+          mode=()
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && \
+                "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            mode=(--dry-run)
+          fi
+          node check-actions-cache-footprint.mjs "${mode[@]}"

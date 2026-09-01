@@ -1,0 +1,174 @@
+name: dependency-register
+
+# Enforces docs/DEPENDENCIES.md — the fork & pin register.
+#
+# AGENTS.md says a fork is "a bridge, never a parking spot", and until this
+# workflow existed nothing enforced the last step of that policy. The two
+# failures it is built from were both found by a human going looking: the
+# librustzcash fork sitting ten commits behind upstream, and z3's `.gitmodules`
+# `branch` naming a ref upstream had deleted months earlier.
+#
+# TWO JOBS, AND THE SPLIT IS THE DESIGN.
+#
+#   `offline` runs on pull requests. It reads only files in this repository —
+#   the register, `.gitmodules`, the `[patch.crates-io]` sites, every constraint
+#   source a version hold names (librustzcash's and zcash_note_encryption's
+#   dependency tables) and the wallet lockfiles the register's measured numbers
+#   were read off — so its verdict depends on nothing outside the tree and it is
+#   safe to run on a contributor's change.
+#
+#   `upstream` runs weekly and on dispatch, and files an issue rather than
+#   failing a check. Every verdict it renders is a statement about someone
+#   else's repository: whether zcash/librustzcash merged a PR, how far upstream
+#   `main` has moved, whether a remote still publishes a branch. Making that a
+#   required context would hand a third party's merge queue — or an
+#   api.github.com outage — the ability to redden `main` for a contributor who
+#   touched none of it. Upstream merging zcash/librustzcash#3010 is *good news*
+#   and must not be an incident for whoever happens to open a pull request that
+#   hour. So the action item lands in the tracker, where retiring a fork belongs.
+#
+# Neither job publishes a gate; the file is registered in
+# `UNGATED_WORKFLOWS` in scripts/check-workflow-gates.mjs with that reasoning.
+
+on:
+  pull_request:
+    paths:
+      - 'docs/DEPENDENCIES.md'
+      - 'scripts/check-dependency-register.mjs'
+      - '.gitmodules'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '.github/workflows/dependency-register.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/DEPENDENCIES.md'
+      - 'scripts/check-dependency-register.mjs'
+      - '.gitmodules'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '.github/workflows/dependency-register.yml'
+  schedule:
+    # Mondays 08:00 UTC — the `upstream` job only, an hour after zuuallet.yml's
+    # upstream-canary so the two upstream watchers do not report at once.
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-register-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Deterministic half. No network, so a red here is always our own doing.
+  # ---------------------------------------------------------------------------
+  offline:
+    name: dependency-register / offline
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Section 3's holds are re-read out of the manifests that force them.
+      # Most are librustzcash's `[workspace.dependencies]`; `chacha20poly1305`
+      # is `zcash_note_encryption`'s own `[dependencies]`, which is a separate
+      # crate and therefore a separate submodule. Both have to be here or the
+      # check reports an un-checked-out source rather than a verdict.
+      - name: Fetch the submodules holds are verified against
+        run: |
+          git submodule update --init \
+            z/zcash/librustzcash \
+            z/zcash/zcash_note_encryption
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
+      # Self-test first, so the verdict that follows comes from a check that has
+      # just been watched fail — the same shape as every other policy step here.
+      - name: Verify the fork & pin register
+        run: |
+          node scripts/check-dependency-register.mjs --self-test
+          node scripts/check-dependency-register.mjs
+
+  # ---------------------------------------------------------------------------
+  # Network half. Advisory by construction; it files an issue, never a red gate.
+  # ---------------------------------------------------------------------------
+  upstream:
+    name: dependency-register / upstream
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Fetch the submodules holds are verified against
+        run: |
+          git submodule update --init \
+            z/zcash/librustzcash \
+            z/zcash/zcash_note_encryption
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Verify the checker before trusting its verdict
+        run: node scripts/check-dependency-register.mjs --self-test
+
+      # `continue-on-error` is not used: a non-zero exit here is a *finding*,
+      # not a failure, and the next step needs to see it. The step captures the
+      # status explicitly so an infrastructure error (a crash, a bad token)
+      # still surfaces as a red step rather than being swallowed.
+      - name: Ask upstream whether an exit condition has fired
+        id: upstream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          node scripts/check-dependency-register.mjs --upstream > findings.txt 2>&1
+          status=$?
+          set -e
+          cat findings.txt
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" -gt 1 ]; then
+            echo "::error::dependency-register --upstream crashed (exit $status)"
+            exit "$status"
+          fi
+
+      # One issue, reused. A weekly job that opens a fresh issue every Monday
+      # trains people to close them unread, which is the failure mode this
+      # whole workflow exists to fix.
+      - name: File or update the tracking issue
+        if: steps.upstream.outputs.status != '0'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITLE: 'chore(deps): fork & pin register needs attention'
+        run: |
+          set -euo pipefail
+          {
+            echo "\`scripts/check-dependency-register.mjs --upstream\` reported findings on $(date -u +%Y-%m-%d)."
+            echo
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            echo '```'
+            cat findings.txt
+            echo '```'
+            echo
+            echo "A \`[exit]\` line means an exit condition has fired and the fork or pin"
+            echo "should be retired — see \`docs/DEPENDENCIES.md\` for the row it belongs to."
+          } > body.md
+          existing=$(gh issue list --state open --limit 100 --json number,title \
+            --jq "[.[] | select(.title == env.TITLE) | .number] | first // empty")
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file body.md
+            echo "Updated issue #$existing"
+          else
+            gh issue create --title "$TITLE" --body-file body.md
+          fi

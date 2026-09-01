@@ -34,7 +34,54 @@ expect_used = "deny"
 
 [workspace.dependencies]
 blake2 = { version = "0.10", default-features = false }
-tls_codec = { version = "0.4", default-features = false, features = ["derive"] }
+# The canonical wire encoding itself — `WIRE.md` §3, and therefore the most
+# consequential line in this file. `f2z-codec` implements §3.3's
+# re-encode-equality rule on top of it, so a change here is a change to what
+# every deployed client considers a well-formed frame.
+#
+# **0.5, and the version is the point.** `openmls 0.9` moved to `tls_codec 0.5`
+# while this workspace was on `0.4`, so the lock carried both majors at once:
+# our own wire types spoke one and the MLS engine the other. Nothing crossed
+# that seam — `f2z-msg-mls` reaches the traits through `openmls::prelude` and
+# hands MLS a credential as opaque bytes — so it was survivable, but it was
+# survivable by accident, and the accident was one `use tls_codec::…` away from
+# a trait-not-implemented error whose cause is invisible. It also quietly
+# falsified the second of `WIRE.md` §3.1's three reasons for choosing this codec
+# at all: "it is already in the client's dependency graph… the crypto core
+# already contains this decoder, already ships it to WASM". Two majors mean two
+# decoders in the bundle and two in the audit scope, which is the cost §3.2
+# refused to pay for CBOR.
+#
+# **The bump is byte-compatible with 0.4.2, and that was measured rather than
+# assumed** (#854). 0.5.0's only breaking change on the surface this tree uses
+# is the *method* rename `SerializeBytes::tls_serialize` →
+# `tls_serialize_bytes`; every encode path we reach — the derived
+# `SerializeBytes`, the integer `to_be_bytes`, `[u8; N]`, `TlsByteVecU8/16/24`,
+# `Option<T>` — emits the same bytes it did before. Its other changes are on the
+# **decode** side and are strictly narrowing (element vectors must now consume
+# their declared length exactly, and a zero-length element is refused), plus
+# overflow guards that are compiled out entirely on 64-bit and can only turn a
+# wrapped length into an error on 32-bit and wasm32.
+#
+# How that was proved, and **the order is the whole point**: every value the
+# workspace's test suite encodes was dumped through
+# `f2z_codec::canonical::encode` while the tree was still on **0.4.2** — 30,315
+# distinct (type, bytes) vectors over 81 types in seven crates — and then, after
+# the bump, replayed through `decode_canonical` under **0.5.0**, which decodes,
+# re-encodes and byte-compares. 30,314 of them round-tripped identically; the
+# one vector not replayed is `f2z-relay-proto`'s private `Empty`, whose encoding
+# is zero bytes and cannot differ. Generating the
+# vectors after the bump would have proved nothing except that 0.5 agrees with
+# itself. `f2z-codec/tests/wire_vectors.rs` — whose expectations are derived by
+# hand from the spec text rather than from this codec — is the independent half,
+# and it passes unchanged.
+#
+# Anyone bumping this again owes the same measurement. A `tls_codec` release
+# that changes one byte of one encoding is a wire-format break for deployed
+# clients, and neither the type checker nor the round-trip tests would say so:
+# `TlsSerializeBytes` and `TlsDeserializeBytes` move together, so a re-encode of
+# a re-decode stays green through a format change (#564).
+tls_codec = { version = "0.5", default-features = false, features = ["derive"] }
 # Ed25519, `WIRE.md` §5. `default-features = false` drops `std` and `fast`:
 # `fast` is curve25519-dalek's precomputed-tables, which trades roughly 30 KiB
 # of table for signing speed, and this graph reaches wasm32 for the browser
@@ -53,10 +100,23 @@ subtle = { version = "2", default-features = false }
 # four account leaves out of one account key with
 # `HKDF-Expand(PRK = ik_account, info = label, L)`; only the Expand half is
 # used, because the PRK is already a uniformly random BLAKE2b output and an
-# Extract over it would buy nothing. `sha2` is pinned to the 0.10 line so that
-# it resolves to the copy `akd_core`'s graph already carries rather than adding
-# a third: 0.11 is in this lock only because `ed25519-dalek` 3 uses it
-# internally, and a hash this crate names should be one a reader can find.
+# Extract over it would buy nothing.
+#
+# `sha2` is pinned to the 0.10 line, and the reason is the SHIPPING WALLET, not
+# this workspace. An earlier version of this comment said 0.10 "resolves to the
+# copy `akd_core`'s graph already carries"; that was wrong. `akd_core` 0.13.0
+# does not depend on `sha2` at all — its digest is `blake3` — and reaches
+# `sha2 0.10.9` only transitively through `ed25519-dalek` 2. The real
+# constraint: `f2z-msg-identity` is linked into `wallet/zuuli/src-tauri`, and in
+# that binary `sha2 0.10.9` is what `zcash_primitives`, `zcash_transparent`,
+# `zcash_script`, `tauri-plugin-zcash`, `bip0039`, `bs58`, `tauri-codegen` and
+# `wry` all resolve to, because librustzcash's workspace declares
+# `sha2 = "0.10"`. Moving to 0.11 would put a second SHA-256 in the shipped
+# wallet. `hkdf` 0.12 is the line that pairs with it (both on `digest` 0.10), so
+# the two move together and only when upstream librustzcash moves.
+# `docs/DEPENDENCIES.md` section 3 tracks that, and
+# `scripts/check-dependency-register.mjs` re-reads upstream's manifest so this
+# paragraph cannot go stale unnoticed a second time.
 hkdf = { version = "0.12", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 # The CSPRNG **boundary** for `ARCHITECTURE.md` §4.1's device keys, and not a

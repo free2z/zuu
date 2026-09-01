@@ -1,0 +1,71 @@
+{
+  "common": {
+    "loading": "Loading",
+    "pending": "Pending",
+    "retry": "Retry",
+    "retrying": "Retrying",
+    "tryAgain": "Try again."
+  },
+  "error": {
+    "notFound": {
+      "back": "Back to Discover",
+      "description": "This page doesn't exist or has moved. Let's get you back on track.",
+      "title": "Page not found"
+    }
+  },
+  "navigation": {
+    "about": "About & Feedback",
+    "aboutAccessible": "About and feedback",
+    "accountMenu": "Account menu",
+    "ai": "AI",
+    "aiAccessible": "Artificial intelligence",
+    "app": "App navigation",
+    "articles": "Articles",
+    "back": "Go back",
+    "buyTuzis": "Buy 2Zs",
+    "buyTuzisBalance": "Buy 2Zs. Balance {balance}",
+    "editProfile": "Edit profile",
+    "groups": {
+      "account": "Account",
+      "explore": "Explore",
+      "money": "Money",
+      "tools": "Tools"
+    },
+    "home": "Home",
+    "live": "Livestreams",
+    "liveShort": "Live",
+    "login": "Log in",
+    "messages": "Messages",
+    "messagesAccessible": "Encrypted messages",
+    "more": "More",
+    "moreAccessible": "More navigation",
+    "moreDescription": "{count, plural, one {# additional destination} other {# additional destinations}}",
+    "moreNavigation": "More navigation",
+    "openWallet": "Open wallet",
+    "primary": "Primary navigation",
+    "profile": "Profile",
+    "profileAccessible": "Edit profile",
+    "revenueShare": "Revenue share",
+    "search": "Search creators, pages, and topics",
+    "searchAction": "Search",
+    "searchPlaceholder": "Search creators and pages…",
+    "signOut": "Sign out",
+    "wallet": "Wallet",
+    "walletAccessible": "Zcash wallet",
+    "zcashLogin": "Zcash login"
+  },
+  "articles": {
+    "searchAccessible": "Search articles"
+  },
+  "search": {
+    "all": "Search all of free2z",
+    "clear": "Clear search"
+  },
+  "shell": {
+    "legacyWallet": {
+      "description": "An earlier ZUULI wallet remains safely preserved. This app opened only the current wallet; explicit import is pending.",
+      "label": "Preserved legacy wallet",
+      "title": "Earlier wallet preserved"
+    }
+  }
+}

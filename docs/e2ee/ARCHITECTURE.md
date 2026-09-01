@@ -403,7 +403,7 @@ is the mechanism we intend to use for component-scoped exports as it stabilizes.
 |---|---|---|---|
 | FROST/DKG (§11) | `free2z/frost/v1` | `ceremony_id` | Session domain separator, transcript binding, outer AEAD for part-2 shares |
 | WebRTC binding (§10) | `free2z/webrtc/v1` | `session_id` | Binds DTLS fingerprints to the group |
-| Queue rotation (§6.2) | `free2z/queue/v1` | `peer_leaf_index` | Derives the next queue **signing keys** and the rotation schedule — see the correction below |
+| Queue rotation (§6.2) | `free2z/queue/v1` | reserved | Reserved for a future synchronized rotation schedule; it is not used by the shipping queue path — see the correction below |
 | Local history wrap | `free2z/history/v1` | `conversation_id` | At-rest key for retained plaintext |
 
 Because these are exporter outputs, they inherit the group's forward secrecy and
@@ -415,13 +415,17 @@ standard instead of invented.
 
 > **Correction (2026-08-23).** An earlier revision of the table above said the
 > queue exporter *"derives the next queue addresses without a round trip."* That
-> is no longer accurate and should not be read as though it were.
+> is not accurate and should not be read as though it were.
 > [ADR 0009](./decisions/0009-queue-addressing-and-binding.md) has the **relay**
 > generate both queue addresses from its own CSPRNG, because client-chosen
-> addresses permit squatting and collisions. The exporter therefore derives the
-> rotation *schedule* and the next queue *signing keys*; the new address comes
-> back from the relay and still has to reach the peer in an in-band advert. **A
-> rotation costs one relay round trip and one in-band message** —
+> addresses permit squatting and collisions. Queue capability signing keys are
+> endpoint-owned and independently generated or derived; they are not shared
+> MLS exporter output. The authenticated advert carries the relay, address, and
+> rotation intent, never either private capability key. `free2z/queue/v1` is
+> reserved for a future synchronized schedule, but no counter or advert field
+> synchronizes such a schedule today and the shipping path does not call it.
+> The designed rotation flow is therefore advert-driven and costs one relay
+> round trip and one in-band message; the shipping scope is stated in §6.2 —
 > [`WIRE.md` §7.5](./WIRE.md#75-rotation-needs-no-new-command).
 
 ### 5.5 What hybrid PQ does and does not buy
@@ -447,7 +451,9 @@ holds attributable evidence.
 What we *do* provide is strict key-context separation
 ([#305 §3.3](https://github.com/free2z/zuu/issues/305)): `CeremonySigningKey`
 signs ceremony payloads and nothing else; `DeviceSignatureKey` signs MLS framing
-and nothing else; `IdentitySigningKey` signs credentials and directory entries
+and the domain-separated, Welcome-bound first-routing advert that bootstraps its
+delivery;
+`IdentitySigningKey` signs credentials and directory entries
 and nothing else. A FROST transcript can never be replayed as chat evidence and
 vice versa. See also
 [Real-World Deniability in Messaging](https://petsymposium.org/popets/2025/popets-2025-0018.pdf)
@@ -534,9 +540,11 @@ and [§4.9](./THREAT-MODEL.md#49-the-relay-knows-which-queue-addresses-are-paire
 
 Queue addresses are established **inside** the MLS group — a member advertises
 its `QueueSendAddr` set to peers in an authenticated application message, never
-via the server. Addresses rotate on a schedule using the
-`free2z/queue/v1` exporter so a long-lived relationship does not present a
-long-lived identifier.
+via the server. The shipping path can consume a distinct authenticated advert
+and safely replace its outbound queue. It does not yet automate the full
+create/advertise/overlap/drain rotation flow, and the reserved `free2z/queue/v1`
+synchronized schedule is not implemented. Without an external replacement
+advert, today's queue pseudonym can therefore remain long-lived.
 
 > **This paragraph is circular for a pair that has never spoken**, and the gap is
 > real rather than a detail: there is no path for the `Welcome` that creates the
@@ -547,6 +555,22 @@ long-lived identifier.
 > **contact queue** whose send side is never bound and whose address is published
 > in the owner's directory entry — together with the honest limits on what its
 > anti-abuse actually buys.
+
+> **Addition (2026-08-26) — the contact queue's address also carries the
+> recipient's MLS `KeyPackage`s.** A `Welcome` has to be addressed to one, and
+> the directory publishes none: a key package is **consumed on use** and
+> [`KT.md` §4.1](./KT.md#41-structure)'s append-only entry cannot express
+> consumption, which is why it excludes them and why it still does.
+> [`WIRE.md` §12.6](./WIRE.md#126-keypackage-publication--where-a-consumable-key-lives)
+> puts a per-device pool at the **relay**, keyed by the very `contact_addr`
+> above, published with the contact queue's own receive key and claimed one at a
+> time behind a proof-of-work stamp. The relay gains no identifier it did not
+> already hold, and it is not trusted with the packages: a fetcher authenticates
+> what it gets against the directory entry the log proved, or refuses.
+> [ADR 0015](./decisions/0015-key-package-publication.md), and the two costs —
+> a reusable package of last resort, and a relay that can force one — are
+> [`THREAT-MODEL.md` §4.12](./THREAT-MODEL.md#412-a-last-resort-key-package-is-a-reused-init-key)
+> and [§4.13](./THREAT-MODEL.md#413-a-relay-chooses-which-key-package-you-get-and-can-always-serve-the-reusable-one).
 
 **Fan-out (D2):** a message to a recipient with *d* registered devices is sent
 to *d* queues, one per device, as *d* independently encrypted MLS messages
@@ -1358,6 +1382,15 @@ deliberate.
     end state (a database-level `UniqueConstraint(Lower("username"))`) are in
     [`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted). The
     backend work is tracked in the deployment repository.
+  - **Candidate derivation and authoritative binding are two different claims,
+    and only the first ships (2026-08-31, #820).** "What handle would this
+    username become, and is it well-formed" is a pure, already-implemented,
+    already-safe function of the string
+    ([`WIRE.md` §14.1](./WIRE.md#141-proposed-rule),
+    `check_handle_eligibility`). "This account authoritatively owns that handle"
+    is what the census, collision resolution and database invariant above are
+    blocking, and this document does not treat the first as evidence for the
+    second.
 - **P. KT epoch cadence and maximum merge delay.** Opened 2026-08-23 by
   [`KT.md` §5](./KT.md#5-epochs-and-the-merge-promise). The values there — a
   600-second epoch published whether or not there is work, and a 3,600-second

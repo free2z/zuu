@@ -138,6 +138,7 @@ function echoConversation(): Conversation {
     receiptPolicy: defaultReceiptPolicy(),
     hasGaps: active === "gap" || active === "gap-unrecoverable",
     transportHealth: "ok",
+    compromiseRelayUrl: null,
   };
 }
 
@@ -210,6 +211,8 @@ function initialState(): MockState {
               raisedAt: Date.UTC(2026, 7, 24),
               dismissible: false,
               handle: null,
+              conversationId: null,
+              relayUrl: null,
               oldFingerprint: null,
               newFingerprint: null,
               platformAssisted: false,

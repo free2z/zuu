@@ -14,10 +14,14 @@ const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 const changeDetectorDigest =
-  "b023c185b4372041fb32630106cc1ad31d3fe95d7c19f2e98ecee9bc1ae12645";
+  "edd3f165fbdc5b0dc3dfa6e566d446100b2dcaa89122ba3f9cf380fc478d739a";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
+const messagingContractInputs = [
+  "docs/e2ee/CLIENT-CONTRACT.md",
+  "docs/e2ee/WIRE.md",
+];
 const requiredWalletBoundarySelectors = [
   "wallet/shared/*",
   "wallet/zuuallet/*",
@@ -129,6 +133,11 @@ function check(
     failures.push(
       "messaging changes must retain the full wallet/zuuli/* selector",
     );
+  }
+  for (const input of messagingContractInputs) {
+    if (!selectedPatterns.includes(input)) {
+      failures.push(`messaging contract input must select ZUULI: ${input}`);
+    }
   }
   if (selectedPatterns.includes("rs/crates/*")) {
     failures.push(
@@ -375,6 +384,12 @@ function runSelfTest(workflow, toolchainEnv) {
         to,
       ];
     }),
+    ...messagingContractInputs.map((input) => [
+      `messaging contract input no longer selects ZUULI: ${input}`,
+      `|${input}|`,
+      "|",
+      `messaging contract input must select ZUULI: ${input}`,
+    ]),
     [
       "the live policy invocation is removed",
       `          node ${policyPath}\n`,

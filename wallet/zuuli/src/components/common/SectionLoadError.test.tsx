@@ -1,10 +1,23 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { parseHTML } from "linkedom";
 import { describe, expect, it, vi } from "vitest";
 import { SectionLoadError } from "./SectionLoadError";
+import { TestI18nProvider } from "@/i18n/test-provider";
+
+function renderSection(error: React.ReactNode, locale: "en" | "es" = "en") {
+  return renderToStaticMarkup(
+    <TestI18nProvider locale={locale}>{error}</TestI18nProvider>,
+  );
+}
+
+function retryButtonText(markup: string): string | null {
+  const { document } = parseHTML(markup);
+  return document.querySelector("button")?.textContent.trim() ?? null;
+}
 
 describe("SectionLoadError", () => {
   it("renders an actionable initial failure instead of empty-state copy", () => {
-    const markup = renderToStaticMarkup(
+    const markup = renderSection(
       <SectionLoadError
         title="Couldn't load transactions"
         description="Transaction history is temporarily unavailable."
@@ -21,7 +34,7 @@ describe("SectionLoadError", () => {
   });
 
   it("announces retained data as stale and disables duplicate retries", () => {
-    const markup = renderToStaticMarkup(
+    const markup = renderSection(
       <SectionLoadError
         title="Couldn't refresh transactions"
         description="Showing the last confirmed history."
@@ -36,4 +49,24 @@ describe("SectionLoadError", () => {
     expect(markup).toContain("Retrying");
     expect(markup).toContain("disabled");
   });
+
+  it.each([
+    [false, "Retry", "Reintentar"],
+    [true, "Retrying", "Reintentando"],
+  ] as const)(
+    "renders the retry action from the active catalog when retrying is %s",
+    (retrying, english, spanish) => {
+      const error = (
+        <SectionLoadError
+          title="Failure"
+          description="Try again."
+          retry={vi.fn()}
+          retrying={retrying}
+        />
+      );
+
+      expect(retryButtonText(renderSection(error, "en"))).toBe(english);
+      expect(retryButtonText(renderSection(error, "es"))).toBe(spanish);
+    },
+  );
 });

@@ -130,6 +130,46 @@ if (release === undefined) {
   process.exit(1);
 }
 
+function parseCanonicalBuildMetadata(bytes, target) {
+  let contents;
+  try {
+    contents = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    target.push("build-info.json must contain valid UTF-8");
+    return {};
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(contents);
+  } catch {
+    target.push("build-info.json must contain valid JSON");
+    return {};
+  }
+  const canonical = Buffer.from(`${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  if (!bytes.equals(canonical))
+    target.push(
+      "build-info.json bytes must be canonical UTF-8 JSON without duplicate or escaped property names",
+    );
+  const expectedKeys = ["$schema", "channel", "schemaVersion"];
+  if (
+    parsed === null ||
+    Array.isArray(parsed) ||
+    typeof parsed !== "object" ||
+    JSON.stringify(Object.keys(parsed).sort()) !== JSON.stringify(expectedKeys)
+  ) {
+    target.push("build-info.json must contain exactly its schema, version, and channel");
+    return {};
+  }
+  if (parsed.$schema !== "./build-info.schema.json")
+    target.push("build-info.json schema reference is unsupported");
+  return parsed;
+}
+
+const buildMetadata = parseCanonicalBuildMetadata(
+  readFileSync(resolve(root, "build-info.json")),
+  failures,
+);
+
 function expect(label, actual, expected) {
   if (`${actual}` !== `${expected}`) {
     failures.push(
@@ -153,6 +193,9 @@ function occurrenceCount(contents, value) {
 
 expect("release schema version", release.schemaVersion, 2);
 expect("release application ID", release.applicationId, "cash.free2z.zuuli");
+expect("build metadata schema version", buildMetadata.schemaVersion, 1);
+if (!["internal", "beta", "stable"].includes(buildMetadata.channel))
+  failures.push(`release channel is unsupported: ${buildMetadata.channel}`);
 if (release.iosUsesNonExemptEncryption !== false)
   failures.push(
     "release iOS non-exempt encryption declaration must be Boolean false",
@@ -213,6 +256,28 @@ const testFlightBootstrapWorkflow = read(
 const storeAuditWorkflow = read("../../.github/workflows/zuuli-store-audit.yml");
 const storePublishWorkflow = read("../../.github/workflows/zuuli-store-publish.yml");
 const packagingWorkflow = read("../../.github/workflows/zuuli-packaging.yml");
+const viteConfig = read("vite.config.ts");
+const buildIdentitySource = read("scripts/build-identity.mjs");
+const releaseManifestSource = read("scripts/release-manifest.mjs");
+
+for (const [label, contents, contract] of [
+  ["Vite build identity", viteConfig, "__ZUULI_BUILD_INFO__"],
+  ["Vite build identity loader", viteConfig, "loadBuildIdentity({ root })"],
+  ["build identity release source", buildIdentitySource, 'resolve(root, "release.json")'],
+  ["build identity metadata source", buildIdentitySource, 'resolve(root, "build-info.json")'],
+  ["release manifest channel", releaseManifestSource, "channel: buildMetadata.channel"],
+]) {
+  if (!contents.includes(contract))
+    failures.push(`${label} contract is missing: ${contract}`);
+}
+expect(
+  "protected source-build SHA bindings",
+  occurrenceCount(
+    releaseWorkflow,
+    "ZUULI_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}",
+  ),
+  4,
+);
 
 for (const failure of artifactSbomWorkflowFailures(
   packagingWorkflow,
@@ -575,7 +640,7 @@ if (mobileRelease.includes("tauri ios build") || mobileRelease.includes("platfor
   failures.push("mobile-release.sh must not recombine iOS credentials with dependency-controlled builds");
 for (const preservedContract of [
   "node scripts/normalize-generated-ios-project.mjs --prepare-manual-signing",
-  "./node_modules/.bin/tauri ios build --ci --no-sign --archive-only -- --locked",
+  "./node_modules/.bin/tauri ios build --ci --no-sign --archive-only --config '{\"build\":{\"beforeBuildCommand\":null}}' -- --locked",
   "node scripts/normalize-generated-ios-project.mjs",
   "xcodebuild -exportArchive",
   "scripts/verify-ios-ipa.sh --expected-profile-sha256",
@@ -772,6 +837,9 @@ for (const workflowPath of [
 const unsignedIosBuild = packagingWorkflow.indexOf(
   "./node_modules/.bin/tauri ios build --ci --no-sign",
 );
+const unsignedIosFrontend = packagingWorkflow.indexOf(
+  "- name: Build source-bound frontend from the clean checkout",
+);
 const unsignedIosInspection = packagingWorkflow.indexOf(
   'scripts/verify-ios-ipa.sh --verify-app-structure "${apps[0]}"',
 );
@@ -779,15 +847,28 @@ const unsignedIosCollection = packagingWorkflow.indexOf(
   "- name: Collect unsigned package",
 );
 if (
+  unsignedIosFrontend === -1 ||
   unsignedIosBuild === -1 ||
   unsignedIosInspection === -1 ||
   unsignedIosCollection === -1 ||
+  unsignedIosFrontend > unsignedIosBuild ||
   unsignedIosBuild > unsignedIosInspection ||
   unsignedIosInspection > unsignedIosCollection
 ) {
   failures.push(
     "unsigned iOS packaging must build, inspect the app structure, then collect the artifact",
   );
+}
+for (const [label, workflow, contract] of [
+  ["packaging iOS build platform", packagingWorkflow, "ZUULI_BUILD_PLATFORM: ios"],
+  ["protected iOS build platform", releaseWorkflow, "ZUULI_BUILD_PLATFORM: ios"],
+  [
+    "packaging iOS clean frontend handoff",
+    packagingWorkflow,
+    "--config '{\"build\":{\"beforeBuildCommand\":null}}'",
+  ],
+]) {
+  if (!workflow.includes(contract)) failures.push(`${label} contract is missing: ${contract}`);
 }
 for (const target of [
   "aarch64-linux-android",
@@ -958,6 +1039,7 @@ if (failures.length) {
 console.log(
   JSON.stringify({
     applicationId: release.applicationId,
+    channel: buildMetadata.channel,
     version: release.version,
     build: release.build,
     identity,

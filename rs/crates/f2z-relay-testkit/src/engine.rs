@@ -43,10 +43,12 @@ use std::sync::Mutex;
 
 use f2z_codec::canonical::{Canonical, decode_canonical};
 use f2z_codec::commands::{
-    AckRequest, AckResponse, AppendRequest, Capabilities, ChallengePurpose, ChallengeRequest,
-    ChallengeResponse, Command, ContactAppendRequest, CreateContactQueueRequest,
-    CreateContactQueueResponse, CreateQueueRequest, CreateQueueResponse, HelloRequest,
-    HelloResponse, PushEvent, ReadRequest, ReadResponse, SubscribeResponse,
+    AckRequest, AckResponse, AppendRequest, CLAIM_KEY_PACKAGE_CHALLENGE_PURPOSE, Capabilities,
+    ChallengePurpose, ChallengeRequest, ChallengeResponse, ClaimKeyPackageChallengeRequest,
+    ClaimKeyPackageRequest, ClaimKeyPackageResponse, Command, ContactAppendRequest,
+    CreateContactQueueRequest, CreateContactQueueResponse, CreateQueueRequest, CreateQueueResponse,
+    HelloRequest, HelloResponse, PublishKeyPackagesRequest, PublishKeyPackagesResponse, PushEvent,
+    ReadRequest, ReadResponse, SubscribeResponse,
 };
 use f2z_codec::frame::{FramePayload, RelayFrame, Request, Response};
 use f2z_codec::padding::PaddingBuckets;
@@ -54,9 +56,7 @@ use f2z_codec::pow::{PowParams, PowStamp};
 use f2z_codec::transcript::TranscriptBuilder;
 use f2z_codec::types::{Digest, QueueAddress, RelayId};
 use f2z_codec::{ErrorCode, PROTOCOL_VERSION};
-use f2z_relay_proto::capabilities::{
-    self, ChannelBindingMode, QueueCreationMode, TransportSecurity,
-};
+use f2z_relay_proto::capabilities::{self, QueueCreationMode, TransportSecurity};
 use f2z_relay_proto::command::{CommandVerifier, Empty, RelayCommand, Verified, ops};
 use f2z_relay_proto::hello::{RelayAnnouncement, hello_response};
 use f2z_relay_proto::key::{SigningKey, dummy_verify};
@@ -66,7 +66,7 @@ use f2z_relay_proto::{ProtoError, capabilities::AntiReplayPersistence};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::clock::Clock;
-use crate::config::{ChannelBindingSource, RelayConfig};
+use crate::config::RelayConfig;
 use crate::error::{Result, TestkitError};
 use crate::faults::{Effect, FaultInjector, PolicyFaults};
 use crate::outbound::{
@@ -137,6 +137,16 @@ impl Relay {
     pub fn new(config: RelayConfig) -> Result<Self> {
         capabilities::validate(&config.capabilities)
             .map_err(|_| TestkitError::Config("the configured capability document is invalid"))?;
+        config
+            .key_package_policy
+            .validate()
+            .map_err(|_| TestkitError::Config("the configured key-package policy is invalid"))?;
+        if config.key_package_policy.enabled != 0 && config.capabilities.contact_queues_enabled == 0
+        {
+            return Err(TestkitError::Config(
+                "key packages require contact queues to provide their published address",
+            ));
+        }
         if config.capabilities.queue_creation_mode == QueueCreationMode::Token.code() {
             return Err(TestkitError::Config(
                 "queue_creation_mode: token is not implemented; \
@@ -460,6 +470,10 @@ impl Relay {
             Command::Hello => self.hello(connection, request),
             Command::GetCapabilities => self.get_capabilities(request),
             Command::GetChallenge => self.get_challenge(now, request),
+            Command::GetKeyPackagePolicy => self.get_key_package_policy(request),
+            Command::GetClaimKeyPackageChallenge => {
+                self.get_claim_key_package_challenge(now, request)
+            }
             Command::Ping => self.ping(request),
             Command::CreateQueue => self.create_queue(connection, now, request_id, request),
             Command::CreateContactQueue => {
@@ -473,6 +487,10 @@ impl Relay {
             Command::BindSend => self.bind_send(connection, now, request_id, request),
             Command::Append => self.append(connection, now, request_id, request),
             Command::ContactAppend => self.contact_append(now, request),
+            Command::PublishKeyPackages => {
+                self.publish_key_packages(connection, now, request_id, request)
+            }
+            Command::ClaimKeyPackage => self.claim_key_package(now, request),
             // `Command` is `#[non_exhaustive]`: a code added to f2z-codec but
             // not handled here is a hole in this relay, not in the client that
             // sent it. §3.5's non-fatal `ERR_UNKNOWN_COMMAND` is the honest
@@ -501,10 +519,7 @@ impl Relay {
         let announcement = RelayAnnouncement {
             protocol_version: PROTOCOL_VERSION,
             relay_time_ms: self.clock.now_ms(),
-            channel_binding_mode: match self.config.channel_binding {
-                ChannelBindingSource::None => ChannelBindingMode::None,
-                ChannelBindingSource::Simulated(_) => ChannelBindingMode::TlsExporter,
-            },
+            channel_binding_mode: self.config.channel_binding.mode(),
             transport_security: TransportSecurity::None,
             capabilities_digest: digest,
         };
@@ -526,6 +541,51 @@ impl Relay {
             .signed_capabilities()
             .map_err(|_| ProtoError::Wire(ErrorCode::Internal))?;
         Ok(signed.encode_canonical()?)
+    }
+
+    fn get_key_package_policy(
+        &self,
+        request: &Request,
+    ) -> std::result::Result<Vec<u8>, ProtoError> {
+        let _: Empty = self
+            .accept_unsigned::<ops::GetKeyPackagePolicy>(request)?
+            .into_body();
+        let policy = self.config.key_package_policy;
+        policy
+            .validate()
+            .map_err(|_| ProtoError::Wire(ErrorCode::Internal))?;
+        Ok(policy.encode_canonical()?)
+    }
+
+    fn get_claim_key_package_challenge(
+        &self,
+        now: u64,
+        request: &Request,
+    ) -> std::result::Result<Vec<u8>, ProtoError> {
+        let body: ClaimKeyPackageChallengeRequest = self
+            .accept_unsigned::<ops::GetClaimKeyPackageChallenge>(request)?
+            .into_body();
+        let policy = self.config.key_package_policy;
+        if policy.enabled == 0 {
+            return Err(ProtoError::Wire(ErrorCode::NotPermitted));
+        }
+        let expires_at_ms = now.saturating_add(u64::from(policy.claim_pow.challenge_ttl_ms));
+        let challenge = {
+            let mut state = self.state()?;
+            state.expire_challenges(now);
+            state.issue_challenge(
+                CLAIM_KEY_PACKAGE_CHALLENGE_PURPOSE,
+                body.contact_addr.as_bytes(),
+                expires_at_ms,
+            )
+        };
+        Ok(ChallengeResponse {
+            relay_time_ms: now,
+            challenge,
+            expires_at_ms,
+            pow: policy.claim_pow,
+        }
+        .encode_canonical()?)
     }
 
     fn ping(&self, request: &Request) -> std::result::Result<Vec<u8>, ProtoError> {
@@ -972,7 +1032,7 @@ impl Relay {
             now,
             &body.stamp,
             &params,
-            ChallengePurpose::ContactAppend,
+            ChallengePurpose::ContactAppend.code(),
             body.contact_addr.as_bytes(),
         )?;
 
@@ -980,6 +1040,117 @@ impl Relay {
         state.append(&recv_addr, body.payload, now)?;
         drop(state);
         Ok(Vec::new())
+    }
+
+    // -- §12.6, key packages -----------------------------------------------
+
+    fn publish_key_packages(
+        &self,
+        connection: &Connection,
+        now: u64,
+        request_id: u32,
+        request: &Request,
+    ) -> std::result::Result<Vec<u8>, ProtoError> {
+        // Ordinary receive-side authorization, and that is the whole design:
+        // the capability that already means "I own this contact queue" is the
+        // capability that means "I own this pool". No new key, no new address.
+        let verified = self.verify::<ops::PublishKeyPackages>(
+            connection,
+            now,
+            request_id,
+            request,
+            |state, candidate| self.preauthorize_recv(state, candidate),
+        )?;
+        let recv_addr = verified.address();
+        let signer = verified.signer_key();
+        let body: PublishKeyPackagesRequest = verified.into_body();
+        body.validate()
+            .map_err(|_| ProtoError::Wire(ErrorCode::Malformed))?;
+
+        let policy = self.config.key_package_policy;
+        if policy.enabled == 0 {
+            return Err(ProtoError::Wire(ErrorCode::NotPermitted));
+        }
+
+        let mut state = self.state()?;
+        let Some(queue) = state.queue_by_recv(&recv_addr) else {
+            return Err(self.absent_recv());
+        };
+        queue.state.authorize_recv(&signer)?;
+        if !matches!(queue.kind, QueueKind::Contact) {
+            // §12.6 hangs the pool off the *published* address. A standard
+            // queue has no published address, so there is nothing to key one
+            // by. `ERR_NOT_PERMITTED` and not `ERR_NO_ACCESS`: the caller
+            // proved it owns this queue, so nothing here is an oracle — this is
+            // §10 code 20, "not valid for this queue kind", exactly as
+            // `BIND_SEND` on a contact queue is.
+            return Err(ProtoError::Wire(ErrorCode::NotPermitted));
+        }
+
+        let packages = body.packages.as_slice().to_vec();
+        let last_resort = body.last_resort.as_slice().first().cloned();
+        let (pool_size, has_last_resort) = state
+            .publish_key_packages(&recv_addr, packages, last_resort, policy.max_pool_size, now)
+            .ok_or(ProtoError::Wire(ErrorCode::Internal))?;
+        drop(state);
+
+        let response = PublishKeyPackagesResponse {
+            pool_size,
+            max_pool_size: policy.max_pool_size,
+            has_last_resort: u8::from(has_last_resort),
+        };
+        Ok(response.encode_canonical()?)
+    }
+
+    fn claim_key_package(
+        &self,
+        now: u64,
+        request: &Request,
+    ) -> std::result::Result<Vec<u8>, ProtoError> {
+        let verified = self.accept_unsigned::<ops::ClaimKeyPackage>(request)?;
+        let body: ClaimKeyPackageRequest = verified.into_body();
+
+        if self.backpressured() {
+            return Err(ProtoError::Wire(ErrorCode::Unavailable));
+        }
+
+        let policy = self.config.key_package_policy;
+        if policy.enabled == 0 {
+            return Err(ProtoError::Wire(ErrorCode::NotPermitted));
+        }
+        let params = policy.claim_pow;
+
+        let mut state = self.state()?;
+        // The stamp is checked *before* the pool is consulted, so that the cost
+        // of probing an address is paid whether or not anything is there. The
+        // ordering is the same one §12.3 imposes on `CONTACT_APPEND` and it
+        // matters more here: a claim that answered "no such address" cheaply
+        // and "here you are" expensively would be a free existence oracle over
+        // the published address space.
+        self.check_stamp(
+            &mut state,
+            now,
+            &body.stamp,
+            &params,
+            CLAIM_KEY_PACKAGE_CHALLENGE_PURPOSE,
+            body.contact_addr.as_bytes(),
+        )?;
+
+        // Exhaustion, an absent address, and an address that is not a contact
+        // address are one code — §10's existence-oracle rule, and §12.6's
+        // exhaustion behaviour. **Not a panic, not an empty success**: a client
+        // that received a zero-length package would have to decide what that
+        // meant, and there is exactly one honest answer here.
+        let Some((package, last_resort)) = state.claim_key_package(&body.contact_addr) else {
+            return Err(ProtoError::Wire(ErrorCode::Unavailable));
+        };
+        drop(state);
+
+        let response = ClaimKeyPackageResponse {
+            key_package: package,
+            last_resort: u8::from(last_resort),
+        };
+        Ok(response.encode_canonical()?)
     }
 
     // ---------------------------------------------------------------------
@@ -1035,7 +1206,7 @@ impl Relay {
             now,
             stamp,
             &params,
-            ChallengePurpose::QueueCreate,
+            ChallengePurpose::QueueCreate.code(),
             &[],
         )
     }
@@ -1046,7 +1217,7 @@ impl Relay {
         now: u64,
         stamp: &PowStamp,
         params: &PowParams,
-        purpose: ChallengePurpose,
+        purpose: u8,
         scope: &[u8],
     ) -> std::result::Result<(), ProtoError> {
         if !params.is_required() || self.config.relaxations.accept_missing_pow {
@@ -1062,7 +1233,7 @@ impl Relay {
         if !stamp.meets_difficulty(params.difficulty_bits) {
             return Err(ProtoError::Wire(ErrorCode::PowInvalid));
         }
-        state.consume_challenge(&stamp.challenge, purpose.code(), scope, now)
+        state.consume_challenge(&stamp.challenge, purpose, scope, now)
     }
 
     fn window(&self) -> TimestampWindow {
@@ -1213,6 +1384,8 @@ fn recover_request_id(bytes: &[u8]) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use f2z_relay_proto::capabilities::ChannelBindingMode;
+
     use super::*;
 
     #[test]
@@ -1237,6 +1410,27 @@ mod tests {
         let mut config = RelayConfig::default();
         config.capabilities.transport_security = TransportSecurity::Tls.code();
         assert!(Relay::new(config).is_err());
+    }
+
+    // #740: `tls-exporter` cannot be published by a startable `FakeRelay`
+    // under either `transport_security` value, which is why the crate no
+    // longer offers a way to configure it. `transport_security: tls` is
+    // refused above because a `FakeRelay` serves `ws://`; this covers the
+    // other side, `transport_security: none`, which `capabilities::validate`
+    // refuses under §2.3 obligation 2 regardless of what claims `tls-exporter`
+    // channel binding.
+    #[test]
+    fn tls_exporter_channel_binding_cannot_produce_a_startable_relay() {
+        for transport in [TransportSecurity::None, TransportSecurity::Tls] {
+            let mut config = RelayConfig::default();
+            config.capabilities.transport_security = transport.code();
+            config.capabilities.channel_binding_mode = ChannelBindingMode::TlsExporter.code();
+            assert!(
+                Relay::new(config).is_err(),
+                "transport_security={transport:?} paired with channel_binding_mode: \
+                 tls-exporter must not start a FakeRelay"
+            );
+        }
     }
 
     #[test]

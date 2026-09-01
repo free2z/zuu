@@ -20,7 +20,9 @@ use tls_codec::{
 
 use crate::error::CodecError;
 use crate::pow::{PowParams, PowStamp};
-use crate::types::{Challenge, Digest, Payload, PublicKey, QueueAddress, ShortBytes, Signature};
+use crate::types::{
+    Challenge, Digest, KeyPackage, Payload, PublicKey, QueueAddress, ShortBytes, Signature,
+};
 use crate::vec::{VecU8, VecU16, VecU24};
 
 /// A relay command code (`WIRE.md` §6).
@@ -55,6 +57,14 @@ pub enum Command {
     CreateContactQueue,
     /// `0x0031`, unsigned; gated by proof of work (§12.2).
     ContactAppend,
+    /// `0x0032`, signed by the contact queue's recv key (§12.6).
+    PublishKeyPackages,
+    /// `0x0033`, unsigned; gated by proof of work (§12.6).
+    ClaimKeyPackage,
+    /// `0x0034`, unsigned; additive key-package policy discovery (§12.6).
+    GetKeyPackagePolicy,
+    /// `0x0035`, unsigned; issues a claim-only challenge (§12.6).
+    GetClaimKeyPackageChallenge,
 }
 
 /// Which key authorizes a command (`WIRE.md` §6's table).
@@ -86,7 +96,7 @@ pub enum TranscriptAddress {
 
 impl Command {
     /// Every command, in code order.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 18] = [
         Self::Hello,
         Self::GetCapabilities,
         Self::GetChallenge,
@@ -101,6 +111,10 @@ impl Command {
         Self::Append,
         Self::CreateContactQueue,
         Self::ContactAppend,
+        Self::PublishKeyPackages,
+        Self::ClaimKeyPackage,
+        Self::GetKeyPackagePolicy,
+        Self::GetClaimKeyPackageChallenge,
     ];
 
     /// The wire code.
@@ -121,6 +135,10 @@ impl Command {
             Self::Append => 0x0021,
             Self::CreateContactQueue => 0x0030,
             Self::ContactAppend => 0x0031,
+            Self::PublishKeyPackages => 0x0032,
+            Self::ClaimKeyPackage => 0x0033,
+            Self::GetKeyPackagePolicy => 0x0034,
+            Self::GetClaimKeyPackageChallenge => 0x0035,
         }
     }
 
@@ -144,6 +162,10 @@ impl Command {
             0x0021 => Self::Append,
             0x0030 => Self::CreateContactQueue,
             0x0031 => Self::ContactAppend,
+            0x0032 => Self::PublishKeyPackages,
+            0x0033 => Self::ClaimKeyPackage,
+            0x0034 => Self::GetKeyPackagePolicy,
+            0x0035 => Self::GetClaimKeyPackageChallenge,
             _ => return None,
         })
     }
@@ -156,14 +178,18 @@ impl Command {
             | Self::GetCapabilities
             | Self::GetChallenge
             | Self::Ping
-            | Self::ContactAppend => Auth::None,
+            | Self::ContactAppend
+            | Self::ClaimKeyPackage
+            | Self::GetKeyPackagePolicy
+            | Self::GetClaimKeyPackageChallenge => Auth::None,
             Self::CreateQueue
             | Self::Subscribe
             | Self::Unsubscribe
             | Self::Read
             | Self::Ack
             | Self::DeleteQueue
-            | Self::CreateContactQueue => Auth::RecvKey,
+            | Self::CreateContactQueue
+            | Self::PublishKeyPackages => Auth::RecvKey,
             Self::BindSend | Self::Append => Auth::SendKey,
         }
     }
@@ -176,11 +202,17 @@ impl Command {
             | Self::GetCapabilities
             | Self::GetChallenge
             | Self::Ping
-            | Self::ContactAppend => TranscriptAddress::None,
+            | Self::ContactAppend
+            | Self::ClaimKeyPackage
+            | Self::GetKeyPackagePolicy
+            | Self::GetClaimKeyPackageChallenge => TranscriptAddress::None,
             Self::CreateQueue | Self::CreateContactQueue => TranscriptAddress::Zeros,
-            Self::Subscribe | Self::Unsubscribe | Self::Read | Self::Ack | Self::DeleteQueue => {
-                TranscriptAddress::RecvAddr
-            }
+            Self::Subscribe
+            | Self::Unsubscribe
+            | Self::Read
+            | Self::Ack
+            | Self::DeleteQueue
+            | Self::PublishKeyPackages => TranscriptAddress::RecvAddr,
             Self::BindSend | Self::Append => TranscriptAddress::SendAddr,
         }
     }
@@ -279,6 +311,11 @@ pub enum ChallengePurpose {
     ContactAppend,
 }
 
+/// Internal purpose code bound to challenges issued by additive command
+/// `0x0035`. It is deliberately not a [`ChallengePurpose`]: value 3 remains
+/// invalid in v1's frozen `GET_CHALLENGE` request body.
+pub const CLAIM_KEY_PACKAGE_CHALLENGE_PURPOSE: u8 = 3;
+
 impl ChallengePurpose {
     /// The wire byte.
     #[must_use]
@@ -315,8 +352,8 @@ impl ChallengePurpose {
 pub struct ChallengeRequest {
     /// The `ChallengePurpose` byte.
     pub purpose: u8,
-    /// For `contact_append`: exactly the 32-byte target `contact_addr`. Empty
-    /// for `clock` and `queue_create`.
+    /// For `contact_append` and `claim_key_package`: exactly the 32-byte
+    /// target `contact_addr`. Empty for `clock` and `queue_create`.
     pub scope: ShortBytes,
 }
 
@@ -586,6 +623,159 @@ pub struct ContactAppendRequest {
 }
 
 // ---------------------------------------------------------------------------
+// §12.6 — key-package publication
+// ---------------------------------------------------------------------------
+
+/// `PUBLISH_KEY_PACKAGES` request (§12.6).
+///
+/// Signed by the **contact queue's** receive-side key and addressed to its
+/// `recv_addr`, which is why the request body names no address: the transcript
+/// already does, and the relay already holds the `recv_addr → contact_addr`
+/// mapping it made at `CREATE_CONTACT_QUEUE`. There is no new key here and no
+/// new identifier — the capability that already meant *"I am the owner of this
+/// contact queue"* is the capability that means *"I am the owner of this
+/// pool."*
+///
+/// # Append, not replace
+///
+/// The relay adds `packages` to whatever the pool already holds, skipping any
+/// byte-identical duplicate, and clamps to the policy's `max_pool_size` by
+/// dropping from the **end** of `packages`. Two consequences are deliberate:
+///
+/// * **Retry is safe.** A publish whose response was lost can be sent again and
+///   the pool does not double. Under a transport that can lose a response
+///   (§8.3's argument for idempotent `ACK`, applied here) that is worth more
+///   than a strict duplicate error.
+/// * **A device that has been away does not have to know what was consumed.**
+///   It tops up and reads `pool_size` back.
+///
+/// `last_resort` **replaces** rather than appends, because there is exactly one
+/// of it. An empty vector leaves whatever is stored alone; publishing a new one
+/// retires the old one immediately.
+#[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+pub struct PublishKeyPackagesRequest {
+    /// Single-use packages, appended to the pool.
+    pub packages: VecU24<KeyPackage>,
+    /// The reusable package of last resort, replacing any stored one. Empty
+    /// leaves the stored one in place; there is at most one element.
+    ///
+    /// A vector rather than an `Option` because the wire has no `Option`: the
+    /// `<0..2^16-1>` prefix encodes "absent" as a zero length, and
+    /// [`PublishKeyPackagesRequest::validate`] enforces that it never holds two.
+    pub last_resort: VecU16<KeyPackage>,
+}
+
+impl PublishKeyPackagesRequest {
+    /// Check the "at most one last-resort package" rule.
+    ///
+    /// # Errors
+    ///
+    /// [`CodecError::InvalidValue`] when `last_resort` holds more than one.
+    pub fn validate(&self) -> Result<(), CodecError> {
+        if self.last_resort.len() > 1 {
+            return Err(CodecError::InvalidValue);
+        }
+        Ok(())
+    }
+}
+
+/// `PUBLISH_KEY_PACKAGES` response (§12.6).
+///
+/// This one *does* report state, and the contrast with `APPEND`'s empty
+/// response (§6.3) is the point: the caller here is the queue's **owner**,
+/// authenticated by the receive-side key, and §6.3's rule exists to stop a
+/// *sender* escalating into a reader. Telling the owner how full its own pool
+/// is discloses nothing it is not entitled to, and it is the only way a device
+/// can know when to refill (§12.6's low-water rule).
+#[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+pub struct PublishKeyPackagesResponse {
+    /// Single-use packages held after this publish.
+    pub pool_size: u32,
+    /// The relay's cap, so a client can compute its own low-water mark without
+    /// re-reading the capability document.
+    pub max_pool_size: u32,
+    /// 1 when a last-resort package is stored, 0 when none is.
+    pub has_last_resort: u8,
+}
+
+/// `CLAIM_KEY_PACKAGE` request (§12.6). Unsigned; the stamp is the gate.
+///
+/// The same shape as [`ContactAppendRequest`] and for the same reason: the
+/// address is public, published in the owner's directory entry, and the whole
+/// internet is entitled to ask.
+#[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+pub struct ClaimKeyPackageRequest {
+    /// The published contact address whose pool is being claimed from.
+    pub contact_addr: QueueAddress,
+    /// Over a relay-issued challenge scoped to `contact_addr`, issued by
+    /// `GET_CLAIM_KEY_PACKAGE_CHALLENGE` (§12.6).
+    pub stamp: PowStamp,
+}
+
+/// `CLAIM_KEY_PACKAGE` response (§12.6).
+///
+/// Exactly one package, and **no count**. A claimer learns nothing about the
+/// pool's depth, for the same reason `APPEND`'s response is empty: a stranger
+/// who could read the depth could measure how many people have contacted this
+/// device, which is the metadata the contact queue exists to withhold.
+#[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+pub struct ClaimKeyPackageResponse {
+    /// The package. Consumed if it came from the pool; still stored if it is
+    /// the package of last resort.
+    pub key_package: KeyPackage,
+    /// 1 when the relay served the package of last resort — the pool was empty.
+    ///
+    /// **Relay-asserted and unauthenticated. A client MUST NOT make a security
+    /// decision on it.** Nothing signs this byte, and a relay that wants to
+    /// serve the reusable package while the pool is full can do so and set the
+    /// byte either way (`THREAT-MODEL.md` §4.13). It exists so an honest relay
+    /// can tell a client that first contact is about to use a reusable key, and
+    /// so the condition is measurable at all.
+    pub last_resort: u8,
+}
+
+/// Additive `GET_KEY_PACKAGE_POLICY` response (§12.6).
+///
+/// This deliberately is not part of [`Capabilities`]. Version 1 has no
+/// ignore-unknown-fields rule, so extending that signed structure would make
+/// old and new v1 peers unable to decode one another during a rolling deploy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+pub struct KeyPackagePolicy {
+    /// Nonzero when this relay stores and serves MLS key packages.
+    pub enabled: u8,
+    /// Maximum single-use packages held per contact queue.
+    pub max_pool_size: u32,
+    /// PoW parameters returned by `GET_CLAIM_KEY_PACKAGE_CHALLENGE`.
+    pub claim_pow: PowParams,
+}
+
+impl KeyPackagePolicy {
+    /// Validate the complete policy response.
+    ///
+    /// # Errors
+    ///
+    /// [`CodecError::InvalidValue`] for an undefined flag or a policy that
+    /// enables an unmetered or zero-sized pool.
+    pub fn validate(&self) -> Result<(), CodecError> {
+        self.claim_pow.validate()?;
+        if self.enabled > 1
+            || (self.enabled == 1 && (!self.claim_pow.is_required() || self.max_pool_size == 0))
+            || (self.enabled == 0 && (self.claim_pow.is_required() || self.max_pool_size != 0))
+        {
+            return Err(CodecError::InvalidValue);
+        }
+        Ok(())
+    }
+}
+
+/// Additive `GET_CLAIM_KEY_PACKAGE_CHALLENGE` request (§12.6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+pub struct ClaimKeyPackageChallengeRequest {
+    /// Public contact address the resulting stamp is scoped to.
+    pub contact_addr: QueueAddress,
+}
+
+// ---------------------------------------------------------------------------
 // §11.1 — the capability document
 // ---------------------------------------------------------------------------
 
@@ -721,6 +911,10 @@ mod tests {
             (Command::Append, 0x0021),
             (Command::CreateContactQueue, 0x0030),
             (Command::ContactAppend, 0x0031),
+            (Command::PublishKeyPackages, 0x0032),
+            (Command::ClaimKeyPackage, 0x0033),
+            (Command::GetKeyPackagePolicy, 0x0034),
+            (Command::GetClaimKeyPackageChallenge, 0x0035),
         ];
         assert_eq!(expected.len(), Command::ALL.len());
         for (command, code) in expected {
@@ -728,7 +922,7 @@ mod tests {
             assert_eq!(Command::from_code(code), Some(command));
         }
         assert_eq!(Command::from_code(0x0000), None);
-        assert_eq!(Command::from_code(0x0032), None);
+        assert_eq!(Command::from_code(0x0036), None);
     }
 
     #[test]
@@ -749,6 +943,21 @@ mod tests {
             (Command::GetChallenge, Auth::None, TranscriptAddress::None),
             (Command::Ping, Auth::None, TranscriptAddress::None),
             (Command::ContactAppend, Auth::None, TranscriptAddress::None),
+            (
+                Command::ClaimKeyPackage,
+                Auth::None,
+                TranscriptAddress::None,
+            ),
+            (
+                Command::GetKeyPackagePolicy,
+                Auth::None,
+                TranscriptAddress::None,
+            ),
+            (
+                Command::GetClaimKeyPackageChallenge,
+                Auth::None,
+                TranscriptAddress::None,
+            ),
             (
                 Command::CreateQueue,
                 Auth::RecvKey,
@@ -773,6 +982,11 @@ mod tests {
             (Command::Ack, Auth::RecvKey, TranscriptAddress::RecvAddr),
             (
                 Command::DeleteQueue,
+                Auth::RecvKey,
+                TranscriptAddress::RecvAddr,
+            ),
+            (
+                Command::PublishKeyPackages,
                 Auth::RecvKey,
                 TranscriptAddress::RecvAddr,
             ),
@@ -868,5 +1082,54 @@ mod tests {
             ChallengePurpose::from_code(3),
             Err(CodecError::InvalidValue)
         );
+    }
+
+    #[test]
+    fn key_package_policy_rejects_unmetered_or_zero_pools() {
+        let enabled = KeyPackagePolicy {
+            enabled: 1,
+            max_pool_size: 64,
+            claim_pow: PowParams {
+                algorithm: crate::pow::ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
+                difficulty_bits: 20,
+                challenge_ttl_ms: 60_000,
+            },
+        };
+        assert!(enabled.validate().is_ok());
+
+        let disabled = KeyPackagePolicy {
+            enabled: 0,
+            max_pool_size: 0,
+            claim_pow: PowParams::none(),
+        };
+        assert!(disabled.validate().is_ok());
+
+        for invalid in [
+            KeyPackagePolicy {
+                enabled: 2,
+                ..enabled
+            },
+            KeyPackagePolicy {
+                max_pool_size: 0,
+                ..enabled
+            },
+            KeyPackagePolicy {
+                claim_pow: PowParams::none(),
+                ..enabled
+            },
+            KeyPackagePolicy {
+                claim_pow: PowParams {
+                    algorithm: 2,
+                    ..enabled.claim_pow
+                },
+                ..enabled
+            },
+            KeyPackagePolicy {
+                max_pool_size: 1,
+                ..disabled
+            },
+        ] {
+            assert_eq!(invalid.validate(), Err(CodecError::InvalidValue));
+        }
     }
 }

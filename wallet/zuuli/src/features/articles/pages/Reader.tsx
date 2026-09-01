@@ -1,4 +1,5 @@
 import { Link, useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { ArrowLeft, Clock, Newspaper } from "lucide-react";
 import {
   Avatar,
@@ -10,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Markdown } from "@/components/common/Markdown";
+import { ImagePrivacySetting } from "@/components/common/ImagePrivacySetting";
 import { RemoteImage } from "@/components/common/RemoteMedia";
 import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { useAsync } from "@/hooks/useAsync";
@@ -27,6 +29,7 @@ import { CommentsSection } from "../components/Comments";
 import { ArticleScore } from "../components/ArticleScore";
 import { coverTone } from "@/lib/cover";
 import { formatPublished } from "../lib";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 
 const articleTagClassName =
   "min-tap inline-flex max-w-full items-center rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary";
@@ -36,10 +39,7 @@ function StoredArticleTag({ tag }: { tag: string }) {
   const label = <span className="min-w-0 break-words">#{tag}</span>;
   if (!href) {
     return (
-      <span
-        className={articleTagClassName}
-        title="This stored tag cannot be represented by the server's comma-delimited filter."
-      >
+      <span className={articleTagClassName}>
         {label}
       </span>
     );
@@ -55,6 +55,7 @@ function StoredArticleTag({ tag }: { tag: string }) {
 }
 
 export function Reader() {
+  const { t } = useTranslation();
   const { slug } = useParams<{ slug: string }>();
   const key = slug ?? "";
   const { data, loading, error, reload } = useAsync<
@@ -113,7 +114,7 @@ export function Reader() {
         <SectionLoadError
           className="mt-6"
           title="Couldn't load this article"
-          description="The server returned no article. Try again."
+          description={t(MESSAGE_KEYS.commonTryAgain)}
           retry={reload}
           retrying={loading}
         />
@@ -129,6 +130,8 @@ export function Reader() {
     <article className="app-reader-content animate-slide-up w-full min-w-0 overflow-x-clip">
       <div className="mx-auto w-full min-w-0 max-w-3xl">
         <BackLink />
+
+        <ImagePrivacySetting className="mt-4" />
 
         {error ? (
           <SectionLoadError

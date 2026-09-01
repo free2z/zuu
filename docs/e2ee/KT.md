@@ -93,10 +93,17 @@ surface and its stable error codes; and where `akd`'s types sit underneath ours.
   exist — and neither specifies a message. §8.4 defines the *evidence* a client
   would exchange and deliberately does not invent the protocol that exchanges
   it. [§13-R](./ARCHITECTURE.md#13-open-questions).
-- **MLS `KeyPackage` publication and exhaustion.** Deferred out of `WIRE.md`
-  §12.5 as "directory design," and still open. A `KeyPackage` is per-device,
-  consumed on use, and republished — a different lifecycle from a directory entry
-  and the wrong thing to put in an append-only log one entry at a time. §12.
+- **~~MLS `KeyPackage` publication and exhaustion.~~ Closed 2026-08-26 by
+  [`WIRE.md` §12.6](./WIRE.md#126-keypackage-publication--where-a-consumable-key-lives)
+  and [ADR 0015](./decisions/0015-key-package-publication.md).** Kept here rather
+  than deleted so a reader arriving from an older citation finds the answer
+  instead of a hole. This bullet said a `KeyPackage` is per-device, consumed on
+  use and republished — "a different lifecycle from a directory entry and the
+  wrong thing to put in an append-only log". That reasoning was right and the
+  answer follows from it: the pool lives at the **relay**, addressed by the
+  `contact_addr` §4.1's `ContactEndpoint` already publishes, and this document's
+  job is to be the thing a fetched package is authenticated *against*. **No
+  change to §4.1's structure**, and §4.1 carries a dated note saying so.
 - **Handle rename and transfer.**
   [§13-K](./ARCHITECTURE.md#13-open-questions), unchanged by this document.
 - **The reset authority key's distribution and its own rotation.**
@@ -304,6 +311,32 @@ an append-only public record that every peer of the user will fetch; every field
 added to it is a field published forever about everyone. Mutable profile data
 belongs on the platform, where it can be changed and deleted.
 
+> **Note (2026-08-26) — "no `KeyPackage`" is affirmed, not reversed, and the
+> question it left open is now answered elsewhere.** This is not a correction:
+> the normative text above is unchanged and the structure is unchanged. It is
+> recorded here because §1.2 and §12 listed `KeyPackage` publication as open, a
+> reader arriving from either will land on this paragraph, and the answer is
+> *"still not in the entry."*
+>
+> The reason the exclusion holds is sharper than "every field is published
+> forever". **A `KeyPackage` is consumed on use** — RFC 9420 §10 has a client
+> delete its init secret once a `Welcome` addressed to it is processed, and a
+> package used twice means two initiators encrypting to one secret — while §4.2's
+> version chain and §4.3's one-entry-per-handle-per-epoch rule exist so that
+> nothing in this log is ever withdrawn. An append-only structure cannot express
+> consumption. Putting a pool in an entry would additionally make `entry_version`
+> a public counter of how many people have started a conversation with you, and
+> would cap refill at one epoch.
+>
+> [`WIRE.md` §12.6](./WIRE.md#126-keypackage-publication--where-a-consumable-key-lives)
+> puts the pool at the **relay**, keyed by the `contact_addr` this entry already
+> publishes in its `ContactEndpoint`, and requires a fetcher to authenticate the
+> package it gets against **this entry** — the `identity_pk` above, the `handle`,
+> the `devices` set and the `revocations`. So the entry is what makes a
+> relay-served key package safe, and carrying the package itself would have made
+> it neither safer nor available.
+> [ADR 0015](./decisions/0015-key-package-publication.md).
+
 ### 4.2 Versions and the hash chain
 
 `entry_version` is the `akd` version for this label. It **MUST** start at 1 and
@@ -463,11 +496,23 @@ Verification rules the log MUST apply, in order, before an entry enters a batch:
    [ADR 0014](./decisions/0014-directory-key-rotation.md) does not make
    sufficient to install a new identity — and the log MUST reject it with
    `ERR_BAD_AUTHORIZATION` (§9.5) rather than treat it as a rotation. This rule
-   constrains `identity_pk` only.
+   constrains `identity_pk` only; rule 13 states the parallel constraint on
+   `directory_auth_pk`.
 7. For `key_change`: the `RotationProof`'s `old_identity_pk` equals the previous
    entry's `identity_pk`, its `new_identity_pk` equals this entry's, its
    `entry_version` and `prev_entry_hash` match, and its signature verifies.
    **A key change carrying only one of the two signatures MUST be rejected.**
+   **`old_identity_pk` and `new_identity_pk` MUST also differ; a `key_change`
+   naming the same key on both sides changes no key, is a `same_key` update
+   wearing the wrong label, and the log MUST reject it with
+   `ERR_BAD_AUTHORIZATION`.** (This has always been enforced by the reference
+   implementation — `f2z-kt-core`'s `submit.rs` calls it out as "a key change
+   that changes no key" — but was absent from this list before this rule was
+   written down here; an implementer working from an earlier revision of this
+   document must add it.) One consequence is worth stating because rule 13
+   depends on it: `key_change` cannot be used to rotate `directory_auth_pk`
+   while leaving `identity_pk` numerically unchanged, so it does not offer a
+   lighter-weight path around rule 13.
 8. For `platform_reset`: the reset signature verifies under the pinned reset
    authority key, `effective_at_ms - created_at_ms` is at least the published
    cooldown, and the log MUST NOT publish the entry before `effective_at_ms`.
@@ -497,6 +542,25 @@ Verification rules the log MUST apply, in order, before an entry enters a batch:
     version 1 and both cases MUST be rejected with `ERR_BAD_AUTHORIZATION`
     rather than left to fail obscurely inside a rule that dereferences a
     predecessor that does not exist.
+13. **For `same_key` at `entry_version >= 2`: `directory_auth_pk` MUST equal the
+    previous entry's `directory_auth_pk`.** A `same_key` entry that carries a
+    different one hands off the authority that authorizes *every future entry*
+    for the handle, on a single signature, by the very key whose authority is
+    being replaced — with `identity_pk` untouched, no `RotationProof`, and no
+    involvement of the key that ADR 0014 requires for every other change to what
+    a peer trusts. To every rule above this one, that entry is the most routine
+    kind there is. The log MUST reject it with `ERR_BAD_AUTHORIZATION` (§9.5)
+    rather than publish it as a routine update. This rule constrains
+    `directory_auth_pk` only, symmetrically with rule 6.
+
+    Resolving [#619](https://github.com/free2z/zuu/issues/619) — see the
+    correction below — settles this the same way rule 6 was settled for
+    `identity_pk`, and for the same reason: `directory_auth_pk` is not a
+    routine-update key that happens to also gate identity changes, it is *the*
+    key that decides who writes next, and §4.4's blast-radius design already
+    puts every operation that changes what a peer trusts behind `identity_pk`.
+    A directory-write handoff is such an operation even though it leaves
+    `identity_pk` itself unchanged.
 
 **Rule 11 runs last, and the order is deliberate rather than a numbering
 accident.** §4.5's checks are the most expensive in the list — two signature
@@ -551,6 +615,61 @@ this paragraph be restated without its scope.
 > Rule 6 is deliberately narrow. Whether a `same_key` entry may rotate
 > `directory_auth_pk` is **not** stated by this document in either direction, and
 > the new rule does not settle it.
+
+> **Correction (2026-08-31) — the gap named directly above is closed: rule 13
+> states it.** A `same_key` entry MUST NOT change `directory_auth_pk`,
+> symmetrically with rule 6's `identity_pk` constraint. The two readings the
+> silence admitted were not equally bad: allowing the rotation lets whoever
+> holds the current `directory_auth_pk` transfer directory-write authority for
+> the handle to a key of their choosing, on one signature, with `identity_pk`
+> never involved — and to a verifier applying every rule stated before this one,
+> that entry is indistinguishable from the most routine update there is.
+> Forbidding it costs nothing rule 6 did not already cost: `directory_auth_pk`
+> was never claimed to be a routine-update key independent of who controls
+> `identity_pk`: it is the key that decides who writes next, and letting it
+> reassign itself on its own signature is a bigger unstated capability than the
+> `identity_pk` gap rule 6 closed, not a smaller one.
+>
+> **This forecloses a use this document never granted, so nothing already
+> promised is lost.** The `same_key` case's *name*, and ADR 0014's case 1 — "the
+> identity key is unchanged and available" — already described a narrow,
+> routine operation. A directory-write handoff was never that, even before this
+> correction said so.
+>
+> **There is no lighter-weight path, and none is invented here.** Rotating a
+> compromised or lost `directory_auth_pk` now requires a `key_change`, which
+> (rule 7, also extended above) requires `old_identity_pk` and `new_identity_pk`
+> to differ — so recovering from a directory-key compromise alone costs a full
+> identity rotation, exactly the disproportionate cost
+> [#619](https://github.com/free2z/zuu/issues/619) named. **That cost is
+> accepted here, not solved.** A cheaper path — a distinct `EntryKind` for a
+> directory-auth-only rotation, cosigned by `identity_pk` without changing it —
+> is deferred (§12): it is a new wire structure two implementations would have
+> to agree on byte-for-byte, and inventing one to close a documentation issue is
+> exactly the failure mode §4.5's history warns against. The alternative
+> considered and rejected here was to allow the rotation given a countersignature
+> by the current `identity_pk` (a `same_key` entry cosigned by both keys) — which
+> would give a lighter path without the full cost above, at the price of a wire
+> change and a new rule for what counts as a valid countersignature. Rejected
+> for this document as scope creep on a specification defect: it is a real
+> option and an implementer or a future ADR may still take it, but it is not
+> free to add here and the MUST NOT above is the one that requires nothing new.
+>
+> **What a verifier MUST do:** treat a `same_key` entry whose `directory_auth_pk`
+> differs from the previous entry's exactly as rule 6 treats one whose
+> `identity_pk` differs — reject it with `ERR_BAD_AUTHORIZATION` (§9.5) — rather
+> than accept it as a routine update. §9.5's table now names this case
+> explicitly.
+>
+> **A gap between this document and the shipped log, named rather than
+> papered over.** `f2z-kt-core`'s `submit.rs` does not yet check this: its
+> `same_key` branch verifies `auth_signature` against the previous entry's
+> `directory_auth_pk` and never compares that field to the value the new entry
+> publishes, so the takeover this correction forbids is, right now, what the
+> reference implementation accepts. [#837](https://github.com/free2z/zuu/issues/837)
+> tracks the code fix and a negative test vector. Until it lands, running this
+> log leaves a handle's directory-write authority transferable on one signature
+> — this document specifies the rule; it does not enforce it.
 
 > **Correction (2026-08-24) — nothing in this section authorizes a handle's
 > *first* entry, and the section read as though the table above were
@@ -2274,7 +2393,7 @@ is never reused** — [`WIRE.md` §10](./WIRE.md#10-error-codes)'s rule, for
 | 1 | `ERR_MALFORMED` | Decode failure, re-encode mismatch, oversize body. |
 | 2 | `ERR_UNSUPPORTED_VERSION` | Unknown `kt_version`, or a `log_id` this server does not serve. |
 | 3 | `ERR_BAD_SIGNATURE` | An `auth_signature`, `RotationProof`, reset, cosignature, **authority signature or `AssertionBinding` signature** (§4.5 A13, A16) failed verification. |
-| 4 | `ERR_BAD_AUTHORIZATION` | Structurally valid but §4.4's rules unmet — e.g. a key change with one signature (rule 7), a `same_key` entry that changes `identity_pk` (rule 6), or any of §4.5's rules other than the four §4.5.6 maps elsewhere (rule 11). |
+| 4 | `ERR_BAD_AUTHORIZATION` | Structurally valid but §4.4's rules unmet — e.g. a key change with one signature (rule 7), a key change naming the same `identity_pk` on both sides (rule 7), a `same_key` entry that changes `identity_pk` (rule 6), a `same_key` entry that changes `directory_auth_pk` (rule 13), or any of §4.5's rules other than the four §4.5.6 maps elsewhere (rule 11). |
 | 5 | `ERR_VERSION_CONFLICT` | `entry_version` not `previous + 1`, `prev_entry_hash` mismatch, or a second entry for this handle in this epoch (§4.3). |
 | 6 | `ERR_COOLDOWN` | A `platform_reset` whose `effective_at_ms` has not arrived. |
 | 7 | `ERR_EPOCH_UNAVAILABLE` | The requested epoch or audit range is outside the served horizon (§9.3). |
@@ -2486,6 +2605,18 @@ Deliberately, and listed rather than invented.
   refuses a clock-shaped `account_epoch`. What is left is not a specification
   gap but an issuer that must hold a durable per-account counter, which A18 can
   bound but cannot verify (§4.5.4).
+- **A lighter-weight rotation for a compromised `directory_auth_pk` alone.**
+  §4.4 rule 13 (closed 2026-08-31,
+  [#619](https://github.com/free2z/zuu/issues/619)) forbids a `same_key` entry
+  from changing `directory_auth_pk`, so recovering from a directory-key
+  compromise — with `identity_pk` intact and undisturbed — currently costs a
+  full `key_change`, which rule 7 requires to actually change `identity_pk` too.
+  A cheaper path (a distinct `EntryKind`, or a `same_key` entry cosigned by the
+  current `identity_pk` without changing it) is a defensible design and is
+  deliberately not specified here: it is a new wire structure, not a reading of
+  the existing one, and belongs in an ADR and a two-implementation agreement
+  the way §4.5's `HandleAssertion` was, not invented to close a documentation
+  defect. Named, not designed.
 - **The authority key's own distribution and rotation.** §4.6 publishes the
   authority set in a document signed by the log, which is not a trust root —
   exactly the caveat §9.1 states for `reset_authority_pk`, and the same
@@ -2506,11 +2637,21 @@ Deliberately, and listed rather than invented.
   [ADR 0014](./decisions/0014-directory-key-rotation.md) requires the key to be
   pinned in clients and does not say how; nothing anywhere says what happens when
   that key must itself be replaced. A gap, named.
-- **MLS `KeyPackage` publication and exhaustion** — deferred out of
-  [`WIRE.md` §12.5](./WIRE.md#125-the-full-handshake-end-to-end) as directory
-  design, and still not answered. A `KeyPackage` is consumed on use and
-  republished constantly, which is the wrong lifecycle for an append-only log
-  entry, and last-resort key package behaviour is a separate decision.
+- **~~MLS `KeyPackage` publication and exhaustion~~ — closed 2026-08-26**, and
+  not by this document. It was deferred out of
+  [`WIRE.md` §12.5](./WIRE.md#125-the-full-handshake-end-to-end) as *"directory
+  design"*, and the answer turned out to be that it is not directory design at
+  all: a key package is consumed on use, an append-only log cannot express
+  consumption, and the resolution is to keep it out of the tree and put the pool
+  at the relay — addressed by the `contact_addr` §4.1 already publishes, and
+  authenticated against the entry §4.1 already carries.
+  [`WIRE.md` §12.6](./WIRE.md#126-keypackage-publication--where-a-consumable-key-lives)
+  specifies it, [ADR 0015](./decisions/0015-key-package-publication.md) records
+  the decision and its rejected alternatives, and the last-resort trade — a
+  reusable init key, bought for availability — is stated in
+  [`THREAT-MODEL.md` §4.12](./THREAT-MODEL.md#412-a-last-resort-key-package-is-a-reused-init-key).
+  §4.1's structure is **unchanged**; what a `DirectoryEntry` publishes is what it
+  published before.
 - **Handle rename and transfer** —
   [§13-K](./ARCHITECTURE.md#13-open-questions), unchanged.
 - **Where `FaultReport`s are published and who acts on one.** The format is

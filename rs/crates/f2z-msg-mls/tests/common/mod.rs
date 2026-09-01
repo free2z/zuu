@@ -34,9 +34,9 @@
     dead_code
 )]
 
-use f2z_codec::types::PublicKey;
-use f2z_kt_core::entry::DeviceCredential;
-use f2z_kt_core::types::{Handle, KemPublicKey};
+use f2z_codec::types::{Digest, PublicKey, ShortBytes};
+use f2z_kt_core::entry::{DeviceCredential, DeviceRevocation, DirectoryEntryTBS, EntryKind};
+use f2z_kt_core::types::{Handle, KemPublicKey, LogId};
 use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
 use f2z_msg_mls::{DeviceSigner, MlsEngine};
 use f2z_msg_store::MemoryBackend;
@@ -95,4 +95,42 @@ pub fn device(handle: &str, account_seed: u8, device_seed: u8) -> MlsEngine<Memo
         NOW + 1_000_000,
     );
     MlsEngine::new(MemoryBackend::new(), signer, credential, NOW).unwrap()
+}
+
+/// A `DirectoryEntryTBS` that publishes exactly these credentials.
+///
+/// The tests build one directly rather than through a log, because what they
+/// are about is `f2z-msg-mls`'s obligation — check the fetched package against
+/// whatever the log proved — and not the log's. The plugin's two-process
+/// harness runs the same check against a real `f2z-kt` entry.
+pub fn directory_entry(credentials: &[DeviceCredential]) -> DirectoryEntryTBS {
+    let first = credentials.first().expect("at least one credential");
+    DirectoryEntryTBS {
+        label: ShortBytes::new(f2z_kt_core::labels::LABEL_ENTRY.to_vec()).unwrap(),
+        kt_version: 1,
+        log_id: LogId::new([0x11; 32]),
+        handle: first.credential.handle.clone(),
+        entry_version: 1,
+        kind: EntryKind::SameKey,
+        identity_pk: first.credential.identity_pk,
+        directory_auth_pk: PublicKey::new([0x22; 32]),
+        devices: credentials.to_vec().into(),
+        revocations: Vec::new().into(),
+        contact_endpoints: Vec::new().into(),
+        prev_entry_hash: Digest::new([0; 32]),
+        no_reset: 0,
+        created_at_ms: NOW,
+    }
+}
+
+/// The same entry, with one device revoked.
+pub fn with_revocation(entry: &DirectoryEntryTBS, device_pk: PublicKey) -> DirectoryEntryTBS {
+    let mut entry = entry.clone();
+    entry.revocations = vec![DeviceRevocation {
+        device_pk,
+        revoked_at_ms: NOW,
+        reason: ShortBytes::new(b"lost".to_vec()).unwrap(),
+    }]
+    .into();
+    entry
 }

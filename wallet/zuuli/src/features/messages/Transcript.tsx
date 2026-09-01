@@ -156,11 +156,18 @@ export function Transcript({ conversation }: { conversation: Conversation }) {
         <Callout
           tone="destructive"
           icon={ShieldAlert}
-          title="Someone else took the write capability for this conversation"
+          title="This conversation's send queue is compromised"
         >
-          A relay operator bound the send side of a queue this conversation
-          depends on. Stop using this conversation and re-establish contact
-          through a different relay.
+          The send side was already bound to another or unknown key. The result
+          does not identify who bound it.
+          {conversation.compromiseRelayUrl !== null && (
+            <>
+              {" "}The relay that returned the refusal was{" "}
+              {conversation.compromiseRelayUrl}.
+            </>
+          )}{" "}
+          Stop using this conversation and re-establish contact through a
+          different relay.
         </Callout>
       )}
 

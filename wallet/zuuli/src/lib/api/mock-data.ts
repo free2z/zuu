@@ -394,7 +394,8 @@ export const mockLivestreams: Livestream[] = [
       "PPV: Deep dive — writing a Halo2 circuit from scratch without copying anybody's gadgets",
     kind: "ppv",
     live: true,
-    participants: 38,
+    // Count hydration can be unavailable independently of live status.
+    participants: null,
     price_tuzis: 250,
     thumbnail: null,
     started_at: new Date(Date.now() - 12 * 60000).toISOString(),
@@ -500,6 +501,14 @@ const featuredArticles: Article[] = [
       "![Protocol-relative tracker](//protocol.media.test/pixel.png)",
       "",
       "![Encoded tracker](https://%65ncoded.media.test/%70ixel.png)",
+      "",
+      "![Canonical first-party](https://free2z.cash/uploadz/canonical.svg)",
+      "",
+      "![Subdomain first-party](https://media.free2z.cash/uploadz/subdomain.svg)",
+      "",
+      "![Unsafe first-party redirect](https://free2z.cash/uploadz/redirect-out)",
+      "",
+      "![First-party lookalike](https://free2z.cash.evil.example/pixel.svg)",
       "",
       "::embed[https://video.media.test/clip.webm]",
       "",
@@ -952,7 +961,16 @@ export function mockCreatorDetail(username: string): CreatorDetail {
     // hint, while the independently paginated catalog owns its exact count.
     zpages: base?.zpages ?? pages,
     total: (seed % 900) + 42,
-    p2paddr: `u1mock${uname}zcashaddressplaceholderxxxxxxxxxxxxxxxxxxxxxxxx`,
+    p2paddr:
+      uname === "transparent_creator"
+        ? "t1mocktransparentcreatoraddressxxxxxxxx"
+        : uname === "transparent_unified_creator"
+          // Encoded by the native validator regression from a P2PKH receiver
+          // plus an unknown receiver: valid Unified Address, no memo receiver.
+          ? "u1nuyhyzu03pj30mmnehelkll26s0cxp8etqv2x29zfpjj6rfp4gdmm8wfas5hutkxprlerlv0d4yv87eqrh5nahdlaz2vj5tlxy676p7gzkpen6fy97vqk2kujr"
+        : uname === "testnet_creator"
+          ? "tmocktestnetcreatoraddressxxxxxxxxxxx"
+          : `u1mock${uname}zcashaddressplaceholderxxxxxxxxxxxxxxxxxxxxxxxx`,
   };
 }
 

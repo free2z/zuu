@@ -10,6 +10,7 @@ import { useAsync } from "@/hooks/useAsync";
 import type { Livestream, StreamKind } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { coverTone } from "@/lib/cover";
+import { participantCountCopy } from "@/lib/participant-count";
 import { SectionHeader } from "./parts";
 
 const KIND_META: Record<
@@ -24,10 +25,11 @@ const KIND_META: Record<
 
 function StreamCard({ stream }: { stream: Livestream }) {
   const kind = KIND_META[stream.kind] ?? KIND_META.broadcast;
+  const participants = participantCountCopy(stream.participants);
   return (
     <Link
       to={`/live/${stream.username}`}
-      aria-label={`${stream.title} — live now, ${stream.participants} watching`}
+      aria-label={`${stream.title} — live now, ${participants.watching}`}
       className="group flex w-[280px] shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-all hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-auto"
     >
       <div
@@ -47,9 +49,7 @@ function StreamCard({ stream }: { stream: Livestream }) {
         </div>
         <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-xs font-medium text-white backdrop-blur">
           <Users className="h-3.5 w-3.5" aria-hidden />
-          <span className="tabular-nums">
-            {stream.participants.toLocaleString()}
-          </span>
+          <span className="tabular-nums">{participants.value}</span>
         </div>
         <div className="absolute inset-0 grid place-items-center opacity-70 transition-opacity group-hover:opacity-100">
           <RadioTower className="h-8 w-8 text-white/90" aria-hidden />

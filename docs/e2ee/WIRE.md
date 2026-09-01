@@ -60,10 +60,15 @@ Two places below depend on that design and say so at the point of use:
 
 - §12.2 — a contact endpoint is a field of a directory entry. Its structure is
   now [`KT.md` §4.1](./KT.md#41-structure).
-- §12.5 — MLS `KeyPackage` publication, last-resort key packages and their
-  exhaustion behaviour are directory design, not relay design, and are **still
-  open**: `KT.md` deliberately does not answer them
-  ([`KT.md` §12](./KT.md#12-what-this-document-leaves-open)).
+- **~~§12.5 — MLS `KeyPackage` publication, last-resort key packages and their
+  exhaustion behaviour.~~ Closed 2026-08-26 by §12.6, in this document.** Kept
+  here rather than deleted so a reader arriving from an older citation finds the
+  answer. This bullet called them "directory design, not relay design", and that
+  was the mistake: a key package is consumed on use, an append-only log cannot
+  express consumption, and the place that can is the relay — at the
+  `contact_addr` a `ContactEndpoint` already publishes.
+  [ADR 0015](./decisions/0015-key-package-publication.md) records the decision;
+  `KT.md` §4.1 carries a dated note saying its structure is unchanged.
 
 [ADR 0014](./decisions/0014-directory-key-rotation.md) settles directory *key
 rotation* only, and is written so that it can be implemented on whatever log
@@ -220,6 +225,14 @@ like an attack and behaves like one.
 5. Close. Either side may close at any time; an in-flight command whose response
    was not received has **unknown** status and MUST be retried under the retry
    rules in §8.3 and §7.3.
+
+`BIND_SEND` needs durable state because it is once-only. A new or replacement
+advert starts `Fresh`; before sending its first bind, the client MUST durably
+write `OutcomeUnknown`. A successful bind durably becomes `Confirmed`. A
+client that cannot durably establish freshness MUST interpret the state
+conservatively as `OutcomeUnknown`. Thus a failed preflight write sends no
+bind, while a crash after the relay applied one cannot turn an honest retry
+into theft evidence.
 
 A relay MUST cap the time between TCP accept and a valid `HELLO`
 (`handshake_timeout_ms`, default 10 000) and close on expiry.
@@ -702,7 +715,7 @@ is bounded by what the commands do:
 | `READ` | No-op; reads do not mutate. Reveals nothing the operator does not hold. |
 | `DELETE_QUEUE` | No-op after the first. |
 | `CREATE_QUEUE` | A second queue, at the operator's own expense, with addresses only the operator learns. |
-| `BIND_SEND` | No-op after the first (§7.3). |
+| `BIND_SEND` | Once-only: a replay after the first returns `ERR_ALREADY_BOUND`. A client retrying a durably unknown outcome handles that response internally under §7.3. |
 
 So the residual is "duplicate or no-op, at the operator's expense, against an
 adversary who could already refuse service." That is acceptable. It is **not**
@@ -731,6 +744,10 @@ to error codes.
 | `0x0021` | `APPEND` | send key | `send_addr` |
 | `0x0030` | `CREATE_CONTACT_QUEUE` | recv key | zeros |
 | `0x0031` | `CONTACT_APPEND` | none (PoW) | — |
+| `0x0032` | `PUBLISH_KEY_PACKAGES` | recv key | `recv_addr` |
+| `0x0033` | `CLAIM_KEY_PACKAGE` | none (PoW) | — |
+| `0x0034` | `GET_KEY_PACKAGE_POLICY` | none | — |
+| `0x0035` | `GET_CLAIM_KEY_PACKAGE_CHALLENGE` | none | — |
 
 The last two columns are normative. A command listed as signed that arrives
 without `SignedAuth` is non-fatal `ERR_BAD_SIGNATURE`; a command listed as
@@ -795,8 +812,9 @@ struct {
 For `clock` and `queue_create`, `scope` MUST be empty. For `contact_append`, it
 MUST be exactly the target `contact_addr`. A purpose byte not defined by the
 negotiated protocol version is fatal `ERR_MALFORMED`; a later version can assign
-new values only after negotiating that version. A challenge is spendable only by
-a command matching its purpose and, for `contact_append`, its scope.
+new values only after negotiating that version. In particular, value 3 remains
+undefined in v1. Key-package claims use the additive, command-bound challenge
+exchange in §12.6 rather than extending this frozen body.
 
 Three jobs, and each is a real reason for the command to exist:
 
@@ -1041,7 +1059,12 @@ because §9 and §13 both depend on the client's picture of policy being current
 ### 6.5 Contact-queue commands
 
 `CREATE_CONTACT_QUEUE` (`0x0030`) and `CONTACT_APPEND` (`0x0031`) are specified
-in §12, where the design they serve is explained.
+in §12.2, and `PUBLISH_KEY_PACKAGES` (`0x0032`) and `CLAIM_KEY_PACKAGE`
+(`0x0033`) in §12.6 — in each case where the design they serve is explained.
+
+All four hang off the same pair of addresses a single `CREATE_CONTACT_QUEUE`
+produces, and that is the whole of §12.6's addressing argument: the relay gains
+no identifier it did not already hold.
 
 ---
 
@@ -1114,6 +1137,22 @@ signature by that key, forever.
 "reset by the recv key". A queue whose send side is bound to the wrong key is
 dead and must be replaced by a new queue (§7.5).
 
+There is one narrow retry rule for a durable `OutcomeUnknown`: retry
+`BIND_SEND` with the same key. Success confirms the binding directly. If the
+relay returns `ERR_ALREADY_BOUND`, the client MUST consume that response
+internally and issue a same-key `APPEND`; a successful `APPEND` confirms the
+binding under the protocol's authorization semantics and the client durably
+records `Confirmed`. If that `APPEND` is unavailable or its outcome is unknown,
+the bind remains `OutcomeUnknown`; the client neither emits a public protocol
+error nor accuses the relay of theft. This exception is reconciliation of an
+operation that may already have succeeded, not permission for an ordinary
+second bind.
+
+If the same-key `APPEND` returns status 0 but the client's auxiliary
+`Confirmed` store write fails, §8.4 still makes that message `accepted`. The
+bind remains durably `OutcomeUnknown`, and a later send repeats the safe
+reconciliation; local bookkeeping MUST NOT rewrite relay acceptance as failure.
+
 The alternative — letting the recv-side key rebind — was rejected because it
 turns the recv key into a control over the send side, and the recv key is the
 one that lives on the recipient's device with the ability to drain the queue. We
@@ -1122,36 +1161,47 @@ to recover from a failure that has a clean, cheap alternative: make a new queue.
 
 ### 7.4 The consequence, said plainly
 
-**A relay operator who reads `send_addr` out of its own database and calls
-`BIND_SEND` first steals the write capability.** The legitimate sender then gets
-`ERR_ALREADY_BOUND`, and the operator can append whatever it likes to the
-recipient's queue.
+**Anyone who learns `send_addr` and calls `BIND_SEND` first takes the write
+capability.** A malicious relay operator can do that by reading its own database,
+but so can any holder of a leaked, observed, or decommissioned address. The
+legitimate sender then gets `ERR_ALREADY_BOUND`, and the winning key can append
+whatever it likes to the recipient's queue.
 
 The client rule is therefore: **`ERR_ALREADY_BOUND` on a first bind attempt for
 an address that arrived in a fresh `queue_advert` is a loud, non-dismissible
 failure.** Not a retry, not a warning toast, not a log line. The conversation is
 marked as compromised at the transport layer, the queue is abandoned, and the
-user is told that the relay it names behaved incorrectly.
+user is shown the relay that returned the result. The observable fact is only
+that the fresh address was already bound to another or unknown key; the result
+does not identify who performed that bind.
+
+The durable `OutcomeUnknown` reconciliation in §7.3 is deliberately excluded:
+its `ERR_ALREADY_BOUND` is ambiguous rather than theft evidence and is never
+exposed through the public error mapper. Any ordinary later bind remains a
+client protocol defect.
 
 **This does not prevent the theft of the write capability. It makes it noisy.**
-The operator gets the capability; what it does not get is silence. That is the
-entire property, and it should be read as exactly that much and no more:
+The winning key holder gets the capability; what it does not get is silence.
+That is the entire property, and it should be read as exactly that much and no
+more:
 
-- The operator cannot **read** the queue — `send_addr` authorizes `APPEND` only,
+- The holder cannot **read** the queue — `send_addr` authorizes `APPEND` only,
   and the recv key is not derivable from it
   ([`ARCHITECTURE.md` §6.2](./ARCHITECTURE.md#62-queues)).
-- Anything the operator appends fails MLS authentication at the recipient, so it
+- Anything the holder appends fails MLS authentication at the recipient, so it
   is garbage, not forgery
   ([`THREAT-MODEL.md` §3.3](./THREAT-MODEL.md#33-compromised-relay-operator-third-party-or-ours)).
-- What the operator gains is the ability to **deny** the legitimate sender its
+- What the holder gains is the ability to **deny** the legitimate sender its
   queue, and to fill the recipient's quota. Both are denial of service, which the
   operator already had by simply refusing to serve.
-- What the design buys is that the denial is **attributable to a specific relay
-  at a specific moment**, rather than presenting as flaky delivery.
+- What the design buys is that the refusal is **attributable to a specific relay
+  at a specific moment**, rather than presenting as flaky delivery. It does not
+  attribute the winning key to that relay.
 
-An operator willing to be caught can do this. Nothing here stops it. The relevant
-comparison is not "secure versus insecure" but "detected versus undetected", and
-the same comparison governs
+A malicious relay operator is one possible winning holder and can do this
+without being prevented. A holder who learned the address elsewhere can do the
+same. The relevant comparison is not "secure versus insecure" but "detected
+versus undetected", and the same comparison governs
 [`THREAT-MODEL.md` §4.5](./THREAT-MODEL.md#45-server-side-deletion-is-auditable-not-verifiable).
 
 A partial narrowing that was considered and **not** adopted in v1: requiring the
@@ -1169,6 +1219,11 @@ than rediscovered later.
 Queue rotation is: **create a new queue, advertise it in-band, delete the old
 one.** There is no `ROTATE` command and there should not be one.
 
+An authenticated replay of the same relay and send-address bytes is idempotent:
+it preserves the existing bind state and any active compromise. Only a genuinely
+distinct replacement address enters `Fresh` and abandons the old queue's active
+transport state; the historical alarm from §7.4 remains non-dismissible.
+
 ```
 1. Recipient: CREATE_QUEUE           → (recv_addr', send_addr')
 2. Recipient: queue_advert{ send_addr', replaces: [send_addr] }   (inside MLS)
@@ -1177,30 +1232,25 @@ one.** There is no `ROTATE` command and there should not be one.
 5. Recipient: drains recv_addr, then DELETE_QUEUE on recv_addr
 ```
 
-The schedule is the `free2z/queue/v1` exporter of
-[`ARCHITECTURE.md` §5.4](./ARCHITECTURE.md#54-exporter-derived-application-secrets),
-with context `peer_leaf_index`, so both sides know a rotation is due at the same
-moment without negotiating it.
+Queue capability signing keys are endpoint-owned and independently generated or
+derived; they are not shared MLS exporter outputs. The authenticated advert
+carries the relay, address, and rotation intent, never a private recv or send
+capability key. On a genuinely distinct advert the sender MUST install a fresh
+CSPRNG signing seed before binding; an identical authenticated replay preserves
+the existing seed and state.
 
-**A narrowing of §5.4 that must be stated.** `ARCHITECTURE.md` §5.4's table says
-the queue exporter *"derives the next queue addresses without a round trip."*
-Under §7.1 that is no longer accurate, and the docs should not be read as though
-it were. What the exporter derives is the **rotation schedule and the next queue
-signing keys**:
-
-```
-rot = MLS-Exporter("free2z/queue/v1", peer_leaf_index || rotation_counter, 64)
-      → (next_recv_queue_key_seed, next_send_queue_key_seed)
-```
-
-The **addresses still come from the relay**, and the new `send_addr` still has to
-reach the peer in an advert. So rotation costs one relay round trip and one
-in-band message that the pair was not otherwise sending. That is the price of
-refusing client-chosen addresses (§7.1), it is small — one message per rotation
-period, against a conversation that is exchanging messages anyway — and it is
-recorded here rather than left as a contradiction between two documents. The
-tracking note is in
-[`ARCHITECTURE.md` §5.4](./ARCHITECTURE.md#54-exporter-derived-application-secrets).
+`free2z/queue/v1` is reserved for a future synchronized rotation schedule. No
+durable counter or advert field synchronizes such an exporter schedule in v1,
+and the shipping path does not invoke that exporter, so this document does not
+claim such a schedule is active. The shipping engine can consume a distinct
+authenticated advert and safely replace its outbound queue, but it does not
+automate this section's full create/advertise/`valid_from_epoch`/overlap/drain
+flow. The address still comes
+from the relay and the new `send_addr` still has to reach the peer in an advert,
+so a complete rotation costs one relay round trip and one in-band message. This
+deliberate architecture correction is recorded in
+[`ARCHITECTURE.md` §5.4](./ARCHITECTURE.md#54-exporter-derived-application-secrets)
+and [ADR 0009](./decisions/0009-queue-addressing-and-binding.md).
 
 Overlap: the old queue MUST remain readable until the recipient has drained it.
 The sender switches at `valid_from_epoch`; the recipient deletes only after the
@@ -1549,6 +1599,13 @@ text, not markup. Each byte MUST be printable ASCII (`0x20..0x7e`); the empty
 value remains valid. A renderer MUST display the bytes as text and MUST NOT
 interpret HTML, Markdown, terminal escapes, or any other embedded language.
 
+> **Compatibility correction (2026-08-30).** `Capabilities` is a frozen v1
+> structure: §3.5 forbids adding fields to it. Key-package availability, pool
+> size and claim PoW policy travel in the additive
+> `GET_KEY_PACKAGE_POLICY` command of §12.6. An old v1 peer therefore continues
+> to encode and verify this document byte-for-byte; it receives non-fatal
+> `ERR_UNKNOWN_COMMAND` only if it is explicitly asked for the new feature.
+
 > **Correction (2026-08-24) — the two anti-replay fields were published as
 > independent values, but they are not.** Section 5.5 derives the required
 > relation and retention origin. A relay MUST publish
@@ -1780,25 +1837,33 @@ Alice has never spoken to Bob. She knows `@bob`.
                         (ARCHITECTURE.md §9.2, §9.3)
 
 2.  Alice (local):      build the MLS group, produce Welcome addressed to Bob's
-                        KeyPackage; pad to a bucket in padding_sizes
+                        KeyPackage; CREATE_QUEUE for Alice; sign
+                        H("free2z/msg/v1/first-routing-advert",
+                          H("free2z/msg/v1/first-routing-fields",
+                            conversation_id, complete queue_advert_A),
+                          H("free2z/msg/v1/first-routing-welcome",
+                            exact Welcome bytes)) with Alice's
+                        active DSK; pad to a bucket in padding_sizes
 
 3.  Alice → relay:      HELLO; verify relay_proof; compare relay_id against the
                         value in Bob's directory entry
 4.  Alice → relay:      GET_CHALLENGE(contact_append, scope = contact_addr)
 5.  Alice (local):      compute PowStamp over the challenge
-6.  Alice → relay:      CONTACT_APPEND{contact_addr, payload, stamp}   → empty OK
+6.  Alice → relay:      CONTACT_APPEND{contact_addr,
+                          Welcome + queue_advert_A + DSK signature, stamp}
+                        → empty OK
 
 7.  Bob   → relay:      SUBSCRIBE / READ on his contact queue's recv_addr (signed)
 8.  Bob   (local):      durable write, then ACK  ← the §8.4 MUST
-9.  Bob   (local):      process Welcome; join the group; show Alice as a contact
+9.  Bob   (local):      resolve Alice; require the advert signature to verify
+                        under a non-revoked device in Alice's verified entry;
+                        process Welcome; join the group; show Alice as a contact
                         request in the UI, not as a message
 
 10. Bob   → relay:      CREATE_QUEUE  → (recv_addr_B, send_addr_B)
 11. Bob   → Alice:      queue_advert{ send_addr_B, ... }        INSIDE the MLS group
 12. Alice → relay:      BIND_SEND on send_addr_B with a fresh key
-13. Alice → relay:      CREATE_QUEUE  → (recv_addr_A, send_addr_A)
-14. Alice → Bob:        queue_advert{ send_addr_A, ... }        INSIDE the MLS group
-15. Bob   → relay:      BIND_SEND on send_addr_A with a fresh key
+13. Bob   → relay:      BIND_SEND on signed send_addr_A with a fresh key
 
     From here the contact queue plays no further part for this pair.
 ```
@@ -1811,6 +1876,14 @@ Three properties of this flow are worth stating explicitly:
   address associated with Bob in a public directory. It does not learn who: the
   append is unsigned and carries no client identity. It does see the source IP,
   as it does for everything ([`THREAT-MODEL.md` §3.3](./THREAT-MODEL.md#33-compromised-relay-operator-third-party-or-ours)).
+- **The bootstrap advert beside the `Welcome` is not trusted because it arrived
+  through `CONTACT_APPEND`.** Its signature covers `relay_url`, `relay_id`, and
+  `send_addr` together with the conversation id **and the exact `Welcome`
+  bytes**, and Bob verifies the signing DSK against Alice's witnessed directory
+  entry before joining or connecting. Changing a relay id is therefore a
+  signature failure, not a redirect; retaining Alice's genuine advert while
+  substituting an attacker-created `Welcome` is likewise a signature failure,
+  not a group Bob can label as Alice's.
 - **The directory lookup at step 1 reveals interest in `@bob`** — the accepted,
   documented limit of
   [`THREAT-MODEL.md` §4.1](./THREAT-MODEL.md#41-directory-lookup-reveals-interest-in-a-handle).
@@ -1823,6 +1896,351 @@ unexpired. KeyPackage publication, last-resort key packages, exhaustion behaviou
 and rate limiting on fetches are **directory design**, deferred with `KT.md` and
 ADR 0013 (§1.2). This document does not specify them and must not be read as
 having done so.
+
+### 12.6 `KeyPackage` publication — where a consumable key lives
+
+Deferred out of §12.5 as "directory design" and left open by `KT.md` §1.2 and
+§12. **Closed here, 2026-08-26, and not by putting key packages in the
+directory.** See [ADR 0015](./decisions/0015-key-package-publication.md) for the
+decision record and the alternatives it rejects.
+
+#### 12.6.1 The tension, stated first
+
+A `KeyPackage` is **consumed on use**: RFC 9420 §10 has a client delete a key
+package's init secret once it has processed a `Welcome` addressed to it, and a
+package used twice means two initiators encrypting to one secret. A
+key-transparency log is **append-only**: `KT.md` §4.2's version chain and §4.3's
+one-entry-per-handle-per-epoch rule exist precisely so that nothing in it is ever
+withdrawn.
+
+An append-only structure cannot express consumption. That is why `KT.md` §4.1
+excluded key packages from a `DirectoryEntry`, and it is still why: the 2026-08-26
+note there affirms the exclusion rather than reversing it.
+
+So the question this section answers is not *"how do we get key packages into the
+directory"* but **"what else already knows how to address a device, and is allowed
+to forget things?"**
+
+#### 12.6.2 The answer: the relay, at the address the directory already publishes
+
+A device's key packages live at the **relay that hosts its contact queue**,
+addressed by the **same `contact_addr` its directory entry already publishes**
+(§12.2, `KT.md` §4.1's `ContactEndpoint`).
+
+Nothing new is published, and the relay learns nothing new:
+
+- **Addressing.** ADR 0004 forbids the relay accounts, handles and identity keys,
+  and none is introduced. A `contact_addr` is an opaque 32-byte value the relay
+  itself generated at `CREATE_CONTACT_QUEUE` and has held ever since. The
+  directory does the handle → address binding, covered by the entry's
+  authorization signature (§12.2), exactly as it already does for first contact.
+- **Ownership.** Publication is authorized by the contact queue's **receive-side
+  key**, which the relay registered at creation. The capability that already
+  means *"I own this contact queue"* is the capability that means *"I own this
+  pool."* No new key exists to be stolen, squatted or lost.
+- **Consumption.** A relay is a mutable store. Deleting a claimed package is the
+  thing it was always able to do and the log never was.
+- **No wire change to a frozen structure.** `DirectoryEntry` and the v1
+  `Capabilities` document are untouched. §3.5's additive-command rule is used
+  for feature discovery and claim challenges, so old v1 clients and relays
+  remain interoperable during a rolling deploy.
+
+##### Additive policy and claim challenge — `0x0034`, `0x0035`
+
+Key-package support is discovered without extending `Capabilities`:
+
+```
+/* GET_KEY_PACKAGE_POLICY (0x0034): empty request */
+struct {
+    uint8    enabled;        /* 0 or 1 */
+    uint32   max_pool_size;  /* zero exactly when disabled; default 64 */
+    PowParams claim_pow;     /* required exactly when enabled */
+} KeyPackagePolicy;
+
+/* GET_CLAIM_KEY_PACKAGE_CHALLENGE (0x0035) */
+struct { opaque contact_addr[32]; } ClaimKeyPackageChallengeRequest;
+/* response: ChallengeResponse from §6.1 */
+```
+
+An enabled policy with a zero pool or no PoW, a disabled policy with a nonzero
+pool or required PoW, and any `enabled` value other than 0 or 1 are malformed.
+The challenge issued by `0x0035` is internally bound to
+`CLAIM_KEY_PACKAGE` and exactly that `contact_addr`; it cannot be spent on
+`CONTACT_APPEND`. Value 3 is deliberately **not** added to v1's existing
+`GET_CHALLENGE` enum. An implementation without §12.6 answers either additive
+command with non-fatal `ERR_UNKNOWN_COMMAND` under §3.5.
+
+#### 12.6.3 `PUBLISH_KEY_PACKAGES` — `0x0032`
+
+Signed by the contact queue's `recv_key`; the transcript address is its
+`recv_addr`. The body therefore names no address: the transcript already does,
+and the relay already holds the `recv_addr → contact_addr` mapping.
+
+```
+struct {
+    opaque key_package<1..2^16-1>;   /* an MlsMessage framing a KeyPackage */
+} KeyPackage;
+
+struct {
+    KeyPackage packages<0..2^24-1>;
+    KeyPackage last_resort<0..2^16-1>;   /* at most one; empty leaves the
+                                            stored one in place */
+} PublishKeyPackagesRequest;
+
+struct {
+    uint32 pool_size;        /* single-use packages held after this publish */
+    uint32 max_pool_size;    /* the relay's cap, restated */
+    uint8  has_last_resort;  /* 0 or 1 */
+} PublishKeyPackagesResponse;
+```
+
+A request whose `last_resort` vector holds more than one element is fatal
+`ERR_MALFORMED`. **The `<1..2^16-1>` bound on a package is the per-package size
+cap** and is deliberately not a `<0..2^24-1>`: a 16-bit prefix cannot describe
+more than 65 535 bytes, and #385 measured a real package under
+`MLS_256_XWING_CHACHA20POLY1305_SHA256_Ed25519` at 2 647 bytes.
+
+A relay MUST:
+
+1. **Append**, not replace. `packages` is added to whatever the pool holds.
+2. **Skip a byte-identical duplicate** — of a stored package, of the stored
+   last-resort package, or of an earlier element of the same batch — rather than
+   refusing the batch. §2.5 makes an in-flight command's status *unknown* when a
+   connection drops, so a publish must be safe to retry for the same reason §8.3
+   makes `ACK` idempotent; a retry that doubled the pool would put one init key
+   behind two `Welcome`s.
+3. **Clamp** to the policy's `max_pool_size` by dropping from the **end** of
+   `packages`, so a client reading `pool_size` back knows which of its packages
+   were kept: the first `max − held` of them.
+4. **Replace** the stored last-resort package when `last_resort` is non-empty
+   **and its bytes are absent from the post-append single-use pool**. If the
+   candidate duplicates a pooled package — including one accepted earlier in
+   this same request — skip the candidate and leave the stored last-resort
+   package unchanged. A relay MUST NOT turn a single-use init key into a
+   reusable fallback. An empty `last_resort` likewise leaves the stored one
+   alone.
+5. Refuse a **standard** queue with `ERR_NOT_PERMITTED`. §12.6 keys a pool by the
+   published address, and a standard queue has none. This is `ERR_NOT_PERMITTED`
+   and not `ERR_NO_ACCESS` for the same reason `BIND_SEND` on a contact address
+   is (§12.2): the caller has already proved it owns this queue, so nothing here
+   is an oracle about an address it does not already hold.
+
+**This response reports state, and the contrast with `APPEND`'s empty response
+(§6.3) is deliberate.** §6.3's rule exists to stop a *sender* escalating into a
+reader. The caller here is the queue's owner, authenticated by the receive-side
+key, and telling it how full its own pool is discloses nothing it is not entitled
+to — it is the only way a device can know when to refill.
+
+#### 12.6.4 `CLAIM_KEY_PACKAGE` — `0x0033`
+
+Unsigned, gated by a proof-of-work stamp, exactly as `CONTACT_APPEND` is and for
+the same reason: the address is public, published in a public directory, and the
+whole internet is entitled to ask.
+
+```
+struct {
+    opaque   contact_addr[32];
+    PowStamp stamp;      /* from GET_CLAIM_KEY_PACKAGE_CHALLENGE for this address */
+} ClaimKeyPackageRequest;
+
+struct {
+    KeyPackage key_package;
+    uint8      last_resort;   /* 1 when the pool was empty */
+} ClaimKeyPackageResponse;
+```
+
+A relay MUST:
+
+1. **Demand the stamp before consulting the pool.** A claim that answered "there
+   is nothing here" cheaply and "here you are" expensively would be a free
+   existence oracle over the one part of the 32-byte address space an attacker
+   can enumerate — the published one.
+2. **Serve the oldest single-use package first, and delete it in the same
+   transaction as the response.** Every package carries an MLS lifetime, so the
+   one closest to expiring is the one worth spending; and a package handed out
+   but not durably removed is handed out again after a crash, which is the reuse
+   the pool exists to avoid. A relay publishing `durability_mode: memory` (§11.1)
+   is therefore publishing that its consumption is not durable either.
+3. **Serve the package of last resort, without deleting it, when the pool is
+   empty** — see §12.6.6.
+4. **Answer `ERR_UNAVAILABLE`** when the address does not exist, is not a contact
+   address, or holds neither a pooled package nor one of last resort. One code,
+   by §10's existence-oracle rule and §6.3's send-side collapse. **Exhaustion is
+   a refusal**: not an empty success, and not a crash.
+
+**The response carries no count.** A claimer learns one package and nothing else,
+for the reason `APPEND`'s response is empty: a stranger who could read the pool's
+depth could measure how many people have contacted this device.
+
+The `last_resort` byte is **relay-asserted and unauthenticated**; see §12.6.7 for
+what a client may and may not do with it.
+
+#### 12.6.5 Authentication — mandatory, and structural
+
+**A fetched key package MUST be verified against the `DirectoryEntry` the
+key-transparency lookup proved, before it is used for anything.** A client that
+skips this has reintroduced [#133](https://github.com/free2z/zuu/issues/133) one
+level down: the relay would choose whose init key the `Welcome` is encrypted to,
+and `ARCHITECTURE.md` §9.1's sentence applies unchanged — *encrypting perfectly
+to the wrong key is not security*.
+
+The check is possible because a `KeyPackage` carries the device's
+`DeviceCredential` as its MLS `Credential` (`KT.md` §4.1,
+`ARCHITECTURE.md` §4.2), and that credential is signed by the identity key the
+directory publishes. In full, a client MUST refuse the package unless **all** of
+these hold:
+
+| # | Check |
+|---|---|
+| 1 | RFC 9420's own `KeyPackage` validation: the package signature, the leaf-node signature, the lifetime, the extensions, and `init_key != encryption_key`. |
+| 2 | The ciphersuite is `ARCHITECTURE.md` §5.2's, and only that one. A relay that could choose the suite could downgrade the hybrid PQ. |
+| 3 | The credential parses as a `free2z/device-credential/v1`, not as a bare handle in a `BasicCredential`. |
+| 4 | The credential's signature verifies under the **entry's** `identity_pk` — not under the key inside the credential. |
+| 5 | The credential's `handle` is the entry's `handle`. |
+| 6 | The credential's `device_pk` appears in the entry's `devices`. |
+| 7 | The credential's `device_pk` does **not** appear in the entry's `revocations`. |
+| 8 | The leaf's `signature_key` is the credential's `device_pk` — the identity→device binding of `ARCHITECTURE.md` §4.2. |
+
+Check 4 is the one the section exists for. A relay that invents an identity key,
+issues itself a credential under it and signs a key package with the matching
+device key passes 1, 2, 3 and 8; only the directory's `identity_pk` stops it.
+Checks 6 and 7 are what make a *withdrawn* or *revoked* device unreachable for
+first contact, which a credential-only check cannot see.
+
+The reference implementation makes this structural rather than remembered:
+`f2z_msg_mls::VerifiedKeyPackage` has no constructor but the verifying one, and
+`MlsEngine::add_member` takes that type instead of bytes. That is a suggestion
+about how to build it, not a wire requirement — but the requirement that the
+check happen is normative, and an implementation that leaves it to a comment has
+not met it.
+
+#### 12.6.6 Exhaustion, and the package of last resort
+
+When the pool is empty a relay serves the **package of last resort** — RFC 9420's
+`last_resort` KeyPackage extension — repeatedly, without deleting it.
+
+**This is a real weakening and it is stated rather than buried.** A reusable
+package means a reused init key: two initiators derive their `Welcome` encryption
+from the same secret, and an attacker who later compromises that secret can open
+every `Welcome` ever addressed to it. The full accounting is
+[`THREAT-MODEL.md` §4.12](./THREAT-MODEL.md#412-a-last-resort-key-package-is-a-reused-init-key).
+
+The alternative is worse and is the reason the trade is taken: **without it,
+exhaustion means a device becomes unreachable to anyone new** for as long as it
+is offline, and an attacker willing to pay `max_pool_size` claim stamps can
+put it in that state deliberately. That is §12.4's contact-queue flood with a
+much smaller bill, and it would make first contact denial-of-service cheap.
+
+Two rules bound the cost:
+
+- A device **SHOULD** publish exactly one last-resort package and **SHOULD** give
+  it a lifetime materially shorter than its device credential's. The only
+  mitigation available against a reusable key is that it stops being usable.
+- A device **SHOULD NOT** replace its last-resort package on every top-up. A
+  `Welcome` may already be in flight against the retired one and the sender has
+  no way to learn it was withdrawn.
+
+A device **MAY** publish no last-resort package at all, accepting unreachability
+over reuse. A relay then answers `ERR_UNAVAILABLE` on an empty pool, and a client
+MUST surface that as *"this person cannot be reached right now"* rather than as
+*"this person does not exist"* — the two are the same wire code, by §10's rule,
+and only the client knows the lookup succeeded.
+
+**Refill, and the trap in it.** A device SHOULD top its pool up to a target on
+every `start_engine` and whenever something arrives on its contact queue.
+
+**A device MUST NOT decide when to refill from its own last-recorded count.**
+Most claims never produce a `Welcome` — a stranger may claim and never write —
+so consumption is *invisible* to the owner. A device that trusted its own number
+would sit at "I published 32" while the relay held zero, fall back to its
+reusable package of last resort on every first contact, and never notice.
+
+The way to ask is a **publish with an empty `packages` vector and an empty
+`last_resort`**: it changes nothing and returns the relay's true `pool_size` and
+`has_last_resort`. That is not a special case bolted on — it is why the response
+carries state at all, and it is safe for the reason §12.6.3 gives: the caller is
+the queue's owner, authenticated by the receive-side key.
+
+The numbers (a target, a low-water mark) are policy and are not fixed here; the
+reference client uses 32 and 8 against a cap of 64, and calls both placeholders.
+
+**Offline for a long time.** The pool drains, the last-resort package carries
+first contact at the cost above, and when *that* expires the device is
+unreachable to new contacts until it comes back. Established conversations are
+entirely unaffected at every stage — they use ordinary queues and no key package
+is ever consulted again.
+
+#### 12.6.7 What a client may not conclude from `last_resort`
+
+**Nothing signs the relay's `last_resort` byte, and a client MUST NOT make a
+security decision on it.** A relay holding a full pool can serve the reusable
+package anyway and set the byte either way; the downgrade is undetectable to the
+initiator. `THREAT-MODEL.md` §4.13 states this as a limit.
+
+Two things follow:
+
+- A client that wants to know whether it received a reusable package MUST read
+  RFC 9420's `last_resort` extension out of the package's **own signed
+  extensions**. That the device signed; the byte it did not.
+- A client MUST NOT refuse a last-resort package for being one. Refusing would
+  convert a documented trade into a failure to reach somebody, which is the
+  outcome §12.6.6 exists to avoid.
+
+The byte is still worth carrying: an honest relay uses it to tell a client that
+first contact is about to use a reusable key, and its absence would make the
+condition unmeasurable in aggregate.
+
+The **recipient** is in a better position than the initiator here, and this is
+recorded as available evidence rather than as a required mechanism: a device
+knows its own last-resort init key and sees which key each arriving `Welcome`
+used, and it knows its pool size from its last publish. A last-resort `Welcome`
+arriving while the relay reported a non-empty pool is relay misbehaviour with a
+witness. Nothing in v1 requires a client to check that or defines what it should
+do about it.
+
+#### 12.6.8 Privacy — what this adds, precisely
+
+**It adds one thing beyond `THREAT-MODEL.md` §4.1, and it is small.**
+
+The relay already learns, from `CONTACT_APPEND` alone, that *someone* wrote to
+`contact_addr` — a public address associated with a handle in a public directory
+(§12.5). A claim reveals the same fact about the same address, from the same
+source IP, seconds earlier in the same handshake. It does not reveal who: the
+claim is unsigned and carries no client identity, exactly as the append does not.
+
+What is genuinely new: **a claim is observable even when first contact is
+abandoned.** An initiator who resolves a handle, claims a package and then
+changes their mind has still told the relay that somebody was about to contact
+that device. Under §12.5 as merged, the relay learned nothing until the append.
+The interval is small, the population of claimers and appenders is the same
+population, and it is named here rather than left for a reader to notice.
+
+The directory side is unchanged: the lookup at §12.5 step 1 reveals interest in
+a handle, which is §4.1's accepted limit, and §12.6 does not consult the
+directory a second time.
+
+#### 12.6.9 Anti-abuse
+
+A relay MUST enforce and publish the first and third rows through
+`GET_KEY_PACKAGE_POLICY`; the remaining controls are published by the frozen
+capability document (§11.1):
+
+| Cap | Field | Default | What it stops |
+|---|---|---|---|
+| Pool size | `max_pool_size` | 64 | Unbounded storage from one device. |
+| Package size | the `<1..2^16-1>` prefix | 65 535 B | A large-blob upload behind one stamp. |
+| Proof of work | `claim_pow` | required | Draining a device's pool for free. |
+| Per-source rate | `per_source_limits` | on | Draining it from one host. |
+
+The honest limits of §12.4 apply here unchanged and are not restated, with one
+addition: **a claim consumes, and a `CONTACT_APPEND` does not.** An attacker who
+pays `max_pool_size` claim stamps empties a device's pool and forces every
+subsequent first contact onto its reusable package until it refills — which is
+cheaper than filling its contact queue, because the pool is smaller than
+`contact_max_pending` need be and because the victim's own refill is what has to
+race the attacker. The mitigation is the stamp and nothing else, and §13.3's
+first bullet — anonymous credentials for quota, still unspecified — is the real
+answer here as it is there.
 
 ---
 
@@ -2064,6 +2482,87 @@ document, and are a rendering and verification obligation on the client
 ([`THREAT-MODEL.md` §4.10](./THREAT-MODEL.md#410-the-platform-username-space-contains-homographs-messaging-handles-do-not),
 [`CLIENT-CONTRACT.md` §11.3](./CLIENT-CONTRACT.md#113-the-handle-charset-and-accounts-that-cannot-have-a-handle)).
 
+**Two different operations share the word "no normalization," and conflating
+them is the exact defect this correction closes (#820).** This section states
+one of each kind and they must not be read as the same rule applied twice.
+
+- **Comparison-time matching (this section, and every directory lookup or
+  `DirectoryEntry` comparison downstream of it) never folds anything.** Two
+  handles, or a handle and a lookup key, are equal iff they are byte-identical.
+  There is no case to fold here because a published handle has already been
+  through candidate derivation (next) and is already lowercase; running any
+  fold at comparison time would let two byte-distinct inputs compare equal,
+  which is the one thing this rule exists to prevent.
+- **Candidate derivation (§14.3) runs once, ahead of comparison, turning a
+  platform username into the messaging handle it would become.** It is not
+  "no normalization" at all — it is exactly one normalization step, ASCII case
+  folding, applied in a fixed order relative to the ASCII check, and that order
+  is load-bearing:
+
+  1. **Reject the raw username if it is not ASCII**, checked on the string
+     **as typed, before any folding.** This is not a stylistic ordering choice.
+     Some non-ASCII characters fold *to* ASCII under general Unicode
+     case-folding — the Kelvin sign, U+212A, folds to `k` — so a fold-first
+     implementation could turn a non-ASCII username into a well-formed ASCII
+     handle, exactly the homograph surface this whole section exists to keep
+     out. Checking ASCII-ness first, on the unfolded string, forecloses that
+     regardless of which case-folding function a later implementation reaches
+     for.
+  2. **Fold only ASCII `A`–`Z` to `a`–`z`.** Nothing else is normalized: no
+     Unicode case folding, no NFKC, no confusable mapping. This is why every
+     restatement of the rule in this document set says `ascii_lower`, not
+     `lowercase` — "lowercase" is Unicode-aware by default in most runtimes
+     (JavaScript's `String.prototype.toLowerCase`, Python's `str.lower`), and
+     Unicode-aware case folding is precisely the normalization step 1 already
+     ran to avoid needing. Wherever an older sentence in this document set says
+     `lowercase(username)`, it means `ascii_lower(username)` in this exact
+     sense, never a locale- or Unicode-aware fold.
+  3. **Check the result against `/^[a-z0-9_]{1,30}$/`.**
+
+  This is what ships:
+  [`wallet/plugins/tauri-plugin-f2zmsg/src/handle.rs`](../../wallet/plugins/tauri-plugin-f2zmsg/src/handle.rs)'s
+  `eligibility()` runs these three steps in this order, gates step 2 behind
+  `username.is_ascii()`, and its `#[cfg(test)]` module fixes the Cyrillic-а case
+  as a rejected `non-ascii`, not a folded ASCII string.
+
+**What the regex alone does not say: the empty string.** `{1,30}` requires at
+least one character, but a charset-membership check implemented as "every byte
+of the candidate is in `[a-z0-9_]`" is vacuously true on zero bytes — an
+implementation that checks charset membership and a length *ceiling* without
+also, separately, checking a length *floor* accepts the empty string as a
+"handle" of zero length. The reference implementation closes this with an
+explicit early case rather than by relying on the regex to be applied
+correctly: an empty username is `ineligible`, reason `punctuation` — one fixed,
+if slightly arbitrary, choice among the four `IneligibilityReason` values,
+picked because none of the four means "empty" and the type does not have a
+fifth. **Every restatement of this rule MUST return exactly that pair —
+`eligible: false`, `reason: punctuation` — for the empty string**, because
+nothing about that answer follows from the regex by itself; it has to be
+stated once, here, or two conforming restatements will disagree on it. They
+currently do: [`wallet/zuuli/src/lib/messaging/mock.ts`](../../wallet/zuuli/src/lib/messaging/mock.ts)'s
+`evaluateHandle` treats an empty string the same as no signed-in account
+(`reason: "not-signed-in"`), which this section now states is the wrong
+answer. [#838](https://github.com/free2z/zuu/issues/838) tracks the mock fix;
+this document does not overstate the mock as already conforming.
+
+**A restatement is not proof of agreement, and this document requires one.**
+Three independent restatements of the same three-step rule already exist —
+`handle.rs` (Rust, the shipped backend), `evaluateHandle` (the TypeScript mock),
+and this prose — and prose cannot catch the other two drifting from each other,
+which is exactly how the empty-string disagreement above went unnoticed until
+now. A conforming implementation of this section **MUST** maintain a
+mutation-sensitive test that checks the Rust and TypeScript implementations
+against one shared table of `(input → expected HandleEligibility)` fixtures —
+at minimum: `null`, the empty string, an ASCII-uppercase username, each of
+`.`/`@`/`+`/`-`, a non-ASCII character, the Kelvin sign U+212A specifically
+(because it is the case where fold-then-check and check-then-fold disagree),
+and lengths 30 and 31 — so that an edit to either implementation which drifts
+from the other, or from this table, fails a test rather than shipping unnoticed.
+**This does not exist yet.** [#838](https://github.com/free2z/zuu/issues/838)
+tracks adding it; until it lands, the parity this section specifies is
+maintained by hand, and the empty-string case above is the demonstrated cost of
+that.
+
 ### 14.2 Checked against free2z's real username rules — measured
 
 **This was checked before being written down**, and the answer is that real
@@ -2129,7 +2628,20 @@ Two things follow, and the second is the one that matters most:
 #### Eligibility, measured on production 2026-08-23
 
 Eligibility is evaluated as `lowercase(username) matches /^[a-z0-9_]{1,30}$/`
-(§14.3).
+(§14.3) — read `lowercase` as `ascii_lower` per §14.1.
+
+**These are historical figures from one query, not a live property, and this
+document does not claim they still hold.** Every share below is evidence
+gathered against production on 2026-08-23, under a predicate this repository
+cannot re-run: it required a query against a live database this repository
+does not have access to, at a point in time that has since passed. New
+accounts have registered since, and §14.3's collision groups — found by the
+same query — are expected to be *resolved* by the time the mapping ships,
+which changes the count of eligible accounts without changing this table. Read
+these numbers as what motivated the v1 design decision below, not as a
+guarantee about today's account population; whoever plans the collision-cleanup
+or migration work must re-query production rather than cite this table as
+current.
 
 | Of all existing accounts | Share |
 |---|---:|
@@ -2167,6 +2679,14 @@ for a messaging handle iff:
 ```
 lowercase(username) matches /^[a-z0-9_]{1,30}$/
 ```
+
+**Read `lowercase` here as `ascii_lower`, in the precise sense §14.1 now
+states**: reject a non-ASCII username before folding anything, then fold ASCII
+`A`–`Z` to `a`–`z` and nothing else. This section's `lowercase` was never meant
+to mean general Unicode case-folding — the whole point of §14.1's charset is to
+avoid needing one — but the word alone does not say so, which is the
+terminology #820 corrects. No decision below changes; the two steps described
+here are the one mapping this section has always meant.
 
 The lowercase mapping is included deliberately: because platform uniqueness is
 already enforced case-insensitively, folding case **cannot** introduce a
@@ -2224,6 +2744,23 @@ resolved by hand before the mapping ships.
 > it can be relied on. That constraint and the resolution of the colliding
 > accounts are tracked in the deployment repository; they are backend work and
 > are not specified here.
+
+**Two different claims share the word "eligibility," and this document makes
+only one of them (#820).** "Given this username string, what handle would it
+become, and is it well-formed" is **candidate derivation** — a pure function of
+the string, asking nothing about any account, and it is implemented and safe
+to ship exactly as specified in §14.1:
+`wallet/plugins/tauri-plugin-f2zmsg/src/handle.rs::eligibility`, exposed to the
+client as `check_handle_eligibility` (`CLIENT-CONTRACT.md` §3.2), does this and
+only this — no network call, no account lookup, no ownership claim. "This
+account is the authoritative holder of that handle in the directory" is a
+different claim, and nothing in this document authorizes publishing it yet:
+that requires the corrected census above, resolution of every collision group
+the query already found, and the database-level `UniqueConstraint` becoming
+real, none of which is done. A client MUST NOT read a `true` from
+`check_handle_eligibility` as anything more than "this string could become a
+handle" — it is not a reservation, a claim, or a promise that submitting it
+will succeed, and copy built on top of it must not imply otherwise.
 
 **Accepted product cost, stated plainly.** Existing accounts whose username
 contains `.`, `@`, `+` or `-`, contains any non-ASCII character, or exceeds 30
@@ -2360,8 +2897,13 @@ Deliberately, and listed rather than invented:
   [ADR 0013](./decisions/0013-key-transparency-log.md) (§1.2). Kept in this list
   rather than deleted, so a reader arriving via an old citation finds the answer
   instead of a hole.
-- **MLS `KeyPackage` publication and exhaustion** (§12.5) — directory design, and
-  still open after `KT.md`, which says so explicitly.
+- **~~MLS `KeyPackage` publication and exhaustion~~** — **closed 2026-08-26 by
+  §12.6.** Kept in this list rather than deleted, so a reader arriving via an old
+  citation finds the answer instead of a hole. What is *not* closed and is named
+  in §12.6.9: a claim consumes where a `CONTACT_APPEND` does not, so draining a
+  device's pool is cheaper than flooding its contact queue, and proof of work is
+  the only thing standing in the way. [§13-I](./ARCHITECTURE.md#13-open-questions)'s
+  anonymous credentials are the real answer there as they are for §13.3.
 - **Padding bucket sizes** — [§13-F](./ARCHITECTURE.md#13-open-questions).
   This document deliberately puts the set in configuration so the measured answer
   is cheap to adopt (§9).

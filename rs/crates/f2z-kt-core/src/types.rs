@@ -114,8 +114,8 @@ macro_rules! opaque_fixed {
         }
 
         impl SerializeBytes for $name {
-            fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
-                self.0.tls_serialize()
+            fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
+                self.0.tls_serialize_bytes()
             }
         }
 
@@ -241,8 +241,8 @@ impl Size for Handle {
 }
 
 impl SerializeBytes for Handle {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
-        self.0.tls_serialize()
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
+        self.0.tls_serialize_bytes()
     }
 }
 
@@ -316,8 +316,8 @@ impl Size for KemPublicKey {
 }
 
 impl SerializeBytes for KemPublicKey {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
-        self.0.tls_serialize()
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
+        self.0.tls_serialize_bytes()
     }
 }
 

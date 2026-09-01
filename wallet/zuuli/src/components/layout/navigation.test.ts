@@ -6,6 +6,7 @@ import {
   mobilePrimaryNavigation,
   NAVIGATION,
 } from "./navigation";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 
 describe("app navigation information architecture", () => {
   it("keeps exactly five stable mobile destinations", () => {
@@ -17,17 +18,78 @@ describe("app navigation information architecture", () => {
   });
 
   it("keeps search in TopBar and funding inside Wallet", () => {
-    expect(NAVIGATION.some((item) => item.label === "Search")).toBe(false);
+    expect(
+      NAVIGATION.some((item) => item.labelKey === MESSAGE_KEYS.navSearch),
+    ).toBe(false);
     expect(NAVIGATION.some((item) => item.id === "buy")).toBe(false);
     const wallet = NAVIGATION.find((item) => item.id === "wallet");
     expect(wallet?.kind).toBe("route");
     expect(wallet?.kind === "route" ? wallet.to : null).toBe("/wallet");
   });
 
+  it("binds every destination to its reviewed visible and accessible message keys", () => {
+    expect(
+      NAVIGATION.map((item) => [
+        item.id,
+        item.labelKey,
+        item.accessibleLabelKey,
+        item.mobile.area === "primary" ? item.mobile.labelKey : null,
+      ]),
+    ).toEqual([
+      [
+        "home",
+        MESSAGE_KEYS.navHome,
+        MESSAGE_KEYS.navHome,
+        MESSAGE_KEYS.navHome,
+      ],
+      [
+        "live",
+        MESSAGE_KEYS.navLive,
+        MESSAGE_KEYS.navLive,
+        MESSAGE_KEYS.navLiveShort,
+      ],
+      ["articles", MESSAGE_KEYS.navArticles, MESSAGE_KEYS.navArticles, null],
+      ["ai", MESSAGE_KEYS.navAi, MESSAGE_KEYS.navAiAccessible, MESSAGE_KEYS.navAi],
+      [
+        "messages",
+        MESSAGE_KEYS.navMessages,
+        MESSAGE_KEYS.navMessagesAccessible,
+        null,
+      ],
+      [
+        "wallet",
+        MESSAGE_KEYS.navWallet,
+        MESSAGE_KEYS.navWalletAccessible,
+        MESSAGE_KEYS.navWallet,
+      ],
+      [
+        "profile",
+        MESSAGE_KEYS.navProfile,
+        MESSAGE_KEYS.navProfileAccessible,
+        null,
+      ],
+      [
+        "revenue-share",
+        MESSAGE_KEYS.navRevenueShare,
+        MESSAGE_KEYS.navRevenueShare,
+        null,
+      ],
+      ["about", MESSAGE_KEYS.navAbout, MESSAGE_KEYS.navAboutAccessible, null],
+      ["sign-in", MESSAGE_KEYS.navLogin, MESSAGE_KEYS.navLogin, null],
+      [
+        "more",
+        MESSAGE_KEYS.navMore,
+        MESSAGE_KEYS.navMoreAccessible,
+        MESSAGE_KEYS.navMore,
+      ],
+    ]);
+  });
+
   it("exposes secondary and account routes coherently", () => {
     expect(mobileMoreNavigation(false).map((item) => item.id)).toEqual([
       "articles",
       "sign-in",
+      "about",
     ]);
     // Messaging is signed-in only, so it appears here and not in the
     // signed-out list above. CLIENT-CONTRACT.md §2.4 places it at
@@ -38,10 +100,18 @@ describe("app navigation information architecture", () => {
       "messages",
       "profile",
       "revenue-share",
+      "about",
     ]);
+    const messages = NAVIGATION.find((item) => item.id === "messages");
+    expect(messages?.labelKey).toBe(MESSAGE_KEYS.navMessages);
+    expect(messages?.accessibleLabelKey).toBe(
+      MESSAGE_KEYS.navMessagesAccessible,
+    );
     const revenueShare = NAVIGATION.find((item) => item.id === "revenue-share");
-    expect(revenueShare?.label).toBe("Revenue share");
-    expect(revenueShare?.accessibleLabel).toBe("Revenue share");
+    expect(revenueShare?.labelKey).toBe(MESSAGE_KEYS.navRevenueShare);
+    expect(revenueShare?.accessibleLabelKey).toBe(
+      MESSAGE_KEYS.navRevenueShare,
+    );
   });
 
   it("drives grouped desktop routes from the same config", () => {
@@ -51,6 +121,7 @@ describe("app navigation information architecture", () => {
       "articles",
       "ai",
       "wallet",
+      "about",
       "sign-in",
     ]);
     // Messaging is `tools` order 1, directly after AI at order 0, and before
@@ -64,6 +135,7 @@ describe("app navigation information architecture", () => {
       "wallet",
       "profile",
       "revenue-share",
+      "about",
     ]);
   });
 

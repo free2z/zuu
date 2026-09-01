@@ -58,10 +58,55 @@ ignore = [
   # 0.103 half of each of these (and RUSTSEC-2026-0049 outright). What is left is
   # only the 0.101 copy, and the 0.101 line has no fixed release at all — the fix
   # series starts at 0.103.12. Clearing these means getting the last consumer off
-  # rustls 0.21, not bumping a version: start with `cargo tree -i rustls@0.21`.
-  { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.101.7: URI name constraints incorrectly accepted; fix series starts at 0.103.12, no fix exists on the 0.101 line. Requires moving the last rustls 0.21 consumer to 0.23" },
-  { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.101.7: wildcard name constraints incorrectly accepted; fix series starts at 0.103.12, no fix exists on the 0.101 line. Requires moving the last rustls 0.21 consumer to 0.23" },
-  { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.101.7: reachable panic parsing a CRL; fix series starts at 0.103.13, no fix exists on the 0.101 line. We do not parse CRLs" },
+  # rustls 0.21, not bumping a version.
+  #
+  # That consumer is named, and it is one crate. In all three lockfiles the whole
+  # island is exactly:
+  #
+  #     rustls-webpki 0.101.7  <-  rustls 0.21.12  <-  minreq 2.14.1
+  #                                                <-  zcash_proofs 0.30.0
+  #
+  # `minreq` is the *sole* consumer of rustls 0.21 in every lockfile — nothing
+  # else in the graph reaches it — so this is a one-crate problem, not a sweep.
+  # `zcash_proofs` declares `minreq = { version = "2", features = ["https"] }`,
+  # and on the 2.x line `https` resolves to `https-rustls`, which selects
+  # `rustls 0.21` + `rustls-webpki 0.101`. It is reached because
+  # `wallet/plugins/tauri-plugin-zcash` enables `zcash_proofs/download-params`.
+  #
+  # Three fixes were evaluated and only the third works:
+  #
+  #  - Selecting a different minreq TLS feature from our side is IMPOSSIBLE.
+  #    Cargo features are purely additive, so nothing downstream can *deselect*
+  #    the `https` that `zcash_proofs` enables unconditionally; adding
+  #    `https-native` would layer native-tls on top and leave rustls 0.21 in
+  #    place.
+  #  - Dropping `download-params` is NOT AVAILABLE. It is load-bearing:
+  #    `wallet/plugins/tauri-plugin-zcash/src/wallet/send.rs` calls
+  #    `zcash_proofs::download_sapling_parameters` to fetch the Sapling proving
+  #    parameters, and the hash/size verification around that download is
+  #    upstream code we should not be re-implementing to clear a TLS advisory.
+  #  - `minreq 3.0.0` (2026-06-15) moves to rustls 0.23.35 / rustls-webpki
+  #    0.103.8, which clears all three outright. This is the fix, and it belongs
+  #    in `zcash_proofs`, not here: a one-line `version = "2"` -> `"3"` bump plus
+  #    a small port of `zcash_proofs/src/downloadreader.rs`, because minreq 3
+  #    dropped `Iterator for ResponseLazy` in favour of a `Read` impl.
+  #
+  # That bump has been VERIFIED end to end against these lockfiles: applied to
+  # the librustzcash submodule, `zcash_proofs` compiles, the regenerated wallet
+  # lock carries a single rustls 0.23.36 / rustls-webpki 0.103.13 with no 0.101
+  # copy anywhere, and `cargo-deny check advisories` passes with these three
+  # entries deleted. So the remediation is known and proven; what is missing is
+  # permission to land it.
+  #
+  # The blocker is upstream process, not engineering. zcash/librustzcash requires
+  # a maintainer to acknowledge an issue before a PR is opened, and we have no
+  # write access there. The request is on zcash/librustzcash#2334 — whose "open
+  # question 1" is this exact rustls 0.21 island — and has been awaiting a
+  # maintainer response since 2026-08-25. Delete these three entries once that
+  # bump is upstream and the submodule has moved to a commit carrying it.
+  { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.101.7: URI name constraints incorrectly accepted; fix series starts at 0.103.12, no fix exists on the 0.101 line. Sole consumer is minreq 2.14.1 via zcash_proofs 0.30.0's `download-params`; needs zcash_proofs on minreq 3 (blocked on zcash/librustzcash#2334)" },
+  { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.101.7: wildcard name constraints incorrectly accepted; fix series starts at 0.103.12, no fix exists on the 0.101 line. Sole consumer is minreq 2.14.1 via zcash_proofs 0.30.0's `download-params`; needs zcash_proofs on minreq 3 (blocked on zcash/librustzcash#2334)" },
+  { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.101.7: reachable panic parsing a CRL; fix series starts at 0.103.13, no fix exists on the 0.101 line. Not reachable — minreq, the sole consumer, enables no CRL validation. Cleared by the same zcash_proofs -> minreq 3 bump (blocked on zcash/librustzcash#2334)" },
 
   # ---------------------------------------------------------------------------
   # Unmaintained. None of these has a fixed version to move to — the advisory is

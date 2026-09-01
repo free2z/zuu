@@ -375,12 +375,12 @@ interface EnrollmentStatus {
 
 interface HandleEligibility {
   eligible: boolean;
-  candidate: string | null;        // lowercase(username), if it matches
+  candidate: string | null;        // ascii_lower(username), if it matches (§11.3, WIRE.md §14.1)
   reason:
     | null
-    | "punctuation"                // contains . @ + or - — the dominant cause (§11.3)
-    | "non-ascii"                  // contains a non-ASCII character
-    | "too-long"                   // > 30 chars after lowercasing
+    | "punctuation"                // contains . @ + or - — the dominant cause (§11.3); also the empty string
+    | "non-ascii"                  // raw username contains a non-ASCII byte, checked before folding
+    | "too-long"                   // > 30 chars after ascii_lower
     | "not-signed-in";
 }
 ```
@@ -389,7 +389,10 @@ interface HandleEligibility {
 prevalence and the UI should say the true specific thing: punctuation accounts
 for almost the whole of the ineligible population, non-ASCII and over-length for
 very little (§11.3). A single "invalid handle" string would be accurate and
-useless.
+useless. The empty string is `"punctuation"` — one fixed choice among these four
+values, since none of them means "empty" and nothing about that answer follows
+from the pattern alone; every implementation of this predicate, including the
+mock, MUST agree on it (`WIRE.md` §14.1).
 
 `f2zmsg_unenroll` takes a typed confirmation string, in the shape
 `discard_unrecoverable_send` already uses (`"I CHECKED WALLET HISTORY"`), because
@@ -430,6 +433,7 @@ interface Conversation {
   receiptPolicy: ReceiptPolicy;      // §3.6
   hasGaps: boolean;                  // §3.5 — never render this silently
   transportHealth: TransportHealth;
+  compromiseRelayUrl: string | null; // current compromised outbound queue only
 }
 
 type TransportHealth = "ok" | "degraded" | "unavailable" | "compromised";
@@ -448,26 +452,81 @@ interface ContactRequest {
 }
 ```
 
+`compromiseRelayUrl` names the **current outbound queue's relay** exactly when
+`transportHealth` is `compromised`, and is `null` otherwise. The client MUST NOT
+infer current transport attribution from Alarm history: historical alarms remain
+after a queue replacement, timestamps can tie or move backward, and their relay
+continues to describe the queue that raised them rather than the active queue.
+
 `start_conversation` performs the whole first-contact handshake of
-[`WIRE.md` §12.5](./WIRE.md#125-the-full-handshake-end-to-end): resolve the
-handle against a witness-cosigned root, build the group, obtain a challenge,
-compute a proof-of-work stamp, and `CONTACT_APPEND` the `Welcome`. Two
+[`WIRE.md` §12.5](./WIRE.md#125-the-full-handshake-end-to-end), with
+[§12.6](./WIRE.md#126-keypackage-publication--where-a-consumable-key-lives)'s
+two steps inside it: resolve the handle against a witness-cosigned root, **claim
+a `KeyPackage` from the relay the resolved entry names**, **authenticate it
+against that entry**, build the group, obtain a second challenge, compute a
+second proof-of-work stamp, and `CONTACT_APPEND` the `Welcome`. Four
 consequences for the UI:
 
-- **It can take seconds, and the delay is proof-of-work on the user's device.**
-  On a cheap phone it is meaningfully slow and the reason is unfixable by tuning
+- **It can take seconds, and the delay is proof-of-work on the user's device —
+  now twice.** §12.6 gives the claim its own challenge purpose, so first contact
+  pays two stamps rather than one. On a cheap phone that is meaningfully slow and
+  the reason is unfixable by tuning
   ([`WIRE.md` §12.4](./WIRE.md#124-the-honest-limits)). Show progress; do not
   present it as a network wait.
 - **It fails closed when the witness threshold is unmet.** Resolving a *new*
   handle is refused, not degraded
   ([`KT.md` §8.3](./KT.md#83-the-threshold-rule-and-failing-closed)). See rule 5
   in §9.
+- **`relay-unavailable` here can mean the peer's key-package pool is empty**,
+  not that the peer does not exist. §10's existence-oracle rule gives both the
+  same wire code, and only the client knows the directory lookup succeeded — so
+  the client MUST say *"this person cannot be reached right now"* and MUST NOT
+  say *"no such user"*.
+- **A key package that does not authenticate is never retried.** It is either a
+  broken relay or an attempted MITM and the two are indistinguishable from the
+  client (§12.6.5). Rule 5 applies: no "try anyway", no silent degrade, and
+  manual safety-number verification is the correct thing to offer.
+
+`start_engine` additionally publishes this device's own key-package pool
+(§12.6). A device whose relay's additive key-package policy reports
+`enabled = 0`, whose relay does not know that additive command, or whose
+publish failed, is a device **nobody can start a conversation with** — the
+engine reports it through `lastError` and keeps running, because every existing
+conversation is unaffected. A UI that surfaces engine state should treat it the
+same way it treats a missing contact queue: reachable-by-nobody, not broken.
 
 `transportHealth: "compromised"` means the send side of a queue this conversation
-depends on was bound by somebody else — `ERR_ALREADY_BOUND` on a first bind for
-a freshly advertised address
+depends on was already bound to another or unknown key — `ERR_ALREADY_BOUND` on
+a first bind for a freshly advertised address
 ([`WIRE.md` §7.4](./WIRE.md#74-the-consequence-said-plainly)). It is a loud,
 non-dismissible failure, not a retry and not a toast.
+
+The first bind is preceded by a durable `Fresh` → `OutcomeUnknown` write. If
+its response is lost, the engine retries internally with the same key. An
+`ERR_ALREADY_BOUND` in that durable unknown-outcome context is not exposed as
+an `ErrorCode` and makes no accusation: the engine attempts a same-key `APPEND`,
+whose success confirms the binding under the relay protocol's authorization
+semantics and durably records `Confirmed`. If reconciliation is unavailable,
+the state remains `OutcomeUnknown`; it never becomes `compromised` merely
+because the first response was lost.
+
+Relay acceptance remains the delivery truth if the same-key `APPEND` succeeds
+but the auxiliary `Confirmed` store write fails: the message is `accepted`, not
+rewritten as failed. The durable bind state remains `OutcomeUnknown`, and a
+later send safely repeats reconciliation and confirmation.
+
+Native-store compatibility is fail-safe in both directions. A record written
+before the three-state field existed is interpreted as `OutcomeUnknown` when
+its legacy `bound` flag is false and `Confirmed` when it is true. New
+`OutcomeUnknown` and `Confirmed` records also serialize `bound: true`, so an
+older reader skips `BIND_SEND` rather than mislabelling a retry as a fresh
+attempt; only a new reader performs the stateful reconciliation above.
+
+Authenticated replay of an identical queue advert — including a different hex
+case for the same address bytes — preserves the current bind and active
+compromise state. A genuinely distinct replacement advert installs a `Fresh`
+queue and may restore transport, but it does not delete the historical,
+non-dismissible alarm for the abandoned queue (`WIRE.md` §7.5).
 
 `reject_contact_request({ block: true })` is entirely local: there is no server
 that can enforce a block, because there is no server that knows who is talking
@@ -779,6 +838,8 @@ interface Alarm {
   raisedAt: number;
   dismissible: false;            // structurally false for every critical alarm
   handle: string | null;
+  conversationId: string | null; // exact conversation for conversation alarms
+  relayUrl: string | null;       // required for queue/relay attribution
   oldFingerprint: string | null;
   newFingerprint: string | null;
   platformAssisted: boolean;     // ADR 0014 platform_reset
@@ -1332,9 +1393,10 @@ half-written by a killed process. In every one of those the correct product
 behaviour is that **messaging is unavailable and the rest of the application
 works**: the store failing to open must never stop the host application from
 starting. The client reports `faulted` with the `lastError` that stopped it
-(`storage-full`, `durability-unavailable`, or `internal`), and every command
-other than `get_engine_status` — `start_engine` and the §3.2 enrollment trio
-included — refuses with that same code. This is the one `faulted` that
+(`storage-full`, `durability-unavailable`, or `internal`). The pure
+`check_handle_eligibility` validator still answers from its string alone; every
+engine- or storage-dependent command — `start_engine` and the §3.2 enrollment
+trio included — refuses with that same code. This is the one `faulted` that
 `start_engine` cannot leave; only fixing the storage and restarting can.
 
 `locked` exists because the local encrypted history is wrapped under a
@@ -1620,6 +1682,7 @@ type ErrorCode =
   | "storage-full"
   | "gap-unrecoverable"
   | "not-supported-in-browser"
+  // component-internal (local engine or peer-reported relay/directory fault)
   | "internal";
 ```
 
@@ -1635,7 +1698,7 @@ type ErrorCode =
 | `relay-refused-insecure` | | The relay declares `transport_security: "none"` or `channel_binding_mode: "none"` and the user has not opted in. Offer the opt-in with copy stating that ciphertext is protected by MLS but connection metadata, queue addresses and commands travel in the clear ([`WIRE.md` §2.3](./WIRE.md#23-listener-rules-and-the-insecure-override)). |
 | `relay-capability-mismatch` | | Its padding set, TTL ceiling, or `.well-known` digest disagrees with what it serves. Refuse the relay and say which check failed ([`WIRE.md` §11.2](./WIRE.md#112-served-two-ways-on-purpose), [§11.3](./WIRE.md#113-what-a-client-does-with-it)). |
 | `send-unavailable` | ● | The single collapsed send-side refusal: absent, deleted, expired, full, or backpressure — the relay is forbidden from distinguishing them ([`WIRE.md` §6.3](./WIRE.md#63-commands-signed-by-the-send-side-queue-key)). Exponential backoff to the retry budget, then ask the peer in-band for a fresh queue advert. **The UI cannot tell the user why, and must not guess.** |
-| `send-address-stolen` | | **Fatal, loud, non-dismissible.** `ERR_ALREADY_BOUND` on a first bind for a freshly advertised address: a relay operator took the write capability ([`WIRE.md` §7.4](./WIRE.md#74-the-consequence-said-plainly)). Mark `transportHealth: "compromised"`, abandon the queue, name the relay. Not a warning toast. Not a log line. |
+| `send-address-stolen` | | **Fatal, loud, non-dismissible.** `ERR_ALREADY_BOUND` on a first bind for a freshly advertised address means the address was already bound to another or unknown key ([`WIRE.md` §7.4](./WIRE.md#74-the-consequence-said-plainly)). Mark `transportHealth: "compromised"`, abandon the queue, and name the relay that returned the result. The result does not identify who bound it. Not a warning toast. Not a log line. |
 | `pow-required` | ● | Obtain a challenge and compute a stamp. Show it as work, not as a network wait. |
 | `pow-failed` | ● | The challenge expired or was consumed. Get a fresh one and retry once. |
 | `directory-unreachable` | ● | Existing conversations continue. New-handle resolution is unavailable — say that, do not fall back. |
@@ -1655,7 +1718,7 @@ type ErrorCode =
 | `storage-full` | | Local storage exhausted. Inbound stops being acknowledged — which is correct, because an un-ACKed message is still on the relay. Offer to reduce retention. |
 | `gap-unrecoverable` | | The sender no longer holds the plaintext. Render the `{ kind: "unrecoverable" }` marker in place ([`ARCHITECTURE.md` §8.4](./ARCHITECTURE.md#84-short-local-retention-and-gap-repair)). Never a silent hole. |
 | `not-supported-in-browser` | | A ZUULI-only operation was attempted in a browser (§10, §11.1). State the reason — it is a trust-model boundary, not a missing feature. |
-| `internal` | | Engine fault, carries no detail by design ([`WIRE.md` §10](./WIRE.md#10-error-codes)). Offer a report affordance. |
+| `internal` | | Component-internal fault: either the local engine faulted or a relay or directory reported its own `ERR_INTERNAL`. Carries no detail by design ([`WIRE.md` §10](./WIRE.md#10-error-codes)); offer a report affordance without guessing which internal detail failed. |
 
 "Retryable" means *the engine or the UI may retry automatically, with backoff*.
 Everything unmarked requires a user decision or is a defect; retrying it
@@ -1682,8 +1745,8 @@ how a wrong device clock ends up rendered as a relay defect.
 | 7 | `ERR_STALE_TIMESTAMP` | **`device-clock-skew`** |
 | 8 | `ERR_REPLAY` | `relay-protocol-violation` — a repeated `(signer_key, nonce)` is our CSPRNG's fault |
 | 9 | `ERR_CHANNEL_BINDING` | `relay-protocol-violation` — reserved and unused in v1, so receiving it *is* the violation |
-| 10 | `ERR_NO_ACCESS` | `send-unavailable` on a send-side command; `relay-protocol-violation` on a recv-side one. **See the note below: the source contradicts itself here and this row is not a resolution of it.** |
-| 11 | `ERR_ALREADY_BOUND` | `send-address-stolen` on a first bind for a freshly advertised address (§3.3); `relay-protocol-violation` on any later bind, because we should not have tried |
+| 10 | `ERR_NO_ACCESS` | `relay-protocol-violation`. It is valid for a frame-internal creation/`BIND_SEND` self-check or a recv-side authorization failure; a state-dependent send-side refusal using code 10 is itself a protocol violation, because that refusal MUST be code 15. See the note below. |
+| 11 | `ERR_ALREADY_BOUND` | `send-address-stolen` on a first bind from durable `Fresh` state (§3.3); `relay-protocol-violation` on an ordinary later bind. A retry from durable `OutcomeUnknown` is intercepted before this public mapper and reconciled by same-key `APPEND`, so it emits neither code. |
 | 12 | `ERR_BAD_SIZE` | `relay-capability-mismatch` — our emitted size is not in the relay's `padding_sizes` |
 | 13 | `ERR_ACK_TOO_HIGH` | `relay-protocol-violation` — an `ACK` past the head is a client bug |
 | 14 | `ERR_QUOTA` | `relay-quota` |
@@ -1713,11 +1776,13 @@ how a wrong device clock ends up rendered as a relay defect.
 
 **Note what is not in either table.** `directory-proof-invalid`,
 `witness-threshold-unmet`, `relay-identity-mismatch`, `relay-unreachable`,
-`relay-refused-insecure`, `handle-ineligible` and the whole local group are
-**client-side outcomes, not wire codes**: the client computes them and no server
-sends them. Keeping them out of the mapping is deliberate — a code a relay or a
-log chooses can never, on its own, produce one of the codes that mean an
-attack.
+`relay-refused-insecure`, `handle-ineligible`, and the local-only members from
+`not-enrolled` through `not-supported-in-browser` are **client-side outcomes,
+not wire codes**: the client computes them and no server sends them. `internal`
+is deliberately excluded from that claim because both tables explicitly map a
+peer's `ERR_INTERNAL` to it. Keeping the client-side outcomes out of the mapping
+is deliberate — a code a relay or a log chooses can never, on its own, produce
+one of the codes that mean an attack.
 
 And there is **no unknown-handle code, in either direction**.
 [`KT.md` §9.5](./KT.md#95-error-codes) has none deliberately, and §3.10's
@@ -1729,27 +1794,35 @@ neither table names — one from a protocol version newer than this client, or a
 known code returned in a context these tables do not give it — maps to
 `relay-protocol-violation` if a relay returned it, and
 `directory-protocol-violation` if the log did. It is never mapped to `internal`,
-which means *our own engine* faulted, and it is never dropped. That is what
-"closed" buys a frontend: the set of values a component can receive is fixed, so
-a protocol that grows a code produces a defect report instead of an `undefined`
-branch.
+which is reserved for an explicit component-internal fault: either the local
+engine faulted or a peer reported its own `ERR_INTERNAL`. An unknown peer code
+is neither, and it is never dropped. That is what "closed" buys a frontend: the
+set of values a component can receive is fixed, so a protocol that grows a code
+produces a defect report instead of an `undefined` branch.
 
-**`ERR_NO_ACCESS` (10) — the mapping is chosen so the client does not depend on
-an open question, and is not an answer to it.**
-[`WIRE.md` §5.1](./WIRE.md#51-construction) step 5 of the relay's verification
-order says a command whose `signer_key` does not authorize the address fails with
-`ERR_NO_ACCESS` (10);
-[`WIRE.md` §6.3](./WIRE.md#63-commands-signed-by-the-send-side-queue-key) and §10
-say every send-side refusal that would distinguish queue state collapses to
-`ERR_UNAVAILABLE` (15). Those contradict for a send-side command, and the
-contradiction is [#550](https://github.com/free2z/zuu/issues/550) item 1 —
-**open as of 2026-08-23**, and not settled by this document, which decides
-nothing about the protocol. Mapping *both* codes to `send-unavailable` on the
-send side makes the client behave identically whichever way #550 lands, and shows
-the user the same thing either way — which is independently what §10's
-existence-oracle rule wants, since a sender that could tell an absent queue from
-an unauthorized one is the oracle. If #550 resolves the other way, this row is
-where the change goes and nothing else moves.
+The one pre-mapper exception is stateful rather than a second mapping:
+`ERR_ALREADY_BOUND` after a durably recorded unknown `BIND_SEND` outcome is
+consumed by the engine's same-key `APPEND` reconciliation described in §3.3.
+It never enters this table. Outside that exact state, the row above applies.
+
+**`ERR_NO_ACCESS` (10) — distinguish frame-internal self-checks from relay-state
+lookups.** [`WIRE.md` §5.1](./WIRE.md#51-construction)'s correction settles the
+old contradiction in step 5. `CREATE_QUEUE`, `CREATE_CONTACT_QUEUE`, and
+`BIND_SEND` may return code 10 when the frame's `signer_key` does not equal the
+key carried in that same frame; those checks reveal no relay state. Recv-side
+commands also use code 10 for an absent address or wrong registered `recv_key`.
+Either result maps to `relay-protocol-violation`: the engine emitted an
+internally inconsistent creation/bind, or it used a receive credential that the
+relay rejected.
+
+For send-side state lookups, the answer is closed: `APPEND` uses
+`ERR_UNAVAILABLE` (15) for every absent, deleted, expired, unbound, full,
+backpressured, or wrong-key state, and `BIND_SEND` uses code 15 for an absent,
+deleted, or expired address. The client maps those code-15 refusals to
+`send-unavailable`. If a relay instead returns code 10 for one of those
+state-dependent send-side cases, the client MUST surface
+`relay-protocol-violation`; treating it as ordinary unavailability would hide a
+violation of §6.3's existence-oracle collapse.
 
 ---
 
@@ -1973,16 +2046,38 @@ against that. Three build rules follow.
   address, not an authentication, and first-contact copy should say so rather
   than implying the handle did the work.
 
-An account is eligible iff `lowercase(username)` matches the pattern. The
-argument originally given for folding case — that platform uniqueness is already
-enforced case-insensitively, so folding *cannot* collide two distinct existing
-accounts — **is false, and was retracted on the record**
+An account is eligible iff `ascii_lower(username)` matches the pattern —
+**`ascii_lower`, never a general "lowercase," and the distinction is load-
+bearing.** Reject the raw username if it is not ASCII, checked before any
+folding; only then fold ASCII `A`–`Z` to `a`–`z` and nothing else
+([`WIRE.md` §14.1](./WIRE.md#141-proposed-rule)). A locale- or Unicode-aware
+`lowercase()` folds some non-ASCII characters *to* ASCII — the Kelvin sign,
+U+212A, folds to `k` — which would let a non-ASCII username slip past this
+charset entirely, defeating the reason the charset exists. Older sentences in
+this document set that say `lowercase(username)` mean `ascii_lower(username)`
+in this exact sense.
+
+The argument originally given for folding case — that platform uniqueness is
+already enforced case-insensitively, so folding *cannot* collide two distinct
+existing accounts — **is false, and was retracted on the record**
 ([`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted)).
 Case-insensitive uniqueness is an application convention living in two
 serializers, not a property of the database, and folding case does collide real
 accounts today. The eligibility *rule* is unchanged and uppercase still
 disqualifies nobody; what does not hold is that the mapping is injective, and
 the client consequences of that are spelled out below.
+
+**What this predicate answers, and what it does not.** `ascii_lower(username)
+matches the pattern` is candidate derivation: a pure function of the string,
+implemented and safe to ship as
+`tauri-plugin-f2zmsg`'s `handle.rs::eligibility`, exposed as
+`check_handle_eligibility` below. It asserts nothing about who owns a handle in
+the directory — that is authoritative publication, and it remains blocked on
+backend work this contract does not do (the corrected census below, the
+collision groups §14.3 of `WIRE.md` found in production, and a database-level
+uniqueness invariant that does not exist yet). A client MUST NOT treat
+`check_handle_eligibility` returning `eligible: true` as a reservation or a
+guarantee that enrollment will succeed — only as "this string is well-formed."
 
 free2z usernames are considerably broader — Django's `^[\w.@+-]+$` up to 150
 characters — so **existing accounts containing `.`, `@`, `+`, `-`, any non-ASCII
@@ -2007,14 +2102,21 @@ one is still active**: this is not a set of dead rows, it is roughly a tenth of
 real, current users. Design the ineligible state as a state a tenth of users
 will see, because it is one.
 
-Two things the frontend must not infer from that number:
+Three things the frontend must not infer from that number:
 
+- **It is not a live guarantee about today's account population.** This is a
+  historical figure from one query against production on 2026-08-23, and this
+  repository cannot re-run it: registrations continue, and `WIRE.md` §14.3's
+  collision groups — found by the same query — are expected to be resolved
+  before the mapping ships, which moves the eligible share without updating
+  this table. Treat it as the evidence that motivated the design below, not as
+  a number to cite as current.
 - **It is not a temporary gap awaiting a migration.** Whether that ~10% is
   excluded from messaging discovery in v1 or served by a separate opt-in
   messaging handle is an **undecided product question**
   ([§13-O](./ARCHITECTURE.md#13-open-questions), §13-K). Do not write copy that
   promises either outcome.
-- **`lowercase(username)` is not yet a unique key.** Case-insensitive username
+- **`ascii_lower(username)` is not yet a unique key.** Case-insensitive username
   uniqueness lives in two serializers and **not in the database**, and
   production holds case-variant duplicate accounts today, in more than one
   group ([`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted)).

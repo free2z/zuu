@@ -39,6 +39,26 @@ pub enum EngineError {
     /// boundary — `CLIENT-CONTRACT.md` §8's `internal` "carries no detail by
     /// design".
     Mls(&'static str),
+    /// A first-contact envelope named a different conversation than the MLS
+    /// `Welcome` actually joins. The peer signs both values, so accepting the
+    /// contradiction would persist a group that cannot be reloaded by the
+    /// conversation identifier after restart.
+    GroupIdMismatch,
+    /// A failed receive mutated the caller's group and the durable rollback
+    /// state could not be reloaded into that handle.
+    ///
+    /// The handle passed to [`crate::MlsEngine::receive`] is unusable after
+    /// this outcome and **must be discarded**. The caller may retry only after
+    /// loading a fresh [`openmls::prelude::MlsGroup`] from durable storage and
+    /// reapplying any ephemeral AAD it set on the discarded handle. Both errors
+    /// are retained so a recovery failure does not hide the operation that
+    /// made recovery necessary.
+    GroupStateUnavailable {
+        /// The receive failure that caused the transaction to roll back.
+        operation: Box<EngineError>,
+        /// The failure while reloading the durable pre-transaction group.
+        reload: Box<EngineError>,
+    },
     /// A message arrived for an epoch this device has already moved past, or
     /// has not reached yet.
     ///
@@ -112,6 +132,13 @@ impl fmt::Display for EngineError {
             Self::Credential(error) => write!(f, "device credential rejected: {error}"),
             Self::Storage(error) => write!(f, "the local store refused: {error}"),
             Self::Mls(operation) => write!(f, "MLS refused during {operation}"),
+            Self::GroupIdMismatch => {
+                f.write_str("the Welcome group id does not match the conversation id")
+            }
+            Self::GroupStateUnavailable { operation, reload } => write!(
+                f,
+                "the caller's MLS group is unusable after {operation}; durable reload also failed: {reload}"
+            ),
             Self::OutOfOrder => f.write_str("the message is for a different epoch"),
             Self::Duplicate => f.write_str("the message has already been processed"),
         }
@@ -123,6 +150,7 @@ impl core::error::Error for EngineError {
         match self {
             Self::Credential(error) => Some(error),
             Self::Storage(error) => Some(error),
+            Self::GroupStateUnavailable { operation, .. } => Some(operation.as_ref()),
             _ => None,
         }
     }
@@ -150,6 +178,11 @@ mod tests {
             EngineError::Signature,
             EngineError::Credential(CredentialError::DeviceKeyMismatch),
             EngineError::Mls("process_message"),
+            EngineError::GroupIdMismatch,
+            EngineError::GroupStateUnavailable {
+                operation: Box::new(EngineError::Mls("process_message")),
+                reload: Box::new(EngineError::Mls("reload group after rollback")),
+            },
             EngineError::OutOfOrder,
             EngineError::Duplicate,
         ];

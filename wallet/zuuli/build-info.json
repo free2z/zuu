@@ -1,0 +1,5 @@
+{
+  "$schema": "./build-info.schema.json",
+  "schemaVersion": 1,
+  "channel": "internal"
+}

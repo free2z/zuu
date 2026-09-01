@@ -12,6 +12,7 @@
       "identifier": "http:default",
       "allow": [
         { "url": "https://free2z.cash/*" },
+        { "url": "https://*.free2z.cash/*" },
         { "url": "https://stage.free2z.cash/*" }
       ]
     }

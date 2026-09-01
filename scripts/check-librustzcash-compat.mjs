@@ -12,7 +12,8 @@ const SUBMODULE_PATH = "z/zcash/librustzcash";
 // the index or working tree: doing so would make a stale pin self-approving.
 //
 // TRANSIENT FORK. This commit is upstream `main` at
-// 330e4c0aa9e25199acdb93a56bf70126d0d3f2b9 — the previously reviewed pin — plus
+// 91f448b5b1eacba09607faefd39e2204e4bb342d — the fork branch rebased forward
+// from its previous base 330e4c0aa9e25199acdb93a56bf70126d0d3f2b9 — plus
 // one 4-line deletion, and `.gitmodules` points at free2z/librustzcash for as
 // long as that deletion is unmerged. It removes the workspace's
 // `block-buffer = "=0.11.0-rc.3"` / `crypto-common = "=0.2.0-rc.1"` pins and
@@ -25,10 +26,14 @@ const SUBMODULE_PATH = "z/zcash/librustzcash";
 //
 // Because the delta is a dependency-requirement deletion and not a version
 // bump, EXPECTED_PACKAGES below is unchanged and so is REVIEWED_SCOPE_DIGEST.
-// Move both this literal and `.gitmodules` back to upstream the moment the PR
-// merges.
+// The ten upstream commits this rebase pulls in (NuTachyon/V7 behind
+// `cfg(zcash_unstable)`, transparent-output persistence, a P2PKH
+// `finalize_spends` fix) published no new crate versions and changed no
+// workspace dependency requirement, so all three shipping locks re-resolved
+// byte-identically. Move both this literal and `.gitmodules` back to upstream
+// the moment the PR merges.
 const EXPECTED_LIBRUSTZCASH_SHA =
-  "d63d44b27e9de276a3bab2ea2ec6430871faef22";
+  "a2b8c95210046eb59ee71dd10fd2ad1e9329b238";
 const SEND_SOURCE =
   "wallet/plugins/tauri-plugin-zcash/src/wallet/send.rs";
 const NATIVE_SEND_POLICY_SOURCE =

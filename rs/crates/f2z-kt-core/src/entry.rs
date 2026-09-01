@@ -192,7 +192,7 @@ impl Size for EntryKind {
 }
 
 impl SerializeBytes for EntryKind {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
         Ok(vec![self.code()])
     }
 }
@@ -401,25 +401,25 @@ impl Size for EntryAuthorization {
 }
 
 impl SerializeBytes for EntryAuthorization {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
         let mut out = vec![self.kind().code()];
         match self {
             Self::SameKey { auth_signature } => {
-                out.extend_from_slice(&auth_signature.tls_serialize()?);
+                out.extend_from_slice(&auth_signature.tls_serialize_bytes()?);
             }
             Self::KeyChange {
                 rotation,
                 auth_signature,
             } => {
-                out.extend_from_slice(&rotation.tls_serialize()?);
-                out.extend_from_slice(&auth_signature.tls_serialize()?);
+                out.extend_from_slice(&rotation.tls_serialize_bytes()?);
+                out.extend_from_slice(&auth_signature.tls_serialize_bytes()?);
             }
             Self::PlatformReset {
                 reset,
                 auth_signature,
             } => {
-                out.extend_from_slice(&reset.tls_serialize()?);
-                out.extend_from_slice(&auth_signature.tls_serialize()?);
+                out.extend_from_slice(&reset.tls_serialize_bytes()?);
+                out.extend_from_slice(&auth_signature.tls_serialize_bytes()?);
             }
         }
         Ok(out)
