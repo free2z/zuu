@@ -12,6 +12,7 @@ import {
   type FeedbackDraft,
 } from "./feedback";
 import { isValidEnglishBip39Mnemonic } from "./bip39";
+import { truncateAddress } from "./format";
 
 const BUILD_BLOCK =
   "ZUULI\nVersion: 0.1.0\nBuild: 17\nChannel: Internal\nPlatform: iOS\nSource commit: 0123456789ab";
@@ -356,6 +357,40 @@ describe("feedback privacy boundary", () => {
     },
   );
 
+  // #830: detection is checksum-based against the shipping *English* BIP-39
+  // wordlist only (see `isValidEnglishBip39Mnemonic`/bip39-english.ts) — the
+  // Rust backend only ever generates and accepts English mnemonics, but a
+  // user could bring one home from another wallet in another language. This
+  // is a real, bounded gap, not a regression: it is documented in the
+  // composer's copy (`feedbackMnemonicLanguageScope`) rather than silently
+  // assumed away. These tests pin the current (English-only) boundary.
+  it.each([
+    // French wordlist words with no ASCII-diacritic overlap onto the shipping
+    // English dictionary.
+    "abaisser abdiquer abeille abolir aborder aboutir aboyer abrasif abreuver abriter abroger absence",
+    // Japanese wordlist words: non-Latin script never matches the `[a-z]+`
+    // scan at all, regardless of dictionary contents.
+    "あいこくしん あいさつ あいだ あおぞら あかちゃん あきる あけがた あける あこがれる あさい あさひ あしあと",
+  ])(
+    "does not recognize a bare non-English mnemonic-shaped phrase (documented scope, #830): %s",
+    (phrase) => {
+      const draft = { subject: DEFAULT_SUBJECT, body: phrase };
+      const reviewed = reviewFeedbackDraft(draft, REDACTED_VALUE);
+      expect(reviewed.findings).toHaveLength(0);
+      expect(reviewed.draft.body).toBe(phrase);
+    },
+  );
+
+  it("still removes a non-English phrase once English recovery-phrase context labels it (#830)", () => {
+    const draft = {
+      subject: DEFAULT_SUBJECT,
+      body: "my recovery phrase: abaisser abdiquer abeille abolir aborder aboutir aboyer abrasif abreuver abriter abroger absence",
+    };
+    const reviewed = reviewFeedbackDraft(draft, REDACTED_VALUE);
+    expect(reviewed.findings.length).toBeGreaterThan(0);
+    expect(reviewed.draft.body).toBe(REDACTED_VALUE);
+  });
+
   it.each([
     "Saved in /opt/zuuli/wallet.dat",
     "Read \\\\server\\share\\wallet.bin",
@@ -434,6 +469,43 @@ describe("feedback privacy boundary", () => {
       }
     },
   );
+
+  it("does not mistake a middle-truncated opaque identifier for a filename (#829 regression)", () => {
+    // #829 switched the embedded "Source commit" line from a head-only
+    // prefix to truncateAddress's middle, tail-weighted "head…tail" form.
+    // NFKC-normalizing "…" expands it to three literal dots, which used to
+    // read as a `word...ext`-shaped filename and wipe the whole report —
+    // including the app's own auto-attached, pre-vetted build info, on
+    // every single submission. A single dot still separates a real
+    // filename from its extension; three consecutive dots must not.
+    const shortCommit = truncateAddress(
+      "6dc7d6fe1fe6bcbc02d4bf83486ebaf66a419a8a",
+    );
+    expect(shortCommit).toContain("…");
+    const block = `ZUULI\nVersion: 0.1.0\nBuild: 19\nRelease channel: Internal\nPlatform: Web\nSource commit: ${shortCommit}`;
+    const reviewed = createFeedbackDraft(
+      "The save action stopped responding.",
+      block,
+      DEFAULT_SUBJECT,
+      REDACTED_VALUE,
+    );
+    expect(reviewed.findings).toEqual([]);
+    // The pipeline NFKC-normalizes all text (including the app's own
+    // build-info block), which expands "…" to "..." — that normalized form
+    // is what should survive review, not the original glyph.
+    expect(reviewed.draft.body).toContain(shortCommit.normalize("NFKC"));
+  });
+
+  it("still removes a real bare filename with a single dot (crash.log)", () => {
+    const reviewed = createFeedbackDraft(
+      "The app failed. crash.log",
+      BUILD_BLOCK,
+      DEFAULT_SUBJECT,
+      REDACTED_VALUE,
+    );
+    expect(reviewed.findings.length).toBeGreaterThan(0);
+    expect(reviewed.draft.body).toBe(REDACTED_VALUE);
+  });
 
   it("allows a username or email only when the user explicitly enters it", () => {
     const result = createFeedbackDraft(

@@ -5,8 +5,10 @@ import {
   BUILD_INFO,
   formatBuildInfoMinimal,
   formatBuildInfoProvenance,
+  shortSourceCommit,
   type BuildInfo,
 } from "./build-info";
+import { truncateAddress } from "./format";
 
 const INFO: BuildInfo = {
   productName: "ZUULI",
@@ -42,7 +44,7 @@ describe("immutable build info", () => {
     const text = formatBuildInfoMinimal(hostile);
 
     expect(text).toBe(
-      "ZUULI\nVersion: 1.2.3\nBuild: 45\nRelease channel: Internal\nPlatform: iOS\nSource commit: abcdef012345",
+      "ZUULI\nVersion: 1.2.3\nBuild: 45\nRelease channel: Internal\nPlatform: iOS\nSource commit: abcdef01…89abcdef01",
     );
     for (const secret of [
       hostile.account,
@@ -55,6 +57,16 @@ describe("immutable build info", () => {
     ]) {
       expect(text).not.toContain(secret);
     }
+  });
+
+  it("shortens the source commit in the middle, tail-weighted, not by head prefix (#829)", () => {
+    // Pin the exact format so it cannot regress back to a head-only prefix.
+    expect(shortSourceCommit(INFO.sourceCommit)).toBe("abcdef01…89abcdef01");
+    // Reuses the shared opaque-identifier helper rather than reimplementing it.
+    expect(shortSourceCommit(INFO.sourceCommit)).toBe(
+      truncateAddress(INFO.sourceCommit as string),
+    );
+    expect(shortSourceCommit(null)).toBeNull();
   });
 
   it("labels absent optional provenance honestly", () => {

@@ -30,7 +30,18 @@ describe("FeedbackComposer", () => {
     );
     expect(
       ABOUT_MESSAGE_KEYS.filter((key) => key.startsWith("feedback")),
-    ).toHaveLength(30);
+    ).toHaveLength(31);
+  });
+
+  it("states plainly that recovery-phrase screening is English-only (#830)", () => {
+    const markup = renderToStaticMarkup(
+      <FeedbackComposer minimalBuildBlock="ZUULI\nVersion: 0.1.0\nBuild: 17" />,
+    );
+    expect(markup).toContain("recognizes the English BIP-39 wordlist");
+    expect(markup).toContain('id="feedback-mnemonic-scope-hint"');
+    expect(markup).toContain(
+      'aria-describedby="feedback-description-hint feedback-mnemonic-scope-hint"',
+    );
   });
 
   it("accepts deliberately expanded locale copy without truncation classes", () => {
