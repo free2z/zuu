@@ -283,6 +283,11 @@ const UNGATED_WORKFLOWS = new Map([
     "`workflow_dispatch` only — an operator-run TestFlight state inspection against an explicit " +
       "source SHA. No pull-request event triggers it.",
   ],
+  [
+    ".github/workflows/zuuli-testflight-invite.yml",
+    "`workflow_dispatch` only — an operator-run TestFlight beta-tester invite. No pull-request " +
+      "event triggers it.",
+  ],
 ]);
 
 const NEEDS_RESULT = /needs\.([A-Za-z0-9_-]+)\.result/g;
