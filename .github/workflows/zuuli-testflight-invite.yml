@@ -1,0 +1,122 @@
+name: ZUULI / TestFlight beta tester invite
+
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: Email address of the beta tester to invite
+        required: true
+        type: string
+      first_name:
+        description: Optional first name for the invite
+        required: false
+        type: string
+      last_name:
+        description: Optional last name for the invite
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # Serialize protected store writes with releases so an invite cannot race
+  # the relationship write/readback for a build or another invite.
+  group: zuuli-mobile-store
+  cancel-in-progress: false
+
+jobs:
+  invite:
+    name: Invite internal TestFlight beta tester
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    environment: zuuli-app-stores
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    env:
+      ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+      - name: Validate invite inputs
+        env:
+          EMAIL: ${{ inputs.email }}
+          FIRST_NAME: ${{ inputs.first_name }}
+          LAST_NAME: ${{ inputs.last_name }}
+        run: |
+          set -euo pipefail
+          [[ "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || {
+            echo "email must be a plausible email address" >&2
+            exit 1
+          }
+          [[ "$FIRST_NAME" != *$'\n'* && "$FIRST_NAME" != *$'\r'* ]] || {
+            echo "first_name must be a single line" >&2
+            exit 1
+          }
+          [[ "$LAST_NAME" != *$'\n'* && "$LAST_NAME" != *$'\r'* ]] || {
+            echo "last_name must be a single line" >&2
+            exit 1
+          }
+      - name: Verify beta-tester invite state machine offline
+        run: node --test scripts/asc-beta-testers.node-test.mjs
+      - name: Materialize ephemeral ASC credential
+        env:
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          : "${ASC_KEY_BASE64:?ASC_KEY_BASE64 is not configured}"
+          : "${ASC_KEY_ID:?ASC_KEY_ID is not configured}"
+          : "${ASC_ISSUER_ID:?ASC_ISSUER_ID is not configured}"
+          secret_dir=$(mktemp -d "$RUNNER_TEMP/zuuli-asc-invite.XXXXXX")
+          chmod 700 "$secret_dir"
+          printf '%s' "$ASC_KEY_BASE64" | base64 --decode > "$secret_dir/AuthKey.p8"
+          chmod 600 "$secret_dir/AuthKey.p8"
+          test -s "$secret_dir/AuthKey.p8"
+          echo "ZUULI_ASC_INVITE_SECRET_DIR=$secret_dir" >> "$GITHUB_ENV"
+          echo "ASC_KEY_PATH=$secret_dir/AuthKey.p8" >> "$GITHUB_ENV"
+      - name: Invite beta tester into the internal TestFlight group
+        env:
+          EMAIL: ${{ inputs.email }}
+          FIRST_NAME: ${{ inputs.first_name }}
+          LAST_NAME: ${{ inputs.last_name }}
+        run: |
+          set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/zuuli-testflight-invite-evidence"
+          mkdir -p "$evidence_dir"
+          echo "ZUULI_TESTFLIGHT_INVITE_EVIDENCE_DIR=$evidence_dir" >> "$GITHUB_ENV"
+          args=("--email=$EMAIL" "--output=$evidence_dir/testflight-invite.json")
+          if [[ -n "$FIRST_NAME" ]]; then
+            args+=("--first-name=$FIRST_NAME")
+          fi
+          if [[ -n "$LAST_NAME" ]]; then
+            args+=("--last-name=$LAST_NAME")
+          fi
+          node scripts/asc-beta-testers.mjs "${args[@]}"
+      - name: Destroy ephemeral ASC credential
+        if: always()
+        run: |
+          set -u
+          cleanup_failed=0
+          if [[ -n "${ZUULI_ASC_INVITE_SECRET_DIR:-}" && -d "$ZUULI_ASC_INVITE_SECRET_DIR" ]]; then
+            find "$ZUULI_ASC_INVITE_SECRET_DIR" -type f -exec rm -f -- {} + || cleanup_failed=1
+            rmdir "$ZUULI_ASC_INVITE_SECRET_DIR" || cleanup_failed=1
+          fi
+          if [[ -n "${ZUULI_ASC_INVITE_SECRET_DIR:-}" && -e "$ZUULI_ASC_INVITE_SECRET_DIR" ]]; then
+            cleanup_failed=1
+          fi
+          exit "$cleanup_failed"
+      - name: Upload sanitized invite evidence
+        if: success()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: zuuli-testflight-invite-${{ github.run_id }}
+          path: ${{ env.ZUULI_TESTFLIGHT_INVITE_EVIDENCE_DIR }}/testflight-invite.json
+          if-no-files-found: error
+          retention-days: 90
