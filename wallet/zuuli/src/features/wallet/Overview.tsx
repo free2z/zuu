@@ -63,7 +63,7 @@ export function Overview() {
               <div className="space-y-1">
                 <div className="eyebrow text-muted-foreground">Pending</div>
                 {balance ? (
-                  <div className="numeral text-sm text-foreground">
+                  <div className="bidi-number numeral text-sm text-foreground">
                     {formatZecDisplay(pending)}
                   </div>
                 ) : (
@@ -75,7 +75,7 @@ export function Overview() {
                   Total shielded
                 </div>
                 {balance ? (
-                  <div className="numeral text-sm text-foreground">
+                  <div className="bidi-number numeral text-sm text-foreground">
                     {formatZecDisplay(balance.totalShielded)}
                   </div>
                 ) : (
@@ -87,7 +87,7 @@ export function Overview() {
             <div className="grid grid-cols-2 gap-2 pt-1 sm:flex sm:flex-wrap">
               <Button asChild variant="zec" size="lg">
                 <Link to="/wallet/send">
-                  <ArrowUpRight className="h-4 w-4" />
+                  <ArrowUpRight className="rtl:-scale-x-100 h-4 w-4" />
                   Send
                 </Link>
               </Button>

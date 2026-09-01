@@ -329,7 +329,7 @@ const REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS = [
 const REQUIRED_FRONTEND_PACKAGE_SCRIPTS = new Map([
   [
     "test",
-    "vitest run && node --test scripts/safe-area-contract.node-test.mjs scripts/android-device-catalog.node-test.mjs scripts/media-permission-manifests.node-test.mjs scripts/android-release-artifact.node-test.mjs scripts/aab-payload-digest.node-test.mjs scripts/auth-session-boundary.node-test.mjs scripts/mermaid-security.node-test.mjs scripts/send-review-boundary.node-test.mjs scripts/mobile-webview-authority.node-test.mjs scripts/seed-capture-boundary.node-test.mjs scripts/ui-copy-truncation.node-test.mjs scripts/fixture-privacy.node-test.mjs scripts/apple-credential-boundary.node-test.mjs scripts/macos-keychain-entitlements.node-test.mjs scripts/artifact-sbom.node-test.mjs scripts/release-tag-identity.node-test.mjs scripts/status-freshness.node-test.mjs scripts/wasm-boundary.node-test.mjs scripts/messaging-contract.node-test.mjs && node scripts/apple-credential-boundary.mjs && node scripts/macos-keychain-entitlements.mjs && playwright test",
+    "vitest run && node --test scripts/safe-area-contract.node-test.mjs scripts/android-device-catalog.node-test.mjs scripts/media-permission-manifests.node-test.mjs scripts/android-release-artifact.node-test.mjs scripts/aab-payload-digest.node-test.mjs scripts/auth-session-boundary.node-test.mjs scripts/mermaid-security.node-test.mjs scripts/send-review-boundary.node-test.mjs scripts/mobile-webview-authority.node-test.mjs scripts/seed-capture-boundary.node-test.mjs scripts/ui-copy-truncation.node-test.mjs scripts/fixture-privacy.node-test.mjs scripts/apple-credential-boundary.node-test.mjs scripts/macos-keychain-entitlements.node-test.mjs scripts/artifact-sbom.node-test.mjs scripts/release-tag-identity.node-test.mjs scripts/status-freshness.node-test.mjs scripts/wasm-boundary.node-test.mjs scripts/messaging-contract.node-test.mjs scripts/rtl-source-policy.node-test.mjs && node scripts/apple-credential-boundary.mjs && node scripts/macos-keychain-entitlements.mjs && node scripts/rtl-source-policy.mjs && playwright test",
   ],
   [
     "build",
@@ -409,6 +409,10 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "        run: |",
   "          npm run typecheck",
   "          npm run typecheck:tests",
+  "      - name: Verify RTL source policy",
+  "        run: |",
+  "          node --test scripts/rtl-source-policy.node-test.mjs",
+  "          node scripts/rtl-source-policy.mjs",
   "      - name: Verify the viewport-test browser",
   "        run: google-chrome --version",
   "      - name: Test frontend contracts",
@@ -1466,6 +1470,16 @@ function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
       "          targets: wasm32-unknown-unknown",
     ].join("\n"),
     "frontend Rust/WASM installation must be exact, pinned, unconditional, and non-decorative",
+  );
+  exactNamedStep(
+    "Verify RTL source policy",
+    [
+      "      - name: Verify RTL source policy",
+      "        run: |",
+      "          node --test scripts/rtl-source-policy.node-test.mjs",
+      "          node scripts/rtl-source-policy.mjs",
+    ].join("\n"),
+    "RTL source policy must be self-tested and enforced exactly",
   );
   exactNamedStep(
     "Test frontend contracts",
@@ -4221,6 +4235,52 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle: `ZUULI selector must run the seed boundary for classic input ${input}`,
       source: source.replace(`|${input}`, ""),
     })),
+    {
+      name: "real workflow rejects a deleted RTL policy self-test",
+      needle: "RTL source policy must be self-tested and enforced exactly",
+      source: replaceFrontend(
+        "          node --test scripts/rtl-source-policy.node-test.mjs\n",
+        "",
+      ),
+    },
+    {
+      name: "real workflow rejects a deleted RTL policy verdict",
+      needle: "RTL source policy must be self-tested and enforced exactly",
+      source: replaceFrontend(
+        "          node scripts/rtl-source-policy.mjs\n",
+        "",
+      ),
+    },
+    {
+      name: "real workflow rejects deletion of both RTL policy invocations",
+      needle: "RTL source policy must be self-tested and enforced exactly",
+      source: replaceFrontend(
+        [
+          "      - name: Verify RTL source policy",
+          "        run: |",
+          "          node --test scripts/rtl-source-policy.node-test.mjs",
+          "          node scripts/rtl-source-policy.mjs",
+          "",
+        ].join("\n"),
+        "",
+      ),
+    },
+    {
+      name: "real workflow rejects a soft-failing RTL policy step",
+      needle: "RTL source policy must be self-tested and enforced exactly",
+      source: replaceFrontend(
+        "      - name: Verify RTL source policy",
+        "      - name: Verify RTL source policy\n        continue-on-error: true",
+      ),
+    },
+    {
+      name: "real workflow rejects a decorative RTL policy verdict",
+      needle: "RTL source policy must be self-tested and enforced exactly",
+      source: replaceFrontend(
+        "          node scripts/rtl-source-policy.mjs",
+        "          true # node scripts/rtl-source-policy.mjs",
+      ),
+    },
     {
       name: "real workflow requires the unique frontend display context",
       needle:

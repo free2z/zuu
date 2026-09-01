@@ -177,7 +177,7 @@ export function AuthChooser({
           >
             <Link to="/" aria-label="Continue as guest">
               Guest
-              <ArrowUpRight aria-hidden />
+              <ArrowUpRight className="rtl:-scale-x-100" aria-hidden />
             </Link>
           </Button>
         </div>
@@ -214,7 +214,7 @@ export function SelectedAuthMethod({
               disabled={busy}
               aria-label="Choose another login method"
             >
-              <ArrowLeft aria-hidden />
+              <ArrowLeft className="rtl:-scale-x-100" aria-hidden />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">Choose another method</TooltipContent>

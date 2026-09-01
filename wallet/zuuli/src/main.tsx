@@ -4,8 +4,11 @@ import { I18nextProvider } from "react-i18next";
 import App from "./App";
 import { mountApplication, RootFallback } from "./app-bootstrap";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
+import { installDocumentDirection } from "./lib/document-direction";
 import { runWasmSpike } from "./lib/wasm-spike";
 import "./index.css";
+
+installDocumentDirection();
 
 void mountApplication({
   root: ReactDOM.createRoot(document.getElementById("root")!),

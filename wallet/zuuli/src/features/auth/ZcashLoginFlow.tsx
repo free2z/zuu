@@ -17,7 +17,7 @@ import { useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Callout } from "@/components/ui/callout";
 import { Button } from "@/components/ui/button";
-import { truncateAddress } from "@/lib/format";
+import { BidiIdentifier } from "@/components/common/BidiIdentifier";
 import { cn } from "@/lib/utils";
 import { SeedReveal } from "./SeedReveal";
 import { RestoreIdentity } from "./RestoreIdentity";
@@ -265,12 +265,11 @@ export function ZcashLoginFlow({
       {address && (
         <div className="flex items-center justify-between rounded-lg border border-border bg-background/40 px-4 py-2.5">
           <span className="eyebrow text-muted-foreground">Signing as</span>
-          <code
+          <BidiIdentifier
+            value={address}
+            shorten
             className="mono-id font-mono text-xs text-foreground"
-            title={address}
-          >
-            {truncateAddress(address)}
-          </code>
+          />
         </div>
       )}
 
@@ -284,7 +283,7 @@ export function ZcashLoginFlow({
               {!isLast && (
                 <span
                   className={cn(
-                    "absolute left-4 top-9 h-[calc(100%-1.5rem)] w-px -translate-x-1/2 transition-colors",
+                    "absolute start-4 top-9 h-[calc(100%-1.5rem)] w-px transition-colors ltr:-translate-x-1/2 rtl:translate-x-1/2",
                     status === "done" ? "bg-success/40" : "bg-border",
                   )}
                   aria-hidden

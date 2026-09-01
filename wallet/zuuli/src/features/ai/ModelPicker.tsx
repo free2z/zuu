@@ -48,15 +48,15 @@ export function ModelPicker({ models, value, onChange, disabled }: ModelPickerPr
         <DropdownMenuTrigger asChild>
           <Button
             variant="outline"
-            className="min-h-10 min-w-0 max-w-full justify-start gap-2.5 whitespace-normal py-1.5 pr-2 text-left"
+            className="min-h-10 min-w-0 max-w-full justify-start gap-2.5 whitespace-normal py-1.5 pe-2 text-start"
             disabled={disabled || !value}
             aria-label="Select AI model"
           >
             {value ? <ModelGlyph model={value} /> : null}
-            <span className="min-w-0 flex-1 break-words text-left font-medium">
+            <span className="min-w-0 flex-1 break-words text-start font-medium">
               {value?.display_name ?? "Select a model"}
             </span>
-            <ChevronsUpDown className="ml-auto text-muted-foreground" aria-hidden />
+            <ChevronsUpDown className="ms-auto text-muted-foreground" aria-hidden />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-[min(22rem,90vw)]">
@@ -70,7 +70,7 @@ export function ModelPicker({ models, value, onChange, disabled }: ModelPickerPr
                   <Icon className={cn("h-3.5 w-3.5", meta.color)} aria-hidden />
                   {meta.label}
                   {provider === "local" ? (
-                    <span className="ml-auto text-xs font-normal text-primary">
+                    <span className="ms-auto text-xs font-normal text-primary">
                       anonymous · open source
                     </span>
                   ) : null}
@@ -98,7 +98,7 @@ export function ModelPicker({ models, value, onChange, disabled }: ModelPickerPr
                             </Badge>
                           ) : null}
                         </div>
-                        <div className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+                        <div className="mt-0.5 text-xs bidi-number tabular-nums text-muted-foreground">
                           {pricePerMessage(model)}
                         </div>
                       </div>
@@ -153,7 +153,7 @@ function ModelInfo({ model }: { model: AIModel }) {
       <TooltipContent
         side="bottom"
         align="start"
-        className="max-w-xs space-y-2 p-3 text-left"
+        className="max-w-xs space-y-2 p-3 text-start"
       >
         <div className="text-sm font-semibold text-foreground">
           {model.display_name}
@@ -161,21 +161,21 @@ function ModelInfo({ model }: { model: AIModel }) {
         <p className="text-xs italic leading-relaxed text-muted-foreground">
           &ldquo;{model.system_message}&rdquo;
         </p>
-        <div className="grid grid-cols-2 gap-1 text-xs tabular-nums text-muted-foreground">
+        <div className="grid grid-cols-2 gap-1 text-xs bidi-number tabular-nums text-muted-foreground">
           <span>Max output</span>
-          <span className="text-right text-foreground">
+          <span className="text-end text-foreground">
             {model.max_tokens.toLocaleString()} tok
           </span>
           <span>Input</span>
-          <span className="text-right text-foreground">
+          <span className="text-end text-foreground">
             {formatUsd(Number(model.input_price) * 1000)}/1K
           </span>
           <span>Output</span>
-          <span className="text-right text-foreground">
+          <span className="text-end text-foreground">
             {formatUsd(Number(model.output_price) * 1000)}/1K
           </span>
           <span>Markup</span>
-          <span className="text-right text-foreground">
+          <span className="text-end text-foreground">
             {Number(model.markup).toFixed(2)}&times;
           </span>
         </div>

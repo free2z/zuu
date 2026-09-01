@@ -56,7 +56,7 @@ export function ActivityTab() {
               })
             }
           >
-            <LogIn className="h-4 w-4" aria-hidden />
+            <LogIn className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
             Sign in
           </Button>
         }
@@ -168,10 +168,10 @@ export function ActivityTab() {
                     {timeAgo(t.timestamp)}
                   </div>
                 </div>
-                <div className="text-right">
+                <div className="text-end">
                   <div
                     className={cn(
-                      "font-semibold tabular-nums",
+                      "font-semibold bidi-number tabular-nums",
                       credit ? "text-success" : "text-muted-foreground",
                     )}
                   >
@@ -214,7 +214,7 @@ function SummaryChip({
         </div>
         <div>
           <div className="text-xs text-muted-foreground">{label}</div>
-          <div className="text-lg font-bold tabular-nums">
+          <div className="text-lg font-bold bidi-number tabular-nums">
             {formatTuzis(tuzis)}
           </div>
         </div>

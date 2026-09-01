@@ -34,7 +34,7 @@
   font-family: var(--font-mono);
   font-feature-settings: "zero" 1;
   direction: ltr;
-  text-align: left;
+  text-align: start;
   white-space: pre;
   word-spacing: normal;
   word-break: normal;
@@ -219,18 +219,16 @@
 }
 
 .zuuli-markdown .code-highlight {
-  float: left;
+  float: inline-start;
   min-width: 100%;
 }
 
 .zuuli-markdown .code-line {
   display: block;
-  padding-left: 16px;
-  padding-right: 16px;
-  margin-left: -16px;
-  margin-right: -16px;
-  border-left-width: 4px;
-  border-left-color: rgba(0, 0, 0, 0);
+  padding-inline: 16px;
+  margin-inline: -16px;
+  border-inline-start-width: 4px;
+  border-inline-start-color: rgba(0, 0, 0, 0);
 }
 
 .zuuli-markdown .code-line.inserted {
@@ -242,19 +240,18 @@
 }
 
 .zuuli-markdown .highlight-line {
-  margin-left: -16px;
-  margin-right: -16px;
+  margin-inline: -16px;
   background-color: hsl(var(--primary) / 0.15);
-  border-left-width: 4px;
-  border-left-color: hsl(var(--primary));
+  border-inline-start-width: 4px;
+  border-inline-start-color: hsl(var(--primary));
 }
 
 .zuuli-markdown .line-number::before {
   display: inline-block;
   width: 1.25rem;
-  text-align: right;
-  margin-right: 16px;
-  margin-left: -8px;
+  text-align: end;
+  margin-inline-end: 16px;
+  margin-inline-start: -8px;
   color: hsl(var(--muted-foreground));
   content: attr(line);
 }

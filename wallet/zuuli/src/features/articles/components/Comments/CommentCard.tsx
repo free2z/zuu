@@ -100,7 +100,7 @@ export function CommentCard({ comment, numChildren, onReplied }: CommentCardProp
               aria-hidden
             />
           </Button>
-          <span className="text-xs font-semibold tabular-nums text-muted-foreground">
+          <span className="text-xs font-semibold bidi-number tabular-nums text-muted-foreground">
             {score}
           </span>
           <Button
@@ -144,7 +144,7 @@ export function CommentCard({ comment, numChildren, onReplied }: CommentCardProp
               {timeAgo(comment.created_at)}
             </span>
             <span
-              className="ml-auto inline-flex items-center gap-1 text-xs tabular-nums text-muted-foreground"
+              className="ms-auto inline-flex items-center gap-1 text-xs bidi-number tabular-nums text-muted-foreground"
               title={`${formatTuzis(comment.tuzis)} weight`}
             >
               {formatTuzis(comment.tuzis)}
@@ -170,7 +170,7 @@ export function CommentCard({ comment, numChildren, onReplied }: CommentCardProp
               onClick={() => setReplying((r) => !r)}
               aria-expanded={replying}
             >
-              <Reply className="h-4 w-4" aria-hidden />
+              <Reply className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
               Reply
             </Button>
             {childCount > 0 ? (

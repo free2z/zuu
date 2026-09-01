@@ -44,13 +44,19 @@ test("cover is enabled only together with four authoritative inset fallbacks", (
       ),
     );
   }
+  assert.match(css, /--safe-area-inline-start: var\(--safe-area-left\);/);
+  assert.match(css, /--safe-area-inline-end: var\(--safe-area-right\);/);
+  assert.match(
+    css,
+    /:root\[dir="rtl"\]\s*{[^}]*--safe-area-inline-start: var\(--safe-area-right\);[^}]*--safe-area-inline-end: var\(--safe-area-left\);/s,
+  );
 
   assert.match(cssRule("app-top-bar"), /var\(--safe-area-top\)/);
   assert.match(cssRule("app-bottom-nav"), /var\(--safe-area-bottom\)/);
-  assert.match(cssRule("app-mobile-more-dialog"), /var\(--safe-area-left\)/);
-  assert.match(cssRule("app-mobile-more-dialog"), /var\(--safe-area-right\)/);
+  assert.match(cssRule("app-mobile-more-dialog"), /var\(--safe-area-inline-start\)/);
+  assert.match(cssRule("app-mobile-more-dialog"), /var\(--safe-area-inline-end\)/);
   assert.match(cssRule("app-mobile-more-dialog"), /var\(--safe-area-bottom\)/);
-  assert.match(cssRule("app-mobile-more-close"), /var\(--safe-area-right\)/);
+  assert.match(cssRule("app-mobile-more-close"), /var\(--safe-area-inline-end\)/);
   const moreDialogRule = cssRule("app-mobile-more-dialog");
   const legacyMoreHeight = moreDialogRule.indexOf("max-height: min(80vh, 32rem);");
   const dynamicMoreHeight = moreDialogRule.indexOf("max-height: min(80dvh, 32rem);");
@@ -59,8 +65,8 @@ test("cover is enabled only together with four authoritative inset fallbacks", (
     dynamicMoreHeight > legacyMoreHeight,
     "More sheet must override vh with dvh in declaration order",
   );
-  assert.match(cssRule("app-viewport"), /var\(--safe-area-left\)/);
-  assert.match(cssRule("app-viewport"), /var\(--safe-area-right\)/);
+  assert.match(cssRule("app-viewport"), /var\(--safe-area-inline-start\)/);
+  assert.match(cssRule("app-viewport"), /var\(--safe-area-inline-end\)/);
   assert.match(topBar, /className="app-top-bar /);
   assert.match(sidebar, /className="app-bottom-nav /);
   assert.match(topBar, /data-app-top-bar/);
