@@ -88,8 +88,10 @@
 
 use std::collections::BTreeSet;
 
+use syn::parse::Parser;
 use syn::{
-    Attribute, Fields, GenericArgument, Item, PathArguments, Token, Type, punctuated::Punctuated,
+    Attribute, Fields, GenericArgument, Item, Meta, PathArguments, Token, Type,
+    punctuated::Punctuated,
 };
 
 mod common;
@@ -153,21 +155,82 @@ struct DerivedDebugItem {
     raw_types: BTreeSet<String>,
 }
 
-/// Whether any attribute in `attrs` is a `#[derive(...)]` whose list names
-/// `Debug` — possibly through a re-exported or fully-qualified path, since
-/// only the last path segment has to read `Debug`.
+/// Three-valued truth for a `cfg(...)` predicate, evaluated only where the
+/// answer does not depend on the eventual build's feature/target
+/// configuration.
+///
+/// `#[cfg_attr(some_feature, derive(Debug))]` genuinely might or might not
+/// derive `Debug` depending on flags this scan cannot know; `Unknown` keeps
+/// that derive visible rather than guessing it away. Only `all()`/`any()`
+/// with no nested predicates, or a `not(...)` of an already-resolved
+/// predicate, resolve to `Always` or `Never` — which is exactly enough to
+/// evaluate the vacuous `cfg_attr(all(), ...)` shape this file's fixture
+/// uses, without pretending to be a real `cfg` evaluator.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CfgTruth {
+    Always,
+    Never,
+    Unknown,
+}
+
+fn cfg_truth(meta: &Meta) -> CfgTruth {
+    if let Meta::List(list) = meta {
+        let nested = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(list.tokens.clone());
+        if let Ok(nested) = nested {
+            if list.path.is_ident("all") {
+                return nested.iter().fold(CfgTruth::Always, |truth, item| {
+                    match (truth, cfg_truth(item)) {
+                        (CfgTruth::Never, _) | (_, CfgTruth::Never) => CfgTruth::Never,
+                        (CfgTruth::Always, CfgTruth::Always) => CfgTruth::Always,
+                        _ => CfgTruth::Unknown,
+                    }
+                });
+            }
+            if list.path.is_ident("any") {
+                return nested.iter().fold(CfgTruth::Never, |truth, item| {
+                    match (truth, cfg_truth(item)) {
+                        (CfgTruth::Always, _) | (_, CfgTruth::Always) => CfgTruth::Always,
+                        (CfgTruth::Never, CfgTruth::Never) => CfgTruth::Never,
+                        _ => CfgTruth::Unknown,
+                    }
+                });
+            }
+            if list.path.is_ident("not") && nested.len() == 1 {
+                return match cfg_truth(nested.first().unwrap()) {
+                    CfgTruth::Always => CfgTruth::Never,
+                    CfgTruth::Never => CfgTruth::Always,
+                    CfgTruth::Unknown => CfgTruth::Unknown,
+                };
+            }
+        }
+    }
+    CfgTruth::Unknown
+}
+
+/// Whether `meta` is a `#[derive(...)]` whose list names `Debug` —
+/// possibly through a re-exported or fully-qualified path, since only the
+/// last path segment has to read `Debug` — or a `#[cfg_attr(condition,
+/// derive(...))]` whose condition is not statically `Never` and whose
+/// nested attribute itself names `Debug`.
 ///
 /// `syn` has already separated this attribute's delimiters from its content
 /// before this function ever sees it, so nothing here cares whether the
 /// original source wrote the list on one line or ten, nor what a doc comment
 /// or reason string between `derive` and the item happened to contain.
-fn attrs_derive_debug(attrs: &[Attribute]) -> bool {
-    attrs.iter().any(|attribute| {
-        if !attribute.path().is_ident("derive") {
-            return false;
-        }
-        attribute
-            .parse_args_with(Punctuated::<syn::Path, Token![,]>::parse_terminated)
+///
+/// Before this, the scan only ever asked `attribute.path().is_ident("derive")`
+/// — so `#[cfg_attr(all(), derive(Debug))]`, a derive that is unconditionally
+/// active, was invisible to it: `path()` on a `cfg_attr` attribute reads
+/// `cfg_attr`, never `derive`, and the scan moved on without ever looking at
+/// what the `cfg_attr` was gating. A type could derive `Debug` over raw bytes
+/// this way and the leak check would report a clean scan.
+fn meta_derives_debug(meta: &Meta) -> bool {
+    let Meta::List(list) = meta else {
+        return false;
+    };
+    if list.path.is_ident("derive") {
+        return Punctuated::<syn::Path, Token![,]>::parse_terminated
+            .parse2(list.tokens.clone())
             .unwrap_or_else(|error| {
                 panic!("a #[derive(...)] list could not be parsed; refusing to skip it: {error}")
             })
@@ -176,8 +239,30 @@ fn attrs_derive_debug(attrs: &[Attribute]) -> bool {
                 path.segments
                     .last()
                     .is_some_and(|segment| segment.ident == "Debug")
-            })
-    })
+            });
+    }
+    if !list.path.is_ident("cfg_attr") {
+        return false;
+    }
+    let nested = Punctuated::<Meta, Token![,]>::parse_terminated
+        .parse2(list.tokens.clone())
+        .unwrap_or_else(|error| {
+            panic!("a #[cfg_attr(...)] could not be parsed; refusing to skip a possible derive: {error}")
+        });
+    let mut nested = nested.iter();
+    let condition = nested.next().unwrap_or_else(|| {
+        panic!("a #[cfg_attr(...)] had no condition; refusing to skip a possible derive")
+    });
+    cfg_truth(condition) != CfgTruth::Never && nested.any(meta_derives_debug)
+}
+
+/// Whether any attribute in `attrs` derives `Debug`, directly or through a
+/// `cfg_attr` whose condition is not statically `Never`. See
+/// [`meta_derives_debug`].
+fn attrs_derive_debug(attrs: &[Attribute]) -> bool {
+    attrs
+        .iter()
+        .any(|attribute| meta_derives_debug(&attribute.meta))
 }
 
 /// Whether `ty` is the bare `u8` path type, with no qualification and no
@@ -440,11 +525,115 @@ fn multiline_type_alias_cannot_hide_a_raw_byte_debug_leak() {
 }
 
 #[test]
+fn active_cfg_attr_derive_cannot_hide_a_raw_byte_debug_leak() {
+    // Before `meta_derives_debug` above, this scan only ever asked
+    // `attribute.path().is_ident("derive")`. `#[cfg_attr(all(), derive(Debug))]`
+    // is a derive that is unconditionally active — `all()` with no nested
+    // predicates is vacuously true — yet `path()` on a `cfg_attr` attribute
+    // reads `cfg_attr`, never `derive`, so the scanner never looked inside it
+    // at all. Verified directly against the pre-fix scanner: `scanned` came
+    // back `[]` and `violations` came back `[]`, a clean bill of health for a
+    // type that does derive `Debug` over a raw `Vec<u8>`.
+    const SOURCE: &str = "#[cfg_attr(all(), derive(Debug))]\nstruct CfgAttrLeak(Vec<u8>);\n";
+    let (scanned, violations) = scan_source("cfg-attr.rs", SOURCE);
+    assert_eq!(scanned, ["CfgAttrLeak"]);
+    assert_eq!(violations.len(), 1);
+    assert!(violations[0].contains("`CfgAttrLeak` derives Debug while holding `Vec<u8>`"));
+}
+
+#[test]
 fn safe_types_are_not_flagged() {
     const SOURCE: &str = "#[derive(Debug)]\nstruct Fine {\n    count: u32,\n    label: String,\n    words: Vec<u16>,\n}\n#[derive(Clone)]\nstruct NotDebug {\n    secret: Vec<u8>,\n}\n";
     let (scanned, violations) = scan_source("safe.rs", SOURCE);
     assert_eq!(scanned, ["Fine"]);
     assert!(violations.is_empty());
+}
+
+#[test]
+fn compiler_accepted_token_controls_match_the_scanner_contract() {
+    // Every fixture above is a claim about how `rustc` parses a token shape
+    // — a comment inside `derive`'s parentheses, a turbofish `Vec::<u8>`, a
+    // multi-line type alias, an unconditionally active `cfg_attr` derive.
+    // Asserting on `scan_source`'s output alone only proves this file's own
+    // parser agrees with itself; it says nothing about whether the source is
+    // real Rust `rustc` would actually accept. This test compiles the same
+    // shapes with the real compiler first, so a fixture that quietly stopped
+    // being valid Rust — or never was — fails loudly here instead of just
+    // exercising a scanner bug with another scanner bug.
+    const SOURCE: &str = r#"
+#![allow(dead_code)]
+#[cfg_attr(all(), derive(Debug))]
+struct CfgAttrLeak(Vec<u8>);
+#[derive /* review */ (Debug)]
+struct CommentLeak(Vec<u8>);
+#[derive(Debug)]
+struct TurbofishLeak(Vec::<u8>);
+type Bytes =
+    Vec<u8>;
+#[derive(Debug)]
+struct AliasLeak(Bytes);
+
+#[cfg_attr(any(), derive(Debug))]
+struct InactiveCfg(Vec<u8>);
+#[derive(Clone)]
+struct NotDebug(Vec<u8>);
+#[derive(Debug)]
+struct SafeWords(Vec::<u16>);
+type Words =
+    Vec<u16>;
+#[derive(Debug)]
+struct SafeAlias(Words);
+"#;
+
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory =
+        std::env::temp_dir().join(format!("f2z-debug-scan-{}-{unique}", std::process::id()));
+    std::fs::create_dir(&directory).unwrap();
+    let source_path = directory.join("controls.rs");
+    let metadata_path = directory.join("controls.rmeta");
+    std::fs::write(&source_path, SOURCE).unwrap();
+    let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    let output = std::process::Command::new(rustc)
+        .args(["--edition=2024", "--crate-type=lib", "--emit=metadata"])
+        .arg(&source_path)
+        .arg("-o")
+        .arg(&metadata_path)
+        .output()
+        .unwrap();
+    std::fs::remove_dir_all(&directory).unwrap();
+    assert!(
+        output.status.success(),
+        "the scanner's Rust-token fixture must compile:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let (scanned, violations) = scan_source("compiler-controls.rs", SOURCE);
+    assert_eq!(
+        scanned,
+        [
+            "CfgAttrLeak",
+            "CommentLeak",
+            "TurbofishLeak",
+            "AliasLeak",
+            "SafeWords",
+            "SafeAlias"
+        ]
+    );
+    assert_eq!(
+        violations.len(),
+        4,
+        "safe token controls must remain unflagged"
+    );
+    for leak in ["CfgAttrLeak", "CommentLeak", "TurbofishLeak", "AliasLeak"] {
+        assert!(
+            violations
+                .iter()
+                .any(|violation| violation.contains(&format!("`{leak}`")))
+        );
+    }
 }
 
 #[test]
