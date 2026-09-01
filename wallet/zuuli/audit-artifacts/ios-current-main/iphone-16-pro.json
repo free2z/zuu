@@ -1,0 +1,5859 @@
+{
+  "records": [
+    {
+      "name": "discover",
+      "route": "/",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [
+        {
+          "role": "div",
+          "label": "DiscoverWelcome to ZUULILivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider never se",
+          "x": 0,
+          "y": 56,
+          "width": 904,
+          "height": 2818.9
+        },
+        {
+          "role": "main",
+          "label": "DiscoverWelcome to ZUULILivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider never se",
+          "x": 0,
+          "y": 56,
+          "width": 904,
+          "height": 2818.9
+        },
+        {
+          "role": "div",
+          "label": "DiscoverWelcome to ZUULILivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider never se",
+          "x": 16,
+          "y": 80,
+          "width": 872,
+          "height": 2714.9
+        },
+        {
+          "role": "section",
+          "label": "DiscoverWelcome to ZUULILivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider never se",
+          "x": 16,
+          "y": 80,
+          "width": 872,
+          "height": 292.5
+        },
+        {
+          "role": "div",
+          "label": "DiscoverWelcome to ZUULILivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider never se",
+          "x": 16,
+          "y": 80,
+          "width": 872,
+          "height": 292.5
+        },
+        {
+          "role": "div",
+          "label": "DiscoverWelcome to ZUULILivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider never se",
+          "x": 41,
+          "y": 121,
+          "width": 672,
+          "height": 116
+        },
+        {
+          "role": "p",
+          "label": "Discover",
+          "x": 41,
+          "y": 121,
+          "width": 672,
+          "height": 16
+        },
+        {
+          "role": "h1",
+          "label": "Welcome to ZUULI",
+          "x": 41,
+          "y": 149,
+          "width": 672,
+          "height": 36
+        },
+        {
+          "role": "p",
+          "label": "Livestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider never sees you.",
+          "x": 41,
+          "y": 197,
+          "width": 576,
+          "height": 40
+        },
+        {
+          "role": "div",
+          "label": "2Z balance0 2ZZEC spendable1.299 ZEC",
+          "x": 41,
+          "y": 269,
+          "width": 822,
+          "height": 62.5
+        },
+        {
+          "role": "a",
+          "label": "ZEC spendable 1.299. Open wallet.",
+          "x": 238.3,
+          "y": 269,
+          "width": 207,
+          "height": 62.5
+        },
+        {
+          "role": "div",
+          "label": "ZEC spendable1.299 ZEC",
+          "x": 303.3,
+          "y": 282,
+          "width": 93,
+          "height": 36.5
+        },
+        {
+          "role": "div",
+          "label": "ZEC spendable",
+          "x": 303.3,
+          "y": 282,
+          "width": 93,
+          "height": 16.5
+        },
+        {
+          "role": "div",
+          "label": "1.299 ZEC",
+          "x": 303.3,
+          "y": 298.5,
+          "width": 93,
+          "height": 20
+        },
+        {
+          "role": "svg",
+          "label": "",
+          "x": 412.3,
+          "y": 292.3,
+          "width": 16,
+          "height": 16
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 416.9,
+          "y": 296.9,
+          "width": 6.7,
+          "height": 6.7
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 416.9,
+          "y": 296.9,
+          "width": 6.7,
+          "height": 6.7
+        },
+        {
+          "role": "section",
+          "label": "Live nowCreators broadcasting this momentView allLIVEBroadcast214Shielded & Chill — building a Zcash light client live@nineFreeLIVEPay-per-view38PPV: Deep dive ",
+          "x": 16,
+          "y": 412.5,
+          "width": 872,
+          "height": 336.9
+        },
+        {
+          "role": "div",
+          "label": "Live nowCreators broadcasting this momentView allLIVEBroadcast214Shielded & Chill — building a Zcash light client live@nineFreeLIVEPay-per-view38PPV: Deep dive ",
+          "x": 16,
+          "y": 412.5,
+          "width": 872,
+          "height": 336.9
+        },
+        {
+          "role": "div",
+          "label": "Live nowCreators broadcasting this momentView all",
+          "x": 16,
+          "y": 412.5,
+          "width": 872,
+          "height": 56
+        },
+        {
+          "role": "a",
+          "label": "View all: Live now",
+          "x": 817.4,
+          "y": 448.5,
+          "width": 70.6,
+          "height": 20
+        },
+        {
+          "role": "svg",
+          "label": "",
+          "x": 872,
+          "y": 450.5,
+          "width": 16,
+          "height": 16
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 880,
+          "y": 453.8,
+          "width": 4.7,
+          "height": 9.3
+        },
+        {
+          "role": "div",
+          "label": "LIVEBroadcast214Shielded & Chill — building a Zcash light client live@nineFreeLIVEPay-per-view38PPV: Deep dive — writing a Halo2 circuit from scratch@mining_may",
+          "x": 12,
+          "y": 484.5,
+          "width": 880,
+          "height": 264.9
+        },
+        {
+          "role": "a",
+          "label": "PPV: Deep dive — writing a Halo2 circuit from scratch — live now, 38 watching",
+          "x": 312,
+          "y": 484.5,
+          "width": 280,
+          "height": 256.9
+        },
+        {
+          "role": "div",
+          "label": "LIVEPay-per-view38",
+          "x": 313,
+          "y": 485.5,
+          "width": 278,
+          "height": 156.4
+        },
+        {
+          "role": "div",
+          "label": "",
+          "x": 313,
+          "y": 485.5,
+          "width": 278,
+          "height": 156.4
+        },
+        {
+          "role": "div",
+          "label": "LIVEPay-per-view",
+          "x": 325,
+          "y": 497.5,
+          "width": 167,
+          "height": 22
+        },
+        {
+          "role": "div",
+          "label": "Pay-per-view",
+          "x": 392.9,
+          "y": 497.5,
+          "width": 99.1,
+          "height": 22
+        },
+        {
+          "role": "div",
+          "label": "38",
+          "x": 529.5,
+          "y": 605.9,
+          "width": 49.5,
+          "height": 24
+        },
+        {
+          "role": "svg",
+          "label": "",
+          "x": 537.5,
+          "y": 610.9,
+          "width": 14,
+          "height": 14
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 538.7,
+          "y": 619.6,
+          "width": 8.2,
+          "height": 3.5
+        },
+        {
+          "role": "circle",
+          "label": "",
+          "x": 540.5,
+          "y": 612.6,
+          "width": 4.7,
+          "height": 4.7
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 548.6,
+          "y": 619.7,
+          "width": 1.8,
+          "height": 3.4
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 546.9,
+          "y": 612.7,
+          "width": 1.8,
+          "height": 4.5
+        },
+        {
+          "role": "span",
+          "label": "38",
+          "x": 555.5,
+          "y": 609.9,
+          "width": 15.5,
+          "height": 16
+        },
+        {
+          "role": "div",
+          "label": "",
+          "x": 313,
+          "y": 485.5,
+          "width": 278,
+          "height": 156.4
+        },
+        {
+          "role": "svg",
+          "label": "",
+          "x": 436,
+          "y": 547.7,
+          "width": 32,
+          "height": 32
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 438.6,
+          "y": 550.2,
+          "width": 3.9,
+          "height": 18.9
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 444.1,
+          "y": 554,
+          "width": 2.3,
+          "height": 10
+        },
+        {
+          "role": "circle",
+          "label": "",
+          "x": 449.3,
+          "y": 557,
+          "width": 5.3,
+          "height": 5.3
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 457.6,
+          "y": 554.1,
+          "width": 2.3,
+          "height": 10
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 461.5,
+          "y": 550.2,
+          "width": 3.9,
+          "height": 18.8
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 446.7,
+          "y": 562.4,
+          "width": 10.7,
+          "height": 14.7
+        },
+        {
+          "role": "div",
+          "label": "PPV: Deep dive — writing a Halo2 circuit from scratch@mining_maya250 2Z",
+          "x": 313,
+          "y": 641.9,
+          "width": 278,
+          "height": 98.5
+        },
+        {
+          "role": "h3",
+          "label": "PPV: Deep dive — writing a Halo2 circuit from scratch",
+          "x": 329,
+          "y": 657.9,
+          "width": 246,
+          "height": 38.5
+        },
+        {
+          "role": "div",
+          "label": "@mining_maya250 2Z",
+          "x": 329,
+          "y": 704.4,
+          "width": 246,
+          "height": 20
+        },
+        {
+          "role": "span",
+          "label": "@mining_maya",
+          "x": 329,
+          "y": 708.4,
+          "width": 85.8,
+          "height": 16
+        },
+        {
+          "role": "span",
+          "label": "250 2Z",
+          "x": 532.2,
+          "y": 708.4,
+          "width": 42.8,
+          "height": 16
+        },
+        {
+          "role": "a",
+          "label": "Subscribers only: the next 12 months of Zcash — live now, 91 watching",
+          "x": 608,
+          "y": 484.5,
+          "width": 280,
+          "height": 256.9
+        }
+      ],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "View all: Live now",
+          "x": 817.4,
+          "y": 448.5,
+          "width": 70.6,
+          "height": 20
+        },
+        {
+          "role": "a",
+          "label": "View all: Fresh articles",
+          "x": 817.4,
+          "y": 825.4,
+          "width": 70.6,
+          "height": 20
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "DiscoverWelcome to ZUULILivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider never se",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 2819
+        }
+      ],
+      "visibleText": "0 2Z\nLogin with Zcash\n\nDISCOVER\n\nWelcome to ZUULI\n\nLivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider never sees you.\n\n2Z BALANCE\n0 2Z\nZEC SPENDABLE\n1.299 ZEC\nLive now\n\nCreators broadcasting this moment\n\nView all\nLIVE\nBroadcast\n214\nShielded & Chill — building a Zcash light client live\n@nine\nFree\nLIVE\nPay-per-view\n38\nPPV: Deep dive — writing a Halo2 circuit from scratch\n@mining_maya\n250 2Z\nLIVE\nSubscribers\n91\nSubscribers only: the next 12 months of Zcash\n@zooko\nFree\nFresh articles\n\nLong-form writing from the community\n\nView all\nZCASH\nLogin With Zcash: No Password, No KYC\n\nYour key is your identity.\n\nN\nNine\n·\n6h ago\n5 min read\n203\nZCASH\nBuilding Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nZ\nZooko\n·\n22h ago\n3 min read\n11\nTECHNOLOGY\nMicrometering AI with 2Zs\n\nPay for exactly the tokens you use — anonymously.\n\nF\nFree2Z\n·\n1d ago\n4 min read\n74\nAsk any AI, anonymously\nEvery model, metered in 2Zs\n\nPrompt frontier and open-source models through the free2z proxy. No account leaks to the provider, and you only pay for the tokens you actually use.\n\nStart a conversation\nAnonymous by design\n\nYou talk to free2z; free2z talks to the model. The provider never sees you.\n\nMetered in 2Zs\n\nPay the exact upstream cost plus a thin margin, rounded up — no subscription.\n\nAny model, one balance\n\nClaude, GPT, Grok, Kimi, or open-source on our hardware — switch freely.\n\nCreators to watch\n\nVoices worth following on ZUULI\n\nZ\nZooko\n\nFounder-ish energy. Shielded by default.\n\nView profile\nM⛏\nMaya ⛏️\n\nHalo2 circuits & late-night proofs.\n\nView profile\nF\nFree2Z\n\nThe zero-knowledge creator platform.\n\nView profile\nN\nNine\n\nPrivacy maximalist. Streams from the void.\n\nView profile\nH\nHana\n\nRecursive proofs & zk-SNARK explainers.\n\nView profile\nS\nSam\n\nOn-chain privacy, off-chain vibes.\n\nView profile\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "search-empty",
+      "route": "/search",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [],
+      "visibleText": "0 2Z\nLogin with Zcash\nSearch\n\nFind every creator and every page across free2z — semantic page search included.\n\nSearch all of free2z\n\nStart typing to find creators by name and pages by meaning — results update as you go.\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "search-results",
+      "route": "/search?q=zcash",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [
+        {
+          "role": "div",
+          "label": "SearchFind every creator and every page across free2z — semantic page search included.Creators0Pages59Why Shielded-by-Default MattersZcashPrivacy is a public go",
+          "x": 0,
+          "y": 56,
+          "width": 440.1,
+          "height": 8304
+        },
+        {
+          "role": "main",
+          "label": "SearchFind every creator and every page across free2z — semantic page search included.Creators0Pages59Why Shielded-by-Default MattersZcashPrivacy is a public go",
+          "x": 0,
+          "y": 56,
+          "width": 440.1,
+          "height": 8304
+        },
+        {
+          "role": "div",
+          "label": "SearchFind every creator and every page across free2z — semantic page search included.Creators0Pages59Why Shielded-by-Default MattersZcashPrivacy is a public go",
+          "x": 16,
+          "y": 80,
+          "width": 408.1,
+          "height": 8200
+        },
+        {
+          "role": "div",
+          "label": "SearchFind every creator and every page across free2z — semantic page search included.",
+          "x": 16,
+          "y": 80,
+          "width": 408.1,
+          "height": 76
+        },
+        {
+          "role": "div",
+          "label": "SearchFind every creator and every page across free2z — semantic page search included.",
+          "x": 16,
+          "y": 80,
+          "width": 408.1,
+          "height": 76
+        },
+        {
+          "role": "h1",
+          "label": "Search",
+          "x": 16,
+          "y": 80,
+          "width": 408.1,
+          "height": 32
+        },
+        {
+          "role": "p",
+          "label": "Find every creator and every page across free2z — semantic page search included.",
+          "x": 16,
+          "y": 116,
+          "width": 408.1,
+          "height": 40
+        },
+        {
+          "role": "div",
+          "label": "",
+          "x": 16,
+          "y": 180,
+          "width": 408.1,
+          "height": 48
+        },
+        {
+          "role": "input",
+          "label": "Search creators and pages",
+          "x": 16,
+          "y": 180,
+          "width": 408.1,
+          "height": 48
+        },
+        {
+          "role": "button",
+          "label": "Clear search",
+          "x": 374.1,
+          "y": 182,
+          "width": 44,
+          "height": 44
+        },
+        {
+          "role": "svg",
+          "label": "",
+          "x": 388.1,
+          "y": 196,
+          "width": 16,
+          "height": 16
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 392.1,
+          "y": 200,
+          "width": 8,
+          "height": 8
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 392.1,
+          "y": 200,
+          "width": 8,
+          "height": 8
+        },
+        {
+          "role": "div",
+          "label": "Creators0Pages59Why Shielded-by-Default MattersZcashPrivacy is a public good, not a premium feature.by Zooko·2d agoLogin With Zcash: No Password, No KYCZcashYou",
+          "x": 16,
+          "y": 252,
+          "width": 408.1,
+          "height": 8028
+        },
+        {
+          "role": "tabpanel",
+          "label": "Why Shielded-by-Default MattersZcashPrivacy is a public good, not a premium feature.by Zooko·2d agoLogin With Zcash: No Password, No KYCZcashYour key is your id",
+          "x": 16,
+          "y": 308,
+          "width": 408.1,
+          "height": 7972
+        },
+        {
+          "role": "div",
+          "label": "Why Shielded-by-Default MattersZcashPrivacy is a public good, not a premium feature.by Zooko·2d agoLogin With Zcash: No Password, No KYCZcashYour key is your id",
+          "x": 16,
+          "y": 308,
+          "width": 408.1,
+          "height": 7972
+        },
+        {
+          "role": "a",
+          "label": "Read “Why Shielded-by-Default Matters”",
+          "x": 16,
+          "y": 308,
+          "width": 408.1,
+          "height": 104
+        },
+        {
+          "role": "div",
+          "label": "Why Shielded-by-Default MattersZcashPrivacy is a public good, not a premium feature.by Zooko·2d ago",
+          "x": 33,
+          "y": 325,
+          "width": 374.1,
+          "height": 70
+        },
+        {
+          "role": "div",
+          "label": "Why Shielded-by-Default MattersZcash",
+          "x": 33,
+          "y": 325,
+          "width": 374.1,
+          "height": 22
+        },
+        {
+          "role": "div",
+          "label": "Zcash",
+          "x": 349.9,
+          "y": 325,
+          "width": 57.1,
+          "height": 22
+        },
+        {
+          "role": "p",
+          "label": "Privacy is a public good, not a premium feature.",
+          "x": 33,
+          "y": 351,
+          "width": 374.1,
+          "height": 20
+        },
+        {
+          "role": "div",
+          "label": "by Zooko·2d ago",
+          "x": 33,
+          "y": 379,
+          "width": 374.1,
+          "height": 16
+        },
+        {
+          "role": "a",
+          "label": "Read “Login With Zcash: No Password, No KYC”",
+          "x": 16,
+          "y": 424,
+          "width": 408.1,
+          "height": 104
+        },
+        {
+          "role": "div",
+          "label": "Login With Zcash: No Password, No KYCZcashYour key is your identity.by Nine·6h ago",
+          "x": 33,
+          "y": 441,
+          "width": 374.1,
+          "height": 70
+        },
+        {
+          "role": "div",
+          "label": "Login With Zcash: No Password, No KYCZcash",
+          "x": 33,
+          "y": 441,
+          "width": 374.1,
+          "height": 22
+        },
+        {
+          "role": "div",
+          "label": "Zcash",
+          "x": 349.9,
+          "y": 441,
+          "width": 57.1,
+          "height": 22
+        },
+        {
+          "role": "p",
+          "label": "Your key is your identity.",
+          "x": 33,
+          "y": 467,
+          "width": 374.1,
+          "height": 20
+        },
+        {
+          "role": "div",
+          "label": "by Nine·6h ago",
+          "x": 33,
+          "y": 495,
+          "width": 374.1,
+          "height": 16
+        },
+        {
+          "role": "a",
+          "label": "Read “Building Halo2 Circuits”",
+          "x": 16,
+          "y": 540,
+          "width": 408.1,
+          "height": 124
+        },
+        {
+          "role": "div",
+          "label": "Building Halo2 CircuitsZcashA worked example from the Zcash community, written for ZUULI's mock corpus.by Zooko·22h ago",
+          "x": 33,
+          "y": 557,
+          "width": 374.1,
+          "height": 90
+        },
+        {
+          "role": "div",
+          "label": "Building Halo2 CircuitsZcash",
+          "x": 33,
+          "y": 557,
+          "width": 374.1,
+          "height": 22
+        },
+        {
+          "role": "div",
+          "label": "Zcash",
+          "x": 349.9,
+          "y": 557,
+          "width": 57.1,
+          "height": 22
+        },
+        {
+          "role": "p",
+          "label": "A worked example from the Zcash community, written for ZUULI's mock corpus.",
+          "x": 33,
+          "y": 583,
+          "width": 374.1,
+          "height": 40
+        },
+        {
+          "role": "div",
+          "label": "by Zooko·22h ago",
+          "x": 33,
+          "y": 631,
+          "width": 374.1,
+          "height": 16
+        },
+        {
+          "role": "a",
+          "label": "Read “Understanding the 2Z Economy”",
+          "x": 16,
+          "y": 676,
+          "width": 408.1,
+          "height": 124
+        },
+        {
+          "role": "div",
+          "label": "Understanding the 2Z EconomyTechnologyA worked example from the Zcash community, written for ZUULI's mock corpus.by Maya ⛏️·2d ago",
+          "x": 33,
+          "y": 693,
+          "width": 374.1,
+          "height": 90
+        },
+        {
+          "role": "div",
+          "label": "Understanding the 2Z EconomyTechnology",
+          "x": 33,
+          "y": 693,
+          "width": 374.1,
+          "height": 22
+        },
+        {
+          "role": "div",
+          "label": "Technology",
+          "x": 318.5,
+          "y": 693,
+          "width": 88.6,
+          "height": 22
+        },
+        {
+          "role": "p",
+          "label": "A worked example from the Zcash community, written for ZUULI's mock corpus.",
+          "x": 33,
+          "y": 719,
+          "width": 374.1,
+          "height": 40
+        },
+        {
+          "role": "div",
+          "label": "by Maya ⛏️·2d ago",
+          "x": 33,
+          "y": 767,
+          "width": 374.1,
+          "height": 16
+        },
+        {
+          "role": "a",
+          "label": "Read “A Field Guide to Light Clients”",
+          "x": 16,
+          "y": 812,
+          "width": 408.1,
+          "height": 124
+        },
+        {
+          "role": "div",
+          "label": "A Field Guide to Light ClientsEducationA worked example from the Zcash community, written for ZUULI's mock corpus.by Free2Z·3d ago",
+          "x": 33,
+          "y": 829,
+          "width": 374.1,
+          "height": 90
+        },
+        {
+          "role": "div",
+          "label": "A Field Guide to Light ClientsEducation",
+          "x": 33,
+          "y": 829,
+          "width": 374.1,
+          "height": 22
+        },
+        {
+          "role": "div",
+          "label": "Education",
+          "x": 327.4,
+          "y": 829,
+          "width": 79.6,
+          "height": 22
+        },
+        {
+          "role": "p",
+          "label": "A worked example from the Zcash community, written for ZUULI's mock corpus.",
+          "x": 33,
+          "y": 855,
+          "width": 374.1,
+          "height": 40
+        },
+        {
+          "role": "div",
+          "label": "by Free2Z·3d ago",
+          "x": 33,
+          "y": 903,
+          "width": 374.1,
+          "height": 16
+        },
+        {
+          "role": "a",
+          "label": "Read “Notes on Private Payments”",
+          "x": 16,
+          "y": 948,
+          "width": 408.1,
+          "height": 124
+        },
+        {
+          "role": "div",
+          "label": "Notes on Private PaymentsCommunityA worked example from the Zcash community, written for ZUULI's mock corpus.by Nine·4d ago",
+          "x": 33,
+          "y": 965,
+          "width": 374.1,
+          "height": 90
+        },
+        {
+          "role": "div",
+          "label": "Notes on Private PaymentsCommunity",
+          "x": 33,
+          "y": 965,
+          "width": 374.1,
+          "height": 22
+        },
+        {
+          "role": "div",
+          "label": "Community",
+          "x": 319,
+          "y": 965,
+          "width": 88,
+          "height": 22
+        }
+      ],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "tab",
+          "label": "Creators0",
+          "x": 20,
+          "y": 256,
+          "width": 130.3,
+          "height": 32
+        },
+        {
+          "role": "tab",
+          "label": "Pages59",
+          "x": 150.3,
+          "y": 256,
+          "width": 120.9,
+          "height": 32
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "SearchFind every creator and every page across free2z — semantic page search included.Creators0Pages59Why Shielded-by-Default MattersZcashPrivacy is a public go",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 8304
+        }
+      ],
+      "visibleText": "0 2Z\nLogin with Zcash\nSearch\n\nFind every creator and every page across free2z — semantic page search included.\n\nCreators\n0\nPages\n59\nWhy Shielded-by-Default Matters\nZcash\n\nPrivacy is a public good, not a premium feature.\n\nby Zooko\n·\n2d ago\nLogin With Zcash: No Password, No KYC\nZcash\n\nYour key is your identity.\n\nby Nine\n·\n6h ago\nBuilding Halo2 Circuits\nZcash\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Zooko\n·\n22h ago\nUnderstanding the 2Z Economy\nTechnology\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Maya ⛏️\n·\n2d ago\nA Field Guide to Light Clients\nEducation\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Free2Z\n·\n3d ago\nNotes on Private Payments\nCommunity\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Nine\n·\n4d ago\nRethinking Halo2 Circuits\nPrivacy\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Hana\n·\n5d ago\nThe Case for the 2Z Economy\nResearch\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Sam\n·\n5d ago\nDeep Dive: Light Clients\nZcash\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Zooko\n·\n6d ago\nPractical Private Payments\nTechnology\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Maya ⛏️\n·\n7d ago\nInside Halo2 Circuits\nEducation\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Free2Z\n·\n8d ago\nThe Future of the 2Z Economy\nCommunity\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Nine\n·\n9d ago\nBuilding Light Clients\nPrivacy\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Hana\n·\n10d ago\nUnderstanding Private Payments\nResearch\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Sam\n·\n11d ago\nA Field Guide to Halo2 Circuits\nZcash\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Zooko\n·\n12d ago\nNotes on the 2Z Economy\nTechnology\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Maya ⛏️\n·\n13d ago\nRethinking Light Clients\nEducation\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Free2Z\n·\n14d ago\nThe Case for Private Payments\nCommunity\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Nine\n·\n14d ago\nDeep Dive: Halo2 Circuits\nPrivacy\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Hana\n·\n15d ago\nPractical the 2Z Economy\nResearch\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Sam\n·\n16d ago\nInside Light Clients\nZcash\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Zooko\n·\n17d ago\nThe Future of Private Payments\nTechnology\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Maya ⛏️\n·\n18d ago\nBuilding Halo2 Circuits\nEducation\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Free2Z\n·\n19d ago\nUnderstanding the 2Z Economy\nCommunity\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Nine\n·\n20d ago\nA Field Guide to Light Clients\nPrivacy\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Hana\n·\n21d ago\nNotes on Private Payments\nResearch\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Sam\n·\n22d ago\nRethinking Halo2 Circuits\nZcash\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Zooko\n·\n23d ago\nThe Case for the 2Z Economy\nTechnology\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Maya ⛏️\n·\n23d ago\nDeep Dive: Light Clients\nEducation\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Free2Z\n·\n24d ago\nPractical Private Payments\nCommunity\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Nine\n·\n25d ago\nInside Halo2 Circuits\nPrivacy\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Hana\n·\n26d ago\nThe Future of the 2Z Economy\nResearch\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Sam\n·\n27d ago\nBuilding Light Clients\nZcash\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Zooko\n·\n28d ago\nUnderstanding Private Payments\nTechnology\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Maya ⛏️\n·\n29d ago\nA Field Guide to Halo2 Circuits\nEducation\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Free2Z\n·\n7/20/2026\nNotes on the 2Z Economy\nCommunity\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Nine\n·\n7/19/2026\nRethinking Light Clients\nPrivacy\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Hana\n·\n7/18/2026\nThe Case for Private Payments\nResearch\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Sam\n·\n7/17/2026\nDeep Dive: Halo2 Circuits\nZcash\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Zooko\n·\n7/16/2026\nPractical the 2Z Economy\nTechnology\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Maya ⛏️\n·\n7/15/2026\nInside Light Clients\nEducation\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Free2Z\n·\n7/14/2026\nThe Future of Private Payments\nCommunity\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Nine\n·\n7/13/2026\nBuilding Halo2 Circuits\nPrivacy\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Hana\n·\n7/13/2026\nUnderstanding the 2Z Economy\nResearch\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Sam\n·\n7/12/2026\nA Field Guide to Light Clients\nZcash\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Zooko\n·\n7/11/2026\nNotes on Private Payments\nTechnology\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Maya ⛏️\n·\n7/10/2026\nRethinking Halo2 Circuits\nEducation\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Free2Z\n·\n7/9/2026\nThe Case for the 2Z Economy\nCommunity\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Nine\n·\n7/8/2026\nDeep Dive: Light Clients\nPrivacy\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Hana\n·\n7/7/2026\nPractical Private Payments\nResearch\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Sam\n·\n7/6/2026\nInside Halo2 Circuits\nZcash\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Zooko\n·\n7/5/2026\nThe Future of the 2Z Economy\nTechnology\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Maya ⛏️\n·\n7/4/2026\nBuilding Light Clients\nEducation\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Free2Z\n·\n7/4/2026\nUnderstanding Private Payments\nCommunity\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Nine\n·\n7/3/2026\nA Field Guide to Halo2 Circuits\nPrivacy\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Hana\n·\n7/2/2026\nNotes on the 2Z Economy\nResearch\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Sam\n·\n7/1/2026\nRethinking Light Clients\nZcash\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Zooko\n·\n6/30/2026\nThe Case for Private Payments\nTechnology\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Maya ⛏️\n·\n6/29/2026\nDeep Dive: Halo2 Circuits\nEducation\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nby Free2Z\n·\n6/28/2026\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "creator-zooko",
+      "route": "/creator/zooko",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "Search",
+          "x": 16,
+          "y": 80,
+          "width": 69,
+          "height": 20
+        },
+        {
+          "role": "a",
+          "label": "Watch Zooko live",
+          "x": 20,
+          "y": 344,
+          "width": 125.9,
+          "height": 40
+        },
+        {
+          "role": "button",
+          "label": "Tip Zooko",
+          "x": 153.9,
+          "y": 344,
+          "width": 78.8,
+          "height": 40
+        },
+        {
+          "role": "button",
+          "label": "Subscribe to Zooko · 500 2Z/mo",
+          "x": 20,
+          "y": 392,
+          "width": 182.9,
+          "height": 40
+        },
+        {
+          "role": "a",
+          "label": "Zooko on X",
+          "x": 16,
+          "y": 550.4,
+          "width": 91.5,
+          "height": 30
+        },
+        {
+          "role": "a",
+          "label": "Zooko on GitHub",
+          "x": 115.5,
+          "y": 550.4,
+          "width": 80.5,
+          "height": 30
+        },
+        {
+          "role": "a",
+          "label": "Zooko on Website",
+          "x": 204,
+          "y": 550.4,
+          "width": 131.3,
+          "height": 30
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "SearchZZooko@zooko12 pages904 scoreWatch liveTipSubscribe · 500 2Z/moFounder-ish energy. Shielded by default.@zookozookoelectriccoin.coPages by ZookoWhy Shielde",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 4570
+        }
+      ],
+      "visibleText": "0 2Z\nLogin with Zcash\nSearch\nZ\nZooko\n@zooko\n12 pages\n904 score\nWatch live\nTip\nSubscribe · 500 2Z/mo\n\nFounder-ish energy. Shielded by default.\n\n@zooko\nzooko\nelectriccoin.co\nPages by Zooko\nWhy Shielded-by-Default Matters\n\nPrivacy is a public good, not a premium feature.\n\n6 min\n2d ago\nBuilding Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n3 min\n22h ago\nDeep Dive: Light Clients\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n9 min\n6d ago\nA Field Guide to Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n7 min\n12d ago\nInside Light Clients\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n5 min\n17d ago\nRethinking Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n3 min\n23d ago\nBuilding Light Clients\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n9 min\n28d ago\nDeep Dive: Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n7 min\n7/16/2026\nA Field Guide to Light Clients\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n5 min\n7/11/2026\nInside Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n3 min\n7/5/2026\nRethinking Light Clients\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n9 min\n6/30/2026\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "creator-missing",
+      "route": "/creator/does-not-exist",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "Search",
+          "x": 16,
+          "y": 80,
+          "width": 69,
+          "height": 20
+        },
+        {
+          "role": "button",
+          "label": "Tip does-not-exist",
+          "x": 20,
+          "y": 344,
+          "width": 78.8,
+          "height": 40
+        },
+        {
+          "role": "button",
+          "label": "Follow does-not-exist",
+          "x": 106.8,
+          "y": 344,
+          "width": 98.5,
+          "height": 40
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "SearchDdoes-not-exist@does-not-exist0 pages709 scoreTipSubscribeA creator on ZUULI, publishing on Zcash and privacy. Follow along.Pages by does-not-existNo page",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 881
+        }
+      ],
+      "visibleText": "0 2Z\nLogin with Zcash\nSearch\nD\ndoes-not-exist\n@does-not-exist\n0 pages\n709 score\nTip\nSubscribe\n\nA creator on ZUULI, publishing on Zcash and privacy. Follow along.\n\nPages by does-not-exist\nNo pages yet\n\ndoes-not-exist hasn't published any pages yet.\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "profile-gate",
+      "route": "/profile",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "Sign in with Zcash",
+          "x": 120.4,
+          "y": 341,
+          "width": 152.2,
+          "height": 40
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [],
+      "visibleText": "0 2Z\nLogin with Zcash\nEdit profile\nSign in with Zcash to edit your profile\n\nSign a challenge with your wallet — no password or email required.\n\nSign in with Zcash\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "kyc-gate",
+      "route": "/kyc",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "Sign in with Zcash",
+          "x": 120.4,
+          "y": 341,
+          "width": 152.2,
+          "height": 40
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [],
+      "visibleText": "0 2Z\nLogin with Zcash\nApply for revenue share\nSign in to apply\n\nSign in with Zcash to start your creator revenue-share application.\n\nSign in with Zcash\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "wallet-overview",
+      "route": "/wallet",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [
+        {
+          "role": "div",
+          "label": "WalletYour Zcash, shielded by default.OverviewSendReceiveHistorySpendable balance1.29900000ZECPending0.075 ZECTotal shielded1.374 ZECSendReceiveSynced2,612,004 ",
+          "x": 0,
+          "y": 56,
+          "width": 430.9,
+          "height": 1052
+        },
+        {
+          "role": "main",
+          "label": "WalletYour Zcash, shielded by default.OverviewSendReceiveHistorySpendable balance1.29900000ZECPending0.075 ZECTotal shielded1.374 ZECSendReceiveSynced2,612,004 ",
+          "x": 0,
+          "y": 56,
+          "width": 430.9,
+          "height": 1052
+        },
+        {
+          "role": "div",
+          "label": "WalletYour Zcash, shielded by default.OverviewSendReceiveHistorySpendable balance1.29900000ZECPending0.075 ZECTotal shielded1.374 ZECSendReceiveSynced2,612,004 ",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 948
+        },
+        {
+          "role": "div",
+          "label": "WalletYour Zcash, shielded by default.",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 56
+        },
+        {
+          "role": "div",
+          "label": "WalletYour Zcash, shielded by default.",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 56
+        },
+        {
+          "role": "h1",
+          "label": "Wallet",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 32
+        },
+        {
+          "role": "p",
+          "label": "Your Zcash, shielded by default.",
+          "x": 16,
+          "y": 116,
+          "width": 398.9,
+          "height": 20
+        },
+        {
+          "role": "nav",
+          "label": "Wallet sections",
+          "x": 16,
+          "y": 160,
+          "width": 398.9,
+          "height": 40
+        },
+        {
+          "role": "a",
+          "label": "History",
+          "x": 317,
+          "y": 164,
+          "width": 93.8,
+          "height": 32
+        },
+        {
+          "role": "div",
+          "label": "Spendable balance1.29900000ZECPending0.075 ZECTotal shielded1.374 ZECSendReceiveSynced2,612,004 / 2,612,004Your unified addressu1l8xune…0mz0kmvexzCopyRecent act",
+          "x": 16,
+          "y": 224,
+          "width": 398.9,
+          "height": 804
+        },
+        {
+          "role": "div",
+          "label": "Spendable balance1.29900000ZECPending0.075 ZECTotal shielded1.374 ZECSendReceiveSynced2,612,004 / 2,612,004Your unified addressu1l8xune…0mz0kmvexzCopy",
+          "x": 16,
+          "y": 224,
+          "width": 398.9,
+          "height": 488
+        },
+        {
+          "role": "div",
+          "label": "Spendable balance1.29900000ZECPending0.075 ZECTotal shielded1.374 ZECSendReceive",
+          "x": 16,
+          "y": 224,
+          "width": 398.9,
+          "height": 246
+        },
+        {
+          "role": "div",
+          "label": "",
+          "x": 17,
+          "y": 225,
+          "width": 396.9,
+          "height": 244
+        },
+        {
+          "role": "div",
+          "label": "Spendable balance1.29900000ZECPending0.075 ZECTotal shielded1.374 ZECSendReceive",
+          "x": 17,
+          "y": 225,
+          "width": 396.9,
+          "height": 244
+        },
+        {
+          "role": "div",
+          "label": "Synced2,612,004 / 2,612,004Your unified addressu1l8xune…0mz0kmvexzCopy",
+          "x": 16,
+          "y": 494,
+          "width": 398.9,
+          "height": 218
+        },
+        {
+          "role": "status",
+          "label": "Synced2,612,004 / 2,612,004",
+          "x": 16,
+          "y": 494,
+          "width": 398.9,
+          "height": 72
+        },
+        {
+          "role": "div",
+          "label": "Synced",
+          "x": 33,
+          "y": 511,
+          "width": 364.9,
+          "height": 20
+        },
+        {
+          "role": "p",
+          "label": "2,612,004 / 2,612,004",
+          "x": 33,
+          "y": 533,
+          "width": 364.9,
+          "height": 16
+        },
+        {
+          "role": "div",
+          "label": "Your unified addressu1l8xune…0mz0kmvexzCopy",
+          "x": 16,
+          "y": 590,
+          "width": 398.9,
+          "height": 122
+        },
+        {
+          "role": "div",
+          "label": "Your unified addressu1l8xune…0mz0kmvexzCopy",
+          "x": 137,
+          "y": 609,
+          "width": 260.9,
+          "height": 84
+        },
+        {
+          "role": "div",
+          "label": "Your unified address",
+          "x": 137,
+          "y": 609,
+          "width": 260.9,
+          "height": 16
+        },
+        {
+          "role": "div",
+          "label": "u1l8xune…0mz0kmvexz",
+          "x": 137,
+          "y": 629,
+          "width": 260.9,
+          "height": 20
+        },
+        {
+          "role": "div",
+          "label": "Copy",
+          "x": 137,
+          "y": 653,
+          "width": 260.9,
+          "height": 40
+        },
+        {
+          "role": "div",
+          "label": "Recent activityView allReceivedWelcome to ZUULI 🎉+0.50 ZECAug 18, 2026, 09:56 PMSentBought 2Zs−0.12 ZECAug 17, 2026, 10:56 PMReceivedc3d4e5f6…f0a1b2c3d4+1.00 Z",
+          "x": 16,
+          "y": 736,
+          "width": 398.9,
+          "height": 292
+        },
+        {
+          "role": "div",
+          "label": "Recent activityView all",
+          "x": 17,
+          "y": 737,
+          "width": 396.9,
+          "height": 84
+        },
+        {
+          "role": "div",
+          "label": "ReceivedWelcome to ZUULI 🎉+0.50 ZECAug 18, 2026, 09:56 PMSentBought 2Zs−0.12 ZECAug 17, 2026, 10:56 PMReceivedc3d4e5f6…f0a1b2c3d4+1.00 ZECAug 15, 2026, 10:56 P",
+          "x": 17,
+          "y": 821,
+          "width": 396.9,
+          "height": 206
+        },
+        {
+          "role": "div",
+          "label": "ReceivedWelcome to ZUULI 🎉+0.50 ZECAug 18, 2026, 09:56 PMSentBought 2Zs−0.12 ZECAug 17, 2026, 10:56 PMReceivedc3d4e5f6…f0a1b2c3d4+1.00 ZECAug 15, 2026, 10:56 P",
+          "x": 29,
+          "y": 821,
+          "width": 372.9,
+          "height": 182
+        },
+        {
+          "role": "div",
+          "label": "ReceivedWelcome to ZUULI 🎉+0.50 ZECAug 18, 2026, 09:56 PM",
+          "x": 29,
+          "y": 821,
+          "width": 372.9,
+          "height": 60
+        },
+        {
+          "role": "div",
+          "label": "SentBought 2Zs−0.12 ZECAug 17, 2026, 10:56 PM",
+          "x": 29,
+          "y": 881,
+          "width": 372.9,
+          "height": 61
+        },
+        {
+          "role": "div",
+          "label": "Receivedc3d4e5f6…f0a1b2c3d4+1.00 ZECAug 15, 2026, 10:56 PM",
+          "x": 29,
+          "y": 942,
+          "width": 372.9,
+          "height": 61
+        }
+      ],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "Overview",
+          "x": 20,
+          "y": 164,
+          "width": 107.7,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "Send",
+          "x": 131.7,
+          "y": 164,
+          "width": 79.8,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "Receive",
+          "x": 215.5,
+          "y": 164,
+          "width": 97.6,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "History",
+          "x": 317,
+          "y": 164,
+          "width": 93.8,
+          "height": 32
+        },
+        {
+          "role": "button",
+          "label": "Copy",
+          "x": 137,
+          "y": 657,
+          "width": 79.9,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "View all",
+          "x": 321.5,
+          "y": 761,
+          "width": 68.4,
+          "height": 36
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "WalletYour Zcash, shielded by default.OverviewSendReceiveHistorySpendable balance1.29900000ZECPending0.075 ZECTotal shielded1.374 ZECSendReceiveSynced2,612,004 ",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 1052
+        }
+      ],
+      "visibleText": "0 2Z\nLogin with Zcash\nWallet\n\nYour Zcash, shielded by default.\n\nOverview\nSend\nReceive\nHistory\nSPENDABLE BALANCE\n1\n.29900000\nZEC\nPending\n0.075 ZEC\nTotal shielded\n1.374 ZEC\nSend\nReceive\nSynced\n\n2,612,004 / 2,612,004\n\nYOUR UNIFIED ADDRESS\nu1l8xune…0mz0kmvexz\nCopy\nRecent activity\nView all\nReceived\n\nWelcome to ZUULI 🎉\n\n+0.50 ZEC\nAug 18, 2026, 09:56 PM\nSent\n\nBought 2Zs\n\n−0.12 ZEC\nAug 17, 2026, 10:56 PM\nReceived\n\nc3d4e5f6…f0a1b2c3d4\n\n+1.00 ZEC\nAug 15, 2026, 10:56 PM\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "wallet-send",
+      "route": "/wallet/send",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [
+        {
+          "role": "div",
+          "label": "SendSend shielded ZEC with an optional encrypted memo.OverviewSendReceiveHistorySend ZECRecipient addressAmountMax: 1.2989 ZECZECMemo (optional)0/512 bytesMemos",
+          "x": 0,
+          "y": 56,
+          "width": 430.9,
+          "height": 750
+        },
+        {
+          "role": "main",
+          "label": "SendSend shielded ZEC with an optional encrypted memo.OverviewSendReceiveHistorySend ZECRecipient addressAmountMax: 1.2989 ZECZECMemo (optional)0/512 bytesMemos",
+          "x": 0,
+          "y": 56,
+          "width": 430.9,
+          "height": 750
+        },
+        {
+          "role": "div",
+          "label": "SendSend shielded ZEC with an optional encrypted memo.OverviewSendReceiveHistorySend ZECRecipient addressAmountMax: 1.2989 ZECZECMemo (optional)0/512 bytesMemos",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 646
+        },
+        {
+          "role": "div",
+          "label": "SendSend shielded ZEC with an optional encrypted memo.",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 56
+        },
+        {
+          "role": "div",
+          "label": "SendSend shielded ZEC with an optional encrypted memo.",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 56
+        },
+        {
+          "role": "h1",
+          "label": "Send",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 32
+        },
+        {
+          "role": "p",
+          "label": "Send shielded ZEC with an optional encrypted memo.",
+          "x": 16,
+          "y": 116,
+          "width": 398.9,
+          "height": 20
+        },
+        {
+          "role": "nav",
+          "label": "Wallet sections",
+          "x": 16,
+          "y": 160,
+          "width": 398.9,
+          "height": 40
+        },
+        {
+          "role": "a",
+          "label": "History",
+          "x": 317,
+          "y": 164,
+          "width": 93.8,
+          "height": 32
+        },
+        {
+          "role": "div",
+          "label": "Send ZECRecipient addressAmountMax: 1.2989 ZECZECMemo (optional)0/512 bytesMemos are encrypted and only visible to the recipient.Review payment",
+          "x": 16,
+          "y": 224,
+          "width": 398.9,
+          "height": 502
+        },
+        {
+          "role": "div",
+          "label": "Send ZECRecipient addressAmountMax: 1.2989 ZECZECMemo (optional)0/512 bytesMemos are encrypted and only visible to the recipient.Review payment",
+          "x": 16,
+          "y": 224,
+          "width": 398.9,
+          "height": 502
+        },
+        {
+          "role": "div",
+          "label": "Send ZEC",
+          "x": 17,
+          "y": 225,
+          "width": 396.9,
+          "height": 64
+        },
+        {
+          "role": "div",
+          "label": "Recipient addressAmountMax: 1.2989 ZECZECMemo (optional)0/512 bytesMemos are encrypted and only visible to the recipient.Review payment",
+          "x": 17,
+          "y": 289,
+          "width": 396.9,
+          "height": 436
+        }
+      ],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "Overview",
+          "x": 20,
+          "y": 164,
+          "width": 107.7,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "Send",
+          "x": 131.7,
+          "y": 164,
+          "width": 79.8,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "Receive",
+          "x": 215.5,
+          "y": 164,
+          "width": 97.6,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "History",
+          "x": 317,
+          "y": 164,
+          "width": 93.8,
+          "height": 32
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 41,
+          "y": 319,
+          "width": 348.9,
+          "height": 40
+        },
+        {
+          "role": "button",
+          "label": "Max: 1.2989 ZEC",
+          "x": 293.7,
+          "y": 405,
+          "width": 96.2,
+          "height": 16
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 41,
+          "y": 427,
+          "width": 348.9,
+          "height": 40
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [],
+      "visibleText": "0 2Z\nLogin with Zcash\nSend\n\nSend shielded ZEC with an optional encrypted memo.\n\nOverview\nSend\nReceive\nHistory\nSend ZEC\nRecipient address\nAmount\nMax: 1.2989 ZEC\nZEC\nMemo (optional)\n0/512 bytes\n\nMemos are encrypted and only visible to the recipient.\n\nReview payment\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "wallet-receive",
+      "route": "/wallet/receive",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [
+        {
+          "role": "div",
+          "label": "ReceiveShare your unified address to get paid privately.OverviewSendReceiveHistoryReceive ZECShare this unified address to get paid.u1l8xunezsvpntq2snz67h6md2eq",
+          "x": 0,
+          "y": 56,
+          "width": 430.9,
+          "height": 848
+        },
+        {
+          "role": "main",
+          "label": "ReceiveShare your unified address to get paid privately.OverviewSendReceiveHistoryReceive ZECShare this unified address to get paid.u1l8xunezsvpntq2snz67h6md2eq",
+          "x": 0,
+          "y": 56,
+          "width": 430.9,
+          "height": 848
+        },
+        {
+          "role": "div",
+          "label": "ReceiveShare your unified address to get paid privately.OverviewSendReceiveHistoryReceive ZECShare this unified address to get paid.u1l8xunezsvpntq2snz67h6md2eq",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 744
+        },
+        {
+          "role": "div",
+          "label": "ReceiveShare your unified address to get paid privately.",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 56
+        },
+        {
+          "role": "div",
+          "label": "ReceiveShare your unified address to get paid privately.",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 56
+        },
+        {
+          "role": "h1",
+          "label": "Receive",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 32
+        },
+        {
+          "role": "p",
+          "label": "Share your unified address to get paid privately.",
+          "x": 16,
+          "y": 116,
+          "width": 398.9,
+          "height": 20
+        },
+        {
+          "role": "nav",
+          "label": "Wallet sections",
+          "x": 16,
+          "y": 160,
+          "width": 398.9,
+          "height": 40
+        },
+        {
+          "role": "a",
+          "label": "History",
+          "x": 317,
+          "y": 164,
+          "width": 93.8,
+          "height": 32
+        },
+        {
+          "role": "div",
+          "label": "Receive ZECShare this unified address to get paid.u1l8xunezsvpntq2snz67h6md2eq09u09vv3xh6z8kqvxg7pdvz4qc9x2u84kqmpc0mz0kmvexzCopyUnified addresses receive shiel",
+          "x": 16,
+          "y": 224,
+          "width": 398.9,
+          "height": 600
+        },
+        {
+          "role": "div",
+          "label": "Receive ZECShare this unified address to get paid.u1l8xunezsvpntq2snz67h6md2eq09u09vv3xh6z8kqvxg7pdvz4qc9x2u84kqmpc0mz0kmvexzCopyUnified addresses receive shiel",
+          "x": 16,
+          "y": 224,
+          "width": 398.9,
+          "height": 600
+        },
+        {
+          "role": "div",
+          "label": "Receive ZECShare this unified address to get paid.u1l8xunezsvpntq2snz67h6md2eq09u09vv3xh6z8kqvxg7pdvz4qc9x2u84kqmpc0mz0kmvexzCopyUnified addresses receive shiel",
+          "x": 17,
+          "y": 225,
+          "width": 396.9,
+          "height": 598
+        }
+      ],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "Overview",
+          "x": 20,
+          "y": 164,
+          "width": 107.7,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "Send",
+          "x": 131.7,
+          "y": 164,
+          "width": 79.8,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "Receive",
+          "x": 215.5,
+          "y": 164,
+          "width": 97.6,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "History",
+          "x": 317,
+          "y": 164,
+          "width": 93.8,
+          "height": 32
+        },
+        {
+          "role": "button",
+          "label": "Copy",
+          "x": 49,
+          "y": 683,
+          "width": 332.9,
+          "height": 36
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "ReceiveShare your unified address to get paid privately.OverviewSendReceiveHistoryReceive ZECShare this unified address to get paid.u1l8xunezsvpntq2snz67h6md2eq",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 848
+        }
+      ],
+      "visibleText": "0 2Z\nLogin with Zcash\nReceive\n\nShare your unified address to get paid privately.\n\nOverview\nSend\nReceive\nHistory\nReceive ZEC\n\nShare this unified address to get paid.\n\nu1l8xunezsvpntq2snz67h6md2eq09u09vv3xh6z8kqvxg7pdvz4qc9x2u84kqmpc0mz0kmvexz\nCopy\n\nUnified addresses receive shielded ZEC and support encrypted memos, keeping the amount and sender private on-chain.\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "wallet-history",
+      "route": "/wallet/history",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [
+        {
+          "role": "div",
+          "label": "HistoryEvery payment in and out of this wallet.OverviewSendReceiveHistoryReceivedWelcome to ZUULI 🎉a1b2c3d4…d8e9f0a1b2+0.50 ZECAug 18, 2026, 09:56 PMSentBought",
+          "x": 0,
+          "y": 56,
+          "width": 430.9,
+          "height": 580
+        },
+        {
+          "role": "main",
+          "label": "HistoryEvery payment in and out of this wallet.OverviewSendReceiveHistoryReceivedWelcome to ZUULI 🎉a1b2c3d4…d8e9f0a1b2+0.50 ZECAug 18, 2026, 09:56 PMSentBought",
+          "x": 0,
+          "y": 56,
+          "width": 430.9,
+          "height": 580
+        },
+        {
+          "role": "div",
+          "label": "HistoryEvery payment in and out of this wallet.OverviewSendReceiveHistoryReceivedWelcome to ZUULI 🎉a1b2c3d4…d8e9f0a1b2+0.50 ZECAug 18, 2026, 09:56 PMSentBought",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 476
+        },
+        {
+          "role": "div",
+          "label": "HistoryEvery payment in and out of this wallet.",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 56
+        },
+        {
+          "role": "div",
+          "label": "HistoryEvery payment in and out of this wallet.",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 56
+        },
+        {
+          "role": "h1",
+          "label": "History",
+          "x": 16,
+          "y": 80,
+          "width": 398.9,
+          "height": 32
+        },
+        {
+          "role": "p",
+          "label": "Every payment in and out of this wallet.",
+          "x": 16,
+          "y": 116,
+          "width": 398.9,
+          "height": 20
+        },
+        {
+          "role": "nav",
+          "label": "Wallet sections",
+          "x": 16,
+          "y": 160,
+          "width": 398.9,
+          "height": 40
+        },
+        {
+          "role": "a",
+          "label": "History",
+          "x": 317,
+          "y": 164,
+          "width": 93.8,
+          "height": 32
+        },
+        {
+          "role": "div",
+          "label": "ReceivedWelcome to ZUULI 🎉a1b2c3d4…d8e9f0a1b2+0.50 ZECAug 18, 2026, 09:56 PMSentBought 2Zsb2c3d4e5…e9f0a1b2c3−0.12 ZECAug 17, 2026, 10:56 PMReceivedc3d4e5f6…f0",
+          "x": 16,
+          "y": 224,
+          "width": 398.9,
+          "height": 332
+        },
+        {
+          "role": "div",
+          "label": "ReceivedWelcome to ZUULI 🎉a1b2c3d4…d8e9f0a1b2+0.50 ZECAug 18, 2026, 09:56 PMSentBought 2Zsb2c3d4e5…e9f0a1b2c3−0.12 ZECAug 17, 2026, 10:56 PMReceivedc3d4e5f6…f0",
+          "x": 17,
+          "y": 225,
+          "width": 396.9,
+          "height": 330
+        },
+        {
+          "role": "div",
+          "label": "ReceivedWelcome to ZUULI 🎉a1b2c3d4…d8e9f0a1b2+0.50 ZECAug 18, 2026, 09:56 PM",
+          "x": 25,
+          "y": 233,
+          "width": 380.9,
+          "height": 112
+        },
+        {
+          "role": "div",
+          "label": "SentBought 2Zsb2c3d4e5…e9f0a1b2c3−0.12 ZECAug 17, 2026, 10:56 PM",
+          "x": 25,
+          "y": 345,
+          "width": 380.9,
+          "height": 113
+        },
+        {
+          "role": "div",
+          "label": "Receivedc3d4e5f6…f0a1b2c3d4+1.00 ZECAug 15, 2026, 10:56 PM",
+          "x": 25,
+          "y": 458,
+          "width": 380.9,
+          "height": 89
+        }
+      ],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "Overview",
+          "x": 20,
+          "y": 164,
+          "width": 107.7,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "Send",
+          "x": 131.7,
+          "y": 164,
+          "width": 79.8,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "Receive",
+          "x": 215.5,
+          "y": 164,
+          "width": 97.6,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "History",
+          "x": 317,
+          "y": 164,
+          "width": 93.8,
+          "height": 32
+        },
+        {
+          "role": "button",
+          "label": "Copy transaction ID",
+          "x": 220,
+          "y": 301,
+          "width": 21.9,
+          "height": 24
+        },
+        {
+          "role": "button",
+          "label": "Copy transaction ID",
+          "x": 220,
+          "y": 414,
+          "width": 21.9,
+          "height": 24
+        },
+        {
+          "role": "button",
+          "label": "Copy transaction ID",
+          "x": 220,
+          "y": 503,
+          "width": 21.9,
+          "height": 24
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [],
+      "visibleText": "0 2Z\nLogin with Zcash\nHistory\n\nEvery payment in and out of this wallet.\n\nOverview\nSend\nReceive\nHistory\nReceived\n\nWelcome to ZUULI 🎉\n\na1b2c3d4…d8e9f0a1b2\n+0.50 ZEC\nAug 18, 2026, 09:56 PM\nSent\n\nBought 2Zs\n\nb2c3d4e5…e9f0a1b2c3\n−0.12 ZEC\nAug 17, 2026, 10:56 PM\nReceived\nc3d4e5f6…f0a1b2c3d4\n+1.00 ZEC\nAug 15, 2026, 10:56 PM\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "ai",
+      "route": "/ai",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [
+        {
+          "role": "span",
+          "label": "Default persona",
+          "x": 243.5,
+          "y": 116,
+          "width": 98.5,
+          "height": 20,
+          "text": "Default persona"
+        }
+      ],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "button",
+          "label": "Select AI model",
+          "x": 16,
+          "y": 106,
+          "width": 137,
+          "height": 40
+        },
+        {
+          "role": "button",
+          "label": "Select AI personality",
+          "x": 200.5,
+          "y": 106,
+          "width": 176.5,
+          "height": 40
+        },
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 292.9,
+          "y": 239,
+          "width": 71.1,
+          "height": 36
+        },
+        {
+          "role": "button",
+          "label": "Use it",
+          "x": 302.7,
+          "y": 598.3,
+          "width": 57.3,
+          "height": 36
+        },
+        {
+          "role": "button",
+          "label": "Explain zero-knowledge proofs like I'm five.",
+          "x": 58.9,
+          "y": 714.3,
+          "width": 275.2,
+          "height": 30
+        },
+        {
+          "role": "button",
+          "label": "Draft a warm reply politely declining a meeting.",
+          "x": 48.4,
+          "y": 752.3,
+          "width": 296.1,
+          "height": 30
+        },
+        {
+          "role": "button",
+          "label": "Summarize the core ideas behind the Zcash protocol.",
+          "x": 30.6,
+          "y": 790.3,
+          "width": 331.8,
+          "height": 30
+        },
+        {
+          "role": "button",
+          "label": "Write a haiku about financial privacy.",
+          "x": 78,
+          "y": 828.3,
+          "width": 237,
+          "height": 30
+        },
+        {
+          "role": "button",
+          "label": "Send message",
+          "x": 330,
+          "y": 714.5,
+          "width": 36,
+          "height": 36
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "Pick a model. Pay only for what you use.Every token is billed at cost plus a thin margin, rounded up to whole 2Zs. The provider never sees you — only free2z rel",
+          "x": 0,
+          "y": 295,
+          "width": 393,
+          "height": 399.5,
+          "clientHeight": 400,
+          "scrollHeight": 664
+        }
+      ],
+      "visibleText": "0 2Z\nLogin with Zcash\nAI Studio\nGPT-4o\nDefault persona\nYou need at least 100 2Z to start chatting. Top up to continue.\nBuy 2Zs\nPick a model. Pay only for what you use.\n\nEvery token is billed at cost plus a thin margin, rounded up to whole 2Zs. The provider never sees you — only free2z relays the prompt.\n\nLlama 3.3 70B (on our hardware)\nprivate\n\nOpen-source, run on 2Z hardware — nothing leaves our walls. From 1 2Z/msg.\n\nUse it\nExplain zero-knowledge proofs like I'm five.\nDraft a warm reply politely declining a meeting.\nSummarize the core ideas behind the Zcash protocol.\nWrite a haiku about financial privacy.\nGPT-4o · ~1 2Z/msg\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "live-discovery",
+      "route": "/live",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "tab",
+          "label": "All",
+          "x": 20,
+          "y": 220,
+          "width": 40.7,
+          "height": 32
+        },
+        {
+          "role": "tab",
+          "label": "Broadcast",
+          "x": 60.7,
+          "y": 220,
+          "width": 91.2,
+          "height": 32
+        },
+        {
+          "role": "tab",
+          "label": "Subscriber",
+          "x": 151.9,
+          "y": 220,
+          "width": 96,
+          "height": 32
+        },
+        {
+          "role": "tab",
+          "label": "PPV",
+          "x": 247.8,
+          "y": 220,
+          "width": 51.3,
+          "height": 32
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "Livestreams3 creators live right now.Authenticate to go liveAllBroadcastSubscriberPPVLIVEBroadcast214Shielded & Chill — building a Zcash light client liveNNineS",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 1646
+        }
+      ],
+      "visibleText": "0 2Z\nLogin with Zcash\nLivestreams\n\n3 creators live right now.\n\nAuthenticate to go live\nAll\nBroadcast\nSubscriber\nPPV\nLIVE\nBroadcast\n214\nShielded & Chill — building a Zcash light client live\nN\nNine\nStarted 42m ago\nFree\nLIVE\nSubscriber\n91\nSubscribers only: the next 12 months of Zcash\nZ\nZooko\nStarted 5m ago\nLIVE\nPPV\n38\nPPV: Deep dive — writing a Halo2 circuit from scratch\nM⛏\nMaya ⛏️\nStarted 12m ago\n250 2Z\nOffline\nBroadcast\nCommunity town hall — roadmap Q&A\nF\nFree2Z\nOffline\nFree\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "live-broadcast",
+      "route": "/live/nine",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "All livestreams",
+          "x": 16,
+          "y": 80,
+          "width": 115.2,
+          "height": 20
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [],
+      "visibleText": "0 2Z\nLogin with Zcash\nAll livestreams\nLIVE\nBroadcast\n214\nwatching\nN\nLive now\nShielded & Chill — building a Zcash light client live\nN\nNine\n@nine · started 42m ago\nJoin this stream\nBroadcast\n\nOpen to everyone, free to join.\n\nJoin free\n\nLive video is powered by Cloudflare RealtimeKit — mic, camera, and chat all run in the room once you join.\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "live-subscriber",
+      "route": "/live/zooko",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "All livestreams",
+          "x": 16,
+          "y": 80,
+          "width": 115.2,
+          "height": 20
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "All livestreamsLIVESubscribers91 watchingZLive nowSubscribers only: the next 12 months of ZcashZZooko@zooko · started 5m agoJoin this streamSubscriberFor your 2",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 845
+        }
+      ],
+      "visibleText": "0 2Z\nLogin with Zcash\nAll livestreams\nLIVE\nSubscribers\n91\nwatching\nZ\nLive now\nSubscribers only: the next 12 months of Zcash\nZ\nZooko\n@zooko · started 5m ago\nJoin this stream\nSubscriber\n\nFor your 2Z subscribers.\n\nThis stream is for members of @zooko. Active members join without another purchase.\n\nCreator\nZooko\nMembership\n500 2Z/30 days\nSign in to subscribe\n\nLive video is powered by Cloudflare RealtimeKit — mic, camera, and chat all run in the room once you join.\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "live-ppv",
+      "route": "/live/mining_maya",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "All livestreams",
+          "x": 16,
+          "y": 80,
+          "width": 115.2,
+          "height": 20
+        },
+        {
+          "role": "a",
+          "label": "Buy more 2Zs",
+          "x": 33,
+          "y": 682.1,
+          "width": 327,
+          "height": 40
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "All livestreamsLIVEPay-per-view38 watchingM⛏Live nowPPV: Deep dive — writing a Halo2 circuit from scratchM⛏Maya ⛏️@mining_maya · started 12m agoJoin this stream",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 839
+        }
+      ],
+      "visibleText": "0 2Z\nLogin with Zcash\nAll livestreams\nLIVE\nPay-per-view\n38\nwatching\nM⛏\nLive now\nPPV: Deep dive — writing a Halo2 circuit from scratch\nM⛏\nMaya ⛏️\n@mining_maya · started 12m ago\nJoin this stream\nPPV\n\nViewers spend 2Zs to join.\n\nEntry price\n250 2Z\nNot enough 2Zs\nBuy more 2Zs\n\nYou have 0 2Z · need 250 2Z\n\nLive video is powered by Cloudflare RealtimeKit — mic, camera, and chat all run in the room once you join.\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "live-offline",
+      "route": "/live/f2z",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "All livestreams",
+          "x": 16,
+          "y": 80,
+          "width": 115.2,
+          "height": 20
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [],
+      "visibleText": "0 2Z\nLogin with Zcash\nAll livestreams\nOffline\nBroadcast\nF\nNot currently live\nCommunity town hall — roadmap Q&A\nF\nFree2Z\n@f2z\nJoin this stream\nBroadcast\n\nOpen to everyone, free to join.\n\nJoin free\n\nLive video is powered by Cloudflare RealtimeKit — mic, camera, and chat all run in the room once you join.\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "articles-feed",
+      "route": "/articles",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 131.8,
+          "y": 986.9,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 131.9,
+          "y": 1416.6,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 132.1,
+          "y": 1846.3,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 132.1,
+          "y": 2276,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 132,
+          "y": 2685.7,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 131.8,
+          "y": 3115.4,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 132,
+          "y": 3545.1,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 131.3,
+          "y": 3974.8,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 132.1,
+          "y": 4404.4,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 132,
+          "y": 4834.1,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 137.5,
+          "y": 5263.8,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 131.9,
+          "y": 5693.5,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 132.1,
+          "y": 6123.2,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 131.8,
+          "y": 6552.9,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 132,
+          "y": 6982.6,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 131.3,
+          "y": 7412.3,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 132.1,
+          "y": 7841.9,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 132,
+          "y": 8271.6,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 137.5,
+          "y": 8701.3,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 131.9,
+          "y": 9131,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 132.1,
+          "y": 9560.7,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 131.8,
+          "y": 9990.4,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 132,
+          "y": 10420.1,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        },
+        {
+          "role": "span",
+          "label": "votes",
+          "x": 131.3,
+          "y": 10849.8,
+          "width": 1,
+          "height": 1,
+          "text": "votes"
+        }
+      ],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "Write a new article",
+          "x": 16,
+          "y": 168,
+          "width": 91.2,
+          "height": 40
+        },
+        {
+          "role": "input",
+          "label": "Search articles",
+          "x": 16,
+          "y": 232,
+          "width": 361,
+          "height": 40
+        },
+        {
+          "role": "tab",
+          "label": "Fresh",
+          "x": 21,
+          "y": 327,
+          "width": 60.9,
+          "height": 28
+        },
+        {
+          "role": "tab",
+          "label": "Top",
+          "x": 85.9,
+          "y": 327,
+          "width": 48.3,
+          "height": 28
+        },
+        {
+          "role": "tab",
+          "label": "Recent",
+          "x": 138.2,
+          "y": 327,
+          "width": 70.2,
+          "height": 28
+        },
+        {
+          "role": "button",
+          "label": "2z",
+          "x": 16,
+          "y": 376,
+          "width": 40,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "ai",
+          "x": 64,
+          "y": 376,
+          "width": 35.9,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "auth",
+          "x": 107.9,
+          "y": 376,
+          "width": 51.8,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "community",
+          "x": 167.6,
+          "y": 376,
+          "width": 90.2,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "defi",
+          "x": 265.8,
+          "y": 376,
+          "width": 48.2,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "education",
+          "x": 16,
+          "y": 410,
+          "width": 83.3,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "governance",
+          "x": 107.3,
+          "y": 410,
+          "width": 93.6,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "halo2",
+          "x": 209,
+          "y": 410,
+          "width": 57.8,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "identity",
+          "x": 274.8,
+          "y": 410,
+          "width": 69.8,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "lightning",
+          "x": 16,
+          "y": 444,
+          "width": 76.5,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "mining",
+          "x": 100.5,
+          "y": 444,
+          "width": 64.8,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "nym",
+          "x": 173.3,
+          "y": 444,
+          "width": 50.4,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "opinion",
+          "x": 231.7,
+          "y": 444,
+          "width": 68.5,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "privacy",
+          "x": 308.2,
+          "y": 444,
+          "width": 68.2,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "research",
+          "x": 16,
+          "y": 478,
+          "width": 76.5,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "shielded",
+          "x": 100.5,
+          "y": 478,
+          "width": 75,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "technology",
+          "x": 183.5,
+          "y": 478,
+          "width": 90.5,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "tutorial",
+          "x": 282,
+          "y": 478,
+          "width": 67.3,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "wallet",
+          "x": 16,
+          "y": 512,
+          "width": 60.1,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "zcash",
+          "x": 84.1,
+          "y": 512,
+          "width": 59.7,
+          "height": 26
+        },
+        {
+          "role": "button",
+          "label": "zk",
+          "x": 151.8,
+          "y": 512,
+          "width": 39.3,
+          "height": 26
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "ArticlesLong-form writing from the Zcash community — backed by free2z zpages.WriteSemantic search — results ranked by meaning, not just keywords.FreshTopRecent2",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 10980
+        }
+      ],
+      "visibleText": "0 2Z\nLogin with Zcash\nArticles\n\nLong-form writing from the Zcash community — backed by free2z zpages.\n\nWrite\n\nSemantic search — results ranked by meaning, not just keywords.\n\nFresh\nTop\nRecent\n2z\nai\nauth\ncommunity\ndefi\neducation\ngovernance\nhalo2\nidentity\nlightning\nmining\nnym\nopinion\nprivacy\nresearch\nshielded\ntechnology\ntutorial\nwallet\nzcash\nzk\n\n60 articles\n\nZcash\nLogin With Zcash: No Password, No KYC\n\nYour key is your identity.\n\nN\nNine\n6h ago\n5 min read\n203\nvotes\nZcash\nBuilding Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nZ\nZooko\n22h ago\n3 min read\n11\nvotes\nTechnology\nMicrometering AI with 2Zs\n\nPay for exactly the tokens you use — anonymously.\n\nF\nFree2Z\n1d ago\n4 min read\n74\nvotes\nTechnology\nUnderstanding the 2Z Economy\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nM⛏\nMaya ⛏️\n2d ago\n4 min read\n48\nvotes\nZcash\nWhy Shielded-by-Default Matters\n\nPrivacy is a public good, not a premium feature.\n\nZ\nZooko\n2d ago\n6 min read\n128\nvotes\nEducation\nA Field Guide to Light Clients\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nF\nFree2Z\n3d ago\n5 min read\n85\nvotes\nCommunity\nNotes on Private Payments\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nN\nNine\n4d ago\n6 min read\n122\nvotes\nPrivacy\nRethinking Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nH\nHana\n5d ago\n7 min read\n159\nvotes\nResearch\nThe Case for the 2Z Economy\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nS\nSam\n5d ago\n8 min read\n196\nvotes\nZcash\nDeep Dive: Light Clients\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nZ\nZooko\n6d ago\n9 min read\n233\nvotes\nTechnology\nPractical Private Payments\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nM⛏\nMaya ⛏️\n7d ago\n10 min read\n270\nvotes\nEducation\nInside Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nF\nFree2Z\n8d ago\n3 min read\n307\nvotes\nCommunity\nThe Future of the 2Z Economy\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nN\nNine\n9d ago\n4 min read\n24\nvotes\nPrivacy\nBuilding Light Clients\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nH\nHana\n10d ago\n5 min read\n61\nvotes\nResearch\nUnderstanding Private Payments\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nS\nSam\n11d ago\n6 min read\n98\nvotes\nZcash\nA Field Guide to Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nZ\nZooko\n12d ago\n7 min read\n135\nvotes\nTechnology\nNotes on the 2Z Economy\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nM⛏\nMaya ⛏️\n13d ago\n8 min read\n172\nvotes\nEducation\nRethinking Light Clients\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nF\nFree2Z\n14d ago\n9 min read\n209\nvotes\nCommunity\nThe Case for Private Payments\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nN\nNine\n14d ago\n10 min read\n246\nvotes\nPrivacy\nDeep Dive: Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nH\nHana\n15d ago\n3 min read\n283\nvotes\nResearch\nPractical the 2Z Economy\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nS\nSam\n16d ago\n4 min read\n0\nvotes\nZcash\nInside Light Clients\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nZ\nZooko\n17d ago\n5 min read\n37\nvotes\nTechnology\nThe Future of Private Payments\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nM⛏\nMaya ⛏️\n18d ago\n6 min read\n74\nvotes\nEducation\nBuilding Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nF\nFree2Z\n19d ago\n7 min read\n111\nvotes\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "article-reader",
+      "route": "/articles/why-shielded-by-default",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "All articles",
+          "x": 16,
+          "y": 80,
+          "width": 91.1,
+          "height": 20
+        },
+        {
+          "role": "a",
+          "label": "View Zooko’s profile",
+          "x": 16,
+          "y": 340,
+          "width": 40,
+          "height": 40
+        },
+        {
+          "role": "a",
+          "label": "Zooko",
+          "x": 68,
+          "y": 341,
+          "width": 41.1,
+          "height": 17
+        },
+        {
+          "role": "button",
+          "label": "Log in to comment",
+          "x": 106.2,
+          "y": 1188.5,
+          "width": 180.6,
+          "height": 40
+        },
+        {
+          "role": "a",
+          "label": "Nnine",
+          "x": 89,
+          "y": 1319.5,
+          "width": 59.9,
+          "height": 24
+        },
+        {
+          "role": "button",
+          "label": "Reply",
+          "x": 89,
+          "y": 1485,
+          "width": 72.2,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "Zzooko",
+          "x": 102,
+          "y": 1563,
+          "width": 71.5,
+          "height": 24
+        },
+        {
+          "role": "button",
+          "label": "Reply",
+          "x": 102,
+          "y": 1704.1,
+          "width": 72.2,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "Hhalo_hana",
+          "x": 115,
+          "y": 1782.1,
+          "width": 99.7,
+          "height": 24
+        },
+        {
+          "role": "button",
+          "label": "Reply",
+          "x": 115,
+          "y": 1947.6,
+          "width": 72.2,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "Mmining_maya",
+          "x": 89,
+          "y": 2029.6,
+          "width": 119.9,
+          "height": 24
+        },
+        {
+          "role": "button",
+          "label": "Reply",
+          "x": 89,
+          "y": 2170.7,
+          "width": 72.2,
+          "height": 32
+        },
+        {
+          "role": "button",
+          "label": "Tip Zooko",
+          "x": 228.3,
+          "y": 744,
+          "width": 148.7,
+          "height": 40
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "All articlesZcashWhy Shielded-by-Default MattersPrivacy is a public good, not a premium feature.ZZookoAug 16, 2026·6 min readWhy Shielded-by-Default Matters Fin",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 2332
+        }
+      ],
+      "visibleText": "0 2Z\nLogin with Zcash\nAll articles\nZcash\nWhy Shielded-by-Default Matters\n\nPrivacy is a public good, not a premium feature.\n\nZ\nZooko\nAug 16, 2026\n·\n6 min read\nWhy Shielded-by-Default Matters\n\nFinancial privacy isn't about hiding — it's about choosing who sees what. When every transaction is public by default, surveillance becomes the path of least resistance...\n\nThe asymmetry problem\n\nTransparency for the powerful, privacy for everyone else. Zcash inverts that.\n\nThe right to be let alone is the most comprehensive of rights.\n\nShielded pools make privacy the default, and the default is what most people get.\n\nComments2\n\nLog in to join the conversation — comments are titled and cost 2Zs.\n\nLog in to comment\n42\nN\nnine\n·\n3h ago\n42 2Z\nThis reframed privacy for me\n\nThe asymmetry point is the whole game. Transparency for the powerful, privacy for everyone else — shielded-by-default finally flips it.\n\nReply\n1\n18\nZ\nzooko\n·\n2h ago\n18 2Z\nExactly the intent\n\nThat inversion was the design goal from day one. The default is what most people actually get.\n\nReply\n1\n7\nH\nhalo_hana\n·\n1h ago\n7 2Z\nAnd it compounds\n\nOnce the shielded pool is the norm, the anonymity set grows for everyone — privacy as a public good, literally.\n\nReply\n23\nM\nmining_maya\n·\n45m ago\n23 2Z\nSmall nit on the trusted setup\n\nGreat piece. Worth noting Halo2 drops the trusted setup entirely — might be worth a follow-up article.\n\nReply\nScore\n128\nTip the author\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "article-missing",
+      "route": "/articles/not-a-real-article",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "All articles",
+          "x": 16,
+          "y": 80,
+          "width": 91.1,
+          "height": 20
+        },
+        {
+          "role": "a",
+          "label": "Back to articles",
+          "x": 128.5,
+          "y": 333,
+          "width": 136,
+          "height": 40
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [],
+      "visibleText": "0 2Z\nLogin with Zcash\nAll articles\nArticle not found\n\nThis article may have been removed or the link is incorrect.\n\nBack to articles\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "article-author-gate",
+      "route": "/articles/new",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "Sign in with Zcash",
+          "x": 48.4,
+          "y": 341,
+          "width": 152.2,
+          "height": 40
+        },
+        {
+          "role": "a",
+          "label": "Back to articles",
+          "x": 208.6,
+          "y": 341,
+          "width": 136,
+          "height": 40
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [],
+      "visibleText": "0 2Z\nLogin with Zcash\nWrite an article\nSign in with Zcash to publish\n\nAuthoring is free — sign a challenge with your wallet, no password or email required.\n\nSign in with Zcash\nBack to articles\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "buy",
+      "route": "/buy",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [
+        {
+          "role": "div",
+          "label": "",
+          "x": 232,
+          "y": 117,
+          "width": 208,
+          "height": 208
+        }
+      ],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "tab",
+          "label": "Buy",
+          "x": 20,
+          "y": 461,
+          "width": 117.7,
+          "height": 32
+        },
+        {
+          "role": "tab",
+          "label": "Send & Tip",
+          "x": 137.7,
+          "y": 461,
+          "width": 117.7,
+          "height": 32
+        },
+        {
+          "role": "tab",
+          "label": "Activity",
+          "x": 255.3,
+          "y": 461,
+          "width": 117.7,
+          "height": 32
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 16,
+          "y": 877,
+          "width": 361,
+          "height": 40
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "2Z economyYour two balances, one app — buy 2Zs, tip creators, and track every transaction.2Z balance02ZSpendable platform creditZZEC in wallet1.299ZECspendablef",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 1383
+        }
+      ],
+      "visibleText": "0 2Z\nLogin with Zcash\n2Z economy\n\nYour two balances, one app — buy 2Zs, tip creators, and track every transaction.\n\n2Z BALANCE\n0\n2Z\nSpendable platform credit\nZ\nZEC IN WALLET\n1.299\nZEC\nspendable\nfund 2Zs instantly\nBuy\nSend & Tip\nActivity\nChoose an amount\n\n2Zs never expire and power AI, tips, pay-per-view and subscriptions.\n\n500\n2Z\n$5.00\n2,000\n2Z\n$20.00\n5,000\n2Z\n$50.00\n10,000\n2Z\n$100.00\nCustom amount (2Z)\n2Z\nYou pay\n$20.00\nfor 2,000 2Z\nPay with card\n\nSecured by Stripe. We never see your card details.\n\nor\nDemo: Pay with ZEC\nDemo cost\ndemo only\n0.40404041 ZEC\nMock wallet spendable\n1.299 ZEC\n\nDemo only: this changes a local mock 2Z balance. It does not send ZEC or create a real purchase.\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "not-found",
+      "route": "/this-route-does-not-exist",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "a",
+          "label": "Back to Discover",
+          "x": 125.1,
+          "y": 317,
+          "width": 142.8,
+          "height": 40
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [],
+      "visibleText": "0 2Z\nLogin with Zcash\nPage not found\n\nThis page doesn't exist or has moved. Let's get you back on track.\n\nBack to Discover\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "login-chooser",
+      "route": "/login",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 49,
+          "y": 455,
+          "width": 295,
+          "height": 40
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 49,
+          "y": 543,
+          "width": 295,
+          "height": 40
+        },
+        {
+          "role": "button",
+          "label": "Sign in",
+          "x": 49,
+          "y": 599,
+          "width": 295,
+          "height": 40
+        },
+        {
+          "role": "button",
+          "label": "How Login with Zcash works",
+          "x": 49,
+          "y": 753,
+          "width": 142.5,
+          "height": 32
+        },
+        {
+          "role": "a",
+          "label": "Explore ZUULI as a guest",
+          "x": 191.5,
+          "y": 751,
+          "width": 152.5,
+          "height": 36
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [],
+      "visibleText": "0 2Z\nLogin with Zcash\nZUULI\nBY 2Z INC\nSign in to ZUULI\nWelcome back. Choose how you'd like to continue.\nContinue with Zcash\n\nPasswordless — prove control of your Zcash key. No email, no KYC.\n\nOR USE A PASSWORD\nEmail or username\nPassword\nSign in\n\nYou can link this account to your Zcash identity later for keys-only sign-in.\n\nMore sign-in options coming soon.\n\nHow Zcash login works\nContinue as guest\n\n© 2026 2Z Inc\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "login-zcash-idle",
+      "route": "/login",
+      "authState": "signed-out",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 116.3,
+          "y": 10.5,
+          "width": 102.9,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Login with Zcash",
+          "x": 231.2,
+          "y": 9.5,
+          "width": 145.8,
+          "height": 36
+        },
+        {
+          "role": "button",
+          "label": "Back to all sign-in options",
+          "x": 49,
+          "y": 369,
+          "width": 136.4,
+          "height": 20
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [],
+      "visibleText": "0 2Z\nLogin with Zcash\nZUULI\nBY 2Z INC\nSign in to ZUULI\nProve control of your Zcash key to sign in — no password.\nAll sign-in options\n\nSign a one-time challenge with your Zcash key to prove it is yours. No password, no email, no third party — the key never leaves this device.\n\nLogin with Zcash\n\n© 2026 2Z Inc\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "discover",
+      "route": "/",
+      "authState": "signed-in",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [
+        {
+          "role": "div",
+          "label": "DiscoverWelcome back, SkylarLivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider neve",
+          "x": 0,
+          "y": 56,
+          "width": 904,
+          "height": 2818.9
+        },
+        {
+          "role": "main",
+          "label": "DiscoverWelcome back, SkylarLivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider neve",
+          "x": 0,
+          "y": 56,
+          "width": 904,
+          "height": 2818.9
+        },
+        {
+          "role": "div",
+          "label": "DiscoverWelcome back, SkylarLivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider neve",
+          "x": 16,
+          "y": 80,
+          "width": 872,
+          "height": 2714.9
+        },
+        {
+          "role": "section",
+          "label": "DiscoverWelcome back, SkylarLivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider neve",
+          "x": 16,
+          "y": 80,
+          "width": 872,
+          "height": 292.5
+        },
+        {
+          "role": "div",
+          "label": "DiscoverWelcome back, SkylarLivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider neve",
+          "x": 16,
+          "y": 80,
+          "width": 872,
+          "height": 292.5
+        },
+        {
+          "role": "div",
+          "label": "DiscoverWelcome back, SkylarLivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider neve",
+          "x": 41,
+          "y": 121,
+          "width": 672,
+          "height": 116
+        },
+        {
+          "role": "p",
+          "label": "Discover",
+          "x": 41,
+          "y": 121,
+          "width": 672,
+          "height": 16
+        },
+        {
+          "role": "h1",
+          "label": "Welcome back, Skylar",
+          "x": 41,
+          "y": 149,
+          "width": 672,
+          "height": 36
+        },
+        {
+          "role": "p",
+          "label": "Livestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider never sees you.",
+          "x": 41,
+          "y": 197,
+          "width": 576,
+          "height": 40
+        },
+        {
+          "role": "div",
+          "label": "2Z balance4,210 2ZZEC spendable1.299 ZEC",
+          "x": 41,
+          "y": 269,
+          "width": 822,
+          "height": 62.5
+        },
+        {
+          "role": "a",
+          "label": "ZEC spendable 1.299. Open wallet.",
+          "x": 238.3,
+          "y": 269,
+          "width": 207,
+          "height": 62.5
+        },
+        {
+          "role": "div",
+          "label": "ZEC spendable1.299 ZEC",
+          "x": 303.3,
+          "y": 282,
+          "width": 93,
+          "height": 36.5
+        },
+        {
+          "role": "div",
+          "label": "ZEC spendable",
+          "x": 303.3,
+          "y": 282,
+          "width": 93,
+          "height": 16.5
+        },
+        {
+          "role": "div",
+          "label": "1.299 ZEC",
+          "x": 303.3,
+          "y": 298.5,
+          "width": 93,
+          "height": 20
+        },
+        {
+          "role": "svg",
+          "label": "",
+          "x": 412.3,
+          "y": 292.3,
+          "width": 16,
+          "height": 16
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 416.9,
+          "y": 296.9,
+          "width": 6.7,
+          "height": 6.7
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 416.9,
+          "y": 296.9,
+          "width": 6.7,
+          "height": 6.7
+        },
+        {
+          "role": "section",
+          "label": "Live nowCreators broadcasting this momentView allLIVEBroadcast214Shielded & Chill — building a Zcash light client live@nineFreeLIVEPay-per-view38PPV: Deep dive ",
+          "x": 16,
+          "y": 412.5,
+          "width": 872,
+          "height": 336.9
+        },
+        {
+          "role": "div",
+          "label": "Live nowCreators broadcasting this momentView allLIVEBroadcast214Shielded & Chill — building a Zcash light client live@nineFreeLIVEPay-per-view38PPV: Deep dive ",
+          "x": 16,
+          "y": 412.5,
+          "width": 872,
+          "height": 336.9
+        },
+        {
+          "role": "div",
+          "label": "Live nowCreators broadcasting this momentView all",
+          "x": 16,
+          "y": 412.5,
+          "width": 872,
+          "height": 56
+        },
+        {
+          "role": "a",
+          "label": "View all: Live now",
+          "x": 817.4,
+          "y": 448.5,
+          "width": 70.6,
+          "height": 20
+        },
+        {
+          "role": "svg",
+          "label": "",
+          "x": 872,
+          "y": 450.5,
+          "width": 16,
+          "height": 16
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 880,
+          "y": 453.8,
+          "width": 4.7,
+          "height": 9.3
+        },
+        {
+          "role": "div",
+          "label": "LIVEBroadcast214Shielded & Chill — building a Zcash light client live@nineFreeLIVEPay-per-view38PPV: Deep dive — writing a Halo2 circuit from scratch@mining_may",
+          "x": 12,
+          "y": 484.5,
+          "width": 880,
+          "height": 264.9
+        },
+        {
+          "role": "a",
+          "label": "PPV: Deep dive — writing a Halo2 circuit from scratch — live now, 38 watching",
+          "x": 312,
+          "y": 484.5,
+          "width": 280,
+          "height": 256.9
+        },
+        {
+          "role": "div",
+          "label": "LIVEPay-per-view38",
+          "x": 313,
+          "y": 485.5,
+          "width": 278,
+          "height": 156.4
+        },
+        {
+          "role": "div",
+          "label": "",
+          "x": 313,
+          "y": 485.5,
+          "width": 278,
+          "height": 156.4
+        },
+        {
+          "role": "div",
+          "label": "LIVEPay-per-view",
+          "x": 325,
+          "y": 497.5,
+          "width": 167,
+          "height": 22
+        },
+        {
+          "role": "div",
+          "label": "Pay-per-view",
+          "x": 392.9,
+          "y": 497.5,
+          "width": 99.1,
+          "height": 22
+        },
+        {
+          "role": "div",
+          "label": "38",
+          "x": 529.5,
+          "y": 605.9,
+          "width": 49.5,
+          "height": 24
+        },
+        {
+          "role": "svg",
+          "label": "",
+          "x": 537.5,
+          "y": 610.9,
+          "width": 14,
+          "height": 14
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 538.7,
+          "y": 619.6,
+          "width": 8.2,
+          "height": 3.5
+        },
+        {
+          "role": "circle",
+          "label": "",
+          "x": 540.5,
+          "y": 612.6,
+          "width": 4.7,
+          "height": 4.7
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 548.6,
+          "y": 619.7,
+          "width": 1.8,
+          "height": 3.4
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 546.9,
+          "y": 612.7,
+          "width": 1.8,
+          "height": 4.5
+        },
+        {
+          "role": "span",
+          "label": "38",
+          "x": 555.5,
+          "y": 609.9,
+          "width": 15.5,
+          "height": 16
+        },
+        {
+          "role": "div",
+          "label": "",
+          "x": 313,
+          "y": 485.5,
+          "width": 278,
+          "height": 156.4
+        },
+        {
+          "role": "svg",
+          "label": "",
+          "x": 436,
+          "y": 547.7,
+          "width": 32,
+          "height": 32
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 438.6,
+          "y": 550.2,
+          "width": 3.9,
+          "height": 18.9
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 444.1,
+          "y": 554,
+          "width": 2.3,
+          "height": 10
+        },
+        {
+          "role": "circle",
+          "label": "",
+          "x": 449.3,
+          "y": 557,
+          "width": 5.3,
+          "height": 5.3
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 457.6,
+          "y": 554.1,
+          "width": 2.3,
+          "height": 10
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 461.5,
+          "y": 550.2,
+          "width": 3.9,
+          "height": 18.8
+        },
+        {
+          "role": "path",
+          "label": "",
+          "x": 446.7,
+          "y": 562.4,
+          "width": 10.7,
+          "height": 14.7
+        },
+        {
+          "role": "div",
+          "label": "PPV: Deep dive — writing a Halo2 circuit from scratch@mining_maya250 2Z",
+          "x": 313,
+          "y": 641.9,
+          "width": 278,
+          "height": 98.5
+        },
+        {
+          "role": "h3",
+          "label": "PPV: Deep dive — writing a Halo2 circuit from scratch",
+          "x": 329,
+          "y": 657.9,
+          "width": 246,
+          "height": 38.5
+        },
+        {
+          "role": "div",
+          "label": "@mining_maya250 2Z",
+          "x": 329,
+          "y": 704.4,
+          "width": 246,
+          "height": 20
+        },
+        {
+          "role": "span",
+          "label": "@mining_maya",
+          "x": 329,
+          "y": 708.4,
+          "width": 85.8,
+          "height": 16
+        },
+        {
+          "role": "span",
+          "label": "250 2Z",
+          "x": 532.2,
+          "y": 708.4,
+          "width": 42.8,
+          "height": 16
+        },
+        {
+          "role": "a",
+          "label": "Subscribers only: the next 12 months of Zcash — live now, 91 watching",
+          "x": 608,
+          "y": 484.5,
+          "width": 280,
+          "height": 256.9
+        }
+      ],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 186.4,
+          "y": 10.5,
+          "width": 134.6,
+          "height": 34
+        },
+        {
+          "role": "a",
+          "label": "View all: Live now",
+          "x": 817.4,
+          "y": 448.5,
+          "width": 70.6,
+          "height": 20
+        },
+        {
+          "role": "a",
+          "label": "View all: Fresh articles",
+          "x": 817.4,
+          "y": 825.4,
+          "width": 70.6,
+          "height": 20
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "DiscoverWelcome back, SkylarLivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider neve",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 2819
+        }
+      ],
+      "visibleText": "4,210 2Z\nS\n\nDISCOVER\n\nWelcome back, Skylar\n\nLivestreams, long-form writing, and any AI model — metered in 2Zs, shielded by default. Your key is your identity; the provider never sees you.\n\n2Z BALANCE\n4,210 2Z\nZEC SPENDABLE\n1.299 ZEC\nLive now\n\nCreators broadcasting this moment\n\nView all\nLIVE\nBroadcast\n214\nShielded & Chill — building a Zcash light client live\n@nine\nFree\nLIVE\nPay-per-view\n38\nPPV: Deep dive — writing a Halo2 circuit from scratch\n@mining_maya\n250 2Z\nLIVE\nSubscribers\n91\nSubscribers only: the next 12 months of Zcash\n@zooko\nFree\nFresh articles\n\nLong-form writing from the community\n\nView all\nZCASH\nLogin With Zcash: No Password, No KYC\n\nYour key is your identity.\n\nN\nNine\n·\n6h ago\n5 min read\n203\nZCASH\nBuilding Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\nZ\nZooko\n·\n22h ago\n3 min read\n11\nTECHNOLOGY\nMicrometering AI with 2Zs\n\nPay for exactly the tokens you use — anonymously.\n\nF\nFree2Z\n·\n1d ago\n4 min read\n74\nAsk any AI, anonymously\nEvery model, metered in 2Zs\n\nPrompt frontier and open-source models through the free2z proxy. No account leaks to the provider, and you only pay for the tokens you actually use.\n\nStart a conversation\nAnonymous by design\n\nYou talk to free2z; free2z talks to the model. The provider never sees you.\n\nMetered in 2Zs\n\nPay the exact upstream cost plus a thin margin, rounded up — no subscription.\n\nAny model, one balance\n\nClaude, GPT, Grok, Kimi, or open-source on our hardware — switch freely.\n\nCreators to watch\n\nVoices worth following on ZUULI\n\nZ\nZooko\n\nFounder-ish energy. Shielded by default.\n\nView profile\nM⛏\nMaya ⛏️\n\nHalo2 circuits & late-night proofs.\n\nView profile\nF\nFree2Z\n\nThe zero-knowledge creator platform.\n\nView profile\nN\nNine\n\nPrivacy maximalist. Streams from the void.\n\nView profile\nH\nHana\n\nRecursive proofs & zk-SNARK explainers.\n\nView profile\nS\nSam\n\nOn-chain privacy, off-chain vibes.\n\nView profile\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "profile-editor",
+      "route": "/profile",
+      "authState": "signed-in",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 186.4,
+          "y": 10.5,
+          "width": 134.6,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Save changes",
+          "x": 16,
+          "y": 168,
+          "width": 147.4,
+          "height": 40
+        },
+        {
+          "role": "a",
+          "label": "Apply for revenue share",
+          "x": 37,
+          "y": 349,
+          "width": 191,
+          "height": 40
+        },
+        {
+          "role": "button",
+          "label": "Link Zcash key",
+          "x": 229.3,
+          "y": 554,
+          "width": 109.7,
+          "height": 36
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 37,
+          "y": 793,
+          "width": 319,
+          "height": 40
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 37,
+          "y": 909,
+          "width": 319,
+          "height": 40
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 37,
+          "y": 1217,
+          "width": 319,
+          "height": 40
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 37,
+          "y": 1333,
+          "width": 319,
+          "height": 40
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "Edit profileThis is what other creators and fans see on your public page.Save changesCreator revenue shareVerify your identity and complete a tax form to apply ",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 1648
+        }
+      ],
+      "visibleText": "4,210 2Z\nS\nEdit profile\n\nThis is what other creators and fans see on your public page.\n\nSave changes\nCreator revenue share\n\nVerify your identity and complete a tax form to apply for the creator revenue-share program.\n\nApply for revenue share\nLinked identities\n\nAssociate other keys and accounts with your free2z identity.\n\nZcash\nNot linked\nLink Zcash key\nX · Google · GitHub\nComing soon\nSoon\nUsername\n\n@skyl · usernames can't be changed here yet.\n\nDisplay name\nBio\n\n39 / 1024\n\nMembership price (2Z / 30 days)\n\nZcash address for tips (optional)\nPREVIEW\nS\nSkylar\n@skyl\n\nBuilding on Zcash. Shielded by default.\n\nAvatar and banner image uploads are coming soon — for now they can be set from the classic free2z site.\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "kyc-basic-info",
+      "route": "/kyc",
+      "authState": "signed-in",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 186.4,
+          "y": 10.5,
+          "width": 134.6,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Continue",
+          "x": 264.4,
+          "y": 555,
+          "width": 91.6,
+          "height": 40
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [],
+      "visibleText": "4,210 2Z\nS\nApply for revenue share\n\nVerify your identity and complete a tax form to become an eligible revenue-share creator. This is the application step only — payouts aren't live yet.\n\n1\n2\n3\n4\nBasic information\nThis determines which tax form you'll complete next.\n\nAre you a US taxpayer?\n\nUS\nNon-US\n\nAre you an individual or an entity?\n\nIndividual\nEntity\nContinue\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "article-author",
+      "route": "/articles/new",
+      "authState": "signed-in",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 186.4,
+          "y": 10.5,
+          "width": 134.6,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Publish",
+          "x": 16,
+          "y": 168,
+          "width": 104.5,
+          "height": 40
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 37,
+          "y": 285,
+          "width": 319,
+          "height": 40
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 37,
+          "y": 373,
+          "width": 319,
+          "height": 40
+        },
+        {
+          "role": "button",
+          "label": "Choose a category",
+          "x": 37,
+          "y": 461,
+          "width": 319,
+          "height": 40
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "Write an articleCompose in Markdown on the left; preview live on the right.0 words · 1 min readPublishTitleSubtitleCategorySelect a categoryContent (Markdown)Pr",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 1482
+        }
+      ],
+      "visibleText": "4,210 2Z\nS\nWrite an article\n\nCompose in Markdown on the left; preview live on the right.\n\nPublish\nTitle\nSubtitle\nCategory\nSelect a category\nContent (Markdown)\nPREVIEW\n\nYour live preview appears here as you write.\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "creator-zooko",
+      "route": "/creator/zooko",
+      "authState": "signed-in",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 186.4,
+          "y": 10.5,
+          "width": 134.6,
+          "height": 34
+        },
+        {
+          "role": "a",
+          "label": "Search",
+          "x": 16,
+          "y": 80,
+          "width": 69,
+          "height": 20
+        },
+        {
+          "role": "a",
+          "label": "Watch Zooko live",
+          "x": 20,
+          "y": 344,
+          "width": 125.9,
+          "height": 40
+        },
+        {
+          "role": "button",
+          "label": "Tip Zooko",
+          "x": 153.9,
+          "y": 344,
+          "width": 78.8,
+          "height": 40
+        },
+        {
+          "role": "button",
+          "label": "Subscribe to Zooko · 500 2Z/mo",
+          "x": 20,
+          "y": 392,
+          "width": 182.9,
+          "height": 40
+        },
+        {
+          "role": "a",
+          "label": "Zooko on X",
+          "x": 16,
+          "y": 550.4,
+          "width": 91.5,
+          "height": 30
+        },
+        {
+          "role": "a",
+          "label": "Zooko on GitHub",
+          "x": 115.5,
+          "y": 550.4,
+          "width": 80.5,
+          "height": 30
+        },
+        {
+          "role": "a",
+          "label": "Zooko on Website",
+          "x": 204,
+          "y": 550.4,
+          "width": 131.3,
+          "height": 30
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "SearchZZooko@zooko12 pages904 scoreWatch liveTipSubscribe · 500 2Z/moFounder-ish energy. Shielded by default.@zookozookoelectriccoin.coPages by ZookoWhy Shielde",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 4570
+        }
+      ],
+      "visibleText": "4,210 2Z\nS\nSearch\nZ\nZooko\n@zooko\n12 pages\n904 score\nWatch live\nTip\nSubscribe · 500 2Z/mo\n\nFounder-ish energy. Shielded by default.\n\n@zooko\nzooko\nelectriccoin.co\nPages by Zooko\nWhy Shielded-by-Default Matters\n\nPrivacy is a public good, not a premium feature.\n\n6 min\n2d ago\nBuilding Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n3 min\n22h ago\nDeep Dive: Light Clients\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n9 min\n6d ago\nA Field Guide to Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n7 min\n12d ago\nInside Light Clients\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n5 min\n17d ago\nRethinking Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n3 min\n23d ago\nBuilding Light Clients\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n9 min\n28d ago\nDeep Dive: Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n7 min\n7/16/2026\nA Field Guide to Light Clients\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n5 min\n7/11/2026\nInside Halo2 Circuits\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n3 min\n7/5/2026\nRethinking Light Clients\n\nA worked example from the Zcash community, written for ZUULI's mock corpus.\n\n9 min\n6/30/2026\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "live-discovery",
+      "route": "/live",
+      "authState": "signed-in",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 186.4,
+          "y": 10.5,
+          "width": 134.6,
+          "height": 34
+        },
+        {
+          "role": "tab",
+          "label": "All",
+          "x": 20,
+          "y": 220,
+          "width": 40.7,
+          "height": 32
+        },
+        {
+          "role": "tab",
+          "label": "Broadcast",
+          "x": 60.7,
+          "y": 220,
+          "width": 91.2,
+          "height": 32
+        },
+        {
+          "role": "tab",
+          "label": "Subscriber",
+          "x": 151.9,
+          "y": 220,
+          "width": 96,
+          "height": 32
+        },
+        {
+          "role": "tab",
+          "label": "PPV",
+          "x": 247.8,
+          "y": 220,
+          "width": 51.3,
+          "height": 32
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "Livestreams3 creators live right now.Go LiveAllBroadcastSubscriberPPVLIVEBroadcast214Shielded & Chill — building a Zcash light client liveNNineStarted 42m agoFr",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 1646
+        }
+      ],
+      "visibleText": "4,210 2Z\nS\nLivestreams\n\n3 creators live right now.\n\nGo Live\nAll\nBroadcast\nSubscriber\nPPV\nLIVE\nBroadcast\n214\nShielded & Chill — building a Zcash light client live\nN\nNine\nStarted 42m ago\nFree\nLIVE\nSubscriber\n91\nSubscribers only: the next 12 months of Zcash\nZ\nZooko\nStarted 5m ago\nLIVE\nPPV\n38\nPPV: Deep dive — writing a Halo2 circuit from scratch\nM⛏\nMaya ⛏️\nStarted 12m ago\n250 2Z\nOffline\nBroadcast\nCommunity town hall — roadmap Q&A\nF\nFree2Z\nOffline\nFree\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "live-subscriber",
+      "route": "/live/zooko",
+      "authState": "signed-in",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 186.4,
+          "y": 10.5,
+          "width": 134.6,
+          "height": 34
+        },
+        {
+          "role": "a",
+          "label": "All livestreams",
+          "x": 16,
+          "y": 80,
+          "width": 115.2,
+          "height": 20
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "All livestreamsLIVESubscribers91 watchingZLive nowSubscribers only: the next 12 months of ZcashZZooko@zooko · started 5m agoJoin this streamSubscriberFor your 2",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 873
+        }
+      ],
+      "visibleText": "4,210 2Z\nS\nAll livestreams\nLIVE\nSubscribers\n91\nwatching\nZ\nLive now\nSubscribers only: the next 12 months of Zcash\nZ\nZooko\n@zooko · started 5m ago\nJoin this stream\nSubscriber\n\nFor your 2Z subscribers.\n\nThis stream is for members of @zooko. Active members join without another purchase.\n\nCreator\nZooko\nMembership\n500 2Z/30 days\nCurrent balance\n4,210 2Z\nReview membership\n\nLive video is powered by Cloudflare RealtimeKit — mic, camera, and chat all run in the room once you join.\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "live-ppv",
+      "route": "/live/mining_maya",
+      "authState": "signed-in",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 186.4,
+          "y": 10.5,
+          "width": 134.6,
+          "height": 34
+        },
+        {
+          "role": "a",
+          "label": "All livestreams",
+          "x": 16,
+          "y": 80,
+          "width": 115.2,
+          "height": 20
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [],
+      "visibleText": "4,210 2Z\nS\nAll livestreams\nLIVE\nPay-per-view\n38\nwatching\nM⛏\nLive now\nPPV: Deep dive — writing a Halo2 circuit from scratch\nM⛏\nMaya ⛏️\n@mining_maya · started 12m ago\nJoin this stream\nPPV\n\nViewers spend 2Zs to join.\n\nEntry price\n250 2Z\nJoin for 250 2Z\n\nLive video is powered by Cloudflare RealtimeKit — mic, camera, and chat all run in the room once you join.\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "ai",
+      "route": "/ai",
+      "authState": "signed-in",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [
+        {
+          "role": "span",
+          "label": "Default persona",
+          "x": 243.5,
+          "y": 116,
+          "width": 98.5,
+          "height": 20,
+          "text": "Default persona"
+        }
+      ],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 186.4,
+          "y": 10.5,
+          "width": 134.6,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Select AI model",
+          "x": 16,
+          "y": 106,
+          "width": 137,
+          "height": 40
+        },
+        {
+          "role": "button",
+          "label": "Select AI personality",
+          "x": 200.5,
+          "y": 106,
+          "width": 176.5,
+          "height": 40
+        },
+        {
+          "role": "button",
+          "label": "Use it",
+          "x": 302.7,
+          "y": 513.3,
+          "width": 57.3,
+          "height": 36
+        },
+        {
+          "role": "button",
+          "label": "Explain zero-knowledge proofs like I'm five.",
+          "x": 58.9,
+          "y": 629.3,
+          "width": 275.2,
+          "height": 30
+        },
+        {
+          "role": "button",
+          "label": "Draft a warm reply politely declining a meeting.",
+          "x": 48.4,
+          "y": 667.3,
+          "width": 296.1,
+          "height": 30
+        },
+        {
+          "role": "button",
+          "label": "Summarize the core ideas behind the Zcash protocol.",
+          "x": 30.6,
+          "y": 705.3,
+          "width": 331.8,
+          "height": 30
+        },
+        {
+          "role": "button",
+          "label": "Write a haiku about financial privacy.",
+          "x": 78,
+          "y": 743.3,
+          "width": 237,
+          "height": 30
+        },
+        {
+          "role": "button",
+          "label": "Send message",
+          "x": 330,
+          "y": 714.5,
+          "width": 36,
+          "height": 36
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "Pick a model. Pay only for what you use.Every token is billed at cost plus a thin margin, rounded up to whole 2Zs. The provider never sees you — only free2z rel",
+          "x": 0,
+          "y": 157,
+          "width": 393,
+          "height": 537.5,
+          "clientHeight": 538,
+          "scrollHeight": 664
+        }
+      ],
+      "visibleText": "4,210 2Z\nS\nAI Studio\nGPT-4o\nDefault persona\nPick a model. Pay only for what you use.\n\nEvery token is billed at cost plus a thin margin, rounded up to whole 2Zs. The provider never sees you — only free2z relays the prompt.\n\nLlama 3.3 70B (on our hardware)\nprivate\n\nOpen-source, run on 2Z hardware — nothing leaves our walls. From 1 2Z/msg.\n\nUse it\nExplain zero-knowledge proofs like I'm five.\nDraft a warm reply politely declining a meeting.\nSummarize the core ideas behind the Zcash protocol.\nWrite a haiku about financial privacy.\nGPT-4o · ~1 2Z/msg\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "buy",
+      "route": "/buy",
+      "authState": "signed-in",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [
+        {
+          "role": "div",
+          "label": "",
+          "x": 232,
+          "y": 117,
+          "width": 208,
+          "height": 208
+        }
+      ],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 186.4,
+          "y": 10.5,
+          "width": 134.6,
+          "height": 34
+        },
+        {
+          "role": "tab",
+          "label": "Buy",
+          "x": 20,
+          "y": 461,
+          "width": 117.7,
+          "height": 32
+        },
+        {
+          "role": "tab",
+          "label": "Send & Tip",
+          "x": 137.7,
+          "y": 461,
+          "width": 117.7,
+          "height": 32
+        },
+        {
+          "role": "tab",
+          "label": "Activity",
+          "x": 255.3,
+          "y": 461,
+          "width": 117.7,
+          "height": 32
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 16,
+          "y": 877,
+          "width": 361,
+          "height": 40
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "2Z economyYour two balances, one app — buy 2Zs, tip creators, and track every transaction.2Z balance4,2102ZSpendable platform creditZZEC in wallet1.299ZECspenda",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 1383
+        }
+      ],
+      "visibleText": "4,210 2Z\nS\n2Z economy\n\nYour two balances, one app — buy 2Zs, tip creators, and track every transaction.\n\n2Z BALANCE\n4,210\n2Z\nSpendable platform credit\nZ\nZEC IN WALLET\n1.299\nZEC\nspendable\nfund 2Zs instantly\nBuy\nSend & Tip\nActivity\nChoose an amount\n\n2Zs never expire and power AI, tips, pay-per-view and subscriptions.\n\n500\n2Z\n$5.00\n2,000\n2Z\n$20.00\n5,000\n2Z\n$50.00\n10,000\n2Z\n$100.00\nCustom amount (2Z)\n2Z\nYou pay\n$20.00\nfor 2,000 2Z\nPay with card\n\nSecured by Stripe. We never see your card details.\n\nor\nDemo: Pay with ZEC\nDemo cost\ndemo only\n0.40404041 ZEC\nMock wallet spendable\n1.299 ZEC\n\nDemo only: this changes a local mock 2Z balance. It does not send ZEC or create a real purchase.\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "buy-activity",
+      "route": "/buy",
+      "authState": "signed-in",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [
+        {
+          "role": "div",
+          "label": "",
+          "x": 232,
+          "y": 117,
+          "width": 208,
+          "height": 208
+        }
+      ],
+      "clippedText": [
+        {
+          "role": "span",
+          "label": "@mining_maya",
+          "x": 85,
+          "y": 850,
+          "width": 90.5,
+          "height": 24,
+          "text": "@mining_maya"
+        }
+      ],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 186.4,
+          "y": 10.5,
+          "width": 134.6,
+          "height": 34
+        },
+        {
+          "role": "tab",
+          "label": "Buy",
+          "x": 20,
+          "y": 461,
+          "width": 117.7,
+          "height": 32
+        },
+        {
+          "role": "tab",
+          "label": "Send & Tip",
+          "x": 137.7,
+          "y": 461,
+          "width": 117.7,
+          "height": 32
+        },
+        {
+          "role": "tab",
+          "label": "Activity",
+          "x": 255.3,
+          "y": 461,
+          "width": 117.7,
+          "height": 32
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "2Z economyYour two balances, one app — buy 2Zs, tip creators, and track every transaction.2Z balance4,2102ZSpendable platform creditZZEC in wallet1.299ZECspenda",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 998
+        }
+      ],
+      "visibleText": "4,210 2Z\nS\n2Z economy\n\nYour two balances, one app — buy 2Zs, tip creators, and track every transaction.\n\n2Z BALANCE\n4,210\n2Z\nSpendable platform credit\nZ\nZEC IN WALLET\n1.299\nZEC\nspendable\nfund 2Zs instantly\nBuy\nSend & Tip\nActivity\nTotal bought\n2,000 2Z\nTotal spent\n754 2Z\nAdded 2Zs\nPurchase\n3d ago\n+2,000 2Z\n@Claude Opus 4.8\nAI\n2h ago\n−4 2Z\n@mining_maya\nPay-per-view\n1h ago\n−250 2Z\n@zooko\nTip\n30m ago\n−500 2Z\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy"
+    },
+    {
+      "name": "account-menu",
+      "route": "/profile",
+      "authState": "signed-in",
+      "device": {
+        "name": "iphone-16-pro",
+        "width": 393,
+        "height": 852,
+        "scale": 3
+      },
+      "title": "ZUULI",
+      "viewport": {
+        "width": 393,
+        "height": 852,
+        "dpr": 3
+      },
+      "body": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "root": {
+        "clientWidth": 393,
+        "scrollWidth": 393,
+        "clientHeight": 852,
+        "scrollHeight": 852
+      },
+      "topBar": {
+        "top": 0,
+        "bottom": 56,
+        "width": 393,
+        "height": 56
+      },
+      "bottomBar": {
+        "top": 796,
+        "bottom": 852,
+        "width": 393,
+        "height": 56
+      },
+      "outside": [],
+      "clippedText": [],
+      "smallTargets": [
+        {
+          "role": "a",
+          "label": "Buy 2Zs",
+          "x": 186.4,
+          "y": 10.5,
+          "width": 134.6,
+          "height": 34
+        },
+        {
+          "role": "button",
+          "label": "Save changes",
+          "x": 16,
+          "y": 168,
+          "width": 147.4,
+          "height": 40
+        },
+        {
+          "role": "a",
+          "label": "Apply for revenue share",
+          "x": 37,
+          "y": 349,
+          "width": 191,
+          "height": 40
+        },
+        {
+          "role": "button",
+          "label": "Link Zcash key",
+          "x": 229.3,
+          "y": 554,
+          "width": 109.7,
+          "height": 36
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 37,
+          "y": 793,
+          "width": 319,
+          "height": 40
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 37,
+          "y": 909,
+          "width": 319,
+          "height": 40
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 37,
+          "y": 1217,
+          "width": 319,
+          "height": 40
+        },
+        {
+          "role": "input",
+          "label": "",
+          "x": 37,
+          "y": 1333,
+          "width": 319,
+          "height": 40
+        }
+      ],
+      "unlabeled": [],
+      "scrollers": [
+        {
+          "role": "div",
+          "label": "Edit profileThis is what other creators and fans see on your public page.Save changesCreator revenue shareVerify your identity and complete a tax form to apply ",
+          "x": 0,
+          "y": 56,
+          "width": 393,
+          "height": 796,
+          "clientHeight": 796,
+          "scrollHeight": 1648
+        }
+      ],
+      "visibleText": "4,210 2Z\nS\nEdit profile\n\nThis is what other creators and fans see on your public page.\n\nSave changes\nCreator revenue share\n\nVerify your identity and complete a tax form to apply for the creator revenue-share program.\n\nApply for revenue share\nLinked identities\n\nAssociate other keys and accounts with your free2z identity.\n\nZcash\nNot linked\nLink Zcash key\nX · Google · GitHub\nComing soon\nSoon\nUsername\n\n@skyl · usernames can't be changed here yet.\n\nDisplay name\nBio\n\n39 / 1024\n\nMembership price (2Z / 30 days)\n\nZcash address for tips (optional)\nPREVIEW\nS\nSkylar\n@skyl\n\nBuilding on Zcash. Shielded by default.\n\nAvatar and banner image uploads are coming soon — for now they can be set from the classic free2z site.\n\nDiscover\nSearch\nLivestreams\nAI\nArticles\nWallet\nBuy\nSkylar\n@skyl · Zcash login\nEdit profile\nWallet\nBuy 2Zs\nApply for revenue share\nSign out"
+    }
+  ],
+  "consoleErrors": []
+}

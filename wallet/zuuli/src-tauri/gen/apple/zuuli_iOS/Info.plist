@@ -51,12 +51,12 @@
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
-			<key>CFBundleURLName</key>
-			<string>cash.free2z.zuuli</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>cash.free2z.zuuli</string>
 			</array>
+			<key>CFBundleURLName</key>
+			<string>cash.free2z.zuuli</string>
 		</dict>
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
