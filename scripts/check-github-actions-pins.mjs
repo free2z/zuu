@@ -1123,17 +1123,48 @@ function requiredChangesControlFailures(relativeFile, lines, changes) {
   if (
     !hasExactKeys(policy.properties, ["name", "run"]) ||
     policy.properties.get("run")?.value !== "|" ||
-    commands.length !== 6 ||
+    commands.length !== 4 ||
     commands[0] !== GATE_POLICY_SELF_TEST_COMMAND ||
     commands[1] !== GATE_POLICY_COMMAND ||
-    commands[2] !== WORKFLOW_GATES_SELF_TEST_COMMAND ||
-    commands[3] !== WORKFLOW_GATES_COMMAND ||
-    commands[4] !== LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND ||
-    commands[5] !== LIBRUSTZCASH_POLICY_COMMAND
+    commands[2] !== LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND ||
+    commands[3] !== LIBRUSTZCASH_POLICY_COMMAND
   ) {
     failures.push(
       `${relativeFile}:${policy.start + 1}: changes policy step must exactly self-test and enforce the current-source policy`,
     );
+  }
+
+  const workflowGateSteps = steps.filter(
+    (step) =>
+      step.properties.get("name")?.value ===
+      "Verify every gate inspects every job it awaits",
+  );
+  if (workflowGateSteps.length !== 1) {
+    failures.push(
+      `${relativeFile}:${changes.start + 1}: changes must contain exactly one workflow-gates policy step`,
+    );
+  } else {
+    const [workflowGate] = workflowGateSteps;
+    const workflowGateCommands = blockScalarCommands(
+      lines,
+      workflowGate.properties.get("run") ?? {
+        index: workflowGate.start,
+        indent: 8,
+        value: "",
+      },
+      workflowGate.end,
+    );
+    if (
+      !hasExactKeys(workflowGate.properties, ["name", "run"]) ||
+      workflowGate.properties.get("run")?.value !== "|" ||
+      workflowGateCommands.length !== 2 ||
+      workflowGateCommands[0] !== WORKFLOW_GATES_SELF_TEST_COMMAND ||
+      workflowGateCommands[1] !== WORKFLOW_GATES_COMMAND
+    ) {
+      failures.push(
+        `${relativeFile}:${workflowGate.start + 1}: changes workflow-gates step must be exact, unconditional, and non-soft-failing`,
+      );
+    }
   }
 
   const wasmPolicySteps = steps.filter(
@@ -2156,6 +2187,22 @@ function runCurrentWorkflowMutationTests(repoRoot) {
   ].join("\n");
   const verdictName =
     "      - name: Verify required jobs succeeded or legitimately skipped";
+  const changesPolicyBlock = [
+    "      - name: Verify immutable actions and fail-closed required jobs",
+    "        run: |",
+    `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
+    `          ${GATE_POLICY_COMMAND}`,
+    `          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}`,
+    `          ${LIBRUSTZCASH_POLICY_COMMAND}`,
+  ].join("\n");
+  const workflowGatesStepName =
+    "      - name: Verify every gate inspects every job it awaits";
+  const workflowGatesStepBlock = [
+    workflowGatesStepName,
+    "        run: |",
+    `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
+    `          ${WORKFLOW_GATES_COMMAND}`,
+  ].join("\n");
   const mutations = [
     {
       name: "real workflow rejects native clippy detached from gate",
@@ -2494,16 +2541,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "changes policy step must exactly self-test and enforce the current-source policy",
       source: source.replace(
-        [
-          "      - name: Verify immutable actions and fail-closed required jobs",
-          "        run: |",
-          `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
-          `          ${GATE_POLICY_COMMAND}`,
-          `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
-          `          ${WORKFLOW_GATES_COMMAND}`,
-          `          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}`,
-          `          ${LIBRUSTZCASH_POLICY_COMMAND}`,
-        ].join("\n"),
+        changesPolicyBlock,
         [
           "      - name: Verify immutable actions and fail-closed required jobs",
           "        run: true",
@@ -2520,19 +2558,57 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       ),
     },
     {
-      name: "real workflow rejects a missing workflow-gates policy self-test",
+      name: "real workflow rejects collapsed six-command changes policy",
       needle:
-        "changes policy step must exactly self-test and enforce the current-source policy",
+        "changes must contain exactly one workflow-gates policy step",
+      source: source
+        .replace(
+          changesPolicyBlock,
+          [
+            "      - name: Verify immutable actions and fail-closed required jobs",
+            "        run: |",
+            `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
+            `          ${GATE_POLICY_COMMAND}`,
+            `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
+            `          ${WORKFLOW_GATES_COMMAND}`,
+            `          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}`,
+            `          ${LIBRUSTZCASH_POLICY_COMMAND}`,
+          ].join("\n"),
+        )
+        .replace(workflowGatesStepBlock, ""),
+    },
+    {
+      name: "real workflow rejects a missing standalone workflow-gates self-test",
+      needle:
+        "changes workflow-gates step must be exact, unconditional, and non-soft-failing",
       source: source.replace(
         `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}\n`,
         "",
       ),
     },
     {
-      name: "real workflow rejects a missing workflow-gates policy verdict",
+      name: "real workflow rejects a missing standalone workflow-gates verdict",
       needle:
-        "changes policy step must exactly self-test and enforce the current-source policy",
+        "changes workflow-gates step must be exact, unconditional, and non-soft-failing",
       source: source.replace(`          ${WORKFLOW_GATES_COMMAND}\n`, ""),
+    },
+    {
+      name: "real workflow rejects a dynamically dead standalone workflow-gates step",
+      needle:
+        "changes workflow-gates step must be exact, unconditional, and non-soft-failing",
+      source: source.replace(
+        workflowGatesStepName,
+        `${workflowGatesStepName}\n        if: false`,
+      ),
+    },
+    {
+      name: "real workflow rejects a soft-failing standalone workflow-gates step",
+      needle:
+        "changes workflow-gates step must be exact, unconditional, and non-soft-failing",
+      source: source.replace(
+        workflowGatesStepName,
+        `${workflowGatesStepName}\n        continue-on-error: true`,
+      ),
     },
     {
       name: "real workflow rejects a missing librustzcash policy self-test",
@@ -3149,6 +3225,12 @@ function runSelfTest(repoRoot) {
   const gateCheckoutLines = [
     `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1`,
   ];
+  const changesWorkflowGatesLines = [
+    "      - name: Verify every gate inspects every job it awaits",
+    "        run: |",
+    `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
+    `          ${WORKFLOW_GATES_COMMAND}`,
+  ];
   const gatePolicyLines = [
     "      - name: Recheck immutable actions and fail-closed required jobs",
     "        id: policy",
@@ -3181,10 +3263,9 @@ function runSelfTest(repoRoot) {
     "        run: |",
     `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
     `          ${GATE_POLICY_COMMAND}`,
-    `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
-    `          ${WORKFLOW_GATES_COMMAND}`,
     `          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}`,
     `          ${LIBRUSTZCASH_POLICY_COMMAND}`,
+    ...changesWorkflowGatesLines,
     "      - name: Verify the required Rust/WASM build boundary",
     "        run: |",
     `          ${WASM_POLICY_SELF_TEST_COMMAND}`,
@@ -3563,8 +3644,64 @@ function runSelfTest(repoRoot) {
         "changes policy step must exactly self-test and enforce the current-source policy",
       files: gateFixture(
         validGateWorkflow.replace(
-          `        run: |\n          ${GATE_POLICY_SELF_TEST_COMMAND}\n          ${GATE_POLICY_COMMAND}\n          ${WORKFLOW_GATES_SELF_TEST_COMMAND}\n          ${WORKFLOW_GATES_COMMAND}\n          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}\n          ${LIBRUSTZCASH_POLICY_COMMAND}\n`,
+          `        run: |\n          ${GATE_POLICY_SELF_TEST_COMMAND}\n          ${GATE_POLICY_COMMAND}\n          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}\n          ${LIBRUSTZCASH_POLICY_COMMAND}\n`,
           "        run: true\n",
+        ),
+      ),
+    },
+    {
+      name: "workflow-gates commands cannot collapse into the generic changes policy",
+      needle: "changes must contain exactly one workflow-gates policy step",
+      files: gateFixture(
+        validGateWorkflow
+          .replace(
+            `          ${GATE_POLICY_COMMAND}\n          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}`,
+            `          ${GATE_POLICY_COMMAND}\n          ${WORKFLOW_GATES_SELF_TEST_COMMAND}\n          ${WORKFLOW_GATES_COMMAND}\n          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}`,
+          )
+          .replace(`${changesWorkflowGatesLines.join("\n")}\n`, ""),
+      ),
+    },
+    {
+      name: "standalone workflow-gates self-test cannot be deleted",
+      needle:
+        "changes workflow-gates step must be exact, unconditional, and non-soft-failing",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          `${changesWorkflowGatesLines[2]}\n`,
+          "",
+        ),
+      ),
+    },
+    {
+      name: "standalone workflow-gates verdict cannot be deleted",
+      needle:
+        "changes workflow-gates step must be exact, unconditional, and non-soft-failing",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          `${changesWorkflowGatesLines[3]}\n`,
+          "",
+        ),
+      ),
+    },
+    {
+      name: "standalone workflow-gates step cannot be dynamically dead",
+      needle:
+        "changes workflow-gates step must be exact, unconditional, and non-soft-failing",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          changesWorkflowGatesLines[0],
+          `${changesWorkflowGatesLines[0]}\n        if: false`,
+        ),
+      ),
+    },
+    {
+      name: "standalone workflow-gates step cannot soft-fail",
+      needle:
+        "changes workflow-gates step must be exact, unconditional, and non-soft-failing",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          changesWorkflowGatesLines[0],
+          `${changesWorkflowGatesLines[0]}\n        continue-on-error: true`,
         ),
       ),
     },
