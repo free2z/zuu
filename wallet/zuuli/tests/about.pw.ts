@@ -1,5 +1,21 @@
+import { readFileSync } from "node:fs";
+
 import { expect, test } from "@playwright/test";
 import { PSEUDO_ABOUT_MESSAGES } from "../src/lib/about-copy";
+
+// The identity the About card must display is the canonical one, so read it
+// from release.json rather than restating it. A literal here is only ever
+// right by coincidence of the current build: `release-bump.mjs` regenerates
+// the four generated identity surfaces on every bump but cannot reach into a
+// test, so a pinned number turns each release into a gate failure while
+// proving nothing about the binding (#822). Reading the canonical file is
+// also the stronger assertion — it fails if the UI and release.json ever
+// disagree, which a literal cannot detect. Same source as
+// `src/lib/build-info.test.ts`, and the same file-reading convention as
+// `tests/realtimekit-csp.pw.ts`.
+const RELEASE = JSON.parse(
+  readFileSync(new URL("../release.json", import.meta.url), "utf8"),
+) as { version: string; build: number };
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 760 });
@@ -10,8 +26,10 @@ test.beforeEach(async ({ page }) => {
 test("About is keyboard and screen-reader usable at 320px", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "About & Feedback" })).toBeVisible();
   const card = page.locator("[data-about-build-card]");
-  await expect(card.getByText("0.1.0", { exact: true })).toBeVisible();
-  await expect(card.getByText("19", { exact: true })).toBeVisible();
+  await expect(card.getByText(RELEASE.version, { exact: true })).toBeVisible();
+  await expect(
+    card.getByText(String(RELEASE.build), { exact: true }),
+  ).toBeVisible();
   await expect(card.getByText("Internal", { exact: true })).toBeVisible();
   await expect(card.getByText("Web", { exact: true })).toBeVisible();
 
@@ -46,7 +64,12 @@ test("copy uses the complete stable minimal block and announces completion", asy
   // Middle, tail-weighted truncation (see #829) — reuses truncateAddress's
   // default 8-head/10-tail split rather than a head-only prefix.
   expect(copied).toMatch(
-    /^ZUULI\nVersion: 0\.1\.0\nBuild: 19\nRelease channel: Internal\nPlatform: Web\nSource commit: [0-9a-f]{8}…[0-9a-f]{10}$/,
+    new RegExp(
+      `^ZUULI\\nVersion: ${RELEASE.version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}` +
+        `\\nBuild: ${RELEASE.build}` +
+        "\\nRelease channel: Internal\\nPlatform: Web" +
+        "\\nSource commit: [0-9a-f]{8}…[0-9a-f]{10}$",
+    ),
   );
   expect(copied).not.toMatch(/wallet|balance|device|address|\/Users\//i);
 });
