@@ -12,7 +12,7 @@ import type { SimpleCreator } from "@/lib/api/types";
 import { coverTone } from "@/lib/cover";
 import { SectionHeader } from "./parts";
 
-function CreatorCard({ creator }: { creator: SimpleCreator }) {
+export function CreatorCard({ creator }: { creator: SimpleCreator }) {
   const name = creator.display_name || creator.username;
   // Bios may lead with a socials frontmatter block (see lib/utils/bio) — never
   // show that raw in a plain-text snippet.
@@ -52,9 +52,11 @@ function CreatorCard({ creator }: { creator: SimpleCreator }) {
             {bio}
           </p>
         ) : null}
-        <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
-          View profile
-          <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+        <span className="mt-auto pt-3">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+            View profile
+            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+          </span>
         </span>
       </div>
     </Link>
