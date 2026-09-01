@@ -2,6 +2,7 @@ import {
   resolveAboutMessages,
   type AboutMessages,
 } from "./about-copy";
+import { truncateAddress } from "./format";
 
 export type BuildInfo = Readonly<{
   productName: "ZUULI";
@@ -42,8 +43,16 @@ export function buildPlatformLabel(
   }[platform];
 }
 
+/**
+ * Shorten a full source commit SHA for display.
+ *
+ * Reuses `truncateAddress`'s middle, tail-weighted truncation — the same
+ * convention used for every other opaque identifier in the app — rather
+ * than a head-only prefix, which would discard exactly the trailing bytes
+ * that disambiguate two nearby commits. See #829.
+ */
 export function shortSourceCommit(sourceCommit: string | null) {
-  return sourceCommit ? sourceCommit.slice(0, 12) : null;
+  return sourceCommit ? truncateAddress(sourceCommit) : null;
 }
 
 type MinimalBuildInfo = Pick<

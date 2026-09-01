@@ -29,7 +29,10 @@ describe("About build identity", () => {
     expect(markup).toContain("<dl");
     expect(markup).toContain("<details");
     expect(markup).toContain("Build provenance");
-    expect(markup).toContain("abcdef012345");
+    // Middle, tail-weighted truncation (see #829) — not a head-only prefix.
+    // (The full, untruncated commit is legitimately shown in full further
+    // down under "Build provenance", so it is not asserted absent here.)
+    expect(markup).toContain("abcdef01…89abcdef01");
     expect(markup).toContain(INFO.sourceCommit);
     expect(markup.match(/Copy build info/g)).toHaveLength(1);
     expect(markup).toContain('role="status"');

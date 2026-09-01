@@ -43,8 +43,10 @@ test("copy uses the complete stable minimal block and announces completion", asy
   await page.getByRole("button", { name: "Copy build info" }).click();
   await expect(page.getByRole("status")).toHaveText("Build info copied.");
   const copied = await page.evaluate(() => navigator.clipboard.readText());
+  // Middle, tail-weighted truncation (see #829) — reuses truncateAddress's
+  // default 8-head/10-tail split rather than a head-only prefix.
   expect(copied).toMatch(
-    /^ZUULI\nVersion: 0\.1\.0\nBuild: 19\nRelease channel: Internal\nPlatform: Web\nSource commit: [0-9a-f]{12}$/,
+    /^ZUULI\nVersion: 0\.1\.0\nBuild: 19\nRelease channel: Internal\nPlatform: Web\nSource commit: [0-9a-f]{8}…[0-9a-f]{10}$/,
   );
   expect(copied).not.toMatch(/wallet|balance|device|address|\/Users\//i);
 });

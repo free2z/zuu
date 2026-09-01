@@ -356,6 +356,40 @@ describe("feedback privacy boundary", () => {
     },
   );
 
+  // #830: detection is checksum-based against the shipping *English* BIP-39
+  // wordlist only (see `isValidEnglishBip39Mnemonic`/bip39-english.ts) — the
+  // Rust backend only ever generates and accepts English mnemonics, but a
+  // user could bring one home from another wallet in another language. This
+  // is a real, bounded gap, not a regression: it is documented in the
+  // composer's copy (`feedbackMnemonicLanguageScope`) rather than silently
+  // assumed away. These tests pin the current (English-only) boundary.
+  it.each([
+    // French wordlist words with no ASCII-diacritic overlap onto the shipping
+    // English dictionary.
+    "abaisser abdiquer abeille abolir aborder aboutir aboyer abrasif abreuver abriter abroger absence",
+    // Japanese wordlist words: non-Latin script never matches the `[a-z]+`
+    // scan at all, regardless of dictionary contents.
+    "あいこくしん あいさつ あいだ あおぞら あかちゃん あきる あけがた あける あこがれる あさい あさひ あしあと",
+  ])(
+    "does not recognize a bare non-English mnemonic-shaped phrase (documented scope, #830): %s",
+    (phrase) => {
+      const draft = { subject: DEFAULT_SUBJECT, body: phrase };
+      const reviewed = reviewFeedbackDraft(draft, REDACTED_VALUE);
+      expect(reviewed.findings).toHaveLength(0);
+      expect(reviewed.draft.body).toBe(phrase);
+    },
+  );
+
+  it("still removes a non-English phrase once English recovery-phrase context labels it (#830)", () => {
+    const draft = {
+      subject: DEFAULT_SUBJECT,
+      body: "my recovery phrase: abaisser abdiquer abeille abolir aborder aboutir aboyer abrasif abreuver abriter abroger absence",
+    };
+    const reviewed = reviewFeedbackDraft(draft, REDACTED_VALUE);
+    expect(reviewed.findings.length).toBeGreaterThan(0);
+    expect(reviewed.draft.body).toBe(REDACTED_VALUE);
+  });
+
   it.each([
     "Saved in /opt/zuuli/wallet.dat",
     "Read \\\\server\\share\\wallet.bin",

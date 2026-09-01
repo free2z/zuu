@@ -360,11 +360,14 @@ export function FeedbackComposer({
           className="min-h-36 min-w-0 max-w-full resize-y"
           maxLength={FEEDBACK_DESCRIPTION_LIMIT}
           value={description}
-          aria-describedby="feedback-description-hint"
+          aria-describedby="feedback-description-hint feedback-mnemonic-scope-hint"
           onChange={(event) => setDescription(event.target.value)}
         />
         <p id="feedback-description-hint" className="max-w-full break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
           {messages.feedbackDescriptionHint}
+        </p>
+        <p id="feedback-mnemonic-scope-hint" className="max-w-full break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+          {messages.feedbackMnemonicLanguageScope}
         </p>
       </div>
 
