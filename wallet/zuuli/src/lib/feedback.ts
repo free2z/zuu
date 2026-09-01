@@ -99,7 +99,12 @@ const PATH_PATTERNS: readonly RegExp[] = [
   /(?:^|\s)(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|\.{1,2}[\\/])[^\n]+/gmu,
   /\b(?:file|filename|path)\s*(?:=|:|is\b)\s*[^\n]+/giu,
   /\b(?:rust_backtrace|backtrace|traceback|stack\s+trace|TauriInvokeError|JavaScriptError)\b[^\n]*/giu,
-  /\b[^\s/\\]+\.[A-Za-z][A-Za-z0-9]{0,11}(?::\d+(?::\d+)?)?\b/gu,
+  // A single dot separates a real filename from its extension. Three
+  // consecutive dots are an ellipsis (NFKC-normalized from "…", e.g. inside
+  // a middle-truncated opaque identifier like a shortened commit SHA), not
+  // an extension separator, so the dot immediately preceding this one must
+  // not itself be a dot.
+  /\b[^\s/\\]+(?<!\.)\.[A-Za-z][A-Za-z0-9]{0,11}(?::\d+(?::\d+)?)?\b/gu,
   /(?:^|\s)\.[A-Za-z_][A-Za-z0-9_-]*(?=\s|$)/gmu,
 ];
 

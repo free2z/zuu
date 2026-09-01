@@ -12,6 +12,7 @@ import {
   type FeedbackDraft,
 } from "./feedback";
 import { isValidEnglishBip39Mnemonic } from "./bip39";
+import { truncateAddress } from "./format";
 
 const BUILD_BLOCK =
   "ZUULI\nVersion: 0.1.0\nBuild: 17\nChannel: Internal\nPlatform: iOS\nSource commit: 0123456789ab";
@@ -468,6 +469,43 @@ describe("feedback privacy boundary", () => {
       }
     },
   );
+
+  it("does not mistake a middle-truncated opaque identifier for a filename (#829 regression)", () => {
+    // #829 switched the embedded "Source commit" line from a head-only
+    // prefix to truncateAddress's middle, tail-weighted "head…tail" form.
+    // NFKC-normalizing "…" expands it to three literal dots, which used to
+    // read as a `word...ext`-shaped filename and wipe the whole report —
+    // including the app's own auto-attached, pre-vetted build info, on
+    // every single submission. A single dot still separates a real
+    // filename from its extension; three consecutive dots must not.
+    const shortCommit = truncateAddress(
+      "6dc7d6fe1fe6bcbc02d4bf83486ebaf66a419a8a",
+    );
+    expect(shortCommit).toContain("…");
+    const block = `ZUULI\nVersion: 0.1.0\nBuild: 19\nRelease channel: Internal\nPlatform: Web\nSource commit: ${shortCommit}`;
+    const reviewed = createFeedbackDraft(
+      "The save action stopped responding.",
+      block,
+      DEFAULT_SUBJECT,
+      REDACTED_VALUE,
+    );
+    expect(reviewed.findings).toEqual([]);
+    // The pipeline NFKC-normalizes all text (including the app's own
+    // build-info block), which expands "…" to "..." — that normalized form
+    // is what should survive review, not the original glyph.
+    expect(reviewed.draft.body).toContain(shortCommit.normalize("NFKC"));
+  });
+
+  it("still removes a real bare filename with a single dot (crash.log)", () => {
+    const reviewed = createFeedbackDraft(
+      "The app failed. crash.log",
+      BUILD_BLOCK,
+      DEFAULT_SUBJECT,
+      REDACTED_VALUE,
+    );
+    expect(reviewed.findings.length).toBeGreaterThan(0);
+    expect(reviewed.draft.body).toBe(REDACTED_VALUE);
+  });
 
   it("allows a username or email only when the user explicitly enters it", () => {
     const result = createFeedbackDraft(
