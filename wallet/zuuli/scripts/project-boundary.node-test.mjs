@@ -19,6 +19,24 @@ import {
   main as runProductionBoundary,
 } from "./project-boundary.mjs";
 
+// The constrained Vite build helper's own wrapping message (see
+// `errorDetail`/the catch block around `build()` in
+// project-boundary-vite-build.mjs) is the one part of a boundary-build
+// failure this suite controls end to end. Everything appended after it is
+// whatever Node's `--permission` model (or Vite/Rollup) happened to say about
+// *why* a read was denied, and that nested wording is not stable across Node
+// versions: Node 24.18 changed several of these messages (e.g. dropping the
+// literal "FileSystemWrite"/"allow-fs-write" tokens, and in some cases
+// tripping the OS-level permission check on an earlier, unrelated read before
+// the deliberately-injected cross-app read is ever reached) without changing
+// whether the build was actually blocked. Assert on this stable prefix
+// instead of on Node's permission-model wording so the tests track the
+// behavioural guarantee (the production build never completes when a plugin
+// or module reads outside the owner/shared graph) rather than a message that
+// can drift with the Node version.
+const ZUULI_CONSTRAINED_BUILD_FAILURE =
+  /zuuli\/vite\.config\.ts: constrained production Vite graph build failed; a plugin or module may have read outside wallet\/zuuli and wallet\/shared:/;
+
 const SHARED_DEPENDENCY = { "@free2z/wallet-shared": "file:../shared" };
 const REQUIRED_PRODUCTION_CONSUMERS = [
   "zuuallet/src/lib/sensitive-entry.ts",
@@ -757,7 +775,7 @@ export default { plugins: [{
 
     await assert.rejects(
       () => assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
-      /constrained production Vite graph build failed[\s\S]*(FileSystemWrite|allow-fs-write)/,
+      ZUULI_CONSTRAINED_BUILD_FAILURE,
     );
     await assert.rejects(
       () => readFile(marker, "utf8"),
@@ -945,7 +963,7 @@ export default { plugins: [{
       );
       await assert.rejects(
         () => assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
-        /constrained production Vite graph build failed[\s\S]*transform-secret\.ts/,
+        ZUULI_CONSTRAINED_BUILD_FAILURE,
       );
     },
   );
@@ -1207,7 +1225,7 @@ export default { plugins: [{
       );
       await assert.rejects(
         () => runProductionBoundary({ walletRoot: root }),
-        /constrained production Vite graph build failed[\s\S]*load-secret\.ts/,
+        ZUULI_CONSTRAINED_BUILD_FAILURE,
       );
     },
   );
@@ -1242,7 +1260,7 @@ test("rejects a CSS import of sibling-app source after a real build proves bundl
       );
       await assert.rejects(
         () => assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
-        /constrained production Vite graph build failed[\s\S]*zuuallet\/src\/index\.css/,
+        ZUULI_CONSTRAINED_BUILD_FAILURE,
       );
     },
   );
