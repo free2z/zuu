@@ -2552,6 +2552,15 @@ currently do: [`wallet/zuuli/src/lib/messaging/mock.ts`](../../wallet/zuuli/src/
 answer. [#838](https://github.com/free2z/zuu/issues/838) tracks the mock fix;
 this document does not overstate the mock as already conforming.
 
+> **Fixed (2026-09-01).** `evaluateHandle` now distinguishes `username ===
+> null` (no signed-in account, `"not-signed-in"`) from `username === ""` (a
+> string like any other, which now runs the full pipeline and lands on
+> `"punctuation"`, matching `handle.rs`). The charset check that let the empty
+> string fall through to a different, mislabeled branch (`/^[a-z0-9_]*$/`, `*`
+> not `+`) is fixed the same way `handle.rs` never needed fixing: charset
+> membership alone cannot express "and at least one byte," so the check now
+> requires one. #838 is closed.
+
 **A restatement is not proof of agreement, and this document requires one.**
 Three independent restatements of the same three-step rule already exist —
 `handle.rs` (Rust, the shipped backend), `evaluateHandle` (the TypeScript mock),
@@ -2565,10 +2574,19 @@ at minimum: `null`, the empty string, an ASCII-uppercase username, each of
 (because it is the case where fold-then-check and check-then-fold disagree),
 and lengths 30 and 31 — so that an edit to either implementation which drifts
 from the other, or from this table, fails a test rather than shipping unnoticed.
-**This does not exist yet.** [#838](https://github.com/free2z/zuu/issues/838)
-tracks adding it; until it lands, the parity this section specifies is
-maintained by hand, and the empty-string case above is the demonstrated cost of
-that.
+**This did not exist when the paragraph above was written; it does now.**
+[`wallet/zuuli/src/lib/messaging/handle-eligibility.fixtures.json`](../../wallet/zuuli/src/lib/messaging/handle-eligibility.fixtures.json)
+is the shared table, at least the minimum set listed above — kept inside
+`wallet/zuuli` rather than under `docs/` so `mock.ts`'s side of it is an
+ordinary same-project JSON import, not a reach outside the wallet's own module
+boundary. `handle.rs`'s `#[cfg(test)]` module reads it via `include_str!` at a
+fixed relative path, and `wallet/zuuli/src/lib/messaging/
+mock.handle-eligibility.test.ts` imports it as a module; each side asserts
+every case against its own implementation, neither file is the other's source
+of truth, and this document is not a third copy of the table — it names the
+file rather than restating its contents, which is exactly the discipline whose
+absence caused the empty-string case above. [#838](https://github.com/free2z/zuu/issues/838)
+added it.
 
 ### 14.2 Checked against free2z's real username rules — measured
 

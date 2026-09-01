@@ -1,0 +1,72 @@
+{
+  "$comment": "docs/e2ee/WIRE.md §14.1's shared fixture table, kept inside wallet/zuuli (not under docs/) so importing it stays within the wallet project's own module boundary: `handle.rs::eligibility`/`not_signed_in` (Rust, the shipped backend, wallet/plugins/tauri-plugin-f2zmsg) and `mock.ts::evaluateHandle` (the TypeScript mock, this directory) are each asserted against this exact table so a future edit that drifts either one from the other, or from this table, fails a test rather than shipping unnoticed (#838, refs #820). `input: null` exercises `not_signed_in()`/the no-signed-in-account branch; every other `input` exercises `eligibility(input)`/the string branch of `evaluateHandle`. `reason` values are `IneligibilityReason`'s kebab-case wire form (models.rs `#[serde(rename_all = \"kebab-case\")]`, types.ts `IneligibilityReasonSchema`).",
+  "cases": [
+    {
+      "label": "no_signed_in_account",
+      "input": null,
+      "expected": { "eligible": false, "candidate": null, "reason": "not-signed-in" }
+    },
+    {
+      "label": "empty_username_is_punctuation_not_not_signed_in",
+      "$comment": "WIRE.md §14.1: '{1,30}' has no length floor of its own, so the reference implementation states the empty case explicitly rather than relying on the regex — and mock.ts's own #838 regression, folding this case into the null case, is exactly the drift this fixture exists to catch.",
+      "input": "",
+      "expected": { "eligible": false, "candidate": null, "reason": "punctuation" }
+    },
+    {
+      "label": "ascii_uppercase_disqualifies_nobody",
+      "input": "ALICE",
+      "expected": { "eligible": true, "candidate": "alice", "reason": null }
+    },
+    {
+      "label": "ascii_uppercase_with_underscore_and_digit",
+      "input": "Alice_1",
+      "expected": { "eligible": true, "candidate": "alice_1", "reason": null }
+    },
+    {
+      "label": "punctuation_dot",
+      "input": "a.b",
+      "expected": { "eligible": false, "candidate": null, "reason": "punctuation" }
+    },
+    {
+      "label": "punctuation_at",
+      "input": "a@b",
+      "expected": { "eligible": false, "candidate": null, "reason": "punctuation" }
+    },
+    {
+      "label": "punctuation_plus",
+      "input": "a+b",
+      "expected": { "eligible": false, "candidate": null, "reason": "punctuation" }
+    },
+    {
+      "label": "punctuation_hyphen",
+      "input": "a-b",
+      "expected": { "eligible": false, "candidate": null, "reason": "punctuation" }
+    },
+    {
+      "label": "non_ascii_cyrillic_homograph",
+      "$comment": "U+0430 CYRILLIC SMALL LETTER A prefixing 'lice' — the homograph §11.3 exists to keep out of the charset entirely.",
+      "input": "\u0430lice",
+      "expected": { "eligible": false, "candidate": null, "reason": "non-ascii" }
+    },
+    {
+      "label": "kelvin_sign_is_non_ascii_not_folded_to_k",
+      "$comment": "WIRE.md §14.1 step 1: U+212A KELVIN SIGN must be rejected as non-ascii on the raw string. `\"\\u212A\".toLowerCase()` is `\"k\"` under Unicode case folding, so a fold-first (or ascii_lower-via-String.toLowerCase-before-the-ASCII-check) implementation would wrongly accept this as a plain ASCII handle.",
+      "input": "\u212A",
+      "expected": { "eligible": false, "candidate": null, "reason": "non-ascii" }
+    },
+    {
+      "label": "length_30_is_at_the_boundary_and_eligible",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": {
+        "eligible": true,
+        "candidate": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reason": null
+      }
+    },
+    {
+      "label": "length_31_is_over_the_boundary_and_too_long",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": { "eligible": false, "candidate": null, "reason": "too-long" }
+    }
+  ]
+}
