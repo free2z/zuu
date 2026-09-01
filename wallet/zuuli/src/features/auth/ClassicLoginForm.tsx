@@ -131,7 +131,7 @@ export function ClassicLoginForm({
         {submitting ? (
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
         ) : (
-          <LogIn className="h-4 w-4" aria-hidden />
+          <LogIn className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
         )}
         {submitting ? "Logging in…" : "Log in"}
       </Button>
@@ -210,7 +210,7 @@ function OtpStep({
           value={code}
           onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
           placeholder="000000"
-          className="text-center text-lg tracking-[0.5em] tabular-nums"
+          className="text-center text-lg tracking-[0.5em] bidi-number tabular-nums"
           disabled={submitting}
           aria-invalid={!!error}
         />
@@ -243,7 +243,7 @@ function OtpStep({
         onClick={onBack}
         disabled={submitting}
       >
-        <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+        <ArrowLeft className="rtl:-scale-x-100 h-3.5 w-3.5" aria-hidden />
         Use a different account
       </Button>
     </form>

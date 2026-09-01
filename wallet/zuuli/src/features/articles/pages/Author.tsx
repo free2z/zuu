@@ -435,7 +435,7 @@ function AuthenticatedAuthor({ username }: { username: string }) {
                   >
                     <FileClock className="h-4 w-4" aria-hidden />
                     <span className="hidden sm:inline">Drafts</span>
-                    <span className="tabular-nums">{drafts.length}</span>
+                    <span className="bidi-number tabular-nums">{drafts.length}</span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="max-w-[min(20rem,calc(100vw-2rem))]">
@@ -453,7 +453,7 @@ function AuthenticatedAuthor({ username }: { username: string }) {
                         {articleDraftLabel(draft)}
                       </span>
                       {draft.id === draftId ? (
-                        <Check className="ml-2 h-4 w-4 shrink-0 text-primary" aria-hidden />
+                        <Check className="ms-2 h-4 w-4 shrink-0 text-primary" aria-hidden />
                       ) : null}
                     </DropdownMenuItem>
                   ))}
@@ -496,7 +496,7 @@ function AuthenticatedAuthor({ username }: { username: string }) {
       />
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span className="tabular-nums">
+        <span className="bidi-number tabular-nums">
           {words} {words === 1 ? "word" : "words"} · {readingMinutes(words)} min read
         </span>
         <span

@@ -234,6 +234,11 @@ jobs:
           node --test scripts/project-boundary.node-test.mjs
           node scripts/project-boundary.mjs
 
+      - name: Verify RTL source policy
+        run: |
+          node --test scripts/rtl-source-policy.node-test.mjs
+          node scripts/rtl-source-policy.mjs
+
       # GitHub's Ubuntu runner image includes stable Google Chrome. Using it in
       # CI avoids an apt-mirror dependency while preserving real browser tests.
       - name: Verify the viewport-test browser

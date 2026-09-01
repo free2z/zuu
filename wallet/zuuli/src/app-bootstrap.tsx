@@ -32,8 +32,10 @@ export function RootFallback() {
         alignItems: "center",
         justifyContent: "center",
         gap: "1rem",
-        padding:
-          "calc(2rem + var(--safe-area-top)) calc(2rem + var(--safe-area-right)) calc(2rem + var(--safe-area-bottom)) calc(2rem + var(--safe-area-left))",
+        paddingBlockStart: "calc(2rem + var(--safe-area-top))",
+        paddingBlockEnd: "calc(2rem + var(--safe-area-bottom))",
+        paddingInlineStart: "calc(2rem + var(--safe-area-inline-start))",
+        paddingInlineEnd: "calc(2rem + var(--safe-area-inline-end))",
         background: "#121212",
         color: "#f5f5f5",
         fontFamily: "system-ui, sans-serif",

@@ -318,7 +318,7 @@ export default function SearchFeature() {
                   )
                 }
                 aria-label={`Remove topic ${topic}`}
-                className="min-tap inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-left text-xs font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="min-tap inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-start text-xs font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <span className="min-w-0 break-words">#{topic}</span>
                 <X className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -341,7 +341,7 @@ export default function SearchFeature() {
           }}
         >
           <SearchIcon
-            className="pointer-events-none absolute left-3.5 top-6 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            className="pointer-events-none absolute start-3.5 top-6 h-4 w-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden
           />
           <Input
@@ -374,7 +374,7 @@ export default function SearchFeature() {
             aria-describedby={statusId}
             autoComplete="off"
             data-custom-search-clear
-            className="h-12 pl-10 pr-14 text-base"
+            className="h-12 ps-10 pe-14 text-base"
           />
           {query ? (
             <button
@@ -387,7 +387,7 @@ export default function SearchFeature() {
                 inputRef.current?.focus();
               }}
               aria-label={t(MESSAGE_KEYS.searchClear)}
-              className="min-tap absolute right-1.5 top-6 grid h-12 w-12 min-h-12 min-w-12 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="min-tap absolute end-1.5 top-6 grid h-12 w-12 min-h-12 min-w-12 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="h-4 w-4" aria-hidden />
             </button>
@@ -412,7 +412,7 @@ export default function SearchFeature() {
                     onPointerDown={(event) => event.preventDefault()}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => chooseSuggestion(suggestion)}
-                    className="flex min-h-11 w-full items-center gap-3 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-secondary aria-selected:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    className="flex min-h-11 w-full items-center gap-3 border-b border-border px-3 py-2 text-start last:border-b-0 hover:bg-secondary aria-selected:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   >
                     {suggestion.kind === "topic" ? (
                       <Hash
@@ -508,7 +508,7 @@ export default function SearchFeature() {
         >
           <TabsList>
             <TabsTrigger value="creators">
-              <Users className="mr-1.5 h-4 w-4" aria-hidden />
+              <Users className="me-1.5 h-4 w-4" aria-hidden />
               Creators
               <ResultCountBadge
                 n={creatorCount}
@@ -517,7 +517,7 @@ export default function SearchFeature() {
               />
             </TabsTrigger>
             <TabsTrigger value="pages">
-              <FileText className="mr-1.5 h-4 w-4" aria-hidden />
+              <FileText className="me-1.5 h-4 w-4" aria-hidden />
               Pages
               <ResultCountBadge
                 n={pageCount}
@@ -641,7 +641,7 @@ function ResultCountBadge({
 }) {
   if (loading || !available) return null;
   return (
-    <span className="ml-2 rounded-full bg-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
+    <span className="ms-2 rounded-full bg-muted px-1.5 text-xs font-semibold bidi-number tabular-nums text-muted-foreground">
       {n}
     </span>
   );
@@ -667,7 +667,7 @@ function SearchLoadMore({
   return (
     <div className="mt-5 flex flex-col items-center gap-2">
       <span
-        className="text-sm tabular-nums text-muted-foreground"
+        className="text-sm bidi-number tabular-nums text-muted-foreground"
         aria-live="polite"
       >
         {loaded} of {total} {corpus}
@@ -733,7 +733,7 @@ function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           {typeof creator.zpages === "number" ? (
-            <span className="tabular-nums">{creator.zpages} pages</span>
+            <span className="bidi-number tabular-nums">{creator.zpages} pages</span>
           ) : null}
           {creator.member_price ? (
             // "Membership": this is what it costs to SUBSCRIBE to this
@@ -741,7 +741,7 @@ function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
             // rather than showing a bare, ambiguous "200 2Z/mo".
             <Badge
               variant="sub"
-              className="max-w-full tabular-nums"
+              className="max-w-full bidi-number tabular-nums"
               aria-label={`Membership price: ${formatTuzis(creator.member_price)} per month`}
             >
               Membership · {formatTuzis(creator.member_price)}/mo

@@ -37,11 +37,11 @@ function StatChip({
       </span>
       <div className="min-w-0">
         <div className="eyebrow text-muted-foreground">{label}</div>
-        <div className="numeral text-lg font-medium leading-tight">
+        <div className="bidi-number numeral text-lg font-medium leading-tight">
           {loading ? "—" : value}
         </div>
       </div>
-      <ArrowUpRight className="ml-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+      <ArrowUpRight className="rtl:-scale-x-100 ms-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5 ltr:group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5" />
     </Link>
   );
 }

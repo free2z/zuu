@@ -241,7 +241,7 @@ function CopyButton({ getText }: { getText: () => string }) {
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1500);
       }}
-      className="min-tap absolute right-2 top-2 z-10 inline-flex items-center justify-center rounded-md border border-border bg-card/80 p-1.5 text-muted-foreground opacity-0 backdrop-blur transition hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+      className="min-tap absolute end-2 top-2 z-10 inline-flex items-center justify-center rounded-md border border-border bg-card/80 p-1.5 text-muted-foreground opacity-0 backdrop-blur transition hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
     >
       {copied ? (
         <Check className="h-4 w-4 text-primary" />
@@ -686,9 +686,9 @@ export function Markdown({
         // `.container a:hover { … }`, so only the specific anchor under the
         // cursor is affected.
         "[&_a]:text-link [&_a]:underline [&_a]:underline-offset-4 [&_a:hover]:decoration-2",
-        "[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6",
+        "[&_ul]:list-disc [&_ul]:ps-6 [&_ol]:list-decimal [&_ol]:ps-6",
         "[&_li]:my-1",
-        "[&_blockquote]:border-l-2 [&_blockquote]:border-primary [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-muted-foreground",
+        "[&_blockquote]:border-s-2 [&_blockquote]:border-primary [&_blockquote]:ps-4 [&_blockquote]:italic [&_blockquote]:text-muted-foreground",
         "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-sm",
         "[&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-4 [&_pre_code]:bg-transparent [&_pre_code]:p-0",
         "[&_img]:rounded-lg [&_img]:border [&_img]:border-border",
@@ -696,7 +696,7 @@ export function Markdown({
         // Tables: full-width, wrapped in overflow-x:auto (see `table` override),
         // muted header, padded cells, bottom borders, subtle zebra rows.
         "[&_table]:my-4 [&_table]:w-full [&_table]:border-collapse [&_table]:text-sm",
-        "[&_th]:border-b [&_th]:border-border [&_th]:bg-muted [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold",
+        "[&_th]:border-b [&_th]:border-border [&_th]:bg-muted [&_th]:px-3 [&_th]:py-2 [&_th]:text-start [&_th]:font-semibold",
         "[&_td]:border-b [&_td]:border-border [&_td]:px-3 [&_td]:py-2",
         "[&_tbody_tr:nth-child(even)]:bg-muted/30",
         className,

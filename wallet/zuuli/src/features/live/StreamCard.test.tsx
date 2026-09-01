@@ -45,7 +45,7 @@ describe("StreamCard participant count accessibility", () => {
     expect(markup).toContain(
       'aria-label="Truthful stream by Alice — live now, 0 people watching"',
     );
-    expect(markup).toMatch(/<span class="tabular-nums">0<\/span>/);
+    expect(markup).toMatch(/<span class="bidi-number tabular-nums">0<\/span>/);
     expect(markup).not.toContain("Unavailable");
   });
 });

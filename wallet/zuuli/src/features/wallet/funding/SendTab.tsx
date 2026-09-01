@@ -439,7 +439,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
           <Label htmlFor="recipient">Send to</Label>
           <div className="relative">
             <Search
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
               aria-hidden
             />
             <Input
@@ -451,7 +451,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
               value={recipientState.query}
               onChange={(event) => changeRecipient(event.target.value)}
               onKeyDown={onRecipientKeyDown}
-              className="h-11 pl-9"
+              className="h-11 ps-9"
               role="combobox"
               aria-label="Search for a 2Z recipient"
               aria-autocomplete="list"
@@ -470,7 +470,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
             />
             {recipientState.searchStatus === "loading" ? (
               <Loader2
-                className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground"
+                className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground"
                 aria-label="Searching creators"
               />
             ) : null}
@@ -494,7 +494,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
                     aria-selected={index === recipientState.highlightedIndex}
                     onClick={() => chooseRecipient(creator)}
                     className={cn(
-                      "flex min-h-11 w-full items-center gap-3 border-b border-border px-3 py-2 text-left last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                      "flex min-h-11 w-full items-center gap-3 border-b border-border px-3 py-2 text-start last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                       index === recipientState.highlightedIndex
                         ? "bg-primary/10"
                         : "hover:bg-secondary",
@@ -585,7 +585,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
                       : "border-border hover:border-primary/40 hover:bg-primary/5",
                   )}
                 >
-                  <div className="text-base font-bold tabular-nums">
+                  <div className="text-base font-bold bidi-number tabular-nums">
                     {preset.toLocaleString()}
                   </div>
                   <div className="text-xs font-medium text-primary">2Z</div>
@@ -602,13 +602,13 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
               onChange={(event) =>
                 changeAmount(() => setCustom(event.target.value))
               }
-              className="pr-24 tabular-nums"
+              className="pe-24 bidi-number tabular-nums"
               aria-label="Custom tip amount in 2Z"
               aria-describedby="custom-tip-error"
               aria-invalid={hasCustomAmount && !validAmount}
               disabled={sending || flowLocked}
             />
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium tabular-nums text-muted-foreground">
+            <span className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-sm font-medium bidi-number tabular-nums text-muted-foreground">
               2Z
             </span>
           </div>
@@ -636,7 +636,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm text-muted-foreground">Recipient</span>
             {recipientState.selected ? (
-              <span className="min-w-0 text-right">
+              <span className="min-w-0 text-end">
                 <span className="block break-words font-medium">
                   {recipientState.selected.display_name ||
                     recipientState.selected.username}
@@ -651,7 +651,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
           </div>
           <div className="flex items-baseline justify-between">
             <span className="text-sm text-muted-foreground">Amount</span>
-            <div className="text-xl font-bold tabular-nums">
+            <div className="text-xl font-bold bidi-number tabular-nums">
               {validAmount && amount !== null ? formatTuzis(amount) : "—"}
             </div>
           </div>
@@ -660,7 +660,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
               <span className="text-muted-foreground">Balance after</span>
               <span
                 className={cn(
-                  "tabular-nums",
+                  "bidi-number tabular-nums",
                   validAmount && !enough && "text-destructive",
                 )}
               >
@@ -717,12 +717,12 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
           ) : gate === "sign-in" ? (
             <Button className="w-full" onClick={signInToSend}>
               Sign in to send 2Z
-              <ArrowRight className="h-4 w-4" />
+              <ArrowRight className="rtl:-scale-x-100 h-4 w-4" />
             </Button>
           ) : block === "balance" && !pendingMatchesCurrent ? (
             <Button variant="outline" className="w-full" onClick={onNeedBuy}>
               Not enough 2Z — buy more
-              <ArrowRight className="h-4 w-4" />
+              <ArrowRight className="rtl:-scale-x-100 h-4 w-4" />
             </Button>
           ) : recipientState.review && reviewIsCurrent ? (
             <div className="space-y-3 rounded-xl border border-primary/40 bg-primary/5 p-3">

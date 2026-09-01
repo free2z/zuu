@@ -65,7 +65,7 @@ function ArticleCard({ article }: { article: Article }) {
           </span>
         ) : null}
         {typeof article.votes === "number" ? (
-          <span className="inline-flex items-center gap-1 tabular-nums">
+          <span className="inline-flex items-center gap-1 bidi-number tabular-nums">
             <ChevronUp className="h-3.5 w-3.5" aria-hidden />
             {article.votes.toLocaleString()}
           </span>

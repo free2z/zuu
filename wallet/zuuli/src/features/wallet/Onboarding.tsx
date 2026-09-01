@@ -282,7 +282,7 @@ export function RestorePane({ onRestored }: { onRestored: () => void }) {
             {seed.trim() ? (
               <span
                 className={cn(
-                  "tabular-nums",
+                  "bidi-number tabular-nums",
                   validWordCount ? "text-success" : "text-muted-foreground",
                 )}
               >
@@ -303,7 +303,7 @@ export function RestorePane({ onRestored }: { onRestored: () => void }) {
             onChange={(e) => setBirthday(e.target.value.replace(/[^\d]/g, ""))}
             inputMode="numeric"
             placeholder="e.g. 2600000"
-            className="tabular-nums"
+            className="bidi-number tabular-nums"
           />
           <p className="text-xs text-muted-foreground">
             The block height the wallet was created at. Speeds up the initial
@@ -452,7 +452,7 @@ function SeedReveal({
                   key={i}
                   className="flex items-center gap-2 rounded-lg border border-border bg-background/50 px-3 py-2"
                 >
-                  <span className="w-5 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                  <span className="w-5 shrink-0 text-end text-xs bidi-number tabular-nums text-muted-foreground">
                     {i + 1}
                   </span>
                   <span className="font-mono text-sm">{word}</span>

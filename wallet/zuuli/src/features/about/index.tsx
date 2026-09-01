@@ -78,7 +78,7 @@ export function AboutBuildCard({
       <CardHeader className="min-w-0 p-4 sm:p-6">
         <CardTitle className="min-w-0 break-words text-lg [overflow-wrap:anywhere]">
           <h2 className="min-w-0 break-words [overflow-wrap:anywhere]">
-            <Info className="mr-2 inline h-5 w-5" aria-hidden />
+            <Info className="me-2 inline h-5 w-5" aria-hidden />
             {messages.buildHeading}
           </h2>
         </CardTitle>

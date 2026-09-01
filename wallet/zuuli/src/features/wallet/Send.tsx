@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BidiIdentifier } from "@/components/common/BidiIdentifier";
 import {
   Dialog,
   DialogContent,
@@ -30,7 +31,6 @@ import {
   formatZecDisplay,
   MAX_ZEC_INPUT_LENGTH,
   parseZecToZatoshis,
-  truncateAddress,
 } from "@/lib/format";
 import { wallet } from "@/lib/wallet/bridge";
 import {
@@ -411,7 +411,11 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
         if (creatorTip) retireCreatorTipIntent(creatorTip);
         setPendingSend(null);
         toast.success("Transaction sent", {
-          description: `txid ${truncateAddress(result.txid)}`,
+          description: (
+            <span>
+              txid <BidiIdentifier value={result.txid} shorten />
+            </span>
+          ),
         });
         await refreshBalance().catch(() => {
           if (mountedRef.current && generation === generationRef.current) {
@@ -459,7 +463,11 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
         if (creatorTip) retireCreatorTipIntent(creatorTip);
         setPendingSend(null);
         toast.success("Transaction broadcast confirmed", {
-          description: `txid ${truncateAddress(result.txid)}`,
+          description: (
+            <span>
+              txid <BidiIdentifier value={result.txid} shorten />
+            </span>
+          ),
         });
         await refreshBalance();
         navigate("/wallet/history");
@@ -564,7 +572,7 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
                   : "ZUULI recovered the exact transaction after restart. Retry it before creating another payment."}
               </p>
               <p className="mono-id mt-1 break-all font-mono text-xs opacity-75">
-                txid {pendingSend.txid}
+                txid <BidiIdentifier value={pendingSend.txid} />
               </p>
             </div>
           ) : null}
@@ -573,6 +581,7 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
             <Label htmlFor="to">Recipient address</Label>
             <Input
               id="to"
+              dir="ltr"
               value={to}
               onChange={
                 creatorTip ? undefined : (e) => onToChange(e.target.value)
@@ -660,13 +669,13 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
                 type="text"
                 disabled={formLocked}
                 className={cn(
-                  "pr-14 tabular-nums",
+                  "pe-14 bidi-number tabular-nums",
                   (invalidAmount || overBalance) && "border-destructive",
                 )}
                 aria-describedby="amount-error"
                 aria-invalid={invalidAmount || overBalance || undefined}
               />
-              <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+              <div className="pointer-events-none absolute inset-y-0 end-3 flex items-center">
                 <ZecTag className="text-xs" />
               </div>
             </div>
@@ -694,7 +703,7 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
               {canReceiveMemo ? (
                 <span
                   className={cn(
-                    "text-xs tabular-nums text-muted-foreground",
+                    "text-xs bidi-number tabular-nums text-muted-foreground",
                     memoBytes >= MEMO_MAX_BYTES && "text-destructive",
                   )}
                 >
@@ -816,16 +825,15 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
               ) : null}
               <div className="space-y-3 rounded-lg border border-border bg-background/40 p-4 text-sm">
                 <Row label="To">
-                  <span
-                    className="mono-id min-w-0 break-all text-right font-mono text-xs"
+                  <BidiIdentifier
+                    value={proposal.review.payments[0]?.recipient ?? ""}
+                    className="mono-id min-w-0 break-all text-end font-mono text-xs"
                     data-testid="send-review-recipient"
-                  >
-                    {proposal.review.payments[0]?.recipient ?? ""}
-                  </span>
+                  />
                 </Row>
                 <Row label="Amount">
                   <span
-                    className="tabular-nums"
+                    className="bidi-number tabular-nums"
                     data-testid="send-review-amount"
                   >
                     {formatZecDisplay(
@@ -835,7 +843,7 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
                 </Row>
                 <Row label="Network fee">
                   <span
-                    className="tabular-nums text-muted-foreground"
+                    className="bidi-number tabular-nums text-muted-foreground"
                     title={proposal.review.feePolicy}
                   >
                     {formatZecDisplay(proposal.review.fee)}
@@ -843,7 +851,7 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
                 </Row>
                 <Row label="Memo">
                   <span
-                    className="min-w-0 whitespace-pre-wrap break-words text-right text-muted-foreground"
+                    className="min-w-0 whitespace-pre-wrap break-words text-end text-muted-foreground"
                     data-testid="send-review-memo"
                   >
                     {proposal.review.payments[0]?.memo ?? "None"}
@@ -865,7 +873,7 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
                 </Row>
                 <Separator />
                 <Row label="Total">
-                  <span className="text-base font-semibold tabular-nums text-zec">
+                  <span className="text-base font-semibold bidi-number tabular-nums text-zec">
                     {formatZecDisplay(proposal.review.total)}
                   </span>
                 </Row>
@@ -892,7 +900,7 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
                 {broadcastResult.message}
               </p>
               <p className="mono-id mt-1 break-all font-mono text-xs opacity-75">
-                txid {broadcastResult.txid}
+                txid <BidiIdentifier value={broadcastResult.txid} />
               </p>
             </div>
           ) : null}

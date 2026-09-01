@@ -112,7 +112,7 @@ export function Feed() {
         <div className="w-full sm:max-w-md">
           <div className="relative">
             <Search
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
               aria-hidden
             />
             <Input
@@ -125,14 +125,14 @@ export function Feed() {
               placeholder={t(MESSAGE_KEYS.navSearchAction)}
               aria-label={t(MESSAGE_KEYS.articlesSearchAccessible)}
               data-custom-search-clear
-              className="pl-9 pr-12"
+              className="ps-9 pe-12"
             />
             {searchInput ? (
               <button
                 type="button"
                 onClick={() => setSearchInput("")}
                 aria-label="Clear search"
-                className="min-tap absolute right-0 top-1/2 grid -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="min-tap absolute end-0 top-1/2 grid -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <X className="h-4 w-4" aria-hidden />
               </button>
@@ -172,7 +172,7 @@ export function Feed() {
 
       {/* Result count */}
       {!loading && !error && items.length > 0 ? (
-        <p className="mb-4 text-sm text-muted-foreground tabular-nums">
+        <p className="mb-4 text-sm text-muted-foreground bidi-number tabular-nums">
           {count.toLocaleString()} {count === 1 ? "article" : "articles"}
           {selectedTags.length > 0 ? ` tagged ${selectedTags.join(" + ")}` : ""}
         </p>
