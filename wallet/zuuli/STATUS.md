@@ -8,15 +8,16 @@ back from the named store. Authenticated, money-moving, wallet, KYC, and media
 operations are not called working without recorded evidence from that path.
 
 Last re-derived from `origin/main` at
-`9c78e90fda7aa4c886411164b4f490c2e522f46c` on 2026-09-01. Before a release,
+`39ce2e6ed9ca834451f8d4cc69de16e68660c0ae` on 2026-09-01. Before a release,
 update the evidence and disposition for every non-ready row; do not carry this
 commit or date forward mechanically.
 
-This is the widest anchor since build 14. Thirty-three commits landed between
+This is the widest anchor since build 14. Thirty-five commits landed between
 `e2be49c8` (the build-19 anchor) and this one; two of them are build 19's own
 ceremony ([#842](https://github.com/free2z/zuu/pull/842) and
-[#843](https://github.com/free2z/zuu/pull/843)), so **thirty-one PRs reach a
-build for the first time in `0.1.0+20`**:
+[#843](https://github.com/free2z/zuu/pull/843)) and one is this build's own
+STATUS re-derive ([#870](https://github.com/free2z/zuu/pull/870)), so
+**thirty-two PRs reach a build for the first time in `0.1.0+20`**:
 
 - **ZUULI application and UI** — the off-screen mobile More sheet
   ([#869](https://github.com/free2z/zuu/pull/869)), About commit-SHA
@@ -41,7 +42,9 @@ build for the first time in `0.1.0+20`**:
   local verification ([#845](https://github.com/free2z/zuu/pull/845)), the
   Actions cache ceiling ([#846](https://github.com/free2z/zuu/pull/846)), and
   the markdown-only Rust-matrix skip
-  ([#848](https://github.com/free2z/zuu/pull/848)).
+  ([#848](https://github.com/free2z/zuu/pull/848)), and the About identity
+  test bound to canonical `release.json`
+  ([#872](https://github.com/free2z/zuu/pull/872)).
 - **`rs/` and messaging** — rejecting a `same_key` entry that rotates
   `directory_auth_pk` ([#841](https://github.com/free2z/zuu/pull/841)), MLS
   group restore after a receive rollback
@@ -63,36 +66,46 @@ build for the first time in `0.1.0+20`**:
   [#852](https://github.com/free2z/zuu/pull/852), and
   [#847](https://github.com/free2z/zuu/pull/847).
 
-At the anchor SHA itself the push-triggered
-[rs gate](https://github.com/free2z/zuu/actions/runs/33479067721) completed
-successfully. The anchor's own required
-[wallet/zuuli gate](https://github.com/free2z/zuu/actions/runs/33479067797) and
-its [packaging smoke](https://github.com/free2z/zuu/actions/runs/33479067766)
-had not concluded when this was re-derived — the gate still queued behind a
-saturated runner pool, the smoke in flight — and are therefore **not** counted
-as evidence here. As at the build-19 anchor, the
-merged PRs' own green gates cannot stand in for them, because none of their
-heads carries this anchor's tree (`dd78fd26`): `#869`'s head `b6290fd3` carries
-tree `15a74971`
-([wallet/zuuli](https://github.com/free2z/zuu/actions/runs/33472459527)),
-`#868`'s head `e9c33e62` carries tree `c3f0ae54`
-([wallet/zuuli](https://github.com/free2z/zuu/actions/runs/33471808539)), and
-`#864`'s head `ea6bf084` carries tree `ecc4c442`
-([wallet/zuuli](https://github.com/free2z/zuu/actions/runs/33472198284)). Those
-three runs are evidence for three near neighbours, not for this source.
+`#872` is here because the build-20 bump was attempted first and **failed the
+required gate**. `tests/about.pw.ts` pinned the release identity as literals —
+`getByText("19")` and a regex containing `Build: 19` — so bumping to 20 broke
+it by construction. That is a defect that would have failed *every* future
+ZUULI release, and build 20 is simply the first bump since
+[#822](https://github.com/free2z/zuu/pull/822) added the About build-identity
+binding (`#822` landed after build 19 was cut). It could not ride in the
+release source commit, because `status-freshness.mjs` correctly refuses a
+non-ceremony release-impacting change there, so it landed ahead of the bump and
+this anchor moved to include it. The test now reads canonical `release.json`,
+which is also the stronger assertion: it fails if the rendered identity and
+`release.json` ever disagree, which a frozen literal cannot detect.
 
-The nearest **completed** required `wallet/zuuli` gate on this anchor's
-first-parent history is
-[33474816218](https://github.com/free2z/zuu/actions/runs/33474816218) at
-`9ebf39d` (`#866`), three commits back, and the four-target packaging smoke
-[33474816193](https://github.com/free2z/zuu/actions/runs/33474816193) succeeded
-at that same commit across the macOS universal app, the iOS unsigned target
-app, the Linux packages, and the unsigned Android AAB. Every release-impacting
-path in this snapshot is therefore gate-covered at exactly the shipped content
-**except** the three commits after it — `#864`'s
-`wallet/plugins/tauri-plugin-f2zmsg/src/handle.rs` and mock fixture, `#868`'s
-About, feedback, and build-info sources, and `#869`'s `Sidebar.tsx` — whose
-release-impacting content is covered only at their own PR heads.
+Gate evidence at this anchor is complete at exactly the shipped content, which
+was not true at the build-19 anchor:
+
+- The anchor's tree, `29bc409c`, is **identical** to the tree of `#872`'s PR
+  head `9067fc2`. Its completed
+  [wallet/zuuli gate](https://github.com/free2z/zuu/actions/runs/33484401714),
+  [rs gate](https://github.com/free2z/zuu/actions/runs/33484401681), and
+  [four-target packaging smoke](https://github.com/free2z/zuu/actions/runs/33484401736)
+  are therefore evidence for this source, not for a near neighbour — the
+  build-18 precedent, which the build-19 anchor could not use.
+- The anchor's parent `cdbe378` independently carries its own completed
+  [wallet/zuuli gate](https://github.com/free2z/zuu/actions/runs/33480800517),
+  [rs gate](https://github.com/free2z/zuu/actions/runs/33480800541), and
+  [packaging smoke](https://github.com/free2z/zuu/actions/runs/33480800528).
+- The previous anchor `9c78e90`'s own runs, recorded as still in flight in the
+  snapshot this one replaces, have since all concluded successfully:
+  [wallet/zuuli](https://github.com/free2z/zuu/actions/runs/33479067797),
+  [rs](https://github.com/free2z/zuu/actions/runs/33479067721), and the
+  [packaging smoke](https://github.com/free2z/zuu/actions/runs/33479067766).
+  That closes the coverage gap that snapshot had to leave open for `#864`,
+  `#868`, and `#869`.
+- The anchor's own push-triggered
+  [wallet/zuuli](https://github.com/free2z/zuu/actions/runs/33487961129),
+  [rs](https://github.com/free2z/zuu/actions/runs/33487961126), and
+  [packaging smoke](https://github.com/free2z/zuu/actions/runs/33487961119) runs
+  were still in flight when this was re-derived and are **not** counted; they
+  are redundant with the tree-identical evidence above, not a substitute for it.
 
 These are source, test, and package-build evidence only. They add no
 product-operation or physical-device evidence. Nothing in this anchor was
@@ -124,9 +137,9 @@ build 17.
 
 | Surface | Real API/backend dependency | Native integration | Automated evidence | Production/native evidence | Current status and linked gaps |
 |---|---|---|---|---|---|
-| Runtime transport | Production bundle → `free2z.cash`; development proxy → staging | `tauri-plugin-http` is registered and selected for packaged non-dev Tauri. [#801](https://github.com/free2z/zuu/pull/801) added `https://*.free2z.cash/*` to both capability HTTP allowlists and put `https://free2z.cash` and `https://*.free2z.cash` into the packaged `connect-src`, plus `blob:` in `img-src` | The required frontend/Rust gate and the four-target packaging smoke both pass three commits back at `9ebf39d`, which covers every release-impacting path here except the last three application commits; the anchor's own gate and smoke were still queued at re-derivation. [#862](https://github.com/free2z/zuu/pull/862) additionally makes `wallet/shared/` a real `@free2z/wallet-shared` package and adds a required boundary scanner so neither app can reach into the other's source | Signed-store and unsigned packages exist; no per-surface native HTTP success is recorded here | **Wired, not runtime-proven.** The former claim that packaged HTTP registration was missing was false. |
+| Runtime transport | Production bundle → `free2z.cash`; development proxy → staging | `tauri-plugin-http` is registered and selected for packaged non-dev Tauri. [#801](https://github.com/free2z/zuu/pull/801) added `https://*.free2z.cash/*` to both capability HTTP allowlists and put `https://free2z.cash` and `https://*.free2z.cash` into the packaged `connect-src`, plus `blob:` in `img-src` | The required frontend/Rust gate and the four-target packaging smoke both pass on a tree identical to this anchor's, at `#872`'s PR head, so every release-impacting path here is gate-covered at exactly the shipped content. [#862](https://github.com/free2z/zuu/pull/862) additionally makes `wallet/shared/` a real `@free2z/wallet-shared` package and adds a required boundary scanner so neither app can reach into the other's source | Signed-store and unsigned packages exist; no per-surface native HTTP success is recorded here | **Wired, not runtime-proven.** The former claim that packaged HTTP registration was missing was false. |
 | App shell, mobile navigation, and localization | None | Safe-area insets and the mobile tab bar are native-surface concerns | Playwright geometry suites at 320/360px cover the five-item primary nav and the More sheet. [#869](https://github.com/free2z/zuu/pull/869) fixes a real defect: `DialogContent`'s variant-scoped `ltr:-translate-x-1/2` was not dropped by tailwind-merge when the sheet overrode it with an unprefixed `translate-x-0`, so the instant the entrance animation's effect was removed the base utility won and the sheet snapped to `translateX(-50%)`. Reverting only that class change reproduced it deterministically — dialog `left` at **-160 at 320px and -180 at 360px**, exactly `-width/2` — on every run, not intermittently. The same PR makes `navigation.pw.ts` wait on the dialog's own `getAnimations()` instead of measuring mid-tween. [#863](https://github.com/free2z/zuu/pull/863) gives Sonner toasts safe-area-aware offsets that clear the whole mobile tab bar; [#861](https://github.com/free2z/zuu/pull/861) mirrors layout for RTL locales, isolates bidi identifiers, and adds a source-policy gate against physical-direction utilities | No signed build has been observed on a physical device at any viewport. All geometry evidence is headless browser measurement | **A user-facing mobile-navigation defect shipped in builds 18 and 19 and is first fixed in build 20.** On a narrow viewport the More sheet — the only route to Articles, Messages, Profile, Revenue share, and About — rendered fully off-screen at rest once its entrance animation ended. It is fixed in source and covered by a test that was proven to fail without the fix; it has **not** been confirmed on a device. RTL and inset behaviour are likewise source and browser-test evidence only. Physical-device acceptance for the shell: [#331](https://github.com/free2z/zuu/issues/331), [#238](https://github.com/free2z/zuu/issues/238). |
-| About & Feedback | None for the About row; the feedback handoff opens an external mail client or GitHub | Build identity is injected at bundle time from canonical `release.json`, the checked-out full source SHA, and the Tauri build platform; the OS opener performs the handoff | [#822](https://github.com/free2z/zuu/pull/822) binds version/build/channel/platform/source identity through release verification and artifact provenance, with drift, offline, clipboard, keyboard, screen-reader, and enlarged-text tests. [#823](https://github.com/free2z/zuu/pull/823) shows the complete outgoing subject and body before any handoff, fails closed with **no** diagnostic, log, stack, or runtime capture because traceback safety is not proven, and scrubs wallet/auth/network/path/encoded-secret shapes at review and again before copy. [#868](https://github.com/free2z/zuu/pull/868) middle-truncates the commit SHA through the shared `truncateAddress()` helper instead of a head-only `slice(0, 12)`, scopes BIP-39 mnemonic detection explicitly to English and surfaces that limit in the composer copy, and fixes the regression where the new ellipsis matched the scrubber's own path shape and redacted every report | No feedback report has been composed or sent from a signed build, and no build has been observed displaying its own identity on a device | **New visible surface in build 20; source and test evidence only.** The scrubber is a best-effort redactor over text the user can still edit before sending; it is not a guarantee, and non-English mnemonics are explicitly out of its detection scope and said so in the UI. Nothing here is device-proven. |
+| About & Feedback | None for the About row; the feedback handoff opens an external mail client or GitHub | Build identity is injected at bundle time from canonical `release.json`, the checked-out full source SHA, and the Tauri build platform; the OS opener performs the handoff | [#822](https://github.com/free2z/zuu/pull/822) binds version/build/channel/platform/source identity through release verification and artifact provenance, with drift, offline, clipboard, keyboard, screen-reader, and enlarged-text tests. [#823](https://github.com/free2z/zuu/pull/823) shows the complete outgoing subject and body before any handoff, fails closed with **no** diagnostic, log, stack, or runtime capture because traceback safety is not proven, and scrubs wallet/auth/network/path/encoded-secret shapes at review and again before copy. [#868](https://github.com/free2z/zuu/pull/868) middle-truncates the commit SHA through the shared `truncateAddress()` helper instead of a head-only `slice(0, 12)`, scopes BIP-39 mnemonic detection explicitly to English and surfaces that limit in the composer copy, and fixes the regression where the new ellipsis matched the scrubber's own path shape and redacted every report. [#872](https://github.com/free2z/zuu/pull/872) binds the browser identity test to canonical `release.json` instead of a pinned build literal, so the test now actually asserts the binding `#822` claims — the literal matched only by coincidence of the current build and failed the required gate on the first release bump after it | No feedback report has been composed or sent from a signed build, and no build has been observed displaying its own identity on a device | **New visible surface in build 20; source and test evidence only.** The scrubber is a best-effort redactor over text the user can still edit before sending; it is not a guarantee, and non-English mnemonics are explicitly out of its detection scope and said so in the UI. Nothing here is device-proven. |
 | Public Articles, creator listing, search, Live discovery, AI models, and pricing | Public `zpage`, `creator`, `dyte/public`, `ai/models`, `pricing`, and `pricing/quote` endpoints | Shared native HTTP transport in packaged builds | Parser/component tests cover selected article, remote-data, and media contracts. [#797](https://github.com/free2z/zuu/pull/797) routes this surface's copy through a repo-wide message catalog (`en`/`es`/`fr`) with build-boundary and copy-policy tests; that is a source and test change to presentation only, and it adds no backend evidence. [#803](https://github.com/free2z/zuu/pull/803) replaces the Articles topic-pill wall with a topic autocomplete and adds mixed topic/creator/page suggestions to global Search, with tests for stale-response rejection, identity dedupe, and distinguishing a transport failure from an empty corpus — client contract only | Unfiltered collection/model/pricing production GETs returned HTTP 200 on 2026-09-01; Live returned a valid empty page. Filtered creator/article search and the new autocomplete endpoints were not probed against production | **Collection reads production-observed; search wired, not runtime-proven.** Signed-native rendering remains unrecorded. The source/test fixes for articles ([#337](https://github.com/free2z/zuu/issues/337), [#374](https://github.com/free2z/zuu/issues/374), [#250](https://github.com/free2z/zuu/issues/250), [#251](https://github.com/free2z/zuu/issues/251)) and pagination ([#252](https://github.com/free2z/zuu/issues/252), [#253](https://github.com/free2z/zuu/issues/253)) do not create signed-native or filtered-search runtime evidence. |
 | Username/password and TOTP sign-in | Knox Basic login, OTP status/login, and authenticated user endpoints | Token-backed HTTP; no special native plugin | Session-boundary, login-destination, component, and browser lifecycle tests | Anonymous protected reads returned HTTP 403; no successful production login is recorded | **Wired, not runtime-proven; not release-ready.** Server-side TOTP enforcement: [#369](https://github.com/free2z/zuu/issues/369). Token custody: [#377](https://github.com/free2z/zuu/issues/377). |
 | Login/link with Zcash | `auth/zcash/challenge` and `auth/zcash/login` | The shared plugin supports local recovery-phrase restore and transparent-address Zcash Signed Message signing | Native atomic-restore/signing tests and frontend restore/challenge lifecycle tests exercise local contracts | No production restore → native signature → Knox session round trip is recorded | **Restore is implemented and contract-tested, but the login path is not runtime-proven.** Recovery-phrase restore landed in [#428](https://github.com/free2z/zuu/pull/428); external-wallet signing remains unsupported. Physical recovery ceremony: [#246](https://github.com/free2z/zuu/issues/246). Wallet/login identity choice: [#329](https://github.com/free2z/zuu/issues/329). This is not ZIP-304. |
