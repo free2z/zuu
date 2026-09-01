@@ -186,9 +186,12 @@ mod tests {
     // test rather than shipping unnoticed." This crate and
     // `wallet/zuuli/src/lib/messaging/mock.ts` cannot share a test file, so
     // the fixture table is the thing kept in one place:
-    // `docs/e2ee/fixtures/handle-eligibility.json`, read here and by
-    // `mock.handle-eligibility.test.ts`. Neither implementation is the source
-    // of truth for the other; both are pinned to the fixture.
+    // `wallet/zuuli/src/lib/messaging/handle-eligibility.fixtures.json`, read
+    // here via `include_str!` and imported as a JSON module by
+    // `mock.handle-eligibility.test.ts`. It lives under `wallet/zuuli` rather
+    // than `docs/` so a `mock.ts`-side import of it never has to reach outside
+    // the wallet project's own module boundary. Neither implementation is the
+    // source of truth for the other; both are pinned to the fixture.
     //
     // `input: null` exercises `not_signed_in()`; every other `input` exercises
     // `eligibility(input)`. `#838` is the empty-string row: this table fixes
@@ -209,7 +212,7 @@ mod tests {
 
     #[test]
     fn matches_the_shared_rust_ts_fixture_table() {
-        let raw = include_str!("../../../../docs/e2ee/fixtures/handle-eligibility.json");
+        let raw = include_str!("../../../zuuli/src/lib/messaging/handle-eligibility.fixtures.json");
         let fixture: Fixture = serde_json::from_str(raw).expect("fixture parses as JSON");
         assert!(!fixture.cases.is_empty(), "fixture table must not be empty");
         for case in fixture.cases {

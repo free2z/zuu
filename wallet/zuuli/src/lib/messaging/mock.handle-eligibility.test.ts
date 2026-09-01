@@ -6,9 +6,8 @@
 // through as a plain ASCII handle. Nothing exercised that ordering as a
 // regression test before this file, so a future edit could restore the
 // case-fold-then-check order without any test failing.
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import fixtureFile from "./handle-eligibility.fixtures.json";
 import { evaluateHandle } from "./mock";
 
 describe("handle eligibility uses raw ASCII before case mapping", () => {
@@ -36,11 +35,14 @@ describe("handle eligibility uses raw ASCII before case mapping", () => {
 // which drifts from the other, or from this table, fails a test rather than
 // shipping unnoticed." Rust and TypeScript cannot literally share a test
 // file, so the fixture table is the thing kept in one place:
-// `docs/e2ee/fixtures/handle-eligibility.json`, read here and by
+// `./handle-eligibility.fixtures.json`, imported here as an ordinary JSON
+// module (this file's TS project boundary keeps it from reaching outside
+// wallet/zuuli — no `node:fs`/`node:url`, matching the pattern
+// `src/i18n/locales/*.json` already uses) and read by
 // `wallet/plugins/tauri-plugin-f2zmsg/src/handle.rs`'s own `#[cfg(test)]`
-// module. Neither file is the source of truth for the other; both are pinned
-// to the fixture, and the fixture's own `$comment`s explain why each case is
-// in it.
+// module via `include_str!` at a fixed relative path into this directory.
+// Neither file is the source of truth for the other; both are pinned to the
+// fixture, and the fixture's own `$comment`s explain why each case is in it.
 //
 // This is the test #838 calls for. It also reproduces #838's own bug as one
 // row in the table rather than a one-off assertion:
@@ -58,13 +60,7 @@ interface HandleEligibilityFixtureCase {
   };
 }
 
-const fixturePath = fileURLToPath(
-  new URL(
-    "../../../../../docs/e2ee/fixtures/handle-eligibility.json",
-    import.meta.url,
-  ),
-);
-const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as {
+const fixture = fixtureFile as unknown as {
   cases: HandleEligibilityFixtureCase[];
 };
 

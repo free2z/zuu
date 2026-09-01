@@ -2575,14 +2575,17 @@ at minimum: `null`, the empty string, an ASCII-uppercase username, each of
 and lengths 30 and 31 — so that an edit to either implementation which drifts
 from the other, or from this table, fails a test rather than shipping unnoticed.
 **This did not exist when the paragraph above was written; it does now.**
-[`docs/e2ee/fixtures/handle-eligibility.json`](./fixtures/handle-eligibility.json)
-is the shared table, at least the minimum set listed above. `handle.rs`'s
-`#[cfg(test)]` module and `wallet/zuuli/src/lib/messaging/
-mock.handle-eligibility.test.ts` each read it and assert every case against
-their own implementation; neither file is the other's source of truth, and
-this document is not a third copy of the table — it names the file rather than
-restating its contents, which is exactly the discipline whose absence caused
-the empty-string case above. [#838](https://github.com/free2z/zuu/issues/838)
+[`wallet/zuuli/src/lib/messaging/handle-eligibility.fixtures.json`](../../wallet/zuuli/src/lib/messaging/handle-eligibility.fixtures.json)
+is the shared table, at least the minimum set listed above — kept inside
+`wallet/zuuli` rather than under `docs/` so `mock.ts`'s side of it is an
+ordinary same-project JSON import, not a reach outside the wallet's own module
+boundary. `handle.rs`'s `#[cfg(test)]` module reads it via `include_str!` at a
+fixed relative path, and `wallet/zuuli/src/lib/messaging/
+mock.handle-eligibility.test.ts` imports it as a module; each side asserts
+every case against its own implementation, neither file is the other's source
+of truth, and this document is not a third copy of the table — it names the
+file rather than restating its contents, which is exactly the discipline whose
+absence caused the empty-string case above. [#838](https://github.com/free2z/zuu/issues/838)
 added it.
 
 ### 14.2 Checked against free2z's real username rules — measured
