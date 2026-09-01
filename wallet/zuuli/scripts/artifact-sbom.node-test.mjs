@@ -2746,6 +2746,88 @@ test("verification re-extracts the artifact instead of trusting a mutated scan r
 });
 
 test(
+  "an undeclared canary shipped inside a real DMG payload is inventoried and bound",
+  { skip: process.platform !== "darwin" },
+  () => {
+    // The zip-based canary test above proves this for the AAB/IPA/mac-ZIP
+    // `unzip` code path. DMG payloads take an entirely different path
+    // (`hdiutil attach` + `cloneMountedTree`), so acceptance criterion #1 of
+    // #379 ("a test injects an undeclared canary library/file into a package
+    // and the artifact SBOM reports it") needs its own proof for that path:
+    // the canary here is baked into the source folder handed to `hdiutil
+    // create`, so it ships inside the real DMG bytes, not into a scan root
+    // some other step already trusts.
+    const temporary = mkdtempSync(
+      resolve(tmpdir(), "zuuli-artifact-dmg-canary-"),
+    );
+    try {
+      const source = resolve(temporary, "source");
+      const executable = resolve(source, "ZUULI.app/Contents/MacOS/ZUULI");
+      const canary = resolve(
+        source,
+        "ZUULI.app/Contents/Frameworks/libundeclared-canary.dylib",
+      );
+      mkdirSync(dirname(executable), { recursive: true });
+      mkdirSync(dirname(canary), { recursive: true });
+      writeFileSync(executable, "signed macOS executable fixture\n");
+      writeFileSync(canary, "undeclared native macOS library bytes\n");
+      const canaryPath =
+        "ZUULI.app/Contents/Frameworks/libundeclared-canary.dylib";
+      const artifact = resolve(temporary, "ZUULI-test-canary.dmg");
+      execFileSync(
+        "hdiutil",
+        [
+          "create",
+          "-quiet",
+          "-ov",
+          "-format",
+          "UDZO",
+          "-volname",
+          "ZUULI canary test",
+          "-srcfolder",
+          source,
+          artifact,
+        ],
+        { timeout: 120_000 },
+      );
+      const root = resolve(temporary, "unpacked");
+      const rawSbom = resolve(temporary, "raw.cdx.json");
+      const sbom = resolve(temporary, "artifact.sbom.cdx.json");
+      const binding = resolve(temporary, "artifact.sbom-binding.json");
+      writeJson(rawSbom, minimalCycloneDx());
+
+      const inventory = prepareArtifact({ artifact, root });
+      assert.ok(
+        inventory.some((entry) => entry.path === canaryPath),
+        "the real DMG mount must surface a file nobody declared anywhere",
+      );
+      finalizeArtifactSbom({ artifact, root, rawSbom, sbom, binding });
+      assert.doesNotThrow(() =>
+        verifyArtifactSbom({ artifact, sbom, binding }),
+      );
+
+      const document = JSON.parse(readFileSync(sbom, "utf8"));
+      assert.equal(
+        property(document.metadata.properties, "free2z:inventory-scope"),
+        "shipped-artifact",
+      );
+      const canaryComponent = document.components.find(
+        (component) =>
+          property(component.properties ?? [], "free2z:artifact:path") ===
+          canaryPath,
+      );
+      assert.equal(canaryComponent?.type, "file");
+      assert.equal(
+        canaryComponent?.hashes?.[0]?.content,
+        sha256File(resolve(root, canaryPath)),
+      );
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
   "macOS DMG inventory is copied without following its Applications link",
   { skip: process.platform !== "darwin" },
   () => {
