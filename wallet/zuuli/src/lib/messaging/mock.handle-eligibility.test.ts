@@ -6,6 +6,8 @@
 // through as a plain ASCII handle. Nothing exercised that ordering as a
 // regression test before this file, so a future edit could restore the
 // case-fold-then-check order without any test failing.
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { evaluateHandle } from "./mock";
 
@@ -25,4 +27,52 @@ describe("handle eligibility uses raw ASCII before case mapping", () => {
       reason: null,
     });
   });
+});
+
+// `docs/e2ee/WIRE.md` §14.1: "A conforming implementation of this section MUST
+// maintain a mutation-sensitive test that checks the Rust and TypeScript
+// implementations against one shared table of (input → expected
+// HandleEligibility) fixtures ... so that an edit to either implementation
+// which drifts from the other, or from this table, fails a test rather than
+// shipping unnoticed." Rust and TypeScript cannot literally share a test
+// file, so the fixture table is the thing kept in one place:
+// `docs/e2ee/fixtures/handle-eligibility.json`, read here and by
+// `wallet/plugins/tauri-plugin-f2zmsg/src/handle.rs`'s own `#[cfg(test)]`
+// module. Neither file is the source of truth for the other; both are pinned
+// to the fixture, and the fixture's own `$comment`s explain why each case is
+// in it.
+//
+// This is the test #838 calls for. It also reproduces #838's own bug as one
+// row in the table rather than a one-off assertion:
+// `evaluateHandle("")` used to answer `"not-signed-in"`; the fixture (and
+// `handle.rs::eligibility("")`) says `"punctuation"`. A future regression of
+// either kind — mock drifting from Rust, or either drifting from this file —
+// fails here.
+interface HandleEligibilityFixtureCase {
+  label: string;
+  input: string | null;
+  expected: {
+    eligible: boolean;
+    candidate: string | null;
+    reason: string | null;
+  };
+}
+
+const fixturePath = fileURLToPath(
+  new URL(
+    "../../../../../docs/e2ee/fixtures/handle-eligibility.json",
+    import.meta.url,
+  ),
+);
+const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as {
+  cases: HandleEligibilityFixtureCase[];
+};
+
+describe("evaluateHandle matches the shared Rust↔mock fixture table (WIRE.md §14.1)", () => {
+  it.each(fixture.cases.map((testCase) => [testCase.label, testCase] as const))(
+    "%s",
+    (_label, testCase) => {
+      expect(evaluateHandle(testCase.input)).toEqual(testCase.expected);
+    },
+  );
 });

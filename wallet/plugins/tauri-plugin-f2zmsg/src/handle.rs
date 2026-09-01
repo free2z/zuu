@@ -111,6 +111,7 @@ const fn ineligible(reason: IneligibilityReason) -> HandleEligibility {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::Deserialize;
 
     #[test]
     fn an_ordinary_username_folds_to_a_handle() {
@@ -175,5 +176,48 @@ mod tests {
         assert!(!is_handle(&"a".repeat(31)));
         assert!(!is_handle("a.b"));
         assert!(!is_handle("\u{0430}lice"));
+    }
+
+    // `docs/e2ee/WIRE.md` §14.1: "A conforming implementation of this section
+    // MUST maintain a mutation-sensitive test that checks the Rust and
+    // TypeScript implementations against one shared table of (input →
+    // expected HandleEligibility) fixtures ... so that an edit to either
+    // implementation which drifts from the other, or from this table, fails a
+    // test rather than shipping unnoticed." This crate and
+    // `wallet/zuuli/src/lib/messaging/mock.ts` cannot share a test file, so
+    // the fixture table is the thing kept in one place:
+    // `docs/e2ee/fixtures/handle-eligibility.json`, read here and by
+    // `mock.handle-eligibility.test.ts`. Neither implementation is the source
+    // of truth for the other; both are pinned to the fixture.
+    //
+    // `input: null` exercises `not_signed_in()`; every other `input` exercises
+    // `eligibility(input)`. `#838` is the empty-string row: this table fixes
+    // `eligibility("")` at `Punctuation`, and a future edit reintroducing the
+    // `mock.ts` bug (answering `NotSignedIn` for an empty, signed-in-account
+    // username) fails on the TypeScript side of this same table.
+    #[derive(Deserialize)]
+    struct FixtureCase {
+        label: String,
+        input: Option<String>,
+        expected: HandleEligibility,
+    }
+
+    #[derive(Deserialize)]
+    struct Fixture {
+        cases: Vec<FixtureCase>,
+    }
+
+    #[test]
+    fn matches_the_shared_rust_ts_fixture_table() {
+        let raw = include_str!("../../../../docs/e2ee/fixtures/handle-eligibility.json");
+        let fixture: Fixture = serde_json::from_str(raw).expect("fixture parses as JSON");
+        assert!(!fixture.cases.is_empty(), "fixture table must not be empty");
+        for case in fixture.cases {
+            let actual = match &case.input {
+                None => not_signed_in(),
+                Some(username) => eligibility(username),
+            };
+            assert_eq!(actual, case.expected, "fixture case: {}", case.label);
+        }
     }
 }

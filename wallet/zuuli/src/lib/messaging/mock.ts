@@ -360,9 +360,20 @@ function later(fn: () => void, ms: number): void {
  * §11.3. Reason precedence is this function's choice, not §3.2's: non-ASCII is
  * checked before length because `toLowerCase()` can change a non-ASCII string's
  * length, reporting a number the user cannot map to what they typed.
+ *
+ * `username === null` is the only input this function answers
+ * `"not-signed-in"` for — "no signed-in account to ask about" is a fact the
+ * caller knows and this function cannot derive from a string. `username ===
+ * ""` is a string like any other and runs the full pipeline below: `handle.rs`
+ * `eligibility()` states the empty case explicitly as `"punctuation"`
+ * (`docs/e2ee/WIRE.md` §14.1), because `{1,30}` has a length ceiling but no
+ * floor of its own, and every restatement of the rule — this one included —
+ * MUST agree (#838). The charset check below uses `+`, not `*`, so the empty
+ * candidate reaches that branch on its own rather than needing a special case
+ * here.
  */
 export function evaluateHandle(username: string | null): HandleEligibility {
-  if (!username) {
+  if (username === null) {
     return { eligible: false, candidate: null, reason: "not-signed-in" };
   }
   // eslint-disable-next-line no-control-regex
@@ -370,13 +381,21 @@ export function evaluateHandle(username: string | null): HandleEligibility {
     return { eligible: false, candidate: null, reason: "non-ascii" };
   }
   const candidate = username.toLowerCase();
-  if (!/^[a-z0-9_]*$/.test(candidate)) {
+  // `+`, not `*`: a charset-membership check is vacuously true on zero bytes,
+  // so `*` would let the empty candidate fall through to the length/pattern
+  // checks below and be mislabeled there instead of reported as punctuation
+  // here (WIRE.md §14.1).
+  if (!/^[a-z0-9_]+$/.test(candidate)) {
     return { eligible: false, candidate: null, reason: "punctuation" };
   }
   if (candidate.length > MAX_HANDLE_LENGTH) {
     return { eligible: false, candidate: null, reason: "too-long" };
   }
   if (!HANDLE_PATTERN.test(candidate)) {
+    // Unreachable: every candidate that reaches here is non-empty, charset-
+    // valid and length <= MAX_HANDLE_LENGTH, which is exactly what
+    // HANDLE_PATTERN (`/^[a-z0-9_]{1,30}$/`) tests. Kept as a defensive
+    // fallback rather than removed, per #838.
     return { eligible: false, candidate: null, reason: "not-signed-in" };
   }
   return { eligible: true, candidate, reason: null };
