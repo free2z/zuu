@@ -25,6 +25,7 @@ const androidGradle = source("../src-tauri/gen/android/app/build.gradle.kts");
 const androidActivity = source(
   "../src-tauri/gen/android/app/src/main/java/cash/free2z/zuuli/MainActivity.kt",
 );
+const executableCss = css.replace(/\/\*[\s\S]*?\*\//g, "");
 
 function cssRule(className) {
   const match = css.match(new RegExp(`\\.${className}\\s*\\{([^}]+)\\}`));
@@ -73,6 +74,22 @@ test("cover is enabled only together with four authoritative inset fallbacks", (
   assert.match(sidebar, /data-app-bottom-nav/);
   assert.match(sidebar, /className="app-mobile-more-dialog /);
   assert.match(sidebar, /closeClassName="app-mobile-more-close /);
+});
+
+test("the global toast host clears native insets and mobile navigation", () => {
+  assert.match(executableCss, /--toast-edge-gap: 1rem;/);
+  assert.match(
+    executableCss,
+    /--toast-horizontal-offset:[^;]*max\(var\(--safe-area-left\), var\(--safe-area-right\)\)/s,
+  );
+  assert.match(
+    executableCss,
+    /--toast-bottom-offset:[^;]*var\(--safe-area-bottom\)/s,
+  );
+  assert.match(
+    executableCss,
+    /@media \(max-width: 767px\)[\s\S]*?--toast-bottom-offset:[^;]*var\(--mobile-tab-bar-height\)/,
+  );
 });
 
 test("the document and app are bounded to one dynamic viewport frame", () => {

@@ -22,6 +22,14 @@
     --mobile-tab-bar-height: calc(
       var(--mobile-tab-content-height) + var(--safe-area-bottom)
     );
+    --toast-edge-gap: 1rem;
+    --toast-horizontal-offset: calc(
+      var(--toast-edge-gap) +
+        max(var(--safe-area-left), var(--safe-area-right))
+    );
+    --toast-bottom-offset: calc(
+      var(--toast-edge-gap) + var(--safe-area-bottom)
+    );
 
     --font-sans: "IBM Plex Sans Variable", ui-sans-serif, system-ui, sans-serif;
     --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -214,6 +222,19 @@
     padding-inline-end: var(--safe-area-inline-end);
     padding-bottom: var(--safe-area-bottom);
     padding-inline-start: var(--safe-area-inline-start);
+  }
+
+  /* Sonner renders outside the app frame, so it cannot inherit that frame's
+     inset padding. On mobile, clear the complete fixed tab bar (which already
+     includes the native bottom inset); elsewhere clear only the native edge.
+     The shared horizontal maximum keeps Sonner's symmetric mobile width inside
+     asymmetric landscape/notch insets without counting either inset twice. */
+  @media (max-width: 767px) {
+    :root {
+      --toast-bottom-offset: calc(
+        var(--toast-edge-gap) + var(--mobile-tab-bar-height)
+      );
+    }
   }
 
   .app-mobile-more-dialog {
