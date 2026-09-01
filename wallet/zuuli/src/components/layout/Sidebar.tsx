@@ -236,8 +236,20 @@ export function MobileTabBar() {
                 </span>
               </button>
             </DialogTrigger>
+            {/* DialogContent's base classes position a *centered* dialog via
+                `ltr:-translate-x-1/2 rtl:translate-x-1/2` (a direction-aware
+                utility pair, both variant-scoped). This bottom sheet needs
+                zero horizontal translate instead, but `translate-x-0` alone
+                does not override either of those — tailwind-merge treats a
+                variant-scoped utility and an unprefixed one as non-competing,
+                so both stayed in the class list. While `animate-slide-up` is
+                running it sets `transform` on every frame and hides this;
+                the instant that animation's effect is removed on completion,
+                the base utility wins the cascade and the sheet snaps to
+                translateX(-50%) — fully off-screen. Override both directions
+                explicitly so tailwind-merge actually drops the base ones. */}
             <DialogContent
-              className="app-mobile-more-dialog bottom-0 start-0 top-auto w-full max-w-none translate-x-0 translate-y-0 gap-2 overflow-y-auto rounded-b-none rounded-t-2xl border-x-0 border-b-0 p-4 data-[state=open]:animate-slide-up sm:bottom-0 sm:start-0 sm:top-auto sm:max-w-none sm:translate-x-0 sm:translate-y-0 sm:rounded-b-none sm:rounded-t-2xl"
+              className="app-mobile-more-dialog bottom-0 start-0 top-auto w-full max-w-none ltr:translate-x-0 rtl:translate-x-0 translate-y-0 gap-2 overflow-y-auto rounded-b-none rounded-t-2xl border-x-0 border-b-0 p-4 data-[state=open]:animate-slide-up sm:bottom-0 sm:start-0 sm:top-auto sm:max-w-none sm:ltr:translate-x-0 sm:rtl:translate-x-0 sm:translate-y-0 sm:rounded-b-none sm:rounded-t-2xl"
               closeClassName="app-mobile-more-close min-tap top-2 grid place-items-center rounded-md"
               data-mobile-more-dialog
             >
