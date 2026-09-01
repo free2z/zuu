@@ -41,7 +41,7 @@ export function AiCta() {
             className="group inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground shadow transition-all hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             Start a conversation
-            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+            <ArrowRight className="rtl:-scale-x-100 h-4 w-4 transition-transform ltr:group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5" />
           </Link>
         </div>
         <ul className="grid shrink-0 gap-3 sm:grid-cols-3 lg:w-[440px] lg:grid-cols-1">

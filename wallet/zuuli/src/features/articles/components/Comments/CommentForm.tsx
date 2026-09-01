@@ -1,6 +1,13 @@
 import { useId, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Eye, EyeOff, Loader2, LogIn, Send } from "lucide-react";
+import {
+  ArrowRight,
+  Eye,
+  EyeOff,
+  Loader2,
+  LogIn,
+  Send as SendIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,7 +70,7 @@ export function CommentForm({
           variant="outline"
           onClick={() => navigate("/login")}
         >
-          <LogIn className="h-4 w-4" aria-hidden />
+          <LogIn className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
           Log in to comment
         </Button>
       </div>
@@ -145,7 +152,7 @@ export function CommentForm({
           />
           <p
             className={cn(
-              "text-right text-xs tabular-nums text-muted-foreground",
+              "text-end text-xs bidi-number tabular-nums text-muted-foreground",
               content.length > CONTENT_MAX && "text-destructive",
             )}
           >
@@ -166,7 +173,7 @@ export function CommentForm({
             maxLength={tuziInputMaxLength(MAX_COMMENT_TUZIS)}
             value={tuziInput}
             onChange={(e) => setTuziInput(e.target.value)}
-            className="h-9 w-20 tabular-nums"
+            className="h-9 w-20 bidi-number tabular-nums"
             aria-label="2Z weight to spend on this comment"
             aria-describedby={weightErrorId}
             aria-invalid={!weightOk}
@@ -195,7 +202,7 @@ export function CommentForm({
           {preview ? "Edit" : "Preview"}
         </Button>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ms-auto flex items-center gap-2">
           {onCancel ? (
             <Button
               type="button"
@@ -215,7 +222,7 @@ export function CommentForm({
               onClick={() => navigate("/wallet/fund")}
             >
               Not enough 2Z
-              <ArrowRight className="h-4 w-4" aria-hidden />
+              <ArrowRight className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
             </Button>
           ) : (
             <Button type="button" size="sm" onClick={post} disabled={!canPost}>
@@ -226,7 +233,7 @@ export function CommentForm({
                 </>
               ) : (
                 <>
-                  <Send className="h-4 w-4" aria-hidden />
+                  <SendIcon className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
                   Post
                 </>
               )}

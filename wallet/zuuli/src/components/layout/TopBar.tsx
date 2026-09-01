@@ -72,7 +72,7 @@ export function TopBar() {
               aria-label={t(MESSAGE_KEYS.navBack)}
               className="min-tap h-9 w-9 shrink-0"
             >
-              <ArrowLeft className="h-5 w-5" aria-hidden />
+              <ArrowLeft className="rtl:-scale-x-100 h-5 w-5" aria-hidden />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">
@@ -92,7 +92,7 @@ export function TopBar() {
           className="relative hidden max-w-sm flex-1 sm:block"
         >
           <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden
           />
           <input
@@ -101,7 +101,7 @@ export function TopBar() {
             onChange={(e) => setQ(e.target.value)}
             placeholder={t(MESSAGE_KEYS.navSearchPlaceholder)}
             aria-label={t(MESSAGE_KEYS.navSearch)}
-            className="h-9 w-full rounded-full border border-border bg-card/60 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-9 w-full rounded-full border border-border bg-card/60 ps-9 pe-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring"
           />
         </form>
       ) : null}
@@ -134,7 +134,7 @@ export function TopBar() {
           aria-label={t(MESSAGE_KEYS.navOpenWallet)}
         >
           <WalletIcon className="h-4 w-4 text-zec" />
-          <span className="font-medium tabular-nums">
+          <span className="font-medium bidi-number tabular-nums">
             {balance ? formatZecTrim(balance.spendable) : "—"}
           </span>
           <span className="text-xs text-muted-foreground">ZEC</span>
@@ -151,7 +151,7 @@ export function TopBar() {
           })}
         >
           <Coins className="h-4 w-4 shrink-0 text-primary" />
-          <span className="whitespace-nowrap font-semibold tabular-nums">
+          <span className="whitespace-nowrap font-semibold bidi-number tabular-nums">
             {formatTuzis(tuzis)}
           </span>
           <Plus className="hidden h-3.5 w-3.5 shrink-0 text-primary min-[360px]:block" />
@@ -205,7 +205,7 @@ export function TopBar() {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => logout()}>
-              <LogOut /> {t(MESSAGE_KEYS.navSignOut)}
+              <LogOut className="rtl:-scale-x-100" /> {t(MESSAGE_KEYS.navSignOut)}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -219,7 +219,7 @@ export function TopBar() {
               onClick={() => navigate("/login")}
               aria-label={t(MESSAGE_KEYS.navLogin)}
             >
-              <LogIn className="h-5 w-5" aria-hidden />
+              <LogIn className="rtl:-scale-x-100 h-5 w-5" aria-hidden />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">

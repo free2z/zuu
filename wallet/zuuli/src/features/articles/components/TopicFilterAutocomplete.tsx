@@ -161,7 +161,7 @@ export function TopicFilterAutocomplete({
               type="button"
               onClick={() => removeTopic(topic)}
               aria-label={`Remove topic ${topic}`}
-              className="min-tap inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-left text-xs font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="min-tap inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-start text-xs font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <span className="min-w-0 break-words">#{topic}</span>
               <X className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -188,7 +188,7 @@ export function TopicFilterAutocomplete({
         }}
       >
         <Search
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
           aria-hidden
         />
         <Input
@@ -214,11 +214,11 @@ export function TopicFilterAutocomplete({
           aria-describedby={statusId}
           autoComplete="off"
           disabled={full}
-          className="pl-9 pr-10"
+          className="ps-9 pe-10"
         />
         {loading ? (
           <Loader2
-            className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground"
+            className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground"
             aria-hidden
           />
         ) : null}
@@ -240,12 +240,12 @@ export function TopicFilterAutocomplete({
                 onPointerDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setActiveIndex(index)}
                 onClick={() => addTopic(suggestion.name)}
-                className="flex min-h-11 w-full items-center justify-between gap-3 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-secondary aria-selected:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                className="flex min-h-11 w-full items-center justify-between gap-3 border-b border-border px-3 py-2 text-start last:border-b-0 hover:bg-secondary aria-selected:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
                 <span className="min-w-0 break-words text-sm">
                   #{suggestion.name}
                 </span>
-                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                <span className="shrink-0 text-xs bidi-number tabular-nums text-muted-foreground">
                   {suggestion.count.toLocaleString(locale)}
                 </span>
               </button>

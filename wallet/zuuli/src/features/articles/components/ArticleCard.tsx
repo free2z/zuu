@@ -68,7 +68,7 @@ export function ArticleCard({
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
         )}
         {article.category ? (
-          <Badge className="pointer-events-none absolute left-3 top-3 backdrop-blur-sm">
+          <Badge className="pointer-events-none absolute start-3 top-3 backdrop-blur-sm">
             {article.category}
           </Badge>
         ) : null}

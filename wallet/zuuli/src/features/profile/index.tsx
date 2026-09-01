@@ -169,7 +169,7 @@ function ProfileForm({ user }: { user: AuthUser }) {
               placeholder="Tell people what you're building, streaming or writing about."
               className="min-h-[140px] resize-y"
             />
-            <p className="text-xs tabular-nums text-muted-foreground">
+            <p className="text-xs bidi-number tabular-nums text-muted-foreground">
               {bio.length} / {BIO_MAX}
             </p>
           </div>
@@ -186,7 +186,7 @@ function ProfileForm({ user }: { user: AuthUser }) {
               value={memberPrice}
               onChange={(e) => setMemberPrice(e.target.value)}
               placeholder="Leave blank for no paid membership tier"
-              className="tabular-nums"
+              className="bidi-number tabular-nums"
               aria-describedby="profile-member-price-error"
               aria-invalid={!memberPriceValid}
             />
@@ -211,6 +211,7 @@ function ProfileForm({ user }: { user: AuthUser }) {
             </Label>
             <Input
               id="profile-p2paddr"
+              dir="ltr"
               value={p2paddr}
               onChange={(e) => setP2paddr(e.target.value.slice(0, ADDR_MAX))}
               placeholder="Defaults to your account address if left blank"

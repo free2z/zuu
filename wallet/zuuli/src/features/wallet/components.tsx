@@ -4,11 +4,11 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { BidiIdentifier } from "@/components/common/BidiIdentifier";
 import {
   formatDate,
   formatHeight,
   formatZecDisplay,
-  truncateAddress,
 } from "@/lib/format";
 import type { SyncStatus, TransactionEntry } from "@/lib/wallet/types";
 import { cn } from "@/lib/utils";
@@ -59,7 +59,7 @@ export function SyncBar({ sync }: { sync: SyncStatus | null }) {
           <>
             <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
             <span>Syncing</span>
-            <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+            <span className="ms-auto text-xs bidi-number tabular-nums text-muted-foreground">
               {pct.toFixed(1)}%
             </span>
           </>
@@ -68,7 +68,7 @@ export function SyncBar({ sync }: { sync: SyncStatus | null }) {
 
       <p
         className={cn(
-          "mt-0.5 text-xs tabular-nums text-muted-foreground",
+          "mt-0.5 text-xs bidi-number tabular-nums text-muted-foreground",
           hasError && "text-warning/80",
         )}
         title={hasError ? errorMsg : undefined}
@@ -124,9 +124,11 @@ export function AddressCard({
         <div className="eyebrow text-muted-foreground">
           Your unified address
         </div>
-        <div className="mono-id break-all font-mono text-sm text-foreground">
-          {truncateAddress(address)}
-        </div>
+        <BidiIdentifier
+          value={address}
+          shorten
+          className="mono-id block break-all font-mono text-sm text-foreground"
+        />
         <div className="pt-1">
           <CopyButton
             value={address}
@@ -155,9 +157,9 @@ export function TxRow({ tx }: { tx: TransactionEntry }) {
         aria-hidden
       >
         {incoming ? (
-          <ArrowDownLeft className="h-4 w-4" />
+          <ArrowDownLeft className="rtl:-scale-x-100 h-4 w-4" />
         ) : (
-          <ArrowUpRight className="h-4 w-4" />
+          <ArrowUpRight className="rtl:-scale-x-100 h-4 w-4" />
         )}
       </div>
 
@@ -177,23 +179,25 @@ export function TxRow({ tx }: { tx: TransactionEntry }) {
             {tx.memo}
           </p>
         ) : (
-          <p className="mono-id break-all font-mono text-xs text-muted-foreground/70">
-            {truncateAddress(tx.txid)}
-          </p>
+          <BidiIdentifier
+            value={tx.txid}
+            shorten
+            className="mono-id block break-all font-mono text-xs text-muted-foreground/70"
+          />
         )}
       </div>
 
-      <div className="col-start-2 mt-1 flex min-w-0 items-baseline justify-between gap-2 text-left sm:mt-0 sm:block sm:shrink-0 sm:text-right">
+      <div className="col-start-2 mt-1 flex min-w-0 items-baseline justify-between gap-2 text-start sm:mt-0 sm:block sm:shrink-0 sm:text-end">
         <div
           className={cn(
-            "text-sm font-semibold tabular-nums",
+            "text-sm font-semibold bidi-number tabular-nums",
             incoming ? "text-success" : "text-foreground",
           )}
         >
           {incoming ? "+" : "−"}
           {formatZecDisplay(Math.abs(tx.value))}
         </div>
-        <div className="text-xs tabular-nums text-muted-foreground">
+        <div className="text-xs bidi-number tabular-nums text-muted-foreground">
           {formatDate(tx.timestamp)}
         </div>
       </div>

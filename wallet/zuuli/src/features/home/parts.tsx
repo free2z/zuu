@@ -49,7 +49,7 @@ export function SectionHeader({
           aria-label={`${linkLabel}: ${title}`}
         >
           {linkLabel}
-          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+          <ArrowRight className="rtl:-scale-x-100 h-4 w-4 transition-transform ltr:group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5" />
         </Link>
       ) : null}
     </div>

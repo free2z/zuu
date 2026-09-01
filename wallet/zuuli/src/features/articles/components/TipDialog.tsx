@@ -123,7 +123,7 @@ export function TipDialog({ author }: { author: SimpleCreator }) {
                 onClick={() => setAmount(String(preset))}
                 aria-pressed={parsedAmount === preset}
                 className={cn(
-                  "min-tap rounded-lg border px-3 py-2 text-sm font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "min-tap rounded-lg border px-3 py-2 text-sm font-medium bidi-number tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   parsedAmount === preset
                     ? "border-primary bg-primary/15 text-primary"
                     : "border-border bg-transparent text-muted-foreground hover:bg-secondary",
@@ -143,7 +143,7 @@ export function TipDialog({ author }: { author: SimpleCreator }) {
               maxLength={tuziInputMaxLength(MAX_TUZIS)}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              className="tabular-nums"
+              className="bidi-number tabular-nums"
               aria-describedby={
                 user ? "tip-amount-error tip-balance" : "tip-amount-error"
               }
@@ -152,7 +152,7 @@ export function TipDialog({ author }: { author: SimpleCreator }) {
             {user ? (
               <p
                 id="tip-balance"
-                className="text-xs text-muted-foreground tabular-nums"
+                className="text-xs text-muted-foreground bidi-number tabular-nums"
               >
                 Balance: {formatTuzis(tuzis)}
               </p>
@@ -194,7 +194,7 @@ export function TipDialog({ author }: { author: SimpleCreator }) {
               }}
             >
               Not enough 2Z — buy more
-              <ArrowRight className="h-4 w-4" aria-hidden />
+              <ArrowRight className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
             </Button>
           ) : (
             <Button onClick={send} disabled={!canSend}>

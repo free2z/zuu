@@ -465,7 +465,7 @@ export default function AiFeature() {
           </div>
 
           {/* Controls — one graceful row that right-aligns on wide, wraps on narrow */}
-          <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:ms-auto sm:w-auto">
             {loadingModels ? (
               <Skeleton className="h-10 min-w-0 flex-1 sm:w-52 sm:flex-initial" />
             ) : modelsError ? (
@@ -522,7 +522,7 @@ export default function AiFeature() {
                 <span className="hidden text-xs text-muted-foreground sm:inline">
                   This session
                 </span>
-                <span className="text-xs font-semibold tabular-nums text-primary">
+                <span className="text-xs font-semibold bidi-number tabular-nums text-primary">
                   {formatTuzis(sessionCost)}
                 </span>
               </div>
@@ -539,7 +539,7 @@ export default function AiFeature() {
             <span className="text-foreground">Sign in to use AI.</span>
             <Button
               size="sm"
-              className="ml-auto"
+              className="ms-auto"
               onClick={() => {
                 const returnTo = preservePaidIntent("/ai", {
                   kind: "ai",
@@ -561,7 +561,7 @@ export default function AiFeature() {
               You need at least {formatTuzis(MIN_TUZIS_TO_CHAT)} to start
               chatting. Top up to continue.
             </span>
-            <Button asChild size="sm" className="ml-auto">
+            <Button asChild size="sm" className="ms-auto">
               <Link to="/wallet/fund">Buy 2Zs</Link>
             </Button>
           </div>
@@ -616,9 +616,9 @@ export default function AiFeature() {
                     ? "Buy 2Zs to start chatting…"
                     : `Message ${selected?.display_name ?? "the model"}…`
               }
-              className="max-h-[40vh] min-h-[52px] resize-none overflow-y-auto border-0 bg-transparent py-3.5 pl-4 pr-14 text-base focus-visible:ring-0 focus-visible:ring-offset-0"
+              className="max-h-[40vh] min-h-[52px] resize-none overflow-y-auto border-0 bg-transparent py-3.5 ps-4 pe-14 text-base focus-visible:ring-0 focus-visible:ring-offset-0"
             />
-            <div className="absolute bottom-2.5 right-2.5">
+            <div className="absolute bottom-2.5 end-2.5">
               {isSending ? (
                 <Button
                   type="button"
@@ -653,7 +653,7 @@ export default function AiFeature() {
               Enter to send · Shift+Enter for a new line
             </span>
             {selected ? (
-              <span className="tabular-nums">
+              <span className="bidi-number tabular-nums">
                 {selected.display_name}
                 {personality ? ` · ${personality.display_name}` : ""} · ~
                 {pricePerMessage(selected)}
@@ -743,7 +743,7 @@ function MessageRow({
   if (message.role === "user") {
     return (
       <div className="flex animate-slide-up justify-end gap-3">
-        <div className="max-w-[85%] rounded-2xl rounded-tr-sm border border-primary/30 bg-primary/15 px-4 py-2.5 text-base leading-relaxed text-foreground">
+        <div className="max-w-[85%] rounded-2xl rounded-se-sm border border-primary/30 bg-primary/15 px-4 py-2.5 text-base leading-relaxed text-foreground">
           <span className="whitespace-pre-wrap break-words">
             {message.content}
           </span>
@@ -761,7 +761,7 @@ function MessageRow({
     <div className="flex animate-slide-up justify-start gap-3">
       <AssistantGlyph />
       <div className="min-w-0 max-w-[85%]">
-        <div className="overflow-hidden rounded-2xl rounded-tl-sm border border-border bg-card px-4 py-3">
+        <div className="overflow-hidden rounded-2xl rounded-ss-sm border border-border bg-card px-4 py-3">
           {message.pending ? (
             <ThinkingDots />
           ) : (
@@ -771,7 +771,7 @@ function MessageRow({
           )}
         </div>
         {!message.pending && !message.aborted && !message.error ? (
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1 text-xs tabular-nums text-muted-foreground">
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1 text-xs bidi-number tabular-nums text-muted-foreground">
             {message.modelName ? (
               <span className="text-foreground/70">{message.modelName}</span>
             ) : null}
@@ -865,7 +865,7 @@ function EmptyHero({
 
       {/* Local / open-source anonymity callout */}
       {localModel ? (
-        <div className="flex w-full items-center gap-3 rounded-xl border border-primary/30 bg-primary/[0.06] px-4 py-3 text-left">
+        <div className="flex w-full items-center gap-3 rounded-xl border border-primary/30 bg-primary/[0.06] px-4 py-3 text-start">
           <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground">
             <LocalIcon className="h-5 w-5" aria-hidden />
           </div>
@@ -884,7 +884,7 @@ function EmptyHero({
             </div>
             <p className="mt-0.5 text-xs text-muted-foreground">
               Open-source, run on 2Z hardware — nothing leaves our walls. From{" "}
-              <span className="tabular-nums">
+              <span className="bidi-number tabular-nums">
                 {pricePerMessage(localModel)}
               </span>
               .

@@ -6,6 +6,7 @@
 
 @layer base {
   :root {
+    --dialog-inline-translate: -50%;
     /* Native mobile shells render edge-to-edge. Keep every inset derived from
        the WebView's authoritative safe-area environment instead of device
        guesses, with zero fallbacks for desktop browsers. */
@@ -13,6 +14,8 @@
     --safe-area-right: env(safe-area-inset-right, 0px);
     --safe-area-bottom: env(safe-area-inset-bottom, 0px);
     --safe-area-left: env(safe-area-inset-left, 0px);
+    --safe-area-inline-start: var(--safe-area-left);
+    --safe-area-inline-end: var(--safe-area-right);
     --top-bar-content-height: 3.5rem;
     --mobile-tab-content-height: 3.5rem;
     --reader-action-content-height: 4rem;
@@ -67,6 +70,12 @@
     --input: 0 0% 19%;
     --ring: 264 56% 66%;
     --radius: 0.75rem;
+  }
+
+  :root[dir="rtl"] {
+    --dialog-inline-translate: 50%;
+    --safe-area-inline-start: var(--safe-area-right);
+    --safe-area-inline-end: var(--safe-area-left);
   }
 
   /* index.html hardcodes class="dark", so this is the palette that actually
@@ -178,8 +187,8 @@
     height: 100dvh;
     min-height: 0;
     overflow: hidden;
-    padding-left: var(--safe-area-left);
-    padding-right: var(--safe-area-right);
+    padding-inline-start: var(--safe-area-inline-start);
+    padding-inline-end: var(--safe-area-inline-end);
   }
 
   .app-crash-frame {
@@ -202,21 +211,21 @@
   .app-bottom-nav {
     box-sizing: border-box;
     height: var(--mobile-tab-bar-height);
-    padding-right: var(--safe-area-right);
+    padding-inline-end: var(--safe-area-inline-end);
     padding-bottom: var(--safe-area-bottom);
-    padding-left: var(--safe-area-left);
+    padding-inline-start: var(--safe-area-inline-start);
   }
 
   .app-mobile-more-dialog {
     max-height: min(80vh, 32rem);
     max-height: min(80dvh, 32rem);
-    padding-right: calc(1rem + var(--safe-area-right));
+    padding-inline-end: calc(1rem + var(--safe-area-inline-end));
     padding-bottom: calc(1rem + var(--safe-area-bottom));
-    padding-left: calc(1rem + var(--safe-area-left));
+    padding-inline-start: calc(1rem + var(--safe-area-inline-start));
   }
 
   .app-mobile-more-close {
-    right: calc(0.5rem + var(--safe-area-right));
+    inset-inline-end: calc(0.5rem + var(--safe-area-inline-end));
   }
 
   .app-scroll-content {
@@ -242,8 +251,7 @@
   @container creator-profile (min-width: 36rem) {
     .creator-profile-inset,
     .creator-profile-header {
-      padding-right: 1rem;
-      padding-left: 1rem;
+      padding-inline: 1rem;
     }
   }
 
@@ -296,8 +304,8 @@
 
   .app-reader-actions {
     bottom: var(--mobile-tab-bar-height);
-    padding-right: var(--safe-area-right);
-    padding-left: var(--safe-area-left);
+    padding-inline-end: var(--safe-area-inline-end);
+    padding-inline-start: var(--safe-area-inline-start);
   }
 
   @media (min-width: 768px) {
@@ -327,6 +335,14 @@
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum" 1;
     letter-spacing: -0.03em;
+  }
+
+  /* Numeric readouts remain one LTR isolate inside surrounding RTL prose.
+     The prevention policy requires this marker beside every non-chat
+     tabular-nums/numeral use, including editable amount fields. */
+  .bidi-number {
+    direction: ltr;
+    unicode-bidi: isolate;
   }
 
   /*

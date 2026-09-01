@@ -8,12 +8,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { SectionLoadError } from "@/components/common/SectionLoadError";
+import { BidiIdentifier } from "@/components/common/BidiIdentifier";
 import { useAsync } from "@/hooks/useAsync";
-import {
-  formatDate,
-  formatZecDisplay,
-  truncateAddress,
-} from "@/lib/format";
+import { formatDate, formatZecDisplay } from "@/lib/format";
 import { wallet } from "@/lib/wallet/bridge";
 import type { TransactionEntry } from "@/lib/wallet/types";
 import { cn } from "@/lib/utils";
@@ -116,9 +113,9 @@ function HistoryRow({ tx }: { tx: TransactionEntry }) {
         aria-hidden
       >
         {incoming ? (
-          <ArrowDownLeft className="h-4 w-4" />
+          <ArrowDownLeft className="rtl:-scale-x-100 h-4 w-4" />
         ) : (
-          <ArrowUpRight className="h-4 w-4" />
+          <ArrowUpRight className="rtl:-scale-x-100 h-4 w-4" />
         )}
       </div>
 
@@ -141,9 +138,11 @@ function HistoryRow({ tx }: { tx: TransactionEntry }) {
         ) : null}
 
         <div className="flex items-center gap-1.5">
-          <span className="mono-id font-mono text-xs text-muted-foreground/70">
-            {truncateAddress(tx.txid)}
-          </span>
+          <BidiIdentifier
+            value={tx.txid}
+            shorten
+            className="mono-id font-mono text-xs text-muted-foreground/70"
+          />
           <CopyButton
             value={tx.txid}
             label="Transaction ID copied"
@@ -153,17 +152,17 @@ function HistoryRow({ tx }: { tx: TransactionEntry }) {
         </div>
       </div>
 
-      <div className="col-start-2 mt-1 flex min-w-0 items-baseline justify-between gap-2 text-left sm:mt-0 sm:block sm:shrink-0 sm:text-right">
+      <div className="col-start-2 mt-1 flex min-w-0 items-baseline justify-between gap-2 text-start sm:mt-0 sm:block sm:shrink-0 sm:text-end">
         <div
           className={cn(
-            "text-sm font-semibold tabular-nums",
+            "text-sm font-semibold bidi-number tabular-nums",
             incoming ? "text-success" : "text-foreground",
           )}
         >
           {incoming ? "+" : "−"}
           {formatZecDisplay(Math.abs(tx.value))}
         </div>
-        <div className="text-xs tabular-nums text-muted-foreground">
+        <div className="text-xs bidi-number tabular-nums text-muted-foreground">
           {formatDate(tx.timestamp)}
         </div>
       </div>

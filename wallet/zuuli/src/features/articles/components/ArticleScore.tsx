@@ -13,7 +13,7 @@ export function ArticleScore({ score }: ArticleScoreProps) {
     >
       <ArrowUp className="h-4 w-4" aria-hidden />
       <span>Score</span>
-      <span className="tabular-nums text-foreground">{score}</span>
+      <span className="bidi-number tabular-nums text-foreground">{score}</span>
     </div>
   );
 }

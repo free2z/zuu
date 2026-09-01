@@ -3,6 +3,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { ShieldCheck } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BidiIdentifier } from "@/components/common/BidiIdentifier";
 import { useWallet } from "@/store/wallet";
 import { CopyButton } from "./shared";
 
@@ -37,9 +38,10 @@ export function Receive() {
 
           {address ? (
             <div className="w-full space-y-3">
-              <div className="mono-id break-all rounded-lg border border-border bg-background/40 p-3 font-mono text-xs text-foreground">
-                {address}
-              </div>
+              <BidiIdentifier
+                value={address}
+                className="mono-id block break-all rounded-lg border border-border bg-background/40 p-3 font-mono text-xs text-foreground"
+              />
               <CopyButton
                 value={address}
                 size="sm"
@@ -52,7 +54,7 @@ export function Receive() {
             <Skeleton className="h-9 w-full" />
           )}
 
-          <p className="flex items-start gap-2 text-left text-xs text-muted-foreground">
+          <p className="flex items-start gap-2 text-start text-xs text-muted-foreground">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-zec" />
             Unified addresses receive shielded ZEC and support encrypted memos,
             keeping the amount and sender private on-chain.

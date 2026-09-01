@@ -108,7 +108,7 @@ function CommentReplies({
 
   if (!replies.length) {
     return loading ? (
-      <div className="pl-3">
+      <div className="ps-3">
         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
       </div>
     ) : null;
@@ -122,7 +122,7 @@ function CommentReplies({
     <div
       className={
         indent
-          ? "space-y-3 border-l border-border pl-3 sm:pl-4"
+          ? "space-y-3 border-s border-border ps-3 sm:ps-4"
           : "space-y-3"
       }
     >

@@ -233,13 +233,13 @@ function CreatorProfile({
               @{creator.username}
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-              <span className="tabular-nums">
+              <span className="bidi-number tabular-nums">
                 <span className="font-semibold text-foreground">
                   {pageCount}
                 </span>{" "}
                 {pageCount === 1 ? "page" : "pages"}
               </span>
-              <span className="tabular-nums">
+              <span className="bidi-number tabular-nums">
                 <span className="font-semibold text-foreground">
                   {creator.total.toLocaleString()}
                 </span>{" "}
@@ -294,7 +294,7 @@ function CreatorProfile({
             Pages by {name}
           </h2>
           <span
-            className="text-sm tabular-nums text-muted-foreground"
+            className="text-sm bidi-number tabular-nums text-muted-foreground"
             aria-live="polite"
           >
             {pages.items.length} of {pageCount}
@@ -660,7 +660,7 @@ function SubscribeButton({
               <span className="text-sm text-muted-foreground">
                 Membership price
               </span>
-              <span className="text-xl font-bold tabular-nums">
+              <span className="text-xl font-bold bidi-number tabular-nums">
                 {formatTuzis(price)}
                 <span className="text-sm font-normal text-muted-foreground">
                   /mo
@@ -720,7 +720,7 @@ function SubscribeButton({
                 }}
               >
                 Not enough 2Z — buy more
-                <ArrowRight className="h-4 w-4" aria-hidden />
+                <ArrowRight className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
               </Button>
             )}
           </DialogFooter>
@@ -751,12 +751,12 @@ function SubscribeButton({
             <span className="text-sm text-muted-foreground">
               Membership · monthly
             </span>
-            <span className="text-xl font-bold tabular-nums">
+            <span className="text-xl font-bold bidi-number tabular-nums">
               {formatTuzis(price)}
             </span>
           </div>
           {user ? (
-            <p className="mt-2 text-xs text-muted-foreground tabular-nums">
+            <p className="mt-2 text-xs text-muted-foreground bidi-number tabular-nums">
               Your balance: {formatTuzis(balance)}
             </p>
           ) : null}
@@ -797,7 +797,7 @@ function SubscribeButton({
               }}
             >
               Not enough 2Z — buy more
-              <ArrowRight className="h-4 w-4" aria-hidden />
+              <ArrowRight className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
             </Button>
           )}
         </DialogFooter>
@@ -922,7 +922,7 @@ function TipButton({
               onClick={() => setCurrency("zec")}
               aria-pressed={currency === "zec"}
               className={cn(
-                "min-tap rounded-lg border px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "min-tap rounded-lg border px-3 py-2 text-start text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 currency === "zec"
                   ? "border-zec/50 bg-zec/10 text-foreground"
                   : "border-border text-muted-foreground hover:bg-secondary",
@@ -936,7 +936,7 @@ function TipButton({
               onClick={() => setCurrency("tuzi")}
               aria-pressed={currency === "tuzi"}
               className={cn(
-                "min-tap rounded-lg border px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "min-tap rounded-lg border px-3 py-2 text-start text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 currency === "tuzi"
                   ? "border-primary bg-primary/15 text-foreground"
                   : "border-border text-muted-foreground hover:bg-secondary",
@@ -975,7 +975,7 @@ function TipButton({
                     onClick={() => setAmount(String(preset))}
                     aria-pressed={parsedAmount === preset}
                     className={cn(
-                      "min-tap rounded-lg border px-3 py-2 text-sm font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "min-tap rounded-lg border px-3 py-2 text-sm font-medium bidi-number tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       parsedAmount === preset
                         ? "border-primary bg-primary/15 text-primary"
                         : "border-border bg-transparent text-muted-foreground hover:bg-secondary",
@@ -994,7 +994,7 @@ function TipButton({
                   maxLength={tuziInputMaxLength(MAX_TUZIS)}
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  className="tabular-nums"
+                  className="bidi-number tabular-nums"
                   aria-describedby={
                     user
                       ? "creator-tip-error creator-tip-balance"
@@ -1005,7 +1005,7 @@ function TipButton({
                 {user ? (
                   <p
                     id="creator-tip-balance"
-                    className="text-xs text-muted-foreground tabular-nums"
+                    className="text-xs text-muted-foreground bidi-number tabular-nums"
                   >
                     Balance: {formatTuzis(balance)}
                   </p>
@@ -1040,7 +1040,7 @@ function TipButton({
               disabled={!creator.p2paddr}
             >
               Continue with ZEC
-              <ArrowRight className="h-4 w-4" aria-hidden />
+              <ArrowRight className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
             </Button>
           ) : gate === "loading" ? (
             <Button disabled>
@@ -1058,7 +1058,7 @@ function TipButton({
               }}
             >
               Not enough 2Z — buy more
-              <ArrowRight className="h-4 w-4" aria-hidden />
+              <ArrowRight className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
             </Button>
           ) : (
             <Button onClick={send} disabled={!canSend}>
@@ -1179,7 +1179,7 @@ function BackLink() {
         onClick={() => navigate(-1)}
         className="min-tap inline-flex items-center gap-2 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <ArrowLeft className="h-4 w-4" aria-hidden />
+        <ArrowLeft className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
         Back
       </button>
     );
@@ -1190,7 +1190,7 @@ function BackLink() {
       to="/search"
       className="min-tap inline-flex items-center gap-2 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <ArrowLeft className="h-4 w-4" aria-hidden />
+      <ArrowLeft className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
       Search
     </Link>
   );
