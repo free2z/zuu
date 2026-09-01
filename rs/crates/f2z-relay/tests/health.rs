@@ -161,6 +161,89 @@ async fn a_client_that_connects_and_says_nothing_is_disconnected_and_the_listene
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn the_concurrency_cap_closes_extra_connections_before_the_timeout_deadline() {
+    // #682: the test above cannot tell a concurrency cap from no cap at all,
+    // because every silent peer reaches EOF within REQUEST_TIMEOUT either
+    // way — with the cap, refused-but-accepted connections are closed before
+    // any read; without one, every connection is merely held open until the
+    // shared timeout fires. `closed == N` is identical in both worlds.
+    //
+    // What distinguishes them is timing, and it is already observable: a
+    // connection over MAX_CONCURRENT is closed promptly, before the deadline,
+    // while a connection that is holding a permit is closed only once
+    // REQUEST_TIMEOUT elapses. So: open more than the cap, measure how long
+    // each one takes to reach EOF, and require that substantially more than
+    // the cap's worth close fast, with roughly the cap's worth riding out the
+    // full deadline as the positive control that the timeout is still doing
+    // its job on the connections that did get a permit.
+    let mut config = base();
+    config.health.enabled = true;
+    config.health.address = "127.0.0.1:0".to_owned();
+    let server = Server::start(config).await.expect("the relay starts");
+    let health = server.health_addr().expect("bound");
+
+    let mut silent = Vec::new();
+    for _ in 0..64 {
+        let opened = std::time::Instant::now();
+        if let Ok(stream) = tokio::net::TcpStream::connect(health).await {
+            silent.push((opened, stream));
+        }
+    }
+    assert!(silent.len() > 16, "the listener accepted {}", silent.len());
+
+    // Read concurrently, not in a sequential loop: a connection refused
+    // immediately at accept time can still sit unread for ~2s if this test
+    // only gets around to polling it after 16 sequential ~2s waits, which
+    // would misclassify it as slow. Spawning means each task's own elapsed
+    // time reflects when the server actually closed *that* connection.
+    let mut tasks = Vec::new();
+    for (opened, mut stream) in silent {
+        tasks.push(tokio::spawn(async move {
+            let mut byte = [0u8; 1];
+            let result =
+                tokio::time::timeout(Duration::from_secs(10), stream.read(&mut byte)).await;
+            (matches!(result, Ok(Ok(0))), opened.elapsed())
+        }));
+    }
+
+    let mut closed = 0usize;
+    let mut fast = 0usize; // closed well before REQUEST_TIMEOUT: a refusal.
+    let mut slow = 0usize; // closed near REQUEST_TIMEOUT: held a permit.
+    let mut elapsed = Vec::new();
+    for task in tasks {
+        let (was_closed, duration) = task.await.expect("the read task did not panic");
+        if was_closed {
+            closed += 1;
+        }
+        if duration < Duration::from_millis(500) {
+            fast += 1;
+        } else if duration >= Duration::from_millis(1000) {
+            slow += 1;
+        }
+        elapsed.push(duration);
+    }
+
+    assert_eq!(
+        closed,
+        elapsed.len(),
+        "the server held connections open indefinitely"
+    );
+    assert!(
+        fast > 16,
+        "too few connections were refused before the deadline for a cap of \
+         16 to be doing anything: fast={fast} slow={slow} elapsed={elapsed:?}"
+    );
+    assert!(
+        (8..=24).contains(&slow),
+        "expected roughly MAX_CONCURRENT (16) connections to ride out the \
+         full REQUEST_TIMEOUT as the positive control: fast={fast} \
+         slow={slow} elapsed={elapsed:?}"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_health_listener_is_off_unless_asked_for() {
     let server = Server::start(base()).await.expect("the relay starts");
     assert!(server.health_addr().is_none());
