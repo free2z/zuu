@@ -116,6 +116,7 @@ const RUST_ROOT_CONTRACTS = [
           "docs/e2ee/evidence/akd-benchmark.json",
           "docs/e2ee/evidence/akd-audit-scope.json",
           "scripts/check-akd-doc-evidence.mjs",
+          "scripts/check-kt-sth-repeat-agreement.mjs",
         ],
       },
     ],
@@ -2366,16 +2367,22 @@ function rustRootWorkflowFailures(relativeFile, lines, contract) {
     const steps = job
       ? policyJobSteps(relativeFile, lines, job, failures, "rs AKD evidence owner")
       : [];
-    for (const [stepName, command] of [
-      ["Mutation-test AKD documentation evidence", "node scripts/check-akd-doc-evidence.mjs --self-test"],
-      ["Verify AKD documentation against locked executable evidence", "node scripts/check-akd-doc-evidence.mjs"],
+    for (const [stepName, command, needsToken] of [
+      ["Mutation-test AKD documentation evidence", "node scripts/check-akd-doc-evidence.mjs --self-test", true],
+      ["Verify AKD documentation against locked executable evidence", "node scripts/check-akd-doc-evidence.mjs", true],
+      ["Mutation-test repeated tree-head agreement", "node scripts/check-kt-sth-repeat-agreement.mjs --self-test", false],
+      ["Verify repeated tree-head spec and runtime agreement", "node scripts/check-kt-sth-repeat-agreement.mjs", false],
     ]) {
       const matching = steps.filter((step) => step.properties.get("name")?.value === stepName);
       const step = matching[0];
+      const expectedKeys = needsToken ? ["name", "env", "run"] : ["name", "run"];
+      const tokenIsExact = !needsToken ||
+        (step !== undefined &&
+          stepEnvironment(relativeFile, lines, step, failures).get("GITHUB_TOKEN") === "${{ github.token }}");
       if (
         matching.length !== 1 ||
-        !hasExactKeys(step?.properties ?? new Map(), ["name", "env", "run"]) ||
-        stepEnvironment(relativeFile, lines, step, failures).get("GITHUB_TOKEN") !== "${{ github.token }}" ||
+        !hasExactKeys(step?.properties ?? new Map(), expectedKeys) ||
+        !tokenIsExact ||
         step?.properties.get("run")?.value !== command
       ) {
         failures.push(
@@ -3550,7 +3557,7 @@ function runRustRootWorkflowMutationTests(repoRoot) {
               "changes",
               probePath.startsWith("docs/e2ee/")
                 ? "docs/e2ee/*|"
-                : "scripts/check-akd-doc-evidence.mjs|",
+                : `${probePath}|`,
               "",
             ),
           `${ownerPrefix} selector must actively select`,
@@ -3808,9 +3815,11 @@ function runRustRootWorkflowMutationTests(repoRoot) {
       );
     }
     if (contract.root === "rs") {
-      for (const [stepName, command] of [
-        ["Mutation-test AKD documentation evidence", "node scripts/check-akd-doc-evidence.mjs --self-test"],
-        ["Verify AKD documentation against locked executable evidence", "node scripts/check-akd-doc-evidence.mjs"],
+      for (const [stepName, command, needsToken] of [
+        ["Mutation-test AKD documentation evidence", "node scripts/check-akd-doc-evidence.mjs --self-test", true],
+        ["Verify AKD documentation against locked executable evidence", "node scripts/check-akd-doc-evidence.mjs", true],
+        ["Mutation-test repeated tree-head agreement", "node scripts/check-kt-sth-repeat-agreement.mjs --self-test", false],
+        ["Verify repeated tree-head spec and runtime agreement", "node scripts/check-kt-sth-repeat-agreement.mjs", false],
       ]) {
         const needle = "rs owner job rs_test must run exactly one unconditional";
         const stepWithToken = `      - name: ${stepName}\n        env:\n          GITHUB_TOKEN: \${{ github.token }}\n        run: ${command}`;
@@ -3836,25 +3845,35 @@ function runRustRootWorkflowMutationTests(repoRoot) {
           (value) => mutateJob(value, "rs_test", `      - name: ${stepName}`, `      - name: ${stepName}\n        continue-on-error: true`),
           needle,
         );
-        assertWorkflowFailure(
-          contract,
-          source,
-          `rs/rs_test rejects unauthenticated ${stepName}`,
-          (value) => mutateJob(value, "rs_test", stepWithToken, stepWithoutToken),
-          needle,
-        );
-        assertWorkflowFailure(
-          contract,
-          source,
-          `rs/rs_test rejects a substituted token for ${stepName}`,
-          (value) => mutateJob(
-            value,
-            "rs_test",
-            stepWithToken,
-            stepWithToken.replace("\${{ github.token }}", "untrusted"),
-          ),
-          needle,
-        );
+        if (needsToken) {
+          assertWorkflowFailure(
+            contract,
+            source,
+            `rs/rs_test rejects unauthenticated ${stepName}`,
+            (value) => mutateJob(value, "rs_test", stepWithToken, stepWithoutToken),
+            needle,
+          );
+          assertWorkflowFailure(
+            contract,
+            source,
+            `rs/rs_test rejects a substituted token for ${stepName}`,
+            (value) => mutateJob(
+              value,
+              "rs_test",
+              stepWithToken,
+              stepWithToken.replace("\${{ github.token }}", "untrusted"),
+            ),
+            needle,
+          );
+        } else {
+          assertWorkflowFailure(
+            contract,
+            source,
+            `rs/rs_test rejects unnecessary credentials for ${stepName}`,
+            (value) => mutateJob(value, "rs_test", stepWithoutToken, stepWithToken),
+            needle,
+          );
+        }
       }
     }
   }

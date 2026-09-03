@@ -317,7 +317,7 @@ fn a_witness_refuses_a_fork_and_records_self_authenticating_evidence() {
     );
 
     // Now the log shows it the other branch for the epoch it already signed.
-    // §6.3 rule 8: same epoch, different root, and that is fatal.
+    // §6.3 rule 8: same epoch, different complete head, and that is fatal.
     transport.serve(&right.log);
     assert_eq!(
         witness.poll_once(NOW + 2).unwrap(),
