@@ -50,7 +50,7 @@ use chacha20poly1305::aead::{Aead as _, KeyInit as _};
 use f2z_codec::commands::Command;
 use f2z_codec::hash::{hash, hash2};
 use f2z_codec::types::RelayId;
-use f2z_msg_mls::{EngineError, MlsEngine, Received, VerifiedKeyPackage};
+use f2z_msg_mls::{DeviceSigner, EngineError, MlsEngine, Received, VerifiedKeyPackage};
 use f2z_msg_store::{F2zStorageProvider, StorageBackend};
 use f2z_relay_proto::key::SigningKey;
 use openmls::prelude::{GroupId, MlsGroup};
@@ -470,27 +470,24 @@ impl<B: StorageBackend> Engine<B> {
     ///
     /// # Errors
     ///
-    /// Never today; the signature is fallible so a future CSPRNG failure has
-    /// somewhere to go rather than a panic in a crypto core.
+    /// Returns `internal` if the signing-key sample is the forbidden all-zero
+    /// seed. Refusal happens before pending enrollment state is installed.
     pub async fn prepare_device(&self) -> Result<DevicePublicKeys> {
-        let mut inner = self.inner.lock().await;
-        let mut signing = [0u8; 32];
-        rand::rng().fill_bytes(&mut signing);
-        let mut queue_seed = [0u8; 32];
-        rand::rng().fill_bytes(&mut queue_seed);
-        let mut kem = vec![0u8; 1216];
-        rand::rng().fill_bytes(&mut kem);
+        self.prepare_device_with(|| prepare_device_material(&mut rand::rng()))
+            .await
+    }
 
-        let signer = f2z_msg_mls::DeviceSigner::from_private_key(signing);
-        let device_pk = *signer.public_key();
-        inner.pending_device = Some(DeviceSecrets {
-            device_signing_key: hex::encode(signing),
-            queue_seed: hex::encode(queue_seed),
-        });
-        Ok(DevicePublicKeys {
-            device_pk,
-            device_kem_pk: kem,
-        })
+    async fn prepare_device_with(
+        &self,
+        prepare: impl FnOnce() -> Result<(DevicePublicKeys, DeviceSecrets)>,
+    ) -> Result<DevicePublicKeys> {
+        // Validate the sampled signing key before taking the lock or changing
+        // enrollment state. Tests inject a zero-only generator through this
+        // exact production route rather than testing an uncalled keygen API.
+        let (public, secrets) = prepare()?;
+        let mut inner = self.inner.lock().await;
+        inner.pending_device = Some(secrets);
+        Ok(public)
     }
 
     /// Seal the prepared device secrets, record the identity, and build the MLS
@@ -509,13 +506,17 @@ impl<B: StorageBackend> Engine<B> {
                 format!("{:?} is not a messaging handle", install.handle),
             ));
         }
+        let signing = inner
+            .pending_device
+            .as_ref()
+            .ok_or_else(|| Error::internal("install_identity without prepare_device"))?
+            .device_signing_key
+            .clone();
+        let signer = device_signer(decode_key(&signing)?)?;
         let secrets = inner
             .pending_device
             .take()
-            .ok_or_else(|| Error::internal("install_identity without prepare_device"))?;
-
-        let signing = decode_key(&secrets.device_signing_key)?;
-        let signer = f2z_msg_mls::DeviceSigner::from_private_key(signing);
+            .ok_or_else(|| Error::internal("validated pending device disappeared"))?;
         let device_pk = hex::encode(signer.public_key());
 
         let credential = f2z_msg_mls::credential::parse(&install.credential).map_err(|error| {
@@ -579,8 +580,7 @@ impl<B: StorageBackend> Engine<B> {
             .ok_or_else(|| Error::internal("an identity with no sealed secrets"))?;
         let secrets = open(&sealed, wrap_key)?;
 
-        let signer =
-            f2z_msg_mls::DeviceSigner::from_private_key(decode_key(&secrets.device_signing_key)?);
+        let signer = device_signer(decode_key(&secrets.device_signing_key)?)?;
         let credential_bytes = hex::decode(&identity.credential)
             .map_err(|_| Error::internal("the stored credential is not hex"))?;
         let credential = f2z_msg_mls::credential::parse(&credential_bytes)
@@ -3375,6 +3375,33 @@ fn decode_key(hex_key: &str) -> Result<[u8; 32]> {
         .map_err(|_| Error::internal("a stored key is the wrong length"))
 }
 
+fn device_signer(private: [u8; 32]) -> Result<DeviceSigner> {
+    DeviceSigner::from_private_key(private)
+        .map_err(|_| Error::internal("the device signing key was refused"))
+}
+
+fn prepare_device_material(rng: &mut impl rand::Rng) -> Result<(DevicePublicKeys, DeviceSecrets)> {
+    let mut signing = [0u8; 32];
+    rng.fill_bytes(&mut signing);
+    let signer = device_signer(signing)?;
+
+    let mut queue_seed = [0u8; 32];
+    rng.fill_bytes(&mut queue_seed);
+    let mut kem = vec![0u8; 1216];
+    rng.fill_bytes(&mut kem);
+
+    Ok((
+        DevicePublicKeys {
+            device_pk: *signer.public_key(),
+            device_kem_pk: kem,
+        },
+        DeviceSecrets {
+            device_signing_key: hex::encode(signing),
+            queue_seed: hex::encode(queue_seed),
+        },
+    ))
+}
+
 fn signing_key(seed_hex: &str) -> Result<SigningKey> {
     Ok(SigningKey::from_seed(&decode_key(seed_hex)?))
 }
@@ -4972,6 +4999,7 @@ fn capabilities_view(capabilities: &f2z_codec::commands::Capabilities) -> RelayC
 
 #[cfg(test)]
 mod tests {
+    use core::convert::Infallible;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
@@ -4988,6 +5016,7 @@ mod tests {
     use f2z_relay_testkit::faults::{Effect, Fault, Trigger};
     use openmls::prelude::{GroupId, MlsGroup};
     use openmls_traits::OpenMlsProvider as _;
+    use rand::TryRng;
 
     use super::*;
     use super::{Engine, Introduction, QueueAdvert, acknowledgeable, routing_advert_digest};
@@ -4996,6 +5025,28 @@ mod tests {
     use crate::events::{EventSink, NullSink, RecordingSink, names};
     use crate::models::{DirectoryResolution, EngineState, ErrorCode, Platform, RelayOperator};
     use crate::store::{StoredContactRequest, StoredRelay};
+
+    struct ZeroRng;
+
+    impl TryRng for ZeroRng {
+        type Error = Infallible;
+
+        fn try_next_u32(&mut self) -> core::result::Result<u32, Self::Error> {
+            Ok(0)
+        }
+
+        fn try_next_u64(&mut self) -> core::result::Result<u64, Self::Error> {
+            Ok(0)
+        }
+
+        fn try_fill_bytes(
+            &mut self,
+            destination: &mut [u8],
+        ) -> core::result::Result<(), Self::Error> {
+            destination.fill(0);
+            Ok(())
+        }
+    }
 
     struct AcceptDirectory(ResolvedIdentity);
 
@@ -5027,7 +5078,7 @@ mod tests {
         device_seed: u8,
     ) -> (DeviceSigner, DeviceCredential, DirectoryEntryTBS) {
         let account = AccountKeys::from_seed(&[account_seed; 64], 0).unwrap();
-        let signer = DeviceSigner::from_private_key([device_seed; 32]);
+        let signer = DeviceSigner::from_private_key([device_seed; 32]).unwrap();
         let credential = account
             .identity
             .issue_device_credential(&DeviceCredentialRequest {
@@ -5055,6 +5106,81 @@ mod tests {
             created_at_ms: 0,
         };
         (signer, credential, entry)
+    }
+
+    #[tokio::test]
+    async fn fresh_all_zero_signing_sample_is_refused_before_enrollment_mutation() {
+        let engine = Engine::new(
+            MemoryBackend::new(),
+            Arc::new(NullSink) as Arc<dyn EventSink>,
+            Platform::ZuuliDesktop,
+        )
+        .unwrap();
+        let error = engine
+            .prepare_device_with(|| prepare_device_material(&mut ZeroRng))
+            .await
+            .expect_err("a zero signing sample must be refused");
+        assert_eq!(error.code(), ErrorCode::Internal);
+
+        let inner = engine.inner.lock().await;
+        assert!(inner.pending_device.is_none());
+        assert!(inner.mls.is_none());
+        assert!(inner.queue_seed.is_none());
+        assert_eq!(inner.state, EngineState::Uninitialized);
+        assert!(inner.records().identity().unwrap().is_none());
+        assert!(inner.records().sealed_secrets().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn persisted_all_zero_signing_seed_is_refused_before_unlock_mutation() {
+        let engine = Engine::new(
+            MemoryBackend::new(),
+            Arc::new(NullSink) as Arc<dyn EventSink>,
+            Platform::ZuuliDesktop,
+        )
+        .unwrap();
+        let wrap_key = [0x5a; 32];
+        let sealed = seal(
+            &DeviceSecrets {
+                device_signing_key: hex::encode([0; 32]),
+                queue_seed: hex::encode([7; 32]),
+            },
+            &wrap_key,
+        )
+        .unwrap();
+        {
+            let mut inner = engine.inner.lock().await;
+            inner.state = EngineState::Locked;
+            inner
+                .records()
+                .commit(|records| {
+                    records.put_identity(&StoredIdentity {
+                        device_id: "zero-seed-device".to_owned(),
+                        handle: "alice".to_owned(),
+                        identity_pk: "11".repeat(32),
+                        device_pk: "22".repeat(32),
+                        credential: String::new(),
+                        created_at: 0,
+                        directory_entry_version: None,
+                        submitted_at: None,
+                        merged_at_epoch: None,
+                    })?;
+                    records.put_sealed_secrets(&sealed)
+                })
+                .unwrap();
+        }
+
+        let error = engine
+            .unlock(&wrap_key)
+            .await
+            .expect_err("a restored zero signing seed must be refused");
+        assert_eq!(error.code(), ErrorCode::Internal);
+        let inner = engine.inner.lock().await;
+        assert!(inner.mls.is_none());
+        assert!(inner.queue_seed.is_none());
+        assert_eq!(inner.state, EngineState::Locked);
+        assert!(inner.records().identity().unwrap().is_some());
+        assert!(inner.records().sealed_secrets().unwrap().is_some());
     }
 
     fn authenticated_request(

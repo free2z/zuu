@@ -93,7 +93,7 @@ fn the_checks_fire_on_a_rendering_that_leaks() {
 
 #[test]
 fn a_device_signer_redacts_both_keys() {
-    let signer = DeviceSigner::from_private_key([0xAB; 32]);
+    let signer = DeviceSigner::from_private_key([0xAB; 32]).unwrap();
     assert_redacted(
         "DeviceSigner",
         &format!("{signer:?}"),

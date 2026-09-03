@@ -245,7 +245,7 @@ impl Device {
     /// pre-arranged.
     async fn enroll(handle: &str, identity_seed: u8, device_seed: u8, relay: &FakeRelay) -> Self {
         let identity = Identity::from_byte(identity_seed);
-        let signer = DeviceSigner::from_private_key([device_seed; 32]);
+        let signer = DeviceSigner::from_private_key([device_seed; 32]).unwrap();
         let credential = credential_for(&identity, handle, signer.public_key());
 
         let mls = MlsEngine::new(MemoryBackend::new(), signer, credential.clone(), NOW).unwrap();

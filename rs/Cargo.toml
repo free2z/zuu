@@ -223,6 +223,12 @@ openmls_libcrux_crypto = { version = "0.4.0", default-features = false }
 # instead of an all-zero secret key when the CSPRNG fails 100 times running.
 # `sign` is unchanged, which is the only function this tree calls.
 libcrux-ed25519 = { version = "0.0.9", default-features = false }
+# Direct dependencies of the permanent known-answer harness. These versions
+# are the same packages already selected beneath openmls_libcrux_crypto; naming
+# them lets the harness exercise the primitives themselves without introducing
+# an implementation outside ADR 0001's single crypto core.
+libcrux-ecdh = { version = "0.0.8", default-features = false }
+libcrux-kem = { version = "0.0.9", default-features = false }
 # `openmls_basic_credential` is NOT here and must not be added. It signs with
 # `ed25519-dalek` and `p256` outside the libcrux provider (#693), which
 # contradicts ADR 0001's single crypto core; `f2z-msg-mls` implements

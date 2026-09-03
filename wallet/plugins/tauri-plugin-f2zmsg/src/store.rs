@@ -200,10 +200,10 @@ pub struct SealedSecrets {
 /// What [`SealedSecrets`] seals. Never serialized anywhere but inside the seal.
 #[derive(Clone, Debug, Serialize, Deserialize, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
 pub struct DeviceSecrets {
-    /// The MLS leaf signing key, hex. `DeviceSigner::from_private_key` takes
-    /// these 32 bytes; `f2z-msg-identity`'s `DeviceSignatureKey` deliberately
-    /// offers no byte accessor, so the plugin generates them and feeds both
-    /// sides.
+    /// The MLS leaf signing key, hex. `DeviceSigner::from_private_key` accepts
+    /// these 32 bytes when they are not all zero;
+    /// `f2z-msg-identity`'s `DeviceSignatureKey` deliberately offers no byte
+    /// accessor, so the plugin generates them and feeds both sides.
     pub device_signing_key: String,
     /// The seed for this device's queue keys, hex. Per-conversation queue keys
     /// are derived from it so a restart can re-derive them without a second

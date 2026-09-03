@@ -48,7 +48,7 @@ fn a_credential_from_the_real_issuer_validates_against_its_own_leaf_key() {
 #[test]
 fn a_credential_presented_on_another_leaf_is_rejected() {
     let (credential, _) = issue_credential("alice", 11, 111, NOW - 1000, NOW + 1000);
-    let other = DeviceSigner::from_private_key([99u8; 32]);
+    let other = DeviceSigner::from_private_key([99u8; 32]).unwrap();
     assert_eq!(
         validate_for_leaf(&credential, other.public_key(), NOW),
         Err(CredentialError::DeviceKeyMismatch)
@@ -61,7 +61,7 @@ fn a_credential_presented_on_another_leaf_is_rejected() {
 #[test]
 fn editing_the_device_key_breaks_the_signature_before_it_breaks_the_binding() {
     let (credential, _) = issue_credential("alice", 11, 111, NOW - 1000, NOW + 1000);
-    let attacker = DeviceSigner::from_private_key([99u8; 32]);
+    let attacker = DeviceSigner::from_private_key([99u8; 32]).unwrap();
 
     let mut forged = credential.clone();
     forged.credential.device_pk = PublicKey::new(*attacker.public_key());

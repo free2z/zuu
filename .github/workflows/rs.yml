@@ -141,10 +141,15 @@ jobs:
           # fails scripts/check-rust-toolchain.sh in this always-running job.
           # Listing it would make every wallet pin bump run the rs suite twice
           # over for no additional coverage.
+          #
+          # The two wallet manifests and lockfiles are independent shipping
+          # consumers/resolutions of the same OpenMLS/libcrux graph. A direct
+          # dependency or feature change must run the rs KAT just like resolved
+          # package drift; its first check then rejects lock identity skew.
           rs=false
           while IFS= read -r -d '' file; do
             case "$file" in
-              rs/*|docs/e2ee/*|scripts/check-akd-doc-evidence.mjs|scripts/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
+              rs/*|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/e2ee/*|scripts/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
                 rs=true
                 ;;
             esac
@@ -285,6 +290,16 @@ jobs:
       - name: Run the rs/ doc tests
         working-directory: rs
         run: cargo test --locked --doc
+
+      # A KAT that only demonstrates the green path can silently stop reading
+      # its vector file. Corrupt a committed X-Wing combiner output first and
+      # require the same suite to fail for that exact mismatch; then run all
+      # committed standard vectors against the locked libcrux graph.
+      - name: Prove the crypto KAT suite rejects a corrupted standard vector
+        run: scripts/check-crypto-kats.sh --self-test
+
+      - name: Run the permanent crypto known-answer suite
+        run: scripts/check-crypto-kats.sh
 
       # The normative AKD type, benchmark figures, and audit-scope correction
       # share one falsifiable evidence record. Its self-test first compiles the
