@@ -91,6 +91,7 @@ struct DirectTransport {
     entry_override: Mutex<Option<Vec<u8>>>,
     drop_cosignatures: Mutex<bool>,
     claim_absent: Mutex<bool>,
+    claim_absent_with_proof: Mutex<bool>,
     /// Serve a history with the entry at this index removed — the **truthful
     /// subset** of `KT.md` §8.2. Everything still served is real.
     omit_history_entry: Mutex<Option<usize>>,
@@ -111,6 +112,7 @@ impl DirectTransport {
             entry_override: Mutex::new(None),
             drop_cosignatures: Mutex::new(false),
             claim_absent: Mutex::new(false),
+            claim_absent_with_proof: Mutex::new(false),
             omit_history_entry: Mutex::new(None),
             swap_history_entry: Mutex::new(None),
         }
@@ -145,6 +147,10 @@ impl DirectTransport {
 
     fn assert_absent(&self, value: bool) {
         *self.claim_absent.lock().unwrap() = value;
+    }
+
+    fn assert_absent_but_retain_proof(&self) {
+        *self.claim_absent_with_proof.lock().unwrap() = true;
     }
 
     fn bundle_bytes(&self, mut bundle: f2z_kt_core::api::TreeHeadBundle) -> Vec<u8> {
@@ -185,6 +191,10 @@ impl Transport for DirectTransport {
             response.presence = f2z_kt_core::api::Presence::AbsentUnproved.code();
             response.entry = f2z_codec::types::Payload::new(Vec::new()).unwrap();
             response.proof = f2z_codec::types::Payload::new(Vec::new()).unwrap();
+        }
+        if *self.claim_absent_with_proof.lock().unwrap() {
+            response.presence = f2z_kt_core::api::Presence::AbsentUnproved.code();
+            response.entry = f2z_codec::types::Payload::new(Vec::new()).unwrap();
         }
         if *self.tamper_proof.lock().unwrap() {
             // One byte of a real `akd` `LookupProof`. Not a garbage buffer: the
@@ -579,6 +589,29 @@ fn an_unregistered_handle_is_an_answer_and_it_is_labelled_unproved() {
     // cannot produce one. The variant's name is the whole disclosure.
     assert!(answer.standing().threshold_met());
     assert!(client.pins().get(&handle("nobody")).is_none());
+}
+
+#[test]
+fn an_absent_discriminant_cannot_smuggle_a_populated_proof_to_the_client() {
+    let mut deployment = Deployment::new("client-absent-with-proof");
+    deployment.cosign(NOW);
+    deployment.register("alice", 1);
+    deployment.cosign(NOW + 1);
+
+    // Start from f2z-kt's real present response, then make only the two edits a
+    // dishonest server needs for §9.2's malformed shape: claim absence and
+    // hide the entry while retaining the genuine populated proof.
+    deployment.transport.assert_absent_but_retain_proof();
+    let mut client = deployment.client(1);
+    let error = client.resolve(&handle("alice"), NOW + 2).unwrap_err();
+    assert_eq!(
+        error,
+        ClientError::Protocol(f2z_kt_core::KtError::Malformed)
+    );
+    assert!(
+        client.pins().get(&handle("alice")).is_none(),
+        "a malformed absent response must not establish or weaken a pin"
+    );
 }
 
 #[test]

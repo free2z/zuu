@@ -40,10 +40,11 @@
 //!   The cost is one leaf per epoch: about 52,000 a year at the proposed 600 s
 //!   cadence, against a directory sized in millions.
 //!
-//! The heartbeat label cannot collide with a handle label: `KT.md` §3.3's
-//! handle labels are `"free2z/kt/v1/handle:" || handle` and this is not that
-//! prefix. Reported as a specification defect rather than coded around
-//! silently — see the pull request.
+//! `KT.md` §5.1 specifies the heartbeat label, the epoch-derived value, its
+//! exclusion from the handle-label space, and its contribution to `tree_size`.
+//! In particular, the label cannot collide with `KT.md` §3.3's handle labels:
+//! those are `"free2z/kt/v1/handle:" || handle`, while this fixed label is not
+//! in that prefix space.
 //!
 //! # `tree_size`
 //!

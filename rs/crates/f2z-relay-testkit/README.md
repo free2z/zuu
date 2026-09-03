@@ -172,9 +172,10 @@ see it fail before they see it pass.
   affordance aimed at humans rather than at clients. A client's "fetch the
   well-known copy and compare digests" path therefore cannot be exercised
   against this harness.
-- **`queue_creation_mode: token` is not implemented.** §13.1 defines it as an
-  operator-issued bearer credential and gives it no protocol shape in v1;
-  configuring it is refused at construction rather than faked.
+- **`queue_creation_mode: token` is reserved.** §13.1 gives v1 no field in
+  which a client could present that credential, so a relay MUST NOT publish
+  value 2 and MUST refuse startup if configured with it. `FakeRelay` therefore
+  refuses it at construction.
 - **`channel_binding_mode: tls-exporter` is not reachable here.** A `FakeRelay`
   always serves `ws://`, and `capabilities::validate` requires
   `transport_security: none` to pair with `channel_binding_mode: none` (§2.3

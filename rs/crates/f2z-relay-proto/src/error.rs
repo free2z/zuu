@@ -171,10 +171,9 @@ pub enum Refusal {
     /// §13.1: the relay demands a proof-of-work algorithm v1 does not define,
     /// so no conforming client can create a queue on it.
     PowAlgorithmUnknown,
-    /// §13.1: `queue_creation_mode = token`. Not invalid — a token is an
-    /// operator-issued bearer credential and a closed deployment may want one —
-    /// but it is an identifier that links every queue created with it, so a
-    /// client whose policy is unlinkability refuses.
+    /// §13.1: `queue_creation_mode = 2`, the reserved former token mode. V1 has
+    /// no wire field in which a client can present a token, so every client
+    /// refuses and no user override is conforming.
     QueueCreationTokenGated,
 }
 
@@ -220,7 +219,9 @@ impl fmt::Display for Refusal {
             Self::CapabilitiesSignatureInvalid => "the capability document's signature is invalid",
             Self::CapabilitiesDigestMismatch => "capabilities_digest does not match the document",
             Self::PowAlgorithmUnknown => "the relay demands a proof-of-work v1 does not define",
-            Self::QueueCreationTokenGated => "the relay gates queue creation on a linkable token",
+            Self::QueueCreationTokenGated => {
+                "the relay publishes reserved token-gated queue creation"
+            }
         };
         write!(f, "refused the relay ({}): {text}", self.section())
     }
