@@ -12,8 +12,8 @@
 //!   contradicts itself or claims a policy the architecture forbids. Every
 //!   check in it is a MUST that `WIRE.md` states.
 //! - [`ClientPolicy::accept`] asks whether *this* client will use *this* relay.
-//!   Every check in it is a client-side decision — §11.3's numbered list — and
-//!   a relay that fails one is not misbehaving, it is merely unsuitable.
+//!   Its checks are the client-side decisions in §11.3's numbered list, after
+//!   [`validate`] has rejected documents that no conforming relay may publish.
 //!
 //! Collapsing the two would mean a client's strictness setting deciding what
 //! counts as a conforming relay, which is exactly backwards.
@@ -86,9 +86,9 @@ pub enum QueueCreationMode {
     Open,
     /// `1` — the default: a `PowStamp` over a relay-issued challenge.
     Pow,
-    /// `2` — an operator-issued bearer token. **A token is an identifier**: it
-    /// lets the operator link every queue created with it, which reintroduces
-    /// the linkability that opaque per-pair addresses exist to remove.
+    /// `2` — reserved. The name is retained so a client can identify and report
+    /// the formerly specified token mode, but §13.1 forbids a relay from
+    /// publishing it and forbids a client override.
     Token,
 }
 
@@ -241,6 +241,8 @@ pub fn check_digest(capabilities: &Capabilities, expected: &Digest) -> Result<()
 ///   architecture's 30-day ceiling (§11.3 step 6).
 /// - [`Refusal::PowAlgorithmUnknown`] if a `PowParams` names an algorithm v1
 ///   does not define (§13.1).
+/// - [`Refusal::QueueCreationTokenGated`] if `queue_creation_mode` is reserved
+///   value 2 (§13.1).
 /// - [`Refusal::CapabilitiesInconsistent`] for everything else: an undefined
 ///   mode byte, an empty version or padding list, a padding set that is not
 ///   strictly ascending, a TTL band whose default sits outside its own clamps,
@@ -265,6 +267,12 @@ pub fn validate(capabilities: &Capabilities) -> Result<()> {
     let binding = ChannelBindingMode::from_code(capabilities.channel_binding_mode)?;
     AntiReplayPersistence::from_code(capabilities.antireplay_persistence)?;
     let creation = QueueCreationMode::from_code(capabilities.queue_creation_mode)?;
+    // §13.1's 2026-08-24 correction: value 2 is permanently reserved because
+    // v1 has no field in which a client could present the token. This is a
+    // document-conformance failure, not a preference a client may relax.
+    if matches!(creation, QueueCreationMode::Token) {
+        return Err(ProtoError::Refused(Refusal::QueueCreationTokenGated));
+    }
     DurabilityMode::from_code(capabilities.durability_mode)?;
     let contact_queues = flag(capabilities.contact_queues_enabled)?;
     flag(capabilities.per_source_limits)?;
@@ -367,13 +375,13 @@ fn flag(byte: u8) -> Result<bool> {
 
 /// What *this* client requires of a relay (§11.3).
 ///
-/// Defaults are the conservative reading of §11.3: refuse a plaintext relay,
-/// refuse an implausible padding set, refuse a token-gated one. The two that
-/// §5.3 and §5.5 describe as a *strict mode* — requiring a channel binding and
-/// requiring a durable seen-set — default to off, because a relay behind a
-/// TLS-terminating proxy is "a common and legitimate deployment" and refusing
-/// every one of them by default would be a stricter policy than the
-/// specification's.
+/// Defaults are the conservative reading of §11.3: refuse a plaintext relay
+/// and refuse an implausible padding set. Reserved capability values are
+/// rejected unconditionally by [`validate`]. The two that §5.3 and §5.5
+/// describe as a *strict mode* — requiring a channel binding and requiring a
+/// durable seen-set — default to off, because a relay behind a TLS-terminating
+/// proxy is "a common and legitimate deployment" and refusing every one of
+/// them by default would be a stricter policy than the specification's.
 #[derive(Clone, Debug)]
 pub struct ClientPolicy {
     /// §2.3: connect to a relay serving without TLS. MUST be an explicit,
@@ -390,8 +398,6 @@ pub struct ClientPolicy {
     pub require_sound_antireplay_window: bool,
     /// §9: refuse an implausibly fine-grained padding set.
     pub require_plausible_padding: bool,
-    /// §13.1: refuse `queue_creation_mode: token`, which is linkable.
-    pub allow_token_queue_creation: bool,
     /// §11.3 step 5: the sizes this client will emit. The relay's set MUST be a
     /// superset.
     pub emitted_padding: PaddingBuckets,
@@ -405,7 +411,6 @@ impl Default for ClientPolicy {
             require_durable_antireplay: false,
             require_sound_antireplay_window: true,
             require_plausible_padding: true,
-            allow_token_queue_creation: false,
             emitted_padding: PaddingBuckets::default(),
         }
     }
@@ -461,15 +466,6 @@ impl ClientPolicy {
         if self.require_plausible_padding && !buckets.is_plausible() {
             return Err(ProtoError::Refused(Refusal::PaddingImplausible));
         }
-        // Step 8.
-        if matches!(
-            QueueCreationMode::from_code(capabilities.queue_creation_mode)?,
-            QueueCreationMode::Token
-        ) && !self.allow_token_queue_creation
-        {
-            return Err(ProtoError::Refused(Refusal::QueueCreationTokenGated));
-        }
-
         Ok(())
     }
 }
@@ -834,19 +830,26 @@ mod tests {
     }
 
     #[test]
-    fn a_token_gated_relay_is_refused_unless_the_user_accepts_the_linkability() {
+    fn reserved_token_mode_is_unconditionally_refused() {
         let mut capabilities = document();
         capabilities.queue_creation_mode = QueueCreationMode::Token.code();
-        assert!(validate(&capabilities).is_ok());
         assert_eq!(
-            ClientPolicy::default().accept(&capabilities),
+            validate(&capabilities),
             Err(ProtoError::Refused(Refusal::QueueCreationTokenGated))
         );
-        let permissive = ClientPolicy {
-            allow_token_queue_creation: true,
+        let otherwise_lenient = ClientPolicy {
+            allow_insecure_transport: true,
+            require_channel_binding: false,
+            require_durable_antireplay: false,
+            require_sound_antireplay_window: false,
+            require_plausible_padding: false,
             ..ClientPolicy::default()
         };
-        assert!(permissive.accept(&capabilities).is_ok());
+        assert_eq!(
+            otherwise_lenient.accept(&capabilities),
+            Err(ProtoError::Refused(Refusal::QueueCreationTokenGated)),
+            "a reserved wire value is not a user-overridable policy choice"
+        );
     }
 
     #[test]

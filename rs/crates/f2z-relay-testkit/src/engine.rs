@@ -130,11 +130,16 @@ impl Relay {
     /// # Errors
     ///
     /// [`TestkitError::Config`] if the configured capability document is not a
-    /// valid one, if its padding set is malformed, or if it selects
-    /// `queue_creation_mode: token`, which this crate does not implement — a
-    /// bearer token is an operator-issued credential with no protocol shape in
-    /// v1, and faking one would be inventing protocol rather than testing it.
+    /// valid one, if its padding set is malformed, or if it selects reserved
+    /// `queue_creation_mode: token`. `WIRE.md` §13.1 requires every relay that
+    /// names that unsatisfiable v1 mode to refuse startup.
     pub fn new(config: RelayConfig) -> Result<Self> {
+        if config.capabilities.queue_creation_mode == QueueCreationMode::Token.code() {
+            return Err(TestkitError::Config(
+                "queue_creation_mode: token is reserved by WIRE.md v1; \
+                 a relay that names it must refuse startup",
+            ));
+        }
         capabilities::validate(&config.capabilities)
             .map_err(|_| TestkitError::Config("the configured capability document is invalid"))?;
         config
@@ -145,12 +150,6 @@ impl Relay {
         {
             return Err(TestkitError::Config(
                 "key packages require contact queues to provide their published address",
-            ));
-        }
-        if config.capabilities.queue_creation_mode == QueueCreationMode::Token.code() {
-            return Err(TestkitError::Config(
-                "queue_creation_mode: token is not implemented; \
-                 a bearer token has no protocol shape in WIRE.md v1",
             ));
         }
         // §2.3 obligations 1 and 2 are a pair. A document that claims TLS while
@@ -1399,7 +1398,7 @@ mod tests {
     }
 
     #[test]
-    fn token_mode_is_refused_at_construction_rather_than_faked() {
+    fn reserved_token_mode_is_refused_at_construction() {
         let mut config = RelayConfig::default();
         config.capabilities.queue_creation_mode = QueueCreationMode::Token.code();
         assert!(Relay::new(config).is_err());

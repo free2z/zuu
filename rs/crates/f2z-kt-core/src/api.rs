@@ -262,11 +262,10 @@ impl LookupRequest {
 
 /// Whether a lookup found a registered handle.
 ///
-/// # This field is an admission, and it should not have to exist
-///
-/// `KT.md` §8.1 and §9.5 require that an unregistered handle be answered with a
-/// **proof of non-membership** — *"'No such user' is a claim the log must
-/// prove"* — and that is why §9.5 has no unknown-handle error code.
+/// `KT.md` §8.1 normatively requires this discriminant and requires the absent
+/// case to say that it is unproved. §9.2 requires a response whose fields agree
+/// with it: both `entry` and `proof` are populated for [`Presence::Present`],
+/// and both are empty for [`Presence::AbsentUnproved`].
 ///
 /// **`akd` 0.13 cannot produce that proof.** `akd::Directory::lookup` returns
 /// `StorageError::NotFound` for a label with no user state; the
@@ -275,10 +274,10 @@ impl LookupRequest {
 /// registered. There is no public API in the adopted library that answers "this
 /// handle is not in the tree" with anything a client can check.
 ///
-/// So this log tells the truth about what it can prove: [`Presence::Absent`]
-/// is an **assertion**, carries no proof, and is labelled as unproved on the
-/// wire so that no client mistakes it for one. Reported as a spec defect rather
-/// than papered over.
+/// So this conforming wire shape tells the truth about what the log can prove:
+/// [`Presence::AbsentUnproved`] is an **assertion**, carries no proof, and is
+/// labelled as unproved so no client mistakes it for one. `KT.md` §11.5 records
+/// the missing upstream capability and when this limitation can be revisited.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Presence {
@@ -592,10 +591,10 @@ mod tests {
     }
 
     #[test]
-    fn a_lookup_response_cannot_claim_presence_with_no_entry() {
-        // The shape check exists so that a client cannot be handed
-        // `presence = Present` with nothing to verify and quietly treat the
-        // handle as resolved.
+    fn lookup_presence_and_payloads_must_agree_in_both_directions() {
+        // §9.2 names both malformed directions explicitly. Exercise each
+        // payload independently so changing the validator to check only
+        // `entry` or only `proof` cannot leave the other as a smuggling field.
         let bundle = TreeHeadBundle::new(
             SignedTreeHead {
                 sth: SignedTreeHeadTBS {
@@ -626,15 +625,44 @@ mod tests {
             proof: f2z_codec::types::Payload::new(Vec::new()).unwrap(),
             bundle,
         };
-        assert!(response.validate().is_err());
-
-        response.presence = Presence::AbsentUnproved.code();
-        assert!(response.validate().is_ok());
+        assert_eq!(response.validate(), Err(crate::KtError::Malformed));
 
         response.entry = f2z_codec::types::Payload::new(b"entry".to_vec()).unwrap();
-        assert!(
-            response.validate().is_err(),
-            "an absent verdict carrying an entry is incoherent and must not decode as either"
+        assert_eq!(
+            response.validate(),
+            Err(crate::KtError::Malformed),
+            "presence requires a proof as well as an entry"
         );
+        response.entry = f2z_codec::types::Payload::new(Vec::new()).unwrap();
+        response.proof = f2z_codec::types::Payload::new(b"proof".to_vec()).unwrap();
+        assert_eq!(
+            response.validate(),
+            Err(crate::KtError::Malformed),
+            "presence requires an entry as well as a proof"
+        );
+        response.entry = f2z_codec::types::Payload::new(b"entry".to_vec()).unwrap();
+        assert!(response.validate().is_ok());
+
+        response.presence = Presence::AbsentUnproved.code();
+        assert_eq!(
+            response.validate(),
+            Err(crate::KtError::Malformed),
+            "absence cannot carry an entry and proof"
+        );
+        response.proof = f2z_codec::types::Payload::new(Vec::new()).unwrap();
+        assert_eq!(
+            response.validate(),
+            Err(crate::KtError::Malformed),
+            "absence cannot carry an entry"
+        );
+        response.entry = f2z_codec::types::Payload::new(Vec::new()).unwrap();
+        response.proof = f2z_codec::types::Payload::new(b"proof".to_vec()).unwrap();
+        assert_eq!(
+            response.validate(),
+            Err(crate::KtError::Malformed),
+            "absence cannot carry a proof"
+        );
+        response.proof = f2z_codec::types::Payload::new(Vec::new()).unwrap();
+        assert!(response.validate().is_ok());
     }
 }

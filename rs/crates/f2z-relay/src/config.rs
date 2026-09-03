@@ -871,13 +871,11 @@ impl Config {
         self.log_level()?;
         let mode = self.creation_mode()?;
 
-        // §13.1 defines `token` as an operator-issued bearer credential and
-        // gives it **no wire shape at all** in v1: `CreateQueueRequest` carries
-        // a `PowStamp` and a reserved `flags` field that MUST be 0, and nothing
-        // else. There is no conforming way for a client to present a token, so
-        // a relay that published this mode would be publishing a gate no client
-        // can pass. Refused here rather than faked, which is the same call
-        // `f2z-relay-testkit` made. Reported as a spec defect.
+        // §13.1's 2026-08-24 correction reserves `token` because it has no wire
+        // shape in v1: `CreateQueueRequest` carries a `PowStamp` and a reserved
+        // `flags` field that MUST be 0, and nothing else. The specification now
+        // requires a relay naming this mode to refuse startup, so the operator
+        // sees the unusable configuration before it can be published.
         if matches!(mode, CreationMode::Token) {
             return Err(ConfigError::Invalid(
                 "antiabuse.queue_creation_mode",
