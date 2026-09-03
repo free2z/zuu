@@ -204,6 +204,17 @@ jobs:
           npm ci
           npm ci --prefix ../zuuallet
 
+      # Zuuallet owns an independent npm root. Keep its high-severity audit in
+      # this protected-gate job as well as the faster advisory workflow so a
+      # newly vulnerable lockfile cannot merge behind a non-required check.
+      - name: Audit Zuuallet dependencies (high and critical)
+        run: |
+          for attempt in 1 2 3; do
+            npm --prefix ../zuuallet audit --audit-level=high && exit 0
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep $((attempt * 5))
+          done
+
       - name: Verify release cache security policy
         run: |
           node scripts/verify-ci-cache-policy.mjs --self-test
