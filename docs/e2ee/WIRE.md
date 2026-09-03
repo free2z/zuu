@@ -1565,11 +1565,12 @@ struct {
     uint8    queue_creation_mode;         /* 0 = open, 1 = pow, 2 = token — reserved
                                              and MUST NOT be published; see §13.1's
                                              correction */
-    PowParams queue_creation_pow;
+    PowParams queue_creation_pow;         /* provisional v1 default: algorithm 1,
+                                             20 bits, challenge_ttl_ms 60000 */
     uint8    contact_queues_enabled;
     uint32   contact_max_pending;
     uint64   contact_max_bytes;
-    PowParams contact_append_pow;
+    PowParams contact_append_pow;         /* same bounded v1 policy */
     uint8    per_source_limits;           /* 0 = off, 1 = on (§13.3) */
     uint8    durability_mode;             /* 0 = memory, 1 = batched, 2 = fsync-per-append */
 
@@ -1659,9 +1660,13 @@ On first use of a relay, and on `NOTICE(3)`:
 6. Refuse if `max_message_ttl_seconds > 2592000` — the relay is claiming a policy
    the architecture forbids.
 7. Refuse an internally unusable document: `contact_queues_enabled = 1`
-   requires nonzero `contact_append_pow`, and `max_frame_bytes` must be large
-   enough for the largest advertised padding bucket. The latter is necessary,
-   not sufficient: framing and authentication add overhead beyond the payload.
+   requires nonzero `contact_append_pow`; every named PoW policy MUST use
+   algorithm 1, `difficulty_bits` in 1..=20, and `challenge_ttl_ms` in
+   1..=60000; and `max_frame_bytes` must be large enough for the largest
+   advertised padding bucket. These checks happen on the verified signed
+   document before the client obtains a challenge or starts work. The frame-size
+   condition is necessary, not sufficient: framing and authentication add
+   overhead beyond the payload.
 8. Record `queue_creation_mode`, quotas and PoW parameters for §13.
 9. Surface operator name, jurisdiction and contact in the relay-picker UI.
 
@@ -1782,23 +1787,18 @@ thing that must stay near zero.
 
 ### 12.4 The honest limits
 
-**Proof of work taxes phones far more than it taxes rented GPUs.** This is the
-central weakness and it is not fixable by tuning. A leading-zero-bit search is
-precisely the workload that commodity parallel hardware accelerates best; the
-ratio between a rented GPU-hour and a mid-range phone's battery-constrained
-budget is orders of magnitude. Any difficulty high enough to meaningfully cost an
-attacker is a difficulty that makes a cheap Android device sit there heating up
-before it can say hello. We have chosen a difficulty that is a nuisance to
-attackers and tolerable to phones, which means it is *only* a nuisance. A
-memory-hard function (Argon2id and relatives) would narrow the hardware gap, and
-it was rejected for v1 because it multiplies the *relay's* verification cost by
-the same factor that it raises the attacker's — the wrong trade at the moment of
-a flood, when the relay is the resource under pressure. The calibration is
-unresolved and is recorded as
+**Proof of work taxes general-purpose clients while commodity parallel hardware
+can accelerate a leading-zero-bit search.** This is the central weakness and it
+is not fixed by choosing a larger unmeasured number. A memory-hard function
+(Argon2id and relatives) could narrow the hardware gap, and it was rejected for
+v1 because it multiplies the *relay's* verification cost by the same factor that
+it raises the attacker's — the wrong trade at the moment of a flood, when the
+relay is the resource under pressure. Client and attacker timings on supported
+hardware are unmeasured; calibration remains open in
 [`ARCHITECTURE.md` §13-N](./ARCHITECTURE.md#13-open-questions).
 
-> **Correction (2026-08-31) — the phone-tolerability claim above was not
-> measured and is withdrawn.** No phone benchmark was recorded for the v1
+> **Correction (2026-08-31) — the earlier phone-tolerability claim was not
+> measured and remains withdrawn.** No phone benchmark was recorded for the v1
 > contact-append proof of work, so this document has no evidence that any
 > difficulty is tolerable to the supported phones or imposes a particular cost
 > on attackers. `ARCHITECTURE.md` §13-N remains the required benchmark and
@@ -2365,8 +2365,8 @@ allocates durable state out of nothing, so it is the one that needs a gate.
 ```
 struct {
     uint8  algorithm;        /* 1 = blake2b-leading-zero-bits; no other value in v1 */
-    uint8  difficulty_bits;
-    uint32 challenge_ttl_ms;
+    uint8  difficulty_bits;  /* required range: 1..=20 */
+    uint32 challenge_ttl_ms; /* required range: 1..=60000 */
 } PowParams;
 
 struct {
@@ -2384,6 +2384,26 @@ At this point of use, `counter` is exactly an eight-byte unsigned `uint64` in
 network (big-endian) order, concatenated directly with no length prefix.
 Verification is one hash; the relay marks the challenge consumed. The choice of a
 verify-cheap, GPU-friendly function and its consequences are argued in §12.4.
+
+**The v1 interoperability default is provisionally algorithm 1,
+`difficulty_bits = 20`, and `challenge_ttl_ms = 60000`.** It is not a benchmark
+result and makes no claim about phone duration, battery cost, or attacker cost.
+Until §13-N records measurements and this policy is revised, 20 bits is also the
+maximum a v1 client accepts and 60000 ms is the maximum challenge lifetime a v1
+client accepts. Relays MUST reject configuration above either bound; clients MUST
+refuse a signed capability document above either bound before requesting a
+challenge or beginning a search. There is no override for attacker-selected
+work.
+
+A client search is finite independently of the probabilistic target. For each
+stamp it tries at most **16,777,216** candidates and at most **30,000 ms**, with
+the challenge's remaining lifetime as an earlier deadline. The search MUST run
+off the async executor, MUST observe caller cancellation cooperatively, and MUST
+stop when any limit is reached. Advancing the fixed-salt `uint64 counter` uses a
+checked increment: exhausting it fails the search and MUST NOT wrap to zero and
+repeat the same search space. Exhaustion, deadline, cancellation, or challenge
+expiry is `pow-failed`; a caller may obtain one fresh challenge and retry once as
+specified by the client contract.
 
 **Layer 4 — global backpressure.** The relay tracks storage and memory against
 published high-water marks. On crossing them it refuses work in this order:

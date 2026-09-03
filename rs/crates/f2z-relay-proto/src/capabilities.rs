@@ -35,7 +35,10 @@ use f2z_codec::canonical::Canonical;
 use f2z_codec::commands::{Capabilities, SignedCapabilities};
 use f2z_codec::hash;
 use f2z_codec::padding::PaddingBuckets;
-use f2z_codec::pow::{ALGORITHM_BLAKE2B_LEADING_ZERO_BITS, PowParams};
+use f2z_codec::pow::{
+    ALGORITHM_BLAKE2B_LEADING_ZERO_BITS, DEFAULT_POW_CHALLENGE_TTL_MS, DEFAULT_POW_DIFFICULTY_BITS,
+    MAX_POW_CHALLENGE_TTL_MS, MAX_POW_DIFFICULTY_BITS, PowParams,
+};
 use f2z_codec::types::{Digest, PublicKey, ShortBytes};
 
 use crate::error::{ProtoError, Refusal, Result};
@@ -241,6 +244,8 @@ pub fn check_digest(capabilities: &Capabilities, expected: &Digest) -> Result<()
 ///   architecture's 30-day ceiling (§11.3 step 6).
 /// - [`Refusal::PowAlgorithmUnknown`] if a `PowParams` names an algorithm v1
 ///   does not define (§13.1).
+/// - [`Refusal::PowWorkPolicyExceeded`] if signed parameters exceed v1's
+///   bounded client work policy (§13.1).
 /// - [`Refusal::QueueCreationTokenGated`] if `queue_creation_mode` is reserved
 ///   value 2 (§13.1).
 /// - [`Refusal::CapabilitiesInconsistent`] for everything else: an undefined
@@ -360,9 +365,17 @@ pub fn ttl_policy(capabilities: &Capabilities) -> TtlPolicy {
 }
 
 fn validate_pow(params: &PowParams) -> Result<()> {
+    if params.algorithm != 0 && params.algorithm != ALGORITHM_BLAKE2B_LEADING_ZERO_BITS {
+        return Err(ProtoError::Refused(Refusal::PowAlgorithmUnknown));
+    }
+    if params.difficulty_bits > MAX_POW_DIFFICULTY_BITS
+        || params.challenge_ttl_ms > MAX_POW_CHALLENGE_TTL_MS
+    {
+        return Err(ProtoError::Refused(Refusal::PowWorkPolicyExceeded));
+    }
     params
         .validate()
-        .map_err(|_| ProtoError::Refused(Refusal::PowAlgorithmUnknown))
+        .map_err(|_| ProtoError::Refused(Refusal::CapabilitiesInconsistent))
 }
 
 fn flag(byte: u8) -> Result<bool> {
@@ -529,16 +542,16 @@ pub fn defaults(relay_identity_pk: &PublicKey, published_at_ms: u64) -> Result<C
         queue_creation_mode: QueueCreationMode::Pow.code(),
         queue_creation_pow: PowParams {
             algorithm: ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
-            difficulty_bits: 20,
-            challenge_ttl_ms: 60_000,
+            difficulty_bits: DEFAULT_POW_DIFFICULTY_BITS,
+            challenge_ttl_ms: DEFAULT_POW_CHALLENGE_TTL_MS,
         },
         contact_queues_enabled: 1,
         contact_max_pending: 64,
         contact_max_bytes: 256 * 1024,
         contact_append_pow: PowParams {
             algorithm: ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
-            difficulty_bits: 20,
-            challenge_ttl_ms: 60_000,
+            difficulty_bits: DEFAULT_POW_DIFFICULTY_BITS,
+            challenge_ttl_ms: DEFAULT_POW_CHALLENGE_TTL_MS,
         },
         per_source_limits: 1,
         durability_mode: DurabilityMode::FsyncPerAppend.code(),
@@ -882,6 +895,20 @@ mod tests {
         assert_eq!(
             validate(&capabilities),
             Err(ProtoError::Refused(Refusal::PowAlgorithmUnknown))
+        );
+    }
+
+    #[test]
+    fn signed_pow_at_the_client_maximum_is_accepted_and_maximum_plus_one_is_refused() {
+        let mut capabilities = document();
+        capabilities.queue_creation_pow.difficulty_bits = MAX_POW_DIFFICULTY_BITS;
+        capabilities.contact_append_pow.difficulty_bits = MAX_POW_DIFFICULTY_BITS;
+        assert!(ClientPolicy::default().accept(&capabilities).is_ok());
+
+        capabilities.contact_append_pow.difficulty_bits = MAX_POW_DIFFICULTY_BITS + 1;
+        assert_eq!(
+            ClientPolicy::default().accept(&capabilities),
+            Err(ProtoError::Refused(Refusal::PowWorkPolicyExceeded))
         );
     }
 

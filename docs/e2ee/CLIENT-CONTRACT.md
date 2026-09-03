@@ -467,12 +467,14 @@ against that entry**, build the group, obtain a second challenge, compute a
 second proof-of-work stamp, and `CONTACT_APPEND` the `Welcome`. Four
 consequences for the UI:
 
-- **It can take seconds, and the delay is proof-of-work on the user's device —
-  now twice.** §12.6 gives the claim its own challenge purpose, so first contact
-  pays two stamps rather than one. On a cheap phone that is meaningfully slow and
-  the reason is unfixable by tuning
-  ([`WIRE.md` §12.4](./WIRE.md#124-the-honest-limits)). Show progress; do not
-  present it as a network wait.
+- **The delay includes proof-of-work on the user's device — now twice.** §12.6
+  gives the claim its own challenge purpose, so first contact pays two stamps
+  rather than one. No supported-phone duration has been measured. Show progress;
+  do not present computation as a network wait. Each search follows the finite
+  [`WIRE.md` §13.1](./WIRE.md#131-the-layers) client policy: reject signed work
+  above 20 bits before starting, run off the async executor, and stop at the
+  16,777,216-candidate, 30,000 ms, challenge-expiry, cancellation, or `uint64`
+  counter boundary without wrapping.
 - **It fails closed when the witness threshold is unmet.** Resolving a *new*
   handle is refused, not degraded
   ([`KT.md` §8.3](./KT.md#83-the-threshold-rule-and-failing-closed)). See rule 5
@@ -1696,11 +1698,11 @@ type ErrorCode =
 | `relay-protocol-violation` | | The relay sent something malformed, or rejected us as malformed. **This is a bug in one of the two implementations.** Surface it as a defect with a report affordance; never silently retry. |
 | `relay-identity-mismatch` | | **Fatal and loud.** The relay's proven identity does not match the `relay_id` the peer advertised in-band — a substituted relay ([`WIRE.md` §5.2](./WIRE.md#52-relay-identity-binding--the-attack-it-closes)). Raise an alarm, stop using this relay for this conversation, do not retry against it. |
 | `relay-refused-insecure` | | The relay declares `transport_security: "none"` or `channel_binding_mode: "none"` and the user has not opted in. Offer the opt-in with copy stating that ciphertext is protected by MLS but connection metadata, queue addresses and commands travel in the clear ([`WIRE.md` §2.3](./WIRE.md#23-listener-rules-and-the-insecure-override)). |
-| `relay-capability-mismatch` | | Its padding set, TTL ceiling, or `.well-known` digest disagrees with what it serves. Refuse the relay and say which check failed ([`WIRE.md` §11.2](./WIRE.md#112-served-two-ways-on-purpose), [§11.3](./WIRE.md#113-what-a-client-does-with-it)). |
+| `relay-capability-mismatch` | | Its padding set, TTL ceiling, PoW work policy, or `.well-known` digest disagrees with what this client accepts or what it serves. Refuse the relay and say which check failed before beginning PoW ([`WIRE.md` §11.2](./WIRE.md#112-served-two-ways-on-purpose), [§11.3](./WIRE.md#113-what-a-client-does-with-it)). |
 | `send-unavailable` | ● | The single collapsed send-side refusal: absent, deleted, expired, full, or backpressure — the relay is forbidden from distinguishing them ([`WIRE.md` §6.3](./WIRE.md#63-commands-signed-by-the-send-side-queue-key)). Exponential backoff to the retry budget, then ask the peer in-band for a fresh queue advert. **The UI cannot tell the user why, and must not guess.** |
 | `send-address-stolen` | | **Fatal, loud, non-dismissible.** `ERR_ALREADY_BOUND` on a first bind for a freshly advertised address means the address was already bound to another or unknown key ([`WIRE.md` §7.4](./WIRE.md#74-the-consequence-said-plainly)). Mark `transportHealth: "compromised"`, abandon the queue, and name the relay that returned the result. The result does not identify who bound it. Not a warning toast. Not a log line. |
 | `pow-required` | ● | Obtain a challenge and compute a stamp. Show it as work, not as a network wait. |
-| `pow-failed` | ● | The challenge expired or was consumed. Get a fresh one and retry once. |
+| `pow-failed` | ● | The challenge expired or was consumed, or the finite local search hit its attempt/deadline/cancellation/counter bound. Get a fresh challenge and retry once; never continue or wrap an exhausted search. |
 | `directory-unreachable` | ● | Existing conversations continue. New-handle resolution is unavailable — say that, do not fall back. |
 | `directory-rate-limited` | ● | Back off. |
 | `directory-proof-invalid` | | **Fatal.** An inclusion proof, a monotonicity check, or an entry authorization failed. This is **fork evidence**, not a network glitch ([`KT.md` §8.1](./KT.md#81-lookup), [§6.3](./KT.md#63-monotonicity)). Raise `directory-fork-evidence`; do not retry, do not "try another server". |
@@ -2203,6 +2205,7 @@ files) are settled.
 | `SafetyNumber.zcashMemoPayload` | Verification over a shielded Zcash memo is described in [`ARCHITECTURE.md` §9.2](./ARCHITECTURE.md#92-the-directory) and has no specified payload format. |
 | Retry budgets and backoff constants | Not specified anywhere yet; `send_retry_max` is named in [`WIRE.md` §6.3](./WIRE.md#63-commands-signed-by-the-send-side-queue-key) without a value. |
 | Enrollment merge latency | Depends on the KT epoch cadence, whose values are placeholders ([§13-P](./ARCHITECTURE.md#13-open-questions)). |
+| PoW algorithm 1 / 20-bit / 60000 ms default | An interoperability value, not calibration evidence. The 20-bit acceptance ceiling, 16,777,216-candidate budget and 30000 ms search deadline are safety bounds pending §13-N's supported-device and attacker measurements. |
 
 ### 12.2 Open questions this document inherits
 

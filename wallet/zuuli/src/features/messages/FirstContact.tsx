@@ -265,7 +265,7 @@ export function FirstContact({
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Enter an exact messaging handle. Establishing first contact computes
-            proof of work on this device and can take several seconds.
+            bounded proof of work on this device; its duration varies by device.
           </p>
         </div>
 
@@ -309,8 +309,8 @@ export function FirstContact({
             role="status"
             aria-live="polite"
           >
-            Computing proof of work on this device. This can take several
-            seconds.
+            Computing proof of work on this device within a bounded work policy.
+            Duration varies by device.
           </p>
         ) : null}
 

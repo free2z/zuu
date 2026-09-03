@@ -31,6 +31,9 @@ const LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND =
   "node scripts/check-librustzcash-compat.mjs --self-test";
 const LIBRUSTZCASH_POLICY_COMMAND =
   "node scripts/check-librustzcash-compat.mjs";
+const POW_POLICY_SELF_TEST_COMMAND =
+  "node scripts/check-pow-policy.mjs --self-test";
+const POW_POLICY_COMMAND = "node scripts/check-pow-policy.mjs";
 const REQUIRED_LIBRUSTZCASH_LOCKFILE_COUNT = 3;
 const REQUIRED_LIBRUSTZCASH_PACKAGE_COUNT = 11;
 const REQUIRED_LIBRUSTZCASH_SCOPE_DIGEST =
@@ -1345,13 +1348,15 @@ function requiredChangesControlFailures(relativeFile, lines, changes) {
   if (
     !hasExactKeys(policy.properties, ["name", "run"]) ||
     policy.properties.get("run")?.value !== "|" ||
-    commands.length !== 6 ||
+    commands.length !== 8 ||
     commands[0] !== GATE_POLICY_SELF_TEST_COMMAND ||
     commands[1] !== GATE_POLICY_COMMAND ||
     commands[2] !== WORKFLOW_GATES_SELF_TEST_COMMAND ||
     commands[3] !== WORKFLOW_GATES_COMMAND ||
     commands[4] !== LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND ||
-    commands[5] !== LIBRUSTZCASH_POLICY_COMMAND
+    commands[5] !== LIBRUSTZCASH_POLICY_COMMAND ||
+    commands[6] !== POW_POLICY_SELF_TEST_COMMAND ||
+    commands[7] !== POW_POLICY_COMMAND
   ) {
     failures.push(
       `${relativeFile}:${policy.start + 1}: changes policy step must exactly self-test and enforce the current-source policy`,
@@ -4202,6 +4207,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
           `          ${WORKFLOW_GATES_COMMAND}`,
           `          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}`,
           `          ${LIBRUSTZCASH_POLICY_COMMAND}`,
+          `          ${POW_POLICY_SELF_TEST_COMMAND}`,
+          `          ${POW_POLICY_COMMAND}`,
         ].join("\n"),
         [
           "      - name: Verify immutable actions and fail-closed required jobs",
@@ -4247,6 +4254,18 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "changes policy step must exactly self-test and enforce the current-source policy",
       source: source.replace(`          ${LIBRUSTZCASH_POLICY_COMMAND}\n`, ""),
+    },
+    {
+      name: "real workflow rejects a missing bounded PoW policy self-test",
+      needle:
+        "changes policy step must exactly self-test and enforce the current-source policy",
+      source: source.replace(`          ${POW_POLICY_SELF_TEST_COMMAND}\n`, ""),
+    },
+    {
+      name: "real workflow rejects a missing bounded PoW policy verdict",
+      needle:
+        "changes policy step must exactly self-test and enforce the current-source policy",
+      source: source.replace(`          ${POW_POLICY_COMMAND}\n`, ""),
     },
     {
       name: "real workflow rejects a missing WASM boundary policy",
@@ -5124,6 +5143,8 @@ function runSelfTest(repoRoot) {
     `          ${WORKFLOW_GATES_COMMAND}`,
     `          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}`,
     `          ${LIBRUSTZCASH_POLICY_COMMAND}`,
+    `          ${POW_POLICY_SELF_TEST_COMMAND}`,
+    `          ${POW_POLICY_COMMAND}`,
     "      - name: Verify the required Rust/WASM build boundary",
     "        run: |",
     `          ${WASM_POLICY_SELF_TEST_COMMAND}`,
@@ -5502,7 +5523,7 @@ function runSelfTest(repoRoot) {
         "changes policy step must exactly self-test and enforce the current-source policy",
       files: gateFixture(
         validGateWorkflow.replace(
-          `        run: |\n          ${GATE_POLICY_SELF_TEST_COMMAND}\n          ${GATE_POLICY_COMMAND}\n          ${WORKFLOW_GATES_SELF_TEST_COMMAND}\n          ${WORKFLOW_GATES_COMMAND}\n          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}\n          ${LIBRUSTZCASH_POLICY_COMMAND}\n`,
+          `        run: |\n          ${GATE_POLICY_SELF_TEST_COMMAND}\n          ${GATE_POLICY_COMMAND}\n          ${WORKFLOW_GATES_SELF_TEST_COMMAND}\n          ${WORKFLOW_GATES_COMMAND}\n          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}\n          ${LIBRUSTZCASH_POLICY_COMMAND}\n          ${POW_POLICY_SELF_TEST_COMMAND}\n          ${POW_POLICY_COMMAND}\n`,
           "        run: true\n",
         ),
       ),

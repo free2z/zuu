@@ -24,10 +24,11 @@
 //! explicit that binding the stamp to a relay-issued, single-use challenge is
 //! what stops precomputation, and none of that is expressible here.
 //!
-//! §12.4 states the honest limit plainly: a leading-zero-bit search taxes phones
-//! far more than it taxes rented GPUs, and that is not fixable by tuning. The
-//! function is chosen so that **verification is a single hash** — the relay's
-//! own cost under flood is the thing that must stay near zero.
+//! §12.4 states the honest limit plainly: commodity parallel hardware can
+//! accelerate this leading-zero-bit search, and no supported-device or attacker
+//! calibration has been recorded. The function is chosen so that
+//! **verification is a single hash** — the relay's own cost under flood is the
+//! thing that must stay near zero.
 
 // `tls_codec`'s derive macros build their error strings with `format!` and
 // return `Vec<u8>`; both need to be in scope in a `no_std` crate.
@@ -42,6 +43,34 @@ use crate::types::{Challenge, Salt};
 
 /// The only PoW algorithm in v1: BLAKE2b with a leading-zero-bit target.
 pub const ALGORITHM_BLAKE2B_LEADING_ZERO_BITS: u8 = 1;
+
+/// The provisional v1 interoperability difficulty (§13.1).
+///
+/// This is a wire default, not a phone or attacker calibration result. Until
+/// the measurements in `ARCHITECTURE.md` §13-N exist, v1 clients and relays do
+/// not accept a harder advertised search.
+pub const DEFAULT_POW_DIFFICULTY_BITS: u8 = 20;
+
+/// The hardest proof-of-work search a v1 client will accept (§13.1).
+pub const MAX_POW_DIFFICULTY_BITS: u8 = DEFAULT_POW_DIFFICULTY_BITS;
+
+/// The provisional v1 challenge lifetime, in milliseconds (§13.1).
+pub const DEFAULT_POW_CHALLENGE_TTL_MS: u32 = 60_000;
+
+/// The longest challenge lifetime a v1 client accepts (§13.1).
+pub const MAX_POW_CHALLENGE_TTL_MS: u32 = DEFAULT_POW_CHALLENGE_TTL_MS;
+
+/// The most candidates a v1 client searches for one stamp.
+///
+/// At the maximum accepted difficulty this is sixteen expected search lengths.
+/// The independent wall-clock deadline remains authoritative on a slow device.
+pub const MAX_POW_ATTEMPTS: u64 = 1 << 24;
+
+/// The wall-clock ceiling for one client-side search, in milliseconds.
+///
+/// This is a denial-of-service bound, not a claim that any supported device
+/// finishes the provisional default within it.
+pub const MAX_POW_SOLVE_MS: u64 = 30_000;
 
 /// The relay's current proof-of-work parameters.
 ///
@@ -85,11 +114,12 @@ impl PowParams {
 
     /// Check that the parameters are ones a v1 client can satisfy.
     ///
-    /// `difficulty_bits` needs no *upper* bound: it is a `u8`, the digest is
-    /// 256 bits, so every representable value is satisfiable. Whether it is
-    /// *reachable* on a phone is §12.4's problem, not this function's.
+    /// `difficulty_bits` is bounded by [`MAX_POW_DIFFICULTY_BITS`]. A hash
+    /// target can be mathematically satisfiable and still be hostile work for
+    /// a client; accepting the signed capability is what authorizes the work,
+    /// so the bound belongs here rather than only in the solver.
     ///
-    /// It does need a lower one. `is_required` reads `algorithm` alone, so a
+    /// It also needs a lower bound. `is_required` reads `algorithm` alone, so a
     /// relay publishing `algorithm: 1, difficulty_bits: 0` passes §13.1's
     /// "pow mode must name a PoW" and §12.3's "contact queues must be gated"
     /// checks while demanding no work at all — `meets_difficulty(0)` holds for
@@ -99,16 +129,24 @@ impl PowParams {
     ///
     /// # Errors
     ///
-    /// [`CodecError::InvalidValue`] if `algorithm` is neither 0 ("not
-    /// required") nor 1, or if a named algorithm carries zero difficulty.
+    /// [`CodecError::InvalidValue`] if the no-work form is not all-zero, if
+    /// `algorithm` is not 1, if the difficulty is outside the v1 client range,
+    /// or if its challenge lifetime is zero or above the v1 ceiling.
     pub const fn validate(&self) -> Result<(), CodecError> {
         if self.algorithm == 0 {
-            return Ok(());
+            return if self.difficulty_bits == 0 && self.challenge_ttl_ms == 0 {
+                Ok(())
+            } else {
+                Err(CodecError::InvalidValue)
+            };
         }
         if self.algorithm != ALGORITHM_BLAKE2B_LEADING_ZERO_BITS {
             return Err(CodecError::InvalidValue);
         }
-        if self.difficulty_bits == 0 {
+        if self.difficulty_bits == 0 || self.difficulty_bits > MAX_POW_DIFFICULTY_BITS {
+            return Err(CodecError::InvalidValue);
+        }
+        if self.challenge_ttl_ms == 0 || self.challenge_ttl_ms > MAX_POW_CHALLENGE_TTL_MS {
             return Err(CodecError::InvalidValue);
         }
         Ok(())
@@ -246,7 +284,7 @@ mod tests {
     }
 
     #[test]
-    fn params_reject_an_algorithm_v1_does_not_define() {
+    fn params_enforce_the_bounded_v1_work_policy() {
         assert!(PowParams::none().validate().is_ok());
         // zuu#715: a named algorithm with zero difficulty is a published gate
         // that demands nothing. `is_required` reads `algorithm` alone, so both
@@ -256,7 +294,7 @@ mod tests {
             PowParams {
                 algorithm: ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
                 difficulty_bits: 0,
-                challenge_ttl_ms: 60_000,
+                challenge_ttl_ms: DEFAULT_POW_CHALLENGE_TTL_MS,
             }
             .validate(),
             Err(CodecError::InvalidValue)
@@ -266,7 +304,7 @@ mod tests {
             PowParams {
                 algorithm: ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
                 difficulty_bits: 1,
-                challenge_ttl_ms: 60_000,
+                challenge_ttl_ms: DEFAULT_POW_CHALLENGE_TTL_MS,
             }
             .validate()
             .is_ok()
@@ -275,17 +313,44 @@ mod tests {
         assert!(
             PowParams {
                 algorithm: ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
-                difficulty_bits: 20,
-                challenge_ttl_ms: 60_000,
+                difficulty_bits: MAX_POW_DIFFICULTY_BITS,
+                challenge_ttl_ms: MAX_POW_CHALLENGE_TTL_MS,
             }
             .validate()
             .is_ok()
         );
         assert_eq!(
             PowParams {
+                algorithm: ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
+                difficulty_bits: MAX_POW_DIFFICULTY_BITS + 1,
+                challenge_ttl_ms: DEFAULT_POW_CHALLENGE_TTL_MS,
+            }
+            .validate(),
+            Err(CodecError::InvalidValue)
+        );
+        assert_eq!(
+            PowParams {
+                algorithm: ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
+                difficulty_bits: DEFAULT_POW_DIFFICULTY_BITS,
+                challenge_ttl_ms: MAX_POW_CHALLENGE_TTL_MS + 1,
+            }
+            .validate(),
+            Err(CodecError::InvalidValue)
+        );
+        assert_eq!(
+            PowParams {
+                algorithm: 0,
+                difficulty_bits: 1,
+                challenge_ttl_ms: 0,
+            }
+            .validate(),
+            Err(CodecError::InvalidValue)
+        );
+        assert_eq!(
+            PowParams {
                 algorithm: 2,
-                difficulty_bits: 20,
-                challenge_ttl_ms: 60_000,
+                difficulty_bits: DEFAULT_POW_DIFFICULTY_BITS,
+                challenge_ttl_ms: DEFAULT_POW_CHALLENGE_TTL_MS,
             }
             .validate(),
             Err(CodecError::InvalidValue)

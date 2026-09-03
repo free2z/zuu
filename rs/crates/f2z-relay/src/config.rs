@@ -510,16 +510,16 @@ impl Default for AntiAbuse {
         Self {
             // §13.1: "`pow` — **the default.**"
             queue_creation_mode: "pow".to_owned(),
-            queue_creation_pow_bits: 20,
-            contact_append_pow_bits: 20,
-            challenge_ttl_ms: 60_000,
+            queue_creation_pow_bits: f2z_codec::pow::DEFAULT_POW_DIFFICULTY_BITS,
+            contact_append_pow_bits: f2z_codec::pow::DEFAULT_POW_DIFFICULTY_BITS,
+            challenge_ttl_ms: f2z_codec::pow::DEFAULT_POW_CHALLENGE_TTL_MS,
             max_challenges: 65_536,
             contact_queues_enabled: true,
             contact_max_pending: 64,
             contact_max_bytes: 256 * 1024,
             key_packages_enabled: true,
             contact_max_key_packages: 64,
-            claim_key_package_pow_bits: 20,
+            claim_key_package_pow_bits: f2z_codec::pow::DEFAULT_POW_DIFFICULTY_BITS,
             per_source_limits: true,
         }
     }
@@ -1135,13 +1135,39 @@ impl Config {
                     .to_owned(),
             ));
         }
-        if self.antiabuse.queue_creation_pow_bits > 64
-            || self.antiabuse.contact_append_pow_bits > 64
-            || self.antiabuse.claim_key_package_pow_bits > 64
+        for (key, difficulty) in [
+            (
+                "antiabuse.queue_creation_pow_bits",
+                self.antiabuse.queue_creation_pow_bits,
+            ),
+            (
+                "antiabuse.contact_append_pow_bits",
+                self.antiabuse.contact_append_pow_bits,
+            ),
+            (
+                "antiabuse.claim_key_package_pow_bits",
+                self.antiabuse.claim_key_package_pow_bits,
+            ),
+        ] {
+            if difficulty > f2z_codec::pow::MAX_POW_DIFFICULTY_BITS {
+                return Err(ConfigError::Invalid(
+                    key,
+                    format!(
+                        "exceeds the v1 client work-policy maximum of {} bits",
+                        f2z_codec::pow::MAX_POW_DIFFICULTY_BITS
+                    ),
+                ));
+            }
+        }
+        if self.antiabuse.challenge_ttl_ms == 0
+            || self.antiabuse.challenge_ttl_ms > f2z_codec::pow::MAX_POW_CHALLENGE_TTL_MS
         {
             return Err(ConfigError::Invalid(
-                "antiabuse.queue_creation_pow_bits",
-                "a difficulty above 64 bits is not solvable by any client".to_owned(),
+                "antiabuse.challenge_ttl_ms",
+                format!(
+                    "must be between 1 and the v1 client maximum of {} ms",
+                    f2z_codec::pow::MAX_POW_CHALLENGE_TTL_MS
+                ),
             ));
         }
         if self.antiabuse.max_challenges == 0 {
@@ -1585,6 +1611,19 @@ mod tests {
         let mut config = Config::default();
         config.antiabuse.contact_queues_enabled = false;
         assert!(config.check().is_err());
+    }
+
+    #[test]
+    fn proof_of_work_maximum_is_accepted_and_maximum_plus_one_is_refused() {
+        let mut config = Config::default();
+        config.antiabuse.queue_creation_pow_bits = f2z_codec::pow::MAX_POW_DIFFICULTY_BITS;
+        config.antiabuse.contact_append_pow_bits = f2z_codec::pow::MAX_POW_DIFFICULTY_BITS;
+        config.antiabuse.claim_key_package_pow_bits = f2z_codec::pow::MAX_POW_DIFFICULTY_BITS;
+        assert!(config.check().is_ok());
+
+        config.antiabuse.claim_key_package_pow_bits = f2z_codec::pow::MAX_POW_DIFFICULTY_BITS + 1;
+        let error = config.check().unwrap_err();
+        assert!(format!("{error}").contains("claim_key_package_pow_bits"));
     }
 
     #[test]

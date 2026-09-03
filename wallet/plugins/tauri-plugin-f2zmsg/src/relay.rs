@@ -40,6 +40,8 @@
 //!   the engine's, taken only after the durable local write commits (§9 rule
 //!   1). See [`RelayConnection::ack`]'s documentation.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use f2z_codec::canonical::{Canonical as _, decode_canonical};
@@ -53,7 +55,7 @@ use f2z_codec::commands::{
 };
 use f2z_codec::frame::{FramePayload, Push, RelayFrame, Response};
 use f2z_codec::padding::PaddingBuckets;
-use f2z_codec::pow::{PowParams, PowStamp};
+use f2z_codec::pow::{MAX_POW_ATTEMPTS, MAX_POW_SOLVE_MS, PowParams, PowStamp};
 use f2z_codec::types::{ChannelBinding, KeyPackage, Nonce, Payload, QueueAddress, RelayId, Salt};
 use f2z_codec::{Challenge, PROTOCOL_VERSION};
 use f2z_relay_proto::capabilities::ClientPolicy;
@@ -163,6 +165,7 @@ pub struct RelayConnection {
     padding: PaddingBuckets,
     relay_time_ms: u64,
     relay_time_taken: Instant,
+    policy: ClientPolicy,
     /// Set once the peer closes, so a caller stops trying.
     closed: bool,
 }
@@ -247,6 +250,7 @@ impl RelayConnection {
             padding: policy.padding.clone(),
             relay_time_ms,
             relay_time_taken: Instant::now(),
+            policy: policy.policy.clone(),
             closed: false,
         })
     }
@@ -282,9 +286,26 @@ impl RelayConnection {
     ///
     /// # Errors
     ///
-    /// As [`RelayConnection::call_unsigned`].
+    /// As [`RelayConnection::call_unsigned`], plus a signature, HELLO-digest,
+    /// or client-policy refusal. Validation completes before a caller can use
+    /// any advertised PoW value.
     pub async fn capabilities(&mut self) -> Result<SignedCapabilities> {
-        self.call_unsigned::<ops::GetCapabilities>(&Empty).await
+        let signed = self.call_unsigned::<ops::GetCapabilities>(&Empty).await?;
+        f2z_relay_proto::capabilities::verify(&signed, &self.session.relay_identity_pk())
+            .and_then(|()| {
+                f2z_relay_proto::capabilities::check_digest(
+                    &signed.capabilities,
+                    &self.session.capabilities_digest(),
+                )
+            })
+            .and_then(|()| self.policy.accept(&signed.capabilities))
+            .map_err(|error| {
+                Error::new(
+                    from_proto(error, Command::GetCapabilities, BindAttempt::Later),
+                    format!("the relay's signed capabilities are refused: {error:?}"),
+                )
+            })?;
+        Ok(signed)
     }
 
     /// Additive §12.6 key-package policy discovery.
@@ -526,9 +547,9 @@ impl RelayConnection {
 
     /// `CONTACT_APPEND` (§12.2), with a stamp scoped to `contact_addr`.
     ///
-    /// This is the proof-of-work first contact pays. §12.4 is honest that it
-    /// taxes phones far more than rented hardware and that no tuning fixes
-    /// that; the UI's job is to show it as work rather than as a network wait.
+    /// This is the proof-of-work first contact pays. §12.4 records that its
+    /// supported-device and attacker costs are unmeasured; the UI's job is to
+    /// show it as work rather than as a network wait.
     ///
     /// # Errors
     ///
@@ -640,13 +661,12 @@ impl RelayConnection {
                 "relay issued an unmetered key-package claim challenge",
             ));
         }
-        let challenge = issued.challenge;
-        let difficulty_bits = issued.pow.difficulty_bits;
-        let stamp = tokio::task::spawn_blocking(move || solve(challenge, difficulty_bits))
-            .await
-            .map_err(|error| {
-                Error::internal(format!("the stamp search did not finish: {error}"))
-            })?;
+        let stamp = solve_bounded(
+            issued.challenge,
+            issued.pow.difficulty_bits,
+            challenge_lifetime(&issued)?,
+        )
+        .await?;
         let body = ClaimKeyPackageRequest {
             contact_addr,
             stamp,
@@ -836,15 +856,19 @@ impl RelayConnection {
     /// Obtain a challenge and solve a stamp, when and only when the relay's
     /// published parameters require one (§13.1).
     ///
-    /// # The search runs on a blocking thread, and that is not a nicety
+    /// # The search runs on a bounded blocking thread, and that is not a nicety
     ///
-    /// [`solve`] is an unbounded synchronous loop — a leading-zero-bit search
-    /// that takes seconds on a phone at the shipped difficulty, and §12.4 is
-    /// blunt that no tuning fixes that. Run inline on the async task it would
+    /// [`solve_bounded`] is a leading-zero-bit search. Run inline on the async task it would
     /// hold a runtime worker for the whole search, stalling **every other task
     /// in the process**: the inbound pump that must ACK, the other relay
     /// connections, and every Tauri command. Since `WIRE.md` §12.6 first
     /// contact pays **two** stamps rather than one, so the window doubled.
+    ///
+    /// The blocking worker cooperatively observes cancellation if this future
+    /// is dropped, and independently stops at the earliest of the challenge
+    /// expiry, the client wall-clock ceiling, the candidate budget, or `u64`
+    /// counter exhaustion. A timeout therefore returns promptly without
+    /// leaving an unbounded blocking task behind.
     ///
     /// # The residual, stated rather than implied
     ///
@@ -853,9 +877,9 @@ impl RelayConnection {
     /// is polled only from inside its own methods, so nothing answers §2.4's
     /// server-driven Ping until this call returns, and a relay whose keepalive
     /// is shorter than the search will close — correctly. The shipping relay's
-    /// interval is 25 s with two missed Pongs, so this is bounded well above a
-    /// realistic solve; a relay that published a tighter one would break first
-    /// contact here. Closing it for real needs a reader task owning the socket,
+    /// interval is 25 s with two missed Pongs, while the client work deadline is
+    /// 30 s. A relay that published a tighter one could break first contact here.
+    /// Closing it for real needs a reader task owning the socket,
     /// which is a change to this file's ownership model and not a line.
     async fn stamp_for(
         &mut self,
@@ -863,20 +887,42 @@ impl RelayConnection {
         scope: &[u8],
         pow: Option<PowParams>,
     ) -> Result<PowStamp> {
-        let Some(params) = pow.filter(PowParams::is_required) else {
+        let Some(params) = pow else {
             return Ok(PowStamp::empty());
         };
+        params.validate().map_err(|_| {
+            Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                "proof-of-work parameters exceed the bounded v1 client policy",
+            )
+        })?;
+        if !params.is_required() {
+            return Ok(PowStamp::empty());
+        }
         let body = ChallengeRequest {
             purpose: purpose.code(),
             scope: f2z_codec::types::ShortBytes::new(scope.to_vec())
                 .map_err(|error| Error::internal(format!("challenge scope: {error:?}")))?,
         };
         let issued = self.call_unsigned::<ops::GetChallenge>(&body).await?;
-        let challenge = issued.challenge;
-        let difficulty_bits = params.difficulty_bits;
-        tokio::task::spawn_blocking(move || solve(challenge, difficulty_bits))
-            .await
-            .map_err(|error| Error::internal(format!("the stamp search did not finish: {error}")))
+        issued.pow.validate().map_err(|_| {
+            Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                "relay issued proof-of-work parameters outside the bounded v1 client policy",
+            )
+        })?;
+        if issued.pow != params {
+            return Err(Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                "relay challenge proof-of-work parameters differ from its signed capabilities",
+            ));
+        }
+        solve_bounded(
+            issued.challenge,
+            params.difficulty_bits,
+            challenge_lifetime(&issued)?,
+        )
+        .await
     }
 
     fn take_request_id(&mut self) -> u32 {
@@ -982,26 +1028,124 @@ impl RelayConnection {
     }
 }
 
-/// §13.1's stamp search: leading zero bits over BLAKE2b, chosen so verification
-/// is a single hash.
-///
-/// Synchronous and unbounded on purpose. It is the reason `start_conversation`
-/// can take seconds, and §3.3 tells the UI to show that as *work on this
-/// device* rather than as a network wait. The caller runs it on a blocking task.
-#[must_use]
-pub fn solve(challenge: Challenge, difficulty_bits: u8) -> PowStamp {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PowSolveError {
+    Cancelled,
+    Deadline,
+    AttemptLimit,
+    CounterExhausted,
+}
+
+impl core::fmt::Display for PowSolveError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Cancelled => f.write_str("cancelled"),
+            Self::Deadline => f.write_str("deadline reached"),
+            Self::AttemptLimit => f.write_str("candidate budget exhausted"),
+            Self::CounterExhausted => f.write_str("counter exhausted"),
+        }
+    }
+}
+
+/// Sets the cooperative flag on every exit, including caller cancellation.
+struct CancelPowOnDrop(Arc<AtomicBool>);
+
+impl Drop for CancelPowOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
+fn challenge_lifetime(issued: &f2z_codec::commands::ChallengeResponse) -> Result<Duration> {
+    let remaining_ms = issued
+        .expires_at_ms
+        .checked_sub(issued.relay_time_ms)
+        .filter(|remaining| *remaining > 0)
+        .ok_or_else(|| Error::new(ErrorCode::PowFailed, "relay issued an expired challenge"))?;
+    Ok(Duration::from_millis(remaining_ms).min(Duration::from_millis(MAX_POW_SOLVE_MS)))
+}
+
+async fn solve_bounded(
+    challenge: Challenge,
+    difficulty_bits: u8,
+    valid_for: Duration,
+) -> Result<PowStamp> {
     let mut salt_bytes = [0u8; 16];
     rand::rng().fill_bytes(&mut salt_bytes);
-    let mut stamp = PowStamp {
-        challenge,
-        salt: Salt::from(salt_bytes),
-        counter: 0,
-    };
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let cancel_on_drop = CancelPowOnDrop(Arc::clone(&cancelled));
+    let deadline = Instant::now()
+        .checked_add(valid_for)
+        .ok_or_else(|| Error::internal("proof-of-work deadline overflow"))?;
+    let worker = tokio::task::spawn_blocking(move || {
+        solve_search(
+            challenge,
+            difficulty_bits,
+            Salt::from(salt_bytes),
+            0,
+            MAX_POW_ATTEMPTS,
+            deadline,
+            &cancelled,
+        )
+    });
+
+    let outcome = tokio::time::timeout(valid_for, worker).await;
+    drop(cancel_on_drop);
+    match outcome {
+        Ok(Ok(Ok(stamp))) => Ok(stamp),
+        Ok(Ok(Err(error))) => Err(Error::new(
+            ErrorCode::PowFailed,
+            format!("proof-of-work search stopped: {error}"),
+        )),
+        Ok(Err(error)) => Err(Error::internal(format!(
+            "the proof-of-work worker did not finish: {error}"
+        ))),
+        Err(_) => Err(Error::new(
+            ErrorCode::PowFailed,
+            "proof-of-work search reached the client deadline",
+        )),
+    }
+}
+
+/// §13.1's bounded stamp search. `counter` is advanced with `checked_add` so
+/// exhausting the fixed `(challenge, salt, uint64)` search space is terminal,
+/// never a wrap back to work already performed.
+fn solve_search(
+    challenge: Challenge,
+    difficulty_bits: u8,
+    salt: Salt,
+    first_counter: u64,
+    max_attempts: u64,
+    deadline: Instant,
+    cancelled: &AtomicBool,
+) -> core::result::Result<PowStamp, PowSolveError> {
+    if max_attempts == 0 {
+        return Err(PowSolveError::AttemptLimit);
+    }
+    let mut counter = first_counter;
+    let mut attempts = 0u64;
     loop {
-        if stamp.meets_difficulty(difficulty_bits) {
-            return stamp;
+        if cancelled.load(Ordering::Acquire) {
+            return Err(PowSolveError::Cancelled);
         }
-        stamp.counter = stamp.counter.wrapping_add(1);
+        if Instant::now() >= deadline {
+            return Err(PowSolveError::Deadline);
+        }
+        let stamp = PowStamp {
+            challenge,
+            salt,
+            counter,
+        };
+        if stamp.meets_difficulty(difficulty_bits) {
+            return Ok(stamp);
+        }
+        counter = counter
+            .checked_add(1)
+            .ok_or(PowSolveError::CounterExhausted)?;
+        attempts = attempts.saturating_add(1);
+        if attempts >= max_attempts {
+            return Err(PowSolveError::AttemptLimit);
+        }
     }
 }
 
@@ -1138,4 +1282,107 @@ async fn hello(
         &policy.policy,
     )
     .map_err(|error| proto(error, Command::Hello, BindAttempt::Later))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn future_deadline() -> Instant {
+        Instant::now()
+            .checked_add(Duration::from_secs(2))
+            .expect("short test deadline")
+    }
+
+    #[test]
+    fn deterministic_low_cost_search_finds_a_verifiable_stamp() {
+        let cancelled = AtomicBool::new(false);
+        let stamp = solve_search(
+            Challenge::new([0x5a; 32]),
+            8,
+            Salt::new([0x0f; 16]),
+            0,
+            100_000,
+            future_deadline(),
+            &cancelled,
+        )
+        .expect("8-bit deterministic search");
+        assert!(stamp.meets_difficulty(8));
+    }
+
+    #[test]
+    fn a_fixed_search_space_ends_instead_of_wrapping_its_counter() {
+        let cancelled = AtomicBool::new(false);
+        let challenge = Challenge::new([0xa5; 32]);
+        let salt = Salt::new([0x33; 16]);
+        let last = PowStamp {
+            challenge,
+            salt,
+            counter: u64::MAX,
+        };
+        assert!(
+            !last.meets_difficulty(255),
+            "fixture must not solve the hostile target"
+        );
+        assert_eq!(
+            solve_search(
+                challenge,
+                255,
+                salt,
+                u64::MAX,
+                2,
+                future_deadline(),
+                &cancelled,
+            ),
+            Err(PowSolveError::CounterExhausted)
+        );
+    }
+
+    #[test]
+    fn cancellation_stops_hostile_work_promptly() {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = Arc::clone(&cancelled);
+        let started = Instant::now();
+        let worker = std::thread::spawn(move || {
+            solve_search(
+                Challenge::new([0x77; 32]),
+                255,
+                Salt::new([0x88; 16]),
+                0,
+                u64::MAX,
+                Instant::now()
+                    .checked_add(Duration::from_secs(10))
+                    .expect("short test deadline"),
+                &worker_cancelled,
+            )
+        });
+        std::thread::sleep(Duration::from_millis(10));
+        cancelled.store(true, Ordering::Release);
+        assert_eq!(
+            worker.join().expect("worker joins"),
+            Err(PowSolveError::Cancelled)
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "cooperative cancellation must not wait for the work/deadline bounds"
+        );
+    }
+
+    #[test]
+    fn an_expired_challenge_is_refused_before_work() {
+        let issued = f2z_codec::commands::ChallengeResponse {
+            relay_time_ms: 100,
+            challenge: Challenge::new([0x11; 32]),
+            expires_at_ms: 100,
+            pow: PowParams {
+                algorithm: f2z_codec::pow::ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
+                difficulty_bits: f2z_codec::pow::DEFAULT_POW_DIFFICULTY_BITS,
+                challenge_ttl_ms: f2z_codec::pow::DEFAULT_POW_CHALLENGE_TTL_MS,
+            },
+        };
+        assert_eq!(
+            challenge_lifetime(&issued).unwrap_err().code(),
+            ErrorCode::PowFailed
+        );
+    }
 }

@@ -3782,9 +3782,9 @@ impl<B: StorageBackend> Inner<B> {
     /// (§12.2).
     ///
     /// Unsigned at the relay and gated by a proof-of-work stamp: that is the
-    /// whole design — a stranger can reach you exactly once, expensively — and
-    /// §12.4 is honest that the cost lands far harder on a phone than on rented
-    /// hardware. The search runs on a blocking thread — see
+    /// whole design — a stranger can reach you exactly once after presenting a
+    /// stamp — and §12.4 is honest that client and attacker costs are not yet
+    /// measured. The search runs on a bounded blocking thread — see
     /// `RelayConnection::stamp_for`, which is where that is arranged and where
     /// the residual it does *not* close is written down — and §3.3 tells the UI
     /// to show it as work, not as a network wait.

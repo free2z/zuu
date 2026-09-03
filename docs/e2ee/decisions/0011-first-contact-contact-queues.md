@@ -69,14 +69,13 @@ contact queue plays no further part for that pair.
   than as messages.
 - **`CONTACT_APPEND` returns nothing**, on the same rule as `APPEND`: a stranger
   must learn neither how full the queue is nor whether Bob has read it.
-- **Proof of work taxes phones far more than rented GPUs. This is the central
-  weakness and it is not fixable by tuning.** A leading-zero-bit search is
-  precisely the workload commodity parallel hardware accelerates best; the ratio
-  between a rented GPU-hour and a battery-constrained mid-range phone is orders of
-  magnitude. A difficulty high enough to meaningfully cost an attacker is a
-  difficulty that makes a cheap Android device heat up before it can say hello. We
-  have chosen a difficulty that is a nuisance to attackers and tolerable to
-  phones, which means it is *only* a nuisance.
+- **Proof of work taxes general-purpose clients while commodity parallel
+  hardware can accelerate the chosen leading-zero-bit search.** This is the
+  central weakness and it is not fixed by choosing a larger unmeasured number.
+  The provisional algorithm-1 / 20-bit / 60000 ms interoperability default is
+  not evidence of a supported-phone duration or an attacker cost; those
+  measurements remain open in §13-N. The finite client work policy in WIRE.md
+  §13.1 bounds the denial a hostile signed capability can demand.
 - **Disk exhaustion via mass queue creation is made expensive, not closed.**
   Nothing prevents an adversary with real resources from creating very many
   legitimate-looking queues with valid stamps from many sources. The caps bound
@@ -125,7 +124,8 @@ contact queue plays no further part for that pair.
   [ADR 0004](./0004-metadata-ambition.md) removed it from, and it would tell the
   relay who contacted whom.
 - **A memory-hard proof of work (Argon2id and relatives).** Rejected for v1 with
-  regret. It would genuinely narrow the phone-versus-GPU gap. It also multiplies
+  regret. It is intended to narrow the general-purpose-versus-parallel-hardware
+  gap. It also multiplies
   the **relay's own verification cost** by the same factor it raises the
   attacker's, which is the wrong trade at the moment of a flood, when the relay is
   the resource under pressure. Verification must stay a single hash. Recorded as
