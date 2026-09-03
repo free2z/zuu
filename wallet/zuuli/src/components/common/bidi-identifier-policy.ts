@@ -65,7 +65,16 @@ const EXPECTED_LTR_INPUTS: Readonly<Record<string, readonly string[]>> = {
   "src/features/profile/index.tsx": ["profile-p2paddr"],
 };
 
+// Most policy mutants change one of the eight audited files. Keep the other
+// seven parsed trees and their symbol tables instead of rebuilding a complete
+// TypeScript program for them in every assertion. The source text is the cache
+// identity, so a mutant can never inherit the verdict for the production file.
+const parsedSources = new Map<string, Map<string, ts.SourceFile>>();
+const sourceCheckers = new WeakMap<ts.SourceFile, ts.TypeChecker>();
+
 function parse(fileName: string, source: string): ts.SourceFile {
+  const cached = parsedSources.get(fileName)?.get(source);
+  if (cached) return cached;
   const file = ts.createSourceFile(
     fileName,
     source,
@@ -79,6 +88,12 @@ function parse(fileName: string, source: string): ts.SourceFile {
   if (diagnostics.length > 0) {
     throw new Error(`bidi identifier policy cannot parse ${fileName}`);
   }
+  let bySource = parsedSources.get(fileName);
+  if (!bySource) {
+    bySource = new Map();
+    parsedSources.set(fileName, bySource);
+  }
+  bySource.set(source, file);
   return file;
 }
 
@@ -216,6 +231,8 @@ function exactImportBinding(file: ts.SourceFile): ts.Identifier | null {
 }
 
 function checkerFor(fileName: string, file: ts.SourceFile): ts.TypeChecker {
+  const cached = sourceCheckers.get(file);
+  if (cached) return cached;
   const options: ts.CompilerOptions = {
     jsx: ts.JsxEmit.ReactJSX,
     module: ts.ModuleKind.ESNext,
@@ -230,7 +247,9 @@ function checkerFor(fileName: string, file: ts.SourceFile): ts.TypeChecker {
       ? file
       : getSourceFile(candidate, languageVersion, onError, shouldCreateNewSourceFile);
   const program = ts.createProgram([fileName], options, host);
-  return program.getTypeChecker();
+  const checker = program.getTypeChecker();
+  sourceCheckers.set(file, checker);
+  return checker;
 }
 
 function isImportedBidiTag(

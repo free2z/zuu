@@ -146,7 +146,10 @@ describe("BidiIdentifier", () => {
   });
 });
 
-describe("opaque identifier production inventory", () => {
+// These are compiler-backed source-policy tests, not ordinary unit assertions.
+// Keep their budget local to this suite so a saturated parallel worker cannot
+// turn legitimate AST analysis into a global retry or timeout increase.
+describe("opaque identifier production inventory", { timeout: 30_000 }, () => {
   it("binds all 13 wallet/auth displays, both live IDs, and both editable addresses", () => {
     expect(() => assertBidiIdentifierPolicy(productionSources())).not.toThrow();
   });

@@ -4974,6 +4974,7 @@ fn capabilities_view(capabilities: &f2z_codec::commands::Capabilities) -> RelayC
 mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::Duration;
 
     use f2z_codec::commands::Command;
     use f2z_codec::types::{Digest, PublicKey, RelayId, ShortBytes};
@@ -4982,6 +4983,7 @@ mod tests {
     use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
     use f2z_msg_mls::{DeviceSigner, MlsEngine};
     use f2z_msg_store::{Durability, MemoryBackend, Op, SqliteBackend, StorageBackend, StoreError};
+    use f2z_relay_testkit::config::RelayConfig as FakeRelayConfig;
     use f2z_relay_testkit::fake::FakeRelay;
     use f2z_relay_testkit::faults::{Effect, Fault, Trigger};
     use openmls::prelude::{GroupId, MlsGroup};
@@ -6655,7 +6657,16 @@ mod tests {
 
     #[tokio::test]
     async fn failed_atomic_theft_commit_uses_loud_in_memory_fallback_without_partial_state() {
-        let relay = FakeRelay::with_defaults().expect("fake relay");
+        // This test deliberately parks the client socket while it opens and
+        // primes a real SQLite store. The FakeRelay's 500 ms keepalive is for
+        // keepalive tests, not representative of the shipping relay's 25 s
+        // interval; under a contended gate it could close this otherwise-ready
+        // fixture before the storage-failure assertion even began.
+        let relay_config = FakeRelayConfig {
+            ping_interval: Duration::from_secs(25),
+            ..FakeRelayConfig::default()
+        };
+        let relay = FakeRelay::new(relay_config).expect("fake relay");
         let server = relay.listen_loopback().await.expect("relay listener");
         let url = server.url();
         let root = tempfile::tempdir().expect("tempdir");
@@ -6689,6 +6700,10 @@ mod tests {
             .records()
             .commit(|records| records.put_conversation(&stored))
             .expect("initial conversation");
+        connection
+            .capabilities()
+            .await
+            .expect("storage-fault fixture relay is ready before the theft assertion");
         inner.connections.insert(url.clone(), connection);
         // One successful preflight apply, then fail the single atomic
         // conversation+alarm transition.
