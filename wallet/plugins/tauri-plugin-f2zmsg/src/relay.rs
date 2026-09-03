@@ -664,7 +664,7 @@ impl RelayConnection {
         let stamp = solve_bounded(
             issued.challenge,
             issued.pow.difficulty_bits,
-            challenge_lifetime(&issued)?,
+            challenge_lifetime(&issued, self.relay_time_ms())?,
         )
         .await?;
         let body = ClaimKeyPackageRequest {
@@ -920,7 +920,7 @@ impl RelayConnection {
         solve_bounded(
             issued.challenge,
             params.difficulty_bits,
-            challenge_lifetime(&issued)?,
+            challenge_lifetime(&issued, self.relay_time_ms())?,
         )
         .await
     }
@@ -1056,12 +1056,20 @@ impl Drop for CancelPowOnDrop {
     }
 }
 
-fn challenge_lifetime(issued: &f2z_codec::commands::ChallengeResponse) -> Result<Duration> {
+fn challenge_lifetime(
+    issued: &f2z_codec::commands::ChallengeResponse,
+    current_relay_time_ms: u64,
+) -> Result<Duration> {
     let remaining_ms = issued
         .expires_at_ms
-        .checked_sub(issued.relay_time_ms)
+        .checked_sub(current_relay_time_ms)
         .filter(|remaining| *remaining > 0)
-        .ok_or_else(|| Error::new(ErrorCode::PowFailed, "relay issued an expired challenge"))?;
+        .ok_or_else(|| {
+            Error::new(
+                ErrorCode::PowFailed,
+                "relay challenge expired before proof-of-work could begin",
+            )
+        })?;
     Ok(Duration::from_millis(remaining_ms).min(Duration::from_millis(MAX_POW_SOLVE_MS)))
 }
 
@@ -1369,11 +1377,11 @@ mod tests {
     }
 
     #[test]
-    fn an_expired_challenge_is_refused_before_work() {
+    fn a_delayed_response_that_is_now_expired_is_refused_before_work() {
         let issued = f2z_codec::commands::ChallengeResponse {
             relay_time_ms: 100,
             challenge: Challenge::new([0x11; 32]),
-            expires_at_ms: 100,
+            expires_at_ms: 150,
             pow: PowParams {
                 algorithm: f2z_codec::pow::ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
                 difficulty_bits: f2z_codec::pow::DEFAULT_POW_DIFFICULTY_BITS,
@@ -1381,7 +1389,11 @@ mod tests {
             },
         };
         assert_eq!(
-            challenge_lifetime(&issued).unwrap_err().code(),
+            challenge_lifetime(&issued, issued.relay_time_ms).expect("fresh at issuance"),
+            Duration::from_millis(50)
+        );
+        assert_eq!(
+            challenge_lifetime(&issued, 151).unwrap_err().code(),
             ErrorCode::PowFailed
         );
     }

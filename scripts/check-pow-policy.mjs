@@ -100,12 +100,19 @@ export function powPolicyFailures(sources) {
     ["struct CancelPowOnDrop", "shipping caller cancellation"],
     ["MAX_POW_ATTEMPTS", "shipping candidate budget"],
     ["checked_add(1)", "shipping checked counter"],
+    [".checked_sub(current_relay_time_ms)", "shipping challenge deadline uses current relay time"],
     ["PowSolveError::CounterExhausted", "shipping counter-exhaustion result"],
     ["cancelled.load(Ordering::Acquire)", "shipping cooperative cancellation poll"],
     ["self.policy.accept(&signed.capabilities)", "shipping signed policy acceptance"],
     ["capabilities::check_digest", "shipping HELLO digest binding"],
     ["if issued.pow != params", "shipping challenge/capability agreement"],
   ]) required(relay, needle, label, failures);
+  const currentLifetimeCalls = relay.match(
+    /challenge_lifetime\(&issued, self\.relay_time_ms\(\)\)\?/g,
+  );
+  if (currentLifetimeCalls?.length !== 2) {
+    failures.push("both shipping challenge paths must derive lifetime from current relay time");
+  }
   if (relay.includes("wrapping_add(1)")) failures.push("shipping solver can wrap its counter");
 
   for (const unsupported of ["can take several seconds", "This can take several"]) {
@@ -131,6 +138,8 @@ function selfTest() {
     ["signed policy check", "proto", "difficulty_bits > MAX_POW_DIFFICULTY_BITS", "difficulty_bits < MAX_POW_DIFFICULTY_BITS"],
     ["blocking isolation", "relay", "tokio::task::spawn_blocking", "tokio::spawn"],
     ["counter wrap", "relay", "checked_add(1)", "wrapping_add(1)"],
+    ["current challenge deadline", "relay", ".checked_sub(current_relay_time_ms)", ".checked_sub(issued.relay_time_ms)"],
+    ["both challenge paths", "relay", "challenge_lifetime(&issued, self.relay_time_ms())?", "challenge_lifetime(&issued, issued.relay_time_ms)?"],
     ["caller cancellation", "relay", "struct CancelPowOnDrop", "struct IgnorePowOnDrop"],
     ["unsupported UI timing", "ui", "Duration varies by device.", "This can take several seconds."],
   ];
