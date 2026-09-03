@@ -52,6 +52,8 @@ jobs:
           node scripts/check-workflow-gates.mjs
           node scripts/check-librustzcash-compat.mjs --self-test
           node scripts/check-librustzcash-compat.mjs
+          node scripts/check-pow-policy.mjs --self-test
+          node scripts/check-pow-policy.mjs
 
       # Runs on every event, including changes this job would otherwise skip,
       # because a toolchain pin can drift from any workflow or manifest. The

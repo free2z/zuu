@@ -171,6 +171,9 @@ pub enum Refusal {
     /// §13.1: the relay demands a proof-of-work algorithm v1 does not define,
     /// so no conforming client can create a queue on it.
     PowAlgorithmUnknown,
+    /// §13.1: signed proof-of-work parameters exceed v1's finite client work
+    /// policy. Refused before a challenge is requested or work begins.
+    PowWorkPolicyExceeded,
     /// §13.1: `queue_creation_mode = 2`, the reserved former token mode. V1 has
     /// no wire field in which a client can present a token, so every client
     /// refuses and no user override is conforming.
@@ -192,7 +195,9 @@ impl Refusal {
             Self::PaddingNotSuperset | Self::PaddingImplausible => "§9",
             Self::TtlCeilingExceeded => "§11.3",
             Self::CapabilitiesInconsistent | Self::CapabilitiesSignatureInvalid => "§11.1",
-            Self::PowAlgorithmUnknown | Self::QueueCreationTokenGated => "§13.1",
+            Self::PowAlgorithmUnknown
+            | Self::PowWorkPolicyExceeded
+            | Self::QueueCreationTokenGated => "§13.1",
         }
     }
 }
@@ -219,6 +224,9 @@ impl fmt::Display for Refusal {
             Self::CapabilitiesSignatureInvalid => "the capability document's signature is invalid",
             Self::CapabilitiesDigestMismatch => "capabilities_digest does not match the document",
             Self::PowAlgorithmUnknown => "the relay demands a proof-of-work v1 does not define",
+            Self::PowWorkPolicyExceeded => {
+                "the relay demands proof of work above the v1 client bound"
+            }
             Self::QueueCreationTokenGated => {
                 "the relay publishes reserved token-gated queue creation"
             }

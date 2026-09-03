@@ -107,8 +107,9 @@ pub(crate) async fn get_conversation<R: Runtime>(
         .await
 }
 
-/// Runs the whole first-contact handshake, proof of work included. It can take
-/// seconds and the delay is computation, not network — the UI shows it as work.
+/// Runs the whole first-contact handshake, bounded proof of work included. The
+/// duration is uncalibrated; the UI identifies computation rather than calling
+/// it a network wait.
 #[command]
 pub(crate) async fn start_conversation<R: Runtime>(
     app: AppHandle<R>,
