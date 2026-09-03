@@ -116,6 +116,7 @@ const metricInventory = new Map([
 const claimInventory = new Map([
   ["audit_scope", "docs/e2ee/decisions/0013-key-transparency-log.md"],
   ["history_proof_type", "docs/e2ee/KT.md"],
+  ["history_request_wire", "docs/e2ee/KT.md"],
 ]);
 
 function sha256(value) {
@@ -258,7 +259,32 @@ function expectedAuditClaim(audit) {
 }
 
 function expectedHistoryClaim() {
-  return "| `POST` | `/kt/v1/history` | `{handle, params}` → `DirectoryEntry<>` + `HistoryProof` + tree head + cosignatures | anyone |";
+  return "| `POST` | `/kt/v1/history` | `HistoryRequest` → `DirectoryEntry<>` + `HistoryProof` + tree head + cosignatures | anyone |";
+}
+
+function expectedHistoryRequestWireClaim() {
+  return [
+    "`/kt/v1/history` takes this exact request:",
+    "",
+    "```",
+    "struct {",
+    "opaque label<0..255>;    /* exactly \"free2z/kt/v1/history-request\" */",
+    "uint16 kt_version;       /* 0x0001 */",
+    "opaque handle<1..30>;",
+    "uint8  params;",
+    "uint32 count;",
+    "} HistoryRequest;",
+    "```",
+    "",
+    "The parameter codes are closed:",
+    "",
+    "- `params = 0` means `HistoryParams::Complete`; `count` is ignored.",
+    "- `params = 1` means `HistoryParams::MostRecent(count)`, and `count` MUST be",
+    "greater than zero.",
+    "",
+    "Every other `params` value, and `params = 1` with `count = 0`, is malformed.",
+    "The response proof is `akd`'s `HistoryProof`, carried opaquely under §9.4.",
+  ].join("\n");
 }
 
 function validateClaimBlocks(files, audit) {
@@ -270,6 +296,12 @@ function validateClaimBlocks(files, audit) {
       const expected = expectedHistoryClaim();
       assert.equal(source.split(expected).length - 1, 1, `${relativePath}: normative HistoryProof row must occur exactly once`);
       assert(!source.includes("HistoryProofV2"), `${relativePath}: invented HistoryProofV2 type remains normative`);
+    } else if (key === "history_request_wire") {
+      assert.equal(
+        claimBlock(source, key),
+        expectedHistoryRequestWireClaim(),
+        `${relativePath}: ${key} claim drifted from the implemented wire contract`,
+      );
     } else {
       assert.equal(claimBlock(source, key), expectedAuditClaim(audit), `${relativePath}: ${key} claim drifted from executable evidence`);
     }
@@ -1061,13 +1093,17 @@ async function selfTest() {
   killed.coordinatedEvidence += 1;
 
   for (const [key, relativePath] of claimInventory) {
-    const end = key === "audit_scope" ? `<!-- akd-claim:${key}:end -->` : expectedHistoryClaim();
+    const end = key === "audit_scope" || key === "history_request_wire"
+      ? `<!-- akd-claim:${key}:end -->`
+      : expectedHistoryClaim();
     const mutatedFiles = files.map(([path, source]) => [
       path,
       path === relativePath
         ? source.replace(
             end,
-            key === "audit_scope" ? `MUTANT\n${end}` : end.replace("HistoryProof", "HistoryProofV2"),
+            key === "audit_scope" || key === "history_request_wire"
+              ? `MUTANT\n${end}`
+              : end.replace("HistoryProof", "HistoryProofV2"),
           )
         : source,
     ]);
@@ -1075,6 +1111,40 @@ async function selfTest() {
     killed.claims += 1;
   }
 
+  const historyRequestMutations = [
+    [
+      "complete parameter case deleted",
+      "- `params = 0` means `HistoryParams::Complete`; `count` is ignored.\n",
+      "",
+    ],
+    [
+      "most-recent parameter case deleted",
+      "- `params = 1` means `HistoryParams::MostRecent(count)`, and `count` MUST be\n  greater than zero.\n",
+      "",
+    ],
+    [
+      "most-recent nonzero rule weakened",
+      "- `params = 1` means `HistoryParams::MostRecent(count)`, and `count` MUST be\n  greater than zero.",
+      "- `params = 1` means `HistoryParams::MostRecent(count)`, and `count` MAY be\n  zero or greater.",
+    ],
+    [
+      "most-recent zero rejection removed",
+      "Every other `params` value, and `params = 1` with `count = 0`, is malformed.",
+      "Every other `params` value is malformed.",
+    ],
+  ];
+  for (const [name, target, replacement] of historyRequestMutations) {
+    const mutatedFiles = files.map(([path, source]) => {
+      if (path !== claimInventory.get("history_request_wire")) return [path, source];
+      assert.equal(source.split(target).length - 1, 1, `${name}: mutation target must occur once`);
+      return [path, source.replace(target, replacement)];
+    });
+    assert.throws(
+      () => validateClaimBlocks(mutatedFiles, audit),
+      `${name} prose mutant survived`,
+    );
+    killed.claims += 1;
+  }
 
   const reportMutant = structuredClone(audit);
   reportMutant.report.finding = "NCC-E008327-NONEXISTENT";

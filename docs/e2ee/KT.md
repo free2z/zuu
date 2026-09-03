@@ -2237,13 +2237,36 @@ and the directory is a different service from a relay with a different lifecycle
 | `GET` | `/kt/v1/sth/{epoch}` | that epoch's `SignedTreeHead` + cosignatures | anyone |
 | `GET` | `/kt/v1/audit?from={e0}&to={e1}` | `AppendOnlyProof` (akd protobuf, §9.4) + both tree heads | witnesses in practice (§10) |
 | `POST` | `/kt/v1/lookup` | `{handle}` → `DirectoryEntry` + `LookupProof` + tree head + cosignatures | anyone |
-| `POST` | `/kt/v1/history` | `{handle, params}` → `DirectoryEntry<>` + `HistoryProof` + tree head + cosignatures | anyone |
+| `POST` | `/kt/v1/history` | `HistoryRequest` → `DirectoryEntry<>` + `HistoryProof` + tree head + cosignatures | anyone |
 | `POST` | `/kt/v1/submit` | `SubmissionEnvelope` → `SubmissionReceipt` | the handle's owner |
 | `POST` | `/kt/v1/cosign` | `WitnessCosignature` → empty | witnesses |
 
 Request and response bodies are `tls_codec`, `Content-Type:
 application/octet-stream`, under [`WIRE.md` §3](./WIRE.md#3-serialization)'s
 rules including re-encode equality — with the §9.4 exception.
+
+<!-- akd-claim:history_request_wire:start -->
+`/kt/v1/history` takes this exact request:
+
+```
+struct {
+    opaque label<0..255>;    /* exactly "free2z/kt/v1/history-request" */
+    uint16 kt_version;       /* 0x0001 */
+    opaque handle<1..30>;
+    uint8  params;
+    uint32 count;
+} HistoryRequest;
+```
+
+The parameter codes are closed:
+
+- `params = 0` means `HistoryParams::Complete`; `count` is ignored.
+- `params = 1` means `HistoryParams::MostRecent(count)`, and `count` MUST be
+  greater than zero.
+
+Every other `params` value, and `params = 1` with `count = 0`, is malformed.
+The response proof is `akd`'s `HistoryProof`, carried opaquely under §9.4.
+<!-- akd-claim:history_request_wire:end -->
 
 `/kt/v1/lookup`'s response carries a **presence discriminant** whose absent value
 is an unproved assertion rather than a proof, per §8.1's correction. `entry` and
