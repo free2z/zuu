@@ -108,10 +108,11 @@ device_key!(
     /// `DeviceSignatureKey` (DSK) — the MLS leaf `signature_key`
     /// (RFC 9420 §7.2), bound to the account by a `DeviceCredential`.
     ///
-    /// It signs MLS handshake and application framing, which is why it is
-    /// **not** the [`crate::account::IdentitySigningKey`]: §4.1 requires that
-    /// the key which signs message content and the key a peer pins as an
-    /// identity are different keys.
+    /// It is **not** the [`crate::account::IdentitySigningKey`]: §4.1 requires
+    /// that the key which signs message content and the key a peer pins as an
+    /// identity are different keys. The former ed25519-dalek
+    /// `sign_mls_content(&[u8])` path was removed; MLS framing is signed by the
+    /// MLS engine's libcrux-backed signer.
     DeviceSignatureKey
 );
 
@@ -125,19 +126,6 @@ device_key!(
     /// provide. `ADR 0009` fixes the addressing that goes with it.
     QueueKey
 );
-
-impl DeviceSignatureKey {
-    /// Sign MLS framing with the device's leaf signature key.
-    ///
-    /// The bytes are MLS's — RFC 9420 fixes what a `FramedContentTBS` is — so
-    /// this method does no framing of its own. It exists so the *key choice* is
-    /// explicit: message content is signed by the device key and never by the
-    /// identity key (§4.1).
-    #[must_use]
-    pub fn sign_mls_content(&self, framed_content_tbs: &[u8]) -> Signature {
-        Signature::new(self.0.sign(framed_content_tbs).to_bytes())
-    }
-}
 
 impl QueueKey {
     /// Sign a relay command transcript (`WIRE.md` §5.1).
@@ -244,18 +232,5 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn a_signature_is_over_the_bytes_it_was_given() {
-        // Not a verification test — this crate does not verify — but a
-        // signature over a different message must be different bytes, which is
-        // enough to catch a method signing a constant.
-        let mut rng = CountingRng(2);
-        let key = DeviceSignatureKey::generate(&mut rng);
-        assert_ne!(
-            key.sign_mls_content(b"one message"),
-            key.sign_mls_content(b"another message")
-        );
     }
 }

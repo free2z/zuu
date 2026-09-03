@@ -10,20 +10,14 @@
 //! structure of a credential, the engine stops accepting credentials the
 //! identity crate issues — here, in CI, rather than on somebody's phone.
 //!
-//! # The one place the two crates do not meet, stated
+//! # Why the device signer belongs to this crate
 //!
-//! `f2z-msg-identity::DeviceSignatureKey` signs MLS framing with
-//! **`ed25519-dalek`** (`sign_mls_content`), and this engine signs it with
-//! **libcrux** ([`f2z_msg_mls::DeviceSigner`]) — which is what closes
-//! [#693](https://github.com/free2z/zuu/issues/693) and what ADR 0001's single
-//! crypto core requires. `DeviceSignatureKey` does not expose its private bytes
-//! (correctly), so the two cannot be bridged from outside, and these tests
-//! therefore use the identity crate for the **account** half of §4.2 and
-//! `DeviceSigner` for the **device** half.
-//!
-//! That is a real seam and it needs reconciling: either `DeviceSignatureKey`
-//! signs through libcrux, or it stops offering `sign_mls_content`. It is called
-//! out in the pull request rather than papered over here.
+//! MLS framing is signed only by **libcrux** through
+//! [`f2z_msg_mls::DeviceSigner`], as ADR 0001's single crypto core requires.
+//! `f2z-msg-identity` owns the account hierarchy and credential issuer, but it
+//! exposes no `ed25519-dalek` MLS-signing path. These tests therefore use the
+//! identity crate for the **account** half of §4.2 and `DeviceSigner` for the
+//! **device** half.
 
 #![allow(
     clippy::unwrap_used,

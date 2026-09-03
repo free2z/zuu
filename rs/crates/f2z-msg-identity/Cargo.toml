@@ -58,3 +58,6 @@ tls_codec = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+# Compile the removed public method from an external consumer's perspective
+# and pin the expected E0599 diagnostic on the repository's Rust toolchain.
+trybuild = "1"
