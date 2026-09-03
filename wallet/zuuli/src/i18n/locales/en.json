@@ -57,6 +57,30 @@
   "articles": {
     "searchAccessible": "Search articles"
   },
+  "live": {
+    "failure": {
+      "endedRoom": "This stream has ended or is no longer accepting viewers.",
+      "expiredTicket": "The join ticket expired before the connection started. Try again.",
+      "lifecycleRace": "The stream changed while you were joining. Return to livestreams and open it again.",
+      "malformedTicket": "The stream server returned an invalid join ticket. Try again in a moment.",
+      "offline": "You're offline. Reconnect, then try again.",
+      "policy": "The app blocked the live connection. Check app permissions or network security settings, then try again.",
+      "replayedTicket": "The stream server did not issue a fresh join ticket. Try again in a moment.",
+      "timeout": "The live connection timed out. Try again.",
+      "tokenRejected": "The live service rejected this connection. Try again.",
+      "transport": "The live service couldn't be reached. Switch networks or try again.",
+      "unknown": "The live connection failed. Try again."
+    },
+    "stage": {
+      "connecting": "Connecting to stream…",
+      "ended": "The stream has ended.",
+      "hostRecoveryHint": "Reconnect uses the existing room and will not start another stream.",
+      "reconnect": "Reconnect",
+      "refreshingTicket": "Getting a fresh ticket…",
+      "tryAgain": "Try again",
+      "waitingForConnection": "Waiting for connection"
+    }
+  },
   "search": {
     "all": "Search all of free2z",
     "clear": "Clear search"

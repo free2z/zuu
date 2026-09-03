@@ -2,6 +2,8 @@ import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TestI18nProvider } from "@/i18n/test-provider";
+import es from "@/i18n/locales/es.json";
 import type { DyteJoinTicket } from "@/lib/api/types";
 
 const controls = vi.hoisted(() => ({
@@ -31,6 +33,11 @@ const firstTicket: DyteJoinTicket = {
 const freshTicket: DyteJoinTicket = {
   ...firstTicket,
   authToken: "fresh-private-token",
+};
+const hostTicket: DyteJoinTicket = {
+  ...firstTicket,
+  authToken: "existing-host-token",
+  as: "host",
 };
 
 async function installDom(online: boolean) {
@@ -110,17 +117,19 @@ describe("RealtimeKit stage retry lifecycle", () => {
     function Harness() {
       const [ticket, setTicket] = useState(firstTicket);
       return (
-        <Stage
-          ticket={ticket}
-          refreshTicket={refresh}
-          onTicketRefreshed={setTicket}
-        />
+        <TestI18nProvider>
+          <Stage
+            ticket={ticket}
+            refreshTicket={refresh}
+            onTicketRefreshed={setTicket}
+          />
+        </TestI18nProvider>
       );
     }
 
     await act(async () => root.render(<Harness />));
     await flush();
-    expect(container.textContent).toContain("rejected this join ticket");
+    expect(container.textContent).toContain("rejected this connection");
     expect(container.textContent).not.toContain(rawSecret);
 
     const button = container.querySelector("button");
@@ -154,11 +163,13 @@ describe("RealtimeKit stage retry lifecycle", () => {
 
     await act(async () =>
       root.render(
-        <Stage
-          ticket={firstTicket}
-          refreshTicket={refresh}
-          onTicketRefreshed={() => {}}
-        />,
+        <TestI18nProvider>
+          <Stage
+            ticket={firstTicket}
+            refreshTicket={refresh}
+            onTicketRefreshed={() => {}}
+          />
+        </TestI18nProvider>,
       ),
     );
     await flush();
@@ -195,5 +206,63 @@ describe("RealtimeKit stage retry lifecycle", () => {
     });
     expect(refresh).toHaveBeenCalledOnce();
     expect(refresh).toHaveBeenCalledWith(firstTicket);
+  });
+
+  it("reconnects a host locally without refreshing or replacing the live room", async () => {
+    controls.initMeeting
+      .mockRejectedValueOnce(new Error("ERR0004 host connection rejected"))
+      .mockResolvedValueOnce({});
+    const refresh = vi.fn().mockResolvedValue(freshTicket);
+    const replaceTicket = vi.fn();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const catalog = {
+      ...es,
+      live: {
+        ...es.live,
+        failure: {
+          ...es.live.failure,
+          tokenRejected: "FALLO DE CONEXIÓN DEL ANFITRIÓN",
+        },
+        stage: {
+          ...es.live.stage,
+          hostRecoveryHint: "RECUPERACIÓN SEGURA DE LA SALA EXISTENTE",
+          reconnect: "RECONECTAR SALA EXISTENTE",
+        },
+      },
+    };
+
+    await act(async () =>
+      root.render(
+        <TestI18nProvider catalog={catalog} locale="es">
+          <Stage
+            ticket={hostTicket}
+            refreshTicket={refresh}
+            onTicketRefreshed={replaceTicket}
+          />
+        </TestI18nProvider>,
+      ),
+    );
+    await flush();
+
+    expect(container.textContent).toContain(
+      "FALLO DE CONEXIÓN DEL ANFITRIÓN",
+    );
+    expect(container.textContent).toContain(
+      "RECUPERACIÓN SEGURA DE LA SALA EXISTENTE",
+    );
+    const button = container.querySelector("button");
+    expect(button?.textContent).toBe("RECONECTAR SALA EXISTENTE");
+
+    await act(async () => {
+      button?.dispatchEvent(new window.Event("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(refresh).not.toHaveBeenCalled();
+    expect(replaceTicket).not.toHaveBeenCalled();
+    expect(
+      controls.initMeeting.mock.calls.map(([options]) => options.authToken),
+    ).toEqual(["existing-host-token", "existing-host-token"]);
   });
 });
