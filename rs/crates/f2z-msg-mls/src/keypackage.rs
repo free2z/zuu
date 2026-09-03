@@ -21,14 +21,16 @@
 //! the `Welcome` is encrypted to, which is [#133][i133] reintroduced at the one
 //! moment the whole design is about.
 //!
-//! So there is no way to reach [`MlsEngine::add_member`] without one of these.
+//! [`MlsEngine::add_member`] cannot be called without one of these.
 //! [`VerifiedKeyPackage`] has no public constructor and no public fields; the
 //! only way to obtain one is [`VerifiedKeyPackage::verify`], which takes the
-//! directory entry. That is this repository's *one door and no windows* idiom —
-//! the same shape `f2z-relay-store`'s `Committed` and `f2z-kt`'s
-//! `AdmittedSubmission` use — and it is used here because "remember to check
-//! the credential" is exactly the kind of rule that survives review and does
-//! not survive the next refactor.
+//! directory entry. That makes the safe first-party wrapper structural rather
+//! than remembered. It does not yet seal the crate's entire public API:
+//! external callers can combine its raw OpenMLS group, provider, and signer
+//! capabilities to invoke OpenMLS directly. [#903][i903] tracks replacing that
+//! escape with an opaque capability boundary. Until then, first-party callers
+//! MUST use the wrapper and this structural claim applies to the wrapper, not
+//! to every operation expressible through the public crate API.
 //!
 //! # What is checked, and what each check stops
 //!
@@ -39,7 +41,8 @@
 //! | The credential parses as a `DeviceCredential` | A bare handle in a `BasicCredential`, which binds nothing. |
 //! | The credential's signature verifies under the **directory's** `identity_pk` | **The MITM.** Any relay-chosen package. |
 //! | The credential's `handle` is the entry's handle | A genuine credential for a different person, served for this handle. |
-//! | `device_pk` is a device the entry publishes | A genuine credential the owner has not put in the directory — an old one, or one issued to a device the identity key signed for and then withdrew. |
+//! | The complete signed credential exactly equals the one the entry publishes | A relay retaining an older credential for the same device key can retain its longer offline lifetime after the owner replaces it. |
+//! | The published credential is valid at the verifier's clock under KT's shared inclusive skew rule | A not-yet-valid or expired device remains reachable for first contact. |
 //! | `device_pk` is not in the entry's `revocations` | A stolen device that is still able to receive first contact after the owner published the revocation. |
 //! | The leaf's `signature_key` is the credential's `device_pk` | A genuine credential presented in somebody else's leaf — the substitution the identity→device binding of §4.2 exists to stop. |
 //!
@@ -62,9 +65,10 @@
 //! [tm33]: https://github.com/free2z/zuu/blob/main/docs/e2ee/THREAT-MODEL.md#33-compromised-relay-operator-third-party-or-ours
 //! [tm412]: https://github.com/free2z/zuu/blob/main/docs/e2ee/THREAT-MODEL.md
 //! [i133]: https://github.com/free2z/zuu/issues/133
+//! [i903]: https://github.com/free2z/zuu/issues/903
 //! [`MlsEngine::add_member`]: crate::MlsEngine::add_member
 
-use f2z_kt_core::entry::DirectoryEntryTBS;
+use f2z_kt_core::entry::{CredentialValidity, DeviceCredential, DirectoryEntryTBS};
 use openmls::prelude::tls_codec::DeserializeBytes as _;
 use openmls::prelude::{KeyPackage, MlsMessageBodyIn, MlsMessageIn, ProtocolVersion};
 use openmls_traits::crypto::OpenMlsCrypto;
@@ -78,10 +82,11 @@ use crate::error::{CredentialError, EngineError, Result};
 /// A peer's `KeyPackage`, checked against the directory entry that vouches for
 /// it.
 ///
-/// Constructible only through [`VerifiedKeyPackage::verify`]. That is the
-/// point: [`crate::MlsEngine::add_member`] takes one of these, so there is no
-/// path from *bytes a relay handed us* to *a member of a group* that does not
-/// pass through the directory.
+/// Constructible only through [`VerifiedKeyPackage::verify`]. The safe
+/// [`crate::MlsEngine::add_member`] wrapper takes one of these, so there is no
+/// path through that wrapper from *bytes a relay handed us* to *a member of a
+/// group* that does not pass through the directory. See the module-level
+/// disclosure about the still-public raw OpenMLS escape tracked in #903.
 #[derive(Clone)]
 pub struct VerifiedKeyPackage {
     key_package: KeyPackage,
@@ -117,7 +122,8 @@ impl VerifiedKeyPackage {
     /// under RFC 9420, or use a ciphersuite other than [`CIPHERSUITE`];
     /// [`EngineError::Credential`] if the credential does not parse, does not
     /// verify under the entry's identity key, names a different handle,
-    /// describes a device the entry does not publish, describes a revoked
+    /// describes a device the entry does not publish, differs from the complete
+    /// credential the entry publishes for that device key, describes a revoked
     /// device, or does not bind to the leaf it arrived in.
     pub fn verify(
         wire: &[u8],
@@ -155,25 +161,22 @@ impl VerifiedKeyPackage {
             return Err(EngineError::Credential(CredentialError::InvalidHandle));
         }
 
-        // The entry publishes the device set. A credential the identity key
-        // signed but the owner never published — an old one, or one for a
-        // device since withdrawn — is not a device this handle speaks through.
+        // First contact uses the same publication, validity and cumulative
+        // revocation rule as directory selection, but needs the rejected state
+        // rather than an `Option` so diagnostics do not call every inactive
+        // device a leaf-key mismatch.
         let device_pk = credential.credential.device_pk;
-        if !entry
-            .devices
-            .as_slice()
-            .iter()
-            .any(|published| published.credential.device_pk == device_pk)
-        {
-            return Err(EngineError::Credential(CredentialError::DeviceKeyMismatch));
-        }
-        if entry
-            .revocations
-            .as_slice()
-            .iter()
-            .any(|revoked| revoked.device_pk == device_pk)
-        {
-            return Err(EngineError::Credential(CredentialError::DeviceKeyMismatch));
+        let published = published_device_for_first_contact(entry, &device_pk, now_ms)?;
+
+        // A device key is not a credential identity. Both values came through
+        // canonical decoding, and `DeviceCredential` equality covers the full
+        // TBS plus its signature. Requiring exact equality prevents a hostile
+        // relay from retaining an older credential for the same DSK after the
+        // directory publishes a shorter-lived replacement.
+        if published != &credential {
+            return Err(EngineError::Credential(
+                CredentialError::PublishedCredentialMismatch,
+            ));
         }
 
         Ok(Self {
@@ -220,6 +223,32 @@ impl VerifiedKeyPackage {
 
     pub(crate) const fn inner(&self) -> &KeyPackage {
         &self.key_package
+    }
+}
+
+/// Select one published device for a first-contact proof without erasing why
+/// an inactive device was refused.
+pub(crate) fn published_device_for_first_contact<'a>(
+    entry: &'a DirectoryEntryTBS,
+    device_pk: &f2z_codec::types::PublicKey,
+    now_ms: u64,
+) -> core::result::Result<&'a DeviceCredential, CredentialError> {
+    let published = entry
+        .devices
+        .as_slice()
+        .iter()
+        .find(|credential| &credential.credential.device_pk == device_pk)
+        .ok_or(CredentialError::DeviceNotPublished)?;
+
+    if entry.is_revoked(device_pk) {
+        return Err(CredentialError::DeviceRevoked);
+    }
+
+    match published.credential.validity_at(now_ms) {
+        CredentialValidity::Valid => Ok(published),
+        CredentialValidity::NotYetValid => Err(CredentialError::NotYetValid),
+        CredentialValidity::Expired => Err(CredentialError::Expired),
+        _ => Err(CredentialError::Malformed),
     }
 }
 

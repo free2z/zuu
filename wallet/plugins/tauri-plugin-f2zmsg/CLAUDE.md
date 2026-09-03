@@ -39,10 +39,12 @@ why it is a test binary.
 its directory entry publishes — so a key package arrives from a party the threat
 model assumes is hostile. `Inner::claim_key_package` claims **and verifies** in
 one function on purpose: the verification is what stops the relay choosing whose
-init key the `Welcome` is encrypted to, which is #133 at first contact. The type
-system holds the line one level down — `MlsEngine::add_member` takes a
-`VerifiedKeyPackage`, which has no constructor but the verifying one — so the
-way to break this is to delete the check, not to forget it. Don't.
+init key the `Welcome` is encrypted to, which is #133 at first contact. The
+plugin must use the checked `MlsEngine::add_member` route, which takes a
+`VerifiedKeyPackage` with no constructor but the verifying one. The crate's raw
+OpenMLS capabilities are not yet a complete public API seal; #903 tracks that
+boundary. Until it lands, treating those capabilities as an alternate Add path
+would bypass the first-contact authentication this plugin requires. Don't.
 
 `start_engine` publishes this device's own pool and tops it up whenever
 something lands on the contact queue. A device with no published pool is one

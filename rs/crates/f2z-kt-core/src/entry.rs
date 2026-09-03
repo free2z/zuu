@@ -35,6 +35,28 @@ use crate::labels::{
 };
 use crate::types::{Handle, KemPublicKey, LogId, check_label, label_field};
 
+/// The fixed v1 tolerance for verifier-clock disagreement: two minutes.
+///
+/// This is deliberately a protocol constant rather than log-published policy.
+/// A log must not be able to extend the useful lifetime of a credential, and
+/// an offline MLS peer must be able to apply the same rule without consulting
+/// the directory.
+pub const DEVICE_CREDENTIAL_CLOCK_SKEW_MS: u64 = 120_000;
+
+/// A device credential's status under the common v1 verifier-time rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CredentialValidity {
+    /// The verifier is earlier than `not_before_ms`, even after the fixed skew
+    /// allowance.
+    NotYetValid,
+    /// The verifier's clock falls inside the skew-expanded inclusive interval.
+    Valid,
+    /// The verifier is later than `not_after_ms`, even after the fixed skew
+    /// allowance.
+    Expired,
+}
+
 /// The `DeviceCredentialTBS` of §4.1 — what the user's `IdentitySigningKey`
 /// signs.
 #[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
@@ -70,11 +92,8 @@ impl DeviceCredentialTBS {
         if self.device_kem_pk.is_empty() {
             return Err(KtError::Malformed);
         }
-        // Invented here: §4.1 gives the two fields and no ordering rule. A
-        // credential whose window is empty or inverted can never be valid at any
-        // instant, so accepting one would put a permanently-dead credential in an
-        // append-only record. `not_after_ms == not_before_ms` is refused too: an
-        // instantaneous credential is not a credential.
+        // §4.1: an empty or inverted interval has no valid instant and is
+        // malformed rather than merely inactive.
         if self.not_after_ms <= self.not_before_ms {
             return Err(KtError::Malformed);
         }
@@ -88,6 +107,26 @@ impl DeviceCredentialTBS {
     /// [`KtError::Malformed`] if the structure cannot be encoded.
     pub fn signing_bytes(&self) -> Result<Vec<u8>, KtError> {
         encode(self).map_err(KtError::from)
+    }
+
+    /// Classify this credential at a verifier's local Unix time.
+    ///
+    /// Both interval endpoints and both skew boundaries are inclusive. The
+    /// additions saturate so values near the Unix-time representation's ends
+    /// fail safely without wrapping into the opposite side of the interval.
+    #[must_use]
+    pub const fn validity_at(&self, verifier_time_ms: u64) -> CredentialValidity {
+        if verifier_time_ms.saturating_add(DEVICE_CREDENTIAL_CLOCK_SKEW_MS) < self.not_before_ms {
+            CredentialValidity::NotYetValid
+        } else if verifier_time_ms
+            > self
+                .not_after_ms
+                .saturating_add(DEVICE_CREDENTIAL_CLOCK_SKEW_MS)
+        {
+            CredentialValidity::Expired
+        } else {
+            CredentialValidity::Valid
+        }
     }
 }
 
@@ -571,10 +610,66 @@ impl DirectoryEntryTBS {
             }
         }
 
+        // §4.4: one immutable revocation record per device key. Two records for
+        // one key either repeat an event or disagree about its time/reason; in
+        // both cases there is no canonical cumulative history to carry forward.
+        for (index, revocation) in self.revocations.as_slice().iter().enumerate() {
+            for other in self
+                .revocations
+                .as_slice()
+                .iter()
+                .skip(index.saturating_add(1))
+            {
+                if revocation.device_pk == other.device_pk {
+                    return Err(KtError::Malformed);
+                }
+            }
+        }
+
         for endpoint in self.contact_endpoints.as_slice() {
             endpoint.validate()?;
         }
         Ok(())
+    }
+
+    /// Whether this entry records `device_pk` as permanently revoked.
+    #[must_use]
+    pub fn is_revoked(&self, device_pk: &PublicKey) -> bool {
+        self.revocations
+            .as_slice()
+            .iter()
+            .any(|revocation| &revocation.device_pk == device_pk)
+    }
+
+    /// The published credential for `device_pk`, only when it is usable now.
+    ///
+    /// This is the shared selection rule for directory lookup and first
+    /// contact: the credential must be present, inside the common validity
+    /// window, and absent from the cumulative revocation set.
+    #[must_use]
+    pub fn active_device_at(
+        &self,
+        device_pk: &PublicKey,
+        verifier_time_ms: u64,
+    ) -> Option<&DeviceCredential> {
+        if self.is_revoked(device_pk) {
+            return None;
+        }
+        self.devices.as_slice().iter().find(|credential| {
+            &credential.credential.device_pk == device_pk
+                && credential.credential.validity_at(verifier_time_ms) == CredentialValidity::Valid
+        })
+    }
+
+    /// Every published credential usable at `verifier_time_ms`.
+    pub fn active_devices_at(
+        &self,
+        verifier_time_ms: u64,
+    ) -> impl Iterator<Item = &DeviceCredential> {
+        self.devices.as_slice().iter().filter(move |credential| {
+            self.active_device_at(&credential.credential.device_pk, verifier_time_ms)
+                .is_some()
+        })
     }
 
     /// The exact bytes the `DirectoryAuthKey` signs (§4.4).
@@ -743,6 +838,100 @@ mod tests {
             .clone();
         entry.entry.devices = VecU16::new(vec![credential.clone(), credential]);
         assert_eq!(entry.entry.validate(), Err(KtError::Malformed));
+    }
+
+    #[test]
+    fn credential_time_boundaries_include_exactly_the_fixed_skew() {
+        let directory = TestDirectory::new();
+        let entry = directory.genesis();
+        let mut credential = entry.entry.devices.as_slice()[0].credential.clone();
+        credential.not_before_ms = 1_000_000;
+        credential.not_after_ms = 2_000_000;
+        let skew = DEVICE_CREDENTIAL_CLOCK_SKEW_MS;
+
+        assert_eq!(
+            credential.validity_at(credential.not_before_ms - skew - 1),
+            CredentialValidity::NotYetValid
+        );
+        assert_eq!(
+            credential.validity_at(credential.not_before_ms - skew),
+            CredentialValidity::Valid
+        );
+        assert_eq!(
+            credential.validity_at(credential.not_before_ms),
+            CredentialValidity::Valid
+        );
+        assert_eq!(
+            credential.validity_at(credential.not_after_ms),
+            CredentialValidity::Valid
+        );
+        assert_eq!(
+            credential.validity_at(credential.not_after_ms + skew),
+            CredentialValidity::Valid
+        );
+        assert_eq!(
+            credential.validity_at(credential.not_after_ms + skew + 1),
+            CredentialValidity::Expired
+        );
+    }
+
+    #[test]
+    fn empty_or_inverted_credential_intervals_are_malformed() {
+        let directory = TestDirectory::new();
+        let mut entry = directory.genesis();
+        let mut devices = entry.entry.devices.clone().into_vec();
+        devices[0].credential.not_after_ms = devices[0].credential.not_before_ms;
+        entry.entry.devices = VecU16::new(devices.clone());
+        assert_eq!(entry.entry.validate(), Err(KtError::Malformed));
+
+        devices[0].credential.not_after_ms = devices[0].credential.not_before_ms.saturating_sub(1);
+        entry.entry.devices = VecU16::new(devices);
+        assert_eq!(entry.entry.validate(), Err(KtError::Malformed));
+    }
+
+    #[test]
+    fn duplicate_or_contradictory_revocations_are_malformed() {
+        let directory = TestDirectory::new();
+        let mut entry = directory.genesis();
+        let device_pk = entry.entry.devices.as_slice()[0].credential.device_pk;
+        let first = DeviceRevocation {
+            device_pk,
+            revoked_at_ms: 1_700_000_000_000,
+            reason: ShortBytes::new(b"lost".to_vec()).unwrap(),
+        };
+        let contradictory = DeviceRevocation {
+            device_pk,
+            revoked_at_ms: first.revoked_at_ms + 1,
+            reason: ShortBytes::new(b"stolen".to_vec()).unwrap(),
+        };
+        entry.entry.revocations = VecU16::new(vec![first, contradictory]);
+        assert_eq!(entry.entry.validate(), Err(KtError::Malformed));
+    }
+
+    #[test]
+    fn active_device_selection_combines_lifetime_and_revocation() {
+        let directory = TestDirectory::new();
+        let mut entry = directory.genesis();
+        let device_pk = entry.entry.devices.as_slice()[0].credential.device_pk;
+        let inside = entry.entry.devices.as_slice()[0].credential.not_before_ms;
+        assert!(entry.entry.active_device_at(&device_pk, inside).is_some());
+        assert_eq!(entry.entry.active_devices_at(inside).count(), 1);
+
+        entry.entry.revocations = VecU16::new(vec![DeviceRevocation {
+            device_pk,
+            revoked_at_ms: inside,
+            reason: ShortBytes::new(b"compromised".to_vec()).unwrap(),
+        }]);
+        assert!(entry.entry.active_device_at(&device_pk, inside).is_none());
+        assert_eq!(entry.entry.active_devices_at(inside).count(), 0);
+
+        entry.entry.revocations = VecU16::new(Vec::new());
+        let expired = entry.entry.devices.as_slice()[0]
+            .credential
+            .not_after_ms
+            .saturating_add(DEVICE_CREDENTIAL_CLOCK_SKEW_MS)
+            .saturating_add(1);
+        assert!(entry.entry.active_device_at(&device_pk, expired).is_none());
     }
 
     #[test]

@@ -533,6 +533,47 @@ fn two_handle_lookups_accept_the_same_complete_head_as_a_no_op() {
     assert!(client.pins().get(&handle("bob")).is_some());
 }
 
+#[test]
+fn lookup_selects_only_unrevoked_credentials_inside_the_shared_window() {
+    let mut deployment = Deployment::new("client-active-devices");
+    let identity = Identity::from_byte(1);
+    let skew = f2z_kt_core::entry::DEVICE_CREDENTIAL_CLOCK_SKEW_MS;
+    let active = Key::from_byte(0x20).public;
+    let future = Key::from_byte(0x21).public;
+    let expired = Key::from_byte(0x22).public;
+    let revoked = Key::from_byte(0x23).public;
+    let entry = EntryBuilder::first(deployment.harness.log_id, "alice", &identity)
+        .device_window(0x20, &identity.isk, NOW - 1, NOW + 1)
+        .device_window(0x21, &identity.isk, NOW + skew + 1, NOW + skew + 2)
+        .device_window(0x22, &identity.isk, NOW - skew - 2, NOW - skew - 1)
+        .device_window(0x23, &identity.isk, NOW - 1, NOW + 1)
+        .revocation(revoked, NOW, b"lost")
+        .same_key(&identity.dak);
+    deployment.setup.block_on(async {
+        deployment
+            .harness
+            .log
+            .submit(&deployment.harness.envelope(&entry, &identity, NOW), NOW)
+            .await
+            .unwrap();
+        deployment.harness.log.publish_epoch(NOW).await.unwrap();
+    });
+    deployment.cosign(NOW + 1);
+
+    let mut client = deployment.client(1);
+    let resolution = client.resolve(&handle("alice"), NOW).unwrap();
+    let resolved = resolution.resolved().unwrap();
+    let selected: Vec<_> = resolved
+        .active_devices_at(NOW)
+        .map(|credential| credential.credential.device_pk)
+        .collect();
+    assert_eq!(selected, vec![active]);
+    assert!(resolved.active_device_at(&active, NOW).is_some());
+    assert!(resolved.active_device_at(&future, NOW).is_none());
+    assert!(resolved.active_device_at(&expired, NOW).is_none());
+    assert!(resolved.active_device_at(&revoked, NOW).is_none());
+}
+
 // ---------------------------------------------------------------------------
 // 2. A tampered proof.
 // ---------------------------------------------------------------------------

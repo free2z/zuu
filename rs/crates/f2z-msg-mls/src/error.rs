@@ -93,8 +93,24 @@ pub enum CredentialError {
     /// The `IdentitySigningKey` signature over the credential body does not
     /// verify.
     BadSignature,
-    /// `not_before`/`not_after` do not bracket the time it was checked at.
+    /// The verifier is earlier than the credential's skew-adjusted inclusive
+    /// `not_before` boundary.
+    NotYetValid,
+    /// The verifier is later than the credential's skew-adjusted inclusive
+    /// `not_after` boundary.
     Expired,
+    /// The verified directory entry publishes no credential for this device
+    /// key.
+    DeviceNotPublished,
+    /// The verified directory entry permanently revokes this device key.
+    DeviceRevoked,
+    /// A credential with this device key is published, but the presented
+    /// credential is not exactly that complete signed credential.
+    ///
+    /// Credential equality covers every TBS field and the identity signature.
+    /// Comparing only `device_pk` would let a relay keep an older credential's
+    /// longer offline validity after the directory published its replacement.
+    PublishedCredentialMismatch,
     /// The credential's `device_pk` is not the leaf's `signature_key`.
     ///
     /// **This is the binding.** A credential that is internally valid but
@@ -114,7 +130,15 @@ impl fmt::Display for CredentialError {
             Self::Malformed => "the credential could not be parsed",
             Self::WrongType => "the credential is not a free2z/device-credential/v1",
             Self::BadSignature => "the identity signature over the credential does not verify",
-            Self::Expired => "the credential is not valid at this time",
+            Self::NotYetValid => "the credential is not valid yet",
+            Self::Expired => "the credential has expired",
+            Self::DeviceNotPublished => {
+                "the directory does not publish a credential for this device key"
+            }
+            Self::DeviceRevoked => "the directory records this device key as revoked",
+            Self::PublishedCredentialMismatch => {
+                "the presented credential is not the complete credential the directory publishes"
+            }
             Self::DeviceKeyMismatch => "the credential does not describe this leaf's device key",
             Self::InvalidHandle => "the credential's handle is not a valid messaging handle",
         })
@@ -177,6 +201,9 @@ mod tests {
         let errors = [
             EngineError::Signature,
             EngineError::Credential(CredentialError::DeviceKeyMismatch),
+            EngineError::Credential(CredentialError::DeviceNotPublished),
+            EngineError::Credential(CredentialError::DeviceRevoked),
+            EngineError::Credential(CredentialError::PublishedCredentialMismatch),
             EngineError::Mls("process_message"),
             EngineError::GroupIdMismatch,
             EngineError::GroupStateUnavailable {

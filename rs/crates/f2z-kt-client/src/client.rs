@@ -1,4 +1,6 @@
-//! `KtClient` — `KT.md` §8.1's eight steps, in order, with no way to skip one.
+//! `KtClient` — `KT.md` §8.1's verification and pinning steps, in order, with
+//! no way to skip one. Device selection is exposed on the verified result so
+//! callers apply §8.1 step 9 without reimplementing its policy.
 //!
 //! # The order is the security property
 //!

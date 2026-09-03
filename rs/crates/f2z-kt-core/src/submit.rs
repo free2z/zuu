@@ -61,7 +61,7 @@
 use f2z_codec::canonical::decode_canonical;
 use f2z_codec::types::{Digest, PublicKey};
 
-use crate::entry::{DirectoryEntry, EntryAuthorization};
+use crate::entry::{DeviceRevocation, DirectoryEntry, EntryAuthorization};
 use crate::error::KtError;
 use crate::labels::{akd_label, entry_value, prev_entry_hash};
 use crate::sig;
@@ -135,6 +135,7 @@ pub struct PublishedEntry {
     chain_hash: Digest,
     identity_pk: PublicKey,
     directory_auth_pk: PublicKey,
+    revocations: Vec<DeviceRevocation>,
     no_reset: bool,
 }
 
@@ -154,6 +155,7 @@ impl PublishedEntry {
             chain_hash: entry.chain_hash()?,
             identity_pk: entry.entry.identity_pk,
             directory_auth_pk: entry.entry.directory_auth_pk,
+            revocations: entry.entry.revocations.as_slice().to_vec(),
             no_reset: entry.entry.no_reset != 0,
         })
     }
@@ -188,6 +190,12 @@ impl PublishedEntry {
     #[must_use]
     pub const fn directory_auth_pk(&self) -> &PublicKey {
         &self.directory_auth_pk
+    }
+
+    /// The immutable revocation prefix every successor must retain.
+    #[must_use]
+    pub fn revocations(&self) -> &[DeviceRevocation] {
+        &self.revocations
     }
 
     /// Whether this handle has foreclosed the platform reset path (ADR 0014).
@@ -315,9 +323,9 @@ impl AcceptedSubmission {
 ///   The wire code is `ERR_BAD_AUTHORIZATION`: *structurally valid but §4.4's
 ///   rules unmet — e.g. a key change with one signature.*
 /// - [`KtError::BadSignature`] — any signature that did not verify, including
-///   rule 6's `RotationProof`, rule 7's reset and rule 8's device credentials.
-/// - [`KtError::Cooldown`] — rule 7's timing half.
-/// - [`KtError::DuplicateInEpoch`] — rule 9.
+///   rule 7's `RotationProof`, rule 8's reset and rule 9's device credentials.
+/// - [`KtError::Cooldown`] — rule 8's timing half.
+/// - [`KtError::DuplicateInEpoch`] — rule 10.
 pub fn validate_submission(
     submitted: &[u8],
     context: &SubmissionContext<'_>,
@@ -332,7 +340,7 @@ pub fn validate_submission(
     let entry = decoded.value().clone();
     let canonical = decoded.bytes().to_vec();
 
-    // ---- Rules 2, 3 (charset), 5 (kind agreement) and 8 (duplicate device
+    // ---- Rules 2, 3 (charset), 5 (kind agreement) and 9 (duplicate device
     // ---- keys), plus the shape checks a decode cannot express. ---------------
     //
     // `DirectoryEntry::validate` checks the label first, per §6.2's "a verifier
@@ -368,6 +376,24 @@ pub fn validate_submission(
                 return Err(KtError::VersionConflict);
             }
         }
+    }
+
+    // ---- Rule 9. Device revocations are cumulative. -------------------------
+    //
+    // `DirectoryEntryTBS::validate` has already required one record per
+    // device key. Requiring the predecessor's whole vector as an exact prefix
+    // makes each record immutable as well as permanent: a successor may only
+    // append, never omit, reorder, change the timestamp/reason, or "un-revoke"
+    // a device. This runs before any authorization signature or assertion
+    // work, so a rejected history earns neither persistence nor a receipt.
+    if let Some(previous) = context.previous
+        && !entry
+            .entry
+            .revocations
+            .as_slice()
+            .starts_with(previous.revocations())
+    {
+        return Err(KtError::BadAuthorization);
     }
 
     // ---- Rule 5. The authorization table of §4.4. ---------------------------
@@ -559,7 +585,7 @@ pub fn validate_submission(
         }
     }
 
-    // ---- Rule 8. Device credentials. ----------------------------------------
+    // ---- Rule 9. Device credentials. ----------------------------------------
     //
     // "Every `DeviceCredential` signature verifies under **this entry's**
     // `identity_pk`" — under the entry's key, not under the key the credential
@@ -581,7 +607,7 @@ pub fn validate_submission(
         )?;
     }
 
-    // ---- Rule 9. §4.3's uniqueness rule. ------------------------------------
+    // ---- Rule 10. §4.3's uniqueness rule. -----------------------------------
     //
     // "The log MUST accept at most one entry per handle per epoch." Last in
     // §4.4's order, and it is not a convenience rule: it is the mitigation for
@@ -615,7 +641,7 @@ mod tests {
     use super::*;
     use crate::testing::{TestDirectory, signing_key};
     use f2z_codec::canonical::Canonical as _;
-    use f2z_codec::types::Signature;
+    use f2z_codec::types::{ShortBytes, Signature};
 
     fn accept(
         directory: &TestDirectory,
@@ -675,6 +701,65 @@ mod tests {
             accept(&directory, &update, Some(&published), 0),
             Err(KtError::VersionConflict),
             "a truncated or substituted history has to break a hash, not merely omit a proof",
+        );
+    }
+
+    #[test]
+    fn revocation_history_is_an_immutable_cumulative_prefix() {
+        let directory = TestDirectory::new();
+        let mut genesis = directory.genesis();
+        let first_device = genesis.entry.devices.as_slice()[0].credential.device_pk;
+        let first = DeviceRevocation {
+            device_pk: first_device,
+            revoked_at_ms: 1_700_000_000_000,
+            reason: ShortBytes::new(b"lost".to_vec()).unwrap(),
+        };
+        genesis.entry.revocations = f2z_codec::vec::VecU16::new(vec![first.clone()]);
+        let genesis = directory.reauthorize_genesis(genesis);
+        let published = accept(&directory, &genesis, None, 0)
+            .unwrap()
+            .published()
+            .unwrap();
+
+        let carried = directory.same_key_update(&genesis);
+        assert!(
+            accept(&directory, &carried, Some(&published), 0).is_ok(),
+            "an exact retained prefix remains admissible"
+        );
+
+        let mut dropped = carried.clone();
+        dropped.entry.revocations = f2z_codec::vec::VecU16::new(Vec::new());
+        let dropped = directory.reauthorize_same_key(dropped, &genesis);
+        assert_eq!(
+            accept(&directory, &dropped, Some(&published), 0),
+            Err(KtError::BadAuthorization),
+            "omitting a prior revocation must not un-revoke its key"
+        );
+
+        let mut changed = carried.clone();
+        let mut records = changed.entry.revocations.clone().into_vec();
+        records[0].reason = ShortBytes::new(b"different".to_vec()).unwrap();
+        changed.entry.revocations = f2z_codec::vec::VecU16::new(records);
+        let changed = directory.reauthorize_same_key(changed, &genesis);
+        assert_eq!(
+            accept(&directory, &changed, Some(&published), 0),
+            Err(KtError::BadAuthorization),
+            "a successor cannot rewrite an accepted revocation"
+        );
+
+        let mut appended = carried;
+        let second = DeviceRevocation {
+            device_pk: PublicKey::new([0x91; 32]),
+            revoked_at_ms: first.revoked_at_ms.saturating_add(1),
+            reason: ShortBytes::new(b"retired".to_vec()).unwrap(),
+        };
+        let mut records = appended.entry.revocations.clone().into_vec();
+        records.push(second);
+        appended.entry.revocations = f2z_codec::vec::VecU16::new(records);
+        let appended = directory.reauthorize_same_key(appended, &genesis);
+        assert!(
+            accept(&directory, &appended, Some(&published), 0).is_ok(),
+            "new unique revocations append after the immutable prefix"
         );
     }
 

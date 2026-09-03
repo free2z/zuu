@@ -17,6 +17,7 @@
 )]
 
 use f2z_codec::types::{PublicKey, ShortBytes};
+use f2z_kt_core::entry::DEVICE_CREDENTIAL_CLOCK_SKEW_MS;
 use f2z_msg_mls::credential::{encode, parse, validate_at, validate_for_leaf};
 use f2z_msg_mls::{CredentialError, DeviceSigner};
 
@@ -73,19 +74,23 @@ fn editing_the_device_key_breaks_the_signature_before_it_breaks_the_binding() {
 }
 
 #[test]
-fn a_credential_outside_its_validity_window_is_rejected_at_both_ends() {
+fn credential_boundaries_apply_the_shared_skew_and_distinguish_too_early() {
     let (credential, device) = issue_credential("alice", 11, 111, NOW - 1000, NOW + 1000);
+    let not_before = credential.credential.not_before_ms;
+    let not_after = credential.credential.not_after_ms;
+    let skew = DEVICE_CREDENTIAL_CLOCK_SKEW_MS;
     assert_eq!(
-        validate_for_leaf(&credential, device.public_key(), NOW - 100_000),
+        validate_for_leaf(&credential, device.public_key(), not_before - skew - 1),
+        Err(CredentialError::NotYetValid)
+    );
+    validate_for_leaf(&credential, device.public_key(), not_before - skew).unwrap();
+    validate_for_leaf(&credential, device.public_key(), not_before).unwrap();
+    validate_for_leaf(&credential, device.public_key(), not_after).unwrap();
+    validate_for_leaf(&credential, device.public_key(), not_after + skew).unwrap();
+    assert_eq!(
+        validate_for_leaf(&credential, device.public_key(), not_after + skew + 1),
         Err(CredentialError::Expired)
     );
-    assert_eq!(
-        validate_for_leaf(&credential, device.public_key(), NOW + 100_000),
-        Err(CredentialError::Expired)
-    );
-    // The boundaries themselves are inside the window.
-    validate_for_leaf(&credential, device.public_key(), NOW - 1000).unwrap();
-    validate_for_leaf(&credential, device.public_key(), NOW + 1000).unwrap();
 }
 
 /// What a peer that put a bare handle in a `BasicCredential` looks like from
