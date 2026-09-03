@@ -24,25 +24,31 @@
 
 use f2z_codec::commands::{HelloRequest, HelloResponse};
 use f2z_codec::hash;
-use f2z_codec::transcript::TranscriptBuilder;
+use f2z_codec::transcript::{HelloProofTranscript, TranscriptBuilder};
 use f2z_codec::types::{Challenge, ChannelBinding, Digest, PublicKey, RelayId, Signature};
 
 use crate::capabilities::{ChannelBindingMode, ClientPolicy, TransportSecurity};
 use crate::error::{ProtoError, Refusal, Result};
 use crate::key::{SigningKey, VerifyingKey};
 
-/// The bytes a relay signs to prove possession of its identity key (§5.2):
-/// `"free2z/relay/v1/hello" || channel_binding || client_nonce`.
+/// Sign the canonical `HelloProofTranscript` that proves possession of the
+/// relay identity key (§5.2).
 ///
-/// Note that this is a signing *prefix*, not an argument to `H` — the proof is
-/// over the concatenation directly.
-#[must_use]
+/// The transcript covers every `HelloResponse` field except the proof itself,
+/// plus this session's channel binding and the client's nonce.
+///
+/// # Errors
+///
+/// [`f2z_codec::CodecError`] if the transcript cannot be encoded.
 pub fn relay_proof(
     identity: &SigningKey,
+    response: &HelloResponse,
     channel_binding: &ChannelBinding,
     client_nonce: &Challenge,
-) -> Signature {
-    identity.sign(&hash::hello_proof_message(channel_binding, client_nonce))
+) -> Result<Signature> {
+    let transcript =
+        HelloProofTranscript::from_response(response, *channel_binding, *client_nonce)?;
+    Ok(identity.sign(&transcript.signing_bytes()?))
 }
 
 /// What a relay announces about itself in `HELLO` (§6.1).
@@ -69,24 +75,29 @@ pub struct RelayAnnouncement {
 ///
 /// `relay_id` is recomputed here rather than taken as an argument so that a
 /// relay cannot publish one that is not the digest of its own key.
-#[must_use]
+///
+/// # Errors
+///
+/// [`f2z_codec::CodecError`] if the proof transcript cannot be encoded.
 pub fn hello_response(
     identity: &SigningKey,
     announcement: &RelayAnnouncement,
     channel_binding: &ChannelBinding,
     client_nonce: &Challenge,
-) -> HelloResponse {
+) -> Result<HelloResponse> {
     let relay_identity_pk = identity.public_key();
-    HelloResponse {
+    let mut response = HelloResponse {
         protocol_version: announcement.protocol_version,
         relay_identity_pk,
         relay_id: hash::relay_id(&relay_identity_pk),
-        relay_proof: relay_proof(identity, channel_binding, client_nonce),
+        relay_proof: Signature::new([0; Signature::LEN]),
         relay_time_ms: announcement.relay_time_ms,
         channel_binding_mode: announcement.channel_binding_mode.code(),
         transport_security: announcement.transport_security.code(),
         capabilities_digest: announcement.capabilities_digest,
-    }
+    };
+    response.relay_proof = relay_proof(identity, &response, channel_binding, client_nonce)?;
+    Ok(response)
 }
 
 /// A connection whose relay has proved who it is.
@@ -209,6 +220,18 @@ pub fn verify_hello_response(
     expected_relay_id: Option<&RelayId>,
     policy: &ClientPolicy,
 ) -> Result<RelaySession> {
+    // §5.2: authenticate the complete announcement before interpreting any
+    // of its policy or negotiation fields. A substituted relay still gets the
+    // more specific RelayIdMismatch below: it can sign its own internally
+    // consistent response, but its derived id is not the peer-advertised one.
+    let identity = VerifyingKey::from_public_key(&response.relay_identity_pk)
+        .map_err(|_| ProtoError::Refused(Refusal::RelayKeyInvalid))?;
+    let proof =
+        HelloProofTranscript::from_response(response, *channel_binding, offer.client_nonce)?;
+    identity
+        .verify(&proof.signing_bytes()?, &response.relay_proof)
+        .map_err(|_| ProtoError::Refused(Refusal::RelayProofInvalid))?;
+
     // §3.5: one version, selected once, for the whole connection.
     if response.protocol_version < offer.min_version
         || response.protocol_version > offer.max_version
@@ -223,9 +246,10 @@ pub fn verify_hello_response(
     if hash::relay_id(&response.relay_identity_pk) != response.relay_id {
         return Err(ProtoError::Refused(Refusal::RelayIdNotDerived));
     }
-    // §2.5 step 3 and §5.2. Checked before the proof so that a substituted
-    // relay is reported as a substitution rather than as a bad signature — the
-    // two failures call for very different things from a user.
+    // §2.5 step 3 and §5.2. A substituted relay can still be reported as a
+    // substitution after proof verification: it signs an internally
+    // consistent announcement under its own key, then fails this comparison
+    // against the identity the peer advertised in-band.
     if let Some(expected) = expected_relay_id
         && *expected != response.relay_id
     {
@@ -261,17 +285,6 @@ pub fn verify_hello_response(
     if matches!(binding_mode, ChannelBindingMode::None) && policy.require_channel_binding {
         return Err(ProtoError::Refused(Refusal::NoChannelBinding));
     }
-
-    // §5.2: proof of possession, over this session's binding and this client's
-    // nonce, so it cannot be replayed from another connection.
-    let identity = VerifyingKey::from_public_key(&response.relay_identity_pk)
-        .map_err(|_| ProtoError::Refused(Refusal::RelayKeyInvalid))?;
-    identity
-        .verify(
-            &hash::hello_proof_message(channel_binding, &offer.client_nonce),
-            &response.relay_proof,
-        )
-        .map_err(|_| ProtoError::Refused(Refusal::RelayProofInvalid))?;
 
     Ok(RelaySession {
         transcripts: TranscriptBuilder::new(
@@ -336,6 +349,7 @@ mod tests {
             binding,
             &offer().client_nonce,
         )
+        .unwrap()
     }
 
     #[test]
@@ -354,6 +368,43 @@ mod tests {
         assert_eq!(session.relay_identity_pk(), identity.public_key());
         assert_eq!(session.relay_time_after(1_500), NOW + 1_500);
         assert_eq!(session.transcripts().channel_binding(), binding());
+    }
+
+    #[test]
+    fn every_hello_response_field_is_authenticated_before_it_is_used() {
+        let identity = relay();
+        let response = response(&identity, &binding());
+
+        macro_rules! assert_tamper_fails {
+            ($field:ident, $replacement:expr) => {{
+                let mut tampered = response.clone();
+                tampered.$field = $replacement;
+                assert_eq!(
+                    verify_hello_response(
+                        &tampered,
+                        &offer(),
+                        &binding(),
+                        None,
+                        &ClientPolicy::default(),
+                    )
+                    .map(|_| ()),
+                    Err(ProtoError::Refused(Refusal::RelayProofInvalid)),
+                    "{} was not bound to relay_proof",
+                    stringify!($field),
+                );
+            }};
+        }
+
+        assert_tamper_fails!(protocol_version, 2);
+        assert_tamper_fails!(
+            relay_identity_pk,
+            SigningKey::from_seed(&[0x45; 32]).public_key()
+        );
+        assert_tamper_fails!(relay_id, RelayId::new([0x46; 32]));
+        assert_tamper_fails!(relay_time_ms, NOW + 1);
+        assert_tamper_fails!(channel_binding_mode, ChannelBindingMode::None.code());
+        assert_tamper_fails!(transport_security, TransportSecurity::None.code());
+        assert_tamper_fails!(capabilities_digest, Digest::new([0x47; 32]));
     }
 
     #[test]
@@ -378,6 +429,8 @@ mod tests {
         let identity = relay();
         let mut response = response(&identity, &binding());
         response.relay_id = RelayId::new([1u8; 32]);
+        response.relay_proof =
+            relay_proof(&identity, &response, &binding(), &offer().client_nonce).unwrap();
         assert_eq!(
             verify_hello_response(
                 &response,
@@ -456,7 +509,8 @@ mod tests {
             &announcement(&identity, ChannelBindingMode::None, TransportSecurity::Tls),
             &zero,
             &offer().client_nonce,
-        );
+        )
+        .unwrap();
         let session =
             verify_hello_response(&response, &offer(), &zero, None, &ClientPolicy::default())
                 .unwrap();
@@ -475,8 +529,20 @@ mod tests {
     #[test]
     fn a_version_outside_the_offer_is_refused() {
         let identity = relay();
-        let mut response = response(&identity, &binding());
-        response.protocol_version = 2;
+        let response = hello_response(
+            &identity,
+            &RelayAnnouncement {
+                protocol_version: 2,
+                ..announcement(
+                    &identity,
+                    ChannelBindingMode::TlsExporter,
+                    TransportSecurity::Tls,
+                )
+            },
+            &binding(),
+            &offer().client_nonce,
+        )
+        .unwrap();
         assert_eq!(
             verify_hello_response(
                 &response,
@@ -499,7 +565,8 @@ mod tests {
             &announcement(&identity, ChannelBindingMode::None, TransportSecurity::None),
             &zero,
             &offer().client_nonce,
-        );
+        )
+        .unwrap();
         assert_eq!(
             verify_hello_response(&response, &offer(), &zero, None, &ClientPolicy::default())
                 .map(|_| ()),

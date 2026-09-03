@@ -40,11 +40,9 @@ pub const LABEL_RELAY_ID: &[u8] = b"free2z/relay/v1/relay-id";
 /// (`WIRE.md` §6.1).
 pub const LABEL_CAPS: &[u8] = b"free2z/relay/v1/caps";
 
-/// The `HELLO` proof-of-possession prefix. `WIRE.md` §5.2:
-/// `relay_proof = Sign(relay_identity_sk, "free2z/relay/v1/hello" || channel_binding || client_nonce)`.
+/// The first-field label of `HelloProofTranscript` (`WIRE.md` §5.2).
 ///
-/// Note that this one is a signing *prefix*, not an argument to `H` — the proof
-/// is signed over the concatenation directly.
+/// This one is a signing-transcript label, not an argument to `H`.
 pub const LABEL_HELLO: &[u8] = b"free2z/relay/v1/hello";
 
 /// The proof-of-work label. `WIRE.md` §13.1: a stamp is valid iff
@@ -108,29 +106,6 @@ pub fn capabilities_digest(encoded_capabilities: &[u8]) -> Digest {
     hash(LABEL_CAPS, encoded_capabilities)
 }
 
-/// The exact bytes a relay signs to prove possession of its identity key
-/// (`WIRE.md` §5.2): `"free2z/relay/v1/hello" || channel_binding || client_nonce`.
-///
-/// The client MUST verify this before sending any signed command; without it
-/// the `relay_id` binding of §5.2 is decoration, because any relay could claim
-/// another's identity.
-#[must_use]
-pub fn hello_proof_message(
-    channel_binding: &crate::types::ChannelBinding,
-    client_nonce: &crate::types::Challenge,
-) -> alloc::vec::Vec<u8> {
-    let mut message = alloc::vec::Vec::with_capacity(
-        LABEL_HELLO
-            .len()
-            .saturating_add(crate::types::ChannelBinding::LEN)
-            .saturating_add(crate::types::Challenge::LEN),
-    );
-    message.extend_from_slice(LABEL_HELLO);
-    message.extend_from_slice(channel_binding.as_bytes());
-    message.extend_from_slice(client_nonce.as_bytes());
-    message
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,15 +158,5 @@ mod tests {
             relay_id(&key).as_bytes(),
             hash(LABEL_RELAY_ID, key.as_bytes()).as_bytes()
         );
-    }
-
-    #[test]
-    fn hello_proof_message_is_label_binding_nonce() {
-        let binding = crate::types::ChannelBinding::new([1u8; 32]);
-        let nonce = crate::types::Challenge::new([2u8; 32]);
-        let message = hello_proof_message(&binding, &nonce);
-        assert_eq!(message.len(), LABEL_HELLO.len() + 64);
-        assert!(message.starts_with(LABEL_HELLO));
-        assert!(message.ends_with(&[2u8; 32]));
     }
 }

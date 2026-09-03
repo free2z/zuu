@@ -302,7 +302,8 @@ fn a_relay_session_does_not_render_its_binding_or_its_identity() {
         },
         &binding,
         &offer.client_nonce,
-    );
+    )
+    .unwrap();
     let session =
         verify_hello_response(&response, &offer, &binding, None, &ClientPolicy::default()).unwrap();
 

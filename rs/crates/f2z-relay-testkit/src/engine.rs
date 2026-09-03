@@ -527,7 +527,7 @@ impl Relay {
             &announcement,
             &self.channel_binding(),
             &offer.client_nonce,
-        );
+        )?;
         connection.hello_done = true;
         Ok(response.encode_canonical()?)
     }

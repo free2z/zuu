@@ -545,9 +545,7 @@ Two consequences follow, and both are requirements:
 
 - **The relay MUST prove possession of the identity key**, otherwise any relay
   could simply claim another's `relay_id` and the binding would be decoration.
-  The `HELLO` response carries
-  `relay_proof = Sign(relay_identity_sk, "free2z/relay/v1/hello" || channel_binding || client_nonce)`,
-  and the client MUST verify it before sending any signed command.
+  The client MUST verify `relay_proof` before sending any signed command.
 - **The client must know which `relay_id` to expect.** It does: a queue advert
   (§7.2) travels inside the MLS group and carries `(relay_url, relay_id,
   send_addr)` together, authenticated by the peer. A relay substituted at the DNS
@@ -556,6 +554,42 @@ Two consequences follow, and both are requirements:
   [`ARCHITECTURE.md` §10](./ARCHITECTURE.md#10-p2p-webrtc--an-optimization-not-a-dependency):
   the identifying material comes from inside the authenticated channel, never
   from the infrastructure being authenticated.
+
+The proof is an Ed25519 signature over a canonical TLS structure, not an ad hoc
+concatenation:
+
+```
+struct {
+    opaque label<0..255>;             /* exactly "free2z/relay/v1/hello" */
+    opaque channel_binding[32];       /* this connection's §5.3 value */
+    opaque client_nonce[32];          /* from the corresponding HelloRequest */
+    uint16 protocol_version;
+    opaque relay_identity_pk[32];
+    opaque relay_id[32];
+    uint64 relay_time_ms;
+    uint8  channel_binding_mode;
+    uint8  transport_security;
+    opaque capabilities_digest[32];
+} HelloProofTranscript;
+
+relay_proof = Sign(relay_identity_sk, tls_codec(HelloProofTranscript))
+```
+
+The fields after `client_nonce` are every `HelloResponse` field in wire order
+except `relay_proof`, which cannot include itself. The client reconstructs the
+transcript with the channel binding it computed locally and the nonce it sent;
+every other value comes from the response. Therefore the proof authenticates
+the negotiated version, relay clock, binding and transport modes, and capability
+digest as well as possession of `relay_identity_sk`.
+
+> **Security correction (2026-09-03).** The original v1 proof signed only
+> `"free2z/relay/v1/hello" || channel_binding || client_nonce`. It proved key
+> possession on this session but authenticated none of the response's policy or
+> negotiation fields. In `transport_security: none`, an active intermediary
+> could therefore rewrite those fields — including a binding-mode downgrade and
+> `capabilities_digest` — without invalidating the proof. The canonical
+> transcript above replaces that construction; implementations of the earlier
+> signing rule are not conforming v1 implementations.
 
 ### 5.3 TLS exporter channel binding — with the caveat stated
 
@@ -604,9 +638,11 @@ Therefore:
   [`ARCHITECTURE.md` §7](./ARCHITECTURE.md#7-application-framing--hash-linked-causal-ordering)'s
   hash-linked DAG, precisely so that ordering survives a hostile relay. Stated
   here so nobody looks for it in the wrong layer.
-- **The relay's response.** Responses are unsigned. A relay can lie about a
-  response and no signature detects it. This is deliberate: every response that
-  matters end-to-end is verified by other means (a `READ` result is MLS
+- **Command responses after `HELLO`.** These responses are unsigned. (`HELLO`
+  is the deliberate exception: its proof authenticates every field except the
+  proof itself.) A relay can lie about a later response and no signature detects
+  it. This is deliberate: every response that matters end-to-end is verified by
+  other means (a `READ` result is MLS
   ciphertext that authenticates itself; a claimed deletion is unverifiable in any
   case per
   [`THREAT-MODEL.md` §4.5](./THREAT-MODEL.md#45-server-side-deletion-is-auditable-not-verifiable)),
@@ -781,8 +817,10 @@ struct {
 
 MUST be the first frame. If no version in `[min_version, max_version]` is
 supported → `ERR_UNSUPPORTED_VERSION`, fatal. The client MUST verify
-`relay_proof`, MUST recompute `relay_id` from `relay_identity_pk`, and MUST
-compare `relay_id` against any value it obtained from an in-band advert (§7.2).
+`relay_proof` over the §5.2 `HelloProofTranscript`, MUST recompute `relay_id`
+from `relay_identity_pk`, and MUST compare `relay_id` against any value it
+obtained from an in-band advert (§7.2). Every response field except the proof
+itself is authenticated by that transcript.
 
 #### `GET_CAPABILITIES` — `0x0002`
 
