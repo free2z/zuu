@@ -208,6 +208,13 @@ fn credential_policy_is_bound_to_the_normative_spec() {
         "a malformed `</ details>` must not pop the raw HTML container"
     );
 
+    let hidden_by_commonmark_hgroup =
+        KT.replacen("### 4.1 Structure", "<hgroup>\n### 4.1 Structure", 1);
+    assert!(
+        !kt_credential_policy_is_exact(&hidden_by_commonmark_hgroup),
+        "the normative CommonMark hgroup block tag must not hide §4.1"
+    );
+
     for (name, opening, closing) in [
         ("fenced code", "```markdown", "```"),
         ("raw HTML container", "<details>", "</details>"),

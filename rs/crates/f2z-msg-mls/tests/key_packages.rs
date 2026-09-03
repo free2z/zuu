@@ -152,6 +152,13 @@ fn wire_rendered_prose_digest(rendered: &markdown::RenderedMarkdown) -> u64 {
 }
 
 fn wire_has_exact_key_package_authentication_table(wire: &str) -> bool {
+    wire_has_exact_key_package_authentication_table_with_digest(wire, WIRE_RENDERED_PROSE_DIGEST)
+}
+
+fn wire_has_exact_key_package_authentication_table_with_digest(
+    wire: &str,
+    expected_rendered_prose_digest: u64,
+) -> bool {
     let Some(rendered) = markdown::RenderedMarkdown::parse(wire) else {
         return false;
     };
@@ -182,7 +189,7 @@ fn wire_has_exact_key_package_authentication_table(wire: &str) -> bool {
             == Some(KEY_PACKAGE_AUTHENTICATION_SECTION)
         && rendered.section(4, KEY_PACKAGE_EXHAUSTION_TEXT).as_deref()
             == Some(KEY_PACKAGE_EXHAUSTION_SECTION)
-        && wire_rendered_prose_digest(&rendered) == WIRE_RENDERED_PROSE_DIGEST
+        && wire_rendered_prose_digest(&rendered) == expected_rendered_prose_digest
 }
 
 #[test]
@@ -382,6 +389,28 @@ fn wire_key_package_authentication_list_is_exhaustive_and_mutation_sensitive() {
     assert!(
         !wire_has_exact_key_package_authentication_table(&malformed_fence_closer),
         "the checker treated a fence with trailing text as a CommonMark closer"
+    );
+
+    let hidden_by_commonmark_hgroup = WIRE
+        .replacen(
+            KEY_PACKAGE_AUTHENTICATION_HEADING,
+            &format!("<hgroup>\n{KEY_PACKAGE_AUTHENTICATION_HEADING}"),
+            1,
+        )
+        .replacen(
+            NEXT_WIRE_HEADING,
+            &format!("</hgroup>\n{NEXT_WIRE_HEADING}"),
+            1,
+        );
+    let mutant_rendered = markdown::RenderedMarkdown::parse(&hidden_by_commonmark_hgroup)
+        .expect("the hgroup mutation must remain syntactically valid");
+    let reanchored_digest = wire_rendered_prose_digest(&mutant_rendered);
+    assert!(
+        !wire_has_exact_key_package_authentication_table_with_digest(
+            &hidden_by_commonmark_hgroup,
+            reanchored_digest,
+        ),
+        "a re-anchored prose digest must not let CommonMark hgroup hide §12.6.5"
     );
 
     for (name, opening, closing) in [

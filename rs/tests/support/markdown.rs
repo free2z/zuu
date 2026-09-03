@@ -59,6 +59,7 @@ const RAW_HTML_TAGS: &[&str] = &[
     "h6",
     "head",
     "header",
+    "hgroup",
     "html",
     "iframe",
     "legend",
@@ -746,6 +747,17 @@ mod tests {
 
         assert!(rendered.section(4, "Hidden").is_none());
         assert_eq!(rendered.section(4, "Visible").as_deref(), Some("kept"));
+    }
+
+    #[test]
+    fn commonmark_hgroup_container_cannot_hide_a_heading() {
+        let rendered =
+            RenderedMarkdown::parse("<hgroup>\n#### Hidden\n</hgroup>\n#### Visible\nkept")
+                .expect("a balanced CommonMark hgroup raw block parses");
+
+        assert!(rendered.section(4, "Hidden").is_none());
+        assert_eq!(rendered.section(4, "Visible").as_deref(), Some("kept"));
+        assert!(rendered.has_raw_html());
     }
 
     #[test]
