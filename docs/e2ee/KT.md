@@ -1704,7 +1704,24 @@ below against the last one it accepted for this `log_id`:
    `prev_sth_hash == H("free2z/kt/v1/tree-head-hash", tls_codec(last.sth))` directly.
    If `epoch > last.epoch + 1`, the verifier MUST fetch every intervening tree
    head and check the chain link by link. **It MUST NOT skip.** A gap accepted on
-   trust is a branch accepted on trust.
+   trust is a branch accepted on trust. Clients paginate that work as follows:
+   the durable checkpoint is the last accepted `SignedTreeHead`; a page starts
+   at `last.epoch + 1`, ends at `min(last.epoch + 256, target.epoch)`, and fetches
+   `GET /kt/v1/sth/{epoch}` once for every epoch in that inclusive range, in
+   ascending order. Each response MUST contain exactly the requested epoch.
+   After each head verifies, the client advances its in-memory checkpoint; if
+   the page ends before `target.epoch`, it returns an explicit incomplete
+   result, the caller persists the advanced checkpoint, and a later call
+   resumes at the next epoch. The caller also persists the verified prefix
+   exposed after a network or decoding failure. A process interruption before
+   that write may repeat part of the page from an older checkpoint, which is
+   safe because every head is reverified; it MUST NOT resume from an unsigned
+   request counter. A missing, duplicate, reordered, truncated, or stalled
+   response fails closed at that response and cannot consume its epoch. The
+   page is therefore bounded to 256 one-head responses (257 round trips
+   including the initial latest-head or lookup response), while repeated calls
+   converge from an arbitrarily old checkpoint without accepting the target
+   across a gap.
 8. For `epoch == last.epoch`, the complete `SignedTreeHead` — every field of
    `SignedTreeHeadTBS` and `signature` — MUST be identical to the last accepted
    value. An identical re-presentation is an idempotent no-op. Any difference is
@@ -2176,6 +2193,20 @@ Stated at the point of use, and it is the correction
 | Whether the log **claims** to vouch for handles at all (§4.6's signed policy) | That a handle's **first** entry came from whoever is entitled to the handle. §4.5 now says what authorizes `entry_version == 1`, and the log checks it; it is not committed to the tree and not served, so there is nothing for a client to verify (§4.7) |
 | — | That a log which reports itself vouched actually applied §4.5 — or that a handle registered while it was unvouched was later re-vouched. The policy is log-wide, not per-handle (§4.6) |
 | That a `SubmissionReceipt`'s deadline was met, for its own submissions | That a log which met the deadline did so on the branch everyone else sees |
+
+Long dormancy makes the cheap check latency-heavy rather than proof-heavy. At
+the ten-minute cadence, 256 epochs are about 42 hours 40 minutes. A client one
+year behind has about 52,560 heads to verify: 206 bounded calls, 52,560
+exact-epoch response round trips, plus one latest/lookup round trip per call.
+The canonical TLS encoding of a one-head bundle is 314 bytes before
+cosignatures and each cosignature adds 205 bytes, so the response bodies alone
+are about 15.7 MiB with no cosignatures or 26.0 MiB with one per head for the
+exact-epoch responses; the 206 latest/lookup responses and HTTP/TLS headers add
+deployment-dependent overhead. This pagination prevents one API call from
+monopolising a client and makes progress durable, but it does not turn one-head
+HTTP catch-up into an efficient bulk protocol. An implementation claiming
+materially fewer round trips needs a separately specified range response and
+cannot silently replace the chain walk with the latest head.
 
 **A client cannot substitute its own consistency check for a witness's.** There
 is no cheap check available to it, so there is no fallback when the witness set

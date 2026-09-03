@@ -76,7 +76,11 @@ pub trait Transport {
     /// Needed for §6.3 rule 7: a head that skips epochs is not accepted, and
     /// the only correct response is to fetch every intervening head and check
     /// the chain link by link. *A gap accepted on trust is a branch accepted on
-    /// trust.*
+    /// trust.* [`crate::KtClient`] binds the decoded head back to this exact
+    /// `epoch` before acceptance, so a duplicate or reordered response cannot
+    /// consume a page position. One catch-up operation calls this at most
+    /// [`crate::MAX_EPOCH_CATCHUP`] times and persists the last accepted signed
+    /// head as its checkpoint.
     ///
     /// # Errors
     ///
