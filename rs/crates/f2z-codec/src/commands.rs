@@ -276,9 +276,11 @@ pub struct HelloRequest {
 
 /// `HELLO` response (§6.1).
 ///
-/// The client MUST verify `relay_proof`, MUST recompute `relay_id` from
-/// `relay_identity_pk` ([`crate::hash::relay_id`]), and MUST compare `relay_id`
-/// against any value it obtained from an in-band advert (§7.2).
+/// `relay_proof` authenticates every other field plus the connection's channel
+/// binding and the request's client nonce. The client MUST verify it, MUST
+/// recompute `relay_id` from `relay_identity_pk` ([`crate::hash::relay_id`]),
+/// and MUST compare `relay_id` against any value it obtained from an in-band
+/// advert (§7.2).
 #[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
 pub struct HelloResponse {
     /// The version selected for this connection.
@@ -287,7 +289,8 @@ pub struct HelloResponse {
     pub relay_identity_pk: PublicKey,
     /// MUST equal `H("free2z/relay/v1/relay-id", relay_identity_pk)`.
     pub relay_id: crate::types::RelayId,
-    /// Proof of possession of `relay_identity_pk` (§5.2).
+    /// Proof of possession of `relay_identity_pk` over the complete
+    /// [`crate::transcript::HelloProofTranscript`] (§5.2).
     pub relay_proof: Signature,
     /// The relay's clock, for clients whose own clock is unreliable (§5.5).
     pub relay_time_ms: u64,

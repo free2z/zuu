@@ -66,9 +66,13 @@ the highest appended index is an error.
   verification; a captured frame replayed on a new connection fails on the channel
   binding; a frame replayed on the same connection fails on the seen-set.
 - **The relay MUST prove possession of its identity key**, or `relay_id` is
-  decoration that any relay can claim. `HELLO` returns
-  `Sign(relay_identity_sk, "free2z/relay/v1/hello" || channel_binding || client_nonce)`
-  and the client verifies it before sending any signed command.
+  decoration that any relay can claim. `HELLO` returns an Ed25519 signature over
+  the canonical `HelloProofTranscript`: its domain label, the locally computed
+  channel binding, the client's nonce, and every `HelloResponse` field except
+  the proof itself. The client verifies it before interpreting the announcement
+  or sending any signed command. This is the 2026-09-03 security correction to
+  the original partial proof, which authenticated only the binding and nonce and
+  left the version, clock, policy modes, and capability digest rewritable.
 - **The channel binding cannot be computed behind a TLS-terminating proxy, and we
   say so.** Such a relay declares `channel_binding_mode: "none"`, uses 32 zero
   bytes, and a client may refuse it. There is no fix at this layer: no
@@ -95,9 +99,10 @@ the highest appended index is an error.
   this design; it is the hash-linked DAG of
   [`../ARCHITECTURE.md` §7](../ARCHITECTURE.md#7-application-framing--hash-linked-causal-ordering),
   precisely so it survives a hostile relay.
-- **Responses are unsigned.** Every response that matters end-to-end is verified
-  by other means, and signing responses would buy an audit trail against an
-  adversary who can simply refuse to answer.
+- **Command responses after `HELLO` are unsigned.** `HELLO` is the exception:
+  its proof authenticates the complete announcement. Every later response that
+  matters end-to-end is verified by other means, and signing those responses
+  would buy an audit trail against an adversary who can simply refuse to answer.
 - **Cumulative ACK keeps relay state to one integer per queue.** Selective
   acknowledgement would need a per-message bitmap — state proportional to the
   queue rather than constant — and would let a reader hold one message

@@ -43,10 +43,117 @@ use alloc::vec::Vec;
 use tls_codec::{TlsDeserializeBytes, TlsSerializeBytes, TlsSize};
 
 use crate::canonical::encode;
+use crate::commands::HelloResponse;
 use crate::error::CodecError;
 use crate::frame::SignedAuth;
-use crate::hash::{LABEL_COMMAND, body_hash};
-use crate::types::{ChannelBinding, Digest, Nonce, PublicKey, QueueAddress, RelayId, ShortBytes};
+use crate::hash::{LABEL_COMMAND, LABEL_HELLO, body_hash};
+use crate::types::{
+    Challenge, ChannelBinding, Digest, Nonce, PublicKey, QueueAddress, RelayId, ShortBytes,
+};
+
+/// The canonical structure authenticated by `HelloResponse.relay_proof`
+/// (`WIRE.md` §5.2).
+///
+/// The signature itself is necessarily absent. Every other response field is
+/// copied verbatim, while `channel_binding` and `client_nonce` bind the proof
+/// to the transport session and the client's request. Keeping this as a typed
+/// `tls_codec` structure prevents a new announcement field from silently being
+/// left outside the proof.
+#[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+pub struct HelloProofTranscript {
+    /// Exactly `"free2z/relay/v1/hello"`.
+    pub label: ShortBytes,
+    /// The TLS exporter, or 32 zero bytes in `none` mode (§5.3).
+    pub channel_binding: ChannelBinding,
+    /// Fresh randomness from the corresponding [`crate::commands::HelloRequest`].
+    pub client_nonce: Challenge,
+    /// The version selected for this connection.
+    pub protocol_version: u16,
+    /// The relay's long-term Ed25519 public key.
+    pub relay_identity_pk: PublicKey,
+    /// `H("free2z/relay/v1/relay-id", relay_identity_pk)`.
+    pub relay_id: RelayId,
+    /// The relay's clock at the instant it answered.
+    pub relay_time_ms: u64,
+    /// Whether commands are bound to the TLS session.
+    pub channel_binding_mode: u8,
+    /// Whether the connection itself is carried by TLS.
+    pub transport_security: u8,
+    /// The capability document in force for this connection.
+    pub capabilities_digest: Digest,
+}
+
+impl HelloProofTranscript {
+    /// Build the transcript for one response and one client session.
+    ///
+    /// `response.relay_proof` is deliberately ignored: a signature cannot
+    /// include itself. All other response fields are copied explicitly.
+    ///
+    /// # Errors
+    ///
+    /// [`CodecError::Overflow`] can only arise from the fixed label, so in
+    /// practice this does not fail.
+    pub fn from_response(
+        response: &HelloResponse,
+        channel_binding: ChannelBinding,
+        client_nonce: Challenge,
+    ) -> Result<Self, CodecError> {
+        // Deliberately exhaustive: adding a field to HelloResponse must break
+        // this build until the field is consciously included in the proof (or,
+        // for the self-referential proof field alone, consciously excluded).
+        let HelloResponse {
+            protocol_version,
+            relay_identity_pk,
+            relay_id,
+            relay_proof: _,
+            relay_time_ms,
+            channel_binding_mode,
+            transport_security,
+            capabilities_digest,
+        } = response;
+        Ok(Self {
+            label: ShortBytes::new(LABEL_HELLO)?,
+            channel_binding,
+            client_nonce,
+            protocol_version: *protocol_version,
+            relay_identity_pk: *relay_identity_pk,
+            relay_id: *relay_id,
+            relay_time_ms: *relay_time_ms,
+            channel_binding_mode: *channel_binding_mode,
+            transport_security: *transport_security,
+            capabilities_digest: *capabilities_digest,
+        })
+    }
+
+    /// The exact canonical bytes the relay signs and the client verifies.
+    ///
+    /// # Errors
+    ///
+    /// [`CodecError`] if the structure cannot be encoded.
+    pub fn signing_bytes(&self) -> Result<Vec<u8>, CodecError> {
+        encode(self)
+    }
+
+    /// Check the semantic invariant a decoder cannot: the exact label.
+    ///
+    /// # Errors
+    ///
+    /// [`CodecError::InvalidValue`] for any other label.
+    pub fn validate(&self) -> Result<(), CodecError> {
+        if self.label.as_slice() == LABEL_HELLO {
+            Ok(())
+        } else {
+            Err(CodecError::InvalidValue)
+        }
+    }
+}
+
+/// The canonical byte length of [`HelloProofTranscript`].
+///
+/// `1 + 21` label, `32` channel binding, `32` nonce, `2` version, `32`
+/// identity key, `32` relay id, `8` relay time, `1` binding mode, `1`
+/// transport mode, and `32` capability digest.
+pub const HELLO_PROOF_TRANSCRIPT_LEN: usize = 1 + 21 + 32 + 32 + 2 + 32 + 32 + 8 + 1 + 1 + 32;
 
 /// The fixed-shape structure every signed command is authenticated over
 /// (`WIRE.md` §5.1).
@@ -298,9 +405,70 @@ pub const TRANSCRIPT_LEN: usize = 1 + 19 + 2 + 32 + 32 + 2 + 4 + 32 + 32 + 8 + 1
 mod tests {
     use super::*;
     use crate::canonical::decode_canonical;
-    use crate::commands::Command;
+    use crate::commands::{Command, HelloResponse};
     use crate::types::Signature;
     use alloc::vec;
+
+    fn hello_response() -> HelloResponse {
+        HelloResponse {
+            protocol_version: 1,
+            relay_identity_pk: PublicKey::new([0x31; 32]),
+            relay_id: RelayId::new([0x32; 32]),
+            relay_proof: Signature::new([0x33; 64]),
+            relay_time_ms: 1_800_000_000_000,
+            channel_binding_mode: 1,
+            transport_security: 1,
+            capabilities_digest: Digest::new([0x34; 32]),
+        }
+    }
+
+    #[test]
+    fn hello_proof_transcript_is_canonical_and_excludes_only_the_proof() {
+        let response = hello_response();
+        let transcript = HelloProofTranscript::from_response(
+            &response,
+            ChannelBinding::new([0x41; 32]),
+            Challenge::new([0x42; 32]),
+        )
+        .unwrap();
+        let bytes = transcript.signing_bytes().unwrap();
+
+        assert_eq!(bytes.len(), HELLO_PROOF_TRANSCRIPT_LEN);
+        assert_eq!(bytes[0], LABEL_HELLO.len() as u8);
+        assert_eq!(&bytes[1..1 + LABEL_HELLO.len()], LABEL_HELLO);
+        assert!(transcript.validate().is_ok());
+        assert_eq!(
+            decode_canonical::<HelloProofTranscript>(&bytes)
+                .unwrap()
+                .value(),
+            &transcript
+        );
+
+        let mut different_proof = response;
+        different_proof.relay_proof = Signature::new([0xff; 64]);
+        assert_eq!(
+            HelloProofTranscript::from_response(
+                &different_proof,
+                ChannelBinding::new([0x41; 32]),
+                Challenge::new([0x42; 32]),
+            )
+            .unwrap(),
+            transcript,
+            "relay_proof is the one response field that cannot cover itself"
+        );
+    }
+
+    #[test]
+    fn hello_proof_transcript_rejects_the_wrong_label() {
+        let mut transcript = HelloProofTranscript::from_response(
+            &hello_response(),
+            ChannelBinding::new([0x41; 32]),
+            Challenge::new([0x42; 32]),
+        )
+        .unwrap();
+        transcript.label = ShortBytes::new(b"not-the-hello-label".to_vec()).unwrap();
+        assert_eq!(transcript.validate(), Err(CodecError::InvalidValue));
+    }
 
     fn builder() -> TranscriptBuilder {
         TranscriptBuilder::new(

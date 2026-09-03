@@ -75,7 +75,7 @@
 //!     },
 //!     &binding,
 //!     &offer.client_nonce,
-//! );
+//! )?;
 //!
 //! // The client verifies the proof before signing anything. A session is the
 //! // only way to obtain a transcript builder.

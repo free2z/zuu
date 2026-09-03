@@ -72,10 +72,13 @@ use f2z_codec::commands::{
 use f2z_codec::frame::{CommandAuth, FrameKind, Push, RelayFrame, Request, Response, SignedAuth};
 use f2z_codec::hash::{
     LABEL_BODY, LABEL_CAPS, LABEL_COMMAND, LABEL_HELLO, LABEL_POW, LABEL_RELAY_ID, LABELS,
-    body_hash, capabilities_digest, hash, hash2, hello_proof_message, relay_id,
+    body_hash, capabilities_digest, hash, hash2, relay_id,
 };
 use f2z_codec::pow::{PowParams, PowStamp};
-use f2z_codec::transcript::{AuthContext, TRANSCRIPT_LEN, TranscriptBuilder};
+use f2z_codec::transcript::{
+    AuthContext, HELLO_PROOF_TRANSCRIPT_LEN, HelloProofTranscript, TRANSCRIPT_LEN,
+    TranscriptBuilder,
+};
 use f2z_codec::types::{
     Body, Challenge, ChannelBinding, Digest, Nonce, Payload, PublicKey, QueueAddress, RelayId,
     Salt, ShortBytes, Signature,
@@ -380,24 +383,40 @@ fn capabilities_digest_is_a_known_answer() {
 }
 
 #[test]
-fn the_hello_proof_message_is_the_label_then_binding_then_nonce() {
-    // WIRE.md:473 —
-    // `relay_proof = Sign(relay_identity_sk, "free2z/relay/v1/hello" || channel_binding || client_nonce)`.
-    // Not an argument to `H`: a signing prefix over a plain concatenation.
-    let message = hello_proof_message(
-        &ChannelBinding::new([0xa1; 32]),
-        &Challenge::new([0xb2; 32]),
-    );
+fn hello_proof_transcript_covers_the_complete_announcement_in_spec_order() {
+    // WIRE.md §5.2. Derived field-by-field from the printed TLS structure,
+    // independently of the derive implementation this test judges.
+    let transcript = HelloProofTranscript {
+        label: ShortBytes::new(LABEL_HELLO).unwrap(),
+        channel_binding: ChannelBinding::new([0xa1; 32]),
+        client_nonce: Challenge::new([0xb2; 32]),
+        protocol_version: 1,
+        relay_identity_pk: PublicKey::new([0xc3; 32]),
+        relay_id: RelayId::new([0xd4; 32]),
+        relay_time_ms: 0x0102_0304_0506_0708,
+        channel_binding_mode: 1,
+        transport_security: 0,
+        capabilities_digest: Digest::new([0xe5; 32]),
+    };
+    let message = transcript.signing_bytes().unwrap();
     assert_wire(
-        "hello_proof_message",
+        "HelloProofTranscript",
         &message,
         &[
-            f("\"free2z/relay/v1/hello\"", 21, b"free2z/relay/v1/hello"),
+            f("uint8 label length = 21", 1, [21]),
+            f("label", 21, b"free2z/relay/v1/hello"),
             f("channel_binding[32]", 32, fill(0xa1, 32)),
             f("client_nonce[32]", 32, fill(0xb2, 32)),
+            f("protocol_version", 2, [0, 1]),
+            f("relay_identity_pk[32]", 32, fill(0xc3, 32)),
+            f("relay_id[32]", 32, fill(0xd4, 32)),
+            f("relay_time_ms", 8, [1, 2, 3, 4, 5, 6, 7, 8]),
+            f("channel_binding_mode", 1, [1]),
+            f("transport_security", 1, [0]),
+            f("capabilities_digest[32]", 32, fill(0xe5, 32)),
         ],
     );
-    assert_eq!(message.len(), 21 + 32 + 32);
+    assert_eq!(message.len(), HELLO_PROOF_TRANSCRIPT_LEN);
 }
 
 #[test]
