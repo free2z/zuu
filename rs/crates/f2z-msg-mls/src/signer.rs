@@ -69,17 +69,26 @@ impl core::fmt::Debug for DeviceSigner {
 }
 
 impl DeviceSigner {
-    /// Wrap a private key, deriving the public key from it.
+    /// Validate and wrap a private key, deriving the public key from it.
     ///
     /// The public key is **derived**, never supplied, so a caller cannot
     /// construct a signer whose advertised public key does not verify its own
     /// signatures — which is a credential that no peer can validate and a
     /// failure that only shows up on someone else's machine.
-    #[must_use]
-    pub fn from_private_key(private: [u8; PRIVATE_LEN]) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Signature`] if `private` is all zeroes. A zero Ed25519
+    /// seed is mathematically usable, but when key generation produces it the
+    /// value is public and catastrophic; refusing it at this boundary also
+    /// protects restored key material rather than only one RNG call site.
+    pub fn from_private_key(private: [u8; PRIVATE_LEN]) -> Result<Self, EngineError> {
+        if private.iter().fold(0u8, |acc, byte| acc | byte) == 0 {
+            return Err(EngineError::Signature);
+        }
         let mut public = [0u8; PUBLIC_LEN];
         libcrux_ed25519::secret_to_public(&mut public, &private);
-        Self { private, public }
+        Ok(Self { private, public })
     }
 
     /// The public key: the MLS leaf `signature_key`, and `device_pk` in a
@@ -138,7 +147,7 @@ mod tests {
     use super::*;
 
     fn signer() -> DeviceSigner {
-        DeviceSigner::from_private_key([7u8; PRIVATE_LEN])
+        DeviceSigner::from_private_key([7u8; PRIVATE_LEN]).unwrap()
     }
 
     /// Verification goes through the **production** verifier — the libcrux
@@ -176,7 +185,7 @@ mod tests {
     #[test]
     fn a_different_key_is_rejected() {
         let signer = signer();
-        let other = DeviceSigner::from_private_key([8u8; PRIVATE_LEN]);
+        let other = DeviceSigner::from_private_key([8u8; PRIVATE_LEN]).unwrap();
         let signature = signer.sign_bytes(b"transcript").unwrap();
         assert!(!verifies(b"transcript", other.public_key(), &signature));
     }
@@ -196,10 +205,15 @@ mod tests {
 
     #[test]
     fn debug_prints_neither_key_in_hex_or_in_decimal() {
-        let signer = DeviceSigner::from_private_key([0xAB; PRIVATE_LEN]);
+        let signer = DeviceSigner::from_private_key([0xAB; PRIVATE_LEN]).unwrap();
         let rendered = format!("{signer:?}");
         assert!(!rendered.contains("abab"), "{rendered}");
         assert!(!rendered.contains("171, 171"), "{rendered}");
         assert!(rendered.contains("<redacted; 32 bytes>"), "{rendered}");
+    }
+
+    #[test]
+    fn an_all_zero_private_key_is_refused_at_the_shipping_boundary() {
+        assert!(DeviceSigner::from_private_key([0; PRIVATE_LEN]).is_err());
     }
 }

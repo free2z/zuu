@@ -1,0 +1,22 @@
+[package]
+name = "f2z-crypto-kat"
+version = "0.1.0"
+description = "Permanent standard-vector checks for the libcrux primitives in the free2z messaging crypto graph"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form.
+# scripts/check-rust-toolchain.sh registers and verifies this literal.
+rust-version = "1.97"
+license = "MIT"
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+hex = "0.4"
+libcrux-ecdh = { workspace = true }
+libcrux-ed25519 = { workspace = true, features = ["rand"] }
+libcrux-kem = { workspace = true }
+f2z-msg-mls = { path = "../f2z-msg-mls", version = "0.1.0", default-features = false }
+serde_json = { workspace = true, features = ["std"] }

@@ -124,7 +124,7 @@ mod tests {
     /// `DeviceSigner` is built from a key its caller already has.
     #[test]
     fn a_device_signer_is_built_from_a_key_rather_than_generating_one() {
-        let signer = crate::DeviceSigner::from_private_key([9u8; 32]);
+        let signer = crate::DeviceSigner::from_private_key([9u8; 32]).unwrap();
         let mut expected = [0u8; 32];
         libcrux_ed25519::secret_to_public(&mut expected, &[9u8; 32]);
         assert_eq!(signer.public_key(), &expected);

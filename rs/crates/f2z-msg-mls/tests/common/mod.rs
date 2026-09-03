@@ -63,7 +63,7 @@ pub fn issue_credential(
     let seed = [account_seed; 64];
     let account = AccountKeys::from_seed(&seed, 0).unwrap();
 
-    let signer = DeviceSigner::from_private_key([device_seed; 32]);
+    let signer = DeviceSigner::from_private_key([device_seed; 32]).unwrap();
 
     let credential = account
         .identity

@@ -786,6 +786,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "f2z-crypto-kat"
+version = "0.1.0"
+dependencies = [
+ "f2z-msg-mls",
+ "hex",
+ "libcrux-ecdh",
+ "libcrux-ed25519",
+ "libcrux-kem",
+ "serde_json",
+]
+
+[[package]]
 name = "f2z-kt"
 version = "0.1.0"
 dependencies = [

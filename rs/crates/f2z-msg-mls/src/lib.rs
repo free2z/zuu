@@ -75,7 +75,7 @@
 //! # let now = 1_700_000_000_000;
 //! // The device signing key is generated on-device from the OS CSPRNG and is
 //! // deliberately not seed-derivable (`ARCHITECTURE.md` §4.2).
-//! let signer = DeviceSigner::from_private_key([2u8; 32]);
+//! let signer = DeviceSigner::from_private_key([2u8; 32])?;
 //!
 //! // The credential is issued by `f2z-msg-identity`'s `IdentitySigningKey`,
 //! // which holds the seed-derived account key. This crate never issues one.

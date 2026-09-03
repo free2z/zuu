@@ -117,6 +117,12 @@ const RUST_ROOT_CONTRACTS = [
           "docs/e2ee/evidence/akd-audit-scope.json",
           "scripts/check-akd-doc-evidence.mjs",
           "scripts/check-kt-sth-repeat-agreement.mjs",
+          "scripts/check-crypto-kat-locks.mjs",
+          "scripts/check-crypto-kats.sh",
+          "wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml",
+          "wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock",
+          "wallet/zuuli/src-tauri/Cargo.toml",
+          "wallet/zuuli/src-tauri/Cargo.lock",
         ],
       },
     ],
@@ -2390,6 +2396,25 @@ function rustRootWorkflowFailures(relativeFile, lines, contract) {
         );
       }
     }
+    for (const [stepName, command] of [
+      [
+        "Prove the crypto KAT suite rejects a corrupted standard vector",
+        "scripts/check-crypto-kats.sh --self-test",
+      ],
+      ["Run the permanent crypto known-answer suite", "scripts/check-crypto-kats.sh"],
+    ]) {
+      const matching = steps.filter((step) => step.properties.get("name")?.value === stepName);
+      const step = matching[0];
+      if (
+        matching.length !== 1 ||
+        !hasExactKeys(step?.properties ?? new Map(), ["name", "run"]) ||
+        step?.properties.get("run")?.value !== command
+      ) {
+        failures.push(
+          `${relativeFile}:${job?.start + 1 ?? 1}: rs owner job rs_test must run exactly one unconditional, non-soft-failing ${command}`,
+        );
+      }
+    }
   }
 
   return failures;
@@ -3874,6 +3899,49 @@ function runRustRootWorkflowMutationTests(repoRoot) {
             needle,
           );
         }
+      }
+      for (const [stepName, command] of [
+        [
+          "Prove the crypto KAT suite rejects a corrupted standard vector",
+          "scripts/check-crypto-kats.sh --self-test",
+        ],
+        ["Run the permanent crypto known-answer suite", "scripts/check-crypto-kats.sh"],
+      ]) {
+        const needle = "rs owner job rs_test must run exactly one unconditional";
+        assertWorkflowFailure(
+          contract,
+          source,
+          `rs/rs_test rejects deleting ${stepName}`,
+          (value) =>
+            mutateJob(value, "rs_test", `        run: ${command}`, "        run: echo skipped"),
+          needle,
+        );
+        assertWorkflowFailure(
+          contract,
+          source,
+          `rs/rs_test rejects parking ${stepName}`,
+          (value) =>
+            mutateJob(
+              value,
+              "rs_test",
+              `      - name: ${stepName}`,
+              `      - name: ${stepName}\n        if: false`,
+            ),
+          needle,
+        );
+        assertWorkflowFailure(
+          contract,
+          source,
+          `rs/rs_test rejects soft-failing ${stepName}`,
+          (value) =>
+            mutateJob(
+              value,
+              "rs_test",
+              `      - name: ${stepName}`,
+              `      - name: ${stepName}\n        continue-on-error: true`,
+            ),
+          needle,
+        );
       }
     }
   }
