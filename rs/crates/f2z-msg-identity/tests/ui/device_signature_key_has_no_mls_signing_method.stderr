@@ -1,0 +1,5 @@
+error[E0599]: no method named `sign_mls_content` found for reference `&DeviceSignatureKey` in the current scope
+ --> tests/ui/device_signature_key_has_no_mls_signing_method.rs:4:17
+  |
+4 |     let _ = key.sign_mls_content(b"caller-chosen MLS bytes");
+  |                 ^^^^^^^^^^^^^^^^ method not found in `&DeviceSignatureKey`
