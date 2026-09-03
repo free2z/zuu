@@ -509,6 +509,30 @@ fn a_valid_lookup_verifies_against_a_witness_cosigned_root_and_pins() {
     assert!(!client.alarms().has_outstanding_critical());
 }
 
+#[test]
+fn two_handle_lookups_accept_the_same_complete_head_as_a_no_op() {
+    let mut deployment = Deployment::new("client-same-head-two-handles");
+    deployment.cosign(NOW);
+    deployment.register("alice", 1);
+    deployment.register("bob", 2);
+    deployment.cosign(NOW + 1);
+
+    let mut client = deployment.client(1);
+    let epoch = client.view().epoch();
+    let alice = client.resolve(&handle("alice"), NOW + 2).unwrap();
+    assert_eq!(alice.resolved().unwrap().handle().as_slice(), b"alice");
+    assert_eq!(client.view().epoch(), epoch);
+
+    // The real log serves the same latest SignedTreeHead with this other
+    // handle's proof. The repeat is a no-op at the log view while the proof and
+    // per-handle pin remain independently verified.
+    let bob = client.resolve(&handle("bob"), NOW + 3).unwrap();
+    assert_eq!(bob.resolved().unwrap().handle().as_slice(), b"bob");
+    assert_eq!(client.view().epoch(), epoch);
+    assert!(client.pins().get(&handle("alice")).is_some());
+    assert!(client.pins().get(&handle("bob")).is_some());
+}
+
 // ---------------------------------------------------------------------------
 // 2. A tampered proof.
 // ---------------------------------------------------------------------------

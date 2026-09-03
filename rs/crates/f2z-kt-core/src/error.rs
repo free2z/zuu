@@ -179,7 +179,7 @@ pub enum KtError {
     Cooldown,
     /// §6.3: `epoch`, `tree_size` or `published_at_ms` moved backwards.
     Rollback,
-    /// §6.3 rule 8: the same epoch with a different root, size or timestamp.
+    /// §6.3: the same epoch with any difference in the complete signed head.
     /// Fatal, and it is fork evidence.
     Fork,
     /// §7.2: **one witness signed two contradictory statements** about one
@@ -272,7 +272,7 @@ impl fmt::Display for KtError {
             Self::DuplicateInEpoch => "a second entry for this handle in this epoch (KT.md §4.3)",
             Self::Cooldown => "platform_reset before effective_at_ms (KT.md §4.4)",
             Self::Rollback => "tree head moved backwards (KT.md §6.3)",
-            Self::Fork => "two different tree heads for one epoch (KT.md §6.3 rule 8)",
+            Self::Fork => "two different complete tree heads for one epoch (KT.md §6.3)",
             Self::WitnessEquivocation => {
                 "one witness signed two contradictory statements for one epoch (KT.md §7.2)"
             }

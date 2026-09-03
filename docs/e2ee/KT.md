@@ -1685,12 +1685,18 @@ costs a few bytes an epoch.
 
 ### 6.3 Monotonicity
 
-A `SignedTreeHead` is acceptable to a client or witness **only if all of the
-following hold** against the last one it accepted for this `log_id`:
+A `SignedTreeHead` is acceptable to a client or witness only under the branch
+below against the last one it accepted for this `log_id`:
 
 1. `signature` verifies under the log key currently accepted for `log_id` (§6.4).
 2. `label`, `kt_version`, `log_id` are exact.
-3. `epoch > last.epoch`.
+
+<!-- kt-sth-repeat-contract:start -->
+3. Branch on `epoch`:
+   - If `epoch < last.epoch`, the head is a rollback and is fatal.
+   - If `epoch == last.epoch`, apply rule 8 and stop; rules 4–7 are
+     advancement-only.
+   - Only if `epoch > last.epoch`, continue with rules 4–7.
 4. `tree_size >= last.tree_size`.
 5. `published_at_ms > last.published_at_ms`.
 6. `vrf_public_key == last.vrf_public_key`.
@@ -1699,10 +1705,15 @@ following hold** against the last one it accepted for this `log_id`:
    If `epoch > last.epoch + 1`, the verifier MUST fetch every intervening tree
    head and check the chain link by link. **It MUST NOT skip.** A gap accepted on
    trust is a branch accepted on trust.
-8. If `epoch == last.epoch`: `root_hash`, `tree_size` and `published_at_ms` must
-   all be **identical**. Anything else is a fork and is fatal (§7.3).
+8. For `epoch == last.epoch`, the complete `SignedTreeHead` — every field of
+   `SignedTreeHeadTBS` and `signature` — MUST be identical to the last accepted
+   value. An identical re-presentation is an idempotent no-op. Any difference is
+   fork evidence and is fatal (§7.3). Equality is over the canonical protocol
+   structure; implementations MUST NOT define a second encoding or compare a
+   selected field subset.
+<!-- kt-sth-repeat-contract:end -->
 
-Rules 3 and 8 together are the rollback and fork tests. A client MUST apply them
+Rules 3 and 8 together are the rollback and fork test. A client MUST apply them
 too, not only a witness — they are cheap, they need no proof, and they are the
 only part of the log's honesty a client can check unaided.
 
@@ -1861,7 +1872,7 @@ evidence**.
 ```
 enum {
     rollback(1),               /* epoch or root moved backwards           */
-    fork(2),                   /* same epoch, different root or size      */
+    fork(2),                   /* same epoch, different complete STH      */
     chain_break(3),            /* prev_sth_hash does not connect          */
     bad_signature(4),          /* STH or key-transition signature invalid */
     append_only_failure(5),    /* audit_verify rejected                   */

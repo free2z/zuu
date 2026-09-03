@@ -151,6 +151,10 @@ impl SignedTreeHead {
 pub struct LogView {
     log_id: LogId,
     accepted_log_pk: PublicKey,
+    /// The canonical value that passed verification most recently. Keeping the
+    /// decoded structure means repeat equality uses the protocol type itself,
+    /// not a second encoding or a hand-maintained subset of its fields.
+    last_head: SignedTreeHead,
     epoch: u64,
     tree_size: u64,
     root_hash: Digest,
@@ -179,6 +183,7 @@ impl LogView {
         Ok(Self {
             log_id,
             accepted_log_pk,
+            last_head: head.clone(),
             epoch: head.sth.epoch,
             tree_size: head.sth.tree_size,
             root_hash: head.sth.root_hash,
@@ -230,18 +235,19 @@ impl LogView {
         &self.vrf_public_key
     }
 
-    /// Apply §6.3 in full and advance to `head`.
+    /// Apply §6.3 in full and, for a later epoch, advance to `head`.
     ///
     /// The eight rules, in §6.3's order:
     ///
     /// 1. the signature verifies under the currently accepted log key;
     /// 2. `label`, `kt_version` and `log_id` are exact;
-    /// 3. `epoch > last.epoch`;
+    /// 3. an older epoch is a rollback; at the same epoch only the complete
+    ///    previously accepted [`SignedTreeHead`] is an idempotent no-op;
     /// 4. `tree_size >= last.tree_size`;
     /// 5. `published_at_ms > last.published_at_ms`;
     /// 6. `vrf_public_key == last.vrf_public_key`;
     /// 7. the `prev_sth_hash` chain connects, with **no skipping** over a gap;
-    /// 8. an equal epoch must be byte-identical in root, size and timestamp.
+    /// 8. any other valid head at the same epoch is fork evidence.
     ///
     /// # Errors
     ///
@@ -260,20 +266,18 @@ impl LogView {
         // Rules 1 and 2.
         head.verify(&self.log_id, &self.accepted_log_pk)?;
 
-        // Rule 8 first among the ordering rules, because a repeat of the epoch
-        // we already hold is either a no-op or the single most important thing
-        // this function can detect, and reporting it as a rollback would name
-        // the wrong fault in the evidence a witness publishes.
+        // Rule 8 first among the ordering rules. Equality is over the canonical
+        // protocol value itself: every TBS field and the signature, with no
+        // alternate encoding and no subset that can drift as fields are added.
+        // kt-sth-repeat-runtime:start
         if head.sth.epoch == self.epoch {
-            if head.sth.root_hash == self.root_hash
-                && head.sth.tree_size == self.tree_size
-                && head.sth.published_at_ms == self.published_at_ms
-            {
-                // The same head again. Idempotent, and not an advance.
-                return Ok(());
-            }
-            return Err(KtError::Fork);
+            return if head == &self.last_head {
+                Ok(())
+            } else {
+                Err(KtError::Fork)
+            };
         }
+        // kt-sth-repeat-runtime:end
         // Rule 3.
         if head.sth.epoch < self.epoch {
             return Err(KtError::Rollback);
@@ -299,6 +303,7 @@ impl LogView {
             return Err(KtError::ChainBreak);
         }
 
+        self.last_head = head.clone();
         self.epoch = head.sth.epoch;
         self.tree_size = head.sth.tree_size;
         self.root_hash = head.sth.root_hash;
@@ -502,18 +507,99 @@ mod tests {
     }
 
     #[test]
-    fn the_same_head_twice_is_idempotent_and_a_different_one_is_a_fork() {
+    fn the_same_complete_head_twice_is_idempotent() {
         let log = TestLog::new();
         let mut view = LogView::pin(*log.log_id(), *log.log_pk(), &log.head(0)).unwrap();
         view.accept(&log.head(1)).unwrap();
         assert_eq!(view.accept(&log.head(1)), Ok(()));
+    }
 
-        // §6.3 rule 8: same epoch, different root. Fatal, and it is exactly the
-        // evidence §8.4 says two gossiping clients would exchange.
-        let mut forked = log.head(1);
-        forked.sth.root_hash = Digest::new([0xaa; 32]);
-        let forked = log.resign(forked);
-        assert_eq!(view.accept(&forked), Err(KtError::Fork));
+    #[test]
+    fn every_mutable_signed_field_is_part_of_same_epoch_equality() {
+        type Mutation = (&'static str, fn(&mut SignedTreeHeadTBS));
+
+        // kt-sth-repeat-field-tests:start
+        let mutations: [Mutation; 9] = [
+            ("tree_size", |sth| {
+                sth.tree_size = sth.tree_size.saturating_add(1)
+            }),
+            ("root_hash", |sth| sth.root_hash = Digest::new([0xaa; 32])),
+            ("prev_sth_hash", |sth| {
+                sth.prev_sth_hash = Digest::new([0xbb; 32])
+            }),
+            ("vrf_public_key", |sth| {
+                sth.vrf_public_key = PublicKey::new([0xcc; 32])
+            }),
+            ("published_at_ms", |sth| {
+                sth.published_at_ms = sth.published_at_ms.saturating_add(1);
+            }),
+            ("reset_count", |sth| {
+                sth.reset_count = sth.reset_count.saturating_add(1)
+            }),
+            ("epoch_interval_seconds", |sth| {
+                sth.epoch_interval_seconds = sth.epoch_interval_seconds.saturating_add(1);
+            }),
+            ("max_merge_delay_seconds", |sth| {
+                sth.max_merge_delay_seconds = sth.max_merge_delay_seconds.saturating_add(1);
+            }),
+            ("successor_log_pk", |sth| {
+                sth.successor_log_pk = PublicKey::new([0xdd; 32]);
+            }),
+        ];
+        // kt-sth-repeat-field-tests:end
+
+        for (field, mutate) in mutations {
+            let log = TestLog::new();
+            let accepted = log.head(1);
+            let mut view = LogView::pin(*log.log_id(), *log.log_pk(), &log.head(0)).unwrap();
+            view.accept(&accepted).unwrap();
+
+            let mut alternative = accepted.clone();
+            mutate(&mut alternative.sth);
+            let alternative = log.resign(alternative);
+            assert_eq!(
+                view.accept(&alternative),
+                Err(KtError::Fork),
+                "same-epoch mutation of {field} escaped complete-head equality",
+            );
+            assert_eq!(
+                view.accept(&accepted),
+                Ok(()),
+                "{field} mutation changed the view"
+            );
+        }
+    }
+
+    #[test]
+    fn same_epoch_type_identity_and_signature_are_verified_before_equality() {
+        let log = TestLog::new();
+        let accepted = log.head(1);
+        let mut view = LogView::pin(*log.log_id(), *log.log_pk(), &log.head(0)).unwrap();
+        view.accept(&accepted).unwrap();
+
+        let mut wrong_label = accepted.clone();
+        wrong_label.sth.label = ShortBytes::new(b"free2z/kt/v1/not-sth".to_vec()).unwrap();
+        assert_eq!(
+            view.accept(&log.resign(wrong_label)),
+            Err(KtError::WrongLabel)
+        );
+
+        let mut wrong_version = accepted.clone();
+        wrong_version.sth.kt_version = KT_VERSION.saturating_add(1);
+        assert_eq!(
+            view.accept(&log.resign(wrong_version)),
+            Err(KtError::UnsupportedVersion)
+        );
+
+        let mut wrong_log = accepted.clone();
+        wrong_log.sth.log_id = LogId::new([0xee; 32]);
+        assert_eq!(view.accept(&log.resign(wrong_log)), Err(KtError::WrongLog));
+
+        let mut bad_signature = accepted.clone();
+        bad_signature.signature = Signature::new([0xff; 64]);
+        assert_eq!(view.accept(&bad_signature), Err(KtError::BadSignature));
+
+        assert_eq!(view.accept(&accepted), Ok(()));
     }
 
     #[test]
