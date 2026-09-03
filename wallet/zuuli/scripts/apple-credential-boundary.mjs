@@ -188,6 +188,167 @@ const GITHUB_RELEASE_PUBLISHER_CRITICAL_SEQUENCE = [
   "reverify_tag_identity",
 ];
 
+// The sealed publisher delegates its two source-identity decisions to these
+// shell programs. Seal their entire raw and normalized executable surfaces as
+// part of the same trust boundary; otherwise a production-only branch in a
+// helper can preserve every reviewed call site while making the call a no-op.
+const RELEASE_TAG_VERIFIER_SHA256 =
+  "a82cd7281ae86e05b42c20516c5c4b2fb8c6ab0e51d3e63bfa610d3c8472e320";
+const RELEASE_TAG_VERIFIER_EXECUTABLE_SHA256 =
+  "939473718b25200d12a9b819e00bd0e7b83e72692eecd9543ac1634e4652a6a9";
+const RELEASE_TAG_VERIFIER_EXECUTABLE_PROGRAM = [
+  "#!/usr/bin/env bash",
+  "set -euo pipefail",
+  "umask 077",
+  "if [[ $# -ne 3 ]]; then",
+  'echo "usage: scripts/verify-release-tag.sh <tag> <expected-commit> <metadata-output>" >&2',
+  "exit 64",
+  "fi",
+  "tag=$1",
+  "expected_commit=$2",
+  "metadata_output=$3",
+  "remote=${RELEASE_TAG_REMOTE:-origin}",
+  '[[ "$tag" =~ ^zuuli-v[0-9]+\\.[0-9]+\\.[0-9]+\\+[0-9]+$ ]] || {',
+  'echo "invalid ZUULI release tag: $tag" >&2',
+  "exit 65",
+  "}",
+  '[[ "$expected_commit" =~ ^[0-9a-f]{40}$ ]] || {',
+  'echo "expected release commit must be a full lowercase SHA-1" >&2',
+  "exit 65",
+  "}",
+  'tag_ref="refs/tags/$tag"',
+  'peeled_ref="$tag_ref^{}"',
+  'remote_refs=$(git ls-remote --tags "$remote" "$tag_ref" "$peeled_ref")',
+  'tag_object=$(awk -v ref="$tag_ref" \'$2 == ref { print $1 }\' <<<"$remote_refs")',
+  'peeled_commit=$(awk -v ref="$peeled_ref" \'$2 == ref { print $1 }\' <<<"$remote_refs")',
+  '[[ "$tag_object" =~ ^[0-9a-f]{40}$ ]] || {',
+  'echo "required annotated release tag is missing on $remote: $tag" >&2',
+  "exit 66",
+  "}",
+  '[[ "$peeled_commit" =~ ^[0-9a-f]{40}$ ]] || {',
+  'echo "release tag must be annotated and peel to a commit: $tag" >&2',
+  "exit 65",
+  "}",
+  'verification_ref="refs/zuuli-release-verification/${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-$$"',
+  "trap 'git update-ref -d \"$verification_ref\" >/dev/null 2>&1 || true' EXIT",
+  'git fetch --quiet --no-tags "$remote" "+$tag_ref:$verification_ref"',
+  'fetched_object=$(git rev-parse "$verification_ref")',
+  '[[ "$fetched_object" == "$tag_object" ]] || {',
+  'echo "release tag moved while its identity was being verified" >&2',
+  "exit 75",
+  "}",
+  '[[ "$(git cat-file -t "$fetched_object")" == tag ]] || {',
+  'echo "release tag must point through an annotated tag object" >&2',
+  "exit 65",
+  "}",
+  'fetched_commit=$(git rev-parse "$verification_ref^{}")',
+  '[[ "$(git cat-file -t "$fetched_commit")" == commit ]] || {',
+  'echo "release tag does not peel to a commit" >&2',
+  "exit 65",
+  "}",
+  '[[ "$fetched_commit" == "$peeled_commit" ]] || {',
+  'echo "remote release tag peel changed while its identity was being verified" >&2',
+  "exit 75",
+  "}",
+  '[[ "$peeled_commit" == "$expected_commit" ]] || {',
+  'echo "release tag $tag resolves to $peeled_commit, not prepared commit $expected_commit" >&2',
+  "exit 65",
+  "}",
+  'mkdir -p "$(dirname "$metadata_output")"',
+  "printf '{\\n  \"schemaVersion\": 1,\\n  \"tag\": \"%s\",\\n  \"tagObject\": \"%s\",\\n  \"peeledCommit\": \"%s\",\\n  \"expectedCommit\": \"%s\"\\n}\\n' \\",
+  '"$tag" "$tag_object" "$peeled_commit" "$expected_commit" > "$metadata_output"',
+].join("\n");
+const RELEASE_INDEX_VERIFIER_SHA256 =
+  "e73aa7b0dd078b7aa45b7336a8f7bf11b988122b202a3178848e7cfee0287982";
+const RELEASE_INDEX_VERIFIER_EXECUTABLE_SHA256 =
+  "b75dc6ab109918140733c3a7cd050f9b12fdc7ae88169c0cb47ccad924c3ff80";
+const RELEASE_INDEX_VERIFIER_EXECUTABLE_PROGRAM = [
+  "#!/usr/bin/env bash",
+  "set -euo pipefail",
+  "if [[ $# -ne 4 ]]; then",
+  'echo "usage: scripts/verify-release-index.sh <artifact-root> <identity> <expected-commit> <target>" >&2',
+  "exit 64",
+  "fi",
+  "artifact_root=$1",
+  "identity=$2",
+  "expected_commit=$3",
+  "target=$4",
+  '[[ -d "$artifact_root" ]] || { echo "artifact root does not exist: $artifact_root" >&2; exit 66; }',
+  '[[ "$identity" =~ ^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\+(0|[1-9][0-9]*)$ ]] || {',
+  'echo "invalid release identity: $identity" >&2',
+  "exit 65",
+  "}",
+  '[[ "$expected_commit" =~ ^[0-9a-f]{40}$ ]] || {',
+  'echo "expected commit must be a full lowercase SHA-1" >&2',
+  "exit 65",
+  "}",
+  'case "$target" in',
+  "mobile) expected_platforms=(android ios) ;;",
+  "ios) expected_platforms=(ios) ;;",
+  "android) expected_platforms=(android) ;;",
+  "desktop) expected_platforms=(linux macos) ;;",
+  "all) expected_platforms=(android ios linux macos) ;;",
+  '*) echo "invalid release target: $target" >&2; exit 65 ;;',
+  "esac",
+  'observed_platforms=""',
+  "artifact_count=0",
+  'for directory in "$artifact_root"/*; do',
+  '[[ -e "$directory" ]] || continue',
+  'name=$(basename "$directory")',
+  'case "$name" in',
+  '"zuuli-android-$identity-$expected_commit") platform=android ;;',
+  '"zuuli-ios-$identity-$expected_commit") platform=ios ;;',
+  '"zuuli-linux-$identity-$expected_commit") platform=linux ;;',
+  '"zuuli-macos-$identity-$expected_commit") platform=macos ;;',
+  "*)",
+  'echo "unexpected release-index entry: $name" >&2',
+  "exit 65",
+  ";;",
+  "esac",
+  "platform_selected=false",
+  'for expected_platform in "${expected_platforms[@]}"; do',
+  '[[ "$platform" == "$expected_platform" ]] && platform_selected=true',
+  "done",
+  '[[ "$platform_selected" == true ]] || {',
+  'echo "release index contains unselected platform artifact: $name" >&2',
+  "exit 65",
+  "}",
+  '[[ " $observed_platforms " != *" $platform "* ]] || {',
+  'echo "release index contains duplicate platform artifact: $platform" >&2',
+  "exit 65",
+  "}",
+  'observed_platforms="$observed_platforms $platform"',
+  '[[ -d "$directory" ]] || { echo "release artifact is not a directory: $name" >&2; exit 65; }',
+  '[[ -f "$directory/provenance.json" ]] || {',
+  'echo "release artifact has no top-level provenance.json: $name" >&2',
+  "exit 65",
+  "}",
+  "provenance_count=0",
+  "while IFS= read -r -d '' manifest; do",
+  'jq -e --arg sha "$expected_commit" \'.source.commit == $sha\' "$manifest" >/dev/null || {',
+  'echo "release provenance is not bound to expected commit: $name" >&2',
+  "exit 65",
+  "}",
+  "provenance_count=$((provenance_count + 1))",
+  'done < <(find "$directory" -type f -name provenance.json -print0)',
+  '[[ "$provenance_count" -eq 1 ]] || {',
+  'echo "release artifact must contain exactly one provenance.json: $name" >&2',
+  "exit 65",
+  "}",
+  "artifact_count=$((artifact_count + 1))",
+  "done",
+  'for platform in "${expected_platforms[@]}"; do',
+  '[[ " $observed_platforms " == *" $platform "* ]] || {',
+  'echo "release index is missing selected platform artifact: $platform" >&2',
+  "exit 65",
+  "}",
+  "done",
+  '[[ "$artifact_count" -eq "${#expected_platforms[@]}" ]] || {',
+  'echo "release index artifact count does not match target: $target" >&2',
+  "exit 65",
+  "}",
+].join("\n");
+
 // These four inherited/root controls sit outside the protected job nodes but
 // can change when or how they execute. Bind their exact reviewed YAML source so
 // triggers, global permissions, serialization, and inherited environment
@@ -289,10 +450,10 @@ export function githubReleasePublisherDigest(source) {
 }
 
 export function githubReleasePublisherExecutableDigest(source) {
-  return sha256(githubReleasePublisherExecutableProgram(source));
+  return sha256(shellExecutableProgram(source));
 }
 
-function githubReleasePublisherExecutableProgram(source) {
+function shellExecutableProgram(source) {
   const executableLines = [];
   let continued = false;
   for (const [index, rawLine] of source.split("\n").entries()) {
@@ -333,7 +494,7 @@ export function verifyGithubReleasePublisher(
     );
   }
 
-  const executableProgram = githubReleasePublisherExecutableProgram(source);
+  const executableProgram = shellExecutableProgram(source);
   if (executableProgram !== GITHUB_RELEASE_PUBLISHER_EXECUTABLE_PROGRAM) {
     failures.push(
       "GitHub release publisher executable statements differ from the exact reviewed program",
@@ -358,6 +519,81 @@ export function verifyGithubReleasePublisher(
     );
   }
   return failures;
+}
+
+function verifyExactShellProgram(
+  source,
+  {
+    label,
+    expectedDigest,
+    expectedExecutableDigest,
+    expectedExecutableProgram,
+  },
+) {
+  const failures = [];
+  const actualDigest = sha256(source);
+  if (actualDigest !== expectedDigest) {
+    failures.push(
+      `${label} execution program changed: expected ${expectedDigest}, got ${actualDigest}`,
+    );
+  }
+  const executableProgram = shellExecutableProgram(source);
+  const actualExecutableDigest = sha256(executableProgram);
+  if (actualExecutableDigest !== expectedExecutableDigest) {
+    failures.push(
+      `${label} executable program changed: expected ${expectedExecutableDigest}, got ${actualExecutableDigest}`,
+    );
+  }
+  if (executableProgram !== expectedExecutableProgram) {
+    failures.push(`${label} executable statements differ from the exact reviewed program`);
+  }
+  return failures;
+}
+
+export function releaseTagVerifierDigest(source) {
+  return sha256(source);
+}
+
+export function releaseTagVerifierExecutableDigest(source) {
+  return sha256(shellExecutableProgram(source));
+}
+
+export function verifyReleaseTagVerifier(
+  source,
+  {
+    expectedDigest = RELEASE_TAG_VERIFIER_SHA256,
+    expectedExecutableDigest = RELEASE_TAG_VERIFIER_EXECUTABLE_SHA256,
+  } = {},
+) {
+  return verifyExactShellProgram(source, {
+    label: "Release-tag verifier",
+    expectedDigest,
+    expectedExecutableDigest,
+    expectedExecutableProgram: RELEASE_TAG_VERIFIER_EXECUTABLE_PROGRAM,
+  });
+}
+
+export function releaseIndexVerifierDigest(source) {
+  return sha256(source);
+}
+
+export function releaseIndexVerifierExecutableDigest(source) {
+  return sha256(shellExecutableProgram(source));
+}
+
+export function verifyReleaseIndexVerifier(
+  source,
+  {
+    expectedDigest = RELEASE_INDEX_VERIFIER_SHA256,
+    expectedExecutableDigest = RELEASE_INDEX_VERIFIER_EXECUTABLE_SHA256,
+  } = {},
+) {
+  return verifyExactShellProgram(source, {
+    label: "Release-index verifier",
+    expectedDigest,
+    expectedExecutableDigest,
+    expectedExecutableProgram: RELEASE_INDEX_VERIFIER_EXECUTABLE_PROGRAM,
+  });
 }
 
 function exactReleaseIndexSteps(node) {
@@ -1116,9 +1352,13 @@ export function verifyAppleCredentialBoundary(
 async function main() {
   const workflowUrl = new URL("../../../.github/workflows/zuuli-release.yml", import.meta.url);
   const publisherUrl = new URL("./publish-github-release.sh", import.meta.url);
+  const tagVerifierUrl = new URL("./verify-release-tag.sh", import.meta.url);
+  const indexVerifierUrl = new URL("./verify-release-index.sh", import.meta.url);
   const failures = [
     ...verifyAppleCredentialBoundary(await readFile(workflowUrl, "utf8")),
     ...verifyGithubReleasePublisher(await readFile(publisherUrl, "utf8")),
+    ...verifyReleaseTagVerifier(await readFile(tagVerifierUrl, "utf8")),
+    ...verifyReleaseIndexVerifier(await readFile(indexVerifierUrl, "utf8")),
   ];
   if (failures.length > 0) {
     console.error("Store-release credential boundary verification failed:");

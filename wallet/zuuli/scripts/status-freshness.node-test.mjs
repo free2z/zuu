@@ -18,7 +18,9 @@ import {
 import {
   isReleaseImpactingPath,
   parseStatusMarker,
+  releasingEvidenceDocumentDigest,
   releaseBumpPaths,
+  statusEvidenceDocumentDigest,
   verifyReleaseEvidencePolicy,
   verifyStatusFreshness,
 } from "./status-freshness.mjs";
@@ -541,6 +543,84 @@ for (const [name, open, close] of [
     );
   });
 }
+
+function assertReanchoredEvidenceMutationRejected(
+  name,
+  mutateDocs,
+  mutateStatus,
+) {
+  test(`rejects after document seals are reanchored: ${name}`, () => {
+    const releasingContents = mutateDocs(releaseEvidencePolicyFixture);
+    const statusContents = mutateStatus(marker("a".repeat(40)));
+    let message = "";
+    try {
+      verifyReleaseEvidencePolicy({
+        releasingContents,
+        statusContents,
+        expectedReleasingDigest: releasingEvidenceDocumentDigest(releasingContents),
+        expectedStatusDigest: statusEvidenceDocumentDigest(statusContents),
+      });
+      assert.fail("reanchored document mutation was accepted");
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    assert.match(message, /found 0 rendered/);
+    assert.doesNotMatch(
+      message,
+      /differs from the exact reviewed/,
+      "document digests were not fully reanchored",
+    );
+  });
+}
+
+const noBlankTypeSixBefore = (contents, heading) => contents.replace(
+  `${heading}\n`,
+  `<div>\n</div>\n${heading}\n`,
+);
+const inlineDetailsAround = (contents, heading, nextHeading) => contents
+  .replace(
+    `${heading}\n`,
+    `ordinary <details open>\n\n${heading}\n`,
+  )
+  .replace(
+    `${nextHeading}\n`,
+    `${nextHeading}\n\nordinary </details>\n`,
+  );
+
+assertReanchoredEvidenceMutationRejected(
+  "type-6 close without blank keeps the releasing heading raw",
+  (contents) => noBlankTypeSixBefore(
+    contents,
+    "## Pre-merge execution evidence for release steps",
+  ),
+  (contents) => contents,
+);
+assertReanchoredEvidenceMutationRejected(
+  "type-6 close without blank keeps the STATUS heading raw",
+  (contents) => contents,
+  (contents) => noBlankTypeSixBefore(
+    contents,
+    "## Release-path execution disposition",
+  ),
+);
+assertReanchoredEvidenceMutationRejected(
+  "inline details container hides the releasing headings",
+  (contents) => inlineDetailsAround(
+    contents,
+    "## Pre-merge execution evidence for release steps",
+    "## SBOM scope and artifact binding",
+  ),
+  (contents) => contents,
+);
+assertReanchoredEvidenceMutationRejected(
+  "inline details container hides the STATUS headings",
+  (contents) => contents,
+  (contents) => inlineDetailsAround(
+    contents,
+    "## Release-path execution disposition",
+    "## Source-and-runtime-backed matrix",
+  ),
+);
 
 assertEvidenceMutationRejected(
   "unreviewed backtick-bearing non-fence line",

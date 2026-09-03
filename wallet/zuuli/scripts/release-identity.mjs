@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 import {
   verifyAppleCredentialBoundary,
   verifyGithubReleasePublisher,
+  verifyReleaseIndexVerifier,
+  verifyReleaseTagVerifier,
 } from "./apple-credential-boundary.mjs";
 import { artifactSbomWorkflowFailures } from "./artifact-sbom.mjs";
 
@@ -249,6 +251,7 @@ const ascTestFlight = read("scripts/asc-testflight.mjs");
 const gateWorkflow = read("../../.github/workflows/zuuli.yml");
 const releaseWorkflow = read("../../.github/workflows/zuuli-release.yml");
 const githubReleasePublisher = read("scripts/publish-github-release.sh");
+const releaseTagVerifier = read("scripts/verify-release-tag.sh");
 const releaseIndexVerifier = read("scripts/verify-release-index.sh");
 const testFlightRecoveryWorkflow = read(
   "../../.github/workflows/zuuli-testflight-recovery.yml",
@@ -643,6 +646,10 @@ for (const boundaryFailure of verifyAppleCredentialBoundary(releaseWorkflow))
   failures.push(`Apple credential boundary: ${boundaryFailure}`);
 for (const publisherFailure of verifyGithubReleasePublisher(githubReleasePublisher))
   failures.push(`GitHub release publisher: ${publisherFailure}`);
+for (const verifierFailure of verifyReleaseTagVerifier(releaseTagVerifier))
+  failures.push(`Release-tag verifier: ${verifierFailure}`);
+for (const verifierFailure of verifyReleaseIndexVerifier(releaseIndexVerifier))
+  failures.push(`Release-index verifier: ${verifierFailure}`);
 if (mobileRelease.includes("tauri ios build") || mobileRelease.includes("platform == ios"))
   failures.push("mobile-release.sh must not recombine iOS credentials with dependency-controlled builds");
 for (const preservedContract of [

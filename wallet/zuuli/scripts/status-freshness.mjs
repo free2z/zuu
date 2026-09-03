@@ -143,6 +143,14 @@ function canonicalStatusDocument(contents) {
   return contents.replace(statusSourceMarkerPattern, canonicalStatusSourceMarker);
 }
 
+export function releasingEvidenceDocumentDigest(contents) {
+  return sha256(contents);
+}
+
+export function statusEvidenceDocumentDigest(contents) {
+  return sha256(canonicalStatusDocument(contents));
+}
+
 // CommonMark 0.31.2 §4.6 type-6 block tags. Type 1 (script/pre/style/textarea)
 // and the other raw block forms are handled separately below.
 const commonMarkHtmlBlockTags = [
@@ -156,7 +164,7 @@ const commonMarkHtmlBlockTags = [
   "thead", "title", "tr", "track", "ul",
 ];
 const commonMarkHtmlBlockTagPattern = new RegExp(
-  `^ {0,3}<\\/?(?:${commonMarkHtmlBlockTags.join("|")})(?:[ \\t]|\\/?>(?:[ \\t]*)$|$)`,
+  `^ {0,3}<\\/?(?:${commonMarkHtmlBlockTags.join("|")})(?:[ \\t]|\\/?>|$)`,
   "i",
 );
 const commonMarkGenericHtmlBlockPattern = /^ {0,3}<\/?[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*?)?\s*\/?>\s*$/;
@@ -167,17 +175,55 @@ const htmlVoidElements = new Set([
 ]);
 
 // Tokenize HTML tags the way a browser does for the subset relevant to raw
-// CommonMark blocks. In particular, `>` and `/>` inside quoted attributes do
-// not end a tag, and a self-closing slash does not close a non-void HTML
-// element such as <details>.
-function rawHtmlTags(text) {
-  const indentation = /^( {0,3})</.exec(text);
-  if (!indentation) return { tags: [], valid: true };
+// CommonMark blocks and inline container tags. In particular, `>` and `/>`
+// inside quoted attributes do not end a tag, and a self-closing slash does not
+// close a non-void HTML element such as <details>.
+function maskInlineCodeSpans(text) {
+  const masked = [...text];
+  for (let cursor = 0; cursor < text.length;) {
+    const open = text.indexOf("`", cursor);
+    if (open < 0) break;
+    let openEnd = open;
+    while (text[openEnd] === "`") openEnd += 1;
+    const length = openEnd - open;
+    let search = openEnd;
+    let close = -1;
+    while (search < text.length) {
+      const candidate = text.indexOf("`", search);
+      if (candidate < 0) break;
+      let candidateEnd = candidate;
+      while (text[candidateEnd] === "`") candidateEnd += 1;
+      if (candidateEnd - candidate === length) {
+        close = candidateEnd;
+        break;
+      }
+      search = candidateEnd;
+    }
+    if (close < 0) {
+      cursor = openEnd;
+      continue;
+    }
+    masked.fill(" ", open, close);
+    cursor = close;
+  }
+  return masked.join("");
+}
+
+function browserHtmlTags(source) {
+  const text = maskInlineCodeSpans(source);
   const tags = [];
-  let cursor = indentation[1].length;
+  let cursor = 0;
   while (cursor < text.length) {
     const start = text.indexOf("<", cursor);
     if (start < 0) break;
+    let escapes = 0;
+    for (let index = start - 1; index >= 0 && text[index] === "\\"; index -= 1) {
+      escapes += 1;
+    }
+    if (escapes % 2 === 1) {
+      cursor = start + 1;
+      continue;
+    }
     let index = start + 1;
     let closing = false;
     if (text[index] === "/") {
@@ -192,7 +238,12 @@ function rawHtmlTags(text) {
     }
     const name = nameMatch[0].toLowerCase();
     index += nameMatch[0].length;
-    if (!/[\s/>]/.test(text[index] ?? "")) return { tags, valid: false };
+    // Autolinks and ordinary less-than text are not HTML tags. Once a valid
+    // tag name is followed by HTML tag syntax, however, parse it strictly.
+    if (!/[\s/>]/.test(text[index] ?? "")) {
+      cursor = start + 1;
+      continue;
+    }
     let quote = null;
     let end = -1;
     for (; index < text.length; index += 1) {
@@ -306,19 +357,11 @@ function markdownTopLevel(contents) {
       continue;
     }
 
-    const tokenizedHtml = rawHtmlTags(rendered);
-    if (!tokenizedHtml.valid) validHtml = false;
-    const wasInHtmlContainer = htmlStack.length > 0;
-    if (tokenizedHtml.tags.length > 0) {
-      validHtml = updateHtmlStack(htmlStack, tokenizedHtml) && validHtml;
-    }
     if (rawBlock?.kind === "blank") {
+      const tokenizedHtml = browserHtmlTags(rendered);
+      validHtml = tokenizedHtml.valid &&
+        updateHtmlStack(htmlStack, tokenizedHtml) && validHtml;
       if (text.trim().length === 0) rawBlock = null;
-      offset += rawLine.length;
-      previousVisible = null;
-      continue;
-    }
-    if (wasInHtmlContainer || htmlStack.length > 0 || tokenizedHtml.tags.some((tag) => tag.closing)) {
       offset += rawLine.length;
       previousVisible = null;
       continue;
@@ -344,6 +387,27 @@ function markdownTopLevel(contents) {
       startedRawBlock = true;
     }
     if (startedRawBlock) {
+      if (rawBlock?.kind === "blank") {
+        const tokenizedHtml = browserHtmlTags(rendered);
+        validHtml = tokenizedHtml.valid &&
+          updateHtmlStack(htmlStack, tokenizedHtml) && validHtml;
+      }
+      offset += rawLine.length;
+      previousVisible = null;
+      continue;
+    }
+
+    // CommonMark permits inline raw HTML after ordinary visible text. Track
+    // those browser containers independently from raw-block recognition: an
+    // inline <details> remains open across blank lines and can hide a later
+    // Markdown heading even though it never began a raw HTML block.
+    const tokenizedHtml = browserHtmlTags(rendered);
+    if (!tokenizedHtml.valid) validHtml = false;
+    const wasInHtmlContainer = htmlStack.length > 0;
+    if (tokenizedHtml.tags.length > 0) {
+      validHtml = updateHtmlStack(htmlStack, tokenizedHtml) && validHtml;
+    }
+    if (wasInHtmlContainer || htmlStack.length > 0) {
       offset += rawLine.length;
       previousVisible = null;
       continue;
@@ -446,16 +510,18 @@ function canonicalActionLink(link) {
 export function verifyReleaseEvidencePolicy({
   releasingContents,
   statusContents,
+  expectedReleasingDigest = RELEASING_DOCUMENT_SHA256,
+  expectedStatusDigest = STATUS_DOCUMENT_SHA256,
 }) {
   const failures = [];
   const visibleStatus = markdownTopLevel(statusContents).visibleText;
-  if (sha256(releasingContents) !== RELEASING_DOCUMENT_SHA256) {
+  if (sha256(releasingContents) !== expectedReleasingDigest) {
     failures.push(
       "releasing.md differs from the exact reviewed release-policy document surface",
     );
   }
   try {
-    if (sha256(canonicalStatusDocument(statusContents)) !== STATUS_DOCUMENT_SHA256) {
+    if (sha256(canonicalStatusDocument(statusContents)) !== expectedStatusDigest) {
       failures.push(
         "STATUS.md differs from the exact reviewed status and release-evidence document surface",
       );

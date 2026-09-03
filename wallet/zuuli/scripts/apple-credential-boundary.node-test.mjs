@@ -13,11 +13,17 @@ import {
   credentialJobDigests,
   githubReleasePublisherDigest,
   githubReleasePublisherExecutableDigest,
+  releaseIndexVerifierDigest,
+  releaseIndexVerifierExecutableDigest,
   releaseIndexJobDigest,
   releaseIndexResultsAreComplete,
+  releaseTagVerifierDigest,
+  releaseTagVerifierExecutableDigest,
   releaseAuthorityDigests,
   verifyAppleCredentialBoundary,
   verifyGithubReleasePublisher,
+  verifyReleaseIndexVerifier,
+  verifyReleaseTagVerifier,
 } from "./apple-credential-boundary.mjs";
 
 const profileValidityMarkers = `
@@ -720,6 +726,101 @@ test("rejects a fully reanchored publisher without immediate pre-upload identity
     failures.join("\n"),
   );
 });
+
+const exactShellVerifiers = [
+  {
+    label: "release-tag verifier",
+    url: new URL("./verify-release-tag.sh", import.meta.url),
+    verify: verifyReleaseTagVerifier,
+    digest: releaseTagVerifierDigest,
+    executableDigest: releaseTagVerifierExecutableDigest,
+    conditionalAttack: (source) => source.replace(
+      "remote=${RELEASE_TAG_REMOTE:-origin}\n",
+      `remote=\${RELEASE_TAG_REMOTE:-origin}
+
+# This branch is dead in the ordinary fixture environment but live in the
+# credentialed GitHub release publisher.
+if [[ -n \${GH_TOKEN:-} ]]; then
+  mkdir -p "$(dirname "$metadata_output")"
+  printf '{\n  "schemaVersion": 1,\n  "tag": "%s",\n  "tagObject": "%s",\n  "peeledCommit": "%s",\n  "expectedCommit": "%s"\n}\n' \\
+    "$tag" "$expected_commit" "$expected_commit" "$expected_commit" > "$metadata_output"
+  exit 0
+fi
+`,
+    ),
+  },
+  {
+    label: "release-index verifier",
+    url: new URL("./verify-release-index.sh", import.meta.url),
+    verify: verifyReleaseIndexVerifier,
+    digest: releaseIndexVerifierDigest,
+    executableDigest: releaseIndexVerifierExecutableDigest,
+    conditionalAttack: (source) => source.replace(
+      "target=$4\n",
+      `target=$4
+
+# The production workflow uses this literal; ordinary tests use temporary
+# absolute artifact roots.
+if [[ "$artifact_root" == release-downloads ]]; then
+  exit 0
+fi
+`,
+    ),
+  },
+];
+
+for (const shellVerifier of exactShellVerifiers) {
+  test(`accepts the exact ${shellVerifier.label} executable program`, async () => {
+    const source = await readFile(shellVerifier.url, "utf8");
+    assert.deepEqual(shellVerifier.verify(source), []);
+  });
+
+  test(`rejects the fully reanchored production-only bypass in the ${shellVerifier.label}`, async () => {
+    const source = await readFile(shellVerifier.url, "utf8");
+    const mutated = shellVerifier.conditionalAttack(source);
+    assert.notEqual(mutated, source, `missing ${shellVerifier.label} conditional fixture`);
+    const failures = shellVerifier.verify(mutated, {
+      expectedDigest: shellVerifier.digest(mutated),
+      expectedExecutableDigest: shellVerifier.executableDigest(mutated),
+    });
+    assert.ok(
+      failures.some((failure) => failure.includes("exact reviewed program")),
+      failures.join("\n"),
+    );
+    assert.ok(
+      failures.every((failure) => !failure.includes("program changed:")),
+      `helper digests were not fully reanchored:\n${failures.join("\n")}`,
+    );
+  });
+
+  for (const [name, mutate] of [
+    [
+      "alternate interpreter",
+      (source) => source.replace("#!/usr/bin/env bash", "#!/bin/zsh"),
+    ],
+    [
+      "unsafe comment continuation",
+      (source) => source.replace(
+        "set -euo pipefail\n",
+        "# suppress the reviewed strict-mode statement \\\nset -euo pipefail\n",
+      ),
+    ],
+  ]) {
+    test(`rejects a fully reanchored ${name} in the ${shellVerifier.label}`, async () => {
+      const source = await readFile(shellVerifier.url, "utf8");
+      const mutated = mutate(source);
+      assert.notEqual(mutated, source, `missing ${shellVerifier.label} ${name} fixture`);
+      const failures = shellVerifier.verify(mutated, {
+        expectedDigest: shellVerifier.digest(mutated),
+        expectedExecutableDigest: shellVerifier.executableDigest(mutated),
+      });
+      assert.ok(
+        failures.some((failure) => failure.includes("exact reviewed program")),
+        failures.join("\n"),
+      );
+    });
+  }
+}
 
 test("rejects a bare Bash assertion in an Apple release job", () => {
   const mutated = validWorkflow.replace(
