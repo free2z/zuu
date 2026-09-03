@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 3 ]]; then
-  echo "usage: scripts/verify-release-index.sh <artifact-root> <identity> <expected-commit>" >&2
+if [[ $# -ne 4 ]]; then
+  echo "usage: scripts/verify-release-index.sh <artifact-root> <identity> <expected-commit> <target>" >&2
   exit 64
 fi
 
 artifact_root=$1
 identity=$2
 expected_commit=$3
+target=$4
 
 [[ -d "$artifact_root" ]] || { echo "artifact root does not exist: $artifact_root" >&2; exit 66; }
 [[ "$identity" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\+(0|[1-9][0-9]*)$ ]] || {
@@ -20,20 +21,44 @@ expected_commit=$3
   exit 65
 }
 
+case "$target" in
+  mobile) expected_platforms=(android ios) ;;
+  ios) expected_platforms=(ios) ;;
+  android) expected_platforms=(android) ;;
+  desktop) expected_platforms=(linux macos) ;;
+  all) expected_platforms=(android ios linux macos) ;;
+  *) echo "invalid release target: $target" >&2; exit 65 ;;
+esac
+
+observed_platforms=""
+
 artifact_count=0
 for directory in "$artifact_root"/*; do
   [[ -e "$directory" ]] || continue
   name=$(basename "$directory")
   case "$name" in
-    "zuuli-android-$identity-$expected_commit"|\
-    "zuuli-ios-$identity-$expected_commit"|\
-    "zuuli-linux-$identity-$expected_commit"|\
-    "zuuli-macos-$identity-$expected_commit") ;;
+    "zuuli-android-$identity-$expected_commit") platform=android ;;
+    "zuuli-ios-$identity-$expected_commit") platform=ios ;;
+    "zuuli-linux-$identity-$expected_commit") platform=linux ;;
+    "zuuli-macos-$identity-$expected_commit") platform=macos ;;
     *)
       echo "unexpected release-index entry: $name" >&2
       exit 65
       ;;
   esac
+  platform_selected=false
+  for expected_platform in "${expected_platforms[@]}"; do
+    [[ "$platform" == "$expected_platform" ]] && platform_selected=true
+  done
+  [[ "$platform_selected" == true ]] || {
+    echo "release index contains unselected platform artifact: $name" >&2
+    exit 65
+  }
+  [[ " $observed_platforms " != *" $platform "* ]] || {
+    echo "release index contains duplicate platform artifact: $platform" >&2
+    exit 65
+  }
+  observed_platforms="$observed_platforms $platform"
 
   [[ -d "$directory" ]] || { echo "release artifact is not a directory: $name" >&2; exit 65; }
   [[ -f "$directory/provenance.json" ]] || {
@@ -56,4 +81,13 @@ for directory in "$artifact_root"/*; do
   artifact_count=$((artifact_count + 1))
 done
 
-[[ "$artifact_count" -gt 0 ]] || { echo "release index contains no platform artifacts" >&2; exit 65; }
+for platform in "${expected_platforms[@]}"; do
+  [[ " $observed_platforms " == *" $platform "* ]] || {
+    echo "release index is missing selected platform artifact: $platform" >&2
+    exit 65
+  }
+done
+[[ "$artifact_count" -eq "${#expected_platforms[@]}" ]] || {
+  echo "release index artifact count does not match target: $target" >&2
+  exit 65
+}

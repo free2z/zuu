@@ -25,6 +25,54 @@ const RELEASE_JOBS = [
   "release-index",
 ];
 const ROOT_KEYS = ["name", "on", "permissions", "concurrency", "env", "jobs"];
+const RELEASE_TARGET_JOBS = new Map([
+  ["mobile", ["android-build", "android-sign-upload", "android-finalize", "ios-finalize"]],
+  ["ios", ["ios-finalize"]],
+  ["android", ["android-build", "android-sign-upload", "android-finalize"]],
+  ["desktop", ["linux", "macos-finalize"]],
+  ["all", ["android-build", "android-sign-upload", "android-finalize", "ios-finalize", "linux", "macos-finalize"]],
+]);
+const RELEASE_TERMINAL_JOBS = [
+  "android-build",
+  "android-sign-upload",
+  "android-finalize",
+  "ios-finalize",
+  "linux",
+  "macos-finalize",
+];
+const RELEASE_INDEX_CONDITION = `
+  always() && !cancelled() &&
+  needs.prepare.result == 'success' &&
+  needs.prepare.outputs.should_release == 'true' &&
+  (((needs.prepare.outputs.target == 'mobile' ||
+  needs.prepare.outputs.target == 'android' ||
+  needs.prepare.outputs.target == 'all') &&
+  needs.android-build.result == 'success' &&
+  needs.android-sign-upload.result == 'success' &&
+  needs.android-finalize.result == 'success') ||
+  ((needs.prepare.outputs.target != 'mobile' &&
+  needs.prepare.outputs.target != 'android' &&
+  needs.prepare.outputs.target != 'all') &&
+  needs.android-build.result == 'skipped' &&
+  needs.android-sign-upload.result == 'skipped' &&
+  needs.android-finalize.result == 'skipped')) &&
+  ((((needs.prepare.outputs.target == 'mobile' ||
+  needs.prepare.outputs.target == 'ios' ||
+  needs.prepare.outputs.target == 'all') &&
+  needs.ios-finalize.result == 'success') ||
+  ((needs.prepare.outputs.target == 'android' ||
+  needs.prepare.outputs.target == 'desktop') &&
+  needs.ios-finalize.result == 'skipped'))) &&
+  ((((needs.prepare.outputs.target == 'desktop' ||
+  needs.prepare.outputs.target == 'all') &&
+  needs.linux.result == 'success' &&
+  needs.macos-finalize.result == 'success') ||
+  ((needs.prepare.outputs.target == 'mobile' ||
+  needs.prepare.outputs.target == 'ios' ||
+  needs.prepare.outputs.target == 'android') &&
+  needs.linux.result == 'skipped' &&
+  needs.macos-finalize.result == 'skipped')))
+`.replace(/\s+/g, " ").trim();
 const ALLOWED_JOB_SECRETS = new Map([
   ["android-sign-upload", new Set([
     "ANDROID_KEYSTORE_BASE64",
@@ -65,6 +113,80 @@ const ANDROID_BUILD_JOB_SHA256 =
   "0f26565c53eb7d7756757b391dfaee19d3b794392c8f0fec49e15f161aded398";
 const ANDROID_FINALIZER_JOB_SHA256 =
   "9571bb82e1fa0ba6b0749fbbb9487f72e9c495fb0c6877f64747f0c3eff2f794";
+const RELEASE_INDEX_JOB_SHA256 =
+  "3765b21cca6396c81195bf9a29de2d6ad9315dc84596f27436be0c37748550a5";
+const GITHUB_RELEASE_PUBLISHER_SHA256 =
+  "a3ea3748e271af6bd253babdaf12687ea41c7812ded62fe2935de72305ba7a25";
+const GITHUB_RELEASE_PUBLISHER_EXECUTABLE_SHA256 =
+  "ae8280467a83ee2b2cd479d83ce03046bdcad940752f1b68ee2bf34d329b4df5";
+const GITHUB_RELEASE_PUBLISHER_EXECUTABLE_PROGRAM = [
+  "#!/usr/bin/env bash",
+  "set -euo pipefail",
+  "umask 077",
+  "if [[ $# -ne 4 ]]; then",
+  'echo "usage: scripts/publish-github-release.sh <tag> <identity> <expected-commit> <artifact-root>" >&2',
+  "exit 64",
+  "fi",
+  "tag=$1",
+  "identity=$2",
+  "expected_commit=$3",
+  "artifact_root=$4",
+  '[[ -d "$artifact_root" ]] || { echo "artifact root does not exist: $artifact_root" >&2; exit 66; }',
+  'script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)',
+  'tag_identity="$artifact_root/release-index/release-tag-identity.json"',
+  'verification_copy=$(mktemp "${TMPDIR:-/tmp}/zuuli-release-tag-identity.XXXXXX")',
+  "trap 'rm -f \"$verification_copy\"' EXIT",
+  '"$script_dir/verify-release-tag.sh" "$tag" "$expected_commit" "$tag_identity"',
+  "reverify_tag_identity() {",
+  '"$script_dir/verify-release-tag.sh" "$tag" "$expected_commit" "$verification_copy"',
+  'cmp -s "$tag_identity" "$verification_copy" || {',
+  'echo "release tag identity changed during publication" >&2',
+  "exit 75",
+  "}",
+  "}",
+  'if ! gh release view "$tag" >/dev/null 2>&1; then',
+  'gh release create "$tag" --verify-tag --draft \\',
+  '--title "ZUULI $identity" \\',
+  '--notes "Immutable ZUULI $identity release candidate. Store promotion evidence is attached; keep draft until physical-device verification passes."',
+  'elif [[ "$(gh release view "$tag" --json isDraft --jq .isDraft)" != true ]]; then',
+  'echo "release $tag is already published; refusing to mutate it" >&2',
+  "exit 73",
+  "fi",
+  "reverify_tag_identity",
+  'package_dir=$(mktemp -d "${TMPDIR:-/tmp}/zuuli-github-release.XXXXXX")',
+  'for directory in "$artifact_root"/*; do',
+  '[[ -d "$directory" ]] || continue',
+  'name=$(basename "$directory")',
+  'archive="$package_dir/$name.tar.gz"',
+  "tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \\",
+  '-cf - -C "$directory" . | gzip -n > "$archive"',
+  'comparison_dir=$(mktemp -d "${TMPDIR:-/tmp}/zuuli-release-compare.XXXXXX")',
+  'if gh release download "$tag" --pattern "$name.tar.gz" --dir "$comparison_dir" >/dev/null 2>&1; then',
+  'existing="$comparison_dir/$name.tar.gz"',
+  'if [[ "$(shasum -a 256 "$existing" | cut -d \' \' -f 1)" != "$(shasum -a 256 "$archive" | cut -d \' \' -f 1)" ]]; then',
+  'echo "release asset collision for $name.tar.gz; refusing overwrite" >&2',
+  "exit 73",
+  "fi",
+  'echo "$name.tar.gz already exists with the same checksum; keeping it"',
+  "else",
+  "reverify_tag_identity",
+  'gh release upload "$tag" "$archive"',
+  "fi",
+  "done",
+  "reverify_tag_identity",
+].join("\n");
+const GITHUB_RELEASE_PUBLISHER_CRITICAL_SEQUENCE = [
+  '"$script_dir/verify-release-tag.sh" "$tag" "$expected_commit" "$tag_identity"',
+  '"$script_dir/verify-release-tag.sh" "$tag" "$expected_commit" "$verification_copy"',
+  'if ! gh release view "$tag" >/dev/null 2>&1; then',
+  'gh release create "$tag" --verify-tag --draft \\',
+  'elif [[ "$(gh release view "$tag" --json isDraft --jq .isDraft)" != true ]]; then',
+  "reverify_tag_identity",
+  'if gh release download "$tag" --pattern "$name.tar.gz" --dir "$comparison_dir" >/dev/null 2>&1; then',
+  "reverify_tag_identity",
+  'gh release upload "$tag" "$archive"',
+  "reverify_tag_identity",
+];
 
 // These four inherited/root controls sit outside the protected job nodes but
 // can change when or how they execute. Bind their exact reviewed YAML source so
@@ -85,6 +207,15 @@ function rejectText(failures, label, source, needle) {
   if (source.includes(needle)) failures.push(`${label} contains forbidden ${JSON.stringify(needle)}`);
 }
 
+export function releaseIndexResultsAreComplete(target, results) {
+  const selected = RELEASE_TARGET_JOBS.get(target);
+  if (!selected) return false;
+  const selectedJobs = new Set(selected);
+  return RELEASE_TERMINAL_JOBS.every(
+    (job) => results[job] === (selectedJobs.has(job) ? "success" : "skipped"),
+  );
+}
+
 function secretExpressions(source) {
   return [...source.matchAll(/\$\{\{[\s\S]*?\}\}/g)]
     .filter((match) => /\bsecrets\b/i.test(match[0]));
@@ -96,6 +227,225 @@ function scalarKey(pair) {
 
 function pairFor(map, key) {
   return isMap(map) ? map.items.find((pair) => scalarKey(pair) === key) : undefined;
+}
+
+function scalarValue(map, key) {
+  const value = pairFor(map, key)?.value;
+  return isScalar(value) && typeof value.value === "string" ? value.value : null;
+}
+
+function scalarEquals(map, key, expected) {
+  const value = pairFor(map, key)?.value;
+  return isScalar(value) && value.value === expected;
+}
+
+function exactMapKeys(map, expected) {
+  if (!isMap(map)) return false;
+  const actual = map.items.map(scalarKey);
+  return actual.length === expected.length &&
+    expected.every((key) => actual.includes(key));
+}
+
+function exactScalarSequence(sequence, expected) {
+  return isSeq(sequence) &&
+    sequence.items.length === expected.length &&
+    sequence.items.every(
+      (item, index) => isScalar(item) && item.value === expected[index],
+    );
+}
+
+function exactReleaseIndexJob(node) {
+  const permissions = pairFor(node, "permissions")?.value;
+  return (
+    exactMapKeys(node, [
+      "name",
+      "needs",
+      "if",
+      "runs-on",
+      "timeout-minutes",
+      "permissions",
+      "steps",
+    ]) &&
+    scalarEquals(node, "name", "Immutable GitHub release index") &&
+    exactScalarSequence(pairFor(node, "needs")?.value, [
+      "prepare",
+      "android-build",
+      "android-sign-upload",
+      "android-finalize",
+      "ios-finalize",
+      "linux",
+      "macos-finalize",
+    ]) &&
+    scalarEquals(node, "runs-on", "ubuntu-24.04") &&
+    scalarEquals(node, "timeout-minutes", 20) &&
+    exactMapKeys(permissions, ["contents"]) &&
+    scalarEquals(permissions, "contents", "write") &&
+    exactReleaseIndexSteps(node)
+  );
+}
+
+export function githubReleasePublisherDigest(source) {
+  return sha256(source);
+}
+
+export function githubReleasePublisherExecutableDigest(source) {
+  return sha256(githubReleasePublisherExecutableProgram(source));
+}
+
+function githubReleasePublisherExecutableProgram(source) {
+  const executableLines = [];
+  let continued = false;
+  for (const [index, rawLine] of source.split("\n").entries()) {
+    const line = rawLine.trim();
+    const comment = line.startsWith("#");
+    const inert = line.length === 0 || comment;
+    // Bash removes backslash-newline pairs before recognizing comments. A
+    // blank/comment line inside a continuation, or a comment ending in a
+    // backslash, can therefore suppress the next reviewed statement even
+    // though a naive comment filter would show the same apparent program.
+    if ((continued && inert) || (comment && /\\[ \t]*$/.test(rawLine))) {
+      executableLines.push(`<unsafe-continuation:${index + 1}>`);
+    }
+    if (index === 0 || !inert) executableLines.push(line);
+    continued = !comment && /\\[ \t]*$/.test(rawLine);
+  }
+  return executableLines.join("\n");
+}
+
+export function verifyGithubReleasePublisher(
+  source,
+  {
+    expectedDigest = GITHUB_RELEASE_PUBLISHER_SHA256,
+    expectedExecutableDigest = GITHUB_RELEASE_PUBLISHER_EXECUTABLE_SHA256,
+  } = {},
+) {
+  const failures = [];
+  const actualDigest = sha256(source);
+  if (actualDigest !== expectedDigest) {
+    failures.push(
+      `GitHub release publisher execution program changed: expected ${expectedDigest}, got ${actualDigest}`,
+    );
+  }
+  const executableDigest = githubReleasePublisherExecutableDigest(source);
+  if (executableDigest !== expectedExecutableDigest) {
+    failures.push(
+      `GitHub release publisher executable program changed: expected ${expectedExecutableDigest}, got ${executableDigest}`,
+    );
+  }
+
+  const executableProgram = githubReleasePublisherExecutableProgram(source);
+  if (executableProgram !== GITHUB_RELEASE_PUBLISHER_EXECUTABLE_PROGRAM) {
+    failures.push(
+      "GitHub release publisher executable statements differ from the exact reviewed program",
+    );
+  }
+
+  const executableLines = executableProgram.split("\n");
+  const criticalLines = new Set(GITHUB_RELEASE_PUBLISHER_CRITICAL_SEQUENCE);
+  const actualCriticalSequence = executableLines.filter((line) => criticalLines.has(line));
+  if (
+    JSON.stringify(actualCriticalSequence) !==
+      JSON.stringify(GITHUB_RELEASE_PUBLISHER_CRITICAL_SEQUENCE)
+  ) {
+    failures.push(
+      "GitHub release publisher verification and publication boundaries changed order or count",
+    );
+  }
+  const uploadIndex = executableLines.indexOf('gh release upload "$tag" "$archive"');
+  if (uploadIndex < 1 || executableLines[uploadIndex - 1] !== "reverify_tag_identity") {
+    failures.push(
+      "GitHub release upload must be immediately preceded by tag-identity re-verification",
+    );
+  }
+  return failures;
+}
+
+function exactReleaseIndexSteps(node) {
+  const steps = pairFor(node, "steps")?.value;
+  if (!isSeq(steps) || steps.items.length !== 5 || steps.items.some((step) => !isMap(step))) {
+    return false;
+  }
+  const [checkout, download, verifier, publish, upload] = steps.items;
+  const checkoutWith = pairFor(checkout, "with")?.value;
+  const downloadWith = pairFor(download, "with")?.value;
+  const verifierEnv = pairFor(verifier, "env")?.value;
+  const publishEnv = pairFor(publish, "env")?.value;
+  const uploadWith = pairFor(upload, "with")?.value;
+  return (
+    exactMapKeys(checkout, ["uses", "with"]) &&
+    scalarEquals(
+      checkout,
+      "uses",
+      "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+    ) &&
+    exactMapKeys(checkoutWith, ["ref", "fetch-depth", "fetch-tags", "persist-credentials"]) &&
+    scalarEquals(checkoutWith, "ref", "${{ needs.prepare.outputs.source_sha }}") &&
+    scalarEquals(checkoutWith, "fetch-depth", 0) &&
+    scalarEquals(checkoutWith, "fetch-tags", true) &&
+    scalarEquals(checkoutWith, "persist-credentials", false) &&
+    exactMapKeys(download, ["uses", "with"]) &&
+    scalarEquals(
+      download,
+      "uses",
+      "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131",
+    ) &&
+    exactMapKeys(downloadWith, ["pattern", "path", "merge-multiple"]) &&
+    scalarEquals(
+      downloadWith,
+      "pattern",
+      "zuuli-{android,ios,linux,macos}-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}",
+    ) &&
+    scalarEquals(downloadWith, "path", "release-downloads") &&
+    scalarEquals(downloadWith, "merge-multiple", false) &&
+    exactMapKeys(verifier, ["name", "env", "run"]) &&
+    scalarEquals(verifier, "name", "Verify release-index source binding") &&
+    exactMapKeys(verifierEnv, ["RELEASE_IDENTITY", "EXPECTED_SOURCE_SHA", "RELEASE_TARGET"]) &&
+    scalarEquals(verifierEnv, "RELEASE_IDENTITY", "${{ needs.prepare.outputs.identity }}") &&
+    scalarEquals(verifierEnv, "EXPECTED_SOURCE_SHA", "${{ needs.prepare.outputs.source_sha }}") &&
+    scalarEquals(verifierEnv, "RELEASE_TARGET", "${{ needs.prepare.outputs.target }}") &&
+    scalarEquals(
+      verifier,
+      "run",
+      'wallet/zuuli/scripts/verify-release-index.sh release-downloads "$RELEASE_IDENTITY" "$EXPECTED_SOURCE_SHA" "$RELEASE_TARGET"',
+    ) &&
+    exactMapKeys(publish, ["name", "if", "env", "run"]) &&
+    scalarEquals(publish, "name", "Publish idempotent draft release") &&
+    scalarEquals(
+      publish,
+      "if",
+      "needs.prepare.outputs.dry_run == 'false' && needs.prepare.outputs.tag_exists == 'true'",
+    ) &&
+    exactMapKeys(publishEnv, [
+      "GH_TOKEN",
+      "RELEASE_TAG",
+      "RELEASE_IDENTITY",
+      "RELEASE_SOURCE_SHA",
+    ]) &&
+    scalarEquals(publishEnv, "GH_TOKEN", "${{ github.token }}") &&
+    scalarEquals(publishEnv, "RELEASE_TAG", "${{ needs.prepare.outputs.tag }}") &&
+    scalarEquals(publishEnv, "RELEASE_IDENTITY", "${{ needs.prepare.outputs.identity }}") &&
+    scalarEquals(publishEnv, "RELEASE_SOURCE_SHA", "${{ needs.prepare.outputs.source_sha }}") &&
+    scalarEquals(
+      publish,
+      "run",
+      'wallet/zuuli/scripts/publish-github-release.sh "$RELEASE_TAG" "$RELEASE_IDENTITY" "$RELEASE_SOURCE_SHA" release-downloads',
+    ) &&
+    exactMapKeys(upload, ["uses", "with"]) &&
+    scalarEquals(
+      upload,
+      "uses",
+      "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f",
+    ) &&
+    exactMapKeys(uploadWith, ["name", "path", "if-no-files-found", "retention-days"]) &&
+    scalarEquals(
+      uploadWith,
+      "name",
+      "zuuli-release-index-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}",
+    ) &&
+    scalarEquals(uploadWith, "path", "release-downloads") &&
+    scalarEquals(uploadWith, "if-no-files-found", "error") &&
+    scalarEquals(uploadWith, "retention-days", 90)
+  );
 }
 
 function sourceForNode(workflow, node) {
@@ -240,6 +590,15 @@ export function androidBuildJobDigest(workflow) {
   return sha256(sourceForNode(workflow, node));
 }
 
+export function releaseIndexJobDigest(workflow) {
+  const failures = [];
+  const parsed = parseWorkflow(workflow, failures);
+  if (!parsed || failures.length > 0) throw new Error(failures.join("\n"));
+  const node = pairFor(parsed.jobs, "release-index")?.value;
+  if (!node) throw new Error("workflow is missing release-index");
+  return sha256(sourceForNode(workflow, node));
+}
+
 /**
  * Enforce the source-level mobile/desktop release authority boundary.
  *
@@ -256,6 +615,7 @@ export function verifyAppleCredentialBoundary(
     rootAuthorityDigests = ROOT_AUTHORITY_SHA256,
     expectedAndroidBuildDigest = ANDROID_BUILD_JOB_SHA256,
     expectedAndroidFinalizerDigest = ANDROID_FINALIZER_JOB_SHA256,
+    expectedReleaseIndexDigest = RELEASE_INDEX_JOB_SHA256,
   } = {},
 ) {
   const failures = [];
@@ -554,15 +914,32 @@ export function verifyAppleCredentialBoundary(
       "Android finalizer must verify the signed checksum, exact source/identity/digest record, and AAB digest before copying the shipped artifact",
     );
   }
-  for (const marker of [
+  const releaseIndexNode = jobNodes.get("release-index");
+  const actualReleaseIndexDigest = sha256(jobs.get("release-index"));
+  if (actualReleaseIndexDigest !== expectedReleaseIndexDigest) {
+    failures.push(
+      `release-index execution program changed: expected ${expectedReleaseIndexDigest}, got ${actualReleaseIndexDigest}`,
+    );
+  }
+  const releaseIndexCondition = pairFor(releaseIndexNode, "if")?.value;
+  const actualReleaseIndexCondition = isScalar(releaseIndexCondition) &&
+    typeof releaseIndexCondition.value === "string"
+    ? releaseIndexCondition.value.replace(/\s+/g, " ").trim()
+    : null;
+  if (actualReleaseIndexCondition !== RELEASE_INDEX_CONDITION) {
+    failures.push("release-index must enforce the exact selected-success/unselected-skipped target matrix");
+  }
+  requireText(
+    failures,
+    "Release index target binding",
+    jobs.get("release-index"),
     "needs: [prepare, android-build, android-sign-upload, android-finalize, ios-finalize, linux, macos-finalize]",
-    "needs.android-build.result == 'success'",
-    "needs.android-sign-upload.result == 'success'",
-    "needs.android-finalize.result == 'success'",
-    "needs.android-build.result == 'skipped'",
-    "needs.android-sign-upload.result == 'skipped'",
-    "needs.android-finalize.result == 'skipped'",
-  ]) requireText(failures, "Release index Android dependency", jobs.get("release-index"), marker);
+  );
+  if (!exactReleaseIndexJob(releaseIndexNode)) {
+    failures.push(
+      "release-index must contain exactly the reviewed checkout, artifact download, verifier, draft publisher, and index upload steps plus the reviewed job authority, with no other execution path",
+    );
+  }
 
   for (const name of FINALIZE_JOBS) {
     const source = jobs.get(name);
@@ -738,7 +1115,11 @@ export function verifyAppleCredentialBoundary(
 
 async function main() {
   const workflowUrl = new URL("../../../.github/workflows/zuuli-release.yml", import.meta.url);
-  const failures = verifyAppleCredentialBoundary(await readFile(workflowUrl, "utf8"));
+  const publisherUrl = new URL("./publish-github-release.sh", import.meta.url);
+  const failures = [
+    ...verifyAppleCredentialBoundary(await readFile(workflowUrl, "utf8")),
+    ...verifyGithubReleasePublisher(await readFile(publisherUrl, "utf8")),
+  ];
   if (failures.length > 0) {
     console.error("Store-release credential boundary verification failed:");
     for (const failure of failures) console.error(`- ${failure}`);

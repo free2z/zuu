@@ -1939,9 +1939,22 @@ jobs:
       needs.android-build.result == 'skipped' &&
       needs.android-sign-upload.result == 'skipped' &&
       needs.android-finalize.result == 'skipped')) &&
-      (needs.ios-finalize.result == 'success' || needs.ios-finalize.result == 'skipped') &&
-      (needs.linux.result == 'success' || needs.linux.result == 'skipped') &&
-      (needs.macos-finalize.result == 'success' || needs.macos-finalize.result == 'skipped')
+      ((((needs.prepare.outputs.target == 'mobile' ||
+      needs.prepare.outputs.target == 'ios' ||
+      needs.prepare.outputs.target == 'all') &&
+      needs.ios-finalize.result == 'success') ||
+      ((needs.prepare.outputs.target == 'android' ||
+      needs.prepare.outputs.target == 'desktop') &&
+      needs.ios-finalize.result == 'skipped'))) &&
+      ((((needs.prepare.outputs.target == 'desktop' ||
+      needs.prepare.outputs.target == 'all') &&
+      needs.linux.result == 'success' &&
+      needs.macos-finalize.result == 'success') ||
+      ((needs.prepare.outputs.target == 'mobile' ||
+      needs.prepare.outputs.target == 'ios' ||
+      needs.prepare.outputs.target == 'android') &&
+      needs.linux.result == 'skipped' &&
+      needs.macos-finalize.result == 'skipped')))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -1962,7 +1975,8 @@ jobs:
         env:
           RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
           EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
-        run: wallet/zuuli/scripts/verify-release-index.sh release-downloads "$RELEASE_IDENTITY" "$EXPECTED_SOURCE_SHA"
+          RELEASE_TARGET: ${{ needs.prepare.outputs.target }}
+        run: wallet/zuuli/scripts/verify-release-index.sh release-downloads "$RELEASE_IDENTITY" "$EXPECTED_SOURCE_SHA" "$RELEASE_TARGET"
       - name: Publish idempotent draft release
         if: needs.prepare.outputs.dry_run == 'false' && needs.prepare.outputs.tag_exists == 'true'
         env:

@@ -6,7 +6,10 @@ import { dirname, resolve } from "node:path";
 import { TextDecoder } from "node:util";
 import { fileURLToPath } from "node:url";
 
-import { verifyAppleCredentialBoundary } from "./apple-credential-boundary.mjs";
+import {
+  verifyAppleCredentialBoundary,
+  verifyGithubReleasePublisher,
+} from "./apple-credential-boundary.mjs";
 import { artifactSbomWorkflowFailures } from "./artifact-sbom.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -634,8 +637,12 @@ expect(
   // truth fails here too. scripts/check-rust-toolchain.sh holds it in step.
   "1.97.1",
 );
+// This parsed-YAML verifier owns the exact release-index verifier step and its
+// order; do not replace it with raw source-fragment presence checks below.
 for (const boundaryFailure of verifyAppleCredentialBoundary(releaseWorkflow))
   failures.push(`Apple credential boundary: ${boundaryFailure}`);
+for (const publisherFailure of verifyGithubReleasePublisher(githubReleasePublisher))
+  failures.push(`GitHub release publisher: ${publisherFailure}`);
 if (mobileRelease.includes("tauri ios build") || mobileRelease.includes("platform == ios"))
   failures.push("mobile-release.sh must not recombine iOS credentials with dependency-controlled builds");
 for (const preservedContract of [
@@ -767,9 +774,7 @@ for (const publishContract of [
 }
 for (const releaseTagContract of [
   'RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}',
-  'Verify release-index source binding',
   'pattern: zuuli-{android,ios,linux,macos}-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}',
-  'scripts/verify-release-index.sh release-downloads "$RELEASE_IDENTITY" "$EXPECTED_SOURCE_SHA"',
   'scripts/publish-github-release.sh "$RELEASE_TAG" "$RELEASE_IDENTITY" "$RELEASE_SOURCE_SHA" release-downloads',
 ]) {
   if (!releaseWorkflow.includes(releaseTagContract))
@@ -810,6 +815,9 @@ for (const releaseIndexContract of [
   '[[ -d "$artifact_root" ]]',
   '[[ "$identity" =~ ^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\+(0|[1-9][0-9]*)$ ]]',
   '[[ "$expected_commit" =~ ^[0-9a-f]{40}$ ]]',
+  'mobile) expected_platforms=(android ios)',
+  'desktop) expected_platforms=(linux macos)',
+  'all) expected_platforms=(android ios linux macos)',
   '"zuuli-android-$identity-$expected_commit"',
   '"zuuli-ios-$identity-$expected_commit"',
   '"zuuli-linux-$identity-$expected_commit"',
@@ -818,7 +826,9 @@ for (const releaseIndexContract of [
   '[[ -f "$directory/provenance.json" ]]',
   "'.source.commit == $sha'",
   '[[ "$provenance_count" -eq 1 ]]',
-  '[[ "$artifact_count" -gt 0 ]]',
+  'release index contains unselected platform artifact',
+  'release index is missing selected platform artifact',
+  '[[ "$artifact_count" -eq "${#expected_platforms[@]}" ]]',
 ]) {
   if (!releaseIndexVerifier.includes(releaseIndexContract))
     failures.push(`release-index verifier contract is missing: ${releaseIndexContract}`);

@@ -19,11 +19,22 @@ import {
   isReleaseImpactingPath,
   parseStatusMarker,
   releaseBumpPaths,
+  verifyReleaseEvidencePolicy,
   verifyStatusFreshness,
 } from "./status-freshness.mjs";
 
 const statusPath = "wallet/zuuli/STATUS.md";
+const releasingPath = "wallet/zuuli/docs/releasing.md";
 const zuuliPath = (path) => `wallet/zuuli/${path}`;
+const repositoryRoot = resolve(import.meta.dirname, "../../..");
+const releaseEvidencePolicyFixture = readFileSync(
+  resolve(repositoryRoot, releasingPath),
+  "utf8",
+);
+const repositoryStatus = readFileSync(resolve(repositoryRoot, statusPath), "utf8");
+const repositoryStatusMarkerPattern =
+  /^Last re-derived from `origin\/main` at\n`[0-9a-f]{40}` on \d{4}-\d{2}-\d{2}\. Before a release,\nupdate the evidence and disposition for every non-ready row; do not carry this\ncommit or date forward mechanically\.$/m;
+assert.match(repositoryStatus, repositoryStatusMarkerPattern);
 
 const initialReleaseFiles = new Map([
   [
@@ -103,18 +114,20 @@ function createRepository(t) {
 }
 
 function marker(sha, date = "2026-08-23") {
-  return `# ZUULI product status
-
-Last re-derived from \`origin/main\` at
+  return repositoryStatus.replace(
+    repositoryStatusMarkerPattern,
+    `Last re-derived from \`origin/main\` at
 \`${sha}\` on ${date}. Before a release,
-update the evidence honestly.
-`;
+update the evidence and disposition for every non-ready row; do not carry this
+commit or date forward mechanically.`,
+  );
 }
 
 function seedReleaseFiles(fixture) {
   for (const [path, contents] of initialReleaseFiles) {
     fixture.write(zuuliPath(path), contents);
   }
+  fixture.write(releasingPath, releaseEvidencePolicyFixture);
 }
 
 function createAuditedHistory(t) {
@@ -177,6 +190,458 @@ test("parses exactly one strict source marker", () => {
     auditDate: "2026-08-23",
   });
 });
+
+test("repository records the pre-merge release evidence policy and desktop disposition", () => {
+  const repoRoot = resolve(import.meta.dirname, "../../..");
+  assert.doesNotThrow(() =>
+    verifyReleaseEvidencePolicy({
+      releasingContents: readFileSync(resolve(repoRoot, releasingPath), "utf8"),
+      statusContents: readFileSync(resolve(repoRoot, statusPath), "utf8"),
+    }),
+  );
+});
+
+for (const [name, mutateDocs, mutateStatus] of [
+  [
+    "advisory pre-merge wording",
+    (contents) => contents.replace("must be backed", "should be backed"),
+    (contents) => contents,
+  ],
+  [
+    "non-exclusive evidence requirement",
+    (contents) => contents.replace("at least one", "exactly one"),
+    (contents) => contents,
+  ],
+  [
+    "fixture without a corrupted-input control",
+    (contents) =>
+      contents.replace(
+        "and is proven to reject a deliberately corrupted input",
+        "and covers its expected input",
+      ),
+    (contents) => contents,
+  ],
+  [
+    "desktop shipping decision",
+    (contents) => contents,
+    (contents) =>
+      contents.replace(
+        /desktop distribution is\s+deferred and is not currently shipped/,
+        "desktop distribution may be considered later",
+      ),
+  ],
+  [
+    "protected macOS execution boundary",
+    (contents) => contents,
+    (contents) =>
+      contents.replace(
+        "`packaging-executed-protected-unexecuted`",
+        "`protected-executed`",
+      ),
+  ],
+  [
+    "release evidence ID",
+    (contents) => contents,
+    (contents) => contents.replace("`android-protected-sign-upload`", "`renamed-evidence`"),
+  ],
+  [
+    "release evidence path cell",
+    (contents) => contents,
+    (contents) => contents.replace(
+      "Android signed payload comparison, `signed_abis`, `signing-record.json`, `CHECKSUMS`, and Play upload",
+      "Android release work",
+    ),
+  ],
+  [
+    "release evidence distribution cell",
+    (contents) => contents,
+    (contents) => contents.replace("`mobile-shipped`", "`desktop-deferred`"),
+  ],
+  [
+    "release execution evidence cell",
+    (contents) => contents,
+    (contents) => contents.replace("succeeded for [build 17]", "failed for [build 17]"),
+  ],
+  [
+    "noncanonical execution evidence URL",
+    (contents) => contents,
+    (contents) => contents.replace(
+      "https://github.com/free2z/zuu/actions/runs/33330274664/job/99310600158",
+      "https://example.invalid/actions/runs/33330274664/job/99310600158",
+    ),
+  ],
+  [
+    "deleted six-row evidence inventory",
+    (contents) => contents,
+    (contents) => contents.replace(/\n\| Evidence ID[\s\S]*$/, "\n"),
+  ],
+  [
+    "contradictory advisory prose",
+    (contents) => contents,
+    (contents) => contents.replace(
+      "\n| Evidence ID",
+      "\nDesktop distribution is shipped and protected macOS is covered by packaging smoke.\n\n| Evidence ID",
+    ),
+  ],
+  [
+    "advisory policy allowing evidence-free merges",
+    (contents) => `${contents}\nThis runbook is guidance only and steps need no supporting evidence.\n`,
+    (contents) => contents,
+  ],
+  [
+    "false protected desktop readiness claim",
+    (contents) => contents,
+    (contents) => `${contents}\n## Later note\nProtected macOS and desktop release jobs are green and production-ready.\n`,
+  ],
+  [
+    "permanent-download claim",
+    (contents) => contents,
+    (contents) => `${contents}\n## Later note\nRelease artifacts provide permanent downloads.\n`,
+  ],
+  [
+    "greenwashed macOS remaining boundary",
+    (contents) => contents,
+    (contents) => contents.replace(
+      "Protected macOS system signing, notarization, and credential cleanup remain deliberately unexecuted while desktop shipping is deferred.",
+      "Protected macOS system signing, notarization, and credential cleanup all executed; production-ready.",
+      ),
+  ],
+  [
+    "evidence policy hidden in an HTML comment",
+    (contents) => contents
+      .replace(
+        "## Pre-merge execution evidence for release steps\n",
+        "<!--\n## Pre-merge execution evidence for release steps\n",
+      )
+      .replace(
+        "\n## SBOM scope and artifact binding",
+        "\n-->\n## SBOM scope and artifact binding",
+      ),
+    (contents) => contents,
+  ],
+  [
+    "evidence policy hidden in a fenced block",
+    (contents) => contents
+      .replace(
+        "## Pre-merge execution evidence for release steps\n",
+        "```text\n## Pre-merge execution evidence for release steps\n",
+      )
+      .replace(
+        "\n## SBOM scope and artifact binding",
+        "\n```\n## SBOM scope and artifact binding",
+      ),
+    (contents) => contents,
+  ],
+  [
+    "release disposition hidden in an HTML container",
+    (contents) => contents,
+    (contents) => contents
+      .replace(
+        "## Release-path execution disposition\n",
+        "<details>\n## Release-path execution disposition\n",
+      )
+      .replace(
+        "\n## Source-and-runtime-backed matrix",
+        "\n</details>\n## Source-and-runtime-backed matrix",
+      ),
+  ],
+  [
+    "evidence policy hidden in an HTML container",
+    (contents) => contents
+      .replace(
+        "## Pre-merge execution evidence for release steps\n",
+        "<details>\n## Pre-merge execution evidence for release steps\n",
+      )
+      .replace(
+        "\n## SBOM scope and artifact binding",
+        "\n</details>\n## SBOM scope and artifact binding",
+      ),
+    (contents) => contents,
+  ],
+  [
+    "release disposition hidden in an HTML comment",
+    (contents) => contents,
+    (contents) => contents
+      .replace(
+        "## Release-path execution disposition\n",
+        "<!--\n## Release-path execution disposition\n",
+      )
+      .replace(
+        "\n## Source-and-runtime-backed matrix",
+        "\n-->\n## Source-and-runtime-backed matrix",
+      ),
+  ],
+  [
+    "release disposition hidden in a fenced block",
+    (contents) => contents,
+    (contents) => contents
+      .replace(
+        "## Release-path execution disposition\n",
+        "```text\n## Release-path execution disposition\n",
+      )
+      .replace(
+        "\n## Source-and-runtime-backed matrix",
+        "\n```\n## Source-and-runtime-backed matrix",
+      ),
+  ],
+  [
+    "broad suggestion allowing evidence-free landing",
+    (contents) => `${contents}\nThe evidence requirements are merely suggestions; a release change can land when none are met.\n`,
+    (contents) => contents,
+  ],
+  [
+    "informational gate allowing approval without artifacts",
+    (contents) => `${contents}\nThis release gate is informational; maintainers can approve changes without artifacts.\n`,
+    (contents) => contents,
+  ],
+  [
+    "broad protected-desktop production claim",
+    (contents) => contents,
+    (contents) => `${contents}\n## Later claim\n\nAll protected desktop paths passed and are good for production.\n`,
+  ],
+  [
+    "protected macOS approval claim",
+    (contents) => contents,
+    (contents) => `${contents}\nProtected macOS is approved to ship despite having no run evidence.\n`,
+  ],
+  [
+    "maintainer waiver claim outside the protected section",
+    (contents) => `${contents}\nMaintainers may waive the proof gate for urgent workflow changes.\n`,
+    (contents) => contents,
+  ],
+  [
+    "customer rollout claim outside the protected section",
+    (contents) => contents,
+    (contents) => `${contents}\nThe notarized computer installers are cleared for customer rollout.\n`,
+  ],
+]) {
+  test(`rejects a weakened ${name}`, () => {
+    const statusContents = marker("a".repeat(40));
+    assert.throws(
+      () =>
+        verifyReleaseEvidencePolicy({
+          releasingContents: mutateDocs(releaseEvidencePolicyFixture),
+          statusContents: mutateStatus(statusContents),
+        }),
+      /release-step evidence policy is incomplete/,
+    );
+  });
+}
+
+function wrapReleasingEvidence(open, close) {
+  return releaseEvidencePolicyFixture
+    .replace(
+      "## Pre-merge execution evidence for release steps\n",
+      `${open}\n## Pre-merge execution evidence for release steps\n`,
+    )
+    .replace(
+      "## SBOM scope and artifact binding\n",
+      `## SBOM scope and artifact binding\n${close}\n`,
+    );
+}
+
+function wrapStatusEvidence(contents, open, close) {
+  return contents
+    .replace("## Evidence boundaries\n", `${open}\n## Evidence boundaries\n`)
+    .replace(
+      "## Source-and-runtime-backed matrix\n",
+      `## Source-and-runtime-backed matrix\n${close}\n`,
+    );
+}
+
+function assertEvidenceMutationRejected(name, mutateDocs, mutateStatus) {
+  test(`rejects CommonMark/policy bypass: ${name}`, () => {
+    assert.throws(
+      () => verifyReleaseEvidencePolicy({
+        releasingContents: mutateDocs(releaseEvidencePolicyFixture),
+        statusContents: mutateStatus(marker("a".repeat(40))),
+      }),
+      /release-step evidence policy is incomplete/,
+    );
+  });
+}
+
+for (const spaces of [1, 2, 3]) {
+  const heading = `${" ".repeat(spaces)}## Unrelated rendered section\n\n`;
+  assertEvidenceMutationRejected(
+    `${spaces}-space ATX boundary before releasing policy`,
+    (contents) => `${heading}${contents}`,
+    (contents) => contents,
+  );
+  assertEvidenceMutationRejected(
+    `${spaces}-space ATX boundary before STATUS disposition`,
+    (contents) => contents,
+    (contents) => contents.replace(
+      "## Release-path execution disposition\n",
+      `${heading}## Release-path execution disposition\n`,
+    ),
+  );
+}
+
+for (const [name, heading] of [
+  ["empty ATX", "##\n\n"],
+  ["Setext H2", "Unrelated rendered section\n--------------------------\n\n"],
+]) {
+  assertEvidenceMutationRejected(
+    `${name} boundary before releasing policy`,
+    (contents) => `${heading}${contents}`,
+    (contents) => contents,
+  );
+  assertEvidenceMutationRejected(
+    `${name} boundary before STATUS disposition`,
+    (contents) => contents,
+    (contents) => contents.replace(
+      "## Release-path execution disposition\n",
+      `${heading}## Release-path execution disposition\n`,
+    ),
+  );
+}
+
+for (const [name, open, close] of [
+  ["details with quoted greater-than attribute", '<details title="a > b">', "</details>"],
+  ["three-space details with quoted self-close text", '   <details title="/>">', "   </details>"],
+  ["textarea raw block", "<textarea>", "</textarea>"],
+  ["address raw block", "<address>", "</address>"],
+  ["processing-instruction raw block", "<?review", "?>"],
+  ["declaration raw block", "<!REVIEW", ">"],
+  ["CDATA raw block", "<![CDATA[", "]]>"],
+]) {
+  assertEvidenceMutationRejected(
+    `${name} hiding releasing policy`,
+    () => wrapReleasingEvidence(open, close),
+    (contents) => contents,
+  );
+  assertEvidenceMutationRejected(
+    `${name} hiding STATUS disposition`,
+    (contents) => contents,
+    (contents) => wrapStatusEvidence(contents, open, close),
+  );
+}
+
+for (const [name, open, close] of [
+  ["quoted greater-than", '<details title="a > b">', "</details>"],
+  ["quoted self-close text", '   <details title="/>">', "   </details>"],
+]) {
+  test(`browser HTML stack hides ${name} releasing headings across blank lines`, () => {
+    assert.throws(
+      () => verifyReleaseEvidencePolicy({
+        releasingContents: wrapReleasingEvidence(open, close),
+        statusContents: marker("a".repeat(40)),
+      }),
+      /found 0 rendered/,
+    );
+  });
+  test(`browser HTML stack hides ${name} STATUS headings across blank lines`, () => {
+    assert.throws(
+      () => verifyReleaseEvidencePolicy({
+        releasingContents: releaseEvidencePolicyFixture,
+        statusContents: wrapStatusEvidence(marker("a".repeat(40)), open, close),
+      }),
+      /found 0 rendered/,
+    );
+  });
+}
+
+assertEvidenceMutationRejected(
+  "unreviewed backtick-bearing non-fence line",
+  (contents) => "```invalid`info\n" + contents,
+  (contents) => contents.replace(
+    "## Release-path execution disposition\n",
+    "```invalid`info\n## Release-path execution disposition\n",
+  ),
+);
+
+assertEvidenceMutationRejected(
+  "malformed spaced HTML close cannot reveal releasing policy",
+  () => wrapReleasingEvidence('<details title="reviewed">', "</ details>"),
+  (contents) => contents,
+);
+assertEvidenceMutationRejected(
+  "malformed spaced HTML close cannot reveal STATUS disposition",
+  (contents) => contents,
+  (contents) => wrapStatusEvidence(contents, '<details title="reviewed">', "</ details>"),
+);
+
+for (const [name, open, falseClose, close] of [
+  ["short backtick closer", "````text", "```", "````"],
+  ["mismatched tilde closer", "````text", "~~~~", "````"],
+  ["backtick closer with info", "````text", "```` still-code", "````"],
+]) {
+  assertEvidenceMutationRejected(
+    `${name} hiding releasing policy`,
+    () => wrapReleasingEvidence(`${open}\n${falseClose}`, close),
+    (contents) => contents,
+  );
+  assertEvidenceMutationRejected(
+    `${name} hiding STATUS disposition`,
+    (contents) => contents,
+    (contents) => wrapStatusEvidence(contents, `${open}\n${falseClose}`, close),
+  );
+}
+
+for (const [name, mutateDocs, mutateStatus] of [
+  [
+    "visible evidence-free runbook bullet",
+    (contents) => `${contents}\n- A release-step change can merge before any proof exists when a reviewer accepts the risk.\n`,
+    (contents) => contents,
+  ],
+  [
+    "visible evidence-free runbook table",
+    (contents) => `${contents}\n| Exception | Disposition |\n| --- | --- |\n| Release-step change | May land before supporting proof exists |\n`,
+    (contents) => contents,
+  ],
+  [
+    "visible desktop-shipping STATUS bullet",
+    (contents) => contents,
+    (contents) => `${contents}\n- Desktop distribution can ship now.\n`,
+  ],
+  [
+    "visible production-ready STATUS table",
+    (contents) => contents,
+    (contents) => `${contents}\n| Target | Current disposition |\n| --- | --- |\n| macOS release signing | Fully validated for production |\n`,
+  ],
+  [
+    "duplicate contradictory STATUS evidence table",
+    (contents) => contents,
+    (contents) => `${contents}\n| Evidence ID | New conclusion |\n| --- | --- |\n| macos-packaging | Desktop may ship now |\n`,
+  ],
+]) {
+  assertEvidenceMutationRejected(name, mutateDocs, mutateStatus);
+}
+
+function mutateEvidenceCell(contents, id, cellIndex) {
+  return contents
+    .split("\n")
+    .map((line) => {
+      if (!line.startsWith(`| \`${id}\` |`)) return line;
+      const cells = line.slice(1, -1).split("|");
+      assert.equal(cells.length, 6, `${id} fixture row must have six cells`);
+      cells[cellIndex] = " adversarial replacement ";
+      return `|${cells.join("|")}|`;
+    })
+    .join("\n");
+}
+
+for (const id of [
+  "android-protected-sign-upload",
+  "android-credential-cleanup",
+  "android-finalization",
+  "release-index",
+  "linux-packaging",
+  "macos-packaging",
+]) {
+  for (const [cell, cellIndex] of [["execution", 4], ["boundary", 5]]) {
+    test(`rejects a noncanonical ${id} ${cell} cell`, () => {
+      assert.throws(
+        () => verifyReleaseEvidencePolicy({
+          releasingContents: releaseEvidencePolicyFixture,
+          statusContents: mutateEvidenceCell(marker("a".repeat(40)), id, cellIndex),
+        }),
+        /release-step evidence policy is incomplete/,
+      );
+    });
+  }
+}
 
 for (const [name, contents, message] of [
   ["missing marker", "# status\n", "exactly one"],
