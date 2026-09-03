@@ -14,6 +14,7 @@ import {
   Copy,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -435,6 +436,7 @@ function JoinPanel({
   tuzis: number;
   onJoined: (ticket: DyteJoinTicket, secret?: string) => void;
 }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const kind = KIND_META[stream.kind] ?? KIND_META.broadcast;
@@ -556,7 +558,7 @@ function JoinPanel({
       const failure = classifyLiveFailure(e, "ticket-request");
       console.warn("Livestream join failed", safeLiveDiagnostic(failure));
       toast.error("Could not join", {
-        description: failure.message,
+        description: t(failure.messageKey),
       });
       return false;
     }

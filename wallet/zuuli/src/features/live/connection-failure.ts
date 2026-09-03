@@ -1,5 +1,6 @@
 import { ApiError } from "@/lib/api/http";
 import { LiveTicketError } from "@/lib/api/live-ticket";
+import { MESSAGE_KEYS, type MessageKey } from "@/i18n/messages";
 
 export type LiveFailureBoundary =
   | "ticket-request"
@@ -23,63 +24,55 @@ export type LiveFailureKind =
 export interface LiveConnectionFailure {
   kind: LiveFailureKind;
   boundary: LiveFailureBoundary;
-  message: string;
+  messageKey: MessageKey;
   retryable: boolean;
   /** Allowlisted provider code only; never the provider's raw message. */
   providerCode?: "ERR0001" | "ERR0004";
 }
 
-const COPY: Record<LiveFailureKind, { message: string; retryable: boolean }> = {
+const COPY: Record<LiveFailureKind, { messageKey: MessageKey; retryable: boolean }> = {
   policy: {
-    message:
-      "The app blocked the live connection. Check app permissions or network security settings, then try again.",
+    messageKey: MESSAGE_KEYS.liveFailurePolicy,
     retryable: true,
   },
   offline: {
-    message:
-      "You're offline. Reconnect, then try again for a fresh join ticket.",
+    messageKey: MESSAGE_KEYS.liveFailureOffline,
     retryable: true,
   },
   transport: {
-    message:
-      "The live service couldn't be reached. Switch networks or try again.",
+    messageKey: MESSAGE_KEYS.liveFailureTransport,
     retryable: true,
   },
   timeout: {
-    message: "The live connection timed out. Try again for a fresh join ticket.",
+    messageKey: MESSAGE_KEYS.liveFailureTimeout,
     retryable: true,
   },
   "malformed-ticket": {
-    message:
-      "The stream server returned an invalid join ticket. Try again in a moment.",
+    messageKey: MESSAGE_KEYS.liveFailureMalformedTicket,
     retryable: true,
   },
   "expired-ticket": {
-    message:
-      "The join ticket expired before the connection started. Try again for a fresh one.",
+    messageKey: MESSAGE_KEYS.liveFailureExpiredTicket,
     retryable: true,
   },
   "replayed-ticket": {
-    message:
-      "The stream server did not issue a fresh join ticket. Try again in a moment.",
+    messageKey: MESSAGE_KEYS.liveFailureReplayedTicket,
     retryable: true,
   },
   "token-rejected": {
-    message:
-      "The live service rejected this join ticket. Try again for a fresh one.",
+    messageKey: MESSAGE_KEYS.liveFailureTokenRejected,
     retryable: true,
   },
   "ended-room": {
-    message: "This stream has ended or is no longer accepting viewers.",
+    messageKey: MESSAGE_KEYS.liveFailureEndedRoom,
     retryable: false,
   },
   "lifecycle-race": {
-    message:
-      "The stream changed while you were joining. Return to livestreams and open it again.",
+    messageKey: MESSAGE_KEYS.liveFailureLifecycleRace,
     retryable: false,
   },
   unknown: {
-    message: "The live connection failed. Try again for a fresh join ticket.",
+    messageKey: MESSAGE_KEYS.liveFailureUnknown,
     retryable: true,
   },
 };
