@@ -193,7 +193,19 @@ impl EntryBuilder {
     ///
     /// If the KEM key will not fit, which it always will.
     #[must_use]
-    pub fn device(mut self, device_seed: u8, signer: &Key) -> Self {
+    pub fn device(self, device_seed: u8, signer: &Key) -> Self {
+        self.device_window(device_seed, signer, 1_700_000_000_000, 1_900_000_000_000)
+    }
+
+    /// Add a device credential with an explicit validity interval.
+    #[must_use]
+    pub fn device_window(
+        mut self,
+        device_seed: u8,
+        signer: &Key,
+        not_before_ms: u64,
+        not_after_ms: u64,
+    ) -> Self {
         let device = Key::from_byte(device_seed);
         let credential = DeviceCredentialTBS {
             label: label_field(labels::LABEL_DEVICE_CREDENTIAL).unwrap(),
@@ -201,13 +213,24 @@ impl EntryBuilder {
             handle: self.handle.clone(),
             device_pk: device.public,
             device_kem_pk: KemPublicKey::new(vec![device_seed; 1216]).unwrap(),
-            not_before_ms: 1_700_000_000_000,
-            not_after_ms: 1_900_000_000_000,
+            not_before_ms,
+            not_after_ms,
         };
         let signature = signer.sign(&credential.signing_bytes().unwrap());
         self.devices.push(DeviceCredential {
             credential,
             signature,
+        });
+        self
+    }
+
+    /// Append a device revocation record.
+    #[must_use]
+    pub fn revocation(mut self, device_pk: PublicKey, revoked_at_ms: u64, reason: &[u8]) -> Self {
+        self.revocations.push(DeviceRevocation {
+            device_pk,
+            revoked_at_ms,
+            reason: ShortBytes::new(reason.to_vec()).unwrap(),
         });
         self
     }

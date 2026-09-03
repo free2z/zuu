@@ -34,7 +34,7 @@
 //! rendering it cannot mistake it for a check that passed.
 
 use f2z_codec::types::PublicKey;
-use f2z_kt_core::entry::{DirectoryEntry, EntryKind};
+use f2z_kt_core::entry::{DeviceCredential, DirectoryEntry, EntryKind};
 use f2z_kt_core::types::Handle;
 
 use crate::standing::WitnessStanding;
@@ -127,6 +127,29 @@ impl ResolvedHandle {
     #[must_use]
     pub const fn identity_pk(&self) -> &PublicKey {
         &self.entry.entry.identity_pk
+    }
+
+    /// Credentials eligible for lookup-driven first contact at the verifier's
+    /// local time: published, inside the common skew-aware interval, and not
+    /// present in the entry's cumulative revocation history.
+    pub fn active_devices_at(
+        &self,
+        verifier_time_ms: u64,
+    ) -> impl Iterator<Item = &DeviceCredential> {
+        self.entry.entry.active_devices_at(verifier_time_ms)
+    }
+
+    /// Select one published device only if it is currently eligible for first
+    /// contact under the same rule.
+    #[must_use]
+    pub fn active_device_at(
+        &self,
+        device_pk: &PublicKey,
+        verifier_time_ms: u64,
+    ) -> Option<&DeviceCredential> {
+        self.entry
+            .entry
+            .active_device_at(device_pk, verifier_time_ms)
     }
 
     /// `entry_version` (§4.2).

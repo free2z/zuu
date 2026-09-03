@@ -267,6 +267,17 @@ struct {
 validated by peers who have no directory access at all, so it cannot depend on
 its envelope for meaning.
 
+The interval MUST be non-empty: `not_before_ms < not_after_ms`. The v1
+credential-clock tolerance is a fixed protocol constant,
+`credential_clock_skew_ms = 120000`; it is not log policy and a log cannot
+increase it. At verifier-local Unix time `t`, a credential is valid exactly
+when both `not_before_ms <= saturating_add(t, credential_clock_skew_ms)` and
+`t <= saturating_add(not_after_ms, credential_clock_skew_ms)` hold. Both outer
+boundaries are inclusive. Before the first boundary the result is
+**not-yet-valid**; after the second it is **expired**. Either result excludes the
+credential from lookup-driven first contact and causes an MLS peer validating
+the self-contained credential to reject it.
+
 ```
 struct {
     opaque device_pk[32];
@@ -304,6 +315,26 @@ struct {
     EntryAuthorization authorization;     /* §4.4 */
 } DirectoryEntry;
 ```
+
+`revocations` is an append-only cumulative history per handle. A single entry
+MUST NOT contain two records for one `device_pk`, whether identical or
+contradictory. Every successor MUST carry its predecessor's complete vector as
+an exact prefix: existing records cannot be omitted, reordered or edited, and
+new records are appended. This rule crosses identity-key changes and does not
+grant `platform_reset` an un-revocation power. A revocation takes effect when
+the entry containing it is published; `revoked_at_ms` and `reason` are audit and
+display metadata, not a future activation switch. The log MUST apply the
+interval, uniqueness and cumulative-prefix checks during admission, before it
+persists the submission or issues a `SubmissionReceipt`.
+
+A fresh verified lookup therefore teaches a client every revocation published
+for the handle, and first-contact selection MUST exclude both revoked and
+out-of-window credentials. An offline MLS peer has only the credential already
+carried in the group: it can enforce the same time interval from its local
+clock, but it cannot learn a later directory revocation until it performs or
+receives the result of a fresh verified lookup. Publishing a KT revocation does
+not itself remove an existing MLS member or retroactively invalidate messages;
+that requires an MLS state change delivered through the group.
 
 Note what is **not** in it: no display name, no avatar, no profile field, no
 relay list beyond contact endpoints, and no `KeyPackage`. A directory entry is
@@ -517,7 +548,11 @@ Verification rules the log MUST apply, in order, before an entry enters a batch:
    authority key, `effective_at_ms - created_at_ms` is at least the published
    cooldown, and the log MUST NOT publish the entry before `effective_at_ms`.
 9. Every `DeviceCredential` signature verifies under this entry's `identity_pk`,
-   and no two credentials share a `device_pk`.
+   every interval is non-empty, and no two credentials share a `device_pk`.
+   No two revocations share a `device_pk`; for `entry_version >= 2`, the
+   predecessor's complete revocation vector is an exact prefix of this entry's
+   vector. A submission that drops, reorders or changes a prior record is an
+   un-revocation attempt and MUST be rejected with `ERR_BAD_AUTHORIZATION`.
 10. §4.3's uniqueness rule.
 11. **§4.5 applies, in full, and the entry MUST NOT be published unless it
     passes.** Three cases, and an implementer applies all three:
@@ -2014,6 +2049,11 @@ To resolve `@alice`:
    surface that — §4.6, and §8.3's rule about not displaying a reassuring number
    for a property the system does not have.
 8. Pin `(handle, identity_pk, entry_version, prev_entry_hash, epoch)`.
+9. For lookup-driven first contact, select only `devices` whose credential is
+   valid at verifier-local time under §4.1's fixed skew rule and whose
+   `device_pk` does not occur in cumulative `revocations`. The raw entry remains
+   available for proof and audit, but a caller MUST NOT use an excluded device
+   for a new `KeyPackage` or routing advert.
 
 **A handle that is not registered returns a proof of non-membership, not an
 error.** **That is the requirement and not the shipped property — read the

@@ -75,6 +75,7 @@
 //! `openmls_libcrux_crypto` both do through libcrux.
 
 use f2z_codec::canonical::{decode_canonical, encode as canonical_encode};
+use f2z_kt_core::entry::CredentialValidity;
 
 pub use f2z_kt_core::entry::{DeviceCredential, DeviceCredentialTBS};
 /// The label every `DeviceCredential` carries, re-exported from the one place it
@@ -138,11 +139,14 @@ pub fn validate_at(credential: &DeviceCredential, now_ms: u64) -> Result<(), Cre
         .validate()
         .map_err(|_| CredentialError::Malformed)?;
 
-    // The window, against the caller's clock. `f2z-kt-core` is `no_std` with no
-    // I/O and deliberately has no clock, so "is it valid *now*" is the caller's
-    // question and this is where it is asked.
-    if now_ms < credential.credential.not_before_ms || now_ms > credential.credential.not_after_ms {
-        return Err(CredentialError::Expired);
+    // The caller supplies its clock; the core owns the protocol's one
+    // inclusive, skew-aware classification so directory selection and offline
+    // MLS validation cannot drift apart.
+    match credential.credential.validity_at(now_ms) {
+        CredentialValidity::Valid => {}
+        CredentialValidity::NotYetValid => return Err(CredentialError::NotYetValid),
+        CredentialValidity::Expired => return Err(CredentialError::Expired),
+        _ => return Err(CredentialError::Malformed),
     }
 
     let signing_bytes = credential

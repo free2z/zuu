@@ -15,12 +15,454 @@
     clippy::arithmetic_side_effects
 )]
 
-use f2z_msg_mls::{CredentialError, EngineError};
+use f2z_msg_mls::{CredentialError, EngineError, MlsEngine};
 use openmls::prelude::{GroupId, MlsGroup};
 use openmls_traits::OpenMlsProvider as _;
 
 mod common;
-use common::{NOW, device, directory_entry, with_revocation};
+use common::{NOW, device, directory_entry, issue_credential, with_revocation};
+
+#[path = "../../../tests/support/markdown.rs"]
+mod markdown;
+
+const WIRE: &str = include_str!("../../../../docs/e2ee/WIRE.md");
+const KEY_PACKAGE_AUTHENTICATION_HEADING: &str =
+    "#### 12.6.5 Authentication — mandatory, and structural";
+const NEXT_WIRE_HEADING: &str = "#### 12.6.6 Exhaustion, and the package of last resort";
+const KEY_PACKAGE_PARENT_HEADING: &str =
+    "12.6 `KeyPackage` publication — where a consumable key lives";
+const KEY_PACKAGE_AUTHENTICATION_TABLE: &str = r#"| # | Check |
+|---|---|
+| 1 | RFC 9420's own `KeyPackage` validation: the package signature, the leaf-node signature, the lifetime, the extensions, and `init_key != encryption_key`. |
+| 2 | The ciphersuite is `ARCHITECTURE.md` §5.2's, and only that one. A relay that could choose the suite could downgrade the hybrid PQ. |
+| 3 | The credential parses as a `free2z/device-credential/v1`, not as a bare handle in a `BasicCredential`. |
+| 4 | The credential's signature verifies under the **entry's** `identity_pk` — not under the key inside the credential. |
+| 5 | The credential's `handle` is the entry's `handle`. |
+| 6 | The complete signed `DeviceCredential` exactly equals the credential the entry publishes in `devices` for that `device_pk`; matching the key alone is insufficient. |
+| 7 | At verifier-local time, that published credential is `Valid` under `KT.md` §4.1's exact shared inclusive fixed-skew rule; **not-yet-valid** and **expired** credentials are refused. |
+| 8 | The credential's `device_pk` does **not** appear in the entry's cumulative `revocations`. |
+| 9 | The leaf's `signature_key` is the credential's `device_pk` — the identity→device binding of `ARCHITECTURE.md` §4.2. |"#;
+const KEY_PACKAGE_AUTHENTICATION_SECTION: &str = r#"**A fetched key package MUST be verified against the `DirectoryEntry` the
+key-transparency lookup proved, before it is used for anything.** A client that
+skips this has reintroduced [#133](https://github.com/free2z/zuu/issues/133) one
+level down: the relay would choose whose init key the `Welcome` is encrypted to,
+and `ARCHITECTURE.md` §9.1's sentence applies unchanged — *encrypting perfectly
+to the wrong key is not security*.
+
+The check is possible because a `KeyPackage` carries the device's
+`DeviceCredential` as its MLS `Credential` (`KT.md` §4.1,
+`ARCHITECTURE.md` §4.2), and that credential is signed by the identity key the
+directory publishes. In full, a client MUST refuse the package unless **all** of
+these hold:
+
+| # | Check |
+|---|---|
+| 1 | RFC 9420's own `KeyPackage` validation: the package signature, the leaf-node signature, the lifetime, the extensions, and `init_key != encryption_key`. |
+| 2 | The ciphersuite is `ARCHITECTURE.md` §5.2's, and only that one. A relay that could choose the suite could downgrade the hybrid PQ. |
+| 3 | The credential parses as a `free2z/device-credential/v1`, not as a bare handle in a `BasicCredential`. |
+| 4 | The credential's signature verifies under the **entry's** `identity_pk` — not under the key inside the credential. |
+| 5 | The credential's `handle` is the entry's `handle`. |
+| 6 | The complete signed `DeviceCredential` exactly equals the credential the entry publishes in `devices` for that `device_pk`; matching the key alone is insufficient. |
+| 7 | At verifier-local time, that published credential is `Valid` under `KT.md` §4.1's exact shared inclusive fixed-skew rule; **not-yet-valid** and **expired** credentials are refused. |
+| 8 | The credential's `device_pk` does **not** appear in the entry's cumulative `revocations`. |
+| 9 | The leaf's `signature_key` is the credential's `device_pk` — the identity→device binding of `ARCHITECTURE.md` §4.2. |
+
+Check 4 is the one the section exists for. A relay that invents an identity key,
+issues itself a credential under it and signs a key package with the matching
+device key passes 1, 2, 3 and 9; only the directory's `identity_pk` stops it.
+Checks 6–8 make a replaced, withdrawn, not-yet-valid, expired, or revoked
+device unreachable for first contact. In particular, accepting a matching
+`device_pk` instead of the complete published credential would preserve the
+longer lifetime of a stale package after the owner replaced that credential.
+
+The reference implementation's safe first-party route makes this structural:
+`f2z_msg_mls::VerifiedKeyPackage` has no constructor but the verifying one, and
+`MlsEngine::add_member` takes that type instead of bytes. Its crate-level public
+API still exposes enough raw OpenMLS capabilities for an external caller to go
+around that wrapper; [#903](https://github.com/free2z/zuu/issues/903) tracks
+sealing that escape. This is an implementation status disclosure, not a
+weakening of the wire requirement: every client MUST perform all nine checks
+before proposing the Add."#;
+
+const KEY_PACKAGE_EXHAUSTION_SECTION: &str = r#"When the pool is empty a relay serves the **package of last resort** — RFC 9420's
+`last_resort` KeyPackage extension — repeatedly, without deleting it.
+
+**This is a real weakening and it is stated rather than buried.** A reusable
+package means a reused init key: two initiators derive their `Welcome` encryption
+from the same secret, and an attacker who later compromises that secret can open
+every `Welcome` ever addressed to it. The full accounting is
+[`THREAT-MODEL.md` §4.12](./THREAT-MODEL.md#412-a-last-resort-key-package-is-a-reused-init-key).
+
+The alternative is worse and is the reason the trade is taken: **without it,
+exhaustion means a device becomes unreachable to anyone new** for as long as it
+is offline, and an attacker willing to pay `max_pool_size` claim stamps can
+put it in that state deliberately. That is §12.4's contact-queue flood with a
+much smaller bill, and it would make first contact denial-of-service cheap.
+
+Two rules bound the cost:
+
+- A device **SHOULD** publish exactly one last-resort package and **SHOULD** give
+  it a lifetime materially shorter than its device credential's. The only
+  mitigation available against a reusable key is that it stops being usable.
+- A device **SHOULD NOT** replace its last-resort package on every top-up. A
+  `Welcome` may already be in flight against the retired one and the sender has
+  no way to learn it was withdrawn.
+
+A device **MAY** publish no last-resort package at all, accepting unreachability
+over reuse. A relay then answers `ERR_UNAVAILABLE` on an empty pool, and a client
+MUST surface that as *"this person cannot be reached right now"* rather than as
+*"this person does not exist"* — the two are the same wire code, by §10's rule,
+and only the client knows the lookup succeeded.
+
+**Refill, and the trap in it.** A device SHOULD top its pool up to a target on
+every `start_engine` and whenever something arrives on its contact queue.
+
+**A device MUST NOT decide when to refill from its own last-recorded count.**
+Most claims never produce a `Welcome` — a stranger may claim and never write —
+so consumption is *invisible* to the owner. A device that trusted its own number
+would sit at "I published 32" while the relay held zero, fall back to its
+reusable package of last resort on every first contact, and never notice.
+
+The way to ask is a **publish with an empty `packages` vector and an empty
+`last_resort`**: it changes nothing and returns the relay's true `pool_size` and
+`has_last_resort`. That is not a special case bolted on — it is why the response
+carries state at all, and it is safe for the reason §12.6.3 gives: the caller is
+the queue's owner, authenticated by the receive-side key.
+
+The numbers (a target, a low-water mark) are policy and are not fixed here; the
+reference client uses 32 and 8 against a cap of 64, and calls both placeholders.
+
+**Offline for a long time.** The pool drains, the last-resort package carries
+first contact at the cost above, and when *that* expires the device is
+unreachable to new contacts until it comes back. Established conversations are
+entirely unaffected at every stage — they use ordinary queues and no key package
+is ever consulted again."#;
+
+const KEY_PACKAGE_AUTHENTICATION_TEXT: &str = "12.6.5 Authentication — mandatory, and structural";
+const KEY_PACKAGE_EXHAUSTION_TEXT: &str = "12.6.6 Exhaustion, and the package of last resort";
+// This is intentionally the complete ordinary rendered-prose surface, not a
+// vocabulary search for likely weakenings. Otherwise a contradictory paragraph
+// elsewhere in WIRE can evade the guard by choosing one synonym we did not list.
+// Fenced examples and quoted/raw-HTML content cannot establish this normative
+// contract; the exact §12.6 structure and prose are checked separately below.
+const WIRE_RENDERED_PROSE_DIGEST: u64 = 8_772_757_061_631_922_358;
+
+fn wire_rendered_prose_digest(rendered: &markdown::RenderedMarkdown) -> u64 {
+    markdown::stable_digest(rendered.paragraphs())
+}
+
+fn wire_has_exact_key_package_authentication_table(wire: &str) -> bool {
+    wire_has_exact_key_package_authentication_table_with_digest(wire, WIRE_RENDERED_PROSE_DIGEST)
+}
+
+fn wire_has_exact_key_package_authentication_table_with_digest(
+    wire: &str,
+    expected_rendered_prose_digest: u64,
+) -> bool {
+    let Some(rendered) = markdown::RenderedMarkdown::parse(wire) else {
+        return false;
+    };
+    let expected_children = [
+        "12.6.1 The tension, stated first",
+        "12.6.2 The answer: the relay, at the address the directory already publishes",
+        "12.6.3 `PUBLISH_KEY_PACKAGES` — `0x0032`",
+        "12.6.4 `CLAIM_KEY_PACKAGE` — `0x0033`",
+        KEY_PACKAGE_AUTHENTICATION_TEXT,
+        KEY_PACKAGE_EXHAUSTION_TEXT,
+        "12.6.7 What a client may not conclude from `last_resort`",
+        "12.6.8 Privacy — what this adds, precisely",
+        "12.6.9 Anti-abuse",
+    ];
+    let Some(children) = rendered.child_headings(3, KEY_PACKAGE_PARENT_HEADING, 4) else {
+        return false;
+    };
+
+    children == expected_children
+        && !rendered.has_raw_html()
+        && wire.matches(KEY_PACKAGE_AUTHENTICATION_HEADING).count() == 1
+        && wire.matches(NEXT_WIRE_HEADING).count() == 1
+        && wire.matches(KEY_PACKAGE_AUTHENTICATION_SECTION).count() == 1
+        && wire.matches(KEY_PACKAGE_EXHAUSTION_SECTION).count() == 1
+        && rendered
+            .section(4, KEY_PACKAGE_AUTHENTICATION_TEXT)
+            .as_deref()
+            == Some(KEY_PACKAGE_AUTHENTICATION_SECTION)
+        && rendered.section(4, KEY_PACKAGE_EXHAUSTION_TEXT).as_deref()
+            == Some(KEY_PACKAGE_EXHAUSTION_SECTION)
+        && wire_rendered_prose_digest(&rendered) == expected_rendered_prose_digest
+}
+
+#[test]
+fn wire_key_package_authentication_list_is_exhaustive_and_mutation_sensitive() {
+    let rendered = markdown::RenderedMarkdown::parse(WIRE).expect("WIRE must parse fail-closed");
+    assert_eq!(
+        wire_rendered_prose_digest(&rendered),
+        WIRE_RENDERED_PROSE_DIGEST,
+        "WIRE's ordinary rendered prose changed; review the change before updating the contract"
+    );
+    assert!(
+        wire_has_exact_key_package_authentication_table(WIRE),
+        "WIRE §12.6.5 must carry the exact exhaustive authentication table"
+    );
+
+    for (name, original, replacement) in [
+        (
+            "full credential equality",
+            "The complete signed `DeviceCredential` exactly equals the credential the entry publishes in `devices` for that `device_pk`; matching the key alone is insufficient.",
+            "The credential's `device_pk` appears in the entry's `devices`.",
+        ),
+        (
+            "shared inclusive validity rule",
+            "At verifier-local time, that published credential is `Valid` under `KT.md` §4.1's exact shared inclusive fixed-skew rule; **not-yet-valid** and **expired** credentials are refused.",
+            "The credential lifetime is acceptable.",
+        ),
+        (
+            "cumulative revocation",
+            "The credential's `device_pk` does **not** appear in the entry's cumulative `revocations`.",
+            "The credential has not been revoked recently.",
+        ),
+    ] {
+        assert_eq!(
+            WIRE.matches(original).count(),
+            1,
+            "{name} mutation must target exactly one normative claim"
+        );
+        let mutant = WIRE.replacen(original, replacement, 1);
+        assert!(
+            !wire_has_exact_key_package_authentication_table(&mutant),
+            "the checker survived deletion of {name}"
+        );
+    }
+
+    let extra_rule = WIRE.replacen(
+        KEY_PACKAGE_AUTHENTICATION_TABLE,
+        &format!(
+            "{KEY_PACKAGE_AUTHENTICATION_TABLE}\n\
+             | 10 | Implementations MAY accept a matching device key without full credential equality. |"
+        ),
+        1,
+    );
+    assert!(
+        !wire_has_exact_key_package_authentication_table(&extra_rule),
+        "the checker accepted a tenth, contradictory authentication rule"
+    );
+
+    let advisory = WIRE.replacen(
+        KEY_PACKAGE_AUTHENTICATION_TABLE,
+        &format!(
+            "{KEY_PACKAGE_AUTHENTICATION_TABLE}\n\n\
+             The nine checks are advisory; matching the device key alone is sufficient."
+        ),
+        1,
+    );
+    assert!(
+        !wire_has_exact_key_package_authentication_table(&advisory),
+        "the checker accepted additive prose making full credential equality optional"
+    );
+
+    let synonymous_weakening = WIRE.replacen(
+        KEY_PACKAGE_AUTHENTICATION_TABLE,
+        &format!(
+            "{KEY_PACKAGE_AUTHENTICATION_TABLE}\n\n\
+             The nine checks are recommendations; a matching device key is adequate."
+        ),
+        1,
+    );
+    assert!(
+        !wire_has_exact_key_package_authentication_table(&synonymous_weakening),
+        "the checker accepted a synonymous additive weakening"
+    );
+
+    let adjacent_weakening = WIRE.replacen(
+        NEXT_WIRE_HEADING,
+        &format!(
+            "{NEXT_WIRE_HEADING}\n\n\
+             Despite §12.6.5, clients MAY accept a key package whenever its `device_pk` \
+             matches a published device; exact credential equality is advisory."
+        ),
+        1,
+    );
+    assert!(
+        !wire_has_exact_key_package_authentication_table(&adjacent_weakening),
+        "the checker accepted a contradiction in adjacent §12.6.6"
+    );
+
+    for (name, original, addition) in [
+        (
+            "§12.6.5 four-space paragraph continuation",
+            "before proposing the Add.",
+            "Clients MAY match only `device_pk` and skip complete credential equality.",
+        ),
+        (
+            "§12.6.6 four-space paragraph continuation",
+            "is ever consulted again.",
+            "Expired key packages MAY be accepted when the pool is exhausted.",
+        ),
+    ] {
+        assert_eq!(
+            WIRE.matches(original).count(),
+            1,
+            "{name} mutation must target exactly one rendered paragraph ending"
+        );
+        let visible_continuation =
+            WIRE.replacen(original, &format!("{original}\n    {addition}"), 1);
+        assert!(
+            !wire_has_exact_key_package_authentication_table(&visible_continuation),
+            "the checker discarded a visible {name} as indented code"
+        );
+    }
+
+    let elsewhere_weakening = WIRE.replacen(
+        "# free2z E2EE — Relay wire protocol, version 1",
+        "# free2z E2EE — Relay wire protocol, version 1\n\nClients MAY use a matching device key without exact \
+         `DeviceCredential` equality; the §12.6.5 checks are advisory.",
+        1,
+    );
+    assert!(
+        !wire_has_exact_key_package_authentication_table(&elsewhere_weakening),
+        "the checker accepted a contradiction elsewhere in WIRE"
+    );
+
+    let html_elsewhere_weakening = WIRE.replacen(
+        "# free2z E2EE — Relay wire protocol, version 1",
+        "# free2z E2EE — Relay wire protocol, version 1\n\n<div>Clients MAY ignore \
+         §12.6.5 and match only the device key.</div>",
+        1,
+    );
+    assert!(
+        !wire_has_exact_key_package_authentication_table(&html_elsewhere_weakening),
+        "the checker accepted contradictory prose in a raw HTML container"
+    );
+
+    let hidden_and_contradicted = WIRE
+        .replacen(
+            KEY_PACKAGE_AUTHENTICATION_HEADING,
+            &format!("<!--\n{KEY_PACKAGE_AUTHENTICATION_HEADING}"),
+            1,
+        )
+        .replacen(
+            NEXT_WIRE_HEADING,
+            &format!(
+                "{NEXT_WIRE_HEADING}\n-->\n\nClients MAY accept a package on matching \
+                 `device_pk` alone; the hidden checks above are advisory."
+            ),
+            1,
+        );
+    assert!(
+        !wire_has_exact_key_package_authentication_table(&hidden_and_contradicted),
+        "the checker counted comment-hidden canonical policy over visible contradictory prose"
+    );
+
+    let same_line_comment = WIRE.replacen(
+        KEY_PACKAGE_AUTHENTICATION_HEADING,
+        &format!("<!-- hidden raw block -->{KEY_PACKAGE_AUTHENTICATION_HEADING}"),
+        1,
+    );
+    assert!(
+        !wire_has_exact_key_package_authentication_table(&same_line_comment),
+        "text after a raw-comment close on the same line counted as a rendered heading"
+    );
+
+    let lazy_blockquote = WIRE.replacen(
+        &format!("{KEY_PACKAGE_AUTHENTICATION_HEADING}\n\n"),
+        &format!(
+            "{KEY_PACKAGE_AUTHENTICATION_HEADING}\n> Quoted non-normative example whose marker is omitted on continuation lines\n"
+        ),
+        1,
+    );
+    assert!(
+        !wire_has_exact_key_package_authentication_table(&lazy_blockquote),
+        "unmarked lazy blockquote continuations established the canonical policy"
+    );
+
+    // A CommonMark closer may contain trailing whitespace and nothing else.
+    // Treating the second line as a closer makes the canonical section appear
+    // rendered even though the unclosed fence actually hides it through EOF.
+    let malformed_fence_closer = WIRE.replacen(
+        KEY_PACKAGE_AUTHENTICATION_HEADING,
+        &format!(
+            "```markdown\n``` this is literal fenced content, not a closer\n\
+             {KEY_PACKAGE_AUTHENTICATION_HEADING}"
+        ),
+        1,
+    );
+    assert!(
+        !wire_has_exact_key_package_authentication_table(&malformed_fence_closer),
+        "the checker treated a fence with trailing text as a CommonMark closer"
+    );
+
+    let hidden_by_commonmark_hgroup = WIRE
+        .replacen(
+            KEY_PACKAGE_AUTHENTICATION_HEADING,
+            &format!("<hgroup>\n{KEY_PACKAGE_AUTHENTICATION_HEADING}"),
+            1,
+        )
+        .replacen(
+            NEXT_WIRE_HEADING,
+            &format!("</hgroup>\n{NEXT_WIRE_HEADING}"),
+            1,
+        );
+    let mutant_rendered = markdown::RenderedMarkdown::parse(&hidden_by_commonmark_hgroup)
+        .expect("the hgroup mutation must remain syntactically valid");
+    let reanchored_digest = wire_rendered_prose_digest(&mutant_rendered);
+    assert!(
+        !wire_has_exact_key_package_authentication_table_with_digest(
+            &hidden_by_commonmark_hgroup,
+            reanchored_digest,
+        ),
+        "a re-anchored prose digest must not let CommonMark hgroup hide §12.6.5"
+    );
+
+    for (name, opening, closing) in [
+        ("fenced code", "```markdown", "```"),
+        ("raw HTML container", "<div hidden>", "</div>"),
+        ("raw HTML block", "<textarea>", "</textarea>"),
+    ] {
+        let hidden = WIRE
+            .replacen(
+                KEY_PACKAGE_AUTHENTICATION_HEADING,
+                &format!("{opening}\n{KEY_PACKAGE_AUTHENTICATION_HEADING}"),
+                1,
+            )
+            .replacen(
+                NEXT_WIRE_HEADING,
+                &format!("{NEXT_WIRE_HEADING}\n{closing}"),
+                1,
+            );
+        assert!(
+            !wire_has_exact_key_package_authentication_table(&hidden),
+            "the checker counted canonical policy hidden in {name}"
+        );
+    }
+
+    let authentication_block =
+        format!("{KEY_PACKAGE_AUTHENTICATION_HEADING}\n\n{KEY_PACKAGE_AUTHENTICATION_SECTION}");
+    for (name, prefix) in [("blockquote", "> "), ("indented code", "    ")] {
+        let hidden_block = authentication_block
+            .lines()
+            .map(|line| format!("{prefix}{line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let hidden = WIRE.replacen(&authentication_block, &hidden_block, 1);
+        assert!(
+            !wire_has_exact_key_package_authentication_table(&hidden),
+            "the checker counted canonical policy hidden in a {name}"
+        );
+    }
+
+    let without_authentication = WIRE.replacen(&format!("{authentication_block}\n\n"), "", 1);
+    let relocated = without_authentication.replacen(
+        "#### 12.6.7 What a client may not conclude from `last_resort`",
+        &format!(
+            "{authentication_block}\n\n#### 12.6.7 What a client may not conclude from `last_resort`"
+        ),
+        1,
+    );
+    assert!(
+        !wire_has_exact_key_package_authentication_table(&relocated),
+        "the checker accepted the canonical section at a different structural ordinal"
+    );
+}
 
 #[test]
 fn a_substituted_relay_id_breaks_the_device_authenticated_routing_advert() {
@@ -82,6 +524,71 @@ fn a_swapped_welcome_breaks_the_device_authenticated_routing_transcript() {
         .is_err(),
         "deleting Welcome coverage would make this substitution survive"
     );
+}
+
+#[test]
+fn routing_advert_refusals_name_the_directory_device_state() {
+    let bob = device("bob", 22, 222);
+    let payload = b"conversation|relay-url|relay-id|send-addr";
+    let signature = bob.sign_routing_advert(payload).expect("routing signature");
+    let device_pk = bob.credential().credential.device_pk;
+
+    let unpublished = device("bob", 22, 244);
+    let unpublished_entry = directory_entry(&[unpublished.credential().clone()]);
+    let error = MlsEngine::<f2z_msg_store::MemoryBackend>::authenticate_routing_advert(
+        &unpublished_entry,
+        device_pk.as_bytes(),
+        payload,
+        &signature,
+        NOW,
+    )
+    .expect_err("the routing signer is not published");
+    assert!(
+        matches!(
+            error,
+            EngineError::Credential(CredentialError::DeviceNotPublished)
+        ),
+        "{error:?}"
+    );
+
+    let entry = directory_entry(&[bob.credential().clone()]);
+    let revoked = with_revocation(&entry, device_pk);
+    let error = MlsEngine::<f2z_msg_store::MemoryBackend>::authenticate_routing_advert(
+        &revoked,
+        device_pk.as_bytes(),
+        payload,
+        &signature,
+        NOW,
+    )
+    .expect_err("the routing signer is revoked");
+    assert!(
+        matches!(
+            error,
+            EngineError::Credential(CredentialError::DeviceRevoked)
+        ),
+        "{error:?}"
+    );
+
+    let skew = f2z_kt_core::entry::DEVICE_CREDENTIAL_CLOCK_SKEW_MS;
+    for (not_before, not_after, expected) in [
+        (NOW + skew + 1, NOW + skew + 2, CredentialError::NotYetValid),
+        (NOW - skew - 2, NOW - skew - 1, CredentialError::Expired),
+    ] {
+        let published = issue_credential("bob", 22, 222, not_before, not_after).0;
+        let entry = directory_entry(&[published]);
+        let error = MlsEngine::<f2z_msg_store::MemoryBackend>::authenticate_routing_advert(
+            &entry,
+            device_pk.as_bytes(),
+            payload,
+            &signature,
+            NOW,
+        )
+        .expect_err("the routing signer is outside its published window");
+        assert!(
+            matches!(error, EngineError::Credential(actual) if actual == expected),
+            "expected {expected:?}, got {error:?}"
+        );
+    }
 }
 
 #[test]
@@ -261,7 +768,7 @@ fn a_package_from_a_device_the_entry_does_not_publish_is_refused() {
     assert!(
         matches!(
             error,
-            EngineError::Credential(CredentialError::DeviceKeyMismatch)
+            EngineError::Credential(CredentialError::DeviceNotPublished)
         ),
         "{error:?}"
     );
@@ -287,7 +794,7 @@ fn a_package_from_a_revoked_device_is_refused() {
     assert!(
         matches!(
             error,
-            EngineError::Credential(CredentialError::DeviceKeyMismatch)
+            EngineError::Credential(CredentialError::DeviceRevoked)
         ),
         "{error:?}"
     );
@@ -307,7 +814,68 @@ fn an_expired_package_is_refused() {
         .verify_key_package(&wire, &entry, NOW + 100_000_000_000)
         .expect_err("an expired package is not usable");
     assert!(
-        matches!(error, EngineError::Credential(_) | EngineError::Mls(_)),
+        matches!(error, EngineError::Credential(CredentialError::Expired)),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn first_contact_uses_the_published_credential_window_not_only_the_package_window() {
+    let bob = device("bob", 22, 222);
+    let alice = device("alice", 11, 111);
+    let wire = bob.generate_key_package().expect("package");
+    let skew = f2z_kt_core::entry::DEVICE_CREDENTIAL_CLOCK_SKEW_MS;
+
+    for (not_before, not_after, expected) in [
+        (NOW + skew + 1, NOW + skew + 2, CredentialError::NotYetValid),
+        (NOW - skew - 2, NOW - skew - 1, CredentialError::Expired),
+    ] {
+        // Same identity, handle and device key as the still-valid credential
+        // inside `wire`; only the directory-published lifetime excludes it.
+        let published = issue_credential("bob", 22, 222, not_before, not_after).0;
+        let entry = directory_entry(&[published]);
+        let error = alice
+            .verify_key_package(&wire, &entry, NOW)
+            .expect_err("the published credential is inactive");
+        assert!(
+            matches!(error, EngineError::Credential(actual) if actual == expected),
+            "expected {expected:?}, got {error:?}"
+        );
+    }
+}
+
+#[test]
+fn a_stale_longer_lived_credential_for_the_same_device_key_is_not_published() {
+    let (embedded, signer) = issue_credential("bob", 22, 222, NOW - 1_000_000, NOW + 1_000_000);
+    let bob = MlsEngine::new(
+        f2z_msg_store::MemoryBackend::new(),
+        signer,
+        embedded.clone(),
+        NOW,
+    )
+    .expect("the older credential is currently valid");
+    let wire = bob.generate_key_package().expect("package");
+
+    // The replacement uses the exact same identity, handle and DSK, and is
+    // also valid now. Only full credential equality catches that the relay
+    // retained the older, longer-lived credential embedded in `wire`.
+    let published = issue_credential("bob", 22, 222, NOW - 500, NOW + 500).0;
+    assert_eq!(
+        embedded.credential.device_pk,
+        published.credential.device_pk
+    );
+    assert_ne!(embedded, published);
+
+    let alice = device("alice", 11, 111);
+    let entry = directory_entry(&[published]);
+    let error = alice
+        .verify_key_package(&wire, &entry, NOW)
+        .expect_err("a stale credential is not the credential the directory publishes");
+    assert!(
+        matches!(
+            error,
+            EngineError::Credential(CredentialError::PublishedCredentialMismatch)
+        ),
         "{error:?}"
     );
 }

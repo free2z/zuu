@@ -63,6 +63,12 @@ async fn publish_and_count(harness: &Harness) -> u64 {
     }
 }
 
+fn submission_journal_bytes(harness: &Harness) -> u64 {
+    std::fs::metadata(harness.dir.join("submissions.log"))
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
+}
+
 // ---------------------------------------------------------------------------
 // zuu#594 — what authorizes a handle's FIRST entry.
 // ---------------------------------------------------------------------------
@@ -95,6 +101,101 @@ async fn a_first_entry_with_no_authority_assertion_is_refused() {
         0,
         "the tree did not move"
     );
+}
+
+#[tokio::test]
+async fn malformed_credential_or_duplicate_revocation_is_rejected_before_receipt_or_publish() {
+    let harness = Harness::vouched("adv-credential-interval").await;
+    harness.log.publish_epoch(NOW).await.unwrap();
+    let alice = Identity::from_byte(1);
+    let entry = EntryBuilder::first(harness.log_id, "alice", &alice)
+        .device_window(0x10, &alice.isk, NOW, NOW)
+        .same_key(&alice.dak);
+    let journal_before = submission_journal_bytes(&harness);
+
+    assert_eq!(
+        refusal(
+            harness
+                .log
+                .submit(&harness.envelope(&entry, &alice, NOW), NOW)
+                .await
+        ),
+        ErrorCode::Malformed
+    );
+    assert_eq!(harness.log.pending_count().await, 0);
+    assert_eq!(submission_journal_bytes(&harness), journal_before);
+
+    let device_pk = f2z_kt::testing::Key::from_byte(0x10).public;
+    let contradictory = EntryBuilder::first(harness.log_id, "alice", &alice)
+        .device(0x10, &alice.isk)
+        .revocation(device_pk, NOW, b"lost")
+        .revocation(device_pk, NOW + 1, b"stolen")
+        .same_key(&alice.dak);
+    assert_eq!(
+        refusal(
+            harness
+                .log
+                .submit(&harness.envelope(&contradictory, &alice, NOW), NOW)
+                .await
+        ),
+        ErrorCode::Malformed
+    );
+    assert_eq!(harness.log.pending_count().await, 0);
+    assert_eq!(submission_journal_bytes(&harness), journal_before);
+    assert_eq!(publish_and_count(&harness).await, 0);
+}
+
+#[tokio::test]
+async fn accepted_revocation_cannot_be_dropped_before_receipt_or_publish() {
+    let harness = Harness::vouched("adv-unrevocation").await;
+    harness.log.publish_epoch(NOW).await.unwrap();
+    let alice = Identity::from_byte(1);
+    let device_pk = f2z_kt::testing::Key::from_byte(0x10).public;
+    let first = EntryBuilder::first(harness.log_id, "alice", &alice)
+        .device(0x10, &alice.isk)
+        .same_key(&alice.dak);
+    harness
+        .log
+        .submit(&harness.envelope(&first, &alice, NOW), NOW)
+        .await
+        .unwrap();
+    harness.log.publish_epoch(NOW).await.unwrap();
+
+    let second = EntryBuilder::first(harness.log_id, "alice", &alice)
+        .version(2)
+        .prev_entry_hash(labels::prev_entry_hash(&entry_bytes(&first)))
+        .device(0x10, &alice.isk)
+        .revocation(device_pk, NOW, b"lost")
+        .same_key(&alice.dak);
+    harness
+        .log
+        .submit(&harness.envelope(&second, &alice, NOW), NOW)
+        .await
+        .expect("the first publication of a unique revocation earns a receipt");
+    harness.log.publish_epoch(NOW).await.unwrap();
+    let journal_before_unrevocation = submission_journal_bytes(&harness);
+
+    let unrevoked = EntryBuilder::first(harness.log_id, "alice", &alice)
+        .version(3)
+        .prev_entry_hash(labels::prev_entry_hash(&entry_bytes(&second)))
+        .device(0x10, &alice.isk)
+        .same_key(&alice.dak);
+    assert_eq!(
+        refusal(
+            harness
+                .log
+                .submit(&harness.envelope(&unrevoked, &alice, NOW), NOW)
+                .await
+        ),
+        ErrorCode::BadAuthorization
+    );
+    assert_eq!(harness.log.pending_count().await, 0);
+    assert_eq!(
+        submission_journal_bytes(&harness),
+        journal_before_unrevocation,
+        "a refused un-revocation never reaches durable submission storage"
+    );
+    assert_eq!(publish_and_count(&harness).await, 0);
 }
 
 #[tokio::test]

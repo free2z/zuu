@@ -600,7 +600,7 @@ fn post_merge_credential_failure_restores_memory_for_redelivery() {
         paired_with_bob_backend(MemoryBackend::new(), NOW + 1);
     let commit = alice.update(&mut alice_group).expect("update");
     let epoch_before = bob_group.epoch();
-    let after_bob_expired = NOW + 2;
+    let after_bob_expired = NOW + f2z_kt_core::entry::DEVICE_CREDENTIAL_CLOCK_SKEW_MS + 2;
 
     for attempt in 1..=2 {
         let outcome = bob.receive(

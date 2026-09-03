@@ -403,6 +403,7 @@ impl TestDirectory {
         );
         // Something has to differ, or the update is a re-publication. A second
         // contact endpoint is the most boring change §4.1 permits.
+        entry.revocations = previous.entry.revocations.clone();
         entry.contact_endpoints = VecU16::new(vec![
             ContactEndpoint {
                 relay_url: short(b"wss://relay.example/relay/v1"),

@@ -2142,22 +2142,27 @@ these hold:
 | 3 | The credential parses as a `free2z/device-credential/v1`, not as a bare handle in a `BasicCredential`. |
 | 4 | The credential's signature verifies under the **entry's** `identity_pk` — not under the key inside the credential. |
 | 5 | The credential's `handle` is the entry's `handle`. |
-| 6 | The credential's `device_pk` appears in the entry's `devices`. |
-| 7 | The credential's `device_pk` does **not** appear in the entry's `revocations`. |
-| 8 | The leaf's `signature_key` is the credential's `device_pk` — the identity→device binding of `ARCHITECTURE.md` §4.2. |
+| 6 | The complete signed `DeviceCredential` exactly equals the credential the entry publishes in `devices` for that `device_pk`; matching the key alone is insufficient. |
+| 7 | At verifier-local time, that published credential is `Valid` under `KT.md` §4.1's exact shared inclusive fixed-skew rule; **not-yet-valid** and **expired** credentials are refused. |
+| 8 | The credential's `device_pk` does **not** appear in the entry's cumulative `revocations`. |
+| 9 | The leaf's `signature_key` is the credential's `device_pk` — the identity→device binding of `ARCHITECTURE.md` §4.2. |
 
 Check 4 is the one the section exists for. A relay that invents an identity key,
 issues itself a credential under it and signs a key package with the matching
-device key passes 1, 2, 3 and 8; only the directory's `identity_pk` stops it.
-Checks 6 and 7 are what make a *withdrawn* or *revoked* device unreachable for
-first contact, which a credential-only check cannot see.
+device key passes 1, 2, 3 and 9; only the directory's `identity_pk` stops it.
+Checks 6–8 make a replaced, withdrawn, not-yet-valid, expired, or revoked
+device unreachable for first contact. In particular, accepting a matching
+`device_pk` instead of the complete published credential would preserve the
+longer lifetime of a stale package after the owner replaced that credential.
 
-The reference implementation makes this structural rather than remembered:
+The reference implementation's safe first-party route makes this structural:
 `f2z_msg_mls::VerifiedKeyPackage` has no constructor but the verifying one, and
-`MlsEngine::add_member` takes that type instead of bytes. That is a suggestion
-about how to build it, not a wire requirement — but the requirement that the
-check happen is normative, and an implementation that leaves it to a comment has
-not met it.
+`MlsEngine::add_member` takes that type instead of bytes. Its crate-level public
+API still exposes enough raw OpenMLS capabilities for an external caller to go
+around that wrapper; [#903](https://github.com/free2z/zuu/issues/903) tracks
+sealing that escape. This is an implementation status disclosure, not a
+weakening of the wire requirement: every client MUST perform all nine checks
+before proposing the Add.
 
 #### 12.6.6 Exhaustion, and the package of last resort
 

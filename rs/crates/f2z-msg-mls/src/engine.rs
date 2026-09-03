@@ -88,7 +88,7 @@ use openmls::prelude::tls_codec::{Deserialize as _, Serialize as _};
 use crate::credential::{DeviceCredential, encode as encode_credential, validate_for_leaf};
 use crate::error::{CredentialError, EngineError, Result};
 use crate::exporter::ExportLabel;
-use crate::keypackage::VerifiedKeyPackage;
+use crate::keypackage::{VerifiedKeyPackage, published_device_for_first_contact};
 use crate::provider::F2zProvider;
 use crate::signer::DeviceSigner;
 use crate::version::ProtocolVersion;
@@ -326,25 +326,16 @@ impl<B: StorageBackend> MlsEngine<B> {
         signature: &[u8],
         now_ms: u64,
     ) -> Result<()> {
-        let credential = entry
-            .devices
-            .as_slice()
-            .iter()
-            .find(|credential| credential.credential.device_pk.as_bytes() == device_pk)
-            .ok_or(EngineError::Credential(CredentialError::DeviceKeyMismatch))?;
-        validate_for_leaf(credential, device_pk, now_ms)?;
-        if credential.credential.identity_pk != entry.identity_pk
-            || credential.credential.handle != entry.handle
-            || entry
-                .revocations
-                .as_slice()
-                .iter()
-                .any(|revoked| revoked.device_pk.as_bytes() == device_pk)
-        {
-            return Err(EngineError::Credential(CredentialError::DeviceKeyMismatch));
-        }
         let public_key = f2z_codec::types::PublicKey::from_slice(device_pk)
-            .map_err(|_| EngineError::Signature)?;
+            .map_err(|_| EngineError::Credential(CredentialError::Malformed))?;
+        let credential = published_device_for_first_contact(entry, &public_key, now_ms)?;
+        validate_for_leaf(credential, device_pk, now_ms)?;
+        if credential.credential.identity_pk != entry.identity_pk {
+            return Err(EngineError::Credential(CredentialError::BadSignature));
+        }
+        if credential.credential.handle != entry.handle {
+            return Err(EngineError::Credential(CredentialError::InvalidHandle));
+        }
         let signature = f2z_codec::types::Signature::from_slice(signature)
             .map_err(|_| EngineError::Signature)?;
         f2z_kt_core::sig::verify(&public_key, payload, &signature)
@@ -547,13 +538,14 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// Add a member from their published `KeyPackage`, returning the commit and
     /// the `Welcome`, both ready for the wire.
     ///
-    /// **The argument is a [`VerifiedKeyPackage`], not bytes**, and that is the
-    /// whole of `WIRE.md` §12.6's authentication requirement expressed as a
+    /// **The argument is a [`VerifiedKeyPackage`], not bytes**, so this safe
+    /// wrapper expresses `WIRE.md` §12.6's authentication requirement as a
     /// type. A key package is fetched from a relay the design assumes is
     /// hostile; one used without being checked against the directory entry the
     /// key-transparency log proved is [#133](https://github.com/free2z/zuu/issues/133)
     /// reintroduced at first contact. There is no constructor for that type
-    /// except the one that performs the check — see [`crate::keypackage`].
+    /// except the one that performs the check — see [`crate::keypackage`]. The
+    /// raw public OpenMLS escape outside this wrapper is tracked in #903.
     ///
     /// The credential is validated again here, against this call's clock, and
     /// **before** the Add is proposed: a device that added a peer and then
