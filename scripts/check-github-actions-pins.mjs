@@ -19,6 +19,7 @@ const POLICY_REPO_ROOT = path.resolve(
 const EXTERNAL_USES =
   /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[^@\s]+)?@([^@\s]+)$/;
 const REQUIRED_WORKFLOW_PATH = ".github/workflows/zuuli.yml";
+const REQUIRED_CLASSIC_WORKFLOW_PATH = ".github/workflows/zuuallet.yml";
 const GATE_CHECKOUT_REFERENCE =
   "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
 const GATE_POLICY_SELF_TEST_COMMAND =
@@ -358,6 +359,25 @@ const REQUIRED_CLASSIC_PACKAGE_SCRIPTS = new Map([
     "vitest run src/pages/sensitive-entry-routes.test.tsx src/lib/sensitive-seed-session.test.ts src/lib/sensitive-entry-bridge.test.ts src/lib/sensitive-entry-hook.test.tsx",
   ],
 ]);
+const REQUIRED_CLASSIC_FRONTEND_AUDIT_STEP = [
+  "      - name: Audit dependencies (high and critical)",
+  "        working-directory: wallet/zuuallet",
+  "        run: |",
+  "          for attempt in 1 2 3; do",
+  "            npm audit --audit-level=high && exit 0",
+  '            [ "$attempt" -eq 3 ] && exit 1',
+  "            sleep $((attempt * 5))",
+  "          done",
+].join("\n");
+const REQUIRED_PROTECTED_ZUUALLET_AUDIT_STEP = [
+  "      - name: Audit Zuuallet dependencies (high and critical)",
+  "        run: |",
+  "          for attempt in 1 2 3; do",
+  "            npm --prefix ../zuuallet audit --audit-level=high && exit 0",
+  '            [ "$attempt" -eq 3 ] && exit 1',
+  "            sleep $((attempt * 5))",
+  "          done",
+].join("\n");
 const REQUIRED_FRONTEND_BUILD_TSCONFIG = Object.freeze({
   extends: "./tsconfig.json",
   exclude: Object.freeze(["src/**/*.test.ts", "src/**/*.test.tsx"]),
@@ -396,6 +416,7 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "        run: |",
   "          npm ci",
   "          npm ci --prefix ../zuuallet",
+  ...REQUIRED_PROTECTED_ZUUALLET_AUDIT_STEP.split("\n"),
   "      - name: Verify release cache security policy",
   "        run: |",
   "          node scripts/verify-ci-cache-policy.mjs --self-test",
@@ -1409,6 +1430,120 @@ function exactStepSource(lines, step) {
   return source.join("\n").trimEnd();
 }
 
+function requiredProtectedPullRequestTriggerFailures(relativeFile, lines) {
+  const failures = [];
+  const onEntries = [];
+  for (const [index, rawLine] of lines.entries()) {
+    const line = workflowLine(rawLine);
+    if (!line || line.error || line.indent !== 0 || line.text === "---") {
+      continue;
+    }
+    const entry = mappingEntry(line.text, "top-level workflow property");
+    if (!entry.error && entry.key === "on") {
+      onEntries.push({ index, value: entry.value });
+    }
+  }
+  if (onEntries.length !== 1 || onEntries[0].value) {
+    failures.push(
+      `${relativeFile}: protected Zuuallet audit requires exactly one block-mapped workflow trigger`,
+    );
+    return failures;
+  }
+
+  const onEntry = onEntries[0];
+  let onEnd = lines.length;
+  for (let index = onEntry.index + 1; index < lines.length; index += 1) {
+    const line = workflowLine(lines[index]);
+    if (line && !line.error && line.indent === 0) {
+      onEnd = index;
+      break;
+    }
+  }
+
+  const pullRequests = [];
+  for (let index = onEntry.index + 1; index < onEnd; index += 1) {
+    const line = workflowLine(lines[index]);
+    if (!line || line.error || line.indent !== 2) continue;
+    const entry = mappingEntry(line.text, "workflow trigger");
+    if (!entry.error && entry.key === "pull_request") {
+      pullRequests.push({ index, indent: line.indent, value: entry.value });
+    }
+  }
+  const pullRequest = pullRequests[0];
+  if (pullRequests.length !== 1 || pullRequest.value) {
+    failures.push(
+      `${relativeFile}:${onEntry.index + 1}: protected Zuuallet audit requires exactly one unfiltered pull_request trigger`,
+    );
+    return failures;
+  }
+  for (let index = pullRequest.index + 1; index < onEnd; index += 1) {
+    const line = workflowLine(lines[index]);
+    if (!line) continue;
+    if (line.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${line.error}`);
+      continue;
+    }
+    if (line.indent <= pullRequest.indent) break;
+    failures.push(
+      `${relativeFile}:${pullRequest.index + 1}: protected Zuuallet audit pull_request trigger must remain unfiltered`,
+    );
+    break;
+  }
+  return failures;
+}
+
+function requiredClassicFrontendAuditFailures(relativeFile, lines) {
+  const failures = [];
+  // The classic workflow predates the ZUULI gate's workflow-wide environment
+  // contract. Reuse its strict structural parser without imposing that
+  // unrelated policy here; the audit step below is the owned surface.
+  const frontend = policyWorkflowJobs(relativeFile, lines, []).get(
+    "frontend",
+  );
+  if (!frontend) {
+    failures.push(
+      `${relativeFile}: required workflow must contain the frontend job`,
+    );
+    return failures;
+  }
+
+  const steps = policyJobSteps(
+    relativeFile,
+    lines,
+    frontend,
+    failures,
+    "Zuuallet frontend",
+  );
+  const auditSteps = steps.filter(
+    (step) =>
+      step.properties.get("name")?.value ===
+      "Audit dependencies (high and critical)",
+  );
+  const auditStep = auditSteps[0];
+  if (
+    auditSteps.length !== 1 ||
+    exactStepSource(lines, auditStep) !== REQUIRED_CLASSIC_FRONTEND_AUDIT_STEP
+  ) {
+    failures.push(
+      `${relativeFile}:${frontend.start + 1}: Zuuallet frontend audit step must exactly enforce the reviewed working directory, high threshold, and bounded retry contract`,
+    );
+    return failures;
+  }
+
+  const auditIndex = steps.indexOf(auditStep);
+  if (
+    steps[auditIndex - 1]?.properties.get("name")?.value !==
+      "Install dependencies" ||
+    steps[auditIndex + 1]?.properties.get("name")?.value !==
+      "Typecheck + build (tsc && vite build)"
+  ) {
+    failures.push(
+      `${relativeFile}:${auditStep.start + 1}: Zuuallet frontend audit step must run directly after dependency installation and before typecheck/build`,
+    );
+  }
+  return failures;
+}
+
 function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
   const failures = [];
   const actualFrontendJobLines = lines
@@ -1487,6 +1622,25 @@ function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
     ].join("\n"),
     "frontend Rust/WASM installation must be exact, pinned, unconditional, and non-decorative",
   );
+  exactNamedStep(
+    "Audit Zuuallet dependencies (high and critical)",
+    REQUIRED_PROTECTED_ZUUALLET_AUDIT_STEP,
+    "protected Zuuallet audit must be exact, unconditional, high-threshold, and non-soft-failing",
+  );
+  const installIndex = steps.findIndex(
+    (step) =>
+      step.properties.get("name")?.value === "Install locked dependencies",
+  );
+  const protectedAuditIndex = steps.findIndex(
+    (step) =>
+      step.properties.get("name")?.value ===
+      "Audit Zuuallet dependencies (high and critical)",
+  );
+  if (protectedAuditIndex !== installIndex + 1) {
+    failures.push(
+      `${relativeFile}:${frontend.start + 1}: protected Zuuallet audit must run directly after its clean locked install`,
+    );
+  }
   exactNamedStep(
     "Verify wallet project boundaries",
     [
@@ -1582,6 +1736,11 @@ function requiredWasmSelectorFailures(repoRoot, relativeFile, lines, changes) {
       .filter((line) => line.endsWith(")"))
       .flatMap((line) => line.slice(0, -1).split("|")),
   );
+  if (!allZuuliPatterns.has("wallet/zuuallet/*")) {
+    failures.push(
+      `${relativeFile}:${detectors[0].start + 1}: protected Zuuallet audit selector must contain one active wallet/zuuallet/* case pattern covering package.json and package-lock.json`,
+    );
+  }
   for (const input of walletProjectBoundaryInputs(repoRoot)) {
     if (!allZuuliPatterns.has(input)) {
       failures.push(
@@ -2476,6 +2635,14 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
   const enforceWasmBoundary = enforceNativeClippy;
   if (enforceNativeClippy) {
     failures.push(...librustzcashScopeFailures());
+    failures.push(
+      ...requiredProtectedPullRequestTriggerFailures(relativeFile, lines),
+    );
+  }
+  if (enforceNativeClippy && !parsedNeeds.values.includes("frontend")) {
+    failures.push(
+      `${relativeFile}:${needsProperty.index + 1}: protected gate must await frontend for the Zuuallet audit result`,
+    );
   }
   if (
     enforceNativeClippy &&
@@ -2940,6 +3107,7 @@ function scanRepository(
     rustRootContracts = RUST_ROOT_CONTRACTS,
     enforceFrontendBuildContracts = true,
     frontendBuildContractOverrides = null,
+    workflowSourceOverrides = null,
   } = {},
 ) {
   repoRoot = fs.realpathSync(repoRoot);
@@ -2997,9 +3165,18 @@ function scanRepository(
     seen.add(canonical);
 
     const relativeFile = path.relative(repoRoot, file);
-    const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
-    if (relativeFile.split(path.sep).join("/") === REQUIRED_WORKFLOW_PATH) {
+    const normalizedRelativeFile = relativeFile.split(path.sep).join("/");
+    const workflowSource = workflowSourceOverrides?.has(normalizedRelativeFile)
+      ? workflowSourceOverrides.get(normalizedRelativeFile)
+      : fs.readFileSync(file, "utf8");
+    const lines = workflowSource.split(/\r?\n/);
+    if (normalizedRelativeFile === REQUIRED_WORKFLOW_PATH) {
       failures.push(...gatePolicyFailures(repoRoot, relativeFile, lines));
+    }
+    if (normalizedRelativeFile === REQUIRED_CLASSIC_WORKFLOW_PATH) {
+      failures.push(
+        ...requiredClassicFrontendAuditFailures(relativeFile, lines),
+      );
     }
     for (const [index, line] of lines.entries()) {
       const parsed = usesFromLine(line);
@@ -3803,6 +3980,65 @@ function runCurrentWorkflowMutationTests(repoRoot) {
   const verdictName =
     "      - name: Verify required jobs succeeded or legitimately skipped";
   const mutations = [
+    {
+      name: "protected Zuuallet audit rejects deleting the pull-request trigger",
+      needle:
+        "protected Zuuallet audit requires exactly one unfiltered pull_request trigger",
+      source: source.replace("  pull_request:\n", ""),
+    },
+    {
+      name: "protected Zuuallet audit rejects removing its broad selector",
+      needle:
+        "protected Zuuallet audit selector must contain one active wallet/zuuallet/* case pattern",
+      source: source.replace(
+        "wallet/zuuli/*|wallet/zuuallet/*",
+        "wallet/zuuli/*|wallet/zuuallet/src/*",
+      ),
+    },
+    {
+      name: "protected Zuuallet audit rejects detaching frontend from gate",
+      needle: "protected gate must await frontend for the Zuuallet audit result",
+      source: source.replace(
+        "needs: [changes, frontend,",
+        "needs: [changes,",
+      ),
+    },
+    {
+      name: "protected Zuuallet audit rejects a soft-failing frontend job",
+      needle:
+        "job-level continue-on-error is forbidden on required-gate job frontend",
+      source: replaceFrontend(
+        "  frontend:\n",
+        "  frontend:\n    continue-on-error: true\n",
+      ),
+    },
+    {
+      name: "protected Zuuallet audit rejects deleting its verdict",
+      needle:
+        "protected Zuuallet audit must be exact, unconditional, high-threshold, and non-soft-failing",
+      source: replaceFrontend(
+        `${REQUIRED_PROTECTED_ZUUALLET_AUDIT_STEP}\n`,
+        "",
+      ),
+    },
+    {
+      name: "protected Zuuallet audit rejects parking its verdict",
+      needle:
+        "protected Zuuallet audit must be exact, unconditional, high-threshold, and non-soft-failing",
+      source: replaceFrontend(
+        "      - name: Audit Zuuallet dependencies (high and critical)",
+        "      - name: Audit Zuuallet dependencies (high and critical)\n        if: false",
+      ),
+    },
+    {
+      name: "protected Zuuallet audit rejects soft-failing its verdict",
+      needle:
+        "protected Zuuallet audit must be exact, unconditional, high-threshold, and non-soft-failing",
+      source: replaceFrontend(
+        "      - name: Audit Zuuallet dependencies (high and critical)",
+        "      - name: Audit Zuuallet dependencies (high and critical)\n        continue-on-error: true",
+      ),
+    },
     {
       name: "real workflow rejects native clippy detached from gate",
       needle: "gate must await rust_native_clippy",
@@ -5099,6 +5335,66 @@ function runFrontendBuildContractMutationTests(repoRoot) {
   return mutations.length;
 }
 
+function runClassicFrontendAuditMutationTests(repoRoot) {
+  const relative = REQUIRED_CLASSIC_WORKFLOW_PATH;
+  const source = fs.readFileSync(path.join(repoRoot, relative), "utf8");
+  const baseline = scanRepository(repoRoot).failures;
+  if (baseline.length) {
+    throw new Error(
+      `current Zuuallet audit workflow is not a valid mutation base: ${baseline.join("; ")}`,
+    );
+  }
+
+  const auditBlock = `${REQUIRED_CLASSIC_FRONTEND_AUDIT_STEP}\n\n`;
+  const mutations = [
+    {
+      name: "live Zuuallet frontend rejects a deleted dependency audit",
+      needle: "Zuuallet frontend audit step must exactly enforce",
+      source: source.replace(auditBlock, ""),
+    },
+    {
+      name: "live Zuuallet frontend rejects a critical-only audit threshold",
+      needle: "Zuuallet frontend audit step must exactly enforce",
+      source: source.replace(
+        "npm audit --audit-level=high",
+        "npm audit --audit-level=critical",
+      ),
+    },
+    {
+      name: "live Zuuallet frontend rejects a weakened audit retry",
+      needle: "Zuuallet frontend audit step must exactly enforce",
+      source: source.replace("for attempt in 1 2 3; do", "for attempt in 1 2; do"),
+    },
+    {
+      name: "live Zuuallet frontend rejects a reordered dependency audit",
+      needle: "must run directly after dependency installation",
+      source: source.replace(
+        auditBlock,
+        "",
+      ).replace(
+        "      - name: Test owned frontend modules",
+        `${REQUIRED_CLASSIC_FRONTEND_AUDIT_STEP}\n\n      - name: Test owned frontend modules`,
+      ),
+    },
+  ];
+
+  for (const mutation of mutations) {
+    if (mutation.source === source) {
+      throw new Error(`${mutation.name}: mutation target was not found`);
+    }
+    const failures = scanRepository(repoRoot, {
+      workflowSourceOverrides: new Map([[relative, mutation.source]]),
+    }).failures;
+    if (!failures.some((failure) => failure.includes(mutation.needle))) {
+      throw new Error(
+        `${mutation.name}: expected ${JSON.stringify(mutation.needle)}, got ${failures.join("; ") || "success"}`,
+      );
+    }
+    console.log(`self-test: ${mutation.name}: passed`);
+  }
+  return mutations.length;
+}
+
 function runSelfTest(repoRoot) {
   const fullSha = "0123456789abcdef0123456789abcdef01234567";
   const gateFixture = (contents) => ({
@@ -6104,6 +6400,18 @@ function runSelfTest(repoRoot) {
       },
     },
     {
+      name: "a future high Zuuallet advisory fails the protected gate",
+      policyOutcome: "success",
+      needle: "required job frontend must be success, got failure",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "true", zuuallet_schema: "false" },
+        },
+        frontend: { result: "failure", outputs: {} },
+      },
+    },
+    {
       name: "schema result cannot follow the general selector",
       policyOutcome: "success",
       needle: "required job zuuallet_schema must be skipped, got success",
@@ -6151,11 +6459,14 @@ function runSelfTest(repoRoot) {
   const projectDiscoveryMutations = runWalletProjectDiscoveryTests(repoRoot);
   const frontendBuildMutations =
     runFrontendBuildContractMutationTests(repoRoot);
+  const classicFrontendAuditMutations =
+    runClassicFrontendAuditMutationTests(repoRoot);
   const rustRootWorkflowMutations = runRustRootWorkflowMutationTests(repoRoot);
   console.log(
     `self-test: ${cases.length} source-policy, ${gateResultCases.length} gate-verdict, ` +
       `${currentWorkflowMutations} current-workflow, ${projectDiscoveryMutations} project-discovery, ` +
       `${frontendBuildMutations} frontend-build, ` +
+      `${classicFrontendAuditMutations} classic-frontend-audit, ` +
       `and ${rustRootWorkflowMutations} Rust-root ownership mutation case(s) passed.`,
   );
 }

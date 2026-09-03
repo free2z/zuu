@@ -211,6 +211,18 @@ jobs:
         working-directory: wallet/zuuallet
         run: npm ci
 
+      # Keep fast advisory feedback here as well as in zuuli.yml's protected
+      # gate. Dependency refreshes belong in focused PRs; bounded retries
+      # tolerate registry failures without weakening the high-severity floor.
+      - name: Audit dependencies (high and critical)
+        working-directory: wallet/zuuallet
+        run: |
+          for attempt in 1 2 3; do
+            npm audit --audit-level=high && exit 0
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep $((attempt * 5))
+          done
+
       - name: Typecheck + build (tsc && vite build)
         working-directory: wallet/zuuallet
         run: npm run build
