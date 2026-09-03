@@ -237,6 +237,18 @@ public by design — it is how `@alice` is discoverable — and the zero-knowled
 property protects the entries you did *not* ask for, not the one you did. See
 [`THREAT-MODEL.md` §4.1](./THREAT-MODEL.md#41-directory-lookup-reveals-interest-in-a-handle).
 
+<!-- akd-claim:enumeration_boundary_kt:start -->
+That protection is against a bulk directory download, not against
+handle-by-handle reconstruction. `/kt/v1/lookup` is available to anyone (§9.2),
+and a public-username platform gives an observer a public list of candidate
+handles. Each successful lookup reveals that handle's full `DirectoryEntry`,
+including its device credentials and contact endpoints. Rate limiting can make
+enumeration slower and more expensive; it does not make membership or the
+returned metadata for known or guessed handles cryptographically private. The
+zero-knowledge benefit remains concrete: there is no one-shot corpus, and
+unqueried or unguessed handles remain hidden.
+<!-- akd-claim:enumeration_boundary_kt:end -->
+
 ---
 
 ## 4. `DirectoryEntry`

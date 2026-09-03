@@ -285,6 +285,24 @@ is [`../KT.md`](../KT.md).
   meant. Note that the leak comes from publishing entries in the clear, not from
   RFC 6962, which is why the fallback above pairs it with a VRF and a commitment.
 
+  <!-- akd-claim:enumeration_boundary_adr:start -->
+  **Correction (2026-09-03) — “the full membership ... as a downloadable
+  file” distinguishes bulk publication from enumeration; it does not make
+  public handles non-enumerable.** The rejection above remains sound: a
+  cleartext log exposes one permanent corpus that can be copied without first
+  knowing or guessing any handle. The adopted zero-knowledge set prevents that
+  one-shot download and keeps an entry hidden from an observer who does not
+  query or guess its handle.
+
+  It does not prevent handle-by-handle reconstruction. `/kt/v1/lookup` is
+  available to anyone, a successful response carries the full
+  `DirectoryEntry`, and on a public-username platform the public username list
+  supplies candidate handles. Server rate limits can raise the time and request
+  cost of that reconstruction, but they are an operational bound, not a
+  cryptographic claim that membership, device count, credential and entry
+  timestamps, or contact endpoints for queried handles are non-enumerable.
+  <!-- akd-claim:enumeration_boundary_adr:end -->
+
 - **Full hand-rolled SEEMless.** Rejected as the worst of both: it keeps the
   privacy property and therefore keeps the expensive append-only proof, so it
   gives up nothing `akd` costs us, while taking on the entire soundness burden of
