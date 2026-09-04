@@ -121,10 +121,19 @@ components that no longer exist.
    **No deep link was invented.** `@/lib/bridge/intent-transport.ts` is one
    interface with one shipped implementation, and that implementation rejects
    with a typed error naming #461. Custom-scheme links are not an authenticated
-   channel, so the request is built, validated — and not sent. The dialog says
-   exactly that, and a txid is rendered only from a response that decoded,
-   correlated to that request, named this family, arrived inside its window,
-   carried status 0 and held exactly 32 bytes.
+   channel, so the request is built, validated — and not sent. A txid is
+   rendered only from a response that decoded, correlated to that request, named
+   this family, arrived inside its window, carried status 0 and held exactly 32
+   bytes.
+
+   What the payer is told is decided in one exhaustive map,
+   `features/creator/tip-copy.ts`, organised around **what this app can prove**
+   rather than around success and failure. Only three outcomes may say nothing
+   was sent: no transport, a request that could not be built, and an explicit
+   `INTENT_NOT_CONFIRMED` from the wallet. A lost answer or an
+   `INTENT_UNAVAILABLE` — which covers `BroadcastStatus::Unknown`, where a
+   transaction exists locally and may or may not have been broadcast — sends the
+   payer to ZUULI to look instead of reassuring them.
 
    What the correlation proves is that the responder saw the request.
    `docs/intent-bridge/CALLER-AUTHENTICATION.md` §5 records what it does not:

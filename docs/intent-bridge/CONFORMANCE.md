@@ -212,7 +212,7 @@ seam, and judges the answer.
 cd wallet/free2z && npx vitest run src/lib/bridge src/lib/format.test.ts
 ```
 
-Baseline: 138 tests green (72 bridge, 66 formatting). Every guard below is
+Baseline: 190 tests green (73 bridge, 66 formatting, 17 tip copy, plus the i18n catalog suites the copy states feed). Every guard below is
 pinned **alone**: deleting any one of them, by itself, turns something red.
 
 | Guard, as mutated | Test that must fail | Result |
@@ -225,11 +225,62 @@ pinned **alone**: deleting any one of them, by itself, turns something red.
 | creator-tip trim-equality rule | `refuses an untrimmed username`, `…label` | FAILS |
 | creator-tip control-character rejection | `refuses a control character in the label`, `…a DEL in the username` | FAILS |
 | creator-tip recipient-whitespace rejection | `refuses an address split by a space` | FAILS |
+| `IntentErrorCode.Unavailable` (status 12) in the client | `carries INTENT_UNAVAILABLE through as itself, not as a decode failure` | FAILS |
+| `unsendable` gets its own copy, not the wallet-declined copy | `never tells the payer the wallet declined when it was never asked` | FAILS |
+| certainty attribution per outcome | `is certain only where certainty is earned` | FAILS |
+| an ambiguous broadcast read as a plain refusal | `treats an ambiguous broadcast as unknown, not as a refusal` | FAILS |
 
 The txid row is the one worth reading the output of: with the length check
 relaxed, an empty payload is reported as `{ kind: 'sent', txid: '' }` — a
 *correlated* fulfilment carrying no transaction. A caller that renders that has
 told its user a payment landed, and cannot unsay it.
+
+### The copy has to be true, and "true" depends on what we can prove
+
+A review of #924 found four `CreatorTipFailure` kinds and three toast branches:
+`unsendable` and `transport-failed` fell through to *"the wallet did not
+complete this payment"*. For `unsendable` that is false — nothing left free2z
+and ZUULI was never asked — and it is reachable from untrusted profile data, not
+just from developer error, because a `recipient` or `username` carrying
+`U+200B`/`U+202E` passes free2z's C0/DEL check and is refused by `VisibleText`.
+
+Fixing it surfaced a second, larger problem. The copy was organised around *did
+it work*, and the honest axis is **do we know what happened**:
+
+| Outcome | Can this app prove no funds moved? |
+|---|---|
+| `no-transport` | yes — no channel exists |
+| `unsendable` | yes — nothing was encoded, the wallet was never asked |
+| `refused` + `INTENT_NOT_CONFIRMED` | yes — ZUULI returns it before `execute_send` |
+| `transport-failed` | **no** — the request may have arrived, the answer did not |
+| `refused` + anything else | **no** |
+
+The sharpest case is `INTENT_UNAVAILABLE`: `intent.rs`'s `payment_outcome`
+returns it for every `BroadcastStatus` but `Accepted`, **including `Unknown`**,
+where "the transaction exists locally and the wallet retains the exact bytes for
+`retry_pending_send`, but nothing establishes that the network took them". Copy
+that says "your ZEC is untouched" there is wrong in the one direction that
+matters.
+
+And the client could not even see it. `error.ts` defined statuses 1–11 while
+`rs/crates/f2z-intent/src/error.rs` defines twelve, so
+`IntentSession.accept`'s `intentErrorFromStatus(status) ?? Malformed` reported an
+`INTENT_UNAVAILABLE` refusal as `INTENT_MALFORMED` — "the wallet's answer was
+garbage" instead of "the wallet could not finish, go look". That is fixed here,
+and the mutation that removes status 12 again reproduces the old reading exactly:
+
+```
+× carries INTENT_UNAVAILABLE through as itself, not as a decode failure
+  → expected { kind: 'refused', error: 1 } to deeply equal { kind: 'refused', error: undefined }
+```
+
+`features/creator/tip-copy.ts` is now the single exhaustive map, with a `never`
+binding so a sixth outcome cannot fall through, and
+`tip-copy.test.ts` asserts the honesty property against the **real shipped
+`en`/`es`/`fr` catalogs** through a real i18next instance — a reassuring
+sentence added to the wrong message by a later translation is exactly what a
+key-level assertion would miss. It carries its own negative control, so a typo
+in every regex cannot leave it green.
 
 ### The positive-amount check used to be written twice. That was the bug.
 

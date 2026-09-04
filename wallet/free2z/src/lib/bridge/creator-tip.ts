@@ -274,14 +274,23 @@ function creatorTipRequest(
  * ## One question per exchange
  *
  * The outstanding-question map is created here, per call, with capacity one.
- * That is not thrift — it is the correlation. `IntentSession.accept` matches a
- * response by identifier and returns the family and payload, but not *which*
- * question was answered; with a shared map and two tips in flight, an answer to
- * the second could be read as an answer to the first. A session holding exactly
- * one question cannot make that mistake: any response that is not the answer to
- * this request finds nothing outstanding and is `INTENT_UNSOLICITED`. The entry
- * is consumed whether it is accepted or refused, so a replayed response fails
- * the second time too.
+ *
+ * To be precise about what that does and does not buy, because the first
+ * version of this comment overstated it: **cross-acceptance is already
+ * impossible without it.** `IntentSession.accept` matches on
+ * `bytesEqual(entry.requestId, response.requestId)`, so an answer to request A
+ * can never be accepted against request B, however many questions share a map.
+ *
+ * What capacity-one buys is **attribution**. `accept` returns
+ * `{ intent, payload }` and does *not* say which question was answered, so with
+ * a shared map and two tips in flight this function would hold a txid it could
+ * not attribute to a creator or an amount. One question per session makes the
+ * answer's identity structural instead of inferred — and in a payments UI,
+ * "which tip did this receipt belong to" is not a question to answer by
+ * assumption.
+ *
+ * The entry is consumed whether it is accepted or refused, so a replayed
+ * response finds nothing outstanding the second time.
  */
 export async function requestCreatorTipPayment(
   source: CreatorTipIntent,
@@ -347,6 +356,13 @@ export async function requestCreatorTipPayment(
   // Judged against the frozen record, at the time the answer arrived: version
   // gate, re-encode equality, identifier, family, window, status. Every one of
   // those is `@free2z/wallet-shared`'s, not this app's.
+  //
+  // `Date.now()` here, deliberately, while issuance above uses the injected
+  // `now`. They are different instants and must be: the window has to be judged
+  // against the clock at *arrival*, or a slow exchange would be accepted by a
+  // timestamp taken before it started. Injecting only issuance is also what
+  // makes the expiry path drivable — a test issues in the past and lets the
+  // real clock close the window.
   const accepted = session.accept(answer, Date.now());
   if (!accepted.ok) return { kind: "refused", error: accepted.error };
   if (accepted.value.intent !== IntentFamily.ExecutePayment) {

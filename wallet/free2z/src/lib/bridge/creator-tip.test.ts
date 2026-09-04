@@ -629,6 +629,39 @@ describe("a response is accepted only when it answers this exact request", () =>
     }
   });
 
+  /**
+   * `INTENT_UNAVAILABLE` is status 12, and the client used to stop at 11.
+   *
+   * `IntentSession.accept` maps an unrecognised status through
+   * `intentErrorFromStatus(...) ?? Malformed`, so before status 12 was added to
+   * `wallet/shared/src/intent/error.ts` this refusal arrived as
+   * `INTENT_MALFORMED` — "the wallet's answer was garbage" — when what ZUULI
+   * actually said was "I could not complete this, and a transaction may exist
+   * locally". Those two are the difference between reassuring a payer and
+   * sending them to look at their wallet.
+   */
+  it("carries INTENT_UNAVAILABLE through as itself, not as a decode failure", async () => {
+    const outcome = await tip(
+      100_000,
+      replyingTransport((request) =>
+        responseBytes({
+          requestId: requestIdOf(request),
+          status: IntentErrorCode.Unavailable,
+          payload: new Uint8Array(0),
+        }),
+      ),
+    );
+
+    expect(outcome).toEqual({
+      kind: "refused",
+      error: IntentErrorCode.Unavailable,
+    });
+    expect(outcome).not.toHaveProperty("txid");
+    if (outcome.kind === "refused") {
+      expect(creatorTipFailureName(outcome)).toBe("INTENT_UNAVAILABLE");
+    }
+  });
+
   it("rejects a refusal that also carries a payload", async () => {
     const outcome = await tip(
       100_000,

@@ -138,7 +138,7 @@ test("a ZEC tip amount that is not a positive ZEC value cannot be sent", async (
   for (const bad of ["0", "-1", "abc", "1.000000001"]) {
     await amount.fill(bad);
     await expect(
-      page.getByText("Enter a ZEC amount above zero, with up to 8 decimals."),
+      page.getByText("Enter a ZEC amount above zero, using a period, with up to 8 decimals."),
     ).toBeVisible();
     await expect(submit).toBeDisabled();
   }

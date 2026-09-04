@@ -388,10 +388,12 @@ nothing was sent.
 Two details of that caller are worth copying rather than reinventing:
 
 - **One question per exchange.** The outstanding-question map is created per
-  call with capacity one. `IntentSession.accept` returns the family and the
-  payload but not *which* question was answered, so a shared map with two
-  requests in flight could let the second's answer be read as the first's. A
-  map holding one question cannot make that mistake.
+  call with capacity one. Not for correlation — `IntentSession.accept` matches
+  on `request_id`, so an answer to A is never accepted against B however many
+  questions share a map — but for **attribution**: `accept` returns
+  `{ intent, payload }` without saying which question it answered, so a shared
+  map would leave a caller holding a txid it could not tie to a creator or an
+  amount.
 - **A txid is a value, not a formatting step.** It comes back only from
   `decodeExecutePaymentResult`, which reads exactly 32 bytes and refuses
   anything else, because an app that has shown "sent" cannot unshow it.

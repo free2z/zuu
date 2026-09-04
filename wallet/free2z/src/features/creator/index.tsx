@@ -63,6 +63,7 @@ import type { Article, CreatorDetail, Subscription } from "@/lib/api/types";
 import { paidActionGate } from "@/lib/auth/paid-action";
 import { preservePaidIntent, type PaidIntent } from "@/lib/auth/paid-intent";
 import { requestCreatorTipPayment } from "@/lib/bridge/creator-tip";
+import { creatorTipCopy } from "./tip-copy";
 import { CreatorSocialLinks } from "./SocialLinks";
 import { useCreatorCatalog } from "./catalog";
 import { MESSAGE_KEYS } from "@/i18n/messages";
@@ -925,29 +926,26 @@ function TipButton({
         zatoshis,
       );
       setOpen(false);
-      if (outcome.kind === "sent") {
-        toast.success(t(MESSAGE_KEYS.creatorZecTipSentTitle), {
-          description: t(MESSAGE_KEYS.creatorZecTipSentBody, {
-            amount: amountLabel,
-            creator: name,
-            // An opaque identifier, so it shortens in the middle and keeps its
-            // tail — never a CSS clip on top (see `truncateAddress`).
-            txid: truncateAddress(outcome.txid),
-          }),
-        });
-        return;
-      }
-      if (outcome.kind === "no-transport") {
-        toast.info(t(MESSAGE_KEYS.creatorZecTipBlockedTitle), {
-          description: t(MESSAGE_KEYS.creatorZecTipBlockedBody, {
-            amount: amountLabel,
-            creator: name,
-          }),
-        });
-        return;
-      }
-      toast.error(t(MESSAGE_KEYS.creatorZecTipRefusedTitle), {
-        description: t(MESSAGE_KEYS.creatorZecTipRefusedBody, { creator: name }),
+      // One exhaustive map, in `./tip-copy`, rather than a chain of `if`s here.
+      // The chain is what let `unsendable` and `transport-failed` fall through
+      // to "the wallet did not complete this payment" — a statement that is
+      // false when the wallet was never contacted at all.
+      const copy = creatorTipCopy(outcome);
+      const notify =
+        copy.tone === "success"
+          ? toast.success
+          : copy.tone === "error"
+            ? toast.error
+            : toast.info;
+      notify(t(copy.titleKey), {
+        description: t(copy.bodyKey, {
+          amount: amountLabel,
+          creator: name,
+          // An opaque identifier, so it shortens in the middle and keeps its
+          // tail — never a CSS clip on top (see `truncateAddress`). Only the
+          // `sent` message reads it, and only a `sent` outcome carries one.
+          txid: outcome.kind === "sent" ? truncateAddress(outcome.txid) : "",
+        }),
       });
     } catch {
       toast.error("This creator doesn't have a usable ZEC tip address.");
@@ -1068,7 +1066,7 @@ function TipButton({
                       {zecResult.error === "tooLarge"
                         ? `Max ${MAX_TIP_ZEC.toLocaleString()} ZEC per tip.`
                         : zecAmount.length > 0 && zecResult.error !== null
-                          ? "Enter a ZEC amount above zero, with up to 8 decimals."
+                          ? "Enter a ZEC amount above zero, using a period, with up to 8 decimals."
                           : null}
                     </p>
                   </div>

@@ -24,13 +24,21 @@
         "body": "free2z preparó una solicitud de {amount} para {creator} y no tiene ninguna clave para firmarla. El enlace verificado a ZUULI todavía no existe, así que no se envió nada.",
         "title": "Las propinas en ZEC se firman en ZUULI"
       },
-      "refused": {
-        "body": "La cartera no completó este pago, así que nada llegó a {creator}. Tus ZEC siguen intactos.",
-        "title": "ZUULI no envió esta propina"
+      "declined": {
+        "body": "El pago no se aprobó en ZUULI, así que no se envió nada a {creator}. Tus ZEC siguen intactos.",
+        "title": "ZUULI no autorizó esta propina"
+      },
+      "indeterminate": {
+        "body": "free2z no puede saber qué pasó con esta propina de {amount} para {creator}. Abre ZUULI y busca una transacción pendiente antes de enviar de nuevo.",
+        "title": "free2z no recibió respuesta"
       },
       "sent": {
         "body": "{amount} para {creator}. Transacción {txid}.",
         "title": "ZUULI envió tu propina en ZEC"
+      },
+      "unsent": {
+        "body": "Los datos de pago de este creador no pueden cruzar el puente, así que nunca se le pidió nada a ZUULI y no se envió nada.",
+        "title": "free2z no pudo enviar esta solicitud"
       }
     }
   },
