@@ -40,6 +40,16 @@
 //! explicit that the protocol which exchanges them *"is not specified here"*.
 //! Inventing one would be worse than listing it, so it is listed:
 //! [§13-R](https://github.com/free2z/zuu/issues/311).
+//!
+//! # Catch-up state is progress even when the operation is incomplete
+//!
+//! A call that observes an epoch gap advances [`KtClient::view`] through at
+//! most [`MAX_EPOCH_CATCHUP`] consecutively verified heads. The caller must
+//! persist [`KtClient::checkpoint_bytes`] after **every** return, including an
+//! error: a transport or decoding failure can happen after a valid prefix.
+//! Persisting less is safe — the prefix is verified again after restart — but
+//! loses progress. [`KtClient::resume`] canonically decodes and verifies those
+//! signed checkpoint bytes, then resumes at exactly the first unverified epoch.
 
 use f2z_codec::types::PublicKey;
 use f2z_kt_core::api::{Presence, TreeHeadBundle};
@@ -60,14 +70,15 @@ use crate::standing::WitnessStanding;
 use crate::transport::Transport;
 use crate::wire;
 
-/// How many tree heads a client will fetch to close a §6.3 rule 7 gap in one
-/// call.
+/// How many tree heads a client will fetch and verify to close a §6.3 rule 7
+/// gap in one call.
 ///
 /// A number rather than "as many as it takes", because each one is a round
 /// trip and a client that has been offline for a year would otherwise open
 /// tens of thousands of them before answering a single lookup. Beyond it the
-/// client fails with [`KtError::EpochGap`] rather than skipping: *a gap
-/// accepted on trust is a branch accepted on trust*, so the fallback is a
+/// client returns [`ClientError::CatchUpIncomplete`] after advancing its
+/// [`LogView`] through the verified prefix. Persist that view and retry: *a
+/// gap accepted on trust is a branch accepted on trust*, so resumability is a
 /// slower catch-up and never a shortcut.
 pub const MAX_EPOCH_CATCHUP: u64 = 256;
 
@@ -105,9 +116,10 @@ pub struct ClientConfig {
 /// A key-transparency client for one log.
 ///
 /// Holds the two pieces of state that make §8.1 step 2 and step 8 mean
-/// anything: the pinned [`LogView`], and the [`PinStore`]. Both are readable
-/// for persistence and neither is settable except through a constructor, so a
-/// caller cannot rewind either by assignment.
+/// anything: the pinned [`LogView`], and the [`PinStore`]. The corresponding
+/// signed head is exposed by [`KtClient::checkpoint`] for canonical persistence;
+/// none of this state is settable except through a constructor, so a caller
+/// cannot rewind it by assignment.
 pub struct KtClient<T> {
     transport: T,
     config: ClientConfig,
@@ -162,29 +174,63 @@ impl<T: Transport> KtClient<T> {
         })
     }
 
-    /// Resume from persisted state.
-    #[must_use]
-    pub const fn resume(
+    /// Resume from canonically encoded, persisted signed-head checkpoint bytes.
+    ///
+    /// Reconstructing [`LogView`] through [`LogView::pin`] is deliberate: a
+    /// caller cannot deserialize private view fields and install unchecked
+    /// state. Persist [`KtClient::checkpoint_bytes`] after every operation and
+    /// supply those bytes here with the separately persisted pins and alarms.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::Protocol`] if the checkpoint does not verify under the
+    /// configured log id and key.
+    pub fn resume(
         transport: T,
         config: ClientConfig,
-        view: LogView,
+        checkpoint: &[u8],
         pins: PinStore,
         alarms: AlarmLog,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        let checkpoint = f2z_codec::decode_canonical::<SignedTreeHead>(checkpoint)?.into_value();
+        let view = LogView::pin(config.log_id, config.accepted_log_pk, &checkpoint)?;
+        Ok(Self {
             transport,
             config,
             view,
             pins,
             alarms,
             vouching: Vouching::Unknown,
-        }
+        })
     }
 
-    /// The pinned view of the log — persist this.
+    /// The pinned view of the log, for inspection.
     #[must_use]
     pub const fn view(&self) -> &LogView {
         &self.view
+    }
+
+    /// The last accepted signed head — canonically encode and persist this.
+    ///
+    /// Unlike [`KtClient::view`], this is a protocol object with a canonical
+    /// `tls_codec` representation. [`KtClient::resume`] verifies it rather than
+    /// trusting caller-constructed checkpoint fields.
+    #[must_use]
+    pub const fn checkpoint(&self) -> &SignedTreeHead {
+        self.view.last_head()
+    }
+
+    /// Canonically encode the signed-head checkpoint for durable storage.
+    ///
+    /// These are the exact bytes [`KtClient::resume`] accepts. Keeping the
+    /// codec inside this crate prevents each application from inventing a
+    /// serialization for [`LogView`]'s private fields.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::Protocol`] if canonical encoding fails.
+    pub fn checkpoint_bytes(&self) -> Result<Vec<u8>> {
+        f2z_codec::canonical::encode(self.checkpoint()).map_err(ClientError::from)
     }
 
     /// The pins — persist these.
@@ -229,6 +275,14 @@ impl<T: Transport> KtClient<T> {
     /// caller that only resolves is not skipping it.
     ///
     /// # Errors
+    ///
+    /// [`ClientError::CatchUpIncomplete`] after one bounded, verified prefix;
+    /// persist [`KtClient::checkpoint_bytes`] even though this operation did not
+    /// reach its target, then retry to resume from the next epoch.
+    ///
+    /// Any other error can also follow an accepted prefix. Persist
+    /// [`KtClient::checkpoint_bytes`] after every return; see the module-level
+    /// catch-up contract.
     ///
     /// [`ClientError::WitnessThresholdUnmet`] when §8.3's threshold is not met.
     /// Anything for which [`ClientError::is_fork_evidence`] holds has also
@@ -596,7 +650,7 @@ impl<T: Transport> KtClient<T> {
     /// §8.1 step 2, plus §6.3 rule 7's *"fetch every intervening tree head and
     /// check the chain link by link"*.
     fn advance_to(&mut self, head: &SignedTreeHead, now_ms: u64) -> Result<()> {
-        match self.view.accept(head) {
+        match self.accept_head(head) {
             Ok(()) => Ok(()),
             Err(KtError::EpochGap) => self.close_gap(head, now_ms),
             Err(error) => Err(self.on_protocol_error(error, now_ms)),
@@ -606,20 +660,49 @@ impl<T: Transport> KtClient<T> {
     fn close_gap(&mut self, head: &SignedTreeHead, now_ms: u64) -> Result<()> {
         let from = self.view.epoch().saturating_add(1);
         let to = head.sth.epoch;
-        if to < from || to.saturating_sub(from) > MAX_EPOCH_CATCHUP {
-            // Fail closed rather than skip. The remedy is more round trips, and
-            // a caller that wants them calls again.
+        if to < from {
             return Err(self.on_protocol_error(KtError::EpochGap, now_ms));
         }
-        for epoch in from..to {
+
+        // The checkpoint is the signed head already held by `LogView`; no
+        // unsigned page token exists for the server to roll back or reorder.
+        // The target is deliberately excluded when it lies beyond this page:
+        // accepting it would replace contiguous verification with latest-head
+        // trust, which is exactly §6.3 rule 7's forbidden shortcut.
+        let batch_end = to.min(self.view.epoch().saturating_add(MAX_EPOCH_CATCHUP));
+        for epoch in from..=batch_end {
             let bundle = wire::decode_bundle(&self.transport.sth_at(epoch)?)?;
-            self.view
-                .accept(&bundle.head)
+            if bundle.head.sth.epoch != epoch {
+                // `LogView::accept` treats an identical repeat of its current
+                // head as idempotent. That is correct for a direct observation
+                // and wrong for an exact-epoch page: here it would let a
+                // duplicate response consume an index and conceal a gap. Bind
+                // every response to the requested epoch before acceptance.
+                return Err(self.on_protocol_error(KtError::EpochGap, now_ms));
+            }
+            self.accept_head(&bundle.head)
                 .map_err(|error| self.on_protocol_error(error, now_ms))?;
         }
-        self.view
-            .accept(head)
+
+        if batch_end < to {
+            return Err(ClientError::CatchUpIncomplete {
+                accepted_epoch: self.view.epoch(),
+                target_epoch: to,
+            });
+        }
+
+        // The exact target was fetched through `/sth/{epoch}` above. Verify
+        // that the bundle carried by lookup/latest is the same signed head
+        // before its cosignatures or proof can be used; a different head at
+        // this epoch is a fork and `LogView` names it as such.
+        self.accept_head(head)
             .map_err(|error| self.on_protocol_error(error, now_ms))
+    }
+
+    /// Advance the checked view and its retained complete signed-head checkpoint
+    /// as one state transition. An error changes neither.
+    fn accept_head(&mut self, head: &SignedTreeHead) -> core::result::Result<(), KtError> {
+        self.view.accept(head)
     }
 
     /// §8.1 step 3 — §8.3's threshold, over the client's **own** set.

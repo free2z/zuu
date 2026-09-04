@@ -30,6 +30,20 @@ pub enum ClientError {
     /// this crate implements none of them a second time.
     Protocol(KtError),
 
+    /// A verified catch-up prefix reached `accepted_epoch`, but the latest
+    /// head observed for this operation is still `target_epoch`.
+    ///
+    /// This is an expected, retryable checkpoint rather than a protocol
+    /// failure. Persist [`crate::KtClient::checkpoint_bytes`] before retrying:
+    /// the next call resumes at `accepted_epoch + 1` and never trusts the
+    /// target across the unverified gap (`KT.md` §6.3).
+    CatchUpIncomplete {
+        /// The last consecutively verified epoch, now held by the client.
+        accepted_epoch: u64,
+        /// The target epoch the operation has not accepted yet.
+        target_epoch: u64,
+    },
+
     /// §8.3, and it is **the fail-closed path**.
     ///
     /// Fewer than *t* distinct witnesses from the client's **own** configured
@@ -102,13 +116,13 @@ impl ClientError {
     /// Whether retrying later could plausibly succeed with nothing else
     /// changing.
     ///
-    /// Only the transport. A threshold that is unmet because the client
-    /// configured witnesses that are not cosigning is not transient in any
-    /// sense a retry loop should act on, and a UI that spun on it would turn a
-    /// deliberate refusal into a hang.
+    /// The transport, or a bounded catch-up checkpoint. A threshold that is
+    /// unmet because the client configured witnesses that are not cosigning is
+    /// not transient in any sense a retry loop should act on, and a UI that
+    /// spun on it would turn a deliberate refusal into a hang.
     #[must_use]
     pub const fn is_transient(&self) -> bool {
-        matches!(self, Self::Unreachable(_))
+        matches!(self, Self::Unreachable(_) | Self::CatchUpIncomplete { .. })
     }
 }
 
@@ -118,6 +132,14 @@ impl fmt::Display for ClientError {
             Self::Unreachable(detail) => write!(f, "the log could not be reached: {detail}"),
             Self::Refused(code) => write!(f, "the log refused: {code}"),
             Self::Protocol(error) => write!(f, "{error}"),
+            Self::CatchUpIncomplete {
+                accepted_epoch,
+                target_epoch,
+            } => write!(
+                f,
+                "verified catch-up checkpoint {accepted_epoch} of {target_epoch}; persist the \
+                 signed-head checkpoint and retry (KT.md §6.3)"
+            ),
             Self::WitnessThresholdUnmet => f.write_str(
                 "fewer than t of this client's own configured witnesses cosigned this root \
                  (KT.md §8.3); refusing rather than proceeding on an unwitnessed answer",

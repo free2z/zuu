@@ -47,7 +47,24 @@ const EXPECTED_DOC = `3. Branch on \`epoch\`:
    \`prev_sth_hash == H("free2z/kt/v1/tree-head-hash", tls_codec(last.sth))\` directly.
    If \`epoch > last.epoch + 1\`, the verifier MUST fetch every intervening tree
    head and check the chain link by link. **It MUST NOT skip.** A gap accepted on
-   trust is a branch accepted on trust.
+   trust is a branch accepted on trust. Clients paginate that work as follows:
+   the durable checkpoint is the last accepted \`SignedTreeHead\`; a page starts
+   at \`last.epoch + 1\`, ends at \`min(last.epoch + 256, target.epoch)\`, and fetches
+   \`GET /kt/v1/sth/{epoch}\` once for every epoch in that inclusive range, in
+   ascending order. Each response MUST contain exactly the requested epoch.
+   After each head verifies, the client advances its in-memory checkpoint; if
+   the page ends before \`target.epoch\`, it returns an explicit incomplete
+   result, the caller persists the advanced checkpoint, and a later call
+   resumes at the next epoch. The caller also persists the verified prefix
+   exposed after a network or decoding failure. A process interruption before
+   that write may repeat part of the page from an older checkpoint, which is
+   safe because every head is reverified; it MUST NOT resume from an unsigned
+   request counter. A missing, duplicate, reordered, truncated, or stalled
+   response fails closed at that response and cannot consume its epoch. The
+   page is therefore bounded to 256 one-head responses (257 round trips
+   including the initial latest-head or lookup response), while repeated calls
+   converge from an arbitrarily old checkpoint without accepting the target
+   across a gap.
 8. For \`epoch == last.epoch\`, the complete \`SignedTreeHead\` — every field of
    \`SignedTreeHeadTBS\` and \`signature\` — MUST be identical to the last accepted
    value. An identical re-presentation is an idempotent no-op. Any difference is

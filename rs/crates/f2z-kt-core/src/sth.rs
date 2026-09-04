@@ -229,6 +229,16 @@ impl LogView {
         &self.sth_hash
     }
 
+    /// The complete signed head most recently accepted by this view.
+    ///
+    /// This is the canonical durable checkpoint for a resumable client. It is
+    /// the same protocol value §6.3 rule 8 compares for an idempotent repeat,
+    /// so callers do not need to maintain a second head alongside the view.
+    #[must_use]
+    pub const fn last_head(&self) -> &SignedTreeHead {
+        &self.last_head
+    }
+
     /// The VRF key every label in the tree is derived under.
     #[must_use]
     pub const fn vrf_public_key(&self) -> &PublicKey {

@@ -76,7 +76,11 @@ pub trait Transport {
     /// Needed for §6.3 rule 7: a head that skips epochs is not accepted, and
     /// the only correct response is to fetch every intervening head and check
     /// the chain link by link. *A gap accepted on trust is a branch accepted on
-    /// trust.*
+    /// trust.* [`crate::KtClient`] binds the decoded head back to this exact
+    /// `epoch` before acceptance, so a duplicate or reordered response cannot
+    /// consume a page position. One catch-up operation calls this at most
+    /// [`crate::MAX_EPOCH_CATCHUP`] times and persists the last accepted signed
+    /// head as its checkpoint.
     ///
     /// # Errors
     ///
@@ -193,6 +197,10 @@ impl HttpTransport {
     fn build(base: &str, timeout: core::time::Duration) -> Self {
         let config = ureq::Agent::config_builder()
             .timeout_global(Some(timeout))
+            // A §9.5 refusal is carried in the response body. Keep non-2xx
+            // responses readable so `response_bytes` can distinguish a
+            // canonical protocol refusal from a network failure.
+            .http_status_as_error(false)
             .build();
         Self {
             base: base.trim_end_matches('/').to_owned(),
@@ -202,31 +210,41 @@ impl HttpTransport {
 
     fn get(&self, path: &str) -> Result<Vec<u8>, ClientError> {
         let url = format!("{}{path}", self.base);
-        let mut response = self
+        let response = self
             .agent
             .get(&url)
             .header("accept", "application/octet-stream")
             .call()
             .map_err(|error| ClientError::Unreachable(format!("{url}: {error}")))?;
-        response
-            .body_mut()
-            .read_to_vec()
-            .map_err(|error| ClientError::Unreachable(format!("{url}: {error}")))
+        Self::response_bytes(&url, response)
     }
 
     fn post(&self, path: &str, body: &[u8]) -> Result<Vec<u8>, ClientError> {
         let url = format!("{}{path}", self.base);
-        let mut response = self
+        let response = self
             .agent
             .post(&url)
             .header("content-type", "application/octet-stream")
             .header("accept", "application/octet-stream")
             .send(body)
             .map_err(|error| ClientError::Unreachable(format!("{url}: {error}")))?;
-        response
+        Self::response_bytes(&url, response)
+    }
+
+    fn response_bytes(
+        url: &str,
+        mut response: ureq::http::Response<ureq::Body>,
+    ) -> Result<Vec<u8>, ClientError> {
+        let status = response.status();
+        let body = response
             .body_mut()
             .read_to_vec()
-            .map_err(|error| ClientError::Unreachable(format!("{url}: {error}")))
+            .map_err(|error| ClientError::Unreachable(format!("{url}: {error}")))?;
+        if status.is_success() {
+            Ok(body)
+        } else {
+            Err(crate::wire::status_error(url, status.as_u16(), &body))
+        }
     }
 }
 
@@ -259,7 +277,50 @@ impl Transport for HttpTransport {
 
 #[cfg(all(test, feature = "http"))]
 mod tests {
-    use super::HttpTransport;
+    use std::io::{Read as _, Write as _};
+    use std::net::TcpListener;
+    use std::thread::JoinHandle;
+
+    use f2z_codec::Canonical as _;
+    use f2z_kt_core::ErrorCode;
+    use f2z_kt_core::api::ErrorBody;
+
+    use super::{HttpTransport, Transport};
+
+    fn loopback_response(status: &str, body: Vec<u8>) -> (String, JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let status = status.to_owned();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 1_024];
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let read = stream.read(&mut chunk).unwrap();
+                assert_ne!(read, 0, "client closed before completing its request");
+                request.extend_from_slice(&chunk[..read]);
+            }
+            write!(
+                stream,
+                "HTTP/1.1 {status}\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            stream.write_all(&body).unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        (format!("http://{address}"), server)
+    }
+
+    fn loopback_disconnect() -> (String, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            drop(stream);
+        });
+        (format!("http://{address}"), server)
+    }
 
     #[test]
     fn a_cleartext_log_url_is_refused_by_default() {
@@ -291,6 +352,50 @@ mod tests {
             format!("{transport:?}"),
             "HttpTransport { base: \"https://kt.example\", .. }"
         );
+    }
+
+    #[test]
+    fn a_real_http_epoch_unavailable_body_is_a_non_transient_refusal() {
+        let body = ErrorBody::new(ErrorCode::EpochUnavailable.code())
+            .unwrap()
+            .encode_canonical()
+            .unwrap();
+        let (base, server) = loopback_response("404 Not Found", body);
+        let transport =
+            HttpTransport::insecure_loopback(&base, core::time::Duration::from_secs(5)).unwrap();
+
+        let error = transport.sth_at(77).unwrap_err();
+        assert_eq!(
+            error,
+            crate::ClientError::Refused(ErrorCode::EpochUnavailable)
+        );
+        assert!(!error.is_transient());
+        assert!(server.join().unwrap().starts_with("GET /kt/v1/sth/77 "));
+    }
+
+    #[test]
+    fn a_noncanonical_http_error_body_remains_an_unreachable_response() {
+        let (base, server) = loopback_response("404 Not Found", b"not canonical".to_vec());
+        let transport =
+            HttpTransport::insecure_loopback(&base, core::time::Duration::from_secs(5)).unwrap();
+
+        let error = transport.sth_at(77).unwrap_err();
+        assert!(matches!(error, crate::ClientError::Unreachable(_)));
+        assert!(error.is_transient());
+        assert!(format!("{error}").contains("HTTP 404 with no usable error body"));
+        assert!(server.join().unwrap().starts_with("GET /kt/v1/sth/77 "));
+    }
+
+    #[test]
+    fn a_socket_failure_remains_an_unreachable_transport_error() {
+        let (base, server) = loopback_disconnect();
+        let transport =
+            HttpTransport::insecure_loopback(&base, core::time::Duration::from_secs(5)).unwrap();
+
+        let error = transport.sth_at(77).unwrap_err();
+        assert!(matches!(error, crate::ClientError::Unreachable(_)));
+        assert!(error.is_transient());
+        server.join().unwrap();
     }
 }
 
