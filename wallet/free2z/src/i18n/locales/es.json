@@ -86,6 +86,7 @@
     "back": "Volver",
     "buyTuzis": "Comprar 2Zs",
     "buyTuzisBalance": "Comprar 2Zs. Saldo {balance}",
+    "editProfile": "Editar perfil",
     "groups": {
       "account": "Cuenta",
       "explore": "Explorar",
@@ -94,9 +95,18 @@
     "live": "Transmisiones en vivo",
     "login": "Iniciar sesión",
     "primary": "Navegación principal",
+    "profile": "Perfil",
+    "profileAccessible": "Editar perfil",
+    "revenueShare": "Reparto de ingresos",
     "search": "Buscar creadores, páginas y temas",
     "searchAction": "Buscar",
     "signOut": "Cerrar sesión"
+  },
+  "profile": {
+    "zcashLinkPending": {
+      "body": "Vincular firma un desafío de un solo uso con la clave de tu monedero, que vive en ZUULI. Aquí se muestra la clave que ya hayas vinculado; vincula una nueva desde ZUULI.",
+      "title": "Vincular una clave de Zcash se hace en ZUULI"
+    }
   },
   "search": {
     "all": "Buscar en todo free2z",

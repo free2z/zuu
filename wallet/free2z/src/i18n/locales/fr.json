@@ -86,6 +86,7 @@
     "back": "Retour",
     "buyTuzis": "Acheter des 2Zs",
     "buyTuzisBalance": "Acheter des 2Zs. Solde {balance}",
+    "editProfile": "Modifier le profil",
     "groups": {
       "account": "Compte",
       "explore": "Explorer",
@@ -94,9 +95,18 @@
     "live": "Diffusions en direct",
     "login": "Se connecter",
     "primary": "Navigation principale",
+    "profile": "Profil",
+    "profileAccessible": "Modifier le profil",
+    "revenueShare": "Partage des revenus",
     "search": "Rechercher des créateurs, des pages et des sujets",
     "searchAction": "Rechercher",
     "signOut": "Se déconnecter"
+  },
+  "profile": {
+    "zcashLinkPending": {
+      "body": "Lier signe un défi à usage unique avec la clé de votre portefeuille, qui vit dans ZUULI. La clé que vous avez déjà liée s'affiche ici ; liez-en une nouvelle depuis ZUULI.",
+      "title": "Lier une clé Zcash se fait dans ZUULI"
+    }
   },
   "search": {
     "all": "Rechercher dans tout free2z",

@@ -1,6 +1,14 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Coins, LogIn, LogOut, Plus } from "lucide-react";
+import {
+  ArrowLeft,
+  Coins,
+  LogIn,
+  LogOut,
+  Plus,
+  ShieldCheck,
+  UserCog,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -120,8 +128,18 @@ export function TopBar() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            {/* The mobile tab bar holds five destinations and carries neither
+                of these, so this menu is the only way a phone reaches account
+                settings. ZUULI's menu also lists Wallet and Buy 2Zs → /wallet;
+                both are absent here by construction. */}
+            <DropdownMenuItem onClick={() => navigate("/profile")}>
+              <UserCog /> {t(MESSAGE_KEYS.navEditProfile)}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate("/fund")}>
               <Coins /> {t(MESSAGE_KEYS.navBuyTuzis)}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => navigate("/kyc")}>
+              <ShieldCheck /> {t(MESSAGE_KEYS.navRevenueShare)}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => logout()}>

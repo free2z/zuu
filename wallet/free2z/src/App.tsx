@@ -43,6 +43,11 @@ const AiFeature = lazy(() => import("@/features/ai"));
 // anywhere else: a reader who never opens a stream never downloads or parses
 // the SDK, and the CSP origins it needs stay inert until this chunk loads.
 const LiveFeature = lazy(() => import("@/features/live"));
+// Account settings and the revenue-share application. Both are plain HTTP
+// forms; neither reaches a key, which is why they come across with the content
+// (#904). Split so a signed-out reader never downloads either.
+const ProfileFeature = lazy(() => import("@/features/profile"));
+const KycFeature = lazy(() => import("@/features/kyc"));
 
 /** Finish a mobile OAuth callback that cold-started or resumed the app. */
 function MobileOAuthRecovery() {
@@ -151,6 +156,22 @@ function AppRoutes() {
             element={
               <Suspense fallback={<RouteFallback />}>
                 <FundFeature />
+              </Suspense>
+            }
+          />
+          <Route
+            path={APP_ROUTES.profile}
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <ProfileFeature />
+              </Suspense>
+            }
+          />
+          <Route
+            path={APP_ROUTES.kyc}
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <KycFeature />
               </Suspense>
             }
           />
