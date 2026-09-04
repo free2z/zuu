@@ -1220,7 +1220,7 @@ function HostControls({
 
 // The real participant roster, active-speaker highlighting, and chat all
 // live inside the mounted `<Stage>` (RealtimeKit's own meeting UI) — this
-// strip is just lightweight ZUULI chrome around it. Its count stays explicitly
+// strip is just lightweight app chrome around it. Its count stays explicitly
 // unavailable until authoritative hydration exists.
 function ParticipantStrip({ count }: { count: number | null }) {
   const copy = participantCountCopy(count);

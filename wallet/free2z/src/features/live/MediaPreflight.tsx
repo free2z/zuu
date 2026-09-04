@@ -31,7 +31,7 @@ const FAILURE_COPY = {
   },
   unsupported: {
     title: "Camera preview is unavailable here.",
-    recovery: "Use a supported browser or the current ZUULI app.",
+    recovery: "Use a supported browser or the current free2z app.",
   },
   failed: {
     title: "The camera preview could not start.",
