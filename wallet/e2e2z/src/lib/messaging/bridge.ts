@@ -210,14 +210,30 @@ async function invoke<T>(
  * fabricated `enrolled: true` would make this app render a handle nobody
  * published and offer first contact it cannot complete. Failing closed is the
  * only answer that stays true.
+ *
+ * `enroll` is no longer a bare refusal: it runs `../enrollment`'s real
+ * `issue-device-credential` client, which builds the request the wallet
+ * authority would answer and fails at the one seam that has no implementation.
+ * The refusal it produces is wrapped back into this type, with the underlying
+ * cause attached, so every consumer's branch is unchanged and no shipping build
+ * can reach an `EnrollmentStatus` by that path either.
  */
 export class EnrollmentUnavailableError extends Error {
   /** Machine-readable, so a caller never has to match on the message. */
   readonly reason = "enrollment-requires-wallet-app" as const;
   /** The bridge method that was refused, for logs and tests. */
   readonly method: BridgeMethod;
+  /**
+   * What actually stopped the call, when something did.
+   *
+   * Declared here rather than passed to `Error`'s `options.cause`, which is
+   * ES2022 and this app compiles to ES2020. A boundary that summarised the
+   * failure and discarded it would make every enrollment bug read the same in
+   * a report, which is exactly the state #904 is trying to leave.
+   */
+  readonly cause?: unknown;
 
-  constructor(method: BridgeMethod) {
+  constructor(method: BridgeMethod, options?: { cause?: unknown }) {
     super(
       `${WIRE_COMMANDS[method]} is unavailable in e2e2z: enrollment derives ` +
         "account keys from the wallet seed, which this app never holds. Enroll " +
@@ -225,6 +241,7 @@ export class EnrollmentUnavailableError extends Error {
     );
     this.name = "EnrollmentUnavailableError";
     this.method = method;
+    this.cause = options?.cause;
   }
 }
 
@@ -644,13 +661,36 @@ export const enrollment = {
   },
 
   /**
-   * In ZUULI: a directory submission, not an instant effect. Here: refused —
-   * claiming a handle means signing with the §4.2 `DirectoryAuthKey`, which is
-   * derived from the seed this app does not have.
+   * In ZUULI: a directory submission, not an instant effect. Here: an
+   * `issue-device-credential` intent addressed to the wallet authority, which
+   * holds the seed-derived §4.2 `IdentitySigningKey` this app never will.
+   *
+   * The request is built for real — through `@free2z/wallet-shared`, over this
+   * device's OS-CSPRNG public keys, byte-identical to what `f2z-intent` parses
+   * — and then fails at the transport, because there is no channel that
+   * authenticates either end (`docs/intent-bridge/PROTOCOL.md` §7, #461).
+   *
+   * **It can only reject.** The declared return type is `EnrollmentStatus` and
+   * there is no expression in this function that produces one: even a
+   * successful round trip yields a `DeviceCredential`, which has to be
+   * installed before any status could be read back, and installing it is
+   * `install_identity`'s job in a process this app does not have a command for.
+   * The refusal is re-wrapped so the screen's branch stays the one it was.
    */
   async enroll(handle: string): Promise<EnrollmentStatus> {
     if (useMock()) return mockMessaging.enroll(handle);
-    void handle;
+    const { createDeviceCredentialClient } = await import(
+      "../enrollment/issueDeviceCredential"
+    );
+    try {
+      await createDeviceCredentialClient().requestDeviceCredential(handle);
+    } catch (cause) {
+      throw new EnrollmentUnavailableError("enroll", { cause });
+    }
+    // Unreachable while no transport exists, and it must stay unreachable in
+    // the sense that matters: a credential is not a status, and this app has no
+    // way to install one. Refusing here rather than returning a shape is what
+    // keeps `enrolled: true` unfabricatable.
     return refuseEnrollment("enroll");
   },
 

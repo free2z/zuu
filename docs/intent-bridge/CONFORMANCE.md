@@ -123,6 +123,67 @@ what keeps a *future* reader safe if someone adds a decode path that forgets
 `finish()` — and claiming an independent test for each would have been the
 overstatement this document exists to avoid.
 
+## The e2e2z caller — `wallet/e2e2z/src/lib/enrollment`
+
+The first application to build an intent. `#904` splits the messaging surface
+away from the wallet, so e2e2z holds device keys and never anything
+seed-derived, and the one operation it cannot perform alone is enrollment
+(`ARCHITECTURE.md` §4.2). It therefore builds an `issue-device-credential`
+request — really, through the shared implementation, over its own OS-CSPRNG
+device public keys — and fails at the transport, because there is not one.
+
+Baseline: 42 tests green across `transport.test.ts`, `deviceKeys.test.ts` and
+`issueDeviceCredential.test.ts`, plus 3 in
+`wallet/e2e2z/src/lib/messaging/enroll-intent.test.ts`, plus the 4 in
+`wallet/e2e2z/scripts/seed-authority-boundary.node-test.mjs`. Reproduce with
+`cd wallet/e2e2z && npx vitest run && node --test scripts/seed-authority-boundary.node-test.mjs`.
+
+| Guard, as mutated | Test that must fail | Result |
+|---|---|---|
+| `enroll` refuses instead of returning a status, **after** a fulfilled response | `enroll builds a real intent and still cannot enroll > never resolves to an EnrollmentStatus even on a fulfilled response` | FAILS |
+| `enroll` refuses instead of returning a status, **before** the intent path | `the enrollment gap > never resolves to an EnrollmentStatus, however shaped` | FAILS |
+| the shipping transport rejects rather than resolving | `the intent transport > never resolves to bytes a caller could mistake for a response` | FAILS |
+| the shipping transport's refusal is not gated on `available` | `the intent transport > does not gate its refusal on the availability flag` | FAILS |
+| session correlation, seen from the caller | `refuses an answer to a different request`, `refuses an answer whose identifier differs in one byte`, `refuses a replay of an answer it already accepted` | FAILS |
+| `IssueDeviceCredentialResultV1` trailing-byte refusal **and** re-encode equality, together | `the issue-device-credential family result > refuses trailing bytes` | FAILS |
+| `IssueDeviceCredentialResultV1` non-empty credential | `the issue-device-credential family result > refuses a zero-length credential` | FAILS |
+| seed authority: the wallet plugin as a dependency | `e2e2z holds no route to the wallet seed` | FAILS |
+| seed authority: a `plugin:zcash\|` invoke in the renderer | `e2e2z holds no route to the wallet seed` | FAILS |
+| seed authority: `get_seed_phrase` named in executable code | `e2e2z holds no route to the wallet seed` | FAILS |
+
+**10 mutations, 10 failures, 0 survivors.** Every one was applied, watched to
+fail with a named assertion, and restored; the tree ends green.
+
+### What survived, and what that means
+
+Two observations are recorded rather than smoothed over, because each says
+something true about where a guard actually lives:
+
+| Mutation | Result | Why |
+|---|---|---|
+| fabricating a status **after** the transport check | `enrollment-gap.test.ts` **still green** | with no transport, `enroll` refuses before it reaches the fabricated line. #913's negative control is intact — it is simply testing an earlier point on the same path, which is why the *second* row above exists |
+| weakening `decodeIssueDeviceCredentialResult`'s framing | `refuses every truncation` **still green** | `ByteReader.take` bounds-checks before every read, so a truncation refuses without `finish()`. The same redundancy the TypeScript table above documents, in the same format, for the same reason |
+
+The seed-authority scan additionally carries its own coverage anchors — a
+fabricated violation of each of its three routes, an assertion that prose about
+the seed is *not* a violation while executable code is, and an assertion that
+the reader saw a manifest, a capability file and more than twenty sources. A
+boundary scanner that has silently stopped finding files reports success
+forever (`#553`).
+
+### What none of this proves
+
+`CALLER-AUTHENTICATION.md` §5: **there is no signature over responses.** Every
+case in `a response is judged as if the responder were hostile` establishes one
+thing — that whoever answered had seen the request, because `request_id` is 32
+CSPRNG bytes that appeared in exactly one outbound message. Not one of them
+establishes that the responder was ZUULI. An app that *received* the request
+holds the identifier and can answer with a `DeviceCredential` of its own
+choosing, and this client would accept it. Only a transport that authenticates
+the response destination closes that, which is
+[#461](https://github.com/free2z/zuu/issues/461), which is why the transport is
+shut.
+
 ## The boundary scanner
 
 `wallet/zuuli/scripts/project-boundary.node-test.mjs` gains seven cases, and

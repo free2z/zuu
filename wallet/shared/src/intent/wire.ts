@@ -293,6 +293,45 @@ export function encodeExecutePaymentPayload(payment: {
   });
 }
 
+/**
+ * Decode an `issue-device-credential` family **result**.
+ *
+ * `struct { opaque credential<0..2^24-1>; } IssueDeviceCredentialResultV1`
+ * (§3.3). The credential stays opaque: it is a
+ * `f2z_kt_core::DeviceCredential`, defined once in that crate, and a second
+ * definition on this side would be a second chance to disagree about the bytes
+ * the whole key-transparency directory is built on. What this function
+ * guarantees is only that the *framing* is exactly one well-formed structure —
+ * the caller must still hand the bytes to the layer that validates them.
+ *
+ * Three refusals, and each is a shape a hostile responder can send:
+ *
+ * - a **truncated** payload, caught by the reader's before-the-read bounds
+ *   check rather than becoming a short array of plausible zeroes;
+ * - **trailing bytes** after the credential, caught by `finish()` and again by
+ *   re-encode equality, because a payload that decodes two ways is a payload
+ *   whose meaning depends on who is reading;
+ * - an **empty** credential, which frames perfectly and is not a credential.
+ *   `KT.md` §4.1 gives no valid zero-length encoding, so accepting it would
+ *   mean returning `ok` for nothing at all.
+ */
+export function decodeIssueDeviceCredentialResult(
+  payload: Uint8Array,
+): IntentOutcome<Uint8Array> {
+  return outcome(() => {
+    const reader = new ByteReader(payload);
+    const credential = reader.opaque24();
+    reader.finish();
+    if (credential.length === 0) refuse(IntentErrorCode.InvalidValue);
+    const writer = new ByteWriter();
+    writer.opaque24(credential);
+    if (!bytesEqual(writer.finish(), payload)) {
+      refuse(IntentErrorCode.Malformed);
+    }
+    return credential;
+  });
+}
+
 /** Encode an `issue-device-credential` family payload. Public keys only. */
 export function encodeIssueDeviceCredentialPayload(device: {
   readonly handle: string;

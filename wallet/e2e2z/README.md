@@ -35,7 +35,20 @@ no capability entry grants them and none should try.
 Here there is no seed to borrow. Enrollment becomes a bridge call into the
 wallet authority, which issues the `DeviceCredential` (#905). Until that
 protocol lands there is no honest in-process implementation, so this crate
-registers no command at all and no capability addresses one.
+registers none of the trio and no capability addresses one.
+
+The one command this crate *does* register is
+`e2e2z_device_credential_keys` (`src-tauri/src/device.rs`): the **public**
+halves of this device's key set, which are exactly what an
+`issue-device-credential` request carries. It calls
+`tauri_plugin_f2zmsg::engine::Engine::prepare_device`, which samples from the OS
+CSPRNG, keeps the private halves in that process and hands back nothing else. It
+is an app-crate command for §2.2's reason — no `plugin:` prefix, no capability
+entry — and it is deliberately not part of the contract's §3 plugin surface,
+because it grants nothing. Generating that keypair in the renderer instead would
+mean a second cryptographic implementation and a private key in a
+garbage-collected JavaScript heap; `src/lib/enrollment/deviceKeys.ts` says so at
+the top and holds no `crypto.subtle`.
 
 **And the frontend fails closed rather than pretending.** The ported
 `src/lib/messaging/bridge.ts` keeps all three in its declared command
@@ -55,13 +68,33 @@ of one is a claim about the key transparency directory, and a fabricated
 before #461**: a custom-scheme deep link is not an authenticated channel, so no
 transport is invented here.
 
+**The caller half of that intent is built, and it is what `enroll` now runs.**
+`src/lib/enrollment/` reads this device's public keys, builds the request
+through `@free2z/wallet-shared` — the single intent-bridge implementation, the
+one `wallet/zuuli/scripts/project-boundary.mjs` forbids a second of — and hands
+it to `transport.ts`, which is the whole seam and which **rejects**. It rejects
+before a device key set is sampled, and it rejects again inside `dispatch`
+without consulting its own availability flag, so no single edit turns the
+refusal into a success. Response handling is implemented and tested against
+hand-assembled hostile bytes even though nothing can deliver one: correlation,
+family, window, status, framing and the credential's own encoding each get a
+case. What that validation proves is that the responder saw the request; it does
+**not** prove the responder was ZUULI, because
+`docs/intent-bridge/CALLER-AUTHENTICATION.md` §5 records that there is no
+signature over responses. That is #461's job, not this code's.
+
 Proved by `src/lib/messaging/enrollment-gap.test.ts` (the bridge refuses, never
 invokes, never resolves), `src/features/messages/index.enrollment-gap.test.tsx`
 (the screen renders the gap and offers nothing enrolled), and
 `tests/enrollment-gap.pw.ts`, which runs a real browser against the **default**
 build with a Tauri IPC host that registers the plugin and not the trio — the
 exact shape `src-tauri/src/lib.rs` ships — and asserts no `f2zmsg_*` command was
-ever invoked.
+ever invoked. The intent path adds `src/lib/enrollment/*.test.ts`,
+`src/lib/messaging/enroll-intent.test.ts` — which drives a *fulfilled* wallet
+response through the shipping code and asserts `enroll` **still** refuses — and
+`scripts/seed-authority-boundary.node-test.mjs`, which judges all three routes
+seed authority could arrive by. `docs/intent-bridge/CONFORMANCE.md` records the
+mutation matrix, including the two mutations that survive and why.
 
 ## Capabilities: named commands, never the blanket grant
 

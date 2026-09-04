@@ -28,6 +28,7 @@ import {
   createIntentSession,
   decodeIntentRequest,
   decodeIntentResponse,
+  decodeIssueDeviceCredentialResult,
   encodeExecutePaymentPayload,
   encodeIntentRequest,
   encodeIssueDeviceCredentialPayload,
@@ -482,5 +483,53 @@ describe("the session refuses answers to questions it did not ask", () => {
     const second = toHex(newRequestId());
     expect(first).toHaveLength(64);
     expect(first).not.toBe(second);
+  });
+});
+
+describe("the issue-device-credential family result", () => {
+  const credential = new Uint8Array(96).fill(0x33);
+
+  /** `struct { opaque credential<0..2^24-1>; }`, assembled by hand. */
+  function result(bytes: Uint8Array): Uint8Array {
+    return Uint8Array.from([
+      (bytes.length >>> 16) & 0xff,
+      (bytes.length >>> 8) & 0xff,
+      bytes.length & 0xff,
+      ...bytes,
+    ]);
+  }
+
+  it("returns the credential bytes untouched", () => {
+    // Opaque on purpose: a `DeviceCredential` is defined once, in
+    // `f2z-kt-core`, and a second definition here would be a second chance to
+    // disagree about the bytes the directory is built on.
+    expect(toHex(unwrap(decodeIssueDeviceCredentialResult(result(credential))))).toBe(
+      toHex(credential),
+    );
+  });
+
+  it("refuses every truncation", () => {
+    const encoded = result(credential);
+    for (let cut = 0; cut < encoded.length; cut += 1) {
+      expect(refusal(decodeIssueDeviceCredentialResult(encoded.subarray(0, cut)))).toBe(
+        IntentErrorCode.Malformed,
+      );
+    }
+  });
+
+  it("refuses trailing bytes", () => {
+    expect(
+      refusal(
+        decodeIssueDeviceCredentialResult(
+          Uint8Array.from([...result(credential), 0x00]),
+        ),
+      ),
+    ).toBe(IntentErrorCode.Malformed);
+  });
+
+  it("refuses a zero-length credential, which frames perfectly", () => {
+    expect(
+      refusal(decodeIssueDeviceCredentialResult(result(new Uint8Array(0)))),
+    ).toBe(IntentErrorCode.InvalidValue);
   });
 });

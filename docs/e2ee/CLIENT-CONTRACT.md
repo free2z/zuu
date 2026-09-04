@@ -294,6 +294,22 @@ what travels in the clear.
 > intent, which does not ship before
 > [#461](https://github.com/free2z/zuu/issues/461): a custom-scheme deep link is
 > not an authenticated channel.
+>
+> **`enroll` is now that intent, and it still refuses.** Since #904's caller
+> half landed, `enrollment.enroll` runs
+> `wallet/e2e2z/src/lib/enrollment/issueDeviceCredential.ts`: it reads this
+> device's **public** keys from the app-crate command
+> `e2e2z_device_credential_keys` (which calls
+> `tauri_plugin_f2zmsg::engine::Engine::prepare_device` in process — OS CSPRNG,
+> never seed-derived, private halves never leaving that process), builds the
+> request through `@free2z/wallet-shared`, and hands it to the single transport
+> seam, which rejects. The refusal is re-wrapped as
+> `EnrollmentUnavailableError` with the cause attached, so the paragraph above
+> stays true in every clause: `enroll` cannot resolve, cannot produce an
+> `EnrollmentStatus`, and cannot install a credential — this app registers no
+> command that could. `e2e2z_device_credential_keys` is an app-crate command
+> (§2.2: no `plugin:` prefix, no capability entry) and is deliberately **not**
+> part of §3's plugin surface: it grants nothing and returns no secret.
 
 Messaging mounts as a new top-level route. In `src/lib/routes.ts`:
 

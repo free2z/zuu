@@ -52,6 +52,7 @@ one rendering.
 | Wallet — the rules | `rs/crates/f2z-intent` | parse, validate, expire, one-use, authorize caller, bind confirmation |
 | Wallet — the authority | `wallet/zuuli/src-tauri/src/intent.rs` | receive, confirm natively, act. `execute-payment` only — see [`AUTHORITY.md`](./AUTHORITY.md) |
 | Clients | `wallet/shared/src/intent` (`@free2z/wallet-shared`) | build requests, remember them, refuse unsolicited answers |
+| First caller | `wallet/e2e2z/src/lib/enrollment` | `issue-device-credential`, built through the client half, with one transport seam that is shut |
 
 There is **one** client implementation and
 `wallet/zuuli/scripts/project-boundary.mjs` enforces that: the guard names may
@@ -393,6 +394,14 @@ Therefore, until #461 lands:
 
 - **No intent carrying authority may be dispatched over a deep link.** Not
   `sign-challenge`, not `issue-device-credential`, not `execute-payment`.
+- The one caller that exists, `wallet/e2e2z/src/lib/enrollment`, holds that line
+  in one file: `transport.ts` declares an `IntentTransport` interface and ships
+  the only implementation there is, which **rejects**. It rejects before the
+  caller samples a device key set — sampling one for a request that cannot leave
+  the process discards the previous secrets for nothing — and it rejects again
+  inside `dispatch`, unconditionally, so flipping the availability flag moves the
+  refusal rather than removing it. When #461 lands, the work is to write an
+  `IntentTransport` and register it; nothing else on that path changes.
 - `f2z-intent` deliberately contains **no transport**: no URL parsing, no intent
   filter, no scheme. Adding one is the work #461 gates, not work this crate
   quietly permits.
