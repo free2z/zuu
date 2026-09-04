@@ -182,6 +182,12 @@ const LABEL_BEARING_DOCUMENTS = [
   "docs/e2ee/WIRE.md",
   "docs/e2ee/decisions/0009-queue-addressing-and-binding.md",
   "docs/e2ee/decisions/0010-signing-transcript-and-ack-semantics.md",
+  // The cross-app intent bridge (#905) mints `free2z/intent/v1/request` and
+  // `free2z/intent/v1/confirmation`. It is a different protocol from the relay
+  // and the log, and that is exactly why it is registered here: the labels do
+  // not have to share a document to share `H`'s single, separator-free
+  // namespace, which is the scoping mistake #602 was.
+  "docs/intent-bridge/PROTOCOL.md",
 ];
 
 /// Files under this prefix are subject to the registration half of the anchor.

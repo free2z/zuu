@@ -1,0 +1,36 @@
+[package]
+name = "f2z-intent"
+version = "0.1.0"
+description = "The cross-app intent bridge (docs/intent-bridge/PROTOCOL.md v1): a versioned request/response wire format carrying authority delegation from the ZUULI wallet to apps that hold no seed"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
+# drift. Not inherited from the workspace: that check reads this literal line.
+rust-version = "1.97"
+# Permissive, deliberately and explicitly. Every client of the bridge — the
+# free2z content surface, the chat surface, and any future app — has to be able
+# to encode and decode these bytes, and a copyleft parser would mean a second
+# implementation. A second implementation of an authority-delegation format is
+# the one thing this crate exists to prevent. rs/deny.toml enforces it.
+license = "MIT"
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The canonical encoding, the re-encode-equality rule of `WIRE.md` §3.3, the
+# redacting newtypes, and `H(label, x)`. This crate defines no encoding of its
+# own: the intent bridge is a *second protocol over the same codec*, not a
+# second codec. See `src/wire.rs` for why that was the deciding property.
+f2z-codec = { workspace = true }
+tls_codec = { workspace = true }
+# `WIRE.md` §10's existence-oracle rule in miniature: the confirmation token is
+# a bearer secret, so the comparison that accepts or refuses it is constant
+# time. Already in the graph beneath ed25519-dalek; named here so depending on
+# it is a decision rather than an accident of resolution.
+subtle = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

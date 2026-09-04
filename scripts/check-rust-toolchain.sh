@@ -82,6 +82,9 @@ MANIFESTS=(
   # Dependency KAT harness (#730). Host-only test evidence, permissive because
   # it contains no production code and is useful to downstream auditors.
   rs/crates/f2z-crypto-kat/Cargo.toml
+  # The cross-app intent bridge (#905). Linked by the ZUULI wallet, so it takes
+  # the same channel restatement as every other client-linked crate under rs/.
+  rs/crates/f2z-intent/Cargo.toml
 )
 
 # Other rust-toolchain.toml files. Cargo picks the toolchain from the directory

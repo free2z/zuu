@@ -58,6 +58,15 @@ const SENSITIVE_ENTRY_CONSUMER = [
   "  return bindSensitiveEntryLifecycle({} as never, () => session.current?.release());",
   "}",
 ].join("\n");
+// A stand-in for wallet/shared/src/intent, small enough to read and complete
+// enough to satisfy the single-implementation anchor.
+const INTENT_BRIDGE_STUB = [
+  "export const INTENT_PROTOCOL_VERSION = 1;",
+  "export function encodeIntentRequest(request: unknown) { return request; }",
+  "export function decodeIntentResponse(bytes: unknown) { return bytes; }",
+  "export function createIntentSession() { return {}; }",
+  "export function parseVisibleText(bytes: unknown) { return String(bytes); }",
+].join("\n");
 const REQUIRED_PRODUCTION_SOURCES = new Map([
   ["zuuallet/src/lib/sensitive-entry.ts", SENSITIVE_ENTRY_CONSUMER],
   [
@@ -99,7 +108,20 @@ async function fixture(files = {}, dependencyOverrides = {}) {
       exports: { ".": "./src/index.ts" },
     }),
   );
-  await writeFile(path.join(root, "shared/src/index.ts"), "export {};\n");
+  // The single intent-bridge implementation (#905). Every fixture carries a
+  // minimal one because the scanner requires the module to exist, to be
+  // re-exported through the package's one entry point, and to declare every
+  // guard name — the coverage half of the rule, without which the exclusivity
+  // half would protect nothing.
+  await mkdir(path.join(root, "shared/src/intent"), { recursive: true });
+  await writeFile(
+    path.join(root, "shared/src/intent/index.ts"),
+    INTENT_BRIDGE_STUB,
+  );
+  await writeFile(
+    path.join(root, "shared/src/index.ts"),
+    'export * from "./intent";\n',
+  );
   for (const project of ["zuuli", "zuuallet"]) {
     await mkdir(path.join(root, project, "src/nested/deeper"), { recursive: true });
     const dependencies = dependencyOverrides[project] ?? SHARED_DEPENDENCY;
@@ -187,6 +209,11 @@ test("current wallet source graph has no undeclared project crossing", async () 
     result.viteBuildsVerified,
     2,
     "both shipping wallet applications must complete the constrained production Vite graph build",
+  );
+  assert.equal(
+    result.sharedIntentGuardCount,
+    5,
+    "every intent-bridge guard must be declared in the one shared implementation",
   );
 });
 
@@ -1815,4 +1842,122 @@ test("fails loud on source syntax the parser cannot classify", async () => {
       await assert.rejects(() => assertProjectBoundaries(root), /broken\.ts:1:/);
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// #905: the intent bridge is one implementation, and these are the negative
+// controls that prove the rule is not decorative. Each fails only because the
+// scanner refuses a specific way of getting a second copy.
+// ---------------------------------------------------------------------------
+
+test("rejects a second intent-bridge implementation inside an application", async () => {
+  await withFixture(
+    {
+      "zuuli/src/intent/wire.ts": [
+        "export const INTENT_PROTOCOL_VERSION = 1;",
+        "export function encodeIntentRequest(request: unknown) { return request; }",
+      ].join("\n"),
+    },
+    async (root) => {
+      await assert.rejects(
+        assertProjectBoundaries(root),
+        /INTENT_PROTOCOL_VERSION may only be declared inside wallet\/shared\/src\/intent/,
+      );
+    },
+  );
+});
+
+test("rejects a second implementation smuggled in as a local helper", async () => {
+  // The realistic shape: not a whole module, one function an app decided was
+  // easier to write than to import.
+  await withFixture(
+    {
+      "zuuallet/src/lib/link.ts": [
+        "const decodeIntentResponse = (bytes: Uint8Array) => bytes;",
+        "export const read = (bytes: Uint8Array) => decodeIntentResponse(bytes);",
+      ].join("\n"),
+    },
+    async (root) => {
+      await assert.rejects(
+        assertProjectBoundaries(root),
+        /decodeIntentResponse may only be declared inside wallet\/shared\/src\/intent/,
+      );
+    },
+  );
+});
+
+test("rejects an application minting a label in the bridge's domain namespace", async () => {
+  await withFixture(
+    {
+      "zuuli/src/lib/labels.ts":
+        'export const label = "free2z/intent/v1/request";\n',
+    },
+    async (root) => {
+      await assert.rejects(
+        assertProjectBoundaries(root),
+        /the free2z\/intent\/v1\/ domain namespace belongs to wallet\/shared\/src\/intent/,
+      );
+    },
+  );
+});
+
+test("accepts an application that imports the shared implementation", async () => {
+  await withFixture(
+    {
+      "zuuli/src/lib/link.ts": [
+        'import { encodeIntentRequest, INTENT_PROTOCOL_VERSION } from "@free2z/wallet-shared";',
+        "export const send = (request: unknown) => encodeIntentRequest(request);",
+        "export const version = INTENT_PROTOCOL_VERSION;",
+      ].join("\n"),
+    },
+    async (root) => {
+      await assert.doesNotReject(assertProjectBoundaries(root));
+    },
+  );
+});
+
+test("rejects a shared package that stops re-exporting the intent bridge", async () => {
+  await withFixture(
+    { "shared/src/index.ts": "export const nothing = true;\n" },
+    async (root) => {
+      await assert.rejects(
+        assertProjectBoundaries(root),
+        /must re-export \.\/intent so the single intent-bridge implementation is reachable/,
+      );
+    },
+  );
+});
+
+test("rejects an intent bridge that quietly loses a guard", async () => {
+  // The #553 shape: a check whose subject can shrink without the check
+  // noticing. Deleting the version gate must fail here, not go unmentioned.
+  await withFixture(
+    {
+      "shared/src/intent/index.ts": [
+        "export function encodeIntentRequest(request: unknown) { return request; }",
+        "export function decodeIntentResponse(bytes: unknown) { return bytes; }",
+        "export function createIntentSession() { return {}; }",
+        "export function parseVisibleText(bytes: unknown) { return String(bytes); }",
+      ].join("\n"),
+    },
+    async (root) => {
+      await assert.rejects(
+        assertProjectBoundaries(root),
+        /must declare INTENT_PROTOCOL_VERSION; a guard nobody declares is a guard nobody applies/,
+      );
+    },
+  );
+});
+
+test("rejects a wallet tree with no intent-bridge implementation at all", async () => {
+  const root = await fixture();
+  try {
+    await rm(path.join(root, "shared/src/intent"), { recursive: true, force: true });
+    await assert.rejects(
+      assertProjectBoundaries(root),
+      /the single intent-bridge implementation must exist/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
