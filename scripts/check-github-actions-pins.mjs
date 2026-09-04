@@ -63,6 +63,10 @@ const RUST_ROOT_CONTRACTS = [
           "wallet/nested/future/Cargo.toml",
           "docs/e2ee/CLIENT-CONTRACT.md",
           "docs/e2ee/WIRE.md",
+          // The markdown-only guard must exclude prose and nothing else: source
+          // under the same two prefixes still selects the full gate.
+          "wallet/free2z/src/App.tsx",
+          "wallet/e2e2z/src/App.tsx",
         ],
       },
       {
@@ -81,6 +85,14 @@ const RUST_ROOT_CONTRACTS = [
       "wallet/zuuli/STATUS.md",
       "wallet/zuuli/CLAUDE.md",
       "wallet/zuuli/docs/e2ee/notes.md",
+      // The same property for the two delegated surfaces of the three-app
+      // split (#904/#906). `wallet/free2z/*` and `wallet/e2e2z/*` joined the
+      // selector in #909 so the required gate covers them; without the guard a
+      // README edit on either drags the whole native matrix in behind it.
+      "wallet/free2z/README.md",
+      "wallet/free2z/docs/notes.md",
+      "wallet/e2e2z/README.md",
+      "wallet/e2e2z/docs/notes.md",
     ],
     jobs: [
       [
@@ -3661,18 +3673,22 @@ function runRustRootWorkflowMutationTests(repoRoot) {
         ],
       ];
       // The markdown-only guard is a *negative* selector: it exists to keep
-      // `wallet/zuuli/*` from dragging prose into the native matrix. Its two
-      // failure directions are deleting it and narrowing it to the top level,
-      // so both are exercised against the live workflow.
+      // `wallet/zuuli/*`, `wallet/free2z/*` and `wallet/e2e2z/*` from dragging
+      // prose into the native matrix. Its failure directions are deleting the
+      // guard, dropping one application's clause from it, and narrowing a
+      // clause to the top level, so all three are exercised against the live
+      // workflow — once per application clause.
       assertWorkflowFailure(
         contract,
         source,
-        "wallet/ rejects deleting the ZUULI markdown-only guard",
+        "wallet/ rejects deleting the application markdown-only guard",
         (value) =>
           mutateJob(
             value,
             "changes",
-            '            if [[ "$file" == wallet/zuuli/*.md ]]; then\n' +
+            '            if [[ "$file" == wallet/zuuli/*.md ||\n' +
+              '                  "$file" == wallet/free2z/*.md ||\n' +
+              '                  "$file" == wallet/e2e2z/*.md ]]; then\n' +
               "              continue\n" +
               "            fi\n",
             "",
@@ -3682,16 +3698,45 @@ function runRustRootWorkflowMutationTests(repoRoot) {
       assertWorkflowFailure(
         contract,
         source,
-        "wallet/ rejects a ZUULI markdown-only guard that misses nested prose",
+        "wallet/ rejects dropping wallet/free2z from the markdown-only guard",
         (value) =>
           mutateJob(
             value,
             "changes",
-            '"$file" == wallet/zuuli/*.md',
-            '"$file" == wallet/zuuli/STATUS.md',
+            '                  "$file" == wallet/free2z/*.md ||\n',
+            "",
           ),
-        'must leave zuuli false for unrelated input "wallet/zuuli/docs/e2ee/notes.md"',
+        'must leave zuuli false for unrelated input "wallet/free2z/README.md"',
       );
+      assertWorkflowFailure(
+        contract,
+        source,
+        "wallet/ rejects dropping wallet/e2e2z from the markdown-only guard",
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            '                  "$file" == wallet/free2z/*.md ||\n' +
+              '                  "$file" == wallet/e2e2z/*.md ]]; then\n',
+            '                  "$file" == wallet/free2z/*.md ]]; then\n',
+          ),
+        'must leave zuuli false for unrelated input "wallet/e2e2z/README.md"',
+      );
+      for (const app of ["zuuli", "free2z", "e2e2z"]) {
+        assertWorkflowFailure(
+          contract,
+          source,
+          `wallet/ rejects a wallet/${app} markdown-only clause that misses nested prose`,
+          (value) =>
+            mutateJob(
+              value,
+              "changes",
+              `"$file" == wallet/${app}/*.md`,
+              `"$file" == wallet/${app}/${app === "zuuli" ? "STATUS" : "README"}.md`,
+            ),
+          `must leave zuuli false for unrelated input "wallet/${app}/docs/${app === "zuuli" ? "e2ee/" : ""}notes.md"`,
+        );
+      }
       for (const [guard, target, replacement, needle] of
         selectorPatternMutations) {
         const action = replacement ? "broadened" : "removed";
