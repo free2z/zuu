@@ -676,13 +676,22 @@ export const enrollment = {
    * installed before any status could be read back, and installing it is
    * `install_identity`'s job in a process this app does not have a command for.
    * The refusal is re-wrapped so the screen's branch stays the one it was.
+   *
+   * The dynamic `import()` is **inside** the `try` deliberately. A chunk that
+   * fails to load — offline, a half-rolled deploy, a stale service worker —
+   * rejects, and outside the `try` that rejection would escape as an untyped
+   * error. It would still fail closed, since nothing about it can produce a
+   * status, but the screen branches on `isEnrollmentUnavailable` and would take
+   * the error path instead of the standing gap path: a user would be told
+   * something broke rather than that enrollment happens in the wallet app. The
+   * typed refusal is the contract, so every way this can fail has to wear it.
    */
   async enroll(handle: string): Promise<EnrollmentStatus> {
     if (useMock()) return mockMessaging.enroll(handle);
-    const { createDeviceCredentialClient } = await import(
-      "../enrollment/issueDeviceCredential"
-    );
     try {
+      const { createDeviceCredentialClient } = await import(
+        "../enrollment/issueDeviceCredential"
+      );
       await createDeviceCredentialClient().requestDeviceCredential(handle);
     } catch (cause) {
       throw new EnrollmentUnavailableError("enroll", { cause });

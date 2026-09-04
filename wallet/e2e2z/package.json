@@ -10,12 +10,12 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
     "typecheck:tests": "tsc --noEmit",
-    "test": "vitest run && node --test scripts/ui-copy-truncation.node-test.mjs scripts/seed-authority-boundary.node-test.mjs && playwright test",
+    "test": "vitest run && node --test scripts/ui-copy-truncation.node-test.mjs scripts/authority-boundary.node-test.mjs && playwright test",
     "tauri": "tauri",
     "test:e2e": "playwright test",
     "test:ui-copy": "node --test scripts/ui-copy-truncation.node-test.mjs",
-    "test:seed-boundary": "node --test scripts/seed-authority-boundary.node-test.mjs",
-    "verify": "npm run typecheck && npm run typecheck:tests && npm test"
+    "verify": "npm run typecheck && npm run typecheck:tests && npm test",
+    "test:authority-boundary": "node --test scripts/authority-boundary.node-test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",

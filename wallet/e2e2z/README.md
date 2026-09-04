@@ -91,9 +91,12 @@ build with a Tauri IPC host that registers the plugin and not the trio — the
 exact shape `src-tauri/src/lib.rs` ships — and asserts no `f2zmsg_*` command was
 ever invoked. The intent path adds `src/lib/enrollment/*.test.ts`,
 `src/lib/messaging/enroll-intent.test.ts` — which drives a *fulfilled* wallet
-response through the shipping code and asserts `enroll` **still** refuses — and
-`scripts/seed-authority-boundary.node-test.mjs`, which judges all three routes
-seed authority could arrive by. `docs/intent-bridge/CONFORMANCE.md` records the
+response through the shipping code and asserts `enroll` **still** refuses —
+`src/lib/messaging/enroll-chunk-failure.test.ts`, which does the same for a
+lazily imported chunk that never loads, and
+`scripts/authority-boundary.node-test.mjs`, which judges the three routes seed
+authority could arrive by **and** holds `setIntentTransport` to test files, so
+dispatch authority cannot be installed by one call from the renderer. `docs/intent-bridge/CONFORMANCE.md` records the
 mutation matrix, including the two mutations that survive and why.
 
 ## Capabilities: named commands, never the blanket grant
