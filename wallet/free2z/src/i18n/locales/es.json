@@ -1,10 +1,55 @@
 {
   "app": {
     "name": "free2z",
-    "tagline": "Artículos, directos, IA y herramientas de creador."
+    "tagline": "Artículos de creadores"
   },
-  "placeholder": {
-    "heading": "free2z se está extrayendo de ZUULI",
-    "body": "Esta superficie muestra contenido remoto, por lo que no guarda la semilla de Zcash ni claves de mensajería. Las funciones llegarán en una fase posterior."
+  "articles": {
+    "searchAccessible": "Buscar artículos"
+  },
+  "auth": {
+    "zcashPending": {
+      "body": "Iniciar sesión con Zcash firma un desafío con la clave de tu monedero, así que permanece en ZUULI hasta que llegue el puente entre superficies. Aquí usa una contraseña o una cuenta vinculada.",
+      "title": "El inicio de sesión con Zcash aún no está en esta superficie"
+    }
+  },
+  "common": {
+    "loading": "Cargando",
+    "retry": "Reintentar",
+    "retrying": "Reintentando",
+    "tryAgain": "Inténtalo de nuevo."
+  },
+  "creator": {
+    "zecTipPending": {
+      "body": "Firmar una transacción Zcash necesita la clave, que vive en ZUULI. Abre allí la página de {creator} para enviar ZEC. Tu propina en 2Z funciona aquí.",
+      "title": "Las propinas en ZEC se firman en ZUULI"
+    }
+  },
+  "error": {
+    "notFound": {
+      "back": "Volver a Artículos",
+      "description": "Esta página no existe o se ha movido. Vamos a orientarte de nuevo.",
+      "title": "Página no encontrada"
+    }
+  },
+  "fund": {
+    "body": "Comprar 2Zs sigue en ZUULI mientras se separa su ruta de recarga con Zcash del pago con tarjeta. Llegará a free2z a continuación.",
+    "title": "Añadir 2Zs"
+  },
+  "navigation": {
+    "accountMenu": "Menú de la cuenta",
+    "app": "Navegación de la aplicación",
+    "articles": "Artículos",
+    "back": "Volver",
+    "buyTuzis": "Comprar 2Zs",
+    "buyTuzisBalance": "Comprar 2Zs. Saldo {balance}",
+    "groups": {
+      "account": "Cuenta",
+      "explore": "Explorar",
+      "money": "Dinero"
+    },
+    "login": "Iniciar sesión",
+    "primary": "Navegación principal",
+    "searchAction": "Buscar",
+    "signOut": "Cerrar sesión"
   }
 }

@@ -14,7 +14,9 @@ describe("shipped catalogs", () => {
   for (const locale of SUPPORTED_LOCALES) {
     it(`${locale} declares exactly the message keys the screens read`, async () => {
       const catalog = await loadCatalog(locale);
-      expect([...flattenCatalog(catalog)].sort()).toEqual([...MESSAGE_KEYS].sort());
+      expect([...flattenCatalog(catalog)].sort()).toEqual(
+        Object.values(MESSAGE_KEYS).sort(),
+      );
     });
   }
 });
@@ -28,7 +30,7 @@ describe("validateCatalog", () => {
 
   it("rejects a catalog carrying a key no screen reads", () => {
     const catalog = Object.fromEntries(
-      MESSAGE_KEYS.map((key) => [key, "x"]),
+      Object.values(MESSAGE_KEYS).map((key) => [key, "x"]),
     ) as Record<string, unknown>;
     catalog["stale.key"] = "x";
     expect(() => validateCatalog("en", catalog, DECLARED_MESSAGE_KEYS)).toThrow(

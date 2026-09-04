@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob:; media-src 'self'; frame-src 'none'; connect-src 'self' https://free2z.cash https://*.free2z.cash; style-src 'self' 'unsafe-inline'; script-src 'self'"
+      "csp": "default-src 'self'; img-src 'self' data: blob: https:; media-src 'self' https:; frame-src 'none'; connect-src 'self' https://free2z.cash https://*.free2z.cash https://free2z.com https://*.free2z.com; style-src 'self' 'unsafe-inline'; script-src 'self'"
     }
   },
   "bundle": {

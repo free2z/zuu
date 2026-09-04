@@ -190,6 +190,7 @@ jobs:
           cache-dependency-path: |
             wallet/zuuli/package-lock.json
             wallet/zuuallet/package-lock.json
+            wallet/free2z/package-lock.json
 
       - name: Resolve the pinned frontend Rust toolchain
         id: frontend_rust_toolchain
@@ -208,6 +209,7 @@ jobs:
         run: |
           npm ci
           npm ci --prefix ../zuuallet
+          npm ci --prefix ../free2z
 
       # Zuuallet owns an independent npm root. Keep its high-severity audit in
       # this protected-gate job as well as the faster advisory workflow so a

@@ -1,13 +1,47 @@
-// Every message key this surface declares. The catalog policy holds each
-// shipped locale to exactly this set, so a key added to a screen without a
-// translation is a test failure rather than a runtime `missing i18n message`.
-export const MESSAGE_KEYS = [
-  "app.name",
-  "app.tagline",
-  "placeholder.heading",
-  "placeholder.body",
-] as const;
+/**
+ * The reviewed message-key surface for this bounded i18n slice. Catalog policy
+ * compares every locale with these exact values, so an added catalog entry is
+ * an orphan until application code declares it here and a removed entry is a
+ * hard failure in every locale.
+ *
+ * Deliberately a copy of ZUULI's kernel shape rather than an import:
+ * `wallet/zuuli/scripts/project-boundary.mjs` forbids one wallet application
+ * from importing another (#904, #906).
+ */
+export const MESSAGE_KEYS = {
+  appName: "app.name",
+  appTagline: "app.tagline",
+  authZcashPendingBody: "auth.zcashPending.body",
+  authZcashPendingTitle: "auth.zcashPending.title",
+  articlesSearchAccessible: "articles.searchAccessible",
+  commonLoading: "common.loading",
+  commonRetry: "common.retry",
+  commonRetrying: "common.retrying",
+  commonTryAgain: "common.tryAgain",
+  creatorZecTipPendingBody: "creator.zecTipPending.body",
+  creatorZecTipPendingTitle: "creator.zecTipPending.title",
+  errorNotFoundBack: "error.notFound.back",
+  errorNotFoundDescription: "error.notFound.description",
+  errorNotFoundTitle: "error.notFound.title",
+  fundBody: "fund.body",
+  fundTitle: "fund.title",
+  navAccountMenu: "navigation.accountMenu",
+  navApp: "navigation.app",
+  navArticles: "navigation.articles",
+  navBack: "navigation.back",
+  navBuyTuzis: "navigation.buyTuzis",
+  navBuyTuzisBalance: "navigation.buyTuzisBalance",
+  navGroupAccount: "navigation.groups.account",
+  navGroupExplore: "navigation.groups.explore",
+  navGroupMoney: "navigation.groups.money",
+  navLogin: "navigation.login",
+  navPrimary: "navigation.primary",
+  navSearchAction: "navigation.searchAction",
+  navSignOut: "navigation.signOut",
+} as const;
 
-export type MessageKey = (typeof MESSAGE_KEYS)[number];
+export type MessageKey = (typeof MESSAGE_KEYS)[keyof typeof MESSAGE_KEYS];
 
-export const DECLARED_MESSAGE_KEYS: ReadonlySet<string> = new Set(MESSAGE_KEYS);
+export const DECLARED_MESSAGE_KEYS: ReadonlySet<MessageKey> = new Set(
+  Object.values(MESSAGE_KEYS),
+);

@@ -1,50 +1,392 @@
-:root {
-  color-scheme: dark;
-  --surface: #09090b;
-  --ink: #fafafa;
-  --muted: #a1a1aa;
-  --accent: #a855f7;
+@import "./fonts.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --dialog-inline-translate: -50%;
+    /* Native mobile shells render edge-to-edge. Keep every inset derived from
+       the WebView's authoritative safe-area environment instead of device
+       guesses, with zero fallbacks for desktop browsers. */
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-right: env(safe-area-inset-right, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-area-left: env(safe-area-inset-left, 0px);
+    --safe-area-inline-start: var(--safe-area-left);
+    --safe-area-inline-end: var(--safe-area-right);
+    --top-bar-content-height: 3.5rem;
+    --mobile-tab-content-height: 3.5rem;
+    --reader-action-content-height: 4rem;
+    --mobile-tab-bar-height: calc(
+      var(--mobile-tab-content-height) + var(--safe-area-bottom)
+    );
+    --toast-edge-gap: 1rem;
+    --toast-horizontal-offset: calc(
+      var(--toast-edge-gap) +
+        max(var(--safe-area-left), var(--safe-area-right))
+    );
+    --toast-bottom-offset: calc(
+      var(--toast-edge-gap) + var(--safe-area-bottom)
+    );
+
+    --font-sans: "IBM Plex Sans Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    /* ZUULI is dark-only; there is no light theme. This block is the fallback
+       for a root element that somehow lacks `.dark`, so it is a slightly
+       softer graphite of the same palette rather than a second design.
+
+       The ground is true neutral graphite: surfaces separate by a hairline
+       border and a small lift in lightness, never by glow. Violet appears
+       only where the interface can be acted on — focus, primary action,
+       links — and never as decoration. */
+    --background: 0 0% 9%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 12%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 11%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 264 56% 66%;
+    --primary-foreground: 0 0% 8%;
+    /* Text-weight violet for hyperlinks inside rendered content
+       (articles/zpages/AI chat): lighter than --primary so link text clears
+       WCAG AA on both the page ground and card surfaces while staying in the
+       accent hue. */
+    --link: 264 58% 74%;
+    --secondary: 0 0% 17%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 64%;
+    --destructive: 0 65% 52%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 152 45% 62%;
+    --success-foreground: 0 0% 8%;
+    --warning: 40 80% 66%;
+    --warning-foreground: 0 0% 8%;
+    --info: 205 60% 66%;
+    --info-foreground: 0 0% 8%;
+    /* Zcash gold and the LIVE rose keep their established meanings. */
+    --zec: 42 90% 56%;
+    --zec-foreground: 36 63% 6%;
+    --tuzi: 264 56% 66%;
+    --tuzi-foreground: 0 0% 8%;
+    --live: 350 89% 60%;
+    --live-foreground: 0 0% 8%;
+    --border: 0 0% 19%;
+    --input: 0 0% 19%;
+    --ring: 264 56% 66%;
+    --radius: 0.75rem;
+  }
+
+  :root[dir="rtl"] {
+    --dialog-inline-translate: 50%;
+    --safe-area-inline-start: var(--safe-area-right);
+    --safe-area-inline-end: var(--safe-area-left);
+  }
+
+  /* index.html hardcodes class="dark", so this is the palette that actually
+     ships. Keep :root above in sync in kind, not in value. */
+  .dark {
+    --background: 0 0% 7%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 9%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 264 56% 66%;
+    --primary-foreground: 0 0% 8%;
+    --link: 264 58% 74%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 64%;
+    --destructive: 0 65% 52%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 152 45% 62%;
+    --success-foreground: 0 0% 8%;
+    --warning: 40 80% 66%;
+    --warning-foreground: 0 0% 8%;
+    --info: 205 60% 66%;
+    --info-foreground: 0 0% 8%;
+    --zec: 42 90% 56%;
+    --zec-foreground: 36 63% 6%;
+    --tuzi: 264 56% 66%;
+    --tuzi-foreground: 0 0% 8%;
+    --live: 350 89% 60%;
+    --live-foreground: 0 0% 8%;
+    --border: 0 0% 17%;
+    --input: 0 0% 17%;
+    --ring: 264 56% 66%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    margin: 0;
+    overscroll-behavior: none;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-sans);
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Headings tighten as they grow; Plex Sans sets wide by default and needs
+     the optical correction to read as display type rather than body text. */
+  h1,
+  h2,
+  h3 {
+    font-weight: 600;
+    letter-spacing: -0.018em;
+  }
+
+  /* Themed scrollbars */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+
+  /* Entrances, the live pulse, and every transition are conveniences, not
+     content. Anyone who has asked their OS to stop moving things gets the same
+     interface without the movement. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      animation-delay: 0ms !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
-* {
-  box-sizing: border-box;
-}
+@layer utilities {
+  /* One viewport-bound app frame; individual routes opt into exactly one
+     bounded content scroller below the persistent chrome. */
+  .app-viewport {
+    box-sizing: border-box;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+    padding-inline-start: var(--safe-area-inline-start);
+    padding-inline-end: var(--safe-area-inline-end);
+  }
 
-body {
-  margin: 0;
-  min-height: 100dvh;
-  background: var(--surface);
-  color: var(--ink);
-  font-family:
-    "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-}
+  .app-crash-frame {
+    height: 100vh;
+    height: 100dvh;
+  }
 
-.app-shell {
-  margin: 0 auto;
-  max-width: 44rem;
-  padding: max(2rem, env(safe-area-inset-top)) 1.5rem 2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
+  .app-top-bar {
+    box-sizing: border-box;
+    height: calc(var(--top-bar-content-height) + var(--safe-area-top));
+    min-height: calc(var(--top-bar-content-height) + var(--safe-area-top));
+    padding-top: var(--safe-area-top);
+  }
 
-.app-shell__eyebrow {
-  margin: 0;
-  color: var(--accent);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
+  .app-sidebar {
+    padding-top: var(--safe-area-top);
+    padding-bottom: var(--safe-area-bottom);
+  }
 
-.app-shell__heading {
-  margin: 0;
-  font-size: clamp(1.5rem, 4vw, 2.25rem);
-  line-height: 1.2;
-}
+  .app-bottom-nav {
+    box-sizing: border-box;
+    height: var(--mobile-tab-bar-height);
+    padding-inline-end: var(--safe-area-inline-end);
+    padding-bottom: var(--safe-area-bottom);
+    padding-inline-start: var(--safe-area-inline-start);
+  }
 
-.app-shell__body,
-.app-shell__tagline {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.6;
+  /* Sonner renders outside the app frame, so it cannot inherit that frame's
+     inset padding. On mobile, clear the complete fixed tab bar (which already
+     includes the native bottom inset); elsewhere clear only the native edge.
+     The shared horizontal maximum keeps Sonner's symmetric mobile width inside
+     asymmetric landscape/notch insets without counting either inset twice. */
+  @media (max-width: 767px) {
+    :root {
+      --toast-bottom-offset: calc(
+        var(--toast-edge-gap) + var(--mobile-tab-bar-height)
+      );
+    }
+  }
+
+  .app-mobile-more-dialog {
+    max-height: min(80vh, 32rem);
+    max-height: min(80dvh, 32rem);
+    padding-inline-end: calc(1rem + var(--safe-area-inline-end));
+    padding-bottom: calc(1rem + var(--safe-area-bottom));
+    padding-inline-start: calc(1rem + var(--safe-area-inline-start));
+  }
+
+  .app-mobile-more-close {
+    inset-inline-end: calc(0.5rem + var(--safe-area-inline-end));
+  }
+
+  .app-scroll-content {
+    padding-bottom: calc(var(--mobile-tab-bar-height) + 1.5rem);
+  }
+
+  /* Creator profiles live beside a persistent 15rem sidebar on desktop. Their
+     usable width can therefore be much narrower than the browser window (for
+     example, 560px in an 800px window). Keep profile breakpoints tied to the
+     route content itself so window-level media queries cannot force the
+     identity and actions into a row that does not fit. */
+  .creator-profile {
+    container-name: creator-profile;
+    container-type: inline-size;
+  }
+
+  @container creator-profile (min-width: 24rem) {
+    .creator-pages-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @container creator-profile (min-width: 36rem) {
+    .creator-profile-inset,
+    .creator-profile-header {
+      padding-inline: 1rem;
+    }
+  }
+
+  @container creator-profile (min-width: 40rem) {
+    .creator-profile-banner {
+      height: 14rem;
+    }
+
+    .creator-profile-name {
+      font-size: 1.875rem;
+      line-height: 2.25rem;
+    }
+  }
+
+  @container creator-profile (min-width: 42rem) {
+    .creator-pages-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  /* The widest mock header needs 676px before its profile inset. Waiting for
+     720px leaves that content 688px and prevents a one-pixel breakpoint from
+     recreating horizontal scroll at neighboring tablet widths. */
+  @container creator-profile (min-width: 45rem) {
+    .creator-profile-header {
+      flex-direction: row;
+      align-items: flex-end;
+      justify-content: space-between;
+    }
+  }
+
+  .app-full-bleed-inset {
+    padding-bottom: var(--mobile-tab-bar-height);
+  }
+
+  .app-auth-content {
+    padding-bottom: 0;
+  }
+
+  /* End padding on an overflowing flex scroller is not consistently included
+     in its scroll range. Put the mobile-nav clearance on the content stack so
+     the final seed-backup action can always scroll fully above the fixed bar. */
+  .app-auth-stack {
+    padding-bottom: calc(var(--mobile-tab-bar-height) + 1.25rem);
+  }
+
+  .app-reader-content {
+    padding-bottom: calc(var(--reader-action-content-height) + 1.5rem);
+  }
+
+  .app-reader-actions {
+    bottom: var(--mobile-tab-bar-height);
+    padding-inline-end: var(--safe-area-inline-end);
+    padding-inline-start: var(--safe-area-inline-start);
+  }
+
+  @media (min-width: 768px) {
+    .app-scroll-content,
+    .app-auth-stack {
+      padding-bottom: max(2.5rem, var(--safe-area-bottom));
+    }
+
+    .app-full-bleed-inset {
+      padding-bottom: var(--safe-area-bottom);
+    }
+
+    .app-reader-actions {
+      bottom: var(--safe-area-bottom);
+    }
+  }
+
+  /*
+   * The signature: amounts are the instrument readout.
+   *
+   * Money and quantities are set in Plex Mono with fixed-width figures and
+   * tightened tracking, so digits sit on a stable grid and a balance updating
+   * in place never reflows the line around it.
+   */
+  .numeral {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    letter-spacing: -0.03em;
+  }
+
+  /* Numeric readouts remain one LTR isolate inside surrounding RTL prose.
+     The prevention policy requires this marker beside every non-chat
+     tabular-nums/numeral use, including editable amount fields. */
+  .bidi-number {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+
+  /*
+   * Opaque identifiers — addresses, txids, seed words. Same face as amounts,
+   * but with the slashed zero on, because here a 0 really can be misread as an
+   * O and the value is transcribed by hand.
+   */
+  .mono-id {
+    font-family: var(--font-mono);
+    font-feature-settings: "zero" 1;
+  }
+
+  /*
+   * The one micro-label style. Every uppercase eyebrow in the app uses this
+   * and nothing else, so section labels stop drifting between 9px, 10px and
+   * 11px at three different tracking values. 12px is the floor for any text
+   * that is meant to be read.
+   */
+  .eyebrow {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
 }

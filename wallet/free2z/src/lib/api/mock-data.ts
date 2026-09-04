@@ -1,0 +1,1163 @@
+// Realistic fixtures so ZUULI is fully explorable — and screenshots look
+// premium — with no backend and no synced node. Served by the api layer
+// whenever useMock() is true (plain browser / VITE_MOCK=1).
+
+import type {
+  AIModel,
+  Article,
+  ArticleFeedPage,
+  ArticleFeedParams,
+  AuthUser,
+  Comment,
+  CommentInput,
+  CommentVote,
+  CreatorDetail,
+  KycIdentityDocuments,
+  KycProfile,
+  Livestream,
+  Personality,
+  PersonalityInput,
+  PromptResponse,
+  SimpleCreator,
+  SubscribeResult,
+  Subscription,
+  TuziTransaction,
+} from "./types";
+
+// Mutated in place (via `Object.assign`, never reassigned — an ES module
+// import binding can't be reassigned from outside) so a saved profile edit
+// (`profile.update`) persists across the mock session and reflects in `auth.me()`.
+export const mockUser: AuthUser = {
+  id: 1,
+  username: "demo-creator",
+  email: "demo.creator@example.com",
+  free2zaddr: "demo-creator",
+  display_name: "Demo Creator",
+  image: null,
+  banner: null,
+  bio: "Building on Zcash. Shielded by default.",
+  p2paddr: "",
+  member_price: null,
+  can_stream: false,
+  is_verified: false,
+  tuzis: 4210,
+  zcashLinked: true,
+  // Starts UNLINKED so the profile's "Linked identities" panel is demoable
+  // end-to-end in mock mode: "Link Zcash key" flips this to the signed
+  // address (see `mockAssociateZcash`).
+  zcash_identity: null,
+};
+
+/**
+ * Mock `auth.zcashAssociate()` — links `address` to the mock account, mirroring
+ * the real backend's dual-mode `/api/auth/zcash/login/` (authenticated call =
+ * associate). Mutates `mockUser` in place (never reassigned) so the linked
+ * state persists across the mock session, same pattern as `profile.update`.
+ *
+ * Throws the same friendly conflict message the real 409 path throws
+ * (`auth.zcashAssociate`) if this account is already linked to a DIFFERENT
+ * address — so re-running the flow against a fresh key demoes the conflict
+ * state instead of always silently succeeding.
+ */
+export function mockAssociateZcash(address: string): AuthUser {
+  if (mockUser.zcash_identity && mockUser.zcash_identity !== address) {
+    throw new Error(
+      "That Zcash key is already linked — either to a different free2z account, or this account already has a linked Zcash identity. Unlink it there first, or sign with a different key.",
+    );
+  }
+  Object.assign(mockUser, { zcash_identity: address, zcashLinked: true });
+  return { ...mockUser };
+}
+
+const creator = (
+  username: string,
+  display_name: string,
+  bio: string,
+  extra: Partial<SimpleCreator> = {},
+): SimpleCreator => ({
+  username,
+  free2zaddr: username,
+  display_name,
+  bio,
+  image: null,
+  is_verified: false,
+  ...extra,
+});
+
+export const mockCreators: SimpleCreator[] = [
+  creator(
+    "zooko",
+    "Zooko",
+    "---\nsocials:\n  twitter: zooko\n  github: zooko\n  website: electriccoin.co\n---\n\nFounder-ish energy, shielded by default — writing at unreasonable length about note commitments, viewing keys, and why financial privacy is a public good rather than a premium feature.",
+    {
+      is_verified: true,
+      zpages: 12,
+      member_price: 500,
+      // Live now (subscriber stream, see mockLivestreams) — demos is_live:true.
+      is_live: true,
+    },
+  ),
+  creator(
+    "mining_maya",
+    "Maya Andonovska-Rasmussen ⛏️",
+    "Halo2 circuits, late-night proofs, and unreasonably long commit messages about constraint systems.",
+    {
+      is_verified: true,
+      zpages: 7,
+      member_price: 250,
+      is_live: true, // PPV stream live now.
+    },
+  ),
+  creator("f2z", "Free2Z", "The zero-knowledge creator platform, metered end to end in 2Zs.", {
+    is_verified: true,
+    zpages: 24,
+    member_price: null,
+    is_live: false, // Offline — demos is_live:false (button hidden).
+  }),
+  creator(
+    "nine",
+    "Nine Anonymous-Broadcaster",
+    "Privacy maximalist. Streams from the void, on a schedule known only to the void.",
+    {
+      zpages: 5,
+      member_price: 100,
+      is_live: true, // Broadcast live now.
+    },
+  ),
+  creator(
+    "halo_hana",
+    "Hana Recursive-Proofs Nakamura",
+    "Recursive proofs & zk-SNARK explainers, from the polynomial up.",
+    { zpages: 9, member_price: 300 },
+  ),
+  creator(
+    "shielded_sam",
+    "Antidisestablishmentarianismsam",
+    "On-chain privacy, off-chain vibes.",
+    { zpages: 3, member_price: null },
+  ),
+];
+
+export const mockModels: AIModel[] = [
+  // ─── Anthropic ──────────────────────────────────────────────────────────
+  {
+    id: "m-anthropic-opus-4-8",
+    model: "claude-opus-4-8",
+    display_name: "Claude Opus 4.8",
+    system_message: "You are a helpful, privacy-respecting assistant.",
+    max_tokens: 8192,
+    is_ga: true,
+    order: 1,
+    input_price: "0.000003",
+    output_price: "0.000015",
+    markup: "1.15",
+    provider: "anthropic",
+  },
+  {
+    id: "m-anthropic-sonnet-5",
+    model: "claude-sonnet-5",
+    display_name: "Claude Sonnet 5",
+    system_message: "You are a helpful, privacy-respecting assistant.",
+    max_tokens: 8192,
+    is_ga: true,
+    order: 2,
+    input_price: "0.0000012",
+    output_price: "0.000006",
+    markup: "1.15",
+    provider: "anthropic",
+  },
+  {
+    id: "m-anthropic-haiku-4-5",
+    model: "claude-haiku-4-5",
+    display_name: "Claude Haiku 4.5",
+    system_message: "You are a fast, helpful, privacy-respecting assistant.",
+    max_tokens: 8192,
+    is_ga: true,
+    order: 3,
+    input_price: "0.0000003",
+    output_price: "0.0000015",
+    markup: "1.15",
+    provider: "anthropic",
+  },
+
+  // ─── OpenAI ─────────────────────────────────────────────────────────────
+  {
+    id: "m-openai-5-6-sol",
+    model: "gpt-5.6-sol",
+    display_name: "GPT-5.6 Sol",
+    system_message: "You are a helpful assistant.",
+    max_tokens: 8192,
+    is_ga: true,
+    order: 4,
+    input_price: "0.0000035",
+    output_price: "0.000014",
+    markup: "1.15",
+    provider: "openai",
+  },
+  {
+    id: "m-openai-5-6-terra",
+    model: "gpt-5.6-terra",
+    display_name: "GPT-5.6 Terra",
+    system_message: "You are a helpful assistant.",
+    max_tokens: 8192,
+    is_ga: true,
+    order: 5,
+    input_price: "0.0000012",
+    output_price: "0.0000048",
+    markup: "1.15",
+    provider: "openai",
+  },
+  {
+    id: "m-openai-5-6-luna",
+    model: "gpt-5.6-luna",
+    display_name: "GPT-5.6 Luna",
+    system_message: "You are a fast, lightweight helpful assistant.",
+    max_tokens: 4096,
+    is_ga: true,
+    order: 6,
+    input_price: "0.0000003",
+    output_price: "0.0000012",
+    markup: "1.15",
+    provider: "openai",
+  },
+  {
+    id: "m-openai-4o",
+    model: "gpt-4o",
+    display_name: "GPT-4o",
+    system_message: "You are a helpful assistant.",
+    max_tokens: 4096,
+    is_ga: true,
+    // Highest `order` of the catalog, mirroring stage (gpt-4o = 200 there):
+    // it's the one GA model with a verified id + API key, so it must win
+    // the default-model pick (see features/ai/index.tsx).
+    order: 200,
+    input_price: "0.0000025",
+    output_price: "0.00001",
+    markup: "1.15",
+    provider: "openai",
+  },
+
+  // ─── xAI ────────────────────────────────────────────────────────────────
+  {
+    id: "m-xai-grok-4-5",
+    model: "grok-4.5",
+    display_name: "Grok 4.5",
+    system_message: "You are Grok.",
+    max_tokens: 8192,
+    is_ga: true,
+    order: 8,
+    input_price: "0.000003",
+    output_price: "0.000015",
+    markup: "1.2",
+    provider: "xai",
+  },
+  {
+    id: "m-xai-grok-4-3",
+    model: "grok-4.3",
+    display_name: "Grok 4.3",
+    system_message: "You are Grok.",
+    max_tokens: 4096,
+    is_ga: true,
+    order: 9,
+    input_price: "0.000002",
+    output_price: "0.00001",
+    markup: "1.2",
+    provider: "xai",
+  },
+
+  // ─── Kimi (Moonshot AI) ─────────────────────────────────────────────────
+  {
+    id: "m-kimi-k3",
+    model: "kimi-k3",
+    display_name: "Kimi K3",
+    system_message: "You are Kimi.",
+    max_tokens: 8192,
+    is_ga: true,
+    order: 10,
+    input_price: "0.0000008",
+    output_price: "0.000003",
+    markup: "1.2",
+    provider: "kimi",
+  },
+  {
+    id: "m-kimi-k2-6",
+    model: "kimi-k2.6",
+    display_name: "Kimi K2.6",
+    system_message: "You are Kimi.",
+    max_tokens: 8192,
+    is_ga: true,
+    order: 11,
+    input_price: "0.0000006",
+    output_price: "0.0000025",
+    markup: "1.2",
+    provider: "kimi",
+  },
+
+  // ─── On our hardware ────────────────────────────────────────────────────
+  {
+    id: "m-local-llama",
+    model: "llama-3.3-70b",
+    display_name: "Llama 3.3 70B Instruct — running on our own hardware",
+    system_message: "You are a private, open-source assistant.",
+    max_tokens: 8192,
+    is_ga: true,
+    order: 12,
+    input_price: "0.0000004",
+    output_price: "0.0000008",
+    markup: "1.1",
+    provider: "local",
+  },
+];
+
+// Mutated in place by the CRUD helpers below so create/edit/delete persist
+// across the mock session, mirroring how `mockUser` is updated by `Object.assign`.
+export const mockPersonalities: Personality[] = [
+  {
+    id: "pers-default-helpful",
+    display_name: "Default assistant",
+    system_message: "You are a helpful, privacy-respecting assistant.",
+    is_public: true,
+    creator: null,
+  },
+  {
+    id: "pers-zk-tutor",
+    display_name: "ZK Tutor",
+    system_message:
+      "You are a patient cryptography tutor who explains zero-knowledge proofs, " +
+      "Zcash shielded transactions and Halo2 circuits with concrete analogies " +
+      "before diving into the math. Keep answers concise unless asked to go deeper.",
+    is_public: true,
+    creator: null,
+  },
+  {
+    id: "pers-first-mate",
+    display_name: "Salty First Mate of the Privacy-Loving Pirate Ship",
+    system_message:
+      "You are a gruff but good-hearted ship's first mate. Answer every " +
+      "question helpfully and accurately, but narrate it like you're on the " +
+      "deck of a privacy-loving pirate ship. Light on the nautical slang — " +
+      "don't overdo it.",
+    is_public: false,
+    creator: mockUser.username,
+  },
+];
+
+let mockPersonalityIdCounter = 0;
+
+export function mockCreatePersonality(input: PersonalityInput): Personality {
+  const personality: Personality = {
+    id: `pers-mock-${Date.now()}-${mockPersonalityIdCounter++}`,
+    display_name: input.display_name,
+    system_message: input.system_message,
+    is_public: input.is_public,
+    creator: mockUser.username,
+  };
+  mockPersonalities.push(personality);
+  return personality;
+}
+
+export function mockUpdatePersonality(
+  id: string,
+  input: Partial<PersonalityInput>,
+): Personality {
+  const existing = mockPersonalities.find((p) => p.id === id);
+  if (!existing) throw new Error("Personality not found");
+  Object.assign(existing, input);
+  return existing;
+}
+
+export function mockDeletePersonality(id: string): void {
+  const idx = mockPersonalities.findIndex((p) => p.id === id);
+  if (idx !== -1) mockPersonalities.splice(idx, 1);
+}
+
+export const mockLivestreams: Livestream[] = [
+  {
+    id: "ls-1",
+    username: "nine",
+    creator: mockCreators[3],
+    title:
+      "Shielded & Chill — building a Zcash light client live, from block scan to spendable note",
+    kind: "broadcast",
+    live: true,
+    participants: 214,
+    price_tuzis: 0,
+    thumbnail: null,
+    started_at: new Date(Date.now() - 42 * 60000).toISOString(),
+    category: "Technology",
+  },
+  {
+    id: "ls-2",
+    username: "mining_maya",
+    creator: mockCreators[1],
+    title:
+      "PPV: Deep dive — writing a Halo2 circuit from scratch without copying anybody's gadgets",
+    kind: "ppv",
+    live: true,
+    // Count hydration can be unavailable independently of live status.
+    participants: null,
+    price_tuzis: 250,
+    thumbnail: null,
+    started_at: new Date(Date.now() - 12 * 60000).toISOString(),
+    category: "Education",
+  },
+  {
+    id: "ls-3",
+    username: "zooko",
+    creator: mockCreators[0],
+    title:
+      "Subscribers only: the next twelve months of Zcash, protocol upgrades and all",
+    kind: "subscriber",
+    live: true,
+    participants: 91,
+    price_tuzis: 0,
+    thumbnail: null,
+    started_at: new Date(Date.now() - 5 * 60000).toISOString(),
+    category: "Zcash",
+  },
+  {
+    id: "ls-4",
+    username: "f2z",
+    creator: mockCreators[2],
+    title:
+      "Community town hall — roadmap Q&A, governance funding, and the incomprehensiblylongagendaitem",
+    kind: "broadcast",
+    live: false,
+    participants: 0,
+    price_tuzis: 0,
+    thumbnail: null,
+    category: "Community",
+  },
+];
+
+const featuredArticles: Article[] = [
+  {
+    id: 1,
+    slug: "why-shielded-by-default",
+    free2zaddr: "zooko",
+    title: "Why Shielded-by-Default Matters",
+    subtitle:
+      "Privacy is a public good, not a premium feature — and defaults are the only policy most people ever experience.",
+    content:
+      "# Why Shielded-by-Default Matters\n\nFinancial privacy isn't about hiding — it's about **choosing** who sees what. When every transaction is public by default, surveillance becomes the path of least resistance...\n\n## The asymmetry problem\n\nTransparency for the powerful, privacy for everyone else. Zcash inverts that.\n\n> The right to be let alone is the most comprehensive of rights.\n\nShielded pools make privacy the default, and the default is what most people get.",
+    image: null,
+    category: "Zcash",
+    author: mockCreators[0],
+    votes: 128,
+    published_at: new Date(Date.now() - 2 * 86400000).toISOString(),
+    reading_minutes: 6,
+    tags: ["zcash", "privacy", "shielded"],
+  },
+  {
+    id: 2,
+    slug: "2z-micrometering-ai",
+    free2zaddr: "f2z",
+    title: "Micrometering AI with 2Zs, one cent-denominated token at a time",
+    subtitle:
+      "Pay for exactly the tokens you use, anonymously, with no account, no card, and no minimum top-up.",
+    content:
+      "# Micrometering AI with 2Zs\n\nEvery prompt has a real cost. Instead of a monthly subscription, ZUULI charges you the *actual* cost plus a thin margin, rounded up to the nearest 2Z...\n\nBecause you pay through the free2z API, the upstream provider never sees **you** — only us.",
+    image: null,
+    category: "Technology",
+    author: mockCreators[2],
+    votes: 74,
+    published_at: new Date(Date.now() - 1 * 86400000).toISOString(),
+    reading_minutes: 4,
+    tags: ["ai", "2z", "privacy"],
+  },
+  {
+    id: 3,
+    slug: "login-with-zcash",
+    free2zaddr: "nine",
+    title:
+      "Login With Zcash: no password, no KYC, no recoverable identity to leak",
+    subtitle:
+      "Your key is your identity — which means nobody, including us, can hand it to anyone else.",
+    content:
+      "# Login With Zcash\n\nSign a challenge with your wallet and you're in. No email, no third party, no password to leak. Your Zcash address becomes a W3C DID; a ZIP-304 signature proves you hold the key.",
+    image: null,
+    category: "Zcash",
+    author: mockCreators[3],
+    votes: 203,
+    published_at: new Date(Date.now() - 6 * 3600000).toISOString(),
+    reading_minutes: 5,
+    tags: ["zcash", "identity", "auth"],
+  },
+  {
+    // Reserved fixture for the remote-media privacy contract. The `.test`
+    // destinations are intercepted only by Playwright; keeping this article
+    // old prevents it from displacing normal mock content in the feed.
+    id: 4,
+    slug: "remote-media-consent-audit",
+    free2zaddr: "remote-media-consent-audit",
+    title: "Remote Media Consent Audit",
+    subtitle:
+      "Deterministic privacy fixtures for article media, including the unbrokenidentifiertokenthatcannotwrap case.",
+    content: [
+      "# Remote Media Consent Audit",
+      "",
+      "![Inline tracker](https://inline.media.test/pixel.png)",
+      "",
+      "![Protocol-relative tracker](//protocol.media.test/pixel.png)",
+      "",
+      "![Encoded tracker](https://%65ncoded.media.test/%70ixel.png)",
+      "",
+      "![Canonical first-party](https://free2z.cash/uploadz/canonical.svg)",
+      "",
+      "![Subdomain first-party](https://media.free2z.cash/uploadz/subdomain.svg)",
+      "",
+      "![Unsafe first-party redirect](https://free2z.cash/uploadz/redirect-out)",
+      "",
+      "![First-party lookalike](https://free2z.cash.evil.example/pixel.svg)",
+      "",
+      "::embed[https://video.media.test/clip.webm]",
+      "",
+      "::embed[https://audio.media.test/clip.ogg]",
+      "",
+      "::embed[https://youtu.be/PrivacyAudit01]",
+      "",
+      "::embed[https://vimeo.com/123456789]",
+    ].join("\n"),
+    image: "https://cover.media.test/redirect",
+    category: "Privacy",
+    author: mockCreators[0],
+    votes: 0,
+    published_at: "2020-01-01T00:00:00.000Z",
+    reading_minutes: 1,
+    tags: ["privacy", "test"],
+  },
+];
+
+// A broader synthetic corpus so mock mode can demo infinite scroll, tag
+// filtering and search over more than a single page.
+const GEN_CATEGORIES = [
+  "Zcash",
+  "Technology",
+  "Education",
+  "Community",
+  "Privacy",
+  "Research",
+];
+const GEN_TAG_POOL = [
+  "zcash",
+  "privacy",
+  "ai",
+  "halo2",
+  "mining",
+  "wallet",
+  "zk",
+  "governance",
+  "tutorial",
+  "opinion",
+  "research",
+  "lightning",
+  "nym",
+  "defi",
+];
+// Deliberately long. Issue #382: the upstream Playwright suite passed while
+// production overflowed by 415px, because its fixture titles were 21
+// characters. Combined, these halves produce 60–90 character titles, and one
+// half carries an unbroken token with nowhere to wrap.
+const GEN_TITLE_A = [
+  "Building, benchmarking and shipping",
+  "Understanding the moving parts behind",
+  "A field guide, for the impatient, to",
+  "Notes from six months of production",
+  "Rethinking every assumption we had about",
+  "The unreasonably detailed case for",
+  "Deep dive, no hand-waving, into",
+  "Practical, boring, dependable",
+  "Inside the implementation of",
+  "The uncomfortably near future of",
+];
+const GEN_TITLE_B = [
+  "Halo2 circuits and their constraint systems",
+  "shielded pools and the anonymity they buy",
+  "note commitments, nullifiers and witnesses",
+  "the 2Z economy and its cent-denominated unit",
+  "viewing keys and selective disclosure",
+  "trusted setup and why we no longer need one",
+  "light clients on genuinely bad networks",
+  "unifiedaddressesandtheirreceivertypologies",
+  "zero-knowledge proofs for ordinary payments",
+  "private payments at ordinary-person scale",
+  "Wallet Sync",
+  "Recursive SNARKs",
+];
+
+function genArticles(n: number): Article[] {
+  const out: Article[] = [];
+  for (let i = 0; i < n; i++) {
+    const c = mockCreators[i % mockCreators.length];
+    const cat = GEN_CATEGORIES[i % GEN_CATEGORIES.length];
+    const t1 = GEN_TAG_POOL[i % GEN_TAG_POOL.length];
+    const t2 = GEN_TAG_POOL[(i * 5 + 3) % GEN_TAG_POOL.length];
+    const title = `${GEN_TITLE_A[i % GEN_TITLE_A.length]} ${
+      GEN_TITLE_B[(i * 3) % GEN_TITLE_B.length]
+    }`;
+    const daysAgo = (i + 1) * 0.9; // strictly increasing → deterministic recency order
+    out.push({
+      id: 100 + i,
+      slug: `mock-article-${100 + i}`,
+      free2zaddr: c.username,
+      title,
+      subtitle:
+        "A worked example from the Zcash community, written for ZUULI's mock corpus at the length real articles actually run to.",
+      content: `# ${title}\n\nThis is placeholder long-form content for the mock feed so ZUULI is fully explorable offline. It covers ${t1} and ${t2} in enough depth to demo the reader.`,
+      image: null,
+      category: cat,
+      author: c,
+      votes: (i * 37 + 11) % 320,
+      published_at: new Date(Date.now() - daysAgo * 86400000).toISOString(),
+      reading_minutes: 3 + (i % 8),
+      tags: Array.from(new Set([cat.toLowerCase(), t1, t2])),
+    });
+  }
+  return out;
+}
+
+// Keep at least one creator above the production-shaped 12-row catalog page so
+// the creator screen's pagination path is exercised in local/demo mode.
+export const mockArticles: Article[] = [...featuredArticles, ...genArticles(63)];
+
+function articleTime(a: Article): number {
+  const t = a.published_at ? new Date(a.published_at).getTime() : 0;
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/**
+ * Mock counterpart to `articles.feed` — applies tag AND-filter, a naive
+ * substring "search", the requested ranking and PageNumber pagination over the
+ * fixtures, so infinite scroll / filters / search all work with no backend.
+ */
+export function mockArticleFeed(
+  params: Required<Pick<ArticleFeedParams, "page" | "pageSize" | "sort">> &
+    Pick<ArticleFeedParams, "tags" | "search" | "category">,
+): ArticleFeedPage {
+  const { page, pageSize, sort } = params;
+  let list = [...mockArticles];
+
+  if (params.category) {
+    list = list.filter((a) => a.category === params.category);
+  }
+  if (params.tags?.length) {
+    const want = params.tags.map((t) => t.toLowerCase());
+    list = list.filter((a) => {
+      const have = (a.tags ?? []).map((t) => t.toLowerCase());
+      return want.every((t) => have.includes(t)); // AND
+    });
+  }
+  if (params.search) {
+    const q = params.search.toLowerCase();
+    list = list.filter((a) =>
+      [a.title, a.subtitle ?? "", a.content, (a.tags ?? []).join(" ")]
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    );
+  }
+
+  // Ranking. `search` results arrive already relevance-ordered from the real
+  // backend, so mock leaves the filtered order alone in that case.
+  if (!params.search) {
+    if (sort === "updated" || sort === "popular") {
+      // Newest first; `popular` is recency-decayed and reads as fresh here.
+      list.sort((a, b) => articleTime(b) - articleTime(a));
+    } else if (sort === "score") {
+      list.sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0));
+    } else if (sort === "random") {
+      list.sort((a, b) => (hashString(a.slug ?? "") % 97) - (hashString(b.slug ?? "") % 97));
+    }
+  }
+
+  const count = list.length;
+  const start = (page - 1) * pageSize;
+  const items = list.slice(start, start + pageSize);
+  const next = start + pageSize < count ? page + 1 : null;
+  return { items, next, count };
+}
+
+export const mockTransactions: TuziTransaction[] = [
+  {
+    id: 1,
+    amount: 2000,
+    tuzis_credited: 2000,
+    timestamp: new Date(Date.now() - 3 * 86400000).toISOString(),
+    kind: "buy",
+  },
+  {
+    id: 2,
+    amount: 4,
+    tuzis_credited: -4,
+    timestamp: new Date(Date.now() - 2 * 3600000).toISOString(),
+    kind: "ai",
+    counterparty: "Claude Opus 4.8",
+  },
+  {
+    id: 3,
+    amount: 250,
+    tuzis_credited: -250,
+    timestamp: new Date(Date.now() - 60 * 60000).toISOString(),
+    kind: "ppv",
+    counterparty: "mining_maya",
+  },
+  {
+    id: 4,
+    amount: 500,
+    tuzis_credited: -500,
+    timestamp: new Date(Date.now() - 30 * 60000).toISOString(),
+    kind: "donate",
+    counterparty: "zooko",
+  },
+  {
+    id: 5,
+    amount: 12,
+    tuzis_credited: -12,
+    timestamp: new Date(Date.now() - 15 * 60000).toISOString(),
+    kind: "ai",
+    counterparty: "Llama 3.3 70B Instruct — running on our own hardware",
+  },
+];
+
+/** The mock signed-in user as a `SimpleCreator` (the `fan` side of a `Subscription`). */
+function mockFan(): SimpleCreator {
+  return {
+    username: mockUser.username,
+    free2zaddr: mockUser.free2zaddr ?? mockUser.username,
+    display_name: mockUser.display_name,
+    image: mockUser.image,
+  };
+}
+
+/**
+ * The mock signed-in user's active memberships — mirrors GET
+ * /api/tuzis/my-subscriptions (`fan=request.user`, `expires__gt=now`).
+ * Mutated in place (via `push`/field writes, never reassigned) by
+ * `mockSubscribe`/`mockUnsubscribe`, same pattern as `mockUser` above, so a
+ * subscribe in one screen is reflected everywhere that refetches this list.
+ *
+ * Seeded with one already-active membership (mining_maya) so BOTH the
+ * "Member" and "Subscribe" states are demoable without doing anything first.
+ */
+export const mockSubscriptions: Subscription[] = [
+  {
+    fan: mockFan(),
+    star: mockCreators[1], // mining_maya, member_price 250
+    expires: new Date(Date.now() + 18 * 86400000).toISOString(),
+    max_price: String(mockCreators[1].member_price ?? 0),
+  },
+];
+
+/**
+ * Mock `tuzi.subscribe(username)`. Mirrors `CreatorSubscribeView.post`:
+ * get-or-create a `Subscription` for (star, fan) and extend it 30 days from
+ * now, at the creator's current `member_price`.
+ */
+const mockSubscriptionAttempts = new Map<
+  string,
+  { username: string; expectedPrice: number; result: SubscribeResult }
+>();
+
+export function mockSubscribe(
+  username: string,
+  idempotencyKey: string,
+  expectedPrice: number,
+): SubscribeResult {
+  const replay = mockSubscriptionAttempts.get(idempotencyKey);
+  if (replay) {
+    if (
+      replay.username !== username.toLowerCase() ||
+      replay.expectedPrice !== expectedPrice
+    ) {
+      throw new Error("This idempotency key was used for different terms.");
+    }
+    return { ...replay.result, replayed: true };
+  }
+
+  const star: SimpleCreator =
+    mockCreators.find((c) => c.username.toLowerCase() === username.toLowerCase()) ??
+    { username, free2zaddr: username, display_name: username };
+  const price = star.member_price ?? 0;
+  if (price <= 0) throw new Error("Creator did not set member price");
+  if (price !== expectedPrice) throw new Error("Membership price changed");
+  if (mockUser.tuzis < price) throw new Error("Insufficient funds");
+
+  const now = Date.now();
+  const thirtyDays = 30 * 86400000;
+  const maxPrice = String(price);
+
+  const existing = mockSubscriptions.find(
+    (s) => s.star.username.toLowerCase() === username.toLowerCase(),
+  );
+  let expires: string;
+  if (existing) {
+    const previousExpiry = Date.parse(existing.expires ?? "");
+    expires = new Date(
+      Math.max(
+        Number.isFinite(previousExpiry) ? previousExpiry + thirtyDays : 0,
+        now + thirtyDays,
+      ),
+    ).toISOString();
+    existing.expires = expires;
+    // Backend POST extends an existing row but does not silently re-enable a
+    // max_price that the fan previously set to zero.
+  } else {
+    expires = new Date(now + thirtyDays).toISOString();
+    const sub: Subscription = { fan: mockFan(), star, expires, max_price: maxPrice };
+    mockSubscriptions.push(sub);
+  }
+  const subscription =
+    existing ??
+    mockSubscriptions.find(
+      (candidate) =>
+        candidate.star.username.toLowerCase() === username.toLowerCase(),
+    )!;
+  mockUser.tuzis -= price;
+  const result: SubscribeResult = {
+    balance: String(mockUser.tuzis),
+    charged: true,
+    replayed: false,
+    expires,
+    subscription,
+  };
+  mockSubscriptionAttempts.set(idempotencyKey, {
+    username: username.toLowerCase(),
+    expectedPrice,
+    result,
+  });
+  return result;
+}
+
+/**
+ * Mock `tuzi.unsubscribe(username)`. Mirrors `CreatorSubscribeView.delete`:
+ * sets `max_price` to 0 so the membership won't renew. The row (and access)
+ * stays until `expires` — it does not disappear from `mySubscriptions`.
+ */
+export function mockUnsubscribe(username: string): void {
+  const existing = mockSubscriptions.find(
+    (s) => s.star.username.toLowerCase() === username.toLowerCase(),
+  );
+  if (existing) existing.max_price = "0";
+}
+
+export function mockAiReply(prompt: string, modelName: string): PromptResponse {
+  const response =
+    `*(${modelName}, via the free2z API — the provider never sees you)*\n\n` +
+    `You asked: "${prompt.slice(0, 140)}${prompt.length > 140 ? "…" : ""}"\n\n` +
+    `Here's a thoughtful answer. In the live app this streams from the model you picked, ` +
+    `and you're charged the exact upstream cost plus margin, rounded up to whole 2Zs.`;
+  return {
+    id: `pr-${Math.abs(hashString(prompt))}`,
+    prompt,
+    response,
+    model: modelName,
+    created_at: new Date().toISOString(),
+    input_tokens: Math.ceil(prompt.length / 4),
+    output_tokens: Math.ceil(response.length / 4),
+    tuzis_charged: 4,
+  };
+}
+
+/**
+ * Mock reply for the stateful conversation flow (`ai.conversations.sendMessage`).
+ * Unlike `mockAiReply`, this echoes the active personality's `system_message`
+ * back so it's obvious offline that the personality is what's priming the model.
+ */
+export function mockConversationReply(
+  prompt: string,
+  modelName: string,
+  personality: Personality | null,
+): PromptResponse {
+  const primer = personality
+    ? `*(${modelName}, primed as “${personality.display_name}”)*\n\n` +
+      `_System prompt: "${personality.system_message.slice(0, 160)}${
+        personality.system_message.length > 160 ? "…" : ""
+      }"_\n\n`
+    : `*(${modelName}, default persona — via the free2z API, the provider never sees you)*\n\n`;
+  const response =
+    primer +
+    `You asked: "${prompt.slice(0, 140)}${prompt.length > 140 ? "…" : ""}"\n\n` +
+    `Here's a reply in character. In the live app this streams from the model you ` +
+    `picked, with the personality's system message steering every turn of this ` +
+    `conversation, and you're charged the exact upstream cost plus margin, rounded ` +
+    `up to whole 2Zs.`;
+  return {
+    id: `pr-${Math.abs(hashString(prompt + (personality?.id ?? "")))}`,
+    prompt,
+    response,
+    model: modelName,
+    personality: personality?.display_name,
+    created_at: new Date().toISOString(),
+    input_tokens: Math.ceil(prompt.length / 4),
+    output_tokens: Math.ceil(response.length / 4),
+    tuzis_charged: 4,
+  };
+}
+
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h << 5) - h + s.charCodeAt(i);
+  return h;
+}
+
+// ─── Discovery / search fixtures ──────────────────────────────────────────────
+
+/** Case-insensitive creator search over username + display name (mock). */
+export function mockSearchCreators(query: string): SimpleCreator[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return mockCreators;
+  return mockCreators.filter(
+    (c) =>
+      c.username.toLowerCase().includes(q) ||
+      (c.display_name || "").toLowerCase().includes(q),
+  );
+}
+
+/** Case-insensitive page search over title/subtitle/body/author (mock). */
+export function mockSearchPages(query: string): Article[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return mockArticles;
+  return mockArticles.filter((a) =>
+    [a.title, a.subtitle, a.content, a.author.display_name, a.author.username]
+      .filter(Boolean)
+      .some((f) => (f as string).toLowerCase().includes(q)),
+  );
+}
+
+/** A full CreatorDetail for the native creator screen (mock). */
+export function mockCreatorDetail(username: string): CreatorDetail {
+  const base = mockCreators.find(
+    (c) => c.username.toLowerCase() === username.toLowerCase(),
+  );
+  const uname = base?.username ?? username;
+  const pages = mockArticles.filter(
+    (a) => a.author.username.toLowerCase() === uname.toLowerCase(),
+  ).length;
+  const seed = Math.abs(hashString(uname));
+  // Known mock creators report a concrete `is_live` (derived from
+  // mockLivestreams, the same source the live.status poll reads, so the payload
+  // gate and the poll agree). An UNKNOWN username returns `undefined` on
+  // purpose — it stands in for a backend that predates the field, so the
+  // creator screen's graceful fallback (probe live.status on mount) is demoable.
+  const isLive = base
+    ? mockLivestreams.some(
+        (l) => l.live && l.username.toLowerCase() === uname.toLowerCase(),
+      )
+    : undefined;
+  return {
+    username: uname,
+    free2zaddr: uname,
+    display_name: base?.display_name || uname,
+    is_live: isLive,
+    bio:
+      base?.bio ??
+      "A creator on ZUULI, publishing on Zcash and privacy. Follow along.",
+    image: base?.image ?? null,
+    banner: null,
+    is_verified: base?.is_verified ?? false,
+    can_stream: seed % 2 === 0,
+    member_price: base?.member_price ?? null,
+    // Preserve deliberate fixture drift: the creator payload is only a display
+    // hint, while the independently paginated catalog owns its exact count.
+    zpages: base?.zpages ?? pages,
+    total: (seed % 900) + 42,
+    p2paddr:
+      uname === "transparent_creator"
+        ? "t1mocktransparentcreatoraddressxxxxxxxx"
+        : uname === "transparent_unified_creator"
+          // Encoded by the native validator regression from a P2PKH receiver
+          // plus an unknown receiver: valid Unified Address, no memo receiver.
+          ? "u1nuyhyzu03pj30mmnehelkll26s0cxp8etqv2x29zfpjj6rfp4gdmm8wfas5hutkxprlerlv0d4yv87eqrh5nahdlaz2vj5tlxy676p7gzkpen6fy97vqk2kujr"
+        : uname === "testnet_creator"
+          ? "tmocktestnetcreatoraddressxxxxxxxxxxx"
+          : `u1mock${uname}zcashaddressplaceholderxxxxxxxxxxxxxxxxxxxxxxxx`,
+  };
+}
+
+// ── KYC / creator revenue-share application (mock) ──────────────────────────
+// Mirrors mockUser above: a plain object mutated in place (never reassigned)
+// so edits made while walking the KYC flow in mock mode persist for the rest
+// of the session, exactly like a real profile/status would.
+
+export const mockKycProfile: KycProfile = {
+  is_us: null,
+  is_individual: null,
+  application_status: "NEW",
+};
+
+/** Uploaded identity-document slots (`{ <doctype>_url }`), mock mode. */
+export const mockKycIdentityDocuments: KycIdentityDocuments = {};
+
+/** Uploaded tax-form file + e-signature, mock mode. */
+export const mockKycTaxForm: {
+  file_url: string | null;
+  tax_form_signature: string | null;
+} = {
+  file_url: null,
+  tax_form_signature: null,
+};
+
+// ── Comments (threaded, mock) ───────────────────────────────────────────────
+// A small in-memory thread store so the Reader's comments section is fully
+// demoable offline (VITE_MOCK=1): a couple of titled roots on the first
+// featured zpage, one with a nested reply chain, realistic 2Z weights. Mutated
+// in place (posts/votes persist for the session), mirroring the real backend.
+
+interface MockCommentPage {
+  items: Comment[];
+  next: number | null;
+  count: number;
+}
+
+/** content uuid (zpage free2zaddr) each comment lives on, by comment uuid. */
+const mockCommentContent = new Map<string, string>();
+/** Flat store of every mock comment (roots + replies). */
+const mockCommentStore: Comment[] = [];
+
+function mockAuthor(c: SimpleCreator): Comment["author"] {
+  return { username: c.username, avatar_image: c.image ?? null };
+}
+
+function seedComment(
+  contentUuid: string,
+  author: SimpleCreator,
+  parent: string | null,
+  headline: string,
+  content: string,
+  tuzis: number,
+  minutesAgo: number,
+): Comment {
+  const uuid = `mock-comment-${mockCommentStore.length + 1}`;
+  const ts = new Date(Date.now() - minutesAgo * 60000).toISOString();
+  const comment: Comment = {
+    uuid,
+    author: mockAuthor(author),
+    parent,
+    headline,
+    content,
+    tuzis,
+    created_at: ts,
+    updated_at: ts,
+    tags: [],
+    num_children: 0,
+    content_url: null,
+  };
+  mockCommentStore.push(comment);
+  mockCommentContent.set(uuid, contentUuid);
+  if (parent) {
+    const p = mockCommentStore.find((x) => x.uuid === parent);
+    if (p) p.num_children += 1;
+  }
+  return comment;
+}
+
+// Seed a lively thread on the first featured zpage ("zooko").
+(() => {
+  const content = featuredArticles[0].free2zaddr!;
+  const root1 = seedComment(
+    content,
+    mockCreators[3],
+    null,
+    "This reframed privacy for me",
+    "The **asymmetry** point is the whole game. Transparency for the powerful, privacy for everyone else — shielded-by-default finally flips it.",
+    42,
+    180,
+  );
+  const reply1 = seedComment(
+    content,
+    mockCreators[0],
+    root1.uuid,
+    "Exactly the intent",
+    "That inversion was the design goal from day one. The default is what most people actually get.",
+    18,
+    120,
+  );
+  seedComment(
+    content,
+    mockCreators[4],
+    reply1.uuid,
+    "And it compounds",
+    "Once the shielded pool is the norm, the anonymity set grows for *everyone* — privacy as a public good, literally.",
+    7,
+    64,
+  );
+  seedComment(
+    content,
+    mockCreators[1],
+    null,
+    "Small nit on the trusted setup",
+    "Great piece. Worth noting Halo2 drops the trusted setup entirely — might be worth a follow-up article.",
+    23,
+    45,
+  );
+
+  seedComment(
+    featuredArticles[3].free2zaddr!,
+    mockCreators[1],
+    null,
+    "Remote comment media audit",
+    "![Comment tracker](https://comment.media.test/pixel.png)\n\n::embed[https://comment-video.media.test/clip.webm]",
+    1,
+    5,
+  );
+})();
+
+export function mockComments(
+  contentUuid: string,
+  opts: { rootsOnly: boolean; page: number },
+): MockCommentPage {
+  const items = mockCommentStore
+    .filter(
+      (c) =>
+        mockCommentContent.get(c.uuid) === contentUuid &&
+        (opts.rootsOnly ? c.parent === null : true),
+    )
+    .sort((a, b) => b.tuzis - a.tuzis || b.created_at.localeCompare(a.created_at));
+  return { items, next: null, count: items.length };
+}
+
+export function mockCommentReplies(
+  parentUuid: string,
+  _opts: { page: number },
+): MockCommentPage {
+  const items = mockCommentStore
+    .filter((c) => c.parent === parentUuid)
+    .sort((a, b) => b.tuzis - a.tuzis || b.created_at.localeCompare(a.created_at));
+  return { items, next: null, count: items.length };
+}
+
+export function mockCommentCreate(
+  contentUuid: string,
+  body: CommentInput,
+): Comment {
+  return seedComment(
+    contentUuid,
+    mockUser as unknown as SimpleCreator,
+    null,
+    body.headline,
+    body.content,
+    body.tuzis,
+    0,
+  );
+}
+
+export function mockCommentReplyCreate(
+  parentUuid: string,
+  body: CommentInput,
+): Comment {
+  const content = mockCommentContent.get(parentUuid) ?? "";
+  return seedComment(
+    content,
+    mockUser as unknown as SimpleCreator,
+    parentUuid,
+    body.headline,
+    body.content,
+    body.tuzis,
+    0,
+  );
+}
+
+export function mockCommentVote(uuid: string, dir: CommentVote): void {
+  const c = mockCommentStore.find((x) => x.uuid === uuid);
+  if (c) c.tuzis = Math.max(0, c.tuzis + (dir === "up" ? 1 : -1));
+}

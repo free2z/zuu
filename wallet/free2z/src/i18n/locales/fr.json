@@ -1,10 +1,55 @@
 {
   "app": {
     "name": "free2z",
-    "tagline": "Articles, direct, IA et outils de créateur."
+    "tagline": "Les articles des créateurs"
   },
-  "placeholder": {
-    "heading": "free2z est en cours d'extraction de ZUULI",
-    "body": "Cette surface affiche du contenu distant : elle ne détient ni la graine Zcash ni les clés de messagerie. Les fonctionnalités arriveront plus tard."
+  "articles": {
+    "searchAccessible": "Rechercher des articles"
+  },
+  "auth": {
+    "zcashPending": {
+      "body": "La connexion avec Zcash signe un défi avec la clé de votre portefeuille : elle reste donc dans ZUULI jusqu'à l'arrivée du pont entre surfaces. Utilisez ici un mot de passe ou un compte lié.",
+      "title": "La connexion Zcash n'est pas encore sur cette surface"
+    }
+  },
+  "common": {
+    "loading": "Chargement",
+    "retry": "Réessayer",
+    "retrying": "Nouvelle tentative",
+    "tryAgain": "Réessayez."
+  },
+  "creator": {
+    "zecTipPending": {
+      "body": "Signer une transaction Zcash exige la clé, qui vit dans ZUULI. Ouvrez-y la page de {creator} pour envoyer des ZEC. Votre pourboire en 2Z fonctionne ici.",
+      "title": "Les pourboires en ZEC se signent dans ZUULI"
+    }
+  },
+  "error": {
+    "notFound": {
+      "back": "Retour aux articles",
+      "description": "Cette page n'existe pas ou a été déplacée. Reprenons le fil.",
+      "title": "Page introuvable"
+    }
+  },
+  "fund": {
+    "body": "L'achat de 2Zs reste dans ZUULI le temps de séparer sa recharge en Zcash du paiement par carte. Il arrive ensuite dans free2z.",
+    "title": "Ajouter des 2Zs"
+  },
+  "navigation": {
+    "accountMenu": "Menu du compte",
+    "app": "Navigation de l'application",
+    "articles": "Articles",
+    "back": "Retour",
+    "buyTuzis": "Acheter des 2Zs",
+    "buyTuzisBalance": "Acheter des 2Zs. Solde {balance}",
+    "groups": {
+      "account": "Compte",
+      "explore": "Explorer",
+      "money": "Argent"
+    },
+    "login": "Se connecter",
+    "primary": "Navigation principale",
+    "searchAction": "Rechercher",
+    "signOut": "Se déconnecter"
   }
 }
