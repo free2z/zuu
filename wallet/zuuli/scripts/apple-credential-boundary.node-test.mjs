@@ -11,8 +11,19 @@ import {
   androidBuildJobDigest,
   androidFinalizerJobDigest,
   credentialJobDigests,
+  githubReleasePublisherDigest,
+  githubReleasePublisherExecutableDigest,
+  releaseIndexVerifierDigest,
+  releaseIndexVerifierExecutableDigest,
+  releaseIndexJobDigest,
+  releaseIndexResultsAreComplete,
+  releaseTagVerifierDigest,
+  releaseTagVerifierExecutableDigest,
   releaseAuthorityDigests,
   verifyAppleCredentialBoundary,
+  verifyGithubReleasePublisher,
+  verifyReleaseIndexVerifier,
+  verifyReleaseTagVerifier,
 } from "./apple-credential-boundary.mjs";
 
 const profileValidityMarkers = `
@@ -226,15 +237,76 @@ ${finalizeJob("macos-finalize")}
       credentials:
         password: \${{ secrets.GITHUB_TOKEN }}
   release-index:
+    name: Immutable GitHub release index
     needs: [prepare, android-build, android-sign-upload, android-finalize, ios-finalize, linux, macos-finalize]
     if: >-
-      (needs.android-build.result == 'success' &&
+      always() && !cancelled() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.should_release == 'true' &&
+      (((needs.prepare.outputs.target == 'mobile' ||
+      needs.prepare.outputs.target == 'android' ||
+      needs.prepare.outputs.target == 'all') &&
+      needs.android-build.result == 'success' &&
       needs.android-sign-upload.result == 'success' &&
       needs.android-finalize.result == 'success') ||
-      (needs.android-build.result == 'skipped' &&
+      ((needs.prepare.outputs.target != 'mobile' &&
+      needs.prepare.outputs.target != 'android' &&
+      needs.prepare.outputs.target != 'all') &&
+      needs.android-build.result == 'skipped' &&
       needs.android-sign-upload.result == 'skipped' &&
-      needs.android-finalize.result == 'skipped')
-    steps: []
+      needs.android-finalize.result == 'skipped')) &&
+      ((((needs.prepare.outputs.target == 'mobile' ||
+      needs.prepare.outputs.target == 'ios' ||
+      needs.prepare.outputs.target == 'all') &&
+      needs.ios-finalize.result == 'success') ||
+      ((needs.prepare.outputs.target == 'android' ||
+      needs.prepare.outputs.target == 'desktop') &&
+      needs.ios-finalize.result == 'skipped'))) &&
+      ((((needs.prepare.outputs.target == 'desktop' ||
+      needs.prepare.outputs.target == 'all') &&
+      needs.linux.result == 'success' &&
+      needs.macos-finalize.result == 'success') ||
+      ((needs.prepare.outputs.target == 'mobile' ||
+      needs.prepare.outputs.target == 'ios' ||
+      needs.prepare.outputs.target == 'android') &&
+      needs.linux.result == 'skipped' &&
+      needs.macos-finalize.result == 'skipped')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: \${{ needs.prepare.outputs.source_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          pattern: zuuli-{android,ios,linux,macos}-\${{ needs.prepare.outputs.identity }}-\${{ needs.prepare.outputs.source_sha }}
+          path: release-downloads
+          merge-multiple: false
+      - name: Verify release-index source binding
+        env:
+          RELEASE_IDENTITY: \${{ needs.prepare.outputs.identity }}
+          EXPECTED_SOURCE_SHA: \${{ needs.prepare.outputs.source_sha }}
+          RELEASE_TARGET: \${{ needs.prepare.outputs.target }}
+        run: wallet/zuuli/scripts/verify-release-index.sh release-downloads "$RELEASE_IDENTITY" "$EXPECTED_SOURCE_SHA" "$RELEASE_TARGET"
+      - name: Publish idempotent draft release
+        if: needs.prepare.outputs.dry_run == 'false' && needs.prepare.outputs.tag_exists == 'true'
+        env:
+          GH_TOKEN: \${{ github.token }}
+          RELEASE_TAG: \${{ needs.prepare.outputs.tag }}
+          RELEASE_IDENTITY: \${{ needs.prepare.outputs.identity }}
+          RELEASE_SOURCE_SHA: \${{ needs.prepare.outputs.source_sha }}
+        run: wallet/zuuli/scripts/publish-github-release.sh "$RELEASE_TAG" "$RELEASE_IDENTITY" "$RELEASE_SOURCE_SHA" release-downloads
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: zuuli-release-index-\${{ needs.prepare.outputs.identity }}-\${{ needs.prepare.outputs.source_sha }}
+          path: release-downloads
+          if-no-files-found: error
+          retention-days: 90
 `;
 
 const credentialEscapeWorkflow = `name: Credential escape fixture
@@ -256,16 +328,499 @@ const fixtureCredentialJobDigests = credentialJobDigests(validWorkflow);
 const fixtureRootAuthorityDigests = releaseAuthorityDigests(validWorkflow);
 const fixtureAndroidBuildJobDigest = androidBuildJobDigest(validWorkflow);
 const fixtureAndroidFinalizerJobDigest = androidFinalizerJobDigest(validWorkflow);
+const fixtureReleaseIndexJobDigest = releaseIndexJobDigest(validWorkflow);
 const verifyFixture = (source) => verifyAppleCredentialBoundary(source, {
   credentialJobDigests: fixtureCredentialJobDigests,
   rootAuthorityDigests: fixtureRootAuthorityDigests,
   expectedAndroidBuildDigest: fixtureAndroidBuildJobDigest,
   expectedAndroidFinalizerDigest: fixtureAndroidFinalizerJobDigest,
+  expectedReleaseIndexDigest: fixtureReleaseIndexJobDigest,
+});
+const verifyFixtureWithReanchoredReleaseIndex = (source) => verifyAppleCredentialBoundary(source, {
+  credentialJobDigests: fixtureCredentialJobDigests,
+  rootAuthorityDigests: fixtureRootAuthorityDigests,
+  expectedAndroidBuildDigest: fixtureAndroidBuildJobDigest,
+  expectedAndroidFinalizerDigest: fixtureAndroidFinalizerJobDigest,
+  expectedReleaseIndexDigest: releaseIndexJobDigest(source),
 });
 
 test("accepts separated source, credential, and finalization jobs", () => {
   assert.deepEqual(verifyFixture(validWorkflow), []);
 });
+
+test("release-index result policy is exhaustive for every target", () => {
+  const selectedByTarget = new Map([
+    ["mobile", ["android-build", "android-sign-upload", "android-finalize", "ios-finalize"]],
+    ["ios", ["ios-finalize"]],
+    ["android", ["android-build", "android-sign-upload", "android-finalize"]],
+    ["desktop", ["linux", "macos-finalize"]],
+    ["all", ["android-build", "android-sign-upload", "android-finalize", "ios-finalize", "linux", "macos-finalize"]],
+  ]);
+  const jobs = ["android-build", "android-sign-upload", "android-finalize", "ios-finalize", "linux", "macos-finalize"];
+  for (const [target, selected] of selectedByTarget) {
+    const selectedSet = new Set(selected);
+    const valid = Object.fromEntries(
+      jobs.map((job) => [job, selectedSet.has(job) ? "success" : "skipped"]),
+    );
+    assert.equal(releaseIndexResultsAreComplete(target, valid), true, target);
+    for (const job of jobs) {
+      const mutation = { ...valid };
+      mutation[job] = selectedSet.has(job) ? "skipped" : "success";
+      assert.equal(
+        releaseIndexResultsAreComplete(target, mutation),
+        false,
+        `${target} accepted wrong result for ${job}`,
+      );
+      if (selectedSet.has(job)) {
+        mutation[job] = "failure";
+        assert.equal(
+          releaseIndexResultsAreComplete(target, mutation),
+          false,
+          `${target} accepted failed selected job ${job}`,
+        );
+      }
+    }
+  }
+  assert.equal(releaseIndexResultsAreComplete("unknown", {}), false);
+});
+
+test("rejects a selected iOS failure represented by a skipped finalizer", () => {
+  const mutated = validWorkflow.replace(
+    "needs.ios-finalize.result == 'success'",
+    "(needs.ios-finalize.result == 'success' || needs.ios-finalize.result == 'skipped')",
+  );
+  const failures = verifyFixture(mutated);
+  assert.ok(
+    failures.some((failure) => failure.includes("exact selected-success/unselected-skipped target matrix")),
+    failures.join("\n"),
+  );
+});
+
+for (const [target, needle] of [
+  ["mobile", "needs.prepare.outputs.target == 'mobile'"],
+  ["ios", "needs.prepare.outputs.target == 'ios'"],
+  ["android", "needs.prepare.outputs.target == 'android'"],
+  ["desktop", "needs.prepare.outputs.target == 'desktop'"],
+  ["all", "needs.prepare.outputs.target == 'all'"],
+]) {
+  test(`rejects release-index condition drift in ${target} mode`, () => {
+    const mutated = validWorkflow.replace(needle, `${needle} || true`);
+    assert.notEqual(mutated, validWorkflow, `missing ${target} fixture clause`);
+    const failures = verifyFixture(mutated);
+    assert.ok(
+      failures.some((failure) => failure.includes("exact selected-success/unselected-skipped target matrix")),
+      failures.join("\n"),
+    );
+  });
+}
+
+test("rejects deletion of the release-index target binding", () => {
+  const mutated = validWorkflow.replace(
+    "          RELEASE_TARGET: \${{ needs.prepare.outputs.target }}\n",
+    "",
+  );
+  const failures = verifyFixture(mutated);
+  assert.ok(
+    failures.some((failure) => failure.includes("exactly the reviewed checkout")),
+    failures.join("\n"),
+  );
+});
+
+test("rejects a soft-failing release-index verifier step", () => {
+  const mutated = validWorkflow.replace(
+    "      - name: Verify release-index source binding\n",
+    "      - name: Verify release-index source binding\n        continue-on-error: true\n",
+  );
+  const failures = verifyFixture(mutated);
+  assert.ok(
+    failures.some((failure) => failure.includes("exactly the reviewed checkout")),
+    failures.join("\n"),
+  );
+});
+
+test("rejects a decorative release-index command with a no-op verifier", () => {
+  const command = 'wallet/zuuli/scripts/verify-release-index.sh release-downloads "$RELEASE_IDENTITY" "$EXPECTED_SOURCE_SHA" "$RELEASE_TARGET"';
+  const mutated = validWorkflow
+    .replace(`        run: ${command}\n`, "        run: true\n")
+    .replace(
+      "      - name: Verify release-index source binding\n",
+      `      - name: Decorative ${command}\n        run: echo decorative\n      - name: Verify release-index source binding\n`,
+    );
+  const failures = verifyFixture(mutated);
+  assert.ok(
+    failures.some((failure) => failure.includes("exactly the reviewed checkout")),
+    failures.join("\n"),
+  );
+});
+
+test("rejects release-index verification after draft publication", () => {
+  const verifier = `      - name: Verify release-index source binding
+        env:
+          RELEASE_IDENTITY: \${{ needs.prepare.outputs.identity }}
+          EXPECTED_SOURCE_SHA: \${{ needs.prepare.outputs.source_sha }}
+          RELEASE_TARGET: \${{ needs.prepare.outputs.target }}
+        run: wallet/zuuli/scripts/verify-release-index.sh release-downloads "$RELEASE_IDENTITY" "$EXPECTED_SOURCE_SHA" "$RELEASE_TARGET"
+`;
+  const mutated = validWorkflow
+    .replace(verifier, "")
+    .replace(
+      "      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f\n",
+      `${verifier}      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f\n`,
+    );
+  const failures = verifyFixture(mutated);
+  assert.ok(
+    failures.some((failure) => failure.includes("exactly the reviewed checkout")),
+    failures.join("\n"),
+  );
+});
+
+for (const [name, step] of [
+  [
+    "alternate draft creation",
+    "      - name: Alternate publisher\n        env:\n          GH_TOKEN: \${{ github.token }}\n        run: gh release create attacker-tag --draft\n",
+  ],
+  [
+    "alternate release upload",
+    "      - name: Alternate uploader\n        env:\n          GH_TOKEN: \${{ github.token }}\n        run: gh release upload attacker-tag release-downloads/*\n",
+  ],
+  [
+    "alternate API publication",
+    "      - name: Alternate API publisher\n        run: curl --request POST https://api.github.com/repos/free2z/zuu/releases\n",
+  ],
+]) {
+  test(`rejects reanchored release-index ${name}`, () => {
+    const mutated = validWorkflow.replace(
+      "      - name: Verify release-index source binding\n",
+      `${step}      - name: Verify release-index source binding\n`,
+    );
+    assert.notEqual(mutated, validWorkflow);
+    const failures = verifyFixtureWithReanchoredReleaseIndex(mutated);
+    assert.ok(
+      failures.some((failure) => failure.includes("exactly the reviewed checkout")),
+      failures.join("\n"),
+    );
+    assert.ok(
+      failures.every((failure) => !failure.includes("release-index execution program changed")),
+      `digest was not reanchored:\n${failures.join("\n")}`,
+    );
+  });
+}
+
+for (const [name, needle, replacement] of [
+  [
+    "job continue-on-error",
+    "    runs-on: ubuntu-24.04\n",
+    "    continue-on-error: true\n    runs-on: ubuntu-24.04\n",
+  ],
+  [
+    "job GH_REPO environment override",
+    "    runs-on: ubuntu-24.04\n",
+    "    env:\n      GH_REPO: attacker/example\n    runs-on: ubuntu-24.04\n",
+  ],
+  [
+    "runner drift",
+    "    runs-on: ubuntu-24.04\n",
+    "    runs-on: self-hosted\n",
+  ],
+  [
+    "permission weakening",
+    "      contents: write\n",
+    "      contents: read\n",
+  ],
+]) {
+  test(`rejects reanchored release-index ${name}`, () => {
+    const mutated = validWorkflow.replace(needle, replacement);
+    assert.notEqual(mutated, validWorkflow, `missing fixture for ${name}`);
+    const failures = verifyFixtureWithReanchoredReleaseIndex(mutated);
+    assert.ok(
+      failures.some((failure) => failure.includes("reviewed job authority")),
+      failures.join("\n"),
+    );
+    assert.ok(
+      failures.every((failure) => !failure.includes("release-index execution program changed")),
+      `digest was not reanchored:\n${failures.join("\n")}`,
+    );
+  });
+}
+
+test("accepts the exact GitHub release publisher program", async () => {
+  const source = await readFile(new URL("./publish-github-release.sh", import.meta.url), "utf8");
+  assert.deepEqual(verifyGithubReleasePublisher(source), []);
+});
+
+for (const [name, attack, semanticFailure] of [
+  [
+    "extra gh draft publication",
+    "\ngh release create attacker-tag --draft\n",
+    "exact reviewed program",
+  ],
+  [
+    "extra gh asset upload",
+    "\ngh release upload attacker-tag release-downloads/attacker.tar.gz\n",
+    "exact reviewed program",
+  ],
+  [
+    "extra curl API publication",
+    "\ncurl --request POST https://api.github.com/repos/free2z/zuu/releases\n",
+    "exact reviewed program",
+  ],
+  [
+    "quote-constructed gh assignment and variable command",
+    "\npublisher=g'h'\n\"$publisher\" release create attacker-tag --draft\n",
+    "exact reviewed program",
+  ],
+  [
+    "direct quote-constructed gh command",
+    "\ng'h' release create attacker-tag --draft\n",
+    "exact reviewed program",
+  ],
+  [
+    "variable command word",
+    "\npublisher=gh\n$publisher release create attacker-tag --draft\n",
+    "exact reviewed program",
+  ],
+  [
+    "indirect parameter command word",
+    "\nselected=publisher\npublisher=gh\n\"${!selected}\" release create attacker-tag --draft\n",
+    "exact reviewed program",
+  ],
+  [
+    "command wrapper",
+    "\ncommand gh release create attacker-tag --draft\n",
+    "exact reviewed program",
+  ],
+  [
+    "builtin command wrapper",
+    "\nbuiltin command gh release create attacker-tag --draft\n",
+    "exact reviewed program",
+  ],
+  [
+    "env command wrapper",
+    "\nenv GH_TOKEN=attacker gh release create attacker-tag --draft\n",
+    "exact reviewed program",
+  ],
+  [
+    "exec plus quote-constructed command",
+    "\nexec g'h' release create attacker-tag --draft\n",
+    "exact reviewed program",
+  ],
+  [
+    "array and indirect expansion behind exec",
+    "\npieces=(g h)\npublisher=$(printf '%s' \"${pieces[@]}\")\nselected=publisher\nexec \"${!selected}\" release create attacker-tag --draft\n",
+    "exact reviewed program",
+  ],
+  [
+    "timed quote-constructed alias",
+    "\na'lias' publish='gh release create attacker-tag --draft'\ntime publish\n",
+    "exact reviewed program",
+  ],
+  [
+    "function wrapper",
+    "\nfunction publish_attack { exec g'h' release create attacker-tag --draft; }\npublish_attack\n",
+    "exact reviewed program",
+  ],
+  [
+    "timed variable command",
+    "\npublisher=gh\ntime \"$publisher\" release create attacker-tag --draft\n",
+    "exact reviewed program",
+  ],
+  [
+    "quote-built builtin and env chain",
+    "\nexec b'uiltin' e'nv' GH_TOKEN=attacker g'h' release create attacker-tag --draft\n",
+    "exact reviewed program",
+  ],
+  [
+    "generated publisher script",
+    "\nprintf '%s\\n' 'gh release create attacker-tag --draft' > \"$package_dir/publish\"\nchmod +x \"$package_dir/publish\"\n\"$package_dir/publish\"\n",
+    "exact reviewed program",
+  ],
+  [
+    "generated command piped to a shell",
+    "\nprintf '%s\\n' 'gh release create attacker-tag --draft' | sh\n",
+    "exact reviewed program",
+  ],
+  [
+    "shell interpreter indirection",
+    "\nexec \"$SHELL\" -c 'gh release create attacker-tag --draft'\n",
+    "exact reviewed program",
+  ],
+  [
+    "publication in a subshell",
+    "\n( g'h' release create attacker-tag --draft )\n",
+    "exact reviewed program",
+  ],
+  [
+    "PATH symlink indirection",
+    "\nln -s \"$(command -v gh)\" \"$package_dir/publish\"\nPATH=\"$package_dir:$PATH\" publish release create attacker-tag --draft\n",
+    "exact reviewed program",
+  ],
+]) {
+  test(`rejects a fully reanchored publisher with ${name}`, async () => {
+    const source = await readFile(new URL("./publish-github-release.sh", import.meta.url), "utf8");
+    const mutated = `${source}${attack}`;
+    const failures = verifyGithubReleasePublisher(mutated, {
+      expectedDigest: githubReleasePublisherDigest(mutated),
+      expectedExecutableDigest: githubReleasePublisherExecutableDigest(mutated),
+    });
+    assert.ok(
+      failures.some((failure) => failure.includes(semanticFailure)),
+      failures.join("\n"),
+    );
+    assert.ok(
+      failures.every((failure) =>
+        !failure.includes("publisher execution program changed:") &&
+        !failure.includes("publisher executable program changed:")),
+      `publisher digests were not fully reanchored:\n${failures.join("\n")}`,
+    );
+  });
+}
+
+for (const [name, mutate] of [
+  [
+    "alternate interpreter",
+    (source) => source.replace("#!/usr/bin/env bash", "#!/bin/zsh"),
+  ],
+  [
+    "backslash comment suppressing upload",
+    (source) => source.replace(
+      '    gh release upload "$tag" "$archive"',
+      '    # suppress the reviewed upload \\\n    gh release upload "$tag" "$archive"',
+    ),
+  ],
+  [
+    "comment inside a reviewed command continuation",
+    (source) => source.replace(
+      '  gh release create "$tag" --verify-tag --draft \\\n',
+      '  gh release create "$tag" --verify-tag --draft \\\n    # suppress the reviewed argv\n',
+    ),
+  ],
+]) {
+  test(`rejects a fully reanchored publisher with ${name}`, async () => {
+    const source = await readFile(new URL("./publish-github-release.sh", import.meta.url), "utf8");
+    const mutated = mutate(source);
+    assert.notEqual(mutated, source, `missing fixture for ${name}`);
+    const failures = verifyGithubReleasePublisher(mutated, {
+      expectedDigest: githubReleasePublisherDigest(mutated),
+      expectedExecutableDigest: githubReleasePublisherExecutableDigest(mutated),
+    });
+    assert.ok(
+      failures.some((failure) => failure.includes("exact reviewed program")),
+      failures.join("\n"),
+    );
+  });
+}
+
+test("rejects a fully reanchored publisher without immediate pre-upload identity verification", async () => {
+  const source = await readFile(new URL("./publish-github-release.sh", import.meta.url), "utf8");
+  const mutated = source.replace(
+    '    reverify_tag_identity\n    gh release upload "$tag" "$archive"',
+    '    gh release upload "$tag" "$archive"',
+  );
+  assert.notEqual(mutated, source, "missing pre-upload verification fixture");
+  const failures = verifyGithubReleasePublisher(mutated, {
+    expectedDigest: githubReleasePublisherDigest(mutated),
+    expectedExecutableDigest: githubReleasePublisherExecutableDigest(mutated),
+  });
+  assert.ok(
+    failures.some((failure) => failure.includes("immediately preceded")),
+    failures.join("\n"),
+  );
+});
+
+const exactShellVerifiers = [
+  {
+    label: "release-tag verifier",
+    url: new URL("./verify-release-tag.sh", import.meta.url),
+    verify: verifyReleaseTagVerifier,
+    digest: releaseTagVerifierDigest,
+    executableDigest: releaseTagVerifierExecutableDigest,
+    conditionalAttack: (source) => source.replace(
+      "remote=${RELEASE_TAG_REMOTE:-origin}\n",
+      `remote=\${RELEASE_TAG_REMOTE:-origin}
+
+# This branch is dead in the ordinary fixture environment but live in the
+# credentialed GitHub release publisher.
+if [[ -n \${GH_TOKEN:-} ]]; then
+  mkdir -p "$(dirname "$metadata_output")"
+  printf '{\n  "schemaVersion": 1,\n  "tag": "%s",\n  "tagObject": "%s",\n  "peeledCommit": "%s",\n  "expectedCommit": "%s"\n}\n' \\
+    "$tag" "$expected_commit" "$expected_commit" "$expected_commit" > "$metadata_output"
+  exit 0
+fi
+`,
+    ),
+  },
+  {
+    label: "release-index verifier",
+    url: new URL("./verify-release-index.sh", import.meta.url),
+    verify: verifyReleaseIndexVerifier,
+    digest: releaseIndexVerifierDigest,
+    executableDigest: releaseIndexVerifierExecutableDigest,
+    conditionalAttack: (source) => source.replace(
+      "target=$4\n",
+      `target=$4
+
+# The production workflow uses this literal; ordinary tests use temporary
+# absolute artifact roots.
+if [[ "$artifact_root" == release-downloads ]]; then
+  exit 0
+fi
+`,
+    ),
+  },
+];
+
+for (const shellVerifier of exactShellVerifiers) {
+  test(`accepts the exact ${shellVerifier.label} executable program`, async () => {
+    const source = await readFile(shellVerifier.url, "utf8");
+    assert.deepEqual(shellVerifier.verify(source), []);
+  });
+
+  test(`rejects the fully reanchored production-only bypass in the ${shellVerifier.label}`, async () => {
+    const source = await readFile(shellVerifier.url, "utf8");
+    const mutated = shellVerifier.conditionalAttack(source);
+    assert.notEqual(mutated, source, `missing ${shellVerifier.label} conditional fixture`);
+    const failures = shellVerifier.verify(mutated, {
+      expectedDigest: shellVerifier.digest(mutated),
+      expectedExecutableDigest: shellVerifier.executableDigest(mutated),
+    });
+    assert.ok(
+      failures.some((failure) => failure.includes("exact reviewed program")),
+      failures.join("\n"),
+    );
+    assert.ok(
+      failures.every((failure) => !failure.includes("program changed:")),
+      `helper digests were not fully reanchored:\n${failures.join("\n")}`,
+    );
+  });
+
+  for (const [name, mutate] of [
+    [
+      "alternate interpreter",
+      (source) => source.replace("#!/usr/bin/env bash", "#!/bin/zsh"),
+    ],
+    [
+      "unsafe comment continuation",
+      (source) => source.replace(
+        "set -euo pipefail\n",
+        "# suppress the reviewed strict-mode statement \\\nset -euo pipefail\n",
+      ),
+    ],
+  ]) {
+    test(`rejects a fully reanchored ${name} in the ${shellVerifier.label}`, async () => {
+      const source = await readFile(shellVerifier.url, "utf8");
+      const mutated = mutate(source);
+      assert.notEqual(mutated, source, `missing ${shellVerifier.label} ${name} fixture`);
+      const failures = shellVerifier.verify(mutated, {
+        expectedDigest: shellVerifier.digest(mutated),
+        expectedExecutableDigest: shellVerifier.executableDigest(mutated),
+      });
+      assert.ok(
+        failures.some((failure) => failure.includes("exact reviewed program")),
+        failures.join("\n"),
+      );
+    });
+  }
+}
 
 test("rejects a bare Bash assertion in an Apple release job", () => {
   const mutated = validWorkflow.replace(

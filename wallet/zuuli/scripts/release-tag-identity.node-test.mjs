@@ -13,8 +13,17 @@ const verifyIndex = resolve(scripts, "verify-release-index.sh");
 const tag = "zuuli-v9.8.7+654";
 const identity = "9.8.7+654";
 
-function runIndex(root, releaseIdentity, sha) {
-  return spawnSync(verifyIndex, [root, releaseIdentity, sha], { encoding: "utf8" });
+function runIndex(root, releaseIdentity, sha, target = "android") {
+  return spawnSync(verifyIndex, [root, releaseIdentity, sha, target], { encoding: "utf8" });
+}
+
+async function writePlatformArtifact(root, platform, sha, sourceSha = sha) {
+  const directory = resolve(root, `zuuli-${platform}-${identity}-${sha}`);
+  await mkdir(directory, { recursive: true });
+  await writeFile(
+    resolve(directory, "provenance.json"),
+    `${JSON.stringify({ source: { commit: sourceSha } })}\n`,
+  );
 }
 
 function git(cwd, ...args) {
@@ -104,16 +113,39 @@ test("a retarget during release creation leaves the release draft and stops uplo
   assert.equal((await readFile(state, "utf8")).trim(), "draft");
 });
 
-test("release index accepts only source-bound platform artifacts", async () => {
-  const root = await mkdtemp(resolve(tmpdir(), "zuuli-release-index-test-"));
-  const sha = "a".repeat(40);
-  for (const platform of ["android", "linux"]) {
-    const directory = resolve(root, `zuuli-${platform}-${identity}-${sha}`);
-    await mkdir(directory);
-    await writeFile(resolve(directory, "provenance.json"), `${JSON.stringify({ source: { commit: sha } })}\n`);
-  }
+for (const [target, platforms] of [
+  ["mobile", ["android", "ios"]],
+  ["ios", ["ios"]],
+  ["android", ["android"]],
+  ["desktop", ["linux", "macos"]],
+  ["all", ["android", "ios", "linux", "macos"]],
+]) {
+  test(`release index accepts the exact ${target} platform set`, async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "zuuli-release-index-test-"));
+    const sha = "a".repeat(40);
+    for (const platform of platforms) await writePlatformArtifact(root, platform, sha);
+    execFileSync(verifyIndex, [root, identity, sha, target]);
+  });
+}
 
-  execFileSync(verifyIndex, [root, identity, sha]);
+test("release index rejects an incomplete selected target", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "zuuli-release-index-test-"));
+  const sha = "1".repeat(40);
+  await writePlatformArtifact(root, "android", sha);
+  const result = runIndex(root, identity, sha, "mobile");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /missing selected platform artifact: ios/);
+});
+
+test("release index rejects an artifact from an unselected platform", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "zuuli-release-index-test-"));
+  const sha = "2".repeat(40);
+  for (const platform of ["android", "linux"]) {
+    await writePlatformArtifact(root, platform, sha);
+  }
+  const result = runIndex(root, identity, sha, "android");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /unselected platform artifact/);
 });
 
 test("release index rejects a missing artifact root and malformed identity inputs", async () => {
@@ -131,6 +163,10 @@ test("release index rejects a missing artifact root and malformed identity input
   const invalidCommit = runIndex(parent, identity, "A".repeat(40));
   assert.notEqual(invalidCommit.status, 0);
   assert.match(invalidCommit.stderr, /full lowercase SHA-1/);
+
+  const invalidTarget = runIndex(parent, identity, sha, "wearable");
+  assert.notEqual(invalidTarget.status, 0);
+  assert.match(invalidTarget.stderr, /invalid release target/);
 });
 
 test("release index rejects a recursively downloaded prior index", async () => {
@@ -143,7 +179,7 @@ test("release index rejects a recursively downloaded prior index", async () => {
   await writeFile(resolve(platform, "provenance.json"), `${JSON.stringify({ source: { commit: sha } })}\n`);
   await writeFile(resolve(priorIndex, "provenance.json"), `${JSON.stringify({ source: { commit: sha } })}\n`);
 
-  const result = runIndex(root, identity, sha);
+  const result = runIndex(root, identity, sha, "all");
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /unexpected release-index entry/);
 });
@@ -153,7 +189,7 @@ test("release index rejects a non-directory platform entry", async () => {
   const sha = "c".repeat(40);
   await writeFile(resolve(root, `zuuli-macos-${identity}-${sha}`), "not a directory\n");
 
-  const result = runIndex(root, identity, sha);
+  const result = runIndex(root, identity, sha, "all");
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /not a directory/);
 });
@@ -164,14 +200,14 @@ test("release index requires one top-level provenance per platform", async () =>
   const platform = resolve(root, `zuuli-ios-${identity}-${sha}`);
   await mkdir(resolve(platform, "nested"), { recursive: true });
 
-  const missing = runIndex(root, identity, sha);
+  const missing = runIndex(root, identity, sha, "ios");
   assert.notEqual(missing.status, 0);
   assert.match(missing.stderr, /no top-level provenance/);
 
   await writeFile(resolve(platform, "provenance.json"), `${JSON.stringify({ source: { commit: sha } })}\n`);
   await writeFile(resolve(platform, "nested", "provenance.json"), `${JSON.stringify({ source: { commit: sha } })}\n`);
 
-  const duplicate = runIndex(root, identity, sha);
+  const duplicate = runIndex(root, identity, sha, "ios");
   assert.notEqual(duplicate.status, 0);
   assert.match(duplicate.stderr, /exactly one provenance/);
 });
@@ -183,14 +219,14 @@ test("release index rejects a single provenance bound to another commit", async 
   await mkdir(platform);
   await writeFile(resolve(platform, "provenance.json"), `${JSON.stringify({ source: { commit: "e".repeat(40) } })}\n`);
 
-  const mismatch = runIndex(root, identity, sha);
+  const mismatch = runIndex(root, identity, sha, "desktop");
   assert.notEqual(mismatch.status, 0);
   assert.match(mismatch.stderr, /not bound to expected commit/);
 });
 
 test("release index rejects an empty artifact root", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "zuuli-release-index-test-"));
-  const result = runIndex(root, identity, "f".repeat(40));
+  const result = runIndex(root, identity, "f".repeat(40), "all");
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /contains no platform artifacts/);
+  assert.match(result.stderr, /missing selected platform artifact/);
 });

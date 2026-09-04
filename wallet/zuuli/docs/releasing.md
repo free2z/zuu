@@ -13,6 +13,33 @@ The verifier prints the identity only after proving that the marketing version,
 Apple build, Android `versionCode`, application identifier, and every other
 generated representation agree.
 
+## Pre-merge execution evidence for release steps
+
+Every new or materially changed step in `.github/workflows/zuuli-release.yml`
+must be backed before its implementation PR merges by at least one of these
+reviewable dispositions:
+
+1. successful execution through a non-publishing dry-run path that reaches the
+   step without weakening its normal failure policy;
+2. a mutation-sensitive fixture or checker that exercises the step's pure
+   computation and is proven to reject a deliberately corrupted input; or
+3. an explicit entry in [`../STATUS.md`](../STATUS.md) naming the untested path,
+   why it cannot safely execute before release, and the decision to ship or
+   defer the affected target.
+
+A credential-free packaging smoke proves only the equivalent package-building
+and inspection logic it actually runs. It is not proof that a protected
+credential-bearing job, external signing/notarization service, cleanup path, or
+store transaction ran. Cross-compilation likewise proves compilation, not
+target-native execution. Record those boundaries without upgrading fixture or
+packaging evidence into protected-release evidence.
+
+Workflow run links record job conclusions, but uploaded evidence is deliberately
+retention-bounded rather than permanent: credential handoffs expire after 1 day,
+packaging artifacts after 14 days, and protected finalizer and release-index
+artifacts after 90 days. Record artifact identities and retention limits without
+describing these expiring uploads as durable archives.
+
 ## SBOM scope and artifact binding
 
 An SBOM name must state what was actually scanned. `*.artifact.sbom.cdx.json`
@@ -515,7 +542,13 @@ or command requires reviewing the complete credential execution program and
 updating its digest. The workflow root is a closed authority envelope: its
 trigger, permissions, serialization, inherited environment, and exact job set
 are bound, and reusable-workflow jobs or inherited secret forwarding are
-forbidden. Their downloaded payloads must contain exactly the
+forbidden. The credential-free release-index job is likewise parsed as an exact
+job object: its runner, timeout, permissions, dependencies, condition, and five
+ordered steps admit no extra key or execution path. Its publisher script is
+sealed as a complete program and separately allowlists the exact GitHub CLI
+publication commands while rejecting `curl` and shell command indirection, so a
+reviewed digest update cannot by itself authorize a second release mutation.
+Their downloaded payloads must contain exactly the
 canonical manifested members before any credential is materialized; the
 separately attested TestFlight reconciliation helper is the sole project script
 allowed to execute in a credential-bearing job.
