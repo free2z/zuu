@@ -1,0 +1,53 @@
+[package]
+name = "e2e2z"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.97"
+# Never goes to a registry: the wallet crates are consumed by path only. This is
+# also what lets wallet/deny.toml skip them under `licenses.private.ignore`.
+publish = false
+description = "e2e2z messaging surface — device keys and the f2zmsg engine, never the Zcash seed."
+
+[lib]
+name = "e2e2z_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+# `tauri-plugin-zcash` is deliberately absent and must stay absent: ongoing
+# messaging never needs the seed (docs/e2ee/ARCHITECTURE.md §4.2 — device keys
+# come from the OS CSPRNG and are never seed-derived). Only *enrollment* needs
+# it, and under #904 that becomes a bridge call into the wallet authority
+# rather than an in-process one, so the app-crate enrollment trio
+# (`f2zmsg_enrollment_status`, `f2zmsg_enroll`, `f2zmsg_unenroll`) is not
+# registered here either — see this crate's `src/lib.rs`.
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-deep-link = "2.4.9"
+tauri-plugin-opener = "2"
+tauri-plugin-f2zmsg = { path = "../../plugins/tauri-plugin-f2zmsg" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# ---------------------------------------------------------------------------
+# Build profiles. This package is its own workspace root — the repository keeps
+# one Cargo workspace per shipped binary on purpose (#341) — so `[profile.*]`
+# here is honored for the whole dependency graph.
+# ---------------------------------------------------------------------------
+
+[profile.dev]
+opt-level = 0
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.build-override]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

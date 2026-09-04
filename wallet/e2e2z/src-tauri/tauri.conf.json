@@ -1,0 +1,47 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
+  "productName": "e2e2z",
+  "version": "0.1.0",
+  "identifier": "cash.free2z.e2e2z",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1427",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "e2e2z",
+        "width": 1100,
+        "height": 820,
+        "minWidth": 380,
+        "minHeight": 640
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: blob:; media-src 'self'; frame-src 'none'; connect-src 'self' https://free2z.cash https://*.free2z.cash; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"],
+    "android": {
+      "minSdkVersion": 29,
+      "versionCode": 1
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "mobile": [
+        {
+          "scheme": ["cash.free2z.e2e2z"],
+          "host": "bridge",
+          "path": ["/return"],
+          "appLink": false
+        }
+      ]
+    }
+  }
+}

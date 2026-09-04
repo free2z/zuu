@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://free2z.com/schemas/free2z-release-v2.json",
+  "title": "free2z release identity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "applicationId",
+    "iosUsesNonExemptEncryption",
+    "version",
+    "build",
+    "minimums"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 2 },
+    "applicationId": { "const": "cash.free2z.free2z" },
+    "iosUsesNonExemptEncryption": { "const": false },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "build": { "type": "integer", "minimum": 1, "maximum": 2100000000 },
+    "minimums": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ios", "android"],
+      "properties": {
+        "ios": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" },
+        "android": { "type": "integer", "minimum": 29 }
+      }
+    }
+  }
+}

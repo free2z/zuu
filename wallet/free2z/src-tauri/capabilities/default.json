@@ -1,0 +1,7 @@
+{
+  "identifier": "default",
+  "description": "Desktop capability for the main free2z window. Grants NOTHING privileged: no zcash:* entry and no f2zmsg:* entry, ever. wallet/zuuli/scripts/surface-capability-authority.mjs is the contract test that fails if one appears.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["main"],
+  "permissions": ["core:default", "deep-link:default", "opener:default"]
+}

@@ -231,6 +231,17 @@ const UNGATED_WORKFLOWS = new Map([
       "claimed to.",
   ],
   [
+    ".github/workflows/wallet-surfaces.yml",
+    "Advisory build of the two delegated surfaces of the three-app split (#904/#906) — wallet/free2z " +
+      "and wallet/e2e2z — behind an `on: pull_request: paths:` filter. Nothing that decides whether " +
+      "either surface is safe is decided here: the ZUULI change detector selects `wallet/free2z/*` and " +
+      "`wallet/e2e2z/*`, so the required `gate` in zuuli.yml already runs the capability contract " +
+      "(wallet/zuuli/scripts/surface-capability-authority.mjs) and the cross-application import check " +
+      "(project-boundary.mjs) inside the protected `zuuli / frontend` job, and rust_fmt/rust_clippy/" +
+      "rust_deny discover both new src-tauri crates rather than listing them. What remains here is " +
+      "surface-only build coverage, which cannot fail a merge and is not claimed to.",
+  ],
+  [
     ".github/workflows/f2z-images.yml",
     "Builds and publishes the three AGPL-3.0 E2EE server images (f2z-relay, f2z-kt, f2z-witness): " +
       "its pull-request leg is path-filtered to rs/** and its publish leg only runs on main. The " +

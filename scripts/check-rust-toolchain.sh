@@ -57,6 +57,10 @@ MANIFESTS=(
   wallet/zuuli/crypto-target-spike/Cargo.toml
   wallet/zuuli/src-tauri/Cargo.toml
   wallet/zuuallet/src-tauri/Cargo.toml
+  # The two delegated surfaces of the three-app split (#904/#906). Neither is
+  # a second toolchain decision: both restate wallet/rust-toolchain.toml.
+  wallet/free2z/src-tauri/Cargo.toml
+  wallet/e2e2z/src-tauri/Cargo.toml
   wallet/plugins/tauri-plugin-zcash/Cargo.toml
   wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml
   rs/crates/f2z-codec/Cargo.toml

@@ -1,0 +1,35 @@
+{
+  "name": "free2z",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "free2z content surface — articles, live, AI, creator and search. Holds no Zcash seed and no messaging keys (see #904).",
+  "scripts": {
+    "dev": "vite --port 1425 --strictPort --host 127.0.0.1",
+    "build": "tsc -p tsconfig.build.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.build.json",
+    "typecheck:tests": "tsc --noEmit",
+    "test": "vitest run",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-deep-link": "^2.4.9",
+    "i18next": "^26.4.0",
+    "i18next-icu": "^2.4.4",
+    "intl-messageformat": "^11.2.14",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-i18next": "^17.0.12"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.4.3",
+    "vitest": "3.2.7"
+  }
+}
