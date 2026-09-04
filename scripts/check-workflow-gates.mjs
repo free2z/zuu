@@ -239,7 +239,13 @@ const UNGATED_WORKFLOWS = new Map([
       "(wallet/zuuli/scripts/surface-capability-authority.mjs) and the cross-application import check " +
       "(project-boundary.mjs) inside the protected `zuuli / frontend` job, and rust_fmt/rust_clippy/" +
       "rust_deny discover both new src-tauri crates rather than listing them. What remains here is " +
-      "surface-only build coverage, which cannot fail a merge and is not claimed to.",
+      "surface build coverage plus, since #904 phase 3, each surface's OWN unit and browser suites — " +
+      "including wallet/e2e2z/tests/enrollment-gap.pw.ts, which proves the messaging surface cannot " +
+      "appear enrolled without the wallet authority. Those suites therefore cannot fail a merge " +
+      "today, and this entry does not pretend otherwise: #915 decides whether they move into the " +
+      "required gate. The security PROPERTY they illustrate is separately gated — no `zcash:*` for " +
+      "e2e2z and no cross-application import are both decided by the two checkers named above, " +
+      "inside `gate`.",
   ],
   [
     ".github/workflows/f2z-images.yml",

@@ -2,7 +2,7 @@
 //! `docs/e2ee/CLIENT-CONTRACT.md` §3 describes it.
 //!
 //! The TypeScript half of this contract already exists and is merged:
-//! `wallet/zuuli/src/lib/messaging/` carries `types.ts`, `bridge.ts`,
+//! `wallet/e2e2z/src/lib/messaging/` carries `types.ts`, `bridge.ts`,
 //! `events.ts`, `mock.ts` and a mechanical parity test, written against the
 //! same document. This crate is what makes its non-mock path real.
 //!

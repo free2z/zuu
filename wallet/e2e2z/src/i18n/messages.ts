@@ -4,8 +4,6 @@
 export const MESSAGE_KEYS = [
   "app.name",
   "app.tagline",
-  "placeholder.heading",
-  "placeholder.body",
 ] as const;
 
 export type MessageKey = (typeof MESSAGE_KEYS)[number];

@@ -2609,7 +2609,7 @@ fifth. **Every restatement of this rule MUST return exactly that pair —
 `eligible: false`, `reason: punctuation` — for the empty string**, because
 nothing about that answer follows from the regex by itself; it has to be
 stated once, here, or two conforming restatements will disagree on it. They
-currently do: [`wallet/zuuli/src/lib/messaging/mock.ts`](../../wallet/zuuli/src/lib/messaging/mock.ts)'s
+currently do: [`wallet/e2e2z/src/lib/messaging/mock.ts`](../../wallet/e2e2z/src/lib/messaging/mock.ts)'s
 `evaluateHandle` treats an empty string the same as no signed-in account
 (`reason: "not-signed-in"`), which this section now states is the wrong
 answer. [#838](https://github.com/free2z/zuu/issues/838) tracks the mock fix;
@@ -2638,12 +2638,14 @@ at minimum: `null`, the empty string, an ASCII-uppercase username, each of
 and lengths 30 and 31 — so that an edit to either implementation which drifts
 from the other, or from this table, fails a test rather than shipping unnoticed.
 **This did not exist when the paragraph above was written; it does now.**
-[`wallet/zuuli/src/lib/messaging/handle-eligibility.fixtures.json`](../../wallet/zuuli/src/lib/messaging/handle-eligibility.fixtures.json)
-is the shared table, at least the minimum set listed above — kept inside
-`wallet/zuuli` rather than under `docs/` so `mock.ts`'s side of it is an
-ordinary same-project JSON import, not a reach outside the wallet's own module
-boundary. `handle.rs`'s `#[cfg(test)]` module reads it via `include_str!` at a
-fixed relative path, and `wallet/zuuli/src/lib/messaging/
+[`wallet/e2e2z/src/lib/messaging/handle-eligibility.fixtures.json`](../../wallet/e2e2z/src/lib/messaging/handle-eligibility.fixtures.json)
+is the shared table, at least the minimum set listed above — kept beside
+`mock.ts` rather than under `docs/` so `mock.ts`'s side of it is an ordinary
+same-project JSON import, not a reach outside its own module boundary, which is
+also why it moved with the messaging surface out of `wallet/zuuli` in
+[#904](https://github.com/free2z/zuu/issues/904) phase 3. `handle.rs`'s
+`#[cfg(test)]` module reads it via `include_str!` at a fixed relative path, and
+`wallet/e2e2z/src/lib/messaging/
 mock.handle-eligibility.test.ts` imports it as a module; each side asserts
 every case against its own implementation, neither file is the other's source
 of truth, and this document is not a third copy of the table — it names the

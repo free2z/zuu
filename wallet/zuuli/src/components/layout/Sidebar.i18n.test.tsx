@@ -56,7 +56,6 @@ describe("Sidebar localization", () => {
         ["/live", "Transmisiones en vivo"],
         ["/articles", "Artículos"],
         ["/ai", "IA"],
-        ["/messages", "Mensajes"],
         ["/wallet", "Billetera"],
         ["/profile", "Perfil"],
         ["/kyc", "Reparto de ingresos"],

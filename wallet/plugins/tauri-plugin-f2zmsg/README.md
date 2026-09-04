@@ -6,7 +6,7 @@ command surface [`docs/e2ee/CLIENT-CONTRACT.md`](../../../docs/e2ee/CLIENT-CONTR
 `f2z-msg-mls`, `f2z-msg-store`, `f2z-relay-proto`, `f2z-codec` — into something
 a webview can talk to.
 
-The TypeScript half already exists and is merged. `wallet/zuuli/src/lib/messaging/`
+The TypeScript half already exists and is merged. `wallet/e2e2z/src/lib/messaging/`
 carries `types.ts`, `bridge.ts`, `events.ts`, `mock.ts` and a mechanical parity
 test, written against the same document by a different author. This crate is
 what makes its non-mock path real, and the two were built independently on

@@ -97,7 +97,7 @@ pub struct SortKey {
 
 /// §7's tie-break, applied on its own.
 ///
-/// This is `compareMessages` from `wallet/zuuli/src/lib/messaging/types.ts`,
+/// This is `compareMessages` from `wallet/e2e2z/src/lib/messaging/types.ts`,
 /// transcribed. It is **not** the display order — see the module note — and it
 /// is public for exactly two reasons: [`linearise`] needs it to break ties
 /// between concurrent messages, and a test needs to be able to show where the

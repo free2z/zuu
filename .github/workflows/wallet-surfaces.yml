@@ -24,6 +24,12 @@ name: wallet/surfaces
 # `cargo` build of each backend — on a `paths:` filter. That is exactly the
 # shape of `zuuallet.yml`, and like it this workflow publishes no gate and is
 # registered in `scripts/check-workflow-gates.mjs`'s UNGATED_WORKFLOWS.
+#
+# Since #904 phase 3 the e2e2z lane also carries the messaging surface's own
+# tests, which moved out of ZUULI with it. The contract test that holds that
+# client to `docs/e2ee/CLIENT-CONTRACT.md` — `messaging-contract.node-test.mjs`
+# — deliberately did NOT move: it stays in `wallet/zuuli/scripts` so it keeps
+# running inside the protected `gate`, and it now reads across both trees.
 
 on:
   pull_request:
@@ -131,6 +137,15 @@ jobs:
         run: |
           npm run typecheck
           npm run typecheck:tests
+
+      # e2e2z's `npm test` ends in `playwright test`, which is the only run that
+      # exercises the ported messaging surface in a real browser — including the
+      # enrollment gap against a Tauri IPC host that registers the plugin and
+      # not the app-crate enrollment trio. Both configs select `channel:
+      # "chrome"` under CI, so this uses the runner image's preinstalled stable
+      # Chrome rather than downloading a browser, exactly as zuuli.yml does.
+      - name: Verify the browser-test browser
+        run: google-chrome --version
 
       - name: Test owned frontend modules
         run: npm test

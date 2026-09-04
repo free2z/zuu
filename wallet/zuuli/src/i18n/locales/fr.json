@@ -35,8 +35,6 @@
     "live": "Diffusions en direct",
     "liveShort": "Direct",
     "login": "Se connecter",
-    "messages": "Messages",
-    "messagesAccessible": "Messages chiffrés",
     "more": "Plus",
     "moreAccessible": "Plus de navigation",
     "moreDescription": "{count, plural, one {# destination supplémentaire} other {# destinations supplémentaires}}",

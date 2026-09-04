@@ -7,7 +7,7 @@ import type {
   DeviceInfo,
   EngineStatus,
   EnrollmentStatus,
-} from "@/lib/messaging/types";
+} from "../../lib/messaging/types";
 
 const controls = vi.hoisted(() => ({
   getEngineStatus: vi.fn(),
@@ -17,7 +17,7 @@ const controls = vi.hoisted(() => ({
   listen: vi.fn(async () => vi.fn()),
 }));
 
-vi.mock("@/lib/messaging/bridge", () => ({
+vi.mock("../../lib/messaging/bridge", () => ({
   messaging: {
     getEngineStatus: controls.getEngineStatus,
     getDeviceInfo: controls.getDeviceInfo,
@@ -25,7 +25,7 @@ vi.mock("@/lib/messaging/bridge", () => ({
   },
   enrollment: { getEnrollmentStatus: controls.getEnrollmentStatus },
 }));
-vi.mock("@/lib/messaging/events", () => ({ listenMessaging: controls.listen }));
+vi.mock("../../lib/messaging/events", () => ({ listenMessaging: controls.listen }));
 vi.mock("./BrowserGuarantee", () => ({ BrowserGuarantee: () => null }));
 vi.mock("./FirstContact", () => ({ FirstContact: () => null }));
 vi.mock("./Transcript", () => ({

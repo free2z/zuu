@@ -25,7 +25,7 @@
 //! leaves **incomparable**. Two independent readings of the same paragraph
 //! landed on the wrong half, which is a good argument for one crate.
 //!
-//! The same defect is live in `wallet/zuuli/src/lib/messaging/types.ts`'s
+//! The same defect is live in `wallet/e2e2z/src/lib/messaging/types.ts`'s
 //! `compareMessages`, and `f2z-msg-dag`'s `tests/typescript_parity.rs` pins the
 //! disagreement deliberately. See the plugin README.
 //!

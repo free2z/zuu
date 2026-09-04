@@ -2,7 +2,7 @@
 //!
 //! # What this file used to be, and what happened to it
 //!
-//! `wallet/zuuli/src/lib/messaging/types.ts` used to export a second
+//! `wallet/e2e2z/src/lib/messaging/types.ts` used to export a second
 //! implementation of §7's ordering:
 //!
 //! ```text
@@ -15,7 +15,7 @@
 //! }
 //! ```
 //!
-//! and `wallet/zuuli/src/features/messages/Transcript.tsx` applied it as
+//! and `wallet/e2e2z/src/features/messages/Transcript.tsx` applied it as
 //! `[...messages].sort(compareMessages)` — the entire ordering the UI
 //! performed. Nothing there read `parents`, so it implemented §7's **tie-break**
 //! and called it the order.
@@ -152,7 +152,7 @@ fn hex_string_ordering_reproduces_byte_ordering_over_the_whole_range() {
 /// not, and the causal order is what §7 says decides.
 ///
 /// This used to assert a live defect in
-/// `wallet/zuuli/src/features/messages/Transcript.tsx`. It now asserts the
+/// `wallet/e2e2z/src/features/messages/Transcript.tsx`. It now asserts the
 /// reason that file does no sorting at all.
 #[test]
 fn the_tie_break_alone_puts_a_reply_above_its_parent() {

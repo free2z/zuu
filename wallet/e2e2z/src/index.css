@@ -1,50 +1,200 @@
-:root {
-  color-scheme: dark;
-  --surface: #09090b;
-  --ink: #fafafa;
-  --muted: #a1a1aa;
-  --accent: #2dd4bf;
+@import "./fonts.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * The messaging surface's ground.
+ *
+ * Token names and values are `wallet/zuuli/src/index.css`'s, so e2e2z and the
+ * wallet read as one product across two processes (#904). Only the layers this
+ * app renders are carried over: there is no sidebar, no bottom tab bar, no
+ * reader chrome and no toast host here, so their custom properties and
+ * utilities are left in ZUULI rather than copied dead.
+ */
+@layer base {
+  :root {
+    /* Native mobile shells render edge-to-edge. Keep every inset derived from
+       the WebView's authoritative safe-area environment instead of device
+       guesses, with zero fallbacks for desktop browsers. */
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-right: env(safe-area-inset-right, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-area-left: env(safe-area-inset-left, 0px);
+    --safe-area-inline-start: var(--safe-area-left);
+    --safe-area-inline-end: var(--safe-area-right);
+
+    --font-sans: "IBM Plex Sans Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    /* Dark-only, like ZUULI. This block is the fallback for a root element
+       that somehow lacks `.dark`, so it is a slightly softer graphite of the
+       same palette rather than a second design. */
+    --background: 0 0% 9%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 12%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 11%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 264 56% 66%;
+    --primary-foreground: 0 0% 8%;
+    --link: 264 58% 74%;
+    --secondary: 0 0% 17%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 64%;
+    --destructive: 0 65% 52%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 152 45% 62%;
+    --success-foreground: 0 0% 8%;
+    --warning: 40 80% 66%;
+    --warning-foreground: 0 0% 8%;
+    --info: 205 60% 66%;
+    --info-foreground: 0 0% 8%;
+    --border: 0 0% 19%;
+    --input: 0 0% 19%;
+    --ring: 264 56% 66%;
+    --radius: 0.75rem;
+  }
+
+  :root[dir="rtl"] {
+    --safe-area-inline-start: var(--safe-area-right);
+    --safe-area-inline-end: var(--safe-area-left);
+  }
+
+  /* index.html hardcodes class="dark", so this is the palette that actually
+     ships. Keep :root above in sync in kind, not in value. */
+  .dark {
+    --background: 0 0% 7%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 9%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 264 56% 66%;
+    --primary-foreground: 0 0% 8%;
+    --link: 264 58% 74%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 64%;
+    --destructive: 0 65% 52%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 152 45% 62%;
+    --success-foreground: 0 0% 8%;
+    --warning: 40 80% 66%;
+    --warning-foreground: 0 0% 8%;
+    --info: 205 60% 66%;
+    --info-foreground: 0 0% 8%;
+    --border: 0 0% 17%;
+    --input: 0 0% 17%;
+    --ring: 264 56% 66%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+  }
+
+  body {
+    margin: 0;
+    overscroll-behavior: none;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-sans);
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-weight: 600;
+    letter-spacing: -0.018em;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+
+  /* Entrances and transitions are conveniences, not content. Anyone who has
+     asked their OS to stop moving things gets the same interface without the
+     movement. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      animation-delay: 0ms !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
-* {
-  box-sizing: border-box;
-}
+@layer utilities {
+  .app-viewport {
+    box-sizing: border-box;
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding-block-start: var(--safe-area-top);
+    padding-block-end: var(--safe-area-bottom);
+    padding-inline-start: var(--safe-area-inline-start);
+    padding-inline-end: var(--safe-area-inline-end);
+  }
 
-body {
-  margin: 0;
-  min-height: 100dvh;
-  background: var(--surface);
-  color: var(--ink);
-  font-family:
-    "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-}
+  /*
+   * Amounts and counts are the instrument readout: Plex Mono, fixed-width
+   * figures, tightened tracking, so a number updating in place never reflows
+   * the line around it.
+   */
+  .numeral {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    letter-spacing: -0.03em;
+  }
 
-.app-shell {
-  margin: 0 auto;
-  max-width: 44rem;
-  padding: max(2rem, env(safe-area-inset-top)) 1.5rem 2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
+  /*
+   * Opaque identifiers — handles, fingerprints, error codes. Same face as
+   * amounts, with the slashed zero on, because here a 0 really can be misread
+   * as an O and the value is transcribed by hand.
+   */
+  .mono-id {
+    font-family: var(--font-mono);
+    font-feature-settings: "zero" 1;
+  }
 
-.app-shell__eyebrow {
-  margin: 0;
-  color: var(--accent);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.app-shell__heading {
-  margin: 0;
-  font-size: clamp(1.5rem, 4vw, 2.25rem);
-  line-height: 1.2;
-}
-
-.app-shell__body,
-.app-shell__tagline {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.6;
+  /*
+   * The one micro-label style. 12px is the floor for any text meant to be
+   * read.
+   */
+  .eyebrow {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
 }

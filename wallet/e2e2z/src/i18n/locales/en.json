@@ -2,9 +2,5 @@
   "app": {
     "name": "e2e2z",
     "tagline": "End-to-end encrypted messaging."
-  },
-  "placeholder": {
-    "heading": "e2e2z is being extracted from ZUULI",
-    "body": "This surface holds device keys and a device credential — never the Zcash seed — and never renders remote content."
   }
 }

@@ -3,7 +3,7 @@
 //! **Every rejected command reaches the webview as exactly one
 //! [`ErrorCode`](crate::models::ErrorCode) kebab string, and nothing else.**
 //! `CLIENT-CONTRACT.md` §8 makes the union closed, and
-//! `wallet/zuuli/src/lib/messaging/types.ts` declares **no error envelope** —
+//! `wallet/e2e2z/src/lib/messaging/types.ts` declares **no error envelope** —
 //! only `ErrorCodeSchema` and `isRetryable(code)`. A rejection carrying a free
 //! prose string, or a JSON object, would not parse against anything the client
 //! has, so the client would be left doing substring matching on an engine

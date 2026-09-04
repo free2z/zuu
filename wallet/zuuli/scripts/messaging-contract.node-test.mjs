@@ -1,6 +1,10 @@
 // The messaging client compared against CLIENT-CONTRACT.md, not against itself.
 //
-// `src/lib/messaging/parity.test.ts` pins four artefacts to each other, and all
+// The client is `wallet/e2e2z/src/` since #904 phase 3; this test stayed here
+// because `wallet/zuuli`'s `npm test` is what the protected gate runs.
+//
+// `wallet/e2e2z/src/lib/messaging/parity.test.ts` pins four artefacts to each
+// other, and all
 // four are defined in that module: it proves they agree, and a command added to
 // §3 and wired nowhere passes every one of its assertions — including the count,
 // which reads 46 === 46 once the document reaches 47.
@@ -49,10 +53,10 @@ const queueAdrPath = fileURLToPath(
   ),
 );
 const bridgePath = fileURLToPath(
-  new URL("../src/lib/messaging/bridge.ts", import.meta.url),
+  new URL("../../e2e2z/src/lib/messaging/bridge.ts", import.meta.url),
 );
 const eventsPath = fileURLToPath(
-  new URL("../src/lib/messaging/events.ts", import.meta.url),
+  new URL("../../e2e2z/src/lib/messaging/events.ts", import.meta.url),
 );
 const registryPath = fileURLToPath(
   new URL(
@@ -91,10 +95,10 @@ const modelsPath = fileURLToPath(
   ),
 );
 const typesPath = fileURLToPath(
-  new URL("../src/lib/messaging/types.ts", import.meta.url),
+  new URL("../../e2e2z/src/lib/messaging/types.ts", import.meta.url),
 );
 const transcriptPath = fileURLToPath(
-  new URL("../src/features/messages/Transcript.tsx", import.meta.url),
+  new URL("../../e2e2z/src/features/messages/Transcript.tsx", import.meta.url),
 );
 const exporterPath = fileURLToPath(
   new URL("../../../rs/crates/f2z-msg-mls/src/exporter.rs", import.meta.url),
@@ -125,6 +129,14 @@ const queueProto = readFileSync(queueProtoPath, "utf8");
 /// §2.2: these three need the wallet seed, so they live in
 /// `wallet/zuuli/src-tauri/src/messaging.rs` and are invoked with no `plugin:`
 /// prefix. The plugin must not register them.
+///
+/// Since #904 phase 3 the client half of this comparison lives in
+/// `wallet/e2e2z` — the messaging *surface* moved to the app that holds no
+/// seed, while the enrollment commands stayed with the wallet authority that
+/// does. This test still runs from `wallet/zuuli/scripts` because that is where
+/// the required `gate` runs it, and it now reads across both trees on purpose:
+/// the contract, the client and the plugin are three artefacts in three
+/// packages that must not be able to drift apart.
 const APP_CRATE_COMMANDS = new Set([
   "f2zmsg_enroll",
   "f2zmsg_enrollment_status",

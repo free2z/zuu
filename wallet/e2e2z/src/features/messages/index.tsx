@@ -1,4 +1,10 @@
-// Encrypted messages — mounted at /messages/*.
+// Encrypted messages — this app's whole screen.
+//
+// Moved from `wallet/zuuli/src/features/messages/index.tsx` in #904 phase 3.
+// The only behavioural change is the enrollment gap: e2e2z holds no wallet
+// seed, so `enrollment.getEnrollmentStatus()` refuses rather than answering,
+// and that refusal gets its own rendered state instead of an unhandled
+// rejection that would leave the page on its loading skeleton forever.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -8,13 +14,18 @@ import {
   Power,
   ShieldAlert,
   ShieldCheck,
+  Wallet,
 } from "lucide-react";
-import { PageHeader } from "@/components/common/PageHeader";
-import { Button } from "@/components/ui/button";
-import { Callout } from "@/components/ui/callout";
-import { Skeleton } from "@/components/ui/skeleton";
-import { enrollment, messaging } from "@/lib/messaging/bridge";
-import { listenMessaging } from "@/lib/messaging/events";
+import { PageHeader } from "../../components/common/PageHeader";
+import { Button } from "../../components/ui/button";
+import { Callout } from "../../components/ui/callout";
+import { Skeleton } from "../../components/ui/skeleton";
+import {
+  enrollment,
+  isEnrollmentUnavailable,
+  messaging,
+} from "../../lib/messaging/bridge";
+import { listenMessaging } from "../../lib/messaging/events";
 import type {
   Conversation,
   DeviceInfo,
@@ -22,7 +33,7 @@ import type {
   EngineStatus,
   EnrollmentStatus,
   IneligibilityReason,
-} from "@/lib/messaging/types";
+} from "../../lib/messaging/types";
 import { BrowserGuarantee } from "./BrowserGuarantee";
 import { FirstContact } from "./FirstContact";
 import { Transcript } from "./Transcript";
@@ -99,22 +110,30 @@ export default function MessagesFeature() {
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [enrollmentGap, setEnrollmentGap] = useState(false);
   const reconcileGeneration = useRef(0);
 
   const reconcile = useCallback(async () => {
     const generation = ++reconcileGeneration.current;
     const [engine, enrollmentState, deviceInfo] = await Promise.all([
       messaging.getEngineStatus(),
-      enrollment.getEnrollmentStatus(),
+      // The one call this app cannot make. A refusal is a state to render, not
+      // an error to swallow: anything else here reads as "not enrolled yet",
+      // which is a different and untrue thing.
+      enrollment.getEnrollmentStatus().catch((cause: unknown) => {
+        if (isEnrollmentUnavailable(cause)) return null;
+        throw cause;
+      }),
       messaging.getDeviceInfo(),
     ]);
-    const nextConversations = enrollmentState.enrolled
+    const nextConversations = enrollmentState?.enrolled
       ? (await messaging.listConversations()).conversations
       : [];
     if (generation !== reconcileGeneration.current) return;
 
     setStatus(engine);
     setEnrolled(enrollmentState);
+    setEnrollmentGap(enrollmentState === null);
     setDevice(deviceInfo);
     setConversations(nextConversations);
     setSelectedId(
@@ -185,7 +204,7 @@ export default function MessagesFeature() {
     setSelectedId(conversation.conversationId);
   }, []);
 
-  if (!status || !enrolled) {
+  if (!status || (!enrolled && !enrollmentGap)) {
     return (
       <div className="animate-slide-up space-y-6">
         <PageHeader
@@ -193,6 +212,39 @@ export default function MessagesFeature() {
           description="End-to-end encrypted messaging."
         />
         <Skeleton className="h-32 w-full" />
+      </div>
+    );
+  }
+
+  // The enrollment gap (#904, #905). This app can run the engine, hold device
+  // keys and render everything below — but it cannot claim a handle, because
+  // claiming one means signing with a key derived from the wallet seed
+  // (ARCHITECTURE.md §4.2). Rather than guess, it says so and stops: no claim
+  // control, no conversation list, and nothing that could be read as enrolled.
+  if (!enrolled) {
+    return (
+      <div className="animate-slide-up space-y-6">
+        <PageHeader
+          title="Messages"
+          description="End-to-end encrypted messaging."
+        />
+
+        {device && <BrowserGuarantee device={device} />}
+
+        <EngineSummary status={status} />
+
+        <Callout
+          tone="info"
+          icon={Wallet}
+          title="Enrollment happens in the wallet app"
+        >
+          Your messaging handle is published to the key transparency directory
+          under a key derived from your wallet's recovery phrase, and this app
+          never holds that phrase — which is exactly why it is safe to run your
+          conversations here. Claiming a handle, and issuing this device its
+          credential, is done in the wallet app. That handover is not built yet,
+          so nothing here is enrolled and no conversation can start.
+        </Callout>
       </div>
     );
   }

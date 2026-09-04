@@ -51,12 +51,6 @@ describe("app navigation information architecture", () => {
       ["articles", MESSAGE_KEYS.navArticles, MESSAGE_KEYS.navArticles, null],
       ["ai", MESSAGE_KEYS.navAi, MESSAGE_KEYS.navAiAccessible, MESSAGE_KEYS.navAi],
       [
-        "messages",
-        MESSAGE_KEYS.navMessages,
-        MESSAGE_KEYS.navMessagesAccessible,
-        null,
-      ],
-      [
         "wallet",
         MESSAGE_KEYS.navWallet,
         MESSAGE_KEYS.navWalletAccessible,
@@ -91,22 +85,14 @@ describe("app navigation information architecture", () => {
       "sign-in",
       "about",
     ]);
-    // Messaging is signed-in only, so it appears here and not in the
-    // signed-out list above. CLIENT-CONTRACT.md §2.4 places it at
-    // `{ area: "more", order: 0 }`; articles already holds that order, so the
-    // two tie and declaration order puts messaging second.
+    // Messaging moved to the e2e2z application in #904 phase 3, so the
+    // signed-in "More" list is the signed-out one plus the account routes.
     expect(mobileMoreNavigation(true).map((item) => item.id)).toEqual([
       "articles",
-      "messages",
       "profile",
       "revenue-share",
       "about",
     ]);
-    const messages = NAVIGATION.find((item) => item.id === "messages");
-    expect(messages?.labelKey).toBe(MESSAGE_KEYS.navMessages);
-    expect(messages?.accessibleLabelKey).toBe(
-      MESSAGE_KEYS.navMessagesAccessible,
-    );
     const revenueShare = NAVIGATION.find((item) => item.id === "revenue-share");
     expect(revenueShare?.labelKey).toBe(MESSAGE_KEYS.navRevenueShare);
     expect(revenueShare?.accessibleLabelKey).toBe(
@@ -124,14 +110,11 @@ describe("app navigation information architecture", () => {
       "about",
       "sign-in",
     ]);
-    // Messaging is `tools` order 1, directly after AI at order 0, and before
-    // the `money` group (CLIENT-CONTRACT.md §2.4).
     expect(desktopNavigation(true).map((item) => item.id)).toEqual([
       "home",
       "live",
       "articles",
       "ai",
-      "messages",
       "wallet",
       "profile",
       "revenue-share",

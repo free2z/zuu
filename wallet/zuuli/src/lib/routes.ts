@@ -15,7 +15,6 @@ export const APP_ROUTES = {
   kyc: "/kyc/*",
   wallet: "/wallet/*",
   ai: "/ai/*",
-  messages: "/messages/*",
   live: "/live/*",
   articles: "/articles/*",
   buy: "/buy/*",

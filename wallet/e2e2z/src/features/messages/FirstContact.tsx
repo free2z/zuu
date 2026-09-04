@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Ban, Loader2, MessageCirclePlus, UserPlus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Callout } from "@/components/ui/callout";
-import { Input } from "@/components/ui/input";
-import { messaging } from "@/lib/messaging/bridge";
-import { listenMessaging } from "@/lib/messaging/events";
+import { Button } from "../../components/ui/button";
+import { Callout } from "../../components/ui/callout";
+import { Input } from "../../components/ui/input";
+import { messaging } from "../../lib/messaging/bridge";
+import { listenMessaging } from "../../lib/messaging/events";
 import {
   ErrorCodeSchema,
   HANDLE_PATTERN,
   type ContactRequest,
   type Conversation,
   type ErrorCode,
-} from "@/lib/messaging/types";
+} from "../../lib/messaging/types";
 
 interface FirstContactProps {
   engineRunning: boolean;

@@ -7,8 +7,8 @@
 // a help page.
 
 import { ShieldAlert, ShieldQuestion } from "lucide-react";
-import { Callout } from "@/components/ui/callout";
-import type { DeviceInfo } from "@/lib/messaging/types";
+import { Callout } from "../../components/ui/callout";
+import type { DeviceInfo } from "../../lib/messaging/types";
 
 export function BrowserGuarantee({ device }: { device: DeviceInfo }) {
   if (device.platform !== "browser") return null;

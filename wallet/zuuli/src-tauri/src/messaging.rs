@@ -35,10 +35,20 @@
 //!   is why they need no entry in `capabilities/default.json` or
 //!   `capabilities/mobile.json` — a capability grants *plugin* commands.
 //! * **Arguments nested under a single `args` key, `camelCase` inside.** That
-//!   is §3's rule, which `bridge.ts` already follows for the enrollment trio
-//!   (`invokeApp(…, "enroll", { args: { handle } })`). `oauth.rs` is *not* the
-//!   precedent here — it passes some arguments flat — and §2.2 says so in as
-//!   many words.
+//!   is §3's rule, which `bridge.ts` already follows for the enrollment trio.
+//!   `oauth.rs` is *not* the precedent here — it passes some arguments flat —
+//!   and §2.2 says so in as many words.
+//!
+//! # Where the caller lives
+//!
+//! `bridge.ts` moved to `wallet/e2e2z` in #904 phase 3, along with the whole
+//! messaging surface: that app holds device keys and never the seed, which is
+//! exactly why these three could not go with it. e2e2z's copy of the bridge
+//! keeps the trio in its declared command population and refuses every call
+//! with a typed `EnrollmentUnavailableError`, so nothing there can appear
+//! enrolled. Issuing a `DeviceCredential` to that app is #905's
+//! `issue-device-credential` intent, and it does not ship before #461 gives it
+//! an authenticated channel — a custom-scheme deep link is not one.
 //!
 //! # `f2zmsg_enroll` is also the unlock path, and that is deliberate
 //!
@@ -250,9 +260,15 @@ mod tests {
     /// to. They carry no `plugin:` prefix, and a rename here would leave the
     /// frontend invoking a command that does not exist — a runtime failure with
     /// no build-time symptom on either side.
+    ///
+    /// The bridge lives in `wallet/e2e2z` since #904 phase 3 — the messaging
+    /// surface moved to the app that holds no seed. These three commands did
+    /// not move and cannot: they read the wallet seed in process. The names
+    /// therefore have to stay pinned across two packages rather than one, which
+    /// is more reason for this assertion, not less.
     #[test]
     fn the_enrollment_trio_keeps_its_wire_names() {
-        let bridge = include_str!("../../src/lib/messaging/bridge.ts");
+        let bridge = include_str!("../../../e2e2z/src/lib/messaging/bridge.ts");
         for name in [
             "f2zmsg_enrollment_status",
             "f2zmsg_enroll",

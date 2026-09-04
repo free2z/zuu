@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ContactRequest,
   Conversation,
-} from "@/lib/messaging/types";
+} from "../../lib/messaging/types";
 
 const controls = vi.hoisted(() => ({
   startConversation: vi.fn(),
@@ -16,7 +16,7 @@ const controls = vi.hoisted(() => ({
   listen: vi.fn(),
 }));
 
-vi.mock("@/lib/messaging/bridge", () => ({
+vi.mock("../../lib/messaging/bridge", () => ({
   messaging: {
     startConversation: controls.startConversation,
     listContactRequests: controls.listContactRequests,
@@ -24,7 +24,7 @@ vi.mock("@/lib/messaging/bridge", () => ({
     rejectContactRequest: controls.rejectContactRequest,
   },
 }));
-vi.mock("@/lib/messaging/events", () => ({
+vi.mock("../../lib/messaging/events", () => ({
   listenMessaging: controls.listen,
 }));
 

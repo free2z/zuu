@@ -43,7 +43,6 @@ import AuthFeature from "@/features/auth";
 const HomeFeature = lazy(() => import("@/features/home"));
 const WalletFeature = lazy(() => import("@/features/wallet"));
 const AiFeature = lazy(() => import("@/features/ai"));
-const MessagesFeature = lazy(() => import("@/features/messages"));
 const LiveFeature = lazy(() => import("@/features/live"));
 const ArticlesFeature = lazy(() => import("@/features/articles"));
 const SearchFeature = lazy(() => import("@/features/search"));
@@ -222,14 +221,6 @@ function AppRoutes() {
               element={
                 <Suspense fallback={<RouteFallback />}>
                   <CreatorFeature />
-                </Suspense>
-              }
-            />
-            <Route
-              path={APP_ROUTES.messages}
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <MessagesFeature />
                 </Suspense>
               }
             />
