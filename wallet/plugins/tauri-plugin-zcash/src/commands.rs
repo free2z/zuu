@@ -258,21 +258,18 @@ fn open_wallet_context(
 /// Lazily authenticate and install spending authority for the active wallet.
 /// The transition token proves that active-ID lookup, UFVK validation in native
 /// custody, and the in-memory seed installation all refer to one wallet.
+///
+/// The body moved to `crate::wallet` when a second, non-IPC caller appeared
+/// (the intent bridge's `execute-payment` authority). This stays as the name
+/// every command in this file calls, so the sequencing rule
+/// `send-review-boundary.node-test.mjs` reads out of `execute_send` — consume
+/// the confirmation *before* loading custody — is still stated where a reader
+/// of the command finds it.
 async fn ensure_active_seed_loaded(
     state: &crate::wallet::WalletState,
     transition: &crate::wallet::WalletTransitionGuard<'_>,
 ) -> Result<()> {
-    if state.seed.lock().await.is_some() {
-        return Ok(());
-    }
-    let wallet_id = state
-        .active_wallet_id()
-        .await
-        .ok_or(Error::WalletNotInitialized)?;
-    let phrase = state.get_seed_phrase(transition, &wallet_id).await?;
-    let mnemonic = keys::parse_mnemonic(&phrase)?;
-    *state.seed.lock().await = Some(keys::mnemonic_to_seed(&mnemonic));
-    Ok(())
+    crate::wallet::ensure_active_seed_loaded(state, transition).await
 }
 
 fn ensure_challenge_signing_allowed(

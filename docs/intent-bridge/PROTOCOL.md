@@ -13,6 +13,9 @@ Companion documents:
   platform, and what cannot be established.
 - [`CONFORMANCE.md`](./CONFORMANCE.md) — every guard, and the mutation that
   proves the test for it is not inert.
+- [`AUTHORITY.md`](./AUTHORITY.md) — the ZUULI side: what `execute-payment`
+  actually does, why `sign-challenge` is not implemented, and where the
+  confirmation is weaker than it looks.
 
 ---
 
@@ -46,7 +49,8 @@ one rendering.
 
 | Half | Path | Role |
 |---|---|---|
-| Wallet | `rs/crates/f2z-intent` | parse, validate, expire, one-use, authorize caller, bind confirmation |
+| Wallet — the rules | `rs/crates/f2z-intent` | parse, validate, expire, one-use, authorize caller, bind confirmation |
+| Wallet — the authority | `wallet/zuuli/src-tauri/src/intent.rs` | receive, confirm natively, act. `execute-payment` only — see [`AUTHORITY.md`](./AUTHORITY.md) |
 | Clients | `wallet/shared/src/intent` (`@free2z/wallet-shared`) | build requests, remember them, refuse unsolicited answers |
 
 There is **one** client implementation and
@@ -254,7 +258,27 @@ The order is a decision:
 
 Then, and only then, ZUULI renders **its own** confirmation.
 
-### 4.1 One-use
+### 4.1 Which refusals burn the identifier
+
+A caller-facing consequence of that ordering, because it decides what a retry
+has to look like:
+
+| Refused at | `request_id` |
+|---|---|
+| steps 1–3 — malformed, unsupported version, unknown family, invalid field, unregistered caller, expired or not-yet-valid window | **not spent.** The honest caller may present the same bytes again |
+| step 4 and everything after — replay, ledger full, and every refusal the wallet reaches *after* admission (a family this build does not implement, a user who cancelled, `INTENT_UNAVAILABLE`) | **spent, permanently** |
+
+So **an honest caller that retries after `INTENT_UNAVAILABLE` must mint a fresh
+`request_id`.** Re-presenting the same bytes gets `INTENT_REPLAY`, not a second
+attempt.
+
+That is the safe direction and it is deliberate rather than incidental: the
+alternative — releasing an identifier because *this* attempt did not spend
+money — would mean deciding, after the fact, that an approval the user may have
+already given did not count. One-use has to be decided before the wallet acts,
+or it is not one-use.
+
+### 4.2 One-use
 
 The replay ledger holds 1024 unexpired identifiers. When it is full it
 **refuses** (`INTENT_LEDGER_FULL`) rather than evicting the oldest — because an
@@ -265,10 +289,20 @@ capped at five minutes, pruning always makes progress, so a full ledger is a
 transient refusal and never a wedge.
 
 The ledger is process-local and lost on restart, deliberately — the same choice
-`wallet/zuuli/src/lib/wallet/creator-tip.ts` makes. A restart cannot resurrect a
-*confirmed* intent, because the confirmation lives in the same process. What it
-can do is let an **un**confirmed intent be presented again, which shows the user
-the confirmation again. That is correct behaviour, not a gap.
+`wallet/zuuli/src/lib/wallet/creator-tip.ts` makes. Be precise about what that
+costs, because it is easy to overstate:
+
+- A restart destroys the **authorization object**, so an approval granted before
+  the restart cannot be spent after it. That much the process boundary gives.
+- It does **not** make the *request* unrepeatable. Inside its ≤5-minute window
+  the same bytes are admitted again by an empty ledger, and the user is shown
+  the same confirmation again.
+
+So the barrier against a restart turning one issuance into two payments is **a
+second human approval**, not the ledger. Two approvals of two identical
+confirmations are two payments. That is the correct behaviour for a control
+whose authority is the human — but "one-use" here means one use per process, and
+the durable guarantee is the confirmation, not the identifier.
 
 ## 5. Binding an intent to its confirmation
 

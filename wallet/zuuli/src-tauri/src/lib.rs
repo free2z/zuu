@@ -1,3 +1,4 @@
+pub mod intent;
 mod messaging;
 mod oauth;
 
@@ -35,6 +36,11 @@ pub fn run() {
         // (X / Google / GitHub) — ZUULI-specific, see src/oauth.rs. Inert
         // until invoked; the frontend only calls these commands once the
         // backend reports a provider is configured.
+        // The intent bridge's authority side (#905). Managed state, never an
+        // IPC command: it holds the one-use replay ledger for the process, and
+        // the privileged WebView must not be able to mint an intent (#367).
+        // `wallet/zuuli/src-tauri/src/intent.rs` is where the reasoning lives.
+        .manage(intent::IntentAuthority::new())
         .manage(oauth::OauthLoopbackState::default())
         .manage(oauth::OauthMobileState::default())
         .invoke_handler(tauri::generate_handler![

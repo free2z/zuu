@@ -63,6 +63,18 @@ f2z-msg-mls = { path = "../../../rs/crates/f2z-msg-mls", version = "0.1.0" }
 secrecy = "0.8"
 # Hex for `identity_pk`, which crosses into the engine as a string.
 hex = "0.4"
+# The intent bridge, version 1 (`docs/intent-bridge/PROTOCOL.md`). ZUULI is the
+# authority side: `src/intent.rs` calls `IntentGate::admit` and re-implements
+# none of its guards. `no_std`, no I/O, no clock, no randomness — every one of
+# which this crate passes in — and no cryptography beyond hashing. It adds no
+# package to the graph: `f2z-codec`, `tls_codec` and `subtle` are already here
+# through the messaging crates.
+f2z-intent = { path = "../../../rs/crates/f2z-intent", version = "0.1.0" }
+# Structured logging for the intent authority's refusals. A refusal carries a
+# code and nothing else across the bridge (`f2z-intent`'s error rule), so the
+# plugin error that produced it has to go somewhere an operator can read, and
+# `tauri-plugin-zcash` already logs through this facade.
+tracing = "0.1"
 
 # Keep Tauri's mock runtime out of Windows test executables; the hosted runner
 # cannot load that linkage. The shipping router still compiles on Windows, and

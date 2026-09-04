@@ -66,11 +66,22 @@ pub enum IntentError {
     /// A response does not correspond to any outstanding request this client
     /// issued.
     Unsolicited,
+    /// The wallet accepted the request but could not act on it: no wallet is
+    /// open, the payment cannot be funded, the prover or the network is
+    /// unavailable, or a broadcast did not complete.
+    ///
+    /// This is deliberately **not** [`Self::InvalidValue`]. A request the
+    /// wallet cannot fund is not a malformed request, and telling an honest
+    /// caller its message was invalid is how it "fixes" a message that was
+    /// already correct. It carries no detail for the same reason nothing else
+    /// here does — the caller is an app the wallet does not trust, and
+    /// "insufficient funds" is a balance oracle.
+    Unavailable,
 }
 
 impl IntentError {
     /// Every refusal, in wire order. Used by the exhaustiveness tests.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Malformed,
         Self::UnsupportedVersion,
         Self::UnknownIntent,
@@ -82,6 +93,7 @@ impl IntentError {
         Self::NotConfirmed,
         Self::CallerNotAuthorized,
         Self::Unsolicited,
+        Self::Unavailable,
     ];
 
     /// The wire status. `0` means fulfilled and is therefore not a variant.
@@ -99,6 +111,7 @@ impl IntentError {
             Self::NotConfirmed => 9,
             Self::CallerNotAuthorized => 10,
             Self::Unsolicited => 11,
+            Self::Unavailable => 12,
         }
     }
 
@@ -120,6 +133,7 @@ impl IntentError {
             9 => Self::NotConfirmed,
             10 => Self::CallerNotAuthorized,
             11 => Self::Unsolicited,
+            12 => Self::Unavailable,
             _ => return None,
         })
     }
@@ -139,6 +153,7 @@ impl IntentError {
             Self::NotConfirmed => "INTENT_NOT_CONFIRMED",
             Self::CallerNotAuthorized => "INTENT_CALLER_NOT_AUTHORIZED",
             Self::Unsolicited => "INTENT_UNSOLICITED",
+            Self::Unavailable => "INTENT_UNAVAILABLE",
         }
     }
 }
@@ -182,7 +197,7 @@ mod tests {
             "0 is `fulfilled`, never a refusal"
         );
         assert_eq!(
-            IntentError::from_status(12),
+            IntentError::from_status(13),
             None,
             "an unknown status must stay unknown rather than map onto a default"
         );

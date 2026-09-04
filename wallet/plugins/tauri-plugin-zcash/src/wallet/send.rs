@@ -426,7 +426,14 @@ fn create_pending_proposal(
     (pending, public)
 }
 
-fn format_zec_amount(zatoshis: u64) -> String {
+/// Render zatoshis the way every native confirmation in this wallet does.
+///
+/// `pub` so a second native confirmation cannot arrive with a second amount
+/// format: the intent bridge's `execute-payment` confirmation
+/// (`wallet/zuuli/src-tauri/src/intent.rs`) shows the same numbers to the same
+/// human, and two renderings of one amount is how "0.001" and "0.0001" end up
+/// on two screens that both claim to describe one payment.
+pub fn format_zec_amount(zatoshis: u64) -> String {
     format!(
         "{}.{:08} ZEC",
         zatoshis / 100_000_000,
@@ -464,7 +471,13 @@ fn is_unicode_format_control(character: char) -> bool {
 /// Quote an exact memo without allowing Unicode layout controls to alter the
 /// native dialog's field structure. Ordinary Unicode stays readable; every
 /// character that can add a line, hide text, or reorder fields is visible.
-fn quote_native_memo(memo: &str) -> String {
+///
+/// `pub` for the same reason [`format_zec_amount`] is: #528's treatment is the
+/// one this wallet applies to *any* untrusted string that lands inside a native
+/// confirmation, and the intent bridge has one more of those — the caller's
+/// stated purpose. A second escaper would be a second answer to a question this
+/// function already answers, and the second answer is always the weaker one.
+pub fn quote_native_memo(memo: &str) -> String {
     let mut quoted = String::with_capacity(memo.len() + 2);
     quoted.push('"');
     for character in memo.chars() {
@@ -490,14 +503,18 @@ fn quote_native_memo(memo: &str) -> String {
     quoted
 }
 
-/// Exact native confirmation copy. Memo layout controls are visibly escaped
-/// so untrusted content cannot visually impersonate or reorder a field.
-pub(crate) fn format_native_send_confirmation(review: &SendReview) -> Result<String> {
-    let mut lines = vec![
-        "A web page requested this Zcash payment. Verify every field in this native dialog."
-            .to_owned(),
-        String::new(),
-    ];
+/// The reviewed payment itself, one line per field, with #528's visible
+/// escaping — and **nothing about who asked**.
+///
+/// This is the block a human actually audits: recipient, amount, memo, fee,
+/// total, network, change policy. It is split out of
+/// [`format_native_send_confirmation`] so the intent bridge's `execute-payment`
+/// confirmation can render the *same* block under a different heading rather
+/// than growing a parallel one. Every field here is re-derived from the native
+/// proposal by [`review_from_native_proposal`]; none of it is renderer- or
+/// caller-supplied text.
+pub fn native_review_lines(review: &SendReview) -> Vec<String> {
+    let mut lines = Vec::new();
     for (index, payment) in review.payments.iter().enumerate() {
         if review.payments.len() > 1 {
             lines.push(format!("Payment {}", index + 1));
@@ -515,6 +532,20 @@ pub(crate) fn format_native_send_confirmation(review: &SendReview) -> Result<Str
         format!("Total: {}", format_zec_amount(review.total)),
         format!("Network: {}", review.network),
         "Change: shielded automatically".to_owned(),
+    ]);
+    lines
+}
+
+/// Exact native confirmation copy. Memo layout controls are visibly escaped
+/// so untrusted content cannot visually impersonate or reorder a field.
+pub(crate) fn format_native_send_confirmation(review: &SendReview) -> Result<String> {
+    let mut lines = vec![
+        "A web page requested this Zcash payment. Verify every field in this native dialog."
+            .to_owned(),
+        String::new(),
+    ];
+    lines.extend(native_review_lines(review));
+    lines.extend([
         String::new(),
         "Authorize only if these are the payment details you intend to send.".to_owned(),
     ]);
