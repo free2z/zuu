@@ -14,7 +14,7 @@ const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 const changeDetectorDigest =
-  "f75d1b5797cad3446e27bebccb341b2beaadf9f8b9e8ba76db478f3212299d47";
+  "cad2731734c97401e94ae2b25a722141f09488a107ddde6f28618a5454786c02";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
