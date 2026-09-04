@@ -225,7 +225,7 @@ pinned **alone**: deleting any one of them, by itself, turns something red.
 | creator-tip trim-equality rule | `refuses an untrimmed username`, `…label` | FAILS |
 | creator-tip control-character rejection | `refuses a control character in the label`, `…a DEL in the username` | FAILS |
 | creator-tip recipient-whitespace rejection | `refuses an address split by a space` | FAILS |
-| `IntentErrorCode.Unavailable` (status 12) in the client | `carries INTENT_UNAVAILABLE through as itself, not as a decode failure` | FAILS |
+| `IntentErrorCode.Unavailable` (status 12, from #914) in the client | `carries INTENT_UNAVAILABLE through as itself, not as a decode failure` | FAILS |
 | `unsendable` gets its own copy, not the wallet-declined copy | `never tells the payer the wallet declined when it was never asked` | FAILS |
 | certainty attribution per outcome | `is certain only where certainty is earned` | FAILS |
 | an ambiguous broadcast read as a plain refusal | `treats an ambiguous broadcast as unknown, not as a refusal` | FAILS |
@@ -262,17 +262,26 @@ where "the transaction exists locally and the wallet retains the exact bytes for
 that says "your ZEC is untouched" there is wrong in the one direction that
 matters.
 
-And the client could not even see it. `error.ts` defined statuses 1–11 while
-`rs/crates/f2z-intent/src/error.rs` defines twelve, so
-`IntentSession.accept`'s `intentErrorFromStatus(status) ?? Malformed` reported an
-`INTENT_UNAVAILABLE` refusal as `INTENT_MALFORMED` — "the wallet's answer was
-garbage" instead of "the wallet could not finish, go look". That is fixed here,
-and the mutation that removes status 12 again reproduces the old reading exactly:
+`INTENT_UNAVAILABLE` is status 12, which
+[#914](https://github.com/free2z/zuu/pull/914) added to **both** halves —
+`rs/crates/f2z-intent/src/error.rs` and `wallet/shared/src/intent/error.ts` —
+when it introduced the status. The two have never disagreed on `main`.
+
+The behaviour that makes it worth a test here is
+`IntentSession.accept`'s `intentErrorFromStatus(status) ?? Malformed`: a status
+this build does not know becomes `INTENT_MALFORMED`, which reads as "the
+wallet's answer was garbage" rather than "the wallet could not finish, go
+look". For a status that can mean *a transaction may exist*, those are the
+difference between reassuring a payer and sending them to their wallet. The
+mutation deletes status 12 from the client and reproduces exactly that reading:
 
 ```
 × carries INTENT_UNAVAILABLE through as itself, not as a decode failure
   → expected { kind: 'refused', error: 1 } to deeply equal { kind: 'refused', error: undefined }
 ```
+
+The test pins main's definition, not a local one — so it also fails if a future
+change drops a status the wallet still emits.
 
 `features/creator/tip-copy.ts` is now the single exhaustive map, with a `never`
 binding so a sixth outcome cannot fall through, and

@@ -630,15 +630,15 @@ describe("a response is accepted only when it answers this exact request", () =>
   });
 
   /**
-   * `INTENT_UNAVAILABLE` is status 12, and the client used to stop at 11.
+   * `INTENT_UNAVAILABLE` is status 12, defined in both halves by `#914`.
    *
    * `IntentSession.accept` maps an unrecognised status through
-   * `intentErrorFromStatus(...) ?? Malformed`, so before status 12 was added to
-   * `wallet/shared/src/intent/error.ts` this refusal arrived as
-   * `INTENT_MALFORMED` — "the wallet's answer was garbage" — when what ZUULI
-   * actually said was "I could not complete this, and a transaction may exist
-   * locally". Those two are the difference between reassuring a payer and
-   * sending them to look at their wallet.
+   * `intentErrorFromStatus(...) ?? Malformed`, so a client that did not know
+   * this status would report the refusal as `INTENT_MALFORMED` — "the wallet's
+   * answer was garbage" — when what ZUULI actually said was "I could not
+   * complete this, and a transaction may exist locally". Those two are the
+   * difference between reassuring a payer and sending them to look at their
+   * wallet, so the status is pinned here rather than assumed.
    */
   it("carries INTENT_UNAVAILABLE through as itself, not as a decode failure", async () => {
     const outcome = await tip(
