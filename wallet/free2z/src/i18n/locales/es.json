@@ -35,8 +35,34 @@
     "body": "Comprar 2Zs sigue en ZUULI mientras se separa su ruta de recarga con Zcash del pago con tarjeta. Llegará a free2z a continuación.",
     "title": "Añadir 2Zs"
   },
+  "live": {
+    "failure": {
+      "endedRoom": "Esta transmisión ha terminado o ya no acepta espectadores.",
+      "expiredTicket": "El acceso caducó antes de iniciar la conexión. Inténtalo de nuevo.",
+      "lifecycleRace": "La transmisión cambió mientras te unías. Vuelve a las transmisiones en vivo y ábrela de nuevo.",
+      "malformedTicket": "El servidor devolvió un acceso no válido. Inténtalo de nuevo en un momento.",
+      "offline": "No tienes conexión. Vuelve a conectarte e inténtalo de nuevo.",
+      "policy": "La aplicación bloqueó la conexión en vivo. Comprueba los permisos o la configuración de seguridad de red e inténtalo de nuevo.",
+      "replayedTicket": "El servidor no emitió un acceso nuevo. Inténtalo de nuevo en un momento.",
+      "timeout": "Se agotó el tiempo de espera de la conexión en vivo. Inténtalo de nuevo.",
+      "tokenRejected": "El servicio en vivo rechazó esta conexión. Inténtalo de nuevo.",
+      "transport": "No se pudo contactar con el servicio en vivo. Cambia de red o inténtalo de nuevo.",
+      "unknown": "La conexión en vivo falló. Inténtalo de nuevo."
+    },
+    "stage": {
+      "connecting": "Conectando con la transmisión…",
+      "ended": "La transmisión ha terminado.",
+      "hostRecoveryHint": "La reconexión usa la sala existente y no inicia otra transmisión.",
+      "reconnect": "Volver a conectar",
+      "refreshingTicket": "Obteniendo un acceso nuevo…",
+      "tryAgain": "Intentarlo de nuevo",
+      "waitingForConnection": "Esperando conexión"
+    }
+  },
   "navigation": {
     "accountMenu": "Menú de la cuenta",
+    "ai": "IA",
+    "aiAccessible": "Inteligencia artificial",
     "app": "Navegación de la aplicación",
     "articles": "Artículos",
     "back": "Volver",
@@ -47,9 +73,15 @@
       "explore": "Explorar",
       "money": "Dinero"
     },
+    "live": "Transmisiones en vivo",
     "login": "Iniciar sesión",
     "primary": "Navegación principal",
+    "search": "Buscar creadores, páginas y temas",
     "searchAction": "Buscar",
     "signOut": "Cerrar sesión"
+  },
+  "search": {
+    "all": "Buscar en todo free2z",
+    "clear": "Borrar búsqueda"
   }
 }

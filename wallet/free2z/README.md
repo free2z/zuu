@@ -76,13 +76,17 @@ isolation and re-enable the bundle.
 
 ## What has moved, and what has not
 
-Moved: `features/articles/**`, `features/creator/**`, the Markdown stack
-(`Markdown`, `Mermaid` + its worker, `RemoteMedia`, `ImagePrivacySetting`,
-`lib/markdown/`, `lib/media/`), the `lib/api` surface those read, `store/session`,
-the shared `components/ui` set, the i18n kernel, and a shell built for this app.
+Moved: `features/articles/**`, `features/creator/**`, `features/search/**`,
+`features/ai/**`, `features/live/**`, the Markdown stack (`Markdown`, `Mermaid`
++ its worker, `RemoteMedia`, `ImagePrivacySetting`, `lib/markdown/`,
+`lib/media/`), the `lib/api` surface those read, `store/session`, the shared
+`components/ui` set, the i18n kernel, and a shell built for this app.
 
-Not yet moved: `features/live` (Cloudflare RealtimeKit and its CSP hosts),
-`features/ai`, `features/search`, and `features/wallet/funding`. `/fund` is a
+Search, AI and Live arrived in #904 phase 2. None of them needed a capability, a
+command, or a plugin: `src-tauri/src/lib.rs` still registers no `invoke_handler`
+at all. Live did need CSP work — see **The RealtimeKit CSP** below.
+
+Not yet moved: `features/wallet/funding`. `/fund` is a
 route here today that says where 2Z top-up lives, because
 `wallet/zuuli/src/features/wallet/funding/` is not HTTP+Stripe only — its
 `index.tsx`, `BalanceHero`, `SendTab` and `zec-top-up-demo` read `store/wallet`,
@@ -156,7 +160,9 @@ Three things enforce it, all inside the required `gate`:
 ```
 default-src 'self'; img-src 'self' data: blob: https:; media-src 'self' https:;
 frame-src 'none'; connect-src 'self' https://free2z.cash https://*.free2z.cash
-https://free2z.com https://*.free2z.com; style-src 'self' 'unsafe-inline';
+https://free2z.com https://*.free2z.com https://api.realtime.cloudflare.com
+https://rtk-assets.realtime.cloudflare.com
+wss://socket-edge.realtime.cloudflare.com; style-src 'self' 'unsafe-inline';
 script-src 'self'
 ```
 
@@ -168,12 +174,51 @@ destination consent, which is what `tests/remote-media-consent.pw.ts` proves.
 `isTauri()` branch: a packaged build opens a YouTube/Vimeo embed in the OS
 browser instead of framing it. Flipping that branch is the reviewed change this
 app exists to make — and it is a *product* change with its own test surface, not
-a side effect of moving a file. `frame-src` opens with it, not before. Likewise
-RealtimeKit's `connect-src`/`media-src` hosts (#816/#818) arrive with
-`features/live`.
+a side effect of moving a file. `frame-src` opens with it, not before.
 
 Relaxing this stays *only* a CSP change: it must never be accompanied by a
 capability or a plugin.
+
+## The RealtimeKit CSP
+
+Live brings a large third-party runtime, and #816 is the proof that getting its
+CSP wrong is not a theoretical risk: ZUULI's packaged policy blocked the SDK's
+very first request and "Join Free" failed with `ERR0001` in founder QA. So the
+three admitted origins are the ones this app can actually reach, each justified
+in `tests/realtimekit-csp.pw.ts`, which loads the *real* packaged policy and the
+*real* bundled SDK:
+
+| Origin | Why |
+| --- | --- |
+| `https://api.realtime.cloudflare.com` | `RealtimeKitClient.init()`'s first call, `/v2/internals/participant-details`. The negative-control test removes it and reproduces `ERR0001` exactly. |
+| `wss://socket-edge.realtime.cloudflare.com` | The meeting transport. `SocketService.getSocketEdgeDomain()` composes `socket-edge.${baseURI}`. |
+| `https://rtk-assets.realtime.cloudflare.com` | `fetchEmojis()` in `@cloudflare/realtimekit-ui` loads the reactions catalog for `<RtkMeeting>`, with no `try`/`catch` around it. |
+
+This is **narrower than ZUULI's list**, and the refusals are asserted, not just
+omitted. `location` / `location-legacy` are a callstats **IP-address** lookup;
+`da-collector` and `api-silos` are device analytics and OTel log shipping. All
+four are best-effort inside a `try`/`catch` that only logs, and a content app
+should not beacon a reader's IP to a third party to produce a call statistic —
+the initialization test proves init reaches the server boundary with **zero**
+CSP violations without them. `r2.cloudflarestorage.com` appears nowhere in the
+installed dependency tree. `*.dyte.io` is dead: RealtimeKit 1.5.1 *throws*
+"Dyte Base URIs are no longer supported" if the base URI contains `dyte.io`.
+
+Three directives stay shut, and Live does not ask otherwise:
+
+* `frame-src 'none'` — RealtimeKit renders the meeting as web components in the
+  document. It uses no iframes, so the surface that renders untrusted remote
+  content gains nothing by admitting them (#367).
+* `script-src 'self'` — no `'wasm-unsafe-eval'`. ZUULI's came from #535
+  (first-party Rust WASM); `grep -rl WebAssembly` over the three `@cloudflare`
+  packages returns nothing.
+* no `worker-src` — the only `new Worker("data:…")` in the SDK is inside
+  `EncryptionManager`, a separate entry point this app never imports, so
+  `worker-src` falls back to `default-src 'self'`.
+
+`media-src` needed no change: video is attached via `srcObject` (a
+`MediaStream`, which CSP does not govern), and every `createObjectURL` blob in
+the SDK is an `<img>` source, already covered by `img-src … blob:`.
 
 ## The Vite configuration
 

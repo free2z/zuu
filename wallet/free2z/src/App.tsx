@@ -37,6 +37,12 @@ import AuthFeature from "@/features/auth";
 const ArticlesFeature = lazy(() => import("@/features/articles"));
 const CreatorFeature = lazy(() => import("@/features/creator"));
 const FundFeature = lazy(() => import("@/features/fund"));
+const SearchFeature = lazy(() => import("@/features/search"));
+const AiFeature = lazy(() => import("@/features/ai"));
+// Live pulls the whole RealtimeKit runtime. Splitting it matters more here than
+// anywhere else: a reader who never opens a stream never downloads or parses
+// the SDK, and the CSP origins it needs stay inert until this chunk loads.
+const LiveFeature = lazy(() => import("@/features/live"));
 
 /** Finish a mobile OAuth callback that cold-started or resumed the app. */
 function MobileOAuthRecovery() {
@@ -105,6 +111,30 @@ function AppRoutes() {
             element={
               <Suspense fallback={<RouteFallback />}>
                 <ArticlesFeature />
+              </Suspense>
+            }
+          />
+          <Route
+            path={APP_ROUTES.search}
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <SearchFeature />
+              </Suspense>
+            }
+          />
+          <Route
+            path={APP_ROUTES.ai}
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <AiFeature />
+              </Suspense>
+            }
+          />
+          <Route
+            path={APP_ROUTES.live}
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <LiveFeature />
               </Suspense>
             }
           />
