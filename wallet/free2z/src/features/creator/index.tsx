@@ -36,12 +36,17 @@ import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { discover, live, tuzi } from "@/lib/api/free2z";
 import {
   formatTuzis,
+  formatZecDisplay,
   initials,
+  MAX_TIP_ZEC,
   MAX_TUZIS,
+  MAX_ZEC_INPUT_LENGTH,
   timeAgo,
+  truncateAddress,
   tuziInputExample,
   tuziInputMaxLength,
   validateTuzis,
+  validateZec,
 } from "@/lib/format";
 import { coverTone } from "@/lib/cover";
 import { cn } from "@/lib/utils";
@@ -57,7 +62,7 @@ import { useSession } from "@/store/session";
 import type { Article, CreatorDetail, Subscription } from "@/lib/api/types";
 import { paidActionGate } from "@/lib/auth/paid-action";
 import { preservePaidIntent, type PaidIntent } from "@/lib/auth/paid-intent";
-import { recordCreatorTipIntent } from "@/lib/bridge/creator-tip";
+import { requestCreatorTipPayment } from "@/lib/bridge/creator-tip";
 import { CreatorSocialLinks } from "./SocialLinks";
 import { useCreatorCatalog } from "./catalog";
 import { MESSAGE_KEYS } from "@/i18n/messages";
@@ -811,6 +816,15 @@ function SubscribeButton({
 // ─── Tip ──────────────────────────────────────────────────────────────────────
 const TIP_PRESETS = [50, 100, 250, 500];
 
+/**
+ * ZEC tip presets, as the exact decimal strings the input carries.
+ *
+ * Strings, not numbers: `parseZecToZatoshis` is the one conversion and it reads
+ * text, so a preset that arrived as `0.05` the float would be converted by a
+ * second, different path. Every one of these is a whole number of zatoshis.
+ */
+const ZEC_TIP_PRESETS = ["0.001", "0.01", "0.05", "0.1"];
+
 function TipButton({
   creator,
   restored,
@@ -833,6 +847,7 @@ function TipButton({
   const [open, setOpen] = useState(false);
   const [currency, setCurrency] = useState<"zec" | "tuzi">("tuzi");
   const [amount, setAmount] = useState("100");
+  const [zecAmount, setZecAmount] = useState("0.01");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -855,6 +870,11 @@ function TipButton({
     cost: validAmount ? parsedAmount : null,
   });
   const canSend = validAmount && gate === "ready" && !busy;
+
+  const zecResult = validateZec(zecAmount);
+  const zatoshis = zecResult.zatoshis;
+  const validZec = zecResult.error === null && zatoshis !== null;
+  const canSendZec = validZec && Boolean(creator.p2paddr) && !busy;
 
   function signInToTip() {
     const returnTo = preservePaidIntent(location.pathname, {
@@ -885,23 +905,54 @@ function TipButton({
   }
 
   // ZUULI hands this to `/wallet/send/creator-tip`. This surface has no wallet
-  // route and no signer, so the intent is validated and recorded and the reader
-  // is told where the tip can actually be signed. No deep link is invented
-  // here: the cross-surface protocol is #905 and nothing ships on it before
-  // #461 (see `@/lib/bridge/creator-tip`).
-  function continueWithZec() {
+  // route and no signer, so it builds the `execute-payment` intent (#790, #905)
+  // and hands it to the ONE transport seam — which refuses, because #461
+  // (verified App Links / Universal Links) has not landed and a custom scheme
+  // is not an authenticated channel. Three outcomes, three different things
+  // said, and a txid only ever from `kind === "sent"`: this surface must never
+  // claim a payment it cannot show a correlated response for.
+  async function continueWithZec() {
+    if (!canSendZec || zatoshis === null) return;
+    const amountLabel = formatZecDisplay(zatoshis);
+    setBusy(true);
     try {
-      recordCreatorTipIntent({
-        username: creator.username,
-        label: name,
-        recipient: creator.p2paddr ?? "",
-      });
+      const outcome = await requestCreatorTipPayment(
+        {
+          username: creator.username,
+          label: name,
+          recipient: creator.p2paddr ?? "",
+        },
+        zatoshis,
+      );
       setOpen(false);
-      toast.info(t(MESSAGE_KEYS.creatorZecTipPendingTitle), {
-        description: t(MESSAGE_KEYS.creatorZecTipPendingBody, { creator: name }),
+      if (outcome.kind === "sent") {
+        toast.success(t(MESSAGE_KEYS.creatorZecTipSentTitle), {
+          description: t(MESSAGE_KEYS.creatorZecTipSentBody, {
+            amount: amountLabel,
+            creator: name,
+            // An opaque identifier, so it shortens in the middle and keeps its
+            // tail — never a CSS clip on top (see `truncateAddress`).
+            txid: truncateAddress(outcome.txid),
+          }),
+        });
+        return;
+      }
+      if (outcome.kind === "no-transport") {
+        toast.info(t(MESSAGE_KEYS.creatorZecTipBlockedTitle), {
+          description: t(MESSAGE_KEYS.creatorZecTipBlockedBody, {
+            amount: amountLabel,
+            creator: name,
+          }),
+        });
+        return;
+      }
+      toast.error(t(MESSAGE_KEYS.creatorZecTipRefusedTitle), {
+        description: t(MESSAGE_KEYS.creatorZecTipRefusedBody, { creator: name }),
       });
     } catch {
       toast.error("This creator doesn't have a usable ZEC tip address.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -957,18 +1008,71 @@ function TipButton({
             </button>
           </div>
           {currency === "zec" ? (
-            <div className="space-y-3 rounded-xl border border-border bg-card/50 p-4">
-              <div>
+            <div className="space-y-4">
+              <div className="space-y-1 rounded-xl border border-border bg-card/50 p-4">
                 <p className="font-medium">Send ZEC from your wallet</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Choose the amount in Wallet Send, then review the native
-                  destination, fee, network, memo, and change policy.
+                <p className="text-sm text-muted-foreground">
+                  Choose the amount here. ZUULI holds the key, re-derives this
+                  payment from its own wallet, and shows you the destination,
+                  fee and network before it signs anything.
                 </p>
               </div>
               {creator.p2paddr ? (
-                <p className="text-xs text-muted-foreground">
-                  {name}'s exact creator address will be locked in Wallet Send.
-                </p>
+                <>
+                  <div
+                    className="grid grid-cols-4 gap-2"
+                    role="group"
+                    aria-label="ZEC tip presets"
+                  >
+                    {ZEC_TIP_PRESETS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setZecAmount(preset)}
+                        aria-pressed={zecAmount === preset}
+                        className={cn(
+                          "min-tap rounded-lg border px-2 py-2 text-sm font-medium bidi-number tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                          zecAmount === preset
+                            ? "border-zec/50 bg-zec/10 text-zec"
+                            : "border-border bg-transparent text-muted-foreground hover:bg-secondary",
+                        )}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="creator-tip-zec-amount">Amount (ZEC)</Label>
+                    <Input
+                      id="creator-tip-zec-amount"
+                      type="text"
+                      inputMode="decimal"
+                      maxLength={MAX_ZEC_INPUT_LENGTH}
+                      value={zecAmount}
+                      onChange={(e) => setZecAmount(e.target.value)}
+                      className="bidi-number tabular-nums"
+                      aria-describedby="creator-tip-zec-error creator-tip-zec-destination"
+                      aria-invalid={zecAmount.length > 0 && !validZec}
+                    />
+                    <p
+                      id="creator-tip-zec-destination"
+                      className="text-xs text-muted-foreground"
+                    >
+                      Paid to {name}'s creator address, which ZUULI shows you in
+                      full before it signs.
+                    </p>
+                    <p
+                      id="creator-tip-zec-error"
+                      className="min-h-[1rem] text-xs text-destructive"
+                    >
+                      {zecResult.error === "tooLarge"
+                        ? `Max ${MAX_TIP_ZEC.toLocaleString()} ZEC per tip.`
+                        : zecAmount.length > 0 && zecResult.error !== null
+                          ? "Enter a ZEC amount above zero, with up to 8 decimals."
+                          : null}
+                    </p>
+                  </div>
+                </>
               ) : (
                 <p className="text-sm text-warning" role="status">
                   {name} hasn't added a ZEC tip address yet.
@@ -1046,11 +1150,23 @@ function TipButton({
           {currency === "zec" ? (
             <Button
               variant="zec"
-              onClick={continueWithZec}
-              disabled={!creator.p2paddr}
+              onClick={() => void continueWithZec()}
+              disabled={!canSendZec}
             >
-              Continue with ZEC
-              <ArrowRight className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
+              {busy ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  Asking ZUULI
+                </>
+              ) : (
+                <>
+                  Continue with ZEC
+                  <ArrowRight
+                    className="rtl:-scale-x-100 h-4 w-4"
+                    aria-hidden
+                  />
+                </>
+              )}
             </Button>
           ) : gate === "loading" ? (
             <Button disabled>

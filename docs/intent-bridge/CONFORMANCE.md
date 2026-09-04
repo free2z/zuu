@@ -201,6 +201,49 @@ the response destination closes that, which is
 [#461](https://github.com/free2z/zuu/issues/461), which is why the transport is
 shut.
 
+## TypeScript — the caller side, `wallet/free2z`
+
+`wallet/free2z/src/lib/bridge/creator-tip.test.ts` is where the shared client
+is exercised as a *product* rather than as a protocol: a creator ZEC tip
+(#790) builds a real `execute-payment` request, hands it to the one transport
+seam, and judges the answer.
+
+```
+cd wallet/free2z && npx vitest run src/lib/bridge src/lib/format.test.ts
+```
+
+Baseline: 129 tests green (63 bridge, 66 formatting).
+
+| Guard, as mutated | Test that must fail | Result |
+|---|---|---|
+| ZEC→zatoshi factor (`padEnd(8, "0")` → `padEnd(7, "0")`) | `converts 1 ZEC`, and five more | FAILS |
+| `amountZatoshis <= 0`, **both** copies (see below) | `refuses to build a request for 0 zatoshis` | FAILS |
+| session correlation by identifier (`findIndex` → `() => true`) | `rejects a response addressed to a different request` | FAILS |
+| `decodeExecutePaymentResult`'s fixed 32-byte read | `rejects a fulfilment carrying 31 / 33 / 0 txid bytes` | FAILS |
+| creator-tip trim-equality rule | `refuses an untrimmed username`, `…label` | FAILS |
+| creator-tip control-character rejection | `refuses a control character in the label`, `…a DEL in the username` | FAILS |
+| creator-tip recipient-whitespace rejection | `refuses an address split by a space` | FAILS |
+
+The txid mutation is the one worth reading the output of: with the length check
+relaxed, an empty payload is reported as `{ kind: 'sent', txid: '' }`. A caller
+that renders that has told its user a payment landed.
+
+### The positive-amount check is written twice, and neither copy is provable alone
+
+Reported the same way the trailing-byte pair above is:
+
+| Mutation | Result |
+|---|---|
+| `encodeExecutePaymentPayload`'s `amountZatoshis <= 0n` alone | **still green** |
+| `requestCreatorTipPayment`'s `amountZatoshis <= 0` alone | **still green** |
+| both together | FAILS |
+
+`PROTOCOL.md` §3.4 puts the rule in the encoder, and the caller repeats it so
+that a zero amount is refused before it is ever rendered beside a creator's
+name. Because both produce the same `INTENT_INVALID_VALUE`, no test can tell
+which one fired — so the honest claim is the third row, and the redundancy is
+deliberate rather than proven twice over.
+
 ## The boundary scanner
 
 `wallet/zuuli/scripts/project-boundary.node-test.mjs` gains seven cases, and

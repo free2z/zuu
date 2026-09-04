@@ -19,9 +19,19 @@
     "tryAgain": "Réessayez."
   },
   "creator": {
-    "zecTipPending": {
-      "body": "Signer une transaction Zcash exige la clé, qui vit dans ZUULI. Ouvrez-y la page de {creator} pour envoyer des ZEC. Votre pourboire en 2Z fonctionne ici.",
-      "title": "Les pourboires en ZEC se signent dans ZUULI"
+    "zecTip": {
+      "blocked": {
+        "body": "free2z a préparé une demande de {amount} pour {creator} et ne détient aucune clé pour la signer. Le lien vérifié vers ZUULI n'existe pas encore, donc rien n'a été envoyé.",
+        "title": "Les pourboires en ZEC se signent dans ZUULI"
+      },
+      "refused": {
+        "body": "Le portefeuille n'a pas terminé ce paiement, donc rien n'est parvenu à {creator}. Vos ZEC sont intacts.",
+        "title": "ZUULI n'a pas envoyé ce pourboire"
+      },
+      "sent": {
+        "body": "{amount} pour {creator}. Transaction {txid}.",
+        "title": "ZUULI a envoyé votre pourboire en ZEC"
+      }
     }
   },
   "error": {

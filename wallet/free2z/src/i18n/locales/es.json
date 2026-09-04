@@ -19,9 +19,19 @@
     "tryAgain": "Inténtalo de nuevo."
   },
   "creator": {
-    "zecTipPending": {
-      "body": "Firmar una transacción Zcash necesita la clave, que vive en ZUULI. Abre allí la página de {creator} para enviar ZEC. Tu propina en 2Z funciona aquí.",
-      "title": "Las propinas en ZEC se firman en ZUULI"
+    "zecTip": {
+      "blocked": {
+        "body": "free2z preparó una solicitud de {amount} para {creator} y no tiene ninguna clave para firmarla. El enlace verificado a ZUULI todavía no existe, así que no se envió nada.",
+        "title": "Las propinas en ZEC se firman en ZUULI"
+      },
+      "refused": {
+        "body": "La cartera no completó este pago, así que nada llegó a {creator}. Tus ZEC siguen intactos.",
+        "title": "ZUULI no envió esta propina"
+      },
+      "sent": {
+        "body": "{amount} para {creator}. Transacción {txid}.",
+        "title": "ZUULI envió tu propina en ZEC"
+      }
     }
   },
   "error": {

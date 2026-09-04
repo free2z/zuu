@@ -105,21 +105,31 @@ components that no longer exist.
 1. **Creator ZEC tip.** `features/creator/index.tsx` importing
    `createCreatorTipRouteState` from `lib/wallet/creator-tip.ts` was the only
    import crossing from social into wallet. There is no `/wallet/send` route
-   here to hand a tip to, so `@/lib/bridge/creator-tip.ts` validates and records
-   the intent — the same bounds ZUULI applies, so a creator without a usable
-   address still fails at the renderer — and the reader is told where the tip is
-   actually signed. **No deep link was invented.** Custom-scheme links are not an
-   authenticated channel; #911 shipped the versioned protocol and deliberately
-   shipped no transport, because #461 is a hard prerequisite.
+   here to hand a tip to, so `@/lib/bridge/creator-tip.ts` is now the **caller
+   half of the intent bridge** (#790, #905): the tip dialog collects a ZEC
+   amount — the product gap that made `execute-payment` unbuildable, since
+   `encodeExecutePaymentPayload` refuses a non-positive amount — and the module
+   builds a real request through `createIntentSession` in
+   `@free2z/wallet-shared`.
 
-   It is not `createIntentSession` from `@free2z/wallet-shared` yet, and the
-   file says why at length: #911's `ExecutePayment` family refuses
-   `amountZatoshis <= 0`, and no tip dialog — ZUULI's included — collects a ZEC
-   amount, because the amount and memo belong on the wallet's own review screen.
-   This file holds the pre-request destination half only. It declares none of
-   the five single-implementation names `project-boundary.mjs` reserves, mints
-   no `free2z/intent/v1/` label, and re-implements no encoder, version gate or
-   response matcher.
+   Every destination bound ZUULI applies is still applied first, so a creator
+   without a usable address still fails at the renderer. The module declares
+   none of the five single-implementation names `project-boundary.mjs` reserves,
+   mints no `free2z/intent/v1/` label, and re-implements no encoder, version
+   gate or response matcher.
+
+   **No deep link was invented.** `@/lib/bridge/intent-transport.ts` is one
+   interface with one shipped implementation, and that implementation rejects
+   with a typed error naming #461. Custom-scheme links are not an authenticated
+   channel, so the request is built, validated — and not sent. The dialog says
+   exactly that, and a txid is rendered only from a response that decoded,
+   correlated to that request, named this family, arrived inside its window,
+   carried status 0 and held exactly 32 bytes.
+
+   What the correlation proves is that the responder saw the request.
+   `docs/intent-bridge/CALLER-AUTHENTICATION.md` §5 records what it does not:
+   there is **no signature over responses**, so nothing in the bytes proves
+   ZUULI wrote them. That is a property of the transport, which is #461.
 2. **Login with Zcash.** Password and linked accounts work. The Zcash method is
    absent rather than stubbed behind a button that cannot work, and the login
    screen says so. Signing a login challenge is an attestation, not a spend —
