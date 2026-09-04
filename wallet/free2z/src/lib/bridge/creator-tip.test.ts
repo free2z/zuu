@@ -26,6 +26,7 @@ import {
   IntentFamily,
   MAX_INTENT_LIFETIME_MS,
   decodeIntentRequest,
+  encodeExecutePaymentPayload,
   fromHex,
   toHex,
 } from "@free2z/wallet-shared";
@@ -281,13 +282,59 @@ describe("ZEC input becomes an exact number of zatoshis", () => {
     expect(payload.feeZatoshis).toBe(CREATOR_TIP_EXPECTED_FEE_ZATOSHIS);
   });
 
-  it.each([0, -1, 0.5, Number.NaN, Number.MAX_SAFE_INTEGER + 2])(
+  // ── The positivity rule, pinned where it actually lives ──────────────────
+  //
+  // `PROTOCOL.md` §3.4 puts "a zero-value payment is not a payment" in the
+  // encoder, and `creator-tip.ts` deliberately does not repeat it. These two
+  // tests are the reason that is safe: the first drives the encoder guard
+  // directly, the second drives the same guard through the caller. Removing
+  // `encodeExecutePaymentPayload`'s `amountZatoshis <= 0n` turns BOTH red.
+
+  it.each([0n, -1n, -100_000_000n])(
+    "the encoder itself refuses %s zatoshis",
+    (amountZatoshis) => {
+      const encoded = encodeExecutePaymentPayload({
+        recipient: ADDRESS,
+        amountZatoshis,
+        memo: "",
+        feeZatoshis: CREATOR_TIP_EXPECTED_FEE_ZATOSHIS,
+      });
+
+      expect(encoded).toEqual({
+        ok: false,
+        error: IntentErrorCode.InvalidValue,
+      });
+    },
+  );
+
+  it.each([0, -1, -100_000_000])(
     "refuses to build a request for %s zatoshis",
     async (amount) => {
       const transport = fulfilling();
       const outcome = await tip(amount, transport);
 
       expect(outcome).toEqual({
+        kind: "unsendable",
+        error: IntentErrorCode.InvalidValue,
+      });
+      // Refused before the question was ever asked.
+      expect(transport.sent).toEqual([]);
+    },
+  );
+
+  // ── Representability, which is the caller's own rule ─────────────────────
+  //
+  // `Number.isSafeInteger` is enforced nowhere else. Without it `BigInt(0.5)`
+  // throws a `RangeError`, which is not an `IntentRefusal`, so `outcome()`
+  // rethrows and the caller gets a rejected promise rather than a refusal it
+  // can render. `resolves` is the whole point of the assertion.
+
+  it.each([0.5, -0.5, Number.NaN, Number.MAX_SAFE_INTEGER + 2, Infinity])(
+    "refuses %s zatoshis as a refusal, never as a thrown RangeError",
+    async (amount) => {
+      const transport = fulfilling();
+
+      await expect(tip(amount, transport)).resolves.toEqual({
         kind: "unsendable",
         error: IntentErrorCode.InvalidValue,
       });
@@ -509,7 +556,7 @@ describe("a response is accepted only when it answers this exact request", () =>
     });
   });
 
-  it.each([31, 33, 0])(
+  it.each([1, 16, 31, 33, 64])(
     "rejects a fulfilment carrying %s txid bytes",
     async (length) => {
       const outcome = await tip(
@@ -526,8 +573,39 @@ describe("a response is accepted only when it answers this exact request", () =>
         kind: "refused",
         error: IntentErrorCode.Malformed,
       });
+      expect(outcome).not.toHaveProperty("txid");
     },
   );
+
+  /**
+   * The single worst outcome this module can produce, so it gets its own test
+   * rather than a row in the table above.
+   *
+   * Relaxing `decodeExecutePaymentResult`'s fixed 32-byte read to a short read
+   * turns an empty payload into `{ kind: "sent", txid: "" }`. That is a
+   * *correlated* fulfilment carrying no transaction — the UI renders "ZUULI
+   * sent your ZEC tip", and a payer has no way to tell it did not happen. An
+   * app that has shown "sent" cannot unshow it.
+   */
+  it("never reports an empty payload as a payment", async () => {
+    const outcome = await tip(
+      100_000,
+      replyingTransport((request) =>
+        responseBytes({
+          requestId: requestIdOf(request),
+          status: 0,
+          payload: new Uint8Array(0),
+        }),
+      ),
+    );
+
+    expect(outcome.kind).not.toBe("sent");
+    expect(outcome).not.toHaveProperty("txid");
+    expect(outcome).toEqual({
+      kind: "refused",
+      error: IntentErrorCode.Malformed,
+    });
+  });
 
   it("never reads a refusal as a success", async () => {
     const outcome = await tip(

@@ -67,6 +67,49 @@ export class IntentTransportUnavailableError extends Error {
  * outstanding question. A transport is therefore untrusted plumbing by
  * construction, which is the correct standing for something that will
  * eventually be an operating-system link handler.
+ *
+ * # READ THIS BEFORE WIRING A REAL TRANSPORT IN
+ *
+ * **Response authenticity is your job, not the protocol's.** Everything on the
+ * caller side of this seam correlates; nothing on it authenticates.
+ *
+ * What `creator-tip.ts` establishes about a response it accepts:
+ *
+ * - The responder **saw the request.** `request_id` is 32 CSPRNG bytes that
+ *   appear in exactly one outbound message, so an app that never received the
+ *   request cannot produce an answer this client will accept.
+ *
+ * What it does **not** establish, and cannot:
+ *
+ * - **That the responder is ZUULI.** An app that *received* the request holds
+ *   the identifier and can answer with it. Correlation is not authentication.
+ * - **That anything was signed or broadcast.** A `txid` is 32 bytes that
+ *   arrived over this channel. ZUULI only emits one for
+ *   `BroadcastStatus::Accepted`, but this side takes that on trust.
+ *
+ * There is **no signature over responses** to fall back on, and that is a
+ * deliberate design decision rather than an omission —
+ * `docs/intent-bridge/CALLER-AUTHENTICATION.md` §5: adding one would mint a
+ * second wallet identity alongside the seed hierarchy to paper over a transport
+ * gap. The transport is the right layer, which means **the security of this
+ * whole path rests on the implementation that replaces
+ * {@link failClosedIntentTransport}.**
+ *
+ * So the bar for that implementation is not "it delivers bytes":
+ *
+ * - **iOS** — a Universal Link, whose security property is that only the app
+ *   whose team owns the `apple-app-site-association` receives it. A custom
+ *   scheme is not a substitute: any app can register `zuuli://`, answer the
+ *   request, and this client would accept the answer (#367 at the OS layer).
+ * - **Android** — very likely `startActivityForResult` rather than an App Link,
+ *   because `setResult` returns to the caller the system identified and
+ *   `getCallingPackage()` names the sender. `CALLER-AUTHENTICATION.md` §3.1
+ *   records that whether the two compose is **not measured**; measure it on a
+ *   signed build on a device before choosing.
+ * - **Never put a response payload in a URL query component.** §4.1: if the
+ *   association degrades to the web, a query string lands in browser history,
+ *   `Referer` headers and server logs. Use the fragment, or a one-use retrieval
+ *   handle.
  */
 export interface IntentTransport {
   /** A short stable name, for diagnostics. Never rendered as authority. */

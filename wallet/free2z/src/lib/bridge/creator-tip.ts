@@ -292,9 +292,27 @@ export async function requestCreatorTipPayment(
   }: { transport?: IntentTransport; now?: number } = {},
 ): Promise<CreatorTipOutcome> {
   const intent = recordCreatorTipIntent(source);
-  if (!Number.isSafeInteger(amountZatoshis) || amountZatoshis <= 0) {
-    // The encoder refuses this too. Refusing here as well means the amount is
-    // never carried far enough to be rendered next to a creator's name.
+  // This checks representability, and NOT positivity. The two are a deliberate
+  // split rather than one condition:
+  //
+  //   * `Number.isSafeInteger` is this function's own rule and nothing else
+  //     enforces it. `BigInt(0.5)` throws a `RangeError`, which is not an
+  //     `IntentRefusal`, so `outcome()` rethrows it and the caller gets a
+  //     rejected promise instead of a refusal it can render. Pinned by
+  //     `refuses a fractional amount without throwing`.
+  //   * **Positivity belongs to the encoder** (`PROTOCOL.md` §3.4), and is
+  //     deliberately not repeated here. It used to be, and the mutation matrix
+  //     showed why that was worse than useless: `amountZatoshis <= 0` in this
+  //     function and `<= 0n` in `encodeExecutePaymentPayload` produced the same
+  //     refusal at the same point, so no test could tell them apart and either
+  //     could have been deleted with the suite green. A duplicate that no test
+  //     can distinguish is not defence in depth — it is one guard plus a decoy
+  //     that makes the matrix look better than it is.
+  //
+  // A non-positive amount is still refused before `session.issue`, before the
+  // transport, and before any amount is rendered beside a creator's name —
+  // `creatorTipRequest` returns `null` and this function returns `unsendable`.
+  if (!Number.isSafeInteger(amountZatoshis)) {
     return { kind: "unsendable", error: IntentErrorCode.InvalidValue };
   }
 
