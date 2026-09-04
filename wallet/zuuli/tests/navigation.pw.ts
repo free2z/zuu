@@ -147,11 +147,10 @@ for (const signedIn of [false, true]) {
       );
       const moreNavigation = dialog.getByRole("navigation", { name: "More navigation" });
       const rows = moreNavigation.getByRole("link");
-      // Messaging is signed-in only, and CLIENT-CONTRACT.md §2.4 places it at
-      // `{ area: "more", order: 0 }`. Articles already holds that order, so the
-      // two tie and declaration order puts Messages second.
+      // Messaging moved to the e2e2z application in #904 phase 3; what is left
+      // in "More" is Articles plus the signed-in account routes.
       const expectedNames = signedIn
-        ? ["Articles", "Messages", "Edit profile", "Revenue share", "About and feedback"]
+        ? ["Articles", "Edit profile", "Revenue share", "About and feedback"]
         : ["Articles", "About and feedback", "Log in"];
       await expect(rows).toHaveCount(expectedNames.length);
       for (const name of expectedNames) {

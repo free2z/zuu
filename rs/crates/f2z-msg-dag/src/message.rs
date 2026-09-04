@@ -132,7 +132,7 @@ impl MsgId {
     /// is order-preserving in either case on its own — ASCII `0`..`9` precedes
     /// both `A`..`F` and `a`..`f` — so a client that lexicographically compares
     /// all-lowercase hex strings, as `compareMessages` in
-    /// `wallet/zuuli/src/lib/messaging/types.ts` does, reproduces this type's
+    /// `wallet/e2e2z/src/lib/messaging/types.ts` does, reproduces this type's
     /// byte ordering exactly. **Mixed** case does not, and base64 does not
     /// either: `+` and `/` sort below the digits and the alphabet is not
     /// monotone in the underlying bytes. This function exists so the FFI has

@@ -72,18 +72,17 @@ const REACT_PHYSICAL_SHORTHANDS = new Map([
   ["maskBorder", "mask-border"],
 ]);
 
-// Messaging is owned by the parallel E2EE effort. This is deliberately an
-// exact residual inventory, not a directory exemption: a new path, a removed
-// residual, or one extra occurrence fails the same policy as non-chat code.
-export const CHAT_OWNED_RESIDUALS = Object.freeze({
-  "src/features/messages/Transcript.tsx": Object.freeze(["text-right"]),
-  "src/features/messages/index.tsx": Object.freeze([
-    "numeral",
-    "numeral",
-    "text-left",
-    "text-left",
-  ]),
-});
+// The reviewed residual inventory, and it is now empty.
+//
+// It held exactly the messaging screens' physical-direction residuals, because
+// messaging was owned by the parallel E2EE effort. #904 phase 3 moved that
+// surface to `wallet/e2e2z`, so ZUULI has no residual left and this policy is
+// strictly stricter than it was: any residual, in any file, now fails.
+//
+// It stays an exact inventory rather than a directory exemption. Emptying it is
+// not the same as deleting the mechanism — the next surface that needs a
+// counted exception gets counted, not excluded.
+export const CHAT_OWNED_RESIDUALS = Object.freeze({});
 
 function walk(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -1110,8 +1109,8 @@ function assertBootstrapContracts(sources) {
 
 /**
  * Fail closed over every production source. The only accepted violations are
- * the exact, counted messaging residuals above, which belong to the parallel
- * chat implementation and therefore cannot turn into a broad path exclusion.
+ * the exact, counted residuals above — an inventory that is empty today, so
+ * every file is held to the whole policy.
  */
 export function assertRtlSourcePolicy(sources) {
   assertBootstrapContracts(sources);

@@ -1,8 +1,13 @@
 // Messaging bridge — the ONLY place the frontend talks to the messaging engine.
 //
-// Mirrors `src/lib/wallet/bridge.ts`: one method per command, `useMock()` on the
-// first line of each, lazy `@tauri-apps/api/core` import so the browser bundle
-// never requires it. Features import from here, never call `invoke()`.
+// One method per command, `useMock()` on the first line of each, lazy
+// `@tauri-apps/api/core` import so the browser bundle never requires it.
+// Features import from here, never call `invoke()`.
+//
+// Moved from `wallet/zuuli/src/lib/messaging/bridge.ts` in #904 phase 3. The
+// forty-three plugin commands are unchanged; the enrollment trio is refused
+// here rather than invoked, because e2e2z holds no wallet seed — see
+// `EnrollmentUnavailableError` below.
 //
 // `docs/e2ee/CLIENT-CONTRACT.md` §4.
 
@@ -177,20 +182,72 @@ async function invoke<T>(
 }
 
 /**
- * No `plugin:` prefix, deliberately. Enrollment needs the wallet seed, and
- * every route into a plugin would put the mnemonic in the webview's JS heap —
- * garbage-collected, unzeroizable, readable by any XSS. So it is an app-crate
- * command that reads the seed in process and returns only a public summary
- * (§2.2). Do not "fix" this inconsistency.
+ * The enrollment gap, and why it is a gap rather than an implementation.
+ *
+ * In ZUULI these three are app-crate commands with no `plugin:` prefix (§2.2):
+ * enrollment needs the wallet seed, and every route into a plugin would put the
+ * mnemonic in the webview's garbage-collected JS heap, so `messaging.rs` reads
+ * the seed **in process** from `tauri-plugin-zcash` and derives
+ * `ARCHITECTURE.md` §4.2's account keys there.
+ *
+ * e2e2z has no seed, by construction and permanently (#904): it links no
+ * `tauri-plugin-zcash`, holds no mnemonic, and must never be able to obtain
+ * one. §4.2 is precisely what makes that workable — *ongoing* messaging needs
+ * only device keys (OS CSPRNG, never seed-derived, never exported) plus a
+ * `DeviceCredential`. Only enrollment needs the seed, and issuing that
+ * credential is therefore the wallet authority's job.
+ *
+ * The path is the `issue-device-credential` intent (#905,
+ * `rs/crates/f2z-intent`), and it cannot ship yet: custom-scheme deep links are
+ * not an authenticated channel, so the cross-surface protocol is blocked on
+ * #461. Until it lands there is no honest local implementation, so this app has
+ * no enrollment command, no capability addressing one, and — here — no stub
+ * that can be mistaken for one. Every call refuses with a distinct, typed
+ * refusal the UI presents as "enrollment happens in the wallet app".
+ *
+ * What must NOT be done in its place: synthesizing an `EnrollmentStatus`. Every
+ * field of one is a claim about the key-transparency directory, and a
+ * fabricated `enrolled: true` would make this app render a handle nobody
+ * published and offer first contact it cannot complete. Failing closed is the
+ * only answer that stays true.
  */
-async function invokeApp<T>(
-  schema: z.ZodType<T>,
-  method: BridgeMethod,
-  args?: Record<string, unknown>,
-): Promise<T> {
-  const cmd = WIRE_COMMANDS[method];
-  const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
-  return checked(schema, await tauriInvoke(cmd, args), method);
+export class EnrollmentUnavailableError extends Error {
+  /** Machine-readable, so a caller never has to match on the message. */
+  readonly reason = "enrollment-requires-wallet-app" as const;
+  /** The bridge method that was refused, for logs and tests. */
+  readonly method: BridgeMethod;
+
+  constructor(method: BridgeMethod) {
+    super(
+      `${WIRE_COMMANDS[method]} is unavailable in e2e2z: enrollment derives ` +
+        "account keys from the wallet seed, which this app never holds. Enroll " +
+        "in the wallet app (see issue #905, blocked on #461).",
+    );
+    this.name = "EnrollmentUnavailableError";
+    this.method = method;
+  }
+}
+
+export function isEnrollmentUnavailable(
+  error: unknown,
+): error is EnrollmentUnavailableError {
+  return (
+    error instanceof EnrollmentUnavailableError ||
+    // Survives a structured-clone or a re-thrown copy across a module boundary.
+    (typeof error === "object" &&
+      error !== null &&
+      (error as { reason?: unknown }).reason === "enrollment-requires-wallet-app")
+  );
+}
+
+/**
+ * The refusal itself. It never reaches `@tauri-apps/api/core`: there is no
+ * command on the other side, and letting Tauri answer "command not found"
+ * would turn a designed boundary into a runtime accident that reads like a
+ * packaging bug.
+ */
+function refuseEnrollment(method: BridgeMethod): never {
+  throw new EnrollmentUnavailableError(method);
 }
 
 export const messaging = {
@@ -565,28 +622,42 @@ export const messaging = {
   },
 };
 
+/**
+ * The enrollment trio, kept in the bridge's population and refused at its
+ * boundary — see [`EnrollmentUnavailableError`].
+ *
+ * They stay named here rather than being deleted because `WIRE_COMMANDS`,
+ * `RESULTS` and `BridgeMethod` are one population that `parity.test.ts` and
+ * `wallet/zuuli/scripts/messaging-contract.node-test.mjs` hold to §3 of
+ * `docs/e2ee/CLIENT-CONTRACT.md`. Deleting them would silently shrink the
+ * contract instead of recording that this app cannot serve them.
+ *
+ * `useMock()` still answers first, and only there: `VITE_MOCK=1` is an explicit
+ * build-time opt-in that replaces the entire data layer with fixtures for
+ * offline UI work and the browser test run. It is never set in a packaged
+ * build, so no shipped e2e2z can reach a mocked enrollment.
+ */
 export const enrollment = {
   async getEnrollmentStatus(): Promise<EnrollmentStatus> {
     if (useMock()) return mockMessaging.getEnrollmentStatus();
-    return invokeApp(EnrollmentStatusSchema, "getEnrollmentStatus");
+    return refuseEnrollment("getEnrollmentStatus");
   },
 
   /**
-   * A directory submission, not an instant effect: `mergedAtEpoch` stays null
-   * until the log merges it, and the UI shows "submitted", not "active" (§3.2).
+   * In ZUULI: a directory submission, not an instant effect. Here: refused —
+   * claiming a handle means signing with the §4.2 `DirectoryAuthKey`, which is
+   * derived from the seed this app does not have.
    */
   async enroll(handle: string): Promise<EnrollmentStatus> {
     if (useMock()) return mockMessaging.enroll(handle);
-    return invokeApp(EnrollmentStatusSchema, "enroll", {
-      args: { handle },
-    });
+    void handle;
+    return refuseEnrollment("enroll");
   },
 
   async unenroll(confirmation: string): Promise<EnrollmentStatus> {
     if (useMock()) return mockMessaging.unenroll(confirmation);
-    return invokeApp(EnrollmentStatusSchema, "unenroll", {
-      args: { confirmation },
-    });
+    void confirmation;
+    return refuseEnrollment("unenroll");
   },
 };
 

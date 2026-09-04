@@ -39,7 +39,7 @@ use crate::models::{
 ///
 /// A `const` per event rather than a string at each call site, so a rename is a
 /// compile error here and a single diff — and so `tests/events.rs` can assert
-/// this list equals `wallet/zuuli/src/lib/messaging/events.ts`'s `EVENTS` keys.
+/// this list equals `wallet/e2e2z/src/lib/messaging/events.ts`'s `EVENTS` keys.
 pub mod names {
     pub const ENGINE_STATE: &str = "f2zmsg://engine-state";
     pub const MESSAGE_RECEIVED: &str = "f2zmsg://message-received";

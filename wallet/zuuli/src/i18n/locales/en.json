@@ -35,8 +35,6 @@
     "live": "Livestreams",
     "liveShort": "Live",
     "login": "Log in",
-    "messages": "Messages",
-    "messagesAccessible": "Encrypted messages",
     "more": "More",
     "moreAccessible": "More navigation",
     "moreDescription": "{count, plural, one {# additional destination} other {# additional destinations}}",

@@ -1,6 +1,6 @@
 //! Every wire shape the messaging plugin exchanges with the webview.
 //!
-//! This module is the Rust half of `wallet/zuuli/src/lib/messaging/types.ts`,
+//! This module is the Rust half of `wallet/e2e2z/src/lib/messaging/types.ts`,
 //! and the two are held together mechanically rather than by review: the
 //! frontend declares each shape once as a `zod` schema and parses the engine's
 //! answer against it, so a field renamed here fails loudly in the dev build and

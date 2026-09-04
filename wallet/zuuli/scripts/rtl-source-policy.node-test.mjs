@@ -2,11 +2,25 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import ts from "typescript";
 import {
+  CHAT_OWNED_RESIDUALS,
   assertRtlSourcePolicy,
   collectRtlSources,
 } from "./rtl-source-policy.mjs";
 
 const BASELINE = collectRtlSources();
+
+/**
+ * A production file with no directional residual of its own, used as the
+ * neutral carrier for "does an added violation fail" mutations. It was
+ * `src/features/messages/BrowserGuarantee.tsx` until #904 phase 3 moved the
+ * messaging surface to `wallet/e2e2z`; the wallet's Send screen is the same
+ * kind of subject and belongs to the app that keeps the seed, so it does not
+ * move again.
+ */
+const CARRIER = Object.freeze({
+  file: "src/features/wallet/Send.tsx",
+  className: 'className="space-y-4"',
+});
 
 function mutate(fileName, before, after) {
   const original = BASELINE[fileName];
@@ -94,16 +108,16 @@ test("physical margin, padding, position, border, and alignment mutants fail", (
   );
   for (const arbitrary of ["[margin-left:1px]", "[MARGIN-LEFT:1px]"]) {
     rejectsMutation(
-      "src/features/messages/BrowserGuarantee.tsx",
-      'className="space-y-4"',
+      CARRIER.file,
+      CARRIER.className,
       `className="${arbitrary} space-y-4"`,
       /residual paths/,
     );
   }
 
   const logicalArbitrary = mutate(
-    "src/features/messages/BrowserGuarantee.tsx",
-    'className="space-y-4"',
+    CARRIER.file,
+    CARRIER.className,
     'className="[margin-inline-start:1px] space-y-4"',
   );
   assert.doesNotThrow(() => assertRtlSourcePolicy(logicalArbitrary));
@@ -299,8 +313,8 @@ test("direction-sensitive horizontal translations require explicit LTR and RTL s
 test("physical corner utilities fail", () => {
   for (const corner of ["tl", "tr", "bl", "br"]) {
     rejectsMutation(
-      "src/features/messages/BrowserGuarantee.tsx",
-      'className="space-y-4"',
+      CARRIER.file,
+      CARRIER.className,
       `className="rounded-${corner}-md space-y-4"`,
       /residual paths/,
     );
@@ -362,30 +376,49 @@ test("document direction bootstrap removal fails", () => {
   );
 });
 
-test("a broad messaging exclusion cannot admit another path", () => {
+// The reviewed residual inventory used to hold the messaging screens, which
+// #904 phase 3 moved to `wallet/e2e2z`. It is empty now, which makes this
+// policy strictly stricter — but "empty" is the state most likely to be
+// mistaken for "switched off", so these three prove the mechanism is still
+// live in every direction it can still be exercised in. RTL enforcement for
+// the moved screens themselves has not been ported to `wallet/e2e2z` yet; that
+// app has no document-direction bootstrap to hold to, and building one is its
+// own change rather than a silent half-measure here.
+test("the reviewed residual inventory is empty and enforced as empty", () => {
+  assert.deepEqual(Object.keys(CHAT_OWNED_RESIDUALS), []);
+  // An empty inventory is not an absent one: a residual anywhere fails, and the
+  // failure names the paths rather than shrugging.
   rejectsMutation(
-    "src/features/messages/BrowserGuarantee.tsx",
-    'className="space-y-4"',
+    CARRIER.file,
+    CARRIER.className,
     'className="ml-2 space-y-4"',
     /residual paths/,
   );
 });
 
-test("deleting a reviewed messaging residual fails closed", () => {
-  rejectsMutation(
-    "src/features/messages/Transcript.tsx",
-    "text-right text-xs",
-    "text-end text-xs",
-    /residual paths/,
-  );
+test("an empty inventory admits no path, in any file", () => {
+  // Three unrelated trees, so a future exemption cannot be smuggled in as a
+  // directory rule the way a single carrier file might allow.
+  for (const [file, before, after] of [
+    ["src/components/layout/Sidebar.tsx", "border-e", "border-r"],
+    ["src/components/ui/dialog.tsx", "text-start", "text-left"],
+    [CARRIER.file, CARRIER.className, 'className="text-left space-y-4"'],
+  ]) {
+    rejectsMutation(file, before, after, /residual paths/);
+  }
 });
 
-test("messaging residual count drift fails closed", () => {
+test("repeated residuals in one file still fail on the path set", () => {
+  // The per-file *count* comparison is dormant while the inventory is empty —
+  // with no reviewed file, any residual changes the path set before a count
+  // can differ, so `residuals changed` is unreachable and this asserts the
+  // reachable failure rather than pretending otherwise. The counting branch
+  // stays in the policy for the next surface that earns a counted exception.
   rejectsMutation(
-    "src/features/messages/index.tsx",
-    'className="numeral mt-1 text-foreground"',
-    'className="numeral numeral mt-1 text-foreground"',
-    /residuals changed/,
+    CARRIER.file,
+    CARRIER.className,
+    'className="text-left text-left space-y-4"',
+    /residual paths/,
   );
 });
 

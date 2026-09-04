@@ -2,9 +2,5 @@
   "app": {
     "name": "e2e2z",
     "tagline": "Messagerie chiffrée de bout en bout."
-  },
-  "placeholder": {
-    "heading": "e2e2z est en cours d'extraction de ZUULI",
-    "body": "Cette surface détient des clés d'appareil et une attestation d'appareil — jamais la graine Zcash — et n'affiche aucun contenu distant."
   }
 }

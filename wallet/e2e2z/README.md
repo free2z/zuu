@@ -1,7 +1,8 @@
 # e2e2z — the messaging surface
 
 `cash.free2z.e2e2z`. One of the three apps ZUULI is being split into (#904),
-scaffolded by #906. **Boilerplate only: no feature code has moved here yet.**
+scaffolded by #906 and filled in by phase 3 — the messaging surface moved here
+out of ZUULI, which no longer has a `/messages` route or a Messages nav entry.
 
 | App | Role | Privileged plugins |
 | --- | --- | --- |
@@ -36,6 +37,32 @@ wallet authority, which issues the `DeviceCredential` (#905). Until that
 protocol lands there is no honest in-process implementation, so this crate
 registers no command at all and no capability addresses one.
 
+**And the frontend fails closed rather than pretending.** The ported
+`src/lib/messaging/bridge.ts` keeps all three in its declared command
+population — `WIRE_COMMANDS`, `RESULTS` and `BridgeMethod` are one population
+that `parity.test.ts` and `wallet/zuuli/scripts/messaging-contract.node-test.mjs`
+hold to §3 of the contract, so deleting them would silently shrink the contract
+instead of recording what this app cannot do. Every call refuses with a typed
+`EnrollmentUnavailableError` carrying
+`reason: "enrollment-requires-wallet-app"`, without ever reaching Tauri IPC, and
+the screen renders that as a standing "enrollment happens in the wallet app"
+state: no claim control, no conversation list, no engine start/stop, nothing
+that reads as enrolled. Nothing synthesizes an `EnrollmentStatus` — every field
+of one is a claim about the key transparency directory, and a fabricated
+`enrolled: true` would show a handle nobody published.
+
+`#905`'s `issue-device-credential` intent is the way out, and it **does not ship
+before #461**: a custom-scheme deep link is not an authenticated channel, so no
+transport is invented here.
+
+Proved by `src/lib/messaging/enrollment-gap.test.ts` (the bridge refuses, never
+invokes, never resolves), `src/features/messages/index.enrollment-gap.test.tsx`
+(the screen renders the gap and offers nothing enrolled), and
+`tests/enrollment-gap.pw.ts`, which runs a real browser against the **default**
+build with a Tauri IPC host that registers the plugin and not the trio — the
+exact shape `src-tauri/src/lib.rs` ships — and asserts no `f2zmsg_*` command was
+ever invoked.
+
 ## Capabilities: named commands, never the blanket grant
 
 Both `src-tauri/capabilities/default.json` and `mobile.json` list the messaging
@@ -55,6 +82,24 @@ which commands this surface may hold) and
 `scripts/check-tauri-plugin-permissions.mjs` (existence — that every identifier
 is a command the plugin registers), both inside the required `gate`.
 
+## What moved, and what came with it
+
+- `src/features/messages/` — the screen, first contact, the transcript, and the
+  browser-guarantee notice (§11.1).
+- `src/lib/messaging/` — `bridge.ts`, `events.ts`, `types.ts`, `mock.ts`, the
+  handle-eligibility fixtures and their tests.
+- The five shared UI primitives the surface actually imports — `button`,
+  `callout`, `input`, `skeleton`, `PageHeader` — plus `lib/utils.ts`, the
+  Tailwind token layer and the bundled Plex faces. Copied, not imported:
+  `wallet/zuuli/scripts/project-boundary.mjs` forbids one wallet project from
+  reaching into another's tree, and a shared build config would be exactly that.
+
+It brought **no** store, **no** wallet library and **no** session: the surface
+never depended on them, which is what made the extraction a move.
+
+Imports here are relative rather than `@/`-aliased, because this app has no
+`vite.config.ts` (see below) and therefore no alias to resolve.
+
 ## CSP
 
 As tight as ZUULI's, and it stays that way: this surface renders no remote
@@ -73,7 +118,9 @@ the comment on `viteBuildsVerified` in
 ```bash
 npm ci
 npm run typecheck && npm run typecheck:tests
-npm test
+npx vitest run
+node --test scripts/ui-copy-truncation.node-test.mjs
+npx playwright test
 npm run build
 cargo check --locked --all-targets --manifest-path src-tauri/Cargo.toml
 ```
@@ -82,4 +129,9 @@ CI: `.github/workflows/wallet-surfaces.yml` (advisory build coverage) plus the
 required `gate` in `.github/workflows/zuuli.yml`, whose change detector selects
 `wallet/e2e2z/*`.
 
-The app icon is a placeholder. Branded assets come with the surface extraction.
+`npx playwright test` starts two dev servers on purpose, because this app has
+two truthful states: `VITE_MOCK=1` for the fixture data layer, which is the only
+way to reach a transcript without a running relay, and the default build, where
+enrollment refuses and the screen has to say so rather than hang.
+
+The app icon is a placeholder.

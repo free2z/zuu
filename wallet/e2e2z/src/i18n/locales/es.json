@@ -2,9 +2,5 @@
   "app": {
     "name": "e2e2z",
     "tagline": "Mensajería cifrada de extremo a extremo."
-  },
-  "placeholder": {
-    "heading": "e2e2z se está extrayendo de ZUULI",
-    "body": "Esta superficie guarda claves de dispositivo y una credencial de dispositivo — nunca la semilla de Zcash — y jamás muestra contenido remoto."
   }
 }

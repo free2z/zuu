@@ -35,8 +35,6 @@ export const MESSAGE_KEYS = {
   navLive: "navigation.live",
   navLiveShort: "navigation.liveShort",
   navLogin: "navigation.login",
-  navMessages: "navigation.messages",
-  navMessagesAccessible: "navigation.messagesAccessible",
   navMore: "navigation.more",
   navMoreAccessible: "navigation.moreAccessible",
   navMoreDescription: "navigation.moreDescription",

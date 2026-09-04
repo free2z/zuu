@@ -2,16 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Send, ShieldAlert } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Callout } from "@/components/ui/callout";
-import { Skeleton } from "@/components/ui/skeleton";
-import { messaging } from "@/lib/messaging/bridge";
-import { listenMessaging } from "@/lib/messaging/events";
+import { Button } from "../../components/ui/button";
+import { Callout } from "../../components/ui/callout";
+import { Skeleton } from "../../components/ui/skeleton";
+import { messaging } from "../../lib/messaging/bridge";
+import { listenMessaging } from "../../lib/messaging/events";
 import {
   type Conversation,
   type DeliveryState,
   type Message,
-} from "@/lib/messaging/types";
+} from "../../lib/messaging/types";
 
 const PAGE_SIZE = 50;
 

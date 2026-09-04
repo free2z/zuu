@@ -184,14 +184,16 @@ mod tests {
     // expected HandleEligibility) fixtures ... so that an edit to either
     // implementation which drifts from the other, or from this table, fails a
     // test rather than shipping unnoticed." This crate and
-    // `wallet/zuuli/src/lib/messaging/mock.ts` cannot share a test file, so
+    // `wallet/e2e2z/src/lib/messaging/mock.ts` cannot share a test file, so
     // the fixture table is the thing kept in one place:
-    // `wallet/zuuli/src/lib/messaging/handle-eligibility.fixtures.json`, read
+    // `wallet/e2e2z/src/lib/messaging/handle-eligibility.fixtures.json`, read
     // here via `include_str!` and imported as a JSON module by
-    // `mock.handle-eligibility.test.ts`. It lives under `wallet/zuuli` rather
-    // than `docs/` so a `mock.ts`-side import of it never has to reach outside
-    // the wallet project's own module boundary. Neither implementation is the
-    // source of truth for the other; both are pinned to the fixture.
+    // `mock.handle-eligibility.test.ts`. It lives beside `mock.ts` rather than
+    // under `docs/` so a `mock.ts`-side import of it never has to reach outside
+    // its own project's module boundary — which is also why it moved with the
+    // messaging surface to `wallet/e2e2z` in #904 phase 3. Neither
+    // implementation is the source of truth for the other; both are pinned to
+    // the fixture.
     //
     // `input: null` exercises `not_signed_in()`; every other `input` exercises
     // `eligibility(input)`. `#838` is the empty-string row: this table fixes
@@ -212,7 +214,7 @@ mod tests {
 
     #[test]
     fn matches_the_shared_rust_ts_fixture_table() {
-        let raw = include_str!("../../../zuuli/src/lib/messaging/handle-eligibility.fixtures.json");
+        let raw = include_str!("../../../e2e2z/src/lib/messaging/handle-eligibility.fixtures.json");
         let fixture: Fixture = serde_json::from_str(raw).expect("fixture parses as JSON");
         assert!(!fixture.cases.is_empty(), "fixture table must not be empty");
         for case in fixture.cases {

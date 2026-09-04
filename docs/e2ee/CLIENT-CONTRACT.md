@@ -84,7 +84,7 @@ build against this document; a backend developer needs all of them.
 Three layers, and the split is load-bearing rather than organizational.
 
 ```
-wallet/zuuli/src/lib/messaging/          ← the TypeScript contract (§4)
+wallet/e2e2z/src/lib/messaging/          ← the TypeScript contract (§4)
    types.ts   bridge.ts   mock.ts   events.ts
 
 wallet/zuuli/src-tauri/src/messaging.rs  ← ENROLLMENT ONLY (§2.2)
@@ -272,6 +272,28 @@ it, and gate it in the UI behind an explicit per-relay confirmation that states
 what travels in the clear.
 
 ### 2.4 Routes and navigation
+
+> **Superseded (2026-09-04) by [#904](https://github.com/free2z/zuu/issues/904)
+> phase 3.** Messaging is no longer a route inside ZUULI. It is its own
+> application — `cash.free2z.e2e2z`, at `wallet/e2e2z` — which links
+> `tauri-plugin-f2zmsg`, never `tauri-plugin-zcash`, and holds device keys and a
+> device credential but never the seed (`ARCHITECTURE.md` §4.2). It is a single
+> screen with no router: a process whose only job is messaging has nothing to
+> navigate away to. `wallet/zuuli/src/lib/routes.ts` and
+> `src/components/layout/navigation.ts` no longer carry a `messages` entry, and
+> the paragraph below is kept only as the record of what was built first.
+>
+> **The enrollment trio did not move and cannot.** `f2zmsg_enrollment_status`,
+> `f2zmsg_enroll` and `f2zmsg_unenroll` read the wallet seed in process (§2.2),
+> so they stay in `wallet/zuuli/src-tauri/src/messaging.rs`. e2e2z's copy of
+> `bridge.ts` keeps all three in its declared command population and refuses
+> every call with a typed `EnrollmentUnavailableError`, which the screen renders
+> as "enrollment happens in the wallet app". Nothing there fabricates an
+> `EnrollmentStatus`, so no e2e2z build can appear enrolled. Closing the gap is
+> [#905](https://github.com/free2z/zuu/issues/905)'s `issue-device-credential`
+> intent, which does not ship before
+> [#461](https://github.com/free2z/zuu/issues/461): a custom-scheme deep link is
+> not an authenticated channel.
 
 Messaging mounts as a new top-level route. In `src/lib/routes.ts`:
 
@@ -1076,8 +1098,8 @@ count is the meaningful one.
 
 ## 4. The TypeScript contract
 
-Four files under `wallet/zuuli/src/lib/messaging/`, mirroring
-`src/lib/wallet/` exactly:
+Four files under `wallet/e2e2z/src/lib/messaging/` (`wallet/zuuli/` until #904
+phase 3), mirroring ZUULI's `src/lib/wallet/` exactly:
 
 | File | What it is |
 |---|---|
@@ -1573,7 +1595,7 @@ Practical consequences for the transcript component:
 >
 > **What that produced**, in
 > [#664](https://github.com/free2z/zuu/pull/664). `compareMessages` in
-> `wallet/zuuli/src/lib/messaging/types.ts`, applied by `Transcript.tsx` as
+> `wallet/e2e2z/src/lib/messaging/types.ts`, applied by `Transcript.tsx` as
 > `[...messages].sort(compareMessages)`, sorted by
 > `(epoch, senderLeafIndex, msgId)` and **never read `parents`**. It was the
 > tie-break on its own, mistaken for the order. Bob at leaf 1 sends `A`; Alice at

@@ -2,9 +2,22 @@
 import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
-import { beforeAll, describe, expect, it } from "vitest";
-import App from "./App";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createAppI18n } from "./i18n";
+
+const controls = vi.hoisted(() => ({ mounted: vi.fn() }));
+
+// The screen itself has its own tests. What this file proves is that the app
+// shell mounts it through the i18n kernel — the two halves of #909's scaffold
+// and #904's port meeting.
+vi.mock("./features/messages", () => ({
+  default: () => {
+    controls.mounted();
+    return <p data-messages-feature>messages</p>;
+  },
+}));
+
+const { default: App } = await import("./App");
 
 declare global {
   // React 18 requires this flag before `act` will drive a concurrent root.
@@ -17,7 +30,7 @@ beforeAll(() => {
 });
 
 describe("App", () => {
-  it("renders the placeholder screen through the i18n kernel", async () => {
+  it("renders the messaging surface through the i18n kernel", async () => {
     const i18n = await createAppI18n("en");
     const container = document.createElement("div");
     document.body.append(container);
@@ -30,8 +43,9 @@ describe("App", () => {
         </StrictMode>,
       );
     });
-    expect(container.textContent).toContain(i18n.t("placeholder.heading"));
+    expect(controls.mounted).toHaveBeenCalled();
+    expect(container.textContent).toContain(i18n.t("app.tagline"));
     // A missing catalog entry renders the key itself; assert we never do.
-    expect(container.textContent).not.toContain("placeholder.heading");
+    expect(container.textContent).not.toContain("app.tagline");
   });
 });

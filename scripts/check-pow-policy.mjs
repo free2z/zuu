@@ -19,7 +19,10 @@ const paths = {
   proto: "rs/crates/f2z-relay-proto/src/capabilities.rs",
   config: "rs/crates/f2z-relay/src/config.rs",
   relay: "wallet/plugins/tauri-plugin-f2zmsg/src/relay.rs",
-  ui: "wallet/zuuli/src/features/messages/FirstContact.tsx",
+  // The messaging surface moved to the e2e2z application in #904 phase 3. The
+  // policy it is held to did not move with it: this is still the shipping UI
+  // whose copy must not outrun what the proof-of-work budget can promise.
+  ui: "wallet/e2e2z/src/features/messages/FirstContact.tsx",
 };
 
 function liveSources() {
