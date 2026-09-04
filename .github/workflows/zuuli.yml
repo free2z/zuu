@@ -130,23 +130,28 @@ jobs:
           zuuli=false
           zuuallet_schema=false
           while IFS= read -r -d '' file; do
-            # Prose under wallet/zuuli/ — STATUS.md, README.md, CLAUDE.md,
-            # docs/**.md — describes the app; it is not compiled into it and no
-            # job below reads it. Without this guard the broad `wallet/zuuli/*`
-            # pattern in the arm below matches it, so a STATUS re-derivation —
-            # which every release needs at least once — pays the full ~40-minute
-            # native matrix.
+            # Prose under an application directory — STATUS.md, README.md,
+            # CLAUDE.md, docs/**.md — describes the app; it is not compiled into
+            # it and no job below reads it. Without this guard the broad
+            # `wallet/zuuli/*`, `wallet/free2z/*` and `wallet/e2e2z/*` patterns
+            # in the arm below match it, so a STATUS re-derivation — which every
+            # release needs at least once — pays the full ~40-minute native
+            # matrix, as does a README edit on either delegated surface.
             #
             # `==` inside `[[ ]]` is a glob match, not a string compare, and a
-            # glob `*` spans `/`, so this one pattern covers every depth:
+            # glob `*` spans `/`, so one pattern per app covers every depth:
             # wallet/zuuli/STATUS.md and wallet/zuuli/docs/e2ee/notes.md alike.
             #
-            # It is scoped to the wallet/zuuli/ prefix and so cannot reach the
-            # markdown that genuinely gates behaviour: docs/e2ee/CLIENT-CONTRACT.md,
-            # docs/e2ee/WIRE.md and docs/ZUULI-LINUX-BUILD-IMAGE.md all live
-            # outside that prefix and still select the full gate. It also runs
-            # only per-file, so it cannot affect the fail-open paths above.
-            if [[ "$file" == wallet/zuuli/*.md ]]; then
+            # It is scoped to those three application prefixes and so cannot
+            # reach the markdown that genuinely gates behaviour:
+            # docs/e2ee/CLIENT-CONTRACT.md, docs/e2ee/WIRE.md and
+            # docs/ZUULI-LINUX-BUILD-IMAGE.md all live outside them and still
+            # select the full gate. It also runs only per-file, so it cannot
+            # affect the fail-open paths above, and a commit that touches prose
+            # *and* source still selects the full gate on the source file.
+            if [[ "$file" == wallet/zuuli/*.md ||
+                  "$file" == wallet/free2z/*.md ||
+                  "$file" == wallet/e2e2z/*.md ]]; then
               continue
             fi
             case "$file" in
