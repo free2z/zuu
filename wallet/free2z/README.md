@@ -3,13 +3,76 @@
 `cash.free2z.free2z`. One of the three apps ZUULI is being split into (#904),
 scaffolded by #906. **Phase 1 of the extraction has landed: Articles, the
 Markdown/media pipeline, Creator profiles and a login that keeps password and
-linked accounts now live here.**
+linked accounts now live here** — in a browser and under `vite dev`. Read the
+next section before you try to package it.
 
 | App | Role | Privileged plugins |
 | --- | --- | --- |
 | `cash.free2z.zuuli` | wallet authority | `zcash` |
 | **`cash.free2z.free2z`** | **content — articles, live, AI, creator, search** | **none** |
 | `cash.free2z.e2e2z` | messaging | `f2zmsg` |
+
+## Not yet wired natively
+
+**This app runs in the browser and under `vite dev`. It is NOT functional as a
+packaged Tauri app.** The frontend was ported complete, including three code
+paths that branch on `isTauri() && !DEV` — and the Rust side those paths call
+into was never written here. Nothing in CI can see this: vitest, Playwright and
+`npm run build` all execute where `isTauri()` is `false` or `import.meta.env.DEV`
+is `true`, which is exactly the condition under which none of these branches is
+taken, and `cargo check` compiles a backend that is not asked whether the
+frontend expects commands from it.
+
+So `bundle.active` is `false` in `src-tauri/tauri.conf.json`. That is
+deliberate: `tauri build` should not be able to emit an installer for a binary
+whose network layer is dead. Flipping it back is part of the fix, not a
+prerequisite for it. Tracking issue: **#918**.
+
+The three gaps, precisely:
+
+1. **HTTP is unwired.** `package.json` depends on `@tauri-apps/plugin-http`, but
+   `src-tauri/` was never touched to match: `src-tauri/Cargo.toml` does not list
+   `tauri-plugin-http`, `src-tauri/src/lib.rs` does not call
+   `.plugin(tauri_plugin_http::init())`, and neither capability file grants an
+   `http:*` permission. Both `src/lib/api/http.ts:129-132` and
+   `src/components/common/RemoteMedia.tsx:50-51` switch to the native client
+   when `isTauri() && !DEV`, so in a packaged build **every** API request and
+   every first-party image download would invoke `plugin:http|fetch`, a command
+   that does not exist in this binary.
+
+   Note that this is not a one-line capability addition.
+   `wallet/zuuli/scripts/surface-capability-authority.mjs:56-61` holds
+   `REVIEWED_NAMESPACES = {core, deep-link, opener, f2zmsg}`, and `http` is not
+   in it — adding `http:default` fails the required `gate`. By design: what a
+   content surface's HTTP client may reach is a scope decision somebody has to
+   review, not a default anyone can grant in passing.
+
+2. **The OAuth commands are unwired.** `src/lib/oauth/transport.ts` invokes ten
+   `oauth_*` commands (`oauth_callback_transport`, `oauth_loopback_start` /
+   `_wait` / `_cancel`, `oauth_mobile_arm` / `_claim` / `_cancel` / `_pending` /
+   `_resume` / `_finish`) that exist only in
+   `wallet/zuuli/src-tauri/src/oauth.rs`. This app's `src-tauri/src/lib.rs` has
+   no `invoke_handler` at all. `nativeTransport()` rethrows rather than falling
+   back to the web flow, and `src/App.tsx:58` calls `recoverMobileOAuth()`
+   unconditionally on mount behind a `.catch` that fires
+   `toast.error("Couldn't finish sign-in")` (`src/App.tsx:82`) — so a packaged
+   build shows a sign-in error toast on **every launch**, before the user has
+   done anything.
+
+3. **The deep-link scheme belongs to the wallet.**
+   `src/lib/oauth/protocol.ts:3` uses `cash.free2z.zuuli://oauth/callback` and
+   `src/lib/checkout/native-return.ts:3` uses
+   `cash.free2z.zuuli://checkout/return` (with the matching guard at
+   `src/lib/checkout/native-return.ts:72`). Those are **ZUULI's** URIs. This
+   app's own manifest registers only `cash.free2z.free2z://bridge/return`
+   (`src-tauri/tauri.conf.json`, `plugins.deep-link`). On a device with both
+   apps installed, an OAuth authorization code or a Stripe checkout return
+   initiated by the content app would be delivered by the OS to the **wallet
+   authority** app — the cross-app URI collision this entire split exists to
+   prevent.
+
+Fixing all three is a separate reviewed PR (#918). Do not patch one of them in
+isolation and re-enable the bundle.
 
 ## What has moved, and what has not
 
