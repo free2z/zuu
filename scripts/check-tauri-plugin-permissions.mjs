@@ -123,6 +123,22 @@ const PLUGINS = [
         file: "wallet/zuuli/src-tauri/capabilities/mobile.json",
         grant: "named",
       },
+      // The e2e2z messaging surface (#904/#906). Both of its capabilities take
+      // named commands rather than `f2zmsg:default`, so registering them here
+      // is what proves every identifier in
+      // `wallet/zuuli/scripts/surface-capability-authority.mjs`'s reviewed
+      // allowlist is a command this plugin actually registers. That script
+      // decides *policy* — which commands a delegated surface may hold — and
+      // this one decides *existence*, the same division of labour
+      // `mobile-webview-authority.mjs` already has for ZUULI.
+      {
+        file: "wallet/e2e2z/src-tauri/capabilities/default.json",
+        grant: "named",
+      },
+      {
+        file: "wallet/e2e2z/src-tauri/capabilities/mobile.json",
+        grant: "named",
+      },
     ],
     // Zuuli tracks no generated target schemas — `git ls-files` over
     // `wallet/zuuli/src-tauri/gen/schemas` is empty — so this plugin has no

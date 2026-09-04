@@ -1,0 +1,10 @@
+{
+  "app": {
+    "name": "free2z",
+    "tagline": "Artículos, directos, IA y herramientas de creador."
+  },
+  "placeholder": {
+    "heading": "free2z se está extrayendo de ZUULI",
+    "body": "Esta superficie muestra contenido remoto, por lo que no guarda la semilla de Zcash ni claves de mensajería. Las funciones llegarán en una fase posterior."
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "app": {
+    "name": "free2z",
+    "tagline": "Articles, direct, IA et outils de créateur."
+  },
+  "placeholder": {
+    "heading": "free2z est en cours d'extraction de ZUULI",
+    "body": "Cette surface affiche du contenu distant : elle ne détient ni la graine Zcash ni les clés de messagerie. Les fonctionnalités arriveront plus tard."
+  }
+}

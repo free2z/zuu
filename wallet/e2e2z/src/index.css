@@ -1,0 +1,50 @@
+:root {
+  color-scheme: dark;
+  --surface: #09090b;
+  --ink: #fafafa;
+  --muted: #a1a1aa;
+  --accent: #2dd4bf;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--surface);
+  color: var(--ink);
+  font-family:
+    "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.app-shell {
+  margin: 0 auto;
+  max-width: 44rem;
+  padding: max(2rem, env(safe-area-inset-top)) 1.5rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.app-shell__eyebrow {
+  margin: 0;
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.app-shell__heading {
+  margin: 0;
+  font-size: clamp(1.5rem, 4vw, 2.25rem);
+  line-height: 1.2;
+}
+
+.app-shell__body,
+.app-shell__tagline {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}

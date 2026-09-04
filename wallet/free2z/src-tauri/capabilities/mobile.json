@@ -1,0 +1,7 @@
+{
+  "identifier": "mobile",
+  "description": "Mobile capability for the main free2z webview. Grants NOTHING privileged: no zcash:* entry and no f2zmsg:* entry, ever. This is the surface that renders third-party content, so #367's frame-confusion defect must find no privileged command to reach.",
+  "platforms": ["iOS", "android"],
+  "windows": ["main"],
+  "permissions": ["core:default", "deep-link:default", "opener:default"]
+}
