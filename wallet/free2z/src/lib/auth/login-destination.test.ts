@@ -25,9 +25,7 @@ class MemoryStorage {
 describe("post-login destination", () => {
   it.each([
     "/ai",
-    "/wallet/fund",
-    "/wallet/fund/activity",
-    "/wallet/fund/send",
+    "/fund",
     "/articles/post-1",
     "/articles/-private_notes",
     "/creator/alice",
@@ -43,12 +41,20 @@ describe("post-login destination", () => {
   });
 
   it("normalizes the legacy exact Buy route for in-flight logins", () => {
-    expect(loginDestinationFromState({ returnTo: "/buy" })).toBe(
-      "/wallet/fund",
-    );
-    expect(loginDestinationFromState({ returnTo: "/buy/send" })).toBe(
-      "/wallet/fund/send",
-    );
+    expect(loginDestinationFromState({ returnTo: "/buy" })).toBe("/fund");
+  });
+
+  // This surface mounts no /wallet at all, and mounts /fund as an exact path
+  // with no children. ZUULI sanctions all four; here they must fail closed
+  // rather than land a freshly signed-in reader on NotFound (#904).
+  it.each([
+    "/wallet/fund",
+    "/wallet/fund/activity",
+    "/wallet/fund/send",
+    "/buy/send",
+    "/fund/activity",
+  ] as const)("refuses the unmounted destination %s", (returnTo) => {
+    expect(loginDestinationFromState({ returnTo })).toBe("/");
   });
 
   it.each([
@@ -90,8 +96,8 @@ describe("post-login destination", () => {
 
   it("round-trips an allowlisted mobile social-login destination once", () => {
     const storage = new MemoryStorage();
-    rememberPendingSocialLoginDestination("/wallet/fund", storage);
-    expect(consumePendingSocialLoginDestination(storage)).toBe("/wallet/fund");
+    rememberPendingSocialLoginDestination("/fund", storage);
+    expect(consumePendingSocialLoginDestination(storage)).toBe("/fund");
     expect(consumePendingSocialLoginDestination(storage)).toBe("/");
   });
 
@@ -116,13 +122,13 @@ describe("post-login destination", () => {
   it("migrates a pending legacy Buy destination once", () => {
     const storage = new MemoryStorage();
     storage.setItem("zuuli.auth.pending-social-login-destination", "/buy");
-    expect(consumePendingSocialLoginDestination(storage)).toBe("/wallet/fund");
+    expect(consumePendingSocialLoginDestination(storage)).toBe("/fund");
     expect(consumePendingSocialLoginDestination(storage)).toBe("/");
   });
 
   it("does not persist the default destination", () => {
     const storage = new MemoryStorage();
-    rememberPendingSocialLoginDestination("/wallet/fund", storage);
+    rememberPendingSocialLoginDestination("/fund", storage);
     rememberPendingSocialLoginDestination("/", storage);
     expect(consumePendingSocialLoginDestination(storage)).toBe("/");
   });

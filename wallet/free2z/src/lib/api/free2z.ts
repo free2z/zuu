@@ -2047,7 +2047,10 @@ export const tuzi = {
       "/api/stripe/create-checkout-session/",
       {
         method: "POST",
-        body: { quantity: tuzis, currentPath: "/wallet/fund", returnMode },
+        // The backend builds the Stripe return URL from this, so it must be a
+        // route this app mounts. ZUULI's `/wallet/fund` would have returned a
+        // paying customer to NotFound (#904).
+        body: { quantity: tuzis, currentPath: "/fund", returnMode },
       },
     );
     return { url: validateStripeCheckoutUrl(r?.url) };
