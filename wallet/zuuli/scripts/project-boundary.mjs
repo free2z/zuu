@@ -94,6 +94,51 @@ const REQUIRED_PRODUCTION_SHARED_CONSUMERS = new Map([
     ]),
   ],
 ]);
+// ---------------------------------------------------------------------------
+// The intent bridge (#905) is a SINGLE implementation, and this is what makes
+// that mechanical rather than aspirational.
+//
+// #905's acceptance criterion is "one implementation consumed by all clients;
+// boundary scanner forbids a second". The hazard is specific: the bridge
+// carries authority delegation from the wallet to apps that hold no seed, so a
+// second copy of its parser — an app that decided a request was easier to
+// build inline than to import — is a second set of bounds checks, a second
+// version gate, and a second chance to disagree with the wallet about what the
+// user approved. That is the shape of #367 and of every "three subtly
+// different implementations" the issue is written to prevent.
+//
+// Two halves, both required, because either alone is evadable:
+//
+//   * **A home.** SHARED_INTENT_ROOT must exist, be re-exported from the one
+//     entry point wallet/shared publishes, and declare every name in
+//     SINGLE_IMPLEMENTATION_DECLARATIONS. Deleting or renaming the module
+//     fails loudly here instead of quietly leaving the second half with
+//     nothing to protect — the coverage-anchor rule of #553.
+//   * **Exclusivity.** No source file outside that directory may *declare* one
+//     of those names, or contain a domain label from the bridge's namespace.
+//     Importing them is the point and is untouched; re-declaring them is the
+//     second implementation.
+//
+// The names are the entry point of one guard each — the version gate, the
+// request encoder, the response decoder, the outstanding-question map, and the
+// text validator — so a fork cannot reproduce the bridge's behaviour without
+// tripping at least one of them. It is not a proof that no equivalent code
+// exists under other names; it is the check that catches the copy-paste, which
+// is how second implementations actually arrive.
+// ---------------------------------------------------------------------------
+const SHARED_INTENT_ROOT = "shared/src/intent";
+const SINGLE_IMPLEMENTATION_DECLARATIONS = [
+  "INTENT_PROTOCOL_VERSION",
+  "createIntentSession",
+  "decodeIntentResponse",
+  "encodeIntentRequest",
+  "parseVisibleText",
+];
+// The bridge's hash-domain namespace. A label minted outside the shared
+// implementation is a second protocol wearing the same domain separation, and
+// `scripts/check-hash-domain-labels.mjs` would hold it to the same prefix-free
+// set without ever asking who wrote it.
+const SINGLE_IMPLEMENTATION_LITERAL = "free2z/intent/v1/";
 const SOURCE_EXTENSIONS = new Set([
   ".cjs",
   ".cts",
@@ -854,6 +899,111 @@ function productionSharedConsumerViolation(relativeFile, sourceFile, checker) {
   return null;
 }
 
+function declaredNames(sourceFile) {
+  const names = [];
+  const record = (node, name) => {
+    if (name && ts.isIdentifier(name)) names.push({ name: name.text, node });
+  };
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) ||
+      ts.isFunctionDeclaration(node) ||
+      ts.isClassDeclaration(node) ||
+      ts.isInterfaceDeclaration(node) ||
+      ts.isTypeAliasDeclaration(node) ||
+      ts.isEnumDeclaration(node)
+    ) {
+      record(node, node.name);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return names;
+}
+
+function reservedLiteralNodes(sourceFile) {
+  const found = [];
+  const visit = (node) => {
+    if (
+      (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
+      node.text.includes(SINGLE_IMPLEMENTATION_LITERAL)
+    ) {
+      found.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
+
+/// Judge one file against the single-implementation rule.
+///
+/// `owned` is true for files inside SHARED_INTENT_ROOT, which are the one
+/// place these names and this label namespace may originate.
+function singleImplementationViolations(relativeFile, sourceFile, owned) {
+  const violations = [];
+  const declarations = [];
+  for (const { name, node } of declaredNames(sourceFile)) {
+    if (!SINGLE_IMPLEMENTATION_DECLARATIONS.includes(name)) continue;
+    if (owned) {
+      declarations.push(name);
+      continue;
+    }
+    violations.push(
+      `${formatDiagnostic(sourceFile, { start: node.getStart(sourceFile), messageText: `${name} may only be declared inside wallet/${SHARED_INTENT_ROOT}; import it from ${SHARED_PACKAGE} instead` })}`,
+    );
+  }
+  if (!owned) {
+    for (const node of reservedLiteralNodes(sourceFile)) {
+      violations.push(
+        formatDiagnostic(sourceFile, {
+          start: node.getStart(sourceFile),
+          messageText: `the ${SINGLE_IMPLEMENTATION_LITERAL} domain namespace belongs to wallet/${SHARED_INTENT_ROOT}`,
+        }),
+      );
+    }
+  }
+  void relativeFile;
+  return { violations, declarations };
+}
+
+/// The bridge must have a home, and it must be reachable through the one
+/// entry point wallet/shared publishes.
+async function sharedIntentHomeViolations(walletRoot, sharedRoot, declared) {
+  const violations = [];
+  const intentRoot = path.join(walletRoot, SHARED_INTENT_ROOT);
+  if (!(await existsAs(intentRoot, "directory"))) {
+    violations.push(
+      `wallet/${SHARED_INTENT_ROOT}: the single intent-bridge implementation must exist`,
+    );
+    return violations;
+  }
+  const entry = path.join(sharedRoot, "src/index.ts");
+  const source = await readFile(entry, "utf8");
+  const parsed = ts.createSourceFile(entry, source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const reExported = importedModules(parsed).some(
+    (reference) =>
+      reference.kind === "export" &&
+      reference.node &&
+      ["./intent", "./intent/index", "./intent/index.ts"].includes(
+        literalModule(reference.node) ?? "",
+      ),
+  );
+  if (!reExported) {
+    violations.push(
+      `shared/src/index.ts: must re-export ./intent so the single intent-bridge implementation is reachable through ${SHARED_PACKAGE}`,
+    );
+  }
+  for (const name of SINGLE_IMPLEMENTATION_DECLARATIONS) {
+    if (!declared.has(name)) {
+      violations.push(
+        `wallet/${SHARED_INTENT_ROOT}: must declare ${name}; a guard nobody declares is a guard nobody applies`,
+      );
+    }
+  }
+  return violations;
+}
+
 function validateSpecifier({ project, projects, sharedRoot, file, sourceFile, imported, dependencies }) {
   const position = sourceFile.getLineAndCharacterOfPosition(imported.node?.getStart(sourceFile) ?? 0);
   const location = `${file}:${position.line + 1}:${position.character + 1}`;
@@ -960,6 +1110,7 @@ export async function scanProjectBoundaries(
 
   const violations = [];
   const productionSharedConsumers = new Set();
+  const sharedIntentDeclarations = new Set();
   const requiredSharedDependencyProjects = new Set(
     [...REQUIRED_PRODUCTION_SHARED_CONSUMERS.keys()].map((consumer) => consumer.split("/", 1)[0]),
   );
@@ -1004,6 +1155,18 @@ export async function scanProjectBoundaries(
         continue;
       }
       const relativeFile = path.relative(absoluteWalletRoot, file).split(path.sep).join("/");
+      const ownsIntentBridge =
+        relativeFile === SHARED_INTENT_ROOT ||
+        relativeFile.startsWith(`${SHARED_INTENT_ROOT}/`);
+      const singleImplementation = singleImplementationViolations(
+        relativeFile,
+        parsed,
+        ownsIntentBridge,
+      );
+      violations.push(...singleImplementation.violations);
+      for (const name of singleImplementation.declarations) {
+        sharedIntentDeclarations.add(name);
+      }
       const consumerSource = REQUIRED_PRODUCTION_SHARED_CONSUMERS.has(relativeFile)
         ? program.getSourceFile(file)
         : parsed;
@@ -1049,6 +1212,13 @@ export async function scanProjectBoundaries(
       )),
     );
   }
+  violations.push(
+    ...(await sharedIntentHomeViolations(
+      absoluteWalletRoot,
+      shared.projectRoot,
+      sharedIntentDeclarations,
+    )),
+  );
   for (const required of REQUIRED_PRODUCTION_SHARED_CONSUMERS.keys()) {
     if (!productionSharedConsumers.has(required)) {
       violations.push(`${required}: production consumer must import ${SHARED_PACKAGE}`);
@@ -1060,6 +1230,7 @@ export async function scanProjectBoundaries(
     fileCount,
     importCount,
     productionSharedConsumerCount: productionSharedConsumers.size,
+    sharedIntentGuardCount: sharedIntentDeclarations.size,
     viteBuildsVerified: statistics.viteBuildsVerified,
     violations,
   };
@@ -1078,7 +1249,7 @@ export async function main({
     verifyViteBuildGraph: true,
   });
   console.log(
-    `Wallet project boundaries verified across ${result.projectCount} discovered projects, ${result.fileCount} source files, ${result.importCount} parsed module references, ${result.productionSharedConsumerCount} production shared-package consumers, and ${result.viteBuildsVerified} constrained production Vite builds.`,
+    `Wallet project boundaries verified across ${result.projectCount} discovered projects, ${result.fileCount} source files, ${result.importCount} parsed module references, ${result.productionSharedConsumerCount} production shared-package consumers, ${result.sharedIntentGuardCount} single-implementation intent-bridge guards, and ${result.viteBuildsVerified} constrained production Vite builds.`,
   );
 }
 

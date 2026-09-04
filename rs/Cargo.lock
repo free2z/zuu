@@ -798,6 +798,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "f2z-intent"
+version = "0.1.0"
+dependencies = [
+ "f2z-codec",
+ "proptest",
+ "subtle",
+ "tls_codec",
+]
+
+[[package]]
 name = "f2z-kt"
 version = "0.1.0"
 dependencies = [
