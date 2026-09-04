@@ -1791,6 +1791,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "f2z-intent"
+version = "0.1.0"
+dependencies = [
+ "f2z-codec",
+ "subtle",
+ "tls_codec",
+]
+
+[[package]]
 name = "f2z-kt-client"
 version = "0.1.0"
 dependencies = [
@@ -9470,6 +9479,7 @@ name = "zuuli"
 version = "0.1.0"
 dependencies = [
  "f2z-codec",
+ "f2z-intent",
  "f2z-kt-core",
  "f2z-msg-identity",
  "f2z-msg-mls",
@@ -9488,6 +9498,7 @@ dependencies = [
  "tauri-plugin-zcash",
  "tempfile",
  "tiny_http",
+ "tracing",
  "url",
 ]
 

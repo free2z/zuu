@@ -40,6 +40,17 @@ export const IntentErrorCode = {
   CallerNotAuthorized: 10,
   /** A response to a question this client never asked. */
   Unsolicited: 11,
+  /**
+   * The wallet understood the request but could not act on it: no wallet
+   * open, the payment cannot be funded, the network is unreachable, or a
+   * broadcast did not complete.
+   *
+   * Deliberately distinct from {@link IntentErrorCode.InvalidValue}: a
+   * request the wallet cannot fund is not a malformed request, and a caller
+   * told otherwise will "fix" a message that was already correct. It carries
+   * no detail — "insufficient funds" would be a balance oracle.
+   */
+  Unavailable: 12,
 } as const;
 
 /** One of {@link IntentErrorCode}'s values. */
@@ -58,6 +69,7 @@ const NAMES: ReadonlyMap<IntentErrorCode, string> = new Map([
   [IntentErrorCode.NotConfirmed, "INTENT_NOT_CONFIRMED"],
   [IntentErrorCode.CallerNotAuthorized, "INTENT_CALLER_NOT_AUTHORIZED"],
   [IntentErrorCode.Unsolicited, "INTENT_UNSOLICITED"],
+  [IntentErrorCode.Unavailable, "INTENT_UNAVAILABLE"],
 ] as const);
 
 /** The stable screaming-snake name for a status, for logs. */

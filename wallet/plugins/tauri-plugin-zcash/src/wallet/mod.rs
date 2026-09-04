@@ -34,6 +34,36 @@ pub type WalletDatabase = zcash_client_sqlite::WalletDb<
     rand::rngs::OsRng,
 >;
 
+/// Lazily authenticate and install spending authority for the active wallet.
+///
+/// The transition token proves that active-ID lookup, UFVK validation in native
+/// custody, and the in-memory seed installation all refer to one wallet — which
+/// is why it is a parameter and not something this function takes for itself.
+///
+/// It lives here, rather than in `commands.rs` where it was written, because it
+/// is no longer only a *command's* step: the intent bridge's `execute-payment`
+/// authority (`wallet/zuuli/src-tauri/src/intent.rs`) reaches `execute_send`
+/// without passing through an IPC command, and `execute_send` requires the seed
+/// to be installed. A second copy of this five-line sequence in the application
+/// crate would be a second place where "prove the UFVK, then install the seed"
+/// could drift apart.
+pub async fn ensure_active_seed_loaded(
+    state: &WalletState,
+    transition: &WalletTransitionGuard<'_>,
+) -> crate::Result<()> {
+    if state.seed.lock().await.is_some() {
+        return Ok(());
+    }
+    let wallet_id = state
+        .active_wallet_id()
+        .await
+        .ok_or(crate::error::Error::WalletNotInitialized)?;
+    let phrase = state.get_seed_phrase(transition, &wallet_id).await?;
+    let mnemonic = keys::parse_mnemonic(&phrase)?;
+    *state.seed.lock().await = Some(keys::mnemonic_to_seed(&mnemonic));
+    Ok(())
+}
+
 pub(crate) fn format_birthday_error(error: BirthdayError) -> String {
     match error {
         BirthdayError::HeightInvalid(error) => format!("invalid height: {error}"),

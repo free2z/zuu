@@ -13,6 +13,9 @@ Companion documents:
   platform, and what cannot be established.
 - [`CONFORMANCE.md`](./CONFORMANCE.md) — every guard, and the mutation that
   proves the test for it is not inert.
+- [`AUTHORITY.md`](./AUTHORITY.md) — the ZUULI side: what `execute-payment`
+  actually does, why `sign-challenge` is not implemented, and where the
+  confirmation is weaker than it looks.
 
 ---
 
