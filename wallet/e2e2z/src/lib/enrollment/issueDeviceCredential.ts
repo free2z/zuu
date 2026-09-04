@@ -145,7 +145,8 @@ export function isIntentRefused(error: unknown): error is IntentRefusedError {
   );
 }
 
-function require_<T>(
+/** Unwrap an outcome, or throw the refusal it carries. */
+function orRefuse<T>(
   outcome: IntentOutcome<T>,
   stage: "request" | "response",
 ): T {
@@ -217,7 +218,7 @@ export function createDeviceCredentialClient(
 
       const keys = await readKeys();
       const issuedAtMs = now();
-      const payload = require_(
+      const payload = orRefuse(
         encodeIssueDeviceCredentialPayload({
           handle,
           devicePublicKey: keys.devicePublicKey,
@@ -232,7 +233,7 @@ export function createDeviceCredentialClient(
       const expiresAtMs = issuedAtMs + REQUEST_LIFETIME_MS;
       // `issue` encodes and records in one step, so there is no window in which
       // a request exists on the wire without an outstanding question behind it.
-      const encoded = require_(
+      const encoded = orRefuse(
         session.issue(
           {
             intent: IntentFamily.IssueDeviceCredential,
@@ -270,7 +271,7 @@ export function createDeviceCredentialClient(
       // different family, an expired window, a refusal status, a malformed or
       // truncated envelope, trailing bytes. All of it is the shared session's
       // and the shared decoder's, re-checked against the frozen record.
-      const accepted = require_(session.accept(answer, now()), "response");
+      const accepted = orRefuse(session.accept(answer, now()), "response");
 
       // Defence in depth. `accept` already tags the result from the *pending*
       // record rather than from the reply, and refuses a family mismatch; this
@@ -280,7 +281,7 @@ export function createDeviceCredentialClient(
         throw new IntentRefusedError("response", IntentErrorCode.Unsolicited);
       }
 
-      return require_(
+      return orRefuse(
         decodeIssueDeviceCredentialResult(accepted.payload),
         "response",
       );
