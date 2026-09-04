@@ -131,11 +131,29 @@ the binding correct when the flow is eventually split across a transport
 round-trip, and they are cheap — but a reviewer should not read the intent-level
 token as an independent barrier today. It is a *binding*, not a second gate.
 
-Two further honest limits:
+Three further honest limits:
 
-- **The ledger is process-local.** A restart lets an *unconfirmed* intent be
-  presented again, which shows the user the confirmation again. A *confirmed*
-  one cannot be resurrected, because the approval lives in the same process.
+- **The ledger is process-local, and "one-use" means one use per process.** A
+  restart destroys the authorization *object*, so an approval granted before it
+  cannot be spent after it. It does **not** make the request unrepeatable:
+  inside its ≤5-minute window the same bytes are admitted again by an empty
+  ledger, the same dialog is shown, and two approvals are two payments. The
+  barrier there is **a second human approval, not the ledger** — which is the
+  correct barrier for a control whose authority is the human, but it is not what
+  "a confirmed intent cannot be resurrected" would have implied, so it is
+  written the accurate way instead.
+- **`INTENT_UNAVAILABLE` is a coarse balance oracle at the level of control
+  flow**, even though its *payload* carries nothing. An amount the wallet cannot
+  fund fails inside `propose_send`, which runs **before** `confirm_natively`, so
+  a registered caller learns fundable-or-not from a silent refusal with no user
+  interaction at all — and a descending binary search over the balance costs at
+  most one visible dialog, at the bottom. §7's "carries no detail, because
+  'insufficient funds' is a balance oracle" is true of the bytes and not of the
+  surface. Not exploitable today: the registry holds two first-party apps and
+  there is no transport. It becomes a real question the moment either of those
+  changes, and the fix is not a different status code — it is deciding whether
+  an unregistered-in-practice caller may probe at all, or moving the proposal
+  behind the confirmation.
 - **`Claimed` is the only trust verdict any shipping platform reaches today.**
   See §6.
 
@@ -172,7 +190,10 @@ would then "fix" a message that was already correct.
 
 `INTENT_UNAVAILABLE` carries no detail, for the same reason nothing else here
 does: the caller is an app the wallet does not trust, and "insufficient funds" is
-a balance oracle. Both halves of the protocol were updated —
+a balance oracle. **That is a statement about the payload, not about the
+surface** — the *control flow* still leaks fundability, because an unfundable
+amount fails in `propose_send` before any dialog is shown. §5's honest-limits
+list says how much that is worth and why it is not exploitable today. Both halves of the protocol were updated —
 `rs/crates/f2z-intent/src/error.rs` and `wallet/shared/src/intent/error.ts` — and
 the density/stability test moved its "unknown status" probe from 12 to 13.
 
@@ -202,7 +223,7 @@ cargo test --locked --manifest-path wallet/zuuli/src-tauri/Cargo.toml
 # for each row: patch, cargo test --lib <test> -- --exact, restore
 ```
 
-Baseline: **46 tests green** in `wallet/zuuli/src-tauri` — 24 of them new, in
+Baseline: **48 tests green** in `wallet/zuuli/src-tauri` — 26 of them new, in
 `intent::tests` — and 63 still green in `f2z-intent`.
 
 | Guard, as mutated | Test that must fail | Result |
@@ -233,8 +254,12 @@ Baseline: **46 tests green** in `wallet/zuuli/src-tauri` — 24 of them new, in
 | confirmation deadline: **wall** half | same | FAILS |
 | confirmation deadline: **rollback** guard | same | FAILS |
 | the authority is managed state | `the_intent_authority_is_not_reachable_from_the_webview` | FAILS |
+| the dialog verdict is not inverted (approve on *Cancel*) | `the_delegation_order_…` | FAILS |
+| a dialog closed without a verdict refuses | `silence_from_the_dialog_is_a_refusal` | FAILS |
+| only an accepted broadcast is a payment (inverted) | `only_an_accepted_broadcast_is_reported_as_a_payment` | FAILS |
+| only an accepted broadcast is a payment (deleted) | same | FAILS |
 
-**26 mutations, 26 failures, 0 survivors.**
+**30 mutations, 30 failures, 0 survivors.**
 
 The three dual-clock rows mutate `f2z-intent`'s `Deadline::check` and are the
 same three `CONFORMANCE.md` records — repeated here because this surface is
@@ -243,6 +268,37 @@ crate's own behaviour without exercising it here would have been decoration.
 Each half is defeated without the others: suspend is caught by the wall
 deadline, a wall clock held just after issuance by the monotonic one, and a
 rollback by the issuance comparison.
+
+### The last four rows exist because the first twenty-six missed them
+
+An adversarial review of this PR found two surviving mutations, and both were on
+guards this document names as central. They are recorded here rather than
+quietly folded in, because "0 survivors" is only worth anything if the times it
+was wrong are visible:
+
+- **The dialog verdict was undefended.** Dropping the `!` from
+  `if !confirm_natively(…)` — approve on *Cancel* — left every test green. The
+  ordering test's step literal was `"confirm_natively(app, message)"`, which
+  matches with or without the negation. The primary control of the whole design
+  had no test that would notice it being inverted.
+- **The ambiguous-broadcast rule was undefended.** Inverting or deleting the
+  `BroadcastStatus::Accepted` check left the suite green; nothing referenced
+  `BroadcastStatus` at all, while §7 and the PR body both advertised "an
+  ambiguous broadcast is reported as `UNAVAILABLE`, never as a txid" as a
+  headline property.
+
+Both were closed by moving the decision into a pure function that a test can
+drive, rather than by adding an assertion about the source:
+`payment_outcome(&ExecuteSendResult)` covers `Accepted` / `Rejected` /
+`Unknown` plus a malformed identifier, and `dialog_verdict(Option<bool>)` covers
+authorize / cancel / silence. Each has a positive control, so a mapping that
+refused everything would not pass either.
+
+One half stays a source assertion and is labelled as such: the `!` on
+`confirm_natively` cannot be exercised without a real window and a funded
+wallet, so the ordering test now pins the literal
+`"if !confirm_natively(app, message).await {"`. That is the same category as the
+other ordering rows — weaker than a functional test, and claimed as no more.
 
 ### One mutation that cannot be written, stated rather than omitted
 

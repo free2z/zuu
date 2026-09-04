@@ -92,7 +92,7 @@ use f2z_intent::{
 };
 use tauri::{AppHandle, Manager as _, Runtime};
 use tauri_plugin_dialog::{DialogExt as _, MessageDialogButtons, MessageDialogKind};
-use tauri_plugin_zcash::models::{BroadcastStatus, SendReview};
+use tauri_plugin_zcash::models::{BroadcastStatus, ExecuteSendResult, SendReview};
 use tauri_plugin_zcash::wallet::send;
 use tauri_plugin_zcash::ZcashExt as _;
 
@@ -367,17 +367,7 @@ async fn execute_payment<R: Runtime>(
                 IntentError::Unavailable
             })?;
 
-        // `Unknown` is an ambiguous broadcast, not a completed payment, and the
-        // wallet keeps the exact bytes for `retry_pending_send`. Reporting a
-        // txid for it would tell the caller a payment landed that may not have.
-        if executed.status != BroadcastStatus::Accepted {
-            tracing::warn!(
-                "intent execute-payment broadcast did not complete: {:?}",
-                executed.status
-            );
-            return Err(IntentError::Unavailable);
-        }
-        txid_from_rendered(&executed.txid)
+        payment_outcome(&executed)
     }
     .await;
 
@@ -503,8 +493,22 @@ async fn confirm_natively<R: Runtime>(app: &AppHandle<R>, message: String) -> bo
             // on the platform's UI thread, which may be a runtime thread.
             let _ = sender.try_send(accepted);
         });
-    // A dropped sender — a dialog dismissed without a verdict — is a refusal.
-    receiver.recv().await.unwrap_or(false)
+    dialog_verdict(receiver.recv().await)
+}
+
+/// What the dialog channel's answer means.
+///
+/// `Some(true)` is the only authorization. `Some(false)` is *Cancel*, and
+/// `None` is a sender dropped without a verdict — a dialog the platform closed,
+/// a callback that never ran, a runtime torn down mid-prompt. All three of the
+/// non-`Some(true)` cases are refusals, and none of them is a default: written
+/// as `matches!` rather than `unwrap_or`, the refusing branch is the one you
+/// have to delete rather than the one you have to remember.
+///
+/// A pure function so `silence_from_the_dialog_is_a_refusal` can drive every
+/// case; the surrounding `async fn` needs a real window and cannot be.
+const fn dialog_verdict(reported: Option<bool>) -> bool {
+    matches!(reported, Some(true))
 }
 
 /// The wallet's re-derived review must describe the payment that was asked for.
@@ -541,6 +545,36 @@ fn review_matches_request(
         return Err(IntentError::InvalidValue);
     }
     Ok(())
+}
+
+/// What a completed `execute_send` means to the caller.
+///
+/// Only [`BroadcastStatus::Accepted`] is a payment. `Rejected` is a refusal and
+/// `Unknown` is an **ambiguous** broadcast — the transaction exists locally and
+/// the wallet retains the exact bytes for `retry_pending_send`, but nothing
+/// establishes that the network took them. Returning a txid for either would
+/// tell the caller a payment landed that may not have, and that is the one
+/// answer no later message can correct: an app that showed "sent" cannot
+/// unshow it.
+///
+/// A pure function rather than three lines inside the delegation, so that all
+/// three variants are drivable by a test. Nothing above `execute_send` can be
+/// unit-tested — it needs a funded wallet, a prover and a network — and this is
+/// the part of it that does not have to inherit that.
+///
+/// # Errors
+///
+/// [`IntentError::Unavailable`] for any status but `Accepted`, and for a
+/// transaction identifier that is not 32 bytes.
+fn payment_outcome(executed: &ExecuteSendResult) -> Result<TxId, IntentError> {
+    if executed.status != BroadcastStatus::Accepted {
+        tracing::warn!(
+            "intent execute-payment broadcast did not complete: {:?}",
+            executed.status
+        );
+        return Err(IntentError::Unavailable);
+    }
+    txid_from_rendered(&executed.txid)
 }
 
 /// Encode a refusal: the status, echoed correlation, and nothing else.
@@ -966,6 +1000,65 @@ mod tests {
         assert_eq!(result.txid.as_bytes(), &[0xAB; 32]);
     }
 
+    /// F1 — the primary control's failure mode.
+    ///
+    /// The dialog is the whole security model of this surface, and the two ways
+    /// it can answer "no" are a *Cancel* and a silence. Both must refuse, and
+    /// neither may be a default that a later edit turns into an approval.
+    #[test]
+    fn silence_from_the_dialog_is_a_refusal() {
+        assert!(
+            dialog_verdict(Some(true)),
+            "the positive control: a verdict that always refuses is not a confirmation",
+        );
+        assert!(!dialog_verdict(Some(false)), "Cancel is a refusal");
+        assert!(
+            !dialog_verdict(None),
+            "a dialog that closed without a verdict must never authorize a payment",
+        );
+    }
+
+    /// F2 — only an accepted broadcast is a payment.
+    ///
+    /// `Unknown` is the interesting one: the transaction exists locally and the
+    /// wallet keeps its exact bytes for `retry_pending_send`, so it is neither a
+    /// success nor a clean failure. Reporting a txid for it is the one answer
+    /// no later message can correct.
+    #[test]
+    fn only_an_accepted_broadcast_is_reported_as_a_payment() {
+        let executed = |status| ExecuteSendResult {
+            txid: "ab".repeat(32),
+            status,
+            message: None,
+        };
+        assert_eq!(
+            payment_outcome(&executed(BroadcastStatus::Accepted))
+                .expect("an accepted broadcast is a payment")
+                .as_bytes(),
+            &[0xAB; 32],
+            "the positive control: a mapping that refused everything would prove nothing",
+        );
+        assert_eq!(
+            payment_outcome(&executed(BroadcastStatus::Rejected)),
+            Err(IntentError::Unavailable),
+            "a rejected broadcast is not a payment",
+        );
+        assert_eq!(
+            payment_outcome(&executed(BroadcastStatus::Unknown)),
+            Err(IntentError::Unavailable),
+            "an ambiguous broadcast must never be reported as a completed payment",
+        );
+        // …and a status that *is* accepted still has to carry a real identifier.
+        assert_eq!(
+            payment_outcome(&ExecuteSendResult {
+                txid: "unavailable".to_owned(),
+                status: BroadcastStatus::Accepted,
+                message: None,
+            }),
+            Err(IntentError::Unavailable),
+        );
+    }
+
     #[test]
     fn a_txid_that_is_not_thirty_two_bytes_is_not_reported_as_a_payment() {
         assert_eq!(
@@ -1293,13 +1386,18 @@ mod tests {
             "send::prepare_send_confirmation(",
             "review_matches_request(payment, &review)",
             "payment_confirmation(admitted, &review",
-            "confirm_natively(app, message)",
+            // The literal carries its `!`. Dropping the negation inverts the
+            // primary control — approve on Cancel — and every functional test
+            // in this module would stay green, because none of them can reach
+            // a real dialog. This assertion is the one that notices.
+            "if !confirm_natively(app, message).await {",
             "ConfirmationAuthorization::issue(",
             "send::issue_send_confirmation(",
             "approval.consume(",
             "send::take_send_proposal(",
             "ensure_active_seed_loaded(state, &transition)",
             "send::execute_send(",
+            "payment_outcome(&executed)",
         ];
         let mut previous = 0;
         for step in steps {
