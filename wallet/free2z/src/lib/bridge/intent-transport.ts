@@ -110,6 +110,15 @@ export class IntentTransportUnavailableError extends Error {
  *   association degrades to the web, a query string lands in browser history,
  *   `Referer` headers and server logs. Use the fragment, or a one-use retrieval
  *   handle.
+ * - **Normalize the path before you trust it.** Each app is given its own
+ *   bridge path prefix, and those patterns are proven pairwise disjoint under
+ *   raw, percent-decoded and dot-segment-normalized forms, so no two apps can
+ *   ever both match one URL. That proof is about the *association document*;
+ *   collapsing `..` is nevertheless the **receiving app's** job and nothing
+ *   here does it. A path arriving as `.../free2z/../zuuli/x` is a different
+ *   path once resolved, and an app that resolves it *after* matching has
+ *   matched the wrong pattern. Resolve first, match second, and refuse a
+ *   residual `..` rather than normalizing it away silently.
  */
 export interface IntentTransport {
   /** A short stable name, for diagnostics. Never rendered as authority. */
