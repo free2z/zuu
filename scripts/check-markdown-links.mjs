@@ -222,7 +222,21 @@ const ATX_HEADING = /^\s{0,3}(#{1,6})\s+(.*?)\s*$/;
 /// `docs/` tree is full of both.
 function* proseLines(text) {
   let fence = null;
-  for (const [index, raw] of text.split(/\r?\n/).entries()) {
+  const all = text.split(/\r?\n/);
+  // YAML front matter, which most of the Docusaurus tree carries. Skipping it
+  // matters in both directions: `title: Creating a profile` sitting above a
+  // closing `---` is otherwise read as a setext heading and publishes an anchor
+  // nothing renders, and a `slug:` value is not a link.
+  let start = 0;
+  if (all[0]?.trim() === "---") {
+    for (let index = 1; index < all.length; index += 1) {
+      if (all[index].trim() !== "---") continue;
+      start = index + 1;
+      break;
+    }
+  }
+  for (const [offset, raw] of all.slice(start).entries()) {
+    const index = offset + start;
     const match = FENCE.exec(raw);
     if (match) {
       if (fence === null) {
@@ -945,6 +959,40 @@ function selfTest() {
     "a broken link that escapes its fence",
     withFile(CLEAN_TREE, "README.md", (text) => text.replace("```md\n", "")),
     /"\.\/does-not-exist\.md" resolves to does-not-exist\.md/,
+  );
+
+  // ---- YAML front matter -------------------------------------------------
+  //
+  // Most of the Docusaurus tree carries it. The closing `---` under a `title:`
+  // line is a setext heading to any parser that has not skipped the block, so
+  // an unskipped one publishes an anchor nothing renders — which is a *silent*
+  // loosening, not a failure, hence a positive control that pins the line
+  // numbers after it as well.
+  const FRONT_MATTER_TREE = {
+    ...CLEAN_TREE,
+    "docs/about-free2z/docs/page.md": [
+      "---",
+      "title: A page",
+      "sidebar_position: 2",
+      "---",
+      "",
+      "# A page",
+      "",
+      "Anchors: [here](#a-page) and [there](#a-page-1).",
+    ].join("\n"),
+  };
+  expectDetected(
+    "an anchor that only exists if front matter is read as a heading",
+    FRONT_MATTER_TREE,
+    /docs\/about-free2z\/docs\/page\.md:8: "#a-page-1" points at heading anchor #a-page-1/,
+    { minimumDocuments: 4 },
+  );
+  expectClean(
+    "front matter skipped, with the line numbers after it still right",
+    withFile(FRONT_MATTER_TREE, "docs/about-free2z/docs/page.md", (text) =>
+      text.replace(" and [there](#a-page-1)", ""),
+    ),
+    { minimumDocuments: 4, minimumRelativeLinks: 7 },
   );
 
   // ---- site-absolute targets ---------------------------------------------
