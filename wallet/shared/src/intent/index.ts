@@ -35,6 +35,7 @@ export {
   REQUEST_ID_BYTES,
   decodeIntentRequest,
   decodeIntentResponse,
+  decodeIssueDeviceCredentialResult,
   encodeExecutePaymentPayload,
   encodeIntentRequest,
   encodeIssueDeviceCredentialPayload,

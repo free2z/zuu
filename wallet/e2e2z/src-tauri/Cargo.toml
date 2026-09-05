@@ -24,7 +24,9 @@ tauri-build = { version = "2", features = [] }
 # it, and under #904 that becomes a bridge call into the wallet authority
 # rather than an in-process one, so the app-crate enrollment trio
 # (`f2zmsg_enrollment_status`, `f2zmsg_enroll`, `f2zmsg_unenroll`) is not
-# registered here either — see this crate's `src/lib.rs`.
+# registered here either — see this crate's `src/lib.rs`. What IS registered is
+# `e2e2z_device_credential_keys`, which returns this device's public keys and
+# nothing else; `src/device.rs` says why that is not a hole in the same rule.
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-deep-link = "2.4.9"

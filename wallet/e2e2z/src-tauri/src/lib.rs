@@ -12,6 +12,14 @@
 //! issues the `DeviceCredential` (#905). Until that protocol lands there is no
 //! honest in-process implementation, so there is no command and no capability
 //! entry addressing one.
+//!
+//! What this crate *does* register is [`device::e2e2z_device_credential_keys`]:
+//! the **public** halves of this device's OS-CSPRNG key set, which are what an
+//! `issue-device-credential` request carries. It grants nothing, reveals no
+//! secret, and is the one piece of enrollment that does not need the seed. See
+//! that module for why it is here rather than in the plugin or in the renderer.
+
+pub mod device;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -19,6 +27,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_f2zmsg::init())
+        .invoke_handler(tauri::generate_handler![
+            device::e2e2z_device_credential_keys
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -35,5 +46,26 @@ mod tests {
             !manifest.contains("\ntauri-plugin-zcash ="),
             "e2e2z must not link tauri-plugin-zcash: ongoing messaging never needs the seed"
         );
+    }
+
+    /// The enrollment trio must stay absent from this crate's IPC surface.
+    ///
+    /// `e2e2z_device_credential_keys` is deliberately *not* one of them: it
+    /// returns public keys and cannot enroll anything. If a command whose name
+    /// starts `f2zmsg_` ever appears here, this app has grown the very surface
+    /// #904 split away, so the source is asserted rather than the doc comment.
+    #[test]
+    fn no_enrollment_command_is_registered() {
+        let source = include_str!("lib.rs");
+        let handler = source
+            .split("invoke_handler(tauri::generate_handler![")
+            .nth(1)
+            .and_then(|rest| rest.split("])").next())
+            .expect("the invoke_handler list");
+        assert!(
+            !handler.contains("f2zmsg_"),
+            "e2e2z must register no f2zmsg_* app-crate command: enrollment needs the seed"
+        );
+        assert!(handler.contains("e2e2z_device_credential_keys"));
     }
 }
