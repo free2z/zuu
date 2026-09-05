@@ -1,9 +1,17 @@
+/**
+ * Where a completed sign-in is allowed to land.
+ *
+ * Every member must be a route `App` actually mounts. ZUULI's copy of this
+ * union sanctions `/wallet/fund`, `/wallet/fund/activity` and
+ * `/wallet/fund/send`; this surface mounts no `/wallet` at all and mounts
+ * `/fund` as an exact path with no children, so all three would have sent a
+ * freshly signed-in reader to NotFound. `src/lib/route-targets.test.ts` holds
+ * this union to the router (#904).
+ */
 export type LoginDestination =
   | "/"
   | "/ai"
-  | "/wallet/fund"
-  | "/wallet/fund/activity"
-  | "/wallet/fund/send"
+  | "/fund"
   | `/articles/${string}`
   | `/creator/${string}`
   | `/live/${string}`;
@@ -61,14 +69,12 @@ function dynamicPaidDestination(value: string): LoginDestination | null {
 }
 
 export function safeLoginDestination(value: unknown): LoginDestination {
-  if (value === "/buy") return "/wallet/fund";
-  if (value === "/buy/send") return "/wallet/fund/send";
-  if (
-    value === "/ai" ||
-    value === "/wallet/fund" ||
-    value === "/wallet/fund/activity" ||
-    value === "/wallet/fund/send"
-  ) {
+  // `/buy` is the legacy exact Buy route, kept so a login already in flight
+  // when the rename shipped still lands on the top-up screen. `/buy/send` has
+  // no counterpart here — this surface has no Send — so it falls back home
+  // rather than being normalized onto a route that does not exist.
+  if (value === "/buy") return "/fund";
+  if (value === "/ai" || value === "/fund") {
     return value;
   }
   return typeof value === "string"

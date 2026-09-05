@@ -35,8 +35,34 @@
     "body": "L'achat de 2Zs reste dans ZUULI le temps de séparer sa recharge en Zcash du paiement par carte. Il arrive ensuite dans free2z.",
     "title": "Ajouter des 2Zs"
   },
+  "live": {
+    "failure": {
+      "endedRoom": "Cette diffusion est terminée ou n'accepte plus de spectateurs.",
+      "expiredTicket": "L'accès a expiré avant le début de la connexion. Réessayez.",
+      "lifecycleRace": "La diffusion a changé pendant votre connexion. Revenez aux diffusions en direct et ouvrez-la à nouveau.",
+      "malformedTicket": "Le serveur a renvoyé un accès non valide. Réessayez dans un instant.",
+      "offline": "Vous êtes hors ligne. Reconnectez-vous, puis réessayez.",
+      "policy": "L'application a bloqué la connexion en direct. Vérifiez les autorisations ou les paramètres de sécurité du réseau, puis réessayez.",
+      "replayedTicket": "Le serveur n'a pas émis de nouvel accès. Réessayez dans un instant.",
+      "timeout": "Le délai de connexion à la diffusion a expiré. Réessayez.",
+      "tokenRejected": "Le service de diffusion a refusé cette connexion. Réessayez.",
+      "transport": "Le service de diffusion est inaccessible. Changez de réseau ou réessayez.",
+      "unknown": "La connexion à la diffusion a échoué. Réessayez."
+    },
+    "stage": {
+      "connecting": "Connexion à la diffusion…",
+      "ended": "La diffusion est terminée.",
+      "hostRecoveryHint": "La reconnexion utilise la salle existante et ne lance pas une autre diffusion.",
+      "reconnect": "Se reconnecter",
+      "refreshingTicket": "Obtention d'un nouvel accès…",
+      "tryAgain": "Réessayer",
+      "waitingForConnection": "En attente de connexion"
+    }
+  },
   "navigation": {
     "accountMenu": "Menu du compte",
+    "ai": "IA",
+    "aiAccessible": "Intelligence artificielle",
     "app": "Navigation de l'application",
     "articles": "Articles",
     "back": "Retour",
@@ -47,9 +73,15 @@
       "explore": "Explorer",
       "money": "Argent"
     },
+    "live": "Diffusions en direct",
     "login": "Se connecter",
     "primary": "Navigation principale",
+    "search": "Rechercher des créateurs, des pages et des sujets",
     "searchAction": "Rechercher",
     "signOut": "Se déconnecter"
+  },
+  "search": {
+    "all": "Rechercher dans tout free2z",
+    "clear": "Effacer la recherche"
   }
 }

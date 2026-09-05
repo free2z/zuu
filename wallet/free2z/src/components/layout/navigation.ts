@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { BookOpen, Coins, LogIn } from "lucide-react";
+import { BookOpen, Coins, LogIn, Radio, Search, Sparkles } from "lucide-react";
 import { MESSAGE_KEYS, type MessageKey } from "@/i18n/messages";
 
 export type NavigationAuth = "always" | "signed-in" | "signed-out";
@@ -44,6 +44,36 @@ export const NAVIGATION: readonly NavigationRoute[] = [
     mobileOrder: 0,
   },
   {
+    id: "search",
+    to: "/search",
+    labelKey: MESSAGE_KEYS.navSearch,
+    accessibleLabelKey: MESSAGE_KEYS.navSearch,
+    icon: Search,
+    auth: "always",
+    desktop: { group: "explore", order: 1 },
+    mobileOrder: 1,
+  },
+  {
+    id: "live",
+    to: "/live",
+    labelKey: MESSAGE_KEYS.navLive,
+    accessibleLabelKey: MESSAGE_KEYS.navLive,
+    icon: Radio,
+    auth: "always",
+    desktop: { group: "explore", order: 2 },
+    mobileOrder: 2,
+  },
+  {
+    id: "ai",
+    to: "/ai",
+    labelKey: MESSAGE_KEYS.navAi,
+    accessibleLabelKey: MESSAGE_KEYS.navAiAccessible,
+    icon: Sparkles,
+    auth: "always",
+    desktop: { group: "explore", order: 3 },
+    mobileOrder: 3,
+  },
+  {
     id: "fund",
     to: "/fund",
     labelKey: MESSAGE_KEYS.navBuyTuzis,
@@ -51,7 +81,7 @@ export const NAVIGATION: readonly NavigationRoute[] = [
     icon: Coins,
     auth: "signed-in",
     desktop: { group: "money", order: 0 },
-    mobileOrder: 1,
+    mobileOrder: 4,
   },
   {
     id: "sign-in",
@@ -61,7 +91,7 @@ export const NAVIGATION: readonly NavigationRoute[] = [
     icon: LogIn,
     auth: "signed-out",
     desktop: { group: "account", order: 0 },
-    mobileOrder: 1,
+    mobileOrder: 4,
   },
 ];
 

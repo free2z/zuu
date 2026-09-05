@@ -39,23 +39,23 @@ describe("paid login intent", () => {
     const storage = new MemoryStorage();
 
     preservePaidIntent(
-      "/wallet/fund/send",
+      "/fund",
       { kind: "send", query: "alice", amount: 3_000 },
       storage,
       100,
     );
-    expect(consumePaidIntent("/wallet/fund/send", "send", storage, 200)).toEqual({
+    expect(consumePaidIntent("/fund", "send", storage, 200)).toEqual({
       kind: "send",
       query: "alice",
       amount: 3_000,
     });
 
     storage.value = JSON.stringify({
-      returnTo: "/wallet/fund/send",
+      returnTo: "/fund",
       createdAt: 100,
       intent: { kind: "send", query: "alice", amount: "3,000" },
     });
-    expect(consumePaidIntent("/wallet/fund/send", "send", storage, 200)).toEqual({
+    expect(consumePaidIntent("/fund", "send", storage, 200)).toEqual({
       kind: "send",
       query: "alice",
       amount: "3,000",
@@ -67,7 +67,7 @@ describe("paid login intent", () => {
     (amount) => {
       const storage = new MemoryStorage();
       preservePaidIntent(
-        "/wallet/fund/send",
+        "/fund",
         { kind: "send", query: "alice", amount } as never,
         storage,
         100,
@@ -84,7 +84,7 @@ describe("paid login intent", () => {
     ],
     ["/creator/alice", { kind: "creator-tip", subject: "alice", amount: "50" }],
     ["/creator/alice", { kind: "creator-subscription", subject: "alice" }],
-    ["/wallet/fund/send", { kind: "send", query: "alice", amount: "500" }],
+    ["/fund", { kind: "send", query: "alice", amount: "500" }],
     ["/live/alice", { kind: "live-entry", subject: "alice", mode: "ppv" }],
   ] as const)("preserves the %s paid intent across login", (path, intent) => {
     const storage = new MemoryStorage();
@@ -101,7 +101,7 @@ describe("paid login intent", () => {
     });
 
     storage.value = record;
-    expect(consumePaidIntent("/wallet/fund", "ai", storage, 200)).toBeNull();
+    expect(consumePaidIntent("/fund", "ai", storage, 200)).toBeNull();
     expect(storage.value).toBeNull();
 
     storage.value = record;
