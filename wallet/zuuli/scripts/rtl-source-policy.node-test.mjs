@@ -911,19 +911,41 @@ test("e2e2z CSS is held to logical directions too", () => {
   );
 });
 
+// A reviewed inventory that names a file the tree no longer has is not a
+// stricter policy — it is a dead entry that reads like coverage. #943 deleted
+// `src/features/profile` from ZUULI, and the only thing that noticed was a
+// hand-written list in this file. So the paths are checked against the tree
+// itself, for every surface, rather than against one more hand-written list.
+test("every reviewed inventory path names a file that still exists", () => {
+  const trees = new Map([
+    [SURFACES[0], BASELINE],
+    [E2E2Z_SURFACE, E2E2Z_BASELINE],
+  ]);
+  for (const [surface, sources] of trees) {
+    for (const table of [
+      surface.requiredDirectionalTransforms,
+      surface.reviewedResiduals,
+    ]) {
+      for (const fileName of Object.keys(table)) {
+        assert.equal(
+          typeof sources[fileName],
+          "string",
+          `${surface.directory} reviews ${fileName}, which no longer exists`,
+        );
+      }
+    }
+  }
+});
+
 test("the shared checker keeps each surface's contract to itself", () => {
   // ZUULI's reviewed directional-transform sites are ZUULI's. Judging e2e2z
   // with them would demand files that surface does not have, and judging ZUULI
-  // with an empty table would silently drop three reviewed contracts — so the
+  // with an empty table would silently drop its reviewed contracts — so the
   // parameterisation is asserted rather than assumed.
   assert.deepEqual(Object.keys(E2E2Z_SURFACE.requiredDirectionalTransforms), []);
   assert.deepEqual(
     Object.keys(SURFACES[0].requiredDirectionalTransforms).sort(),
-    [
-      "src/components/ui/switch.tsx",
-      "src/features/auth/ZcashLoginFlow.tsx",
-      "src/features/profile/LinkedAccounts.tsx",
-    ],
+    ["src/components/ui/switch.tsx", "src/features/auth/ZcashLoginFlow.tsx"],
   );
   // And the table is load-bearing, not decorative: the same broken switch is
   // caught under ZUULI's contract and missed under an empty one, which is
