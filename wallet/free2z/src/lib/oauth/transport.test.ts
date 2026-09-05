@@ -101,53 +101,47 @@ describe("OAuth session lifecycle", () => {
     expect(popup.close).toHaveBeenCalledOnce();
   });
 
-  it("cancels persisted mobile recovery when its session changes", async () => {
+  // #918: App.tsx calls this unconditionally on mount, behind a `.catch` that
+  // fires `toast.error("Couldn't finish sign-in")`. Before this change it
+  // invoked `oauth_mobile_pending`, a command this binary does not register, so
+  // a packaged build greeted every launch with a sign-in failure the user had
+  // not asked for. It must resolve "nothing to finish" — and it must not reach
+  // the IPC bridge to find that out, because there is nothing there to ask.
+  it("has no native callback to recover, and never asks the shell", async () => {
     installBrowser();
     mocks.isTauri = true;
-    let listening!: () => void;
-    const didListen = new Promise<void>((resolve) => {
-      listening = resolve;
-    });
-    let installListener!: (stop: () => void) => void;
-    const listenerInstall = new Promise<() => void>((resolve) => {
-      installListener = resolve;
-    });
-    const stopListening = vi.fn();
-    mocks.onOpenUrl.mockImplementation(() => {
-      listening();
-      return listenerInstall;
-    });
-    mocks.getCurrent.mockResolvedValue(null);
-    mocks.invoke.mockImplementation(async (command: string) => {
-      if (command === "oauth_callback_transport") return "mobile";
-      if (command === "oauth_mobile_pending") {
-        return {
-          provider: "google",
-          associate: true,
-          phase: "armed",
-          state: STATE,
-        };
-      }
-      if (command === "oauth_mobile_resume") return { status: "ignored" };
-      if (command === "oauth_mobile_cancel") return undefined;
-      throw new Error(`unexpected command: ${command}`);
-    });
-    const [{ recoverMobileOAuth }, { setToken }] = await Promise.all([
+    mocks.invoke.mockRejectedValue(new Error("no such command"));
+    const { recoverMobileOAuth } = await import("./transport");
+
+    await expect(recoverMobileOAuth()).resolves.toBeNull();
+    expect(mocks.invoke).not.toHaveBeenCalled();
+    expect(mocks.onOpenUrl).not.toHaveBeenCalled();
+    expect(mocks.getCurrent).not.toHaveBeenCalled();
+  });
+
+  // The login screen already hides the affordance (`socialProviders()` answers
+  // all-unconfigured without a transport). This is the second refusal, for any
+  // caller reaching the API directly: fail before a popup that cannot come back
+  // to `tauri://localhost` is opened at all.
+  it("refuses to start a flow inside a packaged shell, without opening a popup", async () => {
+    const open = vi.fn(() => null);
+    installBrowser(open);
+    mocks.isTauri = true;
+    const [{ captureOAuthCode }, { setToken }] = await Promise.all([
       import("./transport"),
       import("../api/http"),
     ]);
-    setToken("account-a");
+    setToken(null);
+    const buildStart = vi.fn(async (redirectUri: string) =>
+      startResponse(redirectUri),
+    );
 
-    const recovery = recoverMobileOAuth();
-    await didListen;
-    setToken("account-b");
-    installListener(stopListening);
-
-    await expect(recovery).resolves.toBeNull();
-    expect(stopListening).toHaveBeenCalledOnce();
-    expect(mocks.invoke).toHaveBeenCalledWith("oauth_mobile_cancel", {
-      args: { state: STATE },
-    });
+    await expect(
+      captureOAuthCode("google", false, buildStart),
+    ).rejects.toThrow(/not available in the free2z app/i);
+    expect(open).not.toHaveBeenCalled();
+    expect(buildStart).not.toHaveBeenCalled();
+    expect(mocks.invoke).not.toHaveBeenCalled();
   });
 
   it("rejects a token change while completion is awaiting backend work", async () => {

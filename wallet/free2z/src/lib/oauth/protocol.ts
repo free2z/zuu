@@ -1,6 +1,25 @@
 import type { SocialProvider } from "../api/types";
 
-export const MOBILE_REDIRECT_URI = "cash.free2z.zuuli://oauth/callback";
+/**
+ * This app's own private-use OAuth callback URI.
+ *
+ * It must name **this** application's identifier. It named the WALLET app's
+ * scheme (`cash.free2z.zuuli`, `oauth/callback`) when the login surface was
+ * ported out of ZUULI (#912), which on a device carrying both apps would have
+ * handed an authorization code initiated by the content app to the
+ * wallet-authority app — the cross-app custom-scheme collision the three-app
+ * split exists to prevent (#918). `cash.free2z.free2z` is this app's own, and
+ * the route below is registered by this app's own manifest
+ * (`src-tauri/tauri.conf.json`, `plugins.deep-link`), and
+ * `wallet/zuuli/scripts/surface-capability-authority.mjs` now fails any
+ * `cash.free2z.*://` literal in this tree whose scheme is not this app's.
+ *
+ * Nothing in production consumes it yet: this surface has no native OAuth
+ * transport (see `./transport.ts`), so the only live flow is the web popup.
+ * The constant is the declaration of what the URI is, and the validator below
+ * is what holds the backend's authorization URL to it.
+ */
+export const MOBILE_REDIRECT_URI = "cash.free2z.free2z://oauth/callback";
 const MOBILE_RELAY_HOSTS = new Set([
   "free2z.cash",
   "new.free2z.cash",

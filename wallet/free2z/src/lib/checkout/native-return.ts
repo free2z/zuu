@@ -1,13 +1,35 @@
-import { isMobileTauri } from "@/lib/oauth/transport";
+import { isTauri } from "@/lib/platform";
 
-export const CHECKOUT_RETURN_URI = "cash.free2z.zuuli://checkout/return";
+/**
+ * This app's own Stripe checkout return URI.
+ *
+ * It named the WALLET app's scheme (`cash.free2z.zuuli`, `checkout/return`)
+ * when this module was ported out of ZUULI (#912). On a device carrying both
+ * apps the OS would have delivered a payer's claim code — initiated here — to
+ * the wallet-authority app instead (#918). This route is registered by this
+ * app's own manifest, and `parseCheckoutReturnUrl` below now REFUSES the
+ * wallet's scheme rather than accepting it.
+ */
+export const CHECKOUT_RETURN_URI = "cash.free2z.free2z://checkout/return";
 // Django's timestamp signer emits URL-safe base64 segments separated by
 // colons, with an optional leading compression marker. Keep this bounded and
 // fail closed before the value reaches the authenticated claim endpoint.
 const CLAIM_CODE = /^[A-Za-z0-9_.:-]{16,2048}$/;
 const STATUS_TOKEN = /^[A-Za-z0-9_.:-]{16,1024}$/;
 
-export type CheckoutReturnMode = "web" | "zuuli_mobile";
+/**
+ * The return mode this app may ask free2z's checkout API for.
+ *
+ * `"web"` is the only member on purpose. `zuuli_mobile` — ZUULI's value — is a
+ * WIRE value, not a local capability flag: it makes the backend issue a return
+ * URI in the WALLET app's scheme (`cash.free2z.zuuli`), which the OS hands to
+ * that app. free2z has no return mode of its own on the backend yet, so asking
+ * for a native return here would post a payer's claim code to a different
+ * application. Sending `web` is the honest thing this surface can do until a
+ * `free2z_*` return mode exists server-side; that is a backend change, and the
+ * client half of it lands with `features/wallet/funding` (#918, #904).
+ */
+export type CheckoutReturnMode = "web";
 
 export type CheckoutReturnClaim =
   | { outcome: "cancel"; status: "cancelled" }
@@ -69,7 +91,7 @@ export function parseCheckoutReturnUrl(value: string): string | null {
     return null;
   }
   if (
-    url.protocol !== "cash.free2z.zuuli:" ||
+    url.protocol !== "cash.free2z.free2z:" ||
     url.hostname !== "checkout" ||
     url.pathname !== "/return" ||
     url.username ||
@@ -155,7 +177,7 @@ export function parseCheckoutPaymentStatus(
 }
 
 export async function checkoutReturnMode(): Promise<CheckoutReturnMode> {
-  return (await isMobileTauri()) ? "zuuli_mobile" : "web";
+  return "web";
 }
 
 // Stripe redirects the payer the instant the Session completes, so the
@@ -204,11 +226,19 @@ export async function recoverCheckoutReturn(
   return { status: "processing" };
 }
 
-/** Deliver both cold-start getCurrent() and warm-start onOpenUrl() returns. */
+/**
+ * Deliver both cold-start getCurrent() and warm-start onOpenUrl() returns.
+ *
+ * Gated on `isTauri()` rather than on the OAuth transport: this surface has no
+ * `oauth_callback_transport` command to ask (#918), and `tauri-plugin-deep-link`
+ * delivers on desktop as well as on mobile. Nothing calls this yet — `/fund` is
+ * a placeholder until `features/wallet/funding` moves — and `checkoutReturnMode`
+ * never asks the backend for a native return, so no code is expected here.
+ */
 export async function listenForCheckoutReturns(
   deliver: (code: string) => void | Promise<void>,
 ): Promise<() => void> {
-  if (!(await isMobileTauri())) return () => undefined;
+  if (!isTauri()) return () => undefined;
   const { getCurrent, onOpenUrl } =
     await import("@tauri-apps/plugin-deep-link");
   const seen = new Set<string>();

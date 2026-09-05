@@ -3,8 +3,8 @@
 `cash.free2z.free2z`. One of the three apps ZUULI is being split into (#904),
 scaffolded by #906. **Phase 1 of the extraction has landed: Articles, the
 Markdown/media pipeline, Creator profiles and a login that keeps password and
-linked accounts now live here** — in a browser and under `vite dev`. Read the
-next section before you try to package it.
+linked accounts now live here**, and since #918 the native layer under them is
+wired: it runs packaged, not only in a browser and under `vite dev`.
 
 | App | Role | Privileged plugins |
 | --- | --- | --- |
@@ -12,67 +12,163 @@ next section before you try to package it.
 | **`cash.free2z.free2z`** | **content — articles, live, AI, creator, search** | **none** |
 | `cash.free2z.e2e2z` | messaging | `f2zmsg` |
 
-## Not yet wired natively
+## The native layer
 
-**This app runs in the browser and under `vite dev`. It is NOT functional as a
-packaged Tauri app.** The frontend was ported complete, including three code
-paths that branch on `isTauri() && !DEV` — and the Rust side those paths call
-into was never written here. Nothing in CI can see this: vitest, Playwright and
-`npm run build` all execute where `isTauri()` is `false` or `import.meta.env.DEV`
-is `true`, which is exactly the condition under which none of these branches is
-taken, and `cargo check` compiles a backend that is not asked whether the
-frontend expects commands from it.
+**This app is functional as a packaged Tauri build.** `bundle.active` is `true`
+again in `src-tauri/tauri.conf.json`, which #912 had set to `false` on purpose so
+nobody could emit an installer for a binary with a dead network layer. #918 is
+the work that earned the flag back. What follows is what it did, and — more
+importantly — where the evidence for each claim comes from, because #918 exists
+precisely because "green" was measured where the bug could not appear.
 
-So `bundle.active` is `false` in `src-tauri/tauri.conf.json`. That is
-deliberate: `tauri build` should not be able to emit an installer for a binary
-whose network layer is dead. Flipping it back is part of the fix, not a
-prerequisite for it. Tracking issue: **#918**.
+### 1. HTTP: a URL-scoped native client
 
-The three gaps, precisely:
+`src-tauri/Cargo.toml` links `tauri-plugin-http`, `src-tauri/src/lib.rs` calls
+`.plugin(tauri_plugin_http::init())`, and both capability files carry a **scoped**
+`http:default`. Every API request (`src/lib/api/http.ts`) and every first-party
+image download (`src/components/common/RemoteMedia.tsx`) takes that path in a
+packaged build; in a browser and under `vite dev` they still use `window.fetch`
+through the proxy, unchanged.
 
-1. **HTTP is unwired.** `package.json` depends on `@tauri-apps/plugin-http`, but
-   `src-tauri/` was never touched to match: `src-tauri/Cargo.toml` does not list
-   `tauri-plugin-http`, `src-tauri/src/lib.rs` does not call
-   `.plugin(tauri_plugin_http::init())`, and neither capability file grants an
-   `http:*` permission. Both `src/lib/api/http.ts:129-132` and
-   `src/components/common/RemoteMedia.tsx:50-51` switch to the native client
-   when `isTauri() && !DEV`, so in a packaged build **every** API request and
-   every first-party image download would invoke `plugin:http|fetch`, a command
-   that does not exist in this binary.
+The scope admits four origins and nothing else:
 
-   Note that this is not a one-line capability addition.
-   `wallet/zuuli/scripts/surface-capability-authority.mjs:56-61` holds
-   `REVIEWED_NAMESPACES = {core, deep-link, opener, f2zmsg}`, and `http` is not
-   in it — adding `http:default` fails the required `gate`. By design: what a
-   content surface's HTTP client may reach is a scope decision somebody has to
-   review, not a default anyone can grant in passing.
+| Origin | Why |
+| --- | --- |
+| `https://free2z.cash/*` | production API and `/uploadz` media |
+| `https://*.free2z.cash/*` | `stage.` / `new.` / `test.`, the deployments this client is pointed at |
+| `https://free2z.com/*` | the `.com` apex, which `connect-src` already admits |
+| `https://*.free2z.com/*` | its subdomains, same reason |
 
-2. **The OAuth commands are unwired.** `src/lib/oauth/transport.ts` invokes ten
-   `oauth_*` commands (`oauth_callback_transport`, `oauth_loopback_start` /
-   `_wait` / `_cancel`, `oauth_mobile_arm` / `_claim` / `_cancel` / `_pending` /
-   `_resume` / `_finish`) that exist only in
-   `wallet/zuuli/src-tauri/src/oauth.rs`. This app's `src-tauri/src/lib.rs` has
-   no `invoke_handler` at all. `nativeTransport()` rethrows rather than falling
-   back to the web flow, and `src/App.tsx:58` calls `recoverMobileOAuth()`
-   unconditionally on mount behind a `.catch` that fires
-   `toast.error("Couldn't finish sign-in")` (`src/App.tsx:82`) — so a packaged
-   build shows a sign-in error toast on **every launch**, before the user has
-   done anything.
+Narrower than the app's `connect-src`: the three RealtimeKit origins are **not**
+here, because the Live SDK talks from the webview with `window.fetch` and a
+WebSocket, not through this client. `surface-capability-authority.mjs` refuses
+any allowed origin the CSP does not already admit, so the native client can never
+reach further than the document.
 
-3. **The deep-link scheme belongs to the wallet.**
-   `src/lib/oauth/protocol.ts:3` uses `cash.free2z.zuuli://oauth/callback` and
-   `src/lib/checkout/native-return.ts:3` uses
-   `cash.free2z.zuuli://checkout/return` (with the matching guard at
-   `src/lib/checkout/native-return.ts:72`). Those are **ZUULI's** URIs. This
-   app's own manifest registers only `cash.free2z.free2z://bridge/return`
-   (`src-tauri/tauri.conf.json`, `plugins.deep-link`). On a device with both
-   apps installed, an OAuth authorization code or a Stripe checkout return
-   initiated by the content app would be delivered by the OS to the **wallet
-   authority** app — the cross-app URI collision this entire split exists to
-   prevent.
+Two things are worth being exact about, because the issue text was not:
 
-Fixing all three is a separate reviewed PR (#918). Do not patch one of them in
-isolation and re-enable the bundle.
+* `http:default` is **not** an unrestricted client. It is `allow-fetch` with an
+  **empty** allow list, and `Scope::is_allowed` requires *some* allow entry to
+  match — so a bare `http:default` denies every `http`/`https` URL. It is refused
+  anyway: what is reviewable is *which origins this client may reach*, and the
+  identifier alone says nothing about that.
+* The scope is matched with **URLPattern**, not globs, so the hostname is a
+  component match rather than a substring of the URL text.
+  `https://evil.example/free2z.cash/api/` does not match `https://*.free2z.cash/*`.
+  `tests/http_scope.rs` asserts that, along with userinfo confusion, suffix
+  confusion, plaintext `http:`, loopback and a cloud metadata endpoint.
+
+The client is also **stateless**: `tauri-plugin-http` is taken with
+`default-features = false`, which drops `cookies` from its default set. The
+default build installs a process-wide `reqwest` cookie jar shared by every
+request the binary makes; that would make the native client an ambient-authority
+one, and under #367 a hostile subframe could ride the jar against free2z.cash and
+read the answer with no CORS in the way. free2z authenticates with a Knox token
+in an `Authorization` header and needs no jar.
+
+### 2. OAuth: the native transport was deleted, not ported
+
+The ten `oauth_*` commands were **not** brought over, and this was the decision
+with the most in it.
+
+`oauth_loopback_wait`, `oauth_mobile_claim` and `oauth_mobile_resume` each
+**return an authorization code — and, on mobile, the PKCE verifier minted for
+it — to the renderer**. That pair is a sign-in credential: anything holding it
+can finish the exchange and take the account. Registering them here would put
+that credential behind an `invoke()` in the one process that renders third-party
+markup, remote media and a livestream SDK, and #367 is the defect that makes
+"which frame asked" undecidable — Wry injects the bridge into every frame and its
+Android IPC reports the top-level URL, so a remote subframe resolves as the
+trusted main window. A capability file cannot separate the two: it scopes by
+window label, and there is one label.
+
+So `src/lib/oauth/transport.ts` now has exactly one transport, the same-origin
+web popup, and **no `invoke()` at all**. In a packaged shell
+`oauthCallbackTransport()` returns `"unavailable"` — the document origin is
+`tauri://localhost`, which is not a registered redirect URI at any provider —
+and three things follow:
+
+* `auth.socialProviders()` answers all-unconfigured **without asking the
+  backend**, so the login screen shows its empty state instead of a button whose
+  only outcome is an error toast.
+* `captureOAuthCode()` refuses before opening a popup, for any caller that
+  reaches the API directly.
+* `recoverMobileOAuth()` resolves `null`. `App.tsx` still calls it on mount, and
+  that is now correct: "nothing to finish". Before, it invoked
+  `oauth_mobile_pending` into an empty handler, so a packaged build greeted every
+  launch with `Couldn't finish sign-in` before the user touched anything.
+
+Password sign-in and already-linked accounts are unaffected. Social sign-in in a
+packaged build comes back as a wallet-authority bridge grant (#905), not as an
+invoke handler here.
+
+### 3. The deep-link scheme is this app's own
+
+`src/lib/oauth/protocol.ts` and `src/lib/checkout/native-return.ts` named
+**ZUULI's** URIs, ported verbatim. On a device carrying both apps, an OAuth code
+or a Stripe checkout return initiated by the *content* app would have been
+delivered by the OS to the *wallet-authority* app. Both now use
+`cash.free2z.free2z://`, `parseCheckoutReturnUrl` **refuses** the wallet's
+scheme, and `src-tauri/tauri.conf.json` registers three routes:
+
+| Route | State |
+| --- | --- |
+| `cash.free2z.free2z://bridge/return` | scaffolded for the intent bridge (#911) |
+| `cash.free2z.free2z://oauth/callback` | declared; nothing consumes it (there is no native OAuth transport) |
+| `cash.free2z.free2z://checkout/return` | declared; nothing consumes it (`/fund` is a placeholder) |
+
+`checkoutReturnMode()` returns `"web"` unconditionally, and the reason is a
+backend one: `zuuli_mobile` is a **wire** value that makes free2z issue a return
+URI in the *wallet's* scheme. There is no `free2z_*` return mode server-side yet,
+so asking for a native return from here would post a payer's claim code to a
+different application. That, and the funding port itself, is #904's remaining
+work — not something this app can fix client-side.
+
+### What now catches this class of bug
+
+`wallet/zuuli/scripts/surface-capability-authority.mjs` runs inside the required
+`gate` (via ZUULI's `npm test`) and now also compares the two halves of the
+JS→native contract, off the files:
+
+* every `@tauri-apps/plugin-*` in `package.json` has its crate in
+  `src-tauri/Cargo.toml` **and** a `.plugin(...::init())` call in the builder;
+* every `invoke("literal")` in production `src/` names a command this binary
+  registers, or a `plugin:<x>|…` whose crate is linked;
+* a surface that registers **no** command — free2z — may not hold an
+  `invoke_handler` and may not so much as import `@tauri-apps/api/core`;
+* every `cash.free2z.*://host/path` literal in the tree uses **this** app's
+  scheme and names a route this app's manifest registers;
+* an `http` grant must be a scoped object whose every origin the app's own
+  `connect-src` already admits — a bare `http:default` fails.
+
+Each rule has a negative-control case in
+`surface-capability-authority.node-test.mjs`, and an empty source population is a
+blindness failure rather than a pass.
+
+### The evidence, and its limits
+
+`src-tauri/tests/http_scope.rs` builds a real Tauri app from this crate's real
+`tauri.conf.json` and real `capabilities/*.json` — `generate_context!()` embeds
+the resolved ACL — registers `tauri-plugin-http` exactly as `lib.rs` does, and
+drives `plugin:http|fetch` over the IPC path a webview uses. `fetch` builds the
+request and returns a resource id **without** any network I/O, so this runs
+offline and in CI. Both negative controls were watched to fail:
+
+* replace the scoped capability with a bare `http:default` →
+  `url not allowed on the configured scope: https://free2z.cash/api/articles/`
+* drop `.plugin(tauri_plugin_http::init())` → `plugin http not found`, which is
+  exactly what a packaged build did before #918.
+
+**What is still not proven end to end:** no automated test drives the packaged
+binary against the live `free2z.cash` over the network, and the multipart
+`FormData` path (`/kyc`, #927) has never run through `@tauri-apps/plugin-http` at
+all — every other surface sends JSON. Reading the plugin's `fetch`, a `FormData`
+body is serialized by the browser `Request` and its generated
+`content-type: multipart/form-data; boundary=…` is merged in because
+`src/lib/api/http.ts` deliberately sets no `Content-Type` for one, so it *should*
+work; that is a reading, not a measurement. Note also that the plugin drops
+`Content-Length` as a forbidden header and re-derives it, and that `Authorization`
+passes through untouched.
 
 ## What has moved, and what has not
 
@@ -155,8 +251,11 @@ components that no longer exist.
 Not its CSP. **Its dependency list.**
 
 `src-tauri/Cargo.toml` links neither `tauri-plugin-zcash` nor
-`tauri-plugin-f2zmsg`, and `src-tauri/capabilities/*.json` contain no `zcash:*`
-and no `f2zmsg:*` entry. That is deliberate and load-bearing: Wry injects
+`tauri-plugin-f2zmsg`, `src-tauri/capabilities/*.json` contain no `zcash:*` and
+no `f2zmsg:*` entry, and `src-tauri/src/lib.rs` registers **no `invoke_handler`
+at all** — #918 added `tauri-plugin-http` and still did not add one, because the
+`oauth_*` commands it would have carried hand a sign-in credential back to the
+renderer. That is deliberate and load-bearing: Wry injects
 Tauri's bridge scripts into *every* frame and its Android IPC reports the
 top-level URL rather than the requesting frame (#367), so a remote subframe in
 this process resolves as the trusted main window. The only durable answer is
@@ -167,7 +266,11 @@ Three things enforce it, all inside the required `gate`:
 * `wallet/zuuli/scripts/surface-capability-authority.mjs` — the contract test.
   It enumerates every capability file off the filesystem (so a new one cannot
   escape by being added), rejects any `zcash:*`/`f2zmsg:*` identifier including
-  one hidden in a scoped object entry, and rejects linking either plugin.
+  one hidden in a scoped object entry, and rejects linking either plugin. Since
+  #918 it also refuses an unscoped `http` grant, an `invoke_handler` or an
+  `@tauri-apps/api/core` import on this surface, a JS plugin package with no
+  crate behind it, and any `cash.free2z.*://` URI that is not this app's own —
+  see **What now catches this class of bug** above.
 * `wallet/zuuli/scripts/project-boundary.mjs` — no import may cross between
   wallet applications in either direction, and it now also builds this project's
   real production Rollup graph inside the constrained audit sandbox.
@@ -266,7 +369,11 @@ npm ci
 npm run typecheck && npm run typecheck:tests
 npm test          # vitest + the UI-copy policy test + Playwright
 npm run build
-cargo check --locked --all-targets --manifest-path src-tauri/Cargo.toml
+cargo build --locked --all-targets --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml   # incl. the real-ACL http scope test
+npm run tauri -- build --bundles app              # the bundle is active again (#918)
+node ../zuuli/scripts/surface-capability-authority.mjs
+node --test ../zuuli/scripts/surface-capability-authority.node-test.mjs
 ```
 
 `npm run dev` serves on 1425 (zuuallet owns 1421, ZUULI 1423) and proxies

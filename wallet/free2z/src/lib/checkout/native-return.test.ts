@@ -6,8 +6,8 @@ const deepLink = vi.hoisted(() => ({
   unlisten: vi.fn(),
 }));
 
-vi.mock("@/lib/oauth/transport", () => ({
-  isMobileTauri: vi.fn().mockResolvedValue(true),
+vi.mock("@/lib/platform", () => ({
+  isTauri: () => true,
 }));
 
 vi.mock("@tauri-apps/plugin-deep-link", () => ({
@@ -44,19 +44,39 @@ describe("native Checkout deep-link parser", () => {
 
   it.each([
     `https://free2z.cash/checkout/return?code=${CODE}`,
-    `cash.free2z.zuuli://oauth/callback?code=${CODE}`,
-    `cash.free2z.zuuli://checkout/other?code=${CODE}`,
-    `cash.free2z.zuuli://checkout/return%2F?code=${CODE}`,
-    `cash.free2z.zuuli://user@checkout/return?code=${CODE}`,
-    `cash.free2z.zuuli://checkout/return?code=${CODE}#fragment`,
-    `cash.free2z.zuuli://checkout/return?code=${CODE}&next=https://evil.example`,
-    `cash.free2z.zuuli://checkout/return?code=${CODE}&code=${CODE}`,
-    `cash.free2z.zuuli://checkout/return?code=short`,
-    `cash.free2z.zuuli://checkout/return?code=${"a".repeat(2049)}`,
-    `cash.free2z.zuuli://checkout/return?code=signed%2Fclaim%3Ainvalid`,
-    `cash.free2z.zuuli://checkout/return?code=signed%20claim%3Ainvalid`,
+    `cash.free2z.free2z://oauth/callback?code=${CODE}`,
+    `cash.free2z.free2z://bridge/return?code=${CODE}`,
+    `cash.free2z.free2z://checkout/other?code=${CODE}`,
+    `cash.free2z.free2z://checkout/return%2F?code=${CODE}`,
+    `cash.free2z.free2z://user@checkout/return?code=${CODE}`,
+    `cash.free2z.free2z://checkout/return?code=${CODE}#fragment`,
+    `cash.free2z.free2z://checkout/return?code=${CODE}&next=https://evil.example`,
+    `cash.free2z.free2z://checkout/return?code=${CODE}&code=${CODE}`,
+    `cash.free2z.free2z://checkout/return?code=short`,
+    `cash.free2z.free2z://checkout/return?code=${"a".repeat(2049)}`,
+    `cash.free2z.free2z://checkout/return?code=signed%2Fclaim%3Ainvalid`,
+    `cash.free2z.free2z://checkout/return?code=signed%20claim%3Ainvalid`,
   ])("rejects a near-miss callback: %s", (value) => {
     expect(parseCheckoutReturnUrl(value)).toBeNull();
+  });
+
+  // #918. Before the scheme was corrected this parser ACCEPTED
+  // `cash.free2z.zuuli://checkout/return`, which is not this app's URI: on a
+  // device carrying both apps the OS delivers that one to the wallet authority,
+  // and a claim code initiated here would have been redeemed there. The URI is
+  // now this app's own, and the wallet's is refused like any other stranger's.
+  it("refuses the wallet app's checkout return, which is not this app's URI", () => {
+    expect(CHECKOUT_RETURN_URI.startsWith("cash.free2z.free2z://")).toBe(true);
+    expect(
+      parseCheckoutReturnUrl(
+        `cash.free2z.zuuli://checkout/return?code=${CODE}`,
+      ),
+    ).toBeNull();
+    expect(
+      parseCheckoutReturnUrl(
+        `cash.free2z.e2e2z://checkout/return?code=${CODE}`,
+      ),
+    ).toBeNull();
   });
 });
 
@@ -303,7 +323,7 @@ describe("cold and warm native delivery", () => {
     deepLink.callback?.([`${CHECKOUT_RETURN_URI}?code=${CODE}`]);
     deepLink.callback?.([
       `${CHECKOUT_RETURN_URI}?code=${"b".repeat(32)}:stamp:signature`,
-      `cash.free2z.zuuli://oauth/callback?code=${"c".repeat(43)}`,
+      `cash.free2z.free2z://oauth/callback?code=${"c".repeat(43)}`,
     ]);
     expect(deliver).toHaveBeenCalledTimes(2);
     expect(deliver).toHaveBeenLastCalledWith(
