@@ -334,9 +334,8 @@ async fn enroll<B: StorageBackend>(
         .expect("credential");
     engine
         .install_identity(IdentityInstall {
-            handle: handle.to_owned(),
-            identity_pk: hex::encode(account.identity.public().as_bytes()),
             credential: f2z_msg_mls::credential::encode(&credential).expect("encode credential"),
+            expected_handle: handle.to_owned(),
             wrap_key: *account.backup_wrap.as_bytes(),
             submitted_at: NOW,
         })

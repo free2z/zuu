@@ -49,9 +49,8 @@ async fn enroll(engine: &Engine<MemoryBackend>, handle: &str, seed: u8) -> [u8; 
     let wrap_key = *account.backup_wrap.as_bytes();
     engine
         .install_identity(IdentityInstall {
-            handle: handle.to_owned(),
-            identity_pk: hex::encode(account.identity.public().as_bytes()),
             credential: f2z_msg_mls::credential::encode(&credential).expect("encode"),
+            expected_handle: handle.to_owned(),
             wrap_key,
             submitted_at: NOW,
         })
@@ -104,6 +103,142 @@ async fn enrolling_leaves_the_submission_unmerged_and_says_why() {
     assert_eq!(
         engine.status().await.expect("status").state,
         EngineState::Enrolling
+    );
+}
+
+/// A credential is signed under **its own** `identity_pk`, so anyone who
+/// answers an enrollment request can mint a perfectly valid one for a handle
+/// the user never asked for. This is that credential, and the only thing that
+/// catches it is the handle *this session requested* (#936).
+#[tokio::test]
+async fn a_flawlessly_signed_credential_for_another_handle_is_refused() {
+    let engine = engine();
+    let device = engine.prepare_device().await.expect("device keys");
+
+    // A responder's own account key — never the enrolling user's — attesting a
+    // handle the user never typed, over the device key the user did prepare.
+    let attacker = AccountKeys::from_seed(&[0xaa; 64], 0).expect("§4.2 keys");
+    let forged = attacker
+        .identity
+        .issue_device_credential(&DeviceCredentialRequest {
+            handle: Handle::new(b"mallory".to_vec()).expect("handle"),
+            device_pk: PublicKey::new(device.device_pk),
+            device_kem_pk: KemPublicKey::new(device.device_kem_pk.clone()).expect("kem key"),
+            not_before_ms: 0,
+            not_after_ms: u64::MAX / 2,
+        })
+        .expect("credential");
+
+    // Every check that exists today passes: structure, charset, window,
+    // signature, and the identity->device binding to this very leaf. Asserting
+    // it here is the point — a test that fed in something malformed would prove
+    // nothing about the check under test.
+    f2z_msg_mls::credential::validate_for_leaf(
+        &forged,
+        &device.device_pk,
+        u64::try_from(NOW).expect("now"),
+    )
+    .expect("a self-consistent credential passes every existing check");
+
+    let refused = engine
+        .install_identity(IdentityInstall {
+            credential: f2z_msg_mls::credential::encode(&forged).expect("encode"),
+            expected_handle: "alice".to_owned(),
+            wrap_key: [9; 32],
+            submitted_at: NOW,
+        })
+        .await
+        .expect_err("a credential for another handle must not install");
+    assert_eq!(refused.code(), ErrorCode::HandleIneligible);
+    assert!(!engine.enrollment_status().await.expect("status").enrolled);
+
+    // And the refusal happened before the prepared secrets were consumed, so
+    // the enrollment is retryable with the right credential rather than needing
+    // a second `prepare_device` — which would discard the device key the
+    // credential above was issued over.
+    let account = AccountKeys::from_seed(&[1; 64], 0).expect("§4.2 keys");
+    let genuine = account
+        .identity
+        .issue_device_credential(&DeviceCredentialRequest {
+            handle: Handle::new(b"alice".to_vec()).expect("handle"),
+            device_pk: PublicKey::new(device.device_pk),
+            device_kem_pk: KemPublicKey::new(device.device_kem_pk).expect("kem key"),
+            not_before_ms: 0,
+            not_after_ms: u64::MAX / 2,
+        })
+        .expect("credential");
+    engine
+        .install_identity(IdentityInstall {
+            credential: f2z_msg_mls::credential::encode(&genuine).expect("encode"),
+            expected_handle: "alice".to_owned(),
+            wrap_key: *account.backup_wrap.as_bytes(),
+            submitted_at: NOW,
+        })
+        .await
+        .expect("install");
+    assert_eq!(
+        engine
+            .enrollment_status()
+            .await
+            .expect("status")
+            .handle
+            .as_deref(),
+        Some("alice")
+    );
+}
+
+/// The same comparison seen from the other side: the credential is genuine and
+/// the *request* is the thing that disagrees with it.
+#[tokio::test]
+async fn an_install_asking_for_a_handle_the_credential_does_not_attest_is_refused() {
+    let engine = engine();
+    let device = engine.prepare_device().await.expect("device keys");
+    let account = AccountKeys::from_seed(&[1; 64], 0).expect("§4.2 keys");
+    let credential = account
+        .identity
+        .issue_device_credential(&DeviceCredentialRequest {
+            handle: Handle::new(b"alice".to_vec()).expect("handle"),
+            device_pk: PublicKey::new(device.device_pk),
+            device_kem_pk: KemPublicKey::new(device.device_kem_pk).expect("kem key"),
+            not_before_ms: 0,
+            not_after_ms: u64::MAX / 2,
+        })
+        .expect("credential");
+
+    let refused = engine
+        .install_identity(IdentityInstall {
+            credential: f2z_msg_mls::credential::encode(&credential).expect("encode"),
+            expected_handle: "bob".to_owned(),
+            wrap_key: *account.backup_wrap.as_bytes(),
+            submitted_at: NOW,
+        })
+        .await
+        .expect_err("the request and the credential disagree");
+    assert_eq!(refused.code(), ErrorCode::HandleIneligible);
+    assert!(!engine.enrollment_status().await.expect("status").enrolled);
+}
+
+/// What is stored is the **signed** credential's handle and identity key. There
+/// is no longer a second, unsigned copy of either beside it that could win.
+#[tokio::test]
+async fn the_installed_identity_is_read_out_of_the_credential() {
+    let engine = engine();
+    enroll(&engine, "alice", 1).await;
+    let account = AccountKeys::from_seed(&[1; 64], 0).expect("§4.2 keys");
+
+    assert_eq!(
+        engine
+            .enrollment_status()
+            .await
+            .expect("status")
+            .handle
+            .as_deref(),
+        Some("alice")
+    );
+    let device_info = engine.device_info().await.expect("device info");
+    assert_eq!(
+        device_info.identity_fingerprint.replace(' ', ""),
+        hex::encode(account.identity.public().as_bytes())
     );
 }
 

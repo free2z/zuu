@@ -462,9 +462,8 @@ async fn enroll(engine: &Engine<SqliteBackend>, options: &Options) -> Result<()>
 
     engine
         .install_identity(IdentityInstall {
-            handle: options.handle.clone(),
-            identity_pk: hex::encode(account.identity.public().as_bytes()),
             credential: credential_bytes,
+            expected_handle: options.handle.clone(),
             wrap_key: *account.backup_wrap.as_bytes(),
             submitted_at: now,
         })

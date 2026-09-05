@@ -208,16 +208,57 @@ enum BindReadiness {
 /// The seed itself never appears in this type, in any argument to this module,
 /// or in any IPC payload — that is the whole reason enrollment lives in the app
 /// crate (§2.2).
+///
+/// # Why there is no `handle` and no `identity_pk` here
+///
+/// Both are **already inside the credential, covered by its signature**
+/// (`f2z-kt-core`'s `DeviceCredentialTBS`). A second copy carried beside it
+/// would be *unsigned*, and under #929 an unsigned value is chosen by whoever
+/// answered rather than by whoever signed. Worse, the unsigned copy used to be
+/// the one [`Engine::install_identity`] stored. So the rule ADR 0016 draws is
+/// the inverse of widening this struct: the install step reads both **out of
+/// the credential** and stops accepting them as arguments. Under #904's
+/// three-app split the credential arrives from ZUULI over the intent bridge
+/// while the rest of the request is assembled in e2e2z, so the two sources
+/// genuinely can disagree — and the signed one has to win.
+///
+/// [`IdentityInstall::expected_handle`] is not a counter-example to that rule;
+/// it is its second half, and its doc comment says why.
 #[derive(Clone, Debug)]
 pub struct IdentityInstall {
-    pub handle: String,
-    /// `ISK.public`, the account identity key, hex.
-    pub identity_pk: String,
-    /// The `DeviceCredential`, canonically encoded.
+    /// The `DeviceCredential`, canonically encoded. The **only** source of the
+    /// handle and the identity key this device installs.
     pub credential: Vec<u8>,
+    /// The handle **this enrollment asked for**, so a credential attesting a
+    /// different one can be refused.
+    ///
+    /// This is required, not optional, and the difference between it and a
+    /// `handle` field beside the credential is the whole of #929.
+    ///
+    /// `validate_at` verifies a credential's signature under the credential's
+    /// **own embedded `identity_pk`**, which is self-*consistency* and not
+    /// authenticity: a hostile responder mints its own `ISK` and signs a
+    /// perfectly well-formed credential for any handle it likes, and every
+    /// structural check, the validity window, the signature and the `device_pk`
+    /// binding all pass. Nothing in the credential can catch that. Compared
+    /// against the handle *this session requested* — a value the caller already
+    /// held before it ever spoke to a responder, and which never travelled in
+    /// the response — it is refused.
+    ///
+    /// It is also the **only** authenticity check available here. On a first
+    /// enrollment there is no trusted `identity_pk` to verify against, so
+    /// "is this the handle I asked for" is the entire budget that
+    /// trust-on-first-response permits. What contains the rest is the KT
+    /// directory, not this function.
+    pub expected_handle: String,
     /// The seed-derived `BackupWrapKey` (`ARCHITECTURE.md` §4.2), under which
     /// the device secrets are sealed. §6.1's `locked` is the state this device
     /// is in whenever it does not have it.
+    ///
+    /// ADR 0016 (#935) decides this field is removed in favour of a per-device
+    /// `DeviceWrapKey` the plugin samples and seals under itself. That is a
+    /// larger change with its own restore analysis and is deliberately **not**
+    /// bundled with the credential-binding fix; #928 tracks it.
     pub wrap_key: [u8; 32],
     pub submitted_at: i64,
 }
@@ -546,19 +587,68 @@ impl<B: StorageBackend> Engine<B> {
     /// Seal the prepared device secrets, record the identity, and build the MLS
     /// engine.
     ///
+    /// # What this installs, and from where
+    ///
+    /// The handle and the identity key come **out of the signed credential**,
+    /// never from a field carried beside it — see [`IdentityInstall`] for why
+    /// the inverse would let an unsigned value beat a signed one. The one thing
+    /// the credential cannot vouch for is that it is the *right* credential: it
+    /// is signed under its own `identity_pk`, so it is self-consistent no matter
+    /// who minted it. That is what
+    /// [`expected_handle`](IdentityInstall::expected_handle) is compared against,
+    /// and refusing on a mismatch is the only authenticity check available on a
+    /// first enrollment.
+    ///
+    /// Both handle refusals happen **before** the pending device secrets are
+    /// consumed, so a credential rejected for its handle leaves the enrollment
+    /// retryable rather than discarding a key the caller cannot regenerate
+    /// without a second [`Engine::prepare_device`] — which would in turn
+    /// invalidate the credential it is retrying with.
+    ///
     /// # Errors
     ///
-    /// `handle-ineligible` if the handle is not §11.3's charset, `internal` if
-    /// [`Engine::prepare_device`] was not called first or the credential does
-    /// not bind the prepared device key.
+    /// `handle-ineligible` if the credential's handle is not §11.3's charset or
+    /// is not the one this enrollment asked for, `internal` if
+    /// [`Engine::prepare_device`] was not called first, the credential does not
+    /// parse, or it does not bind the prepared device key.
     pub async fn install_identity(&self, install: IdentityInstall) -> Result<EnrollmentStatus> {
         let mut inner = self.inner.lock().await;
-        if !handle::is_handle(&install.handle) {
+
+        let credential = f2z_msg_mls::credential::parse(&install.credential).map_err(|error| {
+            Error::internal(format!("the issued credential does not parse: {error}"))
+        })?;
+
+        // §11.3's charset, checked here so a credential the directory could
+        // never hold is `handle-ineligible` rather than an opaque `internal`
+        // out of the MLS engine's own validation.
+        let handle = std::str::from_utf8(credential.credential.handle.as_slice())
+            .ok()
+            .filter(|candidate| handle::is_handle(candidate))
+            .ok_or_else(|| {
+                Error::new(
+                    ErrorCode::HandleIneligible,
+                    format!(
+                        "the credential's handle {:?} is not a messaging handle",
+                        String::from_utf8_lossy(credential.credential.handle.as_slice())
+                    ),
+                )
+            })?
+            .to_owned();
+
+        // The signature proves the credential is internally consistent, not
+        // that it is *ours*. Whoever answered could have signed one for any
+        // handle under a key they minted. This is where that is caught.
+        if handle != install.expected_handle {
             return Err(Error::new(
                 ErrorCode::HandleIneligible,
-                format!("{:?} is not a messaging handle", install.handle),
+                format!(
+                    "the credential attests {handle:?}, but this enrollment asked for {:?}",
+                    install.expected_handle
+                ),
             ));
         }
+        let identity_pk = hex::encode(credential.credential.identity_pk.as_bytes());
+
         let signing = inner
             .pending_device
             .as_ref()
@@ -572,10 +662,6 @@ impl<B: StorageBackend> Engine<B> {
             .ok_or_else(|| Error::internal("validated pending device disappeared"))?;
         let device_pk = hex::encode(signer.public_key());
 
-        let credential = f2z_msg_mls::credential::parse(&install.credential).map_err(|error| {
-            Error::internal(format!("the issued credential does not parse: {error}"))
-        })?;
-
         let now = now_ms();
         let mls = MlsEngine::new(
             inner.backend.clone(),
@@ -587,8 +673,9 @@ impl<B: StorageBackend> Engine<B> {
 
         let identity = StoredIdentity {
             device_id: hex::encode(&device_pk.as_bytes()[..16]),
-            handle: install.handle.clone(),
-            identity_pk: install.identity_pk.clone(),
+            // Both out of the signed credential. Nothing beside it gets a vote.
+            handle,
+            identity_pk,
             device_pk,
             credential: hex::encode(&install.credential),
             created_at: now,

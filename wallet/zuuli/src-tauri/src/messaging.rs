@@ -189,9 +189,12 @@ pub async fn f2zmsg_enroll<R: Runtime>(
 
     engine
         .install_identity(IdentityInstall {
-            handle: args.handle,
-            identity_pk: hex::encode(account.identity.public().as_bytes()),
             credential,
+            // The handle the user asked for. ZUULI issues this credential
+            // itself, from the seed, so today the comparison cannot fail — it
+            // is the same check e2e2z will need when the credential arrives
+            // over the intent bridge instead (#936).
+            expected_handle: args.handle,
             wrap_key: *account.backup_wrap.as_bytes(),
             submitted_at: now,
         })
