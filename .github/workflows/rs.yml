@@ -83,10 +83,14 @@ jobs:
       # Unconditional for the same reason as the step above, and it belongs in
       # this job for a third reason too.
       #
-      #   * A dead link arrives in a docs-only diff by construction. Every
-      #     path-filtered workflow in this repository — and `filter` below —
-      #     selects false for such a change, so a link check placed behind any
-      #     of them would not have run on the commit that broke the link.
+      #   * A dead link arrives in a docs-only diff by construction, and this is
+      #     the one job in the repository that such a diff cannot skip. `filter`
+      #     below selects rs=false for it; more pointedly, zuuli.yml's change
+      #     detector `continue`s on `wallet/zuuli/*.md`, `wallet/free2z/*.md` and
+      #     `wallet/e2e2z/*.md` *deliberately*, so that a STATUS re-derivation
+      #     does not pay a 40-minute native matrix. A link check inside the
+      #     required `gate` would therefore not run on exactly the diffs it
+      #     exists for. This job has no filter at all.
       #   * It has to gate, and a new workflow could not. Branch protection
       #     requires exactly `gate` and `rs / gate`; adding a third context is a
       #     repository-settings change no pull request can make, so a standalone
