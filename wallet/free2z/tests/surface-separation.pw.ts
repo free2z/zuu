@@ -46,8 +46,17 @@ test("the shell exposes no wallet destination and no ZEC balance", async ({
 
   const menu = header.getByRole("button", { name: "Account menu" });
   await menu.click();
+  // ZUULI's account menu also lists "Wallet" and points "Buy 2Zs" at
+  // /wallet/fund. Account settings and the revenue-share application are here;
+  // the two wallet destinations are not, and this list is exact so a later
+  // merge cannot slip one back in.
   const items = await page.getByRole("menuitem").allInnerTexts();
-  expect(items).toEqual(["Buy 2Zs", "Sign out"]);
+  expect(items).toEqual([
+    "Edit profile",
+    "Buy 2Zs",
+    "Revenue share",
+    "Sign out",
+  ]);
 });
 
 test("an unmounted wallet path renders NotFound rather than a wallet", async ({

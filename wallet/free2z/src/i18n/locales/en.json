@@ -86,6 +86,7 @@
     "back": "Go back",
     "buyTuzis": "Buy 2Zs",
     "buyTuzisBalance": "Buy 2Zs. Balance {balance}",
+    "editProfile": "Edit profile",
     "groups": {
       "account": "Account",
       "explore": "Explore",
@@ -94,9 +95,18 @@
     "live": "Livestreams",
     "login": "Log in",
     "primary": "Primary navigation",
+    "profile": "Profile",
+    "profileAccessible": "Edit profile",
+    "revenueShare": "Revenue share",
     "search": "Search creators, pages, and topics",
     "searchAction": "Search",
     "signOut": "Sign out"
+  },
+  "profile": {
+    "zcashLinkPending": {
+      "body": "Linking signs a one-time challenge with your wallet key, which lives in ZUULI. A key you have already linked is shown here; link a new one from ZUULI.",
+      "title": "Linking a Zcash key happens in ZUULI"
+    }
   },
   "search": {
     "all": "Search all of free2z",

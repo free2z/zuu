@@ -9,7 +9,7 @@ wired: it runs packaged, not only in a browser and under `vite dev`.
 | App | Role | Privileged plugins |
 | --- | --- | --- |
 | `cash.free2z.zuuli` | wallet authority | `zcash` |
-| **`cash.free2z.free2z`** | **content — articles, live, AI, creator, search** | **none** |
+| **`cash.free2z.free2z`** | **content — articles, live, AI, creator, search, account** | **none** |
 | `cash.free2z.e2e2z` | messaging | `f2zmsg` |
 
 ## The native layer
@@ -173,14 +173,19 @@ passes through untouched.
 ## What has moved, and what has not
 
 Moved: `features/articles/**`, `features/creator/**`, `features/search/**`,
-`features/ai/**`, `features/live/**`, the Markdown stack (`Markdown`, `Mermaid`
-+ its worker, `RemoteMedia`, `ImagePrivacySetting`, `lib/markdown/`,
-`lib/media/`), the `lib/api` surface those read, `store/session`, the shared
-`components/ui` set, the i18n kernel, and a shell built for this app.
+`features/ai/**`, `features/live/**`, `features/profile/**`, `features/kyc/**`,
+the Markdown stack (`Markdown`, `Mermaid` + its worker, `RemoteMedia`,
+`ImagePrivacySetting`, `lib/markdown/`, `lib/media/`), the `lib/api` surface
+those read, `store/session`, the shared `components/ui` set, the i18n kernel,
+and a shell built for this app.
 
 Search, AI and Live arrived in #904 phase 2. None of them needed a capability, a
 command, or a plugin: `src-tauri/src/lib.rs` still registers no `invoke_handler`
 at all. Live did need CSP work — see **The RealtimeKit CSP** below.
+
+`/profile` and `/kyc` followed. Both are HTTP forms against free2z's own API —
+`PATCH /api/auth/user/` and `/api/kyc/*` — and needed no capability either. One
+part of `/profile` did not come across: see **Linking a Zcash key** below.
 
 Not yet moved: `features/wallet/funding`. `/fund` is a
 route here today that says where 2Z top-up lives, because
@@ -194,9 +199,10 @@ tree out of the wallet is #904's **phase 4**, and doing it before every content
 surface has moved would leave ZUULI's own Search, AI and Live routes pointing at
 components that no longer exist.
 
-## The three couplings, and what happened to each
+## The couplings, and what happened to each
 
-`tests/surface-separation.pw.ts` asserts all three against the running app.
+`tests/surface-separation.pw.ts` asserts the three #904 names against the
+running app; `tests/profile-kyc.pw.ts` asserts the fourth.
 
 1. **Creator ZEC tip.** `features/creator/index.tsx` importing
    `createCreatorTipRouteState` from `lib/wallet/creator-tip.ts` was the only
@@ -245,6 +251,15 @@ components that no longer exist.
 3. **The shell.** `TopBar` has no ZEC chip, `AppShell` renders no
    `LegacyWalletNotice`, and `App` bootstraps a session and nothing else. There
    is no `store/wallet` on this surface and no `lib/wallet` directory at all.
+4. **Linking a Zcash key.** `features/profile/LinkedAccounts.tsx` is a fourth
+   coupling, found while porting `/profile` rather than named in #904. ZUULI's
+   card *performs* the association: `useZcashAssociate` → `useZcashChallengeFlow`
+   → `@/lib/wallet/bridge` (`plugin:zcash|sign_message`), `@/store/wallet`, and
+   `SeedReveal` for the mandatory backup. That is the same `sign-challenge`
+   family as coupling 2 and gets the same answer — the button is absent and the
+   reason is on screen. What is genuinely HTTP came across intact: an
+   *already linked* identity is read off the session user (`zcash_identity`) and
+   still displays, and social linking is an OAuth round trip with no key in it.
 
 ## What makes this surface safe
 

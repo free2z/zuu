@@ -94,8 +94,15 @@ function isMountedRoute(path: string): boolean {
 const ROUTER_TARGET =
   /(?:\b(?:to|href)\s*=|\bnavigate\(\s*|\b(?:to|currentPath)\s*:\s*)\{?\s*["'`](\/[^"'`\s]*)["'`]/g;
 
-/** Top-level segments ZUULI owns and this surface deliberately does not. */
-const ZUULI_ONLY_SEGMENTS = ["wallet", "messages", "kyc", "profile", "about"];
+/**
+ * Top-level segments ZUULI owns and this surface deliberately does not.
+ *
+ * `kyc` and `profile` left this list when they were ported: both are mounted
+ * here now, so a link to either is an in-app destination and is checked by
+ * `isMountedRoute` like every other. They are still listed in
+ * `APP_ROUTES`-shaped form there rather than trusted implicitly.
+ */
+const ZUULI_ONLY_SEGMENTS = ["wallet", "messages", "about"];
 const ZUULI_ONLY_PATH = new RegExp(
   `["'\`](/(?:${ZUULI_ONLY_SEGMENTS.join("|")})(?:/[^"'\`\\s]*)?)["'\`]`,
   "g",
@@ -124,7 +131,28 @@ describe("in-app link destinations", () => {
       file.endsWith("components/layout/navigation.ts"),
     );
     expect(scanned.map(({ path }) => path)).toEqual(
-      expect.arrayContaining(["/articles", "/search", "/live", "/ai", "/fund"]),
+      expect.arrayContaining([
+        "/articles",
+        "/search",
+        "/live",
+        "/ai",
+        "/fund",
+        "/profile",
+        "/kyc",
+      ]),
+    );
+  });
+
+  it("scans the account menu, whose destinations are `navigate(...)` calls", () => {
+    // TopBar is the only path to `/profile` and `/kyc` on a phone: the mobile
+    // tab bar carries five items and neither of these is one. Its items are
+    // imperative `navigate()` calls with no `to=`, so name the file the same
+    // way the navigation table is named above rather than trusting the glob.
+    const scanned = routerTargets.filter(({ file }) =>
+      file.endsWith("components/layout/TopBar.tsx"),
+    );
+    expect(scanned.map(({ path }) => path)).toEqual(
+      expect.arrayContaining(["/fund", "/profile", "/kyc"]),
     );
   });
 

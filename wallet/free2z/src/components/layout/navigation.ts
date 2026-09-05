@@ -1,5 +1,14 @@
 import type { LucideIcon } from "lucide-react";
-import { BookOpen, Coins, LogIn, Radio, Search, Sparkles } from "lucide-react";
+import {
+  BookOpen,
+  Coins,
+  LogIn,
+  Radio,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  UserCog,
+} from "lucide-react";
 import { MESSAGE_KEYS, type MessageKey } from "@/i18n/messages";
 
 export type NavigationAuth = "always" | "signed-in" | "signed-out";
@@ -83,6 +92,30 @@ export const NAVIGATION: readonly NavigationRoute[] = [
     desktop: { group: "money", order: 0 },
     mobileOrder: 4,
   },
+  // Account destinations. Both are signed-in only, so they never render
+  // alongside "sign-in" despite sharing the group. Neither carries a mobile tab
+  // slot — the bar holds five, and the account menu in TopBar is how a phone
+  // reaches these.
+  {
+    id: "profile",
+    to: "/profile",
+    labelKey: MESSAGE_KEYS.navProfile,
+    accessibleLabelKey: MESSAGE_KEYS.navProfileAccessible,
+    icon: UserCog,
+    auth: "signed-in",
+    desktop: { group: "account", order: 0 },
+    mobileOrder: null,
+  },
+  {
+    id: "revenue-share",
+    to: "/kyc",
+    labelKey: MESSAGE_KEYS.navRevenueShare,
+    accessibleLabelKey: MESSAGE_KEYS.navRevenueShare,
+    icon: ShieldCheck,
+    auth: "signed-in",
+    desktop: { group: "account", order: 1 },
+    mobileOrder: null,
+  },
   {
     id: "sign-in",
     to: "/login",
@@ -90,7 +123,7 @@ export const NAVIGATION: readonly NavigationRoute[] = [
     accessibleLabelKey: MESSAGE_KEYS.navLogin,
     icon: LogIn,
     auth: "signed-out",
-    desktop: { group: "account", order: 0 },
+    desktop: { group: "account", order: 2 },
     mobileOrder: 4,
   },
 ];
