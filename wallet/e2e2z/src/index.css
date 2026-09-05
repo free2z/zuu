@@ -177,6 +177,19 @@
   }
 
   /*
+   * A number is written left-to-right in every locale, including RTL ones. Left
+   * to the paragraph's own direction, "3 of 5" reorders to "5 of 3" under an
+   * RTL base direction, and a run of digits adjacent to RTL text drags its
+   * neighbours around with it. Isolating each numeric run keeps the reading
+   * that was measured. `rtl-source-policy.mjs` requires `bidi-number` wherever
+   * `numeral` or `tabular-nums` appears, so this rule is what that class means.
+   */
+  .bidi-number {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+
+  /*
    * Opaque identifiers — handles, fingerprints, error codes. Same face as
    * amounts, with the slashed zero on, because here a 0 really can be misread
    * as an O and the value is transcribed by hand.
