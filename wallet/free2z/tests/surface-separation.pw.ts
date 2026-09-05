@@ -79,7 +79,7 @@ test("login offers password and states why Zcash is not here", async ({
   await expect(page.getByLabel("Email or username")).toBeVisible();
 });
 
-test("a creator ZEC tip records the intent without a wallet handoff", async ({
+test("a creator ZEC tip collects an amount and then fails closed", async ({
   page,
 }) => {
   await signIn(page);
@@ -96,11 +96,57 @@ test("a creator ZEC tip records the intent without a wallet handoff", async ({
   await page.getByRole("button", { name: /Tip zooko/i }).click();
   await expect(page.getByRole("group", { name: "Tip currency" })).toBeVisible();
   await page.getByRole("button", { name: /^ZEC Zcash wallet$/ }).click();
+
+  // #790's product gap: the ZEC path now asks for the amount here, because
+  // this is where the tip is chosen. The address is not shown or edited — it
+  // is ZUULI that renders the destination it is about to pay.
+  const amount = page.getByLabel("Amount (ZEC)");
+  await expect(amount).toBeVisible();
+  await page.getByRole("button", { name: "0.05", exact: true }).click();
+  await expect(amount).toHaveValue("0.05");
+
   await page.getByRole("button", { name: "Continue with ZEC" }).click();
 
-  // The dialog closes and the reader is told where the tip is actually signed.
+  // The request was built and NOT sent: there is no verified link to ZUULI
+  // (#461), so the transport refuses and the copy says exactly that.
   await expect(page.getByText("ZEC tips are signed in ZUULI")).toBeVisible();
+  await expect(
+    page.getByText(/prepared a request for 0\.05 ZEC to Zooko/),
+  ).toBeVisible();
+  await expect(page.getByText(/nothing was sent/)).toBeVisible();
+  // Never a receipt for a payment that did not happen.
+  await expect(page.getByText(/Transaction /)).toHaveCount(0);
+  await expect(page.getByText(/ZUULI sent your ZEC tip/)).toHaveCount(0);
+
   expect(page.url()).toBe(before);
   expect(navigations.filter((url) => url !== before)).toEqual([]);
   await expect(page.locator("[data-testid='creator-tip-context']")).toHaveCount(0);
+});
+
+test("a ZEC tip amount that is not a positive ZEC value cannot be sent", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("/creator/zooko");
+
+  await page.getByRole("button", { name: /Tip zooko/i }).click();
+  await page.getByRole("button", { name: /^ZEC Zcash wallet$/ }).click();
+
+  const amount = page.getByLabel("Amount (ZEC)");
+  const submit = page.getByRole("button", { name: "Continue with ZEC" });
+
+  for (const bad of ["0", "-1", "abc", "1.000000001"]) {
+    await amount.fill(bad);
+    await expect(
+      page.getByText("Enter a ZEC amount above zero, using a period, with up to 8 decimals."),
+    ).toBeVisible();
+    await expect(submit).toBeDisabled();
+  }
+
+  await amount.fill("1000.00000001");
+  await expect(page.getByText("Max 1,000 ZEC per tip.")).toBeVisible();
+  await expect(submit).toBeDisabled();
+
+  await amount.fill("0.25");
+  await expect(submit).toBeEnabled();
 });

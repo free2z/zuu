@@ -201,6 +201,127 @@ the response destination closes that, which is
 [#461](https://github.com/free2z/zuu/issues/461), which is why the transport is
 shut.
 
+## TypeScript — the caller side, `wallet/free2z`
+
+`wallet/free2z/src/lib/bridge/creator-tip.test.ts` is where the shared client
+is exercised as a *product* rather than as a protocol: a creator ZEC tip
+(#790) builds a real `execute-payment` request, hands it to the one transport
+seam, and judges the answer.
+
+```
+cd wallet/free2z && npx vitest run src/lib/bridge src/lib/format.test.ts
+```
+
+Baseline: 190 tests green (73 bridge, 66 formatting, 17 tip copy, plus the i18n catalog suites the copy states feed). Every guard below is
+pinned **alone**: deleting any one of them, by itself, turns something red.
+
+| Guard, as mutated | Test that must fail | Result |
+|---|---|---|
+| ZEC→zatoshi factor (`padEnd(8, "0")` → `padEnd(7, "0")`) | `converts 1 ZEC`, and five more | FAILS |
+| `encodeExecutePaymentPayload`'s `amountZatoshis <= 0n` | `the encoder itself refuses 0n zatoshis`, `refuses to build a request for 0 zatoshis` | FAILS |
+| `requestCreatorTipPayment`'s `Number.isSafeInteger` | `refuses 0.5 zatoshis as a refusal, never as a thrown RangeError`, and four more | FAILS |
+| session correlation by identifier (`findIndex` → `() => true`) | `rejects a response addressed to a different request` | FAILS |
+| `decodeExecutePaymentResult`'s fixed 32-byte read | `never reports an empty payload as a payment`, and five more | FAILS |
+| creator-tip trim-equality rule | `refuses an untrimmed username`, `…label` | FAILS |
+| creator-tip control-character rejection | `refuses a control character in the label`, `…a DEL in the username` | FAILS |
+| creator-tip recipient-whitespace rejection | `refuses an address split by a space` | FAILS |
+| `IntentErrorCode.Unavailable` (status 12, from #914) in the client | `carries INTENT_UNAVAILABLE through as itself, not as a decode failure` | FAILS |
+| `unsendable` gets its own copy, not the wallet-declined copy | `never tells the payer the wallet declined when it was never asked` | FAILS |
+| certainty attribution per outcome | `is certain only where certainty is earned` | FAILS |
+| an ambiguous broadcast read as a plain refusal | `treats an ambiguous broadcast as unknown, not as a refusal` | FAILS |
+
+The txid row is the one worth reading the output of: with the length check
+relaxed, an empty payload is reported as `{ kind: 'sent', txid: '' }` — a
+*correlated* fulfilment carrying no transaction. A caller that renders that has
+told its user a payment landed, and cannot unsay it.
+
+### The copy has to be true, and "true" depends on what we can prove
+
+A review of #924 found four `CreatorTipFailure` kinds and three toast branches:
+`unsendable` and `transport-failed` fell through to *"the wallet did not
+complete this payment"*. For `unsendable` that is false — nothing left free2z
+and ZUULI was never asked — and it is reachable from untrusted profile data, not
+just from developer error, because a `recipient` or `username` carrying
+`U+200B`/`U+202E` passes free2z's C0/DEL check and is refused by `VisibleText`.
+
+Fixing it surfaced a second, larger problem. The copy was organised around *did
+it work*, and the honest axis is **do we know what happened**:
+
+| Outcome | Can this app prove no funds moved? |
+|---|---|
+| `no-transport` | yes — no channel exists |
+| `unsendable` | yes — nothing was encoded, the wallet was never asked |
+| `refused` + `INTENT_NOT_CONFIRMED` | yes — ZUULI returns it before `execute_send` |
+| `transport-failed` | **no** — the request may have arrived, the answer did not |
+| `refused` + anything else | **no** |
+
+The sharpest case is `INTENT_UNAVAILABLE`: `intent.rs`'s `payment_outcome`
+returns it for every `BroadcastStatus` but `Accepted`, **including `Unknown`**,
+where "the transaction exists locally and the wallet retains the exact bytes for
+`retry_pending_send`, but nothing establishes that the network took them". Copy
+that says "your ZEC is untouched" there is wrong in the one direction that
+matters.
+
+`INTENT_UNAVAILABLE` is status 12, which
+[#914](https://github.com/free2z/zuu/pull/914) added to **both** halves —
+`rs/crates/f2z-intent/src/error.rs` and `wallet/shared/src/intent/error.ts` —
+when it introduced the status. The two have never disagreed on `main`.
+
+The behaviour that makes it worth a test here is
+`IntentSession.accept`'s `intentErrorFromStatus(status) ?? Malformed`: a status
+this build does not know becomes `INTENT_MALFORMED`, which reads as "the
+wallet's answer was garbage" rather than "the wallet could not finish, go
+look". For a status that can mean *a transaction may exist*, those are the
+difference between reassuring a payer and sending them to their wallet. The
+mutation deletes status 12 from the client and reproduces exactly that reading:
+
+```
+× carries INTENT_UNAVAILABLE through as itself, not as a decode failure
+  → expected { kind: 'refused', error: 1 } to deeply equal { kind: 'refused', error: undefined }
+```
+
+The test pins main's definition, not a local one — so it also fails if a future
+change drops a status the wallet still emits.
+
+`features/creator/tip-copy.ts` is now the single exhaustive map, with a `never`
+binding so a sixth outcome cannot fall through, and
+`tip-copy.test.ts` asserts the honesty property against the **real shipped
+`en`/`es`/`fr` catalogs** through a real i18next instance — a reassuring
+sentence added to the wrong message by a later translation is exactly what a
+key-level assertion would miss. It carries its own negative control, so a typo
+in every regex cannot leave it green.
+
+### The positive-amount check used to be written twice. That was the bug.
+
+The first version of this work had `amountZatoshis <= 0` in
+`requestCreatorTipPayment` **and** `<= 0n` in `encodeExecutePaymentPayload`, and
+the matrix recorded that neither copy could be mutated alone — only removing
+both turned a test red. That was reported honestly rather than counted as
+covered, and then treated as the defect it is: two copies that no test can tell
+apart is not defence in depth. It is one guard plus a decoy, and either could
+have been deleted in a later refactor with the suite fully green.
+
+The fix was to delete the duplicate, not to invent a test for it. Measuring
+first showed the split was not where it looked:
+
+| Value | Caller's `<= 0` | Encoder's `<= 0n` | Distinguishable? |
+|---|---|---|---|
+| `0` | refuses | refuses, at the same point, with the same code | **no** |
+| `-1` | refuses | refuses — and `-1 < 0` too, so the mutation never changed this | **no** |
+| `0.5`, `NaN`, `Infinity` | `isSafeInteger` refuses | **throws `RangeError`** out of `outcome()` | yes |
+| `2^53` | `isSafeInteger` refuses | **accepts it and encodes it** | yes |
+
+So the caller's real contribution is *representability*, which nothing else
+enforces, and positivity belongs solely to the encoder where `PROTOCOL.md` §3.4
+puts it. Splitting them that way leaves two guards that are each independently
+mutation-provable — the two rows in the table above — and no third copy that a
+green suite would let somebody delete.
+
+The last row is the one that changed the design rather than just the tests:
+`BigInt(2**53)` converts cleanly, so without `Number.isSafeInteger` a nonsense
+amount reaches the wire and is **sent**. The check that looked like a duplicate
+of the encoder's was, in the cases that matter, the only thing standing there.
+
 ## The boundary scanner
 
 `wallet/zuuli/scripts/project-boundary.node-test.mjs` gains seven cases, and

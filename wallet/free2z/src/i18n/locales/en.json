@@ -19,9 +19,27 @@
     "tryAgain": "Try again."
   },
   "creator": {
-    "zecTipPending": {
-      "body": "Signing a Zcash transaction needs the key, which lives in ZUULI. Open {creator}'s page there to send ZEC. Your 2Z tip works here.",
-      "title": "ZEC tips are signed in ZUULI"
+    "zecTip": {
+      "blocked": {
+        "body": "free2z prepared a request for {amount} to {creator} and holds no key to sign it. The verified link to ZUULI is not live yet, so nothing was sent.",
+        "title": "ZEC tips are signed in ZUULI"
+      },
+      "declined": {
+        "body": "The payment was not approved in ZUULI, so nothing was sent to {creator}. Your ZEC is untouched.",
+        "title": "ZUULI did not authorize this tip"
+      },
+      "indeterminate": {
+        "body": "free2z cannot tell what happened to this {amount} tip for {creator}. Open ZUULI and check for a pending transaction before sending again.",
+        "title": "free2z did not get an answer"
+      },
+      "sent": {
+        "body": "{amount} to {creator}. Transaction {txid}.",
+        "title": "ZUULI sent your ZEC tip"
+      },
+      "unsent": {
+        "body": "This creator's payment details cannot be carried across the bridge, so ZUULI was never asked and nothing was sent.",
+        "title": "free2z could not send this request"
+      }
     }
   },
   "error": {

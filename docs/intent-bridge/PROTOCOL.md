@@ -374,6 +374,30 @@ response.
 
 **What it does not prove:** that the responder is ZUULI. See §7.
 
+### 6.1 The first caller
+
+`wallet/free2z/src/lib/bridge/creator-tip.ts` is the first production consumer:
+a creator ZEC tip ([#790](https://github.com/free2z/zuu/issues/790)). It
+collects the amount — the product gap that kept `execute-payment` unbuildable,
+since `encodeExecutePaymentPayload` refuses a non-positive amount — builds the
+request through this package, and hands it to `./intent-transport`, which is
+**one interface with one fail-closed implementation**. Its `exchange` cannot
+return bytes; it rejects with a typed error naming #461, and the UI says that
+nothing was sent.
+
+Two details of that caller are worth copying rather than reinventing:
+
+- **One question per exchange.** The outstanding-question map is created per
+  call with capacity one. Not for correlation — `IntentSession.accept` matches
+  on `request_id`, so an answer to A is never accepted against B however many
+  questions share a map — but for **attribution**: `accept` returns
+  `{ intent, payload }` without saying which question it answered, so a shared
+  map would leave a caller holding a txid it could not tie to a creator or an
+  amount.
+- **A txid is a value, not a formatting step.** It comes back only from
+  `decodeExecutePaymentResult`, which reads exactly 32 bytes and refuses
+  anything else, because an app that has shown "sent" cannot unshow it.
+
 ## 7. What is blocked on #461
 
 Everything above is correct regardless of how the bytes travel. Nothing above is

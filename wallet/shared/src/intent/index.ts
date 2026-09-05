@@ -33,6 +33,8 @@ export {
   MAX_CHALLENGE_BYTES,
   MAX_INTENT_LIFETIME_MS,
   REQUEST_ID_BYTES,
+  TXID_BYTES,
+  decodeExecutePaymentResult,
   decodeIntentRequest,
   decodeIntentResponse,
   decodeIssueDeviceCredentialResult,

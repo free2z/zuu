@@ -168,6 +168,50 @@ export function parseZecToZatoshis(raw: string): number | null {
 }
 
 /**
+ * Product bound for a user-entered ZEC tip: 1,000 ZEC, in zatoshis.
+ *
+ * Not a consensus limit — the protocol carries far more — but a tip form is not
+ * where anybody means to move a fortune, and an unbounded amount field is one
+ * fat finger away from a confirmation the payer waves through. ZUULI still
+ * re-derives and shows its own review; this only keeps an obvious mistake from
+ * reaching it.
+ */
+export const MAX_TIP_ZEC = 1_000;
+export const MAX_TIP_ZATOSHIS = MAX_TIP_ZEC * ZATOSHIS_PER_ZEC;
+
+export type ZecInputError = "invalid" | "tooLarge";
+
+export interface ZecInputResult {
+  /** Exact zatoshis, or `null` when the input is not a positive ZEC amount. */
+  zatoshis: number | null;
+  error: ZecInputError | null;
+}
+
+/**
+ * Validate a user-entered ZEC amount and retain why a parsed value failed.
+ *
+ * The 2Z counterpart is `validateTuzis`, and this is deliberately a separate
+ * function rather than a generalisation of it, because the two disagree on
+ * purpose: 2Z parsing follows the display locale (#324) and ZEC parsing never
+ * does. A consensus amount that changed meaning with a device's locale would be
+ * a different payment on a different phone.
+ *
+ * Zero, negative, non-numeric, grouped, exponential and more-than-eight-decimal
+ * inputs are all `"invalid"`: `parseZecToZatoshis` refuses each outright rather
+ * than rounding, so nothing here has to decide what a ninth decimal place
+ * "meant".
+ */
+export function validateZec(
+  raw: string,
+  { maximum = MAX_TIP_ZATOSHIS }: { maximum?: number } = {},
+): ZecInputResult {
+  const zatoshis = parseZecToZatoshis(raw);
+  if (zatoshis === null) return { zatoshis: null, error: "invalid" };
+  if (zatoshis > maximum) return { zatoshis, error: "tooLarge" };
+  return { zatoshis, error: null };
+}
+
+/**
  * Format zatoshis as a plain ZEC string (8dp).
  *
  * NOTE: same as `parseZecToZatoshis` — hard `.` decimal, Western digits, no

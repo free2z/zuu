@@ -271,6 +271,35 @@ export function encodeSignChallengePayload(
   });
 }
 
+/** The number of bytes in a Zcash transaction identifier. */
+export const TXID_BYTES = 32;
+
+/**
+ * Decode an `execute-payment` family result.
+ *
+ * `ExecutePaymentResultV1` is `struct { opaque txid[32]; }` — fixed width, so
+ * there is no length prefix and there is exactly one well-formed encoding. A
+ * payload of any other length is a refusal rather than a short read: a caller
+ * that displays "sent, txid …" cannot unsay it, so the only reading of a
+ * result it does not fully understand is that it did not get one.
+ *
+ * The family payload is opaque at {@link decodeIntentResponse}'s layer, which
+ * is deliberate — the family is resolved from the *pending* record, not from
+ * the reply — so this is the step that turns those bytes into a value, and it
+ * lives here rather than in a client because there is one implementation of
+ * this protocol and this is where it is.
+ */
+export function decodeExecutePaymentResult(
+  payload: Uint8Array,
+): IntentOutcome<Uint8Array> {
+  return outcome(() => {
+    const reader = new ByteReader(payload);
+    const txid = reader.fixed(TXID_BYTES);
+    reader.finish();
+    return txid;
+  });
+}
+
 /** Encode an `execute-payment` family payload. */
 export function encodeExecutePaymentPayload(payment: {
   readonly recipient: string;
