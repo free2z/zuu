@@ -31,6 +31,7 @@ use f2z_kt_core::entry::{DeviceCredential, DirectoryEntryTBS, EntryKind};
 use f2z_kt_core::types::{Handle, KemPublicKey, LogId};
 use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
 use f2z_msg_store::{Durability, MemoryBackend, Op, StorageBackend, StoreError};
+use tauri_plugin_f2zmsg::custody::WrapKeyCustody;
 use tauri_plugin_f2zmsg::directory::{Directory, ResolvedIdentity, ResolvedPeer};
 use tauri_plugin_f2zmsg::engine::{Engine, IdentityInstall};
 use tauri_plugin_f2zmsg::error::{Error, Result};
@@ -310,6 +311,7 @@ fn engine<B: StorageBackend>(backend: B, directory: Arc<HarnessDirectory>) -> En
         Platform::ZuuliDesktop,
     )
     .expect("engine")
+    .with_wrap_key_custody(WrapKeyCustody::in_memory())
     .with_directory(directory)
 }
 

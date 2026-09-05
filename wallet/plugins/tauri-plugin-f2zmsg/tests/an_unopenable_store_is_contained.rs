@@ -28,6 +28,14 @@
 use tauri_plugin_f2zmsg::models::{EngineState, ErrorCode};
 use tauri_plugin_f2zmsg::state::F2zMsgExt as _;
 
+/// A wrap-key namespace under `mock_context`'s bundle identifier (#937).
+///
+/// The value is irrelevant to what this file tests — an unopenable *message*
+/// store — but the plugin refuses a namespace that is not the host's, and a
+/// refused namespace would leave custody unavailable for a reason that has
+/// nothing to do with the store. Naming it here keeps the two failures apart.
+const WRAP_KEY_NAMESPACE: &str = "com.tauri.dev.f2zmsg.wrap.v1";
+
 /// A data directory in which `f2zmsg.sqlite` cannot be opened.
 ///
 /// The store path is occupied by a **directory**, so SQLite answers
@@ -46,6 +54,7 @@ fn a_store_that_will_not_open_still_lets_the_app_build() {
     let app = tauri::test::mock_builder()
         .plugin(tauri_plugin_f2zmsg::init_with_store_dir(
             store.path().to_path_buf(),
+            WRAP_KEY_NAMESPACE,
         ))
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .expect("an unopenable messaging store must not stop the app from building");
@@ -85,6 +94,7 @@ fn a_store_that_opens_is_not_faulted() {
     let app = tauri::test::mock_builder()
         .plugin(tauri_plugin_f2zmsg::init_with_store_dir(
             store.path().to_path_buf(),
+            WRAP_KEY_NAMESPACE,
         ))
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .expect("an openable messaging store builds the app");

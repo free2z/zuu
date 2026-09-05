@@ -639,6 +639,38 @@ confident wrong answer is worse than a marked doubt.
    did not resolve it. §3.5's "refuse rather than enroll" is my proposed answer
    and it is a policy I am inferring from the tree's fail-closed doctrine, not
    one I read anywhere.
+
+   > **Resolved by [#937](https://github.com/free2z/zuu/issues/937).** The home
+   > exists on all four platforms and is
+   > `wallet/plugins/tauri-plugin-f2zmsg/src/custody.rs`, with its own copy of
+   > the `keyring` feature matrix for desktop and a Tauri mobile plugin
+   > (`ios/`, `android/`) for the two this uncertainty was actually about.
+   > Mobile does not go through `keyring` even where it could, because the
+   > accessibility policy is the decision and `keyring` picks it for you: the
+   > wrap key is opened by background queue processing, so iOS uses
+   > `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` with **no**
+   > `SecAccessControl`, and Android uses an `AndroidKeyStore` AES-GCM key with
+   > **neither** `setUserAuthenticationRequired` **nor**
+   > `setUnlockedDeviceRequired` — the exact opposite of what
+   > `tauri-plugin-zcash` correctly does for the seed, and for the reason that
+   > a seal which cannot be opened without a user present cannot be opened by
+   > the inbound poll.
+   >
+   > **§3.5's rule is adopted rather than §9's option F**, and the deciding
+   > argument is §3.5's own: the refusal is not defending the seal (Fact 6
+   > makes that narrow), it is preventing the per-launch directory entry that
+   > §4.2 requires be surfaced as a possible wiretap. Option F stays the
+   > escape hatch on its stated condition — visible in the UI and in engine
+   > status — and is not taken now because a weaker seal cannot be un-shipped
+   > once devices hold keys under it, and nobody has yet been locked out by
+   > the stronger one. The refusal is enforced at `Engine::prepare_device`,
+   > before any device material exists, and is proven load-bearing by
+   > `tests/enrollment_refuses_without_custody.rs`.
+   >
+   > Still open, and deliberately: this ADR's §3 sketch — removing
+   > `IdentityInstall.wrap_key` and giving `locked` its seed-free retry. #937
+   > builds the home and the refusal only; nothing yet *seals* under
+   > `DeviceWrapKey`.
 2. **Whether §6's claim-2 signature chain is complete.** I read RFC 9420 §10 as
    requiring the `KeyPackage` signature under `leaf_node.signature_key`, which
    with `validate_for_leaf`'s binding gives identity → device → init key. I did

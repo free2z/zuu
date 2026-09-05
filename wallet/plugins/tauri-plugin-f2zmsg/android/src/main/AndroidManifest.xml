@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  No permissions, and the absence is the point.
+
+  Device wrap-key custody uses AndroidKeyStore and this app's own
+  SharedPreferences, neither of which is permission-gated, and it deliberately
+  never prompts for biometrics (F2zMsgPlugin.kt) — so USE_BIOMETRIC, which
+  tauri-plugin-zcash's manifest does declare for the seed, is absent here.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />

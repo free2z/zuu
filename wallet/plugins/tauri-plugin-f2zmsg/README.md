@@ -46,6 +46,8 @@ $ cd ../../../rs/deploy && docker compose -f docker-compose.dev.yml up
 | `src/error.rs` | A refusal reaches the webview as one §8 code and nothing else. |
 | `src/envelope.rs` | The adapter over `f2z-msg-dag`, and three plugin codepoints. |
 | `src/store.rs` | Durable records over `f2z-msg-store`'s application namespace. |
+| `src/custody.rs` | Where this device's `DeviceWrapKey` lives, per platform, and the enrollment refusal where nowhere will hold it. |
+| `src/custody_mobile.rs` | The Rust side of the iOS/Android custody bridge; `ios/` and `android/` are the native halves. |
 | `src/relay.rs` | ZUULI's `WIRE.md` v1 client over a real WebSocket. |
 | `src/directory.rs` | The key-transparency seam. Fails closed, deliberately. |
 | `src/engine.rs` | Everything §3 asks for, with **no Tauri in it**. |

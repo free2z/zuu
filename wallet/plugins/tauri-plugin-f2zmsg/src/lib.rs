@@ -31,6 +31,7 @@
 //! | [`error`] | A refusal reaches the webview as one §8 code and nothing else. |
 //! | [`framing`] | §7's envelope, `msg_id` and total order — the `f2z-msg-dag` seam. |
 //! | [`store`] | The durable record layer over `f2z-msg-store`'s app namespace. |
+//! | [`custody`] | Where this device's `DeviceWrapKey` lives, per platform, and the refusal where it cannot. |
 //! | [`relay`] | ZUULI's `WIRE.md` v1 client. |
 //! | [`directory`] | The key-transparency seam. Fails closed, by design. |
 //! | [`engine`] | Everything §3 asks for, with no Tauri in it. |
@@ -79,6 +80,9 @@ macro_rules! command_names {
 /// §3 grows.
 pub const COMMANDS: &[&str] = with_f2zmsg_commands!(command_names);
 
+pub mod custody;
+#[cfg(mobile)]
+mod custody_mobile;
 pub mod directory;
 pub mod engine;
 pub mod envelope;
@@ -93,6 +97,7 @@ pub mod wire_codes;
 
 mod commands;
 
+pub use custody::{WrapKeyCustody, WrapKeyNamespace};
 pub use error::{Error, Result};
 pub use models::*;
 pub use state::{F2zMsg, F2zMsgExt};
@@ -139,6 +144,7 @@ enum StoreLocation {
 fn open_engine<R: Runtime>(
     app: &tauri::AppHandle<R>,
     location: &StoreLocation,
+    custody: custody::WrapKeyCustody,
 ) -> Result<Arc<engine::Engine<state::Backend>>> {
     let data_dir = match location {
         StoreLocation::AppData => app.path().app_data_dir().map_err(|error| {
@@ -158,12 +164,60 @@ fn open_engine<R: Runtime>(
         models::Platform::ZuuliDesktop
     };
     let sink = Arc::new(events::TauriSink::new(app.clone()));
-    Ok(Arc::new(engine::Engine::new(backend, sink, platform)?))
+    Ok(Arc::new(
+        engine::Engine::new(backend, sink, platform)?.with_wrap_key_custody(custody),
+    ))
 }
 
-fn plugin<R: Runtime>(location: StoreLocation) -> TauriPlugin<R> {
+/// Build device wrap-key custody for the host application (#937).
+///
+/// Never fails: a namespace this application does not own, or a native plugin
+/// that will not register, becomes [`custody::WrapKeyCustody::unavailable`] and
+/// a loud log line. `setup` must not return `Err` (#753), and "there is no
+/// store" is a state this design already answers — enrollment refuses, per
+/// [`custody`]'s module header §3 — rather than one that has to abort a launch.
+fn open_custody<R: Runtime, C: serde::de::DeserializeOwned>(
+    app: &tauri::AppHandle<R>,
+    api: tauri::plugin::PluginApi<R, C>,
+    namespace: &str,
+) -> custody::WrapKeyCustody {
+    // The mobile bridge is the only consumer of `api`; a desktop build has no
+    // native plugin to register.
+    #[cfg(desktop)]
+    let _ = api;
+
+    let identifier = &app.config().identifier;
+    let namespace = match custody::WrapKeyNamespace::for_app(namespace, identifier) {
+        Ok(namespace) => namespace,
+        Err(error) => {
+            // A namespace copied between the two apps is the one mistake the
+            // per-application rule exists to catch, and it is invisible without
+            // this line: on a shared Secret Service both apps would open one
+            // wrap key and nothing would look wrong (ADR 0016 §3).
+            tracing::error!(%error, "device wrap-key custody is unavailable");
+            return custody::WrapKeyCustody::unavailable(error.to_string());
+        }
+    };
+
+    #[cfg(mobile)]
+    {
+        custody_mobile::custody(app, api, namespace)
+    }
+    #[cfg(desktop)]
+    {
+        custody::WrapKeyCustody::desktop(namespace)
+    }
+}
+
+fn plugin<R: Runtime>(location: StoreLocation, wrap_key_namespace: &'static str) -> TauriPlugin<R> {
     command_builder()
-        .setup(move |app, _api| {
+        .setup(move |app, api| {
+            let custody = open_custody(app, api, wrap_key_namespace);
+            tracing::info!(
+                custody = ?custody.kind(),
+                namespace = custody.namespace().unwrap_or("none"),
+                "device wrap-key custody"
+            );
             // **This hook must not return `Err`, ever** (#753). A plugin whose
             // `setup` fails makes `tauri::Builder::build()` fail, and ZUULI's
             // `run()` ends in `.expect("error while running tauri
@@ -177,7 +231,7 @@ fn plugin<R: Runtime>(location: StoreLocation) -> TauriPlugin<R> {
             // type, so every engine-dependent command would panic instead of
             // refusing. The state is registered either way and answers either
             // way; pure handle eligibility does not need to consult it (#762).
-            match open_engine(app, &location) {
+            match open_engine(app, &location, custody) {
                 Ok(engine) => {
                     app.manage(state::F2zMsg::new(app.clone(), Arc::clone(&engine)));
 
@@ -233,8 +287,25 @@ fn plugin<R: Runtime>(location: StoreLocation) -> TauriPlugin<R> {
 }
 
 /// Initialize the plugin.
-pub fn init<R: Runtime>() -> TauriPlugin<R> {
-    plugin(StoreLocation::AppData)
+///
+/// `wrap_key_namespace` is the OS-secret-store service name this application's
+/// `DeviceWrapKey` lives under — `cash.free2z.zuuli.f2zmsg.wrap.v1` or
+/// `cash.free2z.e2e2z.f2zmsg.wrap.v1`.
+///
+/// **It is an argument and not a constant in this crate, and that is a
+/// decision** (ADR 0016 §3, and [`custody`]'s module header §1). This plugin is
+/// linked into both apps; a plugin-level constant would give them the same item
+/// name, and on the freedesktop Secret Service — which has no per-application
+/// isolation — that is mutual overwrite, or one app opening the other's key.
+/// The precedent is `tauri-plugin-zcash`'s
+/// `const SERVICE = "cash.free2z.zuuli.seed.v1"`: one app, one purpose, one
+/// version.
+///
+/// The value must begin with the host's own bundle identifier; one that does
+/// not is refused at setup and leaves custody unavailable, so a namespace
+/// copied from the other application cannot enroll.
+pub fn init<R: Runtime>(wrap_key_namespace: &'static str) -> TauriPlugin<R> {
+    plugin(StoreLocation::AppData, wrap_key_namespace)
 }
 
 /// The shipping plugin with its store forced to `store_dir`.
@@ -242,8 +313,11 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 /// A test seam, and specifically #753's: it is the only way to build the real
 /// `setup` hook over a store that cannot be opened.
 #[doc(hidden)]
-pub fn init_with_store_dir<R: Runtime>(store_dir: std::path::PathBuf) -> TauriPlugin<R> {
-    plugin(StoreLocation::Fixed(store_dir))
+pub fn init_with_store_dir<R: Runtime>(
+    store_dir: std::path::PathBuf,
+    wrap_key_namespace: &'static str,
+) -> TauriPlugin<R> {
+    plugin(StoreLocation::Fixed(store_dir), wrap_key_namespace)
 }
 
 #[cfg(test)]

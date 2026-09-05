@@ -144,6 +144,12 @@ pub struct Engine<B: StorageBackend> {
     inner: tokio::sync::Mutex<Inner<B>>,
     sink: Arc<dyn EventSink>,
     directory: Arc<dyn Directory>,
+    /// Where this device's `DeviceWrapKey` lives (ADR 0016 §3, #937).
+    ///
+    /// Outside `Inner` deliberately: [`Engine::prepare_device`] consults it
+    /// *before* taking the lock, because a device that cannot durably hold a
+    /// wrap key must be refused before any enrollment state exists to unwind.
+    wrap_key_custody: crate::custody::WrapKeyCustody,
 }
 
 struct Inner<B: StorageBackend> {
@@ -269,8 +275,33 @@ impl<B: StorageBackend> Engine<B> {
             }),
             sink,
             directory: Arc::new(NoDirectory),
+            // Fail closed until a store is installed. An engine nobody gave
+            // custody to must not be able to enroll, because a device enrolled
+            // under a wrap key that was never stored is a device that mints a
+            // fresh directory entry on every launch (ADR 0016 §3.5).
+            wrap_key_custody: crate::custody::WrapKeyCustody::unavailable(
+                "no device wrap-key custody was installed on this engine",
+            ),
         };
         Ok(engine)
+    }
+
+    /// Install device wrap-key custody (#937).
+    ///
+    /// The shipping path is `lib.rs`'s `open_engine`, which builds custody from
+    /// the host application's namespace. Tests and the two-process relay
+    /// harness use `WrapKeyCustody::in_memory()`, which is durable across
+    /// nothing and is named so.
+    #[must_use]
+    pub fn with_wrap_key_custody(mut self, custody: crate::custody::WrapKeyCustody) -> Self {
+        self.wrap_key_custody = custody;
+        self
+    }
+
+    /// Where this device's `DeviceWrapKey` lives.
+    #[must_use]
+    pub const fn wrap_key_custody(&self) -> &crate::custody::WrapKeyCustody {
+        &self.wrap_key_custody
     }
 
     /// Replace the directory client. The only caller today is a test; the
@@ -470,8 +501,12 @@ impl<B: StorageBackend> Engine<B> {
     ///
     /// # Errors
     ///
-    /// Returns `internal` if the signing-key sample is the forbidden all-zero
-    /// seed. Refusal happens before pending enrollment state is installed.
+    /// Returns `durability-unavailable` if this device has nowhere to durably
+    /// hold a `DeviceWrapKey` (#937 — no OS secret store, a locked or absent
+    /// one, or a namespace this application does not own), and `internal` if
+    /// the signing-key sample is the forbidden all-zero seed. Both refusals
+    /// happen before pending enrollment state is installed, so a refused
+    /// enrollment leaves nothing behind.
     pub async fn prepare_device(&self) -> Result<DevicePublicKeys> {
         self.prepare_device_with(|| prepare_device_material(&mut rand::rng()))
             .await
@@ -481,6 +516,24 @@ impl<B: StorageBackend> Engine<B> {
         &self,
         prepare: impl FnOnce() -> Result<(DevicePublicKeys, DeviceSecrets)>,
     ) -> Result<DevicePublicKeys> {
+        // **The fail-closed gate of ADR 0016 §3.5, and it is first on purpose**
+        // (#937). Before any device material exists, prove this device can
+        // durably hold a `DeviceWrapKey`; refuse the whole enrollment if it
+        // cannot.
+        //
+        // Refusing here rather than at `install_identity` is what makes the
+        // refusal cheap: nothing has been sampled, no credential has been
+        // requested from the wallet authority, and no directory entry has been
+        // minted. The alternative the ADR weighs — proceeding, and re-enrolling
+        // whenever the wrap key cannot be found — mints a device, a credential
+        // and a directory entry per launch, and `ARCHITECTURE.md:318-322`
+        // requires each of those to be surfaced to the user as a possible
+        // wiretap. Users trained to dismiss that notification have lost the one
+        // signal that protects them, and the log is append-only, so the phantom
+        // devices are permanent. `crate::custody`'s module header §3 has the
+        // full argument and the option-F alternative that was left on the shelf.
+        self.wrap_key_custody.probe()?;
+
         // Validate the sampled signing key before taking the lock or changing
         // enrollment state. Tests inject a zero-only generator through this
         // exact production route rather than testing an uncalled keygen API.
@@ -5115,7 +5168,10 @@ mod tests {
             Arc::new(NullSink) as Arc<dyn EventSink>,
             Platform::ZuuliDesktop,
         )
-        .unwrap();
+        .unwrap()
+        // Working custody, so the refusal under test is the zero sample and not
+        // #937's custody preflight ahead of it.
+        .with_wrap_key_custody(crate::custody::WrapKeyCustody::in_memory());
         let error = engine
             .prepare_device_with(|| prepare_device_material(&mut ZeroRng))
             .await
