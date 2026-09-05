@@ -80,7 +80,7 @@ function EngineSummary({ status }: { status: EngineStatus }) {
 
       <div className="rounded-xl border border-border bg-card p-4">
         <dt className="eyebrow text-muted-foreground">Relays</dt>
-        <dd className="numeral mt-1 text-foreground">
+        <dd className="bidi-number numeral mt-1 text-foreground">
           {status.relaysConnected} of {status.relaysConfigured}
         </dd>
         <dd className="mt-1 text-sm text-muted-foreground">
@@ -90,7 +90,7 @@ function EngineSummary({ status }: { status: EngineStatus }) {
 
       <div className="rounded-xl border border-border bg-card p-4">
         <dt className="eyebrow text-muted-foreground">Witnesses</dt>
-        <dd className="numeral mt-1 text-foreground">
+        <dd className="bidi-number numeral mt-1 text-foreground">
           {status.independentWitnesses}
         </dd>
         <dd className="mt-1 text-sm text-muted-foreground">
@@ -373,8 +373,8 @@ export default function MessagesFeature() {
                 }
                 className={
                   conversation.conversationId === selectedId
-                    ? "w-full rounded-xl border border-primary/50 bg-card p-3 text-left"
-                    : "w-full rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-primary/50"
+                    ? "w-full rounded-xl border border-primary/50 bg-card p-3 text-start"
+                    : "w-full rounded-xl border border-border bg-card p-3 text-start transition-colors hover:border-primary/50"
                 }
               >
                 <span className="mono-id block text-foreground">

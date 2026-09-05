@@ -67,7 +67,7 @@ function MessageRow({ message }: { message: Message }) {
           {message.body.text}
         </p>
         {outbound && (
-          <p className="text-right text-xs text-muted-foreground">
+          <p className="text-end text-xs text-muted-foreground">
             {DELIVERY_COPY[message.delivery.state]}
           </p>
         )}
@@ -221,7 +221,7 @@ export function Transcript({ conversation }: { conversation: Conversation }) {
           aria-label="Send message"
           className="min-tap"
         >
-          <Send className="size-4" aria-hidden />
+          <Send className="rtl:-scale-x-100 size-4" aria-hidden />
           Send
         </Button>
       </form>

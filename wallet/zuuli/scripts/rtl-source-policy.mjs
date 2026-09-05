@@ -1,3 +1,25 @@
+//
+// The RTL/bidi source policy, for every wallet surface that renders UI chrome.
+//
+// This is one checker parameterised by surface, not a checker per app, in the
+// shape `surface-capability-authority.mjs` already uses: a `SURFACES` list of
+// reviewed contracts, walked by a single CLI entrypoint. #912 already opened a
+// duplication drift window by copying the Markdown/RemoteMedia components; a
+// second copy of an 1100-line AST policy would be a worse one, because the two
+// copies would diverge silently in exactly the direction that weakens them.
+//
+// Each surface carries only what is genuinely its own — the reviewed residual
+// inventory and the reviewed directional-transform sites, both keyed by paths
+// relative to that surface's project root. Everything else (physical Tailwind
+// utilities, physical CSS declarations and shorthands, inline styles,
+// directional Lucide icons, numeric bidi isolation, and the document-direction
+// bootstrap) is the same property everywhere and is asserted from one body of
+// code.
+//
+// Usage:
+//   node wallet/zuuli/scripts/rtl-source-policy.mjs
+//   node --test wallet/zuuli/scripts/rtl-source-policy.node-test.mjs
+
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -5,6 +27,7 @@ import ts from "typescript";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(SCRIPT_DIR, "..");
+const WALLET_ROOT = path.resolve(SCRIPT_DIR, "../..");
 
 const DIRECTIONAL_ICONS = new Set([
   "ArrowDownLeft",
@@ -17,7 +40,10 @@ const DIRECTIONAL_ICONS = new Set([
   "Send",
 ]);
 
-const REQUIRED_DIRECTIONAL_TRANSFORMS = Object.freeze({
+/// ZUULI's reviewed direction-sensitive translation sites. Keyed by path
+/// relative to `wallet/zuuli`, so a surface that has no such site simply has an
+/// empty table rather than an exemption.
+const ZUULI_REQUIRED_DIRECTIONAL_TRANSFORMS = Object.freeze({
   "src/components/ui/switch.tsx": Object.freeze({
     anchors: Object.freeze(["data-[state=unchecked]:translate-x-0", "h-5", "w-5"]),
     ltr: "ltr:data-[state=checked]:translate-x-5",
@@ -78,6 +104,44 @@ const REACT_PHYSICAL_SHORTHANDS = new Map([
 // not the same as deleting the mechanism — the next surface that needs a
 // counted exception gets counted, not excluded.
 export const CHAT_OWNED_RESIDUALS = Object.freeze({});
+
+/// e2e2z's reviewed residual inventory, and it is empty too.
+///
+/// The messaging screens arrived here from ZUULI in #904 phase 3 carrying
+/// residuals that ZUULI had counted for them. They do not keep that exemption:
+/// #917 fixed the residuals at the source instead, so the surface that renders
+/// user-authored text next to identity chrome is held to the whole policy with
+/// nothing excused. Chat is where bidi handling matters most — a `U+202E` in a
+/// message body reorders the chrome around it — so an exemption here would be
+/// the worst-placed one in the tree.
+export const E2E2Z_OWNED_RESIDUALS = Object.freeze({});
+
+/**
+ * The reviewed contract, per surface. `directory` is relative to `wallet/`.
+ *
+ * `wallet/free2z` is deliberately absent: it is a separate surface with its own
+ * component tree, and bringing it under this policy is its own change with its
+ * own residual review, not a line added here. `wallet/zuuallet` is likewise
+ * absent — it is the reference wallet, not a shipped locale surface.
+ */
+export const SURFACES = Object.freeze([
+  Object.freeze({
+    directory: "zuuli",
+    reviewedResiduals: CHAT_OWNED_RESIDUALS,
+    requiredDirectionalTransforms: ZUULI_REQUIRED_DIRECTIONAL_TRANSFORMS,
+  }),
+  Object.freeze({
+    directory: "e2e2z",
+    reviewedResiduals: E2E2Z_OWNED_RESIDUALS,
+    requiredDirectionalTransforms: Object.freeze({}),
+  }),
+]);
+
+const ZUULI_SURFACE = SURFACES[0];
+
+export function surfaceProjectRoot(surface) {
+  return path.join(WALLET_ROOT, surface.directory);
+}
 
 function walk(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -599,29 +663,46 @@ function classAttributeTokens(attributes) {
   return texts.flatMap((text) => text.split(/\s+/).filter(Boolean));
 }
 
-function addResidual(residuals, fileName, token) {
+/**
+ * Record one residual, with the line it sits on.
+ *
+ * The reviewed inventory is compared on `token` alone — a counted exception
+ * must not churn every time a file gains a line above it — but the failure
+ * message quotes `file:line`, because a residual reported as a bare token is a
+ * grep the reader has to run themselves.
+ */
+function addResidual(residuals, fileName, token, line) {
   const current = residuals.get(fileName) ?? [];
-  current.push(token);
+  current.push({ token, line });
   residuals.set(fileName, current);
 }
 
-function scanTypeScript(fileName, source, residuals) {
+function describeResiduals(entries) {
+  return [...entries]
+    .sort((left, right) => left.line - right.line || (left.token < right.token ? -1 : 1))
+    .map(({ token, line }) => `${token}@${line}`)
+    .join(", ");
+}
+
+function scanTypeScript(fileName, source, residuals, surface) {
   const file = parse(fileName, source);
   const declarations = collectVariableDeclarations(file);
   const localBindings = collectLocalBindings(file);
   const lucideBindings = collectLucideBindings(file);
-  const requiredTransform = REQUIRED_DIRECTIONAL_TRANSFORMS[fileName];
+  const requiredTransform = surface.requiredDirectionalTransforms[fileName];
   let requiredTransformMatches = 0;
   const visit = (node) => {
     const text = literalText(node);
     if (text !== null) {
+      const line =
+        file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
       const tokens = text.split(/\s+/).filter(Boolean);
       for (const token of tokens) {
         if (isPhysicalUtility(token)) {
-          addResidual(residuals, fileName, utilityBase(token));
+          addResidual(residuals, fileName, utilityBase(token), line);
         }
         if (isUnqualifiedHorizontalTranslation(token)) {
-          addResidual(residuals, fileName, utilityBase(token));
+          addResidual(residuals, fileName, utilityBase(token), line);
         }
       }
       const hasNumericTypography = tokens.some(
@@ -630,7 +711,7 @@ function scanTypeScript(fileName, source, residuals) {
       if (hasNumericTypography && !tokens.includes("bidi-number")) {
         for (const token of tokens) {
           if (token === "tabular-nums" || token === "numeral") {
-            addResidual(residuals, fileName, token);
+            addResidual(residuals, fileName, token, line);
           }
         }
       }
@@ -638,11 +719,13 @@ function scanTypeScript(fileName, source, residuals) {
 
     if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
       const icon = directionalIcon(node.tagName, lucideBindings, localBindings);
-      if (icon && !Object.hasOwn(CHAT_OWNED_RESIDUALS, fileName)) {
+      if (icon && !Object.hasOwn(surface.reviewedResiduals, fileName)) {
         const classes = classAttributeText(node.attributes);
         if (!classes?.split(/\s+/).includes("rtl:-scale-x-100")) {
+          const line =
+            file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
           throw new Error(
-            `${fileName} ${node.tagName.getText(file)} (${icon}) must mirror with literal rtl:-scale-x-100`,
+            `${fileName}:${line} ${node.tagName.getText(file)} (${icon}) must mirror with literal rtl:-scale-x-100`,
           );
         }
       }
@@ -994,26 +1077,29 @@ function assertCssUsesLogicalProperties(fileName, source) {
   }
 }
 
-function assertExactChatResiduals(residuals) {
-  const expectedFiles = Object.keys(CHAT_OWNED_RESIDUALS).sort();
+function assertExactChatResiduals(residuals, surface) {
+  const expectedFiles = Object.keys(surface.reviewedResiduals).sort();
   const actualFiles = [...residuals.keys()].sort();
   if (
     actualFiles.length !== expectedFiles.length ||
     actualFiles.some((fileName, index) => fileName !== expectedFiles[index])
   ) {
     throw new Error(
-      `RTL residual paths changed\nexpected: ${expectedFiles.join(", ")}\nactual: ${actualFiles.join(", ")}`,
+      `${surface.directory}: RTL residual paths changed\nexpected: ${expectedFiles.join(", ")}\nactual: ${actualFiles
+        .map((file) => `${file} (${describeResiduals(residuals.get(file) ?? [])})`)
+        .join(", ")}`,
     );
   }
   for (const fileName of expectedFiles) {
-    const expected = [...CHAT_OWNED_RESIDUALS[fileName]].sort();
-    const actual = [...(residuals.get(fileName) ?? [])].sort();
+    const entries = residuals.get(fileName) ?? [];
+    const expected = [...surface.reviewedResiduals[fileName]].sort();
+    const actual = entries.map(({ token }) => token).sort();
     if (
       actual.length !== expected.length ||
       actual.some((token, index) => token !== expected[index])
     ) {
       throw new Error(
-        `${fileName} RTL residuals changed\nexpected: ${expected.join(", ")}\nactual: ${actual.join(", ")}`,
+        `${surface.directory}: ${fileName} RTL residuals changed\nexpected: ${expected.join(", ")}\nactual: ${describeResiduals(entries)}`,
       );
     }
   }
@@ -1103,21 +1189,41 @@ function assertBootstrapContracts(sources) {
 }
 
 /**
- * Fail closed over every production source. The only accepted violations are
- * the exact, counted residuals above — an inventory that is empty today, so
- * every file is held to the whole policy.
+ * Fail closed over every production source of one surface. The only accepted
+ * violations are that surface's exact, counted residuals — inventories that are
+ * empty for both surfaces today, so every file is held to the whole policy.
+ *
+ * The surface defaults to ZUULI so the property this file has always asserted
+ * keeps its original one-argument call shape.
  */
-export function assertRtlSourcePolicy(sources) {
+export function assertRtlSourcePolicy(sources, surface = ZUULI_SURFACE) {
   assertBootstrapContracts(sources);
   const residuals = new Map();
   for (const [fileName, source] of Object.entries(sources)) {
-    if (/\.tsx?$/.test(fileName)) scanTypeScript(fileName, source, residuals);
+    if (/\.tsx?$/.test(fileName)) {
+      scanTypeScript(fileName, source, residuals, surface);
+    }
     if (/\.css$/.test(fileName)) assertCssUsesLogicalProperties(fileName, source);
   }
-  assertExactChatResiduals(residuals);
+  assertExactChatResiduals(residuals, surface);
+}
+
+/** Read and judge every reviewed surface, so a new one cannot ship uncovered. */
+export function assertEverySurface(surfaces = SURFACES) {
+  for (const surface of surfaces) {
+    assertRtlSourcePolicy(
+      collectRtlSources(surfaceProjectRoot(surface)),
+      surface,
+    );
+  }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  assertRtlSourcePolicy(collectRtlSources());
-  console.log("RTL source policy: OK");
+  for (const surface of SURFACES) {
+    assertRtlSourcePolicy(
+      collectRtlSources(surfaceProjectRoot(surface)),
+      surface,
+    );
+    console.log(`RTL source policy: ${surface.directory} OK`);
+  }
 }
