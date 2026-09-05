@@ -1192,23 +1192,37 @@ function selfTest() {
     { minimumAnchors: 200 },
   );
 
-  // ---- the slug algorithm, against headings that exist in this repository --
-  expectSlug("4. What enforces the boundary", "4-what-enforces-the-boundary");
+  // ---- the slug algorithm ------------------------------------------------
+  //
+  // Eight headings copied verbatim out of this repository, each paired with the
+  // anchor GitHub actually publishes for it. Verbatim matters: a slug rule
+  // tested only against invented headings can be self-consistently wrong, and
+  // the two rules most easily got wrong are both visible here — the em dash
+  // leaves the two spaces that flanked it (hence `--`), and a leading emoji
+  // leaves the space that followed it (hence a leading `-`).
+  expectSlug("4. What enforces the boundary", "4-what-enforces-the-boundary"); // docs/architecture.md
   expectSlug(
-    "7. Application framing — hash-linked causal ordering",
+    "7. Application framing — hash-linked causal ordering", // docs/e2ee/ARCHITECTURE.md:672
     "7-application-framing--hash-linked-causal-ordering",
   );
   expectSlug(
-    "4.3 Uniqueness within an epoch — a MUST that comes from the audit",
+    "4.3 Uniqueness within an epoch — a MUST that comes from the audit", // docs/e2ee/KT.md:404
     "43-uniqueness-within-an-epoch--a-must-that-comes-from-the-audit",
   );
-  expectSlug("Worktree hygiene: run the audit, do not trust the habit",
-    "worktree-hygiene-run-the-audit-do-not-trust-the-habit");
-  expectSlug("`rs/` — the free2z Rust workspace", "rs--the-free2z-rust-workspace");
-  expectSlug("Verifying before you push", "verifying-before-you-push");
+  expectSlug(
+    "Worktree hygiene: run the audit, do not trust the habit", // AGENTS.md:405
+    "worktree-hygiene-run-the-audit-do-not-trust-the-habit",
+  );
+  expectSlug("`rs/` — the free2z Rust workspace", "rs--the-free2z-rust-workspace"); // rs/README.md:1
+  expectSlug("Verifying before you push", "verifying-before-you-push"); // AGENTS.md
+  expectSlug("4.2 Derivation (proposed)", "42-derivation-proposed"); // docs/e2ee/ARCHITECTURE.md:194
+  expectSlug("⭐ Star the Project", "-star-the-project"); // ts/react/free2z/README.md:9
+  console.log("self-test: the GitHub slug algorithm matches on 8 verbatim headings.");
+
+  // And one synthetic control for a character class the tree does not yet put
+  // in a heading. `§` is U+00A7, inside the range GitHub's slugger strips, so a
+  // future `## §4.2 Derivation` must slug the same as the numbered form above.
   expectSlug("§4.2 Derivation (proposed)", "42-derivation-proposed");
-  expectSlug("⭐ Star the Project", "-star-the-project");
-  console.log(`self-test: the GitHub slug algorithm matches on 8 real headings.`);
 
   console.log(`check-markdown-links self-test: ${cases} case(s) passed.`);
 }
