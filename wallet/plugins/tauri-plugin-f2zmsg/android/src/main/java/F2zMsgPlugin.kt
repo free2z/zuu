@@ -9,7 +9,6 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
 import android.security.keystore.KeyPermanentlyInvalidatedException
-import android.security.keystore.StrongBoxUnavailableException
 import android.security.keystore.UserNotAuthenticatedException
 import android.util.Base64
 import app.tauri.annotation.Command
@@ -93,16 +92,47 @@ data class CustodyBacking(val backing: String)
  * buy a property this process cannot verify anyway; a software `AndroidKeyStore`
  * key is still not readable by copying the app's data directory, which is the
  * threat the seal is actually about (`store.rs:186-192`).
+ *
+ * # The backup posture is the HOST's, and one host does not have one yet
+ *
+ * The ciphertext lives in this app's `SharedPreferences`, so whether it leaves
+ * the device is decided by the host's `AndroidManifest.xml` and not by anything
+ * here. ZUULI is covered —
+ * `wallet/zuuli/src-tauri/gen/android/app/src/main/AndroidManifest.xml:20-22`
+ * sets `android:allowBackup="false"` with `backup_rules.xml` and
+ * `data_extraction_rules.xml` beside it.
+ *
+ * **`cash.free2z.e2e2z` has no `gen/` at all yet** (#941 is standing one up),
+ * so when its Android project is generated it will take Tauri's template
+ * defaults, and nothing in this plugin can stop that. Whoever generates it must
+ * carry ZUULI's three attributes and its two rules files across.
+ *
+ * The consequence of getting it wrong is bounded but not nothing: the keystore
+ * key never leaves the device, so a restored backup yields ciphertext nobody
+ * can open — `corrupt`, not a leaked key. That is a device that must re-enroll,
+ * which is exactly the outcome ADR 0016 §3.5 is trying to keep rare.
  */
 @TauriPlugin
 class F2zMsgPlugin(private val activity: Activity) : Plugin(activity) {
 
+    /**
+     * Report the backing of the key, **without creating one.**
+     *
+     * The Rust side calls this from the plugin `setup` hook, i.e. on the app's
+     * startup path. A first-launch StrongBox AES keygen is not fast — hundreds
+     * of milliseconds to seconds on some devices — and this answer is a log
+     * line, not a branch. Creating the key here would put that cost in every
+     * cold start and would mint a keystore alias on every install, including
+     * for the users who never enroll.
+     *
+     * So an absent key answers `"none"`; `storeWrapKey` is what creates one.
+     */
     @Command
     fun custodyBacking(invoke: Invoke) {
         val args = invoke.parseArgs(ServiceArgs::class.java)
         try {
-            val key = getOrCreateKey(args.service)
-            invoke.resolveObject(CustodyBacking(describeBacking(key)))
+            val key = requireKey(args.service)
+            invoke.resolveObject(CustodyBacking(if (key == null) "none" else describeBacking(key)))
         } catch (error: Exception) {
             rejectCrypto(invoke, error)
         }
@@ -143,6 +173,9 @@ class F2zMsgPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun getWrapKey(invoke: Invoke) {
         val args = invoke.parseArgs(AccountArgs::class.java)
+        if (args.service.isBlank() || args.account.isBlank()) {
+            return reject(invoke, "unavailable", "custody service and account are required")
+        }
         val encoded = prefs(args.service).getString(args.account, null)
             ?: return reject(invoke, "not_found", "no wrap key is stored")
         var plaintext: ByteArray? = null
@@ -170,15 +203,28 @@ class F2zMsgPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun deleteWrapKey(invoke: Invoke) {
         val args = invoke.parseArgs(AccountArgs::class.java)
+        if (args.service.isBlank() || args.account.isBlank()) {
+            return reject(invoke, "unavailable", "custody service and account are required")
+        }
         val store = prefs(args.service)
         if (!store.contains(args.account)) {
             return reject(invoke, "not_found", "no wrap key is stored")
         }
         if (!store.edit().remove(args.account).commit()) {
-            reject(invoke, "unavailable", "wrap-key ciphertext deletion failed")
-        } else {
-            invoke.resolve()
+            return reject(invoke, "unavailable", "wrap-key ciphertext deletion failed")
         }
+        // Drop the keystore alias too, once nothing under this service is left
+        // to decrypt. iOS's `SecItemDelete` removes the whole item; leaving a
+        // non-exportable AES key behind that can never open anything again is
+        // the asymmetry, and a device that "no longer exists" should not keep
+        // one. Best effort: the ciphertext is already gone, so a failure here
+        // costs nothing but tidiness.
+        if (store.all.isEmpty()) {
+            runCatching {
+                KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }.deleteEntry(alias(args.service))
+            }
+        }
+        invoke.resolve()
     }
 
     /**
@@ -220,10 +266,28 @@ class F2zMsgPlugin(private val activity: Activity) : Plugin(activity) {
         return try {
             generator.init(builder.build())
             generator.generateKey()
-        } catch (unavailable: StrongBoxUnavailableException) {
-            // Documented and expected on most handsets. Fall back to the TEE or
-            // the software keystore; `custodyBacking` reports which.
-            if (!strongBox) throw unavailable
+        } catch (error: Exception) {
+            if (!strongBox) throw error
+            // **Deliberately catching `Exception` and not `StrongBoxUnavailableException`.**
+            // StrongBox keygen failure does not reliably surface as that
+            // subclass: on real handsets it also arrives as a bare
+            // `ProviderException` ("Failed to generate key") wrapping a
+            // `KeyStoreException`, or as `IllegalStateException`. Letting those
+            // escape would reach `rejectCrypto` as "unavailable", and the Rust
+            // side treats that as "this device has nowhere to hold a wrap key"
+            // and refuses enrollment with a NON-retryable code — permanently
+            // locking a user out of a device that has a perfectly good TEE.
+            //
+            // That is precisely the case where failing closed is wrong: the
+            // refusal is supposed to mean "nowhere to hold a key", never "the
+            // optional hardware tier was flaky". A genuinely broken keystore
+            // still fails, because the retry below rethrows.
+            //
+            // The alias is cleared first: a half-created StrongBox entry would
+            // otherwise make the fallback `init` fail on a name already taken.
+            runCatching {
+                KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }.deleteEntry(alias(service))
+            }
             generateKey(service, strongBox = false)
         }
     }

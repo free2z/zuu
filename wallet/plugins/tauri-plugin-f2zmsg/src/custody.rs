@@ -140,11 +140,13 @@ use crate::models::ErrorCode;
 /// a different granularity — that one versions the whole item namespace.
 pub const WRAP_KEY_ACCOUNT: &str = "device-wrap-key.v1";
 
-/// The account [`WrapKeyCustody::probe`] writes to and deletes.
+/// The prefix [`WrapKeyCustody::probe`] writes under and deletes.
 ///
 /// Deliberately a *different* account from [`WRAP_KEY_ACCOUNT`]: a probe that
 /// wrote to the real slot would destroy the wrap key of an enrolled device
-/// every time enrollment was re-attempted.
+/// every time enrollment was re-attempted. A per-probe suffix is appended so
+/// that two concurrent probes cannot delete each other's value — see
+/// [`WrapKeyCustody::probe`].
 pub const PROBE_ACCOUNT: &str = "device-wrap-key-probe.v1";
 
 /// A wrap key is 32 bytes, hex-encoded for stores that hold strings.
@@ -490,15 +492,34 @@ impl WrapKeyCustody {
         rand::rng().fill_bytes(expected.as_mut_slice());
         let encoded = Zeroizing::new(hex::encode(expected.as_slice()));
 
+        // **The account is per-probe, not a fixed constant, and that is a bug
+        // fix rather than caution.** `Engine::prepare_device` runs this
+        // *before* taking the engine lock — deliberately, so a refusal costs no
+        // state — so two overlapping enrollments hold no mutual exclusion. On a
+        // shared account they interleave as A.put, B.put, A.get, A.delete,
+        // B.get → `NotFound`, and B refuses with a code §8 declares
+        // non-retryable. A double-clicked enroll button, or two calls to
+        // e2e2z's `e2e2z_device_credential_keys`, is enough to reach it.
+        // Suffixing the account makes the two probes disjoint.
+        //
+        // The random *value* is a separate defence, against a backend that
+        // echoes the request or returns a stale item; it does nothing about a
+        // shared account, which is why both exist.
+        let account = format!("{PROBE_ACCOUNT}.{}", hex::encode(&expected[..8]));
+
         self.store
-            .put(PROBE_ACCOUNT, &encoded)
+            .put(&account, &encoded)
             .map_err(|error| Self::refusal("proving the device can hold a wrap key", &error))?;
 
-        let read_back = self.store.get(PROBE_ACCOUNT);
+        let read_back = self.store.get(&account);
         // Delete before judging the read: a probe that refused and left its
         // value behind would leave a random secret in the user's keychain
         // forever, and the delete's own outcome is not what is being measured.
-        let _ = self.store.delete(PROBE_ACCOUNT);
+        // It is still logged — "forever" is exactly what an ignored failure
+        // here would mean, and a silent one would never be noticed.
+        if let Err(error) = self.store.delete(&account) {
+            tracing::warn!(%error, "a custody probe value could not be deleted");
+        }
 
         let observed = read_back
             .map_err(|error| Self::refusal("proving the device can hold a wrap key", &error))?;
@@ -538,6 +559,23 @@ impl WrapKeyCustody {
     /// that removes `IdentityInstall.wrap_key`. Both edits touch the same
     /// paragraphs and belong in one coherent revision of §8 rather than two
     /// that have to be reconciled.
+    ///
+    /// **One distinction is knowingly flattened here, and it should not stay
+    /// flattened.** [`CustodyError::Locked`] is documented as transient — a
+    /// shut keychain that a later attempt would open — and both native plugins
+    /// take care to produce it (`errSecInteractionNotAllowed`,
+    /// `UserNotAuthenticatedException`). It nevertheless arrives at the
+    /// frontend as the same non-retryable code as "there is no store at all",
+    /// which tells the UI not to offer the retry that would actually work.
+    /// There is no retryable §8 code that fits it — the retryable set is relay
+    /// and directory conditions — so fixing this *requires* the new code above,
+    /// and it is listed as a reason to add one rather than papered over. The
+    /// variant is kept, not deleted, because the distinction is real and the
+    /// log context already carries it; only the wire code cannot say it yet.
+    ///
+    /// It is not reachable today: Android sets no
+    /// `setUserAuthenticationRequired`, and iOS cannot run this before first
+    /// unlock. That is why this is a recorded gap and not a defect.
     fn refusal(what: &str, error: &CustodyError) -> Error {
         Error::new(ErrorCode::DurabilityUnavailable, format!("{what}: {error}"))
     }
@@ -798,6 +836,34 @@ mod tests {
 
         custody.probe().expect("probe");
 
+        assert_eq!(*custody.wrap_key().expect("read"), key);
+    }
+
+    #[test]
+    fn concurrent_probes_do_not_refuse_each_other() {
+        // `prepare_device` probes *before* taking the engine lock, so two
+        // enrollments genuinely overlap here — a double-clicked enroll button
+        // reaches this. On a shared probe account they would interleave
+        // put/put/get/delete/get and the loser would see `NotFound`, refusing
+        // with a code §8 declares non-retryable.
+        let custody = WrapKeyCustody::in_memory();
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let custody = custody.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..25 {
+                        custody.probe().expect("a concurrent probe must not refuse");
+                    }
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().expect("probe thread");
+        }
+
+        // And they cleaned up after themselves: nothing but what we put there.
+        let key = [0x11u8; WRAP_KEY_LEN];
+        custody.put_wrap_key(&key).expect("store");
         assert_eq!(*custody.wrap_key().expect("read"), key);
     }
 

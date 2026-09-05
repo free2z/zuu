@@ -47,7 +47,6 @@ import Foundation
 import Security
 import SwiftRs
 import Tauri
-import UIKit
 
 private struct ServiceArgs: Decodable {
     let service: String
@@ -118,6 +117,10 @@ final class F2zMsgPlugin: Plugin {
 
     @objc func getWrapKey(_ invoke: Invoke) throws {
         let args = try invoke.parseArgs(AccountArgs.self)
+        guard !args.service.isEmpty, !args.account.isEmpty else {
+            reject(invoke, code: "unavailable", message: "custody service and account are required")
+            return
+        }
         var query = baseQuery(service: args.service, account: args.account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -137,6 +140,10 @@ final class F2zMsgPlugin: Plugin {
 
     @objc func deleteWrapKey(_ invoke: Invoke) throws {
         let args = try invoke.parseArgs(AccountArgs.self)
+        guard !args.service.isEmpty, !args.account.isEmpty else {
+            reject(invoke, code: "unavailable", message: "custody service and account are required")
+            return
+        }
         let status = SecItemDelete(
             baseQuery(service: args.service, account: args.account) as CFDictionary
         )

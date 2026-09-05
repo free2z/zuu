@@ -26,16 +26,24 @@ pub mod device;
 ///
 /// **Distinct from ZUULI's `cash.free2z.zuuli.f2zmsg.wrap.v1`, and the
 /// distinctness is load-bearing.** `tauri-plugin-f2zmsg` is linked into both
-/// apps, so a plugin-level constant would name one item for two applications.
-/// On macOS and Windows the OS would still separate them by code signature; on
-/// the freedesktop Secret Service, which has no per-application isolation, it
-/// would not — and this app being able to open ZUULI's device secrets is
-/// exactly the reconnection the three-app split (#904) exists to prevent.
+/// apps, so a plugin-level constant would name one item for two applications —
+/// on the freedesktop Secret Service, which has no per-application isolation,
+/// that is mutual overwrite or one app opening the other's device wrap key
+/// simply by asking for it under the name they share.
 ///
 /// The plugin requires this to begin with this app's bundle identifier, so the
 /// copy-paste that would matter most — shipping ZUULI's constant here — leaves
 /// custody unavailable and enrollment refusing, rather than silently sharing a
 /// key.
+///
+/// **What that check does not buy, stated because the distinction is easy to
+/// lose.** It stops this app *declaring* ZUULI's namespace. It does not stop
+/// this process *reading* ZUULI's items on a platform whose store has no
+/// per-application isolation — on Linux nothing here can, and ADR 0016 §3.3
+/// says so under its own heading. macOS keychain ACLs and Windows credential
+/// storage do separate the two by code signature; the freedesktop Secret
+/// Service does not, and closing that needs a per-application store this repo
+/// does not have.
 const WRAP_KEY_NAMESPACE: &str = "cash.free2z.e2e2z.f2zmsg.wrap.v1";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
