@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "ZUULI by 2Z Inc \u2014 a Zcash-native app: cutting-edge wallet, AI, livestreaming, and articles, all metered in 2Zs through the free2z API.",
+  "description": "ZUULI by 2Z Inc — a Zcash-native app: cutting-edge wallet, AI, livestreaming, and articles, all metered in 2Zs through the free2z API.",
   "scripts": {
     "pretest": "npm run wasm:build",
     "dev": "npm run wasm:build && vite",
