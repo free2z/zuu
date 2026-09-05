@@ -420,6 +420,7 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "          cache-dependency-path: |",
   "            wallet/zuuli/package-lock.json",
   "            wallet/zuuallet/package-lock.json",
+  "            wallet/free2z/package-lock.json",
   "      - name: Resolve the pinned frontend Rust toolchain",
   "        id: frontend_rust_toolchain",
   "        run: |",
@@ -435,6 +436,13 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "        run: |",
   "          npm ci",
   "          npm ci --prefix ../zuuallet",
+  // wallet/free2z ships a real `vite.config.ts` as of the content extraction
+  // (#904 phase 1), so `project-boundary.mjs` — run two steps below — builds
+  // its production Rollup graph inside the constrained audit sandbox. That
+  // needs this project's own node_modules; without them the audit reports a
+  // configuration failure and the gate goes red for a missing install rather
+  // than for a boundary violation.
+  "          npm ci --prefix ../free2z",
   ...REQUIRED_PROTECTED_ZUUALLET_AUDIT_STEP.split("\n"),
   "      - name: Verify release cache security policy",
   "        run: |",

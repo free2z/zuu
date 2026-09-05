@@ -8,3 +8,9 @@ dist-ssr
 # Tauri
 src-tauri/target
 src-tauri/gen/schemas
+
+# Playwright
+test-results
+playwright-report
+blob-report
+playwright/.cache

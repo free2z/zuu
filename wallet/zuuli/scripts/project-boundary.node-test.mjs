@@ -205,33 +205,36 @@ test("current wallet source graph has no undeclared project crossing", async () 
     5,
     "all five production shared consumers must use the named package",
   );
-  // Two, not four, and the gap is deliberate rather than an oversight.
+  // Three, not four, and the gap is deliberate rather than an oversight.
   //
   // The constrained Vite audit only runs for a project that ships a
   // `vite.config.*`, and it runs a real production Rollup build inside a Node
   // permission sandbox whose read authority is `wallet/<project>`,
   // `wallet/shared` and `wallet/zuuli/node_modules`. That build therefore needs
   // the project's OWN `node_modules` present — which is why the required
-  // `frontend` job in `.github/workflows/zuuli.yml` installs both zuuli's and
-  // zuuallet's before running this check.
+  // `frontend` job in `.github/workflows/zuuli.yml` installs zuuli's,
+  // zuuallet's AND free2z's before running this check. That job's step list is
+  // byte-pinned by `scripts/check-github-actions-pins.mjs`
+  // (`REQUIRED_FRONTEND_JOB_LINES`), so each of those installs had to be added
+  // there first.
   //
-  // That job's step list is byte-pinned by
-  // `scripts/check-github-actions-pins.mjs` (`REQUIRED_FRONTEND_JOB_LINES`), so
-  // a third and fourth `npm ci` cannot be added to it without editing a policy
-  // checker. The delegated surfaces (#904/#906) therefore ship no Vite config
-  // and rely on Vite's defaults — `index.html` at the project root, `dist/` out
-  // — which leaves nothing for a *configuration* audit to judge and keeps this
-  // gated check honest instead of red.
+  // #906 scaffolded both delegated surfaces with no Vite config at all, for
+  // exactly that reason. The content extraction (#904 phase 1) ended that for
+  // `wallet/free2z`: its Markdown pipeline cannot build on Vite's defaults —
+  // the Mermaid worker dynamically imports `mermaid`, which Rollup refuses to
+  // code-split under the default `worker.format: "iife"`, and rehype-mathjax
+  // needs a `PACKAGE_VERSION` define. So free2z now ships a real config and is
+  // audited like the other two.
   //
-  // Nothing about the boundary itself is skipped: every source file in
-  // `wallet/free2z` and `wallet/e2e2z` is still parsed, and every module
-  // specifier in them is still held to the cross-application rule above. Only
-  // the config/plugin escape audit — which needs a config to escape through —
-  // has no subject. When those apps grow a Vite config, this number moves to
-  // four and their `npm ci` has to reach the required job first.
+  // `wallet/e2e2z` is still a placeholder screen and still ships none, so its
+  // config/plugin escape audit has no subject — nothing about the boundary
+  // itself is skipped for it: every source file is still parsed and every
+  // module specifier is still held to the cross-application rule above. When
+  // that app grows a Vite config this number moves to four and its `npm ci`
+  // has to reach the required job first.
   assert.equal(
     result.viteBuildsVerified,
-    2,
+    3,
     "every wallet application that ships a Vite config must complete the constrained production Vite graph build",
   );
   assert.equal(

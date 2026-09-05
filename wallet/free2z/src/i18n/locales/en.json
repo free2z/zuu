@@ -1,10 +1,55 @@
 {
   "app": {
     "name": "free2z",
-    "tagline": "Articles, live, AI and creator tools."
+    "tagline": "Articles by creators"
   },
-  "placeholder": {
-    "heading": "free2z is being extracted from ZUULI",
-    "body": "This surface renders remote content, so it holds no Zcash seed and no messaging keys. Features move here in a later phase."
+  "articles": {
+    "searchAccessible": "Search articles"
+  },
+  "auth": {
+    "zcashPending": {
+      "body": "Login with Zcash signs a challenge with your wallet key, so it stays in ZUULI until the cross-surface bridge ships. Use a password or a linked account here.",
+      "title": "Zcash login is not on this surface yet"
+    }
+  },
+  "common": {
+    "loading": "Loading",
+    "retry": "Retry",
+    "retrying": "Retrying",
+    "tryAgain": "Try again."
+  },
+  "creator": {
+    "zecTipPending": {
+      "body": "Signing a Zcash transaction needs the key, which lives in ZUULI. Open {creator}'s page there to send ZEC. Your 2Z tip works here.",
+      "title": "ZEC tips are signed in ZUULI"
+    }
+  },
+  "error": {
+    "notFound": {
+      "back": "Back to Articles",
+      "description": "This page doesn't exist or has moved. Let's get you back on track.",
+      "title": "Page not found"
+    }
+  },
+  "fund": {
+    "body": "Buying 2Zs still lives in ZUULI while its Zcash top-up path is separated from the card checkout. It moves to free2z next.",
+    "title": "Add 2Zs"
+  },
+  "navigation": {
+    "accountMenu": "Account menu",
+    "app": "App navigation",
+    "articles": "Articles",
+    "back": "Go back",
+    "buyTuzis": "Buy 2Zs",
+    "buyTuzisBalance": "Buy 2Zs. Balance {balance}",
+    "groups": {
+      "account": "Account",
+      "explore": "Explore",
+      "money": "Money"
+    },
+    "login": "Log in",
+    "primary": "Primary navigation",
+    "searchAction": "Search",
+    "signOut": "Sign out"
   }
 }

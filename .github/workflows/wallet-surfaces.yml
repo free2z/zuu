@@ -94,11 +94,18 @@ jobs:
   # ---------------------------------------------------------------------------
   # Frontend: typecheck, owned unit tests, production bundle.
   #
-  # Neither surface ships a `vite.config.*` yet. That is deliberate and is
-  # explained where it is load-bearing — see the comment on `viteBuildsVerified`
-  # in wallet/zuuli/scripts/project-boundary.node-test.mjs — so `vite build`
-  # runs on its defaults: `index.html` at the project root, `dist/` out, and
-  # esbuild reading `jsx: "react-jsx"` from each tsconfig.
+  # free2z ships a real `vite.config.ts` as of the content extraction (#904
+  # phase 1) — its Markdown pipeline needs `worker.format: "es"` for the Mermaid
+  # worker and a `PACKAGE_VERSION` define for rehype-mathjax — so the constrained
+  # audit in project-boundary.mjs builds it for real. e2e2z is still a
+  # placeholder screen and still ships none, so its `vite build` runs on the
+  # defaults: `index.html` at the project root, `dist/` out, and esbuild reading
+  # `jsx: "react-jsx"` from its tsconfig. See the comment on
+  # `viteBuildsVerified` in wallet/zuuli/scripts/project-boundary.node-test.mjs.
+  #
+  # free2z's `npm test` also runs Playwright against the mock backend, which
+  # uses the runner image's Google Chrome (`channel: "chrome"` under CI), the
+  # same browser the ZUULI gate uses.
   # ---------------------------------------------------------------------------
   surfaces_frontend:
     name: surfaces / frontend (${{ matrix.app }})
@@ -138,12 +145,18 @@ jobs:
           npm run typecheck
           npm run typecheck:tests
 
-      # e2e2z's `npm test` ends in `playwright test`, which is the only run that
+      # Both surfaces' `npm test` ends in `playwright test`, and this step runs
+      # on each leg of the matrix because each leg needs the browser.
+      #
+      # For e2e2z (#904 phase 3) that Playwright run is the only one that
       # exercises the ported messaging surface in a real browser — including the
       # enrollment gap against a Tauri IPC host that registers the plugin and
-      # not the app-crate enrollment trio. Both configs select `channel:
-      # "chrome"` under CI, so this uses the runner image's preinstalled stable
-      # Chrome rather than downloading a browser, exactly as zuuli.yml does.
+      # not the app-crate enrollment trio. For free2z (#904 phase 1) it is the
+      # article/creator surface driven against the mock backend. Both configs
+      # select `channel: "chrome"` under CI, so this uses the runner image's
+      # preinstalled stable Chrome rather than downloading a browser, exactly as
+      # zuuli.yml does — and fails here, with a readable message, if the image
+      # ever stops shipping it.
       - name: Verify the browser-test browser
         run: google-chrome --version
 
