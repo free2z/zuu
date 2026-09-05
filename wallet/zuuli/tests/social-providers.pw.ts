@@ -75,19 +75,4 @@ for (const viewport of VIEWPORTS) {
     await expectNoHorizontalOverflow(page);
   });
 
-  test(`configured association stays auth-coherent at ${viewport.width}px`, async ({
-    page,
-  }) => {
-    await page.setViewportSize(viewport);
-    await setScenario(page, "x", true);
-    await page.goto("/profile");
-
-    await expect(page.getByRole("heading", { name: "Linked identities" })).toBeVisible();
-    const linkX = page.getByRole("button", { name: "Link X" });
-    await expect(linkX).toBeVisible();
-    await expectTapTarget(linkX);
-    await expect(page.getByRole("button", { name: "Link Google" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Link GitHub" })).toHaveCount(0);
-    await expectNoHorizontalOverflow(page);
-  });
 }

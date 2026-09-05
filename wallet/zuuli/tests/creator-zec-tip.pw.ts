@@ -1,127 +1,24 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 const PHONE = { width: 320, height: 568 };
 
-async function openCreator(page: Page, username: string, delayMs = 0) {
-  await page.setViewportSize(PHONE);
-  await page.addInitScript(({ delay }) => {
-    localStorage.setItem("zuuli.knox.token", "mock-knox-token");
-    localStorage.setItem("zuuli.mock.send-proposal-delay-ms", String(delay));
-  }, { delay: delayMs });
-  await page.goto(`/creator/${username}`);
-  await page.getByRole("button", { name: new RegExp(`Tip ${username}`, "i") }).click();
-}
-
-async function chooseZec(
-  page: Page,
-  expectedUrl = /\/wallet\/send\/creator-tip$/,
-) {
-  await expect(page.getByRole("group", { name: "Tip currency" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^2Z Platform credits$/ })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect(page.getByLabel("Amount (2Z)")).toBeVisible();
-  await page.getByRole("button", { name: /^ZEC Zcash wallet$/ }).click();
-  await page.getByRole("button", { name: "Continue with ZEC" }).click();
-  await expect(page).toHaveURL(expectedUrl);
-}
-
-test("a 320px creator ZEC tip locks the issued destination through native review", async ({
-  page,
-}) => {
-  await openCreator(page, "zooko", 600);
-  await chooseZec(page);
-
-  const recipient = page.getByLabel("Recipient address");
-  const exactRecipient = await recipient.inputValue();
-  expect(exactRecipient).toMatch(/^u1mockzooko/);
-  await expect(recipient).toHaveAttribute("readonly", "");
-  await expect(page.getByTestId("creator-tip-context")).toContainText(
-    "@zooko",
-  );
-  await expect(page.getByText(/Valid unified address/)).toBeVisible();
-
-  await page.getByLabel("Amount").fill("0.0001");
-  await page.getByLabel(/^Memo/).fill("chosen by the payer");
-  await page.getByRole("button", { name: "Review payment" }).click();
-
-  // Simulate a compromised renderer mutating both browser route state and the
-  // read-only DOM while the native proposal is pending. Neither is the source
-  // used by the in-memory intent snapshot or the proposal assertion.
-  await page.evaluate(() => {
-    const current = window.history.state as {
-      usr?: { creatorTip?: Record<string, unknown> };
-    } | null;
-    window.history.replaceState(
-      {
-        ...current,
-        usr: {
-          ...current?.usr,
-          creatorTip: {
-            ...current?.usr?.creatorTip,
-            username: "attacker",
-            label: "Attacker",
-            recipient: "t1substituteddestination",
-          },
-        },
-      },
-      "",
-    );
-
-    const input = document.querySelector<HTMLInputElement>("#to");
-    input?.removeAttribute("readonly");
-    const setter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )?.set;
-    setter?.call(input, "t1substituteddestination");
-    input?.dispatchEvent(new InputEvent("input", { bubbles: true }));
-  });
-
-  const dialog = page.getByRole("dialog", { name: "Confirm payment" });
-  await expect(dialog).toBeVisible();
-  await expect(page.getByTestId("creator-tip-review-context")).toContainText(
-    "@zooko",
-  );
-  await expect(page.getByTestId("send-review-recipient")).toHaveText(
-    exactRecipient,
-  );
-  await expect(page.getByTestId("send-review-amount")).toHaveText("0.0001 ZEC");
-  await expect(page.getByTestId("send-review-memo")).toHaveText(
-    "chosen by the payer",
-  );
-  await expect(dialog.getByText("mainnet", { exact: true })).toBeVisible();
-  await expect(page.getByTestId("send-review-change-policy")).toHaveAttribute(
-    "title",
-    "zip317-shielded-auto",
-  );
-
-  const geometry = await dialog.evaluate((element) => {
-    const rect = element.getBoundingClientRect();
-    return {
-      left: rect.left,
-      right: rect.right,
-      viewportWidth: document.documentElement.scrollWidth,
-    };
-  });
-  expect(geometry.left).toBeGreaterThanOrEqual(0);
-  expect(geometry.right).toBeLessThanOrEqual(PHONE.width);
-  expect(geometry.viewportWidth).toBeLessThanOrEqual(PHONE.width);
-
-  const leaked = await page.evaluate(
-    (address) =>
-      [...Object.entries(localStorage), ...Object.entries(sessionStorage)].filter(
-        ([key, value]) =>
-          value.includes(address) ||
-          /creatorTip|proposalToken|reviewDigest|chosen by the payer/i.test(
-            `${key}:${value}`,
-          ),
-      ),
-    exactRecipient,
-  );
-  expect(leaked).toEqual([]);
-});
+/**
+ * The wallet side of the creator ZEC tip — `/wallet/send/creator-tip`,
+ * `src/lib/wallet/creator-tip.ts` and `Send.tsx`'s locked-destination branch —
+ * survives #904 phase 4 as the landing point the intent bridge (#905) will
+ * drive. Its *issuer* did not: the tip dialog lived in `features/creator`,
+ * which moved to `wallet/free2z`.
+ *
+ * `createCreatorTipRouteState` keeps its issued snapshot in module memory and
+ * hands out only a lookup nonce, precisely so a route state cannot authenticate
+ * itself. Nothing in this app can mint one any more, so the six tests that
+ * entered through the dialog cannot be driven from a browser at all — the
+ * route now always fails closed, which is what remains testable here and is
+ * exactly the property that matters until #905 lands an authenticated issuer.
+ *
+ * The validation contract those tests exercised is unit-covered in
+ * `src/lib/wallet/creator-tip.test.ts`, which is untouched.
+ */
 
 test("an unissued creator-tip route fails closed without an editable recipient", async ({
   page,
@@ -133,105 +30,47 @@ test("an unissued creator-tip route fails closed without an editable recipient",
     "payment details could not be verified",
   );
   await expect(page.getByLabel("Recipient address")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Review payment" })).toHaveCount(0);
-});
-
-test("reloading destroys the in-memory creator intent and fails closed", async ({
-  page,
-}) => {
-  await openCreator(page, "zooko");
-  await chooseZec(page);
-  await expect(page.getByLabel("Recipient address")).toHaveAttribute("readonly", "");
-
-  await page.reload();
-
-  await expect(page.getByRole("alert")).toContainText(
-    "payment details could not be verified",
-  );
-  await expect(page.getByLabel("Recipient address")).toHaveCount(0);
-});
-
-test("an accepted creator intent cannot be reused from browser history", async ({
-  page,
-}) => {
-  await openCreator(page, "zooko");
-  await chooseZec(page);
-  await expect(page.getByText(/Valid unified address/)).toBeVisible();
-  await page.getByLabel("Amount").fill("0.0001");
-  await page.getByRole("button", { name: "Review payment" }).click();
-  await page.getByRole("button", { name: "Confirm & send" }).click();
-  await expect(page).toHaveURL(/\/wallet\/history$/);
-
-  await page.goBack();
-
-  await expect(page.getByRole("alert")).toContainText(
-    "payment details could not be verified",
-  );
-  await expect(page.getByLabel("Recipient address")).toHaveCount(0);
-});
-
-test("a wrong-network creator intent stays locked and cannot be proposed", async ({
-  page,
-}) => {
-  await openCreator(page, "testnet_creator");
-  await chooseZec(page);
-
-  await expect(page.getByLabel("Recipient address")).toHaveAttribute("readonly", "");
   await expect(
-    page.getByText("Address belongs to a different Zcash network"),
-  ).toBeVisible();
-  await page.getByLabel("Amount").fill("0.0001");
-  await expect(page.getByRole("button", { name: "Review payment" })).toBeDisabled();
+    page.getByRole("button", { name: "Review payment" }),
+  ).toHaveCount(0);
 });
 
-test("transparent creator destinations warn before proposal and prohibit memos", async ({
+test("a forged creator-tip route state cannot unlock the destination", async ({
   page,
 }) => {
-  await openCreator(page, "transparent_creator");
-  await chooseZec(page);
-
-  await expect(page.getByTestId("creator-tip-privacy-warning")).toContainText(
-    "publicly visible on-chain",
-  );
-  await expect(page.getByLabel(/^Memo/)).toBeDisabled();
-  await expect(page.getByLabel(/^Memo/)).toHaveValue("");
-  await page.getByLabel("Amount").fill("0.0001");
-  await page.getByRole("button", { name: "Review payment" }).click();
-  await expect(page.getByTestId("send-review-memo")).toHaveText("None");
-});
-
-test("a native-valid transparent-only unified creator destination warns", async ({
-  page,
-}) => {
-  await openCreator(page, "transparent_unified_creator");
-  await chooseZec(page);
-
-  await expect(page.getByLabel("Recipient address")).toHaveValue(
-    "u1nuyhyzu03pj30mmnehelkll26s0cxp8etqv2x29zfpjj6rfp4gdmm8wfas5hutkxprlerlv0d4yv87eqrh5nahdlaz2vj5tlxy676p7gzkpen6fy97vqk2kujr",
-  );
-  await expect(page.getByText(/Valid unified address/)).toContainText(
-    "no memo support",
-  );
-  await expect(page.getByTestId("creator-tip-privacy-warning")).toContainText(
-    "publicly visible on-chain",
-  );
-  await expect(page.getByLabel(/^Memo/)).toBeDisabled();
-});
-
-test("a pre-existing recovered payment is never attributed to a new creator tip", async ({
-  page,
-}) => {
-  await page.addInitScript(() => {
-    localStorage.setItem("zuuli.mock.pending-send", "unknown");
+  // The negative control the deleted tests can no longer supply: a caller that
+  // fabricates a well-formed route state — the shape a compromised renderer
+  // would produce under #367 — must still be refused, because the nonce is a
+  // capability into an in-process map, not a claim the state carries.
+  await page.setViewportSize(PHONE);
+  await page.goto("/wallet/send");
+  await page.evaluate(() => {
+    const forged = {
+      creatorTip: {
+        version: 1,
+        nonce: "00000000-0000-4000-8000-000000000000",
+        username: "zooko",
+        label: "Zooko",
+        recipient: "u1attackercontrolleddestination",
+      },
+    };
+    const current = window.history.state as Record<string, unknown> | null;
+    window.history.pushState(
+      { ...current, usr: forged, key: "forged", idx: 1 },
+      "",
+      "/wallet/send/creator-tip",
+    );
+    window.dispatchEvent(
+      new PopStateEvent("popstate", { state: window.history.state }),
+    );
   });
-  await openCreator(page, "zooko");
-  await chooseZec(page, /\/wallet\/send$/);
 
-  await expect(page).toHaveURL(/\/wallet\/send$/);
-  await expect(page.getByText("A previous broadcast is unresolved")).toBeVisible();
-  await expect(page.getByTestId("creator-tip-context")).toHaveCount(0);
-  await expect(page.getByTestId("creator-tip-review-context")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/wallet\/send\/creator-tip$/);
+  await expect(page.getByRole("alert")).toContainText(
+    "payment details could not be verified",
+  );
+  await expect(page.getByLabel("Recipient address")).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Retry recovered transaction" }),
-  ).toBeVisible();
+    page.getByText("u1attackercontrolleddestination"),
+  ).toHaveCount(0);
 });
