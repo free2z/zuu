@@ -1,0 +1,1146 @@
+name: e2e2z / protected release
+
+# The mobile release path for cash.free2z.e2e2z, mirroring
+# .github/workflows/zuuli-release.yml.
+#
+# THE SHAPE, AND WHY IT IS THIS SHAPE
+#
+# Every platform is built twice-removed from its own signing material. A
+# credential-free job builds the artifact, records what source produced it, and
+# attests that record; a second job in a protected environment downloads the
+# attested artifact, verifies it, signs it, uploads it, and destroys the
+# credential; a third credential-free job collects provenance. The build job
+# never holds a key, so the thousands of transitive dependencies it compiles
+# never run on a machine that has one. The signing job never checks the
+# repository out, so a compromised dependency cannot reach it through source.
+#
+# WHY ITS OWN ENVIRONMENT AND NOT `zuuli-app-stores`
+#
+# Reusing ZUULI's environment would be less setup and strictly worse security.
+# GitHub gates environment secrets per job, not per app: any job in this
+# workflow declaring `environment: zuuli-app-stores` would receive ZUULI's
+# provisioning profile, the shared Apple distribution certificate, the App Store
+# Connect API key and the Play service-account key. A defect in *this* file --
+# an injected step, a leaked expression, a bad third-party action -- would then
+# be able to sign and publish a build of ZUULI. That is a blast radius bought
+# for nothing, because the two credentials that actually gate a store upload
+# cannot be shared anyway:
+#
+#   * the Apple provisioning profile is issued against one bundle id, so
+#     cash.free2z.e2e2z needs its own no matter what;
+#   * the Android upload key is registered per app in Play App Signing, so
+#     e2e2z needs its own keystore and its own fingerprint.
+#
+# What is genuinely shared -- the team's Apple distribution certificate, the ASC
+# API key, the Play service-account key -- is copied into the new environment.
+# That is a real cost, stated plainly: rotating any of those three now means
+# rotating it in two places, and whoever rotates must remember the second. The
+# trade is one extra rotation step against a compromised e2e2z workflow being
+# able to publish ZUULI, and the second is much worse.
+#
+# WHAT IS NOT HERE, AND WHY
+#
+#   * Desktop. e2e2z has no macOS/Linux release yet; the ZUULI workflow's Linux
+#     and macOS lanes have no counterpart to mirror.
+#   * Shipped-artifact SBOMs and the immutable GitHub release index. Both are
+#     real ZUULI machinery worth having, and both depend on ZUULI-owned scripts
+#     (artifact-sbom.mjs, release-manifest.mjs, verify-release-index.sh) that
+#     e2e2z does not have copies of yet. Adding them is a follow-up, not a
+#     silent omission.
+#   * A restored Cargo cache. ZUULI restores (never saves) one through
+#     .github/actions/zuuli-rust-cache, which hardcodes wallet/zuuli/src-tauri.
+#     e2e2z's graph is far smaller -- no librustzcash -- so this builds cold.
+#
+# WHAT IS BLOCKED
+#
+# Neither store record exists yet. `wallet/e2e2z/scripts/store-identity.mjs`
+# holds the full explanation and the `prepare` job runs it before anything is
+# built, so a release attempt today stops in the first job with the list of
+# things a human must go and create. See that file.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - wallet/e2e2z/release.json
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full 40-character commit SHA to release
+        required: true
+        type: string
+      identity:
+        description: Confirm version+build from release.json (for example 0.1.0+1)
+        required: true
+        type: string
+      target:
+        description: Artifact set to build
+        required: true
+        default: mobile
+        type: choice
+        options: [mobile, ios, android]
+      dry_run:
+        description: Build, sign, and validate without uploading to either store
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  # All protected store transactions share one lane, including different build
+  # identities. GitHub reruns failed jobs without replaying successful jobs.
+  group: e2e2z-mobile-store
+  cancel-in-progress: false
+
+env:
+  CI: true
+  E2E2Z_NODE_VERSION: "24.18.0"
+  # Restates wallet/rust-toolchain.toml because GitHub cannot compute a
+  # workflow-level `env:` from a file. scripts/check-rust-toolchain.sh fails the
+  # pull request if this ever stops matching the source of truth, and
+  # wallet/e2e2z/scripts/release-identity.mjs checks it again at release time.
+  E2E2Z_RUST_VERSION: "1.97.1"
+  E2E2Z_JAVA_VERSION: "21.0.12"
+  E2E2Z_XCODE_VERSION: "26.6"
+  E2E2Z_ANDROID_NDK_VERSION: "27.0.12077973"
+  E2E2Z_BUNDLETOOL_SHA256: a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29
+
+jobs:
+  prepare:
+    name: e2e2z / Pin immutable source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      identity: ${{ steps.identity.outputs.identity }}
+      tag: ${{ steps.identity.outputs.tag }}
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      target: ${{ steps.identity.outputs.target }}
+      dry_run: ${{ steps.identity.outputs.dry_run }}
+      should_release: ${{ steps.identity.outputs.should_release }}
+      android_upload_cert_sha256: ${{ steps.store.outputs.android_upload_cert_sha256 }}
+      apple_profile_name: ${{ steps.store.outputs.apple_profile_name }}
+      apple_profile_uuid: ${{ steps.store.outputs.apple_profile_uuid }}
+    defaults:
+      run:
+        working-directory: wallet/e2e2z
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event_name == 'push' && github.sha || inputs.source_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: wallet/e2e2z/package-lock.json
+      - run: npm ci
+      # Before a single dependency is compiled: do the two store records this
+      # would publish to exist? Neither the App Store Connect app record nor the
+      # Play Console listing can be created from CI, so a run that would end in
+      # a 404 four jobs deep ends here instead, printing what a human must go
+      # and do. `--require=apple` / `--require=android` are the modes that
+      # produce those messages.
+      - name: Verify the store records this release would publish to exist
+        run: |
+          set -euo pipefail
+          node scripts/store-identity.mjs --self-test
+          case "${{ github.event_name == 'push' && 'mobile' || inputs.target }}" in
+            mobile) node scripts/store-identity.mjs --require=apple --require=android >/dev/null ;;
+            ios) node scripts/store-identity.mjs --require=apple >/dev/null ;;
+            android) node scripts/store-identity.mjs --require=android >/dev/null ;;
+          esac
+      # Non-secret, and deliberately read from the attested source rather than
+      # from environment variables alone: the credential-free jobs need them to
+      # build ExportOptions.plist, and binding them to the released commit means
+      # the signing jobs are held to what this exact source said. The protected
+      # jobs cross-check the same values against the environment, so changing
+      # either one alone stops the release.
+      - name: Publish the source-bound store identity
+        id: store
+        run: |
+          set -euo pipefail
+          identity=$(node scripts/store-identity.mjs)
+          {
+            echo "android_upload_cert_sha256=$(jq -r '.google.uploadCertificateSha256 // ""' <<<"$identity")"
+            echo "apple_profile_name=$(jq -r '.apple.provisioningProfileName // ""' <<<"$identity")"
+            echo "apple_profile_uuid=$(jq -r '.apple.provisioningProfileUuid // ""' <<<"$identity")"
+          } >> "$GITHUB_OUTPUT"
+      - name: Verify exact source and release identity
+        id: identity
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+          CONFIRMED_IDENTITY: ${{ inputs.identity }}
+          INPUT_TARGET: ${{ inputs.target }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          git fetch origin \
+            '+refs/heads/main:refs/remotes/origin/main' \
+            '+refs/tags/*:refs/tags/*'
+
+          if [[ "$EVENT_NAME" == push ]]; then
+            [[ "$EVENT_REF" == refs/heads/main ]] || {
+              echo "automatic store releases only accept main pushes" >&2
+              exit 1
+            }
+            source_sha=$EVENT_SHA
+            target=mobile
+            dry_run=false
+          else
+            source_sha=$INPUT_SOURCE_SHA
+            target=$INPUT_TARGET
+            dry_run=$INPUT_DRY_RUN
+          fi
+
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "source SHA must be a full lowercase 40-character commit SHA" >&2
+            exit 1
+          }
+          metadata=$(node scripts/release-identity.mjs "--source-sha=$source_sha" --require-main)
+          actual=$(jq -r .identity <<<"$metadata")
+
+          should_release=true
+          if [[ "$EVENT_NAME" == push ]]; then
+            if git cat-file -e "$BEFORE_SHA:wallet/e2e2z/release.json" 2>/dev/null; then
+              node scripts/release-identity.mjs \
+                "--source-sha=$source_sha" \
+                "--require-newer-than=$BEFORE_SHA" \
+                --require-main >/dev/null
+            else
+              # Adding release.json establishes the baseline but must not turn
+              # an infrastructure merge into an unreviewed first store upload.
+              should_release=false
+            fi
+          else
+            [[ "$actual" == "$CONFIRMED_IDENTITY" ]] || {
+              echo "confirmed identity $CONFIRMED_IDENTITY does not match source identity $actual" >&2
+              exit 1
+            }
+            identity_sha=$(git log -1 --format=%H "$source_sha" -- ':(top)wallet/e2e2z/release.json')
+            [[ "$identity_sha" == "$source_sha" ]] || {
+              echo "manual release source must be the exact commit that established this identity ($identity_sha)" >&2
+              exit 1
+            }
+            parent_sha=$(git rev-parse "$source_sha^1")
+            if git cat-file -e "$parent_sha:wallet/e2e2z/release.json" 2>/dev/null; then
+              node scripts/release-identity.mjs \
+                "--source-sha=$source_sha" \
+                "--require-newer-than=$parent_sha" \
+                --require-main >/dev/null
+            fi
+            tip_identity=$(git show refs/remotes/origin/main:wallet/e2e2z/release.json |
+              jq -r '.version + "+" + (.build | tostring)')
+            [[ "$actual" == "$tip_identity" ]] || {
+              echo "manual recovery identity $actual is stale; current main identity is $tip_identity" >&2
+              exit 1
+            }
+          fi
+
+          {
+            echo "identity=$actual"
+            echo "tag=$(jq -r .tag <<<"$metadata")"
+            echo "source_sha=$source_sha"
+            echo "target=$target"
+            echo "dry_run=$dry_run"
+            echo "should_release=$should_release"
+          } >> "$GITHUB_OUTPUT"
+
+  android-build:
+    name: e2e2z Android / credential-free unsigned universal AAB
+    needs: prepare
+    if: >-
+      needs.prepare.outputs.should_release == 'true' &&
+      (needs.prepare.outputs.target == 'mobile' ||
+      needs.prepare.outputs.target == 'android')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      artifact_sha256: ${{ steps.unsigned.outputs.artifact_sha256 }}
+      payload_sha256: ${{ steps.unsigned.outputs.payload_sha256 }}
+    defaults:
+      run:
+        working-directory: wallet/e2e2z
+    env:
+      E2E2Z_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Fetch origin/main for ancestry check
+        run: git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+        working-directory: .
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21.0.12"
+      # dtolnay/rust-toolchain's version branches hardcode the compiler in
+      # action.yml, so this commit is itself the version pin and the trailing
+      # comment is its only readable record. Bumping the toolchain means moving
+      # the SHA to the new version branch and updating the comment with it;
+      # scripts/check-rust-toolchain.sh fails the pull request otherwise.
+      - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
+        with:
+          toolchain: ${{ env.E2E2Z_RUST_VERSION }}
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+      - name: Install exact Android SDK components
+        run: |
+          java -version 2>&1 | grep -F "$E2E2Z_JAVA_VERSION"
+          set +e
+          yes 2>/dev/null | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            'platforms;android-36' 'build-tools;36.0.0' "ndk;$E2E2Z_ANDROID_NDK_VERSION" >/dev/null
+          sdk_status=${PIPESTATUS[1]}
+          set -e
+          [[ "$sdk_status" -eq 0 ]] || { echo "sdkmanager failed ($sdk_status)" >&2; exit 1; }
+          source scripts/android-toolchain-env.sh
+          for name in NDK_HOME ANDROID_NDK_HOME \
+            CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER \
+            CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER \
+            CARGO_TARGET_I686_LINUX_ANDROID_LINKER \
+            CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER \
+            CC_aarch64_linux_android CC_armv7_linux_androideabi \
+            CC_i686_linux_android CC_x86_64_linux_android \
+            CXX_aarch64_linux_android CXX_armv7_linux_androideabi \
+            CXX_i686_linux_android CXX_x86_64_linux_android \
+            AR_aarch64_linux_android AR_armv7_linux_androideabi \
+            AR_i686_linux_android AR_x86_64_linux_android; do
+            echo "$name=${!name}" >> "$GITHUB_ENV"
+          done
+      - name: Prove Android credentials are absent before dependency code
+        run: scripts/assert-no-android-credentials.sh
+      - run: npm ci
+      - name: Verify Rust compiler
+        run: rustc --version | grep -F "rustc $E2E2Z_RUST_VERSION "
+      - name: Reverify exact release source
+        run: node scripts/release-identity.mjs "--source-sha=$E2E2Z_RELEASE_SOURCE_SHA" --require-main
+      - name: Build source-bound unsigned universal AAB
+        id: unsigned
+        env:
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          scripts/assert-no-android-credentials.sh
+          ./node_modules/.bin/tauri android build --ci --aab -- --locked
+          node scripts/normalize-generated-android-manifest.mjs
+          git diff --exit-code
+          candidates=(src-tauri/gen/android/app/build/outputs/bundle/universalRelease/*.aab)
+          [[ ${#candidates[@]} -eq 1 && -f "${candidates[0]}" ]] || { echo "expected exactly one universal release AAB" >&2; exit 1; }
+          # The tool-independent assertion first: a signed bundle carries a
+          # signature block, and this one must not. jarsigner then corroborates.
+          # Its wording for an unsigned archive is not stable -- a bundle with no
+          # META-INF at all reads "no manifest.", one with a manifest and no
+          # signature reads "jar is unsigned." -- so both are accepted and
+          # "jar verified." is what actually fails the build.
+          if unzip -Z1 "${candidates[0]}" | grep -Eq '^META-INF/.*\.(RSA|DSA|EC|SF)$'; then
+            echo "credential-free Android build unexpectedly produced a signature block" >&2
+            exit 1
+          fi
+          unsigned_report=$(jarsigner -verify "${candidates[0]}" 2>&1 || true)
+          if grep -Fq 'jar verified.' <<<"$unsigned_report"; then
+            echo "credential-free Android build unexpectedly produced a signed AAB" >&2
+            exit 1
+          fi
+          grep -Eqi 'jar is unsigned|no manifest' <<<"$unsigned_report" || {
+            echo "unrecognized jarsigner verdict for the unsigned AAB: $unsigned_report" >&2
+            exit 1
+          }
+          source_tree=$(git rev-parse "$RELEASE_SOURCE_SHA^{tree}")
+          scripts/android-release-artifact.sh record \
+            "${candidates[0]}" "$RELEASE_IDENTITY" "$RELEASE_SOURCE_SHA" "$source_tree" unsigned-android >/dev/null
+          verifier="$RUNNER_TEMP/bundletool-all-1.18.3.jar"
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+            --output "$verifier" \
+            https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
+          payload_sha256=$(scripts/android-release-artifact.sh seal-verifier unsigned-android "$verifier" \
+            "$E2E2Z_BUNDLETOOL_SHA256")
+          rm -f -- "$verifier"
+          artifact_sha256=$(jq -er .artifact.sha256 unsigned-android/source-record.json)
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+          echo "payload_sha256=$payload_sha256" >> "$GITHUB_OUTPUT"
+      - name: Prove Android credentials remain absent after build
+        run: scripts/assert-no-android-credentials.sh
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: wallet/e2e2z/unsigned-android/CHECKSUMS.sha256
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: unsigned-e2e2z-android-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/e2e2z/unsigned-android
+          if-no-files-found: error
+          retention-days: 1
+
+  android-sign-upload:
+    name: e2e2z Android / protected sign and Play upload
+    needs: [prepare, android-build]
+    if: needs.android-build.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: e2e2z-app-stores
+    permissions:
+      contents: read
+      attestations: read
+    outputs:
+      artifact_sha256: ${{ steps.sign.outputs.artifact_sha256 }}
+    env:
+      # Two independent authorities for the same fingerprint. This one is an
+      # environment variable only a repository administrator can change; the
+      # other travels with the attested source. The step below refuses to sign
+      # unless they agree, so moving either one alone stops the release.
+      ANDROID_UPLOAD_CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
+      SOURCE_BOUND_UPLOAD_CERT_SHA256: ${{ needs.prepare.outputs.android_upload_cert_sha256 }}
+    steps:
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21.0.12"
+      - name: Verify pinned Android signing JVM
+        run: java -version 2>&1 | grep -F "$E2E2Z_JAVA_VERSION"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: unsigned-e2e2z-android-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: unsigned-android
+      - name: Verify source-bound artifact checksum and attestation
+        env:
+          EXPECTED_ARTIFACT_SHA256: ${{ needs.android-build.outputs.artifact_sha256 }}
+          EXPECTED_PAYLOAD_SHA256: ${{ needs.android-build.outputs.payload_sha256 }}
+          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected Android artifact digest" >&2; exit 1; }
+          [[ "$EXPECTED_PAYLOAD_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected Android payload digest" >&2; exit 1; }
+          [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid expected Android source SHA" >&2; exit 1; }
+          expected_members=$(printf '%s\n' ./CHECKSUMS.sha256 ./e2e2z-android-unsigned.aab ./aab-members.txt ./bundletool-all-1.18.3.jar ./source-record.json | LC_ALL=C sort)
+          actual_members=$(cd unsigned-android && find . -mindepth 1 -maxdepth 1 -print | LC_ALL=C sort)
+          [[ "$actual_members" == "$expected_members" ]] || { echo "unexpected unsigned Android artifact inventory" >&2; exit 1; }
+          for member in CHECKSUMS.sha256 e2e2z-android-unsigned.aab aab-members.txt bundletool-all-1.18.3.jar source-record.json; do
+            [[ -f "unsigned-android/$member" && ! -L "unsigned-android/$member" ]] || { echo "unsafe unsigned Android artifact member: $member" >&2; exit 1; }
+          done
+          test "$(sha256sum unsigned-android/CHECKSUMS.sha256 | awk '{print $1}')" = "$EXPECTED_PAYLOAD_SHA256"
+          (cd unsigned-android && sha256sum -c CHECKSUMS.sha256)
+          test "$(sha256sum unsigned-android/e2e2z-android-unsigned.aab | awk '{print $1}')" = "$EXPECTED_ARTIFACT_SHA256"
+          jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" --arg sha "$EXPECTED_ARTIFACT_SHA256" --arg verifier "$E2E2Z_BUNDLETOOL_SHA256" \
+            '.schemaVersion == 1 and .kind == "android-unsigned-universal-aab" and .applicationId == "cash.free2z.e2e2z" and .identity == $identity and .source.repository == "free2z/zuu" and .source.sha == $source and .artifact.sha256 == $sha and .artifact.name == "e2e2z-android-unsigned.aab" and .abis == ["arm64-v8a","armeabi-v7a","x86","x86_64"] and .verifier == {name:"bundletool-all-1.18.3.jar",version:"1.18.3",sha256:$verifier}' \
+            unsigned-android/source-record.json >/dev/null
+          test "$(jq -er .artifact.bytes unsigned-android/source-record.json)" = "$(wc -c < unsigned-android/e2e2z-android-unsigned.aab | tr -d '[:space:]')"
+          expected_tree=$(gh api "repos/$EXPECTED_REPOSITORY/git/commits/$EXPECTED_SOURCE_SHA" --jq .tree.sha)
+          test "$(jq -er .source.tree unsigned-android/source-record.json)" = "$expected_tree"
+          gh attestation verify unsigned-android/CHECKSUMS.sha256 \
+            --repo "$EXPECTED_REPOSITORY" \
+            --signer-workflow free2z/zuu/.github/workflows/e2e2z-release.yml \
+            --source-digest "$EXPECTED_SOURCE_SHA" \
+            --source-ref refs/heads/main \
+            --deny-self-hosted-runners >/dev/null
+      - name: Install the shared AAB payload digest helper
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/aab-payload-digest.sh" <<'E2E2Z_AAB_PAYLOAD_DIGEST'
+          #!/usr/bin/env bash
+          # Write the "<sha256>  <member>" list for every payload member of an AAB, in one
+          # canonical order, so an unsigned bundle and its signed counterpart can be
+          # compared byte for byte with cmp.
+          #
+          # Excluded, deliberately: "META-INF/*" is the signature block jarsigner adds, and
+          # trailing-"/" entries are directories with no content. Signing may add exactly
+          # those and nothing else -- proving that is the whole point of the comparison.
+          #
+          # Members are LC_ALL=C sorted rather than left in archive order because jarsigner
+          # rewrites the central directory: it prepends its signature block and does not
+          # promise to keep the surviving members in their original sequence. cmp is
+          # byte-exact, so both sides must be produced by this one function or they compare
+          # unequal even when every digest matches. That is exactly what broke ZUULI
+          # 0.1.0+16 (issue #751): the unsigned side sorted and the signed side did not.
+          #
+          # Digests are taken from "unzip -p", i.e. over decompressed member content, so a
+          # re-compressed but otherwise untouched member still compares equal -- the check
+          # binds the payload, not the container's encoding.
+          #
+          # The android-sign-upload job in .github/workflows/e2e2z-release.yml may not
+          # check out the repository (the credential boundary forbids it), so that workflow
+          # installs a verbatim copy of this file into $RUNNER_TEMP. The two copies are
+          # asserted byte-identical by release-path.node-test.mjs, which is what keeps the
+          # release path and this tested file from drifting apart.
+          set -euo pipefail
+
+          aab_payload_digest() {
+            local aab=$1 output=$2 member
+            [[ -f "$aab" && ! -L "$aab" ]] || { echo "unsafe AAB input: $aab" >&2; return 1; }
+            : > "$output"
+            while IFS= read -r member; do
+              case "$member" in META-INF/*|*/) continue ;; esac
+              printf '%s  %s\n' "$(unzip -p "$aab" "$member" | sha256sum | awk '{print $1}')" "$member" >> "$output"
+            done < <(unzip -Z1 "$aab" | LC_ALL=C sort)
+            [[ -s "$output" ]] || { echo "AAB has no payload members: $aab" >&2; return 1; }
+          }
+
+          if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+            [[ $# -eq 2 ]] || { echo "usage: $0 <aab> <output>" >&2; exit 2; }
+            aab_payload_digest "$1" "$2"
+          fi
+          E2E2Z_AAB_PAYLOAD_DIGEST
+          chmod +x "$RUNNER_TEMP/aab-payload-digest.sh"
+      - name: Inspect attested Android artifact without credentials
+        env:
+          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
+        run: |
+          set -euo pipefail
+          bundletool=unsigned-android/bundletool-all-1.18.3.jar
+          echo "$E2E2Z_BUNDLETOOL_SHA256  $bundletool" | sha256sum -c -
+          aab=unsigned-android/e2e2z-android-unsigned.aab
+          test "$(java -jar "$bundletool" dump manifest --bundle="$aab" --xpath=/manifest/@package)" = cash.free2z.e2e2z
+          test "$(java -jar "$bundletool" dump manifest --bundle="$aab" --xpath=/manifest/@android:versionName)" = "${EXPECTED_IDENTITY%+*}"
+          test "$(java -jar "$bundletool" dump manifest --bundle="$aab" --xpath=/manifest/@android:versionCode)" = "${EXPECTED_IDENTITY#*+}"
+          # The permission boundary, re-asserted against the merged manifest that
+          # will actually ship rather than against the source file. INTERNET is
+          # e2e2z's only declared permission; androidx.core injects a
+          # signature-level self-permission of its own, which is the only other
+          # entry that may appear.
+          manifest_permissions=$(java -jar "$bundletool" dump manifest --bundle="$aab" |
+            grep -o 'android:name="[^"]*"' | sed -n 's/.*"\(.*\)"/\1/p' |
+            grep -E '^(android\.permission\.|cash\.free2z\.e2e2z\.)' | LC_ALL=C sort -u | paste -sd, -)
+          test "$manifest_permissions" = "android.permission.INTERNET,cash.free2z.e2e2z.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+          actual_abis=$(unzip -Z1 "$aab" | awk -F/ '$2 == "lib" && NF >= 4 && $NF ~ /\.so$/ {print $3}' | LC_ALL=C sort -u | paste -sd, -)
+          test "$actual_abis" = arm64-v8a,armeabi-v7a,x86,x86_64
+          unzip -Z1 "$aab" | LC_ALL=C sort > "$RUNNER_TEMP/current-aab-members.txt"
+          cmp unsigned-android/aab-members.txt "$RUNNER_TEMP/current-aab-members.txt"
+          "$RUNNER_TEMP/aab-payload-digest.sh" "$aab" "$RUNNER_TEMP/unsigned-aab-payload.sha256"
+          rm -f -- "$bundletool" "$RUNNER_TEMP/current-aab-members.txt"
+          test ! -e "$bundletool"
+      - name: Materialize, sign, verify, optionally upload, and destroy credentials
+        id: sign
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          SERVICE_ACCOUNT_BASE64: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          UNSIGNED_SHA256: ${{ needs.android-build.outputs.artifact_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${KEYSTORE_BASE64:?ANDROID_KEYSTORE_BASE64 is not configured}"
+          : "${KEYSTORE_PASSWORD:?ANDROID_KEYSTORE_PASSWORD is not configured}"
+          : "${KEY_ALIAS:?ANDROID_KEY_ALIAS is not configured}"
+          : "${KEY_PASSWORD:?ANDROID_KEY_PASSWORD is not configured}"
+          : "${ANDROID_UPLOAD_CERT_SHA256:?ANDROID_UPLOAD_CERT_SHA256 is not configured in the e2e2z-app-stores environment}"
+          : "${SOURCE_BOUND_UPLOAD_CERT_SHA256:?the released source records no Android upload certificate fingerprint}"
+          [[ "$ANDROID_UPLOAD_CERT_SHA256" =~ ^([0-9A-F]{2}:){31}[0-9A-F]{2}$ ]] || { echo "invalid Android upload certificate fingerprint" >&2; exit 1; }
+          if [[ "$ANDROID_UPLOAD_CERT_SHA256" != "$SOURCE_BOUND_UPLOAD_CERT_SHA256" ]]; then
+            echo "the environment's upload fingerprint disagrees with the one recorded in the released source" >&2
+            exit 1
+          fi
+          secret_dir=$(mktemp -d "$RUNNER_TEMP/e2e2z-android-sign.XXXXXX")
+          cleanup_failed="$RUNNER_TEMP/e2e2z-android-sign-cleanup-failed"
+          cleanup() {
+            set +e
+            find "$secret_dir" -depth -delete || : > "$cleanup_failed"
+          }
+          trap cleanup EXIT
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$secret_dir/upload.jks"
+          cp unsigned-android/e2e2z-android-unsigned.aab "$secret_dir/e2e2z-signed.aab"
+          expected_cert=$(tr -d ':' <<<"$ANDROID_UPLOAD_CERT_SHA256")
+          test "$expected_cert" = "$(keytool -list -v -keystore "$secret_dir/upload.jks" -storepass:env KEYSTORE_PASSWORD -alias "$KEY_ALIAS" | awk -F': ' '/SHA256:/{gsub(":", "", $2); print $2; exit}')"
+          jarsigner -keystore "$secret_dir/upload.jks" -storepass:env KEYSTORE_PASSWORD -keypass:env KEY_PASSWORD \
+            -sigalg SHA256withRSA -digestalg SHA-256 "$secret_dir/e2e2z-signed.aab" "$KEY_ALIAS"
+          signature_report=$(jarsigner -verify -certs "$secret_dir/e2e2z-signed.aab" 2>&1)
+          grep -Fq 'jar verified.' <<<"$signature_report"
+          if grep -Fqi 'unsigned' <<<"$signature_report"; then
+            echo "signed Android bundle still contains unsigned entries" >&2
+            exit 1
+          fi
+          test "$expected_cert" = "$(keytool -printcert -jarfile "$secret_dir/e2e2z-signed.aab" | awk -F': ' '/SHA256:/{gsub(":", "", $2); print $2; exit}')"
+          "$RUNNER_TEMP/aab-payload-digest.sh" "$secret_dir/e2e2z-signed.aab" "$RUNNER_TEMP/signed-aab-payload.sha256"
+          cmp "$RUNNER_TEMP/unsigned-aab-payload.sha256" "$RUNNER_TEMP/signed-aab-payload.sha256"
+          signed_abis=$(unzip -Z1 "$secret_dir/e2e2z-signed.aab" | awk -F/ '$2 == "lib" && NF >= 4 && $NF ~ /\.so$/ {print $3}' | LC_ALL=C sort -u | paste -sd, -)
+          test "$signed_abis" = arm64-v8a,armeabi-v7a,x86,x86_64
+          mkdir signed-android
+          cp "$secret_dir/e2e2z-signed.aab" "signed-android/e2e2z-${RELEASE_IDENTITY}-android.aab"
+          artifact_sha256=$(sha256sum "signed-android/e2e2z-${RELEASE_IDENTITY}-android.aab" | awk '{print $1}')
+          jq -n --arg identity "$RELEASE_IDENTITY" --arg sourceSha "$RELEASE_SOURCE_SHA" \
+            --arg unsignedSha256 "$UNSIGNED_SHA256" --arg signedSha256 "$artifact_sha256" --arg certificateSha256 "$expected_cert" \
+            '{schemaVersion:1,kind:"android-signed-universal-aab",identity:$identity,sourceSha:$sourceSha,unsignedSha256:$unsignedSha256,signedSha256:$signedSha256,certificateSha256:$certificateSha256,applicationId:"cash.free2z.e2e2z",abis:["arm64-v8a","armeabi-v7a","x86","x86_64"]}' \
+            > signed-android/signing-record.json
+          (cd signed-android && sha256sum e2e2z-*.aab signing-record.json > CHECKSUMS.sha256)
+          if [[ "$DRY_RUN" == false ]]; then
+            : "${SERVICE_ACCOUNT_BASE64:?PLAY_SERVICE_ACCOUNT_JSON_BASE64 is not configured}"
+            printf '%s' "$SERVICE_ACCOUNT_BASE64" | base64 --decode > "$secret_dir/service-account.json"
+            jq -e '.type == "service_account" and (.client_email | type == "string" and endswith(".iam.gserviceaccount.com")) and (.private_key | type == "string" and startswith("-----BEGIN PRIVATE KEY-----"))' "$secret_dir/service-account.json" >/dev/null
+            client_email=$(jq -er .client_email "$secret_dir/service-account.json")
+            private_key=$(jq -er .private_key "$secret_dir/service-account.json")
+            test "$(jq -er .token_uri "$secret_dir/service-account.json")" = https://oauth2.googleapis.com/token
+            printf '%s' "$private_key" > "$secret_dir/private-key.pem"
+            now=$(date +%s)
+            b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+            header=$(printf '%s' '{"alg":"RS256","typ":"JWT"}' | b64url)
+            claims=$(jq -cn --arg iss "$client_email" --argjson iat "$now" --argjson exp "$((now + 300))" \
+              '{iss:$iss,scope:"https://www.googleapis.com/auth/androidpublisher",aud:"https://oauth2.googleapis.com/token",iat:$iat,exp:$exp}' | b64url)
+            unsigned_jwt="$header.$claims"
+            signature=$(printf '%s' "$unsigned_jwt" | openssl dgst -sha256 -sign "$secret_dir/private-key.pem" | b64url)
+            token=$(curl --fail --silent --show-error \
+              --data-urlencode grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer \
+              --data-urlencode assertion="$unsigned_jwt.$signature" \
+              https://oauth2.googleapis.com/token | jq -er .access_token)
+            api=https://androidpublisher.googleapis.com/androidpublisher/v3/applications/cash.free2z.e2e2z
+            # A package Play has never seen answers this with a 404 that reads
+            # like a permissions failure. The prepare job has already refused to
+            # get here in that case; this restates it at the one place the
+            # confusion would otherwise occur.
+            if ! edit_id=$(curl --fail --silent --show-error -X POST \
+              -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{}' "$api/edits" | jq -er .id); then
+              echo "Play refused to open an edit for cash.free2z.e2e2z. The most likely cause is that the Play Console listing does not exist, or that the release service account has not been granted access to it." >&2
+              exit 1
+            fi
+            version_code=$(curl --fail --silent --show-error --retry 3 --retry-all-errors -X POST \
+              -H "Authorization: Bearer $token" -H 'Content-Type: application/octet-stream' \
+              --data-binary @"signed-android/e2e2z-${RELEASE_IDENTITY}-android.aab" \
+              "https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications/cash.free2z.e2e2z/edits/$edit_id/bundles?uploadType=media" | jq -er .versionCode)
+            test "$version_code" = "${RELEASE_IDENTITY#*+}"
+            jq -n --arg versionCode "$version_code" '{releases:[{status:"completed",versionCodes:[$versionCode]}]}' > "$secret_dir/track.json"
+            curl --fail --silent --show-error -X PUT \
+              -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+              --data-binary @"$secret_dir/track.json" "$api/edits/$edit_id/tracks/internal" >/dev/null
+            curl --fail --silent --show-error -X POST \
+              -H "Authorization: Bearer $token" "$api/edits/$edit_id:commit" >/dev/null
+          fi
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+      - name: Destroy ephemeral Android credentials
+        if: always()
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP" -maxdepth 1 -name 'e2e2z-android-sign.*' -print -quit | grep -q .; then
+            echo "ephemeral Android credential directory survived cleanup" >&2
+            exit 1
+          fi
+          if [[ -e "$RUNNER_TEMP/e2e2z-android-sign-cleanup-failed" ]]; then
+            echo "Android credential cleanup failed" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: internal-e2e2z-android-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: signed-android
+          if-no-files-found: error
+          retention-days: 1
+      - name: Destroy signed Android output
+        if: always()
+        run: |
+          set -euo pipefail
+          find signed-android -depth -delete 2>/dev/null || true
+          rm -f -- "$RUNNER_TEMP/unsigned-aab-payload.sha256" "$RUNNER_TEMP/signed-aab-payload.sha256"
+          test ! -e signed-android
+
+  android-finalize:
+    name: e2e2z Android / credential-free shipped-artifact provenance
+    needs: [prepare, android-sign-upload]
+    if: needs.android-sign-upload.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        working-directory: wallet/e2e2z
+    env:
+      E2E2Z_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: internal-e2e2z-android-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/e2e2z/signed-android
+      - name: Verify signed AAB and prepare shipped artifact
+        env:
+          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          EXPECTED_SIGNED_SHA256: ${{ needs.android-sign-upload.outputs.artifact_sha256 }}
+        run: |
+          set -euo pipefail
+          (cd signed-android && sha256sum -c CHECKSUMS.sha256)
+          jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" --arg sha "$EXPECTED_SIGNED_SHA256" \
+            '.schemaVersion == 1 and .kind == "android-signed-universal-aab" and .identity == $identity and .sourceSha == $source and .signedSha256 == $sha and .applicationId == "cash.free2z.e2e2z" and .abis == ["arm64-v8a","armeabi-v7a","x86","x86_64"]' signed-android/signing-record.json >/dev/null
+          test "$(sha256sum "signed-android/e2e2z-${EXPECTED_IDENTITY}-android.aab" | awk '{print $1}')" = "$EXPECTED_SIGNED_SHA256"
+          mkdir release-artifacts
+          cp "signed-android/e2e2z-${EXPECTED_IDENTITY}-android.aab" signed-android/signing-record.json release-artifacts/
+          (cd release-artifacts && sha256sum ./* > CHECKSUMS.sha256)
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: wallet/e2e2z/release-artifacts/*
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: e2e2z-android-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/e2e2z/release-artifacts
+          if-no-files-found: error
+          retention-days: 90
+
+  ios-build:
+    name: e2e2z iOS / credential-free unsigned archive
+    needs: prepare
+    if: >-
+      needs.prepare.outputs.should_release == 'true' &&
+      (needs.prepare.outputs.target == 'mobile' ||
+      needs.prepare.outputs.target == 'ios')
+    runs-on: macos-26
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        working-directory: wallet/e2e2z
+    outputs:
+      artifact_sha256: ${{ steps.unsigned.outputs.artifact_sha256 }}
+      payload_sha256: ${{ steps.unsigned.outputs.payload_sha256 }}
+    env:
+      E2E2Z_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Fetch origin/main for ancestry check
+        run: git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+        working-directory: .
+      - name: Select and verify Xcode
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app
+          xcodebuild -version | grep -Fx "Xcode $E2E2Z_XCODE_VERSION"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+      - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
+        with:
+          toolchain: ${{ env.E2E2Z_RUST_VERSION }}
+          targets: aarch64-apple-ios
+      - name: Prove Apple credentials are absent before dependency code
+        run: scripts/assert-no-apple-credentials.sh
+      - run: npm ci
+      - name: Verify Rust compiler
+        run: rustc --version | grep -F "rustc $E2E2Z_RUST_VERSION "
+      - name: Reverify exact release source
+        run: node scripts/release-identity.mjs "--source-sha=$E2E2Z_RELEASE_SOURCE_SHA" --require-main
+      - name: Build source-bound unsigned archive
+        id: unsigned
+        env:
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          PROFILE_NAME: ${{ needs.prepare.outputs.apple_profile_name }}
+        run: |
+          set -euo pipefail
+          : "${PROFILE_NAME:?the released source records no App Store provisioning profile name}"
+          npm run build
+          ./node_modules/.bin/tauri ios build --ci --no-sign --archive-only --config '{"build":{"beforeBuildCommand":null}}' -- --locked
+          node scripts/normalize-generated-ios-project.mjs
+          git diff --exit-code
+          # `test`, not `[[ ]]`: macOS runners execute this step with bash 3.2,
+          # which does not apply `set -e` to a failing bare `[[ ]]`.
+          archive=$(scripts/resolve-ios-xcarchive.sh)
+          test -d "$archive"
+          mkdir unsigned-ios
+          ditto -c -k --sequesterRsrc --keepParent "$archive" unsigned-ios/e2e2z.xcarchive.zip
+          # Written here, in the credential-free job, so that the attestation
+          # over CHECKSUMS.sha256 binds the export configuration to this exact
+          # source. The signing job may not compose its own.
+          /usr/libexec/PlistBuddy \
+            -c 'Add :destination string export' \
+            -c 'Add :manageAppVersionAndBuildNumber bool false' \
+            -c 'Add :method string app-store-connect' \
+            -c 'Add :signingCertificate string "Apple Distribution"' \
+            -c 'Add :signingStyle string manual' \
+            -c 'Add :stripSwiftSymbols bool true' \
+            -c 'Add :teamID string F9AV5HKF6N' \
+            -c 'Add :provisioningProfiles dict' \
+            -c "Add :provisioningProfiles:cash.free2z.e2e2z string $PROFILE_NAME" \
+            unsigned-ios/ExportOptions.plist
+          version=${RELEASE_IDENTITY%+*}
+          build=${RELEASE_IDENTITY#*+}
+          jq -n --arg identity "$RELEASE_IDENTITY" --arg sourceSha "$RELEASE_SOURCE_SHA" \
+            --arg version "$version" --arg build "$build" --arg profileName "$PROFILE_NAME" \
+            '{schemaVersion:1,identity:$identity,sourceSha:$sourceSha,version:$version,build:$build,applicationId:"cash.free2z.e2e2z",profileName:$profileName,kind:"ios-unsigned-xcarchive"}' \
+            > unsigned-ios/source-record.json
+          (cd unsigned-ios && shasum -a 256 e2e2z.xcarchive.zip ExportOptions.plist source-record.json > CHECKSUMS.sha256)
+          artifact_sha256=$(shasum -a 256 unsigned-ios/e2e2z.xcarchive.zip | awk '{print $1}')
+          payload_sha256=$(shasum -a 256 unsigned-ios/CHECKSUMS.sha256 | awk '{print $1}')
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+          echo "payload_sha256=$payload_sha256" >> "$GITHUB_OUTPUT"
+      - name: Prove Apple credentials remained absent through the build
+        run: scripts/assert-no-apple-credentials.sh
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: wallet/e2e2z/unsigned-ios/CHECKSUMS.sha256
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: internal-e2e2z-ios-unsigned-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/e2e2z/unsigned-ios
+          if-no-files-found: error
+          retention-days: 1
+
+  ios-sign:
+    name: e2e2z iOS / system export and signing
+    needs: [prepare, ios-build]
+    if: needs.ios-build.result == 'success'
+    runs-on: macos-26
+    timeout-minutes: 30
+    environment: e2e2z-app-stores
+    permissions:
+      contents: read
+      attestations: read
+    outputs:
+      artifact_sha256: ${{ steps.sign.outputs.artifact_sha256 }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: internal-e2e2z-ios-unsigned-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: unsigned-ios
+      - name: Verify source-bound artifact
+        env:
+          EXPECTED_ARCHIVE_SHA256: ${{ needs.ios-build.outputs.artifact_sha256 }}
+          EXPECTED_PAYLOAD_SHA256: ${{ needs.ios-build.outputs.payload_sha256 }}
+          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected iOS archive digest" >&2; exit 1; }
+          [[ "$EXPECTED_PAYLOAD_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected iOS payload digest" >&2; exit 1; }
+          expected_members=$(printf '%s\n' \
+            ./CHECKSUMS.sha256 ./ExportOptions.plist ./e2e2z.xcarchive.zip ./source-record.json | LC_ALL=C sort)
+          actual_members=$(cd unsigned-ios && find . -mindepth 1 -print | LC_ALL=C sort)
+          [[ "$actual_members" == "$expected_members" ]] || { echo "unexpected unsigned iOS artifact inventory" >&2; exit 1; }
+          for member in CHECKSUMS.sha256 ExportOptions.plist e2e2z.xcarchive.zip source-record.json; do
+            [[ -f "unsigned-ios/$member" && ! -L "unsigned-ios/$member" ]] || { echo "unsafe unsigned iOS member: $member" >&2; exit 1; }
+          done
+          test "$(shasum -a 256 unsigned-ios/CHECKSUMS.sha256 | awk '{print $1}')" = "$EXPECTED_PAYLOAD_SHA256"
+          (cd unsigned-ios && shasum -a 256 -c CHECKSUMS.sha256)
+          test "$(shasum -a 256 unsigned-ios/e2e2z.xcarchive.zip | awk '{print $1}')" = "$EXPECTED_ARCHIVE_SHA256"
+          jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" \
+            '.schemaVersion == 1 and .kind == "ios-unsigned-xcarchive" and .identity == $identity and .sourceSha == $source and .applicationId == "cash.free2z.e2e2z"' \
+            unsigned-ios/source-record.json
+          # The attested canonical manifest and its build-job output bind every
+          # unsigned payload member, including ExportOptions.plist.
+          gh attestation verify unsigned-ios/CHECKSUMS.sha256 --repo "$GITHUB_REPOSITORY"
+          mkdir archive-root
+          ditto -x -k unsigned-ios/e2e2z.xcarchive.zip archive-root
+          archives=(archive-root/*.xcarchive)
+          [[ ${#archives[@]} -eq 1 && -d "${archives[0]}" ]] || { echo "expected exactly one unpacked iOS archive" >&2; exit 1; }
+          echo "E2E2Z_UNSIGNED_ARCHIVE=${archives[0]}" >> "$GITHUB_ENV"
+      - name: Materialize, export, and destroy ephemeral iOS signing credential
+        id: sign
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          UNSIGNED_ARCHIVE_SHA256: ${{ needs.ios-build.outputs.artifact_sha256 }}
+          EXPECTED_PROFILE_NAME: ${{ needs.prepare.outputs.apple_profile_name }}
+          EXPECTED_PROFILE_UUID: ${{ needs.prepare.outputs.apple_profile_uuid }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${CERTIFICATE_BASE64:?APPLE_DISTRIBUTION_CERTIFICATE_BASE64 is not configured}"
+          : "${CERTIFICATE_PASSWORD:?APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD is not configured}"
+          : "${PROVISIONING_PROFILE_BASE64:?APPLE_PROVISIONING_PROFILE_BASE64 is not configured}"
+          : "${EXPECTED_PROFILE_NAME:?the released source records no App Store provisioning profile name}"
+          : "${EXPECTED_PROFILE_UUID:?the released source records no App Store provisioning profile UUID}"
+          secret_dir=$(mktemp -d "$RUNNER_TEMP/e2e2z-ios-sign.XXXXXX")
+          keychain="$secret_dir/release.keychain-db"
+          original_keychains_file="$secret_dir/original-keychains.txt"
+          cleanup_failed="$RUNNER_TEMP/e2e2z-ios-sign-cleanup-failed"
+          profile_path=""
+          rm -f -- "$cleanup_failed"
+          security list-keychains -d user | sed -E 's/^[[:space:]]*"([^"]+)"[[:space:]]*$/\1/' > "$original_keychains_file"
+          test -s "$original_keychains_file"
+          cleanup() {
+            set +e
+            cleanup_status=0
+            if [[ -n "$profile_path" ]] && ! rm -f -- "$profile_path"; then cleanup_status=1; fi
+            original_keychains=()
+            while IFS= read -r original_keychain; do
+              [[ -z "$original_keychain" ]] || original_keychains+=("$original_keychain")
+            done < "$original_keychains_file"
+            [[ ${#original_keychains[@]} -gt 0 ]] || cleanup_status=1
+            [[ ${#original_keychains[@]} -eq 0 ]] || security list-keychains -d user -s "${original_keychains[@]}" || cleanup_status=1
+            [[ ! -e "$keychain" ]] || security delete-keychain "$keychain" || cleanup_status=1
+            find "$secret_dir" -depth -delete || cleanup_status=1
+            [[ "$cleanup_status" -eq 0 ]] || : > "$cleanup_failed"
+            return 0
+          }
+          trap cleanup EXIT
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$secret_dir/distribution.p12"
+          printf '%s' "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$secret_dir/e2e2z.mobileprovision"
+          test -s "$secret_dir/distribution.p12"
+          test -s "$secret_dir/e2e2z.mobileprovision"
+          security cms -D -i "$secret_dir/e2e2z.mobileprovision" > "$secret_dir/profile.plist"
+          profile_uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$secret_dir/profile.plist")
+          profile_name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$secret_dir/profile.plist")
+          profile_team=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$secret_dir/profile.plist")
+          profile_app=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$secret_dir/profile.plist")
+          # The application-identifier check is the load-bearing one: a profile
+          # issued for any other bundle id cannot claim this string, so a
+          # ZUULI profile handed to this job stops here.
+          [[ "$profile_app" == F9AV5HKF6N.cash.free2z.e2e2z ]] || { echo "unexpected provisioning-profile application identifier" >&2; exit 1; }
+          [[ "$profile_uuid" == "$EXPECTED_PROFILE_UUID" ]] || { echo "unexpected provisioning-profile UUID" >&2; exit 1; }
+          [[ "$profile_name" == "$EXPECTED_PROFILE_NAME" ]] || { echo "unexpected provisioning-profile name" >&2; exit 1; }
+          [[ "$profile_team" == F9AV5HKF6N ]] || { echo "unexpected provisioning-profile team" >&2; exit 1; }
+          keychain_password=$(openssl rand -hex 24)
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 1800 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$secret_dir/distribution.p12" -P "$CERTIFICATE_PASSWORD" -t cert -f pkcs12 \
+            -T /usr/bin/codesign -T /usr/bin/xcodebuild -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain"
+          identity_sha=$(security find-identity -v -p codesigning "$keychain" | awk '/Apple Distribution: Corpora Inc/ {print $2; exit}')
+          [[ "$identity_sha" =~ ^[0-9A-F]{40}$ ]] || { echo "expected exactly one Apple Distribution identity" >&2; exit 1; }
+          profile_authorizes_identity=false
+          certificate_index=0
+          while certificate_base64=$(plutil -extract "DeveloperCertificates.$certificate_index" raw -o - "$secret_dir/profile.plist" 2>/dev/null); do
+            printf '%s' "$certificate_base64" | base64 --decode > "$secret_dir/profile-certificate.der"
+            profile_sha=$(openssl x509 -inform DER -in "$secret_dir/profile-certificate.der" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
+            [[ "$profile_sha" != "$identity_sha" ]] || profile_authorizes_identity=true
+            certificate_index=$((certificate_index + 1))
+          done
+          [[ "$profile_authorizes_identity" == true ]] || { echo "provisioning profile does not authorize the imported signing identity" >&2; exit 1; }
+          profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$profile_dir"
+          profile_candidate="$profile_dir/$profile_uuid.mobileprovision"
+          [[ ! -e "$profile_candidate" ]] || { echo "refusing to overwrite an existing provisioning profile" >&2; exit 1; }
+          profile_path="$profile_candidate"
+          cp "$secret_dir/e2e2z.mobileprovision" "$profile_path"
+          mkdir signed-export signed-ios
+          xcodebuild -exportArchive \
+            -archivePath "$E2E2Z_UNSIGNED_ARCHIVE" \
+            -exportPath signed-export \
+            -exportOptionsPlist unsigned-ios/ExportOptions.plist
+          ipas=(signed-export/*.ipa)
+          [[ ${#ipas[@]} -eq 1 && -f "${ipas[0]}" ]] || { echo "expected exactly one exported iOS IPA" >&2; exit 1; }
+          archive_listing=$(/usr/bin/unzip -Z1 "${ipas[0]}")
+          embedded=$(awk -F/ '$1 == "Payload" && $2 ~ /\.app$/ && $3 == "embedded.mobileprovision" {print; exit}' <<<"$archive_listing")
+          [[ -n "$embedded" ]] || { echo "exported IPA has no embedded provisioning profile" >&2; exit 1; }
+          /usr/bin/unzip -p "${ipas[0]}" "$embedded" > "$secret_dir/embedded.mobileprovision"
+          cmp -s "$secret_dir/e2e2z.mobileprovision" "$secret_dir/embedded.mobileprovision"
+          cp "${ipas[0]}" "signed-ios/e2e2z-${RELEASE_IDENTITY}-ios.ipa"
+          ipa_sha256=$(shasum -a 256 "signed-ios/e2e2z-${RELEASE_IDENTITY}-ios.ipa" | awk '{print $1}')
+          profile_sha256=$(shasum -a 256 "$secret_dir/e2e2z.mobileprovision" | awk '{print $1}')
+          jq -n --arg identity "$RELEASE_IDENTITY" --arg sourceSha "$RELEASE_SOURCE_SHA" \
+            --arg unsignedArchiveSha256 "$UNSIGNED_ARCHIVE_SHA256" --arg ipaSha256 "$ipa_sha256" \
+            --arg profileSha256 "$profile_sha256" --arg signerSha1 "$identity_sha" \
+            '{schemaVersion:1,identity:$identity,sourceSha:$sourceSha,kind:"ios-signed-ipa",applicationId:"cash.free2z.e2e2z",unsignedArchiveSha256:$unsignedArchiveSha256,ipaSha256:$ipaSha256,profileSha256:$profileSha256,signerSha1:$signerSha1}' \
+            > signed-ios/signing-record.json
+          (cd signed-ios && shasum -a 256 ./* > CHECKSUMS.sha256)
+          echo "artifact_sha256=$ipa_sha256" >> "$GITHUB_OUTPUT"
+      - name: Destroy ephemeral iOS signing credential
+        if: always()
+        env:
+          EXPECTED_PROFILE_UUID: ${{ needs.prepare.outputs.apple_profile_uuid }}
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP" -maxdepth 1 -name 'e2e2z-ios-sign.*' -print -quit | grep -q .; then
+            echo "ephemeral iOS signing directory survived cleanup" >&2
+            exit 1
+          fi
+          if security list-keychains -d user | grep -Fq 'e2e2z-ios-sign.'; then
+            echo "ephemeral iOS signing keychain survived cleanup" >&2
+            exit 1
+          fi
+          if [[ -n "${EXPECTED_PROFILE_UUID:-}" && -e "$HOME/Library/MobileDevice/Provisioning Profiles/$EXPECTED_PROFILE_UUID.mobileprovision" ]]; then
+            echo "ephemeral iOS provisioning profile survived cleanup" >&2
+            exit 1
+          fi
+          if [[ -e "$RUNNER_TEMP/e2e2z-ios-sign-cleanup-failed" ]]; then
+            echo "iOS signing credential cleanup or keychain restoration failed" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: internal-e2e2z-ios-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: signed-ios
+          if-no-files-found: error
+          retention-days: 1
+
+  ios-verify:
+    name: e2e2z iOS / credential-free signed artifact verification
+    needs: [prepare, ios-sign]
+    if: needs.ios-sign.result == 'success'
+    runs-on: macos-26
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      artifact_sha256: ${{ steps.verify.outputs.artifact_sha256 }}
+    defaults:
+      run:
+        working-directory: wallet/e2e2z
+    env:
+      E2E2Z_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: internal-e2e2z-ios-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/e2e2z/signed-ios
+      - name: Verify signed IPA and prepare upload payload
+        id: verify
+        env:
+          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          EXPECTED_IPA_SHA256: ${{ needs.ios-sign.outputs.artifact_sha256 }}
+        run: |
+          set -euo pipefail
+          (cd signed-ios && shasum -a 256 -c CHECKSUMS.sha256)
+          jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" --arg sha "$EXPECTED_IPA_SHA256" \
+            '.schemaVersion == 1 and .kind == "ios-signed-ipa" and .identity == $identity and .sourceSha == $source and .ipaSha256 == $sha' \
+            signed-ios/signing-record.json
+          ipa="signed-ios/e2e2z-${EXPECTED_IDENTITY}-ios.ipa"
+          inspect=$(mktemp -d "$RUNNER_TEMP/e2e2z-ipa-inspect.XXXXXX")
+          listing=$(/usr/bin/unzip -Z1 "$ipa")
+          grep -Eq '(^/|(^|/)\.\.(/|$))' <<<"$listing" && { echo "IPA contains an unsafe archive path" >&2; exit 1; }
+          apps=$(awk -F/ '$1 == "Payload" && $2 ~ /\.app$/ {print $1 "/" $2}' <<<"$listing" | LC_ALL=C sort -u)
+          test "$(wc -l <<<"$apps" | tr -d '[:space:]')" = 1
+          test "$(grep -Fxc "$apps/embedded.mobileprovision" <<<"$listing")" = 1
+          /usr/bin/unzip -q "$ipa" -d "$inspect"
+          app="$inspect/$apps"
+          # The embedded profile is the one the protected job placed, byte for
+          # byte, and the signature is the Corpora distribution certificate over
+          # this bundle id -- not another app's, and not a development identity.
+          test "$(shasum -a 256 "$app/embedded.mobileprovision" | awk '{print $1}')" = "$(jq -er .profileSha256 signed-ios/signing-record.json)"
+          signature=$(codesign -dvvv "$app" 2>&1)
+          codesign --verify --deep --strict --verbose=2 "$app"
+          grep -Fxq 'Identifier=cash.free2z.e2e2z' <<<"$signature"
+          grep -Fxq 'Authority=Apple Distribution: Corpora Inc (F9AV5HKF6N)' <<<"$signature"
+          grep -Fxq 'TeamIdentifier=F9AV5HKF6N' <<<"$signature"
+          codesign -d --entitlements "$inspect/entitlements.plist" --xml "$app" 2>/dev/null
+          test "$(plutil -extract application-identifier raw -o - "$inspect/entitlements.plist")" = F9AV5HKF6N.cash.free2z.e2e2z
+          # A distribution build must never ship debuggable.
+          if plutil -extract get-task-allow raw -o - "$inspect/entitlements.plist" 2>/dev/null | grep -Fqx true; then
+            echo "distribution app enables get-task-allow" >&2
+            exit 1
+          fi
+          # e2e2z asks for no device capability, so the shipped Info.plist must
+          # carry no usage-description string at all.
+          bundle_info=$(plutil -convert json -o - "$app/Info.plist")
+          test "$(jq -r '[keys[] | select(endswith("UsageDescription"))] | length' <<<"$bundle_info")" = 0
+          test "$(jq -r '.ITSAppUsesNonExemptEncryption | tostring' <<<"$bundle_info")" = false
+          find "$inspect" -depth -delete
+          mkdir verified-ios
+          cp "$ipa" signed-ios/signing-record.json verified-ios/
+          (cd verified-ios && shasum -a 256 ./* > CHECKSUMS.sha256)
+          echo "artifact_sha256=$EXPECTED_IPA_SHA256" >> "$GITHUB_OUTPUT"
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: wallet/e2e2z/verified-ios/*
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: internal-e2e2z-ios-verified-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/e2e2z/verified-ios
+          if-no-files-found: error
+          retention-days: 1
+
+  ios-upload:
+    name: e2e2z iOS / App Store validation and TestFlight
+    needs: [prepare, ios-verify]
+    if: needs.ios-verify.result == 'success'
+    runs-on: macos-26
+    timeout-minutes: 60
+    environment: e2e2z-app-stores
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: internal-e2e2z-ios-verified-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: verified-ios
+      - name: Verify source-bound artifact
+        env:
+          EXPECTED_IPA_SHA256: ${{ needs.ios-verify.outputs.artifact_sha256 }}
+          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd verified-ios && shasum -a 256 -c CHECKSUMS.sha256)
+          ipa="verified-ios/e2e2z-${EXPECTED_IDENTITY}-ios.ipa"
+          expected_members=$(printf '%s\n' \
+            ./CHECKSUMS.sha256 "./e2e2z-${EXPECTED_IDENTITY}-ios.ipa" ./signing-record.json | LC_ALL=C sort)
+          actual_members=$(cd verified-ios && find . -mindepth 1 -print | LC_ALL=C sort)
+          [[ "$actual_members" == "$expected_members" ]] || { echo "unexpected verified iOS artifact inventory" >&2; exit 1; }
+          test "$(shasum -a 256 "$ipa" | awk '{print $1}')" = "$EXPECTED_IPA_SHA256"
+          jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" \
+            '.identity == $identity and .sourceSha == $source' verified-ios/signing-record.json
+          gh attestation verify "$ipa" --repo "$GITHUB_REPOSITORY"
+      - name: Materialize, upload, and destroy ephemeral ASC credential
+        env:
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${ASC_KEY_BASE64:?ASC_KEY_BASE64 is not configured}"
+          : "${ASC_KEY_ID:?ASC_KEY_ID is not configured}"
+          : "${ASC_ISSUER_ID:?ASC_ISSUER_ID is not configured}"
+          secret_dir=$(mktemp -d "$RUNNER_TEMP/e2e2z-ios-asc.XXXXXX")
+          cleanup() { find "$secret_dir" -depth -delete 2>/dev/null || true; }
+          trap cleanup EXIT
+          mkdir "$secret_dir/private_keys"
+          printf '%s' "$ASC_KEY_BASE64" | base64 --decode > "$secret_dir/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          test -s "$secret_dir/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          ipa="$GITHUB_WORKSPACE/verified-ios/e2e2z-${RELEASE_IDENTITY}-ios.ipa"
+          # `altool --validate-app` is where a missing App Store Connect app
+          # record surfaces, and its message is about the bundle id rather than
+          # about the record. The prepare job has already refused to get here in
+          # that case; this note is for whoever reads the log anyway.
+          if ! (cd "$secret_dir" && xcrun altool --validate-app --type ios --file "$ipa" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"); then
+            echo "App Store Connect rejected cash.free2z.e2e2z. If this mentions an unknown bundle identifier, the App Store Connect app record does not exist; see wallet/e2e2z/scripts/store-identity.mjs." >&2
+            exit 1
+          fi
+          if [[ "$DRY_RUN" == false ]]; then
+            (cd "$secret_dir" && xcrun altool --upload-app --type ios --file "$ipa" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID")
+          fi
+      - name: Destroy ephemeral ASC credential
+        if: always()
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP" -maxdepth 1 -name 'e2e2z-ios-asc.*' -print -quit | grep -q .; then
+            echo "ephemeral ASC credential directory survived cleanup" >&2
+            exit 1
+          fi

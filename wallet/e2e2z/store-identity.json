@@ -1,0 +1,17 @@
+{
+  "$schema": "./store-identity.schema.json",
+  "schemaVersion": 1,
+  "applicationId": "cash.free2z.e2e2z",
+  "apple": {
+    "teamId": "F9AV5HKF6N",
+    "distributionIdentity": "Apple Distribution: Corpora Inc (F9AV5HKF6N)",
+    "appStoreConnectRecord": "missing",
+    "provisioningProfileName": null,
+    "provisioningProfileUuid": null
+  },
+  "google": {
+    "playConsoleListing": "missing",
+    "uploadCertificateSha256": null,
+    "appSigningCertificateSha256": null
+  }
+}
