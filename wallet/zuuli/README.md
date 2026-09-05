@@ -36,9 +36,13 @@ remote at all.
   transparent login key, without an email or password.
 - **2Z balances and funding** — the balance chips, Activity, and the card and
   ZEC top-up surfaces. Card checkout and ZEC settlement are still incomplete.
-- **The intent-bridge authority side** — the process that executes a payment or
-  issues a `DeviceCredential` on another surface's behalf, after a native
-  confirmation. See [`docs/intent-bridge/`](../../docs/intent-bridge/).
+- **The intent-bridge authority side** — `src-tauri/src/intent.rs` is where a
+  payment gets admitted, natively confirmed and executed on another surface's
+  behalf. Implemented, not yet shipped end to end: it still needs an
+  authenticated channel ([#461](https://github.com/free2z/zuu/issues/461)), and
+  a custom-scheme deep link is not one. See
+  [`docs/intent-bridge/`](../../docs/intent-bridge/) and
+  [#905](https://github.com/free2z/zuu/issues/905).
 
 ## What ZUULI deliberately does not include
 
