@@ -37,6 +37,8 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use tokio::sync::watch;
+
 use f2z_codec::ErrorCode;
 use f2z_codec::commands::{Command, PushEvent};
 
@@ -247,9 +249,28 @@ pub struct PolicyFaults {
 /// Cheap to clone and shared with every connection, so a test can arm a fault
 /// in the middle of a conversation — which is the only way to reach half of
 /// them. Arming is not a restart.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct FaultInjector {
     inner: Arc<Mutex<Faults>>,
+    /// A mirror of `Faults::rules.len()`, published on every change so a test
+    /// can **await** the count reaching zero rather than spin on
+    /// [`FaultInjector::armed`].
+    ///
+    /// A spin is not merely wasteful here, it is self-defeating: the waiting
+    /// task occupies a runtime worker for the whole wait, and the task it is
+    /// waiting for needs that runtime to make progress. On a contended CI
+    /// runner that is the difference between a test that finishes and one that
+    /// burns its deadline. See [`FaultInjector::wait_until_disarmed`].
+    armed: Arc<watch::Sender<usize>>,
+}
+
+impl Default for FaultInjector {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Faults::default())),
+            armed: Arc::new(watch::Sender::new(0)),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -269,6 +290,7 @@ impl FaultInjector {
     pub fn arm(&self, fault: Fault) {
         if let Ok(mut faults) = self.inner.lock() {
             faults.rules.push(fault);
+            self.publish(&faults);
         }
     }
 
@@ -284,7 +306,40 @@ impl FaultInjector {
     pub fn disarm(&self) {
         if let Ok(mut faults) = self.inner.lock() {
             faults.rules.clear();
+            self.publish(&faults);
         }
+    }
+
+    /// Republish the armed count. Called under the lock, after every change to
+    /// `rules`, so `armed` and the rule list cannot disagree.
+    fn publish(&self, faults: &Faults) {
+        self.armed.send_replace(faults.rules.len());
+    }
+
+    /// Resolve once no rule is armed.
+    ///
+    /// The event-driven counterpart to [`FaultInjector::armed`], and the one a
+    /// test should use. Arming a one-shot fault and waiting for it to fire is
+    /// the standard way to say "let the relay apply this, then continue", and
+    /// the obvious spelling —
+    ///
+    /// ```ignore
+    /// while faults.armed() != 0 { tokio::task::yield_now().await; }
+    /// ```
+    ///
+    /// — is a hot loop that keeps a runtime worker busy for the entire wait.
+    /// The relay task it is waiting on needs that runtime, so under contention
+    /// the spin starves the very progress it is polling for. This parks
+    /// instead.
+    ///
+    /// Returns immediately when nothing is armed. A rule armed again after the
+    /// count reaches zero is not observed — the question this answers is "has
+    /// what I armed fired yet", asked by the test that armed it.
+    pub async fn wait_until_disarmed(&self) {
+        let mut armed = self.armed.subscribe();
+        // `wait_for` inspects the current value before awaiting, so an already
+        // empty injector never suspends.
+        let _ = armed.wait_for(|armed| *armed == 0).await;
     }
 
     /// Replace the policy faults.
@@ -357,6 +412,7 @@ impl FaultInjector {
             }
         }
         faults.rules.retain(|fault| !fault.retired());
+        self.publish(&faults);
         chosen
     }
 }

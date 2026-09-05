@@ -5603,6 +5603,23 @@ mod tests {
         }
     }
 
+    /// How long to wait for the fake relay to apply an armed one-shot fault.
+    ///
+    /// **This is a hang detector, not a performance budget, and it must not be
+    /// retuned to whatever the local machine happens to need.** The relay is
+    /// in-process and applies the fault in microseconds; the only thing this
+    /// value protects against is a genuine deadlock, where a test would
+    /// otherwise sit until the CI job's own timeout and report nothing useful.
+    ///
+    /// It was `5s`, which is why it kept failing (#952). That number was
+    /// calibrated on a developer machine, where this whole test binary
+    /// finishes in ~0.03s. A GitHub runner is not that machine: the same
+    /// binary was observed at **4.46s** on a passing run and **6.69s** on the
+    /// run that failed, so a 5-second deadline sat inside ordinary runner
+    /// variance rather than outside it. Anything under ~30s is measuring the
+    /// runner's load, not the code.
+    const FAULT_APPLIED_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+
     fn conversation(
         relay_url: &str,
         send_addr: f2z_codec::types::QueueAddress,
@@ -6149,13 +6166,9 @@ mod tests {
                 .ensure_bound(&stale)
                 .await
         });
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while faults.armed() != 0 {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("relay applied BIND_SEND and dropped its response");
+        tokio::time::timeout(FAULT_APPLIED_DEADLINE, faults.wait_until_disarmed())
+            .await
+            .expect("relay applied BIND_SEND and dropped its response");
         bind.abort();
         let _ = bind.await;
         drop(engine);
@@ -6327,13 +6340,9 @@ mod tests {
                 .ensure_bound(&stale)
                 .await
         });
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while faults.armed() != 0 {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("relay applied the first BIND_SEND and dropped its response");
+        tokio::time::timeout(FAULT_APPLIED_DEADLINE, faults.wait_until_disarmed())
+            .await
+            .expect("relay applied the first BIND_SEND and dropped its response");
         bind.abort();
         let _ = bind.await;
         drop(engine);
