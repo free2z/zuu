@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- INTERNET is the only permission e2e2z holds, and the only one it can
+         justify. The messaging surface reaches free2z.cash to resolve handles
+         and reaches relays to send and fetch envelopes; without network access
+         there is no product. Every other permission ZUULI declares is a ZUULI
+         permission: e2e2z has no camera capture, no microphone capture, no
+         livestream, and no wallet, so CAMERA, RECORD_AUDIO and
+         MODIFY_AUDIO_SETTINGS are deliberately absent and must stay absent.
+         Notifications are not requested either — nothing in this app posts
+         one, and POST_NOTIFICATIONS asked for by an app that never notifies is
+         a permission prompt with no answer behind it. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Not a permission decision, a distribution one: Android implies a
+         required touchscreen unless an app says otherwise, and a text
+         messaging app driven from a keyboard runs perfectly well on ChromeOS
+         and other non-touch hardware. Declaring both as optional keeps those
+         devices eligible in Google Play. e2e2z requests no camera or
+         microphone permission, so it needs none of ZUULI's capture-feature
+         overrides. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.faketouch" android:required="false" />
+
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.e2e2z"
+        android:usesCleartextTraffic="${usesCleartextTraffic}">
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:launchMode="singleTask"
+            android:label="@string/main_activity_title"
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- DEEP LINK PLUGIN. AUTO-GENERATED. DO NOT REMOVE. -->
+            <intent-filter >
+                <action android:name="android.intent.action.VIEW" />
+                <!-- ChromeOS ARC++ uses a different action for deep links -->
+                <action android:name="org.chromium.arc.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="cash.free2z.e2e2z" />
+                <data android:host="bridge" />
+                <data android:path="/return" />
+
+
+
+            </intent-filter>
+            <!-- DEEP LINK PLUGIN. AUTO-GENERATED. DO NOT REMOVE. -->
+        </activity>
+
+        <provider
+          android:name="androidx.core.content.FileProvider"
+          android:authorities="${applicationId}.fileprovider"
+          android:exported="false"
+          android:grantUriPermissions="true">
+          <meta-data
+            android:name="android.support.FILE_PROVIDER_PATHS"
+            android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

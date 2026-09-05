@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://free2z.com/schemas/e2e2z-store-identity-v1.json",
+  "title": "e2e2z store identity",
+  "description": "The non-secret facts about cash.free2z.e2e2z's two store records that the release path must bind to but cannot discover. Every field that is null names something a human must create in App Store Connect or Google Play Console first; the release path refuses to sign or upload while any field it needs is still null, and says which one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "applicationId", "apple", "google"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "applicationId": { "const": "cash.free2z.e2e2z" },
+    "apple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "teamId",
+        "distributionIdentity",
+        "appStoreConnectRecord",
+        "provisioningProfileName",
+        "provisioningProfileUuid"
+      ],
+      "properties": {
+        "teamId": { "const": "F9AV5HKF6N" },
+        "distributionIdentity": {
+          "description": "The codesigning identity the shared Corpora Apple Distribution certificate presents. Team-wide, not app-specific: this is the certificate ZUULI already signs with.",
+          "const": "Apple Distribution: Corpora Inc (F9AV5HKF6N)"
+        },
+        "appStoreConnectRecord": {
+          "description": "Whether an App Store Connect app record exists for this bundle id. It cannot be created from the API; a human creates it in App Store Connect.",
+          "enum": ["missing", "created"]
+        },
+        "provisioningProfileName": {
+          "description": "The App Store distribution provisioning profile's name, exactly as it appears in ExportOptions.plist. Null until the App Store Connect record exists, because a profile cannot be issued for a bundle id with no record.",
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "provisioningProfileUuid": {
+          "description": "The same profile's UUID, used to place and then prove the removal of the ephemeral profile on the signing runner.",
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      }
+    },
+    "google": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "playConsoleListing",
+        "uploadCertificateSha256",
+        "appSigningCertificateSha256"
+      ],
+      "properties": {
+        "playConsoleListing": {
+          "description": "Whether a Play Console listing exists for this package name. The Android Publisher API can only edit an app that already exists; a human creates it in Play Console.",
+          "enum": ["missing", "created"]
+        },
+        "uploadCertificateSha256": {
+          "description": "SHA-256 fingerprint of the upload certificate whose private key signs the AAB, uppercase and colon-delimited, exactly as `keytool -list -v` prints it. Null until an upload key exists and Play Console has accepted it.",
+          "type": ["string", "null"],
+          "pattern": "^([0-9A-F]{2}:){31}[0-9A-F]{2}$"
+        },
+        "appSigningCertificateSha256": {
+          "description": "SHA-256 fingerprint of the certificate Play App Signing re-signs with, which is what assetlinks.json must carry. Play generates it: it is readable only from Play Console (Setup -> App integrity -> App signing) after the listing exists, and is one of the three values tracked in #461. It is recorded here for the assetlinks work; the release path itself never uses it.",
+          "type": ["string", "null"],
+          "pattern": "^([0-9A-F]{2}:){31}[0-9A-F]{2}$"
+        }
+      }
+    }
+  }
+}

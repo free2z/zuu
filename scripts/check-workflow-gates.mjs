@@ -270,6 +270,14 @@ const UNGATED_WORKFLOWS = new Map([
       "scripts/check-zuuli-store-capture-image.mjs inside the wallet/zuuli gate.",
   ],
   [
+    ".github/workflows/e2e2z-release.yml",
+    "Release pipeline for cash.free2z.e2e2z: `push` to main on wallet/e2e2z/release.json, plus " +
+      "manual dispatch. Like zuuli-release.yml it runs after a merge, never on the pull request " +
+      "that produced it, so there is no verdict to gate. The tree it releases is gated: " +
+      "wallet/e2e2z/** is selected by the ZUULI change detector into the required `gate`, and " +
+      "wallet-surfaces.yml runs the app's own suite and its release-identity contract.",
+  ],
+  [
     ".github/workflows/zuuli-packaging.yml",
     "Path-filtered Android/iOS/desktop packaging rehearsal, plus a weekly cache-free run. The Rust " +
       "and TypeScript surface it packages is gated through zuuli.yml; this workflow proves the " +

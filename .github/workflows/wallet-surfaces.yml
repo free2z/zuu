@@ -54,6 +54,10 @@ on:
       - 'scripts/check-rust-toolchain.sh'
       - 'wallet/zuuli/scripts/surface-capability-authority.mjs'
       - '.github/workflows/wallet-surfaces.yml'
+      # release-path.node-test.mjs, part of e2e2z's `npm test`, reads this
+      # workflow's inlined copy of aab-payload-digest.sh and its protected
+      # environment declarations. A change to it must re-run that test.
+      - '.github/workflows/e2e2z-release.yml'
   push:
     branches: [main]
     paths:
@@ -77,6 +81,10 @@ on:
       - 'scripts/check-rust-toolchain.sh'
       - 'wallet/zuuli/scripts/surface-capability-authority.mjs'
       - '.github/workflows/wallet-surfaces.yml'
+      # release-path.node-test.mjs, part of e2e2z's `npm test`, reads this
+      # workflow's inlined copy of aab-payload-digest.sh and its protected
+      # environment declarations. A change to it must re-run that test.
+      - '.github/workflows/e2e2z-release.yml'
   workflow_dispatch:
 
 permissions:

@@ -104,9 +104,14 @@ TOOLCHAIN_RESTATEMENTS=(
 # `rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "`. GitHub cannot
 # compute a workflow-level `env:` from a file, so this one value is restated
 # per workflow and held to the source of truth here instead.
+# Each entry is `path` + TAB + the variable that workflow declares. The name is
+# per-app -- e2e2z restates the same channel under its own -- so it is spelled
+# here rather than assumed, and a workflow that stops declaring the variable it
+# is registered for fails.
 RUST_VERSION_ENV_WORKFLOWS=(
-  .github/workflows/zuuli-packaging.yml
-  .github/workflows/zuuli-release.yml
+  $'.github/workflows/zuuli-packaging.yml\tZUULI_RUST_VERSION'
+  $'.github/workflows/zuuli-release.yml\tZUULI_RUST_VERSION'
+  $'.github/workflows/e2e2z-release.yml\tE2E2Z_RUST_VERSION'
 )
 
 # Prose restatements. Each entry is `path` + TAB + a line the file must still
@@ -135,6 +140,7 @@ DOC_PINS=(
 # is therefore rejected rather than quietly trusted.
 ACCEPTED_EXPRESSIONS=(
   'env.ZUULI_RUST_VERSION'
+  'env.E2E2Z_RUST_VERSION'
   'steps.frontend_rust_toolchain.outputs.version'
   'steps.rust_toolchain.outputs.version'
 )
@@ -402,25 +408,30 @@ check_workflows() {
       fi
     done < <(grep -nE '(^|[[:space:],{])toolchain:[[:space:]]' "$file" || true)
 
-    # 3. The verified release environment variable.
+    # 3. The verified release environment variables, whatever app they belong
+    #    to: any `<APP>_RUST_VERSION:` declaration in a workflow is a
+    #    restatement of the channel and is held to it.
     while IFS=: read -r lineno text; do
-      value=$(trim "${text#*ZUULI_RUST_VERSION:}")
+      name=$(trim "${text%%:*}")
+      value=$(trim "${text#*_RUST_VERSION:}")
       value=${value#\"}
       value=${value%\"}
       [[ $value == "$channel" ]] ||
-        fail "$rel:$lineno declares ZUULI_RUST_VERSION: $value, expected $channel"
-    done < <(grep -nE '^[[:space:]]*ZUULI_RUST_VERSION:' "$file" || true)
+        fail "$rel:$lineno declares $name: $value, expected $channel"
+    done < <(grep -nE '^[[:space:]]*[A-Z][A-Z0-9]*_RUST_VERSION:' "$file" || true)
   done
 
   # The release jobs grep the installed compiler against this variable. If a
   # workflow stops declaring it, the safety net is gone and the check must say so.
-  for rel in "${RUST_VERSION_ENV_WORKFLOWS[@]}"; do
+  for entry in "${RUST_VERSION_ENV_WORKFLOWS[@]}"; do
+    rel=${entry%%$'\t'*}
+    name=${entry#*$'\t'}
     if [[ ! -f "$root/$rel" ]]; then
       fail "$rel is missing"
       continue
     fi
-    grep -qE "^[[:space:]]*ZUULI_RUST_VERSION:[[:space:]]*\"$(quote_re "$channel")\"[[:space:]]*$" "$root/$rel" ||
-      fail "$rel does not declare ZUULI_RUST_VERSION: \"$channel\""
+    grep -qE "^[[:space:]]*$(quote_re "$name"):[[:space:]]*\"$(quote_re "$channel")\"[[:space:]]*$" "$root/$rel" ||
+      fail "$rel does not declare $name: \"$channel\""
   done
 
   (( refs > 0 )) ||
