@@ -169,6 +169,21 @@ struct { opaque txid[32]; } ExecutePaymentResultV1;
 definition here would be a second chance to disagree about the bytes the whole
 key-transparency directory is built on.
 
+> **`IssueDeviceCredentialResultV1` carries one field and
+> [ADR 0016](../e2ee/decisions/0016-enrollment-sealing-boundary.md) decides it
+> keeps carrying one.** [#928](https://github.com/free2z/zuu/issues/928) opened
+> as a request to widen it — `identity_pk`, and the `BackupWrapKey` that
+> `install_identity` takes. The wrap key is seed-derived, so shipping it would
+> breach `../e2ee/ARCHITECTURE.md` §4.2's account/device split and defeat the
+> reason `cash.free2z.e2e2z` exists; ADR 0016 moves sealing to a per-device key
+> instead, and the field disappears from the problem rather than from the wire.
+> `identity_pk` and `handle` are already **inside** the signed credential, and a
+> second, unsigned copy beside it would be a copy whoever answered gets to
+> choose — see [§7](#7-what-is-blocked-on-461) and
+> [#929](https://github.com/free2z/zuu/issues/929). So the result type is
+> unchanged, §3.6's vector is unchanged, and the work moves to the plugin's
+> `IdentityInstall`, which is a Rust API rather than a wire format.
+
 `ExecutePaymentRequestV1` is a **proposal, not an instruction.** ZUULI
 re-derives its own payment review from its own wallet state and shows that; the
 values here only have to survive comparison against it.

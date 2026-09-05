@@ -113,7 +113,7 @@ one is a claim about the key transparency directory, and a fabricated
 | Issue | What it blocks |
 | --- | --- |
 | [**#461**](https://github.com/free2z/zuu/issues/461) | *Everything cross-app.* Verified App Links / Universal Links need `assetlinks.json` and `apple-app-site-association` served from a domain we control |
-| [**#928**](https://github.com/free2z/zuu/issues/928) | Enrollment could not complete **even with a transport**: `IssueDeviceCredentialResultV1` carries no `identity_pk` and no `BackupWrapKey`, both of which `install_identity` requires, and e2e2z registers no install command. The obvious fix would ship a seed-derived key into e2e2z, breaching the account/device split — so this is a design question, not a wire-format patch |
+| [**#928**](https://github.com/free2z/zuu/issues/928) | Enrollment could not complete **even with a transport**: `IssueDeviceCredentialResultV1` carries no `identity_pk` and no `BackupWrapKey`, both of which `install_identity` requires, and e2e2z registers no install command. The obvious fix would ship a seed-derived key into e2e2z, breaching the account/device split — so this is a design question, not a wire-format patch. **Decided in [ADR 0016](./e2ee/decisions/0016-enrollment-sealing-boundary.md)** (2026-09-05): sealing moves to a per-device wrap key, the result type gains no fields, and the install step is an e2e2z app-crate command. Nothing is implemented, and `device_kem_pk` stays open |
 | [**#918**](https://github.com/free2z/zuu/issues/918) | free2z's native layer is unwired — the HTTP plugin, the OAuth transport, and its own deep-link scheme. Its bundle is `"active": false` |
 | [**#904**](https://github.com/free2z/zuu/issues/904) phase 4 | ZUULI's hardening. See §4 |
 
