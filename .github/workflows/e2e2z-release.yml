@@ -145,13 +145,19 @@ jobs:
       # and do. `--require=apple` / `--require=android` are the modes that
       # produce those messages.
       - name: Verify the store records this release would publish to exist
+        env:
+          # Bound as data rather than interpolated into the shell below. The
+          # dispatch input is a `choice`, so it is already constrained, but a
+          # workflow input reaching a `case` word is not a habit worth having.
+          RELEASE_TARGET: ${{ github.event_name == 'push' && 'mobile' || inputs.target }}
         run: |
           set -euo pipefail
           node scripts/store-identity.mjs --self-test
-          case "${{ github.event_name == 'push' && 'mobile' || inputs.target }}" in
+          case "$RELEASE_TARGET" in
             mobile) node scripts/store-identity.mjs --require=apple --require=android >/dev/null ;;
             ios) node scripts/store-identity.mjs --require=apple >/dev/null ;;
             android) node scripts/store-identity.mjs --require=android >/dev/null ;;
+            *) echo "unrecognized release target: $RELEASE_TARGET" >&2; exit 1 ;;
           esac
       # Non-secret, and deliberately read from the attested source rather than
       # from environment variables alone: the credential-free jobs need them to
@@ -672,6 +678,9 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
           persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: internal-e2e2z-android-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
@@ -687,6 +696,7 @@ jobs:
           jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" --arg sha "$EXPECTED_SIGNED_SHA256" \
             '.schemaVersion == 1 and .kind == "android-signed-universal-aab" and .identity == $identity and .sourceSha == $source and .signedSha256 == $sha and .applicationId == "cash.free2z.e2e2z" and .abis == ["arm64-v8a","armeabi-v7a","x86","x86_64"]' signed-android/signing-record.json >/dev/null
           test "$(sha256sum "signed-android/e2e2z-${EXPECTED_IDENTITY}-android.aab" | awk '{print $1}')" = "$EXPECTED_SIGNED_SHA256"
+          node scripts/release-identity.mjs "--source-sha=$E2E2Z_RELEASE_SOURCE_SHA" >/dev/null
           mkdir release-artifacts
           cp "signed-android/e2e2z-${EXPECTED_IDENTITY}-android.aab" signed-android/signing-record.json release-artifacts/
           (cd release-artifacts && sha256sum ./* > CHECKSUMS.sha256)
@@ -1011,6 +1021,9 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
           persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: internal-e2e2z-ios-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
@@ -1023,6 +1036,7 @@ jobs:
           EXPECTED_IPA_SHA256: ${{ needs.ios-sign.outputs.artifact_sha256 }}
         run: |
           set -euo pipefail
+          node scripts/release-identity.mjs "--source-sha=$E2E2Z_RELEASE_SOURCE_SHA" >/dev/null
           (cd signed-ios && shasum -a 256 -c CHECKSUMS.sha256)
           jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" --arg sha "$EXPECTED_IPA_SHA256" \
             '.schemaVersion == 1 and .kind == "ios-signed-ipa" and .identity == $identity and .sourceSha == $source and .ipaSha256 == $sha' \
@@ -1030,9 +1044,15 @@ jobs:
           ipa="signed-ios/e2e2z-${EXPECTED_IDENTITY}-ios.ipa"
           inspect=$(mktemp -d "$RUNNER_TEMP/e2e2z-ipa-inspect.XXXXXX")
           listing=$(/usr/bin/unzip -Z1 "$ipa")
-          grep -Eq '(^/|(^|/)\.\.(/|$))' <<<"$listing" && { echo "IPA contains an unsafe archive path" >&2; exit 1; }
+          if grep -Eq '(^/|(^|/)\.\.(/|$))' <<<"$listing"; then
+            echo "IPA contains an unsafe archive path" >&2
+            exit 1
+          fi
+          # `grep -c .` rather than `wc -l`: a here-string still feeds one
+          # newline for the empty string, so an IPA with no Payload app would
+          # otherwise count as exactly one.
           apps=$(awk -F/ '$1 == "Payload" && $2 ~ /\.app$/ {print $1 "/" $2}' <<<"$listing" | LC_ALL=C sort -u)
-          test "$(wc -l <<<"$apps" | tr -d '[:space:]')" = 1
+          test "$(printf '%s' "$apps" | grep -c . || true)" = 1
           test "$(grep -Fxc "$apps/embedded.mobileprovision" <<<"$listing")" = 1
           /usr/bin/unzip -q "$ipa" -d "$inspect"
           app="$inspect/$apps"
