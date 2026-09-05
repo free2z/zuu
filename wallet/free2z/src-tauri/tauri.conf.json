@@ -24,7 +24,7 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -44,6 +44,18 @@
         {
           "scheme": ["cash.free2z.free2z"],
           "host": "bridge",
+          "path": ["/return"],
+          "appLink": false
+        },
+        {
+          "scheme": ["cash.free2z.free2z"],
+          "host": "oauth",
+          "path": ["/callback"],
+          "appLink": false
+        },
+        {
+          "scheme": ["cash.free2z.free2z"],
+          "host": "checkout",
           "path": ["/return"],
           "appLink": false
         }

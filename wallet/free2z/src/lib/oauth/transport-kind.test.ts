@@ -2,15 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   isTauri: false,
-  invoke: vi.fn(),
 }));
 
 vi.mock("../platform", () => ({
   isTauri: () => mocks.isTauri,
-}));
-
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: mocks.invoke,
 }));
 
 async function resolveTransport() {
@@ -22,29 +17,28 @@ describe("OAuth callback transport discriminator", () => {
   beforeEach(() => {
     vi.resetModules();
     mocks.isTauri = false;
-    mocks.invoke.mockReset();
   });
 
-  it("uses web without asking the native shell", async () => {
+  it("uses the same-origin popup in a browser", async () => {
     await expect(resolveTransport()).resolves.toBe("web");
-    expect(mocks.invoke).not.toHaveBeenCalled();
   });
 
-  it.each(["desktop", "mobile"] as const)(
-    "returns the native command's exact %s result",
-    async (transport) => {
-      mocks.isTauri = true;
-      mocks.invoke.mockResolvedValue(transport);
-
-      await expect(resolveTransport()).resolves.toBe(transport);
-      expect(mocks.invoke).toHaveBeenCalledWith("oauth_callback_transport", undefined);
-    },
-  );
-
-  it("rejects rather than guessing when the native command fails", async () => {
+  // Before #918 this asked the native `oauth_callback_transport` command, which
+  // this binary does not register and never will: the commands behind it hand an
+  // authorization code and its PKCE verifier back to the renderer, and #367
+  // means the renderer asking might be a remote subframe. So a packaged shell
+  // has NO transport — not a desktop one, not a mobile one — and says so.
+  it("reports no transport at all inside a packaged Tauri shell", async () => {
     mocks.isTauri = true;
-    mocks.invoke.mockRejectedValue(new Error("native discriminator failed"));
+    await expect(resolveTransport()).resolves.toBe("unavailable");
+  });
 
-    await expect(resolveTransport()).rejects.toThrow("native discriminator failed");
+  it("never reaches the Tauri IPC bridge to decide", async () => {
+    const invoke = vi.fn();
+    vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
+    mocks.isTauri = true;
+
+    await expect(resolveTransport()).resolves.toBe("unavailable");
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

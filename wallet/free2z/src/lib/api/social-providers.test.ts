@@ -119,25 +119,8 @@ describe("social-provider discovery contract", () => {
     });
   });
 
-  it.each(["web", "desktop"] as const)(
-    "uses anonymous generic discovery for %s",
-    async (transport) => {
-      vi.mocked(oauthCallbackTransport).mockResolvedValue(transport);
-      vi.mocked(request).mockResolvedValue(productionResponse);
-
-      await expect(auth.socialProviders()).resolves.toEqual({
-        x: true,
-        google: false,
-        github: false,
-      });
-      expect(request).toHaveBeenCalledWith("/api/auth/social/providers/", {
-        anonymous: true,
-      });
-    },
-  );
-
-  it("uses anonymous mobile-readiness discovery on iOS and Android", async () => {
-    vi.mocked(oauthCallbackTransport).mockResolvedValue("mobile");
+  it("uses anonymous generic discovery for the web popup transport", async () => {
+    vi.mocked(oauthCallbackTransport).mockResolvedValue("web");
     vi.mocked(request).mockResolvedValue(productionResponse);
 
     await expect(auth.socialProviders()).resolves.toEqual({
@@ -145,20 +128,27 @@ describe("social-provider discovery contract", () => {
       google: false,
       github: false,
     });
-    expect(request).toHaveBeenCalledWith(
-      "/api/auth/social/mobile/providers/",
-      { anonymous: true },
-    );
+    expect(request).toHaveBeenCalledWith("/api/auth/social/providers/", {
+      anonymous: true,
+    });
   });
 
-  it("fails closed when native transport cannot be resolved", async () => {
-    vi.mocked(oauthCallbackTransport).mockRejectedValue(
-      new Error("native transport unavailable"),
-    );
+  // The bug this replaces (#918): a packaged shell resolved its transport from
+  // a native command that does not exist here, so discovery REJECTED and the
+  // login screen showed "Couldn't check sign-in options" with a retry that
+  // could never succeed. There is no native transport on this surface at all,
+  // so the honest answer is that no provider is available — and it must not be
+  // reached by asking the backend, which would advertise a provider whose
+  // callback could never come back to `tauri://localhost`.
+  it("offers no provider, and asks the backend nothing, without a transport", async () => {
+    vi.mocked(oauthCallbackTransport).mockResolvedValue("unavailable");
+    vi.mocked(request).mockResolvedValue(productionResponse);
 
-    await expect(auth.socialProviders()).rejects.toThrow(
-      "native transport unavailable",
-    );
+    await expect(auth.socialProviders()).resolves.toEqual({
+      x: false,
+      google: false,
+      github: false,
+    });
     expect(request).not.toHaveBeenCalled();
   });
 

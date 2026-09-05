@@ -15,9 +15,7 @@ import {
   sumParticipantCounts,
 } from "../participant-count";
 import {
-  cancelMobileOAuth,
   captureOAuthCode,
-  finishMobileOAuth,
   oauthCallbackTransport,
   withOAuthSession,
   type OAuthCapture,
@@ -123,7 +121,16 @@ const delay = (ms = 260) => new Promise((r) => setTimeout(r, ms));
 const NATIVE_RETURN_TIMEOUT_MS = 15_000;
 
 const SOCIAL_PROVIDER_PATH = "/api/auth/social/providers/";
-const MOBILE_SOCIAL_PROVIDER_PATH = "/api/auth/social/mobile/providers/";
+// `/api/auth/social/mobile/providers/` is deliberately not consulted here.
+// It is the readiness contract for the private-use deep-link relay, and this
+// surface has no native OAuth transport to relay into (#918).
+
+/** No provider is available where there is no transport that can finish one. */
+const NO_SOCIAL_PROVIDER: SocialProvidersStatus = {
+  x: false,
+  google: false,
+  github: false,
+};
 
 function mockSocialProvidersWire(): unknown {
   const scenario =
@@ -967,10 +974,15 @@ export const auth = {
 
   /**
    * Which social providers (X / Google / GitHub) are available for this exact
-   * callback transport. Web and Tauri desktop consume credential truth from
-   * GET /api/auth/social/providers/. Tauri iOS/Android consume the stricter
-   * GET /api/auth/social/mobile/providers/ readiness contract (credentials,
-   * PKCE, exact relay policy and rollout activation).
+   * callback transport. On the web that is credential truth from
+   * GET /api/auth/social/providers/.
+   *
+   * In a packaged Tauri shell it is nothing: this surface has no native OAuth
+   * transport (#918), and the web popup cannot come back to `tauri://localhost`.
+   * Answering all-unconfigured is what keeps the login screen from advertising a
+   * method it cannot finish — `SocialButtons` then shows its empty state rather
+   * than a button whose only outcome is an error toast. That is a deliberate
+   * difference from ZUULI, which asks a native command which transport it has.
    *
    * The wire response is an object containing a `providers` array. Treat it as
    * unknown until every entry is validated, then normalize it to the stable
@@ -982,15 +994,10 @@ export const auth = {
       await delay(100);
       return parseSocialProvidersStatus(mockSocialProvidersWire());
     }
-    // If the native discriminator is unavailable, reject discovery. Falling
-    // back to the generic endpoint could advertise a desktop-ready provider
-    // whose mobile relay is deliberately disabled.
-    const transport = await oauthCallbackTransport();
-    const path =
-      transport === "mobile"
-        ? MOBILE_SOCIAL_PROVIDER_PATH
-        : SOCIAL_PROVIDER_PATH;
-    const response = await request<unknown>(path, {
+    if ((await oauthCallbackTransport()) !== "web") {
+      return { ...NO_SOCIAL_PROVIDER };
+    }
+    const response = await request<unknown>(SOCIAL_PROVIDER_PATH, {
       anonymous: true,
     });
     return parseSocialProvidersStatus(response);
@@ -1021,10 +1028,12 @@ export const auth = {
 
   /**
    * Social login / link with a provider (X / Google / GitHub). Runs the
-   * OAuth authorization-code round trip over the desktop loopback transport,
-   * the mobile free2z-HTTPS-to-app relay, or a web popup fallback
-   * (`../oauth/transport.ts`) — callers receive an uncommitted result and own
-   * the final current-attempt session publication.
+   * OAuth authorization-code round trip over this surface's ONLY transport, the
+   * same-origin web popup (`../oauth/transport.ts`) — callers receive an
+   * uncommitted result and own the final current-attempt session publication.
+   * In a packaged shell there is no transport and this refuses (#918); the
+   * button is not offered there, because `socialProviders()` answers
+   * all-unconfigured.
    *
    * Dual-mode, mirroring `zcashLogin`/`zcashAssociate`:
    *   - `associate: false` (default) — POSTs anonymously; the backend logs
@@ -1057,9 +1066,11 @@ export const auth = {
   },
 
   /**
-   * Exchange a callback already validated and one-shot claimed by the native
-   * transport. Public so App startup can finish a crash-recovered cold-start
-   * callback through exactly the same backend path as the live button flow.
+   * Exchange a callback the transport already validated against this attempt's
+   * state. Public so App startup can finish a recovered callback through
+   * exactly the same backend path as the live button flow — there is no such
+   * callback on this surface today (`recoverMobileOAuth` resolves null), and
+   * the call site stays for the day a bridge grant produces one (#905, #918).
    */
   async completeSocialOAuth(capture: OAuthCapture): Promise<SocialAuthResult> {
     return withOAuthSession<SocialAuthResult>(capture, async (lease) => {
@@ -1082,14 +1093,7 @@ export const auth = {
             signal: lease.signal,
           });
           lease.assertCurrent();
-          // The backend mutation already succeeded. Local scratch-file cleanup
-          // must not turn a completed link into a user-visible auth failure.
-          await finishMobileOAuth(state).catch(() => undefined);
-          lease.assertCurrent();
         } catch (e) {
-          if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
-            await cancelMobileOAuth(state).catch(() => undefined);
-          }
           if (e instanceof ApiError && e.status === 409) {
             throw new Error(
               "That account is already linked — either to a different free2z account, or this account already has a linked identity for this provider. Unlink it there first, or use a different account.",
@@ -1114,14 +1118,7 @@ export const auth = {
         body,
         anonymous: true,
         signal: lease.signal,
-      }).catch(async (error) => {
-        if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
-          await cancelMobileOAuth(state).catch(() => undefined);
-        }
-        throw error;
       });
-      lease.assertCurrent();
-      await finishMobileOAuth(state).catch(() => undefined);
       lease.assertCurrent();
       const me = await auth.me(tok.token, lease.signal);
       lease.assertCurrent();

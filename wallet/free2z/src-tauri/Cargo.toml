@@ -25,12 +25,55 @@ tauri-build = { version = "2", features = [] }
 # confusion could reach, whatever the capability files say. Adding one here is
 # the change that `wallet/zuuli/scripts/surface-capability-authority.mjs`
 # refuses on the capability side and that a reviewer must refuse on this side.
+#
+# `tauri-plugin-http` is the one plugin added since (#918), and it is a
+# different kind of thing from the two forbidden ones. `zcash`/`f2zmsg` export
+# authority the process holds locally — a seed, device keys — which a hostile
+# subframe would gain outright under #367. The HTTP plugin exports no local
+# authority at all: it is a network client whose entire reach is the URL scope
+# in `capabilities/*.json`. A subframe that reaches it can talk to free2z's own
+# API, which is a thing it can already do with `window.fetch` from a page it
+# controls. What it must never become is an unscoped client, which is why the
+# capability files carry an `allow` list and the checker refuses a bare
+# `http:default`.
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-deep-link = "2.4.9"
 tauri-plugin-opener = "2"
+# The native HTTP client the frontend reaches through `@tauri-apps/plugin-http`
+# (#918). It registers `plugin:http|fetch`, which is NOT an app command and
+# grants no local authority: what it may reach is decided entirely by the URL
+# scope in `capabilities/*.json`, and `http:default` on its own has an EMPTY
+# allow list, so it denies every http/https URL until origins are named. The
+# origins named there are free2z's own API and media hosts and nothing else —
+# see the comment in `capabilities/default.json`, which is the reviewed record.
+#
+# `default-features = false` drops exactly one thing from the plugin's default
+# set: `cookies`. The default build installs a process-wide `reqwest` cookie
+# jar shared by every request this binary makes, which would make the native
+# client an AMBIENT-AUTHORITY client — a request would carry whatever session
+# cookie the jar had accumulated, and under #367 a hostile subframe could ride
+# it against free2z.cash and read the answer with no CORS in the way. free2z
+# authenticates with a Knox token in an `Authorization` header (see
+# `src/lib/api/http.ts`) and needs no jar, so this surface's HTTP client is
+# stateless: it carries only the credentials the caller put on the request.
+# The rest of the default set is kept verbatim.
+tauri-plugin-http = { version = "2.5.9", default-features = false, features = [
+    "rustls-tls",
+    "http2",
+    "charset",
+    "macos-system-configuration",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[dev-dependencies]
+# `tauri::test::mock_builder` + the REAL `generate_context!()` ACL. This is the
+# only way to measure the capability scope where the bug can appear: under
+# `isTauri() === false` (vitest, Playwright, `npm run build`) the native branch
+# is never taken, and `cargo check` never asks whether the frontend's commands
+# exist. See `tests/http_scope.rs`.
+tauri = { version = "2", features = ["test"] }
 
 # ---------------------------------------------------------------------------
 # Build profiles. This package is its own workspace root — the repository keeps

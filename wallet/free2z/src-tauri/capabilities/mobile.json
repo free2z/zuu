@@ -1,7 +1,20 @@
 {
   "identifier": "mobile",
-  "description": "Mobile capability for the main free2z webview. Grants NOTHING privileged: no zcash:* entry and no f2zmsg:* entry, ever. This is the surface that renders third-party content, so #367's frame-confusion defect must find no privileged command to reach.",
+  "description": "Mobile capability for the main free2z webview. Grants NOTHING privileged: no zcash:* entry and no f2zmsg:* entry, ever. This is the surface that renders third-party content, so #367's frame-confusion defect must find no privileged command to reach. http:default is URL-SCOPED to free2z's own API and media hosts and is the only reach it has; a bare, unscoped http:default is refused by wallet/zuuli/scripts/surface-capability-authority.mjs.",
   "platforms": ["iOS", "android"],
   "windows": ["main"],
-  "permissions": ["core:default", "deep-link:default", "opener:default"]
+  "permissions": [
+    "core:default",
+    "deep-link:default",
+    "opener:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://free2z.cash/*" },
+        { "url": "https://*.free2z.cash/*" },
+        { "url": "https://free2z.com/*" },
+        { "url": "https://*.free2z.com/*" }
+      ]
+    }
+  ]
 }

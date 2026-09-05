@@ -1,7 +1,20 @@
 {
   "identifier": "default",
-  "description": "Desktop capability for the main free2z window. Grants NOTHING privileged: no zcash:* entry and no f2zmsg:* entry, ever. wallet/zuuli/scripts/surface-capability-authority.mjs is the contract test that fails if one appears.",
+  "description": "Desktop capability for the main free2z window. Grants NOTHING privileged: no zcash:* entry and no f2zmsg:* entry, ever. wallet/zuuli/scripts/surface-capability-authority.mjs is the contract test that fails if one appears. The one non-core plugin permission here, http:default, is URL-SCOPED to free2z's own API and media hosts — the same checker refuses it as a bare string, because an http grant with no allow list is a grant nobody reviewed.",
   "platforms": ["linux", "macOS", "windows"],
   "windows": ["main"],
-  "permissions": ["core:default", "deep-link:default", "opener:default"]
+  "permissions": [
+    "core:default",
+    "deep-link:default",
+    "opener:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://free2z.cash/*" },
+        { "url": "https://*.free2z.cash/*" },
+        { "url": "https://free2z.com/*" },
+        { "url": "https://*.free2z.com/*" }
+      ]
+    }
+  ]
 }

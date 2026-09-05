@@ -1,6 +1,11 @@
-// Real social login (X / Google / GitHub) — desktop RFC 8252 loopback
-// transport on Tauri, a popup fallback on the web (see
-// `@/lib/oauth/transport.ts`), wired to `dj.apps.social` on the backend.
+// Real social login (X / Google / GitHub) over this surface's one transport,
+// the same-origin web popup (see `@/lib/oauth/transport.ts`), wired to
+// `dj.apps.social` on the backend. ZUULI's two NATIVE transports are absent
+// here on purpose: their commands hand an authorization code and its PKCE
+// verifier back to the renderer, and this is the process that renders remote
+// content (#367, #918). So in a packaged shell there is no transport, and no
+// button — `useSocialProviders()` answers all-unconfigured and the empty state
+// below is what a reader sees.
 //
 // A button renders ONLY for a provider `useSocialProviders()` reports as
 // configured for this exact callback transport. A valid all-unconfigured
