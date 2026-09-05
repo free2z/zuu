@@ -8,9 +8,9 @@ contradicts a claim elsewhere in the repository, this page is the one that was
 checked against the tree — and the other page is a bug.
 
 > **The one-line summary.** The three apps exist, build, and are held apart by
-> the required CI gate. **No intent has ever crossed between them**, because
-> there is no transport. Every cross-app feature you can see in the UI stops at
-> a single named seam and says so.
+> the required CI gate. **No intent can cross between them**, because there is
+> no transport. Every cross-app feature you can see in the UI stops at a single
+> named seam and says so.
 
 Per-app detail stays in the per-app documents:
 [`wallet/zuuli/STATUS.md`](../wallet/zuuli/STATUS.md),
