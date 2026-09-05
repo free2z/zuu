@@ -79,9 +79,12 @@ async fn enroll(engine: &Engine<MemoryBackend>, handle: &str) -> tauri_plugin_f2
         .expect("credential");
     engine
         .install_identity(IdentityInstall {
-            handle: handle.to_owned(),
-            identity_pk: hex::encode(account.identity.public().as_bytes()),
             credential: f2z_msg_mls::credential::encode(&credential).expect("encode"),
+            // The handle this enrollment asked for, which is what the engine
+            // compares the credential's own handle against (#936). It is the
+            // helper's argument rather than anything read back out of the
+            // credential, so the comparison stays a real one.
+            expected_handle: handle.to_owned(),
             wrap_key: *account.backup_wrap.as_bytes(),
             submitted_at: NOW,
         })
@@ -145,18 +148,46 @@ async fn a_refused_enrollment_mints_nothing() {
 
     // And it did not half-enroll: `install_identity` without a completed
     // `prepare_device` has no pending device to consume.
+    //
+    // The credential here is well-formed and attests the handle being asked
+    // for, deliberately. `install_identity` parses the credential and compares
+    // its handle *before* it looks for the pending device (#936), so a stub
+    // credential would fail on the parse and this assertion would pass without
+    // ever reaching the property it names.
     let account = AccountKeys::from_seed(&[7; 64], 0).expect("§4.2 keys");
+    let credential = account
+        .identity
+        .issue_device_credential(&DeviceCredentialRequest {
+            handle: Handle::new(b"someone".to_vec()).expect("handle"),
+            // No device was prepared, so there is no leaf key to bind. Any
+            // well-formed key does here: the refusal under test happens before
+            // the binding is checked.
+            device_pk: PublicKey::new([3; 32]),
+            device_kem_pk: KemPublicKey::new(vec![4; 32]).expect("kem key"),
+            not_before_ms: 0,
+            not_after_ms: u64::MAX / 2,
+        })
+        .expect("credential");
     let orphaned = engine
         .install_identity(IdentityInstall {
-            handle: "someone".to_owned(),
-            identity_pk: hex::encode(account.identity.public().as_bytes()),
-            credential: Vec::new(),
+            credential: f2z_msg_mls::credential::encode(&credential).expect("encode"),
+            expected_handle: "someone".to_owned(),
             wrap_key: *account.backup_wrap.as_bytes(),
             submitted_at: NOW,
         })
         .await
         .expect_err("no device was prepared, so none can be installed");
     assert_eq!(orphaned.code(), ErrorCode::Internal);
+    // §8 sends `internal` to the frontend with no detail, so the code alone
+    // cannot say *which* internal refusal this was — and every earlier check in
+    // `install_identity` also reports `internal`. Pinning the context is what
+    // keeps this assertion measuring the missing pending device rather than a
+    // credential that never got that far.
+    assert!(
+        orphaned.context().contains("without prepare_device"),
+        "refused before reaching the pending-device check: {}",
+        orphaned.context()
+    );
 }
 
 #[tokio::test]

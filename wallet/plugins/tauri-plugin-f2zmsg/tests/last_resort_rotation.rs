@@ -45,9 +45,8 @@ async fn enrolled_engine() -> Engine<MemoryBackend> {
     let wrap_key = *account.backup_wrap.as_bytes();
     engine
         .install_identity(IdentityInstall {
-            handle: "alice".to_owned(),
-            identity_pk: hex::encode(account.identity.public().as_bytes()),
             credential: f2z_msg_mls::credential::encode(&credential).expect("encode"),
+            expected_handle: "alice".to_owned(),
             wrap_key,
             submitted_at: NOW,
         })
