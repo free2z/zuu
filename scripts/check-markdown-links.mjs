@@ -265,15 +265,59 @@ function blankCodeSpans(line) {
 /// The rendered text of a heading, with the markup GitHub strips before slugging
 /// removed: code spans keep their contents, links keep their text, emphasis
 /// markers and raw HTML tags go.
+///
+/// # Underscores are not emphasis markers on sight, and this used to get it wrong
+///
+/// GitHub renders the heading and slugs the *text content* of the result, so an
+/// underscore survives into the anchor unless it actually delimited emphasis.
+/// Two cases where it does not, both of which an unconditional strip destroys:
+///
+/// - **Inside a code span.** No emphasis processing happens in a code span at
+///   all, so the contents are protected below rather than inlined before the
+///   emphasis strip runs.
+/// - **Between two word characters.** CommonMark forbids intraword `_`
+///   emphasis, so `snake_case` is literal text.
+///
+/// Confirmed against GitHub's own renderer (`POST /markdown`) rather than
+/// reasoned from the spec, because that is the only authority that settles it:
+///
+/// ```text
+/// ## 6. `device_kem_pk` is not resolved here  -> #6-device_kem_pk-is-not-resolved-here
+/// ## snake_case heading                       -> #snake_case-heading
+/// ## _leading emphasis_ here                  -> #leading-emphasis-here
+/// ```
+///
+/// The first two are the regression this guards; the third is the positive
+/// control that keeps the fix from becoming "never strip an underscore".
 function headingText(raw) {
   let text = raw;
-  text = text.replace(/`+([^`]*)`+/g, "$1");
+
+  // Protected, not inlined: unwrapping a code span here would expose its
+  // contents to the emphasis strip below, which is exactly how
+  // `device_kem_pk` lost its underscores.
+  const codeSpans = [];
+  text = text.replace(/`+([^`]*)`+/g, (_span, inner) => {
+    codeSpans.push(inner);
+    return `\u0000${codeSpans.length - 1}\u0000`;
+  });
+
   text = text.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
   text = text.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
   text = text.replace(/\[([^\]]*)\]\[[^\]]*\]/g, "$1");
   text = text.replace(/<[^>]+>/g, "");
-  text = text.replace(/\*\*|__|\*|_|~~/g, "");
+  text = text.replace(/\*\*|\*|~~/g, "");
+  text = text.replace(/_+/g, (run, index, whole) => {
+    const wordish = (character) =>
+      character !== undefined && /[\p{L}\p{N}]/u.test(character);
+    // Intraword, so never emphasis, so literal text that must reach the slug.
+    return wordish(whole[index - 1]) && wordish(whole[index + run.length])
+      ? run
+      : "";
+  });
   text = text.replace(/\s+#+\s*$/, "");
+  text = text.replace(/\u0000(\d+)\u0000/g, (_token, index) =>
+    codeSpans[Number(index)],
+  );
   return text.trim();
 }
 
@@ -1217,12 +1261,26 @@ function selfTest() {
   expectSlug("Verifying before you push", "verifying-before-you-push"); // AGENTS.md
   expectSlug("4.2 Derivation (proposed)", "42-derivation-proposed"); // docs/e2ee/ARCHITECTURE.md:194
   expectSlug("⭐ Star the Project", "-star-the-project"); // ts/react/free2z/README.md:9
-  console.log("self-test: the GitHub slug algorithm matches on 8 verbatim headings.");
+  expectSlug(
+    "6. `device_kem_pk` is not resolved here", // docs/e2ee/decisions/0016-…:501
+    "6-device_kem_pk-is-not-resolved-here",
+  );
+  console.log("self-test: the GitHub slug algorithm matches on 9 verbatim headings.");
 
   // And one synthetic control for a character class the tree does not yet put
   // in a heading. `§` is U+00A7, inside the range GitHub's slugger strips, so a
   // future `## §4.2 Derivation` must slug the same as the numbered form above.
   expectSlug("§4.2 Derivation (proposed)", "42-derivation-proposed");
+
+  // Underscores, all three cases, because an unconditional emphasis strip
+  // passed every heading above while silently mangling the first two. Each was
+  // rendered by GitHub's own `POST /markdown` before being pinned here; see
+  // `headingText`. The third is the positive control — without it, "keep every
+  // underscore" would pass.
+  expectSlug("snake_case heading", "snake_case-heading");
+  expectSlug("a `device_kem_pk` in a code span", "a-device_kem_pk-in-a-code-span");
+  expectSlug("_leading emphasis_ here", "leading-emphasis-here");
+  expectSlug("__bold__ here", "bold-here");
 
   console.log(`check-markdown-links self-test: ${cases} case(s) passed.`);
 }
