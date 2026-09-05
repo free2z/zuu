@@ -77,6 +77,16 @@ futures-util = { version = "0.3", default-features = false, features = [
 # the import moved. Note `rand::Rng` in 0.10 is the *core* trait — 0.9's
 # extension trait of that name is now `RngExt` — so a future `random_range` call
 # needs the other import, not this one.
+#
+# **The "one RNG" claim above is now true on macOS and Windows only, and #937 is
+# what qualified it.** The Linux secret-store backend below reaches freedesktop
+# Secret Service over D-Bus, and `secret-service 4` and `zbus 4` both pull
+# `rand 0.8.8` — so a Linux build carries two RNG implementations again. It is
+# confined to the D-Bus client, it generates nothing this crate's protocol
+# depends on (`rand::rng()` here is still 0.10 on every target), and ZUULI's
+# binary already carried exactly this because `tauri-plugin-zcash` resolves the
+# same `keyring` features. Recorded rather than left for someone to rediscover
+# from a lockfile diff.
 rand = "0.10"
 zeroize = { version = "1.8", features = ["derive"] }
 hex = "0.4"
@@ -179,6 +189,39 @@ f2z-relay-proto = { path = "../../../rs/crates/f2z-relay-proto", version = "0.1.
 # workspace in #853; the reasoning, and the byte-compatibility measurement that
 # justified it, live at that declaration.
 tls_codec = { version = "0.5", default-features = false, features = ["derive"] }
+
+# ---------------------------------------------------------------------------
+# Device wrap-key custody (`src/custody.rs`, ADR 0016 §3, #937).
+#
+# **This is a second copy of `tauri-plugin-zcash`'s feature matrix
+# (`../tauri-plugin-zcash/Cargo.toml:72-86`), and the duplication is the
+# requirement rather than an oversight.** `cash.free2z.e2e2z` must not link that
+# crate — `wallet/e2e2z/scripts/authority-boundary.node-test.mjs` fails the
+# build if it does — so the messaging plugin cannot reach its `SecureStore` and
+# needs its own. The features are chosen for the same reasons:
+# `linux-native-sync-persistent` because `linux-native` alone is kernel
+# keyutils and does not survive a reboot, which for a wrap key would mean
+# re-enrollment on every boot; `crypto-rust` to keep OpenSSL out of the graph.
+#
+# **iOS and Android are absent on purpose.** `keyring`'s `apple-native` builds
+# for iOS, but it chooses the item's accessibility class, and that class is the
+# entire decision here (`src/custody.rs` §2) — background queue processing needs
+# `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` and no user-presence
+# control, which this crate cannot express through `keyring`. Mobile custody is
+# the Tauri mobile plugin in `ios/` and `android/` instead.
+# ---------------------------------------------------------------------------
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6.3", features = [
+  "linux-native-sync-persistent",
+  "crypto-rust",
+] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3.6.3", features = ["windows-native"] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

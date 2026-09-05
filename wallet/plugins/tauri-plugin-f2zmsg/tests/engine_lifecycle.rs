@@ -14,6 +14,7 @@ use f2z_codec::types::PublicKey;
 use f2z_kt_core::types::{Handle, KemPublicKey};
 use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
 use f2z_msg_store::MemoryBackend;
+use tauri_plugin_f2zmsg::custody::WrapKeyCustody;
 use tauri_plugin_f2zmsg::engine::{Engine, IdentityInstall};
 use tauri_plugin_f2zmsg::events::{EventSink, NullSink};
 use tauri_plugin_f2zmsg::models::{EngineState, ErrorCode, Platform};
@@ -27,6 +28,7 @@ fn engine() -> Engine<MemoryBackend> {
         Platform::ZuuliDesktop,
     )
     .expect("engine")
+    .with_wrap_key_custody(WrapKeyCustody::in_memory())
 }
 
 /// Enrollment as the app crate performs it (§2.2): the seed stays here, and

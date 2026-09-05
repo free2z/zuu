@@ -16,5 +16,12 @@ fn main() {
         "cargo:rustc-env=F2ZMSG_BUILD_COMMANDS={}",
         COMMANDS.join(",")
     );
-    tauri_plugin::Builder::new(COMMANDS).build();
+    // The mobile halves of device wrap-key custody (#937). These carry no
+    // webview-invokable command and therefore no permission: `run_mobile_plugin`
+    // reaches them from Rust, not from the frontend, so nothing in `COMMANDS`
+    // describes them and nothing in a capability file authorizes them.
+    tauri_plugin::Builder::new(COMMANDS)
+        .android_path("android")
+        .ios_path("ios")
+        .build();
 }

@@ -14,6 +14,7 @@ use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
 use f2z_msg_store::MemoryBackend;
 use f2z_relay_testkit::config::RelayConfig;
 use f2z_relay_testkit::fake::FakeRelay;
+use tauri_plugin_f2zmsg::custody::WrapKeyCustody;
 use tauri_plugin_f2zmsg::engine::{Engine, IdentityInstall};
 use tauri_plugin_f2zmsg::events::{EventSink, NullSink};
 use tauri_plugin_f2zmsg::models::{ErrorCode, Platform};
@@ -27,7 +28,8 @@ async fn enrolled_engine() -> Engine<MemoryBackend> {
         Arc::new(NullSink) as Arc<dyn EventSink>,
         Platform::ZuuliDesktop,
     )
-    .expect("engine");
+    .expect("engine")
+    .with_wrap_key_custody(WrapKeyCustody::in_memory());
     let device = engine.prepare_device().await.expect("device keys");
     let account = AccountKeys::from_seed(&[7; 64], 0).expect("account");
     let credential = account
@@ -187,6 +189,7 @@ async fn a_relay_identity_substitution_is_refused_on_the_managed_connection() {
         Platform::ZuuliDesktop,
     )
     .expect("engine")
+    .with_wrap_key_custody(WrapKeyCustody::in_memory())
     .with_insecure_directory_relays_for_harness();
 
     let refused = engine

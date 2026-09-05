@@ -6,6 +6,23 @@ fn app_context<R: tauri::Runtime>() -> tauri::Context<R> {
     tauri::generate_context!()
 }
 
+/// Where ZUULI's per-device `DeviceWrapKey` lives in the OS secret store
+/// (ADR 0016 §3, #937).
+///
+/// **The host names it, not the plugin, and that is the decision.**
+/// `tauri-plugin-f2zmsg` is linked into `cash.free2z.e2e2z` as well; a
+/// plugin-level constant would give both apps the *same* secret-store item, and
+/// on the freedesktop Secret Service — which has no per-application isolation —
+/// that means mutual overwrite, or one app silently opening the other's device
+/// wrap key. The precedent is `tauri-plugin-zcash`'s
+/// `const SERVICE = "cash.free2z.zuuli.seed.v1"`: one app, one purpose, one
+/// version.
+///
+/// It must begin with this app's bundle identifier. The plugin refuses one that
+/// does not, and enrollment then fails closed rather than sharing a key with
+/// the other application.
+const WRAP_KEY_NAMESPACE: &str = "cash.free2z.zuuli.f2zmsg.wrap.v1";
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -45,7 +62,9 @@ pub fn run() {
         // down on every alt-tab would drop relay connections and stop
         // acknowledging inbound messages, leaving ciphertext on relays. §9
         // rule 6: `Exit` / `ExitRequested` only.
-        .plugin(tauri_plugin_f2zmsg::init())
+        // The device wrap-key namespace is this app's to choose; see
+        // `WRAP_KEY_NAMESPACE`.
+        .plugin(tauri_plugin_f2zmsg::init(WRAP_KEY_NAMESPACE))
         // Loopback (127.0.0.1) OAuth redirect capture for desktop social login
         // (X / Google / GitHub) — ZUULI-specific, see src/oauth.rs. Inert
         // until invoked; the frontend only calls these commands once the
@@ -444,6 +463,7 @@ mod tests {
         let app = tauri::test::mock_builder()
             .plugin(tauri_plugin_f2zmsg::init_with_store_dir(
                 store.path().to_path_buf(),
+                super::WRAP_KEY_NAMESPACE,
             ))
             .invoke_handler(tauri::generate_handler![
                 super::messaging::f2zmsg_enrollment_status,
@@ -590,6 +610,7 @@ mod tests {
         let app = tauri::test::mock_builder()
             .plugin(tauri_plugin_f2zmsg::init_with_store_dir(
                 store.path().to_path_buf(),
+                super::WRAP_KEY_NAMESPACE,
             ))
             .build(super::app_context())
             .expect("mock ZUULI app over a usable messaging store");

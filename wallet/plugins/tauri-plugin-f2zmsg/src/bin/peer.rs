@@ -57,6 +57,7 @@ use f2z_kt_core::types::{Handle, KemPublicKey, LogId};
 use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
 use f2z_msg_store::SqliteBackend;
 use serde::{Deserialize, Serialize};
+use tauri_plugin_f2zmsg::custody::WrapKeyCustody;
 use tauri_plugin_f2zmsg::directory::{Directory, ResolvedIdentity, ResolvedPeer};
 use tauri_plugin_f2zmsg::engine::{Engine, IdentityInstall};
 use tauri_plugin_f2zmsg::error::{Error, Result};
@@ -273,6 +274,7 @@ async fn run() -> std::result::Result<String, String> {
     let sink = Arc::new(RecordingSink::new());
     let engine = Engine::new(backend, sink.clone(), Platform::ZuuliDesktop)
         .map_err(|error| describe(&error))?
+        .with_wrap_key_custody(WrapKeyCustody::in_memory())
         .with_insecure_directory_relays_for_harness()
         .with_directory(Arc::new(FileDirectory {
             shared: options.shared.clone(),

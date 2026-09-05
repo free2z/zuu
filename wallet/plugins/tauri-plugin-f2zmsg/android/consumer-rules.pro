@@ -1,0 +1,1 @@
+-keep class cash.free2z.f2zmsg.** { *; }
