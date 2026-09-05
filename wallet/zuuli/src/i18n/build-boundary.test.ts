@@ -567,21 +567,21 @@ describe("locale build boundary", () => {
   });
 
   it.each([
-    ["a decorative key read", "void MESSAGE_KEYS.navSearchPlaceholder;"],
+    ["a decorative key read", "void MESSAGE_KEYS.navOpenWallet;"],
     [
       "a discarded translation call",
-      "void t(MESSAGE_KEYS.navSearchPlaceholder);",
+      "void t(MESSAGE_KEYS.navOpenWallet);",
     ],
   ])(
-    "rejects a hardcoded TopBar placeholder hidden by %s",
+    "rejects a hardcoded TopBar label hidden by %s",
     (_name, decoration) => {
       const fileName = "../components/layout/TopBar.tsx";
       const topBar = productionSources[fileName];
       expect(topBar).toBeTypeOf("string");
       let mutant = replaceExact(
         topBar,
-        "placeholder={t(MESSAGE_KEYS.navSearchPlaceholder)}",
-        'placeholder="Search creators and pages…"',
+        "aria-label={t(MESSAGE_KEYS.navOpenWallet)}",
+        'aria-label="Open wallet"',
       );
       mutant = replaceExact(
         mutant,
@@ -593,7 +593,7 @@ describe("locale build boundary", () => {
           { ...productionSources, [fileName]: mutant },
           Object.keys(MESSAGE_KEYS),
         ),
-      ).toThrow(/navSearchPlaceholder/);
+      ).toThrow(/navOpenWallet/);
     },
   );
 

@@ -54,26 +54,26 @@ describe("TopBar account chrome", () => {
     expect(markup).not.toContain("0.00");
     expect(markup).not.toContain('href="/wallet/fund"');
     expect(markup).not.toContain('href="/wallet"');
-    expect(markup).toContain('aria-label="Search"');
     expect(markup.includes('aria-label="Go back"')).toBe(pushed);
   });
 
-  it("yields all search chrome to the route while /search is active", () => {
-    const markup = renderTopBar({ pushed: true, route: "/search?q=zcash" });
+  /**
+   * #904 phase 4: search moved to free2z with the route it entered. The shell
+   * of the app that holds the seed hosts no query field, and the assertion is
+   * written against the rendered markup rather than the import list so that
+   * reintroducing the box under any name fails here.
+   */
+  it("hosts no search chrome anywhere in the vault shell", () => {
+    for (const route of ["/wallet", "/wallet/fund", "/about"]) {
+      const markup = renderTopBar({ pushed: true, route });
 
-    expect(markup).not.toContain('role="search"');
-    expect(markup).not.toContain('aria-label="Search"');
-    expect(markup).toContain('aria-label="Go back"');
-    expect(markup).toContain('aria-label="Log in"');
+      expect(markup).not.toContain('role="search"');
+      expect(markup).not.toContain('type="search"');
+      expect(markup).not.toContain('href="/search"');
+      expect(markup).not.toContain("placeholder=");
+      expect(markup).toContain('aria-label="Go back"');
+      expect(markup).toContain('aria-label="Log in"');
+    }
   });
 
-  it("renders the visible search placeholder from the selected catalog", () => {
-    const english = renderTopBar({ locale: "en" });
-    const spanish = renderTopBar({ locale: "es" });
-
-    expect(english).toContain('placeholder="Search creators and pages…"');
-    expect(english).not.toContain('placeholder="Buscar creadores y páginas…"');
-    expect(spanish).toContain('placeholder="Buscar creadores y páginas…"');
-    expect(spanish).not.toContain('placeholder="Search creators and pages…"');
-  });
 });

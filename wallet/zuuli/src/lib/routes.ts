@@ -4,19 +4,18 @@
  *
  * `home` represents App's index route; the remaining values are passed
  * directly to React Router.
+ *
+ * ZUULI is the wallet authority (#904). The content surfaces — articles,
+ * creator, live, AI, search, profile and KYC — moved to `wallet/free2z`, and
+ * the routes that mounted them are deleted rather than redirected: a route
+ * that still exists is a route a confused frame can navigate the seed-holding
+ * WebView to (#367).
  */
 export const APP_ROUTES = {
   home: "/",
   login: "/login",
   about: "/about",
-  search: "/search/*",
-  creator: "/creator/:username/*",
-  profile: "/profile",
-  kyc: "/kyc/*",
   wallet: "/wallet/*",
-  ai: "/ai/*",
-  live: "/live/*",
-  articles: "/articles/*",
   buy: "/buy/*",
 } as const;
 

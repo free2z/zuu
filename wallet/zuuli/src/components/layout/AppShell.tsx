@@ -9,12 +9,11 @@ import { LegacyWalletNotice } from "./LegacyWalletNotice";
 function AppShellContent() {
   const location = useLocation();
   const { registerViewport } = useRouteScroll();
-  // AI and login each own a bounded internal scroll region while the header
-  // and mobile tabs stay pinned. Keep those routes in a plain, height-bound
-  // main instead of nesting their scroll owners inside the generic page
-  // ScrollArea used by every other route.
-  const isFullBleed =
-    location.pathname.startsWith("/ai") || location.pathname === "/login";
+  // Login owns a bounded internal scroll region while the header and mobile
+  // tabs stay pinned. Keep that route in a plain, height-bound main instead of
+  // nesting its scroll owner inside the generic page ScrollArea used by every
+  // other route. (`/ai` was the other such owner until #904 moved AI out.)
+  const isFullBleed = location.pathname === "/login";
 
   return (
     <div className="app-viewport flex bg-background" data-app-frame>

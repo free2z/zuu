@@ -1,15 +1,18 @@
 import { Hero } from "./Hero";
-import { LiveRail } from "./LiveRail";
-import { ArticlesGrid } from "./ArticlesGrid";
-import { AiCta } from "./AiCta";
-import { CreatorsRow } from "./CreatorsRow";
+import { VaultActions } from "./VaultActions";
 import { Section } from "./parts";
 
 /**
- * Discover / Home — the premium landing dashboard mounted at `/`.
- * A hero band, a live-now rail, fresh articles, an AI CTA, and a
- * creators-to-watch row, each loading independently and settling in with a
- * short, small entrance (suppressed entirely under prefers-reduced-motion).
+ * Home — the vault overview mounted at `/`.
+ *
+ * Until #904 this route was a discovery dashboard: a live-now rail, an article
+ * grid, an AI call to action and a creators row, every one of them rendering
+ * remote copy and remote images inside the WebView that holds the seed. Those
+ * rails moved to `wallet/free2z` and are deleted here rather than hidden — a
+ * surface that still exists is a surface a confused frame can reach (#367).
+ *
+ * What is left is authored entirely by this app: the account greeting, the two
+ * balances, and the wallet destinations they lead to.
  */
 export default function HomeFeature() {
   return (
@@ -18,16 +21,7 @@ export default function HomeFeature() {
         <Hero />
       </Section>
       <Section delay={40}>
-        <LiveRail />
-      </Section>
-      <Section delay={80}>
-        <ArticlesGrid />
-      </Section>
-      <Section delay={120}>
-        <AiCta />
-      </Section>
-      <Section delay={160}>
-        <CreatorsRow />
+        <VaultActions />
       </Section>
     </div>
   );

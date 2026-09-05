@@ -3,12 +3,11 @@
     "loading": "Chargement",
     "pending": "En attente",
     "retry": "Réessayer",
-    "retrying": "Nouvelle tentative",
-    "tryAgain": "Réessayez."
+    "retrying": "Nouvelle tentative"
   },
   "error": {
     "notFound": {
-      "back": "Retour à Découvrir",
+      "back": "Retour à l'accueil",
       "description": "Cette page n'existe pas ou a été déplacée. Revenons sur la bonne voie.",
       "title": "Page introuvable"
     }
@@ -17,23 +16,16 @@
     "about": "À propos et retours",
     "aboutAccessible": "À propos et retours",
     "accountMenu": "Menu du compte",
-    "ai": "IA",
-    "aiAccessible": "Intelligence artificielle",
     "app": "Navigation de l'application",
-    "articles": "Articles",
     "back": "Retour",
     "buyTuzis": "Acheter des 2Z",
     "buyTuzisBalance": "Acheter des 2Z. Solde {balance}",
-    "editProfile": "Modifier le profil",
     "groups": {
       "account": "Compte",
-      "explore": "Explorer",
       "money": "Argent",
-      "tools": "Outils"
+      "overview": "Aperçu"
     },
     "home": "Accueil",
-    "live": "Diffusions en direct",
-    "liveShort": "Direct",
     "login": "Se connecter",
     "more": "Plus",
     "moreAccessible": "Plus de navigation",
@@ -41,47 +33,10 @@
     "moreNavigation": "Plus de navigation",
     "openWallet": "Ouvrir le portefeuille",
     "primary": "Navigation principale",
-    "profile": "Profil",
-    "profileAccessible": "Modifier le profil",
-    "revenueShare": "Partage des revenus",
-    "search": "Rechercher des créateurs, des pages et des sujets",
-    "searchAction": "Rechercher",
-    "searchPlaceholder": "Rechercher des créateurs et des pages…",
     "signOut": "Se déconnecter",
     "wallet": "Portefeuille",
     "walletAccessible": "Portefeuille Zcash",
     "zcashLogin": "Connexion Zcash"
-  },
-  "articles": {
-    "searchAccessible": "Rechercher des articles"
-  },
-  "live": {
-    "failure": {
-      "endedRoom": "Cette diffusion est terminée ou n'accepte plus de spectateurs.",
-      "expiredTicket": "L'accès a expiré avant le début de la connexion. Réessayez.",
-      "lifecycleRace": "La diffusion a changé pendant votre connexion. Revenez aux diffusions en direct et ouvrez-la à nouveau.",
-      "malformedTicket": "Le serveur a renvoyé un accès non valide. Réessayez dans un instant.",
-      "offline": "Vous êtes hors ligne. Reconnectez-vous, puis réessayez.",
-      "policy": "L'application a bloqué la connexion en direct. Vérifiez les autorisations ou les paramètres de sécurité du réseau, puis réessayez.",
-      "replayedTicket": "Le serveur n'a pas émis de nouvel accès. Réessayez dans un instant.",
-      "timeout": "Le délai de connexion à la diffusion a expiré. Réessayez.",
-      "tokenRejected": "Le service de diffusion a refusé cette connexion. Réessayez.",
-      "transport": "Le service de diffusion est inaccessible. Changez de réseau ou réessayez.",
-      "unknown": "La connexion à la diffusion a échoué. Réessayez."
-    },
-    "stage": {
-      "connecting": "Connexion à la diffusion…",
-      "ended": "La diffusion est terminée.",
-      "hostRecoveryHint": "La reconnexion utilise la salle existante et ne lance pas une autre diffusion.",
-      "reconnect": "Se reconnecter",
-      "refreshingTicket": "Obtention d'un nouvel accès…",
-      "tryAgain": "Réessayer",
-      "waitingForConnection": "En attente de connexion"
-    }
-  },
-  "search": {
-    "all": "Rechercher dans tout free2z",
-    "clear": "Effacer la recherche"
   },
   "shell": {
     "legacyWallet": {

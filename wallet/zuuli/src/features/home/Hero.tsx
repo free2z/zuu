@@ -60,12 +60,11 @@ export function Hero() {
   return (
     <div className="relative overflow-hidden rounded-2xl border border-border bg-card px-6 py-10 md:px-10 md:py-14">
       <div className="max-w-2xl space-y-3">
-        <p className="eyebrow text-muted-foreground">Discover</p>
+        <p className="eyebrow text-muted-foreground">Your vault</p>
         <h1 className="text-3xl font-semibold md:text-4xl">{greeting}</h1>
         <p className="max-w-xl text-sm text-muted-foreground md:text-base">
-          Livestreams, long-form writing, and any AI model — metered in 2Zs,
-          shielded by default. Your key is your identity; the provider never
-          sees you.
+          Your seed and your spending keys live in this app and never leave it.
+          ZUULI signs and sends; it renders nothing it did not write.
         </p>
       </div>
 

@@ -1,20 +1,9 @@
 import type { LucideIcon } from "lucide-react";
-import {
-  BookOpen,
-  Home,
-  Info,
-  LogIn,
-  Menu,
-  Radio,
-  ShieldCheck,
-  Sparkles,
-  UserCog,
-  Wallet,
-} from "lucide-react";
+import { Home, Info, LogIn, Menu, Wallet } from "lucide-react";
 import { MESSAGE_KEYS, type MessageKey } from "@/i18n/messages";
 
 export type NavigationAuth = "always" | "signed-in" | "signed-out";
-export type NavigationGroup = "explore" | "tools" | "money" | "account";
+export type NavigationGroup = "overview" | "money" | "account";
 
 type DesktopPlacement = {
   group: NavigationGroup;
@@ -49,10 +38,15 @@ export type NavigationMenu = NavigationBase & {
 export type NavigationItem = NavigationRoute | NavigationMenu;
 
 /**
- * The single placement contract for app navigation. Desktop exposes grouped
- * routes; mobile consumes four stable routes plus the More menu. Search stays
- * in TopBar, and 2Z funding lives inside Wallet rather than as a top-level app
- * destination.
+ * The single placement contract for app navigation.
+ *
+ * ZUULI is the wallet authority (#904): the content destinations — Live,
+ * Articles, AI, Search, Profile and Revenue share — moved to `wallet/free2z`,
+ * so they are absent here *and* their routes no longer exist. A nav entry
+ * pointing at a route this app no longer mounts is a NotFound the type system
+ * cannot see, so the two are deleted together. What remains is the vault
+ * itself: the overview, the wallet, and the app's own About page. 2Z funding
+ * stays inside Wallet rather than as a top-level destination.
  */
 export const NAVIGATION: readonly NavigationItem[] = [
   {
@@ -64,41 +58,8 @@ export const NAVIGATION: readonly NavigationItem[] = [
     icon: Home,
     end: true,
     auth: "always",
-    desktop: { group: "explore", order: 0 },
+    desktop: { group: "overview", order: 0 },
     mobile: { area: "primary", labelKey: MESSAGE_KEYS.navHome, order: 0 },
-  },
-  {
-    id: "live",
-    kind: "route",
-    to: "/live",
-    labelKey: MESSAGE_KEYS.navLive,
-    accessibleLabelKey: MESSAGE_KEYS.navLive,
-    icon: Radio,
-    auth: "always",
-    desktop: { group: "explore", order: 1 },
-    mobile: { area: "primary", labelKey: MESSAGE_KEYS.navLiveShort, order: 1 },
-  },
-  {
-    id: "articles",
-    kind: "route",
-    to: "/articles",
-    labelKey: MESSAGE_KEYS.navArticles,
-    accessibleLabelKey: MESSAGE_KEYS.navArticles,
-    icon: BookOpen,
-    auth: "always",
-    desktop: { group: "explore", order: 2 },
-    mobile: { area: "more", order: 0 },
-  },
-  {
-    id: "ai",
-    kind: "route",
-    to: "/ai",
-    labelKey: MESSAGE_KEYS.navAi,
-    accessibleLabelKey: MESSAGE_KEYS.navAiAccessible,
-    icon: Sparkles,
-    auth: "always",
-    desktop: { group: "tools", order: 0 },
-    mobile: { area: "primary", labelKey: MESSAGE_KEYS.navAi, order: 2 },
   },
   {
     id: "wallet",
@@ -109,29 +70,7 @@ export const NAVIGATION: readonly NavigationItem[] = [
     icon: Wallet,
     auth: "always",
     desktop: { group: "money", order: 0 },
-    mobile: { area: "primary", labelKey: MESSAGE_KEYS.navWallet, order: 3 },
-  },
-  {
-    id: "profile",
-    kind: "route",
-    to: "/profile",
-    labelKey: MESSAGE_KEYS.navProfile,
-    accessibleLabelKey: MESSAGE_KEYS.navProfileAccessible,
-    icon: UserCog,
-    auth: "signed-in",
-    desktop: { group: "account", order: 0 },
-    mobile: { area: "more", order: 1 },
-  },
-  {
-    id: "revenue-share",
-    kind: "route",
-    to: "/kyc",
-    labelKey: MESSAGE_KEYS.navRevenueShare,
-    accessibleLabelKey: MESSAGE_KEYS.navRevenueShare,
-    icon: ShieldCheck,
-    auth: "signed-in",
-    desktop: { group: "account", order: 1 },
-    mobile: { area: "more", order: 2 },
+    mobile: { area: "primary", labelKey: MESSAGE_KEYS.navWallet, order: 1 },
   },
   {
     id: "about",
@@ -142,7 +81,7 @@ export const NAVIGATION: readonly NavigationItem[] = [
     icon: Info,
     auth: "always",
     desktop: { group: "account", order: 2 },
-    mobile: { area: "more", order: 3 },
+    mobile: { area: "more", order: 1 },
   },
   {
     id: "sign-in",
@@ -153,7 +92,7 @@ export const NAVIGATION: readonly NavigationItem[] = [
     icon: LogIn,
     auth: "signed-out",
     desktop: { group: "account", order: 0 },
-    mobile: { area: "more", order: 1 },
+    mobile: { area: "more", order: 0 },
   },
   {
     id: "more",
@@ -163,20 +102,18 @@ export const NAVIGATION: readonly NavigationItem[] = [
     icon: Menu,
     auth: "always",
     desktop: null,
-    mobile: { area: "primary", labelKey: MESSAGE_KEYS.navMore, order: 4 },
+    mobile: { area: "primary", labelKey: MESSAGE_KEYS.navMore, order: 2 },
   },
 ];
 
 export const NAVIGATION_GROUP_LABEL_KEYS: Record<NavigationGroup, MessageKey> = {
-  explore: MESSAGE_KEYS.navGroupExplore,
-  tools: MESSAGE_KEYS.navGroupTools,
+  overview: MESSAGE_KEYS.navGroupOverview,
   money: MESSAGE_KEYS.navGroupMoney,
   account: MESSAGE_KEYS.navGroupAccount,
 };
 
 export const NAVIGATION_GROUP_ORDER: readonly NavigationGroup[] = [
-  "explore",
-  "tools",
+  "overview",
   "money",
   "account",
 ];

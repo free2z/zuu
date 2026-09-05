@@ -188,7 +188,7 @@ function MobileMoreRoute({
   );
 }
 
-/** Five stable destinations for narrow/mobile widths. */
+/** The stable destinations for narrow/mobile widths. */
 export function MobileTabBar() {
   const { t } = useTranslation();
   const signedIn = useSession((state) => Boolean(state.user));
@@ -200,9 +200,15 @@ export function MobileTabBar() {
     isNavigationRouteActive(item, location.pathname),
   );
 
+  // The column count follows the placement contract rather than a literal:
+  // #904 removed the content destinations, and the hard-coded `grid-cols-5`
+  // this replaces would have left two dead columns behind them.
   return (
     <nav
-      className="app-bottom-nav fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-card/95 backdrop-blur md:hidden"
+      className="app-bottom-nav fixed inset-x-0 bottom-0 z-40 grid border-t border-border bg-card/95 backdrop-blur md:hidden"
+      style={{
+        gridTemplateColumns: `repeat(${primaryItems.length}, minmax(0, 1fr))`,
+      }}
       aria-label={t(MESSAGE_KEYS.navPrimary)}
       data-app-bottom-nav
     >

@@ -24,22 +24,34 @@ class MemoryStorage {
 
 describe("post-login destination", () => {
   it.each([
-    "/ai",
     "/wallet/fund",
     "/wallet/fund/activity",
     "/wallet/fund/send",
+  ] as const)("accepts the exact paid destination %s", (returnTo) => {
+    expect(loginDestinationFromState({ returnTo })).toBe(returnTo);
+  });
+
+  /**
+   * #904 phase 4 deleted these routes from this app. A `returnTo` naming one
+   * outlives the deletion in `localStorage` and would land a *successful*
+   * sign-in on a NotFound, so the allowlist has to shrink with the router.
+   */
+  it.each([
+    "/ai",
     "/articles/post-1",
     "/articles/-private_notes",
     "/creator/alice",
     "/creator/@alice+news",
     `/creator/${"a".repeat(150)}`,
     "/creator/%C3%A9lodie",
-    "/creator/%C3%A9lodie+news",
-    "/live/%F0%90%90%80@news",
     "/live/alice",
     "/live/_alice",
-  ] as const)("accepts the exact paid destination %s", (returnTo) => {
-    expect(loginDestinationFromState({ returnTo })).toBe(returnTo);
+    "/search",
+    "/profile",
+    "/kyc",
+  ] as const)("refuses the removed content destination %s", (returnTo) => {
+    expect(loginDestinationFromState({ returnTo })).toBe("/");
+    expect(safeLoginDestination(returnTo)).toBe("/");
   });
 
   it("normalizes the legacy exact Buy route for in-flight logins", () => {
@@ -57,14 +69,6 @@ describe("post-login destination", () => {
     {},
     { returnTo: "/" },
     { returnTo: "/buy/" },
-    { returnTo: "/articles/a/b" },
-    { returnTo: "/articles/privacy~today" },
-    { returnTo: "/creator/alice?admin=1" },
-    { returnTo: "/creator/élodie" },
-    { returnTo: "/creator/%C3%A9lodie%2Bnews" },
-    { returnTo: "/live/%F0%90%90%80%40news" },
-    { returnTo: `/creator/${"a".repeat(151)}` },
-    { returnTo: "/live/%61lice" },
     { returnTo: "https://evil.example/wallet/fund" },
     { returnTo: "//evil.example/wallet/fund" },
     { returnTo: "/wallet/fund?next=https://evil.example" },
@@ -96,22 +100,12 @@ describe("post-login destination", () => {
   });
 
   it("uses the same allowlist for direct and persisted redirect input", () => {
-    expect(safeLoginDestination("/articles/-privacy_today")).toBe(
-      "/articles/-privacy_today",
+    expect(safeLoginDestination("/wallet/fund/activity")).toBe(
+      "/wallet/fund/activity",
     );
-    expect(safeLoginDestination("//evil.example/articles/privacy")).toBe("/");
+    expect(safeLoginDestination("//evil.example/wallet/fund")).toBe("/");
+    expect(safeLoginDestination("/wallet/fund/")).toBe("/");
   });
-
-  it.each([
-    ["/articles/privacy/", "/articles/privacy"],
-    ["/creator/alice/", "/creator/alice"],
-    ["/live/alice/", "/live/alice"],
-  ] as const)(
-    "canonicalizes the valid trailing-slash route %s",
-    (input, expected) => {
-      expect(safeLoginDestination(input)).toBe(expected);
-    },
-  );
 
   it("migrates a pending legacy Buy destination once", () => {
     const storage = new MemoryStorage();

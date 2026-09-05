@@ -30,8 +30,8 @@ describe("NotFound localization", () => {
     expect(document.querySelector("p.max-w-sm")?.textContent).toBe(
       "Esta página no existe o se ha movido. Volvamos al camino correcto.",
     );
-    expect(link?.textContent).toBe("Volver a Descubrir");
-    expect(link?.getAttribute("aria-label")).toBe("Volver a Descubrir");
+    expect(link?.textContent).toBe("Volver al inicio");
+    expect(link?.getAttribute("aria-label")).toBe("Volver al inicio");
     expect(document.body.textContent).not.toContain("Page not found");
   });
 
