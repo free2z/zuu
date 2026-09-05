@@ -1,80 +1,95 @@
 # ZUU
 
-**The Zcash User Universe**
+**The Zcash User Universe** — a synthetic monorepo where Free2Z's applications
+are built against the Zcash ecosystem *from source*.
 
-ZUU is a synthetic monorepo for building Free2Z products against the Zcash
-ecosystem from source. It brings our applications, shared wallet code,
-documentation, and upstream Zcash projects into one integration tree.
+Thirty upstream repositories are vendored as Git submodules under [`z/`](z/), so
+our apps compile against real upstream HEAD instead of published packages. We
+stay on HEAD and contribute fixes upstream rather than pinning to old commits —
+[AGENTS.md](AGENTS.md) is the doctrine.
 
-Our flagship app is [ZUULI](wallet/zuuli/): a Zcash-native desktop and mobile
-app that combines a self-custody wallet with the free2z platform's AI,
-livestreaming, articles, and 2Z economy. ZUULI is experimental; its implemented
-surfaces and known release gaps are tracked in
-[its status document](wallet/zuuli/STATUS.md).
+## Three apps, one seed, no shared privilege
+
+ZUULI used to be one Tauri app that held the Zcash seed **and** rendered
+third-party content. [#367](https://github.com/free2z/zuu/issues/367) showed
+that cannot hold: Wry injects Tauri's IPC bridge into *every* iframe, and
+Android's IPC reports the top-level URL as the origin — so a remote subframe
+resolves as the trusted main window and can invoke privileged commands. The
+generalisation is that any embed policy permissive enough to be useful is too
+permissive to sit next to seed access.
+
+So it is three apps ([#904](https://github.com/free2z/zuu/issues/904)):
+
+| App | Role | Holds | Renders remote content | Privileged plugins |
+| --- | --- | --- | --- | --- |
+| [`cash.free2z.zuuli`](wallet/zuuli/) | wallet authority | master seed, spending keys, account-level messaging keys | **never** | `zcash` |
+| [`cash.free2z.free2z`](wallet/free2z/) | content — articles, creator, live, AI, search | Knox token, 2Z balance | **yes** | **none** |
+| [`cash.free2z.e2e2z`](wallet/e2e2z/) | messaging | device keys + device credential | **never** | `f2zmsg` |
+
+**The argument, in two sentences.** The app that holds the seed renders nothing
+we do not control, and the app that renders untrusted content registers no
+`invoke_handler`, links no privileged plugin, and grants no `zcash:*` or
+`f2zmsg:*` capability — so a hostile subframe there finds nothing privileged to
+reach. That is mechanical rather than customary:
+[`surface-capability-authority.mjs`](wallet/zuuli/scripts/surface-capability-authority.mjs)
+runs inside the required CI gate and fails if either delegated surface gains
+one.
+
+Ongoing messaging never needs the seed, only enrollment does — account keys and
+device keys are already separated by
+[`docs/e2ee/ARCHITECTURE.md`](docs/e2ee/ARCHITECTURE.md) §4.2, which is what
+makes a third app possible instead of a compromise.
+
+### How they talk
+
+Over a versioned [**intent bridge**](docs/intent-bridge/PROTOCOL.md): one-shot,
+expiring, single-use requests in three defined families — `execute-payment`,
+`issue-device-credential`, `sign-challenge`. ZUULI is the only signing
+authority: for `execute-payment`, the one family it implements today, it
+re-derives its own review from its own wallet state, confirms natively, and
+acts. No other app can spend or sign. The other two families are refused with
+`INTENT_UNKNOWN_INTENT`, which is not a lie — this build does not implement
+them.
 
 > [!IMPORTANT]
-> Local `main` is read-only. Every change starts from `origin/main` in a new
-> branch and isolated worktree, goes through an issue and pull request, and is
-> squash-merged on GitHub. Local `main` moves only with
-> `git pull --ff-only origin main`. Read [AGENTS.md](AGENTS.md) before changing
-> anything.
+> **The bridge has no transport.** Both caller sides build real, validated
+> requests and then fail closed at one named seam, because verified App Links /
+> Universal Links ([#461](https://github.com/free2z/zuu/issues/461)) are not
+> wired. **Nothing crosses between apps today.** ZUULI's hardening
+> ([#904](https://github.com/free2z/zuu/issues/904) phase 4) is also still in
+> progress. [**docs/status.md**](docs/status.md) is the honest ledger: what
+> works, what fails closed by design, and what is blocked.
 
-## What makes this a synthetic monorepo?
+## Read next
 
-The [`z/`](z/) tree vendors 30 Zcash-ecosystem repositories as Git submodules,
-organized as `z/{github-owner}/{repository}`. Our applications can therefore
-build and test against real upstream source instead of waiting for published
-packages. The complete, authoritative list of submodule URLs and tracked
-branches is [`.gitmodules`](.gitmodules).
-
-This repository tracks upstream HEAD and fixes forward. If a dependency update
-exposes a bug in our code, we port our code. If it exposes a genuine upstream
-regression, we contribute the fix upstream and use a reachable fork commit only
-as a temporary bridge. [AGENTS.md](AGENTS.md) documents that contribution
-doctrine and the repository's dependency guardrails.
-
-Submodules are intentionally not initialized in a fresh worktree. Initialize
-only what your project needs; initializing the entire ecosystem is expensive.
-ZUULI and Zuuallet currently require `librustzcash`:
-
-```bash
-git submodule update --init --recursive z/zcash/librustzcash
-```
+| | |
+| --- | --- |
+| [docs/architecture.md](docs/architecture.md) | The three-app split in depth — the threat, the target, what enforces it |
+| [docs/status.md](docs/status.md) | What works, what fails closed, what is blocked |
+| [docs/development.md](docs/development.md) | Build, test, and the CI gate model |
+| [docs/intent-bridge/](docs/intent-bridge/PROTOCOL.md) | The cross-app protocol: wire format, authority side, caller authentication, conformance |
+| [docs/e2ee/](docs/e2ee/README.md) | The E2EE messaging design and key transparency |
+| [AGENTS.md](AGENTS.md) · [docs/PARALLEL-AGENTS.md](docs/PARALLEL-AGENTS.md) | Contribution doctrine and the parallel-agent workflow |
 
 ## Repository map
 
-| Path | Purpose | Start here |
-| --- | --- | --- |
-| [`wallet/zuuli/`](wallet/zuuli/) | Flagship ZUULI desktop/mobile app (React, TypeScript, Tauri, Rust) | [README](wallet/zuuli/README.md), [status](wallet/zuuli/STATUS.md), [contributor instructions](wallet/zuuli/CLAUDE.md) |
-| [`wallet/plugins/tauri-plugin-zcash/`](wallet/plugins/tauri-plugin-zcash/) | Shared native wallet engine over `librustzcash` | [README](wallet/plugins/tauri-plugin-zcash/README.md), [contributor instructions](wallet/plugins/tauri-plugin-zcash/CLAUDE.md) |
-| [`wallet/zuuallet/`](wallet/zuuallet/) | Focused reference wallet using the shared plugin | [README](wallet/zuuallet/README.md), [contributor instructions](wallet/zuuallet/CLAUDE.md) |
-| [`ts/react/free2z/`](ts/react/free2z/) | Free2Z React frontend | [README](ts/react/free2z/README.md) |
-| [`ts/svelte/free2z/`](ts/svelte/free2z/) | Free2Z Svelte frontend | [README](ts/svelte/free2z/README.md) |
-| [`py/dj/proj/zuu/`](py/dj/proj/zuu/) | Open-source Free2Z Django backend components | [README](py/dj/proj/zuu/README.md) |
-| [`docs/`](docs/) | Product, architecture, operations, and contributor documentation | [parallel-agent workflow](docs/PARALLEL-AGENTS.md) |
-| [`z/`](z/) | Upstream Zcash ecosystem Git submodules | [submodule manifest](.gitmodules) |
-| [`scripts/`](scripts/) | Repository-wide Rust, dependency, and CI policy checks | [Rust guardrails](AGENTS.md#guardrails-that-keep-us-honest) |
+| Path | Purpose |
+| --- | --- |
+| [`wallet/zuuli/`](wallet/zuuli/) | ZUULI, the wallet authority ([status](wallet/zuuli/STATUS.md)) |
+| [`wallet/free2z/`](wallet/free2z/) | free2z, the content surface |
+| [`wallet/e2e2z/`](wallet/e2e2z/) | e2e2z, the messaging surface |
+| [`wallet/shared/`](wallet/shared/) | `@free2z/wallet-shared` — the one client-side intent implementation |
+| [`wallet/plugins/`](wallet/plugins/) | [`tauri-plugin-zcash`](wallet/plugins/tauri-plugin-zcash/README.md), [`tauri-plugin-f2zmsg`](wallet/plugins/tauri-plugin-f2zmsg/README.md) |
+| [`wallet/zuuallet/`](wallet/zuuallet/) | Focused reference wallet over the shared plugin |
+| [`rs/crates/`](rs/README.md) | Protocol crates — `f2z-intent`, `f2z-codec`, messaging, key transparency |
+| [`ts/react/free2z/`](ts/react/free2z/README.md) · [`ts/svelte/free2z/`](ts/svelte/free2z/README.md) | Free2Z web frontends |
+| [`py/dj/proj/zuu/`](py/dj/proj/zuu/README.md) | Open-source Free2Z Django backend components |
+| [`z/`](z/) | Upstream Zcash submodules — [`.gitmodules`](.gitmodules) is authoritative |
+| [`scripts/`](scripts/) | Repository-wide policy checks run by CI |
 
-## Prerequisites
+## Quick start
 
-Install only the toolchains needed by the project you choose:
-
-- Git is required; the GitHub CLI (`gh`) is used for the issue/PR workflow.
-- ZUULI frontend development uses Node.js 24, matching CI, and `npm`.
-- Native wallet work uses `rustup`; [`wallet/rust-toolchain.toml`](wallet/rust-toolchain.toml)
-  selects the exact Rust compiler for every wallet crate.
-- Tauri builds need platform-specific
-  [system dependencies](https://v2.tauri.app/start/prerequisites/). iOS and
-  Android builds also need their respective Xcode or Android SDK/NDK tooling;
-  [the ZUULI README](wallet/zuuli/README.md#run-it) lists the project commands.
-- [`.devcontainer/`](.devcontainer/) is an optional general-purpose development
-  container. Project READMEs and CI remain authoritative for current build
-  commands and versions.
-
-## Quick start: explore ZUULI in a browser
-
-The fixture-backed browser mode is the lightest way to explore the flagship UI;
-it does not require Rust, native SDKs, or submodules:
+The fixture-backed browser mode needs no Rust, native SDKs, or submodules:
 
 ```bash
 git clone https://github.com/free2z/zuu.git
@@ -83,65 +98,25 @@ npm ci
 VITE_MOCK=1 npm run dev
 ```
 
-Mock mode is UI/demo evidence, not an end-to-end wallet or production proof.
-For the real staging API, native wallet, tests, release state, and mobile
-commands, continue with the [ZUULI README](wallet/zuuli/README.md) and
-[`wallet/zuuli/CLAUDE.md`](wallet/zuuli/CLAUDE.md).
+Mock mode is UI evidence, not an end-to-end wallet. For real builds, tests, and
+mobile commands see [docs/development.md](docs/development.md) and the per-app
+READMEs.
 
-## Find work
+## Contributing
 
-- Start with open issues labeled
-  [`agent-ready`](https://github.com/free2z/zuu/issues?q=is%3Aissue%20is%3Aopen%20label%3Aagent-ready).
-- [`good first issue`](https://github.com/free2z/zuu/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22)
-  identifies narrower entry points; `help wanted` marks work where another
-  contributor is especially useful.
-- Read the issue, its linked code, and the closest `CLAUDE.md` before claiming
-  it. Comment on the issue so parallel contributors do not duplicate work.
-- If the work is not already tracked, open an issue with a bounded scope and
-  acceptance criteria before writing code.
+Start from an open issue — [`agent-ready`](https://github.com/free2z/zuu/issues?q=is%3Aissue%20is%3Aopen%20label%3Aagent-ready)
+and [`good first issue`](https://github.com/free2z/zuu/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22)
+are the entry points.
 
-## Contribution workflow
-
-The full process, including review, CI, merge, and safe cleanup, is in
-[docs/PARALLEL-AGENTS.md](docs/PARALLEL-AGENTS.md). The short version for a
-repository collaborator is:
-
-1. Create or claim one issue and mark it `in-progress`.
-2. Fetch the remote, then create one isolated worktree and branch from
-   `origin/main` (never from local `main`):
-
-   ```bash
-   git fetch origin
-   git worktree add -b <type>/<issue>-<slug> <worktree-path> origin/main
-   ```
-
-3. Make one focused change, follow the nearest project instructions, and run
-   the relevant checks in that worktree.
-4. Push the branch and open one pull request against `main`; include
-   `Closes #<issue>` in its body.
-5. Wait for required CI and an approving review. A red gate never merges.
-6. Squash-merge on the remote. Only then fast-forward the primary checkout's
-   local `main` from `origin/main` and perform the audited worktree cleanup.
-
-Contributors without repository push access should still start from an issue,
-keep local `main` clean, branch from the upstream `main`, and open the pull
-request from a fork.
-
-## Zcash ecosystem sources
-
-The submodules currently span:
-
-- **Core protocol and nodes:** Zcash, Zcash Foundation, and Zakura projects,
-  including `librustzcash`, Orchard, Zebra, Zallet, Zcash, and Zakura.
-- **Wallets and SDKs:** Zcash mobile SDKs, ZODL wallets, Warp, and ZWallet.
-- **Community implementations:** ChainSafe WebZjs, Zingo Labs, Nozy Wallet,
-  and QED-it's ZSA work.
-
-Always use [`.gitmodules`](.gitmodules) rather than this summary when deciding
-which upstream repository and branch a path tracks.
+> [!IMPORTANT]
+> **Local `main` is read-only.** Every change branches from `origin/main` in its
+> own worktree, goes through an issue and a pull request, and is squash-merged
+> on GitHub. Local `main` moves only with `git pull --ff-only origin main`. Read
+> [AGENTS.md](AGENTS.md) before changing anything; the full loop is in
+> [docs/PARALLEL-AGENTS.md](docs/PARALLEL-AGENTS.md).
 
 ## License
 
-ZUU's own source is available under the [MIT License](LICENSE). Each Git
-submodule is an independent upstream repository with its own license and
+ZUU's own source is available under the [MIT License](LICENSE). Each submodule
+under `z/` is an independent upstream repository with its own license and
 contribution rules.

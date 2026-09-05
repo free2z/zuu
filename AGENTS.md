@@ -492,9 +492,17 @@ once.
 
 ## Practical notes
 
-- The three first-party Cargo roots and lockfiles are deliberately independent.
-  The release-train boundary, new-crate rules, and explicit triggers for
-  reconsidering a wallet-wide workspace are recorded in
+- **We ship three Tauri apps, not one.** `cash.free2z.zuuli` holds the seed and
+  renders nothing untrusted; `cash.free2z.free2z` renders untrusted content and
+  has no privileged capability; `cash.free2z.e2e2z` holds device keys only. The
+  threat that forced it (#367), what enforces the boundary, and what is not yet
+  built are in [docs/architecture.md](docs/architecture.md) and
+  [docs/status.md](docs/status.md). Before adding a capability, a plugin, or an
+  `invoke_handler` entry to any of them, read the first.
+- The first-party Cargo roots and lockfiles are deliberately independent — six
+  of them under `wallet/` since the split. The release-train boundary,
+  new-crate rules, and explicit triggers for reconsidering a wallet-wide
+  workspace are recorded in
   [docs/architecture/CARGO-WORKSPACE.md](docs/architecture/CARGO-WORKSPACE.md).
 - Submodules live at `z/{github-org}/{repo}` and track a branch (see
   `.gitmodules`). Update to latest with `git submodule update --remote`.
