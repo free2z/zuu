@@ -6,28 +6,53 @@
 
 _Your Z. Your keys. Your universe._
 
-A Zcash-native app for desktop and mobile: a wallet fused with the free2z
-platform's AI, livestreaming, articles, and **2Z** credit economy.
+The Zcash **wallet authority** for desktop and mobile: the app that holds the
+master seed and the spending keys, and renders no content it did not write.
 
 </div>
 
 ---
 
+## What ZUULI is
+
+ZUULI is one of three surfaces in the split described in
+[#904](https://github.com/free2z/zuu/issues/904). It is the signing authority.
+Every other surface holds only delegated, scoped, revocable credentials — never
+the seed.
+
+Why the split exists: [#367](https://github.com/free2z/zuu/issues/367) — on
+Android, Wry injects Tauri's IPC bridge into *every* frame and its IPC reports
+the top-level URL as the origin, so a remote subframe resolves as the trusted
+main window. Any embed policy permissive enough to be useful is too permissive
+to sit next to seed access. So the app that holds the seed renders nothing
+remote at all.
+
 ## What ZUULI includes
 
-- **Zcash-key sign-in integration** — the native wallet can sign a free2z
-  challenge with its transparent login key, without an email or password.
 - **A native Zcash wallet** — create/restore, sync, send, receive, and history
   surfaces backed by `librustzcash` through `tauri-plugin-zcash` (the same
   engine as the `zuuallet` reference wallet).
-- **AI Studio** — model and personality selection through free2z's metered
-  conversation API, with the authoritative 2Z balance refreshed after a turn.
-- **Livestreaming surfaces** — public discovery and RealtimeKit room UI, with
-  authenticated broadcast, subscriber, PPV, and private-stream contracts.
-- **Articles surfaces** — public feed/reader plus authenticated authoring,
-  comments, and tips.
-- **The 2Z economy** — 2Z balances, creator tips, memberships, Activity, and
-  top-up surfaces. Card checkout and ZEC settlement are still incomplete.
+- **Zcash-key sign-in** — the native wallet signs a free2z challenge with its
+  transparent login key, without an email or password.
+- **2Z balances and funding** — the balance chips, Activity, and the card and
+  ZEC top-up surfaces. Card checkout and ZEC settlement are still incomplete.
+- **The intent-bridge authority side** — `src-tauri/src/intent.rs` is where a
+  payment gets admitted, natively confirmed and executed on another surface's
+  behalf. Implemented, not yet shipped end to end: it still needs an
+  authenticated channel ([#461](https://github.com/free2z/zuu/issues/461)), and
+  a custom-scheme deep link is not one. See
+  [`docs/intent-bridge/`](../../docs/intent-bridge/) and
+  [#905](https://github.com/free2z/zuu/issues/905).
+
+## What ZUULI deliberately does not include
+
+Articles, the creator profile, livestreaming, AI, search, profile editing and
+KYC moved to `wallet/free2z`; messaging moved to `wallet/e2e2z`. Their code is
+**deleted** here rather than hidden: a surface that still exists is a surface a
+confused frame can reach. Concretely, this app now renders no Markdown, loads
+no remote image, creates no frame, and its packaged CSP admits only the free2z
+API — see [`scripts/csp-policy.mjs`](scripts/csp-policy.mjs) for the
+per-directive contract and `tests/csp-policy.pw.ts` for the browser proof.
 
 These are implemented surfaces, not a claim that every production path has
 passed. The source-and-runtime evidence, release blockers, and issue links live
@@ -83,6 +108,8 @@ the two identities.
 ## How it's built
 
 React 18 · TypeScript · Vite · Tailwind · shadcn/ui · Tauri v2 · Zustand.
+No Markdown, Mermaid, remark/rehype or RealtimeKit dependency: those left with
+the surfaces that needed them.
 The first-party Rust-to-browser build proof, measurements, generated-artifact
 contract, and recommendation are documented in [the WASM spike](docs/wasm-spike.md).
 See [CLAUDE.md](./CLAUDE.md) for architecture and the shared `src/lib/` contract.

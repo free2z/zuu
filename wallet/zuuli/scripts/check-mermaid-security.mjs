@@ -1,10 +1,30 @@
 #!/usr/bin/env node
+/**
+ * The GHSA-2v8p-3f2j-5mp7 pin for Mermaid and DOMPurify.
+ *
+ * #904 phase 4 removed the Markdown/Mermaid renderer from ZUULI, so this
+ * script's subject is no longer this app — it is `wallet/free2z`, which renders
+ * creator-controlled Markdown and still depends on `mermaid` and `dompurify`.
+ * The guard therefore **moved rather than being deleted**: `wallet/free2z` has
+ * no node-test gate of its own, and `wallet/zuuli`'s `npm test` is what the
+ * protected `zuuli / frontend` job runs. That is the same reason
+ * `messaging-contract.node-test.mjs` lives here and reads `wallet/e2e2z`.
+ *
+ * Deleting it with ZUULI's copy of the renderer would have left the repo with
+ * **no** guard on the patched versions, for the one app that still parses
+ * untrusted diagrams. This file reads no `wallet/free2z` source it modifies; it
+ * only asserts against that app's manifest, lock and two components.
+ */
 
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+/** The app that renders Mermaid. Not this one. */
+const RENDERER_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../free2z",
+);
 
 export function parseVersion(version) {
   const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(version);
@@ -98,12 +118,12 @@ export function checkManifestAndLock(manifest, lock) {
 
 export async function main() {
   const [manifest, lock] = await Promise.all([
-    readFile(path.join(appRoot, "package.json"), "utf8").then(JSON.parse),
-    readFile(path.join(appRoot, "package-lock.json"), "utf8").then(JSON.parse),
+    readFile(path.join(RENDERER_ROOT, "package.json"), "utf8").then(JSON.parse),
+    readFile(path.join(RENDERER_ROOT, "package-lock.json"), "utf8").then(JSON.parse),
   ]);
   checkManifestAndLock(manifest, lock);
   console.log(
-    `Mermaid ${manifest.dependencies.mermaid} and DOMPurify ${manifest.dependencies.dompurify} are exact and patched`,
+    `wallet/free2z: Mermaid ${manifest.dependencies.mermaid} and DOMPurify ${manifest.dependencies.dompurify} are exact and patched`,
   );
 }
 

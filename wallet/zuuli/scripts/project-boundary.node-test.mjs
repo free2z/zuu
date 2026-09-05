@@ -1202,7 +1202,18 @@ import path from "node:path";
 let outputDirectory;
 export default { plugins: [{
   name: "cross-app-output-copy-transform",
-  configResolved(config) { outputDirectory = config.build.outDir; },
+  // #922: \`config.build.outDir\` is still the raw default string "dist" in a
+  // resolved Vite config — Vite only resolves it against the root inside
+  // \`getResolvedOutDirs()\`. Writing to it verbatim staged the fixture at
+  // \`<cwd>/dist/.output-copied.ts\`, i.e. \`wallet/zuuli/dist\` in the real
+  // working tree, which \`withFixture\`'s cleanup never sees and \`.gitignore\`
+  // does not cover. Resolve it against the fixture root so the copy lands
+  // inside the temp directory this test already deletes. The property under
+  // test is unchanged: the transform still stages a sibling-app read through
+  // its own output, and the constrained build must still refuse it.
+  configResolved(config) {
+    outputDirectory = path.resolve(config.root, config.build.outDir);
+  },
   transform(code, id) {
     if (!id.endsWith("/src/main.ts")) return null;
     mkdirSync(outputDirectory, { recursive: true });

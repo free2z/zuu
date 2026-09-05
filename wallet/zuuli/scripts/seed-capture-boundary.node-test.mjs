@@ -39,7 +39,6 @@ const sources = Object.fromEntries(
       loginHook: "src/features/auth/useZcashLogin.ts",
       associateHook: "src/features/auth/useZcashAssociate.ts",
       loginFlow: "src/features/auth/ZcashLoginFlow.tsx",
-      linkedAccounts: "src/features/profile/LinkedAccounts.tsx",
       mnemonicPolicy: "src/lib/wallet/mnemonic.ts",
       onboarding: "src/features/wallet/Onboarding.tsx",
       restoreIdentity: "src/features/auth/RestoreIdentity.tsx",
@@ -120,12 +119,6 @@ for (const [name, key, search, replacement] of [
     "loginFlow",
     "void createIdentity();",
     "void createIdentity(12);",
-  ],
-  [
-    "linked-account UI injects a creation count",
-    "linkedAccounts",
-    "void createIdentity()",
-    "void createIdentity(12)",
   ],
   [
     "ZUULI drops 15-word restore compatibility",

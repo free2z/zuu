@@ -27,7 +27,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { discover, tuzi } from "@/lib/api/free2z";
 import {
   authoritativeBalanceFromErrorBody,
@@ -787,9 +787,11 @@ function CreatorAvatar({
   className?: string;
 }) {
   const name = creator.display_name || creator.username;
+  // Initials, never the uploaded avatar. A creator-supplied image is content
+  // ZUULI does not author, and the wallet authority renders none of that
+  // (#904); `img-src` no longer admits a remote host at all.
   return (
     <Avatar className={className}>
-      {creator.image ? <AvatarImage src={creator.image} alt="" /> : null}
       <AvatarFallback className="text-xs">{initials(name)}</AvatarFallback>
     </Avatar>
   );

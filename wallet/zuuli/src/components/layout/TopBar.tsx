@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -8,9 +7,6 @@ import {
   Plus,
   Wallet as WalletIcon,
   LogOut,
-  ShieldCheck,
-  UserCog,
-  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +15,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,10 +27,6 @@ import {
 import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
 import { formatTuzis, formatZecTrim, initials } from "@/lib/format";
-import {
-  isSearchRoute,
-  searchHref,
-} from "@/lib/search-route";
 import { MESSAGE_KEYS } from "@/i18n/messages";
 
 export function TopBar() {
@@ -43,8 +35,6 @@ export function TopBar() {
   const balance = useWallet((s) => s.balance);
   const navigate = useNavigate();
   const location = useLocation();
-  const [q, setQ] = useState("");
-  const searchOwnsChrome = isSearchRoute(location.pathname);
 
   // This is an app, not a browser — surface a persistent back affordance so
   // fans can retreat from any screen. React Router stamps a monotonic `idx`
@@ -81,49 +71,8 @@ export function TopBar() {
         </Tooltip>
       ) : null}
 
-      {/* Global search */}
-      {!searchOwnsChrome ? (
-        <form
-          role="search"
-          onSubmit={(e) => {
-            e.preventDefault();
-            navigate(searchHref(q));
-          }}
-          className="relative hidden max-w-sm flex-1 sm:block"
-        >
-          <Search
-            className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <input
-            type="search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder={t(MESSAGE_KEYS.navSearchPlaceholder)}
-            aria-label={t(MESSAGE_KEYS.navSearch)}
-            className="h-9 w-full rounded-full border border-border bg-card/60 ps-9 pe-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring"
-          />
-        </form>
-      ) : null}
-
-      {/* Search icon (mobile) */}
-      {!searchOwnsChrome ? (
-        <Tooltip>
-          <TooltipTrigger asChild aria-describedby={undefined}>
-            <Link
-              to="/search"
-              className="min-tap grid place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground sm:hidden"
-              aria-label={t(MESSAGE_KEYS.navSearchAction)}
-            >
-              <Search className="h-5 w-5" aria-hidden />
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            {t(MESSAGE_KEYS.navSearchAction)}
-          </TooltipContent>
-        </Tooltip>
-      ) : null}
-
+      {/* ZUULI is the wallet authority (#904): it hosts no discovery surface,
+          so the TopBar carries no search chrome. Search lives in free2z. */}
       <div className="flex-1" />
 
       {/* ZEC wallet chip */}
@@ -167,8 +116,10 @@ export function TopBar() {
                   className="min-tap rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label={t(MESSAGE_KEYS.navAccountMenu)}
                 >
+                  {/* Initials only. A remote avatar would be the one image the
+                      seed-holding WebView fetches from a host it does not
+                      author, and `img-src` no longer admits one (#904). */}
                   <Avatar className="h-9 w-9 border border-border">
-                    {user.image ? <AvatarImage src={user.image} /> : null}
                     <AvatarFallback className="bg-primary/20 text-primary">
                       {initials(user.display_name || user.username)}
                     </AvatarFallback>
@@ -191,17 +142,11 @@ export function TopBar() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => navigate("/profile")}>
-              <UserCog /> {t(MESSAGE_KEYS.navEditProfile)}
-            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate("/wallet")}>
               <WalletIcon /> {t(MESSAGE_KEYS.navWallet)}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate("/wallet/fund")}>
               <Coins /> {t(MESSAGE_KEYS.navBuyTuzis)}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => navigate("/kyc")}>
-              <ShieldCheck /> {t(MESSAGE_KEYS.navRevenueShare)}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => logout()}>

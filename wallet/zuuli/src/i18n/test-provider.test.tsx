@@ -20,14 +20,8 @@ describe("test i18n provider parity", () => {
   });
 
   it("resolves the concise recovery copy from each active catalog", () => {
-    expect(createTestI18n("en").t(MESSAGE_KEYS.commonTryAgain)).toBe(
-      "Try again.",
-    );
-    expect(createTestI18n("es").t(MESSAGE_KEYS.commonTryAgain)).toBe(
-      "Inténtalo de nuevo.",
-    );
-    expect(createTestI18n("fr").t(MESSAGE_KEYS.commonTryAgain)).toBe(
-      "Réessayez.",
-    );
+    expect(createTestI18n("en").t(MESSAGE_KEYS.commonRetry)).toBe("Retry");
+    expect(createTestI18n("es").t(MESSAGE_KEYS.commonRetry)).toBe("Reintentar");
+    expect(createTestI18n("fr").t(MESSAGE_KEYS.commonRetry)).toBe("Réessayer");
   });
 });

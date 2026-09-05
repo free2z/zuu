@@ -21,10 +21,10 @@ async function openLogin(
 
 async function unmountLoginWithoutReload(page: Page) {
   await page.evaluate(() => {
-    history.pushState({}, "", "/articles");
+    history.pushState({}, "", "/about");
     dispatchEvent(new PopStateEvent("popstate"));
   });
-  await expect(page).toHaveURL(/\/articles$/);
+  await expect(page).toHaveURL(/\/about$/);
 }
 
 async function expectNoInvisibleLogin(page: Page) {
@@ -32,7 +32,7 @@ async function expectNoInvisibleLogin(page: Page) {
   expect(
     await page.evaluate((key) => localStorage.getItem(key), TOKEN_KEY),
   ).toBeNull();
-  await expect(page).toHaveURL(/\/articles$/);
+  await expect(page).toHaveURL(/\/about$/);
   await expect(page.getByText(/Welcome (?:back|to ZUULI)/)).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Account menu" })).toHaveCount(
     0,

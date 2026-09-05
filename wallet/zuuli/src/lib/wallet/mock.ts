@@ -162,6 +162,23 @@ const history: TransactionEntry[] = [
     memo: null,
     incoming: true,
   },
+  // A wallet with three transactions is not a wallet anyone has. Pad the
+  // fixture to a realistic ledger so History is a route that actually
+  // scrolls — `tests/scroll-restoration.pw.ts` drives the scroll-owner
+  // contract off it, which it could not do against a three-row list, and
+  // #904 phase 4 left the app with no other long surface.
+  ...Array.from({ length: 21 }, (_, index) => {
+    const age = 4 + index;
+    const incoming = index % 3 !== 0;
+    return {
+      txid: `${(index + 16).toString(16).repeat(2)}${"d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1".slice(0, 60)}`,
+      blockHeight: 2_610_000 - index * 720,
+      timestamp: Math.floor(Date.now() / 1000) - age * 86400,
+      value: incoming ? 3_000_000 + index * 110_000 : -(1_500_000 + index * 90_000),
+      memo: index % 4 === 0 ? null : `Settled ledger entry ${index + 4}`,
+      incoming,
+    };
+  }),
 ];
 
 let proposalCounter = 1;

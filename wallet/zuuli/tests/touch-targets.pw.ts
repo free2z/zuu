@@ -1,29 +1,17 @@
 import { expect, test, type Page } from "@playwright/test";
-import {
-  expectPopulatedCreatorCatalog,
-  POPULATED_CREATOR_ROUTE,
-} from "./helpers/creator-catalog-audit";
 
 const TOUCH_WIDTHS = [320, 360] as const;
 const ROUTES = [
+  // #904 phase 4: the content routes (search, creator, profile, kyc, ai, live,
+  // articles) no longer exist in this app, so this matrix is the vault's own
+  // surface plus the NotFound the router now serves for everything else.
   "/",
-  "/search",
-  "/search?q=zcash",
-  "/creator/demo-creator",
-  POPULATED_CREATOR_ROUTE,
-  "/profile",
-  "/kyc",
+  "/about",
   "/wallet",
   "/wallet/send",
   "/wallet/receive",
   "/wallet/history",
   "/wallet/fund",
-  "/ai",
-  "/live",
-  "/live/nine",
-  "/articles",
-  "/articles/new",
-  "/articles/why-shielded-by-default",
   "/buy",
   "/does-not-exist",
   "/login",
@@ -41,31 +29,6 @@ async function setSession(page: Page, signedIn: boolean) {
     if (authenticated) localStorage.setItem(key, "mock-knox-token");
     else localStorage.removeItem(key);
   }, signedIn);
-}
-
-async function expectEditableTextClearsButton(
-  page: Page,
-  inputName: string,
-  role: "searchbox" | "combobox" = "searchbox",
-) {
-  const input = page.getByRole(role, { name: inputName });
-  const clear = page.getByRole("button", { name: "Clear search" });
-  const [inputBox, clearBox, inset] = await Promise.all([
-    input.boundingBox(),
-    clear.boundingBox(),
-    input.evaluate((element) => {
-      const style = getComputedStyle(element);
-      return Number.parseFloat(style.paddingRight) + Number.parseFloat(style.borderRightWidth);
-    }),
-  ]);
-
-  expect(inputBox, `${inputName} must have measurable input geometry`).not.toBeNull();
-  expect(clearBox, `${inputName} must have a measurable clear target`).not.toBeNull();
-  const editableRight = inputBox!.x + inputBox!.width - inset;
-  expect(
-    clearBox!.x,
-    `${inputName} editable content must end before its clear target`,
-  ).toBeGreaterThanOrEqual(editableRight - 0.5);
 }
 
 async function auditTouchTargets(page: Page): Promise<TouchAudit> {
@@ -243,10 +206,6 @@ for (const signedIn of [false, true]) {
         await page.locator("[data-app-frame]").waitFor();
         await page.waitForTimeout(500);
 
-        if (route === POPULATED_CREATOR_ROUTE) {
-          await expectPopulatedCreatorCatalog(page);
-        }
-
         const audit = await auditTouchTargets(page);
         expect(audit.targets, `${route} must expose audited controls`).toBeGreaterThan(0);
         routeFailures.push(...audit.failures.map((failure) => `${route}: ${failure}`));
@@ -263,32 +222,20 @@ for (const signedIn of [false, true]) {
         );
       }
 
-      await page.goto("/articles");
+      // The article and creator/page search fields were this file's two
+      // long-text-with-trailing-control subjects; both left with their routes
+      // in #904 phase 4. Wallet Send's recipient field is the one that
+      // remains, and it is the one that matters most: a clipped address is a
+      // payment to the wrong place.
+      await page.goto("/wallet/send");
       await page
-        .getByRole("searchbox", { name: "Search articles" })
-        .fill("a long semantic article query that reaches the trailing control");
-      await expectEditableTextClearsButton(page, "Search articles");
+        .getByLabel("Recipient address")
+        .fill(
+          "u1mockzookoq7wl9a8k4x0m5n6p7r8s9t0u1v2w3x4y5z6a7b8c9d0e1f2g3h4j5k6",
+        );
       routeFailures.push(
         ...(await auditTouchTargets(page)).failures.map(
-          (failure) => `/articles?search=long: ${failure}`,
-        ),
-      );
-
-      await page.goto("/search?q=zcash");
-      await page
-        .getByRole("combobox", {
-          name: "Search creators, pages, and topics",
-        })
-        .fill("a long creator and page query that reaches the trailing control");
-      await expectEditableTextClearsButton(
-        page,
-        "Search creators, pages, and topics",
-        "combobox",
-      );
-      await page.getByRole("tab", { name: /Pages/ }).click();
-      routeFailures.push(
-        ...(await auditTouchTargets(page)).failures.map(
-          (failure) => `/search?q=zcash&tab=pages: ${failure}`,
+          (failure) => `/wallet/send?recipient=long: ${failure}`,
         ),
       );
 

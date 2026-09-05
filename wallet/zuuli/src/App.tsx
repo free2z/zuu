@@ -35,20 +35,13 @@ import {
 
 import AuthFeature from "@/features/auth";
 
-// Feature routes are code-split so the heavy markdown/math/prism graph they
-// transitively pull in (rehype-mathjax, rehype-prism-plus) never lands in the
-// login/critical-path entry chunk. The login screen (AuthFeature), the AppShell
-// layout, and the router stay eager so /login renders instantly inside the
-// same viewport-bound chrome as every other route.
+// ZUULI is the wallet authority (#904): the only routes it mounts are the ones
+// whose content it authors itself. Wallet, Home and About stay code-split so
+// the login/critical-path entry chunk carries nothing but the login screen;
+// AuthFeature, the AppShell layout and the router stay eager so /login renders
+// instantly inside the same viewport-bound chrome as every other route.
 const HomeFeature = lazy(() => import("@/features/home"));
 const WalletFeature = lazy(() => import("@/features/wallet"));
-const AiFeature = lazy(() => import("@/features/ai"));
-const LiveFeature = lazy(() => import("@/features/live"));
-const ArticlesFeature = lazy(() => import("@/features/articles"));
-const SearchFeature = lazy(() => import("@/features/search"));
-const CreatorFeature = lazy(() => import("@/features/creator"));
-const ProfileFeature = lazy(() => import("@/features/profile"));
-const KycFeature = lazy(() => import("@/features/kyc"));
 const AboutFeature = lazy(() => import("@/features/about"));
 
 /** Keep old links/bookmarks working while funding now lives inside Wallet. */
@@ -209,66 +202,10 @@ function AppRoutes() {
               }
             />
             <Route
-              path={APP_ROUTES.search}
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <SearchFeature />
-                </Suspense>
-              }
-            />
-            <Route
-              path={APP_ROUTES.creator}
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <CreatorFeature />
-                </Suspense>
-              }
-            />
-            <Route
-              path={APP_ROUTES.profile}
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <ProfileFeature />
-                </Suspense>
-              }
-            />
-            <Route
-              path={APP_ROUTES.kyc}
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <KycFeature />
-                </Suspense>
-              }
-            />
-            <Route
               path={APP_ROUTES.wallet}
               element={
                 <Suspense fallback={<RouteFallback />}>
                   <WalletFeature />
-                </Suspense>
-              }
-            />
-            <Route
-              path={APP_ROUTES.ai}
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <AiFeature />
-                </Suspense>
-              }
-            />
-            <Route
-              path={APP_ROUTES.live}
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <LiveFeature />
-                </Suspense>
-              }
-            />
-            <Route
-              path={APP_ROUTES.articles}
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <ArticlesFeature />
                 </Suspense>
               }
             />

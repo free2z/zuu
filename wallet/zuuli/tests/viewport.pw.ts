@@ -1,30 +1,17 @@
 import { expect, test, type Page } from "@playwright/test";
-import {
-  expectPopulatedCreatorCatalog,
-  POPULATED_CREATOR_ROUTE,
-} from "./helpers/creator-catalog-audit";
 
 const WIDTHS = [320, 360, 390, 414] as const;
 const ROUTES = [
+  // #904 phase 4: the content routes (search, creator, profile, kyc, ai, live,
+  // articles) no longer exist in this app, so this matrix is the vault's own
+  // surface plus the NotFound the router now serves for everything else.
   "/",
   "/about",
-  "/search",
-  "/search?q=zcash",
-  "/creator/demo-creator",
-  POPULATED_CREATOR_ROUTE,
-  "/profile",
-  "/kyc",
   "/wallet",
   "/wallet/send",
   "/wallet/receive",
   "/wallet/history",
   "/wallet/fund",
-  "/ai",
-  "/live",
-  "/live/nine",
-  "/articles",
-  "/articles/new",
-  "/articles/why-shielded-by-default",
   "/buy",
   "/does-not-exist",
   "/login",
@@ -293,11 +280,9 @@ for (const signedIn of [false, true]) {
         await page.locator("[data-app-frame]").waitFor();
         await assertMobileHeader(page, signedIn);
 
-        await page
-          .locator("[data-app-top-bar]")
-          .getByRole("link", { name: "Search", exact: true })
-          .click();
-        await expect(page).toHaveURL(/\/search$/);
+        // Search left the TopBar with its route; the header must stay whole
+        // on a route the app still mounts.
+        await page.goto("/about");
         await assertMobileHeader(page, signedIn);
 
         if (signedIn) {
@@ -315,10 +300,6 @@ for (const signedIn of [false, true]) {
         await page.locator("[data-app-frame]").waitFor();
         await page.waitForTimeout(500);
 
-        if (route === POPULATED_CREATOR_ROUTE) {
-          await expectPopulatedCreatorCatalog(page);
-        }
-
         const audit = await auditHorizontalLayout(page);
         expect(
           audit.boundary.scrollWidth,
@@ -329,24 +310,6 @@ for (const signedIn of [false, true]) {
           `${route} route content must not acquire horizontal overflow`,
         ).toBeLessThanOrEqual(audit.content.clientWidth + 1);
         expect(audit.failures, `${route} has clipped descendants`).toEqual([]);
-
-        if (route === "/live" && width === 320) {
-          const filterTabs = await page.getByRole("tab").evaluateAll((tabs) =>
-            tabs.map((tab) => {
-              const rect = tab.getBoundingClientRect();
-              return { height: rect.height, top: rect.top };
-            }),
-          );
-          expect(filterTabs, "live filters must retain four touch targets").toHaveLength(4);
-          expect(
-            filterTabs.every(({ height }) => height >= 44),
-            "live filter targets must remain at least 44px high",
-          ).toBe(true);
-          expect(
-            new Set(filterTabs.map(({ top }) => Math.round(top))).size,
-            "live filters must reflow into two rows at 320px",
-          ).toBe(2);
-        }
       }
     });
   }

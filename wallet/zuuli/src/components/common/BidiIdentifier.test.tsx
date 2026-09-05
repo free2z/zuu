@@ -6,9 +6,6 @@ import historySource from "@/features/wallet/History.tsx?raw";
 import receiveSource from "@/features/wallet/Receive.tsx?raw";
 import sendSource from "@/features/wallet/Send.tsx?raw";
 import loginSource from "@/features/auth/ZcashLoginFlow.tsx?raw";
-import linkedAccountsSource from "@/features/profile/LinkedAccounts.tsx?raw";
-import roomSource from "@/features/live/Room.tsx?raw";
-import profileSource from "@/features/profile/index.tsx?raw";
 import { BidiIdentifier } from "./BidiIdentifier";
 import {
   assertBidiIdentifierPolicy,
@@ -24,9 +21,6 @@ const FILES = [
   "src/features/wallet/Receive.tsx",
   "src/features/wallet/Send.tsx",
   "src/features/auth/ZcashLoginFlow.tsx",
-  "src/features/profile/LinkedAccounts.tsx",
-  "src/features/live/Room.tsx",
-  "src/features/profile/index.tsx",
 ] as const;
 
 function productionSources(): BidiProductionSources {
@@ -36,9 +30,6 @@ function productionSources(): BidiProductionSources {
     "src/features/wallet/Receive.tsx": receiveSource,
     "src/features/wallet/Send.tsx": sendSource,
     "src/features/auth/ZcashLoginFlow.tsx": loginSource,
-    "src/features/profile/LinkedAccounts.tsx": linkedAccountsSource,
-    "src/features/live/Room.tsx": roomSource,
-    "src/features/profile/index.tsx": profileSource,
   };
 }
 
@@ -195,18 +186,24 @@ describe("opaque identifier production inventory", { timeout: 30_000 }, () => {
     expect(() => assertBidiIdentifierPolicy(mutant)).toThrow();
   });
 
-  it("rejects laundering the DID through an executable alias", () => {
+  /**
+   * The DID alias-laundering mutant used to live on the profile surface, which
+   * #904 phase 4 removed. Re-hosted on the transaction id: same defect shape —
+   * an executable alias standing between the audited value and the audited
+   * render site.
+   */
+  it("rejects laundering an audited identifier through an executable alias", () => {
     let mutant = mutate(
       productionSources(),
-      "src/features/profile/LinkedAccounts.tsx",
-      "  const did = identity ? `did:zcash:${identity}` : null;",
-      "  const did = identity ? `did:zcash:${identity}` : null;\n  const displayAlias = did;",
+      "src/features/wallet/History.tsx",
+      "function HistoryRow({ tx }: { tx: TransactionEntry }) {\n  const incoming = tx.incoming;",
+      "function HistoryRow({ tx }: { tx: TransactionEntry }) {\n  const incoming = tx.incoming;\n  const displayAlias = tx.txid;",
     );
     mutant = mutate(
       mutant,
-      "src/features/profile/LinkedAccounts.tsx",
-      "                value={did}",
-      "                value={displayAlias}",
+      "src/features/wallet/History.tsx",
+      "            value={tx.txid}\n            shorten",
+      "            value={displayAlias}\n            shorten",
     );
     expect(() => assertBidiIdentifierPolicy(mutant)).toThrow();
   });
@@ -819,7 +816,6 @@ describe("opaque identifier production inventory", { timeout: 30_000 }, () => {
 
   it.each([
     ["src/features/wallet/Send.tsx", '              dir="ltr"'],
-    ["src/features/profile/index.tsx", '              dir="ltr"'],
   ] as const)("rejects loss of literal input direction in %s", (file, dir) => {
     const mutant = mutate(productionSources(), file, dir, "");
     expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(/dir=ltr/);

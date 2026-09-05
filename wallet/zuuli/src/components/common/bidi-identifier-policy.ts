@@ -35,38 +35,14 @@ const EXPECTED_SITES: Readonly<Record<string, readonly ExpectedSite[]>> = {
   "src/features/auth/ZcashLoginFlow.tsx": [
     { functionName: "ZcashLoginFlow", value: "address", shorten: true },
   ],
-  "src/features/profile/LinkedAccounts.tsx": [
-    { functionName: "ZcashLinkDialogBody", value: "address", shorten: true },
-    { functionName: "ZcashLinkDialogBody", value: "address", shorten: true },
-    {
-      functionName: "LinkedAccounts",
-      value: "did",
-      shorten: true,
-      head: "16",
-      tail: "6",
-    },
-  ],
-  "src/features/live/Room.tsx": [
-    {
-      functionName: "ConnectedDetails",
-      value: "ticket.meetingId",
-      shorten: true,
-    },
-    {
-      functionName: "ConnectedDetails",
-      value: "ticket.roomName",
-      shorten: true,
-    },
-  ],
 };
 
 const EXPECTED_LTR_INPUTS: Readonly<Record<string, readonly string[]>> = {
   "src/features/wallet/Send.tsx": ["to"],
-  "src/features/profile/index.tsx": ["profile-p2paddr"],
 };
 
-// Most policy mutants change one of the eight audited files. Keep the other
-// seven parsed trees and their symbol tables instead of rebuilding a complete
+// Most policy mutants change one of the five audited files. Keep the other
+// four parsed trees and their symbol tables instead of rebuilding a complete
 // TypeScript program for them in every assertion. The source text is the cache
 // identity, so a mutant can never inherit the verdict for the production file.
 const parsedSources = new Map<string, Map<string, ts.SourceFile>>();

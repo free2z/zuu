@@ -17,6 +17,15 @@ const BASELINE = collectRtlSources();
  * kind of subject and belongs to the app that keeps the seed, so it does not
  * move again.
  */
+/**
+ * The mirrored-icon carrier. It was
+ * `src/features/articles/components/Comments/CommentCard.tsx` until #904
+ * phase 4 moved the article surface to `wallet/free2z`; the home section
+ * header holds exactly one directional Lucide icon and belongs to the app that
+ * keeps the seed.
+ */
+const PARTS = "src/features/home/parts.tsx";
+
 const CARRIER = Object.freeze({
   file: "src/features/wallet/Send.tsx",
   className: 'className="space-y-4"',
@@ -89,15 +98,21 @@ test("physical margin, padding, position, border, and alignment mutants fail", (
     /residual paths/,
   );
   rejectsMutation(
-    "src/components/layout/TopBar.tsx",
+    "src/features/home/Hero.tsx",
+    "ms-1",
+    "ml-1",
+    /residual paths/,
+  );
+  rejectsMutation(
+    "src/features/wallet/funding/SendTab.tsx",
     "start-3",
     "left-3",
     /residual paths/,
   );
   rejectsMutation(
-    "src/components/layout/TopBar.tsx",
-    "ps-9",
-    "pl-9",
+    "src/components/ui/dropdown-menu.tsx",
+    "ps-8",
+    "pl-8",
     /residual paths/,
   );
   rejectsMutation(
@@ -131,144 +146,167 @@ test("a directional adornment that stops mirroring fails", () => {
     /ArrowLeft.*must mirror/,
   );
   rejectsMutation(
-    "src/features/articles/components/Comments/CommentCard.tsx",
-    '<Reply className="rtl:-scale-x-100 h-4 w-4"',
-    '<Reply className="h-4 w-4"',
-    /Reply.*must mirror/,
+    PARTS,
+    '<ArrowRight className="rtl:-scale-x-100 h-4 w-4',
+    '<ArrowRight className="h-4 w-4',
+    /ArrowRight.*must mirror/,
   );
   rejectsMutation(
-    "src/features/articles/components/Comments/CommentForm.tsx",
-    '<SendIcon className="rtl:-scale-x-100 h-4 w-4"',
-    '<SendIcon className="h-4 w-4"',
-    /SendIcon.*must mirror/,
+    "src/features/wallet/funding/ActivityTab.tsx",
+    '<LogIn className="rtl:-scale-x-100 h-4 w-4"',
+    '<LogIn className="h-4 w-4"',
+    /LogIn.*must mirror/,
   );
 
   const laterSpread = insertJsxAttribute(
-    "src/features/articles/components/Comments/CommentCard.tsx",
-    "Reply",
+    PARTS,
+    "ArrowRight",
     '{...{ className: "h-4 w-4" }}',
   );
-  assert.throws(() => assertRtlSourcePolicy(laterSpread), /Reply.*must mirror/);
+  assert.throws(
+    () => assertRtlSourcePolicy(laterSpread),
+    /ArrowRight.*must mirror/,
+  );
 
   const earlierSpread = insertJsxAttribute(
-    "src/features/articles/components/Comments/CommentCard.tsx",
-    "Reply",
+    PARTS,
+    "ArrowRight",
     '{...{ className: "h-4 w-4" }}',
     "start",
   );
   assert.doesNotThrow(() => assertRtlSourcePolicy(earlierSpread));
 
   const inlineCancellation = insertJsxAttribute(
-    "src/features/articles/components/Comments/CommentCard.tsx",
-    "Reply",
+    PARTS,
+    "ArrowRight",
     'style={{ transform: "none" }}',
   );
   assert.throws(
     () => assertRtlSourcePolicy(inlineCancellation),
-    /Reply.*inline style.*directional transform/,
+    /ArrowRight.*inline style.*directional transform/,
   );
 
   const harmlessInlineStyle = insertJsxAttribute(
-    "src/features/articles/components/Comments/CommentCard.tsx",
-    "Reply",
+    PARTS,
+    "ArrowRight",
     'style={{ color: "currentColor" }}',
   );
   assert.doesNotThrow(() => assertRtlSourcePolicy(harmlessInlineStyle));
 });
 
 test("directional Lucide aliases and namespace JSX resolve to imported symbols", () => {
-  const card = BASELINE["src/features/articles/components/Comments/CommentCard.tsx"];
+  const card = BASELINE[PARTS];
   const aliasedImport = card.replace(
-    "MessageSquare, Reply }",
-    "MessageSquare, Reply as Answer }",
+    "{ ArrowRight, type LucideIcon }",
+    "{ ArrowRight as Onward, type LucideIcon }",
   );
-  assert.notEqual(aliasedImport, card, "Reply alias import mutation did not apply");
-  const aliased = aliasedImport.replace("<Reply ", "<Answer ");
-  assert.notEqual(aliased, aliasedImport, "Reply alias JSX mutation did not apply");
+  assert.notEqual(
+    aliasedImport,
+    card,
+    "ArrowRight alias import mutation did not apply",
+  );
+  const aliased = aliasedImport.replace("<ArrowRight ", "<Onward ");
+  assert.notEqual(
+    aliased,
+    aliasedImport,
+    "ArrowRight alias JSX mutation did not apply",
+  );
   assert.doesNotThrow(() =>
     assertRtlSourcePolicy({
       ...BASELINE,
-      "src/features/articles/components/Comments/CommentCard.tsx": aliased,
+      [PARTS]: aliased,
     }),
   );
   assert.throws(
     () =>
       assertRtlSourcePolicy({
         ...BASELINE,
-        "src/features/articles/components/Comments/CommentCard.tsx": aliased.replace(
-          'className="rtl:-scale-x-100 h-4 w-4"',
-          'className="h-4 w-4"',
+        [PARTS]: aliased.replace(
+          'className="rtl:-scale-x-100 h-4 w-4',
+          'className="h-4 w-4',
         ),
       }),
-    /Answer.*Reply.*must mirror/,
+    /Onward.*ArrowRight.*must mirror/,
   );
   const shadowedAlias = aliased
     .replace(
-      "export function CommentCard({ comment, numChildren, onReplied }: CommentCardProps) {",
-      "export function CommentCard({ comment, numChildren, onReplied }: CommentCardProps) {\n  const Answer = () => <span />;",
+      "  return (\n    <div className=\"mb-4",
+      "  const Onward = () => <span />;\n  return (\n    <div className=\"mb-4",
     )
     .replace(
-      'className="rtl:-scale-x-100 h-4 w-4"',
-      'className="h-4 w-4"',
+      'className="rtl:-scale-x-100 h-4 w-4',
+      'className="h-4 w-4',
     );
-  assert.notEqual(shadowedAlias, aliased, "Lucide alias shadow mutation did not apply");
+  assert.notEqual(
+    shadowedAlias,
+    aliased,
+    "Lucide alias shadow mutation did not apply",
+  );
   assert.doesNotThrow(() =>
     assertRtlSourcePolicy({
       ...BASELINE,
-      "src/features/articles/components/Comments/CommentCard.tsx": shadowedAlias,
+      [PARTS]: shadowedAlias,
     }),
   );
 
   const namespaceImport = card.replace(
-    'import { ChevronDown, ChevronUp, MessageSquare, Reply } from "lucide-react";',
-    'import { ChevronDown, ChevronUp, MessageSquare } from "lucide-react";\nimport * as Lucide from "lucide-react";',
+    'import { ArrowRight, type LucideIcon } from "lucide-react";',
+    'import { type LucideIcon } from "lucide-react";\nimport * as Lucide from "lucide-react";',
   );
   assert.notEqual(namespaceImport, card, "Lucide namespace import mutation did not apply");
-  const namespaced = namespaceImport.replace("<Reply ", "<Lucide.Reply ");
+  const namespaced = namespaceImport.replace(
+    "<ArrowRight ",
+    "<Lucide.ArrowRight ",
+  );
   assert.notEqual(namespaced, namespaceImport, "Lucide namespace JSX mutation did not apply");
   assert.doesNotThrow(() =>
     assertRtlSourcePolicy({
       ...BASELINE,
-      "src/features/articles/components/Comments/CommentCard.tsx": namespaced,
+      [PARTS]: namespaced,
     }),
   );
   assert.throws(
     () =>
       assertRtlSourcePolicy({
         ...BASELINE,
-        "src/features/articles/components/Comments/CommentCard.tsx": namespaced.replace(
-          'className="rtl:-scale-x-100 h-4 w-4"',
-          'className="h-4 w-4"',
+        [PARTS]: namespaced.replace(
+          'className="rtl:-scale-x-100 h-4 w-4',
+          'className="h-4 w-4',
         ),
       }),
-    /Lucide\.Reply.*must mirror/,
+    /Lucide\.ArrowRight.*must mirror/,
   );
   const shadowedNamespace = namespaced
     .replace(
-      "export function CommentCard({ comment, numChildren, onReplied }: CommentCardProps) {",
-      "export function CommentCard({ comment, numChildren, onReplied }: CommentCardProps) {\n  const Lucide = { Reply: () => <span /> };",
+      "  return (\n    <div className=\"mb-4",
+      "  const Lucide = { ArrowRight: () => <span /> };\n  return (\n    <div className=\"mb-4",
     )
     .replace(
-      'className="rtl:-scale-x-100 h-4 w-4"',
-      'className="h-4 w-4"',
+      'className="rtl:-scale-x-100 h-4 w-4',
+      'className="h-4 w-4',
     );
-  assert.notEqual(shadowedNamespace, namespaced, "Lucide namespace shadow mutation did not apply");
+  assert.notEqual(
+    shadowedNamespace,
+    namespaced,
+    "Lucide namespace shadow mutation did not apply",
+  );
   assert.doesNotThrow(() =>
     assertRtlSourcePolicy({
       ...BASELINE,
-      "src/features/articles/components/Comments/CommentCard.tsx": shadowedNamespace,
+      [PARTS]: shadowedNamespace,
     }),
   );
 
-  const localSameName = BASELINE["src/features/home/parts.tsx"].replace(
-    'import { cn } from "@/lib/utils";\n',
-    'import { cn } from "@/lib/utils";\n\nconst Reply = () => <span />;\nconst LocalReplyProbe = () => <Reply />;\nvoid LocalReplyProbe;\n',
+  const localFile = "src/features/home/VaultActions.tsx";
+  const localSameName = BASELINE[localFile].replace(
+    'import { SectionHeader } from "./parts";\n',
+    'import { SectionHeader } from "./parts";\n\nconst Reply = () => <span />;\nconst LocalReplyProbe = () => <Reply />;\nvoid LocalReplyProbe;\n',
   );
-  assert.notEqual(localSameName, BASELINE["src/features/home/parts.tsx"]);
+  assert.notEqual(localSameName, BASELINE[localFile]);
   assert.doesNotThrow(() =>
     assertRtlSourcePolicy({
       ...BASELINE,
-      "src/features/home/parts.tsx": localSameName,
+      [localFile]: localSameName,
     }),
   );
 });
@@ -284,13 +322,6 @@ test("direction-sensitive horizontal translations require explicit LTR and RTL s
     },
     {
       file: "src/features/auth/ZcashLoginFlow.tsx",
-      ltr: "ltr:-translate-x-1/2",
-      rtl: "rtl:translate-x-1/2",
-      badLtr: "ltr:translate-x-1/2",
-      badRtl: "rtl:-translate-x-1/2",
-    },
-    {
-      file: "src/features/profile/LinkedAccounts.tsx",
       ltr: "ltr:-translate-x-1/2",
       rtl: "rtl:translate-x-1/2",
       badLtr: "ltr:translate-x-1/2",
@@ -424,9 +455,9 @@ test("repeated residuals in one file still fail on the path set", () => {
 
 test("physical CSS declarations fail even without Tailwind", () => {
   rejectsMutation(
-    "src/components/common/markdown.css",
-    "margin-inline-start: -8px;",
-    "margin-left: -8px;",
+    "src/index.css",
+    "inset-inline-end: calc(0.5rem + var(--safe-area-inline-end));",
+    "right: calc(0.5rem + var(--safe-area-inline-end));",
     /physical-direction CSS/,
   );
   rejectsMutation(
@@ -435,7 +466,7 @@ test("physical CSS declarations fail even without Tailwind", () => {
     "paddingLeft:",
     /inline style must use a logical-direction property/,
   );
-  const cssFile = "src/components/common/markdown.css";
+  const cssFile = "src/index.css";
   assert.throws(
     () =>
       assertRtlSourcePolicy({
@@ -505,15 +536,15 @@ test("physical CSS declarations fail even without Tailwind", () => {
   );
 
   rejectsMutation(
-    "src/features/articles/components/ArticleCard.tsx",
-    "{ backgroundImage: coverTone(article.title) }",
+    PARTS,
+    "{ animationDelay: `${delay}ms` }",
     '{ marginLeft: "1px" }',
     /inline style must use a logical-direction property/,
   );
 });
 
 test("asymmetric CSS shorthands fail while symmetric function-valued forms pass", () => {
-  const cssFile = "src/components/common/markdown.css";
+  const cssFile = "src/index.css";
   const withCss = (declaration) => ({
     ...BASELINE,
     [cssFile]: `${BASELINE[cssFile]}\n.rtl-shorthand-probe { ${declaration} }\n`,
@@ -576,7 +607,7 @@ test("asymmetric CSS shorthands fail while symmetric function-valued forms pass"
 });
 
 test("directional shorthands resolve same-file custom properties and fail closed", () => {
-  const cssFile = "src/components/common/markdown.css";
+  const cssFile = "src/index.css";
   const withCss = (declarations) => ({
     ...BASELINE,
     [cssFile]: `${BASELINE[cssFile]}\n.rtl-custom-property-probe { ${declarations} }\n`,
@@ -612,7 +643,7 @@ test("directional shorthands resolve same-file custom properties and fail closed
 });
 
 test("React physical shorthand values fail when asymmetric and allow symmetric controls", () => {
-  const fileName = "src/features/articles/components/Comments/CommentCard.tsx";
+  const fileName = PARTS;
   for (const style of [
     'margin: "0 1px 0 2px"',
     'borderImageWidth: "1px 2px 1px 3px"',
@@ -622,7 +653,7 @@ test("React physical shorthand values fail when asymmetric and allow symmetric c
   ]) {
     const mutant = insertJsxAttribute(
       fileName,
-      "Reply",
+      "ArrowRight",
       `style={{ ${style} }}`,
     );
     assert.throws(
@@ -640,7 +671,7 @@ test("React physical shorthand values fail when asymmetric and allow symmetric c
   ]) {
     const control = insertJsxAttribute(
       fileName,
-      "Reply",
+      "ArrowRight",
       `style={{ ${style} }}`,
     );
     assert.doesNotThrow(() => assertRtlSourcePolicy(control), style);

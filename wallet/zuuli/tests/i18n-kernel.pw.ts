@@ -59,7 +59,8 @@ test("browser locale loads only the normalized Spanish shell catalog", async ({
   await expect(navigation).toBeVisible();
   await navigation.getByRole("button", { name: "Más navegación" }).click();
   await expect(page.getByRole("dialog")).toContainText("Más");
-  await expect(page.getByText("3 destinos adicionales")).toBeAttached();
+  // Two after #904 phase 4: Log in and About are what "More" still holds.
+  await expect(page.getByText("2 destinos adicionales")).toBeAttached();
   expect(catalogRequests).toEqual(["es"]);
   await context.close();
 });

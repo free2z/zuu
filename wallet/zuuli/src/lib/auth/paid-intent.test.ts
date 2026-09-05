@@ -6,6 +6,8 @@ import {
   preservePaidIntent,
 } from "./paid-intent";
 
+const SEND = "/wallet/fund/send";
+
 class MemoryStorage {
   value: string | null = null;
   getItem() {
@@ -23,39 +25,40 @@ describe("paid login intent", () => {
   it("round-trips a bounded draft only to its exact safe destination", () => {
     const storage = new MemoryStorage();
     preservePaidIntent(
-      "/ai",
-      { kind: "ai", draft: "unfinished thought" },
+      SEND,
+      { kind: "send", query: "alice", amount: 500 },
       storage,
       100,
     );
-    expect(consumePaidIntent("/ai", "ai", storage, 200)).toEqual({
-      kind: "ai",
-      draft: "unfinished thought",
+    expect(consumePaidIntent(SEND, "send", storage, 200)).toEqual({
+      kind: "send",
+      query: "alice",
+      amount: 500,
     });
-    expect(consumePaidIntent("/ai", "ai", storage, 200)).toBeNull();
+    expect(consumePaidIntent(SEND, "send", storage, 200)).toBeNull();
   });
 
   it("round-trips canonical numeric Send amounts while accepting the legacy string shape", () => {
     const storage = new MemoryStorage();
 
     preservePaidIntent(
-      "/wallet/fund/send",
+      SEND,
       { kind: "send", query: "alice", amount: 3_000 },
       storage,
       100,
     );
-    expect(consumePaidIntent("/wallet/fund/send", "send", storage, 200)).toEqual({
+    expect(consumePaidIntent(SEND, "send", storage, 200)).toEqual({
       kind: "send",
       query: "alice",
       amount: 3_000,
     });
 
     storage.value = JSON.stringify({
-      returnTo: "/wallet/fund/send",
+      returnTo: SEND,
       createdAt: 100,
       intent: { kind: "send", query: "alice", amount: "3,000" },
     });
-    expect(consumePaidIntent("/wallet/fund/send", "send", storage, 200)).toEqual({
+    expect(consumePaidIntent(SEND, "send", storage, 200)).toEqual({
       kind: "send",
       query: "alice",
       amount: "3,000",
@@ -67,7 +70,7 @@ describe("paid login intent", () => {
     (amount) => {
       const storage = new MemoryStorage();
       preservePaidIntent(
-        "/wallet/fund/send",
+        SEND,
         { kind: "send", query: "alice", amount } as never,
         storage,
         100,
@@ -76,74 +79,90 @@ describe("paid login intent", () => {
     },
   );
 
+  /**
+   * #904 phase 4 retired `ai`, `article-tip`, `creator-tip`,
+   * `creator-subscription` and `live-entry` with the routes that issued them.
+   * A record written by an older build must be destroyed on read rather than
+   * restored: its destination no longer exists in this app.
+   */
   it.each([
-    ["/ai", { kind: "ai", draft: "draft" }],
-    [
-      "/articles/post",
-      { kind: "article-tip", subject: "alice", amount: "250" },
-    ],
-    ["/creator/alice", { kind: "creator-tip", subject: "alice", amount: "50" }],
-    ["/creator/alice", { kind: "creator-subscription", subject: "alice" }],
-    ["/wallet/fund/send", { kind: "send", query: "alice", amount: "500" }],
-    ["/live/alice", { kind: "live-entry", subject: "alice", mode: "ppv" }],
-  ] as const)("preserves the %s paid intent across login", (path, intent) => {
+    { kind: "ai", draft: "unfinished thought" },
+    { kind: "article-tip", subject: "alice", amount: "250" },
+    { kind: "creator-tip", subject: "alice", amount: "50" },
+    { kind: "creator-subscription", subject: "alice" },
+    { kind: "live-entry", subject: "alice", mode: "ppv" },
+  ])("destroys a retired intent kind instead of restoring it (%o)", (intent) => {
     const storage = new MemoryStorage();
-    preservePaidIntent(path, intent, storage, 100);
-    expect(consumePaidIntent(path, intent.kind, storage, 200)).toEqual(intent);
+    storage.value = JSON.stringify({
+      returnTo: SEND,
+      createdAt: 100,
+      intent,
+    });
+
+    expect(consumePaidIntent(SEND, "send", storage, 200)).toBeNull();
+    expect(storage.value).toBeNull();
   });
 
-  it("destructively rejects wrong-route, wrong-kind, expired, and malformed records", () => {
+  it("refuses to write a retired intent kind at all", () => {
+    const storage = new MemoryStorage();
+    preservePaidIntent(
+      SEND,
+      { kind: "ai", draft: "secret" } as never,
+      storage,
+      100,
+    );
+    expect(storage.value).toBeNull();
+  });
+
+  it("destructively rejects wrong-route, expired, and malformed records", () => {
     const storage = new MemoryStorage();
     const record = JSON.stringify({
-      returnTo: "/ai",
+      returnTo: SEND,
       createdAt: 100,
-      intent: { kind: "ai", draft: "secret" },
+      intent: { kind: "send", query: "alice", amount: 500 },
     });
 
     storage.value = record;
-    expect(consumePaidIntent("/wallet/fund", "ai", storage, 200)).toBeNull();
+    expect(consumePaidIntent("/wallet/fund", "send", storage, 200)).toBeNull();
     expect(storage.value).toBeNull();
 
     storage.value = record;
-    expect(consumePaidIntent("/ai", "creator-tip", storage, 200)).toBeNull();
-    expect(storage.value).toBeNull();
-
-    storage.value = record;
-    expect(consumePaidIntent("/ai", "ai", storage, 31 * 60 * 1000)).toBeNull();
+    expect(consumePaidIntent(SEND, "send", storage, 31 * 60 * 1000)).toBeNull();
     expect(storage.value).toBeNull();
 
     storage.value = "not-json";
-    expect(consumePaidIntent("/ai", "ai", storage, 200)).toBeNull();
+    expect(consumePaidIntent(SEND, "send", storage, 200)).toBeNull();
     expect(storage.value).toBeNull();
   });
 
   it("clears a prior draft when its replacement is unsafe or invalid", () => {
     const storage = new MemoryStorage();
     const prior = JSON.stringify({ private: "draft" });
+    const intent = { kind: "send", query: "alice", amount: 500 } as const;
+
+    storage.value = prior;
+    preservePaidIntent("https://evil.test", intent, storage, 100);
+    expect(storage.value).toBeNull();
+
+    storage.value = prior;
+    preservePaidIntent("/", intent, storage, 100);
+    expect(storage.value).toBeNull();
 
     storage.value = prior;
     preservePaidIntent(
-      "https://evil.test",
-      { kind: "ai", draft: "secret" },
+      SEND,
+      { kind: "send", query: 42, amount: 500 } as never,
       storage,
       100,
     );
-    expect(storage.value).toBeNull();
-
-    storage.value = prior;
-    preservePaidIntent("/", { kind: "ai", draft: "secret" }, storage, 100);
-    expect(storage.value).toBeNull();
-
-    storage.value = prior;
-    preservePaidIntent("/ai", { kind: "ai", draft: 42 } as never, storage, 100);
     expect(storage.value).toBeNull();
   });
 
   it("clears a private draft when its login attempt is abandoned", () => {
     const storage = new MemoryStorage();
     preservePaidIntent(
-      "/ai",
-      { kind: "ai", draft: "belongs to the guest" },
+      SEND,
+      { kind: "send", query: "belongs to the guest", amount: 500 },
       storage,
       100,
     );
@@ -172,70 +191,49 @@ describe("paid login intent", () => {
     expect(storage.value).toBeNull();
   });
 
-  it("preserves paid actions for a full-length backend username", () => {
+  it("preserves a paid action for a full-length backend username", () => {
     const storage = new MemoryStorage();
-    const username = "a".repeat(150);
-    const intent = {
-      kind: "creator-tip",
-      subject: username,
-      amount: "50",
-    } as const;
+    const query = "a".repeat(150);
+    const intent = { kind: "send", query, amount: 500 } as const;
 
-    preservePaidIntent(`/creator/${username}`, intent, storage, 100);
+    preservePaidIntent(SEND, intent, storage, 100);
 
-    expect(
-      consumePaidIntent(`/creator/${username}`, "creator-tip", storage, 200),
-    ).toEqual(intent);
+    expect(consumePaidIntent(SEND, "send", storage, 200)).toEqual(intent);
   });
 
   it("counts a full-length Unicode username by code point", () => {
     const storage = new MemoryStorage();
-    const username = "\u{10400}".repeat(150);
-    const returnTo = `/creator/${encodeURIComponent(username)}`;
-    const intent = {
-      kind: "creator-tip",
-      subject: username,
-      amount: "50",
-    } as const;
+    const query = "\u{10400}".repeat(150);
+    const intent = { kind: "send", query, amount: 500 } as const;
 
-    preservePaidIntent(returnTo, intent, storage, 100);
+    preservePaidIntent(SEND, intent, storage, 100);
 
-    expect(consumePaidIntent(returnTo, "creator-tip", storage, 200)).toEqual(
-      intent,
-    );
+    expect(consumePaidIntent(SEND, "send", storage, 200)).toEqual(intent);
   });
 
-  it("lets the creator page consume either of its owned intent kinds once", () => {
+  it("rejects a username one code point over the limit", () => {
     const storage = new MemoryStorage();
     preservePaidIntent(
-      "/creator/alice",
-      { kind: "creator-tip", subject: "alice", amount: "50" },
+      SEND,
+      { kind: "send", query: "\u{10400}".repeat(151), amount: 500 },
       storage,
       100,
     );
-    expect(
-      consumePaidIntent(
-        "/creator/alice",
-        ["creator-subscription", "creator-tip"],
-        storage,
-        200,
-      ),
-    ).toEqual({ kind: "creator-tip", subject: "alice", amount: "50" });
     expect(storage.value).toBeNull();
   });
 
   it("fails closed when the record cannot be removed", () => {
     const storage = new MemoryStorage();
     storage.value = JSON.stringify({
-      returnTo: "/ai",
+      returnTo: SEND,
       createdAt: 100,
-      intent: { kind: "ai", draft: "secret" },
+      intent: { kind: "send", query: "secret", amount: 500 },
     });
     storage.removeItem = () => {
       throw new Error("blocked");
     };
 
-    expect(consumePaidIntent("/ai", "ai", storage, 200)).toBeNull();
+    expect(consumePaidIntent(SEND, "send", storage, 200)).toBeNull();
     expect(storage.value).toContain("secret");
   });
 });

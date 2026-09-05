@@ -372,7 +372,15 @@ export function FeedbackComposer({
       </div>
 
       <div className="grid min-w-0 max-w-full gap-3 rounded-xl border border-border p-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-start">
-        <Switch checked={diagnostics !== null} disabled aria-describedby={diagnosticsDescriptionId} aria-label={messages.feedbackDiagnosticsLabel} />
+        {/* `min-tap` on a 44x24 control: #904 phase 4 put `/about` into the
+            touch-target matrix in `tests/touch-targets.pw.ts` (it was only in
+            the viewport matrix before, which does not measure tap size) and
+            that is what surfaced this. Being `disabled` is not a reason to
+            leave it under 44px — nothing else in the audit is exempt for it,
+            and the control becomes interactive the moment diagnostics capture
+            lands. `justify-self-start` keeps it from stretching across the
+            single-column grid at mobile widths. */}
+        <Switch checked={diagnostics !== null} disabled aria-describedby={diagnosticsDescriptionId} aria-label={messages.feedbackDiagnosticsLabel} className="min-tap justify-self-start" />
         <div className="min-w-0 space-y-1">
           <p className="max-w-full break-words text-sm font-medium [overflow-wrap:anywhere]">
             {messages.feedbackDiagnosticsLabel}

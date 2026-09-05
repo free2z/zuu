@@ -6,19 +6,23 @@ import { MAX_TUZIS } from "@/lib/format";
 
 const STORAGE_KEY = "zuuli.auth.pending-paid-intent";
 const MAX_AGE_MS = 30 * 60 * 1000;
-const MAX_DRAFT = 8_000;
 const MAX_FIELD = 128;
 const MAX_USERNAME = 150;
 
 type IntentStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-export type PaidIntent =
-  | { kind: "ai"; draft: string }
-  | { kind: "article-tip"; subject: string; amount: string }
-  | { kind: "creator-tip"; subject: string; amount: string }
-  | { kind: "creator-subscription"; subject: string }
-  | { kind: "send"; query: string; amount: number | string }
-  | { kind: "live-entry"; subject: string; mode: "ppv" | "subscriber" };
+/**
+ * #904 phase 4 removed the `ai`, `article-tip`, `creator-tip`,
+ * `creator-subscription` and `live-entry` kinds along with the routes that
+ * issued and consumed them. A kind whose `returnTo` no longer resolves can
+ * only ever be dropped by `consumePaidIntent`, so keeping it would preserve a
+ * private draft in session storage that nothing can ever hand back.
+ */
+export type PaidIntent = {
+  kind: "send";
+  query: string;
+  amount: number | string;
+};
 
 interface StoredPaidIntent {
   returnTo: LoginDestination;
@@ -60,20 +64,8 @@ function validIntent(value: unknown): value is PaidIntent {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
   switch (record.kind) {
-    case "ai":
-      return shortString(record.draft, MAX_DRAFT);
-    case "article-tip":
-    case "creator-tip":
-      return usernameString(record.subject) && shortString(record.amount, 32);
-    case "creator-subscription":
-      return usernameString(record.subject);
     case "send":
       return usernameString(record.query) && sendAmount(record.amount);
-    case "live-entry":
-      return (
-        usernameString(record.subject) &&
-        (record.mode === "ppv" || record.mode === "subscriber")
-      );
     default:
       return false;
   }

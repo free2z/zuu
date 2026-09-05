@@ -106,18 +106,11 @@ test("RTL mirrors desktop and mobile navigation, adornments, and dialogs", async
   expect(sidebarGeometry.right).toBe(sidebarGeometry.viewport);
   expect(sidebarGeometry.borderInlineEndWidth).toBe("1px");
 
-  const searchForm = page.getByRole("search");
-  const searchInput = searchForm.getByRole("searchbox");
-  const searchIcon = searchForm.locator("svg");
-  const [inputBox, iconBox] = await Promise.all([
-    searchInput.boundingBox(),
-    searchIcon.boundingBox(),
-  ]);
-  expect(inputBox).not.toBeNull();
-  expect(iconBox).not.toBeNull();
-  expect(iconBox!.x + iconBox!.width / 2).toBeGreaterThan(
-    inputBox!.x + inputBox!.width / 2,
-  );
+  // The TopBar search field was this file's RTL leading-icon subject; #904
+  // phase 4 removed it with the route it entered. The 2Z chip is the
+  // surviving TopBar control with a leading icon beside text, so it takes
+  // over the same mirroring assertion.
+  await expect(page.getByRole("search")).toHaveCount(0);
 
   await page.getByRole("link", { name: "Zcash wallet" }).click();
   const backIcon = page.getByRole("button", { name: "Go back" }).locator("svg");

@@ -43,9 +43,6 @@ export const FORCE_MOCK = readEnv("VITE_MOCK", "") === "1";
  */
 export const MOCK_OTP = readEnv("VITE_MOCK_OTP", "") === "1";
 
-/** Dyte SDK base — used to construct join URLs for livestreams. */
-export const DYTE_BASE = readEnv("VITE_DYTE_BASE", "https://app.dyte.io");
-
 /**
  * Extra exact DNS names that may host Stripe Checkout, separated by commas.
  * `checkout.stripe.com` is always allowed. Add only a Stripe Custom Domain

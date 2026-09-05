@@ -14,8 +14,6 @@ const shell = source("../src/components/layout/AppShell.tsx");
 const topBar = source("../src/components/layout/TopBar.tsx");
 const sidebar = source("../src/components/layout/Sidebar.tsx");
 const auth = source("../src/features/auth/index.tsx");
-const ai = source("../src/features/ai/index.tsx");
-const reader = source("../src/features/articles/pages/Reader.tsx");
 const root = source("../src/main.tsx");
 const appBootstrap = source("../src/app-bootstrap.tsx");
 const androidManifest = source(
@@ -150,14 +148,14 @@ test("login stays inside pinned chrome with one bounded scroll owner", () => {
 
 test("chrome and full-bleed clearance use centralized variables", () => {
   assert.match(sidebar, /app-sidebar/);
-  assert.match(ai, /app-full-bleed-inset/);
   assert.match(shell, /app-scroll-content/);
   assert.match(auth, /app-auth-content/);
-  assert.match(reader, /app-reader-content/);
-  assert.match(reader, /app-reader-actions/);
-  assert.doesNotMatch(reader, /fixed[^"\n]*\bbottom-0\b/);
 
-  for (const component of [shell, topBar, sidebar, auth, ai, reader]) {
+  // `app-full-bleed-inset` (AI) and `app-reader-content`/`app-reader-actions`
+  // (the article reader) were removed with their routes in #904 phase 4, and
+  // their rules are gone from `index.css` with them; login is now the only
+  // full-bleed scroll owner.
+  for (const component of [shell, topBar, sidebar, auth]) {
     assert.doesNotMatch(component, /env\(safe-area-inset-/);
   }
 });

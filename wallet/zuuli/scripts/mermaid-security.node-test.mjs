@@ -1,3 +1,6 @@
+// #904 phase 4 moved the Mermaid renderer to `wallet/free2z`; see the header
+// of `check-mermaid-security.mjs` for why this guard followed it here instead
+// of being deleted with ZUULI's copy.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -55,18 +58,39 @@ test("SVG sink guard rejects known-vulnerable DOMPurify lines", () => {
   assert.doesNotThrow(() => assertPatchedDomPurify("3.4.14"));
 });
 
-test("the committed manifest and lock remain patched and aligned", async () => {
+test("free2z's committed manifest and lock remain patched and aligned", async () => {
   const [manifest, lock] = await Promise.all([
-    readFile(new URL("../package.json", import.meta.url), "utf8").then(JSON.parse),
-    readFile(new URL("../package-lock.json", import.meta.url), "utf8").then(JSON.parse),
+    readFile(new URL("../../free2z/package.json", import.meta.url), "utf8").then(
+      JSON.parse,
+    ),
+    readFile(
+      new URL("../../free2z/package-lock.json", import.meta.url),
+      "utf8",
+    ).then(JSON.parse),
   ]);
   assert.doesNotThrow(() => checkManifestAndLock(manifest, lock));
 });
 
-test("creator-controlled Mermaid render stays off the wallet UI thread", async () => {
+test("this app is the one that no longer renders Mermaid", async () => {
+  // The reason the guard moved. If ZUULI ever takes a Mermaid dependency back
+  // this fails, and whoever did it has to decide deliberately whether the
+  // renderer belongs next to the seed again (#904, #367).
+  const manifest = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+  for (const name of ["mermaid", "dompurify", "react-markdown"]) {
+    assert.equal(
+      manifest.dependencies?.[name],
+      undefined,
+      `the wallet authority must not depend on ${name}`,
+    );
+  }
+});
+
+test("creator-controlled Mermaid render stays off the free2z UI thread", async () => {
   const [component, worker] = await Promise.all([
-    readFile(new URL("../src/components/common/Mermaid.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/components/common/mermaid.worker.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../free2z/src/components/common/Mermaid.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../../free2z/src/components/common/mermaid.worker.ts", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(component, /import\(["']mermaid["']\)|mermaid\.render/);
   assert.match(component, /worker\.terminate\(\)/);

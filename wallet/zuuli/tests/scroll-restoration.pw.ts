@@ -34,57 +34,6 @@ async function expectOffset(scroller: Locator, expected: number) {
     .toBeCloseTo(expected, 0);
 }
 
-test("fresh Articles uses the Radix viewport and loads only page 1 at the top", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 320, height: 568 });
-  await setSession(page, false);
-  await page.addInitScript(() => {
-    const NativeIntersectionObserver = window.IntersectionObserver;
-    const roots: boolean[] = [];
-    const RecordingIntersectionObserver = function (
-      callback: IntersectionObserverCallback,
-      options?: IntersectionObserverInit,
-    ) {
-      roots.push(
-        options?.root instanceof HTMLElement &&
-          options.root.hasAttribute("data-scroll-area-viewport"),
-      );
-      return new NativeIntersectionObserver(callback, options);
-    } as unknown as typeof IntersectionObserver;
-    RecordingIntersectionObserver.prototype =
-      NativeIntersectionObserver.prototype;
-    window.IntersectionObserver = RecordingIntersectionObserver;
-    (
-      window as Window & { __zuuliArticleObserverRoots?: boolean[] }
-    ).__zuuliArticleObserverRoots = roots;
-  });
-
-  await page.goto("/articles");
-  const scroller = genericViewport(page);
-  await expect(scroller).toBeVisible();
-  await expect(page.locator("[data-article-card]")).toHaveCount(24);
-  await expectOffset(scroller, 0);
-  await expect(page.locator("[data-article-feed-sentinel]")).toHaveAttribute(
-    "data-observer-root-ready",
-    "true",
-  );
-
-  await expect(page.locator("[data-article-card]")).toHaveCount(24);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (window as Window & { __zuuliArticleObserverRoots?: boolean[] })
-            .__zuuliArticleObserverRoots,
-      ),
-    )
-    .toEqual([true]);
-  await page.waitForTimeout(900);
-  await expect(page.locator("[data-article-card]")).toHaveCount(24);
-  await expect(page.locator("[data-article-feed-sentinel]")).toHaveCount(1);
-});
-
 test("PUSH resets before paint and POP restores distinct history entries", async ({
   page,
 }) => {
@@ -114,10 +63,9 @@ test("PUSH resets before paint and POP restores distinct history entries", async
 
   await page
     .getByRole("navigation", { name: "App navigation" })
-    .getByRole("link", { name: "Articles" })
+    .getByRole("link", { name: "Zcash wallet" })
     .click();
-  await expect(page).toHaveURL(/\/articles$/);
-  await expect(page.locator("[data-article-card]")).toHaveCount(24);
+  await expect(page).toHaveURL(/\/wallet$/);
   await expect
     .poll(() =>
       page.evaluate(
@@ -129,23 +77,28 @@ test("PUSH resets before paint and POP restores distinct history entries", async
     .toBe(0);
   await expectOffset(scroller, 0);
 
+  // Wallet Overview resolves its balance and recent activity asynchronously;
+  // scrolling before that lands would measure the skeleton, not the route.
+  await expect(page.getByRole("heading", { name: "Wallet" })).toBeVisible();
+  await expect
+    .poll(() => scroller.evaluate((element) => element.scrollHeight))
+    .toBeGreaterThan(900);
   await setOffset(scroller, 980);
-  // The asynchronously populated tag bar can trigger browser scroll anchoring
-  // after the first cards arrive. Snapshot the entry's settled, actual offset
+  // Asynchronously populated rows can trigger browser scroll anchoring after
+  // the ledger arrives. Snapshot the entry's settled, actual offset
   // immediately before leaving; that is the value POP must restore.
   await page.waitForTimeout(150);
-  const articlesOffset = await scroller.evaluate(
+  const walletOffset = await scroller.evaluate(
     (element) => element.scrollTop,
   );
-  expect(articlesOffset).toBeGreaterThan(100);
+  expect(walletOffset).toBeGreaterThan(100);
   await page.goBack();
   await expect(page).toHaveURL(/\/$/);
   await expectOffset(scroller, homeOffset);
 
   await page.goForward();
-  await expect(page).toHaveURL(/\/articles$/);
-  await expect(page.locator("[data-article-card]")).toHaveCount(24);
-  await expectOffset(scroller, articlesOffset);
+  await expect(page).toHaveURL(/\/wallet$/);
+  await expectOffset(scroller, walletOffset);
 
   await page
     .locator("[data-app-top-bar]")
@@ -155,9 +108,8 @@ test("PUSH resets before paint and POP restores distinct history entries", async
   await expectOffset(scroller, homeOffset);
 
   await page.goForward();
-  await expect(page).toHaveURL(/\/articles$/);
-  await expect(page.locator("[data-article-card]")).toHaveCount(24);
-  await expectOffset(scroller, articlesOffset);
+  await expect(page).toHaveURL(/\/wallet$/);
+  await expectOffset(scroller, walletOffset);
 
   // Stay pending beyond the former short deadline, then change only a content
   // box size (no child-list mutation). ResizeObserver must reassert the saved
@@ -176,12 +128,12 @@ test("PUSH resets before paint and POP restores distinct history entries", async
           content.style.minHeight = `${content.getBoundingClientRect().height + 1}px`;
         }
       },
-      { target: articlesOffset, resizeKind: kind },
+      { target: walletOffset, resizeKind: kind },
     );
   await resizeContent("padding");
-  await expectOffset(scroller, articlesOffset);
+  await expectOffset(scroller, walletOffset);
   await resizeContent("content");
-  await expectOffset(scroller, articlesOffset);
+  await expectOffset(scroller, walletOffset);
 
   // The bounded async-content retry must yield to real input outside the
   // viewport, not only events dispatched inside it. Use a real pointer action
@@ -193,15 +145,15 @@ test("PUSH resets before paint and POP restores distinct history entries", async
     x: topBarBox!.x + topBarBox!.width / 2,
     y: topBarBox!.y + topBarBox!.height / 2,
   };
-  let currentArticlesOffset = articlesOffset;
+  let currentWalletOffset = walletOffset;
   const assertInputWins = async (
     interact: () => Promise<void>,
     markerName: string,
   ) => {
     await interact();
-    currentArticlesOffset = await setOffset(
+    currentWalletOffset = await setOffset(
       scroller,
-      currentArticlesOffset + 60,
+      currentWalletOffset + 60,
     );
     await scroller.evaluate((element, marker) => {
       const node = document.createElement("span");
@@ -210,16 +162,15 @@ test("PUSH resets before paint and POP restores distinct history entries", async
       element.append(node);
     }, markerName);
     await page.waitForTimeout(100);
-    await expectOffset(scroller, currentArticlesOffset);
+    await expectOffset(scroller, currentWalletOffset);
   };
   const rearmPendingRestore = async () => {
     await page.goBack();
     await expect(page).toHaveURL(/\/$/);
     await expectOffset(scroller, homeOffset);
     await page.goForward();
-    await expect(page).toHaveURL(/\/articles$/);
-    await expect(page.locator("[data-article-card]")).toHaveCount(24);
-    await expectOffset(scroller, currentArticlesOffset);
+    await expect(page).toHaveURL(/\/wallet$/);
+    await expectOffset(scroller, currentWalletOffset);
   };
 
   await assertInputWins(async () => {
@@ -250,11 +201,12 @@ test("generic and full-bleed owners hand off without leaking offsets", async ({
 
   const generic = genericViewport(page);
   const homeOffset = await setOffset(generic, 680);
+  // #904 phase 4 removed `/ai`; login is now the only full-bleed scroll owner.
   await page
     .getByRole("navigation", { name: "App navigation" })
-    .getByRole("link", { name: "Artificial intelligence" })
+    .getByRole("link", { name: "Log in" })
     .click();
-  await expect(page).toHaveURL(/\/ai$/);
+  await expect(page).toHaveURL(/\/login$/);
   await expect(generic).toHaveCount(0);
   const fullBleed = page.locator("main[data-route-frame] [data-route-scroll]");
   await expect(fullBleed).toBeVisible();
@@ -266,13 +218,10 @@ test("generic and full-bleed owners hand off without leaking offsets", async ({
   await expectOffset(genericViewport(page), homeOffset);
 
   await page.goForward();
-  await expect(page).toHaveURL(/\/ai$/);
+  await expect(page).toHaveURL(/\/login$/);
   await expectOffset(fullBleed, 0);
-  await page
-    .getByRole("navigation", { name: "App navigation" })
-    .getByRole("link", { name: "Articles" })
-    .click();
-  await expect(page).toHaveURL(/\/articles$/);
+  await page.goto("/wallet/history");
+  await expect(genericViewport(page)).toBeVisible();
   await expectOffset(genericViewport(page), 0);
 });
 
@@ -308,15 +257,6 @@ test("a prefix-active tab still navigates from a child route to its destination"
 }) => {
   await page.setViewportSize({ width: 1024, height: 640 });
   await setSession(page, false);
-
-  await page.goto("/articles/nested-route-review");
-  const articles = page
-    .getByRole("navigation", { name: "App navigation" })
-    .getByRole("link", { name: "Articles" });
-  await expect(articles).toHaveAttribute("aria-current", "page");
-  await articles.click();
-  await expect(page).toHaveURL(/\/articles$/);
-  await expectOffset(genericViewport(page), 0);
 
   await page.goto("/wallet/send");
 
@@ -368,10 +308,8 @@ test("fresh deep links and hashes deliberately start the custom owner at top", a
 }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await setSession(page, true);
-  await page.goto("/profile#profile-p2paddr");
-  await expect(
-    page.getByRole("heading", { name: "Edit profile" }),
-  ).toBeVisible();
+  await page.goto("/wallet/history#does-not-exist");
+  await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
   await expectOffset(genericViewport(page), 0);
   await page.waitForTimeout(500);
   await expectOffset(genericViewport(page), 0);

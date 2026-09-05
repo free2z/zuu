@@ -1,9 +1,17 @@
 # ZUULI — Agent instructions
 
-**ZUULI, by 2Z Inc**, is the flagship Zcash-native app: a native Zcash wallet
-combined with free2z AI, livestreaming, articles, profile/KYC, and 2Z-credit
-surfaces. Implemented UI or source wiring is not itself production evidence;
-the per-surface status and release blockers live in [`STATUS.md`](STATUS.md).
+**ZUULI, by 2Z Inc**, is the **wallet authority**: the app that holds the master
+seed and the spending keys, signs Zcash-login challenges, executes intent-bridge
+payments, and issues messaging `DeviceCredential`s. It renders **no** content we
+do not control — #904 phase 4 deleted the article, creator, live, AI, search,
+profile and KYC surfaces (they live in `../free2z`) and #904 phase 3 moved
+messaging to `../e2e2z`. The reason is #367: on Android a remote subframe
+resolves as the trusted main window, so the app holding the seed must render
+nothing remote. Architecture depth lives in
+[`../../docs/architecture.md`](../../docs/architecture.md).
+
+Implemented UI or source wiring is not itself production evidence; the
+per-surface status and release blockers live in [`STATUS.md`](STATUS.md).
 
 It is distinct from **`../zuuallet`**, the whitelabel *reference* wallet. Both
 apps share the Zcash engine in `../plugins/tauri-plugin-zcash` (the "guts").
@@ -87,7 +95,9 @@ never merge two identity directories or add an insecure mobile import path.
 - TailwindCSS 3 + shadcn/ui (Radix primitives + CVA), dark-first, violet primary
 - react-router-dom 6 (routing), Zustand 5 (state)
 - @tauri-apps/api 2 (IPC), Tauri v2 backend
-- react-markdown (articles + AI), qrcode.react, sonner (toasts), lucide-react
+- qrcode.react, sonner (toasts), lucide-react. **No Markdown, Mermaid,
+  remark/rehype or RealtimeKit dependency** — they left with their surfaces in
+  #904 phase 4, and `scripts/csp-policy.mjs` pins the CSP that assumes it.
 
 ## Runtime selection — two independent boundaries
 
@@ -113,7 +123,7 @@ result as proof of a product operation.
 ## Architecture / conventions
 
 - **The contract** lives in `src/lib/` and MUST stay stable — features depend on it:
-  - `src/lib/api/free2z.ts` — the typed free2z surface: `{ auth, ai, articles, live, tuzi, discover, estimateTuzis }`. Distilled from `tuzi/f2z.yaml` (the OpenAPI spec). Types in `src/lib/api/types.ts`; HTTP + Knox-token auth in `src/lib/api/http.ts`.
+  - `src/lib/api/free2z.ts` — the typed free2z surface: `{ auth, ai, articles, live, tuzi, discover, estimateTuzis }`. Distilled from `tuzi/f2z.yaml` (the OpenAPI spec). Types in `src/lib/api/types.ts`; HTTP + Knox-token auth in `src/lib/api/http.ts`. **Only `auth` and `tuzi` have callers here** after #904 phase 4; the rest is unreferenced and is kept as the shared contract rather than pruned in the same change.
   - `src/lib/wallet/bridge.ts` — the ONLY place that talks to the Zcash engine. Mirrors `tauri-plugin-zcash` commands 1:1. Never call `invoke()` from a component.
   - `src/lib/format.ts` — money/units. **1 Tuzi (2Z) = 1 US cent.** ZEC amounts are zatoshis. 2Z pricing is cost-plus, rounded up (`usdToTuzis`).
   - `src/store/session.ts` (auth + live 2Z balance), `src/store/wallet.ts` (wallet state).
@@ -122,7 +132,11 @@ result as proof of a product operation.
   sub-routes. A feature imports ONLY from the contract, `@/components/ui/*`,
   `@/components/common/*`, and `@/hooks/*`. Features never edit shared files.
 - Routing: `src/App.tsx` mounts `/login` full-screen (auth) and everything else
-  inside `AppShell` (sidebar + topbar with the ZEC + 2Z balance chips).
+  inside `AppShell` (sidebar + topbar with the ZEC + 2Z balance chips). The
+  mounted set is exactly `src/lib/routes.ts`: `/`, `/login`, `/about`,
+  `/wallet/*` and the legacy `/buy` redirect. **A navigation entry must point at
+  a route this app mounts** — `navigation.test.ts` pins the two together,
+  because a stale link is a runtime NotFound that typecheck cannot see (#920).
 - Path alias `@/` → `src/`.
 
 ## Adding a feature
@@ -158,13 +172,29 @@ result as proof of a product operation.
   outright (`scripts/ui-copy-truncation.node-test.mjs` fails the build).
   **Opaque identifiers** (Zcash addresses, txids, DIDs, meeting IDs) are the one
   exception: shorten them in the **middle, tail-weighted**, with
-  `truncateAddress()` (`src/lib/format.ts`) or `truncateMiddle()`
-  (`src/lib/utils/bio.ts`) — and render the result with **no CSS clip on top**,
-  because a second ellipsis eats the trailing checksum a human verifies (use
+  `truncateAddress()` (`src/lib/format.ts`) — and render the result with **no
+  CSS clip on top**, because a second ellipsis eats the trailing checksum a
+  human verifies (use
   `break-all`). **User-authored body content** (article excerpts, bios, system
   messages) may wrap and `line-clamp` — and the element must say so with
   `data-user-content`, which is also what exempts it from the audit in
-  `tests/viewport.pw.ts`.
+  `tests/viewport.pw.ts`. This app authors all of its own copy now, so that
+  exemption should have no consumers.
+
+## The containment contract (#904 / #367) — do not weaken
+
+- **No remote content.** No Markdown renderer, no `<img>` with a remote `src`,
+  no `AvatarImage`, no iframe, no third-party SDK. `scripts/csp-policy.mjs` is
+  the per-directive contract with a written justification for every source, and
+  `--self-test` proves it rejects each widening. `tests/csp-policy.pw.ts` proves
+  a browser enforces it, using the previous policy as the positive control.
+- **No capability the app cannot use.** `src-tauri/capabilities/*.json` grants
+  no `f2zmsg:*` permission (#916). The messaging plugin stays registered only
+  because the enrollment trio in `src-tauri/src/messaging.rs` needs its engine,
+  and those three cannot leave: enrollment is the one messaging operation that
+  needs the seed. They are app-crate commands, so `generate_handler!` routes
+  them with **no** capability ACL — that is written down at the call site, and
+  #905 moves them behind the intent authority.
 
 ## Backend follow-ups (see repo STATUS / the free2z backend)
 

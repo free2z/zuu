@@ -229,7 +229,7 @@ export const mockModels: AIModel[] = [
     is_ga: true,
     // Highest `order` of the catalog, mirroring stage (gpt-4o = 200 there):
     // it's the one GA model with a verified id + API key, so it must win
-    // the default-model pick (see features/ai/index.tsx).
+    // the default-model pick (AI moved to `wallet/free2z` in #904 phase 4).
     order: 200,
     input_price: "0.0000025",
     output_price: "0.00001",

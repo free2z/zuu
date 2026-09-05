@@ -202,17 +202,25 @@ test("every line-clamp is annotated as user-authored content", () => {
   );
 });
 
-test("product chrome contains no Search implementation explainer", () => {
+test("product chrome contains no implementation explainer", () => {
   assert.ok(
     CHROME_FILES.length > 0,
     "product chrome source scan selected no files",
   );
-  assert.ok(
-    CHROME_FILES.some(
-      (file) => relative(ROOT, file) === "src/features/search/index.tsx",
-    ),
-    "product chrome source scan omitted the reported Search surface",
-  );
+  // The coverage anchor used to be `src/features/search/index.tsx`, the
+  // surface the rules below were written against. #904 phase 4 moved Search to
+  // free2z; the rules stay because they are about prose, not about Search, and
+  // the anchor moves to files this app still ships so the scan cannot go blind.
+  for (const anchor of [
+    "src/components/layout/TopBar.tsx",
+    "src/features/wallet/Send.tsx",
+    "src/features/home/index.tsx",
+  ]) {
+    assert.ok(
+      CHROME_FILES.some((file) => relative(ROOT, file) === anchor),
+      `product chrome source scan omitted ${anchor}`,
+    );
+  }
 
   const violations = [];
   for (const file of CHROME_FILES) {

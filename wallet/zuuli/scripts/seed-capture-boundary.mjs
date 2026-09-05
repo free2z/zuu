@@ -39,7 +39,6 @@ export function assertSeedCaptureBoundary(sources) {
     loginHook,
     associateHook,
     loginFlow,
-    linkedAccounts,
     mnemonicPolicy,
     onboarding,
     restoreIdentity,
@@ -143,11 +142,6 @@ export function assertSeedCaptureBoundary(sources) {
     loginFlow,
     /void createIdentity\(\)/,
     "Zcash login UI must not inject creation policy",
-  );
-  requireMatch(
-    linkedAccounts,
-    /void createIdentity\(\)/,
-    "hidden linked-account creation must not inject creation policy",
   );
   for (const [policy, label] of [
     [mnemonicPolicy, "ZUULI"],
@@ -908,7 +902,6 @@ export async function main() {
     loginHook,
     associateHook,
     loginFlow,
-    linkedAccounts,
     mnemonicPolicy,
     onboarding,
     restoreIdentity,
@@ -946,7 +939,6 @@ export async function main() {
     read("src/features/auth/useZcashLogin.ts"),
     read("src/features/auth/useZcashAssociate.ts"),
     read("src/features/auth/ZcashLoginFlow.tsx"),
-    read("src/features/profile/LinkedAccounts.tsx"),
     read("src/lib/wallet/mnemonic.ts"),
     read("src/features/wallet/Onboarding.tsx"),
     read("src/features/auth/RestoreIdentity.tsx"),
@@ -985,7 +977,6 @@ export async function main() {
     loginHook,
     associateHook,
     loginFlow,
-    linkedAccounts,
     mnemonicPolicy,
     onboarding,
     restoreIdentity,
