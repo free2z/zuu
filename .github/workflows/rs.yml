@@ -80,6 +80,32 @@ jobs:
           node scripts/check-hash-domain-labels.mjs --self-test
           node scripts/check-hash-domain-labels.mjs
 
+      # Unconditional for the same reason as the step above, and it belongs in
+      # this job for a third reason too.
+      #
+      #   * A dead link arrives in a docs-only diff by construction, and this is
+      #     the one job in the repository that such a diff cannot skip. `filter`
+      #     below selects rs=false for it; more pointedly, zuuli.yml's change
+      #     detector `continue`s on `wallet/zuuli/*.md`, `wallet/free2z/*.md` and
+      #     `wallet/e2e2z/*.md` *deliberately*, so that a STATUS re-derivation
+      #     does not pay a 40-minute native matrix. A link check inside the
+      #     required `gate` would therefore not run on exactly the diffs it
+      #     exists for. This job has no filter at all.
+      #   * It has to gate, and a new workflow could not. Branch protection
+      #     requires exactly `gate` and `rs / gate`; adding a third context is a
+      #     repository-settings change no pull request can make, so a standalone
+      #     link workflow would have to be registered as ungated in
+      #     scripts/check-workflow-gates.mjs and could never fail a merge. This
+      #     job's verdict is consumed by `rs / gate`, which can.
+      #   * It cannot flake. The checker fetches nothing — there is no external
+      #     URL mode, by design — so it is as deterministic as every other
+      #     policy check here, and the self-test plus the verdict together run
+      #     in about half a second over 900 links.
+      - name: Verify every relative Markdown link and heading anchor resolves
+        run: |
+          node scripts/check-markdown-links.mjs --self-test
+          node scripts/check-markdown-links.mjs
+
       # Also deliberately unconditional, and for a sharper reason than the one
       # above. `.github/workflows/f2z-images.yml` carries an `on: pull_request:
       # paths:` filter, so the way it fails is by *not running*: a filter that
