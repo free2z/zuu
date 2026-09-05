@@ -95,7 +95,8 @@ jobs:
       #     job's verdict is consumed by `rs / gate`, which can.
       #   * It cannot flake. The checker fetches nothing — there is no external
       #     URL mode, by design — so it is as deterministic as every other
-      #     policy check here and adds about two seconds.
+      #     policy check here, and the self-test plus the verdict together run
+      #     in about half a second over 900 links.
       - name: Verify every relative Markdown link and heading anchor resolves
         run: |
           node scripts/check-markdown-links.mjs --self-test
