@@ -71,6 +71,14 @@ a `--self-test` that proves it still fails on the thing it exists to catch. Run
 the check *and* its self-test; a check that has quietly become vacuous reports
 green.
 
+**Documentation links are checked too.**
+[`check-markdown-links.mjs`](../scripts/check-markdown-links.mjs) resolves every
+relative link in tracked Markdown *and the heading anchor after it*, so renaming
+a heading in one file reddens the required `rs / gate` if another file links to
+it — which is the common rot, since headings get reworded constantly while
+filenames rarely move. It never fetches an external URL, by design. Run
+`node scripts/check-markdown-links.mjs` after editing docs.
+
 ## Verify at the real conditions
 
 A warm local build reuses artifacts and resolves Cargo **features** and npm
@@ -89,13 +97,15 @@ finish**.
 
 ## The CI gate model
 
-There is exactly one **required** check, `gate`, and it lives in
-[`.github/workflows/zuuli.yml`](../.github/workflows/zuuli.yml). Everything that
-must be true before a merge is decided inside it or awaited by it.
+Branch protection requires exactly two checks — `gate` and `rs / gate` — and
+`check-workflow-gates.mjs` holds that set as a digest-pinned contract. Everything
+that must be true before a merge is decided inside one of them or awaited by one
+of them.
 
 | Workflow | Publishes a gate? | Covers |
 | --- | --- | --- |
 | `zuuli.yml` | **yes — the required `gate`** | ZUULI frontend + Playwright, Rust fmt/clippy/deny across every crate under `wallet/`, target-native clippy on macOS and Windows, and the repository policy scripts |
+| `rs.yml` | **yes — the required `rs / gate`** | the `rs/` Rust workspace, plus the tree-wide policy checks its `changes` job runs unconditionally: action pins, gate wiring, hash-domain labels, server images, the toolchain pin, and Markdown link resolution |
 | `wallet-surfaces.yml` | no | build coverage for free2z and e2e2z — typecheck, tests, bundle, `cargo build` per backend |
 | `zuuallet.yml` | no | Zuuallet frontend + backend, and the weekly `upstream-canary` against latest librustzcash `main` |
 

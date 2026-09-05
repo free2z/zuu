@@ -80,6 +80,27 @@ jobs:
           node scripts/check-hash-domain-labels.mjs --self-test
           node scripts/check-hash-domain-labels.mjs
 
+      # Unconditional for the same reason as the step above, and it belongs in
+      # this job for a third reason too.
+      #
+      #   * A dead link arrives in a docs-only diff by construction. Every
+      #     path-filtered workflow in this repository — and `filter` below —
+      #     selects false for such a change, so a link check placed behind any
+      #     of them would not have run on the commit that broke the link.
+      #   * It has to gate, and a new workflow could not. Branch protection
+      #     requires exactly `gate` and `rs / gate`; adding a third context is a
+      #     repository-settings change no pull request can make, so a standalone
+      #     link workflow would have to be registered as ungated in
+      #     scripts/check-workflow-gates.mjs and could never fail a merge. This
+      #     job's verdict is consumed by `rs / gate`, which can.
+      #   * It cannot flake. The checker fetches nothing — there is no external
+      #     URL mode, by design — so it is as deterministic as every other
+      #     policy check here and adds about two seconds.
+      - name: Verify every relative Markdown link and heading anchor resolves
+        run: |
+          node scripts/check-markdown-links.mjs --self-test
+          node scripts/check-markdown-links.mjs
+
       # Also deliberately unconditional, and for a sharper reason than the one
       # above. `.github/workflows/f2z-images.yml` carries an `on: pull_request:
       # paths:` filter, so the way it fails is by *not running*: a filter that
