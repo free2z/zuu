@@ -3,16 +3,30 @@
 Status: accepted on 2026-08-23. This records the decision for
 [issue #341](https://github.com/free2z/zuu/issues/341).
 
+> [!NOTE]
+> **Amended 2026-09-04 — the count changed, the decision did not.** The
+> three-app split ([#904](https://github.com/free2z/zuu/issues/904), see
+> [`../architecture.md`](../architecture.md)) added
+> `wallet/free2z/src-tauri/` and `wallet/e2e2z/src-tauri/`, and
+> `wallet/plugins/tauri-plugin-f2zmsg/` is a fourth plugin root, so there are
+> now **six** shipping package roots under `wallet/` rather than three. Each was
+> created as an independent root under exactly the reasoning below, and each was
+> gated from its first commit because the fmt/clippy/deny checks **discover**
+> crates rather than listing them. Read "three" below as "the roots that existed
+> when this was written"; nothing else in this document changes. The revisit
+> triggers are unchanged and none has fired.
+
 ## Decision
 
-Keep the three existing Rust package roots independent:
+Keep the existing Rust package roots independent. At the time of writing they
+were:
 
 - `wallet/plugins/tauri-plugin-zcash/`
 - `wallet/zuuli/src-tauri/`
 - `wallet/zuuallet/src-tauri/`
 
 Each remains the root of its own Cargo resolution, lockfile, profiles, and
-target directory. Do not add a virtual workspace above all three merely to
+target directory. Do not add a virtual workspace above them merely to
 deduplicate configuration.
 
 The durable boundary is the **release train**, not the repository. ZUULI and

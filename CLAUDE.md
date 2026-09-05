@@ -64,6 +64,14 @@ owner, not a person.
 
 Per-project specifics:
 
+- `docs/architecture.md` — **we ship three Tauri apps, not one.**
+  `cash.free2z.zuuli` (wallet authority, holds the seed, renders nothing
+  untrusted), `cash.free2z.free2z` (content, zero privileged capability),
+  `cash.free2z.e2e2z` (messaging, device keys only). Read it before adding a
+  capability, a plugin, or an `invoke_handler` entry to any of them.
+  `docs/status.md` says what is actually working — the cross-app bridge has no
+  transport yet.
+- `wallet/zuuli/CLAUDE.md` — ZUULI, the wallet authority.
 - `wallet/zuuallet/CLAUDE.md` — Zuuallet desktop app (Tauri v2 + React).
 - `wallet/plugins/tauri-plugin-zcash/CLAUDE.md` — Rust plugin, build commands,
   librustzcash API gotchas.
