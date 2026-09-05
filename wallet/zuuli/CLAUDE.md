@@ -7,7 +7,8 @@ do not control — #904 phase 4 deleted the article, creator, live, AI, search,
 profile and KYC surfaces (they live in `../free2z`) and #904 phase 3 moved
 messaging to `../e2e2z`. The reason is #367: on Android a remote subframe
 resolves as the trusted main window, so the app holding the seed must render
-nothing remote. Architecture depth lives in `docs/architecture.md`.
+nothing remote. Architecture depth lives in
+[`../../docs/architecture.md`](../../docs/architecture.md).
 
 Implemented UI or source wiring is not itself production evidence; the
 per-surface status and release blockers live in [`STATUS.md`](STATUS.md).
