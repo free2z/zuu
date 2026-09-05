@@ -26,6 +26,20 @@ pub fn run() {
         // Zcash wallet on the desktop.
         .plugin(tauri_plugin_zcash::init())
         // End-to-end encrypted messaging (docs/e2ee/CLIENT-CONTRACT.md §3).
+        //
+        // #916: no capability grants a single `f2zmsg:` permission any more.
+        // ZUULI has no messaging frontend after #904, so the plugin's 43
+        // commands are registered but unreachable from the WebView — which is
+        // the point, given #367 lets a confused frame invoke whatever the
+        // capability set allows.
+        //
+        // The plugin stays registered because `messaging.rs`'s enrollment trio
+        // needs its engine and durable store, and those three cannot move to
+        // `wallet/e2e2z`: enrollment is the one messaging operation that needs
+        // the wallet seed, and the seed never crosses IPC. They are app-crate
+        // commands routed by `generate_handler!` below, which bypasses the
+        // capability ACL entirely — see the note on that list.
+        //
         // Its `on_event` handler is deliberately NOT the Zcash plugin's: that
         // one clears the seed on `Focused(false)`, and a messaging engine torn
         // down on every alt-tab would drop relay connections and stop
@@ -57,6 +71,23 @@ pub fn run() {
             // Enrollment (§2.2). App-crate commands, no `plugin:` prefix and
             // no capability entry, because they need the wallet seed and it
             // must never cross IPC.
+            //
+            // #916 asked for their ACL story to be written down, so: there is
+            // no ACL. `generate_handler!` routes these three unconditionally —
+            // the capability system governs `plugin:` commands only — so they
+            // are reachable from the WebView and, under #367, from a frame
+            // that resolves as it. They are kept anyway because deleting them
+            // would delete the only path that can ever issue a
+            // `DeviceCredential`, which #904 puts in this app by design.
+            //
+            // The residual risk is bounded but real: a hostile caller could
+            // submit an attacker-chosen handle to the directory, or unenroll
+            // (behind a confirmation string). Closing it is #905's job — the
+            // intent authority is already `.manage()`d below precisely because
+            // the privileged WebView must not be able to mint an intent — and
+            // these three move behind it when it ships. Do not add a
+            // capability entry for them; that would not gate them, it would
+            // only look like it did.
             messaging::f2zmsg_enrollment_status,
             messaging::f2zmsg_enroll,
             messaging::f2zmsg_unenroll,
@@ -101,17 +132,27 @@ mod tests {
         }
     }
 
+    /// #916 — the inverse of what this test used to assert.
+    ///
+    /// It required `f2zmsg:default` on desktop and a named `f2zmsg:` set on
+    /// mobile, so that a capability file losing every messaging entry would be
+    /// a red test rather than a silently unreachable feature. That was right
+    /// while ZUULI *had* a messaging frontend. #904 phase 3 moved the surface
+    /// to `wallet/e2e2z` and phase 4 left this app with none, so those grants
+    /// became 43 webview-reachable commands on the process that holds the seed
+    /// with nothing able to call them — exactly backwards from #367's threat.
+    ///
+    /// The property is therefore inverted, not deleted: **no** shipping
+    /// capability may grant any `f2zmsg:` permission. The plugin itself stays
+    /// registered because enrollment needs its engine and store, and
+    /// enrollment cannot leave this app — it is the one messaging operation
+    /// that needs the wallet seed (`src/messaging.rs`).
     #[test]
-    fn shipping_capabilities_authorize_the_messaging_plugin_on_both_platforms() {
+    fn shipping_capabilities_grant_no_messaging_permission() {
         let capabilities: serde_json::Value =
             serde_json::from_str(include_str!(concat!(env!("OUT_DIR"), "/capabilities.json")))
                 .expect("Tauri must emit valid shipping capabilities");
 
-        // Desktop takes the plugin's `default` set. Mobile enumerates, and
-        // `wallet/zuuli/scripts/mobile-webview-authority.mjs` decides which —
-        // this only proves the messaging plugin is authorized there at all, so
-        // that a capability file losing every `f2zmsg:` entry is a red test and
-        // not a silently unreachable feature on the platform it has to work on.
         let identifiers = |capability: &str| -> Vec<String> {
             capabilities[capability]["permissions"]
                 .as_array()
@@ -127,30 +168,37 @@ mod tests {
                 .collect()
         };
 
-        assert!(
-            identifiers("default").contains(&"f2zmsg:default".to_owned()),
-            "the desktop capability must grant the messaging plugin",
-        );
+        let desktop = identifiers("default");
         let mobile = identifiers("mobile");
+
+        // The census is read off the shipping artifact, so a capability file
+        // that reintroduces a grant under any name fails here.
+        for (capability, granted) in [("default", &desktop), ("mobile", &mobile)] {
+            let messaging: Vec<&String> = granted
+                .iter()
+                .filter(|identifier| identifier.starts_with("f2zmsg:"))
+                .collect();
+            assert!(
+                messaging.is_empty(),
+                "the {capability} capability must grant no messaging permission \
+                 it cannot use, found {messaging:?}",
+            );
+        }
+
+        // The positive control: this test would be vacuous against an empty or
+        // mis-keyed capability document, so prove the wallet grants are still
+        // where they are read from.
+        assert!(
+            desktop
+                .iter()
+                .any(|identifier| identifier == "zcash:default"),
+            "the desktop capability must still grant the Zcash plugin",
+        );
         assert!(
             mobile
                 .iter()
-                .any(|identifier| identifier == "f2zmsg:allow-send-message"),
-            "the mobile capability must authorize sending a message",
-        );
-        assert!(
-            !mobile
-                .iter()
-                .any(|identifier| identifier == "f2zmsg:default"),
-            "mobile main takes named messaging permissions, never the blanket set",
-        );
-        // §2.2: enrollment is an app-crate command, so no capability grants it.
-        assert!(
-            !mobile
-                .iter()
-                .chain(identifiers("default").iter())
-                .any(|identifier| identifier.contains("f2zmsg-enroll")),
-            "enrollment is not a plugin command and must not appear in a capability",
+                .any(|identifier| identifier == "zcash:allow-execute-send"),
+            "the mobile capability must still authorize a send",
         );
     }
 

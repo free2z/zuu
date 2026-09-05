@@ -172,23 +172,19 @@ export function assertMobileWebviewAuthority(mobile, tauriConfig) {
       "named mobile Zcash command permissions must be plain identifiers",
     );
   }
+  // #916: ZUULI grants **no** messaging permission on any platform. #904
+  // phase 3 moved the messaging surface to `wallet/e2e2z` and phase 4 left
+  // this app with no messaging frontend at all, so every `f2zmsg:` entry here
+  // would be webview-reachable authority on the process that holds the seed
+  // with nothing able to use it. `REVIEWED_MOBILE_F2ZMSG_PERMISSIONS` below is
+  // still exported: it is now purely `wallet/e2e2z`'s contract, enforced by
+  // `scripts/surface-capability-authority.mjs`.
   const messagingPermissions = permissionIds.filter((identifier) =>
     identifier.startsWith("f2zmsg:"),
   );
-  exactSet(
-    messagingPermissions,
-    REVIEWED_MOBILE_F2ZMSG_PERMISSIONS,
-    "mobile messaging permissions",
-  );
-  if (
-    mobile.permissions.some(
-      (permission) =>
-        typeof permission === "object" &&
-        permission?.identifier?.startsWith("f2zmsg:"),
-    )
-  ) {
+  if (messagingPermissions.length > 0) {
     throw new Error(
-      "named mobile messaging command permissions must be plain identifiers",
+      `ZUULI must grant no messaging permission it cannot use; found ${messagingPermissions.join(", ")}`,
     );
   }
   exactSet(
@@ -239,20 +235,26 @@ export function assertMobileWebviewAuthority(mobile, tauriConfig) {
     throw new Error("privileged native WebViews must declare frame-src 'none'");
   }
 
-  const imageSources = cspDirective(csp, "img-src");
-  if (!imageSources?.includes("blob:")) {
-    throw new Error("packaged image CSP must allow validated local blob URLs");
+  // #904 phase 4 removed the last remote-image render path from this app, so
+  // the clause that used to REQUIRE `blob:` (RemoteMedia's validated local
+  // bytes) now requires its absence: nothing may load an image the app did not
+  // ship. `scripts/csp-policy.mjs` owns the full directive contract; these two
+  // are restated here because the mobile WebView is the surface #367 actually
+  // compromises, and this checker is what the mobile gate runs.
+  const imageSources = cspDirective(csp, "img-src") ?? [];
+  if (imageSources.join(" ") !== "'self' data:") {
+    throw new Error(
+      "packaged image CSP must admit only bundled and inlined images",
+    );
   }
-  const connectSources = cspDirective(csp, "connect-src");
-  for (const source of [
-    "https://free2z.cash",
-    "https://*.free2z.cash",
-  ]) {
-    if (!connectSources?.includes(source)) {
-      throw new Error(
-        "packaged connect CSP must retain trusted Free2Z image transport",
-      );
-    }
+  const connectSources = cspDirective(csp, "connect-src") ?? [];
+  if (
+    connectSources.join(" ") !==
+    "'self' https://free2z.cash https://*.free2z.cash"
+  ) {
+    throw new Error(
+      "packaged connect CSP must admit only the free2z API origins",
+    );
   }
 }
 
@@ -270,8 +272,8 @@ export async function main() {
   assertMobileWebviewAuthority(mobile, tauriConfig);
   console.log(
     `Mobile main has ${REVIEWED_MOBILE_ZCASH_PERMISSIONS.length} named Zcash ` +
-      `and ${REVIEWED_MOBILE_F2ZMSG_PERMISSIONS.length} named messaging ` +
-      `permissions, and native frames are disabled.`,
+      `permissions and no messaging permission; native frames are disabled ` +
+      `and the WebView admits no remote image or connect origin.`,
   );
 }
 

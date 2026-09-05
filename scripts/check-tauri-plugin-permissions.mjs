@@ -114,15 +114,15 @@ const PLUGINS = [
     directory: "wallet/plugins/tauri-plugin-f2zmsg",
     namespace: "f2zmsg",
     macro: "with_f2zmsg_commands",
+    // ZUULI's two capability files are deliberately absent (#916). It still
+    // registers the plugin — `wallet/zuuli/src-tauri/src/messaging.rs`'s
+    // enrollment trio needs its engine, and enrollment cannot leave the app
+    // that holds the seed — but after #904 it has no messaging frontend, so it
+    // grants no `f2zmsg:*` permission at all and this checker would (rightly)
+    // fail a file that appears here granting nothing. That ZUULI grants none
+    // is asserted positively by `wallet/zuuli/scripts/mobile-webview-authority.mjs`
+    // and by the shipping-capability test in `wallet/zuuli/src-tauri/src/lib.rs`.
     capabilities: [
-      {
-        file: "wallet/zuuli/src-tauri/capabilities/default.json",
-        grant: "default",
-      },
-      {
-        file: "wallet/zuuli/src-tauri/capabilities/mobile.json",
-        grant: "named",
-      },
       // The e2e2z messaging surface (#904/#906). Both of its capabilities take
       // named commands rather than `f2zmsg:default`, so registering them here
       // is what proves every identifier in
