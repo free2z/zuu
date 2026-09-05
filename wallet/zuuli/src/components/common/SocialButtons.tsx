@@ -7,13 +7,14 @@
 // response shows the supplied empty state; transport or contract failure gets
 // a distinct retry affordance and never masquerades as roadmap copy.
 //
-// Used both as a login method (`associate: false`, the login chooser,
-// features/auth) and to link a provider identity to the current account
-// (`associate: true`, the profile "Linked identities" card,
-// features/profile/LinkedAccounts) — same component, same gating, mirroring
-// how `useZcashLogin`/`useZcashAssociate` share one stepper. Lives in
-// `components/common` (not a feature) so both can use it without crossing
-// the feature-isolation boundary.
+// Used as a login method (`associate: false`, the login chooser,
+// features/auth). Its `associate: true` mode linked a provider identity to the
+// current account from the profile "Linked identities" card, which #904
+// phase 4 moved to `wallet/free2z`; the mode is kept, with
+// `useZcashAssociate`, so an account-settings surface in this app can reuse it
+// rather than reinventing the gating. Lives in `components/common` (not a
+// feature) so more than one caller can use it without crossing the
+// feature-isolation boundary.
 
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";

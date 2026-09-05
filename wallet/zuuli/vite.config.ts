@@ -28,31 +28,13 @@ export default defineConfig(async () => {
       TZ: "UTC",
     },
   },
-  // `mathjax-full` (pulled in by rehype-mathjax for offline SVG math in the
-  // Markdown renderer) reads its version via `eval('require')(...)` UNLESS a
-  // global `PACKAGE_VERSION` is defined — see mathjax-full/js/components/
-  // version.js. Vite/rollup provide no runtime `require`, so without this the
-  // bundle throws "require is not defined" the moment any math renders. Baking
-  // the constant in kills that dead branch. `optimizeDeps.esbuildOptions.define`
-  // does the same for the dev pre-bundled copy.
+  // The `PACKAGE_VERSION` define (mathjax-full, via rehype-mathjax), the
+  // `linkedom/worker` + `mermaid` pre-bundle and the ES worker format all
+  // existed for the Markdown/Mermaid renderer, which #904 phase 4 removed from
+  // this app. `wallet/free2z` carries them now.
   define: {
-    PACKAGE_VERSION: JSON.stringify("3.2.1"),
     __ZUULI_BUILD_INFO__: JSON.stringify(buildIdentity),
   },
-  optimizeDeps: {
-    // Pre-bundle the worker's cold dependencies before tests/dev navigation;
-    // otherwise Vite discovers them on the first diagram and reloads the app
-    // while the disposable worker is still rendering.
-    include: ["linkedom/worker", "mermaid"],
-    esbuildOptions: {
-      define: {
-        PACKAGE_VERSION: JSON.stringify("3.2.1"),
-      },
-    },
-  },
-  // Mermaid is intentionally code-split inside a dedicated module Worker so
-  // creator-controlled parsing/layout never shares the wallet UI thread.
-  worker: { format: "es" },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

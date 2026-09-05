@@ -1,8 +1,8 @@
 // Which social providers (X / Google / GitHub) the backend reports ready for
-// this exact web/desktop/mobile callback transport — shared by the login chooser
-// (`SocialButtons` in features/auth) and the profile "Linked identities"
-// card (features/profile/LinkedAccounts), both of which gate their buttons
-// on this instead of assuming a provider works.
+// this exact web/desktop/mobile callback transport — used by the login chooser
+// (`SocialButtons` in features/auth) to gate its buttons instead of assuming a
+// provider works. The profile "Linked identities" card was the second consumer
+// until #904 phase 4 moved it to `wallet/free2z`.
 
 import { useMemo } from "react";
 import { useAsync } from "./useAsync";

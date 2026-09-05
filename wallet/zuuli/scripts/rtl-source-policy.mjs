@@ -28,11 +28,6 @@ const REQUIRED_DIRECTIONAL_TRANSFORMS = Object.freeze({
     ltr: "ltr:-translate-x-1/2",
     rtl: "rtl:translate-x-1/2",
   }),
-  "src/features/profile/LinkedAccounts.tsx": Object.freeze({
-    anchors: Object.freeze(["absolute", "start-4", "top-9", "w-px"]),
-    ltr: "ltr:-translate-x-1/2",
-    rtl: "rtl:translate-x-1/2",
-  }),
 });
 
 const FOUR_SIDE_SHORTHANDS = new Set([
