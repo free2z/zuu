@@ -125,9 +125,38 @@ Concretely, and this is a sketch for an implementer rather than a patch:
   protects.
 - On open, the engine asks the secret store for the key. Present ⇒ unsealed.
   Absent or unavailable ⇒ `locked`, which stays a real state.
+- **The secret-store item is namespaced per application, not per plugin.**
+  `tauri-plugin-f2zmsg` is linked into **both** apps, so a plugin-level service
+  constant would give ZUULI and e2e2z the *same* item name on a shared store —
+  mutual overwrite, or one app silently opening the other's key. The precedent
+  to copy is `tauri-plugin-zcash`'s `const SERVICE = "cash.free2z.zuuli.seed.v1"`
+  (`wallet/plugins/tauri-plugin-zcash/src/wallet/keychain.rs:17`): a constant
+  that names **one app and one purpose**. The plugin must therefore take the
+  service name from the host application at setup rather than declaring one, and
+  the two names must be distinct — e.g. `cash.free2z.zuuli.f2zmsg.wrap.v1` and
+  `cash.free2z.e2e2z.f2zmsg.wrap.v1`. This is not tidiness; on the platform of
+  §3.3's stated assumption it is the difference between two device stores and
+  one.
+- **`locked` needs an exit, and this decision must supply it.** Today the exit
+  is `f2zmsg_enroll` re-deriving the wrap key from the seed
+  (`messaging.rs:150-157`), and §10 records that duty going away. Nothing in the
+  sketch above replaces it, and a transient failure — a keychain locked at
+  launch, D-Bus not yet up — would otherwise leave an engine with no way back.
+  So the engine keeps an explicit **retry** operation that re-asks the secret
+  store and unlocks on success, available to both apps and needing no seed. It
+  is the same `unlock` with its argument removed, and it must be reachable from
+  e2e2z, which is the app that cannot fall back to enrollment.
 - **This applies to ZUULI too.** One sealing scheme, not two. Two would be two
   chances to disagree about what `locked` means, and the second one would only
   ever be exercised in the app nobody was looking at.
+- **Nothing needs migrating.** Existing stores hold `SealedSecrets` under
+  `BackupWrapKey` and nothing would be able to open them, so a migration would
+  be required if any existed. None do, for the reason §4.2's own `CKDh`
+  correction gives and §6 quotes: no user has a messaging identity and no
+  directory entry exists (`../ARCHITECTURE.md:266-270`). That is the *whole*
+  justification for skipping migration, it is the same asymmetry that argues for
+  settling `device_kem_pk` now, and it stops being true on the day the first
+  user enrolls — so this change must land before that day or grow a migration.
 
 ### 3.1 What each app ends up holding
 
@@ -175,6 +204,30 @@ Two honest readings of that table:
    OS secret-store item (`keychain.rs:702`, service entry `seed_{wallet_id}`).
    The attacker needs the same class of access to reach either. What changes is
    which item, not how hard the item is to get.
+
+**The assumption both containment claims rest on, stated because it is not true
+everywhere.** "A per-device key confines a compromise to one device", and "an
+attacker with e2e2z alone learns nothing about ZUULI's device", both require the
+OS secret store to **isolate one application's item from another's**. macOS
+keychain ACLs bind an item to the code signature that created it, and Windows
+credential storage is per-user-per-target with the same effect. **The
+freedesktop Secret Service is not like that**: `linux-native-sync-persistent`
+(§3.5) mirrors into a per-user collection with **no per-application isolation**,
+so on Linux a compromised e2e2z can read ZUULI's item, and with the
+user-readable store file beside it can unseal ZUULI's device secrets.
+
+That is a genuine partial re-connection of the two apps this split exists to
+separate, and it does not exist today — today ZUULI's wrap key is **never
+persisted at all**, it is re-derived per call and dropped
+(`messaging.rs:219-243`). It is adjacent to a pre-existing question rather than
+a new hole, because the mnemonic already lives in the same Secret Service
+(`keychain.rs:702`), so an attacker with arbitrary read of that collection has
+had a better prize available all along. But a document making containment claims
+has to say which platform they hold on, so: **on macOS and Windows the table
+above is accurate as written; on Linux the `e2e2z alone` row's "not any other
+device of the account" is conditional on Secret Service isolation this repo does
+not have.** Closing it needs a per-application secret store on Linux, and that
+is out of scope here and belongs with §8's uncertainty 1.
 
 And the row that is not in the table because the option is rejected, stated so
 the contrast is visible: **under §9's option A — widening the result to carry
@@ -232,6 +285,21 @@ So the rule is: **an app that cannot durably hold a `DeviceWrapKey` must refuse
 to enroll, not enroll into a state it cannot reopen.** Fail closed at the
 moment the cost is one refusal, not at the moment it is a log entry.
 
+One objection to that rule deserves answering rather than leaving for review,
+because Fact 6 raises it: the seal protects only the signing key, while MLS
+group state and message plaintext sit **unencrypted** beside it
+(`store.rs:40-50`). An attacker holding the store file already reads every
+message; refusing to enroll defends only "cannot sign as this identity". Is a
+hard refusal proportionate to that narrow property?
+
+I think yes, but on a different ground than the one it looks like: the refusal
+is not primarily protecting the seal, it is preventing this section's first paragraph
+— an app that re-enrolls on every launch, minting a directory entry and a
+wiretap notification each time. That harm is durable, public and append-only,
+and it does not depend on how much the seal is worth. §9's option F is the
+alternative that keeps enrollment working with a weaker seal, and it is the one
+to reach for if this refusal turns out to lock real users out.
+
 This is load-bearing on Linux, where the secret store is
 `linux-native-sync-persistent` over D-Bus and a machine with no Secret Service
 daemon has none, and on mobile, where
@@ -273,6 +341,41 @@ So the rule the install step must follow is the inverse of the widening:
 
 `IdentityInstall` becomes `{ credential, submitted_at }` — three fields
 removed, none added.
+
+**That rule is about values the *responder* supplies, and it must not be read as
+forbidding a comparison against a value the *caller already holds*.** The
+distinction is the whole of #929. A second copy of `handle` travelling *beside*
+the credential is attacker-chosen and worthless. The handle the user typed into
+**this session** is not: `requestDeviceCredential(handle)`
+(`wallet/e2e2z/src/lib/enrollment/issueDeviceCredential.ts`) holds it at the
+exact moment the credential comes back, it never travelled in the response, and
+it is the caller's own intent rather than anyone's claim.
+
+So the rule has a second half, and it is not optional:
+
+> **The caller MUST refuse a credential whose `handle` is not the one it
+> requested.**
+
+Why that is load-bearing rather than belt-and-braces: `validate_at` verifies the
+signature under the credential's **own embedded `identity_pk`**
+(`rs/crates/f2z-msg-mls/src/credential.rs:157-162`). That is self-*consistency*,
+not authenticity. A hostile responder mints its own ISK and signs a perfectly
+well-formed credential for **any handle it likes**, and every check in
+`validate_for_leaf` passes. Compared against what this session asked for, it is
+refused. Not compared, e2e2z installs it and stores the attacker's handle and
+`identity_pk` as its own identity — §7's fabrication landing in the store
+instead of being caught at the door.
+
+It is also the **only** check trust-on-first-response permits. There is no
+trusted `identity_pk` to verify against on a first enrollment (§7), so *"is this
+the handle I asked for"* is the entire authenticity budget available at this
+layer. Deleting it because it superficially resembles the widening this section
+rejects would be the most expensive misreading of this ADR.
+
+Where it lives is a free choice and both are acceptable: in the renderer before
+it invokes (the handle is already in scope there), or as an explicit
+`expected_handle` argument to the install command (§5). Either way it adds **no
+wire field** and is fully compatible with Decision 2.
 
 ### 4.1 What that also fixes, which is a live gap today
 
@@ -341,8 +444,9 @@ Why an app-crate command, and not a plugin command:
 
 What capability it needs: **none.** A capability grants *plugin* commands
 (`messaging.rs:33-36`), and this is not one. e2e2z's
-`capabilities/default.json` keeps its 43 named `f2zmsg:*` grants and its zero
-`zcash:*` grants, and `authority-boundary.node-test.mjs` keeps passing
+`capabilities/default.json` keeps its 42 named `f2zmsg:*` grants
+(`set_relay_trust` is deliberately absent — it is the one grant that is a
+security downgrade) and its zero `zcash:*` grants, and `authority-boundary.node-test.mjs` keeps passing
 unchanged — which is the point, and is checkable: the install path reads no
 seed, links no `tauri-plugin-zcash`, and invokes no `plugin:zcash|` command.
 
@@ -352,21 +456,36 @@ Its signature, precisely enough to implement:
 #[tauri::command]
 pub async fn e2e2z_install_device_credential<R: Runtime>(
     app: AppHandle<R>,
-    args: InstallDeviceCredentialArgs,   // { credential: String }  — hex, camelCase
+    // { credential: String (hex), expectedHandle: String } — camelCase per §3
+    args: InstallDeviceCredentialArgs,
 ) -> Result<EnrollmentStatus>
 ```
 
-One argument, the credential's canonical bytes as hex — the same encoding
-`device.rs:60-64` argues for on the way out. **No handle, no identity key, no
-wrap key**, per §4. That the argument list is this short is itself the
-proof-obligation: the credential comes back through the renderer
+Two arguments, and the asymmetry between them is the point.
+
+`credential` is the credential's canonical bytes as hex — the same encoding
+`device.rs:60-64` argues for on the way out. `expectedHandle` is §4's second
+half: the handle **this caller requested**, so the command can refuse a
+credential attesting a different one. (An implementation that instead performs
+that comparison in the renderer before invoking may take one argument; what is
+not acceptable is performing it nowhere.)
+
+**No identity key and, above all, no wrap key.** The credential comes back
+through the renderer
 (`wallet/e2e2z/src/lib/enrollment/issueDeviceCredential.ts` resolves a
 `Uint8Array` to JavaScript), so *anything* in this command's arguments has been
 in the webview's garbage-collected heap. A `wrap_key` parameter would mean a
-seed-derived key had been there — which is exactly the exposure
-`messaging.rs:22-30` refuses for the mnemonic. **The install command's signature
-is where the account/device split is either kept or lost, and it is short enough
-to read.**
+**seed-derived** key had been there — exactly the exposure `messaging.rs:22-30`
+refuses for the mnemonic.
+
+That argument is about **secrets**, and it does not reach `expectedHandle`: a
+handle is a public string the user typed, carries zero seed authority, and is
+already in that heap because the user typed it there. The test to apply to a
+proposed argument is *"what authority does this carry, and where did it come
+from"* — not *"how few arguments can this have"*. `wrap_key` fails it;
+`expectedHandle` passes it and is required. **The install command's signature is
+where the account/device split is either kept or lost, and it is short enough to
+read.**
 
 Two ordering facts an implementer must not lose:
 
@@ -478,9 +597,18 @@ What §3 and §4 give, and it is not nothing:
 
 What it does **not** give, stated without hedging: on a first enrollment the
 caller has never seen the account's real `identity_pk`, so it cannot tell a
-genuine credential from a fabricated one. There is no key to check the signature
-against. That is trust-on-first-response, and no arrangement of this result type
-fixes it — it is #929's question, answered at #929's layer.
+genuine credential from a fabricated one *by its signature*. There is no key to
+check that signature against. That is trust-on-first-response, and no
+arrangement of this result type fixes it — it is #929's question, answered at
+#929's layer.
+
+**One check is still available and §4 makes it mandatory:** the credential's
+`handle` must be the handle this session requested. It does not establish who
+signed, but it does refuse the fabrication that costs most — a credential for a
+handle the user never asked for, installed as this device's identity. It is the
+whole authenticity budget TOFU allows here, and it is the difference between
+"#929 is an open question" and "#929 is an open question and we also skipped the
+one thing we could have done about it."
 
 Where it is eventually caught: the key-transparency directory. A fabricated
 credential's `device_pk` is not in the real `DirectoryEntry`'s `devices` set, so
@@ -518,11 +646,16 @@ confident wrong answer is worse than a marked doubt.
    `KeyPackage` whose init key is outside that signature's coverage. If it is
    not complete, §6's recommendation to remove the field is wrong and the
    answer is a real long-term KEM key.
-3. **Whether removing `identity_pk` and `handle` from `IdentityInstall` has a
-   caller I did not find.** I checked `messaging.rs:190-198` and
-   `wallet/plugins/tauri-plugin-f2zmsg/src/bin/peer.rs:466` and the three
-   integration tests that construct one. I did not audit every construction
-   site.
+3. ~~**Whether removing `identity_pk` and `handle` from `IdentityInstall` has a
+   caller I did not find.**~~ **Resolved during review of this PR: there are
+   exactly five construction sites and they are the ones named** —
+   `messaging.rs:191`, `wallet/plugins/tauri-plugin-f2zmsg/src/bin/peer.rs:462`,
+   and three integration tests (`tests/engine_lifecycle.rs:49`,
+   `tests/last_resort_rotation.rs:45`,
+   `tests/two_record_rollback_over_a_relay.rs:334`). Kept here with its
+   resolution rather than deleted, because a doubt that turned out to be
+   over-cautious is worth as much to the next reader as one that turned out to
+   be real.
 4. **Whether one sealing scheme across both apps is worth the ZUULI regression
    in §3.4's third row.** I argued it is, on the grounds that the mnemonic is
    itself a keychain item so the barrier class is unchanged. Someone who values
@@ -622,6 +755,26 @@ surviving-mutation postmortem is the local precedent: the two undefended guards
 were both on the paths nobody exercised. One `install_identity` that both apps
 call is the version that stays correct.
 
+### F. Degrade rather than refuse where there is no secret store
+
+**Not rejected. Named, and left to the implementation with a condition.**
+
+The alternative to §3.5's hard refusal: where no OS secret store is available,
+hold `DeviceWrapKey` in the app's own data directory beside the store it seals,
+and say so in the UI. It buys strictly less than a secret-store item — an
+attacker who copies the directory gets both halves — but it is not nothing: it
+still defeats the common accident, which is a copy of the SQLite file alone
+(a backup, a sync tool, a crash dump, a "send me your `f2zmsg.sqlite`"). And
+per Fact 6 the file it sits beside already contains the message plaintext, so
+the *incremental* loss is narrower than it first reads.
+
+It loses to a refusal on one point and it is the deciding one: a degradation
+that is silent is a degradation nobody ever revisits. If this is implemented it
+must be **visible in the UI and reported in engine status**, not a fallback the
+code takes quietly. With that condition it is a reasonable answer for a Linux
+desktop with no Secret Service daemon, and it is the escape hatch if §3.5's
+refusal proves too strict in practice.
+
 ## 10. Consequences
 
 - `IdentityInstall` loses three fields and gains none:
@@ -632,14 +785,25 @@ call is the version that stays correct.
   `EngineState::locked` survives as a state but its **meaning changes**, and
   `CLIENT-CONTRACT.md` §6.1 says the old meaning in two places — *"the seed is
   unavailable"* (`../CLIENT-CONTRACT.md:1403-1404`) and *"local history is
-  wrapped under a seed-derived key"* (`:1442-1444`). Both need rewording, and
-  that surface is pinned by
-  `wallet/zuuli/scripts/messaging-contract.node-test.mjs`, so it is a real,
-  sized change and not a comment edit.
+  wrapped under a seed-derived key"* (`:1442-1444`). Both need rewording.
+  **No test catches it if they are not**, and an earlier revision of this ADR
+  claimed one did: `messaging-contract.node-test.mjs` pins §3's command set,
+  §5.1's events, the relay error-code rows and SHA-256 digests of specific Rust
+  bodies — none of which read §6.1's prose, and none of whose digests cover
+  `install_identity`, `unlock` or `f2zmsg_enroll`. Corrected here rather than
+  quietly dropped, because "there is a safety net" and "there is no safety net"
+  are opposite instructions to the person doing the work.
 - `f2zmsg_enroll`'s documented double duty as the unlock path
   (`messaging.rs:53-66`) goes away: unlocking no longer needs the seed, so it
-  stops being an operation only ZUULI can perform. Nothing else about
-  `f2zmsg_enroll` changes.
+  stops being an operation only ZUULI can perform. **That duty must be
+  replaced, not merely removed** — §3's retry operation is the replacement, and
+  without it a transient secret-store failure leaves `locked` with no exit,
+  where today `f2zmsg_enroll` recovers it. Nothing else about `f2zmsg_enroll`
+  changes.
+- **No store migration, and the reason is load-bearing rather than
+  convenient** (§3): existing `SealedSecrets` under `BackupWrapKey` would be
+  unopenable, and none exist only because nothing has shipped. The window is
+  open until the first user enrolls.
 - `tauri-plugin-f2zmsg` gains an OS-secret-store dependency with the
   per-platform feature matrix `tauri-plugin-zcash` already pins
   (`Cargo.toml:72-86`), and a defined refusal where there is no backend (§3.5,

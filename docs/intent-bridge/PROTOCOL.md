@@ -180,7 +180,10 @@ key-transparency directory is built on.
 > `identity_pk` and `handle` are already **inside** the signed credential, and a
 > second, unsigned copy beside it would be a copy whoever answered gets to
 > choose — see [§7](#7-what-is-blocked-on-461) and
-> [#929](https://github.com/free2z/zuu/issues/929). So the result type is
+> [#929](https://github.com/free2z/zuu/issues/929). That reasoning covers values
+> the *responder* supplies and not one the *caller already holds*: ADR 0016 also
+> requires the caller to **refuse a credential whose handle is not the one it
+> requested**, which needs no wire field. So the result type is
 > unchanged, §3.6's vector is unchanged, and the work moves to the plugin's
 > `IdentityInstall`, which is a Rust API rather than a wire format.
 
