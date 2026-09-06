@@ -35,46 +35,32 @@ describe("paid login intent", () => {
     expect(consumePaidIntent("/ai", "ai", storage, 200)).toBeNull();
   });
 
-  it("round-trips canonical numeric Send amounts while accepting the legacy string shape", () => {
+  // #925: this surface holds no seed, grants no `zcash:*` capability and links
+  // no wallet plugin, so a ZEC Send is not something it can resume. The variant
+  // is gone from the type; these two assertions are what stops it coming back
+  // through storage, which types cannot see.
+  it("refuses to write a Send intent it can no longer perform", () => {
     const storage = new MemoryStorage();
-
     preservePaidIntent(
       "/fund",
-      { kind: "send", query: "alice", amount: 3_000 },
+      { kind: "send", query: "alice", amount: 3_000 } as never,
       storage,
       100,
     );
-    expect(consumePaidIntent("/fund", "send", storage, 200)).toEqual({
-      kind: "send",
-      query: "alice",
-      amount: 3_000,
-    });
+    expect(storage.value).toBeNull();
+  });
 
+  it("destroys a Send record left behind by an older build", () => {
+    const storage = new MemoryStorage();
     storage.value = JSON.stringify({
       returnTo: "/fund",
       createdAt: 100,
-      intent: { kind: "send", query: "alice", amount: "3,000" },
+      intent: { kind: "send", query: "alice", amount: 3_000 },
     });
-    expect(consumePaidIntent("/fund", "send", storage, 200)).toEqual({
-      kind: "send",
-      query: "alice",
-      amount: "3,000",
-    });
-  });
 
-  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 1_000_001])(
-    "rejects an invalid canonical Send amount (%s)",
-    (amount) => {
-      const storage = new MemoryStorage();
-      preservePaidIntent(
-        "/fund",
-        { kind: "send", query: "alice", amount } as never,
-        storage,
-        100,
-      );
-      expect(storage.value).toBeNull();
-    },
-  );
+    expect(consumePaidIntent("/fund", "send" as never, storage, 200)).toBeNull();
+    expect(storage.value).toBeNull();
+  });
 
   it.each([
     ["/ai", { kind: "ai", draft: "draft" }],
@@ -84,7 +70,6 @@ describe("paid login intent", () => {
     ],
     ["/creator/alice", { kind: "creator-tip", subject: "alice", amount: "50" }],
     ["/creator/alice", { kind: "creator-subscription", subject: "alice" }],
-    ["/fund", { kind: "send", query: "alice", amount: "500" }],
     ["/live/alice", { kind: "live-entry", subject: "alice", mode: "ppv" }],
   ] as const)("preserves the %s paid intent across login", (path, intent) => {
     const storage = new MemoryStorage();

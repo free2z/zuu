@@ -2,7 +2,6 @@ import {
   safeLoginDestination,
   type LoginDestination,
 } from "./login-destination";
-import { MAX_TUZIS } from "@/lib/format";
 
 const STORAGE_KEY = "zuuli.auth.pending-paid-intent";
 const MAX_AGE_MS = 30 * 60 * 1000;
@@ -12,12 +11,25 @@ const MAX_USERNAME = 150;
 
 type IntentStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
+/**
+ * Every paid action this surface can actually resume after a login.
+ *
+ * `{ kind: "send" }` used to sit here, carried over from ZUULI's ZEC Send when
+ * the content surface was extracted (#904). It is gone as of #925: free2z grants
+ * zero `zcash:*` capability, registers no `invoke_handler`, and links no wallet
+ * plugin, so it cannot spend and never will. A stale `send` record written by an
+ * older build now fails `validIntent` and is destroyed on read like any other
+ * malformed record, rather than being restored into a screen that does not exist.
+ *
+ * This is not the ZEC tip path (#790/#924): a tip is an `execute-payment`
+ * *intent sent to ZUULI over the bridge*, where ZUULI shows its own native
+ * confirmation and does the signing. That path needs no local `send` variant.
+ */
 export type PaidIntent =
   | { kind: "ai"; draft: string }
   | { kind: "article-tip"; subject: string; amount: string }
   | { kind: "creator-tip"; subject: string; amount: string }
   | { kind: "creator-subscription"; subject: string }
-  | { kind: "send"; query: string; amount: number | string }
   | { kind: "live-entry"; subject: string; mode: "ppv" | "subscriber" };
 
 interface StoredPaidIntent {
@@ -43,19 +55,6 @@ function usernameString(value: unknown): value is string {
   return typeof value === "string" && [...value].length <= MAX_USERNAME;
 }
 
-function sendAmount(value: unknown): value is number | string {
-  // Strings are the one-release migration shape and deliberately remain
-  // permissive: malformed legacy input must restore as invalid UI text rather
-  // than being coerced into a different amount. New valid drafts use numbers.
-  return (
-    shortString(value, 32) ||
-    (typeof value === "number" &&
-      Number.isSafeInteger(value) &&
-      value >= 1 &&
-      value <= MAX_TUZIS)
-  );
-}
-
 function validIntent(value: unknown): value is PaidIntent {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
@@ -67,8 +66,6 @@ function validIntent(value: unknown): value is PaidIntent {
       return usernameString(record.subject) && shortString(record.amount, 32);
     case "creator-subscription":
       return usernameString(record.subject);
-    case "send":
-      return usernameString(record.query) && sendAmount(record.amount);
     case "live-entry":
       return (
         usernameString(record.subject) &&

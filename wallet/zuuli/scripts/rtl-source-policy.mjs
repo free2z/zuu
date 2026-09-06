@@ -105,6 +105,26 @@ const REACT_PHYSICAL_SHORTHANDS = new Map([
 // counted exception gets counted, not excluded.
 export const CHAT_OWNED_RESIDUALS = Object.freeze({});
 
+/// free2z's reviewed direction-sensitive translation sites. Keyed by path
+/// relative to `wallet/free2z`, the same shape ZUULI uses.
+///
+/// The switch thumb slides horizontally, so its `ltr:`/`rtl:` pair is the only
+/// thing that keeps the travel pointing at the checked end under an RTL locale;
+/// pinning it means deleting the pair fails loudly instead of sliding the thumb
+/// the wrong way. `src/components/ui/dialog.tsx` carries the other pair
+/// (`ltr:-translate-x-1/2 rtl:translate-x-1/2`) and is deliberately *not* pinned
+/// here: its `className` is followed by `{...props}`, and `effectiveJsxAttribute`
+/// treats a later spread as making the class set unknowable, so an anchor entry
+/// there could never match and would assert nothing. That pair is still held to
+/// `assertPairedDirectionalTranslations`, which reads the literal directly.
+const FREE2Z_REQUIRED_DIRECTIONAL_TRANSFORMS = Object.freeze({
+  "src/components/ui/switch.tsx": Object.freeze({
+    anchors: Object.freeze(["data-[state=unchecked]:translate-x-0", "h-5", "w-5"]),
+    ltr: "ltr:data-[state=checked]:translate-x-5",
+    rtl: "rtl:data-[state=checked]:-translate-x-5",
+  }),
+});
+
 /// e2e2z's reviewed residual inventory, and it is empty too.
 ///
 /// The messaging screens arrived here from ZUULI in #904 phase 3 carrying
@@ -116,13 +136,36 @@ export const CHAT_OWNED_RESIDUALS = Object.freeze({});
 /// the worst-placed one in the tree.
 export const E2E2Z_OWNED_RESIDUALS = Object.freeze({});
 
+/// free2z's reviewed residual inventory (#940), and it is empty as well.
+///
+/// This is a counted verdict, not a directory exemption: the whole tree was
+/// scanned by the checker below and produced no residual at all, so the exact
+/// inventory that describes it is the empty one. free2z's components came from
+/// the same #912/#920/#927 ports whose physical-direction residuals #917 fixed
+/// at the source, which is why nothing remained to count here.
+///
+/// The residuals were never the defect on this surface. The defect was that
+/// nothing installed `<html dir>` — `index.html` pins `dir="ltr"` and no module
+/// wrote it — so free2z's twenty-four `rtl:` variants compiled into the bundle
+/// as CSS no locale could select. That is the same silent deadness #934 found in
+/// e2e2z, and it is fixed by `src/lib/document-direction.ts` plus its
+/// installation in `src/main.tsx`, which `assertBootstrapContracts` now holds
+/// this surface to. free2z renders articles, creator profiles, search results
+/// and AI output, so it carries the most user-authored text in the system and is
+/// where an unhandled `U+202E` has the most chrome to reorder; an exemption here
+/// would be worth less than nowhere else.
+export const FREE2Z_OWNED_RESIDUALS = Object.freeze({});
+
 /**
  * The reviewed contract, per surface. `directory` is relative to `wallet/`.
  *
- * `wallet/free2z` is deliberately absent: it is a separate surface with its own
- * component tree, and bringing it under this policy is its own change with its
- * own residual review, not a line added here. `wallet/zuuallet` is likewise
- * absent — it is the reference wallet, not a shipped locale surface.
+ * `wallet/zuuallet` is deliberately absent, and this is the explicit decision
+ * #940 asked for rather than an omission: it is the whitelabel *reference*
+ * wallet, not a shipped locale surface. It has no `src/i18n` kernel, nothing
+ * that ever writes `<html lang>`, and no `.bidi-number` rule, so every clause of
+ * the bootstrap contract would be vacuous there — the policy would assert a
+ * localization story the app does not have. Covering it becomes worthwhile the
+ * day it grows a locale kernel, and that change should add the line here.
  */
 export const SURFACES = Object.freeze([
   Object.freeze({
@@ -134,6 +177,11 @@ export const SURFACES = Object.freeze([
     directory: "e2e2z",
     reviewedResiduals: E2E2Z_OWNED_RESIDUALS,
     requiredDirectionalTransforms: Object.freeze({}),
+  }),
+  Object.freeze({
+    directory: "free2z",
+    reviewedResiduals: FREE2Z_OWNED_RESIDUALS,
+    requiredDirectionalTransforms: FREE2Z_REQUIRED_DIRECTIONAL_TRANSFORMS,
   }),
 ]);
 

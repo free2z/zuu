@@ -4,6 +4,7 @@ import ts from "typescript";
 import {
   CHAT_OWNED_RESIDUALS,
   E2E2Z_OWNED_RESIDUALS,
+  FREE2Z_OWNED_RESIDUALS,
   SURFACES,
   assertEverySurface,
   assertRtlSourcePolicy,
@@ -779,10 +780,30 @@ function rejectsE2e2zMutation(fileName, before, after, pattern) {
   );
 }
 
-test("every reviewed surface satisfies the policy, and both are reviewed", () => {
+const FREE2Z_SURFACE = SURFACES.find((surface) => surface.directory === "free2z");
+assert.ok(FREE2Z_SURFACE, "free2z must be a reviewed RTL surface");
+const FREE2Z_BASELINE = collectRtlSources(surfaceProjectRoot(FREE2Z_SURFACE));
+
+function mutateFree2z(fileName, before, after) {
+  const original = FREE2Z_BASELINE[fileName];
+  assert.equal(typeof original, "string", `missing mutation source ${fileName}`);
+  const changed = original.replace(before, after);
+  assert.notEqual(changed, original, `mutation did not apply to ${fileName}`);
+  return { ...FREE2Z_BASELINE, [fileName]: changed };
+}
+
+function rejectsFree2zMutation(fileName, before, after, pattern) {
+  assert.throws(
+    () =>
+      assertRtlSourcePolicy(mutateFree2z(fileName, before, after), FREE2Z_SURFACE),
+    pattern,
+  );
+}
+
+test("every reviewed surface satisfies the policy, and all three are reviewed", () => {
   assert.deepEqual(
     SURFACES.map((surface) => surface.directory),
-    ["zuuli", "e2e2z"],
+    ["zuuli", "e2e2z", "free2z"],
   );
   assert.doesNotThrow(() => assertEverySurface());
 });
@@ -911,6 +932,160 @@ test("e2e2z CSS is held to logical directions too", () => {
   );
 });
 
+// ---------------------------------------------------------------------------
+// free2z (#940). The content surface: articles, creator profiles, search
+// results and AI output — the largest volume of user-authored text in the
+// system and the least under our control, which is exactly where an unhandled
+// `U+202E` has the most UI chrome to reorder.
+// ---------------------------------------------------------------------------
+
+test("the free2z production tree satisfies the exact RTL source policy", () => {
+  assert.doesNotThrow(() =>
+    assertRtlSourcePolicy(FREE2Z_BASELINE, FREE2Z_SURFACE),
+  );
+});
+
+test("the free2z residual inventory is empty and enforced as empty", () => {
+  assert.deepEqual(Object.keys(FREE2Z_OWNED_RESIDUALS), []);
+  // free2z inherited its components from the #912/#920/#927 ports, whose
+  // physical-direction residuals #917 fixed at the source, so there was nothing
+  // left to count. Empty is a verdict, not a skip: a residual in any feature
+  // tree fails, and the failure names the file and the line it sits on. The
+  // probes are spread across articles, AI, search and creator so an exemption
+  // cannot be smuggled back in as a directory rule that one carrier would hide.
+  rejectsFree2zMutation(
+    "src/features/articles/components/ArticleTagInput.tsx",
+    "py-2 text-start last:border-b-0",
+    "py-2 text-left last:border-b-0",
+    /residual paths[\s\S]*ArticleTagInput\.tsx \(text-left@\d+\)/,
+  );
+  rejectsFree2zMutation(
+    "src/features/ai/ModelPicker.tsx",
+    '<span className="text-end text-foreground">',
+    '<span className="text-right text-foreground">',
+    /residual paths[\s\S]*ModelPicker\.tsx \(text-right@\d+\)/,
+  );
+  rejectsFree2zMutation(
+    "src/features/search/index.tsx",
+    "py-1 text-start text-xs",
+    "py-1 text-left text-xs",
+    /residual paths[\s\S]*search\/index\.tsx \(text-left@\d+\)/,
+  );
+  rejectsFree2zMutation(
+    "src/features/creator/index.tsx",
+    '<div className="space-y-4">',
+    '<div className="ml-2 space-y-4">',
+    /residual paths[\s\S]*creator\/index\.tsx \(ml-2@\d+\)/,
+  );
+  // The article reader is the surface that renders the untrusted body itself,
+  // so it carries the arbitrary-property probe as well.
+  rejectsFree2zMutation(
+    "src/features/articles/pages/Reader.tsx",
+    '<div className="space-y-2">',
+    '<div className="[margin-left:1px] space-y-2">',
+    /residual paths[\s\S]*Reader\.tsx \(\[margin-left:1px\]@\d+\)/,
+  );
+  // The logical form of the same arbitrary property is not a residual, so the
+  // rule is about direction and not about arbitrary utilities.
+  assert.doesNotThrow(() =>
+    assertRtlSourcePolicy(
+      mutateFree2z(
+        "src/features/articles/pages/Reader.tsx",
+        '<div className="space-y-2">',
+        '<div className="[margin-inline-start:1px] space-y-2">',
+      ),
+      FREE2Z_SURFACE,
+    ),
+  );
+});
+
+test("free2z numerals lose their bidi isolation loudly", () => {
+  // A creator's "12 pages · 3,481 tuzis" reverses without isolation, and this
+  // surface renders counts beside user-authored names.
+  rejectsFree2zMutation(
+    "src/features/creator/index.tsx",
+    '<span className="bidi-number tabular-nums">',
+    '<span className="tabular-nums">',
+    /residual paths[\s\S]*creator\/index\.tsx \(tabular-nums@\d+\)/,
+  );
+  rejectsFree2zMutation(
+    "src/index.css",
+    "direction: ltr;",
+    "direction: inherit;",
+    /bidi-number/,
+  );
+  rejectsFree2zMutation(
+    "src/index.css",
+    "unicode-bidi: isolate;",
+    "unicode-bidi: normal;",
+    /bidi-number/,
+  );
+});
+
+test("a free2z directional adornment that stops mirroring fails, with a line", () => {
+  rejectsFree2zMutation(
+    "src/features/articles/pages/Reader.tsx",
+    '<ArrowLeft className="rtl:-scale-x-100 h-4 w-4"',
+    '<ArrowLeft className="h-4 w-4"',
+    /Reader\.tsx:\d+ ArrowLeft \(ArrowLeft\) must mirror with literal rtl:-scale-x-100/,
+  );
+});
+
+// The finding #940 predicted. free2z had NO document-direction install at all:
+// `index.html` pinned `dir="ltr"` and no module ever wrote `dir`, so the
+// twenty-four `rtl:` variants in this tree compiled into the bundle as CSS no
+// locale could select — support present in source and dead at runtime, the same
+// defect #934 found in e2e2z. These assertions are what keeps it installed.
+test("free2z document direction bootstrap removal fails", () => {
+  rejectsFree2zMutation(
+    "src/main.tsx",
+    "installDocumentDirection();",
+    "// installDocumentDirection();",
+    /before rendering/,
+  );
+  rejectsFree2zMutation(
+    "index.html",
+    ' dir="ltr"',
+    "",
+    /lang=en dir=ltr baseline/,
+  );
+
+  // Installed before the render, not merely present somewhere in the file: the
+  // window between mount and the first locale resolution is exactly when a
+  // wrong `dir` is visible.
+  const main = FREE2Z_BASELINE["src/main.tsx"];
+  const withoutEarlyCall = main.replace("\ninstallDocumentDirection();\n", "\n");
+  assert.notEqual(withoutEarlyCall, main, "direction-call move did not remove");
+  const movedAfterRender = `${withoutEarlyCall}\ninstallDocumentDirection();\n`;
+  assert.throws(
+    () =>
+      assertRtlSourcePolicy(
+        { ...FREE2Z_BASELINE, "src/main.tsx": movedAfterRender },
+        FREE2Z_SURFACE,
+      ),
+    /before rendering/,
+  );
+});
+
+test("free2z CSS is held to logical directions too", () => {
+  const cssFile = "src/index.css";
+  const withCss = (declaration) => ({
+    ...FREE2Z_BASELINE,
+    [cssFile]: `${FREE2Z_BASELINE[cssFile]}\n.rtl-probe { ${declaration} }\n`,
+  });
+  assert.throws(
+    () => assertRtlSourcePolicy(withCss("padding-right: 1px;"), FREE2Z_SURFACE),
+    /physical-direction CSS/,
+  );
+  assert.throws(
+    () => assertRtlSourcePolicy(withCss("padding: 0 1px 0 2px;"), FREE2Z_SURFACE),
+    /asymmetric physical CSS shorthand/,
+  );
+  assert.doesNotThrow(() =>
+    assertRtlSourcePolicy(withCss("padding-inline-end: 1px;"), FREE2Z_SURFACE),
+  );
+});
+
 // A reviewed inventory that names a file the tree no longer has is not a
 // stricter policy — it is a dead entry that reads like coverage. #943 deleted
 // `src/features/profile` from ZUULI, and the only thing that noticed was a
@@ -920,7 +1095,14 @@ test("every reviewed inventory path names a file that still exists", () => {
   const trees = new Map([
     [SURFACES[0], BASELINE],
     [E2E2Z_SURFACE, E2E2Z_BASELINE],
+    [FREE2Z_SURFACE, FREE2Z_BASELINE],
   ]);
+  // Every reviewed surface is checked, not a hand-listed subset — otherwise
+  // adding a surface silently opts its inventory out of this guard.
+  assert.deepEqual(
+    [...trees.keys()].map((surface) => surface.directory),
+    SURFACES.map((surface) => surface.directory),
+  );
   for (const [surface, sources] of trees) {
     for (const table of [
       surface.requiredDirectionalTransforms,
@@ -946,6 +1128,29 @@ test("the shared checker keeps each surface's contract to itself", () => {
   assert.deepEqual(
     Object.keys(SURFACES[0].requiredDirectionalTransforms).sort(),
     ["src/components/ui/switch.tsx", "src/features/auth/ZcashLoginFlow.tsx"],
+  );
+  // free2z has the switch but not the Zcash login flow, which stayed with the
+  // app that keeps the seed — so its table is its own, not ZUULI's.
+  assert.deepEqual(Object.keys(FREE2Z_SURFACE.requiredDirectionalTransforms), [
+    "src/components/ui/switch.tsx",
+  ]);
+  const brokenFree2zSwitch = {
+    ...FREE2Z_BASELINE,
+    "src/components/ui/switch.tsx": FREE2Z_BASELINE[
+      "src/components/ui/switch.tsx"
+    ].replace(
+      "ltr:data-[state=checked]:translate-x-5 rtl:data-[state=checked]:-translate-x-5",
+      "",
+    ),
+  };
+  assert.notEqual(
+    brokenFree2zSwitch["src/components/ui/switch.tsx"],
+    FREE2Z_BASELINE["src/components/ui/switch.tsx"],
+    "free2z switch contract mutation did not apply",
+  );
+  assert.throws(
+    () => assertRtlSourcePolicy(brokenFree2zSwitch, FREE2Z_SURFACE),
+    /opposite-sign|reviewed directional/,
   );
   // And the table is load-bearing, not decorative: the same broken switch is
   // caught under ZUULI's contract and missed under an empty one, which is
