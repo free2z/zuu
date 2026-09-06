@@ -448,6 +448,10 @@ export function readProfile(plistXml) {
 const iso = (date) => (date instanceof Date ? date.toISOString().replace(/\.\d{3}Z$/, "Z") : "unknown");
 const daysUntil = (date, now) =>
   date instanceof Date ? Math.floor((date.getTime() - now.getTime()) / DAY_MS) : Number.NaN;
+const daysLabel = (date, now) => {
+  const days = daysUntil(date, now);
+  return Number.isFinite(days) ? `${days} days` : "unknown";
+};
 
 // Pure: everything above turns bytes into these two plain objects, and this
 // decides. That split is what lets the negative control run anywhere.
@@ -636,7 +640,7 @@ export function renderReport({ profile, leaf, verdict, now, context = {} }) {
   lines.push(`    sha-1               ${leaf.fingerprint}`);
   lines.push(`    subject             ${leaf.commonName}`);
   lines.push(`    not before          ${iso(leaf.notBefore)}`);
-  lines.push(`    not after           ${iso(leaf.notAfter)}  (${daysUntil(leaf.notAfter, now)} days)`);
+  lines.push(`    not after           ${iso(leaf.notAfter)}  (${daysLabel(leaf.notAfter, now)})`);
   lines.push("");
   lines.push("  provisioning profile");
   lines.push(`    name                ${profile.name ?? "(none)"}`);
@@ -644,7 +648,7 @@ export function renderReport({ profile, leaf, verdict, now, context = {} }) {
   lines.push(`    team                ${profile.teamIdentifiers.join(", ") || "(none)"}`);
   lines.push(`    app identifier      ${profile.applicationIdentifier ?? "(none)"}`);
   lines.push(
-    `    expires             ${iso(profile.expirationDate)}  (${daysUntil(profile.expirationDate, now)} days)`,
+    `    expires             ${iso(profile.expirationDate)}  (${daysLabel(profile.expirationDate, now)})`,
   );
   lines.push(`    authorizes          ${profile.certificates.length} certificate(s)`);
   for (const certificate of profile.certificates) {
