@@ -54,8 +54,6 @@ targets:
               - cash.free2z.zuuli
         ITSAppUsesNonExemptEncryption: false
         LSRequiresIPhoneOS: true
-        NSCameraUsageDescription: ZUULI uses the camera when you broadcast or join a live video stream.
-        NSMicrophoneUsageDescription: ZUULI uses the microphone when you broadcast or join a live stream.
         NSFaceIDUsageDescription: ZUULI uses Face ID to unlock your wallet seed for recovery and spending.
         UILaunchStoryboardName: LaunchScreen
         UIRequiredDeviceCapabilities: [arm64, metal]

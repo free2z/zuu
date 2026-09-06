@@ -23,7 +23,7 @@ const releasingPath = "wallet/zuuli/docs/releasing.md";
 const RELEASING_DOCUMENT_SHA256 =
   "943027c8f04b49397959e60c97ed0ae432bbfdff6a48ac7bb2b2ac437daf017d";
 const STATUS_DOCUMENT_SHA256 =
-  "2de8c62c277de3924de5a7500b2afc48f257caf5b5abd4cab60353a2ce4fd4bb";
+  "8a3b0c0c59786a2b13a2a48773ed74e9ad53512d941dbb139bd6c8e404716997";
 const statusSourceMarkerPattern =
   /^Last re-derived from `origin\/main` at\n`[0-9a-f]{40}` on \d{4}-\d{2}-\d{2}\. Before a release,\nupdate the evidence and disposition for every non-ready row; do not carry this\ncommit or date forward mechanically\.$/gm;
 const canonicalStatusSourceMarker = "<STATUS_SOURCE_MARKER>";
@@ -101,7 +101,7 @@ const releaseEvidenceInventory = new Map([
     evidenceClass: "`packaging-executed-protected-unexecuted`",
     distribution: "`desktop-deferred`",
     execution: "Build 20's credential-free [macOS packaging job](https://github.com/free2z/zuu/actions/runs/33494458922/job/99813293260) succeeded through the Keychain/capture source policy, real package collection, DMG/ZIP scans, bindings, labeled source inventory, checksums/provenance, and upload.",
-    boundary: "`artifact-sbom.node-test.mjs` uses real ZIP and `hdiutil` DMG canaries. `macos-keychain-entitlements.node-test.mjs` rejects missing or altered app/team/keychain groups and capture entitlements. Protected macOS system signing, notarization, and credential cleanup remain deliberately unexecuted while desktop shipping is deferred.",
+    boundary: "`artifact-sbom.node-test.mjs` uses real ZIP and `hdiutil` DMG canaries. `macos-keychain-entitlements.node-test.mjs` rejects missing or altered app/team/keychain groups and, since #945, rejects a *reintroduced* `com.apple.security.device.camera` or `.audio-input` entitlement and any reintroduced camera or microphone usage description. Protected macOS system signing, notarization, and credential cleanup remain deliberately unexecuted while desktop shipping is deferred.",
   }],
 ]);
 const allowedEvidenceClasses = new Set([

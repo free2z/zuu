@@ -197,6 +197,32 @@ jobs:
           aab=$(find src-tauri/gen/android/app/build/outputs/bundle -type f -name '*.aab' -print -quit)
           test -n "$aab"
           cp "$aab" release-artifacts/ZUULI-android-unsigned.aab
+      - name: Assert the shipped permission boundary inside the AAB
+        run: |
+          set -euo pipefail
+          # #945, the way #941 did it for e2e2z: the source manifest is not the
+          # thing that ships. AGP merges every library manifest into
+          # base/manifest/AndroidManifest.xml inside the bundle, and that is what
+          # the OS grants against. The protobuf manifest stores permission names
+          # as plain strings, so grepping the member bytes reads the merged
+          # result without needing bundletool on this credential-free job.
+          aab=release-artifacts/ZUULI-android-unsigned.aab
+          unzip -p "$aab" base/manifest/AndroidManifest.xml > "$RUNNER_TEMP/merged-manifest.pb"
+          test -s "$RUNNER_TEMP/merged-manifest.pb"
+          merged=$(LC_ALL=C grep -aoE 'android\.permission\.[A-Z_]+' "$RUNNER_TEMP/merged-manifest.pb" |
+            LC_ALL=C sort -u | paste -sd, -)
+          if [[ "$merged" != android.permission.INTERNET ]]; then
+            echo "merged AAB manifest declares OS permissions beyond INTERNET: $merged" >&2
+            exit 1
+          fi
+          # Named as well, so a regression says which dead grant came back.
+          for dead in CAMERA RECORD_AUDIO MODIFY_AUDIO_SETTINGS; do
+            if LC_ALL=C grep -aqF "android.permission.$dead" "$RUNNER_TEMP/merged-manifest.pb"; then
+              echo "merged AAB manifest still declares android.permission.$dead" >&2
+              exit 1
+            fi
+          done
+          rm -f -- "$RUNNER_TEMP/merged-manifest.pb"
       - name: Unpack Android AAB for shipped-artifact SBOM
         run: node scripts/artifact-sbom.mjs prepare --artifact=release-artifacts/ZUULI-android-unsigned.aab --root=artifact-sbom-work/android/root
       - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
@@ -434,8 +460,18 @@ jobs:
             app=$(find src-tauri/target -path '*/release/bundle/macos/*.app' -type d -print -quit)
             test -n "$app"
             plutil -lint "$app/Contents/Info.plist"
-            test "$(plutil -extract NSCameraUsageDescription raw -expect string -o - -- "$app/Contents/Info.plist")" = 'ZUULI uses the camera when you broadcast or join a live video stream.'
-            test "$(plutil -extract NSMicrophoneUsageDescription raw -expect string -o - -- "$app/Contents/Info.plist")" = 'ZUULI uses the microphone when you broadcast or join a live stream.'
+            # #945: ZUULI has no capture surface, so the packaged Info.plist must
+            # declare no camera or microphone usage description at all. `plutil
+            # -extract` exits non-zero on a missing key, so a successful extract is
+            # the failure. The FaceID probe is the positive control: without it this
+            # would also pass against an unreadable or empty plist.
+            for key in NSCameraUsageDescription NSMicrophoneUsageDescription; do
+              if plutil -extract "$key" raw -o - -- "$app/Contents/Info.plist" >/dev/null 2>&1; then
+                echo "packaged Info.plist still declares $key" >&2
+                exit 1
+              fi
+            done
+            test "$(plutil -extract CFBundleIdentifier raw -expect string -o - -- "$app/Contents/Info.plist")" = cash.free2z.zuuli
             ditto -c -k --keepParent "$app" release-artifacts/ZUULI-macos-universal-unsigned.zip
           fi
           if [[ "${{ runner.os }}" == Linux ]]; then

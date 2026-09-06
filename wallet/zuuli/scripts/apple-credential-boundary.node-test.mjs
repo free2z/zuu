@@ -40,13 +40,14 @@ const profileValidityMarkers = `
           date -j -u -f "%Y-%m-%dT%H:%M:%SZ"
           created_epoch <= profile_now && profile_now < expiration_epoch`;
 
+// #945: the fixture now models a signer/finalizer that proves the *absence* of
+// media-capture authority, because that is what the shipping jobs assert.
 const captureAuthorityMarkers = `
-          echo '"com.apple.security.device.audio-input"'
-          echo '"com.apple.security.device.camera"'
-          echo NSCameraUsageDescription
-          echo NSMicrophoneUsageDescription
-          echo 'ZUULI uses the camera when you broadcast or join a live video stream.'
-          echo 'ZUULI uses the microphone when you broadcast or join a live stream.'`;
+          echo com.apple.application-identifier,com.apple.developer.team-identifier,keychain-access-groups
+          echo '."com.apple.security.device.audio-input"')" = null'
+          echo '."com.apple.security.device.camera"')" = null'
+          echo 'for key in NSCameraUsageDescription NSMicrophoneUsageDescription; do'
+          echo 'packaged Info.plist still declares $key'`;
 
 function removeLast(source, needle) {
   const index = source.lastIndexOf(needle);

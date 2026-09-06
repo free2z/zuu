@@ -1,18 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- ZUULI holds the master seed, so it declares the smallest permission
+         set that still lets it reach a lightwalletd server: INTERNET, and
+         nothing else (#945). CAMERA, RECORD_AUDIO and MODIFY_AUDIO_SETTINGS
+         were here for the livestreaming surface that #904 phase 4 (#943)
+         deleted along with the RealtimeKit dependency; an OS grant the app
+         cannot use is free attack surface on the seed-holding process (#367)
+         and a store-review question with no answer. The camera and microphone
+         <uses-feature> overrides went with them: Play's implied-feature
+         filtering is derived from the capture permissions, so with those gone
+         there is nothing left to override. -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
-    <!-- Livestream viewers can run without capture or touch hardware. Hosts
-         request camera and microphone access at the point of use. Explicitly
-         override Android's permission-implied camera and touchscreen filters
-         so Google Play keeps camera-less and non-touch ChromeOS devices. -->
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
-    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
-    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <!-- Android implies a required touchscreen. Override it so Google Play
+         keeps non-touch ChromeOS devices. -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.faketouch" android:required="false" />
 

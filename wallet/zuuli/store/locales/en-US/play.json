@@ -1,8 +1,8 @@
 {
   "title": "ZUULI",
-  "shortDescription": "Zcash wallet and creator tools from Free2Z.",
-  "fullDescription": "ZUULI brings a Zcash wallet and Free2Z creator tools into one mobile-first app.\n\nExplore articles and livestreams, use AI tools, support creators, and manage Zcash. 2Z credits are separate from Zcash and are used for eligible Free2Z experiences.\n\nThis preview is available only to approved internal testers. Use only small amounts you can afford to lose during internal testing, and report unexpected wallet, sign-in, payment, media, or accessibility behavior through the support channel.",
-  "releaseNotes": "Internal preview: exercise wallet, sign-in, creator, AI, article, livestream, payment, and accessibility flows. Use only small amounts you can afford to lose during internal testing.",
+  "shortDescription": "Self-custody Zcash wallet from 2Z Inc.",
+  "fullDescription": "ZUULI is a self-custody Zcash wallet from 2Z Inc.\n\nCreate or restore a wallet from a recovery phrase, sync against a lightwalletd server, receive to a unified address, review a transaction before you sign it, and send shielded ZEC. Your recovery phrase and spending keys stay on your device; ZUULI never renders remote articles, media, or third-party embeds beside them.\n\nYou can sign in with a Free2Z account to prove a Zcash address you control, and you can buy 2Z credits. 2Z credits are separate from Zcash and are used for eligible Free2Z experiences.\n\nThis preview is distributed only to approved internal testers. Use only small amounts you can afford to lose during internal testing, and report unexpected wallet, sign-in, payment, or accessibility behavior through the support channel.",
+  "releaseNotes": "Internal preview: exercise wallet create/restore, sync, receive, send review, history, sign-in, payment, and accessibility flows. Use only small amounts you can afford to lose during internal testing.",
   "supportEmail": "help@free2z.com",
   "supportUrl": "https://free2z.cash/docs/",
   "websiteUrl": "https://free2z.cash/",
