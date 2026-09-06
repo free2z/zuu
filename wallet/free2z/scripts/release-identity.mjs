@@ -489,20 +489,23 @@ for (const [file, raw] of [
   // App Store Connect asks this question on every submission and holds the build
   // until it is answered, so the plists must carry the answer release.json gives
   // -- whichever answer #961 settles on -- and must carry it exactly once.
-  const encryptionDeclaration = [
-    "<key>ITSAppUsesNonExemptEncryption</key>",
-    declaredEncryption ? "<true/>" : "<false/>",
-  ];
-  if (occurrenceCount(contents, encryptionDeclaration[0]) !== 1)
+  const encryptionKey = "<key>ITSAppUsesNonExemptEncryption</key>";
+  const encryptionValue = declaredEncryption ? "<true/>" : "<false/>";
+  if (occurrenceCount(contents, encryptionKey) !== 1) {
     failures.push(`${file} must declare ITSAppUsesNonExemptEncryption exactly once`);
-  else if (
-    !new RegExp(
-      `${encryptionDeclaration[0]}\\s*${encryptionDeclaration[1]}`.replace(/[/]/g, "\\/"),
-    ).test(contents)
-  )
-    failures.push(
-      `${file} must declare ITSAppUsesNonExemptEncryption as ${encryptionDeclaration[1]}, matching release.json`,
-    );
+  } else {
+    // The value is whatever follows the key, ignoring the indentation between
+    // them. Compared as a string rather than through a constructed RegExp: the
+    // two tags carry `/` and `<`, and a pattern assembled from them is a thing
+    // a reader has to decode before believing.
+    const afterKey = contents
+      .slice(contents.indexOf(encryptionKey) + encryptionKey.length)
+      .trimStart();
+    if (!afterKey.startsWith(encryptionValue))
+      failures.push(
+        `${file} must declare ITSAppUsesNonExemptEncryption as ${encryptionValue}, matching release.json`,
+      );
+  }
   for (const required of ["NSCameraUsageDescription", "NSMicrophoneUsageDescription"]) {
     if (!contents.includes(`<key>${required}</key>`))
       failures.push(
