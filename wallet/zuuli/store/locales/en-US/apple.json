@@ -1,13 +1,13 @@
 {
   "name": "ZUULI",
-  "subtitle": "Zcash wallet. Creator tools.",
-  "description": "ZUULI brings a Zcash wallet and Free2Z creator tools into one app. Explore articles and livestreams, use AI tools, support creators, and manage Zcash from a mobile-first interface. 2Z credits are separate from Zcash and are used for eligible Free2Z experiences.\n\nThis preview is distributed only to approved internal testers. Use only small amounts you can afford to lose during internal testing, and report unexpected wallet, sign-in, payment, media, or accessibility behavior through the support channel.",
-  "keywords": "zcash,wallet,creators,livestream,articles,AI,payments",
-  "promotionalText": "ZUULI brings Zcash and Free2Z creator tools together.",
+  "subtitle": "Self-custody Zcash wallet",
+  "description": "ZUULI is a self-custody Zcash wallet from 2Z Inc.\n\nCreate or restore a wallet from a recovery phrase, sync against a lightwalletd server, receive to a unified address, review a transaction before you sign it, and send shielded ZEC. Your recovery phrase and spending keys stay on your device; ZUULI never renders remote articles, media, or third-party embeds beside them.\n\nYou can sign in with a Free2Z account to prove a Zcash address you control, and you can buy 2Z credits. 2Z credits are separate from Zcash and are used for eligible Free2Z experiences.\n\nThis preview is distributed only to approved internal testers. Use only small amounts you can afford to lose during internal testing, and report unexpected wallet, sign-in, payment, or accessibility behavior through the support channel.",
+  "keywords": "zcash,zec,wallet,shielded,privacy,self-custody,recovery phrase,unified address,crypto,free2z",
+  "promotionalText": "A self-custody Zcash wallet: create or restore, sync, receive, review, and send shielded ZEC.",
   "supportUrl": "https://free2z.cash/docs/",
   "marketingUrl": "https://free2z.cash/",
   "privacyPolicyUrl": "https://free2z.cash/docs/legal/privacy-policy/",
-  "releaseNotes": "Internal preview: exercise wallet, sign-in, creator, AI, article, livestream, payment, and accessibility flows. Use only small amounts you can afford to lose during internal testing.",
-  "betaDescription": "Help test ZUULI's Zcash wallet and creator experience. Use only small amounts you can afford to lose during internal testing, and report unexpected behavior.",
+  "releaseNotes": "Internal preview: exercise wallet create/restore, sync, receive, send review, history, sign-in, payment, and accessibility flows. Use only small amounts you can afford to lose during internal testing.",
+  "betaDescription": "Help test ZUULI's self-custody Zcash wallet: create or restore a wallet, sync, receive, and send shielded ZEC. Use only small amounts you can afford to lose during internal testing, and report unexpected behavior.",
   "betaFeedbackEmail": "help@free2z.com"
 }

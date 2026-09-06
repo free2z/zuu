@@ -425,6 +425,47 @@ jobs:
           test "$(java -jar "$bundletool" dump manifest --bundle="$aab" --xpath=/manifest/@package)" = cash.free2z.zuuli
           test "$(java -jar "$bundletool" dump manifest --bundle="$aab" --xpath=/manifest/@android:versionName)" = "${EXPECTED_IDENTITY%+*}"
           test "$(java -jar "$bundletool" dump manifest --bundle="$aab" --xpath=/manifest/@android:versionCode)" = "${EXPECTED_IDENTITY#*+}"
+          # The permission boundary, re-asserted against the merged manifest
+          # that actually ships rather than against the source file (#945, the
+          # shape #941 established for e2e2z — the list is ZUULI's own, because
+          # a wallet unlocks a seed and a messaging client does not).
+          #
+          # Only `<uses-permission>` elements count. Grepping the dump for the
+          # string would also match androidx.profileinstaller's
+          # ProfileInstallReceiver `android:permission="android.permission.DUMP"`
+          # guard, which restricts that receiver to shell rather than granting
+          # this app anything.
+          #
+          #   INTERNET        lightwalletd and free2z over HTTPS.
+          #   USE_BIOMETRIC   seed unlock — ZcashPlugin.kt authenticates a
+          #                   CryptoObject over the seed cipher.
+          #   USE_FINGERPRINT androidx.biometric:1.1.0's own pre-API-28 path;
+          #                   unreachable at minSdk 29, allowlisted rather than
+          #                   removed blind off the unlock path (#958).
+          #   cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+          #                   injected by androidx.core for API 33+ so that
+          #                   dynamically registered receivers are not
+          #                   exported. App-scoped by its package prefix and
+          #                   signature-level, both checked below rather than
+          #                   assumed. e2e2z's assertion accounts for the same
+          #                   class (#941).
+          manifest_dump=$(java -jar "$bundletool" dump manifest --bundle="$aab")
+          declared=$(printf '%s\n' "$manifest_dump" | tr '\n' ' ' | tr '<' '\n' |
+            grep -a '^uses-permission' | grep -aoE 'android:name="[^"]+"' |
+            sed 's/.*"\(.*\)"/\1/' | LC_ALL=C sort -u | paste -sd, -)
+          test "$declared" = android.permission.INTERNET,android.permission.USE_BIOMETRIC,android.permission.USE_FINGERPRINT,cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+          # The injected self-permission is benign only because it is
+          # signature-level and carries this app's package prefix.
+          printf '%s\n' "$manifest_dump" | tr '\n' ' ' | tr '<' '\n' |
+            grep -a '^permission ' |
+            grep -aF 'android:name="cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"' |
+            grep -qF 'android:protectionLevel="signature"'
+          for dead in CAMERA RECORD_AUDIO MODIFY_AUDIO_SETTINGS; do
+            if LC_ALL=C grep -qF "android.permission.$dead" <<<"$manifest_dump"; then
+              echo "the shipped AAB manifest still names android.permission.$dead" >&2
+              exit 1
+            fi
+          done
           actual_abis=$(unzip -Z1 "$aab" | awk -F/ '$2 == "lib" && NF >= 4 && $NF ~ /\.so$/ {print $3}' | LC_ALL=C sort -u | paste -sd, -)
           test "$actual_abis" = arm64-v8a,armeabi-v7a,x86,x86_64
           unzip -Z1 "$aab" | LC_ALL=C sort > "$RUNNER_TEMP/current-aab-members.txt"
@@ -1365,8 +1406,18 @@ jobs:
           [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]] || { echo "expected exactly one unsigned macOS app" >&2; exit 1; }
           [[ ${#dmgs[@]} -eq 1 && -f "${dmgs[0]}" ]] || { echo "expected exactly one unsigned macOS layout DMG" >&2; exit 1; }
           plutil -lint "${apps[0]}/Contents/Info.plist"
-          test "$(plutil -extract NSCameraUsageDescription raw -expect string -o - -- "${apps[0]}/Contents/Info.plist")" = 'ZUULI uses the camera when you broadcast or join a live video stream.'
-          test "$(plutil -extract NSMicrophoneUsageDescription raw -expect string -o - -- "${apps[0]}/Contents/Info.plist")" = 'ZUULI uses the microphone when you broadcast or join a live stream.'
+          # #945: ZUULI has no capture surface, so the packaged Info.plist must
+          # declare no camera or microphone usage description at all. `plutil
+          # -extract` exits non-zero on a missing key, so a successful extract is
+          # the failure. The bundle-identity probe is the positive control: without
+          # it this would also pass against an unreadable or empty plist.
+          for key in NSCameraUsageDescription NSMicrophoneUsageDescription; do
+            if plutil -extract "$key" raw -o - -- "${apps[0]}/Contents/Info.plist" >/dev/null 2>&1; then
+              echo "packaged Info.plist still declares $key" >&2
+              exit 1
+            fi
+          done
+          test "$(plutil -extract CFBundleIdentifier raw -expect string -o - -- "${apps[0]}/Contents/Info.plist")" = cash.free2z.zuuli
           mkdir unsigned-macos
           ditto -c -k --sequesterRsrc --keepParent "${apps[0]}" unsigned-macos/ZUULI.app.zip
           cp "${dmgs[0]}" unsigned-macos/ZUULI-layout.dmg
@@ -1447,8 +1498,18 @@ jobs:
           apps=(signing-work/*.app)
           [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]] || { echo "expected exactly one unpacked macOS app" >&2; exit 1; }
           plutil -lint "${apps[0]}/Contents/Info.plist"
-          test "$(plutil -extract NSCameraUsageDescription raw -expect string -o - -- "${apps[0]}/Contents/Info.plist")" = 'ZUULI uses the camera when you broadcast or join a live video stream.'
-          test "$(plutil -extract NSMicrophoneUsageDescription raw -expect string -o - -- "${apps[0]}/Contents/Info.plist")" = 'ZUULI uses the microphone when you broadcast or join a live stream.'
+          # #945: ZUULI has no capture surface, so the packaged Info.plist must
+          # declare no camera or microphone usage description at all. `plutil
+          # -extract` exits non-zero on a missing key, so a successful extract is
+          # the failure. The bundle-identity probe is the positive control: without
+          # it this would also pass against an unreadable or empty plist.
+          for key in NSCameraUsageDescription NSMicrophoneUsageDescription; do
+            if plutil -extract "$key" raw -o - -- "${apps[0]}/Contents/Info.plist" >/dev/null 2>&1; then
+              echo "packaged Info.plist still declares $key" >&2
+              exit 1
+            fi
+          done
+          test "$(plutil -extract CFBundleIdentifier raw -expect string -o - -- "${apps[0]}/Contents/Info.plist")" = cash.free2z.zuuli
           echo "ZUULI_SIGNED_APP=${apps[0]}" >> "$GITHUB_ENV"
       - name: Materialize, sign app, and destroy ephemeral Developer ID credential
         env:
@@ -1541,11 +1602,15 @@ jobs:
             plutil -lint "$entitlements"
             test "$(plutil -convert json -o - "$entitlements" | jq -r '."com.apple.application-identifier"')" = F9AV5HKF6N.cash.free2z.zuuli
             test "$(plutil -convert json -o - "$entitlements" | jq -r '."com.apple.developer.team-identifier"')" = F9AV5HKF6N
-            test "$(plutil -convert json -o - "$entitlements" | jq -r '."com.apple.security.device.audio-input"')" = true
-            test "$(plutil -convert json -o - "$entitlements" | jq -r '."com.apple.security.device.camera"')" = true
             test "$(plutil -convert json -o - "$entitlements" | jq -r '."keychain-access-groups"[0]')" = F9AV5HKF6N.cash.free2z.zuuli
             test "$(plutil -convert json -o - "$entitlements" | jq -r '."keychain-access-groups" | length')" = 1
-            test "$(plutil -convert json -o - "$entitlements" | jq -r 'keys | sort | join(",")')" = com.apple.application-identifier,com.apple.developer.team-identifier,com.apple.security.device.audio-input,com.apple.security.device.camera,keychain-access-groups
+            # #945: the seed-holding app claims no media-capture authority. The exact
+            # key set below is what enforces that; the two null probes name the removed
+            # entitlements so a regression says which one came back rather than only
+            # that a sorted key list differs.
+            test "$(plutil -convert json -o - "$entitlements" | jq -r '."com.apple.security.device.audio-input"')" = null
+            test "$(plutil -convert json -o - "$entitlements" | jq -r '."com.apple.security.device.camera"')" = null
+            test "$(plutil -convert json -o - "$entitlements" | jq -r 'keys | sort | join(",")')" = com.apple.application-identifier,com.apple.developer.team-identifier,keychain-access-groups
           }
           verify_keychain_entitlements unsigned-macos/Entitlements.plist
           cp "$secret_dir/zuuli.provisionprofile" "$ZUULI_SIGNED_APP/Contents/embedded.provisionprofile"
@@ -1817,14 +1882,28 @@ jobs:
           plutil -lint "$signed_entitlements"
           test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."com.apple.application-identifier"')" = F9AV5HKF6N.cash.free2z.zuuli
           test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."com.apple.developer.team-identifier"')" = F9AV5HKF6N
-          test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."com.apple.security.device.audio-input"')" = true
-          test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."com.apple.security.device.camera"')" = true
           test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."keychain-access-groups"[0]')" = F9AV5HKF6N.cash.free2z.zuuli
           test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."keychain-access-groups" | length')" = 1
-          test "$(plutil -convert json -o - "$signed_entitlements" | jq -r 'keys | sort | join(",")')" = com.apple.application-identifier,com.apple.developer.team-identifier,com.apple.security.device.audio-input,com.apple.security.device.camera,keychain-access-groups
+          # #945: the seed-holding app claims no media-capture authority. The exact
+          # key set below is what enforces that; the two null probes name the removed
+          # entitlements so a regression says which one came back rather than only
+          # that a sorted key list differs.
+          test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."com.apple.security.device.audio-input"')" = null
+          test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."com.apple.security.device.camera"')" = null
+          test "$(plutil -convert json -o - "$signed_entitlements" | jq -r 'keys | sort | join(",")')" = com.apple.application-identifier,com.apple.developer.team-identifier,keychain-access-groups
           plutil -lint "${apps[0]}/Contents/Info.plist"
-          test "$(plutil -extract NSCameraUsageDescription raw -expect string -o - -- "${apps[0]}/Contents/Info.plist")" = 'ZUULI uses the camera when you broadcast or join a live video stream.'
-          test "$(plutil -extract NSMicrophoneUsageDescription raw -expect string -o - -- "${apps[0]}/Contents/Info.plist")" = 'ZUULI uses the microphone when you broadcast or join a live stream.'
+          # #945: ZUULI has no capture surface, so the packaged Info.plist must
+          # declare no camera or microphone usage description at all. `plutil
+          # -extract` exits non-zero on a missing key, so a successful extract is
+          # the failure. The bundle-identity probe is the positive control: without
+          # it this would also pass against an unreadable or empty plist.
+          for key in NSCameraUsageDescription NSMicrophoneUsageDescription; do
+            if plutil -extract "$key" raw -o - -- "${apps[0]}/Contents/Info.plist" >/dev/null 2>&1; then
+              echo "packaged Info.plist still declares $key" >&2
+              exit 1
+            fi
+          done
+          test "$(plutil -extract CFBundleIdentifier raw -expect string -o - -- "${apps[0]}/Contents/Info.plist")" = cash.free2z.zuuli
           signature=$(codesign -dvv "${apps[0]}" 2>&1)
           grep -F 'Authority=Developer ID Application: Corpora Inc (F9AV5HKF6N)' <<<"$signature"
           grep -F 'TeamIdentifier=F9AV5HKF6N' <<<"$signature"
@@ -1846,8 +1925,18 @@ jobs:
           [[ -L "$mountpoint/Applications" && "$(readlink "$mountpoint/Applications")" == /Applications ]] || { echo "signed DMG Applications link is not canonical" >&2; exit 1; }
           codesign --verify --deep --strict --verbose=2 "$mountpoint/ZUULI.app"
           plutil -lint "$mountpoint/ZUULI.app/Contents/Info.plist"
-          test "$(plutil -extract NSCameraUsageDescription raw -expect string -o - -- "$mountpoint/ZUULI.app/Contents/Info.plist")" = 'ZUULI uses the camera when you broadcast or join a live video stream.'
-          test "$(plutil -extract NSMicrophoneUsageDescription raw -expect string -o - -- "$mountpoint/ZUULI.app/Contents/Info.plist")" = 'ZUULI uses the microphone when you broadcast or join a live stream.'
+          # #945: ZUULI has no capture surface, so the packaged Info.plist must
+          # declare no camera or microphone usage description at all. `plutil
+          # -extract` exits non-zero on a missing key, so a successful extract is
+          # the failure. The bundle-identity probe is the positive control: without
+          # it this would also pass against an unreadable or empty plist.
+          for key in NSCameraUsageDescription NSMicrophoneUsageDescription; do
+            if plutil -extract "$key" raw -o - -- "$mountpoint/ZUULI.app/Contents/Info.plist" >/dev/null 2>&1; then
+              echo "packaged Info.plist still declares $key" >&2
+              exit 1
+            fi
+          done
+          test "$(plutil -extract CFBundleIdentifier raw -expect string -o - -- "$mountpoint/ZUULI.app/Contents/Info.plist")" = cash.free2z.zuuli
           xcrun stapler validate "$mountpoint/ZUULI.app"
           hdiutil detach "$mountpoint" >/dev/null
           mounted=false

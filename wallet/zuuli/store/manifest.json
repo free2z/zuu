@@ -24,13 +24,13 @@
   ],
   "classification": {
     "reviewStatus": "proposed-owner-store-review-required",
-    "applePrimaryCategory": "SOCIAL_NETWORKING",
-    "appleSecondaryCategory": "FINANCE",
-    "playCategory": "SOCIAL",
+    "applePrimaryCategory": "FINANCE",
+    "appleSecondaryCategory": "UTILITIES",
+    "playCategory": "FINANCE",
     "contentRatingNotes": [
-      "User-generated articles, profiles, comments, and livestreams require store questionnaire review.",
+      "ZUULI ships no user-generated content surface: no articles, profiles, comments, livestreams, or AI output. #904 phase 4 (#943) removed them and the app renders no remote or third-party content.",
       "Zcash wallet and 2Z purchase flows require financial-feature questionnaire review.",
-      "AI-generated content and live interaction require age-rating questionnaire review."
+      "Self-custody key material never leaves the device, and the app requests no camera, microphone, location, contacts, or external-storage permission (#945)."
     ],
     "automaticRatingSubmissionAllowed": false
   },
