@@ -5,9 +5,9 @@
   "apple": {
     "teamId": "F9AV5HKF6N",
     "distributionIdentity": "Apple Distribution: Corpora Inc (F9AV5HKF6N)",
-    "appStoreConnectRecord": "missing",
-    "provisioningProfileName": null,
-    "provisioningProfileUuid": null
+    "appStoreConnectRecord": "created",
+    "provisioningProfileName": "e2e2z appstore ci",
+    "provisioningProfileUuid": "ce910824-c3e3-44c0-b53e-435d15a4a091"
   },
   "google": {
     "playConsoleListing": "missing",

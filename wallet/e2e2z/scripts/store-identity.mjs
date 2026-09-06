@@ -8,17 +8,21 @@
 // the workflow and in `normalize-generated-ios-project.mjs`: the provisioning
 // profile `ZUULI App Store CI`, its UUID, and the Android upload certificate
 // fingerprint. It can, because those things exist. For `cash.free2z.e2e2z` they
-// do not:
+// did not, and each has to be created by a human before CI can bind to it:
 //
 //   * The App Store Connect **app record** must be created by a human in App
 //     Store Connect. There is no API that creates one. Until it exists, no
 //     provisioning profile can be issued for the bundle id, `altool
 //     --validate-app` has nothing to validate against, and TestFlight has no
-//     app to receive a build.
+//     app to receive a build. **This one now exists**, along with the App Store
+//     distribution profile named below, which is why the Apple lane clears its
+//     preflight.
 //   * The Play Console **listing** must likewise be created by a human. The
 //     Android Publisher API only edits apps that already exist; `POST
 //     /edits` against a package name Play has never seen returns a 404 that
-//     reads like a permissions problem and is not one.
+//     reads like a permissions problem and is not one. **This one does not
+//     exist**: e2e2z is going TestFlight-first, so the Android lane is still
+//     blocked here, deliberately.
 //   * Play App Signing then generates the **app signing certificate**, and its
 //     SHA-256 — the fingerprint `assetlinks.json` must carry — is readable only
 //     from Play Console (Setup -> App integrity -> App signing) once the
@@ -30,6 +34,11 @@
 // stated blocker is the goal. A pipeline that appears to work and does not is
 // the failure this file exists to prevent, and an opaque 404 from Google three
 // jobs deep is that failure wearing a hat.
+//
+// The two lanes are checked independently, so a `target: ios` release proceeds
+// on the Apple facts alone while `mobile` and `android` still stop at the Play
+// listing. That asymmetry is the point: recording one store's facts must not
+// quietly vouch for the other's.
 //
 // Nothing here is a secret. The profile name and UUID are not credentials, the
 // upload fingerprint is a public certificate digest, and binding them in source
@@ -203,8 +212,14 @@ function selfTest() {
   mutated.applicationId = "cash.free2z.zuuli";
   expect("foreign application id", validate(mutated), "applicationId must be cash.free2z.e2e2z");
 
+  // Each bad state below is spelled out in full rather than produced by
+  // flipping one field of the committed file. The committed file changes as
+  // store records get created -- Apple's now exist -- and a control that is
+  // only bad relative to today's contents silently stops testing anything.
   mutated = clone();
-  mutated.apple.provisioningProfileName = "e2e2z App Store CI";
+  mutated.apple.appStoreConnectRecord = "missing";
+  mutated.apple.provisioningProfileName = "e2e2z appstore ci";
+  mutated.apple.provisioningProfileUuid = "ce910824-c3e3-44c0-b53e-435d15a4a091";
   expect(
     "profile named without a record",
     validate(mutated),
@@ -213,8 +228,17 @@ function selfTest() {
 
   mutated = clone();
   mutated.apple.appStoreConnectRecord = "created";
-  mutated.apple.provisioningProfileName = "e2e2z App Store CI";
+  mutated.apple.provisioningProfileName = "e2e2z appstore ci";
+  mutated.apple.provisioningProfileUuid = null;
   expect("half a profile", validate(mutated), "must both be set or both be null");
+
+  // The profile UUID is transcribed by hand out of a `.mobileprovision`, and
+  // `security cms -D` prints it uppercase. An uppercase UUID would name a
+  // profile file that does not exist on the signing runner, so it is rejected
+  // here rather than at codesign time.
+  mutated = clone();
+  mutated.apple.provisioningProfileUuid = "CE910824-C3E3-44C0-B53E-435D15A4A091";
+  expect("uppercase profile UUID", validate(mutated), "must be a lowercase UUID or null");
 
   mutated = clone();
   mutated.google.uploadCertificateSha256 = "aa:bb";
@@ -228,8 +252,39 @@ function selfTest() {
   if (androidBlockers(mutated).length !== 0)
     throw new Error("store-identity self-test failed: a complete Play identity still blocked");
 
-  if (appleBlockers(base).length !== 1 || androidBlockers(base).length !== 1)
-    throw new Error("store-identity self-test failed: the committed identity must block both lanes");
+  // The Apple lane's two blockers no longer fire for the committed file, so
+  // they are exercised against a synthesized identity instead. Losing these
+  // would mean nothing proves the iOS preflight can still say no.
+  mutated = clone();
+  mutated.apple.appStoreConnectRecord = "missing";
+  mutated.apple.provisioningProfileName = null;
+  mutated.apple.provisioningProfileUuid = null;
+  expect("no App Store Connect record", appleBlockers(mutated), "no App Store Connect app record");
+
+  mutated = clone();
+  mutated.apple.appStoreConnectRecord = "created";
+  mutated.apple.provisioningProfileName = null;
+  mutated.apple.provisioningProfileUuid = null;
+  if (validate(mutated).length !== 0)
+    throw new Error("store-identity self-test failed: a record without a profile is a legal state");
+  expect(
+    "record without a profile",
+    appleBlockers(mutated),
+    "no recorded App Store distribution provisioning profile",
+  );
+
+  // What the committed file actually claims today: Apple ready, Play not. This
+  // asymmetry is load-bearing -- `target: ios` clears the preflight, `mobile`
+  // and `android` do not -- so changing either half must be a deliberate edit
+  // here, not a silent consequence of editing store-identity.json.
+  if (appleBlockers(base).length !== 0)
+    throw new Error(
+      `store-identity self-test failed: the committed identity must not block the Apple lane:\n${appleBlockers(base).join("\n")}`,
+    );
+  if (androidBlockers(base).length !== 1)
+    throw new Error("store-identity self-test failed: the committed identity must block the Android lane");
+  if (!androidBlockers(base)[0].includes("no Google Play Console listing"))
+    throw new Error("store-identity self-test failed: the Android blocker must name the missing Play listing");
 }
 
 function main() {
