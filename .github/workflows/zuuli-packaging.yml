@@ -197,31 +197,88 @@ jobs:
           aab=$(find src-tauri/gen/android/app/build/outputs/bundle -type f -name '*.aab' -print -quit)
           test -n "$aab"
           cp "$aab" release-artifacts/ZUULI-android-unsigned.aab
-      - name: Assert the shipped permission boundary inside the AAB
+      - name: Assert the shipped permission boundary in the merged manifest
         run: |
           set -euo pipefail
-          # #945, the way #941 did it for e2e2z: the source manifest is not the
-          # thing that ships. AGP merges every library manifest into
-          # base/manifest/AndroidManifest.xml inside the bundle, and that is what
-          # the OS grants against. The protobuf manifest stores permission names
-          # as plain strings, so grepping the member bytes reads the merged
-          # result without needing bundletool on this credential-free job.
+          # #945. The source manifest is not the thing that ships: AGP merges
+          # every library manifest into the one the OS grants against. This
+          # checks that merged result two ways, because each half proves
+          # something the other cannot.
+          #
+          # (1) Structure, from AGP's merged manifest. It is plain XML, so
+          #     `<uses-permission>` elements can be told apart from the string
+          #     "android.permission.X" appearing as some *other* attribute —
+          #     see the DUMP note below for why that distinction is the whole
+          #     ballgame. This is the exact document AGP encodes into
+          #     base/manifest/AndroidManifest.xml in the bundle.
+          # (2) Bytes, from inside the AAB itself, for the three dead capture
+          #     grants. Absence is sound to grep on the protobuf member: a
+          #     declared permission's name is stored there verbatim, so if the
+          #     string is not present the grant cannot be either.
+          #
+          # The reviewed allowlist, one line of justification each:
+          #   INTERNET        reach a lightwalletd server and free2z.
+          #   USE_BIOMETRIC   unlock the seed. tauri-plugin-zcash's own
+          #                   manifest declares it and ZcashPlugin.kt calls
+          #                   BiometricPrompt.authenticate with a
+          #                   CryptoObject(cipher) over the seed cipher, under
+          #                   BIOMETRIC_STRONG|DEVICE_CREDENTIAL. Removing it
+          #                   breaks wallet unlock.
+          #   USE_FINGERPRINT androidx.biometric:1.1.0 declares it in its own
+          #                   manifest for the pre-API-28 FingerprintManager
+          #                   path. minSdk is 29, so that path is unreachable
+          #                   and this is vestigial — but it is library-owned
+          #                   and sits on the seed-unlock code path, so it is
+          #                   allowlisted here rather than removed blind. See
+          #                   the follow-up issue for the device-verified
+          #                   tools:node="remove".
+          #
+          # Not on the list, deliberately: android.permission.DUMP. It appears
+          # in the merged manifest only as the `android:permission` guard on
+          # androidx.profileinstaller's ProfileInstallReceiver, which is what
+          # restricts that receiver to shell/adb. That is a *restriction*, not
+          # a grant, and the assertion below requires it to stay exactly that.
+          allowlist=android.permission.INTERNET,android.permission.USE_BIOMETRIC,android.permission.USE_FINGERPRINT
+
+          merged=$(find src-tauri/gen/android/app/build/intermediates -type f \
+            -name AndroidManifest.xml -path '*merged_manifest*')
+          test -n "$merged"
+          while read -r manifest; do
+            # Newlines are folded first: AGP pretty-prints, so an element's
+            # android:name can sit on a different line from its tag name.
+            declared=$(tr '\n' ' ' < "$manifest" | tr '<' '\n' |
+              grep -a '^uses-permission' | grep -aoE 'android:name="[^"]+"' |
+              sed 's/.*"\(.*\)"/\1/' | LC_ALL=C sort -u | paste -sd, -)
+            if [[ "$declared" != "$allowlist" ]]; then
+              echo "$manifest declares an unreviewed permission set" >&2
+              echo "  expected: $allowlist" >&2
+              echo "  actual:   $declared" >&2
+              exit 1
+            fi
+            # DUMP must be a receiver guard and never a request.
+            if tr '\n' ' ' < "$manifest" | tr '<' '\n' |
+              grep -a '^uses-permission' | grep -qaF android.permission.DUMP; then
+              echo "$manifest *requests* android.permission.DUMP" >&2
+              exit 1
+            fi
+            grep -qF 'android:permission="android.permission.DUMP"' "$manifest" || {
+              echo "$manifest no longer guards ProfileInstallReceiver with DUMP" >&2
+              exit 1
+            }
+          done <<<"$merged"
+
           aab=release-artifacts/ZUULI-android-unsigned.aab
           unzip -p "$aab" base/manifest/AndroidManifest.xml > "$RUNNER_TEMP/merged-manifest.pb"
           test -s "$RUNNER_TEMP/merged-manifest.pb"
-          merged=$(LC_ALL=C grep -aoE 'android\.permission\.[A-Z_]+' "$RUNNER_TEMP/merged-manifest.pb" |
-            LC_ALL=C sort -u | paste -sd, -)
-          if [[ "$merged" != android.permission.INTERNET ]]; then
-            echo "merged AAB manifest declares OS permissions beyond INTERNET: $merged" >&2
-            exit 1
-          fi
-          # Named as well, so a regression says which dead grant came back.
           for dead in CAMERA RECORD_AUDIO MODIFY_AUDIO_SETTINGS; do
             if LC_ALL=C grep -aqF "android.permission.$dead" "$RUNNER_TEMP/merged-manifest.pb"; then
-              echo "merged AAB manifest still declares android.permission.$dead" >&2
+              echo "the shipped AAB manifest still names android.permission.$dead" >&2
               exit 1
             fi
           done
+          # The positive control: absence-grepping proves nothing unless the
+          # same method can see a permission that is there.
+          LC_ALL=C grep -aqF android.permission.USE_BIOMETRIC "$RUNNER_TEMP/merged-manifest.pb"
           rm -f -- "$RUNNER_TEMP/merged-manifest.pb"
       - name: Unpack Android AAB for shipped-artifact SBOM
         run: node scripts/artifact-sbom.mjs prepare --artifact=release-artifacts/ZUULI-android-unsigned.aab --root=artifact-sbom-work/android/root
