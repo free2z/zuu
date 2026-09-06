@@ -219,10 +219,11 @@ also needs the Apple secrets in the protected `e2e2z-app-stores` environment:
 `APPLE_DISTRIBUTION_CERTIFICATE_BASE64`, its password, and `ASC_KEY_BASE64` are
 not yet.
 
-The third value in that file — `google.appSigningCertificateSha256` — is the one
-`assetlinks.json` needs. Play App Signing generates it, so it is readable only
-from Play Console (Setup → App integrity → App signing) once the listing exists.
-It is tracked in #461 and this release path does not use it.
+One field in `store-identity.json` is recorded but never read by this release
+path: `google.appSigningCertificateSha256`, the fingerprint `assetlinks.json`
+needs. Play App Signing generates it, so it is readable only from Play Console
+(Setup → App integrity → App signing) once the listing exists. It is tracked in
+#461.
 
 ### Android permissions
 
