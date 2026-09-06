@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- FOUR permissions, and a reason for each. `scripts/release-identity.mjs`
+         holds this list exactly, and the release workflow re-asserts it against
+         the merged manifest inside the built AAB, because the file below is not
+         what ships — the merged one is.
+
+         INTERNET: free2z is a client of free2z.cash for every article, profile
+         and search result, and of Cloudflare RealtimeKit for live media. There
+         is no offline product.
+
+         CAMERA and RECORD_AUDIO: free2z hosts live rooms. `src/features/live/
+         Stage.tsx` initialises RealtimeKit with `audio: ticket.as === "host"`
+         and `video: ticket.as === "host"`, so a host publishes both the moment
+         the room opens, and `MediaPreflight` calls `getUserMedia` before that
+         to let the host see what is about to go out. Participants join muted
+         and dark, but the RealtimeKit meeting UI gives every one of them the
+         same two toggles, so both permissions are reachable in both modes.
+
+         MODIFY_AUDIO_SETTINGS: this one is not a product decision, it is a
+         mechanical consequence of how the WebView asks. wry 0.55.1's
+         `RustWebChromeClient.onPermissionRequest` maps a WebView
+         AUDIO_CAPTURE request to `arrayOf(MODIFY_AUDIO_SETTINGS, RECORD_AUDIO)`
+         and launches BOTH through one `RequestMultiplePermissions` contract; it
+         then grants the page only `if (isGranted == true)` for every entry in
+         the result map. An undeclared permission comes back `false` from that
+         contract, so leaving MODIFY_AUDIO_SETTINGS out does not make the
+         microphone prompt smaller — it makes every microphone grant fail after
+         the user has already said yes. It is a normal (install-time)
+         permission, so it costs no runtime prompt of its own.
+
+         Nothing else. free2z holds no Zcash seed and no messaging keys (#904):
+         no biometric prompt, no NFC, no wallet. It posts no notifications, so
+         no POST_NOTIFICATIONS; it reads no contacts, no location, no external
+         storage, and it uploads media by handing the WebView's file chooser to
+         the system picker, which needs no storage permission on any API level
+         this app supports. `release-identity.mjs` names each of those as
+         forbidden so that pasting a block out of ZUULI's manifest is a red
+         build. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- Distribution, not permission. Android turns a CAMERA permission into an
+         implied `android.hardware.camera` + `android.hardware.camera.autofocus`
+         *required* feature, and RECORD_AUDIO into a required
+         `android.hardware.microphone`; Google Play then hides the app from every
+         device that lacks one. Most of free2z is reading and watching, which
+         wants no capture hardware at all, so all three are overridden to
+         optional. Touchscreen and faketouch are overridden for the same reason
+         in the other direction: a reading app driven by a keyboard belongs on
+         ChromeOS. Leanback is deliberately NOT declared — a TV launcher entry
+         for an app whose primary surfaces are a text editor and a search box is
+         a listing nobody can use. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.faketouch" android:required="false" />
+
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.free2z"
+        android:usesCleartextTraffic="${usesCleartextTraffic}">
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:launchMode="singleTask"
+            android:label="@string/main_activity_title"
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- DEEP LINK PLUGIN. AUTO-GENERATED. DO NOT REMOVE. -->
+            <intent-filter >
+                <action android:name="android.intent.action.VIEW" />
+                <!-- ChromeOS ARC++ uses a different action for deep links -->
+                <action android:name="org.chromium.arc.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="cash.free2z.free2z" />
+                <data android:host="bridge" />
+                <data android:path="/return" />
+
+
+
+            </intent-filter>
+            <intent-filter >
+                <action android:name="android.intent.action.VIEW" />
+                <!-- ChromeOS ARC++ uses a different action for deep links -->
+                <action android:name="org.chromium.arc.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="cash.free2z.free2z" />
+                <data android:host="oauth" />
+                <data android:path="/callback" />
+
+
+
+            </intent-filter>
+            <intent-filter >
+                <action android:name="android.intent.action.VIEW" />
+                <!-- ChromeOS ARC++ uses a different action for deep links -->
+                <action android:name="org.chromium.arc.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="cash.free2z.free2z" />
+                <data android:host="checkout" />
+                <data android:path="/return" />
+
+
+
+            </intent-filter>
+            <!-- DEEP LINK PLUGIN. AUTO-GENERATED. DO NOT REMOVE. -->
+        </activity>
+
+        <provider
+          android:name="androidx.core.content.FileProvider"
+          android:authorities="${applicationId}.fileprovider"
+          android:exported="false"
+          android:grantUriPermissions="true">
+          <meta-data
+            android:name="android.support.FILE_PROVIDER_PATHS"
+            android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>
