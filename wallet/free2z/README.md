@@ -419,35 +419,66 @@ changes `release.json`, or on manual dispatch against an exact source SHA. Every
 platform is built by a credential-free job that attests what it produced, signed
 by a separate job in the protected `free2z-app-stores` environment, and verified
 again afterwards. The workflow's header comment explains why this app gets its
-own environment rather than sharing ZUULI's or e2e2z's.
+own `free2z-app-stores` environment rather than sharing ZUULI's or e2e2z's:
+GitHub gates environment secrets per job, not per app, so a job that named
+another app's environment would receive that app's signing material.
 
 `scripts/mobile-release.sh android [--upload]` is the operator path for the same
 Android artifact from a workstation.
 
 ### Where each store stands
 
-`node scripts/store-identity.mjs --require=apple --require=android` prints the
-current answer, and `store-identity.json` is the reviewed record it reads.
+free2z ships to **TestFlight first**. `node scripts/store-identity.mjs
+--require=apple --require=android` prints the current answer, and
+`store-identity.json` is the reviewed record it reads.
 
-**Apple is nearly ready.** The App ID `cash.free2z.free2z` is registered with
-Associated Domains enabled, an App Store Connect record exists ("Free2Z", SKU
-`cash.free2z.free2z`), and an App Store distribution profile named
-`free2z appstore ci` has been issued against it — `application-identifier`
-`F9AV5HKF6N.cash.free2z.free2z`, expiring 2027-08-08. What remains is
-mechanical: read the profile's `Name` and `UUID` out of the file into
-`store-identity.json`, and install the profile as
-`APPLE_PROVISIONING_PROFILE_BASE64` in the `free2z-app-stores` environment.
+**iOS is ready.** The App ID `cash.free2z.free2z` is registered with Associated
+Domains enabled, an App Store Connect record exists ("Free2Z", SKU
+`cash.free2z.free2z`), and the App Store distribution profile
+`free2z appstore ci` — `application-identifier`
+`F9AV5HKF6N.cash.free2z.free2z`, expiring 2027-08-08 — is recorded here by name
+and UUID and installed in the `free2z-app-stores` environment. `--require=apple`
+exits 0, so the iOS lane runs end to end.
 
-**Android is blocked at the listing.** There is no Play Console listing for
-`cash.free2z.free2z`, so there is no app for the Android Publisher API to edit
-and no upload key to sign with. The `prepare` job refuses before anything is
-built rather than letting the run reach a 404 that reads like a permissions
-failure.
+**Android is deferred, and blocked at the listing.** There is no Play Console
+listing for `cash.free2z.free2z`, so there is no app for the Android Publisher
+API to edit and no upload key to sign with. Nothing here stands in for that: no
+placeholder keystore, no placeholder service account. The `prepare` job refuses
+before anything is built rather than letting the run reach a 404 that reads like
+a permissions failure. That is why the dispatch default and the `push` path are
+both `target: ios` — a `mobile` release today would be a red run with nothing
+anyone could do about it. `android` and `mobile` stay selectable so the lane is
+exercised and reviewed rather than deleted, and widening the `push` path is a
+one-word change once `google.playConsoleListing` says `"created"`.
 
 The `google.appSigningCertificateSha256` field is the value `assetlinks.json`
 needs. Play App Signing generates it, so it is readable only from Play Console
 (Setup → App integrity → App signing) once the listing exists; this release path
 does not use it.
+
+### What the `free2z-app-stores` environment holds
+
+| Kind | Name | Used by |
+| --- | --- | --- |
+| secret | `APPLE_DISTRIBUTION_CERTIFICATE_BASE64` | `ios-sign` |
+| secret | `APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD` | `ios-sign` |
+| secret | `APPLE_PROVISIONING_PROFILE_BASE64` | `ios-sign` |
+| secret | `ASC_KEY_BASE64` | `ios-upload` |
+| variable | `APPLE_TEAM_ID` | `ios-sign`, cross-checked against `store-identity.json` |
+| variable | `ASC_ISSUER_ID` | `ios-upload` |
+| variable | `ASC_KEY_ID` | `ios-upload` |
+
+The Android lane additionally wants `ANDROID_KEYSTORE_BASE64`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`,
+`PLAY_SERVICE_ACCOUNT_JSON_BASE64` and the `ANDROID_UPLOAD_CERT_SHA256`
+variable. None of them exist, and none should be invented — the lane fails at
+`prepare` on the missing Play listing long before it would reach them.
+
+`APPLE_TEAM_ID` and `ANDROID_UPLOAD_CERT_SHA256` are variables rather than
+secrets on purpose: neither is a credential, and holding each in two independent
+places — an environment only an administrator can change, and the attested
+source — lets the signing jobs refuse when the two disagree. Moving either one
+alone stops the release.
 
 ### Android permissions
 

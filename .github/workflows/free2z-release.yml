@@ -103,11 +103,18 @@ on:
         required: true
         type: string
       target:
-        description: Artifact set to build
+        # `ios` is the default, not `mobile`, because free2z ships to TestFlight
+        # first: there is no Play Console listing for cash.free2z.free2z, no
+        # upload key and no service account, and no placeholder stands in for
+        # them. `android` and `mobile` stay selectable so the lane is exercised
+        # and reviewed rather than deleted, and both stop in `prepare` with the
+        # list of things a human must create -- see
+        # wallet/free2z/scripts/store-identity.mjs.
+        description: Artifact set to build (free2z is TestFlight-only until a Play listing exists)
         required: true
-        default: mobile
+        default: ios
         type: choice
-        options: [mobile, ios, android]
+        options: [ios, android, mobile]
       dry_run:
         description: Build, sign, and validate without uploading to either store
         required: true
@@ -144,6 +151,7 @@ jobs:
     outputs:
       identity: ${{ steps.identity.outputs.identity }}
       tag: ${{ steps.identity.outputs.tag }}
+      ios_non_exempt_encryption: ${{ steps.encryption.outputs.ios_non_exempt_encryption }}
       source_sha: ${{ steps.identity.outputs.source_sha }}
       target: ${{ steps.identity.outputs.target }}
       dry_run: ${{ steps.identity.outputs.dry_run }}
@@ -151,6 +159,7 @@ jobs:
       android_upload_cert_sha256: ${{ steps.store.outputs.android_upload_cert_sha256 }}
       apple_profile_name: ${{ steps.store.outputs.apple_profile_name }}
       apple_profile_uuid: ${{ steps.store.outputs.apple_profile_uuid }}
+      apple_team_id: ${{ steps.store.outputs.apple_team_id }}
     defaults:
       run:
         working-directory: wallet/free2z
@@ -174,11 +183,21 @@ jobs:
       # and do. `--require=apple` / `--require=android` are the modes that
       # produce those messages.
       - name: Verify the store records this release would publish to exist
+        id: store_records
         env:
           # Bound as data rather than interpolated into the shell below. The
           # dispatch input is a `choice`, so it is already constrained, but a
           # workflow input reaching a `case` word is not a habit worth having.
-          RELEASE_TARGET: ${{ github.event_name == 'push' && 'mobile' || inputs.target }}
+          #
+          # The push arm is `ios`, matching the target the identity step below
+          # computes for the same event. free2z is TestFlight-only until a Play
+          # Console listing exists, so requiring Android here would fail every
+          # release.json bump on a blocker nobody can clear today. The two are
+          # not left as two copies of one expression: this step publishes what it
+          # actually checked and the identity step refuses to disagree with it,
+          # so changing one alone stops the release instead of silently building
+          # a target whose store records were never verified.
+          RELEASE_TARGET: ${{ github.event_name == 'push' && 'ios' || inputs.target }}
         run: |
           set -euo pipefail
           node scripts/store-identity.mjs --self-test
@@ -188,6 +207,7 @@ jobs:
             android) node scripts/store-identity.mjs --require=android >/dev/null ;;
             *) echo "unrecognized release target: $RELEASE_TARGET" >&2; exit 1 ;;
           esac
+          echo "checked_target=$RELEASE_TARGET" >> "$GITHUB_OUTPUT"
       # Non-secret, and deliberately read from the attested source rather than
       # from environment variables alone: the credential-free jobs need them to
       # build ExportOptions.plist, and binding them to the released commit means
@@ -203,7 +223,21 @@ jobs:
             echo "android_upload_cert_sha256=$(jq -r '.google.uploadCertificateSha256 // ""' <<<"$identity")"
             echo "apple_profile_name=$(jq -r '.apple.provisioningProfileName // ""' <<<"$identity")"
             echo "apple_profile_uuid=$(jq -r '.apple.provisioningProfileUuid // ""' <<<"$identity")"
+            echo "apple_team_id=$(jq -er '.apple.teamId' <<<"$identity")"
           } >> "$GITHUB_OUTPUT"
+      # Read from release.json, never restated here. What free2z should declare
+      # about non-exempt encryption is under owner review in #961 -- the `false`
+      # it carries today was inherited from ZUULI, whose recorded basis is
+      # wallet-and-financial-transaction-only and does not transfer to a content
+      # app shipping a livestream SDK. A literal in this file would out-vote that
+      # review and would have to be found and changed when it lands. The verify
+      # job below holds the shipped bundle to whatever this prints.
+      - name: Publish the source-bound encryption declaration
+        id: encryption
+        run: |
+          set -euo pipefail
+          declaration=$(jq -er 'if (.iosUsesNonExemptEncryption | type) == "boolean" then .iosUsesNonExemptEncryption else error("iosUsesNonExemptEncryption must be a Boolean") end | tostring' release.json)
+          echo "ios_non_exempt_encryption=$declaration" >> "$GITHUB_OUTPUT"
       - name: Verify exact source and release identity
         id: identity
         env:
@@ -215,6 +249,7 @@ jobs:
           CONFIRMED_IDENTITY: ${{ inputs.identity }}
           INPUT_TARGET: ${{ inputs.target }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          CHECKED_TARGET: ${{ steps.store_records.outputs.checked_target }}
         run: |
           set -euo pipefail
           git fetch origin \
@@ -227,7 +262,12 @@ jobs:
               exit 1
             }
             source_sha=$EVENT_SHA
-            target=mobile
+            # TestFlight-only, for the same reason the dispatch default is `ios`:
+            # a `mobile` push would refuse in the step above on the missing Play
+            # listing, turning every release.json bump into a red run with
+            # nothing anyone can do about it today. Widening this to `mobile` is
+            # a one-word change once google.playConsoleListing says "created".
+            target=ios
             dry_run=false
           else
             source_sha=$INPUT_SOURCE_SHA
@@ -237,6 +277,12 @@ jobs:
 
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || {
             echo "source SHA must be a full lowercase 40-character commit SHA" >&2
+            exit 1
+          }
+          # The target every downstream job keys off must be the one whose store
+          # records were actually verified a step ago.
+          [[ "$target" == "$CHECKED_TARGET" ]] || {
+            echo "release target $target was not the target whose store records were checked ($CHECKED_TARGET)" >&2
             exit 1
           }
           metadata=$(node scripts/release-identity.mjs "--source-sha=$source_sha" --require-main)
@@ -924,9 +970,23 @@ jobs:
           UNSIGNED_ARCHIVE_SHA256: ${{ needs.ios-build.outputs.artifact_sha256 }}
           EXPECTED_PROFILE_NAME: ${{ needs.prepare.outputs.apple_profile_name }}
           EXPECTED_PROFILE_UUID: ${{ needs.prepare.outputs.apple_profile_uuid }}
+          # Two independent authorities for the same team, mirroring what the
+          # Android lane does with the upload-certificate fingerprint. This one is
+          # an environment variable only a repository administrator can change;
+          # the other travels with the attested source. The step refuses to sign
+          # unless they agree, so moving either alone stops the release.
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          SOURCE_BOUND_TEAM_ID: ${{ needs.prepare.outputs.apple_team_id }}
         run: |
           set -euo pipefail
           umask 077
+          : "${APPLE_TEAM_ID:?APPLE_TEAM_ID is not configured in the free2z-app-stores environment}"
+          : "${SOURCE_BOUND_TEAM_ID:?the released source records no Apple team}"
+          [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo "invalid Apple team identifier" >&2; exit 1; }
+          if [[ "$APPLE_TEAM_ID" != "$SOURCE_BOUND_TEAM_ID" ]]; then
+            echo "the environment's Apple team disagrees with the one recorded in the released source" >&2
+            exit 1
+          fi
           : "${CERTIFICATE_BASE64:?APPLE_DISTRIBUTION_CERTIFICATE_BASE64 is not configured}"
           : "${CERTIFICATE_PASSWORD:?APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD is not configured}"
           : "${PROVISIONING_PROFILE_BASE64:?APPLE_PROVISIONING_PROFILE_BASE64 is not configured}"
@@ -971,7 +1031,7 @@ jobs:
           [[ "$profile_app" == F9AV5HKF6N.cash.free2z.free2z ]] || { echo "unexpected provisioning-profile application identifier" >&2; exit 1; }
           [[ "$profile_uuid" == "$EXPECTED_PROFILE_UUID" ]] || { echo "unexpected provisioning-profile UUID" >&2; exit 1; }
           [[ "$profile_name" == "$EXPECTED_PROFILE_NAME" ]] || { echo "unexpected provisioning-profile name" >&2; exit 1; }
-          [[ "$profile_team" == F9AV5HKF6N ]] || { echo "unexpected provisioning-profile team" >&2; exit 1; }
+          [[ "$profile_team" == "$APPLE_TEAM_ID" ]] || { echo "unexpected provisioning-profile team" >&2; exit 1; }
           keychain_password=$(openssl rand -hex 24)
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 1800 "$keychain"
@@ -1083,6 +1143,7 @@ jobs:
           EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
           EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
           EXPECTED_IPA_SHA256: ${{ needs.ios-sign.outputs.artifact_sha256 }}
+          EXPECTED_NON_EXEMPT_ENCRYPTION: ${{ needs.prepare.outputs.ios_non_exempt_encryption }}
         run: |
           set -euo pipefail
           node scripts/release-identity.mjs "--source-sha=$FREE2Z_RELEASE_SOURCE_SHA" >/dev/null
@@ -1131,7 +1192,11 @@ jobs:
           bundle_info=$(plutil -convert json -o - "$app/Info.plist")
           test "$(jq -r '[keys[] | select(endswith("UsageDescription"))] | sort | join(",")' <<<"$bundle_info")" = NSCameraUsageDescription,NSMicrophoneUsageDescription
           test "$(jq -r '[.NSCameraUsageDescription, .NSMicrophoneUsageDescription] | map(select(type == "string" and length > 0)) | length' <<<"$bundle_info")" = 2
-          test "$(jq -r '.ITSAppUsesNonExemptEncryption | tostring' <<<"$bundle_info")" = false
+          # Held to what the released source's release.json said, carried here
+          # through `prepare`, rather than to a literal in this file. See the
+          # `prepare` job's encryption step and #961.
+          : "${EXPECTED_NON_EXEMPT_ENCRYPTION:?the released source records no iOS encryption declaration}"
+          test "$(jq -r '.ITSAppUsesNonExemptEncryption | tostring' <<<"$bundle_info")" = "$EXPECTED_NON_EXEMPT_ENCRYPTION"
           find "$inspect" -depth -delete
           mkdir verified-ios
           cp "$ipa" signed-ios/signing-record.json verified-ios/

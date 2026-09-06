@@ -6,8 +6,8 @@
     "teamId": "F9AV5HKF6N",
     "distributionIdentity": "Apple Distribution: Corpora Inc (F9AV5HKF6N)",
     "appStoreConnectRecord": "created",
-    "provisioningProfileName": null,
-    "provisioningProfileUuid": null
+    "provisioningProfileName": "free2z appstore ci",
+    "provisioningProfileUuid": "6d460b52-7806-4291-96d0-3990c76ccb6a"
   },
   "google": {
     "playConsoleListing": "missing",

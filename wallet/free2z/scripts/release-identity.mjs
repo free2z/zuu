@@ -188,8 +188,18 @@ function occurrenceCount(contents, value) {
 
 expect("release schema version", release.schemaVersion, 2);
 expect("release application ID", release.applicationId, "cash.free2z.free2z");
-if (release.iosUsesNonExemptEncryption !== false)
-  failures.push("release iOS non-exempt encryption declaration must be Boolean false");
+// The VALUE is release.json's to state, not this checker's to decide. free2z
+// inherited `false` from ZUULI, whose recorded basis is wallet-and-financial-
+// transaction-only and does not transfer to a content app that ships a
+// livestream SDK; #961 is the owner review of what free2z should actually
+// declare. A second literal `false` here would mean that review has to be
+// litigated in two files, and would quietly out-vote the one that is under
+// review. So this asserts the SHAPE and the AGREEMENT: it must be a Boolean,
+// and every place that restates it must restate the same Boolean.
+if (typeof release.iosUsesNonExemptEncryption !== "boolean")
+  failures.push(
+    `release.json iosUsesNonExemptEncryption must be a Boolean, got ${JSON.stringify(release.iosUsesNonExemptEncryption)}`,
+  );
 expect("release minimum iOS", release.minimums?.ios, "18.0");
 expect("release minimum Android", release.minimums?.android, 29);
 
@@ -470,11 +480,29 @@ expect(
 // would either forbid the file from explaining itself or accept a `<key>` that
 // only exists inside a comment.
 const withoutXmlComments = (contents) => contents.replace(/<!--[\s\S]*?-->/g, "");
+const declaredEncryption = release.iosUsesNonExemptEncryption === true;
 for (const [file, raw] of [
   ["src-tauri/Info.ios.plist", sourceInfoPlist],
   ["src-tauri/gen/apple/free2z_iOS/Info.plist", appleInfoPlist],
 ]) {
   const contents = withoutXmlComments(raw);
+  // App Store Connect asks this question on every submission and holds the build
+  // until it is answered, so the plists must carry the answer release.json gives
+  // -- whichever answer #961 settles on -- and must carry it exactly once.
+  const encryptionDeclaration = [
+    "<key>ITSAppUsesNonExemptEncryption</key>",
+    declaredEncryption ? "<true/>" : "<false/>",
+  ];
+  if (occurrenceCount(contents, encryptionDeclaration[0]) !== 1)
+    failures.push(`${file} must declare ITSAppUsesNonExemptEncryption exactly once`);
+  else if (
+    !new RegExp(
+      `${encryptionDeclaration[0]}\\s*${encryptionDeclaration[1]}`.replace(/[/]/g, "\\/"),
+    ).test(contents)
+  )
+    failures.push(
+      `${file} must declare ITSAppUsesNonExemptEncryption as ${encryptionDeclaration[1]}, matching release.json`,
+    );
   for (const required of ["NSCameraUsageDescription", "NSMicrophoneUsageDescription"]) {
     if (!contents.includes(`<key>${required}</key>`))
       failures.push(

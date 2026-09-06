@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # A canary, not a control. See assert-no-android-credentials.sh for why.
 #
-# The profile-file check is written against whatever UUID
-# `store-identity.json` records, because free2z has no profile yet: hardcoding a
-# UUID that does not exist would be a check that can never fire. When the
-# profile is issued and its UUID recorded, this starts proving the same thing
-# ZUULI's canary proves — that the credential-free runner is not carrying a
-# distribution profile someone left behind.
+# The profile-file check reads whatever UUID `store-identity.json` records
+# rather than hardcoding one, so it cannot rot into a check for a profile that
+# was rotated out from under it. free2z's profile IS recorded, so this arm is
+# live: it proves the credential-free runner is not carrying the
+# `free2z appstore ci` distribution profile someone left behind. The Corpora
+# signing-identity check below is live for the same reason, and covers every
+# app on the team rather than just this one.
 set -euo pipefail
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)

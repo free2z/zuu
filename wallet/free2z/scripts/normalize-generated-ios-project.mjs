@@ -23,10 +23,12 @@
 //     is not free2z's own fails closed -- that is the check, not the rewrite.
 //
 // The committed Info.plist must also keep two things free2z cannot ship without:
-// the exempt-encryption declaration (`release.json` says
-// `iosUsesNonExemptEncryption: false`, and an app that silently stopped saying so
-// would be held at App Store review every submission), and the camera and
-// microphone usage strings. The second is the free2z-specific half. e2e2z's
+// the encryption declaration -- whatever `release.json`'s
+// `iosUsesNonExemptEncryption` says, read from that file rather than written out
+// here, because an app that silently stopped answering the question would be
+// held at App Store review every submission and because #961 is actively
+// reviewing which answer free2z should give -- and the camera and microphone
+// usage strings. The second is the free2z-specific half. e2e2z's
 // version of this file forbids every usage description because e2e2z captures
 // nothing; free2z hosts live rooms, so WKWebView will refuse `getUserMedia`
 // without them and iOS will terminate the process outright if one is missing at
@@ -56,10 +58,22 @@ const entitlementsPath = resolve(
   "src-tauri/gen/apple/free2z_iOS/free2z_iOS.entitlements",
 );
 
-const exemptEncryptionDeclaration = [
-  "\t<key>ITSAppUsesNonExemptEncryption</key>",
-  "\t<false/>",
-].join("\n");
+// Read from release.json rather than written out. free2z inherited `false` from
+// ZUULI and #961 is the owner review of whether that basis transfers to a
+// content app with a livestream SDK; a literal here would quietly out-vote that
+// review, and worse, would start rejecting the committed plist the moment the
+// review lands. What this file enforces is that the shipped plist says whatever
+// release.json says, exactly once -- an app that stops answering the question
+// at all is held at App Store review every submission.
+const declaresNonExemptEncryption =
+  JSON.parse(readFileSync(resolve(appDir, "release.json"), "utf8"))
+    .iosUsesNonExemptEncryption === true;
+const encryptionDeclaration = (nonExempt) =>
+  [
+    "\t<key>ITSAppUsesNonExemptEncryption</key>",
+    nonExempt ? "\t<true/>" : "\t<false/>",
+  ].join("\n");
+const declaredEncryptionDeclaration = encryptionDeclaration(declaresNonExemptEncryption);
 
 // The two capabilities free2z actually exercises. Required, not forbidden --
 // see the header.
@@ -193,10 +207,10 @@ export function normalizeInfoPlist(contents, label, routeCount = configuredMobil
     normalized,
     "<key>ITSAppUsesNonExemptEncryption</key>",
   );
-  const exemptDeclarationCount = occurrenceCount(normalized, exemptEncryptionDeclaration);
-  if (encryptionKeyCount !== 1 || exemptDeclarationCount !== 1)
+  const declarationCount = occurrenceCount(normalized, declaredEncryptionDeclaration);
+  if (encryptionKeyCount !== 1 || declarationCount !== 1)
     throw new Error(
-      `refusing to normalize ${label}: expected exactly one canonical exempt-encryption declaration, found ${encryptionKeyCount} keys and ${exemptDeclarationCount} false declarations`,
+      `refusing to normalize ${label}: expected exactly one canonical encryption declaration matching release.json (${declaredEncryptionDeclaration.split("\n")[1].trim()}), found ${encryptionKeyCount} keys and ${declarationCount} matching declarations`,
     );
   for (const required of requiredUsageDescriptions) {
     if (occurrenceCount(scanned, `<key>${required}</key>`) !== 1)
@@ -247,7 +261,7 @@ function selfTest() {
     .map((key) => `\t<key>${key}</key>\n\t<string>free2z uses this for live streams.</string>`)
     .join("\n");
   const body = (urlTypeShape) =>
-    `<plist><dict>\n${urlTypeShape}\n${usage}\n${exemptEncryptionDeclaration}\n</dict></plist>`;
+    `<plist><dict>\n${urlTypeShape}\n${usage}\n${declaredEncryptionDeclaration}\n</dict></plist>`;
   const canonicalFixture = body(canonicalUrlType);
   const reversedFixture = body(reversedUrlType);
   if (
@@ -300,20 +314,29 @@ function selfTest() {
       throw new Error(`iOS URL type normalization accepted an unknown shape: ${label}`);
   }
 
-  let rejectedNonExempt = false;
+  // Flipping the declaration away from what release.json says must fail, in
+  // whichever direction release.json currently points. Written as a swap of the
+  // two Boolean literals rather than as a literal `<true/>`, so this control
+  // keeps testing the same thing after #961 settles.
+  let rejectedDisagreeingEncryption = false;
   try {
     normalizeInfoPlist(
-      canonicalFixture.replace("\t<false/>", "\t<true/>"),
-      "non-exempt encryption fixture",
+      canonicalFixture.replace(
+        encryptionDeclaration(declaresNonExemptEncryption),
+        encryptionDeclaration(!declaresNonExemptEncryption),
+      ),
+      "disagreeing encryption fixture",
       1,
     );
   } catch (error) {
-    rejectedNonExempt =
+    rejectedDisagreeingEncryption =
       error instanceof Error &&
-      error.message.includes("expected exactly one canonical exempt-encryption declaration");
+      error.message.includes("canonical encryption declaration matching release.json");
   }
-  if (!rejectedNonExempt)
-    throw new Error("iOS plist normalization accepted non-exempt encryption");
+  if (!rejectedDisagreeingEncryption)
+    throw new Error(
+      "iOS plist normalization accepted an encryption declaration release.json does not make",
+    );
 
   // Both directions of the capability rule, because either one alone would let
   // the other regress silently.

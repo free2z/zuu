@@ -11,20 +11,23 @@
 // and pretending otherwise is how a release ends in an opaque 404 four jobs
 // deep:
 //
-//   * Apple is ALMOST ready. The App ID `cash.free2z.free2z` is registered with
+//   * Apple is READY. The App ID `cash.free2z.free2z` is registered with
 //     Associated Domains enabled, an App Store Connect app record exists (app
-//     name "Free2Z", SKU cash.free2z.free2z), and an App Store distribution
-//     provisioning profile named `free2z appstore ci` has been issued against
-//     it — application-identifier F9AV5HKF6N.cash.free2z.free2z, expiring
-//     2027-08-08. What is still missing is purely mechanical: the profile has
-//     not been installed as `APPLE_PROVISIONING_PROFILE_BASE64`, and its name
-//     and UUID have not been read out of the file into this record. Both are
-//     recorded together, because a name without a UUID cannot be verified and
-//     a UUID without a name cannot be exported against.
-//   * Google has nothing. The Play Console **listing** must be created by a
-//     human: the Android Publisher API only edits apps that already exist, and
-//     `POST /edits` against a package name Play has never seen returns a 404
-//     that reads like a permissions problem and is not one.
+//     name "Free2Z", SKU cash.free2z.free2z), an App Store distribution
+//     provisioning profile named `free2z appstore ci` has been issued against it
+//     (application-identifier F9AV5HKF6N.cash.free2z.free2z, expiring
+//     2027-08-08), and the `free2z-app-stores` environment holds the profile,
+//     the shared Corpora distribution certificate and the App Store Connect API
+//     key. The name and UUID below are what the release binds to, and the
+//     protected signing job compares both against the profile it decodes, so a
+//     profile swapped for another app's stops there.
+//   * Google has nothing, and is deferred on purpose. free2z ships to TestFlight
+//     first; the Play Console **listing** must be created by a human before
+//     anything can be uploaded, because the Android Publisher API only edits
+//     apps that already exist and `POST /edits` against a package name Play has
+//     never seen returns a 404 that reads like a permissions problem and is not
+//     one. No placeholder keystore and no placeholder service account stand in
+//     for that: the Android lane simply refuses at `prepare`.
 //   * Play App Signing then generates the **app signing certificate**, and its
 //     SHA-256 — the fingerprint `assetlinks.json` must carry — is readable only
 //     from Play Console (Setup -> App integrity -> App signing) once the
@@ -88,30 +91,22 @@ const APPLE_PROFILE_BLOCKER = [
   "cash.free2z.free2z has an App Store Connect record but no recorded App Store",
   "distribution provisioning profile.",
   "",
-  "A profile named `free2z appstore ci` has already been issued for this bundle",
-  "id (application-identifier F9AV5HKF6N.cash.free2z.free2z, associated-domains",
-  "present, expiring 2027-08-08). Two things still have to happen, and they are",
-  "the same two things:",
+  "A profile named `free2z appstore ci` has been issued for this bundle id",
+  "(application-identifier F9AV5HKF6N.cash.free2z.free2z, expiring 2027-08-08).",
+  "Record its name and UUID together in wallet/free2z/store-identity.json:",
   "",
-  "  1. Read the profile's name and UUID out of the downloaded file and record",
-  "     them as apple.provisioningProfileName / apple.provisioningProfileUuid in",
-  "     wallet/free2z/store-identity.json:",
+  "  security cms -D -i free2z_appstore_ci.mobileprovision > profile.plist",
+  "  /usr/libexec/PlistBuddy -c 'Print :Name' profile.plist",
+  "  /usr/libexec/PlistBuddy -c 'Print :UUID' profile.plist",
   "",
-  "       security cms -D -i free2z_appstore_ci.mobileprovision > profile.plist",
-  "       /usr/libexec/PlistBuddy -c 'Print :Name' profile.plist",
-  "       /usr/libexec/PlistBuddy -c 'Print :UUID' profile.plist",
+  "Record what the file says, not what this message guesses: the display name in",
+  "the developer portal and the `Name` key have been known to differ in case and",
+  "spacing, and the signing job compares the `Name` key byte for byte.",
   "",
-  "     Record what the file says, not what this message guesses: the display",
-  "     name in the developer portal and the `Name` key have been known to",
-  "     differ in case and spacing, and the signing job compares the `Name` key",
-  "     byte for byte.",
-  "  2. base64 the same file into APPLE_PROVISIONING_PROFILE_BASE64 in the",
-  "     free2z-app-stores environment.",
-  "",
-  "Both are recorded together on purpose. The UUID is what places and then",
-  "proves the removal of the ephemeral profile on the signing runner; the name",
-  "is what ExportOptions.plist maps the bundle id to. Half of the pair is a",
-  "release that fails after the certificate is already on the machine.",
+  "The UUID is what places and then proves the removal of the ephemeral profile",
+  "on the signing runner; the name is what ExportOptions.plist maps the bundle id",
+  "to. Half of the pair is a release that fails after the certificate is already",
+  "on the machine, which is why the two are recorded together or not at all.",
 ].join("\n");
 
 const PLAY_LISTING_BLOCKER = [
@@ -241,8 +236,6 @@ function selfTest() {
 
   mutated = clone();
   mutated.apple.appStoreConnectRecord = "missing";
-  mutated.apple.provisioningProfileName = "free2z appstore ci";
-  mutated.apple.provisioningProfileUuid = "00000000-0000-0000-0000-000000000000";
   expect(
     "profile named without a record",
     validate(mutated),
@@ -250,8 +243,16 @@ function selfTest() {
   );
 
   mutated = clone();
-  mutated.apple.provisioningProfileName = "free2z appstore ci";
+  mutated.apple.provisioningProfileUuid = null;
   expect("half a profile", validate(mutated), "must both be set or both be null");
+
+  mutated = clone();
+  mutated.apple.provisioningProfileName = null;
+  expect("the other half", validate(mutated), "must both be set or both be null");
+
+  mutated = clone();
+  mutated.apple.provisioningProfileUuid = "6D460B52-7806-4291-96D0-3990C76CCB6A";
+  expect("uppercase profile UUID", validate(mutated), "must be a lowercase UUID or null");
 
   mutated = clone();
   mutated.apple.provisioningProfileUuid = "NOT-A-UUID";
@@ -262,6 +263,14 @@ function selfTest() {
   expect("malformed fingerprint", validate(mutated), "uppercase colon-delimited SHA-256 fingerprint");
 
   mutated = clone();
+  mutated.google.uploadCertificateSha256 = "AB".concat(":AB".repeat(31));
+  expect(
+    "upload certificate without a listing",
+    validate(mutated),
+    "names an upload certificate but reports no Play Console listing",
+  );
+
+  mutated = clone();
   mutated.google.playConsoleListing = "created";
   mutated.google.uploadCertificateSha256 = "AB".concat(":AB".repeat(31));
   if (validate(mutated).length !== 0)
@@ -269,25 +278,46 @@ function selfTest() {
   if (androidBlockers(mutated).length !== 0)
     throw new Error("store-identity self-test failed: a complete Play identity still blocked");
 
+  // A listing with no fingerprint recorded is the state Android lands in the
+  // moment somebody creates the Play app and stops, and it must still block:
+  // signing with no fingerprint to hold the keystore to is the thing this file
+  // exists to prevent.
   mutated = clone();
-  mutated.apple.provisioningProfileName = "free2z appstore ci";
-  mutated.apple.provisioningProfileUuid = "0f8a9c2d-1b34-4e56-8a7b-9c0d1e2f3a4b";
+  mutated.google.playConsoleListing = "created";
   if (validate(mutated).length !== 0)
-    throw new Error("store-identity self-test failed: a complete Apple identity was rejected");
-  if (appleBlockers(mutated).length !== 0)
-    throw new Error("store-identity self-test failed: a complete Apple identity still blocked");
-
-  // The committed state, asserted rather than assumed: Apple is one recorded
-  // profile away and Android has nothing, so exactly one lane blocks for each
-  // and the Apple blocker must be the profile one, not the record one.
-  const [appleBlocker] = appleBlockers(base);
+    throw new Error("store-identity self-test failed: a listing with no key was rejected as invalid");
   if (
-    appleBlockers(base).length !== 1 ||
+    androidBlockers(mutated).length !== 1 ||
+    !androidBlockers(mutated)[0].includes("no recorded upload")
+  )
+    throw new Error("store-identity self-test failed: a listing with no upload key must still block");
+
+  // Apple with the record but no recorded profile is the state this app was in
+  // until the profile's UUID was read out of the file; it must produce the
+  // profile blocker rather than the create-the-record one.
+  mutated = clone();
+  mutated.apple.provisioningProfileName = null;
+  mutated.apple.provisioningProfileUuid = null;
+  if (
+    appleBlockers(mutated).length !== 1 ||
+    !appleBlockers(mutated)[0].includes("has an App Store Connect record but no recorded App Store")
+  )
+    throw new Error("store-identity self-test failed: a record with no profile must block on the profile");
+
+  // The committed state, asserted rather than assumed. Apple is complete and
+  // must NOT block -- if it started blocking, the iOS lane would stop with a
+  // message telling a human to do something that is already done. Android has
+  // no listing and must block, because free2z ships to TestFlight first.
+  if (appleBlockers(base).length !== 0)
+    throw new Error(
+      `store-identity self-test failed: the committed Apple identity must be releasable, got: ${appleBlockers(base).join("; ")}`,
+    );
+  if (
     androidBlockers(base).length !== 1 ||
-    !appleBlocker.includes("has an App Store Connect record but no recorded App Store")
+    !androidBlockers(base)[0].includes("no Google Play Console listing")
   )
     throw new Error(
-      "store-identity self-test failed: the committed identity must block both lanes, Apple on the profile",
+      "store-identity self-test failed: the committed identity must block Android on the missing listing",
     );
 }
 
