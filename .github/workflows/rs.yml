@@ -119,6 +119,23 @@ jobs:
           node scripts/check-f2z-images.mjs --self-test
           node scripts/check-f2z-images.mjs
 
+      # Unconditional for the third time, and for the most literal reason of
+      # the three: the check this exercises runs only in a protected release
+      # job, on a macOS runner, against secrets no pull request can see. There
+      # is no diff that "selects" it. If it were gated on anything, the release
+      # path's only preflight would be a script nobody had ever watched fail.
+      #
+      # It runs here rather than in a wallet job because it guards both release
+      # workflows (ZUULI and e2e2z) and lives at the repository root, outside
+      # every app's change detector. The suite builds throwaway self-signed
+      # certificates with openssl and proves the preflight accepts the pair the
+      # profile authorizes and rejects the one it does not -- no Apple
+      # credential, and nothing here touches the network. See #960.
+      - name: Verify the Apple signing preflight still rejects a mismatched identity
+        run: |
+          node scripts/verify-signing-identity.mjs --self-test
+          node --test scripts/verify-signing-identity.node-test.mjs
+
       # rs/rust-toolchain.toml and rs/crates/*/Cargo.toml restate
       # wallet/rust-toolchain.toml, and are registered in the script's own
       # TOOLCHAIN_RESTATEMENTS/MANIFESTS arrays rather than by flags here. A
