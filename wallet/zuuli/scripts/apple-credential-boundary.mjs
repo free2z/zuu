@@ -104,7 +104,7 @@ const CREDENTIAL_JOB_SHA256 = new Map([
   ["android-sign-upload", "712e8a7d67db07a033abf9acff3416f6635ca4a4d3313bd17b8433f8d6dd2b58"],
   ["ios-sign", "6e63107606388e3862f81e41da65b1fa8bfca1588b5232f9ca4354203536393c"],
   ["ios-upload", "3ed7cb28646aed24a7df2c347b8ad54838f009841fdd52c64ca1002886aae4b2"],
-  ["macos-sign", "773b037e1a65b55be567d31da8203b531b2431a86c3af550a905536c3a6edb26"],
+  ["macos-sign", "6c6d01bef2cc6feae4c3d250081f39f31101131dc88cd99fa0b5fb4ec5ea14eb"],
 ]);
 // The credential-free builder is also exact: its source-identity check and
 // compile happen in separate steps, so an unreviewed command between them

@@ -463,8 +463,8 @@ jobs:
             # #945: ZUULI has no capture surface, so the packaged Info.plist must
             # declare no camera or microphone usage description at all. `plutil
             # -extract` exits non-zero on a missing key, so a successful extract is
-            # the failure. The FaceID probe is the positive control: without it this
-            # would also pass against an unreadable or empty plist.
+            # the failure. The bundle-identity probe is the positive control: without
+            # it this would also pass against an unreadable or empty plist.
             for key in NSCameraUsageDescription NSMicrophoneUsageDescription; do
               if plutil -extract "$key" raw -o - -- "$app/Contents/Info.plist" >/dev/null 2>&1; then
                 echo "packaged Info.plist still declares $key" >&2
