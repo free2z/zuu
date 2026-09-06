@@ -29,10 +29,11 @@
 //
 // This is the smaller sibling of wallet/zuuli/scripts/normalize-generated-ios-project.mjs.
 // ZUULI's also has a `--prepare-manual-signing` mode that writes its
-// provisioning profile into the project before building. e2e2z has no
-// provisioning profile yet (see scripts/store-identity.mjs), so there is nothing
-// to write and no mode that could be tested; the export configuration lives in
-// the ExportOptions.plist the release workflow composes instead.
+// provisioning profile into the project before building. e2e2z does not write
+// its profile (`e2e2z appstore ci`, see scripts/store-identity.mjs) into the
+// project at all; the export configuration lives in the ExportOptions.plist the
+// release workflow composes from the source-bound store identity instead, so
+// there is no mode here to test.
 //
 // Usage:
 //   node scripts/normalize-generated-ios-project.mjs

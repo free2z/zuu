@@ -2,9 +2,9 @@
 # A canary, not a control. See assert-no-android-credentials.sh for why.
 #
 # The profile-file check is written against whatever UUID
-# `store-identity.json` records, because e2e2z has no profile yet: hardcoding a
-# UUID that does not exist would be a check that can never fire. When the
-# profile is issued and its UUID recorded, this starts proving the same thing
+# `store-identity.json` records rather than a hardcoded one, so it followed the
+# profile into existence instead of being a check that could never fire. That
+# profile now exists (`e2e2z appstore ci`), so this proves the same thing
 # ZUULI's canary proves — that the credential-free runner is not carrying a
 # distribution profile someone left behind.
 set -euo pipefail

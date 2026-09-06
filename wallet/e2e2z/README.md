@@ -192,19 +192,38 @@ own environment rather than sharing ZUULI's.
 `scripts/mobile-release.sh android [--upload]` is the operator path for the same
 Android artifact from a workstation.
 
-### Both store records are missing, and that blocks everything
+### Apple is ready; Play is not, and that still blocks Android
 
-`cash.free2z.e2e2z` has no App Store Connect app record and no Play Console
-listing, and neither can be created from an API. Until a human creates them,
-every release attempt stops in the first job with the full list of what to do:
-`node scripts/store-identity.mjs --require=apple --require=android` prints it,
-and `store-identity.json` is where the resulting profile name, profile UUID and
-upload-certificate fingerprint get recorded.
+Neither store record could be created from an API, so both had to be made by
+hand and then recorded in `store-identity.json`. One of them has been:
 
-The third value in that file — `google.appSigningCertificateSha256` — is the one
-`assetlinks.json` needs. Play App Signing generates it, so it is readable only
-from Play Console (Setup → App integrity → App signing) once the listing exists.
-It is tracked in #461 and this release path does not use it.
+- **App Store Connect — created.** The app record exists for
+  `cash.free2z.e2e2z`, and so does its App Store distribution profile,
+  `e2e2z appstore ci` (UUID `ce910824-c3e3-44c0-b53e-435d15a4a091`), issued
+  against the Corpora `F9AV5HKF6N` distribution certificate. A `target: ios`
+  release therefore clears the `prepare` job's store preflight.
+- **Google Play Console — missing.** e2e2z is going TestFlight-first, so no
+  listing has been created and no upload key exists. `target: android` and
+  `target: mobile` still stop in the first job, printing what a human must go
+  and do.
+
+`node scripts/store-identity.mjs --require=apple --require=android` prints the
+remaining list; drop `--require=android` to see the iOS lane pass. The two lanes
+are checked independently on purpose — recording one store's facts must never
+quietly vouch for the other's, and `--self-test` pins that asymmetry so it
+cannot drift silently.
+
+Clearing `prepare` is not the same as being able to upload. A TestFlight run
+also needs the Apple secrets in the protected `e2e2z-app-stores` environment:
+`APPLE_PROVISIONING_PROFILE_BASE64` is installed, while
+`APPLE_DISTRIBUTION_CERTIFICATE_BASE64`, its password, and `ASC_KEY_BASE64` are
+not yet.
+
+One field in `store-identity.json` is recorded but never read by this release
+path: `google.appSigningCertificateSha256`, the fingerprint `assetlinks.json`
+needs. Play App Signing generates it, so it is readable only from Play Console
+(Setup → App integrity → App signing) once the listing exists. It is tracked in
+#461.
 
 ### Android permissions
 
