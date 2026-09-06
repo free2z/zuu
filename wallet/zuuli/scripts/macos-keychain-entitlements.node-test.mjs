@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  CAMERA_COPY,
   CANONICAL_ENTITLEMENTS,
   CANONICAL_INFO_PLIST,
-  MICROPHONE_COPY,
+  FORBIDDEN_CAPTURE_ENTITLEMENTS,
+  FORBIDDEN_USAGE_DESCRIPTION_KEYS,
   REQUIRED_APPLICATION_IDENTIFIER,
   REQUIRED_ENTITLEMENTS_PATH,
   REQUIRED_INFO_PLIST_PATH,
@@ -80,18 +80,50 @@ test("rejects unexpected entitlement expansion", () => {
   );
 });
 
-for (const entitlement of [
-  "com.apple.security.device.audio-input",
-  "com.apple.security.device.camera",
-]) {
-  test(`rejects missing ${entitlement} authority`, () => {
-    const mutation = CANONICAL_ENTITLEMENTS.replace(
-      `\t<key>${entitlement}</key>\n\t<true/>\n`,
-      "",
+// #945 - the inverse of what these used to assert. They required camera and
+// audio-input authority so that losing it was a red build; ZUULI has had no
+// capture surface since #943, so re-granting it is what must be red now.
+test("the reviewed contract claims no media-capture authority", () => {
+  for (const entitlement of FORBIDDEN_CAPTURE_ENTITLEMENTS) {
+    assert.ok(
+      !CANONICAL_ENTITLEMENTS.includes(entitlement),
+      `${entitlement} must not be in the reviewed entitlements`,
     );
-    assert.notDeepEqual(
-      verifyMacosKeychainEntitlements(validConfig, mutation, CANONICAL_INFO_PLIST),
-      [],
+  }
+  for (const key of FORBIDDEN_USAGE_DESCRIPTION_KEYS) {
+    assert.ok(
+      !CANONICAL_INFO_PLIST.includes(key),
+      `${key} must not be in the reviewed macOS Info.plist`,
+    );
+  }
+  // The positive control: without it every assertion above would also pass
+  // against an empty contract that grants nothing and pins nothing.
+  assert.ok(CANONICAL_ENTITLEMENTS.includes("keychain-access-groups"));
+  assert.deepEqual(
+    verifyMacosKeychainEntitlements(
+      validConfig,
+      CANONICAL_ENTITLEMENTS,
+      CANONICAL_INFO_PLIST,
+    ),
+    [],
+  );
+});
+
+for (const entitlement of FORBIDDEN_CAPTURE_ENTITLEMENTS) {
+  test(`rejects reintroduced ${entitlement} authority`, () => {
+    const mutation = CANONICAL_ENTITLEMENTS.replace(
+      "\t<key>keychain-access-groups</key>",
+      `\t<key>${entitlement}</key>\n\t<true/>\n\t<key>keychain-access-groups</key>`,
+    );
+    assert.notEqual(mutation, CANONICAL_ENTITLEMENTS);
+    const failures = verifyMacosKeychainEntitlements(
+      validConfig,
+      mutation,
+      CANONICAL_INFO_PLIST,
+    );
+    assert.ok(
+      failures.some((failure) => failure.includes(entitlement)),
+      `a reintroduced ${entitlement} must be named in the failure, got ${JSON.stringify(failures)}`,
     );
   });
 }
@@ -110,18 +142,21 @@ test("rejects a package configuration without the macOS Info.plist", () => {
   );
 });
 
-for (const [name, copy] of [
-  ["camera", CAMERA_COPY],
-  ["microphone", MICROPHONE_COPY],
-]) {
-  test(`rejects missing or altered macOS ${name} usage copy`, () => {
-    const mutation = CANONICAL_INFO_PLIST.replace(copy, `Altered ${name} copy`);
+for (const key of FORBIDDEN_USAGE_DESCRIPTION_KEYS) {
+  test(`rejects a reintroduced macOS ${key}`, () => {
+    const mutation = CANONICAL_INFO_PLIST.replace(
+      "<dict/>",
+      `<dict>\n\t<key>${key}</key>\n\t<string>ZUULI needs this.</string>\n</dict>`,
+    );
+    assert.notEqual(mutation, CANONICAL_INFO_PLIST);
+    const failures = verifyMacosKeychainEntitlements(
+      validConfig,
+      CANONICAL_ENTITLEMENTS,
+      mutation,
+    );
     assert.ok(
-      verifyMacosKeychainEntitlements(
-        validConfig,
-        CANONICAL_ENTITLEMENTS,
-        mutation,
-      ).some((failure) => failure.includes("macOS Info.plist")),
+      failures.some((failure) => failure.includes(key)),
+      `a reintroduced ${key} must be named in the failure, got ${JSON.stringify(failures)}`,
     );
   });
 }

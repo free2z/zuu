@@ -101,10 +101,10 @@ const ALLOWED_JOB_SECRETS = new Map([
 // semantic checks below explain the major boundaries, while the digest closes
 // all unenumerated execution paths. Update only after reviewing the full job.
 const CREDENTIAL_JOB_SHA256 = new Map([
-  ["android-sign-upload", "75fdef979a86d93f3d623a7cd04fc8058d74a6fb073f7bdeff559d98c707a6fa"],
+  ["android-sign-upload", "4e80aa8c0832bc6b180f6121191d9e7ae1f178e2ff98e910b98f3e534d0745c4"],
   ["ios-sign", "6e63107606388e3862f81e41da65b1fa8bfca1588b5232f9ca4354203536393c"],
   ["ios-upload", "3ed7cb28646aed24a7df2c347b8ad54838f009841fdd52c64ca1002886aae4b2"],
-  ["macos-sign", "1373f642a57f24f1943020f0123ab1c58a05bde81ca545e7fd3633678e09e857"],
+  ["macos-sign", "6c6d01bef2cc6feae4c3d250081f39f31101131dc88cd99fa0b5fb4ec5ea14eb"],
 ]);
 // The credential-free builder is also exact: its source-identity check and
 // compile happen in separate steps, so an unreviewed command between them
@@ -1286,16 +1286,34 @@ export function verifyAppleCredentialBoundary(
   );
   requireText(failures, "macOS signer", jobs.get("macos-sign"), "signed-entitlements.plist");
   requireText(failures, "macOS signer", jobs.get("macos-sign"), '"keychain-access-groups"[0]');
+  // #945 - inverted, not dropped. These used to require the signer and the
+  // finalizer to prove the signed bundle *carried* camera/audio-input authority
+  // and the livestreaming usage copy. ZUULI has had no capture surface since
+  // #943, so what must now be proven is that the signed bundle carries neither,
+  // and the assertions that prove it must still be present in both jobs.
   for (const marker of [
-    '"com.apple.security.device.audio-input"',
-    '"com.apple.security.device.camera"',
-    "NSCameraUsageDescription",
-    "NSMicrophoneUsageDescription",
-    "ZUULI uses the camera when you broadcast or join a live video stream.",
-    "ZUULI uses the microphone when you broadcast or join a live stream.",
+    // the exact reviewed entitlement key set, with no capture entry
+    "com.apple.application-identifier,com.apple.developer.team-identifier,keychain-access-groups",
+    // the named null probes, so a regression says which one came back
+    `'."com.apple.security.device.audio-input"')" = null`,
+    `'."com.apple.security.device.camera"')" = null`,
+    // and the Info.plist half
+    "NSCameraUsageDescription NSMicrophoneUsageDescription",
+    "packaged Info.plist still declares $key",
   ]) {
     requireText(failures, "macOS signer", jobs.get("macos-sign"), marker);
     requireText(failures, "macOS finalizer", jobs.get("macos-finalize"), marker);
+  }
+  // The negative half, stated directly: neither job may reassert the authority
+  // or the copy this app no longer has.
+  for (const forbidden of [
+    `'."com.apple.security.device.audio-input"')" = true`,
+    `'."com.apple.security.device.camera"')" = true`,
+    "ZUULI uses the camera when you broadcast or join a live video stream.",
+    "ZUULI uses the microphone when you broadcast or join a live stream.",
+  ]) {
+    rejectText(failures, "macOS signer", jobs.get("macos-sign"), forbidden);
+    rejectText(failures, "macOS finalizer", jobs.get("macos-finalize"), forbidden);
   }
   requireText(
     failures,

@@ -4,114 +4,111 @@ This is a release-readiness record, not a feature catalogue. A browser fixture,
 compiled code path, successful package build, or store upload does **not** prove
 that a product operation works. In this document, **production-observed** means
 the non-mock path was actually exercised against `https://free2z.cash` or read
-back from the named store. Authenticated, money-moving, wallet, KYC, and media
-operations are not called working without recorded evidence from that path.
+back from the named store. Authenticated, money-moving, and wallet operations
+are not called working without recorded evidence from that path.
 
 Last re-derived from `origin/main` at
-`39ce2e6ed9ca834451f8d4cc69de16e68660c0ae` on 2026-09-01. Before a release,
+`e129284c8634f19226988d3d2f8851482f6b4c2a` on 2026-09-06. Before a release,
 update the evidence and disposition for every non-ready row; do not carry this
 commit or date forward mechanically.
 
-This is the widest anchor since build 14. Thirty-five commits landed between
-`e2be49c8` (the build-19 anchor) and this one; two of them are build 19's own
-ceremony ([#842](https://github.com/free2z/zuu/pull/842) and
-[#843](https://github.com/free2z/zuu/pull/843)) and one is this build's own
-STATUS re-derive ([#870](https://github.com/free2z/zuu/pull/870)), so
-**thirty-two PRs reach a build for the first time in `0.1.0+20`**:
+This re-derive is not a build cut. **No release has been cut since
+`0.1.0+20`**, and the previous anchor `39ce2e6e` was that build's. Thirty-nine
+commits landed on `main` between it and this one, and almost all of them are the
+[#904](https://github.com/free2z/zuu/issues/904) three-app split. Everything
+below therefore reaches a build for the first time in the *next* build; none of
+it is in any shipped or read-back artifact.
 
-- **ZUULI application and UI** — the off-screen mobile More sheet
-  ([#869](https://github.com/free2z/zuu/pull/869)), About commit-SHA
-  middle-truncation and English-scoped BIP-39 detection
-  ([#868](https://github.com/free2z/zuu/pull/868)), safe-area-aware snackbars
-  ([#863](https://github.com/free2z/zuu/pull/863)), RTL layout mirroring and
-  bidi identifier isolation ([#861](https://github.com/free2z/zuu/pull/861)),
-  autocomplete-first discovery
-  ([#803](https://github.com/free2z/zuu/pull/803)), the privacy-safe feedback
-  composer ([#823](https://github.com/free2z/zuu/pull/823)), exact About build
-  identity ([#822](https://github.com/free2z/zuu/pull/822)), truthful
-  participant counts ([#798](https://github.com/free2z/zuu/pull/798)), live
-  join tickets bound to meetings
-  ([#819](https://github.com/free2z/zuu/pull/819)), and mock/`handle.rs`
-  handle-eligibility parity
-  ([#864](https://github.com/free2z/zuu/pull/864)).
-- **Build, boundary, and release tooling** — real wallet project boundaries
-  ([#862](https://github.com/free2z/zuu/pull/862)), the DMG shipped-artifact
-  SBOM canary ([#866](https://github.com/free2z/zuu/pull/866)), the
-  store-capture toolchain image
-  ([#857](https://github.com/free2z/zuu/pull/857)), Playwright in documented
-  local verification ([#845](https://github.com/free2z/zuu/pull/845)), the
-  Actions cache ceiling ([#846](https://github.com/free2z/zuu/pull/846)), and
-  the markdown-only Rust-matrix skip
-  ([#848](https://github.com/free2z/zuu/pull/848)), and the About identity
-  test bound to canonical `release.json`
-  ([#872](https://github.com/free2z/zuu/pull/872)).
-- **`rs/` and messaging** — rejecting a `same_key` entry that rotates
-  `directory_auth_pk` ([#841](https://github.com/free2z/zuu/pull/841)), MLS
-  group restore after a receive rollback
-  ([#781](https://github.com/free2z/zuu/pull/781)), fail-closed relay error
-  contexts ([#800](https://github.com/free2z/zuu/pull/800)), a discriminating
-  test for the relay `MAX_CONCURRENT` cap
-  ([#867](https://github.com/free2z/zuu/pull/867)), reserved queue-creation
-  coverage ([#860](https://github.com/free2z/zuu/pull/860)), the
-  `cfg_attr(derive(Debug))` scanner blind spot
-  ([#858](https://github.com/free2z/zuu/pull/858)), and the withdrawn PoW
-  calibration claim ([#859](https://github.com/free2z/zuu/pull/859)).
-- **Dependency and documentation hygiene** —
-  [#855](https://github.com/free2z/zuu/pull/855),
-  [#856](https://github.com/free2z/zuu/pull/856),
-  [#853](https://github.com/free2z/zuu/pull/853),
-  [#854](https://github.com/free2z/zuu/pull/854),
-  [#849](https://github.com/free2z/zuu/pull/849),
-  [#850](https://github.com/free2z/zuu/pull/850),
-  [#852](https://github.com/free2z/zuu/pull/852), and
-  [#847](https://github.com/free2z/zuu/pull/847).
+The split is the reason this document changed shape rather than only its
+evidence. ZUULI is no longer the app the previous anchor described:
 
-`#872` is here because the build-20 bump was attempted first and **failed the
-required gate**. `tests/about.pw.ts` pinned the release identity as literals —
-`getByText("19")` and a regex containing `Build: 19` — so bumping to 20 broke
-it by construction. That is a defect that would have failed *every* future
-ZUULI release, and build 20 is simply the first bump since
-[#822](https://github.com/free2z/zuu/pull/822) added the About build-identity
-binding (`#822` landed after build 19 was cut). It could not ride in the
-release source commit, because `status-freshness.mjs` correctly refuses a
-non-ceremony release-impacting change there, so it landed ahead of the bump and
-this anchor moved to include it. The test now reads canonical `release.json`,
-which is also the stronger assertion: it fails if the rendered identity and
-`release.json` ever disagree, which a frozen literal cannot detect.
+- **ZUULI is now a wallet vault.**
+  [#943](https://github.com/free2z/zuu/pull/943) (#904 phase 4) took
+  `src/features/` from twelve directories to four — `about`, `auth`, `home`,
+  `wallet` — deleted the entire Markdown/Mermaid/remote-media tree, dropped the
+  frontend lockfile from 709 to 351 packages, narrowed the packaged CSP to
+  `img-src 'self' data:` with `media-src`, `worker-src`, `object-src` and
+  `frame-src` all `'none'` and `connect-src` limited to `'self'` plus free2z,
+  and removed every `f2zmsg:*` capability grant from both capability files.
+- **The content and messaging surfaces moved into their own apps.**
+  [#912](https://github.com/free2z/zuu/pull/912) (articles),
+  [#920](https://github.com/free2z/zuu/pull/920) (Live, AI, Search),
+  [#927](https://github.com/free2z/zuu/pull/927) (Profile and revenue-share
+  application) and [#938](https://github.com/free2z/zuu/pull/938) (their
+  Playwright coverage) built `wallet/free2z`;
+  [#913](https://github.com/free2z/zuu/pull/913) built `wallet/e2e2z` and
+  [#941](https://github.com/free2z/zuu/pull/941) gave it a mobile release path;
+  [#909](https://github.com/free2z/zuu/pull/909) and
+  [#942](https://github.com/free2z/zuu/pull/942) scaffolded and wired their
+  native layers. Those are separate apps with separate evidence. For **this**
+  document they only subtract: a row deleted below is a surface ZUULI no longer
+  ships, not a surface that became proven somewhere else.
+- **The cross-surface intent bridge**, which is how a delegated surface asks
+  this one to spend: [#911](https://github.com/free2z/zuu/pull/911) (versioned
+  protocol, no transport), [#914](https://github.com/free2z/zuu/pull/914) (the
+  ZUULI authority side, natively confirmed),
+  [#924](https://github.com/free2z/zuu/pull/924) (the free2z caller side),
+  [#926](https://github.com/free2z/zuu/pull/926) (the issue-device-credential
+  intent, still fail closed), and ADR 0016
+  ([#935](https://github.com/free2z/zuu/pull/935)) on where enrollment sealing
+  happens. Custom-scheme deep links are not an authenticated channel, so no
+  cross-surface transport ships: [#461](https://github.com/free2z/zuu/issues/461).
+- **`rs/` messaging and key transparency** —
+  [#944](https://github.com/free2z/zuu/pull/944),
+  [#953](https://github.com/free2z/zuu/pull/953),
+  [#950](https://github.com/free2z/zuu/pull/950),
+  [#937](https://github.com/free2z/zuu/pull/937),
+  [#902](https://github.com/free2z/zuu/pull/902),
+  [#899](https://github.com/free2z/zuu/pull/899),
+  [#898](https://github.com/free2z/zuu/pull/898),
+  [#897](https://github.com/free2z/zuu/pull/897),
+  [#896](https://github.com/free2z/zuu/pull/896),
+  [#895](https://github.com/free2z/zuu/pull/895),
+  [#885](https://github.com/free2z/zuu/pull/885),
+  [#882](https://github.com/free2z/zuu/pull/882),
+  [#879](https://github.com/free2z/zuu/pull/879), and
+  [#878](https://github.com/free2z/zuu/pull/878).
+- **ZUULI-local and tooling** —
+  [#875](https://github.com/free2z/zuu/pull/875) (TestFlight beta-tester invite
+  capability), [#888](https://github.com/free2z/zuu/pull/888) (the release-step
+  evidence policy this document's disposition table answers to),
+  [#886](https://github.com/free2z/zuu/pull/886),
+  [#883](https://github.com/free2z/zuu/pull/883),
+  [#919](https://github.com/free2z/zuu/pull/919),
+  [#933](https://github.com/free2z/zuu/pull/933),
+  [#932](https://github.com/free2z/zuu/pull/932),
+  [#887](https://github.com/free2z/zuu/pull/887), and
+  [#881](https://github.com/free2z/zuu/pull/881).
 
-Gate evidence at this anchor is complete at exactly the shipped content, which
-was not true at the build-19 anchor:
+**What is committed alongside this re-derive and is therefore *not* in the
+anchor:** the vault cleanup #943 deliberately deferred —
+[#945](https://github.com/free2z/zuu/issues/945) drops the Android
+`CAMERA`/`RECORD_AUDIO`/`MODIFY_AUDIO_SETTINGS` permissions, the macOS
+`com.apple.security.device.camera`/`.audio-input` entitlements, and the Apple
+camera/microphone usage strings, leaving `android.permission.INTERNET` as the
+only permission this app's own manifest declares;
+[#946](https://github.com/free2z/zuu/issues/946) is this document and the store
+listing; and [#916](https://github.com/free2z/zuu/issues/916) is verified as
+already closed by `#943` rather than changed again.
 
-- The anchor's tree, `29bc409c`, is **identical** to the tree of `#872`'s PR
-  head `9067fc2`. Its completed
-  [wallet/zuuli gate](https://github.com/free2z/zuu/actions/runs/33484401714),
-  [rs gate](https://github.com/free2z/zuu/actions/runs/33484401681), and
-  [four-target packaging smoke](https://github.com/free2z/zuu/actions/runs/33484401736)
-  are therefore evidence for this source, not for a near neighbour — the
-  build-18 precedent, which the build-19 anchor could not use.
-- The anchor's parent `cdbe378` independently carries its own completed
-  [wallet/zuuli gate](https://github.com/free2z/zuu/actions/runs/33480800517),
-  [rs gate](https://github.com/free2z/zuu/actions/runs/33480800541), and
-  [packaging smoke](https://github.com/free2z/zuu/actions/runs/33480800528).
-- The previous anchor `9c78e90`'s own runs, recorded as still in flight in the
-  snapshot this one replaces, have since all concluded successfully:
-  [wallet/zuuli](https://github.com/free2z/zuu/actions/runs/33479067797),
-  [rs](https://github.com/free2z/zuu/actions/runs/33479067721), and the
-  [packaging smoke](https://github.com/free2z/zuu/actions/runs/33479067766).
-  That closes the coverage gap that snapshot had to leave open for `#864`,
-  `#868`, and `#869`.
-- The anchor's own push-triggered
-  [wallet/zuuli](https://github.com/free2z/zuu/actions/runs/33487961129),
-  [rs](https://github.com/free2z/zuu/actions/runs/33487961126), and
-  [packaging smoke](https://github.com/free2z/zuu/actions/runs/33487961119) runs
-  were still in flight when this was re-derived and are **not** counted; they
-  are redundant with the tree-identical evidence above, not a substitute for it.
+Gate evidence at this anchor is complete at exactly the shipped content:
+
+- The anchor commit `e129284c` carries its own completed and successful
+  push-triggered
+  [wallet/zuuli gate](https://github.com/free2z/zuu/actions/runs/33971858264),
+  [rs gate](https://github.com/free2z/zuu/actions/runs/33971858271),
+  [wallet/surfaces gate](https://github.com/free2z/zuu/actions/runs/33971858260),
+  and
+  [four-target packaging smoke](https://github.com/free2z/zuu/actions/runs/33971858278).
+  These ran on this exact tree, so they are evidence for this source rather than
+  for a near neighbour.
 
 These are source, test, and package-build evidence only. They add no
 product-operation or physical-device evidence. Nothing in this anchor was
-exercised on a physical device. Build 20 was subsequently read back from both
-stores as recorded below; that is distribution evidence, not physical-device
-acceptance.
+exercised on a physical device, and nothing in it has been built into a signed
+artifact at all: the newest signed build remains `0.1.0+20`, which predates the
+whole split. Build 20 was read back from both stores as recorded below; that is
+distribution evidence for an app that no longer resembles this source.
 
 ## Evidence boundaries
 
@@ -156,64 +153,64 @@ execution, not a permanent artifact archive.
 | `android-finalization` | Android credential-free finalization | `protected-executed` | `mobile-shipped` | `Android / credential-free shipped-artifact provenance` succeeded for [build 17](https://github.com/free2z/zuu/actions/runs/33330274664/job/99310771734), [18](https://github.com/free2z/zuu/actions/runs/33355762719/job/99383153475), [19](https://github.com/free2z/zuu/actions/runs/33369623712/job/99427364135), and [20](https://github.com/free2z/zuu/actions/runs/33494458918/job/99819938900), including signed-AAB verification, unpacking, Syft, inventory binding, checksums/provenance, attestation, and artifact upload. | `apple-credential-boundary.node-test.mjs` locks the complete finalizer and rejects weakened verification or ordering; the canonical-payload fixtures reject altered, undeclared, escaping, and symlinked members. |
 | `release-index` | Immutable release index | `protected-executed` | `mobile-shipped` | `Immutable GitHub release index` succeeded for [build 17](https://github.com/free2z/zuu/actions/runs/33330274664/job/99310819089), [18](https://github.com/free2z/zuu/actions/runs/33355762719/job/99417503165), [19](https://github.com/free2z/zuu/actions/runs/33369623712/job/99442471138), and [20](https://github.com/free2z/zuu/actions/runs/33494458918/job/99820072758); source-binding verification and index artifact upload both ran. | `release-tag-identity.node-test.mjs` accepts a complete source-bound index fixture and rejects wrong source, duplicate/missing provenance, recursive prior indexes, malformed identity, and invalid roots. `apple-credential-boundary.node-test.mjs` rejects missing Android finalizer/index dependencies. |
 | `linux-packaging` | Linux audit instrumentation, artifact SBOMs/bindings, and labeled source inventory | `packaging-executed` | `desktop-deferred` | Build 20's credential-free [Linux packaging job](https://github.com/free2z/zuu/actions/runs/33494458922/job/99813293131) succeeded through pinned Cargo audit instrumentation, real-package inspector fixtures, AppImage/deb/rpm scans, bindings, the labeled source inventory, checksums/provenance, and upload. | `artifact-sbom.node-test.mjs` uses real AppImage/deb/rpm canaries and rejects missing instrumentation, decorative or source-substituted artifact scans, early manifests, and altered bindings. The protected Linux release job remains unexecuted because releases are mobile-only. |
-| `macos-packaging` | macOS artifact SBOMs/bindings, labeled source inventory, and Keychain entitlement policy | `packaging-executed-protected-unexecuted` | `desktop-deferred` | Build 20's credential-free [macOS packaging job](https://github.com/free2z/zuu/actions/runs/33494458922/job/99813293260) succeeded through the Keychain/capture source policy, real package collection, DMG/ZIP scans, bindings, labeled source inventory, checksums/provenance, and upload. | `artifact-sbom.node-test.mjs` uses real ZIP and `hdiutil` DMG canaries. `macos-keychain-entitlements.node-test.mjs` rejects missing or altered app/team/keychain groups and capture entitlements. Protected macOS system signing, notarization, and credential cleanup remain deliberately unexecuted while desktop shipping is deferred. |
+| `macos-packaging` | macOS artifact SBOMs/bindings, labeled source inventory, and Keychain entitlement policy | `packaging-executed-protected-unexecuted` | `desktop-deferred` | Build 20's credential-free [macOS packaging job](https://github.com/free2z/zuu/actions/runs/33494458922/job/99813293260) succeeded through the Keychain/capture source policy, real package collection, DMG/ZIP scans, bindings, labeled source inventory, checksums/provenance, and upload. | `artifact-sbom.node-test.mjs` uses real ZIP and `hdiutil` DMG canaries. `macos-keychain-entitlements.node-test.mjs` rejects missing or altered app/team/keychain groups and, since #945, rejects a *reintroduced* `com.apple.security.device.camera` or `.audio-input` entitlement and any reintroduced camera or microphone usage description. Protected macOS system signing, notarization, and credential cleanup remain deliberately unexecuted while desktop shipping is deferred. |
 
 ## Source-and-runtime-backed matrix
 
 | Surface | Real API/backend dependency | Native integration | Automated evidence | Production/native evidence | Current status and linked gaps |
 |---|---|---|---|---|---|
-| Runtime transport | Production bundle → `free2z.cash`; development proxy → staging | `tauri-plugin-http` is registered and selected for packaged non-dev Tauri. [#801](https://github.com/free2z/zuu/pull/801) added `https://*.free2z.cash/*` to both capability HTTP allowlists and put `https://free2z.cash` and `https://*.free2z.cash` into the packaged `connect-src`, plus `blob:` in `img-src` | The required frontend/Rust gate and the four-target packaging smoke both pass on a tree identical to this anchor's, at `#872`'s PR head, so every release-impacting path here is gate-covered at exactly the shipped content. [#862](https://github.com/free2z/zuu/pull/862) additionally makes `wallet/shared/` a real `@free2z/wallet-shared` package and adds a required boundary scanner so neither app can reach into the other's source | Signed-store and unsigned packages exist; no per-surface native HTTP success is recorded here | **Wired, not runtime-proven.** The former claim that packaged HTTP registration was missing was false. |
-| App shell, mobile navigation, and localization | None | Safe-area insets and the mobile tab bar are native-surface concerns | Playwright geometry suites at 320/360px cover the five-item primary nav and the More sheet. [#869](https://github.com/free2z/zuu/pull/869) fixes a real defect: `DialogContent`'s variant-scoped `ltr:-translate-x-1/2` was not dropped by tailwind-merge when the sheet overrode it with an unprefixed `translate-x-0`, so the instant the entrance animation's effect was removed the base utility won and the sheet snapped to `translateX(-50%)`. Reverting only that class change reproduced it deterministically — dialog `left` at **-160 at 320px and -180 at 360px**, exactly `-width/2` — on every run, not intermittently. The same PR makes `navigation.pw.ts` wait on the dialog's own `getAnimations()` instead of measuring mid-tween. [#863](https://github.com/free2z/zuu/pull/863) gives Sonner toasts safe-area-aware offsets that clear the whole mobile tab bar; [#861](https://github.com/free2z/zuu/pull/861) mirrors layout for RTL locales, isolates bidi identifiers, and adds a source-policy gate against physical-direction utilities | No signed build has been observed on a physical device at any viewport. All geometry evidence is headless browser measurement | **A user-facing mobile-navigation defect shipped in builds 18 and 19 and is first fixed in build 20.** On a narrow viewport the More sheet — the only route to Articles, Messages, Profile, Revenue share, and About — rendered fully off-screen at rest once its entrance animation ended. It is fixed in source and covered by a test that was proven to fail without the fix; it has **not** been confirmed on a device. RTL and inset behaviour are likewise source and browser-test evidence only. Physical-device acceptance for the shell: [#331](https://github.com/free2z/zuu/issues/331), [#238](https://github.com/free2z/zuu/issues/238). |
+| Runtime transport and content-security policy | Production bundle → `free2z.cash`; development proxy → staging | `tauri-plugin-http` is registered and selected for packaged non-dev Tauri; both capability files allow only `https://free2z.cash/*`, `https://*.free2z.cash/*` and `https://stage.free2z.cash/*` | The required frontend/Rust gate, the `wallet/surfaces` boundary gate, and the four-target packaging smoke all concluded successfully on this exact anchor commit. `csp-policy.mjs` and its `tests/csp-policy.pw.ts` browser suite load the packaged `src-tauri/tauri.conf.json` policy itself. [#943](https://github.com/free2z/zuu/pull/943) narrowed that policy to `img-src 'self' data:` with `media-src`, `worker-src`, `object-src` and `frame-src` at `'none'`, and `connect-src` limited to `'self'` plus the free2z origins | Signed-store and unsigned packages exist; no per-surface native HTTP success is recorded here | **Wired, not runtime-proven.** The CSP is now narrow because the surfaces that needed it wide were removed, not because a permissive policy was made safe. `#801`'s remote-image allowance and `blob:` `img-src` are **gone** with the reader that used them. |
+| App shell, mobile navigation, and localization | None | Safe-area insets and the mobile tab bar are native-surface concerns | Playwright geometry suites at 320/360px cover the primary nav and the More sheet. [#869](https://github.com/free2z/zuu/pull/869) fixed a real defect: `DialogContent`'s variant-scoped `ltr:-translate-x-1/2` was not dropped by tailwind-merge when the sheet overrode it with an unprefixed `translate-x-0`, so once the entrance animation's effect was removed the base utility won and the sheet snapped to `translateX(-50%)` — dialog `left` at **-160 at 320px and -180 at 360px**, exactly `-width/2`, deterministically on every run. `navigation.pw.ts` now waits on the dialog's own `getAnimations()` instead of measuring mid-tween. [#863](https://github.com/free2z/zuu/pull/863) gives Sonner toasts safe-area-aware offsets that clear the whole mobile tab bar; [#861](https://github.com/free2z/zuu/pull/861) mirrors layout for RTL locales, isolates bidi identifiers, and adds a source-policy gate against physical-direction utilities | No signed build has been observed on a physical device at any viewport. All geometry evidence is headless browser measurement | **Source and browser-test evidence only; never device-confirmed.** [#943](https://github.com/free2z/zuu/pull/943) also shrank what the shell navigates to: the More sheet now holds **Log in and About**, because Articles, Messages, Profile and Revenue share are no longer this app's surfaces. The build-18/19 off-screen More-sheet defect is fixed in source and covered by a test proven to fail without the fix, and has **not** been confirmed on a device. Physical-device acceptance: [#331](https://github.com/free2z/zuu/issues/331), [#238](https://github.com/free2z/zuu/issues/238). |
 | About & Feedback | None for the About row; the feedback handoff opens an external mail client or GitHub | Build identity is injected at bundle time from canonical `release.json`, the checked-out full source SHA, and the Tauri build platform; the OS opener performs the handoff | [#822](https://github.com/free2z/zuu/pull/822) binds version/build/channel/platform/source identity through release verification and artifact provenance, with drift, offline, clipboard, keyboard, screen-reader, and enlarged-text tests. [#823](https://github.com/free2z/zuu/pull/823) shows the complete outgoing subject and body before any handoff, fails closed with **no** diagnostic, log, stack, or runtime capture because traceback safety is not proven, and scrubs wallet/auth/network/path/encoded-secret shapes at review and again before copy. [#868](https://github.com/free2z/zuu/pull/868) middle-truncates the commit SHA through the shared `truncateAddress()` helper instead of a head-only `slice(0, 12)`, scopes BIP-39 mnemonic detection explicitly to English and surfaces that limit in the composer copy, and fixes the regression where the new ellipsis matched the scrubber's own path shape and redacted every report. [#872](https://github.com/free2z/zuu/pull/872) binds the browser identity test to canonical `release.json` instead of a pinned build literal, so the test now actually asserts the binding `#822` claims — the literal matched only by coincidence of the current build and failed the required gate on the first release bump after it | No feedback report has been composed or sent from a signed build, and no build has been observed displaying its own identity on a device | **New visible surface in build 20; source and test evidence only.** The scrubber is a best-effort redactor over text the user can still edit before sending; it is not a guarantee, and non-English mnemonics are explicitly out of its detection scope and said so in the UI. Nothing here is device-proven. |
-| Public Articles, creator listing, search, Live discovery, AI models, and pricing | Public `zpage`, `creator`, `dyte/public`, `ai/models`, `pricing`, and `pricing/quote` endpoints | Shared native HTTP transport in packaged builds | Parser/component tests cover selected article, remote-data, and media contracts. [#797](https://github.com/free2z/zuu/pull/797) routes this surface's copy through a repo-wide message catalog (`en`/`es`/`fr`) with build-boundary and copy-policy tests; that is a source and test change to presentation only, and it adds no backend evidence. [#803](https://github.com/free2z/zuu/pull/803) replaces the Articles topic-pill wall with a topic autocomplete and adds mixed topic/creator/page suggestions to global Search, with tests for stale-response rejection, identity dedupe, and distinguishing a transport failure from an empty corpus — client contract only | Unfiltered collection/model/pricing production GETs returned HTTP 200 on 2026-09-01; Live returned a valid empty page. Filtered creator/article search and the new autocomplete endpoints were not probed against production | **Collection reads production-observed; search wired, not runtime-proven.** Signed-native rendering remains unrecorded. The source/test fixes for articles ([#337](https://github.com/free2z/zuu/issues/337), [#374](https://github.com/free2z/zuu/issues/374), [#250](https://github.com/free2z/zuu/issues/250), [#251](https://github.com/free2z/zuu/issues/251)) and pagination ([#252](https://github.com/free2z/zuu/issues/252), [#253](https://github.com/free2z/zuu/issues/253)) do not create signed-native or filtered-search runtime evidence. |
 | Username/password and TOTP sign-in | Knox Basic login, OTP status/login, and authenticated user endpoints | Token-backed HTTP; no special native plugin | Session-boundary, login-destination, component, and browser lifecycle tests | Anonymous protected reads returned HTTP 403; no successful production login is recorded | **Wired, not runtime-proven; not release-ready.** Server-side TOTP enforcement: [#369](https://github.com/free2z/zuu/issues/369). Token custody: [#377](https://github.com/free2z/zuu/issues/377). |
 | Login/link with Zcash | `auth/zcash/challenge` and `auth/zcash/login` | The shared plugin supports local recovery-phrase restore and transparent-address Zcash Signed Message signing | Native atomic-restore/signing tests and frontend restore/challenge lifecycle tests exercise local contracts | No production restore → native signature → Knox session round trip is recorded | **Restore is implemented and contract-tested, but the login path is not runtime-proven.** Recovery-phrase restore landed in [#428](https://github.com/free2z/zuu/pull/428); external-wallet signing remains unsupported. Physical recovery ceremony: [#246](https://github.com/free2z/zuu/issues/246). Wallet/login identity choice: [#329](https://github.com/free2z/zuu/issues/329). This is not ZIP-304. |
 | Social login/link | Provider discovery, authorization start, callback exchange, and authenticated user endpoints | Desktop loopback and mobile private-scheme transports exist | Strict discovery parsing, transport selection, attempt fencing, error/retry UI, and 320/360 browser tests cover the client contract; the live preflight fails closed before opening provider URLs | Both discovery endpoints answered anonymously with HTTP 200 on 2026-09-01. The web/desktop endpoint reports `x` with `configured: true`, `google` and `github` `configured: false`; the mobile endpoint returns all three `configured: false`. No OAuth round trip is recorded on any platform | **Client contract fixed; backend-dependent and not runtime-proven.** A provider is selectable on desktop/web; none is on mobile. A `configured` flag is not a login — no authorization start, callback exchange, or resulting session has been performed on any platform, so signed-device login/link proof remains blocked. Public client follow-up: [#403](https://github.com/free2z/zuu/issues/403). Claimed-HTTPS release proof: [#242](https://github.com/free2z/zuu/issues/242). Association binding: [#380](https://github.com/free2z/zuu/issues/380). |
 | Wallet create/restore/sync/receive/send/history | Lightwalletd and librustzcash through the shared plugin | Real Tauri Zcash plugin is registered. [#805](https://github.com/free2z/zuu/pull/805) adds typed multi-wallet listing and switching through the ZUULI bridge and a new mobile capability, publishing inventory, active identity, and account-scoped data atomically and serializing concurrent switches | Plugin Rust tests, frontend wallet tests, and backend compilation run in CI. `#805` adds identity-store, bridge, lifecycle, concurrency, and fail-closed suites; the deterministic mock is what those exercise | Packages have built, but no signed-device create/restore/sync/receive/send record is checked into this repository. `#805` adds no device or lightwalletd evidence | **Wired, not runtime-proven; release stop until kick-the-tires evidence exists.** The identity store is a **foundation**: a switchable wallet inventory now exists in source and under test, and it has never selected a real account on a real device. Send confirmation integrity: [#368](https://github.com/free2z/zuu/issues/368). Preserved-wallet import: [#272](https://github.com/free2z/zuu/issues/272). |
-| AI conversations and billing | Model/personality APIs plus model-bound `ai/conversations/.../promptresponses` metering and authoritative balance refresh | Native HTTP | Component/state tests do not exercise a real metered conversation | Public model discovery returned HTTP 200; no authenticated production prompt and charge is recorded | **Wired, not runtime-proven.** The active UI uses the metered conversation path; the old flat-1-2Z description referred to legacy code. Conversation/model state: [#266](https://github.com/free2z/zuu/issues/266). |
-| Livestream room/media | Public listing plus authenticated start/join and membership endpoints | Cloudflare RealtimeKit provider and meeting UI are mounted; camera/mic are native permissions. [#804](https://github.com/free2z/zuu/pull/804) adds an explicit-intent camera/microphone preflight with device enumeration and a confirmed preview before provisioning, and locks the exact Android/iOS/macOS capture manifests — macOS `Entitlements.plist` capture entitlements and `Info.macos.plist` usage strings now exist where they did not | Membership reconciliation tests cover selected money-boundary races. [#818](https://github.com/free2z/zuu/pull/818) adds a browser test that loads the exact packaged `src-tauri/tauri.conf.json` CSP, proves the bundled SDK's first `api.realtime.cloudflare.com/v2/internals/participant-details` request is permitted, and uses a negative control that removes the added sources to reproduce the blocked-request boundary. [#817](https://github.com/free2z/zuu/pull/817) adds a strict `meeting_type` contract suite, and `#804` adds mutation-sensitive preflight and permission-manifest suites. [#819](https://github.com/free2z/zuu/pull/819) strictly parses the RealtimeKit participant JWT and binds token, authoritative join response, discovery meeting, provider environment, role, and expiry before SDK initialization, replaces same-token retry with a fresh participant-only join that rejects replay/room-rotation/environment drift, and classifies CSP, offline, transport, timeout, malformed/expired ticket, provider-rejection, and ended-room faults into actionable copy emitting only allowlisted diagnostics. [#798](https://github.com/free2z/zuu/pull/798) removes local host/viewer count synthesis and represents counts as `number \| null` so absent or failed hydration renders as unknown rather than fabricated | Public listing returned HTTP 200 with zero active rooms on 2026-09-01; no native host/join/camera/mic session is recorded, and the preflight has never run against a real camera or microphone on a device. Founder QA on a Play-distributed build reported `ERR0001` when tapping Join Free on an active stream ([#813](https://github.com/free2z/zuu/issues/813)); `0.1.0+18` was the first build to carry the packaged-CSP fix and `0.1.0+19` also carries it, and per their own release runs both were signed and uploaded to Play Internal *and* TestFlight — but **neither has been read back from either store**, so neither is confirmed available to a tester on either platform, and no tester has joined a room from either | **Wired, not end-to-end proven.** The former missing-SDK claim was false. The packaged CSP allowed only legacy Dyte origins and blocked RealtimeKit's first Cloudflare request, which deterministically produced that `ERR0001`; [#816](https://github.com/free2z/zuu/issues/816) is closed by `#818`, which permits only the audited RealtimeKit HTTPS/WSS origins and no blanket `https:`/`wss:`. `#817` additionally corrects the paid-stream wire value the client sent — it serialized `pay-per-view` where the free2z contract's enum is `ppv` — and now fails closed on an unknown, missing, or mismatched kind and on a missing, zero, negative, or malformed PPV rate instead of silently making a stream free or paid; that fix is likewise in no read-back build. `#819` closes [#815](https://github.com/free2z/zuu/issues/815) and removes a second class of join failure — an unbound or replayed ticket — but it is source and browser-test evidence only and reaches a build for the first time in `0.1.0+20`. All of this remains source and browser-test evidence: **[#813](https://github.com/free2z/zuu/issues/813) stays open and unproven. No real active room has been joined from signed Android and iOS builds.** Builds 18 and 19 both shipped the CSP fix and neither has been read back, so nobody has verified the join on either platform. Metadata/PPV: [#262](https://github.com/free2z/zuu/issues/262). Private streams: [#264](https://github.com/free2z/zuu/issues/264). Participant counts: `#798` stops the client fabricating and sorting by synthesized counts, but [#265](https://github.com/free2z/zuu/issues/265) stays **open** — no populated production room has been observed rendering a real count. Purchase integrity: [#336](https://github.com/free2z/zuu/issues/336). |
-| Articles read/write/comments/tips | Public zpage reads; authenticated create/update/comment/donation APIs | Native HTTP; markdown/media render inside the privileged webview. [#801](https://github.com/free2z/zuu/pull/801) auto-loads validated raster images from `free2z.cash` and its HTTPS subdomains, inspects every redirect before requesting the next hop, renders only local `blob:` URLs, and keeps per-item consent for third-party media behind a persistent Strict image-privacy switch | Markdown safety/media and donation idempotency/response tests, plus `#801`'s remote-media policy, redirect, native media-authority, and first-party image browser suites | Public feed returned HTTP 200; authenticated publishing, commenting, and tipping are not production-proven. No packaged build has been observed rendering a real first-party image | **Reads production-observed; writes and charges not runtime-proven.** The image change narrows what the reader will fetch without consent to an audited first-party scope; it is a source and test change and is in no read-back build. Remote-content boundaries: [#367](https://github.com/free2z/zuu/issues/367), [#374](https://github.com/free2z/zuu/issues/374). Authoring: [#250](https://github.com/free2z/zuu/issues/250), [#251](https://github.com/free2z/zuu/issues/251). |
-| Creator public profile and self-edit | Public creator detail/zpage reads; authenticated user mutation | Native HTTP | UI and remote-data tests do not prove a production profile read or mutation | The creator collection returned HTTP 200; no creator-detail read, authenticated edit, or media upload is recorded | **Detail and self-edit wired, not runtime-proven.** Avatar/banner upload remains absent. Linked identities are not authoritative across reloads: [#256](https://github.com/free2z/zuu/issues/256). |
-| KYC application | Authenticated KYC profile, document, tax-form, signature, and submit endpoints | Native HTTP and file picker; no live-camera capture flow | UI tests do not exercise the production KYC contract | No production application or signed-device capture/upload is recorded | **Wired, not runtime-proven; incomplete.** “Live photo” is a file upload: [#257](https://github.com/free2z/zuu/issues/257). Tax-form invalidation: [#258](https://github.com/free2z/zuu/issues/258). This is an application flow, not payout/cash-out. |
-| 2Z send/tip/membership, and creator ZEC tips | Authenticated donation and subscription APIs; a ZEC tip is a wallet spend, not a 2Z charge | Native HTTP; [#799](https://github.com/free2z/zuu/pull/799) adds a distinct ZEC creator-tip choice that carries an alteration-detecting in-memory intent into the existing Wallet Send proposal/confirmation/execution path, locks the creator recipient, fails closed on missing, reloaded, changed, or wrong-network state, retires accepted intents so browser history cannot reuse them, and discloses transparent-address privacy and memo limits | Donation and membership idempotency/reconciliation contract tests, plus `#799`'s creator-tip unit and browser suites | No production charge is recorded, and **no ZEC creator tip has ever been proposed or broadcast from a signed device** — the tip path inherits the wallet row's unproven state wholesale | **Contract-tested, not runtime-proven.** The ZEC tip is a new *visible affordance over an unproven spend path*: its intent locking is tested, its settlement is not. Follow versus paid membership: [#261](https://github.com/free2z/zuu/issues/261). Creator purchase integrity: [#336](https://github.com/free2z/zuu/issues/336). |
+| 2Z send/tip/membership, and the creator ZEC tip landing | Authenticated donation and subscription APIs; a ZEC tip is a wallet spend, not a 2Z charge | Native HTTP. The Wallet Send route still accepts a creator-tip route state and carries an alteration-detecting in-memory intent into the proposal/confirmation/execution path, locking the creator recipient and disclosing transparent-address privacy and memo limits | Donation and membership idempotency/reconciliation contract tests, plus the creator-tip unit and browser suites, including the fail-closed suites for missing, reloaded, changed, and wrong-network state | No production charge is recorded, and **no ZEC creator tip has ever been proposed or broadcast from a signed device** | **Contract-tested, not runtime-proven; the tip's originating surface is gone.** [#943](https://github.com/free2z/zuu/pull/943) removed the creator profile that issued the tip, so in a shipping ZUULI nothing can populate that route state and the landing route **always fails closed** — by design until [#905](https://github.com/free2z/zuu/issues/905) lands an authenticated issuer over a channel that is not a custom-scheme deep link ([#461](https://github.com/free2z/zuu/issues/461)). The 2Z send/membership tabs under `/wallet/fund` remain reachable and remain unproven. Follow versus paid membership: [#261](https://github.com/free2z/zuu/issues/261). Creator purchase integrity: [#336](https://github.com/free2z/zuu/issues/336). |
 | Buy 2Z with card | Authenticated Stripe Checkout creation, hosted Checkout, signed webhook credit, and a server-controlled return bridge | Native OS opener is used in packaged apps; the exact `cash.free2z.zuuli://checkout/return` route is registered on iOS/Android and claimed through the authenticated server bridge | #400 added signed-out gating, exact HTTPS host validation, actionable failures, and opener tests | Anonymous production checkout returned HTTP 403; no signed-in staging/live charge or signed-build return is recorded | **Wired, not runtime-proven.** Native return is blocked on an unshipped backend dependency tracked internally, so no native return has been exercised against a live charge. Track the end-to-end path in [#388](https://github.com/free2z/zuu/issues/388) and exact charge/credit integrity in [#399](https://github.com/free2z/zuu/issues/399). |
 | Buy 2Z with ZEC | Public pricing/quote plus wallet spend and backend settlement/credit | Wallet bridge exists; production settlement is intentionally disabled | Quote parsing and explicit browser-only demo-boundary tests | Pricing and an exact 100-2Z quote returned HTTP 200; no spend/settlement exists | **Mock/demo only for settlement; unavailable in release builds:** [#155](https://github.com/free2z/zuu/issues/155). A price quote is not a top-up. |
 | 2Z Activity | Authenticated Stripe purchase ledger | Native HTTP | Parsing/UI tests do not prove a complete ledger | Protected endpoint returned HTTP 403 anonymously; authenticated ledger not exercised | **Known incomplete:** the endpoint is purchases-only and cannot substantiate tips/AI/PPV totals ([#172](https://github.com/free2z/zuu/issues/172)). |
-| E2EE messaging | Relay, key-transparency, and MLS services under `rs/` | `wallet/plugins/tauri-plugin-f2zmsg` builds, its two-instance integration test drives two engines over a real relay, and since [#750](https://github.com/free2z/zuu/pull/750) `wallet/zuuli/src-tauri` links it: `Cargo.toml` and its lock carry the plugin, `src/lib.rs` registers it, `src/messaging.rs` serves the enrollment trio, and both capability files grant it | The plugin's own crate gate runs in `zuuli.yml`; the app's gate additionally builds it into ZUULI for desktop, iOS and Android, and compiler-bound IPC probes assert the shipping routers route `plugin:f2zmsg|…` and the unprefixed enrollment commands. [#774](https://github.com/free2z/zuu/pull/774) adds frontend contract tests for exact-handle initiation, inbound decisions, witness-threshold refusal, single-flight proof of work, and authoritative event re-reads. [#767](https://github.com/free2z/zuu/pull/767), [#764](https://github.com/free2z/zuu/pull/764), and [#802](https://github.com/free2z/zuu/pull/802) add mutation-backed key-transparency and relay lifecycle coverage. Since the build-18 anchor, [#833](https://github.com/free2z/zuu/pull/833) covers authorization-before-commit ordering for all six relay-state commands, [#836](https://github.com/free2z/zuu/pull/836) reparses Rust with `syn` in `workspace_debug_scan` and redacts `Finding`'s `Debug`, [#835](https://github.com/free2z/zuu/pull/835) encodes a push once and fans it out with an encode-failure test, [#840](https://github.com/free2z/zuu/pull/840) binds handle-candidate eligibility to shipping parity, and [#834](https://github.com/free2z/zuu/pull/834) retires `with_simulated_channel_binding` from the relay testkit. Since the build-19 anchor, [#781](https://github.com/free2z/zuu/pull/781) restores MLS group state after a receive rollback, [#800](https://github.com/free2z/zuu/pull/800) makes the plugin fail closed on relay error contexts, [#864](https://github.com/free2z/zuu/pull/864) puts `mock.ts::evaluateHandle` and `handle.rs::eligibility` on one shared `docs/e2ee/fixtures/handle-eligibility.json` table — the mock previously answered `not-signed-in` where the authoritative Rust answers `punctuation` for the empty username, proven by running the new parity test against the unmodified mock first — [#867](https://github.com/free2z/zuu/pull/867) replaces a relay `MAX_CONCURRENT` test that passed with the cap removed with one that fails, and pins `REQUEST_TIMEOUT`'s floor at compile time against tuzi's k8s probe timeouts, [#860](https://github.com/free2z/zuu/pull/860) covers the reserved queue-creation mode through `Server::start`, and [#858](https://github.com/free2z/zuu/pull/858) closes a `cfg_attr(derive(Debug))` blind spot in `workspace_debug_scan` | **None.** Linking, routing, authorization, UI controls, and automated contracts are proven; no enrollment or message has been performed in a running ZUULI. The **`KeyPackage` blocker is now closed in source**: [#769](https://github.com/free2z/zuu/pull/769) merged at `127e600` and **is** part of this snapshot — the previous snapshot's claim that it was not is corrected here. It adds `PUBLISH_KEY_PACKAGES` (`0x0032`, signed by the contact queue's receive key) and `CLAIM_KEY_PACKAGE` (`0x0033`, unsigned behind a proof-of-work stamp), stores the pool at the relay hosting the device's contact queue under the `contact_addr` its directory entry already publishes, and makes `MlsEngine::add_member` take a `VerifiedKeyPackage` whose only constructor is the verifying one, so no relay-supplied bytes can join a group without the directory check. What still blocks first contact is one layer up: [#756](https://github.com/free2z/zuu/pull/756) landed the `f2z-kt-client` crate and `directory.rs` ships a real `KtDirectory` — `/kt/v1/lookup` over HTTPS with §6.3 monotonicity, §8.3's threshold over the client's own witness set, `f2z_kt_core::verify` inclusion proofs, §4.4 re-authorization, and pinning — but **the shipping default is still `directory::NoDirectory`**, which fails closed, because `KT.md` §12 has not decided the log identity, signing key, shipped witness list, or default *t*. `start_conversation` on the shipped configuration therefore still refuses with `witness-threshold-unmet` | **Linked and reachable; still not usable.** The blocker moved but did not clear: a `KeyPackage` can now be published and claimed, and **a user still cannot start a conversation with anyone in a shipped build**, because the default directory resolves nothing. There is no physical-device evidence. The spec/code divergence recorded at the build-19 anchor is now closed: [#839](https://github.com/free2z/zuu/pull/839) added `KT.md` rule 13 — a `same_key` entry at `entry_version >= 2` MUST NOT rotate `directory_auth_pk`, and the log MUST reject one that does with `ERR_BAD_AUTHORIZATION` — while `f2z-kt-core`'s `submit.rs` verified `auth_signature` against the previous entry's key without comparing the value the new entry published, so a validly signed entry could take over directory writes. [#841](https://github.com/free2z/zuu/pull/841) fixes that and closes [#837](https://github.com/free2z/zuu/issues/837); it landed **after** build 19 was cut, so `0.1.0+19` ships the divergence and `0.1.0+20` is the first build without it. That is a source fix to an unreachable surface — the shipping directory still resolves nothing, so nothing in a shipped build exercises the submission path either way. [#753](https://github.com/free2z/zuu/issues/753) is closed: since [#759](https://github.com/free2z/zuu/pull/759) a messaging store that will not open no longer takes ZUULI down at launch. [#782](https://github.com/free2z/zuu/pull/782) additionally keeps pure `check_handle_eligibility` available in that faulted state while every engine- or storage-dependent command and the enrollment trio refuses with the same §8 code. Epic: [#305](https://github.com/free2z/zuu/issues/305). Do not describe ZUULI as having usable messaging because the plugin or UI is present. |
-| Internal distribution and store presentation | GitHub release train, App Store Connect, and Google Play | Signed mobile bundles plus generated platform/store icons; desktop packages are built only by credential-free packaging smoke while desktop distribution is deferred | Release identity, icon/store validators, protected state machines, and all-target packaging are gated. [#866](https://github.com/free2z/zuu/pull/866) adds the real `hdiutil` DMG canary that closed the last artifact-format gap in [#379](https://github.com/free2z/zuu/issues/379)'s first acceptance criterion. The release-step execution table above records which protected and packaging-only paths have actually run | Build 20's [TestFlight readback](https://github.com/free2z/zuu/actions/runs/33496768135) proved `uploaded`, `processed`, and `availableToInternalTesters`, `VALID`/`IN_BETA_TESTING`, and the exact internal-group relationship. Its [Play audit](https://github.com/free2z/zuu/actions/runs/33496770265) found the exact build 20 release present and destroyed the uncommitted audit edit. No physical-device acceptance or protected desktop execution is recorded | **Build 20 is confirmed in both mobile stores; desktop is not currently shipped.** A green upload or readback is distribution evidence, not device acceptance. Store media [#387](https://github.com/free2z/zuu/issues/387), shipped-artifact dependency reconciliation [#379](https://github.com/free2z/zuu/issues/379), and physical installs [#238](https://github.com/free2z/zuu/issues/238) remain open. Play remains owner-selected Console email-list mode: [#296](https://github.com/free2z/zuu/issues/296). |
+| E2EE messaging (enrollment only; no frontend) | Relay, key-transparency, and MLS services under `rs/` | `wallet/plugins/tauri-plugin-f2zmsg` builds, its two-instance integration test drives two engines over a real relay, and `wallet/zuuli/src-tauri` links and registers it — but **no capability grants the webview any `f2zmsg:` permission**. The plugin stays registered because enrollment needs its engine and store, and enrollment is the one messaging operation that needs the wallet seed, which must never cross IPC (`src/messaging.rs`, ADR 0016) | The plugin's own crate gate runs in `zuuli.yml`; the app's gate additionally builds it into ZUULI for desktop, iOS and Android. `the_capability_set_refuses_plugin_commands_but_not_the_enrollment_trio` drives the shipping capability set through a mock webview and shows the two halves answering differently: `plugin:f2zmsg|…` is refused by the ACL before its body runs, with the refusal naming the `f2zmsg:` permissions ZUULI no longer grants, while the three app-crate enroll commands are still routed because `generate_handler!` does not consult the ACL at all. `shipping_capabilities_grant_no_messaging_permission` reads the same shipping artifact and asserts no `f2zmsg:` grant survives under any name, with a positive control on the Zcash grants | **None.** No enrollment and no message has ever been performed in a running ZUULI, and after the split there is no messaging UI in this app to perform one from | **Reachable only as an enrollment authority, and still not usable.** The surface moved to `wallet/e2e2z` ([#913](https://github.com/free2z/zuu/pull/913)); this app keeps the seed and the ability to issue a `DeviceCredential`, and nothing else. The shipping directory default is still `directory::NoDirectory`, which fails closed, because `KT.md` §12 has not decided the log identity, signing key, shipped witness list, or default *t*, so `start_conversation` on the shipped configuration refuses with `witness-threshold-unmet`. The residual risk that is written down rather than fixed: the enrollment trio is webview-reachable and, under [#367](https://github.com/free2z/zuu/issues/367), reachable from a frame that resolves as the main window; a hostile caller could submit an attacker-chosen handle or unenroll behind a confirmation string. Closing that is [#905](https://github.com/free2z/zuu/issues/905)'s job. Epic: [#305](https://github.com/free2z/zuu/issues/305). Do not describe ZUULI as having messaging. |
+| Vault boundary: no remote content, no capture authority | None — that is the property | The packaged CSP, both capability files, the Android manifest, and the Apple entitlements and plists are all native-surface declarations | `csp-policy.mjs` with a `--self-test`, `surface-capability-authority.mjs`, `mobile-webview-authority.mjs`, `media-permission-manifests.node-test.mjs`, `android-device-catalog.node-test.mjs` and `macos-keychain-entitlements.mjs` each assert one half and each carries a negative control that fails on a reintroduced grant. The Rust IPC probe above proves the capability refusal at runtime rather than by re-reading JSON | The permission boundary is asserted against the **merged** manifest, not the source file: `zuuli-packaging.yml` checks AGP's merged manifest on every pull request and cross-checks the AAB member's bytes, and `zuuli-release.yml` re-checks it through `bundletool dump manifest` on the artifact that ships — the shape [#941](https://github.com/free2z/zuu/pull/941) established for e2e2z, with ZUULI's own reviewed list. Only `<uses-permission>` elements count, which is what tells a grant apart from a receiver's `android:permission` guard. No signed device has been observed installing without a camera or microphone prompt | **Source- and artifact-asserted; not device-observed.** After [#943](https://github.com/free2z/zuu/pull/943) and [#945](https://github.com/free2z/zuu/issues/945), ZUULI's own manifest declares `android.permission.INTERNET` and nothing else, and the *merged* manifest adds exactly three reviewed entries: `USE_BIOMETRIC`, which `ZcashPlugin.kt` uses to authenticate a `BiometricPrompt.CryptoObject` over the seed cipher; `androidx.biometric`'s `USE_FINGERPRINT`, which is unreachable at `minSdk 29` and is allowlisted rather than removed because it sits on the unlock path and removal needs a signed-device check ([#958](https://github.com/free2z/zuu/issues/958)); and `cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`, which `androidx.core` injects at API 33+ so dynamically registered receivers are not exported — app-scoped by its package prefix and signature-level, both checked in CI rather than assumed. `android.permission.DUMP` appears in the merged manifest too and is **not** a grant: it is the `android:permission` guard on `androidx.profileinstaller`'s `ProfileInstallReceiver`, and the CI assertion requires it to stay one. ZUULI additionally claims no macOS capture entitlement, ships no camera or microphone usage string, renders no remote or third-party content, and grants its webview no `f2zmsg:` permission. This row exists because the property is the product: every one of those is a grant on the process that holds the master seed ([#367](https://github.com/free2z/zuu/issues/367)). It has **not** been confirmed on a signed device that ZUULI installs and runs with no capture prompt and that wallet create/restore/send still work: [#238](https://github.com/free2z/zuu/issues/238). |
+| Internal distribution and store presentation | GitHub release train, App Store Connect, and Google Play | Signed mobile bundles plus generated platform/store icons; desktop packages are built only by credential-free packaging smoke while desktop distribution is deferred | Release identity, icon/store validators, protected state machines, and all-target packaging are gated. The release-step execution table above records which protected and packaging-only paths have actually run | Build 20's [TestFlight readback](https://github.com/free2z/zuu/actions/runs/33496768135) proved `uploaded`, `processed`, and `availableToInternalTesters`, `VALID`/`IN_BETA_TESTING`, and the exact internal-group relationship. Its [Play audit](https://github.com/free2z/zuu/actions/runs/33496770265) found the exact build 20 release present and destroyed the uncommitted audit edit. No physical-device acceptance or protected desktop execution is recorded | **Build 20 is confirmed in both mobile stores, and build 20 is not this app.** It predates the whole split, so what is confirmed in the stores is the pre-vault ZUULI. The listing copy and questionnaire notes are corrected in this change ([#946](https://github.com/free2z/zuu/issues/946)); **all 20 shipped screenshots — five device sets × `01-articles-fresh`, `02-semantic-search`, `03-article-reader`, `04-creator-profile` — still depict routes this app no longer mounts** and cannot be re-captured here, because `store-screenshot-contract.mjs`'s `CAPTURE_SHOTS` hard-codes those four routes and capture is pinned to a `linux/amd64` Playwright container. That is tracked in [#956](https://github.com/free2z/zuu/issues/956), not fixed. Store media [#387](https://github.com/free2z/zuu/issues/387), shipped-artifact dependency reconciliation [#379](https://github.com/free2z/zuu/issues/379), and physical installs [#238](https://github.com/free2z/zuu/issues/238) remain open. Play remains owner-selected Console email-list mode: [#296](https://github.com/free2z/zuu/issues/296). |
 
 ## Current production and distribution evidence
 
 Safe unauthenticated requests were **re-run fresh for this anchor** on
-2026-09-01 and returned the following status and top-level contracts:
+2026-09-06 against the endpoints ZUULI's remaining surfaces actually reach, and
+returned the following status and top-level contracts:
 
 ```text
-GET  /api/zpage/?page_size=1                 200  count,next,previous,results (count: 3901)
-GET  /api/creator/?page_size=1               200  count,next,previous,results (count: 76)
-GET  /api/ai/models/?page_size=1             200  count,next,previous,results (count: 9)
-GET  /api/dyte/public/?page_size=1           200  count,next,previous,results (count: 0)
-GET  /api/pricing/                           200  pricing snapshot (7 sources)
-GET  /api/pricing/quote/?tuzis=100           200  exact quote
 GET  /api/auth/social/providers/             200  providers array (`x` `configured: true`)
 GET  /api/auth/social/mobile/providers/      200  providers array (all `configured: false`)
+GET  /api/auth/user/                         403  detail: authentication credentials were not provided
+GET  /api/stripe/transactions/               403  detail: authentication credentials were not provided
+GET  /api/stripe/create-checkout-session/    403  detail: authentication credentials were not provided
+GET  /api/tuzis/my-subscriptions             403  detail: authentication credentials were not provided
 ```
 
-Safe anonymous probes of `/api/auth/user/`, `/api/openai/prompt`,
-`/api/kyc/user-profile`, `/api/stripe/transactions/`, and
-`/api/stripe/create-checkout-session/` returned HTTP 403. That proves only the
-anonymous access boundary; it does not prove any authenticated success path.
+The public content endpoints the previous anchor probed — `zpage`, `creator`,
+`ai/models`, `dyte/public`, `pricing`, and `pricing/quote` — are **deliberately
+absent from this list**. They are not endpoints this app calls any more, so
+their availability is `wallet/free2z`'s evidence, not ZUULI's. `src/lib/api/`
+still contains the legacy client functions and contract tests for them with no
+route or feature reaching them; that residual dead code is tracked separately
+and is not a shipped surface.
 
-The social-provider configuration is unchanged from the 2026-08-26 audit and
-was re-confirmed by this probe.
-`/api/auth/social/providers/`, the web/desktop endpoint, reports `x` with
-`configured: true`; `google` and `github` remain `configured: false` there, and
-the mobile endpoint `/api/auth/social/mobile/providers/` still returns all
-three as `configured: false`. So a provider is selectable on desktop/web and
-none is on mobile. A `configured` flag is a backend declaration, not a login:
-no authorization start, callback exchange, or resulting session has been
-performed on any platform, so this is not evidence that social login works.
-`/api/dyte/public/` still reports `count: 0`, so the Live listing contract is
-again observed against an empty collection rather than a populated one.
+The 403s prove only the anonymous access boundary; they do not prove any
+authenticated success path. `/api/kyc/user-profile` and `/api/openai/prompt`
+answered 403 anonymously as well, but ZUULI mounts neither surface any more, so
+that is recorded as a fact about the backend rather than about this app.
+
+The social-provider configuration is unchanged from the 2026-09-01 audit and was
+re-confirmed by this probe. `/api/auth/social/providers/`, the web/desktop
+endpoint, reports `x` with `configured: true`; `google` and `github` remain
+`configured: false` there, and the mobile endpoint
+`/api/auth/social/mobile/providers/` still returns all three as
+`configured: false`. So a provider is selectable on desktop/web and none is on
+mobile. A `configured` flag is a backend declaration, not a login: no
+authorization start, callback exchange, or resulting session has been performed
+on any platform, so this is not evidence that social login works.
 
 Distribution evidence is narrower and explicit:
 
@@ -300,11 +297,19 @@ Distribution evidence is narrower and explicit:
   was deleted without commit.
 
 These runs prove package/store state, not product operations. No repository
-record yet demonstrates the full physical-device checklist for wallet
-recovery/sync/spend, OAuth, AI charging, Live media, KYC capture, card checkout,
-or ZEC top-up. That checklist was re-derived for this audit and is still unmet:
-as of 2026-09-01, neither the repository nor the physical-device tracking issues
-record a signed-device wallet operation.
+record yet demonstrates the full physical-device checklist for the surfaces this
+app still has: wallet recovery/sync/spend, OAuth, card checkout, or ZEC top-up.
+That checklist was re-derived for this audit and is still unmet: as of
+2026-09-06, neither the repository nor the physical-device tracking issues record
+a signed-device wallet operation. The AI-charging, Live-media and KYC-capture
+items the previous anchor listed are not "still unmet" — those surfaces were
+removed, so they are off this app's checklist rather than outstanding on it.
+
+Every signed artifact named above predates the split. **Nothing in this anchor
+has been packaged into a signed build, uploaded, or read back from any store**,
+so the distribution evidence in this section is evidence about the pre-vault
+ZUULI. The store listing copy is corrected in this change; the twenty shipped
+screenshots still show routes this source does not mount.
 
 Read the "release stop" dispositions above for what they say. They bar calling
 a surface **ready** and bar a public release; they have never barred an
@@ -324,7 +329,7 @@ identities, or sensitive identity documents when that evidence is obtained.
 The release checklist in [`docs/releasing.md`](docs/releasing.md) must consume
 this matrix. A target cannot be called ready while a visible path for that
 target is **known broken/incomplete**, or while a required money,
-authentication, wallet, KYC, or media operation is merely mock-tested,
-source-wired, packaged, uploaded, or listed. Supply the missing production and
+authentication, or wallet operation is merely mock-tested, source-wired,
+packaged, uploaded, or listed. Supply the missing production and
 native evidence, or remove/disable the visible affordance in the release build
 and link the reviewed disposition here.
