@@ -67,12 +67,102 @@ const RUST_ROOT_CONTRACTS = [
           // under the same two prefixes still selects the full gate.
           "wallet/free2z/src/App.tsx",
           "wallet/e2e2z/src/App.tsx",
+          // #949 carved the two delegated surfaces' frontend tests out of this
+          // selector. wallet/zuuli's own tests are not carved out and must not
+          // be: they run inside `zuuli / frontend`, which this output gates.
+          "wallet/zuuli/tests/viewport.pw.ts",
+          // wallet/e2e2z/scripts/release-path.node-test.mjs reads this file and
+          // runs inside the gate as part of e2e2z's `npm test`.
+          ".github/workflows/e2e2z-release.yml",
         ],
       },
       {
         name: "zuuallet_schema",
         probeRoot: "wallet/zuuallet/src-tauri",
       },
+      // #915 put the two delegated surfaces' own suites inside the required
+      // gate, as zuuli.yml's `surfaces` job. Its selector is a strict superset
+      // of `zuuli`: everything that selects the full gate also changes what
+      // free2z and e2e2z build against, and the frontend-test paths #949 carved
+      // out of `zuuli` select it and nothing else.
+      {
+        name: "surfaces",
+        probeRoot: "wallet",
+        additionalProbePaths: [
+          "wallet/free2z/src/App.tsx",
+          "wallet/e2e2z/src/App.tsx",
+          ".github/workflows/e2e2z-release.yml",
+        ],
+      },
+    ],
+    // Paths whose whole point is that the outputs disagree: the #949 carve-out
+    // exists precisely so a frontend test selects the surfaces suite that runs
+    // it and not the ~40-minute native matrix that cannot see it. An entry here
+    // must name every output, so widening the carve-out to swallow a path that
+    // should still select ZUULI is red rather than merely different.
+    mixedProbePaths: [
+      // The carve-out itself, at both depths a `*` that spans `/` reaches, and
+      // for both surfaces.
+      [
+        "wallet/free2z/tests/search.pw.ts",
+        { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+      ],
+      [
+        "wallet/free2z/tests/helpers/mock-capture.ts",
+        { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+      ],
+      [
+        "wallet/e2e2z/tests/enrollment-gap.pw.ts",
+        { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+      ],
+      [
+        "wallet/free2z/src/lib/markdown.test.ts",
+        { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+      ],
+      [
+        "wallet/free2z/src/components/Article.test.tsx",
+        { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+      ],
+      [
+        "wallet/e2e2z/src/lib/enrollment.test.ts",
+        { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+      ],
+      [
+        "wallet/e2e2z/src/screens/Threads.test.tsx",
+        { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+      ],
+      // `zuuallet_schema` is "true" on the three `.rs` probes below because the
+      // schema arm selects `wallet/*.rs` at any depth. That is pre-existing and
+      // correct; it is stated here rather than asserted away.
+      //
+      // The trap. A Rust integration test lives under `src-tauri/tests/`
+      // (wallet/free2z/src-tauri/tests/http_scope.rs, #942) and MUST run the
+      // Rust jobs; a `wallet/<app>/*tests/*`-shaped carve-out would swallow it.
+      // `wallet/<app>/src/*.test.ts` is the same trap one directory over:
+      // `src-tauri` is not `src`, and a carve-out that treats it as one takes
+      // the whole native matrix off a Rust source change.
+      [
+        "wallet/free2z/src-tauri/tests/http_scope.rs",
+        { zuuli: "true", zuuallet_schema: "true", surfaces: "true" },
+      ],
+      [
+        "wallet/e2e2z/src-tauri/tests/authority.rs",
+        { zuuli: "true", zuuallet_schema: "true", surfaces: "true" },
+      ],
+      [
+        "wallet/free2z/src-tauri/src/http.test.ts",
+        { zuuli: "true", zuuallet_schema: "false", surfaces: "true" },
+      ],
+      // A test *and* a source file in one commit still selects the full gate:
+      // the guard is per-file, so the source file decides.
+      [
+        "wallet/free2z/tests/search.pw.ts\0wallet/free2z/src/App.tsx",
+        { zuuli: "true", zuuallet_schema: "false", surfaces: "true" },
+      ],
+      [
+        "wallet/free2z/tests/search.pw.ts\0wallet/free2z/src-tauri/src/lib.rs",
+        { zuuli: "true", zuuallet_schema: "true", surfaces: "true" },
+      ],
     ],
     excludedProbePaths: [
       "wallet/README.md",
@@ -401,11 +491,70 @@ const REQUIRED_FRONTEND_BUILD_TSCONFIG = Object.freeze({
   extends: "./tsconfig.json",
   exclude: Object.freeze(["src/**/*.test.ts", "src/**/*.test.tsx"]),
 });
+/// The condition both frontend jobs run under.
+///
+/// `surfaces` is a strict superset of `zuuli`, so the second disjunct is what
+/// decides; the first is retained so that a future edit which breaks the
+/// superset invariant cannot silently stop running the wallet's own frontend
+/// suite on a wallet source change. #949 carved frontend test paths out of
+/// `zuuli` to skip the ~40-minute native matrix, and these two jobs are exactly
+/// the ones such a change must still run: `frontend` owns the cross-application
+/// boundary verdicts, `surfaces` executes the tests that changed.
+const REQUIRED_SURFACE_SELECTOR_CONDITION =
+  "needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.surfaces == 'true'";
+/// The complete execution program of the gated surfaces suite (#915).
+///
+/// Pinned line-for-line like the frontend job below, because this is the job
+/// that makes ~900 free2z vitest cases, both Playwright suites and
+/// wallet/e2e2z/tests/enrollment-gap.pw.ts able to fail a merge. A step deleted
+/// or made conditional here is a merge that stops being blocked by them, which
+/// looks exactly like the advisory situation #915 closed.
+const REQUIRED_SURFACES_JOB_LINES = [
+  "  surfaces:",
+  "    name: zuuli / surfaces (${{ matrix.app }})",
+  "    needs: changes",
+  `    if: ${REQUIRED_SURFACE_SELECTOR_CONDITION}`,
+  "    runs-on: ubuntu-latest",
+  "    timeout-minutes: 25",
+  "    strategy:",
+  "      fail-fast: false",
+  "      matrix:",
+  "        app: [free2z, e2e2z]",
+  "    defaults:",
+  "      run:",
+  "        working-directory: wallet/${{ matrix.app }}",
+  "    steps:",
+  `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
+  "      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0",
+  "        with:",
+  "          node-version: '24'",
+  "          cache: npm",
+  "          cache-dependency-path: wallet/${{ matrix.app }}/package-lock.json",
+  "      - name: Install locked dependencies",
+  "        run: npm ci",
+  "      - name: Audit dependencies (high and critical)",
+  "        run: |",
+  "          for attempt in 1 2 3; do",
+  "            npm audit --audit-level=high && exit 0",
+  '            [ "$attempt" -eq 3 ] && exit 1',
+  "            sleep $((attempt * 5))",
+  "          done",
+  "      - name: Typecheck",
+  "        run: |",
+  "          npm run typecheck",
+  "          npm run typecheck:tests",
+  "      - name: Verify the browser-test browser",
+  "        run: google-chrome --version",
+  "      - name: Test owned frontend modules",
+  "        run: npm test",
+  "      - name: Build production frontend",
+  "        run: npm run build",
+];
 const REQUIRED_FRONTEND_JOB_LINES = [
   "  frontend:",
   "    name: zuuli / frontend",
   "    needs: changes",
-  "    if: needs.changes.outputs.zuuli == 'true'",
+  `    if: ${REQUIRED_SURFACE_SELECTOR_CONDITION}`,
   "    runs-on: ubuntu-latest",
   "    timeout-minutes: 35",
   "    defaults:",
@@ -499,6 +648,7 @@ const REQUIRED_JOB_ENVIRONMENTS = new Map([
 ]);
 const REQUIRED_JOB_DEFAULT_WORKING_DIRECTORIES = new Map([
   ["frontend", "wallet/zuuli"],
+  ["surfaces", "wallet/${{ matrix.app }}"],
 ]);
 const REQUIRED_STEP_ENVIRONMENTS = new Map([
   [
@@ -1571,6 +1721,44 @@ function requiredClassicFrontendAuditFailures(relativeFile, lines) {
   return failures;
 }
 
+/// The gated surfaces suite must exist, be selected by the surface condition,
+/// and match its reviewed program exactly.
+///
+/// A missing job is its own failure rather than a silent pass: #915's whole
+/// defect was a suite that ran somewhere no required check could see, and
+/// deleting this job would restore that state while every other rule here still
+/// reported green.
+function requiredSurfacesControlFailures(relativeFile, lines, surfaces) {
+  if (!surfaces) {
+    return [
+      `${relativeFile}: required workflow must contain the surfaces job that gates the delegated surfaces' own suites`,
+    ];
+  }
+  const failures = [];
+  const actual = lines
+    .slice(surfaces.start, surfaces.end)
+    .filter((line) => line.trim() && !line.trimStart().startsWith("#"))
+    .map((line) => line.trimEnd());
+  if (JSON.stringify(actual) !== JSON.stringify(REQUIRED_SURFACES_JOB_LINES)) {
+    failures.push(
+      `${relativeFile}:${surfaces.start + 1}: surfaces must match the complete exact current-source execution program`,
+    );
+  }
+  if (
+    surfaces.properties.get("if")?.value !== REQUIRED_SURFACE_SELECTOR_CONDITION
+  ) {
+    failures.push(
+      `${relativeFile}:${surfaces.start + 1}: surfaces must run exactly when the fail-closed surface selector is true`,
+    );
+  }
+  if (surfaces.properties.has("continue-on-error")) {
+    failures.push(
+      `${relativeFile}:${surfaces.start + 1}: surfaces cannot soft-fail`,
+    );
+  }
+  return failures;
+}
+
 function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
   const failures = [];
   const actualFrontendJobLines = lines
@@ -1586,8 +1774,7 @@ function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
     );
   }
   if (
-    frontend.properties.get("if")?.value !==
-    "needs.changes.outputs.zuuli == 'true'"
+    frontend.properties.get("if")?.value !== REQUIRED_SURFACE_SELECTOR_CONDITION
   ) {
     failures.push(
       `${relativeFile}:${frontend.start + 1}: frontend must run exactly when the fail-closed ZUULI selector is true`,
@@ -2068,8 +2255,14 @@ function rustRootSelectorProbeFixture(probePath) {
     "base",
   ]);
   const base = runSelectorProbeGit(repo, ["rev-parse", "HEAD"]);
-  writeFixture(repo, probePath, "selector probe\n");
-  runSelectorProbeGit(repo, ["add", "--", probePath]);
+  // A probe may name several paths, NUL-joined, so a commit that touches a
+  // carved-out file *and* a selecting file can be probed as one diff — the
+  // per-file guards must not let the first excuse the second.
+  const probePaths = probePath.split("\0");
+  for (const entry of probePaths) {
+    writeFixture(repo, entry, "selector probe\n");
+  }
+  runSelectorProbeGit(repo, ["add", "--", ...probePaths]);
   runSelectorProbeGit(repo, ["commit", "--quiet", "-m", "head"]);
   const head = runSelectorProbeGit(repo, ["rev-parse", "HEAD"]);
   const fixture = { base, head, repo };
@@ -2276,6 +2469,37 @@ function rustRootWorkflowFailures(relativeFile, lines, contract) {
                 : `${contract.root}/ owner selector output ${name}`;
             failures.push(
               `${relativeFile}:${selector.start + 1}: ${subject} must actively select ${JSON.stringify(probePath)} as its effective last value`,
+            );
+          }
+        }
+      }
+      // Paths whose expected verdict differs per output. `excludedProbePaths`
+      // asserts "false everywhere" and the per-output probe lists assert "true
+      // for this one"; neither can state the property #949 introduced, which is
+      // that one path selects one output and not another.
+      for (const [probePath, expectations] of contract.mixedProbePaths ?? []) {
+        const declared = Object.keys(expectations).sort().join(",");
+        const outputs = contract.selectorOutputs
+          .map(({ name }) => name)
+          .sort()
+          .join(",");
+        if (declared !== outputs) {
+          failures.push(
+            `${relativeFile}:${selector.start + 1}: ${contract.root}/ owner mixed probe ${JSON.stringify(probePath)} must state every selector output (${outputs}), got ${declared || "(none)"}`,
+          );
+          continue;
+        }
+        const fixture = rustRootSelectorProbeFixture(probePath);
+        const result = executeRustRootSelector(
+          body,
+          fixture,
+          contract,
+          fixture.head,
+        );
+        for (const [name, expected] of Object.entries(expectations)) {
+          if (result.status !== 0 || result.effective.get(name) !== expected) {
+            failures.push(
+              `${relativeFile}:${selector.start + 1}: ${contract.root}/ owner selector must leave ${name} ${expected} for ${JSON.stringify(probePath)}, got ${JSON.stringify(result.effective.get(name))}`,
             );
           }
         }
@@ -2936,6 +3160,11 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
       ...requiredFrontendWasmControlFailures(relativeFile, lines, frontend),
     );
   }
+  if (enforceWasmBoundary) {
+    failures.push(
+      ...requiredSurfacesControlFailures(relativeFile, lines, jobs.get("surfaces")),
+    );
+  }
   failures.push(...requiredGateControlFailures(relativeFile, lines, gate));
 
   return failures;
@@ -2993,6 +3222,28 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
       ? "success"
       : "skipped";
   const NATIVE_JOBS = new Set(["rust_native_clippy", "rust_native_tests"]);
+  // #949 carved the two delegated surfaces' frontend test paths out of the
+  // `zuuli` selector so a test-only change skips the ~40-minute native matrix.
+  // The two jobs that must still run on such a change share one selector, for
+  // the same reason the native pair does: `frontend` decides whether either
+  // surface may import across the application split or hold a capability it is
+  // not allowed, and `surfaces` executes the tests that changed. Deriving both
+  // from one value means the gate can never accept a skip from one it would
+  // reject from the other.
+  //
+  // This is also where the required-but-skipped deadlock is avoided rather than
+  // risked. `gate` is the branch-protected context; it carries `if: always()`
+  // and zuuli.yml has no `paths:` filter, so it reports on every pull request.
+  // When `surfaces` is false the surfaces job is skipped and "skipped" is
+  // exactly what this expects, so the gate resolves green. Nothing new was
+  // added to branch protection, so no pull request can wait on a context no job
+  // publishes.
+  const surfaceExpected =
+    zuuliExpected === "success" ||
+    selectorResult(changes.outputs.surfaces, "surfaces") === "success"
+      ? "success"
+      : "skipped";
+  const SURFACE_JOBS = new Set(["frontend", "surfaces"]);
 
   const verdicts = [];
   for (const [job, state] of entries) {
@@ -3010,7 +3261,9 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
           ? schemaExpected
           : NATIVE_JOBS.has(job)
             ? nativeExpected
-            : zuuliExpected;
+            : SURFACE_JOBS.has(job)
+              ? surfaceExpected
+              : zuuliExpected;
     if (state.result !== expected) {
       throw new Error(
         `required job ${job} must be ${expected}, got ${state.result}`,
@@ -3745,6 +3998,109 @@ function runRustRootWorkflowMutationTests(repoRoot) {
           `must leave zuuli false for unrelated input "wallet/${app}/docs/${app === "zuuli" ? "e2ee/" : ""}notes.md"`,
         );
       }
+      // The #949 frontend-test guard is the second negative selector in this
+      // step, and the more dangerous one: markdown genuinely cannot affect a
+      // Rust build, whereas a `tests/` glob one character too wide takes the
+      // whole native matrix off a Rust integration test. Its failure directions
+      // are deleting it, widening it past `src`/`tests` into `src-tauri`,
+      // dropping an application, extending it to wallet/zuuli, and severing the
+      // surfaces output it exists to feed — all exercised against the live
+      // workflow.
+      assertWorkflowFailure(
+        contract,
+        source,
+        "wallet/ rejects deleting the frontend-test guard",
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            '            if [[ "$file" == wallet/free2z/tests/* ||\n' +
+              '                  "$file" == wallet/e2e2z/tests/* ||\n' +
+              '                  "$file" == wallet/free2z/src/*.test.ts ||\n' +
+              '                  "$file" == wallet/free2z/src/*.test.tsx ||\n' +
+              '                  "$file" == wallet/e2e2z/src/*.test.ts ||\n' +
+              '                  "$file" == wallet/e2e2z/src/*.test.tsx ]]; then\n' +
+              "              surfaces=true\n" +
+              "              continue\n" +
+              "            fi\n",
+            "",
+          ),
+        'must leave zuuli false for "wallet/free2z/tests/search.pw.ts"',
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        "wallet/ rejects a frontend-test guard widened into src-tauri/tests",
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            '"$file" == wallet/free2z/tests/*',
+            '"$file" == wallet/free2z/*tests/*',
+          ),
+        'must leave zuuli true for "wallet/free2z/src-tauri/tests/http_scope.rs"',
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        "wallet/ rejects a frontend-test guard widened into src-tauri/src",
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            '"$file" == wallet/free2z/src/*.test.ts ',
+            '"$file" == wallet/free2z/src* ',
+          ),
+        'must leave zuuli true for "wallet/free2z/src-tauri/src/http.test.ts"',
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        "wallet/ rejects dropping wallet/e2e2z from the frontend-test guard",
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            '                  "$file" == wallet/e2e2z/tests/* ||\n',
+            "",
+          ),
+        'must leave zuuli false for "wallet/e2e2z/tests/enrollment-gap.pw.ts"',
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        "wallet/ rejects extending the frontend-test guard to wallet/zuuli",
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            '            if [[ "$file" == wallet/free2z/tests/* ||\n',
+            '            if [[ "$file" == wallet/zuuli/tests/* ||\n' +
+              '                  "$file" == wallet/free2z/tests/* ||\n',
+          ),
+        'must actively select "wallet/zuuli/tests/viewport.pw.ts"',
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        "wallet/ rejects a frontend-test guard that selects nothing at all",
+        (value) =>
+          mutateJob(value, "changes", "              surfaces=true\n              continue\n", "              continue\n"),
+        'must leave surfaces true for "wallet/free2z/tests/search.pw.ts"',
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        "wallet/ rejects severing surfaces from the full-gate selector",
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            '          if [[ "$zuuli" == true ]]; then\n            surfaces=true\n          fi\n',
+            "",
+          ),
+        'owner selector output surfaces must actively select "wallet/ordinary.rs"',
+      );
       for (const [guard, target, replacement, needle] of
         selectorPatternMutations) {
         const action = replacement ? "broadened" : "removed";
@@ -6450,7 +6806,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "true", zuuallet_schema: "false" },
+          outputs: { zuuli: "true", zuuallet_schema: "false", surfaces: "true" },
         },
         build: { result: "success", outputs: {} },
         rust_android_32: { result: "success", outputs: {} },
@@ -6463,7 +6819,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "false", zuuallet_schema: "true" },
+          outputs: { zuuli: "false", zuuallet_schema: "true", surfaces: "false" },
         },
         build: { result: "skipped", outputs: {} },
         rust_native_clippy: { result: "success", outputs: {} },
@@ -6477,7 +6833,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "false", zuuallet_schema: "true" },
+          outputs: { zuuli: "false", zuuallet_schema: "true", surfaces: "false" },
         },
         rust_native_clippy: { result: "skipped", outputs: {} },
         zuuallet_schema: { result: "success", outputs: {} },
@@ -6490,7 +6846,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "false", zuuallet_schema: "true" },
+          outputs: { zuuli: "false", zuuallet_schema: "true", surfaces: "false" },
         },
         rust_native_tests: { result: "skipped", outputs: {} },
         zuuallet_schema: { result: "success", outputs: {} },
@@ -6502,7 +6858,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "false", zuuallet_schema: "false" },
+          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "false" },
         },
         rust_native_clippy: { result: "skipped", outputs: {} },
         rust_native_tests: { result: "skipped", outputs: {} },
@@ -6516,7 +6872,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "true", zuuallet_schema: "false" },
+          outputs: { zuuli: "true", zuuallet_schema: "false", surfaces: "true" },
         },
         rust_native_tests: { result: "failure", outputs: {} },
       },
@@ -6534,7 +6890,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "true", zuuallet_schema: "false" },
+          outputs: { zuuli: "true", zuuallet_schema: "false", surfaces: "true" },
         },
         build: { result: "failure", outputs: {} },
       },
@@ -6546,7 +6902,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "true", zuuallet_schema: "false" },
+          outputs: { zuuli: "true", zuuallet_schema: "false", surfaces: "true" },
         },
         frontend: { result: "failure", outputs: {} },
       },
@@ -6558,7 +6914,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "true", zuuallet_schema: "false" },
+          outputs: { zuuli: "true", zuuallet_schema: "false", surfaces: "true" },
         },
         zuuallet_schema: { result: "success", outputs: {} },
       },
@@ -6570,11 +6926,100 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "", zuuallet_schema: "false" },
+          outputs: { zuuli: "", zuuallet_schema: "false", surfaces: "false" },
+        },
+      },
+    },
+    {
+      name: "a frontend-test-only change still gates the surfaces suite (#949/#915)",
+      policyOutcome: "success",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+        },
+        frontend: { result: "success", outputs: {} },
+        surfaces: { result: "success", outputs: {} },
+        rust_clippy: { result: "skipped", outputs: {} },
+        rust_native_clippy: { result: "skipped", outputs: {} },
+        zuuallet_schema: { result: "skipped", outputs: {} },
+      },
+    },
+    {
+      name: "a failing free2z suite fails the protected gate (#915)",
+      policyOutcome: "success",
+      needle: "required job surfaces must be success, got failure",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+        },
+        surfaces: { result: "failure", outputs: {} },
+      },
+    },
+    {
+      name: "the surfaces suite cannot skip a change that selected it",
+      policyOutcome: "success",
+      needle: "required job surfaces must be success, got skipped",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+        },
+        surfaces: { result: "skipped", outputs: {} },
+      },
+    },
+    {
+      name: "the frontend boundary job cannot skip a surfaces-only change",
+      policyOutcome: "success",
+      needle: "required job frontend must be success, got skipped",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+        },
+        frontend: { result: "skipped", outputs: {} },
+      },
+    },
+    {
+      name: "a change touching neither app leaves the surfaces suite skipped, and the gate green",
+      policyOutcome: "success",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "false" },
+        },
+        frontend: { result: "skipped", outputs: {} },
+        surfaces: { result: "skipped", outputs: {} },
+        rust_clippy: { result: "skipped", outputs: {} },
+        zuuallet_schema: { result: "skipped", outputs: {} },
+      },
+    },
+    {
+      name: "the surfaces suite cannot run itself green off an unselected change",
+      policyOutcome: "success",
+      needle: "required job surfaces must be skipped, got success",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "false" },
+        },
+        surfaces: { result: "success", outputs: {} },
+      },
+    },
+    {
+      name: "an invalid surfaces selector fails closed",
+      policyOutcome: "success",
+      needle: "invalid or missing surfaces change-detector output",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "" },
         },
       },
     },
   ];
+
   for (const testCase of gateResultCases) {
     let error = null;
     try {
