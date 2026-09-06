@@ -1777,7 +1777,7 @@ function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
     frontend.properties.get("if")?.value !== REQUIRED_SURFACE_SELECTOR_CONDITION
   ) {
     failures.push(
-      `${relativeFile}:${frontend.start + 1}: frontend must run exactly when the fail-closed ZUULI selector is true`,
+      `${relativeFile}:${frontend.start + 1}: frontend must run exactly when the fail-closed surface selector is true`,
     );
   }
   const steps = policyJobSteps(
@@ -5176,9 +5176,9 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     {
       name: "real workflow rejects a dynamically dead frontend job",
       needle:
-        "frontend must run exactly when the fail-closed ZUULI selector is true",
+        "frontend must run exactly when the fail-closed surface selector is true",
       source: replaceFrontend(
-        "    if: needs.changes.outputs.zuuli == 'true'",
+        `    if: ${REQUIRED_SURFACE_SELECTOR_CONDITION}`,
         "    if: false",
       ),
     },
