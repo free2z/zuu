@@ -11,9 +11,9 @@
          filtering is derived from the capture permissions, so with those gone
          there is nothing left to override.
 
-         This file is not the shipped set. Manifest merge adds two more from
-         library manifests, and both are reviewed and allowlisted against the
-         *merged* manifest in .github/workflows/zuuli-{packaging,release}.yml:
+         This file is not the shipped set. Manifest merge adds three more,
+         and all three are reviewed and allowlisted against the *merged*
+         manifest in .github/workflows/zuuli-{packaging,release}.yml:
 
            USE_BIOMETRIC    tauri-plugin-zcash's own manifest. ZcashPlugin.kt
                             authenticates a BiometricPrompt.CryptoObject over
@@ -23,6 +23,13 @@
                             so it is unreachable; it is allowlisted rather
                             than removed because it sits on the unlock path
                             and removal needs a device check (#958).
+           cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+                            injected by androidx.core when targeting API 33+
+                            so dynamically registered BroadcastReceivers are
+                            not exported. It is this app's own permission
+                            (note the package prefix) and is declared
+                            signature-level; CI checks both rather than
+                            assuming them.
 
          android.permission.DUMP also appears in the merged manifest, as the
          android:permission guard on androidx.profileinstaller's

@@ -101,7 +101,7 @@ const ALLOWED_JOB_SECRETS = new Map([
 // semantic checks below explain the major boundaries, while the digest closes
 // all unenumerated execution paths. Update only after reviewing the full job.
 const CREDENTIAL_JOB_SHA256 = new Map([
-  ["android-sign-upload", "a91e991c114b4ab2c4014d57411cb58b4db7cc0480c8dae8387df446790edf6d"],
+  ["android-sign-upload", "4e80aa8c0832bc6b180f6121191d9e7ae1f178e2ff98e910b98f3e534d0745c4"],
   ["ios-sign", "6e63107606388e3862f81e41da65b1fa8bfca1588b5232f9ca4354203536393c"],
   ["ios-upload", "3ed7cb28646aed24a7df2c347b8ad54838f009841fdd52c64ca1002886aae4b2"],
   ["macos-sign", "6c6d01bef2cc6feae4c3d250081f39f31101131dc88cd99fa0b5fb4ec5ea14eb"],

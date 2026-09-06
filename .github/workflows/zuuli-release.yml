@@ -442,11 +442,24 @@ jobs:
           #   USE_FINGERPRINT androidx.biometric:1.1.0's own pre-API-28 path;
           #                   unreachable at minSdk 29, allowlisted rather than
           #                   removed blind off the unlock path (#958).
+          #   cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+          #                   injected by androidx.core for API 33+ so that
+          #                   dynamically registered receivers are not
+          #                   exported. App-scoped by its package prefix and
+          #                   signature-level, both checked below rather than
+          #                   assumed. e2e2z's assertion accounts for the same
+          #                   class (#941).
           manifest_dump=$(java -jar "$bundletool" dump manifest --bundle="$aab")
           declared=$(printf '%s\n' "$manifest_dump" | tr '\n' ' ' | tr '<' '\n' |
             grep -a '^uses-permission' | grep -aoE 'android:name="[^"]+"' |
             sed 's/.*"\(.*\)"/\1/' | LC_ALL=C sort -u | paste -sd, -)
-          test "$declared" = android.permission.INTERNET,android.permission.USE_BIOMETRIC,android.permission.USE_FINGERPRINT
+          test "$declared" = android.permission.INTERNET,android.permission.USE_BIOMETRIC,android.permission.USE_FINGERPRINT,cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+          # The injected self-permission is benign only because it is
+          # signature-level and carries this app's package prefix.
+          printf '%s\n' "$manifest_dump" | tr '\n' ' ' | tr '<' '\n' |
+            grep -a '^permission ' |
+            grep -aF 'android:name="cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"' |
+            grep -qF 'android:protectionLevel="signature"'
           for dead in CAMERA RECORD_AUDIO MODIFY_AUDIO_SETTINGS; do
             if LC_ALL=C grep -qF "android.permission.$dead" <<<"$manifest_dump"; then
               echo "the shipped AAB manifest still names android.permission.$dead" >&2

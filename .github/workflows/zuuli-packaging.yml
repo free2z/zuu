@@ -233,12 +233,26 @@ jobs:
           #                   the follow-up issue for the device-verified
           #                   tools:node="remove".
           #
+          #   cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+          #                   not something we asked for: androidx.core injects
+          #                   it at manifest-merge time when targeting API 33+
+          #                   so that dynamically registered BroadcastReceivers
+          #                   are not exported. It is app-scoped (the name is
+          #                   prefixed with this package, so it is ZUULI's own
+          #                   permission and grants nothing outside the app) and
+          #                   declared signature-level, which the assertion
+          #                   below checks rather than takes on trust. It is
+          #                   written out package-qualified so a *differently*
+          #                   prefixed injected permission still fails.
+          #                   e2e2z's own assertion accounts for the same class
+          #                   (#941); this is the same shape with ZUULI's list.
+          #
           # Not on the list, deliberately: android.permission.DUMP. It appears
           # in the merged manifest only as the `android:permission` guard on
           # androidx.profileinstaller's ProfileInstallReceiver, which is what
           # restricts that receiver to shell/adb. That is a *restriction*, not
           # a grant, and the assertion below requires it to stay exactly that.
-          allowlist=android.permission.INTERNET,android.permission.USE_BIOMETRIC,android.permission.USE_FINGERPRINT
+          allowlist=android.permission.INTERNET,android.permission.USE_BIOMETRIC,android.permission.USE_FINGERPRINT,cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
 
           merged=$(find src-tauri/gen/android/app/build/intermediates -type f \
             -name AndroidManifest.xml -path '*merged_manifest*')
@@ -263,6 +277,15 @@ jobs:
             fi
             grep -qF 'android:permission="android.permission.DUMP"' "$manifest" || {
               echo "$manifest no longer guards ProfileInstallReceiver with DUMP" >&2
+              exit 1
+            }
+            # androidx's injected self-permission is only benign because it is
+            # signature-level and package-scoped. Check that, do not assume it.
+            self_permission=$(tr '\n' ' ' < "$manifest" | tr '<' '\n' |
+              grep -a '^permission ' |
+              grep -aF 'android:name="cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"')
+            grep -qF 'android:protectionLevel="signature"' <<<"$self_permission" || {
+              echo "$manifest injected self-permission is not signature-level" >&2
               exit 1
             }
           done <<<"$merged"
