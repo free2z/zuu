@@ -144,7 +144,10 @@ change detector selects `wallet/free2z/**` and `wallet/e2e2z/**`:
 Each app's Rust crate also asserts its own manifest in a unit test, so the
 property is stated where the violation would be written as well as centrally.
 
-Build coverage for the two delegated surfaces lives in
+Each surface's own suite — typecheck, vitest, ui-copy and Playwright, including
+`wallet/e2e2z/tests/enrollment-gap.pw.ts` — runs in `zuuli.yml`'s `surfaces` job,
+which the required gate awaits (#915). Their Tauri backends are compiled and
+tested by
 [`.github/workflows/wallet-surfaces.yml`](../.github/workflows/wallet-surfaces.yml),
 which publishes no gate — deliberately. What keeps those surfaces unprivileged
 is the required gate above, not their own build.

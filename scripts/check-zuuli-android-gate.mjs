@@ -13,8 +13,26 @@ const toolchainEnvPath = "wallet/zuuli/scripts/android-toolchain-env.sh";
 const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
+// Re-derived for #949/#915. The reviewed semantic delta from
+// cad2731734c97401e94ae2b25a722141f09488a107ddde6f28618a5454786c02 is:
+//
+//   * a third output, `surfaces`, initialised false, set true in both fail-open
+//     arms — whose *conditions* are unchanged byte for byte — and derived after
+//     the loop as `zuuli || <frontend test path seen>`, i.e. a strict superset
+//     of `zuuli`;
+//   * a per-file guard, in the shape of the #919 markdown guard, that excuses
+//     six frontend test path patterns under wallet/free2z and wallet/e2e2z from
+//     the `zuuli` arm and selects `surfaces` instead. Every pattern is anchored
+//     at the literal prefix `wallet/<app>/tests/` or `wallet/<app>/src/`, and
+//     `src-tauri` is neither, so a Rust integration test still selects the full
+//     matrix (scripts/check-github-actions-pins.mjs probes both directions);
+//   * `.github/workflows/e2e2z-release.yml` added to the `zuuli` arm — purely
+//     additive — because wallet/e2e2z/scripts/release-path.node-test.mjs reads
+//     it and now runs inside the gate.
+//
+// Nothing else in the step changed, and no existing pattern was removed.
 const changeDetectorDigest =
-  "cad2731734c97401e94ae2b25a722141f09488a107ddde6f28618a5454786c02";
+  "464b7a522cdb2348ee9fdbfa46300ba536de8bb911c10ddaa5bb00da249fa410";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
@@ -409,7 +427,7 @@ function runSelfTest(workflow, toolchainEnv) {
   for (const [name, digest] of [
     [
       "the reviewed change-detector digest is stale",
-      "c6310395af8224c88b3e58fddf182950d65c52cf12caf6b48bbf82815694f52b",
+      "cad2731734c97401e94ae2b25a722141f09488a107ddde6f28618a5454786c02",
     ],
     ["the reviewed change-detector digest is wrong", "0".repeat(64)],
   ]) {

@@ -33,7 +33,7 @@ Per-app detail stays in the per-app documents:
 | `execute-payment` is implemented end-to-end **on ZUULI's side of the seam** | `wallet/zuuli/src-tauri/src/intent.rs` — admit, propose, re-derive the review, confirm natively, bind, execute |
 | Content surfaces are ported to free2z: articles, creator, live, AI, search | `wallet/free2z/src/features/` |
 | The messaging surface is ported to e2e2z | `wallet/e2e2z/src/features/messages/` |
-| Both delegated surfaces have CI build coverage | `.github/workflows/wallet-surfaces.yml` |
+| Both delegated surfaces' own test suites can fail a merge | the `surfaces` job in `.github/workflows/zuuli.yml`, awaited by the required `gate` (#915) |
 
 Merged for the split, in order: [#909](https://github.com/free2z/zuu/pull/909)
 scaffolds · [#911](https://github.com/free2z/zuu/pull/911) intent protocol ·

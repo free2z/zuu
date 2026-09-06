@@ -1,14 +1,14 @@
 name: wallet/surfaces
 
-# Builds the two delegated surfaces of the three-app split (#904/#906):
+# Compiles the two delegated surfaces of the three-app split (#904/#906):
 #
 #   wallet/free2z  — the content surface. Links NO privileged plugin.
 #   wallet/e2e2z   — the messaging surface. Links tauri-plugin-f2zmsg only.
 #
-# What this workflow is NOT is the thing that keeps those surfaces unprivileged.
-# That property is decided inside the required `gate` in zuuli.yml, three ways,
-# all of which run on every pull request that touches `wallet/free2z/**` or
-# `wallet/e2e2z/**` because the ZUULI change detector now selects both trees:
+# What this workflow is NOT is the thing that keeps those surfaces unprivileged,
+# and since #915 it is no longer the thing that runs their tests either. Both
+# now live inside the required `gate` in zuuli.yml, which carries no `paths:`
+# filter and so reports on every pull request:
 #
 #   * `wallet/zuuli/scripts/surface-capability-authority.mjs` (+ its node test)
 #     runs inside the protected `zuuli / frontend` job via `npm run test`. It is
@@ -18,18 +18,22 @@ name: wallet/surfaces
 #   * `wallet/zuuli/scripts/project-boundary.mjs`, same job, refuses a cross-
 #     application import in either direction.
 #   * `rust_fmt` / `rust_clippy` / `rust_deny` discover crates rather than
-#     listing them, so both new `src-tauri` crates are gated from this commit.
+#     listing them, so both new `src-tauri` crates are gated.
+#   * zuuli.yml's `surfaces` job — added by #915 — runs each surface's own
+#     typecheck, vitest, ui-copy and Playwright suites, including
+#     wallet/e2e2z/tests/enrollment-gap.pw.ts. Those suites MOVED there rather
+#     than being copied there: running ~900 vitest cases and two Playwright
+#     suites twice per pull request is the cost #949 is about.
 #
-# So what is left here is build coverage — typecheck, tests, bundle, and a
-# `cargo` build of each backend — on a `paths:` filter. That is exactly the
-# shape of `zuuallet.yml`, and like it this workflow publishes no gate and is
-# registered in `scripts/check-workflow-gates.mjs`'s UNGATED_WORKFLOWS.
+# So what is left here is the `cargo` build and test of each backend, on a
+# `paths:` filter. That is the shape of `zuuallet.yml`, and like it this
+# workflow publishes no gate and is registered in
+# `scripts/check-workflow-gates.mjs`'s UNGATED_WORKFLOWS.
 #
-# Since #904 phase 3 the e2e2z lane also carries the messaging surface's own
-# tests, which moved out of ZUULI with it. The contract test that holds that
-# client to `docs/e2ee/CLIENT-CONTRACT.md` — `messaging-contract.node-test.mjs`
-# — deliberately did NOT move: it stays in `wallet/zuuli/scripts` so it keeps
-# running inside the protected `gate`, and it now reads across both trees.
+# The contract test that holds the messaging client to
+# `docs/e2ee/CLIENT-CONTRACT.md` — `messaging-contract.node-test.mjs` — never
+# moved out of ZUULI at all: it stays in `wallet/zuuli/scripts` so it keeps
+# running inside the protected `gate`, and it reads across both trees.
 
 on:
   pull_request:
@@ -52,12 +56,7 @@ on:
       - 'rs/crates/f2z-relay-proto/**'
       - 'rs/crates/f2z-relay-testkit/**'
       - 'scripts/check-rust-toolchain.sh'
-      - 'wallet/zuuli/scripts/surface-capability-authority.mjs'
       - '.github/workflows/wallet-surfaces.yml'
-      # release-path.node-test.mjs, part of e2e2z's `npm test`, reads this
-      # workflow's inlined copy of aab-payload-digest.sh and its protected
-      # environment declarations. A change to it must re-run that test.
-      - '.github/workflows/e2e2z-release.yml'
   push:
     branches: [main]
     paths:
@@ -79,12 +78,7 @@ on:
       - 'rs/crates/f2z-relay-proto/**'
       - 'rs/crates/f2z-relay-testkit/**'
       - 'scripts/check-rust-toolchain.sh'
-      - 'wallet/zuuli/scripts/surface-capability-authority.mjs'
       - '.github/workflows/wallet-surfaces.yml'
-      # release-path.node-test.mjs, part of e2e2z's `npm test`, reads this
-      # workflow's inlined copy of aab-payload-digest.sh and its protected
-      # environment declarations. A change to it must re-run that test.
-      - '.github/workflows/e2e2z-release.yml'
   workflow_dispatch:
 
 permissions:
@@ -99,81 +93,6 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # Frontend: typecheck, owned unit tests, production bundle.
-  #
-  # free2z ships a real `vite.config.ts` as of the content extraction (#904
-  # phase 1) — its Markdown pipeline needs `worker.format: "es"` for the Mermaid
-  # worker and a `PACKAGE_VERSION` define for rehype-mathjax — so the constrained
-  # audit in project-boundary.mjs builds it for real. e2e2z is still a
-  # placeholder screen and still ships none, so its `vite build` runs on the
-  # defaults: `index.html` at the project root, `dist/` out, and esbuild reading
-  # `jsx: "react-jsx"` from its tsconfig. See the comment on
-  # `viteBuildsVerified` in wallet/zuuli/scripts/project-boundary.node-test.mjs.
-  #
-  # free2z's `npm test` also runs Playwright against the mock backend, which
-  # uses the runner image's Google Chrome (`channel: "chrome"` under CI), the
-  # same browser the ZUULI gate uses.
-  # ---------------------------------------------------------------------------
-  surfaces_frontend:
-    name: surfaces / frontend (${{ matrix.app }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        app: [free2z, e2e2z]
-    defaults:
-      run:
-        working-directory: wallet/${{ matrix.app }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: wallet/${{ matrix.app }}/package-lock.json
-
-      - name: Install locked dependencies
-        run: npm ci
-
-      # Dependency refreshes belong in focused PRs; bounded retries tolerate
-      # registry failures without weakening the high-severity floor.
-      - name: Audit dependencies (high and critical)
-        run: |
-          for attempt in 1 2 3; do
-            npm audit --audit-level=high && exit 0
-            [ "$attempt" -eq 3 ] && exit 1
-            sleep $((attempt * 5))
-          done
-
-      - name: Typecheck
-        run: |
-          npm run typecheck
-          npm run typecheck:tests
-
-      # Both surfaces' `npm test` ends in `playwright test`, and this step runs
-      # on each leg of the matrix because each leg needs the browser.
-      #
-      # For e2e2z (#904 phase 3) that Playwright run is the only one that
-      # exercises the ported messaging surface in a real browser — including the
-      # enrollment gap against a Tauri IPC host that registers the plugin and
-      # not the app-crate enrollment trio. For free2z (#904 phase 1) it is the
-      # article/creator surface driven against the mock backend. Both configs
-      # select `channel: "chrome"` under CI, so this uses the runner image's
-      # preinstalled stable Chrome rather than downloading a browser, exactly as
-      # zuuli.yml does — and fails here, with a readable message, if the image
-      # ever stops shipping it.
-      - name: Verify the browser-test browser
-        run: google-chrome --version
-
-      - name: Test owned frontend modules
-        run: npm test
-
-      - name: Build production frontend
-        run: npm run build
-
   # ---------------------------------------------------------------------------
   # Rust: compile each Tauri backend against the committed lockfile.
   #

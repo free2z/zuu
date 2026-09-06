@@ -476,11 +476,23 @@ expect(
   occurrenceCount(pbxproj, 'PRODUCT_NAME = "ZUULI";'),
   0,
 );
-for (const privacyKey of [
-  "NSCameraUsageDescription",
-  "NSFaceIDUsageDescription",
-  "NSMicrophoneUsageDescription",
+// #945: the capture usage descriptions are gone with the livestreaming surface
+// #904 phase 4 deleted, so `Info.ios.plist` and the generated plist must carry
+// neither of them. This is asserted before the value-parity loop, because a
+// missing key makes that loop vacuous rather than red.
+for (const [label, contents] of [
+  ["iOS source", plistSource],
+  ["generated iOS", plist],
 ]) {
+  for (const removedKey of ["NSCameraUsageDescription", "NSMicrophoneUsageDescription"]) {
+    expect(
+      `${label} ${removedKey} key count`,
+      occurrenceCount(contents, `<key>${removedKey}</key>`),
+      0,
+    );
+  }
+}
+for (const privacyKey of ["NSFaceIDUsageDescription"]) {
   const sourceValue = capture(
     new RegExp(`<key>${privacyKey}<\\/key>\\s*<string>([^<]+)<\\/string>`),
     plistSource,
