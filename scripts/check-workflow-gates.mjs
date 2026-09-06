@@ -232,20 +232,22 @@ const UNGATED_WORKFLOWS = new Map([
   ],
   [
     ".github/workflows/wallet-surfaces.yml",
-    "Advisory build of the two delegated surfaces of the three-app split (#904/#906) — wallet/free2z " +
+    "Cargo build and test of the two delegated surfaces' Tauri backends (#904/#906) — wallet/free2z " +
       "and wallet/e2e2z — behind an `on: pull_request: paths:` filter. Nothing that decides whether " +
-      "either surface is safe is decided here: the ZUULI change detector selects `wallet/free2z/*` and " +
-      "`wallet/e2e2z/*`, so the required `gate` in zuuli.yml already runs the capability contract " +
-      "(wallet/zuuli/scripts/surface-capability-authority.mjs) and the cross-application import check " +
-      "(project-boundary.mjs) inside the protected `zuuli / frontend` job, and rust_fmt/rust_clippy/" +
-      "rust_deny discover both new src-tauri crates rather than listing them. What remains here is " +
-      "surface build coverage plus, since #904 phase 3, each surface's OWN unit and browser suites — " +
-      "including wallet/e2e2z/tests/enrollment-gap.pw.ts, which proves the messaging surface cannot " +
-      "appear enrolled without the wallet authority. Those suites therefore cannot fail a merge " +
-      "today, and this entry does not pretend otherwise: #915 decides whether they move into the " +
-      "required gate. The security PROPERTY they illustrate is separately gated — no `zcash:*` for " +
-      "e2e2z and no cross-application import are both decided by the two checkers named above, " +
-      "inside `gate`.",
+      "either surface is safe is decided here, and since #915 neither are their test suites. The " +
+      "ZUULI change detector selects `wallet/free2z/*` and `wallet/e2e2z/*`, so the required `gate` " +
+      "in zuuli.yml runs the capability contract (wallet/zuuli/scripts/surface-capability-authority" +
+      ".mjs) and the cross-application import check (project-boundary.mjs) inside the protected " +
+      "`zuuli / frontend` job; rust_fmt/rust_clippy/rust_deny discover both src-tauri crates rather " +
+      "than listing them; and zuuli.yml's `surfaces` job now runs each surface's OWN typecheck, " +
+      "vitest, ui-copy and Playwright suites — including wallet/e2e2z/tests/enrollment-gap.pw.ts, " +
+      "which proves the messaging surface cannot appear enrolled without the wallet authority. Those " +
+      "suites MOVED into the gate rather than being copied into it, so this file no longer runs " +
+      "them and the entry claims no coverage it does not have. What is left is the `cargo build " +
+      "--all-targets` and `cargo test` of each backend, which restate work the gate's rust_fmt/" +
+      "rust_clippy/rust_deny legs already cover for compilation and lint; gating the remainder means " +
+      "first moving its paths filter into a change-detector job, since a required context from a " +
+      "path-filtered workflow that did not run never reports.",
   ],
   [
     ".github/workflows/f2z-images.yml",

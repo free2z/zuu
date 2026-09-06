@@ -106,7 +106,7 @@ of them.
 | --- | --- | --- |
 | `zuuli.yml` | **yes — the required `gate`** | ZUULI frontend + Playwright, Rust fmt/clippy/deny across every crate under `wallet/`, target-native clippy on macOS and Windows, and the repository policy scripts |
 | `rs.yml` | **yes — the required `rs / gate`** | the `rs/` Rust workspace, plus the tree-wide policy checks its `changes` job runs unconditionally: action pins, gate wiring, hash-domain labels, server images, the toolchain pin, and Markdown link resolution |
-| `wallet-surfaces.yml` | no | build coverage for free2z and e2e2z — typecheck, tests, bundle, `cargo build` per backend |
+| `wallet-surfaces.yml` | no | `cargo build --all-targets` and `cargo test` of the free2z and e2e2z backends. Their frontend suites moved into `zuuli.yml`'s gated `surfaces` job in #915 |
 | `zuuallet.yml` | no | Zuuallet frontend + backend, and the weekly `upstream-canary` against latest librustzcash `main` |
 
 Two consequences worth internalising:
@@ -115,9 +115,15 @@ Two consequences worth internalising:
   workflow.** Its change detector selects `wallet/free2z/**` and
   `wallet/e2e2z/**`, so the capability and boundary checks in
   [`docs/architecture.md` §4](./architecture.md#4-what-enforces-the-boundary)
-  run on every pull request that touches either tree. `wallet-surfaces.yml`
+  run on every pull request that touches either tree — and since #915 so do both
+  surfaces' own suites, in the gated `surfaces` job. `wallet-surfaces.yml`
   publishes no gate and is registered in `check-workflow-gates.mjs`'s
   `UNGATED_WORKFLOWS`.
+- **A change touching only a surface's frontend tests skips the native matrix.**
+  `wallet/{free2z,e2e2z}/tests/**` and their `src/**/*.test.ts?(x)` are carved
+  out of the `zuuli` selector and select `surfaces` instead (#949). Anything
+  under `src-tauri/` — including a Rust integration test — is not, and still
+  selects everything.
 - **`rust_fmt` / `rust_clippy` / `rust_deny` discover crates** by finding
   `Cargo.toml` under `wallet/` rather than listing them, so a new crate is gated
   from its first commit and cannot escape the MSRV check by never being

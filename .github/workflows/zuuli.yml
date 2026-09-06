@@ -32,6 +32,7 @@ jobs:
     outputs:
       zuuli: ${{ steps.filter.outputs.zuuli }}
       zuuallet_schema: ${{ steps.filter.outputs.zuuallet_schema }}
+      surfaces: ${{ steps.filter.outputs.surfaces }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -115,6 +116,7 @@ jobs:
             echo "::notice::No usable base commit; running the full ZUULI gate."
             echo "zuuli=true" >> "$GITHUB_OUTPUT"
             echo "zuuallet_schema=true" >> "$GITHUB_OUTPUT"
+            echo "surfaces=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -124,11 +126,13 @@ jobs:
             echo "::warning::Diff failed; running the full ZUULI gate."
             echo "zuuli=true" >> "$GITHUB_OUTPUT"
             echo "zuuallet_schema=true" >> "$GITHUB_OUTPUT"
+            echo "surfaces=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           zuuli=false
           zuuallet_schema=false
+          surfaces=false
           while IFS= read -r -d '' file; do
             # Prose under an application directory — STATUS.md, README.md,
             # CLAUDE.md, docs/**.md — describes the app; it is not compiled into
@@ -154,8 +158,45 @@ jobs:
                   "$file" == wallet/e2e2z/*.md ]]; then
               continue
             fi
+            # Frontend test sources for the two delegated surfaces. A Playwright
+            # spec or a vitest file here is executed by the `surfaces` job below
+            # and read by nothing else: no Rust job compiles it, no production
+            # bundle ships it, and `npm run build` type-checks against
+            # tsconfig.build.json, which excludes it. Without this guard the
+            # broad `wallet/free2z/*` and `wallet/e2e2z/*` patterns in the arm
+            # below select the whole native matrix, so #938 — 1,226 lines
+            # entirely under wallet/free2z/tests/, no source, no config — waited
+            # on `Rust / lints` (41m) and `Rust / native lints (macos)` (37m)
+            # that no line it changed can reach (#949).
+            #
+            # It is deliberately NOT a `wallet/<app>/tests/*` glob in general. A
+            # Rust integration test lives under `src-tauri/tests/` —
+            # wallet/free2z/src-tauri/tests/http_scope.rs arrived in #942 — and
+            # MUST run the Rust jobs. Every pattern here is anchored at the
+            # literal prefix `wallet/<app>/tests/` or `wallet/<app>/src/`, and
+            # neither is a prefix of `wallet/<app>/src-tauri/`, so nothing under
+            # src-tauri/ can reach this guard however far `*` spans.
+            #
+            # wallet/zuuli's own tests are deliberately absent: they run inside
+            # the protected `zuuli / frontend` job, so carving them out would
+            # skip the job that executes them.
+            #
+            # `surfaces` is set rather than nothing being set, because these
+            # files ARE the input to the surfaces suite; and like the markdown
+            # guard this runs only per-file, so it cannot affect the fail-open
+            # paths above, and a commit that touches a test *and* source still
+            # selects the full gate on the source file.
+            if [[ "$file" == wallet/free2z/tests/* ||
+                  "$file" == wallet/e2e2z/tests/* ||
+                  "$file" == wallet/free2z/src/*.test.ts ||
+                  "$file" == wallet/free2z/src/*.test.tsx ||
+                  "$file" == wallet/e2e2z/src/*.test.ts ||
+                  "$file" == wallet/e2e2z/src/*.test.tsx ]]; then
+              surfaces=true
+              continue
+            fi
             case "$file" in
-              Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/package.json|wallet/package-lock.json|wallet/shared/*|wallet/zuuli/*|wallet/zuuallet/*|wallet/free2z/*|wallet/e2e2z/*|wallet/plugins/*|rs/crates/f2z-codec/*|rs/crates/f2z-intent/*|rs/crates/f2z-kt-client/*|rs/crates/f2z-kt-core/*|rs/crates/f2z-msg-dag/*|rs/crates/f2z-msg-identity/*|rs/crates/f2z-msg-mls/*|rs/crates/f2z-msg-store/*|rs/crates/f2z-relay-proto/*|rs/crates/f2z-relay-testkit/*|rs/rust-toolchain.toml|wallet/zuuallet/package.json|wallet/zuuallet/package-lock.json|wallet/zuuallet/src/hooks/useWallet.ts|wallet/zuuallet/src/lib/mnemonic.ts|wallet/zuuallet/src/lib/sensitive-entry.ts|wallet/zuuallet/src/lib/sensitive-seed-session.ts|wallet/zuuallet/src/lib/sensitive-seed.ts|wallet/zuuallet/src/lib/tauri.ts|wallet/zuuallet/src/pages/CreateWallet.tsx|wallet/zuuallet/src/pages/RestoreWallet.tsx|wallet/zuuallet/src/pages/Settings.tsx|wallet/zuuallet/src/pages/Welcome.tsx|wallet/zuuallet/src/pages/sensitive-entry-routes.test.tsx|wallet/zuuallet/src/types/index.ts|wallet/rust-toolchain.toml|wallet/deny.toml|docs/e2ee/CLIENT-CONTRACT.md|docs/e2ee/WIRE.md|scripts/check-github-actions-pins.mjs|scripts/check-librustzcash-compat.mjs|scripts/check-rust-toolchain.sh|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|scripts/check-tauri-plugin-permissions.mjs|scripts/check-zuuli-linux-image.mjs|scripts/check-zuuli-store-capture-image.mjs|scripts/check-zuuli-android-gate.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/containers/zuuli-store-capture/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/workflows/zuuli-store-capture-image.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-store-audit.yml|.github/workflows/zuuli-store-publish.yml|.github/workflows/zuuli-testflight-bootstrap.yml|.github/workflows/zuuli-testflight-recovery.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*|docs/ZUULI-LINUX-BUILD-IMAGE.md|docs/ZUULI-STORE-CAPTURE-IMAGE.md)
+              Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/package.json|wallet/package-lock.json|wallet/shared/*|wallet/zuuli/*|wallet/zuuallet/*|wallet/free2z/*|wallet/e2e2z/*|wallet/plugins/*|rs/crates/f2z-codec/*|rs/crates/f2z-intent/*|rs/crates/f2z-kt-client/*|rs/crates/f2z-kt-core/*|rs/crates/f2z-msg-dag/*|rs/crates/f2z-msg-identity/*|rs/crates/f2z-msg-mls/*|rs/crates/f2z-msg-store/*|rs/crates/f2z-relay-proto/*|rs/crates/f2z-relay-testkit/*|rs/rust-toolchain.toml|wallet/zuuallet/package.json|wallet/zuuallet/package-lock.json|wallet/zuuallet/src/hooks/useWallet.ts|wallet/zuuallet/src/lib/mnemonic.ts|wallet/zuuallet/src/lib/sensitive-entry.ts|wallet/zuuallet/src/lib/sensitive-seed-session.ts|wallet/zuuallet/src/lib/sensitive-seed.ts|wallet/zuuallet/src/lib/tauri.ts|wallet/zuuallet/src/pages/CreateWallet.tsx|wallet/zuuallet/src/pages/RestoreWallet.tsx|wallet/zuuallet/src/pages/Settings.tsx|wallet/zuuallet/src/pages/Welcome.tsx|wallet/zuuallet/src/pages/sensitive-entry-routes.test.tsx|wallet/zuuallet/src/types/index.ts|wallet/rust-toolchain.toml|wallet/deny.toml|docs/e2ee/CLIENT-CONTRACT.md|docs/e2ee/WIRE.md|scripts/check-github-actions-pins.mjs|scripts/check-librustzcash-compat.mjs|scripts/check-rust-toolchain.sh|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|scripts/check-tauri-plugin-permissions.mjs|scripts/check-zuuli-linux-image.mjs|scripts/check-zuuli-store-capture-image.mjs|scripts/check-zuuli-android-gate.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/containers/zuuli-store-capture/*|.github/workflows/e2e2z-release.yml|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/workflows/zuuli-store-capture-image.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-store-audit.yml|.github/workflows/zuuli-store-publish.yml|.github/workflows/zuuli-testflight-bootstrap.yml|.github/workflows/zuuli-testflight-recovery.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*|docs/ZUULI-LINUX-BUILD-IMAGE.md|docs/ZUULI-STORE-CAPTURE-IMAGE.md)
                 zuuli=true
                 ;;
             esac
@@ -166,13 +207,30 @@ jobs:
             esac
           done < "$changed_files"
 
+          # `surfaces` is a strict superset of `zuuli`: every input that selects
+          # the full gate — a shared package, a lockfile, the toolchain pin, a
+          # surface's own source — also changes what free2z and e2e2z build and
+          # test against. Deriving it here rather than restating the selector
+          # keeps one authoritative pattern list, and makes the only way for the
+          # surfaces suite to skip be that every changed file was excused above.
+          if [[ "$zuuli" == true ]]; then
+            surfaces=true
+          fi
+
           echo "zuuli=$zuuli" >> "$GITHUB_OUTPUT"
           echo "zuuallet_schema=$zuuallet_schema" >> "$GITHUB_OUTPUT"
+          echo "surfaces=$surfaces" >> "$GITHUB_OUTPUT"
 
   frontend:
     name: zuuli / frontend
     needs: changes
-    if: needs.changes.outputs.zuuli == 'true'
+    # `surfaces` as well as `zuuli`, because this job owns the cross-application
+    # boundary verdicts for free2z and e2e2z — project-boundary.mjs and, via
+    # `npm run test`, surface-capability-authority.mjs. A change that only edits
+    # a surface's tests skips the ~40-minute native matrix (#949) but must not
+    # skip the 6-minute job that decides whether that surface may import across
+    # the split or hold a capability it is not allowed.
+    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.surfaces == 'true'
     runs-on: ubuntu-latest
     # Retain bounded time for the mandatory viewport suite and production build,
     # including occasional hosted-runner provisioning delays.
@@ -273,6 +331,86 @@ jobs:
         run: |
           npm run test
           npm --prefix ../zuuallet run test:sensitive-entry
+
+      - name: Build production frontend
+        run: npm run build
+
+  # The two delegated surfaces of the three-app split (#904/#906) — wallet/free2z
+  # and wallet/e2e2z — run their OWN unit and browser suites here, inside the
+  # required gate, rather than in wallet-surfaces.yml where they could not fail a
+  # merge (#915).
+  #
+  # Branch protection requires exactly ["gate", "rs / gate"], and growing that
+  # list is a repository-settings change no pull request can make — a wrong name
+  # there blocks every merge forever. So this job publishes no required context
+  # of its own: it is added to `gate`'s `needs:`, and the gate's exhaustive
+  # verifier (check-github-actions-pins.mjs --verify-gate-results) refuses any
+  # result but the one this job's selector predicts. `gate` itself carries
+  # `if: always()` and zuuli.yml has no `paths:` filter, so the required context
+  # reports on every pull request whether this job ran or skipped; there is no
+  # required-but-skipped deadlock to fall into.
+  #
+  # What moved here is the whole frontend leg, not a copy of it: leaving it in
+  # wallet-surfaces.yml as well would run ~900 free2z vitest cases and both
+  # Playwright suites twice per pull request, which is the cost #949 is about.
+  # wallet-surfaces.yml keeps the Rust leg and stays registered as ungated.
+  surfaces:
+    name: zuuli / surfaces (${{ matrix.app }})
+    needs: changes
+    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.surfaces == 'true'
+    runs-on: ubuntu-latest
+    # free2z's leg is the long one: ~900 vitest cases plus a Playwright run
+    # against the mock backend. Bounded well clear of it, and still a quarter of
+    # the native matrix this job lets a test-only change skip.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [free2z, e2e2z]
+    defaults:
+      run:
+        working-directory: wallet/${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: wallet/${{ matrix.app }}/package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      # Dependency refreshes belong in focused PRs; bounded retries tolerate
+      # registry failures without weakening the high-severity floor.
+      - name: Audit dependencies (high and critical)
+        run: |
+          for attempt in 1 2 3; do
+            npm audit --audit-level=high && exit 0
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep $((attempt * 5))
+          done
+
+      - name: Typecheck
+        run: |
+          npm run typecheck
+          npm run typecheck:tests
+
+      # Both surfaces' `npm test` ends in `playwright test`, and both configs
+      # select `channel: "chrome"` under CI, so this uses the runner image's
+      # preinstalled stable Chrome rather than downloading a browser — exactly as
+      # the frontend job above does — and fails here, with a readable message, if
+      # the image ever stops shipping it.
+      - name: Verify the browser-test browser
+        run: google-chrome --version
+
+      # For e2e2z this is the only run that exercises the ported messaging
+      # surface in a real browser, including tests/enrollment-gap.pw.ts, which
+      # proves the messaging surface cannot appear enrolled without the wallet
+      # authority. Until #915 that test could go red without blocking a merge.
+      - name: Test owned frontend modules
+        run: npm test
 
       - name: Build production frontend
         run: npm run build
@@ -993,7 +1131,7 @@ jobs:
   # change detector and every applicable full-stack job succeeded; legitimate
   # non-ZUULI skips continue to report success instead of remaining pending.
   gate:
-    needs: [changes, frontend, rust_fmt, rust_deny, rust_clippy, rust_native_clippy, rust_native_tests, rust_plugin, rust_msg_plugin, rust_android_32, rust_app, zuuallet_schema, rust_crypto_targets]
+    needs: [changes, frontend, surfaces, rust_fmt, rust_deny, rust_clippy, rust_native_clippy, rust_native_tests, rust_plugin, rust_msg_plugin, rust_android_32, rust_app, zuuallet_schema, rust_crypto_targets]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
