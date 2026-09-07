@@ -16,13 +16,25 @@
 // the subtree. That matters more here than in the other two apps, because this
 // one is a single screen with nowhere to navigate — a subtree that unmounts the
 // root leaves the user with nothing and no way back.
+//
+// Both of those exits now also *record* what happened, and
+// `installGlobalDiagnostics` covers the third — a throw or rejection that
+// reaches the event loop with no React frame on the stack at all. Rendering a
+// recovery card says the app failed; the diagnostics buffer is what lets
+// someone holding the phone say why.
 
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
+import {
+  bootstrapReporter,
+  boundaryReporter,
+  installGlobalDiagnostics,
+} from "@free2z/wallet-shared";
 import App from "./App";
 import { mountApplication, RootFallback } from "./app-bootstrap";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
+import { diagnostics } from "./lib/diagnostics";
 import { installDocumentDirection } from "./lib/document-direction";
 import "./index.css";
 
@@ -34,16 +46,28 @@ if (!container) throw new Error("the application root element is missing");
 // lang>`; the observer installed here derives `dir` from it thereafter.
 installDocumentDirection();
 
+// Before the first `await`, so a rejection during locale bootstrap reaches a
+// listener rather than nobody.
+installGlobalDiagnostics(diagnostics, window);
+diagnostics.breadcrumb("lifecycle", "app-start");
+
 void mountApplication({
   root: ReactDOM.createRoot(container),
-  renderApplication: (i18n) => (
-    <React.StrictMode>
-      <I18nextProvider i18n={i18n}>
-        {/* Top-level boundary: no subtree can ever unmount the root. */}
-        <ErrorBoundary fallback={<RootFallback />}>
-          <App />
-        </ErrorBoundary>
-      </I18nextProvider>
-    </React.StrictMode>
-  ),
+  reportError: bootstrapReporter(diagnostics),
+  renderApplication: (i18n) => {
+    diagnostics.breadcrumb("lifecycle", "locale-ready");
+    return (
+      <React.StrictMode>
+        <I18nextProvider i18n={i18n}>
+          {/* Top-level boundary: no subtree can ever unmount the root. */}
+          <ErrorBoundary
+            fallback={<RootFallback />}
+            onError={boundaryReporter(diagnostics)}
+          >
+            <App />
+          </ErrorBoundary>
+        </I18nextProvider>
+      </React.StrictMode>
+    );
+  },
 });

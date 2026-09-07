@@ -48,9 +48,18 @@ describe("application locale bootstrap", () => {
   //
   // Reading the entry point is the only way to hold that. It is a single
   // screen with no router, so there is exactly one file to check.
+  //
+  // Matched as a pattern rather than as one literal line because the boundary
+  // now also carries an `onError` that reports into the diagnostics buffer, so
+  // the tag spans several lines. The pattern still requires the same two things
+  // the literal did — a boundary, with `RootFallback` as its fallback — and
+  // additionally tolerates no gap between them, so it cannot be satisfied by a
+  // boundary in one place and a stray `RootFallback` in another.
   it("is what the entry point actually mounts through", () => {
     expect(mainSource).toContain("mountApplication");
-    expect(mainSource).toContain("<ErrorBoundary fallback={<RootFallback />}>");
+    expect(mainSource).toMatch(
+      /<ErrorBoundary[^>]*\bfallback=\{<RootFallback \/>\}/u,
+    );
     // The shape that shipped the bug: the entry point driving the render
     // itself, off a promise nothing was catching. It hands a root to
     // `mountApplication` and renders nothing on its own.
