@@ -66,6 +66,15 @@ pub async fn drive(
     let missed_pongs_before_close = relay.config().listen.missed_pongs_before_close;
     let mut missed_pongs = 0u32;
     let mut ping = tokio::time::interval(ping_interval);
+    // The same correction as `f2z-relay-testkit`'s `drive`, made in both because
+    // these are meant to be the same loop. `Burst`, the default, replays every
+    // tick the loop was too busy to serve, back to back and ahead of the read
+    // branch because this `select!` is biased — so a connection task that was
+    // merely descheduled wakes owing several ticks, counts each as a missed
+    // Pong, and closes a client whose answer was already readable. §2.4's
+    // keepalive measures the *client's* silence; a missed tick is the relay's
+    // own delay and is dropped rather than replayed.
+    ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // An `interval`'s first tick fires immediately; a Ping before the client has
     // even said HELLO is noise, not keepalive.
     ping.tick().await;

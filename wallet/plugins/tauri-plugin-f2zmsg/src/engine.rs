@@ -5142,7 +5142,6 @@ mod tests {
     use core::convert::Infallible;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::time::Duration;
 
     use f2z_codec::commands::Command;
     use f2z_codec::types::{Digest, PublicKey, RelayId, ShortBytes};
@@ -5151,7 +5150,6 @@ mod tests {
     use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
     use f2z_msg_mls::{DeviceSigner, MlsEngine};
     use f2z_msg_store::{Durability, MemoryBackend, Op, SqliteBackend, StorageBackend, StoreError};
-    use f2z_relay_testkit::config::RelayConfig as FakeRelayConfig;
     use f2z_relay_testkit::fake::FakeRelay;
     use f2z_relay_testkit::faults::{Effect, Fault, Trigger};
     use openmls::prelude::{GroupId, MlsGroup};
@@ -5698,14 +5696,62 @@ mod tests {
     /// value protects against is a genuine deadlock, where a test would
     /// otherwise sit until the CI job's own timeout and report nothing useful.
     ///
-    /// It was `5s`, which is why it kept failing (#952). That number was
-    /// calibrated on a developer machine, where this whole test binary
-    /// finishes in ~0.03s. A GitHub runner is not that machine: the same
-    /// binary was observed at **4.46s** on a passing run and **6.69s** on the
-    /// run that failed, so a 5-second deadline sat inside ordinary runner
-    /// variance rather than outside it. Anything under ~30s is measuring the
-    /// runner's load, not the code.
+    /// **Raising it from `5s` did not fix #952, and this comment used to claim
+    /// it would.** The reasoning was that a 5-second budget sat inside ordinary
+    /// runner variance — this binary finishes in ~0.03s on a developer machine
+    /// and was observed at 4.46s and 6.69s on GitHub runners — which is true,
+    /// and irrelevant, because the wait was never slow: it was never going to
+    /// finish. The relay had closed the connection under §2.4's keepalive
+    /// before BIND_SEND was sent, so the fault was never applied and never
+    /// retired. All the wider deadline bought was a 60-second hang instead of a
+    /// 5-second one. The cause is fixed in `f2z-relay-testkit`'s
+    /// `RelayConfig::ping_interval`; see [`fault_applied`] for what now reports
+    /// it if it ever recurs.
+    ///
+    /// 60s is kept because it is the right size for what this actually is — a
+    /// hang detector — and `fault_applied` means a closed connection is now
+    /// reported in milliseconds rather than by waiting this out.
     const FAULT_APPLIED_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+
+    /// Wait for the relay to apply an armed one-shot fault, and say **why** when
+    /// it does not.
+    ///
+    /// The bind task is supposed to hang: the relay applies BIND_SEND and drops
+    /// the response, so the client sits in its read timeout until the test
+    /// aborts it. That makes the task the only witness to the failure this wait
+    /// used to report as a bare `Elapsed(())` — when the relay never receives
+    /// BIND_SEND at all, `bind_send` returns an error immediately, and racing
+    /// the two turns a silent one-minute hang into the transport error that
+    /// caused it. #952 spent three CI rounds on `Elapsed(())` because the one
+    /// task that knew the answer was `abort()`ed without ever being read.
+    async fn fault_applied(
+        faults: &f2z_relay_testkit::faults::FaultInjector,
+        bind: &mut tokio::task::JoinHandle<Result<BindReadiness>>,
+        what: &str,
+    ) {
+        tokio::select! {
+            applied = tokio::time::timeout(
+                FAULT_APPLIED_DEADLINE,
+                faults.wait_until_disarmed(),
+            ) => {
+                assert!(
+                    applied.is_ok(),
+                    "{what}: the relay did not apply the fault within \
+                     {FAULT_APPLIED_DEADLINE:?} and the bind is still running; \
+                     {} rule(s) still armed",
+                    faults.armed(),
+                );
+            }
+            outcome = bind => {
+                panic!(
+                    "{what}: the bind returned before the relay applied the \
+                     fault, so BIND_SEND never reached the relay; \
+                     {} rule(s) still armed, bind returned {outcome:?}",
+                    faults.armed(),
+                );
+            }
+        }
+    }
 
     fn conversation(
         relay_url: &str,
@@ -6245,7 +6291,7 @@ mod tests {
         ));
         let crashing_engine = Arc::clone(&engine);
         let stale = stored.clone();
-        let bind = tokio::spawn(async move {
+        let mut bind = tokio::spawn(async move {
             crashing_engine
                 .inner
                 .lock()
@@ -6253,9 +6299,12 @@ mod tests {
                 .ensure_bound(&stale)
                 .await
         });
-        tokio::time::timeout(FAULT_APPLIED_DEADLINE, faults.wait_until_disarmed())
-            .await
-            .expect("relay applied BIND_SEND and dropped its response");
+        fault_applied(
+            &faults,
+            &mut bind,
+            "relay applied BIND_SEND and dropped its response",
+        )
+        .await;
         bind.abort();
         let _ = bind.await;
         drop(engine);
@@ -6419,7 +6468,7 @@ mod tests {
         ));
         let crashing_engine = Arc::clone(&engine);
         let stale = fresh.clone();
-        let bind = tokio::spawn(async move {
+        let mut bind = tokio::spawn(async move {
             crashing_engine
                 .inner
                 .lock()
@@ -6427,9 +6476,12 @@ mod tests {
                 .ensure_bound(&stale)
                 .await
         });
-        tokio::time::timeout(FAULT_APPLIED_DEADLINE, faults.wait_until_disarmed())
-            .await
-            .expect("relay applied the first BIND_SEND and dropped its response");
+        fault_applied(
+            &faults,
+            &mut bind,
+            "relay applied the first BIND_SEND and dropped its response",
+        )
+        .await;
         bind.abort();
         let _ = bind.await;
         drop(engine);
@@ -6936,15 +6988,15 @@ mod tests {
     #[tokio::test]
     async fn failed_atomic_theft_commit_uses_loud_in_memory_fallback_without_partial_state() {
         // This test deliberately parks the client socket while it opens and
-        // primes a real SQLite store. The FakeRelay's 500 ms keepalive is for
-        // keepalive tests, not representative of the shipping relay's 25 s
-        // interval; under a contended gate it could close this otherwise-ready
-        // fixture before the storage-failure assertion even began.
-        let relay_config = FakeRelayConfig {
-            ping_interval: Duration::from_secs(25),
-            ..FakeRelayConfig::default()
-        };
-        let relay = FakeRelay::new(relay_config).expect("fake relay");
+        // primes a real SQLite store, so it was the first one here to lose a
+        // connection to the FakeRelay's old 500 ms keepalive and it carried a
+        // private 25 s override to survive. The override is now the crate
+        // default — that hazard was #952 all along, and one test opting out of
+        // it left every other test still holding it — so this restates the
+        // default rather than overriding it, and
+        // `f2z-relay-testkit/tests/idle_connection.rs` is what keeps the
+        // default honest.
+        let relay = FakeRelay::with_defaults().expect("fake relay");
         let server = relay.listen_loopback().await.expect("relay listener");
         let url = server.url();
         let root = tempfile::tempdir().expect("tempdir");
