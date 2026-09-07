@@ -38,14 +38,14 @@
       "infoPlist": "Info.macos.plist"
     },
     "iOS": {
-      "bundleVersion": "20",
+      "bundleVersion": "21",
       "developmentTeam": "F9AV5HKF6N",
       "minimumSystemVersion": "18.0",
       "infoPlist": "Info.ios.plist"
     },
     "android": {
       "minSdkVersion": 29,
-      "versionCode": 20
+      "versionCode": 21
     }
   },
   "plugins": {
