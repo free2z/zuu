@@ -346,6 +346,54 @@ files, 1688 parsed module references, 5 production shared-package consumers,
 Vite builds.
 ```
 
+## The App Link association
+
+`wallet/zuuli/scripts/app-link-association.node-test.mjs` holds the four
+surfaces of [#461](https://github.com/free2z/zuu/issues/461) — each app's
+`tauri.conf.json`, its generated Android manifest, its generated iOS
+entitlements, and the two association documents — to one reviewed record.
+
+Its mutations are **in the test file rather than in a scripted patch/restore
+loop**, which is the stronger arrangement here: each case reads the real
+committed bytes, applies one corruption to one of them in memory, and asserts a
+named failure. There is no window in which a mutation can be left applied, and
+no fixture that can pass while the shipped manifest says something else.
+
+| Case | Proves |
+|---|---|
+| an app signing fingerprint replaced by ZUULI's **upload** certificate | the certificate that verifies in a sideloaded test build and fails for every real install is refused, in the record and in the rendered document |
+| an assetlinks document with one package removed | both the fixed-point check and the "names every shipped app" check fire, and they are independent questions |
+| an App ID moved to another Apple team | the Apple document must name the team the apps are actually signed by |
+| iOS entitlements emptied | an app that claims no associated domain never fetches the AASA, and every bridge link opens Safari |
+| iOS entitlements pointed at `free2z.cash` | claiming a host that does not serve the association is the same silent failure |
+| `android:autoVerify="true"` deleted | without it the filter is an ordinary link filter any app may also claim |
+| `android:pathPrefix` deleted | the assetlinks relation is host-wide, so the prefix is the only per-app boundary on every Android version |
+| one app also claiming another's `/bridge/<app>/` prefix | two apps matching one URL means the OS chooses arbitrarily |
+| `appLink: true` downgraded to `false` | an unverified web link is not an authenticated channel |
+| a second `https` route declaring `appLink: false` | the downgrade is refused even beside a correct verified route |
+| an app-link route widened to `/bridge/` | a prefix that swallows the other apps is refused |
+| `store-identity.json` losing its app signing certificate | the store record and the association record cannot drift apart |
+| a bundle whose `developmentTeam` is not the AASA's team | the appID prefix cannot name a team the build is not signed by |
+| two apps sharing one Play App Signing key | each Play listing has its own key; one app's certificate authorising another package is the valid-but-wrong document the whole mechanism avoids |
+| a component with a non-terminal `*` | Apple's and Google's wildcards agree only in the terminal position |
+| a mixed-case component | a `caseSensitive: false` component could otherwise merge two owners |
+| a lower-cased fingerprint | one documented format, so the rendered document does not depend on how someone pasted it |
+
+Live run, on the real tree:
+
+```
+App Link association is coherent for 3 apps on free2z.com
+# tests 23
+# pass 23
+# fail 0
+```
+
+**What this does not prove.** Nothing here reaches a device or a CDN. The
+association is only real once `https://free2z.com/.well-known/assetlinks.json`
+serves the three fingerprints — it returns `503` today — and once
+`adb shell pm get-app-links <pkg>` reports `verified` on a signed build. See
+[`PROTOCOL.md` §7.1](./PROTOCOL.md#71-what-has-landed-of-461-and-what-has-not).
+
 ## Cross-language agreement
 
 `rs/crates/f2z-intent/tests/wire_vectors.rs` and

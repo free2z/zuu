@@ -405,14 +405,46 @@ for (const contract of [
 // One intent-filter per registered deep-link route, and no more: the plugin
 // regenerates this block on every build from tauri.conf.json, so a mismatch
 // means the committed manifest and the configured routes have drifted apart.
+//
+// Counted per SCHEME, because the two kinds of route emit different `<data>`
+// elements. A custom-scheme route emits `android:scheme="cash.free2z.free2z"`;
+// the verified App Link (#461) emits `android:scheme="https"` with the
+// association host and this app's own bridge prefix. Counting every route
+// against the custom-scheme line would expect one more than a build writes.
 const deepLinkRoutes = tauri.plugins?.["deep-link"]?.mobile ?? [];
+const appLinkRoutes = deepLinkRoutes.filter((route) => route?.appLink === true);
+const customSchemeRoutes = deepLinkRoutes.filter((route) => route?.appLink !== true);
 expect(
   "Android manifest deep-link routes",
   occurrenceCount(androidManifest, `<data android:scheme="${release.applicationId}" />`),
-  deepLinkRoutes.length,
+  customSchemeRoutes.length,
 );
-if (deepLinkRoutes.length === 0)
+if (customSchemeRoutes.length === 0)
   failures.push("tauri.conf.json registers no mobile deep-link route to check");
+
+// The App Link half. `android:autoVerify="true"` is what asks Android to fetch
+// `https://free2z.com/.well-known/assetlinks.json` and bind this package to the
+// host; without it the filter is an ordinary link filter any app can also claim,
+// which is exactly what `docs/intent-bridge/CALLER-AUTHENTICATION.md` §4 refuses
+// to carry authority over. `android:pathPrefix` is the real per-app boundary on
+// every Android version -- the assetlinks relation itself is host-wide -- so a
+// missing or widened prefix is a bridge response that can open in the wrong app.
+expect("Android manifest App Link routes", appLinkRoutes.length, 1);
+expect(
+  "Android manifest App Link autoVerify filters",
+  occurrenceCount(androidManifest, '<intent-filter android:autoVerify="true" >'),
+  1,
+);
+expect(
+  "Android manifest App Link host",
+  occurrenceCount(androidManifest, '<data android:host="free2z.com" />'),
+  1,
+);
+expect(
+  "Android manifest App Link path prefix",
+  occurrenceCount(androidManifest, '<data android:pathPrefix="/bridge/free2z/" />'),
+  1,
+);
 
 // ---------------------------------------------------------------------------
 // The generated Apple project.

@@ -566,6 +566,28 @@ for (const callbackElement of [
       `generated Android OAuth callback is missing ${callbackElement}`,
     );
 }
+// The App Link half (#461). `android:autoVerify="true"` is what asks Android to
+// fetch `https://free2z.com/.well-known/assetlinks.json` and bind this package to
+// the host; without it the filter is an ordinary link filter any app can also
+// claim, which is exactly what `docs/intent-bridge/CALLER-AUTHENTICATION.md` §4
+// refuses to carry authority over. `android:pathPrefix` is the real per-app
+// boundary on every Android version -- the assetlinks relation itself is
+// host-wide -- so a missing or widened prefix is an intent request that can be
+// answered by the wrong app. The OAuth callback above stays on the custom
+// scheme and is deliberately untouched by this.
+expect(
+  "Android manifest App Link autoVerify filters",
+  occurrenceCount(androidManifest, '<intent-filter android:autoVerify="true" >'),
+  1,
+);
+for (const appLinkElement of [
+  '<data android:scheme="https" />',
+  '<data android:host="free2z.com" />',
+  '<data android:pathPrefix="/bridge/zuuli/" />',
+]) {
+  if (!androidManifest.includes(appLinkElement))
+    failures.push(`generated Android App Link is missing ${appLinkElement}`);
+}
 expect(
   "Android fallback version name",
   capture(

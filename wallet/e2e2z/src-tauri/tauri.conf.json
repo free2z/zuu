@@ -34,14 +34,14 @@
       "icons/icon.ico"
     ],
     "iOS": {
-      "bundleVersion": "2",
+      "bundleVersion": "3",
       "developmentTeam": "F9AV5HKF6N",
       "minimumSystemVersion": "18.0",
       "infoPlist": "Info.ios.plist"
     },
     "android": {
       "minSdkVersion": 29,
-      "versionCode": 2
+      "versionCode": 3
     }
   },
   "plugins": {
@@ -52,6 +52,12 @@
           "host": "bridge",
           "path": ["/return"],
           "appLink": false
+        },
+        {
+          "scheme": ["https"],
+          "host": "free2z.com",
+          "pathPrefix": ["/bridge/e2e2z/"],
+          "appLink": true
         }
       ]
     }
