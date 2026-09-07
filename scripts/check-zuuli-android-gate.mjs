@@ -13,26 +13,32 @@ const toolchainEnvPath = "wallet/zuuli/scripts/android-toolchain-env.sh";
 const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
-// Re-derived for #949/#915. The reviewed semantic delta from
-// cad2731734c97401e94ae2b25a722141f09488a107ddde6f28618a5454786c02 is:
+// Re-derived for free2z's release path. The reviewed semantic delta from
+// 464b7a522cdb2348ee9fdbfa46300ba536de8bb911c10ddaa5bb00da249fa410 (#949/#915)
+// is one token:
 //
-//   * a third output, `surfaces`, initialised false, set true in both fail-open
-//     arms — whose *conditions* are unchanged byte for byte — and derived after
-//     the loop as `zuuli || <frontend test path seen>`, i.e. a strict superset
-//     of `zuuli`;
-//   * a per-file guard, in the shape of the #919 markdown guard, that excuses
-//     six frontend test path patterns under wallet/free2z and wallet/e2e2z from
-//     the `zuuli` arm and selects `surfaces` instead. Every pattern is anchored
-//     at the literal prefix `wallet/<app>/tests/` or `wallet/<app>/src/`, and
-//     `src-tauri` is neither, so a Rust integration test still selects the full
-//     matrix (scripts/check-github-actions-pins.mjs probes both directions);
-//   * `.github/workflows/e2e2z-release.yml` added to the `zuuli` arm — purely
-//     additive — because wallet/e2e2z/scripts/release-path.node-test.mjs reads
-//     it and now runs inside the gate.
+//   * `.github/workflows/free2z-release.yml` added to the `zuuli` arm, exactly
+//     as #957 added `.github/workflows/e2e2z-release.yml`, because
+//     wallet/free2z/scripts/release-path.node-test.mjs reads that workflow and
+//     runs inside the gate as part of free2z's `npm test`.
 //
-// Nothing else in the step changed, and no existing pattern was removed.
+// Why this cannot move the fail-open/fail-closed line, which is the only thing
+// this digest is guarding. The change is PURELY ADDITIVE to the arm that selects
+// the full suite: it takes a path that previously matched nothing and makes it
+// select everything. No pattern was removed, no pattern was narrowed, and the
+// step is otherwise byte-identical — same 119 lines, one changed line, one added
+// pipe-delimited token, zero removed. Both fail-open arms (no usable base
+// commit; `git diff` failed), every `zuuli=` / `zuuallet_schema=` / `surfaces=`
+// assignment, and both per-file `continue` guards are unchanged byte for byte.
+// A selector can only become fail-OPEN by dropping or narrowing an input, and
+// this does neither; the structural assertions below — wallet/zuuli/*, the
+// messaging contract documents, every rs/crate the wallet links in source,
+// wallet/shared/*, wallet/zuuallet/*, and this policy file itself — all still
+// pass unchanged, which is what actually holds the Android gate closed. The
+// digest is the tripwire that made a human look; this comment is the record of
+// having looked.
 const changeDetectorDigest =
-  "464b7a522cdb2348ee9fdbfa46300ba536de8bb911c10ddaa5bb00da249fa410";
+  "81ed7dc86d6e1b48398391d74ff7d31d3a3b1332543fba67487eec3831b561f6";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
