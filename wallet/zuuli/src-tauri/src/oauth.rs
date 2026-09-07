@@ -1066,12 +1066,28 @@ mod tests {
         ));
     }
 
+    /// Three routes, and the third is a different KIND of route.
+    ///
+    /// The first two are OAuth's and checkout's private-use URIs, and the
+    /// property this test has always defended is that nothing else claims
+    /// `cash.free2z.zuuli://` — a second custom-scheme route is a second place a
+    /// provider redirect could land. The third is the verified App Link (#461):
+    /// `https` on the association host, scoped to ZUULI's own bridge prefix,
+    /// with `appLink: true`.
+    ///
+    /// It is pinned exactly rather than skipped, because the two failure modes
+    /// are opposite and both matter. A custom-scheme route that quietly became
+    /// an app link would claim a domain; an app link that quietly became
+    /// `appLink: false` would register an unverified web link any app may also
+    /// claim, which is what `docs/intent-bridge/CALLER-AUTHENTICATION.md` §4
+    /// refuses to carry authority over. The same four values are asserted across
+    /// all three apps by `wallet/zuuli/scripts/app-link-association.mjs`.
     #[test]
     fn generated_config_names_only_canonical_mobile_redirects() {
         let config: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let mobile = &config["plugins"]["deep-link"]["mobile"];
-        assert_eq!(mobile.as_array().unwrap().len(), 2);
+        assert_eq!(mobile.as_array().unwrap().len(), 3);
         assert_eq!(mobile[0]["scheme"][0], MOBILE_SCHEME);
         assert_eq!(mobile[0]["host"], MOBILE_HOST);
         assert_eq!(mobile[0]["path"][0], MOBILE_PATH);
@@ -1080,6 +1096,18 @@ mod tests {
         assert_eq!(mobile[1]["host"], "checkout");
         assert_eq!(mobile[1]["path"][0], "/return");
         assert_eq!(mobile[1]["appLink"], false);
+        assert_eq!(mobile[2]["scheme"][0], "https");
+        assert_eq!(mobile[2]["host"], "free2z.com");
+        assert_eq!(mobile[2]["pathPrefix"][0], "/bridge/zuuli/");
+        assert_eq!(mobile[2]["appLink"], true);
+        // Exactly one route may claim a domain, and no custom-scheme route may.
+        let app_links = mobile
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|route| route["appLink"] == true)
+            .count();
+        assert_eq!(app_links, 1);
     }
 
     #[test]
@@ -1095,12 +1123,72 @@ mod tests {
         assert_eq!(manifest.matches("android:path=\"/callback\"").count(), 1);
         assert_eq!(manifest.matches("android:host=\"checkout\"").count(), 1);
         assert_eq!(manifest.matches("android:path=\"/return\"").count(), 1);
+        // Three browsable filters: the two private-use URIs above, plus the
+        // App Link. The count is what stops a fourth from appearing unnoticed.
         assert_eq!(
             manifest
                 .matches("android.intent.category.BROWSABLE")
                 .count(),
-            2
+            3
         );
+    }
+
+    /// The App Link half of the manifest (#461).
+    ///
+    /// `android:autoVerify="true"` is what asks Android to fetch
+    /// `https://free2z.com/.well-known/assetlinks.json` and bind this package to
+    /// the host. Without it the filter is an ordinary link filter any app may
+    /// also claim. `android:pathPrefix` is the real per-app boundary on every
+    /// Android version — the Digital Asset Links relation itself is host-wide —
+    /// so ZUULI must claim its own prefix and neither of the other two apps'.
+    #[test]
+    fn generated_android_manifest_registers_the_verified_app_link() {
+        let manifest = include_str!("../gen/android/app/src/main/AndroidManifest.xml");
+        assert_eq!(
+            manifest
+                .matches("<intent-filter android:autoVerify=\"true\" >")
+                .count(),
+            1
+        );
+        assert_eq!(manifest.matches("android:scheme=\"https\"").count(), 1);
+        assert_eq!(manifest.matches("android:host=\"free2z.com\"").count(), 1);
+        assert_eq!(
+            manifest
+                .matches("android:pathPrefix=\"/bridge/zuuli/\"")
+                .count(),
+            1
+        );
+        for foreign in ["/bridge/free2z/", "/bridge/e2e2z/"] {
+            assert!(
+                !manifest.contains(foreign),
+                "ZUULI claims {foreign}, which belongs to another app"
+            );
+        }
+    }
+
+    /// iOS claims the host through the entitlement, never through a URL type.
+    ///
+    /// The deep-link plugin filters `!is_app_link()` before it writes
+    /// `CFBundleURLTypes`, so the App Link must be absent from the plist and
+    /// present in the entitlements. Asserting both directions is what catches a
+    /// regeneration that put the claim in the wrong file.
+    #[test]
+    fn generated_ios_entitlements_claim_the_association_host() {
+        let entitlements = include_str!("../gen/apple/zuuli_iOS/zuuli_iOS.entitlements");
+        assert_eq!(
+            entitlements
+                .matches("<key>com.apple.developer.associated-domains</key>")
+                .count(),
+            1
+        );
+        assert_eq!(
+            entitlements
+                .matches("<string>applinks:free2z.com</string>")
+                .count(),
+            1
+        );
+        let plist = include_str!("../gen/apple/zuuli_iOS/Info.plist");
+        assert!(!plist.contains("free2z.com"));
     }
 
     #[test]

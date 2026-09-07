@@ -70,6 +70,21 @@ const expectedDuplicateGeneratingMobileRoutes = [
     path: ["/return"],
     appLink: false,
   },
+  // The verified App Link / Universal Link (#461). It is part of this exact-match
+  // pin because the pin is exact -- but it contributes NO iOS URL type, so the
+  // generated duplicate count above stays two. The plugin's build script filters
+  // `!is_app_link()` before writing `CFBundleURLTypes`: an https route is claimed
+  // by `com.apple.developer.associated-domains` plus the server's
+  // `apple-app-site-association`, never by a URL type. Listing it here rather
+  // than ignoring it is what makes a change to the host or the bridge prefix a
+  // red build; `wallet/zuuli/scripts/app-link-association.mjs` asserts the same
+  // values across all three apps at once.
+  {
+    scheme: ["https"],
+    host: "free2z.com",
+    pathPrefix: ["/bridge/zuuli/"],
+    appLink: true,
+  },
 ];
 
 function configuredRoutesGenerateKnownDuplicate() {

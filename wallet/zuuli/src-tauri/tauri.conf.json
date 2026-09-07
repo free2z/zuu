@@ -62,6 +62,12 @@
           "host": "checkout",
           "path": ["/return"],
           "appLink": false
+        },
+        {
+          "scheme": ["https"],
+          "host": "free2z.com",
+          "pathPrefix": ["/bridge/zuuli/"],
+          "appLink": true
         }
       ]
     }

@@ -454,3 +454,33 @@ What *is* usable today, and is why this landed ahead of the transport: the wire
 format is fixed, both implementations exist and agree byte-for-byte, every guard
 has a mutation-verified test, and the two hard questions are written down
 instead of discovered during integration.
+
+### 7.1 What has landed of #461, and what has not
+
+The **client half** is done. All three apps now claim
+`applinks:free2z.com` in their iOS entitlements and carry an
+`android:autoVerify="true"` intent filter scoped to their own bridge path
+prefix, and [`association/`](./association/README.md) holds the reviewed record
+those documents must carry — including the three Play **App Signing**
+fingerprints, one per Play listing. `wallet/zuuli/scripts/app-link-association.mjs`
+asserts that the four surfaces agree and that no fingerprint is an upload
+certificate, with a mutation test per check, because every failure in this area
+is one the platform reports as silence.
+
+**None of that makes the channel verified yet, and this section's refusal
+stands unchanged.** Three things are still open, and the first two are outside
+this repository:
+
+- **`https://free2z.com/.well-known/assetlinks.json` still returns `503`.** The
+  serving repository generates it from a reviewed fingerprint list that is still
+  empty, and deliberately writes no document until every listed package has an
+  entry — a partial document is a cacheable "not associated" answer for the apps
+  it omits. Until the three fingerprints are added there and deployed, **Android
+  App Links do not verify for any of the three apps.**
+- **Nothing has been verified on a signed device, on either platform.** That is
+  the whole point of the mechanism and it fails silently; `adb shell pm
+  get-app-links <pkg>` reporting `verified`, and an iOS device opening a
+  `/bridge/…` URL in the app, are the only evidence that counts. A simulator or
+  emulator check is not evidence.
+- **The transport itself is still unwritten**, and `transport.ts` still rejects
+  twice. That remains the next change, not this one.

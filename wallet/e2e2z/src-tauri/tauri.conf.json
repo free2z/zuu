@@ -52,6 +52,12 @@
           "host": "bridge",
           "path": ["/return"],
           "appLink": false
+        },
+        {
+          "scheme": ["https"],
+          "host": "free2z.com",
+          "pathPrefix": ["/bridge/e2e2z/"],
+          "appLink": true
         }
       ]
     }

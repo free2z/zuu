@@ -1,0 +1,39 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": [
+          "F9AV5HKF6N.cash.free2z.zuuli"
+        ],
+        "components": [
+          {
+            "/": "/oauth/callback"
+          },
+          {
+            "/": "/bridge/zuuli/*"
+          }
+        ]
+      },
+      {
+        "appIDs": [
+          "F9AV5HKF6N.cash.free2z.free2z"
+        ],
+        "components": [
+          {
+            "/": "/bridge/free2z/*"
+          }
+        ]
+      },
+      {
+        "appIDs": [
+          "F9AV5HKF6N.cash.free2z.e2e2z"
+        ],
+        "components": [
+          {
+            "/": "/bridge/e2e2z/*"
+          }
+        ]
+      }
+    ]
+  }
+}
