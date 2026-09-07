@@ -163,8 +163,31 @@ pub struct RelayConfig {
     pub channel_binding: ChannelBindingSource,
     /// §2.5's deadline between accept and a valid `HELLO`.
     pub handshake_timeout: Duration,
-    /// §2.4's server-side WebSocket Ping interval. Short by default so a test
-    /// does not wait 25 seconds to observe one.
+    /// §2.4's server-side WebSocket Ping interval.
+    ///
+    /// **25 seconds, the same as `f2z-relay`'s shipping default and the same as
+    /// the `f2z-fakerelay` binary's, because this is a fake of that relay and
+    /// not of a harsher one.** It was 500 ms with
+    /// [`RelayConfig::missed_pongs_before_close`] at 2, which silently gave
+    /// every connection in every test a **1.5-second liveness deadline**: three
+    /// ticks with no Pong and the relay closes.
+    ///
+    /// That is a fault, injected by default, on tests that never asked for it.
+    /// A WebSocket client only answers a Ping while something is polling its
+    /// socket, and the messaging client is single-owner by design — a
+    /// `RelayConnection` parked in the engine's connection map is not polled at
+    /// all, so its liveness budget is the wall-clock time the *test* spends
+    /// between two calls on it. A test that opens a SQLite store and commits to
+    /// it between connecting and its first command is one slow runner away from
+    /// having its connection closed underneath it, and #952 is what that looks
+    /// like: a one-shot BIND_SEND fault that the relay never sees, so it never
+    /// retires, so the test waits out its whole hang-detector deadline and
+    /// reports `Elapsed(())`.
+    ///
+    /// A test *about* §2.4 sets this short itself, which is what
+    /// `f2z-relay`'s own `connection_deadlines.rs` already does. That cost is
+    /// paid by the two tests that want it rather than by every test that does
+    /// not.
     pub ping_interval: Duration,
     /// §2.4: close after this many consecutive missed Pongs.
     pub missed_pongs_before_close: u32,
@@ -223,7 +246,7 @@ impl Default for RelayConfig {
             clock,
             channel_binding: ChannelBindingSource::None,
             handshake_timeout: Duration::from_millis(10_000),
-            ping_interval: Duration::from_millis(500),
+            ping_interval: Duration::from_secs(25),
             missed_pongs_before_close: 2,
             capabilities,
             key_package_policy: KeyPackagePolicy {

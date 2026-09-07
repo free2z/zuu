@@ -52,6 +52,15 @@ pub async fn drive(
     let missed_pongs_before_close = relay.config().missed_pongs_before_close;
     let mut missed_pongs = 0u32;
     let mut ping = tokio::time::interval(ping_interval);
+    // `Burst`, the default, replays every tick the loop was too busy to serve —
+    // back to back, and ahead of the read branch because this `select!` is
+    // biased. A connection task that is merely descheduled (a loaded runner, a
+    // test binary running dozens of multi-threaded runtimes on two cores) would
+    // wake up owing several ticks, count each as a missed Pong, and close a
+    // client whose answer was already sitting readable in the socket. A
+    // keepalive must measure the *peer's* silence, never the relay's own
+    // scheduling delay, so a missed tick is dropped rather than replayed.
+    ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // The first tick of an `interval` fires immediately; a Ping before the
     // client has even said HELLO is noise, not keepalive.
     ping.tick().await;
