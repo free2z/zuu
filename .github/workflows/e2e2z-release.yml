@@ -521,9 +521,16 @@ jobs:
           # e2e2z's only declared permission; androidx.core injects a
           # signature-level self-permission of its own, which is the only other
           # entry that may appear.
-          manifest_permissions=$(java -jar "$bundletool" dump manifest --bundle="$aab" |
-            grep -o 'android:name="[^"]*"' | sed -n 's/.*"\(.*\)"/\1/p' |
-            grep -E '^(android\.permission\.|cash\.free2z\.e2e2z\.)' | LC_ALL=C sort -u | paste -sd, -)
+          #
+          # Selected by xpath (structural: only <uses-permission> elements)
+          # rather than by grepping every android:name in the dump and
+          # filtering by string prefix — that prefix filter also matches
+          # component names Tauri emits under the same application-id prefix
+          # (e.g. the cash.free2z.e2e2z.MainActivity activity), which fails
+          # this assertion on a manifest that is entirely correct (#964).
+          # free2z-release.yml established this xpath form (#963).
+          manifest_permissions=$(java -jar "$bundletool" dump manifest --bundle="$aab" \
+            --xpath=/manifest/uses-permission/@android:name | LC_ALL=C sort -u | paste -sd, -)
           test "$manifest_permissions" = "android.permission.INTERNET,cash.free2z.e2e2z.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
           actual_abis=$(unzip -Z1 "$aab" | awk -F/ '$2 == "lib" && NF >= 4 && $NF ~ /\.so$/ {print $3}' | LC_ALL=C sort -u | paste -sd, -)
           test "$actual_abis" = arm64-v8a,armeabi-v7a,x86,x86_64
