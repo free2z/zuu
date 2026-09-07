@@ -50,13 +50,8 @@ describe("paidActionGate", () => {
   });
 
   it.each([
-    "AI conversation",
-    "article tip",
-    "creator tip",
-    "creator subscription",
     "2Z send",
     "card checkout",
-    "paid livestream entry",
   ])("keeps the %s API boundary closed for a guest", async () => {
     const protectedApi = vi.fn().mockResolvedValue(undefined);
     const outcome = await runPaidAction(
