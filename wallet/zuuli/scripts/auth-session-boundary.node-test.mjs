@@ -17,7 +17,7 @@ test("awaited raw login helpers cannot publish the global token", () => {
     between(api, "  async login(", "  /** Whether the currently-authenticated"),
     between(api, "  async completeOtp(", "  async me("),
     between(api, "  async zcashLogin(", "  /** Ask the backend"),
-    between(api, "  async completeSocialOAuth(", "};\n\n// ─── Profile"),
+    between(api, "  async completeSocialOAuth(", "};\n\n// ─── Tuzi"),
     between(transport, "export async function basicLogin(", "function safeJson("),
   ];
 
@@ -48,7 +48,7 @@ test("every social OAuth transport pins completion to its initiating session", (
   const completion = between(
     api,
     "  async completeSocialOAuth(",
-    "};\n\n// ─── Profile",
+    "};\n\n// ─── Tuzi",
   );
 
   assert.match(transport, /sessionBinding: string/);
