@@ -5,13 +5,50 @@
 // seed, so `enrollment.getEnrollmentStatus()` refuses rather than answering,
 // and that refusal gets its own rendered state instead of an unhandled
 // rejection that would leave the page on its loading skeleton forever.
+//
+// # #973 — the header above was right, and applied to one call in three
+//
+// The first packaged build of this app never left its skeleton on a real
+// device, and the reason was structural rather than exotic. `reconcile` read
+// three things through one `Promise.all`, and only the enrollment call carried
+// the protection this header describes. Any rejection from the other two took
+// the whole read down, the `void reconcile()` that started it swallowed the
+// rejection, `status` stayed `null`, and the gate below rendered a skeleton
+// forever with nothing said to the user.
+//
+// What was actually rejecting is `get_device_info`, and it rejects on **every**
+// e2e2z install rather than occasionally. `Engine::device_info` reads the
+// stored device identity and answers §8 `not-enrolled` when there is none; the
+// only writer of that record is `Engine::install_identity`, whose only
+// production caller is ZUULI's app crate. This app holds no seed and has no
+// transport for the `issue-device-credential` intent (#905, blocked on #461),
+// so it never installs an identity and never can, today. The refusal is
+// permanent and by construction — which is exactly why the app was unusable on
+// the first device it ever ran on, and exactly why every test passed: they all
+// mocked a `DeviceInfo` that a packaged build cannot produce.
+//
+// So two things changed, and the second is the more important one:
+//
+//   1. **`Promise.allSettled`, judged per call.** The three reads are not
+//      equals. The engine status has no substitute — every branch below reads
+//      it — so its rejection is a rendered failure. The enrollment refusal is a
+//      designed state. Device info is supplementary, its only consumer is the
+//      already-conditional `<BrowserGuarantee>`, and losing it must not cost
+//      the user a working engine summary.
+//   2. **Nothing here can end in an unrendered state.** `not-enrolled` from
+//      device info reads as the enrollment gap, because that is what it means
+//      and it is true. Every other refusal is named on screen, with the wire
+//      command that produced it, because the cost of #973 was not the outage —
+//      it was that a device could not tell anyone which of three calls failed.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AlertTriangle,
   KeyRound,
   Loader2,
   Play,
   Power,
+  RotateCw,
   ShieldAlert,
   ShieldCheck,
   Wallet,
@@ -26,13 +63,14 @@ import {
   messaging,
 } from "../../lib/messaging/bridge";
 import { listenMessaging } from "../../lib/messaging/events";
-import type {
-  Conversation,
-  DeviceInfo,
-  EngineState,
-  EngineStatus,
-  EnrollmentStatus,
-  IneligibilityReason,
+import {
+  ErrorCodeSchema,
+  type Conversation,
+  type DeviceInfo,
+  type EngineState,
+  type EngineStatus,
+  type EnrollmentStatus,
+  type IneligibilityReason,
 } from "../../lib/messaging/types";
 import { BrowserGuarantee } from "./BrowserGuarantee";
 import { FirstContact } from "./FirstContact";
@@ -65,6 +103,84 @@ const INELIGIBILITY_COPY: Record<IneligibilityReason, string> = {
 /** A running state, in §6.1's sense: degraded still sends and receives. */
 function isRunning(state: EngineState): boolean {
   return state === "running" || state === "degraded";
+}
+
+/**
+ * A rejected bridge call, as something the screen can render.
+ *
+ * `call` is the **wire** command name rather than a friendly label, and that is
+ * deliberate: it is the string a bug report has to carry, and #973 cost a
+ * TestFlight build and a device precisely because the screen could not say
+ * which of three calls had failed.
+ */
+interface CallFailure {
+  call: string;
+  detail: string;
+}
+
+/**
+ * The text of a rejection, whatever shape it arrived in.
+ *
+ * `tauri-plugin-f2zmsg` serializes every error as the **bare** §8 `ErrorCode`
+ * and nothing else (`error.rs`: `serializer.serialize_str(self.code.as_str())`),
+ * so a real `invoke` rejection is a `string`, not an `Error`. A formatter that
+ * only understood `Error` would render `[object Object]` for every genuine
+ * backend failure while looking perfectly correct against the fakes in the
+ * tests — the same shape of blind spot that let #973 ship.
+ *
+ * Unlike `FirstContact`'s `refusalCode`, an unrecognized cause is **not**
+ * flattened to `internal` here. This is the surface of last resort, and
+ * collapsing the one piece of evidence it exists to show would defeat it.
+ */
+function failureDetail(cause: unknown): string {
+  const code = ErrorCodeSchema.safeParse(cause);
+  if (code.success) return code.data;
+  if (cause instanceof Error && cause.message !== "") return cause.message;
+  if (typeof cause === "string" && cause.trim() !== "") return cause.trim();
+  return String(cause);
+}
+
+/**
+ * §8 `not-enrolled`, which for **this** app is a standing condition, not a
+ * fault.
+ *
+ * `Engine::device_info` answers it whenever no device identity is installed,
+ * and installing one is the wallet authority's job (#905, blocked on #461). So
+ * e2e2z gets this answer on every install, indefinitely — it has to read as the
+ * enrollment gap, which is true, rather than as an error, which is not.
+ */
+function isNotEnrolled(cause: unknown): boolean {
+  return failureDetail(cause) === "not-enrolled";
+}
+
+/**
+ * The reads that failed while the rest of the screen still works.
+ *
+ * Separate from the blocking failure state on purpose: taking a whole surface
+ * away because one supplementary call refused is the `Promise.all` mistake in
+ * a different costume.
+ */
+function DegradedReads({ failures }: { failures: CallFailure[] }) {
+  if (failures.length === 0) return null;
+  return (
+    <Callout
+      tone="warning"
+      icon={ShieldAlert}
+      title="Part of this screen could not be read"
+    >
+      <p>
+        Everything else below is current. What did not come back, and what the
+        engine said about it:
+      </p>
+      <ul className="mt-2 space-y-1">
+        {failures.map((failure) => (
+          <li key={failure.call} className="mono-id break-words">
+            {failure.call} — {failure.detail}
+          </li>
+        ))}
+      </ul>
+    </Callout>
+  );
 }
 
 function EngineSummary({ status }: { status: EngineStatus }) {
@@ -111,27 +227,99 @@ export default function MessagesFeature() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [enrollmentGap, setEnrollmentGap] = useState(false);
+  const [failure, setFailure] = useState<CallFailure | null>(null);
+  const [degraded, setDegraded] = useState<CallFailure[]>([]);
+  const [actionFailure, setActionFailure] = useState<CallFailure | null>(null);
+  const [listenFailure, setListenFailure] = useState<CallFailure | null>(null);
   const reconcileGeneration = useRef(0);
 
+  /**
+   * Read everything the screen needs, and **end in a rendered state whatever
+   * happens** (#973 — see the file header).
+   *
+   * `allSettled` rather than `all` because the three reads are not equals, and
+   * treating them as equals is what broke: a failed device-info read threw away
+   * a perfectly good engine status, and there was nowhere for the rejection to
+   * go.
+   */
   const reconcile = useCallback(async () => {
     const generation = ++reconcileGeneration.current;
-    const [engine, enrollmentState, deviceInfo] = await Promise.all([
-      messaging.getEngineStatus(),
-      // The one call this app cannot make. A refusal is a state to render, not
-      // an error to swallow: anything else here reads as "not enrolled yet",
-      // which is a different and untrue thing.
-      enrollment.getEnrollmentStatus().catch((cause: unknown) => {
-        if (isEnrollmentUnavailable(cause)) return null;
-        throw cause;
-      }),
-      messaging.getDeviceInfo(),
-    ]);
-    const nextConversations = enrollmentState?.enrolled
-      ? (await messaging.listConversations()).conversations
-      : [];
-    if (generation !== reconcileGeneration.current) return;
+    const superseded = () => generation !== reconcileGeneration.current;
 
-    setStatus(engine);
+    const [engineResult, enrollmentResult, deviceResult] =
+      await Promise.allSettled([
+        messaging.getEngineStatus(),
+        // The one call this app cannot make. A refusal is a state to render,
+        // not an error to swallow: anything else here reads as "not enrolled
+        // yet", which is a different and untrue thing.
+        enrollment.getEnrollmentStatus(),
+        messaging.getDeviceInfo(),
+      ]);
+
+    // The one answer with no substitute — every branch below reads `status`.
+    // The plugin answers this even when its store failed to open (it reports
+    // §6.1 `faulted` with a code rather than refusing, #753), so a rejection
+    // here means the IPC surface itself is unreachable and naming it is all
+    // that is left to do.
+    if (engineResult.status === "rejected") {
+      if (superseded()) return;
+      setFailure({
+        call: "get_engine_status",
+        detail: failureDetail(engineResult.reason),
+      });
+      return;
+    }
+
+    // The typed refusal is the enrollment gap. Anything else is a real failure
+    // and is now rendered: it used to propagate out of `reconcile` and die in
+    // the `void` at the call site, which is the permanent skeleton by a second
+    // route.
+    let enrollmentState: EnrollmentStatus | null = null;
+    if (enrollmentResult.status === "rejected") {
+      if (!isEnrollmentUnavailable(enrollmentResult.reason)) {
+        if (superseded()) return;
+        setFailure({
+          call: "f2zmsg_enrollment_status",
+          detail: failureDetail(enrollmentResult.reason),
+        });
+        return;
+      }
+    } else {
+      enrollmentState = enrollmentResult.value;
+    }
+
+    // Supplementary. `not-enrolled` is this app's permanent answer and is
+    // absorbed in silence, because the enrollment gap below already says what
+    // it means, in words, and says it better. Anything else is worth naming
+    // but must not take the screen down, since everything else on it works.
+    const nextDegraded: CallFailure[] = [];
+    let deviceInfo: DeviceInfo | null = null;
+    if (deviceResult.status === "fulfilled") {
+      deviceInfo = deviceResult.value;
+    } else if (!isNotEnrolled(deviceResult.reason)) {
+      nextDegraded.push({
+        call: "get_device_info",
+        detail: failureDetail(deviceResult.reason),
+      });
+    }
+
+    let nextConversations: Conversation[] = [];
+    if (enrollmentState?.enrolled) {
+      try {
+        nextConversations = (await messaging.listConversations()).conversations;
+      } catch (cause) {
+        nextDegraded.push({
+          call: "list_conversations",
+          detail: failureDetail(cause),
+        });
+      }
+    }
+
+    if (superseded()) return;
+
+    setFailure(null);
+    setDegraded(nextDegraded);
+    setStatus(engineResult.value);
     setEnrolled(enrollmentState);
     setEnrollmentGap(enrollmentState === null);
     setDevice(deviceInfo);
@@ -146,14 +334,39 @@ export default function MessagesFeature() {
     );
   }, []);
 
+  /**
+   * The only way this screen starts a reconcile.
+   *
+   * A bare `void reconcile()` is what shipped #973, so every call site in this
+   * file now goes through here. `reconcile` is written to end in a rendered
+   * state on its own; this is the backstop for the day an edit makes it throw
+   * anyway, and it costs three lines to make that unable to strand anyone.
+   *
+   * **The returned promise cannot reject**, which is what makes `void
+   * refresh()` a safe thing to write at the call sites that do not need to
+   * wait, and lets `run` await the re-read before it clears its spinner.
+   *
+   * The one remaining reference to `reconcile` itself is `FirstContact`'s
+   * `onStateChanged`, which awaits it inside its own `try`/`catch` and has its
+   * own rendered error for it. It stays on `reconcile` deliberately: handing it
+   * a promise that never rejects would silently retire that branch.
+   */
+  const refresh = useCallback(
+    (): Promise<void> =>
+      reconcile().catch((cause: unknown) => {
+        setFailure({ call: "reconcile", detail: failureDetail(cause) });
+      }),
+    [reconcile],
+  );
+
   const selected =
     conversations?.find(
       (conversation) => conversation.conversationId === selectedId,
     ) ?? null;
 
   useEffect(() => {
-    void reconcile();
-  }, [reconcile]);
+    void refresh();
+  }, [refresh]);
 
   // Events may be coalesced and may be missed, so they are a signal to re-read
   // rather than a state feed (§5.2). Window focus is the other re-read point.
@@ -163,13 +376,26 @@ export default function MessagesFeature() {
 
     void listenMessaging("f2zmsg://engine-state", (payload) => {
       setStatus(payload);
-      if (isRunning(payload.state)) void reconcile();
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
+      if (isRunning(payload.state)) void refresh();
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      // Losing the event subscription is survivable — focus still re-reads —
+      // but it must not be invisible, and it must never reach the window as an
+      // unhandled rejection. It gets its own state rather than joining
+      // `degraded`, which every reconcile replaces: this failure happened once,
+      // outside any reconcile, and stays true until the effect is torn down.
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setListenFailure({
+          call: "listen f2zmsg://engine-state",
+          detail: failureDetail(cause),
+        });
+      });
 
-    const onFocus = () => void reconcile();
+    const onFocus = () => void refresh();
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
 
@@ -179,19 +405,34 @@ export default function MessagesFeature() {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
     };
-  }, [reconcile]);
+  }, [refresh]);
 
+  /**
+   * Run something the user asked for, then re-read.
+   *
+   * `call` is its wire name for the same reason `CallFailure` carries one. The
+   * failure is kept out of the blocking state deliberately: a start that
+   * refused should say so *next to* the screen the user is looking at, not
+   * replace it — the surface was fine a moment ago and still is.
+   */
   const run = useCallback(
-    async (action: () => Promise<unknown>) => {
+    async (call: string, action: () => Promise<unknown>) => {
       setBusy(true);
+      setActionFailure(null);
       try {
         await action();
-        await reconcile();
+      } catch (cause) {
+        setActionFailure({ call, detail: failureDetail(cause) });
       } finally {
+        // Even a failed action can have moved the engine, so the re-read is
+        // unconditional, and it is awaited so the spinner outlasts it the way
+        // it always did. `refresh` owns its own rejection, so this cannot
+        // throw out of the `finally`.
+        await refresh();
         setBusy(false);
       }
     },
-    [reconcile],
+    [refresh],
   );
 
   const selectConversation = useCallback((conversation: Conversation) => {
@@ -204,9 +445,51 @@ export default function MessagesFeature() {
     setSelectedId(conversation.conversationId);
   }, []);
 
+  // Reconcile replaces `degraded` wholesale; the listen failure is outside that
+  // cycle, so the two are joined only here, where they are rendered.
+  const reads = listenFailure ? [...degraded, listenFailure] : degraded;
+
+  // Before the skeleton, always. A screen that cannot read the engine has to
+  // say which call refused and what it said — the outage is survivable, being
+  // unable to name it is what made #973 a device-only mystery.
+  if (failure) {
+    return (
+      <div className="animate-slide-up space-y-6" data-messages-failure>
+        <PageHeader
+          title="Messages"
+          description="End-to-end encrypted messaging."
+        />
+
+        <Callout
+          tone="destructive"
+          icon={AlertTriangle}
+          title="Messaging could not be read"
+        >
+          <p>
+            The engine did not answer{" "}
+            <span className="mono-id">{failure.call}</span>, so there is nothing
+            here this screen can honestly show yet. Your conversations and your
+            keys are untouched: this is a read that did not come back, not data
+            that was lost.
+          </p>
+          <p className="mono-id mt-2 break-words">{failure.detail}</p>
+          <Button
+            variant="outline"
+            className="mt-3"
+            onClick={refresh}
+            aria-label="Read the messaging engine again"
+          >
+            <RotateCw className="size-4" aria-hidden />
+            Try again
+          </Button>
+        </Callout>
+      </div>
+    );
+  }
+
   if (!status || (!enrolled && !enrollmentGap)) {
     return (
-      <div className="animate-slide-up space-y-6">
+      <div className="animate-slide-up space-y-6" data-messages-loading>
         <PageHeader
           title="Messages"
           description="End-to-end encrypted messaging."
@@ -228,6 +511,8 @@ export default function MessagesFeature() {
           title="Messages"
           description="End-to-end encrypted messaging."
         />
+
+        <DegradedReads failures={reads} />
 
         {device && <BrowserGuarantee device={device} />}
 
@@ -251,6 +536,7 @@ export default function MessagesFeature() {
 
   const { eligibility } = enrolled;
   const candidate = eligibility.candidate;
+  const running = isRunning(status.state);
 
   return (
     <div className="animate-slide-up space-y-6">
@@ -260,33 +546,48 @@ export default function MessagesFeature() {
         actions={
           enrolled.enrolled ? (
             <Button
-              variant={isRunning(status.state) ? "outline" : "default"}
+              variant={running ? "outline" : "default"}
               disabled={busy}
               onClick={() =>
                 void run(
-                  isRunning(status.state)
-                    ? messaging.stopEngine
-                    : messaging.startEngine,
+                  running ? "stop_engine" : "start_engine",
+                  running ? messaging.stopEngine : messaging.startEngine,
                 )
               }
               aria-label={
-                isRunning(status.state)
+                running
                   ? "Stop the messaging engine"
                   : "Start the messaging engine"
               }
             >
               {busy ? (
                 <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : isRunning(status.state) ? (
+              ) : running ? (
                 <Power className="size-4" aria-hidden />
               ) : (
                 <Play className="size-4" aria-hidden />
               )}
-              {isRunning(status.state) ? "Stop" : "Start"}
+              {running ? "Stop" : "Start"}
             </Button>
           ) : null
         }
       />
+
+      {actionFailure && (
+        <Callout
+          tone="destructive"
+          icon={AlertTriangle}
+          title="That did not go through"
+        >
+          <p>
+            <span className="mono-id">{actionFailure.call}</span> was refused,
+            and nothing about your conversations changed. What the engine said:
+          </p>
+          <p className="mono-id mt-2 break-words">{actionFailure.detail}</p>
+        </Callout>
+      )}
+
+      <DegradedReads failures={reads} />
 
       {device && <BrowserGuarantee device={device} />}
 
@@ -332,7 +633,9 @@ export default function MessagesFeature() {
           <p className="mono-id text-lg text-foreground">@{candidate}</p>
           <Button
             disabled={busy}
-            onClick={() => void run(() => enrollment.enroll(candidate))}
+            onClick={() =>
+              void run("f2zmsg_enroll", () => enrollment.enroll(candidate))
+            }
             aria-label={`Claim the handle ${candidate}`}
           >
             {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
@@ -351,7 +654,7 @@ export default function MessagesFeature() {
 
       {enrolled.enrolled && enrolled.mergedAtEpoch !== null && (
         <FirstContact
-          engineRunning={isRunning(status.state)}
+          engineRunning={running}
           witnessThresholdMet={status.witnessThresholdMet}
           onConversation={selectConversation}
           onStateChanged={reconcile}
