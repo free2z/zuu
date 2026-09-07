@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Two capability strings, and only two. WKWebView will not hand
+       `getUserMedia` a capture device unless the bundle carries the matching
+       usage description, and iOS terminates the process outright if the string
+       is missing at the moment of capture, so an app that hosts a livestream
+       and omits these does not degrade — it crashes. free2z hosts Cloudflare
+       RealtimeKit rooms: a host publishes camera and microphone the moment the
+       room opens (`src/features/live/Stage.tsx` initialises with
+       `audio: ticket.as === "host"`, `video: ticket.as === "host"`), and the
+       RealtimeKit meeting UI offers every participant the same two toggles.
+       Both strings therefore describe a thing the app actually does.
+
+       Nothing else is claimed. free2z has no wallet seed and no messaging keys
+       (#904), so there is no NSFaceIDUsageDescription; it reads no contacts,
+       no location and no photo library, and adding a usage string for a
+       capability the app never exercises is how an App Store reviewer is told
+       a lie. `wallet/free2z/scripts/release-identity.mjs` fails the build if
+       any of those appear here. -->
+  <key>NSCameraUsageDescription</key>
+  <string>free2z uses the camera when you host or join a live stream.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>free2z uses the microphone when you host or join a live stream.</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>cash.free2z.free2z</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>cash.free2z.free2z</string>
+      </array>
+    </dict>
+  </array>
+  <key>ITSAppUsesNonExemptEncryption</key>
+  <false/>
+</dict>
+</plist>

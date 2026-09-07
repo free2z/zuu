@@ -71,9 +71,11 @@ const RUST_ROOT_CONTRACTS = [
           // selector. wallet/zuuli's own tests are not carved out and must not
           // be: they run inside `zuuli / frontend`, which this output gates.
           "wallet/zuuli/tests/viewport.pw.ts",
-          // wallet/e2e2z/scripts/release-path.node-test.mjs reads this file and
-          // runs inside the gate as part of e2e2z's `npm test`.
+          // Each surface's scripts/release-path.node-test.mjs reads its own
+          // release workflow and runs inside the gate as part of that app's
+          // `npm test`.
           ".github/workflows/e2e2z-release.yml",
+          ".github/workflows/free2z-release.yml",
         ],
       },
       {
@@ -92,6 +94,7 @@ const RUST_ROOT_CONTRACTS = [
           "wallet/free2z/src/App.tsx",
           "wallet/e2e2z/src/App.tsx",
           ".github/workflows/e2e2z-release.yml",
+          ".github/workflows/free2z-release.yml",
         ],
       },
     ],

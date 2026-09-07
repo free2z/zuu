@@ -112,6 +112,7 @@ RUST_VERSION_ENV_WORKFLOWS=(
   $'.github/workflows/zuuli-packaging.yml\tZUULI_RUST_VERSION'
   $'.github/workflows/zuuli-release.yml\tZUULI_RUST_VERSION'
   $'.github/workflows/e2e2z-release.yml\tE2E2Z_RUST_VERSION'
+  $'.github/workflows/free2z-release.yml\tFREE2Z_RUST_VERSION'
 )
 
 # Prose restatements. Each entry is `path` + TAB + a line the file must still
@@ -141,6 +142,7 @@ DOC_PINS=(
 ACCEPTED_EXPRESSIONS=(
   'env.ZUULI_RUST_VERSION'
   'env.E2E2Z_RUST_VERSION'
+  'env.FREE2Z_RUST_VERSION'
   'steps.frontend_rust_toolchain.outputs.version'
   'steps.rust_toolchain.outputs.version'
 )

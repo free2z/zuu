@@ -10,9 +10,10 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
     "typecheck:tests": "tsc --noEmit",
-    "test": "vitest run && node --test scripts/ui-copy-truncation.node-test.mjs && playwright test",
+    "test": "vitest run && node --test scripts/ui-copy-truncation.node-test.mjs scripts/release-path.node-test.mjs && playwright test",
     "test:e2e": "playwright test",
     "test:ui-copy": "node --test scripts/ui-copy-truncation.node-test.mjs",
+    "test:release-path": "node --test scripts/release-path.node-test.mjs",
     "verify": "npm run typecheck && npm run typecheck:tests && npm test",
     "tauri": "tauri"
   },
