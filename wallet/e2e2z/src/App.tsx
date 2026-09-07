@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import DiagnosticsFeature from "./features/diagnostics";
 import MessagesFeature from "./features/messages";
 
 /**
@@ -18,6 +19,13 @@ export default function App() {
           {t("app.name")} — {t("app.tagline")}
         </p>
         <MessagesFeature />
+        {/*
+          Collapsed to a single button until asked for. Every tester here is a
+          collaborator, so the failures the app recorded should be one tap away
+          rather than behind a build flag — but a messenger's default view is
+          its conversation, not its instrumentation.
+        */}
+        <DiagnosticsFeature />
       </main>
     </div>
   );
