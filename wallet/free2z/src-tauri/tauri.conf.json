@@ -64,6 +64,12 @@
           "host": "checkout",
           "path": ["/return"],
           "appLink": false
+        },
+        {
+          "scheme": ["https"],
+          "host": "free2z.com",
+          "pathPrefix": ["/bridge/free2z/"],
+          "appLink": true
         }
       ]
     }

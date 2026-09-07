@@ -1,0 +1,68 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "cash.free2z.zuuli",
+      "sha256_cert_fingerprints": [
+        "B4:3B:D4:24:64:10:47:6E:21:12:D9:BA:D5:7E:AA:7E:FF:AD:46:18:A6:16:66:4C:A9:3F:8E:2E:F6:0D:1A:62"
+      ]
+    },
+    "relation_extensions": {
+      "delegate_permission/common.handle_all_urls": {
+        "dynamic_app_link_components": [
+          {
+            "/": "/oauth/callback"
+          },
+          {
+            "/": "/bridge/zuuli/*"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "cash.free2z.free2z",
+      "sha256_cert_fingerprints": [
+        "75:8D:0C:62:A4:9B:D2:C1:03:B5:C5:39:B5:AF:5C:55:C5:AC:5E:1A:35:EF:B7:22:95:B0:44:AD:50:4B:72:5A"
+      ]
+    },
+    "relation_extensions": {
+      "delegate_permission/common.handle_all_urls": {
+        "dynamic_app_link_components": [
+          {
+            "/": "/bridge/free2z/*"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "cash.free2z.e2e2z",
+      "sha256_cert_fingerprints": [
+        "B6:B8:BB:49:48:66:97:EF:FD:5B:E4:F8:6F:34:88:B8:A5:F9:1F:5B:A2:3A:70:7D:6D:C7:66:AB:B3:C0:08:8E"
+      ]
+    },
+    "relation_extensions": {
+      "delegate_permission/common.handle_all_urls": {
+        "dynamic_app_link_components": [
+          {
+            "/": "/bridge/e2e2z/*"
+          }
+        ]
+      }
+    }
+  }
+]

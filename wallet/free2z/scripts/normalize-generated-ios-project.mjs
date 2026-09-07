@@ -118,19 +118,36 @@ const urlType = (dictionaries) =>
 const canonicalUrlType = urlType([canonicalUrlTypeDictionary]);
 const reversedUrlType = urlType([reversedUrlTypeDictionary]);
 
-// The deep-link plugin emits ONE iOS URL-type dictionary per configured mobile
-// route, and free2z has three -- `bridge/return`, `oauth/callback` and
-// `checkout/return`. iOS URL types carry no host or path, so all three collapse
-// to the same custom scheme and a build deterministically writes three identical
-// dictionaries. One canonical entry is kept in source control and exactly that
-// generated shape is collapsed back to it.
+// The deep-link plugin emits ONE iOS URL-type dictionary per configured
+// CUSTOM-SCHEME mobile route, and free2z has three -- `bridge/return`,
+// `oauth/callback` and `checkout/return`. iOS URL types carry no host or path,
+// so all three collapse to the same custom scheme and a build deterministically
+// writes three identical dictionaries. One canonical entry is kept in source
+// control and exactly that generated shape is collapsed back to it.
+//
+// APP LINKS ARE NOT URL TYPES, and that is why this counts a subset rather than
+// `routes.length`. The plugin's build script filters `!is_app_link()` before it
+// writes `CFBundleURLTypes`: a verified Universal Link is claimed by the
+// `com.apple.developer.associated-domains` entitlement and the server's
+// `apple-app-site-association`, never by a URL type. Counting all routes would
+// expect one more duplicate dictionary than a build writes and would fail every
+// release on a file nothing changed (#461).
 //
 // The count is derived from `tauri.conf.json` rather than written out, so adding
 // or removing a route does not silently start failing; what is NOT derived is
-// the scheme. Every route must name this app's own bundle id and must not claim
-// an app link, or this refuses to collapse anything -- a foreign scheme in the
-// shipped bundle is the failure the whole check exists for, and ZUULI's version
-// of this file pins an exact route array for the same reason.
+// the shape of each route. A custom-scheme route must name this app's own bundle
+// id; an app-link route must be `https` on the association host with this app's
+// own bridge path prefix. Anything else refuses to collapse -- a foreign scheme
+// in the shipped bundle, or this app claiming another app's bridge prefix, is
+// the failure the whole check exists for, and ZUULI's version of this file pins
+// an exact route array for the same reason.
+//
+// The host and prefix here are asserted a second time, across all three apps at
+// once, by `wallet/zuuli/scripts/app-link-association.mjs`. This copy is the one
+// that runs on the release path's `git diff --exit-code`.
+const appLinkHost = "free2z.com";
+const appLinkPathPrefix = "/bridge/free2z/";
+
 function configuredMobileRouteCount() {
   const config = JSON.parse(
     readFileSync(resolve(appDir, "src-tauri/tauri.conf.json"), "utf8"),
@@ -138,17 +155,38 @@ function configuredMobileRouteCount() {
   const routes = config?.plugins?.["deep-link"]?.mobile;
   if (!Array.isArray(routes) || routes.length === 0)
     throw new Error("tauri.conf.json registers no mobile deep-link route");
+  let customSchemeRoutes = 0;
+  let appLinkRoutes = 0;
   for (const route of routes) {
+    if (route?.appLink === true) {
+      if (!isDeepStrictEqual(route?.scheme, ["https"]))
+        throw new Error("an app-link route is not an https route");
+      if (route?.host !== appLinkHost)
+        throw new Error(
+          `an app-link route claims a host that is not ${appLinkHost}`,
+        );
+      if (!isDeepStrictEqual(route?.pathPrefix, [appLinkPathPrefix]))
+        throw new Error(
+          `an app-link route claims a path prefix that is not ${appLinkPathPrefix}`,
+        );
+      appLinkRoutes += 1;
+      continue;
+    }
+    if (route?.appLink !== false)
+      throw new Error("a mobile deep-link route does not state appLink");
     if (!isDeepStrictEqual(route?.scheme, [applicationId]))
       throw new Error(
         `a mobile deep-link route names a scheme that is not ${applicationId}`,
       );
-    if (route?.appLink !== false)
-      throw new Error(
-        "a mobile deep-link route claims an app link; free2z registers custom schemes only",
-      );
+    customSchemeRoutes += 1;
   }
-  return routes.length;
+  if (appLinkRoutes !== 1)
+    throw new Error(
+      `expected exactly one app-link route, found ${appLinkRoutes}`,
+    );
+  if (customSchemeRoutes === 0)
+    throw new Error("tauri.conf.json registers no custom-scheme route");
+  return customSchemeRoutes;
 }
 
 function knownUrlTypeShapes(routeCount) {
