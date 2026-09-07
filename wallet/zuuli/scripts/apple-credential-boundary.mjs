@@ -102,9 +102,9 @@ const ALLOWED_JOB_SECRETS = new Map([
 // all unenumerated execution paths. Update only after reviewing the full job.
 const CREDENTIAL_JOB_SHA256 = new Map([
   ["android-sign-upload", "4e80aa8c0832bc6b180f6121191d9e7ae1f178e2ff98e910b98f3e534d0745c4"],
-  ["ios-sign", "6e63107606388e3862f81e41da65b1fa8bfca1588b5232f9ca4354203536393c"],
+  ["ios-sign", "366e19b3185e0392a9ade22f72de7766699cb629487ffbd4f77057bd7eb1149c"],
   ["ios-upload", "3ed7cb28646aed24a7df2c347b8ad54838f009841fdd52c64ca1002886aae4b2"],
-  ["macos-sign", "6c6d01bef2cc6feae4c3d250081f39f31101131dc88cd99fa0b5fb4ec5ea14eb"],
+  ["macos-sign", "4aabc59a06ab3f589515caab2b2ea9c1dadd9cda08958f0d03ec54e95f46d7e7"],
 ]);
 // The credential-free builder is also exact: its source-identity check and
 // compile happen in separate steps, so an unreviewed command between them
@@ -366,6 +366,37 @@ function requireText(failures, label, source, needle) {
 
 function rejectText(failures, label, source, needle) {
   if (source.includes(needle)) failures.push(`${label} contains forbidden ${JSON.stringify(needle)}`);
+}
+
+// #960. A signing job must prove the certificate it imported is one the
+// provisioning profile authorizes, bound to the identity the keychain actually
+// resolved, and it must do so *before* it signs or exports anything -- a check
+// that runs afterwards costs the same twenty minutes it exists to save. The
+// self-test is required alongside the verdict for the reason every other
+// checker in this repository requires one: a preflight nobody has watched fail
+// is a green step, not a check.
+function requireSigningPreflight(failures, label, source, { checker, before }) {
+  const selfTestCommand = `${checker} --self-test`;
+  const selfTest = source.indexOf(selfTestCommand);
+  if (selfTest < 0) {
+    failures.push(`${label} does not self-test the signing preflight`);
+    return;
+  }
+  const verdict = source.indexOf(checker, selfTest + selfTestCommand.length);
+  if (verdict < 0) {
+    failures.push(`${label} does not run the signing preflight`);
+    return;
+  }
+  const identity = source.indexOf("--keychain-identity-sha1", verdict);
+  if (identity < 0) {
+    failures.push(`${label} does not bind the signing preflight to the resolved keychain identity`);
+  }
+  const boundary = source.indexOf(before);
+  if (boundary < 0) {
+    failures.push(`${label} is missing ${JSON.stringify(before)}`);
+  } else if (verdict > boundary) {
+    failures.push(`${label} runs the signing preflight after ${JSON.stringify(before)}, which is too late`);
+  }
 }
 
 export function releaseIndexResultsAreComplete(target, results) {
@@ -1202,8 +1233,25 @@ export function verifyAppleCredentialBoundary(
     failures,
     "iOS unsigned builder",
     jobs.get("ios-build"),
-    "ZUULI.xcarchive.zip ExportOptions.plist source-record.json > CHECKSUMS.sha256",
+    "ZUULI.xcarchive.zip ExportOptions.plist source-record.json verify-signing-identity.mjs > CHECKSUMS.sha256",
   );
+  // #960. The provisioning profile authorizes specific certificates; a .p12
+  // holding any other identity signs an archive that fails only at
+  // -exportArchive, twenty minutes later, with a message that never names the
+  // mismatch. The credential-free builder therefore carries the preflight into
+  // the payload -- it cannot be fetched inside the signing job, which may not
+  // check the repository out -- and the signing job must run it, against the
+  // identity the keychain resolved, before it exports anything.
+  requireText(
+    failures,
+    "iOS unsigned builder",
+    jobs.get("ios-build"),
+    'cp "$GITHUB_WORKSPACE/scripts/verify-signing-identity.mjs" unsigned-ios/verify-signing-identity.mjs',
+  );
+  requireSigningPreflight(failures, "iOS signer", jobs.get("ios-sign"), {
+    checker: "node unsigned-ios/verify-signing-identity.mjs",
+    before: "xcodebuild -exportArchive",
+  });
   requireText(failures, "iOS signer", jobs.get("ios-sign"), "EXPECTED_PAYLOAD_SHA256");
   requireText(
     failures,
@@ -1249,8 +1297,20 @@ export function verifyAppleCredentialBoundary(
     failures,
     "macOS unsigned builder",
     jobs.get("macos-build"),
-    "Entitlements.plist Info.macos.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256",
+    "Entitlements.plist Info.macos.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json verify-signing-identity.mjs > CHECKSUMS.sha256",
   );
+  // #960 again, for Developer ID. Same pairing failure, plus the expiry nobody
+  // tracks: the certificate dies before the profile that embeds it does.
+  requireText(
+    failures,
+    "macOS unsigned builder",
+    jobs.get("macos-build"),
+    'cp "$GITHUB_WORKSPACE/scripts/verify-signing-identity.mjs" unsigned-macos/verify-signing-identity.mjs',
+  );
+  requireSigningPreflight(failures, "macOS signer", jobs.get("macos-sign"), {
+    checker: "node unsigned-macos/verify-signing-identity.mjs",
+    before: "codesign --force --deep",
+  });
   requireText(
     failures,
     "macOS unsigned builder",

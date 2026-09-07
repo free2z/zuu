@@ -529,6 +529,31 @@ The Developer ID provisioning profile must authorize
 profile to authorize that restricted entitlement. The signer embeds the profile
 and rejects a wrong team, application identifier, access-group allowlist, or
 signing certificate before it signs the app.
+
+Installing the *right-looking* certificate is the failure this warns about. A
+provisioning profile authorizes specific certificates by embedding them; a
+`.p12` holding any other identity imports cleanly, resolves a perfectly valid
+signing identity, builds an archive, and fails only at
+`xcodebuild -exportArchive` twenty minutes later with a message that never names
+the mismatch. Two Apple Distribution certificates exist for `F9AV5HKF6N`, and
+the one `security find-identity -v -p codesigning` returns on a developer
+machine is **not** the one the profiles embed — the authorized certificate's
+private key is in no Keychain, only in the `.p12`. Do not derive the secret from
+the Keychain; export the archive whose leaf SHA-1 appears in
+`DeveloperCertificates`. Both iOS and macOS signing jobs now run
+`scripts/verify-signing-identity.mjs` (carried into the job inside the attested
+unsigned payload, since a credential job may not check the repository out)
+before they sign or export, asserting that pairing plus the archive's own
+certificate/key coherence, the bundle id, the team, and both expiry dates —
+which are not the same date, and the certificate's is the earlier one. Verify a
+newly installed pair locally with:
+
+```bash
+node scripts/verify-signing-identity.mjs \
+  --profile ZUULI_App_Store_CI.mobileprovision \
+  --p12 zuuli-distribution.p12 --p12-password-env P12_PASSWORD \
+  --bundle-id cash.free2z.zuuli --team-id F9AV5HKF6N
+```
 Base64 values are decoded only inside the system-tool credential jobs into
 mode-0700 runner-temporary directories and destroyed even when a job fails.
 Dependency-controlled build jobs neither reference the protected environment

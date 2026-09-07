@@ -56,9 +56,10 @@ function removeLast(source, needle) {
 }
 
 const buildJob = (name, command) => {
+  const payload = name === "ios-build" ? "unsigned-ios" : "unsigned-macos";
   const checksumMembers = name === "ios-build"
-    ? "ZUULI.xcarchive.zip ExportOptions.plist source-record.json"
-    : "Entitlements.plist Info.macos.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json";
+    ? "ZUULI.xcarchive.zip ExportOptions.plist source-record.json verify-signing-identity.mjs"
+    : "Entitlements.plist Info.macos.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json verify-signing-identity.mjs";
   const macosPolicy = name === "macos-build"
     ? "      - run: node scripts/macos-keychain-entitlements.mjs\n"
     : "";
@@ -69,6 +70,7 @@ const buildJob = (name, command) => {
       - run: npm ci
 ${macosPolicy}      - run: |
           ${command} --no-sign
+          cp "$GITHUB_WORKSPACE/scripts/verify-signing-identity.mjs" ${payload}/verify-signing-identity.mjs
           shasum -a 256 ${checksumMembers} > CHECKSUMS.sha256
       - run: scripts/assert-no-apple-credentials.sh
       - uses: actions/attest-build-provenance@sha
@@ -91,6 +93,13 @@ const credentialJob = (name, command, secret) => {
           gh attestation verify unsigned-macos/CHECKSUMS.sha256 --repo repo${profileValidityMarkers}
           verify_developer_id_profile "$secret_dir/profile.plist" "$profile_now"${captureAuthorityMarkers}`
         : "          echo verified";
+  // #960: the signing preflight, run against the identity the keychain
+  // resolved, before anything is signed or exported.
+  const preflightMarkers = name === "ios-sign" || name === "macos-sign"
+    ? `          node ${name === "ios-sign" ? "unsigned-ios" : "unsigned-macos"}/verify-signing-identity.mjs --self-test
+          node ${name === "ios-sign" ? "unsigned-ios" : "unsigned-macos"}/verify-signing-identity.mjs \\
+            --keychain-identity-sha1 "$identity_sha"`
+    : "          echo materialized";
   const cleanupMarkers = name === "ios-sign" || name === "macos-sign"
     ? name === "ios-sign"
       ? "          echo original-keychains.txt cleanup-failed\n          if [[ -n \"$profile_path\" ]] && ! rm -f -- \"$profile_path\"; then echo cleanup; fi\n          if [[ -e \"$HOME/Library/MobileDevice/Provisioning Profiles/e5ead62c-83ec-4e54-abb6-4770833b5e0d.mobileprovision\" ]]; then echo survived; fi"
@@ -107,7 +116,9 @@ ${trustMarker}
       - name: Materialize
         env:
           VALUE: \${{ secrets.${selectedSecret} }}
-        run: echo materialized
+        run: |
+          echo materialized
+${preflightMarkers}
       - name: Operate
         run: ${command}
       - name: Destroy ephemeral credential
@@ -231,7 +242,7 @@ ${finalizeJob("ios-verify")}
 ${credentialJob("ios-upload", "xcrun altool --upload-app", "ASC_KEY_BASE64")}
 ${finalizeJob("ios-finalize")}
 ${buildJob("macos-build", "tauri build")}
-${credentialJob("macos-sign", "codesign --entitlements unsigned-macos/Entitlements.plist app && echo signed-entitlements.plist embedded.provisionprofile APPLE_DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 '\"keychain-access-groups\"[0]' && xcrun notarytool submit app")}
+${credentialJob("macos-sign", "codesign --force --deep --entitlements unsigned-macos/Entitlements.plist app && echo signed-entitlements.plist embedded.provisionprofile APPLE_DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 '\"keychain-access-groups\"[0]' && xcrun notarytool submit app")}
 ${finalizeJob("macos-finalize")}
   linux:
     container:
@@ -1343,8 +1354,8 @@ for (const [name, mutate, expected] of [
   [
     "rejects a build without a post-build credential canary",
     (source) => source.replace(
-      "          shasum -a 256 ZUULI.xcarchive.zip ExportOptions.plist source-record.json > CHECKSUMS.sha256\n      - run: scripts/assert-no-apple-credentials.sh",
-      "          shasum -a 256 ZUULI.xcarchive.zip ExportOptions.plist source-record.json > CHECKSUMS.sha256",
+      "          shasum -a 256 ZUULI.xcarchive.zip ExportOptions.plist source-record.json verify-signing-identity.mjs > CHECKSUMS.sha256\n      - run: scripts/assert-no-apple-credentials.sh",
+      "          shasum -a 256 ZUULI.xcarchive.zip ExportOptions.plist source-record.json verify-signing-identity.mjs > CHECKSUMS.sha256",
     ),
     "ios-build must run the credential canary after the unsigned build",
   ],
@@ -1578,13 +1589,13 @@ for (const [name, mutate, expected] of [
   ],
   [
     "rejects an unsigned iOS manifest that omits ExportOptions",
-    (source) => source.replace("ZUULI.xcarchive.zip ExportOptions.plist source-record.json", "ZUULI.xcarchive.zip source-record.json"),
-    "iOS unsigned builder is missing \"ZUULI.xcarchive.zip ExportOptions.plist source-record.json > CHECKSUMS.sha256\"",
+    (source) => source.replace("ZUULI.xcarchive.zip ExportOptions.plist source-record.json verify-signing-identity.mjs", "ZUULI.xcarchive.zip source-record.json verify-signing-identity.mjs"),
+    "iOS unsigned builder is missing \"ZUULI.xcarchive.zip ExportOptions.plist source-record.json verify-signing-identity.mjs > CHECKSUMS.sha256\"",
   ],
   [
     "rejects an unsigned macOS manifest that omits the shipping layout",
-    (source) => source.replace("Entitlements.plist Info.macos.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json", "Entitlements.plist Info.macos.plist ZUULI.app.zip source-record.json"),
-    "macOS unsigned builder is missing \"Entitlements.plist Info.macos.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256\"",
+    (source) => source.replace("Entitlements.plist Info.macos.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json verify-signing-identity.mjs", "Entitlements.plist Info.macos.plist ZUULI.app.zip source-record.json verify-signing-identity.mjs"),
+    "macOS unsigned builder is missing \"Entitlements.plist Info.macos.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json verify-signing-identity.mjs > CHECKSUMS.sha256\"",
   ],
   [
     "rejects a macOS build that skips the entitlement policy",
@@ -1704,8 +1715,8 @@ for (const [name, mutate, expected] of [
     "rejects an extra builder file followed by credential-job execution",
     (source) => source
       .replace(
-        "          shasum -a 256 ZUULI.xcarchive.zip ExportOptions.plist source-record.json > CHECKSUMS.sha256",
-        "          touch post-sign.sh\n          shasum -a 256 ZUULI.xcarchive.zip ExportOptions.plist source-record.json > CHECKSUMS.sha256",
+        "          shasum -a 256 ZUULI.xcarchive.zip ExportOptions.plist source-record.json verify-signing-identity.mjs > CHECKSUMS.sha256",
+        "          touch post-sign.sh\n          shasum -a 256 ZUULI.xcarchive.zip ExportOptions.plist source-record.json verify-signing-identity.mjs > CHECKSUMS.sha256",
       )
       .replace(
         "run: xcodebuild -exportArchive",
@@ -1736,6 +1747,56 @@ for (const [name, mutate, expected] of [
       "  ios-sign:\n    defaults: { run: { shell: python } }\n",
     ),
     "ios-sign credential execution program changed",
+  ],
+  // #960. Each of these is a way the signing preflight could be present in
+  // spirit and absent in effect, which is exactly how the environment that
+  // caused the issue passed every check it had.
+  [
+    "rejects a builder that does not carry the signing preflight into the payload",
+    (source) => removeLast(
+      source,
+      '          cp "$GITHUB_WORKSPACE/scripts/verify-signing-identity.mjs" unsigned-macos/verify-signing-identity.mjs\n',
+    ),
+    'macOS unsigned builder is missing "cp \\"$GITHUB_WORKSPACE/scripts/verify-signing-identity.mjs\\" unsigned-macos/verify-signing-identity.mjs"',
+  ],
+  [
+    "rejects a signer that never runs the signing preflight",
+    (source) => source.replace(
+      `          node unsigned-ios/verify-signing-identity.mjs --self-test
+          node unsigned-ios/verify-signing-identity.mjs \\
+            --keychain-identity-sha1 "$identity_sha"`,
+      "          echo trusted the certificate",
+    ),
+    "iOS signer does not self-test the signing preflight",
+  ],
+  [
+    "rejects a signer that runs the preflight without proving it can still fail",
+    (source) => source.replace(
+      "          node unsigned-ios/verify-signing-identity.mjs --self-test\n",
+      "",
+    ),
+    "iOS signer does not self-test the signing preflight",
+  ],
+  [
+    "rejects a preflight not bound to the identity the keychain resolved",
+    (source) => source.replace('\n            --keychain-identity-sha1 "$identity_sha"', ""),
+    "iOS signer does not bind the signing preflight to the resolved keychain identity",
+  ],
+  [
+    "rejects a preflight that runs after the archive has already been exported",
+    (source) => source.replace(
+      "          node unsigned-ios/verify-signing-identity.mjs --self-test",
+      "          xcodebuild -exportArchive\n          node unsigned-ios/verify-signing-identity.mjs --self-test",
+    ),
+    'iOS signer runs the signing preflight after "xcodebuild -exportArchive", which is too late',
+  ],
+  [
+    "rejects a macOS preflight that runs after the app has already been signed",
+    (source) => source.replace(
+      "          node unsigned-macos/verify-signing-identity.mjs --self-test",
+      "          codesign --force --deep app\n          node unsigned-macos/verify-signing-identity.mjs --self-test",
+    ),
+    'macOS signer runs the signing preflight after "codesign --force --deep", which is too late',
   ],
 ]) {
   test(name, () => {
