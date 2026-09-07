@@ -165,6 +165,17 @@
   }
 
   /*
+   * The root crash frame, from `app-bootstrap.tsx`. Everything else about that
+   * frame is inline style on purpose — it has to mount when the stylesheet or
+   * the locale kernel is the thing that failed — but a viewport height cannot
+   * be written inline and still get the `dvh` fallback, so it lives here.
+   */
+  .app-crash-frame {
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  /*
    * Amounts and counts are the instrument readout: Plex Mono, fixed-width
    * figures, tightened tracking, so a number updating in place never reflows
    * the line around it.
