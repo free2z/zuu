@@ -268,7 +268,36 @@ jobs:
             # nothing anyone can do about it today. Widening this to `mobile` is
             # a one-word change once google.playConsoleListing says "created".
             target=ios
-            dry_run=false
+            # THE PUSH PATH NEVER UPLOADS. Do not "fix" this back to false.
+            #
+            # Merging a release.json bump is a code-review event, not a decision
+            # to publish. Every iOS prerequisite for free2z now exists -- the
+            # free2z-app-stores environment holds a verified distribution
+            # certificate, the `free2z appstore ci` profile and the ASC key, and
+            # store-identity.mjs --require=apple passes -- so with dry_run=false
+            # a squash-merge would run straight through to
+            # `xcrun altool --upload-app` with nobody having asked for a release.
+            # e2e2z is not a precedent here: its push arm targets `mobile` and
+            # dies in this job on the missing Play listing, so it has an accident
+            # standing in for a decision. free2z has no such accident.
+            #
+            # The upload is also a legal declaration. Apple reads
+            # ITSAppUsesNonExemptEncryption out of the bundle at upload time, so
+            # shipping a build submits free2z's export-compliance answer. free2z
+            # bundles rustls/ring outside the OS, so it is not Apple-OS-only by
+            # inspection, and which answer it should give is under owner and
+            # counsel review in #961/#967. A build-number bump must not make that
+            # declaration as a side effect of being merged.
+            #
+            # dry_run=true still builds, signs, and runs `altool --validate-app`,
+            # so the push arm keeps proving the whole pipeline works on the exact
+            # commit that established the identity -- it just stops at the step
+            # that would submit. `--validate-app` is pre-flight and creates no
+            # App Store Connect build record. Releasing is then an explicit
+            # workflow_dispatch with dry_run: false, which is a human choosing to
+            # publish and to make that declaration. Flipping this line back to
+            # false removes the human from that loop entirely.
+            dry_run=true
           else
             source_sha=$INPUT_SOURCE_SHA
             target=$INPUT_TARGET
