@@ -31,6 +31,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       zuuli: ${{ steps.filter.outputs.zuuli }}
+      rust: ${{ steps.filter.outputs.rust }}
       zuuallet_schema: ${{ steps.filter.outputs.zuuallet_schema }}
       surfaces: ${{ steps.filter.outputs.surfaces }}
     steps:
@@ -115,6 +116,7 @@ jobs:
              ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
             echo "::notice::No usable base commit; running the full ZUULI gate."
             echo "zuuli=true" >> "$GITHUB_OUTPUT"
+            echo "rust=true" >> "$GITHUB_OUTPUT"
             echo "zuuallet_schema=true" >> "$GITHUB_OUTPUT"
             echo "surfaces=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -125,12 +127,14 @@ jobs:
           if ! git diff --name-only -z --no-renames "$BASE_SHA" "$GITHUB_SHA" > "$changed_files"; then
             echo "::warning::Diff failed; running the full ZUULI gate."
             echo "zuuli=true" >> "$GITHUB_OUTPUT"
+            echo "rust=true" >> "$GITHUB_OUTPUT"
             echo "zuuallet_schema=true" >> "$GITHUB_OUTPUT"
             echo "surfaces=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           zuuli=false
+          rust=false
           zuuallet_schema=false
           surfaces=false
           while IFS= read -r -d '' file; do
@@ -195,11 +199,27 @@ jobs:
               surfaces=true
               continue
             fi
+            # Only these frontend source types are excused from native builds.
+            # Unknown inputs, scripts, JSON fixtures, shared packages and every
+            # src-tauri input remain selected. Rust embeds bridge.ts directly;
+            # the policy checker audits literal include_str!/include_bytes!
+            # inputs so another embedded frontend file cannot silently skip.
+            frontend_only=false
+            case "$file" in
+              wallet/zuuli/src/*.ts|wallet/zuuli/src/*.tsx|wallet/zuuli/src/*.css|wallet/free2z/src/*.ts|wallet/free2z/src/*.tsx|wallet/free2z/src/*.css|wallet/e2e2z/src/*.ts|wallet/e2e2z/src/*.tsx|wallet/e2e2z/src/*.css)
+                frontend_only=true
+                ;;
+            esac
+            if [[ "$file" == wallet/e2e2z/src/lib/messaging/bridge.ts ]]; then
+              frontend_only=false
+            fi
             case "$file" in
               Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/package.json|wallet/package-lock.json|wallet/shared/*|wallet/zuuli/*|wallet/zuuallet/*|wallet/free2z/*|wallet/e2e2z/*|wallet/plugins/*|rs/crates/f2z-codec/*|rs/crates/f2z-intent/*|rs/crates/f2z-kt-client/*|rs/crates/f2z-kt-core/*|rs/crates/f2z-msg-dag/*|rs/crates/f2z-msg-identity/*|rs/crates/f2z-msg-mls/*|rs/crates/f2z-msg-store/*|rs/crates/f2z-relay-proto/*|rs/crates/f2z-relay-testkit/*|rs/rust-toolchain.toml|wallet/zuuallet/package.json|wallet/zuuallet/package-lock.json|wallet/zuuallet/src/hooks/useWallet.ts|wallet/zuuallet/src/lib/mnemonic.ts|wallet/zuuallet/src/lib/sensitive-entry.ts|wallet/zuuallet/src/lib/sensitive-seed-session.ts|wallet/zuuallet/src/lib/sensitive-seed.ts|wallet/zuuallet/src/lib/tauri.ts|wallet/zuuallet/src/pages/CreateWallet.tsx|wallet/zuuallet/src/pages/RestoreWallet.tsx|wallet/zuuallet/src/pages/Settings.tsx|wallet/zuuallet/src/pages/Welcome.tsx|wallet/zuuallet/src/pages/sensitive-entry-routes.test.tsx|wallet/zuuallet/src/types/index.ts|wallet/rust-toolchain.toml|wallet/deny.toml|docs/e2ee/CLIENT-CONTRACT.md|docs/e2ee/WIRE.md|scripts/check-github-actions-pins.mjs|scripts/check-librustzcash-compat.mjs|scripts/check-rust-toolchain.sh|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|scripts/check-tauri-plugin-permissions.mjs|scripts/check-zuuli-linux-image.mjs|scripts/check-zuuli-store-capture-image.mjs|scripts/check-zuuli-android-gate.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/containers/zuuli-store-capture/*|.github/workflows/e2e2z-release.yml|.github/workflows/free2z-release.yml|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/workflows/zuuli-store-capture-image.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-store-audit.yml|.github/workflows/zuuli-store-publish.yml|.github/workflows/zuuli-testflight-bootstrap.yml|.github/workflows/zuuli-testflight-recovery.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*|docs/ZUULI-LINUX-BUILD-IMAGE.md|docs/ZUULI-STORE-CAPTURE-IMAGE.md)
                 zuuli=true
+                [[ "$frontend_only" == true ]] || rust=true
                 ;;
             esac
+
             case "$file" in
               Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-librustzcash-compat.mjs|scripts/check-rust-toolchain.sh|scripts/check-rust-clippy.sh|scripts/check-tauri-plugin-permissions.mjs|scripts/check-zuuli-linux-image.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/actions/zuuli-rust-cache/*)
                 zuuallet_schema=true
@@ -218,6 +238,7 @@ jobs:
           fi
 
           echo "zuuli=$zuuli" >> "$GITHUB_OUTPUT"
+          echo "rust=$rust" >> "$GITHUB_OUTPUT"
           echo "zuuallet_schema=$zuuallet_schema" >> "$GITHUB_OUTPUT"
           echo "surfaces=$surfaces" >> "$GITHUB_OUTPUT"
 
@@ -428,7 +449,7 @@ jobs:
   rust_fmt:
     name: Rust / formatting
     needs: changes
-    if: needs.changes.outputs.zuuli == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -466,7 +487,7 @@ jobs:
   rust_deny:
     name: Rust / supply chain
     needs: changes
-    if: needs.changes.outputs.zuuli == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -518,7 +539,7 @@ jobs:
   rust_clippy:
     name: Rust / lints
     needs: changes
-    if: needs.changes.outputs.zuuli == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -580,7 +601,7 @@ jobs:
   rust_native_clippy:
     name: Rust / native lints (${{ matrix.target_os }})
     needs: changes
-    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.zuuallet_schema == 'true'
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -640,7 +661,7 @@ jobs:
   rust_native_tests:
     name: Rust / native tests (${{ matrix.target_os }})
     needs: changes
-    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.zuuallet_schema == 'true'
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -691,7 +712,7 @@ jobs:
   rust_plugin:
     name: Rust / shared plugin
     needs: changes
-    if: needs.changes.outputs.zuuli == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -761,7 +782,7 @@ jobs:
   rust_msg_plugin:
     name: Rust / messaging plugin
     needs: changes
-    if: needs.changes.outputs.zuuli == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -862,7 +883,7 @@ jobs:
   rust_android_32:
     name: Rust / Android 32-bit
     needs: changes
-    if: needs.changes.outputs.zuuli == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -917,7 +938,7 @@ jobs:
   rust_app:
     name: Rust / ZUULI backend
     needs: changes
-    if: needs.changes.outputs.zuuli == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -1073,7 +1094,7 @@ jobs:
   rust_crypto_targets:
     name: Rust / modern crypto targets (${{ matrix.family }})
     needs: changes
-    if: needs.changes.outputs.zuuli == 'true'
+    if: needs.changes.outputs.rust == 'true'
     timeout-minutes: 45
     strategy:
       fail-fast: false
