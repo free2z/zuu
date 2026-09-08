@@ -1,4 +1,4 @@
-# Free2Z Play catalog foundation
+# Free2Z draft Play catalog
 
 This catalog is a **draft**, not an upload authorization. `publicationReady`
 remains false and the validator refuses `--publish`.
@@ -7,7 +7,7 @@ The English copy is proposed from the current public app, **not retrieved from
 Play Console**. Reconcile it with the saved console listing before review.
 The contact URLs follow the existing ZUULI catalog.
 
-The PNGs are deterministic derivatives of this app's tracked
+The brand PNGs are deterministic derivatives of this app's tracked
 `src-tauri/icons/icon.png`. That source is currently a plain colored tile;
 the icon and feature graphic still need brand review. No new mark or font is
 invented by the generator. The feature graphic is a centered existing tile
@@ -25,15 +25,19 @@ The generator updates the media SHA-256 pins. Validation regenerates the PNGs
 in memory to detect drift in either source or output, and applies the shared
 PNG decode, geometry, RGB, byte-limit, hash and embedded-text checks.
 
-Remaining work in #989:
+The six screenshots show two views at each Play phone/tablet geometry. They
+are draft production-frontend renders in pinned Linux Chromium with public
+fixtures (Free2Z) or the simulated native unenrolled contract (E2E2Z), not
+physical Android device evidence. No account, credential or conversation is
+invented. `capture.json` names the reviewed plan/source; `capture-record.json`
+pins the six PNGs, source and tooling digests, and two identical capture passes.
 
-- Reconcile proposed copy with the saved console text and obtain copy/brand review.
-- Extend the deterministic capture pipeline with app-specific routes and public
-  request allowlists, two-pass equality, source/contract digests and PNG scans.
-- Capture at least two honest views per Play geometry, then replace the empty
-  screenshot sets with reviewed, hash-pinned capture records. Free2Z must show
-  only public content; E2E2Z must show its real enrollment-unavailable state
-  and must not depict a working conversation.
+See [capture evidence and reproduction](../../../docs/release/SURFACE-STORE-CAPTURE.md).
+The validator decodes the saved screenshot bytes and checks dimensions, RGB,
+size, hash, embedded text and the complete record/manifest matrix. Undeclared
+PNGs and publication approval are rejected.
 
-No screenshots are claimed or fabricated in this foundation. It does not
-complete a Play listing or alter the submitted IARC questionnaire.
+Remaining work in #989: reconcile proposed copy with the saved console text,
+and obtain copy, brand and screenshot owner review. Native-device release
+validation and console declarations remain separate. No command uploads
+media, completes a Play listing or alters the submitted IARC questionnaire.

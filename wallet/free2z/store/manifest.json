@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "phase": "foundation",
+  "phase": "captured",
   "publicationReady": false,
   "application": {
     "bundleId": "cash.free2z.free2z",
@@ -57,7 +57,22 @@
       "minCount": 2,
       "maxCount": 8,
       "maxBytes": 8388608,
-      "files": []
+      "files": [
+        {
+          "id": "01-articles-fresh",
+          "path": "store/media/en-US/play-phone-portrait/01-articles-fresh.png",
+          "sha256": "964df51e69e0f545ed45c1912ed049558fe9e271a361f27bcdfab568913761a1",
+          "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+          "reviewIssue": 989
+        },
+        {
+          "id": "02-article-reader",
+          "path": "store/media/en-US/play-phone-portrait/02-article-reader.png",
+          "sha256": "bdbf7a0f81e4c2c19b37b9dfc1d6f52ca15f41af23dfe717ddbb92bf4043f7f0",
+          "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+          "reviewIssue": 989
+        }
+      ]
     },
     {
       "id": "play-7-inch-tablet-portrait",
@@ -69,7 +84,22 @@
       "minCount": 2,
       "maxCount": 8,
       "maxBytes": 8388608,
-      "files": []
+      "files": [
+        {
+          "id": "01-articles-fresh",
+          "path": "store/media/en-US/play-7-inch-tablet-portrait/01-articles-fresh.png",
+          "sha256": "e6917293ccd6ad268d93910d44c87c17a309aa16a54fe333c22edf4238b8dd06",
+          "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+          "reviewIssue": 989
+        },
+        {
+          "id": "02-article-reader",
+          "path": "store/media/en-US/play-7-inch-tablet-portrait/02-article-reader.png",
+          "sha256": "aa569c9223e201da6a79aedfa2d6f74ca9072705c772a6e18c804a03c7d0028e",
+          "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+          "reviewIssue": 989
+        }
+      ]
     },
     {
       "id": "play-10-inch-tablet-portrait",
@@ -81,11 +111,26 @@
       "minCount": 2,
       "maxCount": 8,
       "maxBytes": 8388608,
-      "files": []
+      "files": [
+        {
+          "id": "01-articles-fresh",
+          "path": "store/media/en-US/play-10-inch-tablet-portrait/01-articles-fresh.png",
+          "sha256": "cdccb47c94715348a904c2b6ff4832b9d41b9dcc184d8fcf3ec9ad4460e71577",
+          "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+          "reviewIssue": 989
+        },
+        {
+          "id": "02-article-reader",
+          "path": "store/media/en-US/play-10-inch-tablet-portrait/02-article-reader.png",
+          "sha256": "c2673ba7d8828646f79c8bd6c0813a4f106418747a8998fbdecffe811d6c1287",
+          "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+          "reviewIssue": 989
+        }
+      ]
     }
   ],
   "capturePolicy": {
-    "status": "deferred",
+    "status": "captured-owner-review-required",
     "reviewIssue": 989,
     "releaseEquivalentBuildRequired": true,
     "safeAreasRequired": true,
@@ -102,6 +147,12 @@
       "fixture",
       "localhost",
       "playwright"
-    ]
+    ],
+    "runtimeEvidence": "linux-chromium-fixture-render-not-physical-android-device",
+    "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+    "sourceDigest": "754d38f42f307b3c173c52b77d4db6d2ce64b001bbaf3e7e6b3afe9ccb2e0146",
+    "contractDigest": "aa46a553715d47938bd6f3bf08a08e886f183fdbb72eed3f567b194026075051",
+    "captureConfig": "store/capture.json",
+    "captureRecord": "store/capture-record.json"
   }
 }

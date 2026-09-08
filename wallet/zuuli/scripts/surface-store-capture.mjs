@@ -12,6 +12,7 @@ import { PNG } from 'pngjs';
 import { CAPTURE_PUBLIC_REQUESTS, computeFeedCaptureScroll } from './store-screenshot-capture.mjs';
 import { CAPTURE_NPM_CI_ARGUMENTS, CAPTURE_NPM_ENVIRONMENT, readCanonicalJson, validateCaptureConfig } from './store-screenshot-contract.mjs';
 import { walletRoot, BROWSER, SHOTS, RUNTIME_EVIDENCE, FORBIDDEN_TEXT, canonical, sha256, captureDigests, assertSourceCommit, assertCaptureEnvironment, validateSurfaceCaptureConfig, validateSurfaceCaptureRecord, validateRecordMatrix } from './surface-store-capture-contract.mjs';
+import { validateSurfaceCatalog } from './surface-store-catalogs.mjs';
 
 async function command(executable, args, cwd = walletRoot) {
   await new Promise((accept, reject) => {
@@ -212,6 +213,7 @@ export async function main(argv = process.argv.slice(2)) {
   const config = await validateSurfaceCaptureConfig(app);
   const manifestPath = resolve(walletRoot, app, 'store/manifest.json');
   const originalManifest = await readFile(manifestPath, 'utf8');
+  assert.equal(JSON.parse(originalManifest).publicationReady, false, 'capture cannot change publication approval');
   const digests = await captureDigests(app);
   await assertCaptureEnvironment(app);
   if (process.env.SURFACE_STORE_CAPTURE_WORKER !== '1') {
@@ -223,6 +225,7 @@ export async function main(argv = process.argv.slice(2)) {
     await assertSourceCommit(app, config.sourceSha);
     await assertCaptureEnvironment(app);
     await validateSurfaceCaptureRecord(app, { enforceCurrentSource: true });
+    await validateSurfaceCatalog({ app });
     return;
   }
   assert.equal(process.platform, 'linux'); assert.equal(process.arch, 'x64'); await access('/.dockerenv');
@@ -245,7 +248,8 @@ export async function main(argv = process.argv.slice(2)) {
       assert.deepEqual(committed, record, 'committed capture differs from two fresh passes');
       for (const entry of first) assert.equal(sha256(await readFile(resolve(walletRoot, app, entry.path))), entry.sha256);
     }
-    process.stdout.write(`${app}: ${first.length} screenshots, two identical passes\n`);
+    await validateSurfaceCatalog({ app });
+    process.stdout.write(`${app}: ${first.length} screenshots, two identical passes, saved PNG bytes validated\n`);
   } finally { await rm(temp, { recursive: true, force: true }); }
 }
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) main().catch((error) => { process.stderr.write(`${error.stack}\n`); process.exitCode = 1; });

@@ -24,7 +24,7 @@
     "test:viewport": "playwright test tests/viewport.pw.ts",
     "test:ui-copy": "node --test scripts/ui-copy-truncation.node-test.mjs && playwright test tests/viewport.pw.ts",
     "test:asc-testflight": "node --test scripts/asc-testflight.node-test.mjs",
-    "test:store-listing": "node --test scripts/store-contract.node-test.mjs scripts/store-state-audit.node-test.mjs scripts/surface-store-catalogs.node-test.mjs",
+    "test:store-listing": "node --test scripts/store-contract.node-test.mjs scripts/store-state-audit.node-test.mjs scripts/surface-store-catalogs.node-test.mjs scripts/surface-store-capture.node-test.mjs",
     "test:status-freshness": "node --test scripts/status-freshness.node-test.mjs",
     "test:wasm-boundary": "node --test scripts/wasm-boundary.node-test.mjs",
     "test:e2e": "playwright test",
@@ -42,7 +42,8 @@
     "wasm:verify": "node scripts/wasm-build.mjs --verify-generated",
     "wasm:verify-dist": "node scripts/wasm-build.mjs --verify-dist",
     "tauri": "tauri",
-    "store:surfaces:generate": "node scripts/surface-store-catalogs.mjs --generate"
+    "store:surfaces:generate": "node scripts/surface-store-catalogs.mjs --generate",
+    "store:surfaces:capture": "node scripts/surface-store-capture.mjs"
   },
   "dependencies": {
     "@free2z/wallet-shared": "file:../shared",
