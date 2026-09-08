@@ -129,13 +129,13 @@ async function preparePage(context, { app, origin, config, target, shot, fixture
     }
     await focus.scrollIntoViewIfNeeded();
     await focus.evaluate((element, safeArea) => {
-      const viewport = document.querySelector('.app-viewport');
+      const viewport = document.scrollingElement;
       const rect = element.getBoundingClientRect();
       if (rect.bottom > innerHeight - safeArea.bottom) viewport.scrollTop += rect.bottom - (innerHeight - safeArea.bottom);
       if (element.getBoundingClientRect().top < safeArea.top) viewport.scrollTop -= safeArea.top - element.getBoundingClientRect().top;
     }, target.safeArea);
     const bounds = await focus.boundingBox();
-    assert(bounds && bounds.y >= target.safeArea.top - 1 && bounds.y + bounds.height <= target.cssHeight - target.safeArea.bottom + 1, 'capture focus is clipped');
+    assert(bounds && bounds.y >= target.safeArea.top - 1 && bounds.y + bounds.height <= target.cssHeight - target.safeArea.bottom + 1, `capture focus is clipped: ${target.setId}/${shot.id} ${JSON.stringify(bounds)}`);
     const calls = await page.evaluate(() => window.__STORE_NATIVE_CALLS__);
     assert(calls.includes('plugin:f2zmsg|get_device_info') && calls.includes('plugin:f2zmsg|get_engine_status'));
     assert(calls.every((cmd) => NATIVE_CALLS.includes(cmd)), 'undeclared native call');
@@ -151,11 +151,12 @@ async function preparePage(context, { app, origin, config, target, shot, fixture
 }
 export async function capturePass(app, config, digests, output, dist) {
   const server = await serverFor(dist);
-  const browser = await chromium.launch({ headless: true });
-  const legacyManifest = await readCanonicalJson(resolve(walletRoot, 'zuuli/store/manifest.json'), 'legacy store manifest');
-  const { fixture } = await validateCaptureConfig({ root: resolve(walletRoot, 'zuuli'), screenshotSets: legacyManifest.screenshotSets, computeSource: false });
+  let browser;
   const entries = [];
   try {
+    browser = await chromium.launch({ headless: true });
+    const legacyManifest = await readCanonicalJson(resolve(walletRoot, 'zuuli/store/manifest.json'), 'legacy store manifest');
+    const { fixture } = await validateCaptureConfig({ root: resolve(walletRoot, 'zuuli'), screenshotSets: legacyManifest.screenshotSets, computeSource: false });
     for (const target of config.targets) for (const shot of config.shots) {
       const context = await browser.newContext({ viewport: { width: target.cssWidth, height: target.cssHeight }, deviceScaleFactor: target.deviceScaleFactor, locale: config.locale, timezoneId: config.timezone, colorScheme: config.colorScheme, reducedMotion: 'reduce', serviceWorkers: 'block' });
       try {
@@ -170,7 +171,7 @@ export async function capturePass(app, config, digests, output, dist) {
         entries.push({ setId: target.setId, ...shot, path, sha256: sha256(bytes), renderedTextSha256, sourceSha: config.sourceSha, sourceDigest: digests.sourceDigest, cssWidth: target.cssWidth, cssHeight: target.cssHeight, deviceScaleFactor: target.deviceScaleFactor, width: pixels.width, height: pixels.height, safeArea: target.safeArea, disclosureScan: 'passed' });
       } finally { await context.close(); }
     }
-  } finally { await browser.close(); await server.close(); }
+  } finally { if (browser) await browser.close(); await server.close(); }
   return entries;
 }
 export function proveIdenticalPasses(first, second) {
