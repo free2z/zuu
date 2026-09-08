@@ -17,6 +17,12 @@ Per-app detail stays in the per-app documents:
 [`wallet/free2z/README.md`](../wallet/free2z/README.md),
 [`wallet/e2e2z/README.md`](../wallet/e2e2z/README.md).
 
+Store-side state — what each app looks like in Google Play Console, and what is
+blocking it — is in
+[`docs/release/PLAY-STORE-SETUP.md`](release/PLAY-STORE-SETUP.md). That page
+records console state, which nothing in this repository can prove; this page
+records the tree.
+
 ---
 
 ## 1. What works
