@@ -27,7 +27,7 @@ const RECORD = 'store/capture-record.json';
 const commonInputs = ['index.html', 'package.json', 'package-lock.json', 'postcss.config.cjs', 'src', 'tailwind.config.cjs', 'tsconfig.json', 'tsconfig.build.json', 'release.json'];
 export function renderInputs(app) {
   assert(Object.hasOwn(SHOTS, app), 'unknown capture app');
-  return [...commonInputs.map((p) => `${app}/${p}`), ...(app === 'free2z' ? ['free2z/vite.config.ts', 'free2z/public'] : ['e2e2z/src-tauri/src', 'plugins/tauri-plugin-f2zmsg/src']), 'shared/package.json', 'shared/src'];
+  return [...commonInputs.map((p) => `${app}/${p}`), ...(app === 'free2z' ? ['free2z/vite.config.ts'] : ['e2e2z/src-tauri/src', 'plugins/tauri-plugin-f2zmsg/src']), 'shared/package.json', 'shared/src'];
 }
 export function contractInputs(app) {
   return [`${app}/${CONFIG}`, 'zuuli/package.json', 'zuuli/package-lock.json',
@@ -64,7 +64,7 @@ export async function assertCaptureEnvironment(app, root = walletRoot) {
   const configs = files.filter((file) => /^(?:vite|postcss|tailwind)\.config\./.test(file)).sort();
   const expected = ['postcss.config.cjs', 'tailwind.config.cjs', ...(app === 'free2z' ? ['vite.config.ts'] : [])].sort();
   assert.deepEqual(configs, expected, 'unregistered build configuration could bypass source hashing');
-  assert(app === 'free2z' || !files.includes('public'), 'register the new public assets in the capture source inventory first');
+  assert(!files.includes('public'), 'register the new public assets in the capture source inventory first');
 }
 export function captureConfig(app, sourceSha) {
   assert(Object.hasOwn(SHOTS, app), 'unknown capture app');
