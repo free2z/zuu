@@ -13,32 +13,18 @@ const toolchainEnvPath = "wallet/zuuli/scripts/android-toolchain-env.sh";
 const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
-// Re-derived for free2z's release path. The reviewed semantic delta from
-// 464b7a522cdb2348ee9fdbfa46300ba536de8bb911c10ddaa5bb00da249fa410 (#949/#915)
-// is one token:
-//
-//   * `.github/workflows/free2z-release.yml` added to the `zuuli` arm, exactly
-//     as #957 added `.github/workflows/e2e2z-release.yml`, because
-//     wallet/free2z/scripts/release-path.node-test.mjs reads that workflow and
-//     runs inside the gate as part of free2z's `npm test`.
-//
-// Why this cannot move the fail-open/fail-closed line, which is the only thing
-// this digest is guarding. The change is PURELY ADDITIVE to the arm that selects
-// the full suite: it takes a path that previously matched nothing and makes it
-// select everything. No pattern was removed, no pattern was narrowed, and the
-// step is otherwise byte-identical — same 119 lines, one changed line, one added
-// pipe-delimited token, zero removed. Both fail-open arms (no usable base
-// commit; `git diff` failed), every `zuuli=` / `zuuallet_schema=` / `surfaces=`
-// assignment, and both per-file `continue` guards are unchanged byte for byte.
-// A selector can only become fail-OPEN by dropping or narrowing an input, and
-// this does neither; the structural assertions below — wallet/zuuli/*, the
-// messaging contract documents, every rs/crate the wallet links in source,
-// wallet/shared/*, wallet/zuuallet/*, and this policy file itself — all still
-// pass unchanged, which is what actually holds the Android gate closed. The
-// digest is the tripwire that made a human look; this comment is the record of
-// having looked.
+// Re-derived for #984's distinct Rust output. The broad selecting arm, native
+// configuration inputs, and existing prose/test exclusions are unchanged.
+// Only TS/TSX/CSS beneath the three app src/ trees can leave rust=false, with
+// the embedded messaging bridge explicitly retained. Both missing-base and
+// failed-diff paths set rust=true. Android now consumes this Rust output.
+// check-github-actions-pins.mjs executes real-Git selector mutations, inventories
+// Rust includes across wallet/ and rs/, and requires every selected Rust result.
+// No Android target, toolchain, build command, cache boundary, or gate needs
+// changed. This digest remains the exact selector tripwire; changing it alone
+// cannot bypass the independent executable selector and required-job controls.
 const changeDetectorDigest =
-  "81ed7dc86d6e1b48398391d74ff7d31d3a3b1332543fba67487eec3831b561f6";
+  "8cf5f67cc6216df39f05b31515a952b38550bea8e99910f1adb7578e92ab002a";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
@@ -186,7 +172,7 @@ function check(
     "  rust_android_32:",
     "    name: Rust / Android 32-bit",
     "    needs: changes",
-    "    if: needs.changes.outputs.zuuli == 'true'",
+    "    if: needs.changes.outputs.rust == 'true'",
     "    runs-on: ubuntu-latest",
     "    timeout-minutes: 35",
     "    steps:",
@@ -321,6 +307,12 @@ function runSelfTest(workflow, toolchainEnv) {
     throw new Error(`self-test selector fixture missing: ${input}`);
   };
   const mutations = [
+    [
+      "the Android job uses frontend selection instead of Rust selection",
+      "    name: Rust / Android 32-bit\n    needs: changes\n    if: needs.changes.outputs.rust == 'true'",
+      "    name: Rust / Android 32-bit\n    needs: changes\n    if: needs.changes.outputs.zuuli == 'true'",
+      "32-bit Android job must retain its exact required-job header",
+    ],
     [
       "the change detector restores a line-delimited Git producer",
       "git diff --name-only -z --no-renames",
@@ -466,15 +458,10 @@ function runSelfTest(workflow, toolchainEnv) {
   if (check(decoratedSelector, toolchainEnv).length === 0) {
     throw new Error("mutation escaped policy: dead text replaces the real change selector");
   }
-  const deadZuuliCase = workflow
-    .replace(
-      '          while IFS= read -r file; do\n            case "$file" in',
-      '          while IFS= read -r file; do\n            if false; then\n            case "$file" in',
-    )
-    .replace(
-      '            esac\n            case "$file" in',
-      '            esac\n            fi\n            case "$file" in',
-    );
+  const primaryCase = /            case "\$file" in\n              Cargo\.toml[\s\S]*?            esac/.exec(workflow)?.[0];
+  if (!primaryCase) throw new Error("self-test fixture missing: primary ZUULI selector case");
+  const deadZuuliCase = workflow.replace(primaryCase,
+    `            if false; then\n${primaryCase}\n            fi`);
   if (check(deadZuuliCase, toolchainEnv).length === 0) {
     throw new Error("mutation escaped policy: real ZUULI selector case is dead code");
   }
