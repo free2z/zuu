@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { captureConfig, RUNTIME_EVIDENCE, sha256, validateRecordMatrix, inputDigest, renderInputs, FORBIDDEN_TEXT } from './surface-store-capture-contract.mjs';
+import { captureConfig, RUNTIME_EVIDENCE, sha256, validateRecordMatrix, inputDigest, renderInputs, assertCaptureEnvironment, FORBIDDEN_TEXT } from './surface-store-capture-contract.mjs';
 import { proveIdenticalPasses, allowedPublicRequest } from './surface-store-capture.mjs';
 
 function example(app = 'e2e2z') {
@@ -64,4 +64,17 @@ test('source digest covers shared code and rejects symbolic links', async (t) =>
   assert.notEqual(await inputDigest(root, ['shared/src']), before);
   await symlink(resolve(root, 'shared/src/index.ts'), resolve(root, 'shared/src/link.ts'));
   await assert.rejects(inputDigest(root, ['shared/src']), /symlink/);
+});
+
+test('new implicit Vite config and public inputs fail closed until registered', async (t) => {
+  const root = await mkdtemp(resolve(tmpdir(), 'surface-environment-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(resolve(root, 'e2e2z'));
+  for (const file of ['postcss.config.cjs', 'tailwind.config.cjs']) await writeFile(resolve(root, 'e2e2z', file), '');
+  await assertCaptureEnvironment('e2e2z', root);
+  await writeFile(resolve(root, 'e2e2z/vite.config.mjs'), '');
+  await assert.rejects(assertCaptureEnvironment('e2e2z', root), /unregistered build configuration/);
+  await rm(resolve(root, 'e2e2z/vite.config.mjs'));
+  await mkdir(resolve(root, 'e2e2z/public'));
+  await assert.rejects(assertCaptureEnvironment('e2e2z', root), /register the new public assets/);
 });

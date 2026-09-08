@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFile, realpath } from 'node:fs/promises';
+import { readFile, realpath, readdir } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { captureInputFiles, assertNoLocalCaptureOverrides, readCanonicalJson } from './store-screenshot-contract.mjs';
@@ -60,6 +60,11 @@ export async function assertSourceCommit(app, sourceSha, root = walletRoot) {
 }
 export async function assertCaptureEnvironment(app, root = walletRoot) {
   for (const subdir of ['', app, 'shared', 'zuuli']) await assertNoLocalCaptureOverrides(resolve(root, subdir));
+  const files = await readdir(resolve(root, app));
+  const configs = files.filter((file) => /^(?:vite|postcss|tailwind)\.config\./.test(file)).sort();
+  const expected = ['postcss.config.cjs', 'tailwind.config.cjs', ...(app === 'free2z' ? ['vite.config.ts'] : [])].sort();
+  assert.deepEqual(configs, expected, 'unregistered build configuration could bypass source hashing');
+  assert(app === 'free2z' || !files.includes('public'), 'register the new public assets in the capture source inventory first');
 }
 export function captureConfig(app, sourceSha) {
   assert(Object.hasOwn(SHOTS, app), 'unknown capture app');
