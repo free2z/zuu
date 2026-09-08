@@ -45,6 +45,10 @@ const WASM_POLICY_SELF_TEST_COMMAND =
   "node wallet/zuuli/scripts/wasm-boundary.mjs --self-test";
 const WASM_POLICY_COMMAND = "node wallet/zuuli/scripts/wasm-boundary.mjs";
 const FRONTEND_CHECKOUT_REFERENCE = GATE_CHECKOUT_REFERENCE;
+const RUST_REQUIRED_JOB_IDS = new Set([
+  "rust_fmt", "rust_deny", "rust_clippy", "rust_native_clippy", "rust_native_tests",
+  "rust_plugin", "rust_msg_plugin", "rust_android_32", "rust_app", "rust_crypto_targets",
+]);
 const POLICED_RUST_ROOTS = ["wallet", "rs"];
 const RUST_ROOT_CONTRACTS = [
   {
@@ -53,7 +57,25 @@ const RUST_ROOT_CONTRACTS = [
     selectorStep: "Detect release-impacting ZUULI changes",
     selectorId: "filter",
     selectorOutput: "zuuli",
+    jobSelectorOutput: "rust",
     selectorOutputs: [
+      {
+        name: "rust",
+        probeRoot: "wallet",
+        additionalProbePaths: [
+          "wallet/zuuli/src-tauri/tauri.conf.json",
+          "wallet/zuuli/src-tauri/capabilities/default.json",
+          "wallet/zuuli/src-tauri/gen/android/app/src/main/AndroidManifest.xml",
+          "wallet/zuuli/src-tauri/gen/apple/zuuli_iOS/zuuli_iOS.entitlements",
+          "wallet/zuuli/src-tauri/build.rs",
+          "wallet/zuuli/release.json",
+          "wallet/e2e2z/src/lib/messaging/bridge.ts",
+          "wallet/e2e2z/src/lib/messaging/handle-eligibility.fixtures.json",
+          "wallet/shared/src/diagnostics/record.ts",
+          "wallet/zuuli/scripts/status-freshness.mjs",
+          "wallet/zuuli/src-tauri/unknown-input.bin",
+        ],
+      },
       {
         name: "zuuli",
         probeRoot: "wallet",
@@ -104,35 +126,40 @@ const RUST_ROOT_CONTRACTS = [
     // must name every output, so widening the carve-out to swallow a path that
     // should still select ZUULI is red rather than merely different.
     mixedProbePaths: [
+      ...["wallet/zuuli/src/App.tsx", "wallet/free2z/src/App.tsx",
+        "wallet/e2e2z/src/App.tsx", "wallet/e2e2z/src/lib/ordinary.ts",
+        "wallet/free2z/src/index.css"].map((file) => [file,
+        { zuuli: "true", rust: "false", zuuallet_schema: "false", surfaces: "true" }]),
+
       // The carve-out itself, at both depths a `*` that spans `/` reaches, and
       // for both surfaces.
       [
         "wallet/free2z/tests/search.pw.ts",
-        { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+        { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "true" },
       ],
       [
         "wallet/free2z/tests/helpers/mock-capture.ts",
-        { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+        { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "true" },
       ],
       [
         "wallet/e2e2z/tests/enrollment-gap.pw.ts",
-        { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+        { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "true" },
       ],
       [
         "wallet/free2z/src/lib/markdown.test.ts",
-        { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+        { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "true" },
       ],
       [
         "wallet/free2z/src/components/Article.test.tsx",
-        { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+        { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "true" },
       ],
       [
         "wallet/e2e2z/src/lib/enrollment.test.ts",
-        { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+        { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "true" },
       ],
       [
         "wallet/e2e2z/src/screens/Threads.test.tsx",
-        { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+        { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "true" },
       ],
       // `zuuallet_schema` is "true" on the three `.rs` probes below because the
       // schema arm selects `wallet/*.rs` at any depth. That is pre-existing and
@@ -146,25 +173,25 @@ const RUST_ROOT_CONTRACTS = [
       // the whole native matrix off a Rust source change.
       [
         "wallet/free2z/src-tauri/tests/http_scope.rs",
-        { zuuli: "true", zuuallet_schema: "true", surfaces: "true" },
+        { zuuli: "true", rust: "true", zuuallet_schema: "true", surfaces: "true" },
       ],
       [
         "wallet/e2e2z/src-tauri/tests/authority.rs",
-        { zuuli: "true", zuuallet_schema: "true", surfaces: "true" },
+        { zuuli: "true", rust: "true", zuuallet_schema: "true", surfaces: "true" },
       ],
       [
         "wallet/free2z/src-tauri/src/http.test.ts",
-        { zuuli: "true", zuuallet_schema: "false", surfaces: "true" },
+        { zuuli: "true", rust: "true", zuuallet_schema: "false", surfaces: "true" },
       ],
       // A test *and* a source file in one commit still selects the full gate:
       // the guard is per-file, so the source file decides.
       [
         "wallet/free2z/tests/search.pw.ts\0wallet/free2z/src/App.tsx",
-        { zuuli: "true", zuuallet_schema: "false", surfaces: "true" },
+        { zuuli: "true", rust: "false", zuuallet_schema: "false", surfaces: "true" },
       ],
       [
         "wallet/free2z/tests/search.pw.ts\0wallet/free2z/src-tauri/src/lib.rs",
-        { zuuli: "true", zuuallet_schema: "true", surfaces: "true" },
+        { zuuli: "true", rust: "true", zuuallet_schema: "true", surfaces: "true" },
       ],
     ],
     excludedProbePaths: [
@@ -254,7 +281,7 @@ const REQUIRED_NATIVE_CLIPPY_JOB_LINES = [
   "  rust_native_clippy:",
   "    name: Rust / native lints (${{ matrix.target_os }})",
   "    needs: changes",
-  "    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
+  "    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
   "    timeout-minutes: 90",
   "    strategy:",
   "      fail-fast: false",
@@ -303,7 +330,7 @@ const REQUIRED_NATIVE_TESTS_JOB_LINES = [
   "  rust_native_tests:",
   "    name: Rust / native tests (${{ matrix.target_os }})",
   "    needs: changes",
-  "    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
+  "    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
   "    timeout-minutes: 90",
   "    strategy:",
   "      fail-fast: false",
@@ -344,7 +371,7 @@ const REQUIRED_CRYPTO_TARGET_JOB_LINES = [
   "  rust_crypto_targets:",
   "    name: Rust / modern crypto targets (${{ matrix.family }})",
   "    needs: changes",
-  "    if: needs.changes.outputs.zuuli == 'true'",
+  "    if: needs.changes.outputs.rust == 'true'",
   "    timeout-minutes: 45",
   "    strategy:",
   "      fail-fast: false",
@@ -2301,6 +2328,10 @@ function effectiveGithubOutput(outputFile, name) {
   return effective;
 }
 
+// Fixtures are immutable within this process. Job-policy mutations repeatedly
+// exercise the same selector; cache only identical shell/input/output contracts.
+// Mutated bodies and failure-path bases/heads always execute independently.
+const rustRootSelectorExecutionCache = new Map();
 function executeRustRootSelector(
   body,
   fixture,
@@ -2308,6 +2339,9 @@ function executeRustRootSelector(
   head,
   base = fixture.base,
 ) {
+  const cacheKey = JSON.stringify([body, fixture.repo, head, base,
+    contract.selectorOutputs.map(({ name }) => name)]);
+  if (rustRootSelectorExecutionCache.has(cacheKey)) return rustRootSelectorExecutionCache.get(cacheKey);
   const outputDirectory = fs.mkdtempSync(
     path.join(os.tmpdir(), "rust-root-selector-output-"),
   );
@@ -2325,7 +2359,7 @@ function executeRustRootSelector(
         RUNNER_TEMP: outputDirectory,
       },
     });
-    return {
+    const verdict = {
       effective: new Map(
         contract.selectorOutputs.map(({ name }) => [
           name,
@@ -2334,12 +2368,51 @@ function executeRustRootSelector(
       ),
       status: result.status,
     };
+    rustRootSelectorExecutionCache.set(cacheKey, verdict);
+    return verdict;
   } finally {
     fs.rmSync(outputDirectory, { recursive: true, force: true });
   }
 }
 
-function rustRootWorkflowFailures(relativeFile, lines, contract) {
+function rustEmbeddedPaths(source, relative) {
+  const paths = [];
+  // Generated Tauri capabilities are covered by the entire src-tauri selector.
+  const withoutGenerated = relative === "wallet/zuuli/src-tauri/src/lib.rs" ? source.replace(
+    /include_str!\(concat!\(env!\("OUT_DIR"\), "\/capabilities\.json"\)\)/g, "",
+  ) : source;
+  const remainder = withoutGenerated.replace(
+    /include_(?:str|bytes)!\s*\(\s*"([^"\n]+)"\s*\)/g,
+    (_macro, input) => {
+      if (input.includes("\\")) throw new Error(`${relative}: escaped Rust include needs an explicit input review`);
+      paths.push(path.posix.normalize(path.posix.join(path.posix.dirname(relative), input)));
+      return "";
+    },
+  );
+  if (/include_(?:str|bytes)!\s*\(/.test(remainder)) {
+    throw new Error(`${relative}: unreviewed nonliteral Rust include; preserve its inputs in Rust selection`);
+  }
+  return paths;
+}
+
+let embeddedWalletInputs;
+function walletEmbeddedInputs() {
+  if (embeddedWalletInputs) return embeddedWalletInputs;
+  const listed = spawnSync("git", ["ls-files", "-z", "--", "wallet", "rs"], {
+    cwd: POLICY_REPO_ROOT, encoding: "utf8",
+  });
+  if (listed.status !== 0) throw new Error("could not inventory Rust include inputs");
+  embeddedWalletInputs = listed.stdout.split("\0").filter((name) => name.endsWith(".rs"))
+    .flatMap((name) => rustEmbeddedPaths(fs.readFileSync(path.join(POLICY_REPO_ROOT, name), "utf8"), name)
+      .map((input) => path.relative(POLICY_REPO_ROOT, fs.realpathSync(path.join(POLICY_REPO_ROOT, input))).split(path.sep).join("/"))
+      // The rs owner already selects its own test fixtures and documentation.
+      // Here protect every wallet include and any rs include into an app tree,
+      // including future frontend sources otherwise excused from native builds.
+      .filter((input) => name.startsWith("wallet/") || /^wallet\/(?:zuuli|free2z|e2e2z)\//.test(input)));
+  return embeddedWalletInputs;
+}
+
+function rustRootWorkflowFailures(relativeFile, lines, contract, embeddedInputs = null) {
   const failures = [];
   const jobs = policyWorkflowJobs(relativeFile, lines, failures);
   const changes = jobs.get("changes");
@@ -2431,7 +2504,7 @@ function rustRootWorkflowFailures(relativeFile, lines, contract) {
     const body = lines.slice(selectorRun.index + 1, selector.end).join("\n");
     const selectorArms = [
       ...body.matchAll(
-        /^\s*case "\$file" in\s*\n\s*([^\n)]+)\)\s*\n\s*([A-Za-z0-9_]+)=true\s*\n\s*;;\s*\n\s*esac\s*$/gm,
+        /^\s*case "\$file" in\s*\n\s*([^\n)]+)\)\s*\n\s*([A-Za-z0-9_]+)=true\s*\n(?:\s*\[\[ "\$frontend_only" == true \]\] \|\| rust=true\s*\n)?\s*;;\s*\n\s*esac\s*$/gm,
       ),
     ].filter((match) => match[2] === contract.selectorOutput);
     if (selectorArms.length !== 1) {
@@ -2507,6 +2580,15 @@ function rustRootWorkflowFailures(relativeFile, lines, contract) {
           }
         }
       }
+      if (contract.root === "wallet") {
+        for (const input of embeddedInputs ?? walletEmbeddedInputs()) {
+          const fixture = rustRootSelectorProbeFixture(input);
+          const result = executeRustRootSelector(body, fixture, contract, fixture.head);
+          if (result.status !== 0 || result.effective.get("rust") !== "true") {
+            failures.push(`${relativeFile}: Rust selector must preserve embedded input ${input}`);
+          }
+        }
+      }
       for (const probePath of contract.excludedProbePaths ?? []) {
         const fixture = rustRootSelectorProbeFixture(probePath);
         const result = executeRustRootSelector(
@@ -2574,6 +2656,17 @@ function rustRootWorkflowFailures(relativeFile, lines, contract) {
     }
   }
 
+  if (contract.root === "wallet") {
+    for (const jobId of RUST_REQUIRED_JOB_IDS) {
+      const expected = jobId === "rust_native_clippy" || jobId === "rust_native_tests"
+        ? "needs.changes.outputs.rust == 'true' || needs.changes.outputs.zuuallet_schema == 'true'"
+        : "needs.changes.outputs.rust == 'true'";
+      if (jobs.get(jobId)?.properties.get("if")?.value !== expected) {
+        failures.push(`${relativeFile}: Rust job ${jobId} must use its exact Rust selector`);
+      }
+    }
+  }
+
   for (const [jobId, stepName, command] of contract.jobs) {
     const job = jobs.get(jobId);
     if (!job) {
@@ -2582,7 +2675,7 @@ function rustRootWorkflowFailures(relativeFile, lines, contract) {
       );
       continue;
     }
-    const expectedIf = `needs.changes.outputs.${contract.selectorOutput} == 'true'`;
+    const expectedIf = `needs.changes.outputs.${contract.jobSelectorOutput ?? contract.selectorOutput} == 'true'`;
     if (job.properties.get("if")?.value !== expectedIf) {
       failures.push(
         `${relativeFile}:${job.start + 1}: ${contract.root}/ owner job ${jobId} must run exactly when its root selector is true`,
@@ -2791,7 +2884,7 @@ function nativeClippySelectorFailures(relativeFile, lines, changes) {
   const body = lines.slice(run.index + 1, detector.end).join("\n");
   const arms = new Map();
   for (const match of body.matchAll(
-    /^\s*case "\$file" in\s*\n\s*([^\n)]+)\)\s*\n\s*(zuuli|zuuallet_schema)=true\s*\n\s*;;\s*\n\s*esac\s*$/gm,
+    /^\s*case "\$file" in\s*\n\s*([^\n)]+)\)\s*\n\s*(zuuli|zuuallet_schema)=true\s*\n(?:\s*\[\[ "\$frontend_only" == true \]\] \|\| rust=true\s*\n)?\s*;;\s*\n\s*esac\s*$/gm,
   )) {
     const output = match[2];
     if (arms.has(output)) {
@@ -2992,7 +3085,7 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
       ["needs", "changes"],
       [
         "if",
-        "needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
+        "needs.changes.outputs.rust == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
       ],
       ["timeout-minutes", "90"],
       ["runs-on", "${{ matrix.os }}"],
@@ -3212,6 +3305,7 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
     throw new Error("change detection outputs are missing");
   }
   const zuuliExpected = selectorResult(changes.outputs.zuuli, "ZUULI");
+  const rustExpected = selectorResult(changes.outputs.rust, "Rust");
   const schemaExpected = selectorResult(
     changes.outputs.zuuallet_schema,
     "Zuuallet schema",
@@ -3221,7 +3315,7 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
   // it. Deriving both expectations from the same value here means the gate can
   // never accept a skip from one that it would reject from the other.
   const nativeExpected =
-    zuuliExpected === "success" || schemaExpected === "success"
+    rustExpected === "success" || schemaExpected === "success"
       ? "success"
       : "skipped";
   const NATIVE_JOBS = new Set(["rust_native_clippy", "rust_native_tests"]);
@@ -3248,6 +3342,12 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
       : "skipped";
   const SURFACE_JOBS = new Set(["frontend", "surfaces"]);
 
+  for (const job of RUST_REQUIRED_JOB_IDS) {
+    const expected = NATIVE_JOBS.has(job) ? nativeExpected : rustExpected;
+    if (expected === "success" && !Object.hasOwn(needs, job)) {
+      throw new Error(`selected Rust job ${job} is missing from required jobs context`);
+    }
+  }
   const verdicts = [];
   for (const [job, state] of entries) {
     if (
@@ -3264,9 +3364,11 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
           ? schemaExpected
           : NATIVE_JOBS.has(job)
             ? nativeExpected
-            : SURFACE_JOBS.has(job)
-              ? surfaceExpected
-              : zuuliExpected;
+            : RUST_REQUIRED_JOB_IDS.has(job)
+              ? rustExpected
+              : SURFACE_JOBS.has(job)
+                ? surfaceExpected
+                : zuuliExpected;
     if (state.result !== expected) {
       throw new Error(
         `required job ${job} must be ${expected}, got ${state.result}`,
@@ -3625,15 +3727,18 @@ function runRustRootWorkflowMutationTests(repoRoot) {
     if (!slice) return source;
     const body = source.slice(slice.start, slice.end);
     const marker = '            case "$file" in';
-    const start = body.indexOf(marker);
     const endMarker = "            esac";
-    const endStart = body.indexOf(endMarker, start);
-    if (start < 0 || endStart < 0) return source;
-    const end = endStart + endMarker.length;
-    const primary = body.slice(start, end);
-    if (!primary.includes(`${contract.selectorOutput}=true`)) {
-      return source;
+    let start = body.indexOf(marker);
+    let end;
+    while (start >= 0) {
+      const endStart = body.indexOf(endMarker, start);
+      if (endStart < 0) return source;
+      end = endStart + endMarker.length;
+      if (body.slice(start, end).includes(`${contract.selectorOutput}=true`)) break;
+      start = body.indexOf(marker, end);
     }
+    if (start < 0) return source;
+    const primary = body.slice(start, end);
     const parked = [
       "            if false; then",
       primary,
@@ -3677,6 +3782,17 @@ function runRustRootWorkflowMutationTests(repoRoot) {
       throw new Error(
         `${contract.root}/ owner is not a valid mutation base: ${baseline.join("; ")}`,
       );
+    }
+
+    if (contract.root === "wallet") {
+      const futureDependency = "wallet/e2e2z/src/future-native-input.tsx";
+      const findings = rustRootWorkflowFailures(contract.workflow, source.split(/\r?\n/),
+        contract, [futureDependency]);
+      if (!findings.some((finding) => finding.includes(`Rust selector must preserve embedded input ${futureDependency}`))) {
+        throw new Error("future Rust-embedded frontend source escaped selector validation");
+      }
+      console.log("self-test: future Rust-embedded frontend input cannot silently skip native jobs: passed");
+      cases += 1;
     }
 
     const ownerPrefix = `${contract.root}/ owner`;
@@ -3936,6 +4052,22 @@ function runRustRootWorkflowMutationTests(repoRoot) {
           'must actively select "docs/e2ee/WIRE.md"',
         ],
       ];
+      assertWorkflowFailure(contract, source,
+        "wallet/ rejects excusing the Rust-embedded TypeScript bridge",
+        (value) => mutateJob(value, "changes",
+          'if [[ "$file" == wallet/e2e2z/src/lib/messaging/bridge.ts ]]; then',
+          'if false; then'),
+        'must actively select "wallet/e2e2z/src/lib/messaging/bridge.ts"');
+      assertWorkflowFailure(contract, source,
+        "wallet/ rejects excusing all unknown native inputs",
+        (value) => mutateJob(value, "changes", '            frontend_only=false',
+          '            frontend_only=true'),
+        'selector output rust must actively select');
+      assertWorkflowFailure(contract, source,
+        "wallet/ rejects running native jobs on ordinary TSX",
+        (value) => mutateJob(value, "changes", '[[ "$frontend_only" == true ]] || rust=true',
+          '[[ "$frontend_only" == true ]] || rust=true\n                rust=true'),
+        'must leave rust false');
       // The markdown-only guard is a *negative* selector: it exists to keep
       // `wallet/zuuli/*`, `wallet/free2z/*` and `wallet/e2e2z/*` from dragging
       // prose into the native matrix. Its failure directions are deleting the
@@ -4175,7 +4307,7 @@ function runRustRootWorkflowMutationTests(repoRoot) {
     }
 
     for (const [jobId, stepName, command] of contract.jobs) {
-      const exactIf = `    if: needs.changes.outputs.${contract.selectorOutput} == 'true'`;
+      const exactIf = `    if: needs.changes.outputs.${contract.jobSelectorOutput ?? contract.selectorOutput} == 'true'`;
       const verdictNeedle = `${ownerPrefix} job ${jobId} must run exactly one`;
       assertWorkflowFailure(
         contract,
@@ -4571,7 +4703,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       name: "real workflow rejects a weakened native clippy selector",
       needle: "rust_native_clippy if differs from its required value",
       source: source.replace(
-        "    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
+        "    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
         "    if: needs.changes.outputs.zuuli == 'true'",
       ),
     },
@@ -4601,7 +4733,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       // clippy contract rather than this one.
       source: replaceLast(
         source,
-        "    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
+        "    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
         "    if: needs.changes.outputs.zuuli == 'true'",
       ),
     },
@@ -5895,6 +6027,23 @@ function runClassicFrontendAuditMutationTests(repoRoot) {
 }
 
 function runSelfTest(repoRoot) {
+  const embedded = rustEmbeddedPaths('include_str!("../../../e2e2z/src/future.ts")',
+    "wallet/zuuli/src-tauri/src/lib.rs");
+  if (embedded[0] !== "wallet/e2e2z/src/future.ts") throw new Error("Rust include inventory lost a frontend dependency");
+  let unknownIncludeRejected = false;
+  try { rustEmbeddedPaths('include_bytes!(concat!("../", "future.ts"))', "wallet/demo/build.rs"); }
+  catch { unknownIncludeRejected = true; }
+  if (!unknownIncludeRejected) throw new Error("dynamic Rust include escaped the fail-closed inventory");
+  const generatedCapabilities = 'include_str!(concat!(env!("OUT_DIR"), "/capabilities.json"))';
+  rustEmbeddedPaths(generatedCapabilities, "wallet/zuuli/src-tauri/src/lib.rs");
+  let misplacedGeneratedRejected = false;
+  try { rustEmbeddedPaths(generatedCapabilities, "rs/crates/demo/src/lib.rs"); }
+  catch { misplacedGeneratedRejected = true; }
+  if (!misplacedGeneratedRejected) throw new Error("generated include exception escaped its reviewed source");
+  const crossRoot = rustEmbeddedPaths('include_bytes!("../../../../wallet/free2z/src/native.tsx")',
+    "rs/crates/demo/src/lib.rs");
+  if (crossRoot[0] !== "wallet/free2z/src/native.tsx") throw new Error("cross-root Rust include was lost");
+
   const fullSha = "0123456789abcdef0123456789abcdef01234567";
   const gateFixture = (contents) => ({
     ".github/workflows/zuuli.yml": contents,
@@ -6804,12 +6953,39 @@ function runSelfTest(repoRoot) {
 
   const gateResultCases = [
     {
+      name: "frontend source succeeds with native jobs skipped",
+      policyOutcome: "success",
+      needs: { changes: { result: "success", outputs: { zuuli: "true", rust: "false", zuuallet_schema: "false", surfaces: "true" } },
+        frontend: { result: "success" }, surfaces: { result: "success" } },
+    },
+    {
+      name: "selected Rust job cannot report skipped",
+      policyOutcome: "success",
+      needle: "required job rust_app must be success, got skipped",
+      needs: { changes: { result: "success", outputs: { zuuli: "true", rust: "true", zuuallet_schema: "false", surfaces: "true" } },
+        rust_app: { result: "skipped" } },
+    },
+    {
+      name: "selected Rust job cannot disappear",
+      policyOutcome: "success",
+      omitJob: "rust_app",
+      needle: "selected Rust job rust_app is missing",
+      needs: { changes: { result: "success", outputs: { zuuli: "true", rust: "true", zuuallet_schema: "false", surfaces: "true" } } },
+    },
+    {
+      name: "missing Rust selector is not a valid skip",
+      policyOutcome: "success",
+      needle: "invalid or missing Rust change-detector output",
+      needs: { changes: { result: "success", outputs: { zuuli: "true", zuuallet_schema: "false", surfaces: "true" } } },
+    },
+
+    {
       name: "all changed jobs including future Android 32-bit succeed",
       policyOutcome: "success",
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "true", zuuallet_schema: "false", surfaces: "true" },
+          outputs: { zuuli: "true", rust: "true", zuuallet_schema: "false", surfaces: "true" },
         },
         build: { result: "success", outputs: {} },
         rust_android_32: { result: "success", outputs: {} },
@@ -6822,7 +6998,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "false", zuuallet_schema: "true", surfaces: "false" },
+          outputs: { zuuli: "false", rust: "false", zuuallet_schema: "true", surfaces: "false" },
         },
         build: { result: "skipped", outputs: {} },
         rust_native_clippy: { result: "success", outputs: {} },
@@ -6836,7 +7012,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "false", zuuallet_schema: "true", surfaces: "false" },
+          outputs: { zuuli: "false", rust: "false", zuuallet_schema: "true", surfaces: "false" },
         },
         rust_native_clippy: { result: "skipped", outputs: {} },
         zuuallet_schema: { result: "success", outputs: {} },
@@ -6849,7 +7025,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "false", zuuallet_schema: "true", surfaces: "false" },
+          outputs: { zuuli: "false", rust: "false", zuuallet_schema: "true", surfaces: "false" },
         },
         rust_native_tests: { result: "skipped", outputs: {} },
         zuuallet_schema: { result: "success", outputs: {} },
@@ -6861,7 +7037,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "false" },
+          outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" },
         },
         rust_native_clippy: { result: "skipped", outputs: {} },
         rust_native_tests: { result: "skipped", outputs: {} },
@@ -6875,7 +7051,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "true", zuuallet_schema: "false", surfaces: "true" },
+          outputs: { zuuli: "true", rust: "true", zuuallet_schema: "false", surfaces: "true" },
         },
         rust_native_tests: { result: "failure", outputs: {} },
       },
@@ -6893,7 +7069,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "true", zuuallet_schema: "false", surfaces: "true" },
+          outputs: { zuuli: "true", rust: "true", zuuallet_schema: "false", surfaces: "true" },
         },
         build: { result: "failure", outputs: {} },
       },
@@ -6905,7 +7081,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "true", zuuallet_schema: "false", surfaces: "true" },
+          outputs: { zuuli: "true", rust: "true", zuuallet_schema: "false", surfaces: "true" },
         },
         frontend: { result: "failure", outputs: {} },
       },
@@ -6917,7 +7093,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "true", zuuallet_schema: "false", surfaces: "true" },
+          outputs: { zuuli: "true", rust: "true", zuuallet_schema: "false", surfaces: "true" },
         },
         zuuallet_schema: { result: "success", outputs: {} },
       },
@@ -6929,7 +7105,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "", zuuallet_schema: "false", surfaces: "false" },
+          outputs: { zuuli: "", rust: "false", zuuallet_schema: "false", surfaces: "false" },
         },
       },
     },
@@ -6939,7 +7115,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+          outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "true" },
         },
         frontend: { result: "success", outputs: {} },
         surfaces: { result: "success", outputs: {} },
@@ -6955,7 +7131,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+          outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "true" },
         },
         surfaces: { result: "failure", outputs: {} },
       },
@@ -6967,7 +7143,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+          outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "true" },
         },
         surfaces: { result: "skipped", outputs: {} },
       },
@@ -6979,7 +7155,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "true" },
+          outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "true" },
         },
         frontend: { result: "skipped", outputs: {} },
       },
@@ -6990,7 +7166,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "false" },
+          outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" },
         },
         frontend: { result: "skipped", outputs: {} },
         surfaces: { result: "skipped", outputs: {} },
@@ -7005,7 +7181,7 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "false" },
+          outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" },
         },
         surfaces: { result: "success", outputs: {} },
       },
@@ -7017,13 +7193,19 @@ function runSelfTest(repoRoot) {
       needs: {
         changes: {
           result: "success",
-          outputs: { zuuli: "false", zuuallet_schema: "false", surfaces: "" },
+          outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "" },
         },
       },
     },
   ];
 
   for (const testCase of gateResultCases) {
+    const outputs = testCase.needs.changes?.outputs ?? {};
+    for (const job of RUST_REQUIRED_JOB_IDS) {
+      const native = job === "rust_native_clippy" || job === "rust_native_tests";
+      testCase.needs[job] ??= { result: outputs.rust === "true" || (native && outputs.zuuallet_schema === "true") ? "success" : "skipped" };
+    }
+    if (testCase.omitJob) delete testCase.needs[testCase.omitJob];
     let error = null;
     try {
       verifyGateResults(testCase.policyOutcome, JSON.stringify(testCase.needs));
