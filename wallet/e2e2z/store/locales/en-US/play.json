@@ -1,0 +1,10 @@
+{
+  "title": "E2E2Z",
+  "shortDescription": "An early preview of the Free2Z private messaging app.",
+  "fullDescription": "E2E2Z is the dedicated Free2Z messaging app, designed to keep device messaging keys separate from the ZUULI wallet.\n\nThis internal preview does not yet provide a working messaging transport. Device enrollment depends on the wallet integration and may be unavailable. This preview is for evaluating the current interface, not for sending messages.",
+  "releaseNotes": "Internal preview for approved testers.",
+  "supportEmail": "help@free2z.com",
+  "supportUrl": "https://free2z.cash/docs/",
+  "privacyPolicyUrl": "https://free2z.cash/docs/legal/privacy-policy/",
+  "websiteUrl": "https://free2z.cash/"
+}
