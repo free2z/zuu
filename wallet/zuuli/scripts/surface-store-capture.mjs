@@ -9,7 +9,7 @@ import { dirname, extname, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from '@playwright/test';
 import { PNG } from 'pngjs';
-import { CAPTURE_PUBLIC_REQUESTS } from './store-screenshot-capture.mjs';
+import { CAPTURE_PUBLIC_REQUESTS, computeFeedCaptureScroll } from './store-screenshot-capture.mjs';
 import { CAPTURE_NPM_CI_ARGUMENTS, CAPTURE_NPM_ENVIRONMENT, readCanonicalJson, validateCaptureConfig } from './store-screenshot-contract.mjs';
 import { walletRoot, BROWSER, SHOTS, FORBIDDEN_TEXT, canonical, sha256, captureDigests, assertSourceCommit, assertCaptureEnvironment, validateSurfaceCaptureConfig, validateSurfaceCaptureRecord, validateRecordMatrix } from './surface-store-capture-contract.mjs';
 
@@ -41,7 +41,7 @@ export const NATIVE_CALLS = ['plugin:f2zmsg|get_engine_status', 'plugin:f2zmsg|g
 async function preparePage(context, { app, origin, config, target, shot, fixture }) {
   const page = await context.newPage();
   const requests = [], refused = [], failures = [];
-  page.on('pageerror', () => failures.push('pageerror'));
+  page.on('pageerror', (error) => failures.push(error.message));
   page.on('console', (msg) => { if (msg.type() === 'error') failures.push('console error'); });
   await page.routeWebSocket('**/*', (socket) => { refused.push('websocket'); socket.close(); });
   await page.route('**/*', async (route) => {
@@ -64,7 +64,9 @@ async function preparePage(context, { app, origin, config, target, shot, fixture
     const NativeDate = Date;
     class FixedDate extends NativeDate { constructor(...args) { super(...(args.length ? args : [Date.parse(fixedTime)])); } static now() { return NativeDate.parse(fixedTime); } }
     window.Date = FixedDate;
-    for (const [edge, value] of Object.entries(safeArea)) document.documentElement.style.setProperty(`--safe-area-${edge}`, `${value}px`);
+    const applySafeArea = () => { for (const [edge, value] of Object.entries(safeArea)) document.documentElement.style.setProperty(`--safe-area-${edge}`, `${value}px`); };
+    if (document.documentElement) applySafeArea();
+    else document.addEventListener('DOMContentLoaded', applySafeArea, { once: true });
     if (app !== 'e2e2z') return;
     // Faithful unenrolled production contract, also exercised by enrollment-gap.pw.ts.
     // No mock build flag, device identity, credential, conversation or network transport.
@@ -89,16 +91,51 @@ async function preparePage(context, { app, origin, config, target, shot, fixture
     const heading = shot.action === 'fresh' ? 'Articles' : 'Why Shielded Defaults Matter';
     await page.getByRole('heading', { name: heading, exact: true }).first().waitFor();
     await page.getByText('Why Shielded Defaults Matter', { exact: true }).first().waitFor();
+    if (shot.action === 'fresh') {
+      const geometry = await page.evaluate(() => {
+        const viewport = document.querySelector('[data-scroll-area-viewport]');
+        const title = document.querySelector('[data-article-card] h3');
+        const summary = title?.nextElementSibling;
+        if (!viewport || !summary) return null;
+        const bottomNav = document.querySelector('[data-app-bottom-nav]');
+        const topBar = document.querySelector('[data-app-top-bar]');
+        return { currentScroll: viewport.scrollTop, visibleTop: Math.max(viewport.getBoundingClientRect().top, topBar?.getBoundingClientRect().bottom ?? 0), visibleBottom: Math.min(viewport.getBoundingClientRect().bottom, bottomNav?.getBoundingClientRect().top || innerHeight), controlTop: 0, contentBottom: summary.getBoundingClientRect().bottom, requireControl: false };
+      });
+      assert(geometry, 'missing article framing anchors');
+      const scroll = computeFeedCaptureScroll(geometry);
+      await page.locator('[data-scroll-area-viewport]').first().evaluate((element, value) => { element.scrollTop = value; }, scroll);
+      const title = await page.locator('[data-article-card] h3').first().boundingBox();
+      assert(title && title.y >= geometry.visibleTop && title.y + title.height <= geometry.visibleBottom, 'article title is clipped');
+    }
+    const overlapping = await page.locator('[data-app-bottom-nav] a').evaluateAll((links) => links.some((link) => {
+      if (link.getBoundingClientRect().width === 0) return false;
+      const span = link.querySelector('span[aria-hidden]');
+      if (!span) return true;
+      const range = document.createRange(); range.selectNodeContents(span);
+      const text = range.getBoundingClientRect(), cell = link.getBoundingClientRect();
+      return text.left < cell.left || text.right > cell.right;
+    }));
+    assert(!overlapping, 'mobile navigation text overlaps destinations');
   } else {
     await page.getByText('Enrollment happens in the wallet app', { exact: true }).waitFor();
     assert.equal(await page.locator('[data-messages-loading], [data-messages-failure]').count(), 0, 'incomplete messaging surface');
     assert.equal(await page.getByRole('navigation', { name: 'Conversations' }).count(), 0, 'fabricated conversations');
     assert.equal(await page.getByRole('heading', { name: 'Claim your handle' }).count(), 0, 'fabricated enrollment');
+    let focus = page.getByText('Enrollment happens in the wallet app', { exact: true }).locator('..').locator('..');
     if (shot.action === 'local-diagnostics') {
       await page.getByRole('button', { name: /^Diagnostics/ }).click();
       await page.locator('[data-diagnostics-empty]').waitFor();
-      await page.getByRole('heading', { name: 'Diagnostics', exact: true }).scrollIntoViewIfNeeded();
+      focus = page.locator('[data-diagnostics-panel]');
     }
+    await focus.scrollIntoViewIfNeeded();
+    await focus.evaluate((element, safeArea) => {
+      const viewport = document.querySelector('.app-viewport');
+      const rect = element.getBoundingClientRect();
+      if (rect.bottom > innerHeight - safeArea.bottom) viewport.scrollTop += rect.bottom - (innerHeight - safeArea.bottom);
+      if (element.getBoundingClientRect().top < safeArea.top) viewport.scrollTop -= safeArea.top - element.getBoundingClientRect().top;
+    }, target.safeArea);
+    const bounds = await focus.boundingBox();
+    assert(bounds && bounds.y >= target.safeArea.top - 1 && bounds.y + bounds.height <= target.cssHeight - target.safeArea.bottom + 1, 'capture focus is clipped');
     const calls = await page.evaluate(() => window.__STORE_NATIVE_CALLS__);
     assert(calls.includes('plugin:f2zmsg|get_device_info') && calls.includes('plugin:f2zmsg|get_engine_status'));
     assert(calls.every((cmd) => NATIVE_CALLS.includes(cmd)), 'undeclared native call');
@@ -112,7 +149,7 @@ async function preparePage(context, { app, origin, config, target, shot, fixture
   assert(!FORBIDDEN_TEXT.test(evidence.text), 'forbidden disclosure or identity in rendered text');
   return { page, renderedTextSha256: sha256(evidence.text) };
 }
-async function capturePass(app, config, digests, output, dist) {
+export async function capturePass(app, config, digests, output, dist) {
   const server = await serverFor(dist);
   const browser = await chromium.launch({ headless: true });
   const legacyManifest = await readCanonicalJson(resolve(walletRoot, 'zuuli/store/manifest.json'), 'legacy store manifest');
@@ -151,6 +188,7 @@ async function writeCapture(app, config, record, output, originalManifest) {
     await cp(resolve(output, 'store/media'), resolve(staged, 'media'), { recursive: true });
     const manifest = JSON.parse(originalManifest);
     manifest.phase = 'captured';
+    manifest.publicationReady = false;
     manifest.capturePolicy.status = 'captured-owner-review-required';
     manifest.capturePolicy.sourceSha = config.sourceSha;
     manifest.capturePolicy.sourceDigest = record.sourceDigest;
