@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "phase": "foundation",
+  "publicationReady": false,
+  "application": {
+    "bundleId": "cash.free2z.e2e2z",
+    "playPackageName": "cash.free2z.e2e2z",
+    "defaultLocale": "en-US",
+    "supportEmail": "help@free2z.com",
+    "supportUrl": "https://free2z.cash/docs/",
+    "marketingUrl": "https://free2z.cash/",
+    "privacyPolicyUrl": "https://free2z.cash/docs/legal/privacy-policy/"
+  },
+  "locales": [
+    {
+      "id": "en-US",
+      "playLocale": "en-US",
+      "copyStatus": "proposed-console-reconciliation-required",
+      "playMetadata": "store/locales/en-US/play.json"
+    }
+  ],
+  "classification": {
+    "playCategory": "COMMUNICATION",
+    "reviewStatus": "proposed-owner-store-review-required",
+    "automaticRatingSubmissionAllowed": false
+  },
+  "brandMedia": [
+    {
+      "id": "play-store-icon",
+      "path": "assets/store/play-store-icon-512.png",
+      "width": 512,
+      "height": 512,
+      "maxBytes": 1048576,
+      "opaque": true,
+      "encodedRgbOnly": true,
+      "sha256": "8a0c31c850bf43810bc71727525d8d29b312b00782700bd122c47217e1f22afe"
+    },
+    {
+      "id": "play-feature-graphic",
+      "path": "assets/store/play-feature-graphic-1024x500.png",
+      "width": 1024,
+      "height": 500,
+      "maxBytes": 15728640,
+      "opaque": true,
+      "encodedRgbOnly": true,
+      "sha256": "2c3e024ed670221172474ddef9542efb3a4abab00f05162befd32aa69848639a"
+    }
+  ],
+  "screenshotSets": [
+    {
+      "id": "play-phone-portrait",
+      "provider": "play",
+      "apiType": "phoneScreenshots",
+      "locale": "en-US",
+      "width": 1080,
+      "height": 1920,
+      "minCount": 2,
+      "maxCount": 8,
+      "maxBytes": 8388608,
+      "files": []
+    },
+    {
+      "id": "play-7-inch-tablet-portrait",
+      "provider": "play",
+      "apiType": "sevenInchScreenshots",
+      "locale": "en-US",
+      "width": 1200,
+      "height": 1920,
+      "minCount": 2,
+      "maxCount": 8,
+      "maxBytes": 8388608,
+      "files": []
+    },
+    {
+      "id": "play-10-inch-tablet-portrait",
+      "provider": "play",
+      "apiType": "tenInchScreenshots",
+      "locale": "en-US",
+      "width": 1600,
+      "height": 2560,
+      "minCount": 2,
+      "maxCount": 8,
+      "maxBytes": 8388608,
+      "files": []
+    }
+  ],
+  "capturePolicy": {
+    "status": "deferred",
+    "reviewIssue": 989,
+    "releaseEquivalentBuildRequired": true,
+    "safeAreasRequired": true,
+    "realSeedOrPrivateDataAllowed": false,
+    "testerIdentityAllowed": false,
+    "debugOrMockDisclosureAllowed": false,
+    "reviewRequired": true,
+    "forbiddenEmbeddedText": [
+      "seed phrase",
+      "private key",
+      "secret key",
+      "debug build",
+      "mock mode",
+      "fixture",
+      "localhost",
+      "playwright"
+    ]
+  }
+}

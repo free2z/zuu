@@ -404,3 +404,6 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     process.exitCode = 1;
   });
 }
+
+// Shared strict metadata/media checks for the other app catalogs.
+export { assertMetadata, validateMedia, pngText, readCanonicalJson, exactKeys, listPngs };
