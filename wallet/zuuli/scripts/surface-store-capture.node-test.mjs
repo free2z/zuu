@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { captureConfig, canonical, sha256, validateRecordMatrix, inputDigest, renderInputs, FORBIDDEN_TEXT } from './surface-store-capture-contract.mjs';
+import { captureConfig, RUNTIME_EVIDENCE, sha256, validateRecordMatrix, inputDigest, renderInputs, FORBIDDEN_TEXT } from './surface-store-capture-contract.mjs';
 import { proveIdenticalPasses, allowedPublicRequest } from './surface-store-capture.mjs';
 
 function example(app = 'e2e2z') {
@@ -17,7 +17,7 @@ function example(app = 'e2e2z') {
     width: target.cssWidth * target.deviceScaleFactor, height: target.cssHeight * target.deviceScaleFactor,
     safeArea: target.safeArea, disclosureScan: 'passed',
   })));
-  const record = { schemaVersion: 1, app, sourceSha: config.sourceSha, ...digests, fixtureProfile: config.fixtureProfile, locale: config.locale, fixedTime: config.fixedTime, browser: config.browser, entries, reproducibility: proveIdenticalPasses(entries, structuredClone(entries)) };
+  const record = { schemaVersion: 1, app, runtimeEvidence: RUNTIME_EVIDENCE, sourceSha: config.sourceSha, ...digests, fixtureProfile: config.fixtureProfile, locale: config.locale, fixedTime: config.fixedTime, browser: config.browser, entries, reproducibility: proveIdenticalPasses(entries, structuredClone(entries)) };
   return { config, digests, record };
 }
 test('each app requires the complete reviewed matrix and two identical passes', () => {

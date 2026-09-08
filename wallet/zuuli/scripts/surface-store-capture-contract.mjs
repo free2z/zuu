@@ -20,6 +20,7 @@ export const SHOTS = {
   e2e2z: [{ id: '01-enrollment-unavailable', route: '/', action: 'enrollment-unavailable' }, { id: '02-local-diagnostics', route: '/', action: 'local-diagnostics' }],
 };
 export const FORBIDDEN_TEXT = /\b(?:mock|fixture|debug|localhost|playwright|seed phrase|private key|secret key)\b|[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/iu;
+export const RUNTIME_EVIDENCE = 'linux-chromium-fixture-render-not-physical-android-device';
 const HEX = /^[0-9a-f]{64}$/;
 const CONFIG = 'store/capture.json';
 const RECORD = 'store/capture-record.json';
@@ -82,7 +83,7 @@ export async function validateSurfaceCaptureConfig(app, root = walletRoot) {
 // shape, with explicit two-pass evidence and shared-package source coverage.
 export function validateRecordMatrix(config, record, digests) {
   const { entries, reproducibility, ...header } = record;
-  assert.deepEqual(header, { schemaVersion: 1, app: config.app, sourceSha: config.sourceSha, ...digests, fixtureProfile: config.fixtureProfile, locale: config.locale, fixedTime: config.fixedTime, browser: config.browser });
+  assert.deepEqual(header, { schemaVersion: 1, app: config.app, runtimeEvidence: RUNTIME_EVIDENCE, sourceSha: config.sourceSha, ...digests, fixtureProfile: config.fixtureProfile, locale: config.locale, fixedTime: config.fixedTime, browser: config.browser });
   assert(Array.isArray(entries));
   assert.equal(entries.length, config.targets.length * config.shots.length, 'incomplete screenshot matrix');
   const hashes = new Set();

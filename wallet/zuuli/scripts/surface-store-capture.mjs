@@ -11,7 +11,7 @@ import { chromium } from '@playwright/test';
 import { PNG } from 'pngjs';
 import { CAPTURE_PUBLIC_REQUESTS, computeFeedCaptureScroll } from './store-screenshot-capture.mjs';
 import { CAPTURE_NPM_CI_ARGUMENTS, CAPTURE_NPM_ENVIRONMENT, readCanonicalJson, validateCaptureConfig } from './store-screenshot-contract.mjs';
-import { walletRoot, BROWSER, SHOTS, FORBIDDEN_TEXT, canonical, sha256, captureDigests, assertSourceCommit, assertCaptureEnvironment, validateSurfaceCaptureConfig, validateSurfaceCaptureRecord, validateRecordMatrix } from './surface-store-capture-contract.mjs';
+import { walletRoot, BROWSER, SHOTS, RUNTIME_EVIDENCE, FORBIDDEN_TEXT, canonical, sha256, captureDigests, assertSourceCommit, assertCaptureEnvironment, validateSurfaceCaptureConfig, validateSurfaceCaptureRecord, validateRecordMatrix } from './surface-store-capture-contract.mjs';
 
 async function command(executable, args, cwd = walletRoot) {
   await new Promise((accept, reject) => {
@@ -191,6 +191,7 @@ async function writeCapture(app, config, record, output, originalManifest) {
     manifest.phase = 'captured';
     manifest.publicationReady = false;
     manifest.capturePolicy.status = 'captured-owner-review-required';
+    manifest.capturePolicy.runtimeEvidence = RUNTIME_EVIDENCE;
     manifest.capturePolicy.sourceSha = config.sourceSha;
     manifest.capturePolicy.sourceDigest = record.sourceDigest;
     manifest.capturePolicy.contractDigest = record.contractDigest;
@@ -234,7 +235,7 @@ export async function main(argv = process.argv.slice(2)) {
   try {
     const first = await capturePass(app, config, digests, resolve(temp, 'first'), resolve(walletRoot, app, 'dist'));
     const second = await capturePass(app, config, digests, resolve(temp, 'second'), resolve(walletRoot, app, 'dist'));
-    const record = { schemaVersion: 1, app, sourceSha: config.sourceSha, ...digests, fixtureProfile: config.fixtureProfile, locale: config.locale, fixedTime: config.fixedTime, browser: config.browser, entries: first, reproducibility: proveIdenticalPasses(first, second) };
+    const record = { schemaVersion: 1, app, runtimeEvidence: RUNTIME_EVIDENCE, sourceSha: config.sourceSha, ...digests, fixtureProfile: config.fixtureProfile, locale: config.locale, fixedTime: config.fixedTime, browser: config.browser, entries: first, reproducibility: proveIdenticalPasses(first, second) };
     validateRecordMatrix(config, record, digests);
     assert.deepEqual(await captureDigests(app), digests, 'capture changed inputs');
     await assertCaptureEnvironment(app);
