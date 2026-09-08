@@ -9,7 +9,8 @@ page disagrees, this one was checked against the console and the other is a bug.
 Re-derive it before relying on it, because a human can change the console at any
 time without touching the repository.
 
-Developer account: **Corpora Inc**, `skylar@corpora.inc`.
+Account access and operator identities are recorded in the private operations
+handoff; this public record identifies apps and responsibilities only.
 
 | App | Package | Play status |
 | --- | --- | --- |
@@ -17,9 +18,11 @@ Developer account: **Corpora Inc**, `skylar@corpora.inc`.
 | Free2Z | `cash.free2z.free2z` | Draft, 7 of 11 declarations done |
 | E2E2Z | `cash.free2z.e2e2z` | Draft, 7 of 10 declarations done |
 
-Nothing has been uploaded to any app. No release has been created. Nothing has
-been sent for review — every change below is staged as a pending change in
-Publishing overview. ZUULI's own setup was not modified.
+During this setup session, no Free2Z or E2E2Z bundle was uploaded, no release
+was created, and nothing was sent for review. Their changes below remained
+pending in Publishing overview. ZUULI's setup was not modified: its existing
+[build 20 store readback](../../wallet/zuuli/STATUS.md) predates the three-app
+split and is separate from this session.
 
 ---
 
@@ -139,10 +142,10 @@ repository, not the console, is the source of truth.
 
 ## 4. Automation is not available from a workstation
 
-The only service account with Play access is
-`corpan-play-verifier@corpora1.iam.gserviceaccount.com`. Its key is **not** on
-the development machine, and `admin-account@corpora1.iam.gserviceaccount.com`
-gets `403` from `androidpublisher.googleapis.com` on all three packages.
+At the session date, the Play-authorized automation credential was unavailable
+on the development workstation. The available workstation identity lacked
+Publisher access to all three packages. Exact identities and credential
+locations belong in the private operations handoff.
 
 Even with a key, the Publisher API cannot reach most of this. `edits.listings`,
 `edits.images` and `edits.details` cover listing text, media and contact
