@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "app": "e2e2z",
+  "runtimeEvidence": "linux-chromium-fixture-render-not-physical-android-device",
+  "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+  "sourceDigest": "581b3b9a2133e0f74b16285eef46c91d82ec405acf3b04f4d9902f903f6c1473",
+  "contractDigest": "ab3870dbc881cffdd909a7ffe91c03928f5ef4c7343b3769b21b14d9add49359",
+  "fixtureProfile": "unenrolled-native-v1",
+  "locale": "en-US",
+  "fixedTime": "2026-09-07T12:00:00.000Z",
+  "browser": {
+    "engine": "chromium",
+    "playwrightVersion": "1.62.1",
+    "containerImage": "mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac",
+    "platform": "linux/amd64"
+  },
+  "entries": [
+    {
+      "setId": "play-phone-portrait",
+      "id": "01-enrollment-unavailable",
+      "route": "/",
+      "action": "enrollment-unavailable",
+      "path": "store/media/en-US/play-phone-portrait/01-enrollment-unavailable.png",
+      "sha256": "01d65adde0d6c9edbcfe8f057759ef57e36c2ce95a2c9499764a8dfc20317347",
+      "renderedTextSha256": "6a8e5542112c54acd5b65e3779eaa4def8aad241da85a9f7be71d3ba113bda8f",
+      "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+      "sourceDigest": "581b3b9a2133e0f74b16285eef46c91d82ec405acf3b04f4d9902f903f6c1473",
+      "cssWidth": 360,
+      "cssHeight": 640,
+      "deviceScaleFactor": 3,
+      "width": 1080,
+      "height": 1920,
+      "safeArea": {
+        "top": 24,
+        "right": 0,
+        "bottom": 24,
+        "left": 0
+      },
+      "disclosureScan": "passed"
+    },
+    {
+      "setId": "play-phone-portrait",
+      "id": "02-local-diagnostics",
+      "route": "/",
+      "action": "local-diagnostics",
+      "path": "store/media/en-US/play-phone-portrait/02-local-diagnostics.png",
+      "sha256": "7e35006461601324e915a335c2bd04809420df0ecdbaca98ffbbbe97d2359423",
+      "renderedTextSha256": "15fbe76e8748aae4aa3692cae5cab908473d137cc59e805d18088c8356958f90",
+      "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+      "sourceDigest": "581b3b9a2133e0f74b16285eef46c91d82ec405acf3b04f4d9902f903f6c1473",
+      "cssWidth": 360,
+      "cssHeight": 640,
+      "deviceScaleFactor": 3,
+      "width": 1080,
+      "height": 1920,
+      "safeArea": {
+        "top": 24,
+        "right": 0,
+        "bottom": 24,
+        "left": 0
+      },
+      "disclosureScan": "passed"
+    },
+    {
+      "setId": "play-7-inch-tablet-portrait",
+      "id": "01-enrollment-unavailable",
+      "route": "/",
+      "action": "enrollment-unavailable",
+      "path": "store/media/en-US/play-7-inch-tablet-portrait/01-enrollment-unavailable.png",
+      "sha256": "79cff29ef721749a11f9715a273510e6658c7962ecae2107036c5ff96d874ed3",
+      "renderedTextSha256": "6a8e5542112c54acd5b65e3779eaa4def8aad241da85a9f7be71d3ba113bda8f",
+      "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+      "sourceDigest": "581b3b9a2133e0f74b16285eef46c91d82ec405acf3b04f4d9902f903f6c1473",
+      "cssWidth": 600,
+      "cssHeight": 960,
+      "deviceScaleFactor": 2,
+      "width": 1200,
+      "height": 1920,
+      "safeArea": {
+        "top": 24,
+        "right": 0,
+        "bottom": 24,
+        "left": 0
+      },
+      "disclosureScan": "passed"
+    },
+    {
+      "setId": "play-7-inch-tablet-portrait",
+      "id": "02-local-diagnostics",
+      "route": "/",
+      "action": "local-diagnostics",
+      "path": "store/media/en-US/play-7-inch-tablet-portrait/02-local-diagnostics.png",
+      "sha256": "f8b181bf477ec0b7656f04da8d8dcf60f6f5cb90467c1bb51b4f4c0fc3f68144",
+      "renderedTextSha256": "15fbe76e8748aae4aa3692cae5cab908473d137cc59e805d18088c8356958f90",
+      "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+      "sourceDigest": "581b3b9a2133e0f74b16285eef46c91d82ec405acf3b04f4d9902f903f6c1473",
+      "cssWidth": 600,
+      "cssHeight": 960,
+      "deviceScaleFactor": 2,
+      "width": 1200,
+      "height": 1920,
+      "safeArea": {
+        "top": 24,
+        "right": 0,
+        "bottom": 24,
+        "left": 0
+      },
+      "disclosureScan": "passed"
+    },
+    {
+      "setId": "play-10-inch-tablet-portrait",
+      "id": "01-enrollment-unavailable",
+      "route": "/",
+      "action": "enrollment-unavailable",
+      "path": "store/media/en-US/play-10-inch-tablet-portrait/01-enrollment-unavailable.png",
+      "sha256": "d638cefce15f42a26fb48ceb9ed6d1aef4ce5b05be1e5b275161d6efe060c686",
+      "renderedTextSha256": "6a8e5542112c54acd5b65e3779eaa4def8aad241da85a9f7be71d3ba113bda8f",
+      "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+      "sourceDigest": "581b3b9a2133e0f74b16285eef46c91d82ec405acf3b04f4d9902f903f6c1473",
+      "cssWidth": 800,
+      "cssHeight": 1280,
+      "deviceScaleFactor": 2,
+      "width": 1600,
+      "height": 2560,
+      "safeArea": {
+        "top": 24,
+        "right": 0,
+        "bottom": 24,
+        "left": 0
+      },
+      "disclosureScan": "passed"
+    },
+    {
+      "setId": "play-10-inch-tablet-portrait",
+      "id": "02-local-diagnostics",
+      "route": "/",
+      "action": "local-diagnostics",
+      "path": "store/media/en-US/play-10-inch-tablet-portrait/02-local-diagnostics.png",
+      "sha256": "8cbd22da4697eb31d84ba1f9d33e25bcc21356363d659b366d1dd364733489c5",
+      "renderedTextSha256": "15fbe76e8748aae4aa3692cae5cab908473d137cc59e805d18088c8356958f90",
+      "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+      "sourceDigest": "581b3b9a2133e0f74b16285eef46c91d82ec405acf3b04f4d9902f903f6c1473",
+      "cssWidth": 800,
+      "cssHeight": 1280,
+      "deviceScaleFactor": 2,
+      "width": 1600,
+      "height": 2560,
+      "safeArea": {
+        "top": 24,
+        "right": 0,
+        "bottom": 24,
+        "left": 0
+      },
+      "disclosureScan": "passed"
+    }
+  ],
+  "reproducibility": {
+    "passes": 2,
+    "firstPassSha256": "6bd882d125d3e83bd4c2e6db408d8c15781ad9dc6d9e8271a6bd76f088185c3a",
+    "secondPassSha256": "6bd882d125d3e83bd4c2e6db408d8c15781ad9dc6d9e8271a6bd76f088185c3a"
+  }
+}

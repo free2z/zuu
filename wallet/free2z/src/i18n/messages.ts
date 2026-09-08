@@ -64,6 +64,7 @@ export const MESSAGE_KEYS = {
   navGroupExplore: "navigation.groups.explore",
   navGroupMoney: "navigation.groups.money",
   navLive: "navigation.live",
+  navLiveShort: "navigation.liveShort",
   navLogin: "navigation.login",
   navPrimary: "navigation.primary",
   navProfile: "navigation.profile",
