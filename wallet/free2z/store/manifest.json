@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 1,
+  "phase": "captured",
+  "publicationReady": false,
+  "application": {
+    "bundleId": "cash.free2z.free2z",
+    "playPackageName": "cash.free2z.free2z",
+    "defaultLocale": "en-US",
+    "supportEmail": "help@free2z.com",
+    "supportUrl": "https://free2z.cash/docs/",
+    "marketingUrl": "https://free2z.cash/",
+    "privacyPolicyUrl": "https://free2z.cash/docs/legal/privacy-policy/"
+  },
+  "locales": [
+    {
+      "id": "en-US",
+      "playLocale": "en-US",
+      "copyStatus": "proposed-console-reconciliation-required",
+      "playMetadata": "store/locales/en-US/play.json"
+    }
+  ],
+  "classification": {
+    "playCategory": "SOCIAL",
+    "reviewStatus": "proposed-owner-store-review-required",
+    "automaticRatingSubmissionAllowed": false
+  },
+  "brandMedia": [
+    {
+      "id": "play-store-icon",
+      "path": "assets/store/play-store-icon-512.png",
+      "width": 512,
+      "height": 512,
+      "maxBytes": 1048576,
+      "opaque": true,
+      "encodedRgbOnly": true,
+      "sha256": "8c205d7050f08b903a9456b51305696c728c96d763f4eebeec7d60292e833649"
+    },
+    {
+      "id": "play-feature-graphic",
+      "path": "assets/store/play-feature-graphic-1024x500.png",
+      "width": 1024,
+      "height": 500,
+      "maxBytes": 15728640,
+      "opaque": true,
+      "encodedRgbOnly": true,
+      "sha256": "a8bcaf089203229ab7a01e1833e007f4f1fc797dde1c6edb0ce9061714a3125d"
+    }
+  ],
+  "screenshotSets": [
+    {
+      "id": "play-phone-portrait",
+      "provider": "play",
+      "apiType": "phoneScreenshots",
+      "locale": "en-US",
+      "width": 1080,
+      "height": 1920,
+      "minCount": 2,
+      "maxCount": 8,
+      "maxBytes": 8388608,
+      "files": [
+        {
+          "id": "01-articles-fresh",
+          "path": "store/media/en-US/play-phone-portrait/01-articles-fresh.png",
+          "sha256": "964df51e69e0f545ed45c1912ed049558fe9e271a361f27bcdfab568913761a1",
+          "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+          "reviewIssue": 989
+        },
+        {
+          "id": "02-article-reader",
+          "path": "store/media/en-US/play-phone-portrait/02-article-reader.png",
+          "sha256": "bdbf7a0f81e4c2c19b37b9dfc1d6f52ca15f41af23dfe717ddbb92bf4043f7f0",
+          "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+          "reviewIssue": 989
+        }
+      ]
+    },
+    {
+      "id": "play-7-inch-tablet-portrait",
+      "provider": "play",
+      "apiType": "sevenInchScreenshots",
+      "locale": "en-US",
+      "width": 1200,
+      "height": 1920,
+      "minCount": 2,
+      "maxCount": 8,
+      "maxBytes": 8388608,
+      "files": [
+        {
+          "id": "01-articles-fresh",
+          "path": "store/media/en-US/play-7-inch-tablet-portrait/01-articles-fresh.png",
+          "sha256": "e6917293ccd6ad268d93910d44c87c17a309aa16a54fe333c22edf4238b8dd06",
+          "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+          "reviewIssue": 989
+        },
+        {
+          "id": "02-article-reader",
+          "path": "store/media/en-US/play-7-inch-tablet-portrait/02-article-reader.png",
+          "sha256": "aa569c9223e201da6a79aedfa2d6f74ca9072705c772a6e18c804a03c7d0028e",
+          "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+          "reviewIssue": 989
+        }
+      ]
+    },
+    {
+      "id": "play-10-inch-tablet-portrait",
+      "provider": "play",
+      "apiType": "tenInchScreenshots",
+      "locale": "en-US",
+      "width": 1600,
+      "height": 2560,
+      "minCount": 2,
+      "maxCount": 8,
+      "maxBytes": 8388608,
+      "files": [
+        {
+          "id": "01-articles-fresh",
+          "path": "store/media/en-US/play-10-inch-tablet-portrait/01-articles-fresh.png",
+          "sha256": "cdccb47c94715348a904c2b6ff4832b9d41b9dcc184d8fcf3ec9ad4460e71577",
+          "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+          "reviewIssue": 989
+        },
+        {
+          "id": "02-article-reader",
+          "path": "store/media/en-US/play-10-inch-tablet-portrait/02-article-reader.png",
+          "sha256": "c2673ba7d8828646f79c8bd6c0813a4f106418747a8998fbdecffe811d6c1287",
+          "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+          "reviewIssue": 989
+        }
+      ]
+    }
+  ],
+  "capturePolicy": {
+    "status": "captured-owner-review-required",
+    "reviewIssue": 989,
+    "releaseEquivalentBuildRequired": true,
+    "safeAreasRequired": true,
+    "realSeedOrPrivateDataAllowed": false,
+    "testerIdentityAllowed": false,
+    "debugOrMockDisclosureAllowed": false,
+    "reviewRequired": true,
+    "forbiddenEmbeddedText": [
+      "seed phrase",
+      "private key",
+      "secret key",
+      "debug build",
+      "mock mode",
+      "fixture",
+      "localhost",
+      "playwright"
+    ],
+    "runtimeEvidence": "linux-chromium-fixture-render-not-physical-android-device",
+    "sourceSha": "a057f7f42947f9600a38a70cf97c245ab610f940",
+    "sourceDigest": "754d38f42f307b3c173c52b77d4db6d2ce64b001bbaf3e7e6b3afe9ccb2e0146",
+    "contractDigest": "aa46a553715d47938bd6f3bf08a08e886f183fdbb72eed3f567b194026075051",
+    "captureConfig": "store/capture.json",
+    "captureRecord": "store/capture-record.json"
+  }
+}
