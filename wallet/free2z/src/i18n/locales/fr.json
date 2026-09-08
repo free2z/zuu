@@ -93,6 +93,7 @@
       "money": "Argent"
     },
     "live": "Diffusions en direct",
+    "liveShort": "Direct",
     "login": "Se connecter",
     "primary": "Navigation principale",
     "profile": "Profil",

@@ -55,7 +55,7 @@ export const NAVIGATION: readonly NavigationRoute[] = [
   {
     id: "search",
     to: "/search",
-    labelKey: MESSAGE_KEYS.navSearch,
+    labelKey: MESSAGE_KEYS.navSearchAction,
     accessibleLabelKey: MESSAGE_KEYS.navSearch,
     icon: Search,
     auth: "always",
@@ -65,7 +65,7 @@ export const NAVIGATION: readonly NavigationRoute[] = [
   {
     id: "live",
     to: "/live",
-    labelKey: MESSAGE_KEYS.navLive,
+    labelKey: MESSAGE_KEYS.navLiveShort,
     accessibleLabelKey: MESSAGE_KEYS.navLive,
     icon: Radio,
     auth: "always",
