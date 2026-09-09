@@ -56,6 +56,8 @@ on:
       - 'rs/crates/f2z-relay-proto/**'
       - 'rs/crates/f2z-relay-testkit/**'
       - 'scripts/check-rust-toolchain.sh'
+      - 'scripts/install-ubuntu-deps.sh'
+      - 'scripts/test-ubuntu-apt-isolation.py'
       - '.github/workflows/wallet-surfaces.yml'
   push:
     branches: [main]
@@ -78,6 +80,8 @@ on:
       - 'rs/crates/f2z-relay-proto/**'
       - 'rs/crates/f2z-relay-testkit/**'
       - 'scripts/check-rust-toolchain.sh'
+      - 'scripts/install-ubuntu-deps.sh'
+      - 'scripts/test-ubuntu-apt-isolation.py'
       - '.github/workflows/wallet-surfaces.yml'
   workflow_dispatch:
 
@@ -113,8 +117,7 @@ jobs:
 
       - name: Install Tauri system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          sudo bash scripts/install-ubuntu-deps.sh \
             libwebkit2gtk-4.1-dev \
             libgtk-3-dev \
             libayatana-appindicator3-dev \
