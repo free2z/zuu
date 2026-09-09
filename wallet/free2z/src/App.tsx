@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   createBrowserRouter,
   Navigate,
@@ -197,9 +197,25 @@ const appRouter = createBrowserRouter([{ path: "*", element: <AppRoutes /> }]);
 export default function App() {
   const bootstrapSession = useSession((s) => s.bootstrap);
 
+  const [bootstrapFailed, setBootstrapFailed] = useState(false);
   useEffect(() => {
-    void bootstrapSession();
+    let active = true;
+    void Promise.resolve().then(bootstrapSession).catch(() => {
+      if (active) setBootstrapFailed(true);
+    });
+    return () => { active = false; };
   }, [bootstrapSession]);
+
+  // An unvalidated session must not unlock OAuth recovery or authenticated
+  // routes. Show a terminal fallback without changing credentials or retrying.
+  if (bootstrapFailed) {
+    return (
+      <main role="alert" className="p-6">
+        <h1>Couldn’t restore your session</h1>
+        <p>Reload the app to try again.</p>
+      </main>
+    );
+  }
 
   return (
     <TooltipProvider delayDuration={200}>
