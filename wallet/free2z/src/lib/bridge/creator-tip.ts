@@ -40,7 +40,7 @@
  * 3. **Report a payment it cannot prove.** A txid is returned only when the
  *    response decoded, correlated to *this* request, named this family, arrived
  *    inside the window, carried status 0, and held exactly 32 bytes. Anything
- *    else is a refusal with a code, and the refusal is what the UI renders.
+ *    else is a non-success outcome, with uncertainty preserved for the UI.
  *
  * ## What the correlation proves, and what it does not
  *
@@ -193,7 +193,7 @@ export function creatorTipPurpose(username: string): string {
   return `Tip ${username} on free2z`;
 }
 
-/** Why a tip request could not be completed, and nothing was sent. */
+/** Why a tip could not be confirmed here. A transaction may still exist. */
 export type CreatorTipFailure =
   /** This app could not build a sendable request. Nothing left the process. */
   | { readonly kind: "unsendable"; readonly error: IntentErrorCode }
@@ -201,6 +201,8 @@ export type CreatorTipFailure =
   | { readonly kind: "no-transport"; readonly reason: string }
   /** A channel existed and failed. No response was judged. */
   | { readonly kind: "transport-failed"; readonly detail: string }
+  /** A well-formed answer this build cannot interpret. Effects are unknown. */
+  | { readonly kind: "unknown-status"; readonly status: number }
   /** An answer arrived and was refused: unsolicited, malformed, or a "no". */
   | { readonly kind: "refused"; readonly error: IntentErrorCode };
 
@@ -219,7 +221,9 @@ export function creatorTipFailureName(failure: CreatorTipFailure): string {
     ? "INTENT_TRANSPORT_UNAVAILABLE"
     : failure.kind === "transport-failed"
       ? "INTENT_TRANSPORT_FAILED"
-      : intentErrorName(failure.error);
+      : failure.kind === "unknown-status"
+        ? `INTENT_UNKNOWN_STATUS_${failure.status}`
+        : intentErrorName(failure.error);
 }
 
 /**
@@ -267,9 +271,8 @@ function creatorTipRequest(
  *
  * The source is validated by {@link recordCreatorTipIntent} first, so this
  * throws exactly what that throws for a creator with no usable address; every
- * *other* failure is a returned {@link CreatorTipFailure}, because "nothing was
- * sent, and here is why" is information the payer needs rather than an
- * exception the UI has to interpret.
+ * *other* failure is a returned {@link CreatorTipFailure}, so the UI can
+ * distinguish a request that never left from an uncertain payment outcome.
  *
  * ## One question per exchange
  *
@@ -364,7 +367,11 @@ export async function requestCreatorTipPayment(
   // makes the expiry path drivable — a test issues in the past and lets the
   // real clock close the window.
   const accepted = session.accept(answer, Date.now());
-  if (!accepted.ok) return { kind: "refused", error: accepted.error };
+  if (!accepted.ok) {
+    return accepted.error === "unknown-status"
+      ? { kind: "unknown-status", status: accepted.status }
+      : { kind: "refused", error: accepted.error };
+  }
   if (accepted.value.intent !== IntentFamily.ExecutePayment) {
     return { kind: "refused", error: IntentErrorCode.UnknownIntent };
   }

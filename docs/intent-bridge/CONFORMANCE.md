@@ -253,6 +253,7 @@ it work*, and the honest axis is **do we know what happened**:
 | `unsendable` | yes — nothing was encoded, the wallet was never asked |
 | `refused` + `INTENT_NOT_CONFIRMED` | yes — ZUULI returns it before `execute_send` |
 | `transport-failed` | **no** — the request may have arrived, the answer did not |
+| `unknown-status` | **no** — the response is well-formed but its meaning is unfamiliar |
 | `refused` + anything else | **no** |
 
 The sharpest case is `INTENT_UNAVAILABLE`: `intent.rs`'s `payment_outcome`
@@ -267,24 +268,21 @@ matters.
 `rs/crates/f2z-intent/src/error.rs` and `wallet/shared/src/intent/error.ts` —
 when it introduced the status. The two have never disagreed on `main`.
 
-The behaviour that makes it worth a test here is
-`IntentSession.accept`'s `intentErrorFromStatus(status) ?? Malformed`: a status
-this build does not know becomes `INTENT_MALFORMED`, which reads as "the
-wallet's answer was garbage" rather than "the wallet could not finish, go
-look". For a status that can mean *a transaction may exist*, those are the
-difference between reassuring a payer and sending them to their wallet. The
-mutation deletes status 12 from the client and reproduces exactly that reading:
+The client preserves unfamiliar well-formed statuses as `unknown-status`
+with the original uint16 value. It must not relabel them `INTENT_MALFORMED`,
+accept a payload, infer no effect, or leave the question available for replay.
+The normative caller rule is [PROTOCOL §6.2](./PROTOCOL.md#62-outcome-uncertainty-and-unfamiliar-statuses).
 
-```
-× carries INTENT_UNAVAILABLE through as itself, not as a decode failure
-  → expected { kind: 'refused', error: 1 } to deeply equal { kind: 'refused', error: undefined }
-```
-
-The test pins main's definition, not a local one — so it also fails if a future
-change drops a status the wallet still emits.
+| Required property | Consumer test | Conformance failure |
+|---|---|---|
+| Preserve an unknown status and consume the question once | ZUULI `intent-bridge.test.ts`: `preserves unknown status %i and consumes the question exactly once` | Unknown status becomes malformed/success, or a replay becomes acceptable |
+| Keep decoding and correlation ahead of status handling | ZUULI `intent-bridge.test.ts`: `does not let unknown statuses bypass framing, correlation, family or expiry checks` | An unfamiliar status bypasses a response check |
+| Preserve payment uncertainty without a new payment | Free2Z `creator-tip.test.ts`: `preserves a well-formed unknown status without a txid or automatic retry` | A txid, decode-failure label, or second dispatch is fabricated |
+| Do not claim no funds moved on uncertain statuses | Free2Z `tip-copy.test.ts`: `is certain only where certainty is earned`, plus all shipped locale checks | `INTENT_UNAVAILABLE` or `unknown-status` receives no-effect copy |
+| Preserve enrollment uncertainty without a credential | E2E2Z `issueDeviceCredential.test.ts`: `surfaces an unknown status without claiming a decode failure or enrollment` | An unfamiliar status installs a credential, becomes malformed, or permits response replay |
 
 `features/creator/tip-copy.ts` is now the single exhaustive map, with a `never`
-binding so a sixth outcome cannot fall through, and
+binding so a new outcome cannot fall through, and
 `tip-copy.test.ts` asserts the honesty property against the **real shipped
 `en`/`es`/`fr` catalogs** through a real i18next instance — a reassuring
 sentence added to the wrong message by a later translation is exactly what a

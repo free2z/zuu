@@ -33,6 +33,7 @@ import {
   E2E2Z_CALLER,
   ISSUE_DEVICE_CREDENTIAL_PURPOSE,
   IntentRefusedError,
+  IntentStatusUnknownError,
   REQUEST_LIFETIME_MS,
   createDeviceCredentialClient,
   isIntentRefused,
@@ -431,13 +432,21 @@ describe("a response is judged as if the responder were hostile", () => {
     );
   });
 
-  it("refuses an unknown refusal status rather than guessing", async () => {
-    const transport = walletStandIn((requestId) =>
-      responseBytes({ requestId, status: 4242, payload: new Uint8Array(0) }),
-    );
-    expect(await refusalCode(clientWith(transport).requestDeviceCredential("alice"))).toBe(
-      IntentErrorCode.Malformed,
-    );
+  it("surfaces an unknown status without claiming a decode failure or enrollment", async () => {
+    let first: Uint8Array | null = null;
+    const transport = walletStandIn((requestId) => {
+      first ??= responseBytes({ requestId, status: 4242, payload: new Uint8Array(0) });
+      return first;
+    });
+    const client = clientWith(transport);
+    const result = await client.requestDeviceCredential("alice").catch((error: unknown) => error);
+    expect(result).toBeInstanceOf(IntentStatusUnknownError);
+    expect(result).toMatchObject({ reason: "intent-status-unknown", status: 4242 });
+    expect(isIntentRefused(result)).toBe(false);
+    expect(result).not.toHaveProperty("code");
+    expect(client.pending).toBe(0);
+    // Replaying the unfamiliar answer cannot install a credential on a new request.
+    expect(await refusalCode(client.requestDeviceCredential("alice"))).toBe(IntentErrorCode.Unsolicited);
   });
 
   it("refuses a replay of an answer it already accepted", async () => {

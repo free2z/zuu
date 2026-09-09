@@ -59,6 +59,14 @@ export interface AcceptedIntentResponse {
   readonly payload: Uint8Array;
 }
 
+/** A correlated, well-formed answer whose effect this client cannot interpret. */
+export type IntentSessionOutcome<T> = IntentOutcome<T> | {
+  readonly ok: false;
+  readonly error: "unknown-status";
+  /** Original uint16 wire status; not a newly assigned protocol error code. */
+  readonly status: number;
+};
+
 interface Pending {
   readonly requestId: Uint8Array;
   readonly intent: IntentFamily;
@@ -73,7 +81,7 @@ export interface IntentSession {
   accept(
     bytes: Uint8Array,
     nowMs: number,
-  ): IntentOutcome<AcceptedIntentResponse>;
+  ): IntentSessionOutcome<AcceptedIntentResponse>;
   /** How many questions are outstanding. */
   readonly size: number;
 }
@@ -130,7 +138,7 @@ export function createIntentSession(
     accept(
       bytes: Uint8Array,
       nowMs: number,
-    ): IntentOutcome<AcceptedIntentResponse> {
+    ): IntentSessionOutcome<AcceptedIntentResponse> {
       const decoded = decodeIntentResponse(bytes);
       if (!decoded.ok) return decoded;
       const response = decoded.value;
@@ -152,11 +160,13 @@ export function createIntentSession(
         return { ok: false, error: IntentErrorCode.Expired };
       }
       if (response.status !== 0) {
-        return {
-          ok: false,
-          error:
-            intentErrorFromStatus(response.status) ?? IntentErrorCode.Malformed,
-        };
+        const error = intentErrorFromStatus(response.status);
+        // Preserve forward-compatible uncertainty. The question has already
+        // been consumed; an unfamiliar status cannot authorize a replay or
+        // establish that the wallet did nothing.
+        return error === null
+          ? { ok: false, error: "unknown-status", status: response.status }
+          : { ok: false, error };
       }
       return {
         ok: true,
