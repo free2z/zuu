@@ -422,12 +422,13 @@ function runSelfTest(workflow, toolchainEnv) {
   if (baseline.length > 0) {
     throw new Error(`cannot self-test an invalid baseline:\n${baseline.join("\n")}`);
   }
+  // Fixed wrong-digest controls; neither tracks the immediately previous selector.
   for (const [name, digest] of [
     [
-      "the reviewed change-detector digest is stale",
+      "the reviewed change-detector digest is wrong (nonzero)",
       "cad2731734c97401e94ae2b25a722141f09488a107ddde6f28618a5454786c02",
     ],
-    ["the reviewed change-detector digest is wrong", "0".repeat(64)],
+    ["the reviewed change-detector digest is wrong (all zeroes)", "0".repeat(64)],
   ]) {
     const failures = check(workflow, toolchainEnv, digest);
     if (
