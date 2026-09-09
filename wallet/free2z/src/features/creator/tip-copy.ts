@@ -120,6 +120,10 @@ export function creatorTipCopy(outcome: CreatorTipOutcome): CreatorTipCopy {
       // A channel existed and threw. The request may have arrived; the answer
       // did not. We do not know.
       return INDETERMINATE;
+    case "unknown-status":
+      // A newer wallet may know this status. It proves neither success nor
+      // that nothing happened; use the existing check-your-wallet guidance.
+      return INDETERMINATE;
     case "refused":
       // `NotConfirmed` is the only refusal this client can read as "the wallet
       // did not act": ZUULI returns it before `execute_send` is ever reached.

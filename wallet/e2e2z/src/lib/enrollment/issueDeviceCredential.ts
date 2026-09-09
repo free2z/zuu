@@ -53,7 +53,7 @@ import {
   intentFamilyName,
   newRequestId,
   toHex,
-  type IntentOutcome,
+  type IntentSessionOutcome,
   type IntentSession,
 } from "@free2z/wallet-shared";
 import {
@@ -135,6 +135,18 @@ export class IntentRefusedError extends Error {
   }
 }
 
+/** A well-formed wallet response, but neither enrollment success nor no effect. */
+export class IntentStatusUnknownError extends Error {
+  readonly reason = "intent-status-unknown" as const;
+
+  constructor(readonly status: number) {
+    super(
+      "The wallet returned an unrecognized status; the action's outcome is unknown.",
+    );
+    this.name = "IntentStatusUnknownError";
+  }
+}
+
 /** Whether a caught value is an {@link IntentRefusedError}, prototype or not. */
 export function isIntentRefused(error: unknown): error is IntentRefusedError {
   return (
@@ -147,10 +159,15 @@ export function isIntentRefused(error: unknown): error is IntentRefusedError {
 
 /** Unwrap an outcome, or throw the refusal it carries. */
 function orRefuse<T>(
-  outcome: IntentOutcome<T>,
+  outcome: IntentSessionOutcome<T>,
   stage: "request" | "response",
 ): T {
-  if (!outcome.ok) throw new IntentRefusedError(stage, outcome.error);
+  if (!outcome.ok) {
+    if (outcome.error === "unknown-status") {
+      throw new IntentStatusUnknownError(outcome.status);
+    }
+    throw new IntentRefusedError(stage, outcome.error);
+  }
   return outcome.value;
 }
 
@@ -177,6 +194,7 @@ export interface DeviceCredentialClient {
    *
    * @throws {@link IntentTransportUnavailableError} in every shipping build.
    * @throws {@link IntentRefusedError} when the protocol refuses either half.
+   * @throws {@link IntentStatusUnknownError} for an unfamiliar response status.
    * @throws `DeviceKeysUnavailableError` when this device's keys are unusable.
    */
   requestDeviceCredential(handle: string): Promise<Uint8Array>;
