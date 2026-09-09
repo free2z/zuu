@@ -50,4 +50,4 @@ export {
   MAX_PENDING_INTENTS,
   createIntentSession,
 } from "./session";
-export type { AcceptedIntentResponse, IntentSession } from "./session";
+export type { AcceptedIntentResponse, IntentSession, IntentSessionOutcome } from "./session";
