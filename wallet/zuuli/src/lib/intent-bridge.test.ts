@@ -40,7 +40,7 @@ import {
   parseVisibleText,
   toHex,
 } from "@free2z/wallet-shared";
-import type { IntentOutcome, IntentRequest } from "@free2z/wallet-shared";
+import type { IntentSessionOutcome, IntentRequest } from "@free2z/wallet-shared";
 
 /**
  * The canonical fixture, byte for byte.
@@ -85,15 +85,16 @@ const ISSUED_AT_MS = 1_700_000_000_000;
 const EXPIRES_AT_MS = ISSUED_AT_MS + 60_000;
 const REQUEST_ID = new Uint8Array(32).fill(0x77);
 
-function unwrap<T>(outcome: IntentOutcome<T>): T {
+function unwrap<T>(outcome: IntentSessionOutcome<T>): T {
   if (!outcome.ok) {
     throw new Error(`expected success, got status ${outcome.error}`);
   }
   return outcome.value;
 }
 
-function refusal<T>(outcome: IntentOutcome<T>): IntentErrorCode {
+function refusal<T>(outcome: IntentSessionOutcome<T>): IntentErrorCode {
   if (outcome.ok) throw new Error("expected a refusal, got success");
+  if (outcome.error === "unknown-status") throw new Error("expected a known refusal");
   return outcome.error;
 }
 
@@ -417,7 +418,7 @@ describe("the session refuses answers to questions it did not ask", () => {
     );
   });
 
-  it("reports the wallet's refusal as that refusal, and an unknown one as malformed", () => {
+  it("reports the wallet's known refusal as that refusal", () => {
     const session = createIntentSession();
     unwrap(session.issue(canonicalRequest(), ISSUED_AT_MS));
     expect(
@@ -432,16 +433,30 @@ describe("the session refuses answers to questions it did not ask", () => {
       ),
     ).toBe(IntentErrorCode.CallerNotAuthorized);
 
-    const second = createIntentSession();
-    unwrap(second.issue(canonicalRequest(), ISSUED_AT_MS));
-    expect(
-      refusal(
-        second.accept(
-          response({ status: 60_000, payload: new Uint8Array(0) }),
-          ISSUED_AT_MS,
-        ),
-      ),
-    ).toBe(IntentErrorCode.Malformed);
+  });
+
+  it.each([13, 4242, 60_000, 65_535])("preserves unknown status %i and consumes the question exactly once", (status) => {
+    const session = createIntentSession();
+    unwrap(session.issue(canonicalRequest(), ISSUED_AT_MS));
+    const reply = response({ status, payload: new Uint8Array(0) });
+    expect(session.accept(reply, ISSUED_AT_MS)).toEqual({ ok: false, error: "unknown-status", status });
+    expect(session.size).toBe(0);
+    expect(refusal(session.accept(reply, ISSUED_AT_MS))).toBe(IntentErrorCode.Unsolicited);
+    expect(refusal(session.accept(response({}), ISSUED_AT_MS))).toBe(IntentErrorCode.Unsolicited);
+  });
+
+  it("does not let unknown statuses bypass framing, correlation, family or expiry checks", () => {
+    for (const [options, time, expected] of [
+      [{ payload: new Uint8Array([1]) }, ISSUED_AT_MS, IntentErrorCode.Malformed],
+      [{ requestId: new Uint8Array(32) }, ISSUED_AT_MS, IntentErrorCode.Unsolicited],
+      [{ intent: IntentFamily.ExecutePayment }, ISSUED_AT_MS, IntentErrorCode.Unsolicited],
+      [{}, EXPIRES_AT_MS, IntentErrorCode.Expired],
+    ] as const) {
+      const session = createIntentSession();
+      unwrap(session.issue(canonicalRequest(), ISSUED_AT_MS));
+      const reply = response({ status: 4242, ...options, payload: "payload" in options ? options.payload : new Uint8Array(0) });
+      expect(refusal(session.accept(reply, time))).toBe(expected);
+    }
   });
 
   it("fails closed when full instead of evicting the record it needs", () => {

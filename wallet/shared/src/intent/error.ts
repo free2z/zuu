@@ -41,9 +41,10 @@ export const IntentErrorCode = {
   /** A response to a question this client never asked. */
   Unsolicited: 11,
   /**
-   * The wallet understood the request but could not act on it: no wallet
-   * open, the payment cannot be funded, the network is unreachable, or a
-   * broadcast did not complete.
+   * The wallet could not establish completion: no wallet open, an unfunded
+   * payment, an unreachable network, or an ambiguous broadcast. This carries
+   * no claim that the action had no effect: BroadcastStatus::Unknown may mean
+   * a transaction reached the network. Callers must surface uncertainty.
    *
    * Deliberately distinct from {@link IntentErrorCode.InvalidValue}: a
    * request the wallet cannot fund is not a malformed request, and a caller
