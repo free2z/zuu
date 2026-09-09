@@ -5,16 +5,8 @@
 /.github/workflows/ @skyl @azhrcs
 /.github/actions/ @skyl @azhrcs
 
-# Release identity, credential boundaries, packaging, and publication logic.
-/wallet/zuuli/release.json @skyl @azhrcs
-/wallet/zuuli/release.schema.json @skyl @azhrcs
-/wallet/zuuli/scripts/ @skyl @azhrcs
-
-# Native authority/signing configuration and checked-in platform projects.
-/wallet/zuuli/src-tauri/tauri.conf.json @skyl @azhrcs
-/wallet/zuuli/src-tauri/capabilities/ @skyl @azhrcs
-/wallet/zuuli/src-tauri/gen/apple/ @skyl @azhrcs
-/wallet/zuuli/src-tauri/gen/android/ @skyl @azhrcs
-
-# Store-facing metadata and listing media are part of the promoted release.
-/wallet/zuuli/store/ @skyl @azhrcs
+# All three apps: source, release identity, native authority/signing,
+# platform projects, packaging scripts, and store metadata/media.
+/wallet/zuuli/ @skyl @azhrcs
+/wallet/free2z/ @skyl @azhrcs
+/wallet/e2e2z/ @skyl @azhrcs
