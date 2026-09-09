@@ -608,6 +608,24 @@ describe("useMediaPreflight", () => {
     });
   });
 
+  it("keeps the removed preview settled when ended-track enumeration rejects", async () => {
+    const media = new FakeMediaDevices();
+    const capture = fakeStream();
+    media.getUserMedia.mockResolvedValue(capture.stream);
+    await render(media);
+    await act(async () => latest.requestPreview());
+    media.enumerateDevices.mockRejectedValueOnce(new Error("device service unavailable"));
+    await act(async () => capture.video[0].end());
+
+    expect(latest.status).toBe("removed");
+    expect(latest.stream).toBeNull();
+    expect(latest.cameraEnabled).toBe(false);
+    expect(latest.microphoneEnabled).toBe(false);
+    expect(media.getUserMedia).toHaveBeenCalledTimes(1);
+    expect(media.enumerateDevices).toHaveBeenCalledTimes(3);
+    capture.stream.getTracks().forEach((track) => expect(track.stop).toHaveBeenCalledTimes(1));
+  });
+
   it("detects selected-device removal and exposes denial, no-device, and busy states", async () => {
     const media = new FakeMediaDevices();
     const capture = fakeStream();

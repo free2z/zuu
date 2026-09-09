@@ -31,29 +31,25 @@ export function CommentsSection({
 
   const load = useCallback(async () => {
     setStatus("loading");
-    try {
-      const acc: Comment[] = [];
-      let page: number | null = 1;
-      let total = 0;
-      while (page) {
-        const res = await commentsApi.list(contentType, uuid, {
-          rootsOnly: true,
-          page,
-        });
-        acc.push(...res.items);
-        total = res.count;
-        page = res.next;
-      }
-      setRoots(acc);
-      setCount(total);
-      setStatus("ready");
-    } catch {
-      setStatus("error");
+    const acc: Comment[] = [];
+    let page: number | null = 1;
+    let total = 0;
+    while (page) {
+      const res = await commentsApi.list(contentType, uuid, {
+        rootsOnly: true,
+        page,
+      });
+      acc.push(...res.items);
+      total = res.count;
+      page = res.next;
     }
+    setRoots(acc);
+    setCount(total);
+    setStatus("ready");
   }, [contentType, uuid]);
 
   useEffect(() => {
-    void load();
+    void load().catch(() => setStatus("error"));
   }, [load]);
 
   async function submitRoot(body: CommentInput) {
