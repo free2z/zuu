@@ -29,6 +29,7 @@ const OUTCOMES: ReadonlyArray<readonly [string, CreatorTipOutcome]> = [
   ["no-transport", { kind: "no-transport", reason: "no verified link (#461)" }],
   ["unsendable", { kind: "unsendable", error: IntentErrorCode.InvalidValue }],
   ["transport-failed", { kind: "transport-failed", detail: "TypeError" }],
+  ["unknown-status", { kind: "unknown-status", status: 4242 }],
   [
     "refused/NotConfirmed",
     { kind: "refused", error: IntentErrorCode.NotConfirmed },
