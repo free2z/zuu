@@ -132,6 +132,62 @@ Two consequences worth internalising:
 A green gate is necessary and not sufficient — see
 [`docs/PARALLEL-AGENTS.md`](./PARALLEL-AGENTS.md) for the merge mechanics.
 
+## Merge-queue readiness
+
+**Decision for the current drain: retain the existing reviewed, gated merge
+path.** Queue adoption remains open in [#947](https://github.com/free2z/zuu/issues/947).
+The read-only settings audit on 2026-09-09 found `strict: true`, required contexts
+`gate` and `rs / gate` from GitHub Actions (app ID `15368`), and no queue for
+`main`. No settings changed as part of this audit.
+
+Both [zuuli.yml](../.github/workflows/zuuli.yml) and
+[rs.yml](../.github/workflows/rs.yml) already run on `merge_group` without path
+filters. Their change jobs fetch full history and diff the event's
+`merge_group.base_sha` against `GITHUB_SHA`; checkout uses that group commit,
+not a PR head. This includes changes from earlier entries in the group.
+Unavailable bases and failed diffs select the full suites. Concurrency keys
+include the group head SHA, so distinct groups do not cancel each other. Both
+final gates run with `always()` and verify every selected dependency.
+
+A local audit executed both exact selector bodies against real temporary Git
+histories: docs-only, frontend-only, combined frontend/protocol commits, missing
+base, unavailable base, and failed diff. All six scenarios selected the expected
+jobs. This proves selector behavior, **not** hosted event delivery or native
+build results on a queue ref.
+
+### Prerequisites for a separately authorized trial
+
+1. Establish an eligible approving identity. Current protection requires one
+   approval, code-owner approval, and approval after the last push. An approval
+   comment is not an approving review. The present owner/admin merge path does
+   not establish that an ordinary enqueue will satisfy those requirements.
+2. If proof must precede enabling a queue on `main`, use a disposable protected
+   pilot branch with the same required checks and a separately authorized queue.
+   GitHub creates real `gh-readonly-queue/**` refs after enqueue; a branch merely
+   named that way, a manual workflow run, or a simulated payload is not equivalent.
+   See GitHub's [merge-group event contract](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#merge_group).
+3. Begin conservatively: squash merging, build concurrency one, minimum and
+   maximum merge size one, and only non-failing PRs. Choose the check timeout
+   above measured cold-run wall time including runner waits. Enqueue an approved
+   throwaway PR and record both exact required check names, Actions app identity,
+   event, ref, head SHA, and successful conclusions. Include representative native
+   and protocol inputs if claiming those jobs ran; docs-only legitimate skips
+   prove context delivery, not native coverage. A real trial on `main` is an
+   alternative, but necessarily happens after its queue is enabled.
+4. For the trial, use ordinary `gh pr merge <number> --match-head-commit <sha>`
+   after review/check requirements are met. The [CLI manual](https://cli.github.com/manual/gh_pr_merge)
+   explains that this enqueues on a queue-required branch; `--admin` bypasses
+   the queue. Do not make bypass the queue's routine merge path.
+5. Record the trial evidence and owner decision in #947 before broader adoption.
+   Keep all required checks and native coverage intact. Include removal of the
+   pilot queue rules and branch in the separately authorized trial plan.
+
+A queue removes manual branch-refresh work; it does not promise one CI build
+for a batch. GitHub documents that **merge limits do not combine merge-group
+builds**. Failed entries can be removed and later groups rebuilt without them;
+this is not a promised binary-search isolation algorithm. See
+[Managing a merge queue](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue).
+
 ## Rust package layout
 
 Six shipping Cargo package roots under `wallet/`, each the root of its own
