@@ -132,5 +132,10 @@
     "acorn": "^8.15.0",
     "prettier": "2.6.2",
     "react-app-rewired": "^2.2.1"
+  },
+  "overrides": {
+    "speech-rule-engine": {
+      "@xmldom/xmldom": "0.9.12"
+    }
   }
 }

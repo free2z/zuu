@@ -607,6 +607,17 @@ describe("a response is accepted only when it answers this exact request", () =>
     });
   });
 
+  it("preserves a well-formed unknown status without a txid or automatic retry", async () => {
+    const transport = replyingTransport((request) => responseBytes({
+      requestId: requestIdOf(request), status: 4242, payload: new Uint8Array(0),
+    }));
+    const outcome = await tip(100_000, transport);
+    expect(outcome).toEqual({ kind: "unknown-status", status: 4242 });
+    expect(outcome).not.toHaveProperty("txid");
+    expect(transport.sent).toHaveLength(1);
+    if (outcome.kind === "unknown-status") expect(creatorTipFailureName(outcome)).toBe("INTENT_UNKNOWN_STATUS_4242");
+  });
+
   it("never reads a refusal as a success", async () => {
     const outcome = await tip(
       100_000,

@@ -142,7 +142,10 @@ jobs:
   clippy:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # #1001: a cold runner spent ~9m on setup and ~36m compiling seven
+    # independent wallet roots before the old 45m cap killed the final root.
+    # Allow cold completion; keep the full discovered-root -D warnings verdict.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
