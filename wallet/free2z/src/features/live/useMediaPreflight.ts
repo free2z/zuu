@@ -183,7 +183,9 @@ export function useMediaPreflight({
       setStatus("removed");
       setMicrophoneEnabled(false);
       setCameraEnabled(false);
-      void refreshDevices(requestGeneration.current);
+      void refreshDevices(requestGeneration.current).catch(() => {
+        // Enumeration is optional; retain the already-set preview state.
+      });
     };
     endedListenersRef.current = next.getTracks().map((track) => {
       const listener = () => onEnded(track.kind);
@@ -359,8 +361,10 @@ export function useMediaPreflight({
       return;
     }
 
-    void refreshDevices(requestGeneration.current);
-    const onDeviceChange = async () => {
+    void refreshDevices(requestGeneration.current).catch(() => {
+      // Enumeration is optional; retain the already-set preview state.
+    });
+    const updateDevices = async () => {
       const expectedGeneration = requestGeneration.current;
       const current = streamRef.current;
       const selectionBeforeRefresh = selectedRef.current;
@@ -396,6 +400,9 @@ export function useMediaPreflight({
         setCameraEnabled(false);
       }
     };
+    const onDeviceChange = () => updateDevices().catch(() => {
+      // Keep the current preview state if an unexpected refresh error escapes.
+    });
     mediaDevices.addEventListener?.("devicechange", onDeviceChange);
 
     return () => {

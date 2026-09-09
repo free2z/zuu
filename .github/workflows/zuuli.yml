@@ -40,6 +40,9 @@ jobs:
           # Diff locally instead of relying on the pull-request files API.
           fetch-depth: 0
 
+      - name: Verify isolated Ubuntu dependency installation
+        run: sudo python3 scripts/test-ubuntu-apt-isolation.py
+
       # This runs before change detection on every event. A workflow cannot
       # replace its own judge with a mutable external action, or mark a job the
       # required gate awaits as best-effort, then skip the full application

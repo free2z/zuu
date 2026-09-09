@@ -1,4 +1,7 @@
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { bootstrapReporter } from "@free2z/wallet-shared";
+import { diagnostics } from "@/lib/diagnostics";
+import { RootFallback } from "./app-bootstrap";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   createBrowserRouter,
   Navigate,
@@ -197,9 +200,21 @@ const appRouter = createBrowserRouter([{ path: "*", element: <AppRoutes /> }]);
 export default function App() {
   const bootstrapSession = useSession((s) => s.bootstrap);
 
+  const [bootstrapFailed, setBootstrapFailed] = useState(false);
   useEffect(() => {
-    void bootstrapSession();
+    let active = true;
+    void Promise.resolve().then(bootstrapSession).catch((error: unknown) => {
+      bootstrapReporter(diagnostics)("free2z session bootstrap failed", error);
+      if (active) setBootstrapFailed(true);
+    });
+    return () => { active = false; };
   }, [bootstrapSession]);
+
+  // An unvalidated session must not unlock OAuth recovery or authenticated
+  // routes. Show a terminal fallback without changing credentials or retrying.
+  if (bootstrapFailed) {
+    return <RootFallback />;
+  }
 
   return (
     <TooltipProvider delayDuration={200}>
