@@ -416,6 +416,49 @@ Two details of that caller are worth copying rather than reinventing:
   `decodeExecutePaymentResult`, which reads exactly 32 bytes and refuses
   anything else, because an app that has shown "sent" cannot unshow it.
 
+### 6.2 Outcome uncertainty and unfamiliar statuses
+
+`INTENT_UNAVAILABLE` MUST NOT be interpreted as a claim that the requested
+action had no effect. Callers MUST NOT describe it as “nothing happened”,
+“nothing was sent”, or “your funds are untouched”. In particular,
+`payment_outcome` returns it for `BroadcastStatus::Unknown`: a transaction
+exists locally and may have reached the network, but the wallet cannot
+establish acceptance. This is deliberately not a fulfilled payment response.
+
+Callers MUST distinguish what they know about this request:
+
+| Outcome | May the caller state that this request sent nothing? |
+|---|---|
+| No transport exists; dispatch never occurred | Yes |
+| Request could not be encoded; dispatch never occurred | Yes |
+| A validated, authenticated `INTENT_NOT_CONFIRMED` response | Yes: ZUULI returns it before `execute_send` |
+| `INTENT_UNAVAILABLE` | No: the action's effect is unknown |
+| Transport failure after dispatch, an invalid response, or local response expiry | No: failure to judge an answer proves nothing about the wallet's action |
+| A well-formed response with an unfamiliar status | No: the client cannot interpret the outcome |
+
+A caller receiving an uncertain payment outcome MUST direct the user to check
+the wallet's authoritative transaction state. It MUST NOT report success or
+no effect, and MUST NOT automatically create another payment attempt. A fresh
+request identifier satisfies the one-use rule; it does not establish that a
+second payment is safe. Recovery of a pending transaction belongs to the
+wallet's existing retry path, not a new caller-side payment.
+
+For a supported envelope version, a canonical response with an unfamiliar
+nonzero status and an empty payload is **unknown but well-formed**, not
+`INTENT_MALFORMED`. The client MUST preserve that distinction and the original
+uint16 status, without guessing the newer wallet's meaning. This rule applies
+when a later implementation introduces a status an older client does not
+recognize; it does not relax the unsupported-version or canonical-decoding
+gates. Family, request identifier and expiry checks still run first, and a
+correlated answer consumes the outstanding question even when its status is
+unfamiliar. A replay MUST remain unsolicited.
+
+`IntentSession.accept` exposes this as
+`{ ok: false, error: "unknown-status", status }`, a client-only outcome rather
+than a newly allocated wire refusal code. Free2Z preserves it through its tip
+result and maps it to uncertain copy; E2E2Z raises `IntentStatusUnknownError`
+and does not install a credential or infer enrollment.
+
 ## 7. What is blocked on #461
 
 Everything above is correct regardless of how the bytes travel. Nothing above is
