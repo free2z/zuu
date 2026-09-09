@@ -109,6 +109,9 @@ of them.
 | `wallet-surfaces.yml` | no | `cargo build --all-targets` and `cargo test` of the free2z and e2e2z backends. Their frontend suites moved into `zuuli.yml`'s gated `surfaces` job in #915 |
 | `zuuallet.yml` | no | Zuuallet frontend + backend, and the weekly `upstream-canary` against latest librustzcash `main` |
 
+The [rs policy runtime record](ci/RS-POLICY-RUNTIME.md) contains per-step
+measurements, the five-minute budget decision, and the read-only refresh command.
+
 Two consequences worth internalising:
 
 - **The delegated surfaces are gated by `zuuli.yml`, not by their own
