@@ -20,21 +20,25 @@ vi.mock("@/lib/api/http", async (original) => ({
   isAuthed: () => false,
 }));
 import App from "./App";
+import { diagnostics } from "@/lib/diagnostics";
 import { useSession } from "@/store/session";
 import { discardPaidIntent } from "@/lib/auth/paid-intent";
 
-afterEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
 it("shows a terminal fallback when session cleanup rejects before auth validation", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   useSession.setState({ loading: true, user: null, tuzis: 0 });
+  const record = vi.spyOn(diagnostics, "record");
   const container = document.createElement("div");
   const root = createRoot(container);
   try {
     await act(async () => { root.render(<App />); });
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Couldn’t restore your session");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Something went wrong");
     expect(container.textContent).not.toContain("Session loading");
-    expect(container.textContent).toContain("Reload the app");
+    expect(container.querySelector("button")?.textContent).toBe("Reload");
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record).toHaveBeenCalledWith("bootstrap-error", expect.objectContaining({ message: "local storage unavailable" }));
     expect(useSession.getState().loading).toBe(true);
     expect(discardPaidIntent).toHaveBeenCalledTimes(1);
   } finally {
