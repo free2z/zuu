@@ -43,7 +43,7 @@ done
 
 if [[ -d "${HOME}/Library/MobileDevice/Provisioning Profiles" ]] &&
   find "${HOME}/Library/MobileDevice/Provisioning Profiles" -maxdepth 1 \
-    -name 'e5ead62c-83ec-4e54-abb6-4770833b5e0d.mobileprovision' -print -quit | grep -q .; then
+    -name '826be5cd-74cc-4462-8e6f-41c5267c91ae.mobileprovision' -print -quit | grep -q .; then
   echo "Apple credential canary found the ZUULI provisioning profile" >&2
   exit 1
 fi

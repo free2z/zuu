@@ -887,7 +887,7 @@ jobs:
           profile_name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$secret_dir/profile.plist")
           profile_team=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$secret_dir/profile.plist")
           profile_app=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$secret_dir/profile.plist")
-          [[ "$profile_uuid" == e5ead62c-83ec-4e54-abb6-4770833b5e0d ]] || { echo "unexpected provisioning-profile UUID" >&2; exit 1; }
+          [[ "$profile_uuid" == 826be5cd-74cc-4462-8e6f-41c5267c91ae ]] || { echo "unexpected provisioning-profile UUID" >&2; exit 1; }
           [[ "$profile_name" == 'ZUULI App Store CI' ]] || { echo "unexpected provisioning-profile name" >&2; exit 1; }
           [[ "$profile_team" == F9AV5HKF6N ]] || { echo "unexpected provisioning-profile team" >&2; exit 1; }
           [[ "$profile_app" == F9AV5HKF6N.cash.free2z.zuuli ]] || { echo "unexpected provisioning-profile application identifier" >&2; exit 1; }
@@ -919,7 +919,7 @@ jobs:
             --keychain-identity-sha1 "$identity_sha" \
             --bundle-id cash.free2z.zuuli \
             --team-id F9AV5HKF6N \
-            --expect-profile-uuid e5ead62c-83ec-4e54-abb6-4770833b5e0d \
+            --expect-profile-uuid 826be5cd-74cc-4462-8e6f-41c5267c91ae \
             --expect-profile-name 'ZUULI App Store CI'
           profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$profile_dir"
@@ -962,7 +962,7 @@ jobs:
             echo "ephemeral iOS signing keychain survived cleanup" >&2
             exit 1
           fi
-          if [[ -e "$HOME/Library/MobileDevice/Provisioning Profiles/e5ead62c-83ec-4e54-abb6-4770833b5e0d.mobileprovision" ]]; then
+          if [[ -e "$HOME/Library/MobileDevice/Provisioning Profiles/826be5cd-74cc-4462-8e6f-41c5267c91ae.mobileprovision" ]]; then
             echo "ephemeral iOS provisioning profile survived cleanup" >&2
             exit 1
           fi

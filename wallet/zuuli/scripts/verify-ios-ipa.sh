@@ -328,7 +328,7 @@ profile_uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")
 profile_name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$profile_plist")
 profile_team=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$profile_plist")
 profile_app=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")
-[[ "$profile_uuid" == e5ead62c-83ec-4e54-abb6-4770833b5e0d ]] ||
+[[ "$profile_uuid" == 826be5cd-74cc-4462-8e6f-41c5267c91ae ]] ||
   fail "embedded profile UUID is not the protected ZUULI profile"
 [[ "$profile_name" == 'ZUULI App Store CI' ]] ||
   fail "embedded profile name is not ZUULI App Store CI"

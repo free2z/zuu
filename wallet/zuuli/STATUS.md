@@ -8,7 +8,7 @@ back from the named store. Authenticated, money-moving, and wallet operations
 are not called working without recorded evidence from that path.
 
 Last re-derived from `origin/main` at
-`b53f3fefb8bb65b72e82e26de0d3d772b5358f9c` on 2026-09-10. Before a release,
+`05b5f39f2ac5a5ec7e7d048382d0a296608dd29e` on 2026-09-10. Before a release,
 update the evidence and disposition for every non-ready row; do not carry this
 commit or date forward mechanically.
 
@@ -91,19 +91,20 @@ the identities were ZUULI `0.1.0+21`, Free2Z `0.1.0+2`, and E2E2Z `0.1.0+3`.
 These are independent app identities. Preparation PR #1011 carries
 reviewed mechanical sibling bumps to Free2Z `0.1.0+3` and E2E2Z `0.1.0+4`;
 those generated version changes do not establish signing or delivery. ZUULI
-stays on build 21 in #1011; build 22 requires a separate audit-marker/release ceremony.
-On 2026-09-10 GitHub still reports ZUULI's latest protected release
-as [run 34086094245](https://github.com/free2z/zuu/actions/runs/34086094245):
-build 21 failed at `Pin immutable source` before signing or uploading. The
-latest successful protected ZUULI run remains
-[build 20](https://github.com/free2z/zuu/actions/runs/33494458918). Its recorded
-store readbacks below prove distribution of the **pre-vault** app, not physical
-acceptance of this source. A fresh GET-only App Store Connect audit on
+stayed on build 21 in #1011; #1013 then supplied the separate build-22 ceremony.
+The historical build-21 protected release
+[run 34086094245](https://github.com/free2z/zuu/actions/runs/34086094245)
+failed at `Pin immutable source` before signing or uploading. Build 22's later
+attempt and profile failure are recorded separately below; neither attempt
+supplied a signed iOS/TestFlight release. At the 2026-09-10 20:29 UTC audit, the latest successful protected
+ZUULI run was [build 20](https://github.com/free2z/zuu/actions/runs/33494458918).
+Its recorded store readbacks prove distribution of the **pre-vault** app, not
+physical acceptance of the later source. A GET-only App Store Connect audit on
 2026-09-10 at 20:29:43 UTC confirmed exact ZUULI `0.1.0+20` build
 `9282bd69-a781-44e1-9621-4457aa5daf0f` as `VALID`, `IN_BETA_TESTING`, unexpired,
 with `usesNonExemptEncryption: false` and its exact build linked to existing
 internal groups. At 20:29:45 UTC, exact `0.1.0+21` was absent (`uploaded: false`).
-No store mutation or device operation was performed for ZUULI in this audit.
+No store mutation or device operation was performed in that read-only audit.
 
 A separate GET-only App Store Connect readback on 2026-09-10 observed E2E2Z
 `0.1.0+3` (app `6809219394`, 20:15:27 UTC) and Free2Z `0.1.0+2` (app
@@ -134,6 +135,63 @@ release ceremony must re-audit the merged preparation diff and record its merged
 SHA in the top marker. The checker itself is release-impacting: leaving that
 marker before #1011 would make the release stale again. These preparation
 changes do not add runtime evidence, and no checker rule is relaxed.
+
+**Build-22 signing failure and profile re-derivation (#1014)**
+
+The follow-up source comparison used
+`05b5f39f2ac5a5ec7e7d048382d0a296608dd29e` on 2026-09-10. Between substantive
+source `822721c6` and that commit, #1011 changed only the reviewed audit/seal,
+architecture/status prose and sibling version files; #1013 changed the audit
+marker and mechanical ZUULI build-22 identity. No runtime source changed, so the
+15 internal dispositions and their missing authenticated/device evidence remain
+in force. The six historical release-path rows below retain their exact
+execution classes and run identities.
+
+[Build-22 run 34540973883](https://github.com/free2z/zuu/actions/runs/34540973883)
+at `05b5f39f` passed `Pin immutable source` and the credential-free iOS archive.
+Its [iOS signing job](https://github.com/free2z/zuu/actions/runs/34540973883/job/103086738097)
+failed on 2026-09-10 at 23:25:57 UTC with `unexpected provisioning-profile UUID`.
+The job had decoded the temporary P12 and profile files, but stopped before
+keychain creation, certificate import, signing or export. Credential cleanup
+passed. The dependent signed-IPA verifier and App Store upload jobs were skipped;
+this attempt supplied no signed IPA or TestFlight build 22. At the 23:30 UTC
+observation, the Android builder was still running; no result for that path is
+inferred from the iOS failure. The #962 certificate-pair preflight was not
+reached, so its real-input execution remains unproven by this attempt.
+
+The old exact UUID `e5ead62c-83ec-4e54-abb6-4770833b5e0d` was absent from the
+complete Apple profile inventory read on 2026-09-10. The only ZUULI App Store
+profile returned was `826be5cd-74cc-4462-8e6f-41c5267c91ae` (API ID
+`WPDBZRH2N6`), `ACTIVE` / `IOS_APP_STORE`, named `ZUULI App Store CI`, for team
+`F9AV5HKF6N` and `cash.free2z.zuuli`, expiring 2027-08-08 at 04:22:31 UTC.
+The decoded Apple profile's creation time is 2026-09-06 at 19:06:04 UTC. It grants
+`associated-domains: *` and `get-task-allow: false`, and embeds certificate
+SHA-1 `5F0653995E894CD2A1DE7A938B19AE364B46B5B7` (Apple certificate ID
+`6877H622N4`). A 2026-09-10 readback of build 20's retained
+[final iOS artifact](https://github.com/free2z/zuu/actions/runs/33494458918/artifacts/9795666363)
+verified its IPA/profile hashes against its signing record and found the same
+signer SHA-1. Its embedded old `e5ead62c` profile has the same app/team/certificate
+but **no associated-domains entitlement**; the replacement adds `*`. Restoring
+the old profile would therefore not authorize the app-link declaration added by
+#977. The certificate/password secret timestamps remain 2026-08-08, while the
+profile secret was updated on 2026-09-06 at 19:07:33 UTC. These observations
+support advancing the source pin to the rotated profile; timestamps alone do
+not reveal secret contents. This establishes the reviewed replacement identity
+and capability compatibility; it does not prove that a future runner imports its
+matching private key or successfully signs. The existing preflight must still
+check certificate membership, key-pair coherence, the selected signing identity,
+team, bundle, exact profile UUID/name and both validity windows.
+
+The #1014 preparation updates that exact UUID across signing, embedded-IPA
+verification, normalization and cleanup assertions, with the corresponding
+reviewed signing-job digest and negative-control fixtures. It changes no
+entitlement, credential scope or product behavior, retains the fixed profile
+name/team/app checks, and grants no runtime readiness. This audit/seal and the
+profile-pin change are after the follow-up comparison source `05b5f39f`; a later
+build-23 ceremony must re-audit their merged diff and record that merged SHA in
+the top marker. Historical observations above keep their source and times when
+that marker advances. No profile bytes, certificate material or private keys are
+part of this record.
 
 ## Evidence boundaries
 
@@ -198,7 +256,7 @@ execution, not a permanent artifact archive.
 | 2Z Activity | Authenticated Stripe purchase ledger | Native HTTP | Parsing/UI tests do not prove a complete ledger | Protected endpoint returned HTTP 403 anonymously; authenticated ledger not exercised | **Known incomplete:** the endpoint is purchases-only and cannot substantiate tips/AI/PPV totals ([#172](https://github.com/free2z/zuu/issues/172)). **2026-09-10 internal disposition:** Retain the purchases-only experimental view; do not claim a complete ledger. |
 | E2EE messaging (enrollment only; no frontend) | Relay, key-transparency, and MLS services under `rs/` | `wallet/plugins/tauri-plugin-f2zmsg` builds, its two-instance integration test drives two engines over a real relay, and `wallet/zuuli/src-tauri` links and registers it — but **no capability grants the webview any `f2zmsg:` permission**. The plugin stays registered because enrollment needs its engine and store, and enrollment is the one messaging operation that needs the wallet seed, which must never cross IPC (`src/messaging.rs`, ADR 0016) | The plugin's own crate gate runs in `zuuli.yml`; the app's gate additionally builds it into ZUULI for desktop, iOS and Android. `the_capability_set_refuses_plugin_commands_but_not_the_enrollment_trio` drives the shipping capability set through a mock webview and shows the two halves answering differently: `plugin:f2zmsg|…` is refused by the ACL before its body runs, with the refusal naming the `f2zmsg:` permissions ZUULI no longer grants, while the three app-crate enroll commands are still routed because `generate_handler!` does not consult the ACL at all. `shipping_capabilities_grant_no_messaging_permission` reads the same shipping artifact and asserts no `f2zmsg:` grant survives under any name, with a positive control on the Zcash grants | **None.** No enrollment and no message has ever been performed in a running ZUULI, and after the split there is no messaging UI in this app to perform one from | **Reachable only as an enrollment authority, and still not usable.** The surface moved to `wallet/e2e2z` ([#913](https://github.com/free2z/zuu/pull/913)); this app keeps the seed and the ability to issue a `DeviceCredential`, and nothing else. The shipping directory default is still `directory::NoDirectory`, which fails closed, because `KT.md` §12 has not decided the log identity, signing key, shipped witness list, or default *t*, so `start_conversation` on the shipped configuration refuses with `witness-threshold-unmet`. The residual risk that is written down rather than fixed: the enrollment trio is webview-reachable and, under [#367](https://github.com/free2z/zuu/issues/367), reachable from a frame that resolves as the main window; a hostile caller could submit an attacker-chosen handle or unenroll behind a confirmation string. Closing that is [#905](https://github.com/free2z/zuu/issues/905)'s job. Epic: [#305](https://github.com/free2z/zuu/issues/305). Do not describe ZUULI as having messaging. **2026-09-10 internal disposition:** Keep messaging absent from ZUULI UI and cross-app enrollment unavailable; device-custody tests are not enrollment proof. |
 | Vault boundary: no remote content, no capture authority | None — that is the property | The packaged CSP, both capability files, the Android manifest, and the Apple entitlements and plists are all native-surface declarations | `csp-policy.mjs` with a `--self-test`, `surface-capability-authority.mjs`, `mobile-webview-authority.mjs`, `media-permission-manifests.node-test.mjs`, `android-device-catalog.node-test.mjs` and `macos-keychain-entitlements.mjs` each assert one half and each carries a negative control that fails on a reintroduced grant. The Rust IPC probe above proves the capability refusal at runtime rather than by re-reading JSON | The permission boundary is asserted against the **merged** manifest, not the source file: `zuuli-packaging.yml` checks AGP's merged manifest on every pull request and cross-checks the AAB member's bytes, and `zuuli-release.yml` re-checks it through `bundletool dump manifest` on the artifact that ships — the shape [#941](https://github.com/free2z/zuu/pull/941) established for e2e2z, with ZUULI's own reviewed list. Only `<uses-permission>` elements count, which is what tells a grant apart from a receiver's `android:permission` guard. No signed device has been observed installing without a camera or microphone prompt | **Source- and artifact-asserted; not device-observed.** After [#943](https://github.com/free2z/zuu/pull/943) and [#945](https://github.com/free2z/zuu/issues/945), ZUULI's own manifest declares `android.permission.INTERNET` and nothing else, and the *merged* manifest adds exactly three reviewed entries: `USE_BIOMETRIC`, which `ZcashPlugin.kt` uses to authenticate a `BiometricPrompt.CryptoObject` over the seed cipher; `androidx.biometric`'s `USE_FINGERPRINT`, which is unreachable at `minSdk 29` and is allowlisted rather than removed because it sits on the unlock path and removal needs a signed-device check ([#958](https://github.com/free2z/zuu/issues/958)); and `cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`, which `androidx.core` injects at API 33+ so dynamically registered receivers are not exported — app-scoped by its package prefix and signature-level, both checked in CI rather than assumed. `android.permission.DUMP` appears in the merged manifest too and is **not** a grant: it is the `android:permission` guard on `androidx.profileinstaller`'s `ProfileInstallReceiver`, and the CI assertion requires it to stay one. ZUULI additionally claims no macOS capture entitlement, ships no camera or microphone usage string, renders no remote or third-party content, and grants its webview no `f2zmsg:` permission. This row exists because the property is the product: every one of those is a grant on the process that holds the master seed ([#367](https://github.com/free2z/zuu/issues/367)). It has **not** been confirmed on a signed device that ZUULI installs and runs with no capture prompt and that wallet create/restore/send still work: [#238](https://github.com/free2z/zuu/issues/238). **2026-09-10 internal disposition:** Retain the narrowed declarations and required artifact checks; device installation and wallet operation still need #238 evidence. |
-| Internal distribution and store presentation | GitHub release train, App Store Connect, and Google Play | Signed mobile bundles plus generated platform/store icons; desktop packages are built only by credential-free packaging smoke while desktop distribution is deferred | Release identity, icon/store validators, protected state machines, and all-target packaging are gated. The release-step execution table above records which protected and packaging-only paths have actually run. [#962](https://github.com/free2z/zuu/pull/962) added a certificate-against-profile signing preflight to `zuuli-release.yml`, held to option 2 of the release-step evidence policy by `scripts/verify-signing-identity.node-test.mjs`; [#966](https://github.com/free2z/zuu/pull/966) added [`docs/export-classification.md`](docs/export-classification.md), which is a written record and not a filing | Build 20's [TestFlight readback](https://github.com/free2z/zuu/actions/runs/33496768135) proved `uploaded`, `processed`, and `availableToInternalTesters`, `VALID`/`IN_BETA_TESTING`, and the exact internal-group relationship. Its [Play audit](https://github.com/free2z/zuu/actions/runs/33496770265) found the exact build 20 release present and destroyed the uncommitted audit edit. No physical-device acceptance or protected desktop execution is recorded, and the newest release run — build 21's — failed before entering any protected environment, so the `#962` preflight has never run | **Build 20 is confirmed in both mobile stores, and build 20 is not this app.** Build 21 has later unsigned smoke packages, but its protected release produced no artifact and no signed/store-distributed build 21 is evidenced. Build 20 predates the whole split, so what is confirmed in the stores is the pre-vault ZUULI. The listing copy and questionnaire notes were corrected in `#955` ([#946](https://github.com/free2z/zuu/issues/946)) and are in this anchor; **all 20 shipped screenshots — five device sets × `01-articles-fresh`, `02-semantic-search`, `03-article-reader`, `04-creator-profile` — still depict routes this app no longer mounts** and cannot be re-captured here, because `store-screenshot-contract.mjs`'s `CAPTURE_SHOTS` hard-codes those four routes and capture is pinned to a `linux/amd64` Playwright container. That is tracked in [#956](https://github.com/free2z/zuu/issues/956), not fixed. Store media [#387](https://github.com/free2z/zuu/issues/387), shipped-artifact dependency reconciliation [#379](https://github.com/free2z/zuu/issues/379), and physical installs [#238](https://github.com/free2z/zuu/issues/238) remain open. Play remains owner-selected Console email-list mode: [#296](https://github.com/free2z/zuu/issues/296). **2026-09-10 internal disposition:** Existing internal TestFlight cohort only; keep public publication and cohort widening deferred, including the known screenshot mismatch. |
+| Internal distribution and store presentation | GitHub release train, App Store Connect, and Google Play | Signed mobile bundles plus generated platform/store icons; desktop packages are built only by credential-free packaging smoke while desktop distribution is deferred | Release identity, icon/store validators, protected state machines, and all-target packaging are gated. The release-step execution table above records which protected and packaging-only paths have actually run. [#962](https://github.com/free2z/zuu/pull/962) added a certificate-against-profile signing preflight to `zuuli-release.yml`, held to option 2 of the release-step evidence policy by `scripts/verify-signing-identity.node-test.mjs`; [#966](https://github.com/free2z/zuu/pull/966) added [`docs/export-classification.md`](docs/export-classification.md), which is a written record and not a filing | Build 20's [TestFlight readback](https://github.com/free2z/zuu/actions/runs/33496768135) proved `uploaded`, `processed`, and `availableToInternalTesters`, `VALID`/`IN_BETA_TESTING`, and the exact internal-group relationship. Its [Play audit](https://github.com/free2z/zuu/actions/runs/33496770265) found the exact build 20 release present and destroyed the uncommitted audit edit. No physical-device acceptance or protected desktop execution is recorded, and build 22's signing attempt stopped at the profile UUID check before the `#962` certificate-pair preflight, so that attempt adds no real-input preflight evidence | **Build 20 is confirmed in both mobile stores, and build 20 is not this app.** Build 21's protected release produced no artifact. Build 22 produced an unsigned iOS archive, but its signing attempt failed before export; neither attempt supplies a signed iOS/TestFlight post-vault ZUULI. Android build 22 was still running at the 23:30 UTC observation above. Build 20 predates the whole split, so what is confirmed in the stores is the pre-vault ZUULI. The listing copy and questionnaire notes were corrected in `#955` ([#946](https://github.com/free2z/zuu/issues/946)) and are in this anchor; **all 20 shipped screenshots — five device sets × `01-articles-fresh`, `02-semantic-search`, `03-article-reader`, `04-creator-profile` — still depict routes this app no longer mounts** and cannot be re-captured here, because `store-screenshot-contract.mjs`'s `CAPTURE_SHOTS` hard-codes those four routes and capture is pinned to a `linux/amd64` Playwright container. That is tracked in [#956](https://github.com/free2z/zuu/issues/956), not fixed. Store media [#387](https://github.com/free2z/zuu/issues/387), shipped-artifact dependency reconciliation [#379](https://github.com/free2z/zuu/issues/379), and physical installs [#238](https://github.com/free2z/zuu/issues/238) remain open. Play remains owner-selected Console email-list mode: [#296](https://github.com/free2z/zuu/issues/296). **2026-09-10 internal disposition:** Existing internal TestFlight cohort only; keep public publication and cohort widening deferred, including the known screenshot mismatch. |
 
 ## Current production and distribution evidence
 
@@ -242,7 +300,8 @@ on any platform, so this is not evidence that social login works.
 Distribution evidence is narrower and explicit:
 
 - [Protected release run 34086094245](https://github.com/free2z/zuu/actions/runs/34086094245)
-  is the newest release run and it **failed**, on 2026-09-07, at `7fe1b0a8`.
+  **failed** on 2026-09-07 at `7fe1b0a8`; the later build-22 attempt is
+  recorded above.
   It stopped in `Pin immutable source` at
   `Verify exact source and release identity`, on this document's own staleness,
   before any build, signing, notarization, upload, tag, or store transaction.
@@ -305,7 +364,7 @@ Distribution evidence is narrower and explicit:
   failed the same lane for build 15 on a different fault
   ([#738](https://github.com/free2z/zuu/issues/738), fixed by
   [#739](https://github.com/free2z/zuu/pull/739)).
-- The newest TestFlight readback and store audit now sit at build 20's exact
+- The historical TestFlight readback and store audit below cover build 20's exact
   source. Builds 18 and 19 still have no direct store-side readback; the later
   build-20 observation does not retroactively prove either historical build.
 - [TestFlight read-only recovery 33331705268](https://github.com/free2z/zuu/actions/runs/33331705268)

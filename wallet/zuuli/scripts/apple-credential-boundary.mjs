@@ -102,7 +102,7 @@ const ALLOWED_JOB_SECRETS = new Map([
 // all unenumerated execution paths. Update only after reviewing the full job.
 const CREDENTIAL_JOB_SHA256 = new Map([
   ["android-sign-upload", "4e80aa8c0832bc6b180f6121191d9e7ae1f178e2ff98e910b98f3e534d0745c4"],
-  ["ios-sign", "366e19b3185e0392a9ade22f72de7766699cb629487ffbd4f77057bd7eb1149c"],
+  ["ios-sign", "429ae4dd15272ee17566e11eb24d9a5da0946dd38c1e7ff2e5e358cebf71efa5"],
   ["ios-upload", "3ed7cb28646aed24a7df2c347b8ad54838f009841fdd52c64ca1002886aae4b2"],
   ["macos-sign", "4aabc59a06ab3f589515caab2b2ea9c1dadd9cda08958f0d03ec54e95f46d7e7"],
 ]);
@@ -1283,7 +1283,7 @@ export function verifyAppleCredentialBoundary(
     failures,
     "iOS signer",
     jobs.get("ios-sign"),
-    'if [[ -e "$HOME/Library/MobileDevice/Provisioning Profiles/e5ead62c-83ec-4e54-abb6-4770833b5e0d.mobileprovision" ]]',
+    'if [[ -e "$HOME/Library/MobileDevice/Provisioning Profiles/826be5cd-74cc-4462-8e6f-41c5267c91ae.mobileprovision" ]]',
   );
   requireText(
     failures,

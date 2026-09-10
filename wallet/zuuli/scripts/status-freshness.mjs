@@ -23,7 +23,7 @@ const releasingPath = "wallet/zuuli/docs/releasing.md";
 const RELEASING_DOCUMENT_SHA256 =
   "352cf01bb042188fb514b9157b22e6e292064566dd2bb1cfcd0673724436b100";
 const STATUS_DOCUMENT_SHA256 =
-  "8d5cbbc8838c85c9aa53ba118672c79ab4937c696f7d4114c565dd8bb76afc91";
+  "3cc45432b79eb40ba8eaadb66ce31af5c0fce7d5f9d6fc29b53f16225af9c3f3";
 const statusSourceMarkerPattern =
   /^Last re-derived from `origin\/main` at\n`[0-9a-f]{40}` on \d{4}-\d{2}-\d{2}\. Before a release,\nupdate the evidence and disposition for every non-ready row; do not carry this\ncommit or date forward mechanically\.$/gm;
 const canonicalStatusSourceMarker = "<STATUS_SOURCE_MARKER>";

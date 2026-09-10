@@ -7,7 +7,7 @@ import { isDeepStrictEqual } from "node:util";
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const teamId = "F9AV5HKF6N";
-const profileUuid = "e5ead62c-83ec-4e54-abb6-4770833b5e0d";
+const profileUuid = "826be5cd-74cc-4462-8e6f-41c5267c91ae";
 const profileName = "ZUULI App Store CI";
 const distributionIdentity = `Apple Distribution: Corpora Inc (${teamId})`;
 const appBundleSetting = "PRODUCT_BUNDLE_IDENTIFIER = cash.free2z.zuuli;";
