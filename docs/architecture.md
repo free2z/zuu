@@ -107,8 +107,10 @@ pressure; an absent command cannot be invoked.
 
 `wallet/e2e2z/src-tauri/Cargo.lock` contains **zero Zcash crates** — no
 `zcash_*`, no `orchard`, no `sapling`. It registers `tauri-plugin-f2zmsg` and
-exactly one app command, `e2e2z_device_credential_keys`, which returns the
-**public** halves of an OS-CSPRNG device key set and grants nothing.
+three app commands: `e2e2z_device_credential_keys` returns the **public** halves
+of an OS-CSPRNG device key set, `e2e2z_install_device_credential` installs the
+signed credential, and `e2e2z_retry_device_unlock` reopens this device's seal.
+None accepts or derives account keys.
 
 ZUULI's three app-crate enrollment commands — `f2zmsg_enrollment_status`,
 `f2zmsg_enroll`, `f2zmsg_unenroll` — are deliberately absent here. In ZUULI they
@@ -192,8 +194,11 @@ person approving it, so shipping it first because it "only signs" is backwards.
 Read [`status.md`](./status.md) rather than inferring from this page. In short:
 there is **no transport** ([#461](https://github.com/free2z/zuu/issues/461)),
 `sign-challenge` has neither a caller nor an authority-side implementation, and
-`issue-device-credential` has a caller but no authority-side implementation —
-enrollment could not complete even with a transport
-([#928](https://github.com/free2z/zuu/issues/928)), free2z's native layer is
+`issue-device-credential` has a caller and an install step but **no
+authority-side implementation** — ZUULI still answers it `INTENT_UNKNOWN_INTENT`
+([`intent.rs`](../wallet/zuuli/src-tauri/src/intent.rs)), so nothing issues a
+credential over the bridge. What [#928](https://github.com/free2z/zuu/issues/928)
+closed is the step *after* that one: e2e2z can now install a credential it
+receives, which it could not before. free2z's native layer is
 unwired ([#918](https://github.com/free2z/zuu/issues/918)), and ZUULI's phase-4
 hardening is in progress.

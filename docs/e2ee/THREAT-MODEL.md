@@ -347,8 +347,17 @@ user's machine, or physical access to an unlocked device.
 - **Future traffic heals, eventually.** Post-compromise security: once the
   compromised member issues an Update and the adversary is passive thereafter, the
   group's secrets recover.
-- **Local storage is encrypted at rest** under a key wrapped by `BackupWrapKey`
-  and the OS keystore where available.
+- **This device's own secrets are sealed at rest** — its signing key and its
+  queue seed, under a per-device `DeviceWrapKey` the engine samples from the OS
+  CSPRNG and keeps in the OS secret store
+  ([ADR 0016](./decisions/0016-enrollment-sealing-boundary.md) §3). So a copy of
+  the store taken without that item cannot sign as this identity. **It is not a
+  claim about message content:** the SQLite database beside the seal — MLS group
+  state and message plaintext — is not encrypted, and this list is about what a
+  compromise does and does not yield, so the narrower true statement belongs
+  here rather than the wider one. Before ADR 0016 the seal's key was the
+  seed-derived `BackupWrapKey`, which meant one key opened every device of an
+  account; §4.2 assigns that key local *history*, which stays unimplemented.
 - **The FROST per-session encryption key is destroyed after part 2**
   ([`ARCHITECTURE.md` §11.2](./ARCHITECTURE.md#112-mandatory-destruction-of-the-per-session-encryption-key)),
   enforced in the state machine and asserted by test — so a device compromised

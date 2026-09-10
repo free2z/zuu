@@ -251,15 +251,10 @@ pub struct IdentityInstall {
     /// trust-on-first-response permits. What contains the rest is the KT
     /// directory, not this function.
     pub expected_handle: String,
-    /// The seed-derived `BackupWrapKey` (`ARCHITECTURE.md` §4.2), under which
-    /// the device secrets are sealed. §6.1's `locked` is the state this device
-    /// is in whenever it does not have it.
+    /// When this enrollment was submitted, by the installing app's own clock.
     ///
-    /// ADR 0016 (#935) decides this field is removed in favour of a per-device
-    /// `DeviceWrapKey` the plugin samples and seals under itself. That is a
-    /// larger change with its own restore analysis and is deliberately **not**
-    /// bundled with the credential-binding fix; #928 tracks it.
-    pub wrap_key: [u8; 32],
+    /// ADR 0016 §4.2: §3.2 UI bookkeeping, not a security value, so it is taken
+    /// locally rather than from an unauthenticated responder.
     pub submitted_at: i64,
 }
 
@@ -383,8 +378,8 @@ impl<B: StorageBackend> Engine<B> {
     ///
     /// # Errors
     ///
-    /// `not-enrolled` before enrollment, `engine-locked` when the seed-derived
-    /// wrap key has not been supplied this session.
+    /// `not-enrolled` before enrollment, `engine-locked` when this device's
+    /// `DeviceWrapKey` has not opened the seal this session.
     pub async fn start(&self) -> Result<EngineStatus> {
         let mut inner = self.inner.lock().await;
         if inner.state == EngineState::Running || inner.state == EngineState::Degraded {
@@ -402,7 +397,7 @@ impl<B: StorageBackend> Engine<B> {
             self.sink.engine_state(&status);
             return Err(Error::new(
                 ErrorCode::EngineLocked,
-                "the seed-derived wrap key has not been supplied this session",
+                "this device's wrap key has not opened the seal this session",
             ));
         }
 
@@ -545,8 +540,9 @@ impl<B: StorageBackend> Engine<B> {
     /// Returns `durability-unavailable` if this device has nowhere to durably
     /// hold a `DeviceWrapKey` (#937 — no OS secret store, a locked or absent
     /// one, or a namespace this application does not own), and `internal` if
-    /// the signing-key sample is the forbidden all-zero seed. Both refusals
-    /// happen before pending enrollment state is installed, so a refused
+    /// the device is already enrolled or the signing-key sample is the forbidden
+    /// all-zero seed. These refusals happen before pending enrollment state is
+    /// installed, so a refused
     /// enrollment leaves nothing behind.
     pub async fn prepare_device(&self) -> Result<DevicePublicKeys> {
         self.prepare_device_with(|| prepare_device_material(&mut rand::rng()))
@@ -573,13 +569,18 @@ impl<B: StorageBackend> Engine<B> {
         // signal that protects them, and the log is append-only, so the phantom
         // devices are permanent. `crate::custody`'s module header §3 has the
         // full argument and the option-F alternative that was left on the shelf.
+        let mut inner = self.inner.lock().await;
+        if inner.records().identity()?.is_some() {
+            return Err(Error::internal(
+                "prepare_device requires an unenrolled device",
+            ));
+        }
         self.wrap_key_custody.probe()?;
 
-        // Validate the sampled signing key before taking the lock or changing
+        // Validate the sampled signing key before changing
         // enrollment state. Tests inject a zero-only generator through this
         // exact production route rather than testing an uncalled keygen API.
         let (public, secrets) = prepare()?;
-        let mut inner = self.inner.lock().await;
         inner.pending_device = Some(secrets);
         Ok(public)
     }
@@ -609,10 +610,22 @@ impl<B: StorageBackend> Engine<B> {
     ///
     /// `handle-ineligible` if the credential's handle is not §11.3's charset or
     /// is not the one this enrollment asked for, `internal` if
-    /// [`Engine::prepare_device`] was not called first, the credential does not
-    /// parse, or it does not bind the prepared device key.
+    /// the device is already enrolled, [`Engine::prepare_device`] was not called
+    /// first, the credential does not parse, or it does not bind the prepared
+    /// device key.
     pub async fn install_identity(&self, install: IdentityInstall) -> Result<EnrollmentStatus> {
         let mut inner = self.inner.lock().await;
+        // A custody item has exactly one current key. Replacing it while an
+        // identity exists would destroy that identity's only unlock key if the
+        // following database commit failed or the process stopped before it.
+        // Check under the same lock as installation, including for credentials
+        // prepared before another install completed. Switching identities must
+        // go through explicit unenrollment first.
+        if inner.records().identity()?.is_some() {
+            return Err(Error::internal(
+                "install_identity requires an unenrolled device",
+            ));
+        }
 
         let credential = f2z_msg_mls::credential::parse(&install.credential).map_err(|error| {
             Error::internal(format!("the issued credential does not parse: {error}"))
@@ -686,7 +699,20 @@ impl<B: StorageBackend> Engine<B> {
             // and the UI shows "submitted", not "active".
             merged_at_epoch: None,
         };
-        let sealed = seal(&secrets, &install.wrap_key)?;
+        // ADR 0016 §3. Sampled here rather than in `prepare_device`, where the
+        // ADR's sketch puts it: a whole round trip to the wallet authority sits
+        // between the two and can be refused or abandoned, so a key written at
+        // prepare time is an orphan under a name the next enrollment
+        // overwrites. `prepare_device` still probes custody, so the fail-closed
+        // gate is unchanged.
+        //
+        // The custody write precedes the seal and the commit because the
+        // inverse failure is unrecoverable: secrets committed under a key the
+        // store then refused to keep leave an enrolled device permanently
+        // `locked`. This way round leaves a stray key that opens nothing.
+        let wrap_key = device_wrap_key();
+        self.wrap_key_custody.put_wrap_key(&wrap_key)?;
+        let sealed = seal(&secrets, &wrap_key)?;
         inner.queue_seed = Some(decode_key(&secrets.queue_seed)?);
 
         inner.records().commit(|records| {
@@ -701,24 +727,42 @@ impl<B: StorageBackend> Engine<B> {
         inner.enrollment_status()
     }
 
-    /// Supply the seed-derived wrap key and leave §6.1's `locked`.
+    /// Re-ask the OS secret store for this device's `DeviceWrapKey` and leave
+    /// §6.1's `locked`.
+    ///
+    /// ADR 0016 §3's retry, and it takes no seed — which is what makes it
+    /// reachable from `cash.free2z.e2e2z`, the app with no enrollment path to
+    /// fall back on. Worth retrying: a keychain still shut at launch, or a
+    /// Secret Service daemon not yet up, leaves a `locked` a later attempt
+    /// opens.
+    ///
+    /// Already-unlocked engines retain their current state without querying
+    /// custody again.
     ///
     /// # Errors
     ///
-    /// `not-enrolled` before enrollment, `engine-locked` when the key does not
-    /// open the seal — which is the honest answer: a wrong key is
-    /// indistinguishable from an absent one, and neither can decrypt history.
-    pub async fn unlock(&self, wrap_key: &[u8; 32]) -> Result<EngineStatus> {
+    /// `not-enrolled` before enrollment, `durability-unavailable` when the
+    /// store cannot answer, `engine-locked` when the key does not open the seal
+    /// — a wrong key and an absent one are the same thing to a user.
+    pub async fn unlock(&self) -> Result<EngineStatus> {
         let mut inner = self.inner.lock().await;
         let identity = inner
             .records()
             .identity()?
             .ok_or_else(|| Error::not_enrolled("unlock"))?;
+        // A retry may race another retry or arrive after start. Once unlocked,
+        // preserve the live MLS engine, connections, and lifecycle state; a
+        // redundant retry must not silently stop inbound processing. Checking
+        // and loading under one lock also keeps the key paired with its seal.
+        if inner.mls.is_some() {
+            return inner.status(&*self.directory);
+        }
+        let wrap_key = self.wrap_key_custody.wrap_key()?;
         let sealed = inner
             .records()
             .sealed_secrets()?
             .ok_or_else(|| Error::internal("an identity with no sealed secrets"))?;
-        let secrets = open(&sealed, wrap_key)?;
+        let secrets = open(&sealed, &wrap_key)?;
 
         let signer = device_signer(decode_key(&secrets.device_signing_key)?)?;
         let credential_bytes = hex::decode(&identity.credential)
@@ -3542,6 +3586,15 @@ fn prepare_device_material(rng: &mut impl rand::Rng) -> Result<(DevicePublicKeys
     ))
 }
 
+/// Sample a `DeviceWrapKey` (ADR 0016 §3): 32 bytes from the OS CSPRNG, which
+/// is what makes it a device secret in `ARCHITECTURE.md` §4.2's sense. It never
+/// appears in [`DevicePublicKeys`] and never crosses the intent bridge.
+fn device_wrap_key() -> [u8; 32] {
+    let mut key = [0u8; 32];
+    rand::Rng::fill_bytes(&mut rand::rng(), &mut key);
+    key
+}
+
 fn signing_key(seed_hex: &str) -> Result<SigningKey> {
     Ok(SigningKey::from_seed(&decode_key(seed_hex)?))
 }
@@ -5279,8 +5332,15 @@ mod tests {
             Arc::new(NullSink) as Arc<dyn EventSink>,
             Platform::ZuuliDesktop,
         )
-        .unwrap();
+        .unwrap()
+        // The seal under test was written by this device's own custody, which
+        // is where `unlock` now reads it from (ADR 0016 §3).
+        .with_wrap_key_custody(crate::custody::WrapKeyCustody::in_memory());
         let wrap_key = [0x5a; 32];
+        engine
+            .wrap_key_custody()
+            .put_wrap_key(&wrap_key)
+            .expect("the in-memory store accepts a key");
         let sealed = seal(
             &DeviceSecrets {
                 device_signing_key: hex::encode([0; 32]),
@@ -5312,7 +5372,7 @@ mod tests {
         }
 
         let error = engine
-            .unlock(&wrap_key)
+            .unlock()
             .await
             .expect_err("a restored zero signing seed must be refused");
         assert_eq!(error.code(), ErrorCode::Internal);

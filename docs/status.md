@@ -119,13 +119,15 @@ one is a claim about the key transparency directory, and a fabricated
 | Issue | What it blocks |
 | --- | --- |
 | [**#461**](https://github.com/free2z/zuu/issues/461) | *Everything cross-app.* Verified App Links / Universal Links need `assetlinks.json` and `apple-app-site-association` served from a domain we control. **The client half has landed:** all three apps claim `applinks:free2z.com` and carry an `autoVerify` intent filter on their own `/bridge/<app>/` prefix, and [`intent-bridge/association/`](./intent-bridge/association/README.md) holds the reviewed record. **Still blocking:** the Android document is not served — the host returns `503` until the three Play App Signing fingerprints are deployed — and nothing has been verified on a signed device on either platform |
-| [**#928**](https://github.com/free2z/zuu/issues/928) | Enrollment could not complete **even with a transport**: `IssueDeviceCredentialResultV1` carries no `identity_pk` and no `BackupWrapKey`, both of which `install_identity` requires, and e2e2z registers no install command. The obvious fix would ship a seed-derived key into e2e2z, breaching the account/device split — so this is a design question, not a wire-format patch. **Decided in [ADR 0016](./e2ee/decisions/0016-enrollment-sealing-boundary.md)** (2026-09-05): sealing moves to a per-device wrap key, the result type gains no fields, and the install step is an e2e2z app-crate command. Nothing is implemented, and `device_kem_pk` stays open |
+| [**#928**](https://github.com/free2z/zuu/issues/928) | Enrollment could not complete **even with a transport**: `install_identity` required the seed-derived `BackupWrapKey`, which e2e2z must never hold, and e2e2z registered no install command. **Decided in [ADR 0016](./e2ee/decisions/0016-enrollment-sealing-boundary.md)** (2026-09-05) and now **implemented**: the engine seals under a per-device `DeviceWrapKey` it samples and keeps in each app's own secret-store namespace, `IdentityInstall` lost its `wrap_key`, `Engine::unlock` takes no key and is reachable from e2e2z, and e2e2z registers `e2e2z_install_device_credential` and `e2e2z_retry_device_unlock`. The wire format is untouched — no field was added, so §3.6's vector still holds. **Still missing:** the transport (#461), ZUULI's `issue-device-credential` authority handler (currently `INTENT_UNKNOWN_INTENT`), and the `device_kem_pk` binding (ADR 0016 §6). Installing a returned credential does not complete these parts of enrollment |
 | [**#918**](https://github.com/free2z/zuu/issues/918) | free2z's native layer is unwired — the HTTP plugin, the OAuth transport, and its own deep-link scheme. Its bundle is `"active": false` |
 | [**#904**](https://github.com/free2z/zuu/issues/904) phase 4 | ZUULI's hardening. See §4 |
 
-**Therefore: no user can claim a messaging handle in any shipped build** until
-#461 and #928 both resolve. That is the plainest consequence of the two rows
-above and it is stated here so nobody has to derive it.
+**Therefore: no user can claim a messaging handle in any shipped build.** #928's
+install half has landed. The request still cannot leave the app without #461's
+authenticated channel, and ZUULI still has no authority handler to issue the
+credential when it arrives. The `device_kem_pk` binding also remains unresolved:
+a round trip that completes would still attest a key nobody holds.
 
 Also open against the bridge, and worth reading before building on it:
 [#929](https://github.com/free2z/zuu/issues/929) (correlation is not

@@ -12,9 +12,12 @@ open** — see [§6](#6-device_kem_pk-is-not-resolved-here) ·
 [ADR 0015](./0015-key-package-publication.md) ·
 **Constrains:** [`../../intent-bridge/PROTOCOL.md` §3.3](../../intent-bridge/PROTOCOL.md#33-family-payloads),
 [`../ARCHITECTURE.md` §4.2](../ARCHITECTURE.md#42-derivation-proposed) ·
-**Nothing here is implemented.** This is the decision
-[#928](https://github.com/free2z/zuu/issues/928)'s revised acceptance criteria
-require *before* a wire change, and it changes no code.
+**Implemented.** This document was written before the code and changed none of
+it; [#937](https://github.com/free2z/zuu/issues/937) then built §3's custody
+layer, and [#928](https://github.com/free2z/zuu/issues/928) wired §3's sealing,
+§4's `IdentityInstall`, and §5's e2e2z install command. §6 stays open by
+design — `device_kem_pk` is unresolved, so a completed round trip still does not
+mean enrollment works.
 
 > **Invented here.**
 > [`../ARCHITECTURE.md` §4.2](../ARCHITECTURE.md#42-derivation-proposed) says

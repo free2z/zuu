@@ -464,11 +464,10 @@ async fn enroll(engine: &Engine<SqliteBackend>, options: &Options) -> Result<()>
         .install_identity(IdentityInstall {
             credential: credential_bytes,
             expected_handle: options.handle.clone(),
-            wrap_key: *account.backup_wrap.as_bytes(),
             submitted_at: now,
         })
         .await?;
-    engine.unlock(account.backup_wrap.as_bytes()).await?;
+    engine.unlock().await?;
     Ok(())
 }
 

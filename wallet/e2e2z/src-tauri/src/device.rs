@@ -53,8 +53,11 @@
 //! established that a transport exists: preparing a device for a request that
 //! cannot be sent throws away key material for nothing.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Runtime};
+use tauri_plugin_f2zmsg::engine::IdentityInstall;
+use tauri_plugin_f2zmsg::error::Error;
+use tauri_plugin_f2zmsg::models::{EngineStatus, EnrollmentStatus};
 use tauri_plugin_f2zmsg::{F2zMsgExt as _, Result};
 
 /// The public halves of this device's key set, hex-encoded.
@@ -109,6 +112,113 @@ pub async fn e2e2z_device_credential_keys<R: Runtime>(
     })
 }
 
+/// What the renderer hands back once the wallet authority has answered.
+///
+/// Everything here has been through the webview's heap, so both fields are
+/// public: signed credential bytes, and a handle the user typed. A wrap key is
+/// deliberately absent — before ADR 0016 the engine sealed under the
+/// seed-derived `BackupWrapKey`, and routing that through here would have given
+/// this app account-scoped authority (`ARCHITECTURE.md` §4.2).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InstallDeviceCredentialArgs {
+    /// The `DeviceCredential`'s canonical bytes, lowercase hex — the same
+    /// encoding [`DeviceCredentialKeys`] uses on the way out.
+    pub credential: String,
+    /// The handle **this enrollment asked for**, so a credential attesting a
+    /// different one is refused. See [`IdentityInstall::expected_handle`] for
+    /// why a signature is not enough on a first enrollment.
+    pub expected_handle: String,
+}
+
+/// Install a `DeviceCredential` issued by the wallet authority.
+///
+/// ADR 0016 §5, and the step whose absence meant the round trip could not
+/// complete even with a transport (#928). App-crate for the same reason as its
+/// sibling above (§2.2), and it grants nothing new: no wallet crate, no
+/// `zcash:*`, no seed — the install path is seed-free because ADR 0016 moved
+/// the seal to a per-device key.
+///
+/// [`e2e2z_device_credential_keys`] must have run in this process for the
+/// credential being installed. `prepare_device` is not idempotent, so a
+/// credential issued over discarded keys is refused by the engine's `device_pk`
+/// binding, and the UI has to be able to explain that refusal.
+///
+/// # Errors
+///
+/// `internal` if the credential is not hex, does not parse, or does not bind
+/// the device key this process prepared; `handle-ineligible` if it attests a
+/// handle that is not `expectedHandle`; `durability-unavailable` if this device
+/// cannot keep the wrap key the engine seals under.
+#[tauri::command]
+pub async fn e2e2z_install_device_credential<R: Runtime>(
+    app: AppHandle<R>,
+    args: InstallDeviceCredentialArgs,
+) -> Result<EnrollmentStatus> {
+    let engine = app.f2zmsg().engine_handle()?;
+    let credential = unhex(&args.credential)?;
+    engine
+        .install_identity(IdentityInstall {
+            credential,
+            expected_handle: args.expected_handle,
+            submitted_at: now_ms(),
+        })
+        .await
+}
+
+/// Re-ask the OS secret store for this device's wrap key and leave §6.1's
+/// `locked`.
+///
+/// ADR 0016 §3 requires this to be reachable here: the exit it replaced was
+/// `f2zmsg_enroll` re-deriving the wrap key from the mnemonic, which this app
+/// cannot do. Without it a transient secret-store failure leaves this app
+/// `locked` with no way back.
+///
+/// # Errors
+///
+/// `not-enrolled` before enrollment, `durability-unavailable` when the secret
+/// store cannot answer, `engine-locked` when the key does not open the seal.
+#[tauri::command]
+pub async fn e2e2z_retry_device_unlock<R: Runtime>(app: AppHandle<R>) -> Result<EngineStatus> {
+    app.f2zmsg().engine_handle()?.unlock().await
+}
+
+/// Decode lowercase hex. Local for the reason [`hex`] is.
+fn unhex(value: &str) -> Result<Vec<u8>> {
+    let bytes = value.as_bytes();
+    if !bytes.len().is_multiple_of(2) {
+        return Err(Error::internal("the credential is not whole bytes of hex"));
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    for pair in bytes.chunks(2) {
+        let digits = core::str::from_utf8(pair)
+            .ok()
+            .filter(|text| text.chars().all(|digit| digit.is_ascii_hexdigit()));
+        let Some(digits) = digits else {
+            return Err(Error::internal("the credential is not hex"));
+        };
+        let byte = u8::from_str_radix(digits, 16)
+            .map_err(|_| Error::internal("the credential is not hex"))?;
+        out.push(byte);
+    }
+    if out.is_empty() {
+        return Err(Error::internal("the credential is empty"));
+    }
+    Ok(out)
+}
+
+/// This app's own clock, for `StoredIdentity.submitted_at` — ADR 0016 §4.2
+/// keeps that timestamp local rather than taking it from the responder.
+fn now_ms() -> i64 {
+    i64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis(),
+    )
+    .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,6 +227,48 @@ mod tests {
     fn hex_is_lowercase_and_zero_padded() {
         assert_eq!(hex(&[0x00, 0x0f, 0xa0, 0xff]), "000fa0ff");
         assert_eq!(hex(&[]), "");
+    }
+
+    #[test]
+    fn hex_round_trips_through_unhex() {
+        assert_eq!(
+            unhex(&hex(&[0x00, 0x0f, 0xa0, 0xff])).expect("hex"),
+            vec![0x00, 0x0f, 0xa0, 0xff]
+        );
+    }
+
+    #[test]
+    fn a_credential_that_is_not_whole_lowercase_bytes_is_refused() {
+        for candidate in ["", "abc", "zz", "00 11", "ab\n"] {
+            assert!(
+                unhex(candidate).is_err(),
+                "{candidate:?} is not a credential"
+            );
+        }
+    }
+
+    /// The field set is asserted rather than left to review: a wrap key routed
+    /// through here would put an account-scoped key in the webview's heap.
+    /// `deny_unknown_fields` is what makes it a check rather than a comment.
+    #[test]
+    fn the_install_arguments_carry_a_credential_and_a_handle_and_nothing_else() {
+        let args: InstallDeviceCredentialArgs = serde_json::from_value(serde_json::json!({
+            "credential": "0a0b",
+            "expectedHandle": "alice",
+        }))
+        .expect("the two reviewed arguments deserialize");
+        assert_eq!(args.credential, "0a0b");
+        assert_eq!(args.expected_handle, "alice");
+
+        let widened = serde_json::from_value::<InstallDeviceCredentialArgs>(serde_json::json!({
+            "credential": "0a0b",
+            "expectedHandle": "alice",
+            "wrapKey": "5a".repeat(32),
+        }));
+        assert!(
+            widened.is_err(),
+            "a wrap key must not be accepted here: e2e2z holds nothing seed-derived"
+        );
     }
 
     /// The response type is public keys and nothing else. A private half added

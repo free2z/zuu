@@ -5,19 +5,23 @@
 //! and nothing else privileged.
 //!
 //! The app-crate enrollment trio ZUULI carries — `f2zmsg_enrollment_status`,
-//! `f2zmsg_enroll`, `f2zmsg_unenroll` — is deliberately absent. In ZUULI those
-//! commands borrow the wallet seed from `tauri-plugin-zcash`'s managed state
-//! in-process (docs/e2ee/CLIENT-CONTRACT.md §2.2). Here there is no seed to
-//! borrow: enrollment becomes a bridge call into the wallet authority, which
-//! issues the `DeviceCredential` (#905). Until that protocol lands there is no
-//! honest in-process implementation, so there is no command and no capability
-//! entry addressing one.
+//! `f2zmsg_enroll`, `f2zmsg_unenroll` — is deliberately absent, and stays
+//! absent. In ZUULI those commands borrow the wallet seed from
+//! `tauri-plugin-zcash`'s managed state in-process
+//! (docs/e2ee/CLIENT-CONTRACT.md §2.2). Here there is no seed to borrow:
+//! enrollment is a bridge call into the wallet authority, which issues the
+//! `DeviceCredential` (#905), and #461 still owes that call a transport that
+//! authenticates either end.
 //!
-//! What this crate *does* register is [`device::e2e2z_device_credential_keys`]:
-//! the **public** halves of this device's OS-CSPRNG key set, which are what an
-//! `issue-device-credential` request carries. It grants nothing, reveals no
-//! secret, and is the one piece of enrollment that does not need the seed. See
-//! that module for why it is here rather than in the plugin or in the renderer.
+//! What this crate *does* register is three app-crate commands, none of which
+//! needs a seed or a capability entry:
+//!
+//! * [`device::e2e2z_device_credential_keys`] — the public halves of this
+//!   device's key set, which an `issue-device-credential` request carries.
+//! * [`device::e2e2z_install_device_credential`] — consumes the credential the
+//!   wallet authority answers with (ADR 0016 §5, #928).
+//! * [`device::e2e2z_retry_device_unlock`] — the seed-free exit from §6.1's
+//!   `locked` that ADR 0016 §3 requires this app to have.
 
 pub mod device;
 
@@ -54,7 +58,9 @@ pub fn run() {
         // This app's own device wrap-key namespace; see `WRAP_KEY_NAMESPACE`.
         .plugin(tauri_plugin_f2zmsg::init(WRAP_KEY_NAMESPACE))
         .invoke_handler(tauri::generate_handler![
-            device::e2e2z_device_credential_keys
+            device::e2e2z_device_credential_keys,
+            device::e2e2z_install_device_credential,
+            device::e2e2z_retry_device_unlock
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -76,10 +82,9 @@ mod tests {
 
     /// The enrollment trio must stay absent from this crate's IPC surface.
     ///
-    /// `e2e2z_device_credential_keys` is deliberately *not* one of them: it
-    /// returns public keys and cannot enroll anything. If a command whose name
-    /// starts `f2zmsg_` ever appears here, this app has grown the very surface
-    /// #904 split away, so the source is asserted rather than the doc comment.
+    /// The three `e2e2z_*` commands are deliberately not among them — none can
+    /// reach a seed. A command named `f2zmsg_*` appearing here would mean this
+    /// app grew the surface #904 split away, so the source is asserted.
     #[test]
     fn no_enrollment_command_is_registered() {
         let source = include_str!("lib.rs");
@@ -92,6 +97,12 @@ mod tests {
             !handler.contains("f2zmsg_"),
             "e2e2z must register no f2zmsg_* app-crate command: enrollment needs the seed"
         );
-        assert!(handler.contains("e2e2z_device_credential_keys"));
+        for command in [
+            "e2e2z_device_credential_keys",
+            "e2e2z_install_device_credential",
+            "e2e2z_retry_device_unlock",
+        ] {
+            assert!(handler.contains(command), "{command} must stay registered");
+        }
     }
 }

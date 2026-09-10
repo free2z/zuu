@@ -3,17 +3,16 @@
 // The negative control that matters most, run against the *best* case.
 //
 // `enrollment-gap.test.ts` proves `enroll` refuses when there is nowhere to
-// send an intent. This file proves something stronger and less obvious: even
-// when a transport exists, even when it answers with a perfectly framed,
-// correctly correlated `issue-device-credential` response carrying a
-// credential, `enroll` **still** refuses — because a `DeviceCredential` is not
-// an `EnrollmentStatus`, and this app has no command that could install one.
+// send an intent. This file drives the whole path with a transport in place: a
+// perfectly framed, correctly correlated `issue-device-credential` response
+// carrying a credential, answered by a stand-in for the wallet authority.
 //
-// That is the shape of the mistake this whole boundary exists to prevent: a
-// client that gets a plausible answer and renders itself enrolled. `docs/e2ee/
-// CLIENT-CONTRACT.md` §2.4 states the rule — nothing in e2e2z may fabricate an
-// `EnrollmentStatus` — and a rule that is only true because the happy path is
-// unreachable is a rule that breaks the day the path opens.
+// It used to prove `enroll` refuses even then, because nothing here could
+// install a credential. ADR 0016 §5 changed that, so the property under test is
+// the one that was always the point: **the only `EnrollmentStatus` this app can
+// return is one the engine produced.** `docs/e2ee/CLIENT-CONTRACT.md` §2.4 is
+// the rule — a rule that held only because the happy path was unreachable would
+// have broken the day it opened.
 //
 // jsdom, because this exercises the shipping path end to end: the real lazy
 // `@tauri-apps/api/core` import, the real app-crate command, the real shared
@@ -35,6 +34,7 @@ import {
   type IntentTransport,
 } from "../enrollment/transport";
 import { DEVICE_CREDENTIAL_KEYS_COMMAND } from "../enrollment/deviceKeys";
+import { INSTALL_DEVICE_CREDENTIAL_COMMAND } from "../enrollment/installDeviceCredential";
 import { EnrollmentUnavailableError, enrollment } from "./bridge";
 
 const DEVICE_PK_HEX = "ab".repeat(32);
@@ -66,25 +66,58 @@ function fulfilled(requestId: Uint8Array): Uint8Array {
   ]);
 }
 
-function installTauriHost(): string[] {
-  const invoked: string[] = [];
+/** The status the stand-in engine answers an install with. */
+const INSTALLED = {
+  enrolled: true,
+  handle: "alice",
+  eligibility: { eligible: true, candidate: "alice", reason: null },
+  directoryEntryVersion: null,
+  submittedAt: 1_800_000_000_000,
+  mergedAtEpoch: null,
+  blocked: null,
+};
+
+interface HostCall {
+  readonly cmd: string;
+  readonly args: unknown;
+}
+
+/**
+ * A stand-in for the native side. `install` picks what the install command
+ * does: no such command, a refusal, or an install that answers with a status.
+ */
+function installTauriHost(
+  install: "absent" | "refuse" | "accept" = "absent",
+): HostCall[] {
+  const calls: HostCall[] = [];
   Object.defineProperty(window, "__TAURI_INTERNALS__", {
     configurable: true,
     writable: true,
     value: {
-      invoke(cmd: string) {
-        invoked.push(cmd);
+      invoke(cmd: string, args: unknown) {
+        calls.push({ cmd, args });
         if (cmd === DEVICE_CREDENTIAL_KEYS_COMMAND) {
           return Promise.resolve({
             devicePk: DEVICE_PK_HEX,
             deviceKemPk: KEM_HEX,
           });
         }
+        if (cmd === INSTALL_DEVICE_CREDENTIAL_COMMAND && install === "accept") {
+          return Promise.resolve(INSTALLED);
+        }
+        if (cmd === INSTALL_DEVICE_CREDENTIAL_COMMAND && install === "refuse") {
+          return Promise.reject("handle-ineligible");
+        }
         return Promise.reject(new Error(`Command ${cmd} not found`));
       },
     },
   });
-  return invoked;
+  return calls;
+}
+
+/** The command names a run invoked, in order. */
+function names(calls: readonly HostCall[]): string[] {
+  return calls.map((call) => call.cmd);
 }
 
 afterEach(() => {
@@ -116,8 +149,12 @@ describe("enroll builds a real intent and still cannot enroll", () => {
       EnrollmentUnavailableError,
     );
 
-    // …and it got that far by doing the real work.
-    expect(invoked).toEqual([DEVICE_CREDENTIAL_KEYS_COMMAND]);
+    // …and it got that far by doing the real work, up to a host with no
+    // install command.
+    expect(names(invoked)).toEqual([
+      DEVICE_CREDENTIAL_KEYS_COMMAND,
+      INSTALL_DEVICE_CREDENTIAL_COMMAND,
+    ]);
     expect(sent).toHaveLength(1);
     const decoded = decodeIntentRequest(sent[0] as Uint8Array);
     expect(decoded.ok).toBe(true);
@@ -127,8 +164,8 @@ describe("enroll builds a real intent and still cannot enroll", () => {
     expect(decoded.value.purpose).toBe(ISSUE_DEVICE_CREDENTIAL_PURPOSE);
   });
 
-  it("never resolves to an EnrollmentStatus even on a fulfilled response", async () => {
-    installTauriHost();
+  it("never resolves to a status the engine refused to give", async () => {
+    installTauriHost("refuse");
     setIntentTransport({
       id: "wallet-stand-in",
       available: true,
@@ -143,6 +180,34 @@ describe("enroll builds a real intent and still cannot enroll", () => {
       () => ({ resolved: false as const }),
     );
     expect(settled.resolved).toBe(false);
+  });
+
+  it("installs the credential it received, for the handle it asked for", async () => {
+    const calls = installTauriHost("accept");
+    setIntentTransport({
+      id: "wallet-stand-in",
+      available: true,
+      async dispatch(request) {
+        const decoded = decodeIntentRequest(request);
+        if (!decoded.ok) throw new Error("undecodable request");
+        return fulfilled(decoded.value.requestId);
+      },
+    });
+
+    const status = await enrollment.enroll("alice");
+
+    // The status is the engine's, field for field. Nothing here composes one.
+    expect(status).toEqual(INSTALLED);
+
+    const install = calls.find(
+      (call) => call.cmd === INSTALL_DEVICE_CREDENTIAL_COMMAND,
+    );
+    const args = (install?.args as { args: Record<string, unknown> }).args;
+    // The credential that came back, and the handle this session asked for —
+    // not one read out of the answer, which is #929's distinction.
+    expect(args["credential"]).toBe("33".repeat(96));
+    expect(args["expectedHandle"]).toBe("alice");
+    expect(Object.keys(args).sort()).toEqual(["credential", "expectedHandle"]);
   });
 
   it("keeps the refusal typed, with the underlying cause attached", async () => {

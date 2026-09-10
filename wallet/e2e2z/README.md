@@ -78,7 +78,22 @@ without consulting its own availability flag, so no single edit turns the
 refusal into a success. Response handling is implemented and tested against
 hand-assembled hostile bytes even though nothing can deliver one: correlation,
 family, window, status, framing and the credential's own encoding each get a
-case. What that validation proves is that the responder saw the request; it does
+case.
+
+**The step after the response is built too, since #928.** A credential that came
+back is installed by `e2e2z_install_device_credential`
+(`src/lib/enrollment/installDeviceCredential.ts`), an app-crate command that
+needs no capability and no `zcash:*` grant — possible only because
+[ADR 0016](../../docs/e2ee/decisions/0016-enrollment-sealing-boundary.md) moved
+the seal at rest from the seed-derived `BackupWrapKey` to a per-device
+`DeviceWrapKey` the engine samples itself. Before that, installing needed a
+seed-derived key this app must never hold, so the round trip could not have
+completed even with a transport. The same decision gives this app
+`e2e2z_retry_device_unlock`: a seed-free exit from `locked`, which matters here
+because the exit it replaced was ZUULI re-deriving the wrap key from the
+mnemonic. Two arguments cross into the install — the credential's bytes and the
+handle *this session asked for* — and a wrap key is not among them, which
+`src-tauri/src/device.rs` asserts rather than merely states. What that validation proves is that the responder saw the request; it does
 **not** prove the responder was ZUULI, because
 `docs/intent-bridge/CALLER-AUTHENTICATION.md` §5 records that there is no
 signature over responses. That is #461's job, not this code's.

@@ -200,10 +200,12 @@ async function invoke<T>(
  * The path is the `issue-device-credential` intent (#905,
  * `rs/crates/f2z-intent`), and it cannot ship yet: custom-scheme deep links are
  * not an authenticated channel, so the cross-surface protocol is blocked on
- * #461. Until it lands there is no honest local implementation, so this app has
- * no enrollment command, no capability addressing one, and — here — no stub
- * that can be mistaken for one. Every call refuses with a distinct, typed
- * refusal the UI presents as "enrollment happens in the wallet app".
+ * #461. Every call still refuses with a typed refusal the UI presents as
+ * "enrollment happens in the wallet app".
+ *
+ * #928 closed the install half — `e2e2z_install_device_credential` exists (ADR
+ * 0016 §5) and `enroll` calls it. Still absent, deliberately: anything that
+ * could *issue* a credential, which needs the seed.
  *
  * What must NOT be done in its place: synthesizing an `EnrollmentStatus`. Every
  * field of one is a claim about the key-transparency directory, and a
@@ -211,12 +213,11 @@ async function invoke<T>(
  * published and offer first contact it cannot complete. Failing closed is the
  * only answer that stays true.
  *
- * `enroll` is no longer a bare refusal: it runs `../enrollment`'s real
- * `issue-device-credential` client, which builds the request the wallet
- * authority would answer and fails at the one seam that has no implementation.
- * The refusal it produces is wrapped back into this type, with the underlying
- * cause attached, so every consumer's branch is unchanged and no shipping build
- * can reach an `EnrollmentStatus` by that path either.
+ * `enroll` is no longer a bare refusal: it runs `../enrollment`'s real client,
+ * fails at the one seam that has no implementation, and — past it — installs
+ * the credential and returns the engine's own status. The refusal is wrapped
+ * back into this type with the cause attached, so consumers' branches are
+ * unchanged, and no status in this path comes from a literal in this file.
  */
 export class EnrollmentUnavailableError extends Error {
   /** Machine-readable, so a caller never has to match on the message. */
@@ -661,30 +662,22 @@ export const enrollment = {
   },
 
   /**
-   * In ZUULI: a directory submission, not an instant effect. Here: an
-   * `issue-device-credential` intent addressed to the wallet authority, which
-   * holds the seed-derived §4.2 `IdentitySigningKey` this app never will.
+   * In ZUULI: a directory submission. Here: an `issue-device-credential` intent
+   * to the wallet authority, then the install of the credential it answers
+   * with.
    *
-   * The request is built for real — through `@free2z/wallet-shared`, over this
-   * device's OS-CSPRNG public keys, byte-identical to what `f2z-intent` parses
-   * — and then fails at the transport, because there is no channel that
-   * authenticates either end (`docs/intent-bridge/PROTOCOL.md` §7, #461).
+   * **It still rejects in every shipping build, for one reason: there is no
+   * transport** (`docs/intent-bridge/PROTOCOL.md` §7, #461). What #928 changed
+   * is that the step after the transport now exists — before ADR 0016 the
+   * install needed the seed-derived `BackupWrapKey` this app must never hold.
    *
-   * **It can only reject.** The declared return type is `EnrollmentStatus` and
-   * there is no expression in this function that produces one: even a
-   * successful round trip yields a `DeviceCredential`, which has to be
-   * installed before any status could be read back, and installing it is
-   * `install_identity`'s job in a process this app does not have a command for.
-   * The refusal is re-wrapped so the screen's branch stays the one it was.
+   * Nothing is fabricated on any path: the status is whatever
+   * `install_identity` reports, and every refusal throws.
    *
-   * The dynamic `import()` is **inside** the `try` deliberately. A chunk that
-   * fails to load — offline, a half-rolled deploy, a stale service worker —
-   * rejects, and outside the `try` that rejection would escape as an untyped
-   * error. It would still fail closed, since nothing about it can produce a
-   * status, but the screen branches on `isEnrollmentUnavailable` and would take
-   * the error path instead of the standing gap path: a user would be told
-   * something broke rather than that enrollment happens in the wallet app. The
-   * typed refusal is the contract, so every way this can fail has to wear it.
+   * The dynamic `import()` is inside the `try` deliberately. A chunk that fails
+   * to load would otherwise escape untyped, and the screen branches on
+   * `isEnrollmentUnavailable` — the user would be told something broke rather
+   * than that enrollment happens in the wallet app.
    */
   async enroll(handle: string): Promise<EnrollmentStatus> {
     if (useMock()) return mockMessaging.enroll(handle);
@@ -692,15 +685,17 @@ export const enrollment = {
       const { createDeviceCredentialClient } = await import(
         "../enrollment/issueDeviceCredential"
       );
-      await createDeviceCredentialClient().requestDeviceCredential(handle);
+      const { installDeviceCredential } = await import(
+        "../enrollment/installDeviceCredential"
+      );
+      const credential =
+        await createDeviceCredentialClient().requestDeviceCredential(handle);
+      // The handle this session asked for, not one read back out of the
+      // answer: the engine compares the credential's signed handle against it.
+      return await installDeviceCredential(credential, handle);
     } catch (cause) {
       throw new EnrollmentUnavailableError("enroll", { cause });
     }
-    // Unreachable while no transport exists, and it must stay unreachable in
-    // the sense that matters: a credential is not a status, and this app has no
-    // way to install one. Refusing here rather than returning a shape is what
-    // keeps `enrolled: true` unfabricatable.
-    return refuseEnrollment("enroll");
   },
 
   async unenroll(confirmation: string): Promise<EnrollmentStatus> {

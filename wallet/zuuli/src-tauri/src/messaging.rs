@@ -21,8 +21,9 @@
 //!
 //! So this module reads the seed **in process** from `tauri-plugin-zcash`'s
 //! managed state, derives §4.2's keys, issues a `DeviceCredential`, and hands
-//! the messaging engine only public material plus the wrap key. The seed never
-//! becomes JSON, never crosses IPC, and never enters the webview. The engine's
+//! the messaging engine **only public material** — since ADR 0016 not even a
+//! wrap key, because the engine seals under one it samples itself. The seed
+//! never becomes JSON, never crosses IPC, and never enters the webview. The engine's
 //! own API — [`Engine::prepare_device`] and [`Engine::install_identity`] — is
 //! shaped so it never sees the seed either: the device secrets are generated
 //! *inside* the engine from the OS CSPRNG and only their public halves come
@@ -50,17 +51,19 @@
 //! `issue-device-credential` intent, and it does not ship before #461 gives it
 //! an authenticated channel — a custom-scheme deep link is not one.
 //!
-//! # `f2zmsg_enroll` is also the unlock path, and that is deliberate
+//! # `f2zmsg_enroll` still unlocks, but it is no longer the only thing that can
 //!
 //! §6.1's `locked` is a real state: after a restart the engine has an identity
-//! in its store but no device signing key, because that key is sealed under the
-//! seed-derived `BackupWrapKey` and the wrap key is not persisted. Nothing in
-//! §3's forty-three plugin commands can lift `locked`, and nothing should be
-//! able to — lifting it needs the seed, which is the whole reason this file
-//! exists. So `f2zmsg_enroll` is idempotent in the strong sense: on a device
-//! that is already enrolled under the requested handle it re-derives the wrap
-//! key and unlocks, rather than refusing. A frontend that calls `enroll` on
-//! launch gets "ready", not an error it has no command to resolve.
+//! but no device signing key, because that key is sealed at rest. Until ADR
+//! 0016 (#935, #928) the seal was under the seed-derived `BackupWrapKey`, so
+//! lifting `locked` needed the seed and therefore needed this file. It is now
+//! under a per-device key the plugin keeps in the OS secret store, so
+//! `Engine::unlock` needs no seed and `cash.free2z.e2e2z` can leave `locked` on
+//! its own.
+//!
+//! This command keeps unlocking anyway, so a frontend that calls `enroll` on
+//! launch gets "ready" rather than an error it cannot resolve — but that is now
+//! a convenience, and the branch no longer reads the seed.
 //!
 //! # These three refuse when the plugin has no engine
 //!
@@ -128,11 +131,6 @@ pub async fn f2zmsg_enroll<R: Runtime>(
 ) -> Result<EnrollmentStatus> {
     let engine = app.f2zmsg().engine_handle()?;
 
-    // Derive first, in every branch. Enrolling and unlocking need the same
-    // §4.2 account keys, and deriving before the branch keeps the seed's
-    // lifetime one short, obvious stretch of this function rather than two.
-    let account = account_keys(&app).await?;
-
     let status = engine.enrollment_status().await?;
     if status.enrolled {
         if status.handle.as_deref() != Some(args.handle.as_str()) {
@@ -152,10 +150,15 @@ pub async fn f2zmsg_enroll<R: Runtime>(
         // next `start_engine` would reconnect relays it was already connected
         // to. Every other state is already unlocked, so there is nothing to do.
         if engine.status().await?.state == EngineState::Locked {
-            engine.unlock(account.backup_wrap.as_bytes()).await?;
+            engine.unlock().await?;
         }
         return engine.enrollment_status().await;
     }
+
+    // Read the seed only on the branch that needs it. Before ADR 0016 both did,
+    // because unlocking meant re-deriving `BackupWrapKey`; now an `enroll` with
+    // nothing to enroll never opens the wallet's custody.
+    let account = account_keys(&app).await?;
 
     // The device keys are generated inside the engine, from the OS CSPRNG, and
     // are deliberately not seed-derivable (§4.2): restoring the mnemonic
@@ -195,11 +198,10 @@ pub async fn f2zmsg_enroll<R: Runtime>(
             // is the same check e2e2z will need when the credential arrives
             // over the intent bridge instead (#936).
             expected_handle: args.handle,
-            wrap_key: *account.backup_wrap.as_bytes(),
             submitted_at: now,
         })
         .await?;
-    engine.unlock(account.backup_wrap.as_bytes()).await?;
+    engine.unlock().await?;
     engine.enrollment_status().await
 }
 
