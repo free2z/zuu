@@ -1,165 +1,119 @@
 # Status of the three-app split
 
-What works, what fails closed on purpose, and what is blocked. Last derived
-against `main` on **2026-09-04**.
+Source and availability re-derived on **2026-09-10** for the internal
+TestFlight refresh in [#1010](https://github.com/free2z/zuu/issues/1010).
+The exact audited source and release evidence are recorded in
+[`wallet/zuuli/STATUS.md`](../wallet/zuuli/STATUS.md).
 
-This page exists so that no other page has to hedge. If something here
-contradicts a claim elsewhere in the repository, this page is the one that was
-checked against the tree — and the other page is a bug.
+**The three apps are separate, but they do not communicate through the intent
+bridge yet.** Both shipping transport implementations refuse dispatch. Building,
+signing or installing the apps together does not change that behavior.
 
-> **The one-line summary.** The three apps exist, build, and are held apart by
-> the required CI gate. **No intent can cross between them**, because there is
-> no transport. Every cross-app feature you can see in the UI stops at a single
-> named seam and says so.
-
-Per-app detail stays in the per-app documents:
-[`wallet/zuuli/STATUS.md`](../wallet/zuuli/STATUS.md),
-[`wallet/free2z/README.md`](../wallet/free2z/README.md),
-[`wallet/e2e2z/README.md`](../wallet/e2e2z/README.md).
-
-Store-side state — what each app looks like in Google Play Console, and what is
-blocking it — is in
-[`docs/release/PLAY-STORE-SETUP.md`](release/PLAY-STORE-SETUP.md). That page
-records console state, which nothing in this repository can prove; this page
-records the tree.
-
----
+Per-app details:
+[`ZUULI readiness`](../wallet/zuuli/STATUS.md),
+[`Free2Z`](../wallet/free2z/README.md), and
+[`E2E2Z`](../wallet/e2e2z/README.md).
+Store setup has its own evidence in
+[`release/PLAY-STORE-SETUP.md`](release/PLAY-STORE-SETUP.md); source declarations
+are not observations from a store or a physical device.
 
 ## 1. What works
 
-| | Evidence |
-| --- | --- |
-| Three apps exist as buildable Tauri projects with distinct identifiers | `wallet/{zuuli,free2z,e2e2z}/src-tauri/tauri.conf.json` |
-| free2z has **no** privileged capability and **no** IPC surface at all | `wallet/free2z/src-tauri/src/lib.rs` registers no `invoke_handler`; its `Cargo.toml` links neither wallet plugin |
-| e2e2z holds **no** Zcash code | `wallet/e2e2z/src-tauri/Cargo.lock` contains zero `zcash_*`/`orchard`/`sapling` crates |
-| Those two properties are enforced, not asserted | `wallet/zuuli/scripts/surface-capability-authority.mjs`, run by `npm run test` inside the required `zuuli / frontend` gate job |
-| No import crosses between wallet applications | `wallet/zuuli/scripts/project-boundary.mjs`, same gate |
-| One versioned wire format, agreed byte-for-byte by two implementations | the same 130-byte vector pinned by hand in `rs/crates/f2z-intent/tests/wire_vectors.rs` **and** `wallet/zuuli/src/lib/intent-bridge.test.ts` |
-| Every bridge guard has a mutation-verified test | [`intent-bridge/CONFORMANCE.md`](./intent-bridge/CONFORMANCE.md) |
-| `execute-payment` is implemented end-to-end **on ZUULI's side of the seam** | `wallet/zuuli/src-tauri/src/intent.rs` — admit, propose, re-derive the review, confirm natively, bind, execute |
-| Content surfaces are ported to free2z: articles, creator, live, AI, search | `wallet/free2z/src/features/` |
-| The messaging surface is ported to e2e2z | `wallet/e2e2z/src/features/messages/` |
-| Both delegated surfaces' own test suites can fail a merge | the `surfaces` job in `.github/workflows/zuuli.yml`, awaited by the required `gate` (#915) |
+The following are source implementations and automated checks. They do not
+claim authenticated, money-moving, or signed-device product acceptance.
 
-Merged for the split, in order: [#909](https://github.com/free2z/zuu/pull/909)
-scaffolds · [#911](https://github.com/free2z/zuu/pull/911) intent protocol ·
-[#919](https://github.com/free2z/zuu/pull/919) CI gate ·
-[#914](https://github.com/free2z/zuu/pull/914) ZUULI authority side ·
-[#913](https://github.com/free2z/zuu/pull/913) messaging → e2e2z ·
-[#912](https://github.com/free2z/zuu/pull/912) articles/creator → free2z ·
-[#920](https://github.com/free2z/zuu/pull/920) live/AI/search → free2z ·
-[#926](https://github.com/free2z/zuu/pull/926) e2e2z caller ·
-[#924](https://github.com/free2z/zuu/pull/924) free2z caller.
+| Surface | Implemented and checked | Remaining boundary |
+| --- | --- | --- |
+| ZUULI | Wallet vault, registered Zcash plugin, narrow content policy, no messaging capability grants. `execute-payment` has an authority-side proposal, native confirmation and execution path | No bridge transport; physical wallet operations retain their explicit evidence gaps in the readiness matrix |
+| Free2Z | Articles, creator/profile, Live, AI, Search and revenue-share surfaces. Scoped native HTTP is registered; the bundle is active and uses its own deep-link scheme | No wallet or messaging plugin and no app `invoke_handler`. Packaged social OAuth is deliberately unavailable; password sign-in is present but this audit performs no authenticated operation |
+| E2E2Z | Messaging plugin, device public-key preparation, credential installation and seed-free unlock retry. Diagnostics viewing is present | No Zcash dependency or seed authority. Credential installation does not provide a transport or a credential issuer |
+| Boundaries | `project-boundary.mjs`, `surface-capability-authority.mjs`, the delegated suites and the required gate enforce application separation and registered plugin/permission contracts | A passed check proves its tested contract, not OS link verification or a completed user operation |
+| Intent wire format | Shared Rust/TypeScript vectors and [conformance tests](intent-bridge/CONFORMANCE.md) cover requests, responses and outcome uncertainty | Correlation does not authenticate the caller or response destination |
+
+Free2Z's native layer landed in [#942](https://github.com/free2z/zuu/pull/942),
+closing [#918](https://github.com/free2z/zuu/issues/918). HTTP is scoped and
+stateless; the ten wallet OAuth commands were **not** copied into the content
+app. Its packaged OAuth transport returns unavailable before opening a provider.
+The earlier claim that the app's native layer is unwired and its bundle inactive
+is obsolete.
 
 ## 2. What fails closed, by design
 
-These are built, validated, tested — and then refuse. That is the intended
-behaviour today, not an outage.
-
 ### 2.1 There is no transport
 
-**Nothing can cross between the apps.** Verified App Links / Universal Links
-([#461](https://github.com/free2z/zuu/issues/461)) are not wired, and a
-custom-scheme deep link is not an authenticated channel — any app can register
-`zuuli://`, so shipping on one would recreate
-[#367](https://github.com/free2z/zuu/issues/367)'s confused deputy at the OS
-layer instead of the frame layer.
-
-Both callers build a real, validated request and then stop at **one named
-seam**:
-
-| Caller | The seam | Behaviour |
+| Caller | Shipping seam | Behavior |
 | --- | --- | --- |
-| `wallet/free2z/src/lib/bridge/intent-transport.ts` | `installedIntentTransport` | rejects with `IntentTransportUnavailableError`, code `INTENT_TRANSPORT_UNAVAILABLE`, reason naming #461 |
-| `wallet/e2e2z/src/lib/enrollment/transport.ts` | the single `IntentTransport` implementation | rejects before device keys are sampled, and again unconditionally inside `dispatch` |
+| Free2Z | `wallet/free2z/src/lib/bridge/intent-transport.ts` → `installedIntentTransport` | Rejects with `IntentTransportUnavailableError`; no intent is sent |
+| E2E2Z | `wallet/e2e2z/src/lib/enrollment/transport.ts` → installed `IntentTransport` | Refuses before preparing device keys and refuses dispatch |
 
-Neither seam has a flag, an environment check, or an "if a wallet is installed"
-branch — those are the shapes that decay into a channel nobody reviewed.
-`rs/crates/f2z-intent` contains no URL parsing, no intent filter and no scheme,
-for the same reason. When #461 lands, the work is to write an `IntentTransport`
-and register it; nothing else on either path changes.
+Client App Link/Universal Link declarations landed in
+[#977](https://github.com/free2z/zuu/pull/977). The closed
+[#461](https://github.com/free2z/zuu/issues/461) records that association work;
+its closure does not implement an `IntentTransport`. Both refusal types still
+name #461 in source, so that reference in an error is historical rather than a
+live implementation milestone. Remaining bridge work is tracked by
+[#905](https://github.com/free2z/zuu/issues/905).
 
-The creator-tip UI is honest about this: only three outcomes may tell a payer
-that nothing was sent — no transport, a request that could not be built, and an
-explicit `INTENT_NOT_CONFIRMED` from the wallet. A lost answer or an
-`INTENT_UNAVAILABLE` sends the payer to ZUULI to look instead of reassuring
-them.
+On 2026-09-10, `free2z.com`'s AASA returned 200 and was byte-identical to
+[`association/apple-app-site-association.json`](intent-bridge/association/apple-app-site-association.json).
+Its `assetlinks.json` endpoint returned 503. No signed-device link-verification
+result was recorded in this audit. Serving an association, OS verification and
+implementing a transport are separate requirements.
+
+Free2Z's creator-tip response handling also preserves uncertainty: a lost answer,
+`INTENT_UNAVAILABLE` or an unfamiliar status cannot assure the payer that nothing
+happened. The guarded caller does not become a usable payment path until the
+transport exists.
 
 ### 2.2 `sign-challenge` has no caller and no implementation
 
-ZUULI refuses it with `INTENT_UNKNOWN_INTENT`, and that status is not a lie:
-this build genuinely does not implement it. The ordering is deliberate —
-[`AUTHORITY.md`](./intent-bridge/AUTHORITY.md) §3: a challenge is an opaque
-nonce that confirms nothing to the person approving it, so absent caller
-attestation both "who is asking" and "why" are attacker-chosen. Shipping it
-first because it "only signs" is backwards.
-
-The visible consequence today: free2z's **Login with Zcash** is *absent rather
-than stubbed behind a button that cannot work*. Password and linked accounts
-work; the Zcash method is missing and the login screen says so
-(`wallet/free2z/src/features/auth/`).
-
-Anything else that would depend on `sign-challenge` should be expected to be
-absent for the same reason. The Profile and revenue-share surfaces have not
-been ported yet — that is [#927](https://github.com/free2z/zuu/pull/927), still
-open at the time of writing.
+ZUULI answers this family with `INTENT_UNKNOWN_INTENT`. Free2Z's Login with Zcash
+is absent. The security decision remains in
+[`intent-bridge/AUTHORITY.md`](intent-bridge/AUTHORITY.md): caller attestation
+and a meaningful confirmation cannot be substituted with an opaque challenge.
+Profile and revenue-share were ported in [#927](https://github.com/free2z/zuu/pull/927);
+they are no longer missing app surfaces.
 
 ### 2.3 e2e2z shows no enrolled state
 
-Every enrollment call refuses with a typed
-`EnrollmentUnavailableError { reason: "enrollment-requires-wallet-app" }`
-without reaching Tauri IPC, and the screen renders a standing "enrollment
-happens in the wallet app" state: no claim control, no conversation list, no
-engine start/stop. Nothing synthesises an `EnrollmentStatus` — every field of
-one is a claim about the key transparency directory, and a fabricated
-`enrolled: true` would show a handle nobody published.
+[#1009](https://github.com/free2z/zuu/pull/1009) implements the install side of
+[ADR 0016](e2ee/decisions/0016-enrollment-sealing-boundary.md): the engine stores
+a device-local wrap key in the application's own custody namespace, installs a
+signed credential, and offers a seed-free unlock retry. A repeated install
+cannot overwrite an enrolled device's key; an already-unlocked retry preserves
+the engine's running state. The wire result still contains only credential bytes.
+
+**Enrollment is still unavailable in shipping builds.** The transport refuses,
+ZUULI has no `issue-device-credential` authority handler, and ADR 0016 §6 leaves
+`device_kem_pk` unresolved. The shipping directory also remains `NoDirectory`.
+No directory identity, witness policy or working chat session is supplied by this
+install step. The UI retains its wallet-app enrollment refusal and does not
+synthesize an enrolled status.
 
 ## 3. What is blocked
 
-| Issue | What it blocks |
+| Work | Current disposition |
 | --- | --- |
-| [**#461**](https://github.com/free2z/zuu/issues/461) | *Everything cross-app.* Verified App Links / Universal Links need `assetlinks.json` and `apple-app-site-association` served from a domain we control. **The client half has landed:** all three apps claim `applinks:free2z.com` and carry an `autoVerify` intent filter on their own `/bridge/<app>/` prefix, and [`intent-bridge/association/`](./intent-bridge/association/README.md) holds the reviewed record. **Still blocking:** the Android document is not served — the host returns `503` until the three Play App Signing fingerprints are deployed — and nothing has been verified on a signed device on either platform |
-| [**#928**](https://github.com/free2z/zuu/issues/928) | Enrollment could not complete **even with a transport**: `install_identity` required the seed-derived `BackupWrapKey`, which e2e2z must never hold, and e2e2z registered no install command. **Decided in [ADR 0016](./e2ee/decisions/0016-enrollment-sealing-boundary.md)** (2026-09-05) and now **implemented**: the engine seals under a per-device `DeviceWrapKey` it samples and keeps in each app's own secret-store namespace, `IdentityInstall` lost its `wrap_key`, `Engine::unlock` takes no key and is reachable from e2e2z, and e2e2z registers `e2e2z_install_device_credential` and `e2e2z_retry_device_unlock`. The wire format is untouched — no field was added, so §3.6's vector still holds. **Still missing:** the transport (#461), ZUULI's `issue-device-credential` authority handler (currently `INTENT_UNKNOWN_INTENT`), and the `device_kem_pk` binding (ADR 0016 §6). Installing a returned credential does not complete these parts of enrollment |
-| [**#918**](https://github.com/free2z/zuu/issues/918) | free2z's native layer is unwired — the HTTP plugin, the OAuth transport, and its own deep-link scheme. Its bundle is `"active": false` |
-| [**#904**](https://github.com/free2z/zuu/issues/904) phase 4 | ZUULI's hardening. See §4 |
+| Cross-app transport and caller authentication | Unimplemented; #905 and [caller-authentication decisions](intent-bridge/CALLER-AUTHENTICATION.md). No shipping dispatch path |
+| Credential issuance through the intent authority | `INTENT_UNKNOWN_INTENT`; an E2E2Z install command does not issue a credential |
+| Messaging KEM/directory deployment | ADR 0016 §6 and the undecided directory/witness configuration remain open |
+| Signed-device acceptance | Internal distribution supplies builds for observation; physical install, wallet and OS-link evidence remain separate requirements |
+| Public release and broader tester rollout | Deferred while the readiness matrix contains unresolved operations and store-presentation gaps |
 
-**Therefore: no user can claim a messaging handle in any shipped build.** #928's
-install half has landed. The request still cannot leave the app without #461's
-authenticated channel, and ZUULI still has no authority handler to issue the
-credential when it arrives. The `device_kem_pk` binding also remains unresolved:
-a round trip that completes would still attest a key nobody holds.
+## 4. ZUULI hardening
 
-Also open against the bridge, and worth reading before building on it:
-[#929](https://github.com/free2z/zuu/issues/929) (correlation is not
-authentication, and two clients now depend on it) and
-[#930](https://github.com/free2z/zuu/issues/930) (`INTENT_UNAVAILABLE` does not
-mean "nothing happened").
-
-## 4. In progress: hardening ZUULI
-
-[#904](https://github.com/free2z/zuu/issues/904) phase 4. The ports were
-**copies**, so removing the content surfaces from ZUULI is a separate step and
-is being worked now — do not infer ZUULI's current feature set from this page.
-
-The target state:
-
-- ZUULI renders no third-party content, so it needs no permissive CSP and can
-  drop the markdown and embed dependency tree.
-- Its capabilities are re-scoped to what a wallet authority actually needs.
-- The known hazard recorded on #904 is addressed: the Zcash plugin's seed lock
-  is **label-blind** — `WindowEvent::Focused(false)` ignores the label, which is
-  harmless with one window and wrong with two.
-
-Until that lands, ZUULI still contains the surfaces that were copied out of it.
+The vault extraction landed in [#943](https://github.com/free2z/zuu/pull/943),
+and [#955](https://github.com/free2z/zuu/pull/955) completed the capture-permission,
+entitlement and store-copy cleanup. ZUULI no longer mounts the content or
+messaging frontends. Its remaining feature directories are `about`, `auth`,
+`home` and `wallet`; both capability files omit `f2zmsg:*`. The messaging plugin
+remains linked for the app-crate enrollment API, which needs separate native
+authority review and is not proof of usable messaging. Native acceptance is
+still governed by the readiness record, not by the removal of those surfaces.
 
 ## 5. Keeping this page true
 
-This is the page most likely to go stale, which is why the root
-[`README.md`](../README.md) points at it rather than restating it. When you
-change any of the following, update the corresponding row here in the same pull
-request:
-
-- a transport seam stops rejecting;
-- an intent family gains an authority-side implementation;
-- a delegated surface gains or loses a capability or a plugin;
-- an issue in §3 closes.
+Update this page when a transport starts dispatching, an intent family gains an
+authority implementation, a delegated app changes its capabilities, or recorded
+source/store/device evidence changes. An issue closing is a reason to inspect the
+implementation, not proof that every dependent feature works.
