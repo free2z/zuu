@@ -52,7 +52,7 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 0.1.0
-        CFBundleVersion: "2"
+        CFBundleVersion: "3"
     entitlements:
       path: free2z_iOS/free2z_iOS.entitlements
     scheme:
