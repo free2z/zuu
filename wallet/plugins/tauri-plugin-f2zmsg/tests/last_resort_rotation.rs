@@ -42,17 +42,15 @@ async fn enrolled_engine() -> Engine<MemoryBackend> {
             not_after_ms: u64::MAX / 2,
         })
         .expect("credential");
-    let wrap_key = *account.backup_wrap.as_bytes();
     engine
         .install_identity(IdentityInstall {
             credential: f2z_msg_mls::credential::encode(&credential).expect("encode"),
             expected_handle: "alice".to_owned(),
-            wrap_key,
             submitted_at: NOW,
         })
         .await
         .expect("install");
-    engine.unlock(&wrap_key).await.expect("unlock");
+    engine.unlock().await.expect("unlock");
     engine
 }
 

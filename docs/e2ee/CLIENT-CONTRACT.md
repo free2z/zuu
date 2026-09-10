@@ -1382,9 +1382,9 @@ uninitialized ──(wallet present, handle eligible)──► not-enrolled
  (handle not eligible, §11.3)                             │
                                                   (merged at epoch)
                                                           ▼
-   locked ◄──(wallet seed cleared)── starting ──────► running ──► degraded
+   locked ◄──(wrap key unavailable)── starting ──────► running ──► degraded
       │                                 ▲                │   ◄──      │
-      └──(seed available)───────────────┘                │            │
+      └──(wrap key read back)───────────┘                │            │
                                                      stop_engine      │
                                                           ▼           │
                                                        stopped ◄──────┘
@@ -1400,8 +1400,9 @@ type EngineState =
   | "ineligible"      // wallet present; username is not a valid handle (§11.3)
   | "not-enrolled"    // eligible, no directory entry yet
   | "enrolling"       // submitted; awaiting the log's merge
-  | "locked"          // enrolled, but the seed is unavailable: local history
-                      // is wrapped under BackupWrapKey and cannot be decrypted
+  | "locked"          // enrolled, but this device's DeviceWrapKey is
+                      // unavailable, so the sealed device secrets cannot be
+                      // opened and the engine cannot sign as this identity
   | "starting"
   | "running"
   | "degraded"        // running, but relays unreachable and/or threshold unmet
@@ -1439,10 +1440,28 @@ engine- or storage-dependent command — `start_engine` and the §3.2 enrollment
 trio included — refuses with that same code. This is the one `faulted` that
 `start_engine` cannot leave; only fixing the storage and restarting can.
 
-`locked` exists because the local encrypted history is wrapped under a
-seed-derived key
-([`ARCHITECTURE.md` §4.2](./ARCHITECTURE.md#42-derivation-proposed)). Note what
-this does **not** mean: see §9 rule 6 about the blur handler.
+`locked` exists because this device's secrets — its signing key and its queue
+seed — are sealed at rest under a **`DeviceWrapKey`**: thirty-two bytes the
+engine samples from the OS CSPRNG and keeps in the host application's own OS
+secret-store namespace
+([ADR 0016](./decisions/0016-enrollment-sealing-boundary.md) §3). A device is
+`locked` whenever that store cannot answer — a keychain still shut after a
+reboot, a Secret Service daemon not yet up, an item a profile migration left
+behind.
+
+Two consequences follow, and both are changes from the seed-derived
+`BackupWrapKey` this seal used before:
+
+* **Leaving `locked` needs no seed.** The exit is the engine re-asking its own
+  secret store, so it is the same operation in every app. `cash.free2z.e2e2z`
+  holds no mnemonic and has no enrollment path, and it can still recover; before
+  ADR 0016 only the wallet authority could, because only it could re-derive the
+  key.
+* **A wrap key opens one device, not an account.** The key is per device and
+  never leaves it, so it never crosses the intent bridge in either direction and
+  a compromise of one device does not open another's store.
+
+What `locked` still does **not** mean: see §9 rule 6 about the blur handler.
 
 ### 6.2 Delivery state — and what each one is actually evidence of
 

@@ -185,7 +185,11 @@ key-transparency directory is built on.
 > requires the caller to **refuse a credential whose handle is not the one it
 > requested**, which needs no wire field. So the result type is
 > unchanged, §3.6's vector is unchanged, and the work moves to the plugin's
-> `IdentityInstall`, which is a Rust API rather than a wire format.
+> `IdentityInstall`, which is a Rust API rather than a wire format. That work
+> has since landed: `IdentityInstall` lost its `wrap_key`, `Engine::unlock`
+> takes no key, and `cash.free2z.e2e2z` gained the app-crate command that
+> installs a credential and the one that retries the unlock — so the round trip
+> now has both halves, and only the transport (#461) is missing.
 
 `ExecutePaymentRequestV1` is a **proposal, not an instruction.** ZUULI
 re-derives its own payment review from its own wallet state and shows that; the

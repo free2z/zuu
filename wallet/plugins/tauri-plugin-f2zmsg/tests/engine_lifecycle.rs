@@ -33,7 +33,7 @@ fn engine() -> Engine<MemoryBackend> {
 
 /// Enrollment as the app crate performs it (§2.2): the seed stays here, and
 /// only public material reaches the engine.
-async fn enroll(engine: &Engine<MemoryBackend>, handle: &str, seed: u8) -> [u8; 32] {
+async fn enroll(engine: &Engine<MemoryBackend>, handle: &str, seed: u8) {
     let device = engine.prepare_device().await.expect("device keys");
     let account = AccountKeys::from_seed(&[seed; 64], 0).expect("§4.2 keys");
     let credential = account
@@ -46,17 +46,14 @@ async fn enroll(engine: &Engine<MemoryBackend>, handle: &str, seed: u8) -> [u8; 
             not_after_ms: u64::MAX / 2,
         })
         .expect("credential");
-    let wrap_key = *account.backup_wrap.as_bytes();
     engine
         .install_identity(IdentityInstall {
             credential: f2z_msg_mls::credential::encode(&credential).expect("encode"),
             expected_handle: handle.to_owned(),
-            wrap_key,
             submitted_at: NOW,
         })
         .await
         .expect("install");
-    wrap_key
 }
 
 #[tokio::test]
@@ -144,7 +141,6 @@ async fn a_flawlessly_signed_credential_for_another_handle_is_refused() {
         .install_identity(IdentityInstall {
             credential: f2z_msg_mls::credential::encode(&forged).expect("encode"),
             expected_handle: "alice".to_owned(),
-            wrap_key: [9; 32],
             submitted_at: NOW,
         })
         .await
@@ -171,7 +167,6 @@ async fn a_flawlessly_signed_credential_for_another_handle_is_refused() {
         .install_identity(IdentityInstall {
             credential: f2z_msg_mls::credential::encode(&genuine).expect("encode"),
             expected_handle: "alice".to_owned(),
-            wrap_key: *account.backup_wrap.as_bytes(),
             submitted_at: NOW,
         })
         .await
@@ -209,7 +204,6 @@ async fn an_install_asking_for_a_handle_the_credential_does_not_attest_is_refuse
         .install_identity(IdentityInstall {
             credential: f2z_msg_mls::credential::encode(&credential).expect("encode"),
             expected_handle: "bob".to_owned(),
-            wrap_key: *account.backup_wrap.as_bytes(),
             submitted_at: NOW,
         })
         .await
@@ -242,28 +236,49 @@ async fn the_installed_identity_is_read_out_of_the_credential() {
     );
 }
 
+/// The seal opens from the device's own custody, and only from it (ADR 0016 §3):
+/// it opens when the store still holds the key the install wrote, and stays
+/// `locked` when the store answers with a different one.
 #[tokio::test]
-async fn a_wrong_wrap_key_is_indistinguishable_from_an_absent_one() {
+async fn unlock_opens_from_custody_and_a_wrong_key_leaves_it_locked() {
     let engine = engine();
-    let wrap_key = enroll(&engine, "alice", 1).await;
+    enroll(&engine, "alice", 1).await;
 
-    // §6.1's `locked`: enrolled, but local history is wrapped under
-    // `BackupWrapKey` and cannot be decrypted. A wrong key and no key are the
-    // same thing to a user, and the code says the same thing about both.
-    let wrong = engine.unlock(&[0xab; 32]).await.expect_err("must refuse");
-    assert_eq!(wrong.code(), ErrorCode::EngineLocked);
-
-    let status = engine.unlock(&wrap_key).await.expect("unlock");
+    let status = engine.unlock().await.expect("unlock");
     assert_eq!(status.state, EngineState::Stopped);
     assert!(status.enrolled);
     assert_eq!(status.handle.as_deref(), Some("alice"));
+
+    // §6.1's `locked`. A wrong key and no key are the same thing to a user.
+    engine
+        .wrap_key_custody()
+        .put_wrap_key(&[0xab; 32])
+        .expect("the in-memory store accepts a key");
+    let wrong = engine.unlock().await.expect_err("must refuse");
+    assert_eq!(wrong.code(), ErrorCode::EngineLocked);
+}
+
+/// A store that has lost the key is `durability-unavailable`, not
+/// `engine-locked`. The distinction is what tells the UI whether the retry in
+/// ADR 0016 §3.5 is worth offering.
+#[tokio::test]
+async fn a_custody_that_lost_the_key_reports_durability_rather_than_a_bad_seal() {
+    let engine = engine();
+    enroll(&engine, "alice", 1).await;
+    engine
+        .wrap_key_custody()
+        .clear_wrap_key()
+        .expect("the in-memory store forgets a key");
+
+    let refused = engine.unlock().await.expect_err("must refuse");
+    assert_eq!(refused.code(), ErrorCode::DurabilityUnavailable);
 }
 
 #[tokio::test]
 async fn an_in_memory_store_reports_no_durability_and_a_desktop_platform() {
     let engine = engine();
-    let wrap_key = enroll(&engine, "alice", 1).await;
-    engine.unlock(&wrap_key).await.expect("unlock");
+    enroll(&engine, "alice", 1).await;
+    engine.unlock().await.expect("unlock");
 
     let device = engine.device_info().await.expect("device");
     assert_eq!(device.platform, Platform::ZuuliDesktop);
@@ -281,8 +296,8 @@ async fn an_in_memory_store_reports_no_durability_and_a_desktop_platform() {
 #[tokio::test]
 async fn first_contact_fails_closed_rather_than_resolving_an_unverified_key() {
     let engine = engine();
-    let wrap_key = enroll(&engine, "alice", 1).await;
-    engine.unlock(&wrap_key).await.expect("unlock");
+    enroll(&engine, "alice", 1).await;
+    engine.unlock().await.expect("unlock");
 
     // §6.4's first row and §9 rule 5. This is the #133 moment: an unverified
     // key at first contact *is* the MITM, so the refusal is the behaviour and
@@ -315,8 +330,8 @@ async fn safety_number_verification_is_available_regardless_of_directory_state()
     // asserts is the *reason* a caller is turned away: a missing conversation,
     // never `witness-threshold-unmet` or `engine-not-running`.
     let engine = engine();
-    let wrap_key = enroll(&engine, "alice", 1).await;
-    engine.unlock(&wrap_key).await.expect("unlock");
+    enroll(&engine, "alice", 1).await;
+    engine.unlock().await.expect("unlock");
 
     let refused = engine
         .safety_number("no-such-conversation")
@@ -429,8 +444,8 @@ async fn a_conversation_that_never_existed_is_refused_by_every_command_that_name
     // and an absent conversation are different things, and §3.5 is emphatic
     // that absence is never inferred.
     let engine = engine();
-    let wrap_key = enroll(&engine, "alice", 1).await;
-    engine.unlock(&wrap_key).await.expect("unlock");
+    enroll(&engine, "alice", 1).await;
+    engine.unlock().await.expect("unlock");
 
     assert!(engine.list_messages("nope", 50, None, None).await.is_err());
     assert!(engine.list_gaps("nope").await.is_err());

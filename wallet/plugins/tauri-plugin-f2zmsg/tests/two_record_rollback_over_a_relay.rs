@@ -336,15 +336,11 @@ async fn enroll<B: StorageBackend>(
         .install_identity(IdentityInstall {
             credential: f2z_msg_mls::credential::encode(&credential).expect("encode credential"),
             expected_handle: handle.to_owned(),
-            wrap_key: *account.backup_wrap.as_bytes(),
             submitted_at: NOW,
         })
         .await
         .expect("install identity");
-    engine
-        .unlock(account.backup_wrap.as_bytes())
-        .await
-        .expect("unlock");
+    engine.unlock().await.expect("unlock");
     let directory_auth_pk = PublicKey::new(*account.directory_auth.public().as_bytes());
     (credential, directory_auth_pk)
 }

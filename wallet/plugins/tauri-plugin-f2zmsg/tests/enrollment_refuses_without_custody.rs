@@ -85,7 +85,6 @@ async fn enroll(engine: &Engine<MemoryBackend>, handle: &str) -> tauri_plugin_f2
             // helper's argument rather than anything read back out of the
             // credential, so the comparison stays a real one.
             expected_handle: handle.to_owned(),
-            wrap_key: *account.backup_wrap.as_bytes(),
             submitted_at: NOW,
         })
         .await?;
@@ -172,7 +171,6 @@ async fn a_refused_enrollment_mints_nothing() {
         .install_identity(IdentityInstall {
             credential: f2z_msg_mls::credential::encode(&credential).expect("encode"),
             expected_handle: "someone".to_owned(),
-            wrap_key: *account.backup_wrap.as_bytes(),
             submitted_at: NOW,
         })
         .await
@@ -206,6 +204,75 @@ async fn a_store_that_accepts_writes_and_loses_them_is_not_good_enough() {
         .await
         .expect_err("a store that forgets must refuse before enrollment, not after");
     assert_eq!(refused.code(), ErrorCode::DurabilityUnavailable);
+}
+
+/// The probe is not the last word: a store that passes it and then refuses the
+/// real key leaves the engine unenrolled, not sealed shut.
+///
+/// This pins `install_identity`'s ordering. The opposite order fails the
+/// unrecoverable way — secrets committed under a key the store refused to keep
+/// are an enrolled device that can never open its own seal. Not contrived: a
+/// keychain can lock, or a Secret Service daemon go away, while the wallet
+/// authority is answering.
+#[tokio::test]
+async fn a_store_that_passes_the_probe_and_refuses_the_key_installs_nothing() {
+    let engine = engine(WrapKeyCustody::with_store(
+        tauri_plugin_f2zmsg::custody::WrapKeyNamespace::new("cash.free2z.e2e2z.f2zmsg.wrap.v1")
+            .expect("namespace"),
+        Arc::new(ProbeOnly::default()),
+    ));
+
+    let refused = enroll(&engine, "someone")
+        .await
+        .expect_err("a key that cannot be kept must not be sealed under");
+    assert_eq!(refused.code(), ErrorCode::DurabilityUnavailable);
+
+    // Nothing was minted, so this device can enrol again.
+    let status = engine.enrollment_status().await.expect("status");
+    assert!(!status.enrolled);
+    assert_eq!(status.handle, None);
+    assert_eq!(
+        engine.status().await.expect("status").state,
+        EngineState::Uninitialized
+    );
+}
+
+/// Answers the probe round trip and refuses the real wrap key.
+#[derive(Default)]
+struct ProbeOnly {
+    probes: std::sync::Mutex<std::collections::HashMap<String, zeroize::Zeroizing<String>>>,
+}
+
+impl tauri_plugin_f2zmsg::custody::WrapKeyStore for ProbeOnly {
+    fn put(
+        &self,
+        account: &str,
+        value: &str,
+    ) -> Result<(), tauri_plugin_f2zmsg::custody::CustodyError> {
+        if account == tauri_plugin_f2zmsg::custody::WRAP_KEY_ACCOUNT {
+            return Err(tauri_plugin_f2zmsg::custody::CustodyError::Locked);
+        }
+        self.probes.lock().expect("the probe map").insert(
+            account.to_owned(),
+            zeroize::Zeroizing::new(value.to_owned()),
+        );
+        Ok(())
+    }
+    fn get(
+        &self,
+        account: &str,
+    ) -> Result<zeroize::Zeroizing<String>, tauri_plugin_f2zmsg::custody::CustodyError> {
+        self.probes
+            .lock()
+            .expect("the probe map")
+            .get(account)
+            .cloned()
+            .ok_or(tauri_plugin_f2zmsg::custody::CustodyError::NotFound)
+    }
+    fn delete(&self, account: &str) -> Result<(), tauri_plugin_f2zmsg::custody::CustodyError> {
+        self.probes.lock().expect("the probe map").remove(account);
+        Ok(())
+    }
 }
 
 /// Accepts every write and holds nothing.
