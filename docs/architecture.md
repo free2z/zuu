@@ -6,7 +6,8 @@ authority, why the division exists, and what mechanically enforces it.
 Issues: [#904](https://github.com/free2z/zuu/issues/904) (the split),
 [#367](https://github.com/free2z/zuu/issues/367) (the driver),
 [#905](https://github.com/free2z/zuu/issues/905) (the bridge),
-[#461](https://github.com/free2z/zuu/issues/461) (the blocking prerequisite).
+[#461](https://github.com/free2z/zuu/issues/461) (closed association-declaration history;
+transport remains in #905).
 
 Companion documents. This page deliberately does **not** restate them:
 
@@ -90,7 +91,7 @@ authority **nor** messaging keys.
 | Holds | master seed, spending keys, account-level messaging keys | Knox token, 2Z balance | device keys + device credential |
 | Renders remote content | never | **yes** — articles, creator, live, AI, search | never |
 | Privileged plugins | `zcash` | **none** | `f2zmsg` |
-| Bundle `active` | `true` | `false` (native layer unwired, [#918](https://github.com/free2z/zuu/issues/918)) | `true` |
+| Bundle `active` | `true` | `true` (native layer landed in [#942](https://github.com/free2z/zuu/pull/942), closing #918) | `true` |
 
 ### 3.1 What makes the content surface safe
 
@@ -192,13 +193,16 @@ person approving it, so shipping it first because it "only signs" is backwards.
 ## 6. What is not built yet
 
 Read [`status.md`](./status.md) rather than inferring from this page. In short:
-there is **no transport** ([#461](https://github.com/free2z/zuu/issues/461)),
+there is **no transport** ([#905](https://github.com/free2z/zuu/issues/905));
+#461 closed after client association declarations landed, without implementing
+the channel.
 `sign-challenge` has neither a caller nor an authority-side implementation, and
 `issue-device-credential` has a caller and an install step but **no
 authority-side implementation** — ZUULI still answers it `INTENT_UNKNOWN_INTENT`
 ([`intent.rs`](../wallet/zuuli/src-tauri/src/intent.rs)), so nothing issues a
 credential over the bridge. What [#928](https://github.com/free2z/zuu/issues/928)
 closed is the step *after* that one: e2e2z can now install a credential it
-receives, which it could not before. free2z's native layer is
-unwired ([#918](https://github.com/free2z/zuu/issues/918)), and ZUULI's phase-4
-hardening is in progress.
+receives, which it could not before. Free2Z's native layer landed in
+[#942](https://github.com/free2z/zuu/pull/942), closing #918; its production
+HTTP capability remains scoped and stateless, without wallet or device-key
+authority. ZUULI's phase-4 hardening is in progress.
