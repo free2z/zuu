@@ -107,8 +107,10 @@ pressure; an absent command cannot be invoked.
 
 `wallet/e2e2z/src-tauri/Cargo.lock` contains **zero Zcash crates** — no
 `zcash_*`, no `orchard`, no `sapling`. It registers `tauri-plugin-f2zmsg` and
-exactly one app command, `e2e2z_device_credential_keys`, which returns the
-**public** halves of an OS-CSPRNG device key set and grants nothing.
+three app commands: `e2e2z_device_credential_keys` returns the **public** halves
+of an OS-CSPRNG device key set, `e2e2z_install_device_credential` installs the
+signed credential, and `e2e2z_retry_device_unlock` reopens this device's seal.
+None accepts or derives account keys.
 
 ZUULI's three app-crate enrollment commands — `f2zmsg_enrollment_status`,
 `f2zmsg_enroll`, `f2zmsg_unenroll` — are deliberately absent here. In ZUULI they

@@ -188,8 +188,10 @@ key-transparency directory is built on.
 > `IdentityInstall`, which is a Rust API rather than a wire format. That work
 > has since landed: `IdentityInstall` lost its `wrap_key`, `Engine::unlock`
 > takes no key, and `cash.free2z.e2e2z` gained the app-crate command that
-> installs a credential and the one that retries the unlock — so the round trip
-> now has both halves, and only the transport (#461) is missing.
+> installs a credential and the one that retries the unlock. The caller can now
+> consume a credential, but the transport (#461) and ZUULI's authority handler
+> for `issue-device-credential` are still missing. ADR 0016 §6 also leaves the
+> `device_kem_pk` binding unresolved.
 
 `ExecutePaymentRequestV1` is a **proposal, not an instruction.** ZUULI
 re-derives its own payment review from its own wallet state and shows that; the

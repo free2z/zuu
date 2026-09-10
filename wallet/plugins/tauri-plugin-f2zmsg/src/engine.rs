@@ -540,8 +540,9 @@ impl<B: StorageBackend> Engine<B> {
     /// Returns `durability-unavailable` if this device has nowhere to durably
     /// hold a `DeviceWrapKey` (#937 — no OS secret store, a locked or absent
     /// one, or a namespace this application does not own), and `internal` if
-    /// the signing-key sample is the forbidden all-zero seed. Both refusals
-    /// happen before pending enrollment state is installed, so a refused
+    /// the device is already enrolled or the signing-key sample is the forbidden
+    /// all-zero seed. These refusals happen before pending enrollment state is
+    /// installed, so a refused
     /// enrollment leaves nothing behind.
     pub async fn prepare_device(&self) -> Result<DevicePublicKeys> {
         self.prepare_device_with(|| prepare_device_material(&mut rand::rng()))
@@ -568,13 +569,18 @@ impl<B: StorageBackend> Engine<B> {
         // signal that protects them, and the log is append-only, so the phantom
         // devices are permanent. `crate::custody`'s module header §3 has the
         // full argument and the option-F alternative that was left on the shelf.
+        let mut inner = self.inner.lock().await;
+        if inner.records().identity()?.is_some() {
+            return Err(Error::internal(
+                "prepare_device requires an unenrolled device",
+            ));
+        }
         self.wrap_key_custody.probe()?;
 
-        // Validate the sampled signing key before taking the lock or changing
+        // Validate the sampled signing key before changing
         // enrollment state. Tests inject a zero-only generator through this
         // exact production route rather than testing an uncalled keygen API.
         let (public, secrets) = prepare()?;
-        let mut inner = self.inner.lock().await;
         inner.pending_device = Some(secrets);
         Ok(public)
     }
@@ -604,10 +610,22 @@ impl<B: StorageBackend> Engine<B> {
     ///
     /// `handle-ineligible` if the credential's handle is not §11.3's charset or
     /// is not the one this enrollment asked for, `internal` if
-    /// [`Engine::prepare_device`] was not called first, the credential does not
-    /// parse, or it does not bind the prepared device key.
+    /// the device is already enrolled, [`Engine::prepare_device`] was not called
+    /// first, the credential does not parse, or it does not bind the prepared
+    /// device key.
     pub async fn install_identity(&self, install: IdentityInstall) -> Result<EnrollmentStatus> {
         let mut inner = self.inner.lock().await;
+        // A custody item has exactly one current key. Replacing it while an
+        // identity exists would destroy that identity's only unlock key if the
+        // following database commit failed or the process stopped before it.
+        // Check under the same lock as installation, including for credentials
+        // prepared before another install completed. Switching identities must
+        // go through explicit unenrollment first.
+        if inner.records().identity()?.is_some() {
+            return Err(Error::internal(
+                "install_identity requires an unenrolled device",
+            ));
+        }
 
         let credential = f2z_msg_mls::credential::parse(&install.credential).map_err(|error| {
             Error::internal(format!("the issued credential does not parse: {error}"))
@@ -718,18 +736,28 @@ impl<B: StorageBackend> Engine<B> {
     /// Secret Service daemon not yet up, leaves a `locked` a later attempt
     /// opens.
     ///
+    /// Already-unlocked engines retain their current state without querying
+    /// custody again.
+    ///
     /// # Errors
     ///
     /// `not-enrolled` before enrollment, `durability-unavailable` when the
     /// store cannot answer, `engine-locked` when the key does not open the seal
     /// — a wrong key and an absent one are the same thing to a user.
     pub async fn unlock(&self) -> Result<EngineStatus> {
-        let wrap_key = self.wrap_key_custody.wrap_key()?;
         let mut inner = self.inner.lock().await;
         let identity = inner
             .records()
             .identity()?
             .ok_or_else(|| Error::not_enrolled("unlock"))?;
+        // A retry may race another retry or arrive after start. Once unlocked,
+        // preserve the live MLS engine, connections, and lifecycle state; a
+        // redundant retry must not silently stop inbound processing. Checking
+        // and loading under one lock also keeps the key paired with its seal.
+        if inner.mls.is_some() {
+            return inner.status(&*self.directory);
+        }
+        let wrap_key = self.wrap_key_custody.wrap_key()?;
         let sealed = inner
             .records()
             .sealed_secrets()?
