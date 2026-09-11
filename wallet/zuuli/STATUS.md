@@ -8,7 +8,7 @@ back from the named store. Authenticated, money-moving, and wallet operations
 are not called working without recorded evidence from that path.
 
 Last re-derived from `origin/main` at
-`05b5f39f2ac5a5ec7e7d048382d0a296608dd29e` on 2026-09-10. Before a release,
+`737af8e840af2ac11641e03ab36e57f8e1071dba` on 2026-09-11. Before a release,
 update the evidence and disposition for every non-ready row; do not carry this
 commit or date forward mechanically.
 
