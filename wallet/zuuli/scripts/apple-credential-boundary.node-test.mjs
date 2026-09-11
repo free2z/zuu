@@ -102,7 +102,7 @@ const credentialJob = (name, command, secret) => {
     : "          echo materialized";
   const cleanupMarkers = name === "ios-sign" || name === "macos-sign"
     ? name === "ios-sign"
-      ? "          echo original-keychains.txt cleanup-failed\n          if [[ -n \"$profile_path\" ]] && ! rm -f -- \"$profile_path\"; then echo cleanup; fi\n          if [[ -e \"$HOME/Library/MobileDevice/Provisioning Profiles/e5ead62c-83ec-4e54-abb6-4770833b5e0d.mobileprovision\" ]]; then echo survived; fi"
+      ? "          echo original-keychains.txt cleanup-failed\n          if [[ -n \"$profile_path\" ]] && ! rm -f -- \"$profile_path\"; then echo cleanup; fi\n          if [[ -e \"$HOME/Library/MobileDevice/Provisioning Profiles/826be5cd-74cc-4462-8e6f-41c5267c91ae.mobileprovision\" ]]; then echo survived; fi"
       : "          echo original-keychains.txt cleanup-failed\n          if [[ \"$mounted\" == true ]] && ! hdiutil detach \"$mountpoint\" -force; then echo cleanup; fi\n          if hdiutil info | grep -Fq 'zuuli-macos-dmg-sign.'; then echo mounted; fi"
     : "          echo cleanup";
   return `  ${name}:
@@ -1677,10 +1677,10 @@ for (const [name, mutate, expected] of [
   [
     "rejects an iOS signer without provisioning-profile absence readback",
     (source) => source.replace(
-      "          if [[ -e \"$HOME/Library/MobileDevice/Provisioning Profiles/e5ead62c-83ec-4e54-abb6-4770833b5e0d.mobileprovision\" ]]; then echo survived; fi\n",
+      "          if [[ -e \"$HOME/Library/MobileDevice/Provisioning Profiles/826be5cd-74cc-4462-8e6f-41c5267c91ae.mobileprovision\" ]]; then echo survived; fi\n",
       "",
     ),
-    "iOS signer is missing \"if [[ -e \\\"$HOME/Library/MobileDevice/Provisioning Profiles/e5ead62c-83ec-4e54-abb6-4770833b5e0d.mobileprovision\\\" ]]\"",
+    "iOS signer is missing \"if [[ -e \\\"$HOME/Library/MobileDevice/Provisioning Profiles/826be5cd-74cc-4462-8e6f-41c5267c91ae.mobileprovision\\\" ]]\"",
   ],
   [
     "rejects a macOS signer without mounted-image readback",
