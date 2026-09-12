@@ -89,11 +89,16 @@ use tauri_plugin_f2zmsg::state::F2zMsgExt as _;
 use tauri_plugin_zcash::ZcashExt as _;
 
 /// A `DeviceCredential` is valid from an hour before issuance…
-const CREDENTIAL_BACKDATE_MS: u64 = 3_600_000;
+///
+/// `pub(crate)`: `intent.rs`'s `issue-device-credential` path applies this
+/// same policy to a credential requested over the bridge, so ZUULI's own
+/// self-enrollment and a cross-app request are issued under one lifetime rule
+/// rather than two that could drift.
+pub(crate) const CREDENTIAL_BACKDATE_MS: u64 = 3_600_000;
 /// …until a year after it, matching the plugin's own harness. `KT.md` §4.1
 /// leaves the window to the issuer; this is the one the two-process relay test
 /// already exercises, so the shipping path and the tested path agree.
-const CREDENTIAL_LIFETIME_MS: u64 = 31_536_000_000;
+pub(crate) const CREDENTIAL_LIFETIME_MS: u64 = 31_536_000_000;
 
 /// The account index §4.2 derives the messaging identity at. Zero, and not
 /// configurable: a second index would be a second messaging identity for one
@@ -221,7 +226,13 @@ pub async fn f2zmsg_unenroll<R: Runtime>(
 /// `Zeroizing<String>` from the Zcash plugin, the 64-byte seed is a
 /// `SecretVec<u8>`, and [`AccountKeys`] holds only the derived keys — the seed
 /// itself is dropped before this returns.
-async fn account_keys<R: Runtime>(app: &AppHandle<R>) -> Result<AccountKeys> {
+///
+/// `pub(crate)`: `intent.rs` calls this to answer an `issue-device-credential`
+/// request from another app. It is still the only function in the crate that
+/// touches the seed for messaging purposes — the intent authority reads the
+/// account keys through here rather than re-deriving them, for the same
+/// reason `f2zmsg_enroll` does not restate `AccountKeys::from_seed` itself.
+pub(crate) async fn account_keys<R: Runtime>(app: &AppHandle<R>) -> Result<AccountKeys> {
     let wallet = &app.zcash().state;
     let wallet_id = wallet.active_wallet_id().await.ok_or_else(|| {
         // §8's union has no "no wallet" member, and inventing one here would
