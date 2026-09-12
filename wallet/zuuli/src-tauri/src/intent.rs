@@ -10,22 +10,26 @@
 //! ```text
 //!   decoded bytes ──► IntentGate::admit          (every guard, one call)
 //!                       ▼
-//!                     execute-payment only       (see "What is not here")
+//!            ┌── execute-payment ──────────────────────────────────────┐
+//!            │  propose_send               ZUULI's OWN proposal        │
+//!            │  prepare_send_confirmation  the plugin re-derives it    │
+//!            │  review_matches_request     review must agree with ask  │
+//!            │  native dialog              ZUULI's OWN rendering       │
+//!            │    ▼ approved                                          │
+//!            │  ConfirmationAuthorization  binds request ⊗ review ⊗ token │
+//!            │  issue_send_confirmation    #528's own execution credential │
+//!            │  consume (takes self)       one use, both clocks        │
+//!            │  take_send_proposal → ensure_active_seed_loaded → execute_send │
+//!            └─────────────────────────────────────────────────────────┘
+//!            ┌── issue-device-credential ─────────────────────────────┐
+//!            │  native dialog              shown BEFORE the seed is   │
+//!            │                             touched at all             │
+//!            │    ▼ approved                                          │
+//!            │  messaging::account_keys    the ONE seed read, in-process │
+//!            │  identity.issue_device_credential   #4.2's signing key  │
+//!            └─────────────────────────────────────────────────────────┘
 //!                       ▼
-//!                     propose_send               ZUULI's OWN proposal
-//!                       ▼
-//!                     prepare_send_confirmation  the plugin re-derives the review
-//!                       ▼
-//!                     review_matches_request     the review must agree with the ask
-//!                       ▼
-//!                     native dialog              ZUULI's OWN rendering
-//!                       ▼ approved
-//!                     ConfirmationAuthorization  binds request ⊗ review ⊗ token
-//!                     issue_send_confirmation    #528's own execution credential
-//!                       ▼
-//!                     consume (takes self)       one use, both clocks
-//!                       ▼
-//!                     take_send_proposal → ensure_active_seed_loaded → execute_send
+//!                     sign-challenge and anything else: refused (see below)
 //! ```
 //!
 //! # What is NOT here, deliberately
@@ -45,23 +49,30 @@
 //! test in this module reads `lib.rs` and fails if anything from here reaches
 //! the invoke handler.
 //!
-//! **No `sign-challenge`, and no `issue-device-credential`.** `#905`'s
-//! correction comment is explicit and this module follows it:
+//! **`issue-device-credential`, but not `sign-challenge`.** `#905`'s
+//! correction comment ranks the three families:
 //!
 //! > Strength runs: **strong for `execute-payment`, medium for
 //! > `issue-device-credential`, weak for `sign-challenge`.** … shipping
 //! > `sign-challenge` first because it "only signs" is backwards.
 //!
 //! For `execute-payment` the confirmation carries content a human can actually
-//! judge — an address and an amount, both re-derived by the wallet. For
+//! judge — an address and an amount, both re-derived by the wallet.
+//! `issue-device-credential` is the same shape: the handle and the requested
+//! validity window are shown, and the wallet's own lifetime policy (not the
+//! caller's) decides the credential's actual `not_before` / `not_after`. For
 //! `sign-challenge` the only human-meaningful content is *who is asking* and
 //! *why*, and absent caller attestation both are attacker-chosen: a hostile app
 //! sends `caller: cash.free2z.free2z`, `purpose: "Sign in to free2z"`, ZUULI
 //! renders an entirely honest confirmation with a dishonest sender, and the
 //! user approves. The confirmation does not fail there — it was never able to
-//! tell the difference. So those two families are admitted by the gate and then
-//! refused by this surface, and a platform that wants them must first bring
-//! [`CallerTrust::Attested`].
+//! tell the difference. `issue-device-credential` carries the identical
+//! unattested-caller weakness — see [`CallerTrust::Claimed`]'s "NOT CONFIRMED"
+//! line in both confirmations, and `#929` for the open gap that correlation is
+//! not authentication. It ships anyway, on the same basis `execute-payment`
+//! already did: the human reads an honest "NOT CONFIRMED" and decides, rather
+//! than the wallet deciding silently. `sign-challenge` stays refused until a
+//! platform brings [`CallerTrust::Attested`].
 //!
 //! # Caller trust, and the empty certificate lists
 //!
@@ -88,8 +99,11 @@ use f2z_intent::{
     encode_response, AdmittedIntent, CallerAttestation, CallerRegistry, CallerTrust,
     ConfirmationAuthorization, ConfirmationToken, ExecutePaymentRequestV1, ExecutePaymentResultV1,
     Intent, IntentBody, IntentClock, IntentError, IntentGate, IntentRequest, IntentResponseV1,
-    RegisteredCaller, TxId, VisibleText, CONFIRMATION_TTL_MS,
+    IssueDeviceCredentialRequestV1, IssueDeviceCredentialResultV1, RegisteredCaller, TxId,
+    VisibleText, CONFIRMATION_TTL_MS,
 };
+use f2z_kt_core::types::{Handle, KemPublicKey};
+use f2z_msg_identity::DeviceCredentialRequest;
 use tauri::{AppHandle, Manager as _, Runtime};
 use tauri_plugin_dialog::{DialogExt as _, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_zcash::models::{BroadcastStatus, ExecuteSendResult, SendReview};
@@ -213,12 +227,20 @@ pub async fn receive_intent<R: Runtime>(
     };
 
     let request = admitted.request();
-    match payment_request(&admitted) {
-        Err(refusal) => refuse(request, refusal),
-        Ok(payment) => match execute_payment(app, &admitted, payment).await {
+    if let Ok(payment) = payment_request(&admitted) {
+        return match execute_payment(app, &admitted, payment).await {
             Ok(txid) => fulfil_payment(request, txid),
             Err(refusal) => refuse(request, refusal),
-        },
+        };
+    }
+    match credential_request(&admitted) {
+        Ok(credential_request) => {
+            match issue_device_credential(app, &admitted, credential_request).await {
+                Ok(credential) => fulfil_credential(request, credential),
+                Err(refusal) => refuse(request, refusal),
+            }
+        }
+        Err(refusal) => refuse(request, refusal),
     }
 }
 
@@ -226,20 +248,36 @@ pub async fn receive_intent<R: Runtime>(
 ///
 /// # Errors
 ///
-/// [`IntentError::UnknownIntent`] for every family but `execute-payment`. The
-/// status is not a lie: this build genuinely does not implement them, and a
-/// caller learns the same thing it would learn from an older wallet.
+/// [`IntentError::UnknownIntent`] for every family but `execute-payment` —
+/// including `issue-device-credential`, which [`credential_request`] handles
+/// instead, tried only after this function refuses it.
 fn payment_request(admitted: &AdmittedIntent) -> Result<&ExecutePaymentRequestV1, IntentError> {
     match admitted.body() {
         IntentBody::ExecutePayment(payment) => Ok(payment),
-        // Admitted by the gate, refused by this surface. `sign-challenge`
-        // cannot ship without caller attestation and `issue-device-credential`
-        // is not far enough ahead of it to be worth the second surface.
+        // `sign-challenge` cannot ship without caller attestation (see the
+        // module note); `issue-device-credential` is well-formed but belongs
+        // to `credential_request`, not this function.
         IntentBody::SignChallenge(_) | IntentBody::IssueDeviceCredential(_) => {
             Err(IntentError::UnknownIntent)
         }
         // `IntentBody` is `#[non_exhaustive]`: a family added upstream is
         // refused here until somebody decides what confirming it would mean.
+        _ => Err(IntentError::UnknownIntent),
+    }
+}
+
+/// The family dispatch for `issue-device-credential`, [`payment_request`]'s
+/// counterpart.
+///
+/// # Errors
+///
+/// [`IntentError::UnknownIntent`] for every family but
+/// `issue-device-credential`.
+fn credential_request(
+    admitted: &AdmittedIntent,
+) -> Result<&IssueDeviceCredentialRequestV1, IntentError> {
+    match admitted.body() {
+        IntentBody::IssueDeviceCredential(credential) => Ok(credential),
         _ => Err(IntentError::UnknownIntent),
     }
 }
@@ -300,7 +338,14 @@ async fn execute_payment<R: Runtime>(
         review_matches_request(payment, &review)?;
 
         let message = payment_confirmation(admitted, &review, payment.fee_zatoshis);
-        if !confirm_natively(app, message).await {
+        if !confirm_natively(
+            app,
+            "Authorize Zcash payment for another app",
+            "Authorize payment",
+            message,
+        )
+        .await
+        {
             return Err(IntentError::NotConfirmed);
         }
 
@@ -391,6 +436,83 @@ async fn execute_payment<R: Runtime>(
     outcome
 }
 
+/// Show ZUULI's own confirmation and — only on approval — read the seed once,
+/// derive §4.2's identity key, and sign the caller's device keys into a
+/// `DeviceCredential`.
+///
+/// The dialog is shown **before** [`crate::messaging::account_keys`] is
+/// called, the same ordering `execute_payment` uses for
+/// `ensure_active_seed_loaded`: the wallet's custody is touched only after a
+/// human has already said yes, so a refused or cancelled request never opens
+/// it at all.
+///
+/// The validity window is ZUULI's own policy —
+/// [`crate::messaging::CREDENTIAL_BACKDATE_MS`] /
+/// [`crate::messaging::CREDENTIAL_LIFETIME_MS`], the same constants
+/// `f2zmsg_enroll` issues its own credentials under — not the caller's
+/// `not_before_ms` / `not_after_ms`. Those two are advisory, exactly like
+/// `execute_payment`'s `fee_zatoshis`: shown so a divergence is visible, never
+/// enforced, because a credential's lifetime is the issuer's to set and a
+/// caller-chosen window would let any registered app mint itself a
+/// decades-long credential.
+async fn issue_device_credential<R: Runtime>(
+    app: &AppHandle<R>,
+    admitted: &AdmittedIntent,
+    request: &IssueDeviceCredentialRequestV1,
+) -> Result<Vec<u8>, IntentError> {
+    let handle =
+        Handle::new(request.handle.as_slice().to_vec()).map_err(|_| IntentError::InvalidValue)?;
+    let device_kem_pk = KemPublicKey::new(request.device_kem_pk.as_slice().to_vec())
+        .map_err(|_| IntentError::InvalidValue)?;
+
+    let now_ms = clock_now()?.wall_ms;
+    let not_before_ms = now_ms.saturating_sub(crate::messaging::CREDENTIAL_BACKDATE_MS);
+    let not_after_ms = now_ms.saturating_add(crate::messaging::CREDENTIAL_LIFETIME_MS);
+
+    let message = credential_confirmation(
+        admitted,
+        &handle,
+        request.not_before_ms,
+        request.not_after_ms,
+    );
+    if !confirm_natively(
+        app,
+        "Authorize a messaging device credential for another app",
+        "Authorize enrollment",
+        message,
+    )
+    .await
+    {
+        return Err(IntentError::NotConfirmed);
+    }
+
+    let account = crate::messaging::account_keys(app).await.map_err(|error| {
+        tracing::warn!("intent issue-device-credential could not read wallet custody: {error}");
+        IntentError::Unavailable
+    })?;
+
+    let credential = account
+        .identity
+        .issue_device_credential(&DeviceCredentialRequest {
+            handle,
+            device_pk: request.device_pk,
+            device_kem_pk,
+            not_before_ms,
+            not_after_ms,
+        })
+        .map_err(|error| {
+            tracing::warn!(
+                "intent issue-device-credential was refused by the identity key: {error}"
+            );
+            IntentError::InvalidValue
+        })?;
+
+    f2z_msg_mls::credential::encode(&credential).map_err(|error| {
+        tracing::warn!("intent issue-device-credential could not encode its result: {error}");
+        IntentError::Unavailable
+    })
+}
+
 /// The confirmation for one admitted intent, assembled from the wallet's own
 /// values.
 ///
@@ -472,19 +594,107 @@ fn format_payment_confirmation(
     lines.join("\n")
 }
 
+/// The confirmation for one admitted `issue-device-credential`, assembled
+/// from the wallet's own values and the caller's handle.
+///
+/// Mirrors [`payment_confirmation`]: the display name is always
+/// [`f2z_intent::AuthorizedCaller::display_name`], never the request's own
+/// `caller` field.
+fn credential_confirmation(
+    admitted: &AdmittedIntent,
+    handle: &Handle,
+    requested_not_before_ms: u64,
+    requested_not_after_ms: u64,
+) -> String {
+    let caller = admitted.caller();
+    format_credential_confirmation(
+        caller.display_name().as_str(),
+        caller.trust(),
+        admitted.request().purpose().as_str(),
+        handle,
+        requested_not_before_ms,
+        requested_not_after_ms,
+    )
+}
+
+/// ZUULI's own confirmation copy for `issue-device-credential`.
+///
+/// Same two rules as [`format_payment_confirmation`]: the identity shown is
+/// ours, from the registry, and the caller's one string (`purpose`) is quoted
+/// and escaped by [`send::quote_native_memo`] — reused here rather than
+/// duplicated, since the hostile-input treatment it gives is not specific to
+/// Zcash memos.
+///
+/// The handle is quoted the same way: `Handle`'s charset
+/// (`[a-z0-9_]{1,30}`) cannot itself carry a layout control, but quoting it
+/// keeps the confirmation's escaping uniform rather than "safe here because
+/// the type happens to forbid it".
+fn format_credential_confirmation(
+    caller_display_name: &str,
+    trust: CallerTrust,
+    purpose: &str,
+    handle: &Handle,
+    requested_not_before_ms: u64,
+    requested_not_after_ms: u64,
+) -> String {
+    let named = send::quote_native_memo(caller_display_name);
+    let handle_text = send::quote_native_memo(&String::from_utf8_lossy(handle.as_slice()));
+    let requested_days =
+        requested_not_after_ms.saturating_sub(requested_not_before_ms) / 86_400_000;
+    [
+        "Another app asked ZUULI to issue a messaging device credential.".to_owned(),
+        String::new(),
+        format!("Requesting app: {named}"),
+        match trust {
+            CallerTrust::Attested => {
+                "Identity: CONFIRMED by this device's operating system.".to_owned()
+            }
+            CallerTrust::Claimed => "Identity: NOT CONFIRMED. This device cannot tell whether the app that sent this request is the one named above.".to_owned(),
+        },
+        format!("Its stated reason, in its own words: {}", send::quote_native_memo(purpose)),
+        String::new(),
+        format!("Handle this credential will speak for: {handle_text}"),
+        format!(
+            "The requesting app asked for approximately {requested_days} day(s) of validity."
+        ),
+        String::new(),
+        "This credential lets the requesting app send and receive encrypted messages under your messaging identity, for as long as ZUULI's own credential lifetime allows — not necessarily what the app above requested. Authorize only if you intend to enroll that app for messaging.".to_owned(),
+    ]
+    .join("\n")
+}
+
+/// Encode a fulfilled `issue-device-credential`.
+fn fulfil_credential(request: &IntentRequest, credential: Vec<u8>) -> Result<Vec<u8>, IntentError> {
+    let payload = IssueDeviceCredentialResultV1 {
+        credential: Body::new(credential)?,
+    }
+    .encode_canonical()?;
+    encode_response(&IntentResponseV1 {
+        request_id: *request.request_id(),
+        intent: Intent::IssueDeviceCredential.code(),
+        status: 0,
+        payload: Body::new(payload)?,
+    })
+}
+
 /// Show the OS-owned dialog and answer whether it was authorized.
 ///
 /// The dialog plugin is reachable only from Rust — `lib.rs` grants it to no
 /// capability — so this is the same OS-owned surface `confirm_send` uses, and
 /// no renderer can draw over it or answer it.
-async fn confirm_natively<R: Runtime>(app: &AppHandle<R>, message: String) -> bool {
+async fn confirm_natively<R: Runtime>(
+    app: &AppHandle<R>,
+    title: &str,
+    accept_label: &str,
+    message: String,
+) -> bool {
     let (sender, mut receiver) = tauri::async_runtime::channel::<bool>(1);
     app.dialog()
         .message(message)
-        .title("Authorize Zcash payment for another app")
+        .title(title)
         .kind(MessageDialogKind::Warning)
         .buttons(MessageDialogButtons::OkCancelCustom(
-            "Authorize payment".to_owned(),
+            accept_label.to_owned(),
             "Cancel".to_owned(),
         ))
         .show(move |accepted| {
@@ -1389,8 +1599,11 @@ mod tests {
             // The literal carries its `!`. Dropping the negation inverts the
             // primary control — approve on Cancel — and every functional test
             // in this module would stay green, because none of them can reach
-            // a real dialog. This assertion is the one that notices.
-            "if !confirm_natively(app, message).await {",
+            // a real dialog. This assertion is the one that notices. The call
+            // now spans several lines (title and button label are explicit
+            // arguments since `issue_device_credential` needs its own), so
+            // the checked substring is only the negation and the call head.
+            "if !confirm_natively(",
             "ConfirmationAuthorization::issue(",
             "send::issue_send_confirmation(",
             "approval.consume(",
