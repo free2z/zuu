@@ -10,36 +10,42 @@
 //! ```text
 //!   decoded bytes ──► IntentGate::admit          (every guard, one call)
 //!                       ▼
-//!            ┌── execute-payment ──────────────────────────────────────┐
-//!            │  propose_send               ZUULI's OWN proposal        │
-//!            │  prepare_send_confirmation  the plugin re-derives it    │
-//!            │  review_matches_request     review must agree with ask  │
-//!            │  native dialog              ZUULI's OWN rendering       │
-//!            │    ▼ approved                                          │
-//!            │  ConfirmationAuthorization  binds request ⊗ review ⊗ token │
-//!            │  issue_send_confirmation    #528's own execution credential │
-//!            │  consume (takes self)       one use, both clocks        │
-//!            │  take_send_proposal → ensure_active_seed_loaded → execute_send │
-//!            └─────────────────────────────────────────────────────────┘
-//!            ┌── issue-device-credential ─────────────────────────────┐
-//!            │  native dialog              shown BEFORE the seed is   │
-//!            │                             touched at all             │
-//!            │    ▼ approved                                          │
-//!            │  messaging::account_keys    the ONE seed read, in-process │
-//!            │  identity.issue_device_credential   #4.2's signing key  │
-//!            └─────────────────────────────────────────────────────────┘
+//!                     the family dispatch        (see "What is not here")
 //!                       ▼
-//!                     sign-challenge and anything else: refused (see below)
+//!   execute-payment:  propose_send               ZUULI's OWN proposal
+//!                       ▼
+//!                     prepare_send_confirmation  the plugin re-derives the review
+//!                       ▼
+//!                     review_matches_request     the review must agree with the ask
+//!                       ▼
+//!                     native dialog              ZUULI's OWN rendering
+//!                       ▼ approved
+//!                     ConfirmationAuthorization  binds request ⊗ review ⊗ token
+//!                     issue_send_confirmation    #528's own execution credential
+//!                       ▼
+//!                     consume (takes self)       one use, both clocks
+//!                       ▼
+//!                     take_send_proposal → ensure_active_seed_loaded → execute_send
+//!
+//!   issue-device-credential:
+//!                     native dialog              BEFORE the seed is read
+//!                       ▼ approved
+//!                     messaging::account_keys    the one seed read, in process
+//!                       ▼
+//!                     issue_device_credential    §4.2's identity key signs
 //! ```
 //!
 //! # What is NOT here, deliberately
 //!
 //! **No transport.** No deep-link parsing, no URL handling, no intent filter,
 //! no scheme registration. [`receive_intent`] takes bytes that somebody else
-//! decided to hand it. `#461` (verified App Links / Universal Links) is
-//! unresolved, and dispatching authority over a custom scheme would recreate
-//! `#367` — a confused deputy — at the OS layer instead of the frame layer.
-//! `docs/intent-bridge/PROTOCOL.md` §7 states exactly what stays gated.
+//! decided to hand it, and it stays that way: `bridge.rs` is the one module
+//! that knows a URL exists, so this one can be read as "what acting on an
+//! admitted request means" without a reader having to hold a transport in
+//! their head. Dispatching authority over a *custom scheme* would recreate
+//! `#367` — a confused deputy — at the OS layer instead of the frame layer,
+//! which is why the transport is a **verified** App Link (`#461`, landed in
+//! `#977`) and nothing else.
 //!
 //! **No IPC surface.** [`receive_intent`] is deliberately *not* a
 //! `#[tauri::command]` and appears in no capability. The privileged WebView
@@ -120,10 +126,55 @@ use tauri_plugin_zcash::ZcashExt as _;
 ///
 /// These are `#904`'s two delegated surfaces. An app that is not on this list
 /// is refused before its identifier is even recorded in the replay ledger.
-const REGISTERED_CALLERS: &[(&str, &str)] = &[
-    ("cash.free2z.free2z", "free2z"),
-    ("cash.free2z.e2e2z", "free2z Chat"),
+/// `(identifier, display name, reply URL)`.
+///
+/// The third field is where an answer to this caller is delivered, and it is a
+/// **compile-time constant for exactly the reason the first two are
+/// separate**: a caller that could name its own return address would be handed
+/// the confused deputy back after every guard in this module had run. The
+/// transport reads the reply URL from here, keyed by the caller the gate
+/// admitted — never from the inbound URL, and never from the request body.
+///
+/// Each one is the verified App Link that app owns (`#977`,
+/// `docs/intent-bridge/association/`). Only the app whose package or team owns
+/// the domain association receives it, which is the property
+/// `CALLER-AUTHENTICATION.md` §4 rests the response half on.
+const REGISTERED_CALLERS: &[(&str, &str, &str)] = &[
+    (
+        "cash.free2z.free2z",
+        "free2z",
+        "https://free2z.com/bridge/free2z/",
+    ),
+    (
+        "cash.free2z.e2e2z",
+        "free2z Chat",
+        "https://free2z.com/bridge/e2e2z/",
+    ),
 ];
+
+/// One answered intent: the bytes, and where they are addressed.
+///
+/// `reply_to` is resolved from [`REGISTERED_CALLERS`] against the caller
+/// [`IntentGate::admit`] authorized, so the transport never has to re-parse a
+/// request to learn where to send its answer — re-parsing outside `admit` is
+/// exactly the "four checks out of five" this module exists to prevent.
+#[derive(Debug, Clone)]
+pub struct IntentOutcome {
+    /// The encoded `IntentResponseV1`, fulfilled or refused.
+    pub response: Vec<u8>,
+    /// The registered reply URL for the caller that was admitted.
+    pub reply_to: &'static str,
+    /// The request identifier the answer correlates to, as the gate read it.
+    pub request_id: [u8; 32],
+}
+
+/// The reply URL registered for `identifier`, if it is a registered caller.
+fn reply_url_for(identifier: &str) -> Option<&'static str> {
+    REGISTERED_CALLERS
+        .iter()
+        .find(|(registered, _, _)| *registered == identifier)
+        .map(|(_, _, url)| *url)
+}
 
 /// The wallet's intent gate, held as Tauri managed state.
 ///
@@ -163,7 +214,7 @@ impl IntentAuthority {
 /// red if [`receive_intent`] ever built its own.
 fn caller_registry() -> CallerRegistry {
     let mut registry = CallerRegistry::new();
-    for (identifier, display_name) in REGISTERED_CALLERS {
+    for (identifier, display_name, _reply_to) in REGISTERED_CALLERS {
         registry
             .register(RegisteredCaller {
                 identifier: bridge_text(identifier),
@@ -191,7 +242,9 @@ fn bridge_text(value: &str) -> VisibleText {
 ///
 /// `bytes` is a decoded `IntentRequestEnvelope` and `attestation` is what the
 /// operating system — **not** the request — says about who sent it. Both come
-/// from a transport this module does not contain and `#461` has not unblocked.
+/// from a transport this module does not contain: `bridge.rs` carries them in
+/// over the verified App Link `#977` landed, and carries the answer back out
+/// to [`IntentOutcome::reply_to`].
 ///
 /// # The two shapes of "no"
 ///
@@ -213,7 +266,7 @@ pub async fn receive_intent<R: Runtime>(
     app: &AppHandle<R>,
     bytes: &[u8],
     attestation: CallerAttestation<'_>,
-) -> Result<Vec<u8>, IntentError> {
+) -> Result<IntentOutcome, IntentError> {
     let admitted = {
         let authority = app.state::<IntentAuthority>();
         // A poisoned gate means a panic happened while the ledger was being
@@ -227,21 +280,37 @@ pub async fn receive_intent<R: Runtime>(
     };
 
     let request = admitted.request();
-    if let Ok(payment) = payment_request(&admitted) {
-        return match execute_payment(app, &admitted, payment).await {
+    let request_id = *request.request_id().as_bytes();
+    // `admit` refuses an unregistered caller before this line, so the lookup
+    // cannot miss for any request that reaches it. It is still written as a
+    // refusal rather than an `expect`: a registry edit that added an
+    // identifier without a reply URL would otherwise turn a caller-supplied
+    // message into a panic in the app that holds the seed.
+    let reply_to =
+        reply_url_for(request.claimed_caller().as_str()).ok_or(IntentError::CallerNotAuthorized)?;
+
+    let response = if let Ok(payment) = payment_request(&admitted) {
+        match execute_payment(app, &admitted, payment).await {
             Ok(txid) => fulfil_payment(request, txid),
             Err(refusal) => refuse(request, refusal),
-        };
-    }
-    match credential_request(&admitted) {
-        Ok(credential_request) => {
-            match issue_device_credential(app, &admitted, credential_request).await {
-                Ok(credential) => fulfil_credential(request, credential),
-                Err(refusal) => refuse(request, refusal),
-            }
         }
-        Err(refusal) => refuse(request, refusal),
-    }
+    } else {
+        match credential_request(&admitted) {
+            Ok(credential_request) => {
+                match issue_device_credential(app, &admitted, credential_request).await {
+                    Ok(credential) => fulfil_credential(request, credential),
+                    Err(refusal) => refuse(request, refusal),
+                }
+            }
+            Err(refusal) => refuse(request, refusal),
+        }
+    }?;
+
+    Ok(IntentOutcome {
+        response,
+        reply_to,
+        request_id,
+    })
 }
 
 /// The family dispatch, and the whole of `#905`'s corrected staging.
@@ -957,11 +1026,14 @@ mod tests {
     }
 
     #[cfg(not(target_os = "windows"))]
+    /// The encoded answer only. The routing half of [`IntentOutcome`] has its
+    /// own assertions in `the_answer_is_addressed_from_the_registry`.
     fn receive(
         app: &tauri::App<tauri::test::MockRuntime>,
         bytes: &[u8],
     ) -> Result<Vec<u8>, IntentError> {
         tauri::async_runtime::block_on(receive_intent(app.handle(), bytes, CallerAttestation::None))
+            .map(|outcome| outcome.response)
     }
 
     /// A `sign-challenge` request dated against the wallet's **real** clock.
@@ -1035,6 +1107,61 @@ mod tests {
         assert_eq!(
             receive(&app, &version_two).unwrap_err(),
             IntentError::UnsupportedVersion,
+        );
+    }
+
+    /// Where an answer goes is decided by the registry, keyed by the caller
+    /// the gate authorized — never by anything the caller could write. A
+    /// request that could name its own return address would hand back the
+    /// confused deputy after every guard in this module had already run.
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn the_answer_is_addressed_from_the_registry() {
+        let app = mock_zuuli();
+        let outcome = tauri::async_runtime::block_on(receive_intent(
+            app.handle(),
+            &sign_challenge_bytes("cash.free2z.e2e2z", 31),
+            CallerAttestation::None,
+        ))
+        .expect("an admitted request is answered");
+        assert_eq!(outcome.reply_to, "https://free2z.com/bridge/e2e2z/");
+        assert_eq!(
+            outcome.request_id, [31; 32],
+            "the correlator must be the one the gate read, not one a transport re-parsed",
+        );
+
+        let other = tauri::async_runtime::block_on(receive_intent(
+            app.handle(),
+            &sign_challenge_bytes("cash.free2z.free2z", 32),
+            CallerAttestation::None,
+        ))
+        .expect("the other registered surface is answered too");
+        assert_eq!(
+            other.reply_to, "https://free2z.com/bridge/free2z/",
+            "the positive control: one reply URL for every caller would prove nothing",
+        );
+    }
+
+    /// Every registered caller has a reply URL, and it is an `https` URL on
+    /// the association domain. A custom scheme here would be the confused
+    /// deputy `CALLER-AUTHENTICATION.md` §4 refuses to ship over.
+    #[test]
+    fn every_registered_caller_has_a_verified_https_reply_url() {
+        for (identifier, _, reply) in REGISTERED_CALLERS {
+            assert!(
+                reply.starts_with("https://free2z.com/bridge/"),
+                "{identifier} must be answered on the association domain, not {reply}",
+            );
+            assert_eq!(
+                reply_url_for(identifier),
+                Some(*reply),
+                "the lookup must find every entry it is built from",
+            );
+        }
+        assert_eq!(
+            reply_url_for("com.attacker.app"),
+            None,
+            "the positive control: a lookup that answered anything would prove nothing",
         );
     }
 

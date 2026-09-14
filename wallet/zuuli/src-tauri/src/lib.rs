@@ -1,3 +1,4 @@
+mod bridge;
 pub mod intent;
 mod messaging;
 mod oauth;
@@ -113,6 +114,17 @@ pub fn run() {
             messaging::f2zmsg_enroll,
             messaging::f2zmsg_unenroll,
         ])
+        // The intent bridge's transport (#905/#461). Registered here and not
+        // in `generate_handler!` above, and that is the whole point: an
+        // inbound intent arrives from the operating system over a verified App
+        // Link and reaches `intent::receive_intent` without passing through
+        // the privileged WebView. A command that turned caller-supplied bytes
+        // into a wallet confirmation would be #367's confused deputy with an
+        // IPC name.
+        .setup(|app| {
+            bridge::install(app.handle());
+            Ok(())
+        })
         .run(app_context())
         .expect("error while running tauri application");
 }

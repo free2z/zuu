@@ -35,6 +35,7 @@ import App from "./App";
 import { mountApplication, RootFallback } from "./app-bootstrap";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
 import { diagnostics } from "./lib/diagnostics";
+import { installAppLinkIntentTransport } from "./lib/enrollment/appLinkTransport";
 import { installDocumentDirection } from "./lib/document-direction";
 import "./index.css";
 
@@ -50,6 +51,12 @@ installDocumentDirection();
 // listener rather than nobody.
 installGlobalDiagnostics(diagnostics, window);
 diagnostics.breadcrumb("lifecycle", "app-start");
+
+// Before the first screen can ask for enrollment, so the answer to a request
+// dispatched early has a listener waiting rather than arriving at nobody.
+// #926 left `setIntentTransport` as the single registration point for exactly
+// this call; #461 landed the verified App Links it was waiting on.
+installAppLinkIntentTransport();
 
 void mountApplication({
   root: ReactDOM.createRoot(container),

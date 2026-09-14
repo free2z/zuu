@@ -23,6 +23,7 @@
 //! * [`device::e2e2z_retry_device_unlock`] — the seed-free exit from §6.1's
 //!   `locked` that ADR 0016 §3 requires this app to have.
 
+pub mod bridge;
 pub mod device;
 
 /// Where this app's per-device `DeviceWrapKey` lives in the OS secret store
@@ -60,7 +61,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             device::e2e2z_device_credential_keys,
             device::e2e2z_install_device_credential,
-            device::e2e2z_retry_device_unlock
+            device::e2e2z_retry_device_unlock,
+            // The caller half of the intent bridge's transport (#905/#461).
+            // App-crate, so no capability grants it: this app's narrow command
+            // set is the argument for the surface existing at all.
+            bridge::e2e2z_dispatch_intent
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
