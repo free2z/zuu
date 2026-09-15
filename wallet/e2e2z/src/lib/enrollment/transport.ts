@@ -153,9 +153,15 @@ export function intentTransport(): IntentTransport {
 /**
  * Install a transport.
  *
- * The only production caller this will ever have is #461's App Link surface.
- * Until then it exists so the tests can drive the *shipping* code path against
- * a wallet stand-in, rather than proving a parallel one works.
+ * It exists so the tests can drive the *shipping* code path against a
+ * wallet stand-in, rather than proving a parallel one works.
+ *
+ * Its one production caller is #461's App Link surface,
+ * `src/lib/enrollment/appLinkTransport.ts`, and
+ * `scripts/authority-boundary.node-test.mjs` holds it to that file by exact
+ * path: a second production writer fails the boundary scan. One reviewed
+ * writer is dispatch authority that was weighed; two is a registry anything in
+ * the renderer may write to.
  */
 export function setIntentTransport(transport: IntentTransport): void {
   active = transport;

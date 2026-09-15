@@ -135,7 +135,7 @@ device public keys — and fails at the transport, because there is not one.
 Baseline: 42 tests green across `transport.test.ts`, `deviceKeys.test.ts` and
 `issueDeviceCredential.test.ts`, plus 5 across
 `wallet/e2e2z/src/lib/messaging/enroll-intent.test.ts` and
-`enroll-chunk-failure.test.ts`, plus the 6 in
+`enroll-chunk-failure.test.ts`, plus the 8 in
 `wallet/e2e2z/scripts/authority-boundary.node-test.mjs`. Reproduce with
 `cd wallet/e2e2z && npx vitest run && node --test scripts/authority-boundary.node-test.mjs`.
 
@@ -148,11 +148,11 @@ Baseline: 42 tests green across `transport.test.ts`, `deviceKeys.test.ts` and
 | session correlation, seen from the caller | `refuses an answer to a different request`, `refuses an answer whose identifier differs in one byte`, `refuses a replay of an answer it already accepted` | FAILS |
 | `IssueDeviceCredentialResultV1` trailing-byte refusal **and** re-encode equality, together | `the issue-device-credential family result > refuses trailing bytes` | FAILS |
 | `IssueDeviceCredentialResultV1` non-empty credential | `the issue-device-credential family result > refuses a zero-length credential` | FAILS |
-| seed authority: the wallet plugin as a dependency | `e2e2z holds neither seed authority nor dispatch authority` | FAILS |
-| seed authority: a `plugin:zcash\|` invoke in the renderer | `e2e2z holds neither seed authority nor dispatch authority` | FAILS |
-| seed authority: `get_seed_phrase` named in executable code | `e2e2z holds neither seed authority nor dispatch authority` | FAILS |
+| seed authority: the wallet plugin as a dependency | `e2e2z holds no seed authority, and no unreviewed dispatch authority` | FAILS |
+| seed authority: a `plugin:zcash\|` invoke in the renderer | `e2e2z holds no seed authority, and no unreviewed dispatch authority` | FAILS |
+| seed authority: `get_seed_phrase` named in executable code | `e2e2z holds no seed authority, and no unreviewed dispatch authority` | FAILS |
 | `enroll`'s lazy `import()` inside the `try`, so a chunk-load failure still wears the typed refusal | `a chunk that never loads > still refuses with the typed enrollment refusal` | FAILS |
-| dispatch authority: only a test may call `setIntentTransport` | `e2e2z holds neither seed authority nor dispatch authority` | FAILS |
+| dispatch authority: a second production module calls `setIntentTransport` | `e2e2z holds no seed authority, and no unreviewed dispatch authority` | FAILS |
 
 **12 mutations, 12 failures, 0 survivors.** Every one was applied, watched to
 fail with a named assertion, and restored; the tree ends green.
@@ -163,11 +163,12 @@ pointed in two directions. `enroll` reaches its client through a lazy
 escapes as an untyped error, and the screen — which branches on
 `isEnrollmentUnavailable` — would say "something broke" instead of the one true
 thing this app can say. And `setIntentTransport` is exported so the tests can
-drive the shipping path against a wallet stand-in; a guard defeated by one call
-to it from a renderer module has exactly the shape of the guard defeated by one
-boolean that `transport.ts` argues against. Neither changed what the app can do
-— both were already fail-closed — and both are now pinned rather than true by
-accident.
+drive the shipping path against a wallet stand-in — and, since #461 landed as
+#977, so that `src/lib/enrollment/appLinkTransport.ts` can register the one
+reviewed transport; a guard defeated by one *further* call to it from any other
+renderer module has exactly the shape of the guard defeated by one boolean that
+`transport.ts` argues against. Neither changed what the app can do — both were
+already fail-closed — and both are now pinned rather than true by accident.
 
 ### What survived, and what that means
 
@@ -182,11 +183,15 @@ something true about where a guard actually lives:
 The authority scan additionally carries its own coverage anchors — a fabricated
 violation of each of its three seed routes, an assertion that prose about the
 seed is *not* a violation while executable code is, an assertion that
-`setIntentTransport` is permitted from a test and refused from a production
-module, an assertion that the transport rule fails loudly if the export it is
-about is ever renamed away, and an assertion that the reader saw a manifest, a
-capability file and more than twenty sources. A boundary scanner that has
-silently stopped finding files reports success forever (`#553`).
+`setIntentTransport` is permitted from a test and from the one sanctioned
+module and refused from every other production module — including a sibling in
+the same directory, so the exemption cannot be read as covering
+`src/lib/enrollment/*` — an assertion that the transport rule fails loudly if
+the export it is about is ever renamed away, an assertion that the exemption
+fails loudly if the module it names stops existing or stops installing, and an
+assertion that the reader saw a manifest, a capability file and more than
+twenty sources. A boundary scanner that has silently stopped finding files
+reports success forever (`#553`).
 
 ### What none of this proves
 

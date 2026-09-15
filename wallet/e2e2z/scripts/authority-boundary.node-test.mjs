@@ -2,7 +2,7 @@
 //
 // **Seed authority** — it must not be able to reach the Zcash seed.
 // **Dispatch authority** — it must not be able to send an authority-bearing
-// intent, because there is no transport that authenticates either end (#461).
+// intent except through the one reviewed transport (#461, landed as #977).
 //
 // Both are enforced elsewhere by design and by review. This file is the part
 // that does not depend on anyone remembering.
@@ -37,22 +37,34 @@
 //
 // ## 2. Dispatch authority
 //
-// `src/lib/enrollment/transport.ts` ships one `IntentTransport`, and it
-// rejects. Two guards keep it that way and they are deliberately independent:
-// the client checks `available` before it samples a device key set, and
-// `dispatch` refuses anyway without reading that flag. Neither can be defeated
-// by one edit.
+// `src/lib/enrollment/transport.ts` ships a fail-closed `IntentTransport` and
+// a module-level registry. Two guards keep the default honest and they are
+// deliberately independent: the client checks `available` before it samples a
+// device key set, and `dispatch` refuses anyway without reading that flag.
+// Neither can be defeated by one edit.
 //
-// But `setIntentTransport` is *exported*, because the tests drive the shipping
-// code path against a wallet stand-in rather than proving a parallel one works.
-// So a single call to it from any production module installs a transport and
-// walks straight past both guards — which is the same shape as the objection
-// the module's own comment raises about the availability flag, pointed the
-// other way. The registry is not a guard if anything in the renderer may write
-// to it.
+// But `setIntentTransport` is *exported* — the tests drive the shipping code
+// path against a wallet stand-in rather than proving a parallel one works, and
+// since #461 a real transport registers through it too. A single call to it
+// installs that transport and walks straight past both guards, which is the
+// same shape as the objection the module's own comment raises about the
+// availability flag, pointed the other way. The registry is not a guard if
+// anything in the renderer may write to it.
 //
-// So: `setIntentTransport` may be *referenced* only from test files, until
-// #461's transport arrives and this rule is deliberately amended along with it.
+// This rule used to read "only a test may reference it, until #461's transport
+// arrives and this rule is deliberately amended along with it." #461 landed —
+// verified App Links and Universal Links, #977 — and its transport is here, so
+// this is that amendment. `setIntentTransport` may now be *referenced* from
+// test files and from exactly ONE production module,
+// `src/lib/enrollment/appLinkTransport.ts`, named by exact path rather than by
+// a directory pattern.
+//
+// A **second** production writer still fails, because the property worth
+// keeping was never "no transport exists" — it was that the set of modules
+// holding dispatch authority is small enough to have been read. One is such a
+// set. Widening it means editing the constant below, which is a diff a
+// reviewer sees, rather than adding an import nobody notices.
+//
 // `resetIntentTransport` is unrestricted — it restores the fail-closed default
 // and can only ever narrow what this app can do.
 //
@@ -83,6 +95,14 @@ const TRANSPORT_INSTALLER = "setIntentTransport";
 
 /** Where it is declared. Referencing it here is the declaration, not a call. */
 const TRANSPORT_MODULE = "src/lib/enrollment/transport.ts";
+
+/**
+ * The one production module permitted to install a transport: #461's App Link
+ * surface, the caller `transport.ts` always said this export would one day
+ * have. An exact path, deliberately — not `src/lib/enrollment/*`, because the
+ * whole point is that a second writer cannot appear without editing this line.
+ */
+const TRANSPORT_INSTALLER_MODULE = "src/lib/enrollment/appLinkTransport.ts";
 
 /** A file whose references to {@link TRANSPORT_INSTALLER} are permitted. */
 function isTestFile(file) {
@@ -155,11 +175,12 @@ export function authorityFailures({ manifest, capabilities, sources }) {
     }
     if (
       file !== TRANSPORT_MODULE &&
+      file !== TRANSPORT_INSTALLER_MODULE &&
       !isTestFile(file) &&
       new RegExp(`\\b${TRANSPORT_INSTALLER}\\b`).test(code)
     ) {
       failures.push(
-        `${file}: only a test may call ${TRANSPORT_INSTALLER}; installing a transport is dispatch authority, and #461 has not landed`,
+        `${file}: only ${TRANSPORT_INSTALLER_MODULE} and tests may call ${TRANSPORT_INSTALLER}; installing a transport is dispatch authority, and a second writer has not been reviewed as one`,
       );
     }
   }
@@ -219,7 +240,7 @@ function readTree() {
   return { manifest, capabilities, sources };
 }
 
-test("e2e2z holds neither seed authority nor dispatch authority", () => {
+test("e2e2z holds no seed authority, and no unreviewed dispatch authority", () => {
   assert.deepEqual(authorityFailures(readTree()), []);
 });
 
@@ -252,7 +273,7 @@ test("prose about the seed is not a violation, and code is", () => {
   assert.equal(failures.length, 2, failures.join("\n"));
 });
 
-test("only a test may install an intent transport", () => {
+test("only the sanctioned transport module, or a test, may install a transport", () => {
   // The rule fires on a production module...
   const production = authorityFailures({
     manifest: "",
@@ -263,7 +284,8 @@ test("only a test may install an intent transport", () => {
   });
   assert.equal(production.length, 1, production.join("\n"));
 
-  // ...and does not fire on a test, or on the module that declares it.
+  // ...and does not fire on a test, on the module that declares it, or on the
+  // one production module #461 licensed.
   assert.deepEqual(
     authorityFailures({
       manifest: "",
@@ -274,6 +296,10 @@ test("only a test may install an intent transport", () => {
         [
           "src/lib/enrollment/transport.ts",
           "export function setIntentTransport(transport) { active = transport; }",
+        ],
+        [
+          "src/lib/enrollment/appLinkTransport.ts",
+          "setIntentTransport(appLinkIntentTransport);",
         ],
       ]),
     }),
@@ -293,6 +319,41 @@ test("only a test may install an intent transport", () => {
   );
 });
 
+test("a second production writer is still dispatch authority, and still fails", () => {
+  // The amendment above is an exemption for one named file, not the removal of
+  // the rule. The obvious next move — a sibling transport beside the sanctioned
+  // one, in the same directory, looking exactly as legitimate — is what this
+  // pins, because "it is right next to the allowed one" is how the exemption
+  // would be read if nobody checked.
+  const sibling = authorityFailures({
+    manifest: "",
+    capabilities: new Map(),
+    sources: new Map([
+      [
+        "src/lib/enrollment/appLinkTransport.ts",
+        "setIntentTransport(appLinkIntentTransport);",
+      ],
+      [
+        "src/lib/enrollment/customSchemeTransport.ts",
+        "setIntentTransport(customSchemeTransport);",
+      ],
+    ]),
+  });
+  assert.equal(sibling.length, 1, sibling.join("\n"));
+  assert.match(sibling[0], /customSchemeTransport\.ts/);
+
+  // And it is the path that is exempt, not the filename: the same basename
+  // somewhere else is a different module and gets no exemption.
+  const elsewhere = authorityFailures({
+    manifest: "",
+    capabilities: new Map(),
+    sources: new Map([
+      ["src/lib/messaging/appLinkTransport.ts", "setIntentTransport(t);"],
+    ]),
+  });
+  assert.equal(elsewhere.length, 1, elsewhere.join("\n"));
+});
+
 test("the transport rule cannot outlive the export it is about", () => {
   // A rule whose subject has been renamed away protects nothing and says so.
   const orphaned = authorityFailures({
@@ -303,6 +364,26 @@ test("the transport rule cannot outlive the export it is about", () => {
     ]),
   });
   assert.equal(orphaned.length, 1, orphaned.join("\n"));
+});
+
+test("the exemption still names a module that exists and still installs", () => {
+  // The other half of #553's lesson, applied to the amendment rather than to
+  // the rule. An exemption for a path nothing occupies is a hole waiting for
+  // whatever is written there next: the rule would go on passing, and the day
+  // someone recreates that filename they inherit dispatch authority without a
+  // reviewer ever weighing it. So the exemption has to be spent on a real file
+  // that really installs, or it is withdrawn.
+  const { sources } = readTree();
+  const installer = sources.get(TRANSPORT_INSTALLER_MODULE);
+  assert.ok(
+    installer !== undefined,
+    `${TRANSPORT_INSTALLER_MODULE} is exempt from the transport rule but does not exist; delete the exemption or restore the module`,
+  );
+  assert.match(
+    withoutComments(installer),
+    new RegExp(`\\b${TRANSPORT_INSTALLER}\\b`),
+    `${TRANSPORT_INSTALLER_MODULE} no longer calls ${TRANSPORT_INSTALLER}; an exemption nothing uses should be withdrawn, not left standing`,
+  );
 });
 
 test("each route is judged, and each fabricated violation is caught", () => {

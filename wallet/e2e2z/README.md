@@ -110,8 +110,10 @@ response through the shipping code and asserts `enroll` **still** refuses —
 `src/lib/messaging/enroll-chunk-failure.test.ts`, which does the same for a
 lazily imported chunk that never loads, and
 `scripts/authority-boundary.node-test.mjs`, which judges the three routes seed
-authority could arrive by **and** holds `setIntentTransport` to test files, so
-dispatch authority cannot be installed by one call from the renderer. `docs/intent-bridge/CONFORMANCE.md` records the
+authority could arrive by **and** holds `setIntentTransport` to test files plus
+one named production module — `src/lib/enrollment/appLinkTransport.ts`, #461's
+reviewed App Link transport — so dispatch authority cannot be installed by one
+call from anywhere else in the renderer. `docs/intent-bridge/CONFORMANCE.md` records the
 mutation matrix, including the two mutations that survive and why.
 
 ## Capabilities: named commands, never the blanket grant
