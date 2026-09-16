@@ -86,14 +86,18 @@ describe("the App Link transport", () => {
     const answered = appLinkIntentTransport.dispatch(new Uint8Array([1]), context());
     await vi.waitFor(() => expect(invoke).toHaveBeenCalled());
 
+    let settled = false;
+    void answered.then(() => {
+      settled = true;
+    });
+
     // A late answer to an abandoned attempt must not resolve this one.
     deliverInbound(reply(toHex(ANSWER), "11".repeat(32)));
-
-    const settled = await Promise.race([
-      answered.then(() => "resolved" as const),
-      Promise.resolve("still waiting" as const),
-    ]);
-    expect(settled).toBe("still waiting");
+    // A macrotask, so every microtask a wrongful resolution would queue has
+    // run. A `Promise.race` against an already-resolved promise wins even
+    // when this dispatch did resolve, and so proves nothing.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
 
     deliverInbound(reply(toHex(ANSWER), REQUEST_ID));
     await expect(answered).resolves.toEqual(ANSWER);
@@ -177,6 +181,8 @@ describe("an inbound link", () => {
       `https://free2z.com/bridge/e2e2z/#res=dead`,
       `https://free2z.com/bridge/e2e2z/#rid=${REQUEST_ID}`,
       `https://free2z.com/bridge/e2e2z/#res=nothex&rid=${REQUEST_ID}`,
+      // A key that merely starts with `res` is not `res`.
+      `https://free2z.com/bridge/e2e2z/#resx=dead&rid=${REQUEST_ID}`,
       "https://free2z.com/bridge/e2e2z/",
       "not a url",
     ]) {

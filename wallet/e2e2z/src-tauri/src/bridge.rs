@@ -61,15 +61,17 @@ pub async fn e2e2z_dispatch_intent<R: Runtime>(
 ) -> Result<()> {
     let request = request_hex(&args.request)?;
     app.opener()
-        .open_url(
-            format!("{AUTHORITY_BRIDGE_URL}#{REQUEST_KEY}={request}"),
-            None::<&str>,
-        )
+        .open_url(dispatch_url(request), None::<&str>)
         .map_err(|error| {
             Error::internal(format!(
                 "the wallet authority link could not be opened: {error}"
             ))
         })
+}
+
+/// A separate function so the fragment rule is testable without an app handle.
+fn dispatch_url(request: &str) -> String {
+    format!("{AUTHORITY_BRIDGE_URL}#{REQUEST_KEY}={request}")
 }
 
 /// `value`, once it is provably safe to interpolate into a URL fragment.
@@ -119,6 +121,11 @@ mod tests {
             "0",
             "00ff&rid=41414141",
             "00ff#res=41",
+            // Even length and otherwise all hex, so only the delimiter refusal
+            // can catch these: the two above are odd, and `rid`/`res` are not
+            // hex, so parity and the hex check refuse them first.
+            "ab&cd=ef",
+            "ab#cd=ef",
             "00FF",
             "00 ff",
             "00ffgg",
@@ -132,6 +139,17 @@ mod tests {
         assert!(
             request_hex(&"ab".repeat(MAX_REQUEST_HEX)).is_err(),
             "an unbounded payload must fail here rather than in the platform",
+        );
+    }
+
+    /// §4.1: the request travels in the fragment, never the query.
+    #[test]
+    fn a_dispatch_url_carries_the_request_in_its_fragment() {
+        let url = dispatch_url("00ff");
+        assert_eq!(url, "https://free2z.com/bridge/zuuli/#req=00ff");
+        assert!(
+            !url.contains('?'),
+            "a query component reaches server logs when the link degrades to the web: {url}",
         );
     }
 

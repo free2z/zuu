@@ -402,6 +402,89 @@ serves the three fingerprints — it returns `503` today — and once
 `adb shell pm get-app-links <pkg>` reports `verified` on a signed build. See
 [`PROTOCOL.md` §7.1](./PROTOCOL.md#71-what-has-landed-of-461-and-what-has-not).
 
+## The transport — `bridge.rs` and `appLinkTransport.ts`
+
+The App Link transport carries intent bytes between the apps and decides
+nothing about them, so its guards are about the channel: which links are
+accepted, where a payload is read from and written to, and where an answer
+goes.
+
+Baseline: 6 tests in `wallet/zuuli/src-tauri/src/bridge.rs`, 2 in `intent.rs`
+(`the_answer_is_addressed_from_the_registry` and
+`every_registered_caller_has_a_verified_https_reply_url`), 4 in
+`wallet/e2e2z/src-tauri/src/bridge.rs` and 11 in
+`wallet/e2e2z/src/lib/enrollment/appLinkTransport.test.ts`. Reproduce one row at
+a time: patch, then `cargo test --lib <test> -- --exact` or
+`npx vitest run src/lib/enrollment/appLinkTransport.test.ts -t <title>`, then
+restore.
+
+| Guard, as mutated | Test that must fail | Result |
+|---|---|---|
+| ZUULI accepts a non-`https` link | `only_a_verified_bridge_link_is_accepted` | FAILS |
+| ZUULI accepts any host | `only_a_verified_bridge_link_is_accepted` | FAILS |
+| ZUULI accepts any path | `only_a_verified_bridge_link_is_accepted` | FAILS |
+| ZUULI reads the request from the query as well as the fragment | `only_a_verified_bridge_link_is_accepted` | FAILS |
+| ZUULI takes the request as raw text instead of hex | `only_a_verified_bridge_link_is_accepted` | FAILS |
+| a fragment key matched by prefix | `a_fragment_value_is_read_by_name_and_not_by_position` | FAILS |
+| the answer written to the query | `a_reply_url_carries_only_hex_in_its_fragment` | FAILS |
+| the transport choosing its own destination | `the_destination_comes_from_the_outcome_and_is_not_chosen_here` | FAILS |
+| a parser reference in the transport's code | `the_transport_never_parses_what_it_carries` | FAILS |
+| the reply URL fixed instead of looked up for the admitted caller | `the_answer_is_addressed_from_the_registry` | FAILS |
+| the registry lookup matching any identifier | `every_registered_caller_has_a_verified_https_reply_url` | FAILS |
+| e2e2z dispatches an empty request | `a_request_that_could_restructure_the_link_is_refused` | FAILS |
+| e2e2z dispatches a request of any length | `a_request_that_could_restructure_the_link_is_refused` | FAILS |
+| e2e2z dispatches half a byte | `a_request_that_could_restructure_the_link_is_refused` | FAILS |
+| e2e2z lets `&`, `=` and `#` into the request | `a_request_that_could_restructure_the_link_is_refused` | FAILS |
+| the renderer able to name the destination | `the_authority_is_a_constant_and_not_an_argument` | FAILS |
+| the request dispatched in the query | `a_dispatch_url_carries_the_request_in_its_fragment` | FAILS |
+| e2e2z accepts a non-`https` answer | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| e2e2z accepts an answer on any host | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| e2e2z accepts an answer on any path, the authority's own prefix included | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| e2e2z reads the answer from the query | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| e2e2z accepts an answer with no `rid` | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| e2e2z matches a fragment key by prefix | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| an answer to another request resolves the dispatch | `the App Link transport > ignores an answer to a request it is not waiting for` | FAILS |
+| a second dispatch while one is outstanding | `the App Link transport > refuses a second dispatch while one is outstanding` | FAILS (times out) |
+| a timeout that ignores the request's deadline | `the App Link transport > times out on the request's own deadline` | FAILS (times out) |
+| the transport installed in a browser | `installation > leaves a browser on the fail-closed default` | FAILS |
+
+**27 mutations, 27 failures, 0 survivors.** One run on the finished tree, every
+file restored byte for byte, and the tree ends green.
+
+### What the first run found
+
+Four rows survived the first run, and each was a test passing for the wrong
+reason:
+
+- **Delimiters in a dispatched request.** Every `&` and `#` case was odd
+  length, so the parity check refused it before the charset check ran. The
+  replacements are even length and otherwise hex.
+- **The dispatch URL.** Nothing tested it, because it was built inside the
+  command. `dispatch_url` is now a function with its own test.
+- **An answer to another request.** The test raced the dispatch against an
+  already-resolved promise, which wins even when the dispatch did resolve. It
+  now waits a macrotask and checks a flag.
+- **A fragment key matched by prefix.** Rust had a case for it; TypeScript did
+  not.
+
+### Notes on rows that pass
+
+- `req`, `res` and `rid` are not hex, so a dispatched request could not spell a
+  key the authority reads even without the delimiter refusal. That refusal is
+  defence in depth, and its row proves it holds on its own.
+- The single-flight and deadline rows fail by timing out, not by assertion:
+  with either guard gone, the promise never settles.
+- The no-parsing row is source-asserted. It proves the scan reads code and not
+  comments, not that parsing is impossible.
+
+### What none of this proves
+
+No row delivers a link. The operating system routes an App Link, and
+`on_open_url` and `open_url` need a running app. Whether `free2z.com`'s
+association resolves on a signed build is the App Link association section's
+question. `CallerAttestation::None` is not mutated either: nothing an App Link
+carries could replace it.
+
 ## Cross-language agreement
 
 `rs/crates/f2z-intent/tests/wire_vectors.rs` and
