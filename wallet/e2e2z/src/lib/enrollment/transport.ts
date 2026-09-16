@@ -1,38 +1,37 @@
 /**
- * The one seam where intent bytes would leave this process — and it is shut.
+ * The one seam where intent bytes leave this process, and the fail-closed
+ * default that stands in when nothing else is installed.
  *
- * Everything else in `src/lib/enrollment/` is finished work: this app can
- * sample its device keys, build a byte-exact `issue-device-credential` request,
- * remember it, and judge an answer. What it cannot do is **send** one, and this
- * module is the single place that is true.
+ * Everything else in `src/lib/enrollment/` is independent of how the bytes
+ * travel: this app samples its device keys, builds a byte-exact
+ * `issue-device-credential` request, remembers it, and judges the answer. Only
+ * the sending happens here.
  *
- * ## Why there is no transport, stated as the docs state it
+ * ## Which transport is installed
  *
- * `docs/intent-bridge/PROTOCOL.md` §7 and
- * `docs/intent-bridge/CALLER-AUTHENTICATION.md` §4 draw the same line twice:
+ * In a native runtime, `appLinkTransport.ts` installs a transport over the
+ * verified App Links that [#977](https://github.com/free2z/zuu/pull/977) landed
+ * for [#461](https://github.com/free2z/zuu/issues/461). In a browser nothing is
+ * installed and the default below refuses: a browser tab cannot hand a link to
+ * a native app.
  *
- * - **A custom scheme is not an authenticated channel.** Any app can register
- *   `zuuli://`. Shipping the response half over one would let a hostile app
- *   register the response link and answer with a `DeviceCredential` this app
- *   would then install — [#367](https://github.com/free2z/zuu/issues/367)'s
- *   confused deputy, moved from the frame layer to the OS layer.
- * - **What replaces it is domain-bound.** A verified App Link or Universal Link
- *   reaches only the app whose package or team owns the domain association,
- *   which needs `assetlinks.json` and `apple-app-site-association` served from
- *   a domain we control — [#461](https://github.com/free2z/zuu/issues/461),
- *   still blocked.
- *
- * §7 therefore says, without qualification: *no intent carrying authority may
- * be dispatched over a deep link* until that lands. `issue-device-credential`
- * carries authority.
+ * The line `docs/intent-bridge/PROTOCOL.md` §7 and
+ * `docs/intent-bridge/CALLER-AUTHENTICATION.md` §4 draw still holds. A custom
+ * scheme is not an authenticated channel — any app can register `zuuli://` and
+ * answer with a `DeviceCredential` this app would install, which is
+ * [#367](https://github.com/free2z/zuu/issues/367)'s confused deputy at the OS
+ * layer. A verified App Link reaches only the app that owns the domain
+ * association, which is why it is the transport, and why
+ * `scripts/authority-boundary.node-test.mjs` lets exactly one module install
+ * one.
  *
  * ## The shape of the seam
  *
  * One interface, one method, one fail-closed implementation, and a module-level
- * registry so that a real transport is a single registration rather than an
- * edit spread through the enrollment path. When #461 lands, the work is to
- * write an `IntentTransport` and call {@link setIntentTransport} — not to
- * unpick a refusal from the middle of a flow.
+ * registry, so that a real transport is a single registration rather than an
+ * edit spread through the enrollment path. That is how #461's transport
+ * arrived: `appLinkTransport.ts` calls {@link setIntentTransport}, and nothing
+ * on the enrollment path changed.
  *
  * ## Two independent guards, on purpose
  *

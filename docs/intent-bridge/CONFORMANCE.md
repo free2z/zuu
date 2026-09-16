@@ -130,7 +130,10 @@ away from the wallet, so e2e2z holds device keys and never anything
 seed-derived, and the one operation it cannot perform alone is enrollment
 (`ARCHITECTURE.md` §4.2). It therefore builds an `issue-device-credential`
 request — really, through the shared implementation, over its own OS-CSPRNG
-device public keys — and fails at the transport, because there is not one.
+device public keys — and hands it to the transport seam. In a native runtime
+that is `appLinkTransport.ts`, over the verified App Links `#977` landed for
+`#461`; everywhere else, including every row below, it is the fail-closed
+default, which refuses.
 
 Baseline: 42 tests green across `transport.test.ts`, `deviceKeys.test.ts` and
 `issueDeviceCredential.test.ts`, plus 5 across
@@ -201,10 +204,12 @@ thing — that whoever answered had seen the request, because `request_id` is 32
 CSPRNG bytes that appeared in exactly one outbound message. Not one of them
 establishes that the responder was ZUULI. An app that *received* the request
 holds the identifier and can answer with a `DeviceCredential` of its own
-choosing, and this client would accept it. Only a transport that authenticates
-the response destination closes that, which is
-[#461](https://github.com/free2z/zuu/issues/461), which is why the transport is
-shut.
+choosing, and this client would accept it. The App Link transport narrows that
+without closing it: a verified link reaches only the app that owns the domain
+association, so while the association resolves, no other app receives the
+request or the answer. What these tests cannot observe is that association
+failing — §4.1's case, where a link silently degrades to the web — and nothing
+here signs a response ([#929](https://github.com/free2z/zuu/issues/929)).
 
 ## TypeScript — the caller side, `wallet/free2z`
 
