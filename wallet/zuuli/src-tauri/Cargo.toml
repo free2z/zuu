@@ -98,11 +98,16 @@ tracing = "0.1"
 # Keep Tauri's mock runtime out of Windows test executables; the hosted runner
 # cannot load that linkage. The shipping router still compiles on Windows, and
 # its behavioral IPC probe runs on macOS/Linux.
+# The `#[tokio::test]` macro and a runtime to attach it to: `session.rs`'s wait
+# for the WebView's first publication and `directory_publish.rs`'s loopback
+# servers are async. **Not** under the Windows-excluded block below, unlike
+# Tauri's mock runtime: those tests are not Windows-gated, and a dev-dependency
+# the compiler cannot see on one target is a build that fails only there.
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
 [target.'cfg(not(target_os = "windows"))'.dev-dependencies]
 tauri = { version = "2", features = ["test"] }
-# The session slot's wait, and the publication tests' loopback servers, need a
-# runtime with timers and the `#[tokio::test]` macro.
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
 # #753's census needs a data directory it can make *unopenable*. Already in the
 # lock as a transitive dependency, so naming it adds no crate to the graph.

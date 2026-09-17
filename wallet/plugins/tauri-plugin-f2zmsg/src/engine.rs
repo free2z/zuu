@@ -8713,6 +8713,7 @@ mod directory_state_tests {
             submitted_at: Some(1),
             merged_at_epoch: None,
             directory_receipt: None,
+            submitted_by_issuer: false,
         }
     }
 

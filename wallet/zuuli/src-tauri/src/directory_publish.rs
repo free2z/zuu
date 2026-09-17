@@ -69,6 +69,8 @@ use f2z_kt_core::entry::{ContactEndpoint, DeviceCredential};
 use f2z_kt_core::receipt::SubmissionReceipt;
 use f2z_kt_core::types::{Handle, LogId};
 use f2z_msg_identity::{AccountKeys, SignedSubmission, SubmissionDraft};
+// `Engine<B>`'s own bound, restated: its directory work runs on a blocking
+// task, so the backend has to outlive the call and cross threads.
 use f2z_msg_store::StorageBackend;
 use tauri_plugin_f2zmsg::directory::{SubmissionExpectation, VerifiedEntry};
 use tauri_plugin_f2zmsg::engine::{DeviceEndpoint, DirectoryPublication, Engine};
@@ -470,7 +472,7 @@ impl PublicationPlan {
 /// `handle-ineligible` when the handle is not this account's, when no free2z
 /// session is signed in, or when the assertion does not verify; the directory's
 /// lookup errors; [`status_refusal`]'s codes.
-pub async fn plan_publication<B: StorageBackend>(
+pub async fn plan_publication<B: StorageBackend + Send + Sync + 'static>(
     internal: &InternalDirectory,
     engine: &Engine<B>,
     client: &HandleAssertionClient,
@@ -551,7 +553,7 @@ pub struct DeviceToPublish {
 ///
 /// `internal` if the credential does not match the plan; `handle-ineligible`
 /// when the precheck refuses; the log's refusals.
-pub async fn publish_device<B: StorageBackend>(
+pub async fn publish_device<B: StorageBackend + Send + Sync + 'static>(
     internal: &InternalDirectory,
     engine: &Engine<B>,
     account: &AccountKeys,
