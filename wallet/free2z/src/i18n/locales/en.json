@@ -24,7 +24,7 @@
       "triggerAccessible": "Start encrypted chat with @{username}",
       "again": "Message again",
       "againAccessible": "Message again with @{username} in e2e2z",
-      "installHint": "Don't have e2e2z yet? Open e2e2z takes you to its install page.",
+      "installHint": "Don't have e2e2z yet? “Open e2e2z” takes you to its install page.",
       "confirm": {
         "title": "Start an encrypted chat with @{username}",
         "body": "{cost}, paid to @{username}. Messages are end-to-end encrypted in the e2e2z app.",
