@@ -130,12 +130,15 @@ away from the wallet, so e2e2z holds device keys and never anything
 seed-derived, and the one operation it cannot perform alone is enrollment
 (`ARCHITECTURE.md` §4.2). It therefore builds an `issue-device-credential`
 request — really, through the shared implementation, over its own OS-CSPRNG
-device public keys — and fails at the transport, because there is not one.
+device public keys — and hands it to the transport seam. In a native runtime
+that is `appLinkTransport.ts`, over the verified App Links `#977` landed for
+`#461`; everywhere else, including every row below, it is the fail-closed
+default, which refuses.
 
 Baseline: 42 tests green across `transport.test.ts`, `deviceKeys.test.ts` and
 `issueDeviceCredential.test.ts`, plus 5 across
 `wallet/e2e2z/src/lib/messaging/enroll-intent.test.ts` and
-`enroll-chunk-failure.test.ts`, plus the 6 in
+`enroll-chunk-failure.test.ts`, plus the 8 in
 `wallet/e2e2z/scripts/authority-boundary.node-test.mjs`. Reproduce with
 `cd wallet/e2e2z && npx vitest run && node --test scripts/authority-boundary.node-test.mjs`.
 
@@ -148,11 +151,11 @@ Baseline: 42 tests green across `transport.test.ts`, `deviceKeys.test.ts` and
 | session correlation, seen from the caller | `refuses an answer to a different request`, `refuses an answer whose identifier differs in one byte`, `refuses a replay of an answer it already accepted` | FAILS |
 | `IssueDeviceCredentialResultV1` trailing-byte refusal **and** re-encode equality, together | `the issue-device-credential family result > refuses trailing bytes` | FAILS |
 | `IssueDeviceCredentialResultV1` non-empty credential | `the issue-device-credential family result > refuses a zero-length credential` | FAILS |
-| seed authority: the wallet plugin as a dependency | `e2e2z holds neither seed authority nor dispatch authority` | FAILS |
-| seed authority: a `plugin:zcash\|` invoke in the renderer | `e2e2z holds neither seed authority nor dispatch authority` | FAILS |
-| seed authority: `get_seed_phrase` named in executable code | `e2e2z holds neither seed authority nor dispatch authority` | FAILS |
+| seed authority: the wallet plugin as a dependency | `e2e2z holds no seed authority, and no unreviewed dispatch authority` | FAILS |
+| seed authority: a `plugin:zcash\|` invoke in the renderer | `e2e2z holds no seed authority, and no unreviewed dispatch authority` | FAILS |
+| seed authority: `get_seed_phrase` named in executable code | `e2e2z holds no seed authority, and no unreviewed dispatch authority` | FAILS |
 | `enroll`'s lazy `import()` inside the `try`, so a chunk-load failure still wears the typed refusal | `a chunk that never loads > still refuses with the typed enrollment refusal` | FAILS |
-| dispatch authority: only a test may call `setIntentTransport` | `e2e2z holds neither seed authority nor dispatch authority` | FAILS |
+| dispatch authority: a second production module calls `setIntentTransport` | `e2e2z holds no seed authority, and no unreviewed dispatch authority` | FAILS |
 
 **12 mutations, 12 failures, 0 survivors.** Every one was applied, watched to
 fail with a named assertion, and restored; the tree ends green.
@@ -163,11 +166,12 @@ pointed in two directions. `enroll` reaches its client through a lazy
 escapes as an untyped error, and the screen — which branches on
 `isEnrollmentUnavailable` — would say "something broke" instead of the one true
 thing this app can say. And `setIntentTransport` is exported so the tests can
-drive the shipping path against a wallet stand-in; a guard defeated by one call
-to it from a renderer module has exactly the shape of the guard defeated by one
-boolean that `transport.ts` argues against. Neither changed what the app can do
-— both were already fail-closed — and both are now pinned rather than true by
-accident.
+drive the shipping path against a wallet stand-in — and, since #461 landed as
+#977, so that `src/lib/enrollment/appLinkTransport.ts` can register the one
+reviewed transport; a guard defeated by one *further* call to it from any other
+renderer module has exactly the shape of the guard defeated by one boolean that
+`transport.ts` argues against. Neither changed what the app can do — both were
+already fail-closed — and both are now pinned rather than true by accident.
 
 ### What survived, and what that means
 
@@ -182,11 +186,15 @@ something true about where a guard actually lives:
 The authority scan additionally carries its own coverage anchors — a fabricated
 violation of each of its three seed routes, an assertion that prose about the
 seed is *not* a violation while executable code is, an assertion that
-`setIntentTransport` is permitted from a test and refused from a production
-module, an assertion that the transport rule fails loudly if the export it is
-about is ever renamed away, and an assertion that the reader saw a manifest, a
-capability file and more than twenty sources. A boundary scanner that has
-silently stopped finding files reports success forever (`#553`).
+`setIntentTransport` is permitted from a test and from the one sanctioned
+module and refused from every other production module — including a sibling in
+the same directory, so the exemption cannot be read as covering
+`src/lib/enrollment/*` — an assertion that the transport rule fails loudly if
+the export it is about is ever renamed away, an assertion that the exemption
+fails loudly if the module it names stops existing or stops installing, and an
+assertion that the reader saw a manifest, a capability file and more than
+twenty sources. A boundary scanner that has silently stopped finding files
+reports success forever (`#553`).
 
 ### What none of this proves
 
@@ -196,10 +204,12 @@ thing — that whoever answered had seen the request, because `request_id` is 32
 CSPRNG bytes that appeared in exactly one outbound message. Not one of them
 establishes that the responder was ZUULI. An app that *received* the request
 holds the identifier and can answer with a `DeviceCredential` of its own
-choosing, and this client would accept it. Only a transport that authenticates
-the response destination closes that, which is
-[#461](https://github.com/free2z/zuu/issues/461), which is why the transport is
-shut.
+choosing, and this client would accept it. The App Link transport narrows that
+without closing it: a verified link reaches only the app that owns the domain
+association, so while the association resolves, no other app receives the
+request or the answer. What these tests cannot observe is that association
+failing — §4.1's case, where a link silently degrades to the web — and nothing
+here signs a response ([#929](https://github.com/free2z/zuu/issues/929)).
 
 ## TypeScript — the caller side, `wallet/free2z`
 
@@ -391,6 +401,89 @@ association is only real once `https://free2z.com/.well-known/assetlinks.json`
 serves the three fingerprints — it returns `503` today — and once
 `adb shell pm get-app-links <pkg>` reports `verified` on a signed build. See
 [`PROTOCOL.md` §7.1](./PROTOCOL.md#71-what-has-landed-of-461-and-what-has-not).
+
+## The transport — `bridge.rs` and `appLinkTransport.ts`
+
+The App Link transport carries intent bytes between the apps and decides
+nothing about them, so its guards are about the channel: which links are
+accepted, where a payload is read from and written to, and where an answer
+goes.
+
+Baseline: 6 tests in `wallet/zuuli/src-tauri/src/bridge.rs`, 2 in `intent.rs`
+(`the_answer_is_addressed_from_the_registry` and
+`every_registered_caller_has_a_verified_https_reply_url`), 4 in
+`wallet/e2e2z/src-tauri/src/bridge.rs` and 11 in
+`wallet/e2e2z/src/lib/enrollment/appLinkTransport.test.ts`. Reproduce one row at
+a time: patch, then `cargo test --lib <test> -- --exact` or
+`npx vitest run src/lib/enrollment/appLinkTransport.test.ts -t <title>`, then
+restore.
+
+| Guard, as mutated | Test that must fail | Result |
+|---|---|---|
+| ZUULI accepts a non-`https` link | `only_a_verified_bridge_link_is_accepted` | FAILS |
+| ZUULI accepts any host | `only_a_verified_bridge_link_is_accepted` | FAILS |
+| ZUULI accepts any path | `only_a_verified_bridge_link_is_accepted` | FAILS |
+| ZUULI reads the request from the query as well as the fragment | `only_a_verified_bridge_link_is_accepted` | FAILS |
+| ZUULI takes the request as raw text instead of hex | `only_a_verified_bridge_link_is_accepted` | FAILS |
+| a fragment key matched by prefix | `a_fragment_value_is_read_by_name_and_not_by_position` | FAILS |
+| the answer written to the query | `a_reply_url_carries_only_hex_in_its_fragment` | FAILS |
+| the transport choosing its own destination | `the_destination_comes_from_the_outcome_and_is_not_chosen_here` | FAILS |
+| a parser reference in the transport's code | `the_transport_never_parses_what_it_carries` | FAILS |
+| the reply URL fixed instead of looked up for the admitted caller | `the_answer_is_addressed_from_the_registry` | FAILS |
+| the registry lookup matching any identifier | `every_registered_caller_has_a_verified_https_reply_url` | FAILS |
+| e2e2z dispatches an empty request | `a_request_that_could_restructure_the_link_is_refused` | FAILS |
+| e2e2z dispatches a request of any length | `a_request_that_could_restructure_the_link_is_refused` | FAILS |
+| e2e2z dispatches half a byte | `a_request_that_could_restructure_the_link_is_refused` | FAILS |
+| e2e2z lets `&`, `=` and `#` into the request | `a_request_that_could_restructure_the_link_is_refused` | FAILS |
+| the renderer able to name the destination | `the_authority_is_a_constant_and_not_an_argument` | FAILS |
+| the request dispatched in the query | `a_dispatch_url_carries_the_request_in_its_fragment` | FAILS |
+| e2e2z accepts a non-`https` answer | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| e2e2z accepts an answer on any host | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| e2e2z accepts an answer on any path, the authority's own prefix included | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| e2e2z reads the answer from the query | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| e2e2z accepts an answer with no `rid` | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| e2e2z matches a fragment key by prefix | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| an answer to another request resolves the dispatch | `the App Link transport > ignores an answer to a request it is not waiting for` | FAILS |
+| a second dispatch while one is outstanding | `the App Link transport > refuses a second dispatch while one is outstanding` | FAILS (times out) |
+| a timeout that ignores the request's deadline | `the App Link transport > times out on the request's own deadline` | FAILS (times out) |
+| the transport installed in a browser | `installation > leaves a browser on the fail-closed default` | FAILS |
+
+**27 mutations, 27 failures, 0 survivors.** One run on the finished tree, every
+file restored byte for byte, and the tree ends green.
+
+### What the first run found
+
+Four rows survived the first run, and each was a test passing for the wrong
+reason:
+
+- **Delimiters in a dispatched request.** Every `&` and `#` case was odd
+  length, so the parity check refused it before the charset check ran. The
+  replacements are even length and otherwise hex.
+- **The dispatch URL.** Nothing tested it, because it was built inside the
+  command. `dispatch_url` is now a function with its own test.
+- **An answer to another request.** The test raced the dispatch against an
+  already-resolved promise, which wins even when the dispatch did resolve. It
+  now waits a macrotask and checks a flag.
+- **A fragment key matched by prefix.** Rust had a case for it; TypeScript did
+  not.
+
+### Notes on rows that pass
+
+- `req`, `res` and `rid` are not hex, so a dispatched request could not spell a
+  key the authority reads even without the delimiter refusal. That refusal is
+  defence in depth, and its row proves it holds on its own.
+- The single-flight and deadline rows fail by timing out, not by assertion:
+  with either guard gone, the promise never settles.
+- The no-parsing row is source-asserted. It proves the scan reads code and not
+  comments, not that parsing is impossible.
+
+### What none of this proves
+
+No row delivers a link. The operating system routes an App Link, and
+`on_open_url` and `open_url` need a running app. Whether `free2z.com`'s
+association resolves on a signed build is the App Link association section's
+question. `CallerAttestation::None` is not mutated either: nothing an App Link
+carries could replace it.
 
 ## Cross-language agreement
 
