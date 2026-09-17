@@ -27,6 +27,8 @@ export interface HostEngine {
   pendingInbound: number;
   unacknowledgedAlarms: number;
   lastError: string | null;
+  /** ADR 0017 §3; absent in a build older than the field. */
+  directoryBlocked?: string | null;
 }
 
 export interface HostEnrollment {
@@ -69,6 +71,7 @@ export const ENGINE_STOPPED: HostEngine = {
   pendingInbound: 0,
   unacknowledgedAlarms: 0,
   lastError: null,
+  directoryBlocked: null,
 };
 
 export const NOT_ENROLLED: HostEnrollment = {

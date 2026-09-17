@@ -228,11 +228,16 @@ function ServiceNotConfigured({ status }: { status: EngineStatus }) {
  *
  * Neither is a network condition and neither clears itself, so they are said
  * here — beside the witness warning, before anyone taps anything — rather than
- * only when a lookup fails. `lastError` is how `start_engine` reports them
- * (`CLIENT-CONTRACT.md` §8).
+ * only when a lookup fails.
+ *
+ * Keyed on `directoryBlocked`, **not** on `lastError`. `lastError` is the last
+ * thing that went wrong anywhere, and the inbound poll rewrites it every five
+ * seconds with the current relay weather, so this callout would blink out
+ * while the directory was still refusing to be used. `directoryBlocked` is
+ * written by directory state and by nothing else.
  */
 function DirectoryUnusable({ status }: { status: EngineStatus }) {
-  if (status.lastError === "directory-unvouched") {
+  if (status.directoryBlocked === "directory-unvouched") {
     return (
       <Callout
         tone="destructive"
@@ -248,7 +253,7 @@ function DirectoryUnusable({ status }: { status: EngineStatus }) {
       </Callout>
     );
   }
-  if (status.lastError === "directory-state-invalid") {
+  if (status.directoryBlocked === "directory-state-invalid") {
     return (
       <Callout
         tone="destructive"

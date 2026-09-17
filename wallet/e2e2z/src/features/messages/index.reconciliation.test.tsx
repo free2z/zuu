@@ -47,6 +47,7 @@ const STATUS: EngineStatus = {
   pendingInbound: 0,
   unacknowledgedAlarms: 0,
   lastError: null,
+  directoryBlocked: null,
 };
 const ENROLLMENT: EnrollmentStatus = {
   enrolled: true,

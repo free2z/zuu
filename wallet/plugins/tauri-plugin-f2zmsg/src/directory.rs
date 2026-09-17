@@ -278,6 +278,20 @@ pub trait Directory: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Why this directory is unusable until something outside the app
+    /// changes — a log that does not vouch with the bundled authority, or
+    /// saved state this device cannot trust (ADR 0017 §3).
+    ///
+    /// Separate from `EngineStatus.lastError` on purpose. `lastError` is the
+    /// last thing that went wrong anywhere, and the inbound pump overwrites it
+    /// every few seconds with the current relay weather; a UI that keyed a
+    /// "this directory is not usable" banner on it would take the banner down
+    /// while the condition still held. This is written by directory state and
+    /// by nothing else, so it stays up until the state changes.
+    fn directory_blocked(&self) -> Option<ErrorCode> {
+        None
+    }
+
     /// Give the directory the place this device keeps its last verified tree
     /// head, or take it away (`None`).
     ///
@@ -700,38 +714,14 @@ impl KtDirectory {
         let Some(authority) = self.required_authority else {
             return Ok(());
         };
-        let refusal = match client.require_authority_policy(std::slice::from_ref(&authority)) {
-            Ok(()) => {
-                let now = client.authority_policy().map(comparable_policy);
-                let mut pinned = self.pinned_policy.lock().map_err(|_| poisoned())?;
-                match (pinned.as_ref(), now) {
-                    (Some(before), Some(now)) if *before != now => Error::new(
-                        ErrorCode::DirectoryUnvouched,
-                        "the log's signed authority policy changed since this directory was \
-                         opened; refusing it from now on (ADR 0017)",
-                    ),
-                    (None, now) => {
-                        *pinned = now;
-                        return Ok(());
-                    }
-                    _ => return Ok(()),
-                }
-            }
-            Err(ClientError::Unreachable(_)) => return Ok(()),
-            Err(other) => map_error(other),
-        };
-        tracing::error!(
-            code = %refusal.code(),
-            context = %refusal.context(),
-            "the directory is no longer usable"
-        );
-        if let Ok(mut slot) = self.unusable.lock() {
-            *slot = Some(refusal.clone());
-        }
-        if let Ok(mut met) = self.threshold_met.lock() {
-            *met = false;
-        }
-        Err(refusal)
+        // Everything that talks to the log happens here; everything that
+        // decides, and everything that remembers, is in the two functions
+        // below, where a test can drive them without one.
+        let checked = client.require_authority_policy(std::slice::from_ref(&authority));
+        let now = client.authority_policy().map(comparable_policy);
+        let pinned = self.pinned_policy.lock().map_err(|_| poisoned())?;
+        let verdict = policy_verdict(checked, now, pinned.as_ref());
+        apply_verdict(verdict, pinned, &self.unusable, &self.threshold_met)
     }
 
     fn usable(&self) -> crate::error::Result<()> {
@@ -1032,6 +1022,13 @@ impl Directory for KtDirectory {
         self.refresh_root()
     }
 
+    fn directory_blocked(&self) -> Option<ErrorCode> {
+        self.unusable
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(Error::code))
+    }
+
     fn lookup_entry(&self, handle: &str) -> crate::error::Result<Option<VerifiedEntry>> {
         Ok(self
             .lookup(handle)?
@@ -1085,12 +1082,146 @@ fn save_checkpoint(
     store.save(&bytes)
 }
 
-/// A policy with its one time-varying field removed, for comparison.
+/// A policy in the one shape two of them may be compared in: its only
+/// time-varying field zeroed, and its lists **sorted**.
+///
+/// `AuthorityPolicyTBS` derives `PartialEq`, so its `VecU16` fields compare in
+/// order. `KtClient::require_authority_policy` is deliberately order-blind —
+/// it compares key *sets* — and a pinned copy that was order-sensitive would
+/// make a log that merely reordered two authorities, or two
+/// `asserted_versions`, look like a log that changed its policy. With one
+/// authority the difference cannot show; the day there are two it would, and
+/// it would show as a false alarm that makes the directory unusable.
 fn comparable_policy(policy: &AuthorityPolicyTBS) -> AuthorityPolicyTBS {
+    let mut authorities = policy.authorities.as_slice().to_vec();
+    authorities.sort_unstable_by_key(|key| *key.as_bytes());
+    let mut asserted_versions = policy.asserted_versions.as_slice().to_vec();
+    asserted_versions.sort_unstable();
     AuthorityPolicyTBS {
         published_at_ms: 0,
+        authorities: authorities.into(),
+        asserted_versions: asserted_versions.into(),
         ..policy.clone()
     }
+}
+
+/// What a §4.6 policy check decides, before any state is touched.
+///
+/// Extracted from [`KtDirectory::recheck_policy`] so the decision can be
+/// tested without a log: the call site is a match with one arm each, and the
+/// rule that a transient failure is **not** remembered lives here where a test
+/// can drive it (#1027 review, F1).
+#[derive(Debug)]
+enum PolicyVerdict {
+    /// The policy is the one this connection pinned. Nothing to do.
+    Unchanged,
+    /// Nothing was pinned yet; pin this.
+    Pin(AuthorityPolicyTBS),
+    /// Report it and forget it: this says nothing about who may claim a handle
+    /// on this log.
+    Report(Error),
+    /// Refuse this directory from now on.
+    Latch(Error),
+}
+
+/// Decide, given the check's outcome, the policy that verified (in
+/// [`comparable_policy`] form) and the one this connection pinned.
+fn policy_verdict(
+    checked: core::result::Result<(), ClientError>,
+    now: Option<AuthorityPolicyTBS>,
+    pinned: Option<&AuthorityPolicyTBS>,
+) -> PolicyVerdict {
+    match checked {
+        Ok(()) => match (pinned, now) {
+            (Some(before), Some(now)) if *before != now => PolicyVerdict::Latch(Error::new(
+                ErrorCode::DirectoryUnvouched,
+                "the log's signed authority policy changed since this directory was opened; \
+                 refusing it from now on (ADR 0017)",
+            )),
+            (None, Some(now)) => PolicyVerdict::Pin(now),
+            _ => PolicyVerdict::Unchanged,
+        },
+        Err(error) if latching(&error) => PolicyVerdict::Latch(map_error(error)),
+        Err(error) => PolicyVerdict::Report(map_error(error)),
+    }
+}
+
+/// Act on a [`PolicyVerdict`]: pin, do nothing, report, or **remember**.
+///
+/// The state a latch touches is passed in rather than reached through `self`
+/// so that the one rule worth a test — a verdict that is only reported leaves
+/// every piece of that state exactly as it was — is a test with no log, no
+/// transport and no connection in it.
+fn apply_verdict(
+    verdict: PolicyVerdict,
+    mut pinned: std::sync::MutexGuard<'_, Option<AuthorityPolicyTBS>>,
+    unusable: &Mutex<Option<Error>>,
+    threshold_met: &Mutex<bool>,
+) -> crate::error::Result<()> {
+    let refusal = match verdict {
+        PolicyVerdict::Unchanged => return Ok(()),
+        PolicyVerdict::Pin(policy) => {
+            *pinned = Some(policy);
+            return Ok(());
+        }
+        // Reported and forgotten: the directory is exactly as usable as it was
+        // a moment ago, and the caller decides what to do about a log that did
+        // not answer this question.
+        PolicyVerdict::Report(error) => return Err(error),
+        PolicyVerdict::Latch(refusal) => refusal,
+    };
+    drop(pinned);
+    tracing::error!(
+        code = %refusal.code(),
+        context = %refusal.context(),
+        "the directory is no longer usable"
+    );
+    if let Ok(mut slot) = unusable.lock() {
+        *slot = Some(refusal.clone());
+    }
+    if let Ok(mut met) = threshold_met.lock() {
+        *met = false;
+    }
+    Err(refusal)
+}
+
+/// Whether a failed authority-policy check is a **statement** about the log
+/// rather than a bad moment.
+///
+/// Latching one is permanent for the process, so the set is small and each
+/// member is non-transient by construction:
+///
+/// - [`ClientError::AuthorityPolicyMismatch`] — the log signed a policy that
+///   does not vouch with exactly the bundled authority. Asking again cannot
+///   change what it signed.
+/// - [`KtError::BadSignature`] — something served a policy that does not
+///   verify under the log key this client has already accepted. That is not a
+///   log with a busy minute; it is either the log using a key it is not
+///   entitled to, or a party on the path substituting the document.
+/// - [`KtError::WrongLog`] — the policy names another `log_id`, which is a
+///   replay of a different log's document.
+///
+/// Everything else — unreachable, refused (including `ERR_RATE_LIMITED`), an
+/// answer that does not decode, a catch-up checkpoint — is transient or is
+/// about the path, and is reported without being remembered.
+fn latching(error: &ClientError) -> bool {
+    matches!(
+        error,
+        ClientError::AuthorityPolicyMismatch
+            | ClientError::Protocol(KtError::BadSignature | KtError::WrongLog)
+    )
+}
+
+/// Which refusals a **status read** may keep showing: the two that say the
+/// directory will not work until something outside the app changes. A
+/// timeout, a rate limit or a proof failure is about this moment or about one
+/// answer, and `EngineStatus.lastError` is where those belong.
+fn blocking_code(code: ErrorCode) -> Option<ErrorCode> {
+    matches!(
+        code,
+        ErrorCode::DirectoryUnvouched | ErrorCode::DirectoryStateInvalid
+    )
+    .then_some(code)
 }
 
 fn state_invalid(what: &str) -> Error {
@@ -1132,6 +1263,12 @@ pub struct BundledDirectory {
     checkpoints: Mutex<Option<Arc<dyn CheckpointStore>>>,
     generation: AtomicU64,
     connected: Mutex<Option<(u64, Arc<KtDirectory>)>>,
+    /// The last **non-transient** reason a connection was refused, for
+    /// [`Directory::directory_blocked`]. A connect that fails on the authority
+    /// policy or on this device's saved state leaves no `KtDirectory` to hold
+    /// the latch, and that is exactly the case the UI has to be able to
+    /// explain. Cleared by a connection that succeeds.
+    blocked: Mutex<Option<ErrorCode>>,
 }
 
 impl core::fmt::Debug for BundledDirectory {
@@ -1153,6 +1290,7 @@ impl BundledDirectory {
             checkpoints: Mutex::new(None),
             generation: AtomicU64::new(0),
             connected: Mutex::new(None),
+            blocked: Mutex::new(None),
         }
     }
 
@@ -1182,7 +1320,18 @@ impl BundledDirectory {
                      the engine first",
                 )
             })?;
-        let directory = Arc::new(KtDirectory::connect_with(&self.config, Some(store))?);
+        let directory = match KtDirectory::connect_with(&self.config, Some(store)) {
+            Ok(directory) => Arc::new(directory),
+            Err(error) => {
+                if let Ok(mut blocked) = self.blocked.lock() {
+                    *blocked = blocking_code(error.code());
+                }
+                return Err(error);
+            }
+        };
+        if let Ok(mut blocked) = self.blocked.lock() {
+            *blocked = None;
+        }
         // Cached only if no attach happened meanwhile; either way this caller
         // gets the connection it asked for.
         if self.generation.load(Ordering::SeqCst) == generation {
@@ -1243,6 +1392,20 @@ impl Directory for BundledDirectory {
         }
     }
 
+    fn directory_blocked(&self) -> Option<ErrorCode> {
+        // `try_lock` on the connection: a status read never waits behind a
+        // connection attempt. The remembered connect refusal needs no
+        // connection, so it answers either way.
+        self.connected
+            .try_lock()
+            .ok()
+            .and_then(|slot| {
+                slot.as_ref()
+                    .and_then(|(_, directory)| directory.directory_blocked())
+            })
+            .or_else(|| self.blocked.lock().ok().and_then(|slot| *slot))
+    }
+
     fn attach_checkpoints(&self, store: Option<Arc<dyn CheckpointStore>>) {
         // Short critical sections only: this is called from async engine
         // code, and a connection attempt may hold `connected` for a network
@@ -1253,6 +1416,11 @@ impl Directory for BundledDirectory {
         self.generation.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut slot) = self.connected.try_lock() {
             *slot = None;
+        }
+        // A new set of device secrets is a new question about this device's
+        // saved state; the previous answer is not evidence about it.
+        if let Ok(mut blocked) = self.blocked.lock() {
+            *blocked = None;
         }
     }
 
@@ -1273,9 +1441,15 @@ impl Directory for BundledDirectory {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use super::{BundledDirectory, CheckpointStore, Directory, DirectoryConfig, WitnessConfig};
+    use f2z_kt_core::policy::AuthorityPolicyTBS;
+
+    use super::{
+        BundledDirectory, CheckpointStore, ClientError, Directory, DirectoryConfig, ErrorCode,
+        LogId, PolicyVerdict, WitnessConfig, apply_verdict, blocking_code, comparable_policy,
+        latching, policy_verdict,
+    };
+    use crate::error::Error;
     use crate::error::Result;
-    use crate::models::ErrorCode;
 
     /// A store that answers from memory, so nothing here touches a disk or a
     /// log.
@@ -1332,6 +1506,245 @@ mod tests {
         }
         assert!(!directory.threshold_met());
         assert!(directory.is_configured());
+    }
+
+    /// A §4.6 policy for `log_id` naming `authorities`, in whatever order.
+    fn policy(log_id: [u8; 32], authorities: &[[u8; 32]], versions: &[u32]) -> AuthorityPolicyTBS {
+        AuthorityPolicyTBS {
+            label: f2z_kt_core::types::label_field(f2z_kt_core::policy::LABEL_AUTHORITY_POLICY)
+                .expect("label"),
+            kt_version: f2z_kt_core::KT_VERSION,
+            log_id: LogId::new(log_id),
+            vouching: f2z_kt_core::policy::VOUCHING_VOUCHED,
+            authorities: authorities
+                .iter()
+                .map(|key| f2z_codec::types::PublicKey::new(*key))
+                .collect::<Vec<_>>()
+                .into(),
+            max_validity_ms: 900_000,
+            clock_skew_ms: 120_000,
+            asserted_versions: versions.to_vec().into(),
+            published_at_ms: 7,
+        }
+    }
+
+    #[test]
+    fn a_reordered_policy_is_the_same_policy() {
+        // `require_authority_policy` compares key *sets*, so the pinned copy
+        // must too: a log that reordered two authorities, or two
+        // `asserted_versions`, has not changed its policy, and treating that
+        // as a change would make the directory unusable for nothing
+        // (#1027 review, F3).
+        let one = policy([9; 32], &[[1; 32], [2; 32]], &[1, 3]);
+        let other = policy([9; 32], &[[2; 32], [1; 32]], &[3, 1]);
+        assert_ne!(one, other, "the derived comparison is order-sensitive");
+        assert_eq!(comparable_policy(&one), comparable_policy(&other));
+
+        // And it is still a comparison: a different authority, a different
+        // set of asserted versions, and a different published time are not
+        // all the same thing.
+        assert_ne!(
+            comparable_policy(&one),
+            comparable_policy(&policy([9; 32], &[[1; 32], [3; 32]], &[1, 3]))
+        );
+        assert_ne!(
+            comparable_policy(&one),
+            comparable_policy(&policy([9; 32], &[[1; 32], [2; 32]], &[1]))
+        );
+        let mut later = policy([9; 32], &[[1; 32], [2; 32]], &[1, 3]);
+        later.published_at_ms = 9_999;
+        assert_eq!(
+            comparable_policy(&one),
+            comparable_policy(&later),
+            "the one time-varying field is not a change"
+        );
+    }
+
+    /// `policy_verdict`, as a pair of (what happened, what it decided).
+    fn verdict(
+        checked: core::result::Result<(), ClientError>,
+        now: Option<AuthorityPolicyTBS>,
+        pinned: Option<&AuthorityPolicyTBS>,
+    ) -> PolicyVerdict {
+        policy_verdict(checked, now, pinned)
+    }
+
+    #[test]
+    fn a_policy_that_could_not_be_checked_is_reported_and_forgotten() {
+        // #1027 review, F1, at the site that decides: an earlier version
+        // latched EVERY failure, so one 429 from the log's own `/authority`
+        // endpoint made the directory permanently unusable — under
+        // `directory-rate-limited`, which §8's table tells the client to
+        // retry, and with no UI anywhere to explain it.
+        let pinned = comparable_policy(&policy([9; 32], &[[1; 32]], &[1]));
+        for (error, expected) in [
+            (
+                ClientError::Refused(f2z_kt_core::ErrorCode::RateLimited),
+                ErrorCode::DirectoryRateLimited,
+            ),
+            (
+                ClientError::Unreachable("captive portal".to_owned()),
+                ErrorCode::DirectoryUnreachable,
+            ),
+            (
+                ClientError::Protocol(f2z_kt_core::KtError::Malformed),
+                ErrorCode::DirectoryProtocolViolation,
+            ),
+        ] {
+            match verdict(Err(error), None, Some(&pinned)) {
+                PolicyVerdict::Report(reported) => assert_eq!(reported.code(), expected),
+                other => panic!("{expected} must be reported, not {other:?}"),
+            }
+        }
+
+        // And the statements still latch.
+        for error in [
+            ClientError::AuthorityPolicyMismatch,
+            ClientError::Protocol(f2z_kt_core::KtError::BadSignature),
+            ClientError::Protocol(f2z_kt_core::KtError::WrongLog),
+        ] {
+            assert!(
+                matches!(
+                    verdict(Err(error), None, Some(&pinned)),
+                    PolicyVerdict::Latch(_)
+                ),
+                "a statement about vouching is remembered"
+            );
+        }
+
+        // And what each verdict *does* to the state a lookup consults.
+        let pin_slot = Mutex::new(None);
+        let unusable = Mutex::new(None);
+        let threshold_met = Mutex::new(true);
+        let act = |verdict| {
+            apply_verdict(
+                verdict,
+                pin_slot.lock().expect("pin"),
+                &unusable,
+                &threshold_met,
+            )
+        };
+        let reported = act(PolicyVerdict::Report(Error::new(
+            ErrorCode::DirectoryRateLimited,
+            "the log is rate limiting its authority endpoint",
+        )))
+        .expect_err("a report is still an error to the caller");
+        assert_eq!(reported.code(), ErrorCode::DirectoryRateLimited);
+        assert!(
+            unusable.lock().expect("unusable").is_none(),
+            "a transient failure must leave the directory usable"
+        );
+        assert!(
+            *threshold_met.lock().expect("threshold"),
+            "and must not move the threshold either"
+        );
+        assert!(act(PolicyVerdict::Unchanged).is_ok());
+        assert!(unusable.lock().expect("unusable").is_none());
+
+        act(PolicyVerdict::Pin(pinned.clone())).expect("pinning is not a failure");
+        assert_eq!(pin_slot.lock().expect("pin").as_ref(), Some(&pinned));
+
+        let latched = act(PolicyVerdict::Latch(Error::new(
+            ErrorCode::DirectoryUnvouched,
+            "the policy changed",
+        )))
+        .expect_err("a latch is an error");
+        assert_eq!(latched.code(), ErrorCode::DirectoryUnvouched);
+        assert_eq!(
+            unusable.lock().expect("unusable").as_ref().map(Error::code),
+            Some(ErrorCode::DirectoryUnvouched)
+        );
+        assert!(!*threshold_met.lock().expect("threshold"));
+
+        // A policy that verifies pins once, then agrees with itself, and a
+        // change is a latch.
+        assert!(matches!(
+            verdict(Ok(()), Some(pinned.clone()), None),
+            PolicyVerdict::Pin(_)
+        ));
+        assert!(matches!(
+            verdict(Ok(()), Some(pinned.clone()), Some(&pinned)),
+            PolicyVerdict::Unchanged
+        ));
+        let changed = comparable_policy(&policy([9; 32], &[[2; 32]], &[1]));
+        match verdict(Ok(()), Some(changed), Some(&pinned)) {
+            PolicyVerdict::Latch(refusal) => {
+                assert_eq!(refusal.code(), ErrorCode::DirectoryUnvouched);
+            }
+            other => panic!("a changed policy is a latch, not {other:?}"),
+        }
+    }
+
+    #[test]
+    fn only_a_statement_about_vouching_is_latched() {
+        // #1027 review, F1: an earlier version latched EVERY policy-fetch
+        // failure, so one 429 from the log's own `/authority` endpoint made
+        // the directory permanently unusable — under `directory-rate-limited`,
+        // which §8's table tells the client to retry.
+        for transient in [
+            ClientError::Unreachable("timed out".to_owned()),
+            ClientError::Refused(f2z_kt_core::ErrorCode::RateLimited),
+            ClientError::Refused(f2z_kt_core::ErrorCode::Internal),
+            ClientError::Protocol(f2z_kt_core::KtError::Malformed),
+            ClientError::Protocol(f2z_kt_core::KtError::UnsupportedVersion),
+            ClientError::CatchUpIncomplete {
+                accepted_epoch: 1,
+                target_epoch: 9,
+            },
+        ] {
+            assert!(!latching(&transient), "{transient:?} must not be latched");
+        }
+        for statement in [
+            ClientError::AuthorityPolicyMismatch,
+            ClientError::Protocol(f2z_kt_core::KtError::BadSignature),
+            ClientError::Protocol(f2z_kt_core::KtError::WrongLog),
+        ] {
+            assert!(latching(&statement), "{statement:?} must be latched");
+        }
+        // And only the two conditions that persist are ever shown as a
+        // blocked directory.
+        assert_eq!(
+            blocking_code(ErrorCode::DirectoryUnvouched),
+            Some(ErrorCode::DirectoryUnvouched)
+        );
+        assert_eq!(
+            blocking_code(ErrorCode::DirectoryStateInvalid),
+            Some(ErrorCode::DirectoryStateInvalid)
+        );
+        for other in [
+            ErrorCode::DirectoryRateLimited,
+            ErrorCode::DirectoryUnreachable,
+            ErrorCode::DirectoryProofInvalid,
+            ErrorCode::DirectoryProtocolViolation,
+            ErrorCode::WitnessThresholdUnmet,
+            ErrorCode::Internal,
+        ] {
+            assert_eq!(blocking_code(other), None, "{other} is not a blocked state");
+        }
+    }
+
+    #[test]
+    fn a_transient_refusal_leaves_nothing_blocked_and_a_later_success_recovers() {
+        // The whole path, at the level this crate can drive without a log: a
+        // connect that fails on the transport reports itself and blocks
+        // nothing, so a retry — the next lookup — is free to succeed.
+        let directory = BundledDirectory::new(config());
+        directory.attach_checkpoints(Some(Arc::new(InMemory::default())));
+        let first = directory.resolve("alice").unwrap_err();
+        assert_ne!(first.code(), ErrorCode::EngineLocked);
+        assert_eq!(
+            directory.directory_blocked(),
+            None,
+            "an unreachable log is not a blocked directory"
+        );
+        // Nothing was remembered, so the state is exactly what it was: the
+        // next call connects again rather than replaying a verdict.
+        assert_eq!(
+            directory.resolve("alice").unwrap_err().code(),
+            first.code(),
+            "the refusal is recomputed, not latched"
+        );
+        assert_eq!(directory.directory_blocked(), None);
     }
 
     #[test]

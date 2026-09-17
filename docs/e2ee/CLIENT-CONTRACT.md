@@ -372,6 +372,14 @@ interface EngineStatus {
   pendingInbound: number;          // durably written, not yet surfaced
   unacknowledgedAlarms: number;    // §3.10
   lastError: ErrorCode | null;
+  // ADR 0017 §3: `directory-unvouched` or `directory-state-invalid` while the
+  // directory will not work until something outside the app changes, and
+  // `null` otherwise. NOT a copy of `lastError`: that field carries whatever
+  // went wrong most recently — the inbound poll rewrites it every few seconds
+  // with the current relay weather — so a "this directory is unusable" surface
+  // keyed on it would disappear while the condition still held. Only
+  // directory state writes this one, and it clears only when the state does.
+  directoryBlocked: ErrorCode | null;
 }
 
 interface DeviceInfo {

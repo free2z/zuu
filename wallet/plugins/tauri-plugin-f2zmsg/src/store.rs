@@ -548,8 +548,20 @@ impl<'a, B: StorageBackend> RecordStore<'a, B> {
         self.delete(&keys::kt_checkpoint())
     }
 
-    pub fn kt_checkpoint(&self) -> Result<Option<SealedCheckpoint>> {
-        self.get(&keys::kt_checkpoint())
+    /// The sealed checkpoint **as bytes**, so its reader can tell a store
+    /// that would not answer from a record that is damaged.
+    ///
+    /// [`RecordStore::get`] collapses both into `internal` (its decode arm and
+    /// `store_error`'s fallback share the code), and the two need opposite
+    /// advice: a `SQLITE_BUSY` or an io error is "try again in a moment",
+    /// while a record that does not decode is ADR 0017 §3's refusal, whose
+    /// only recovery is destroying this device's enrollment. Telling a user to
+    /// do that because the database was locked for a second would be a defect
+    /// in the advice, not in the store.
+    pub fn kt_checkpoint_bytes(&self) -> Result<Option<Vec<u8>>> {
+        self.provider
+            .get_app(&keys::kt_checkpoint())
+            .map_err(|error| store_error("reading the directory checkpoint", &error))
     }
 
     pub fn put_kt_checkpoint(&self, sealed: &SealedCheckpoint) -> Result<()> {

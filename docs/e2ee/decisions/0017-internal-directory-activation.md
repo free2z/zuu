@@ -158,28 +158,61 @@ ZUULI and e2e2z disagree about which log they trust.
   set that nothing reads would make the reported state false.
 - `start_engine` refreshes the directory's root on a blocking thread before it
   decides between `running` and `degraded`.
+- `EngineStatus.directoryBlocked` carries §3's two persistent refusals and
+  nothing else. It is read from the directory on every status call, so the
+  inbound pump's `lastError` — which is rewritten every few seconds with the
+  current relay weather — cannot take the UI's explanation away while the
+  condition still holds.
 - **The log's signed authority policy is required, not merely reported.**
   `KT.md` §8.1 step 7 has a client *fetch* §4.6's policy and show what it says.
   A build compiled for one log with one authority expects more, so
   `KtDirectory` calls `KtClient::require_authority_policy` with the bundled
   `handle_authority_pk`: the policy must be fetched, verify under the accepted
   log key, say **vouched**, and list **exactly** that key — no key missing and
-  none extra. Anything else, including a policy that cannot be fetched at all,
-  refuses the connection with `directory-unvouched`; lookups, submissions and
-  `start_engine`'s refresh all fail closed, and e2e2z says so on the page.
+  none extra. A connection is refused unless all of that holds, under the code
+  that names what actually happened: `directory-unvouched` for a policy that
+  verified and says something else, `directory-unreachable` when the endpoint
+  did not answer, `directory-rate-limited` when it refused, and
+  `directory-protocol-violation` for a document that does not decode or whose
+  signature does not verify. Lookups, submissions and `start_engine`'s refresh
+  all fail closed either way, and e2e2z says so on the page.
   Without this, a log deployed without its authority would take first-come
   registrations while the app went on resolving them, which is the whole value
   of Contract C. The comparison is on public keys, and `authority_id` is
   `H("free2z/kt/v1/authority-id", pk)`, so equal key sets are equal id sets.
-  The policy is also **pinned for the process**: the first one verified is kept
-  with its `published_at_ms` zeroed, and it is checked again on every root
-  refresh — `start_engine`'s, and any later one — so a policy that differs in
-  any other field makes the directory unusable from then on, for lookups and
-  submissions alike. It is deliberately *not* re-fetched on every lookup: that
-  would put a second round trip in front of each one, and a log that keeps its
-  policy while equivocating is `KT.md` §8.5's limit rather than something a
-  refetch would catch. A log that cannot be reached has not changed its
-  policy, so a transport failure on a refresh is not a change. What this cannot establish is `KT.md` §8.5's limit: that the
+  The policy is also **pinned for the life of the connection**: the first one
+  verified is kept with its `published_at_ms` zeroed and its lists sorted (the
+  set comparison must not turn a reordering into a change), and it is checked
+  again on every root refresh — `start_engine`'s, and any later one — so a
+  policy that differs in any other field makes the directory unusable from
+  then on, for lookups and submissions alike. It is deliberately *not*
+  re-fetched on every lookup: that would put a second round trip in front of
+  each one, and a log that keeps its policy while equivocating is `KT.md`
+  §8.5's limit rather than something a refetch would catch.
+
+  **What "unusable from then on" is scoped to, exactly.** The latch lives on
+  the connection, and a connection is rebuilt when the engine re-attaches the
+  checkpoint store — that is, after a lock/unlock cycle, an unenroll, or a
+  restart. So a log that serves a changed policy, is locked away from, and is
+  unlocked again gets asked once more; if it still serves the changed policy
+  it latches again immediately, and if it has gone back to the bundled
+  authority it is usable. Nothing is lost by that: the **durable** pin is the
+  key compiled into this build, which no amount of restarting moves, and the
+  per-connection pin only adds "and it has not changed while we were
+  connected". Persisting the whole document beside the checkpoint was
+  considered and rejected for this posture: it would make a legitimate
+  `max_validity_ms` change on a disposable log a support call, and the
+  property it would add — noticing a change across a restart — is already
+  covered for the only field that decides anything, the authority key itself.
+
+  **Only a statement about vouching is latched.** A policy that verified and
+  says the wrong thing latches; so does one whose signature does not verify
+  under the accepted log key, or that names another `log_id`, because neither
+  is a bad moment. Everything else — unreachable, refused (`ERR_RATE_LIMITED`
+  among them), an answer that does not decode — is reported and forgotten. An
+  earlier version of this branch latched every failure, which meant one 429
+  from the log's own authority endpoint made the directory permanently
+  unusable, under a code §8's table tells the client to retry. What this cannot establish is `KT.md` §8.5's limit: that the
   log *applied* the policy it signed.
 - **The last verified tree head is persisted, sealed, in the engine's store.**
   It is written after every connect, sync and lookup, and read back through
@@ -225,11 +258,22 @@ ZUULI and e2e2z disagree about which log they trust.
     save under `synchronous = FULL` and WAL (`f2z-msg-store`), so a completed
     save is on disk and a crash leaves the old record or the new one.
   - What this does **not** stop is a party who can rewrite `f2zmsg.sqlite`
-    arbitrarily: it can delete the record and the evidence beside it. That
-    party can equally rewrite stored peer identities, and the store's lack of
-    at-rest encryption is `f2z-msg-store`'s recorded gap (`store.rs`). The
-    claim here is narrower and true: the checkpoint is no longer a loose file
-    whose deletion or one-byte edit silently re-trusts the log.
+    arbitrarily: the three signals that say "this device has relied on the
+    directory" — a receipt, a merged epoch, a conversation — are plaintext
+    records beside the sealed one, so that party can delete the checkpoint and
+    the evidence together and get trust-on-first-use back. Two honest gaps in
+    the same rule: a device that has only ever *resolved* handles, and one
+    holding nothing but a pending contact request, carry none of those signals
+    either, so deleting their checkpoint is indistinguishable from a first
+    run. Closing this properly needs a monotonic counter inside the sealed
+    record — the seal is authenticated, so a counter in it cannot be rolled
+    back without the device key — and that is the shape to reach for when pins
+    and alarms are persisted, since they need the same record. The party this
+    protects against can equally rewrite stored peer identities today, and the
+    store's lack of at-rest encryption is `f2z-msg-store`'s recorded gap
+    (`store.rs`). The claim here is narrower and true: the checkpoint is no
+    longer a loose file whose deletion or one-byte edit silently re-trusts the
+    log.
   - Pins and alarms are still per-process (see §10).
 
 ## 4. Decision 3 — enrollment and `DirectoryEntry` submission
@@ -457,8 +501,8 @@ this device's own handle showed an entry publishing this device's `device_pk`.**
 | `f2z-kt` | `adversarial.rs`: `an_assertion_signed_by_an_unconfigured_authority_is_refused`, `an_assertion_forged_under_the_configured_authority_id_is_refused` | Contract C on the log |
 | `f2z-authority` | `tests/contract_c_vectors.rs` (2) | The vectors match the code; the vector passes the log's check; the stranger does not |
 | plugin | `internal_directory::tests` (15) | Fail-closed parsing; `#` inside a value, non-ASCII and confusable characters, URLs with userinfo or no host, the cooldown floor, retired generations, the required authority, and that `build.rs` runs this same grammar and stops the build |
-| plugin | `directory::tests` (2), `engine::directory_state_tests` (4) | A bundled directory with no sealed state refuses instead of trusting on first use; the sealed store round-trips a head, refuses an edited or transplanted record, refuses a missing one on a device that has relied on the directory, and unenroll clears it and detaches the store |
-| e2e2z | `index.witness-warning.test.tsx` (3 more) | `directory-unvouched` and `directory-state-invalid` are said on the page, and nothing is said when the directory is usable |
+| plugin | `directory::tests` (5), `engine::directory_state_tests` (5) | A bundled directory with no sealed state refuses instead of trusting on first use; the sealed store round-trips a head, refuses an edited or transplanted record, refuses a missing one on a device that has relied on the directory, and unenroll clears it and detaches the store |
+| e2e2z | `index.witness-warning.test.tsx` (5 more) | `directory-unvouched` and `directory-state-invalid` are said on the page, keyed on `directoryBlocked`, so the relay weather rewriting `lastError` neither raises nor clears them |
 | plugin | `engine` tests | Bundled witness state, `set_witness_set` refusal, receipt recording, `mergedAtEpoch` only from a verified lookup, truthful `blocked` |
 | ZUULI | `directory_publish::tests` (10) | Contract C against a loopback server (POST, token, JSON body, base64url decoding, refusals, oversize), the precheck, draft assembly, and refusing another wallet |
 | e2e2z | `index.witness-warning.test.tsx` (4) | The warning stays up until two independent witnesses cosign |
@@ -493,6 +537,10 @@ suite, and restoring (`CONFORMANCE.md`'s method):
 | `SealedCheckpoints::load`: the missing-but-relied-on rule removed | `a_missing_record_is_refused_once_the_device_has_relied_on_the_directory` |
 | `clear_identity`: the checkpoint left behind | `unenrolling_clears_the_checkpoint_and_detaches_the_store` |
 | e2e2z: the unvouched banner never rendered | `names an unvouched log and what it means` |
+| `recheck_policy`: every policy-fetch failure latched (the pre-review behaviour) | `only_a_statement_about_vouching_is_latched` |
+| `comparable_policy`: compare the lists in order | `a_reordered_policy_is_the_same_policy` |
+| the banner keyed on `lastError` again | `stays up while the relay weather rewrites lastError` (plus both banner tests) |
+| `SealedCheckpoints::load`: a store read failure reported as a damaged record | `a_store_that_will_not_answer_is_not_a_damaged_record` |
 
 After restoring, all 20 `adversarial` tests, all 5 `seed_submission` tests and
 all 4 e2e2z warning tests passed.
@@ -567,9 +615,11 @@ all 4 e2e2z warning tests passed.
   conversation's own stored peer identity still catches a change for existing
   conversations. When they are persisted, they belong in the same sealed
   record, and the §3 refusals apply to them unchanged.
-- **The authority policy is pinned per process, not per device.** Across a
-  restart the bundled `handle_authority_pk` is the pin, which is the stronger
-  half; a log that changed `max_validity_ms` between two runs is not detected.
+- **The authority policy is pinned per connection, not per device.** A
+  lock/unlock cycle, an unenroll or a restart rebuilds the connection and asks
+  again. Across all of them the bundled `handle_authority_pk` is the pin, which
+  is the stronger half; a log that changed `max_validity_ms` between two
+  connections is not detected. §3 says why that trade is the right one here.
 - **One environment per build.** The file holds one directory. Pointing
   development builds at staging would need a second file selected at build
   time.

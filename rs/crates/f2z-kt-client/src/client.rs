@@ -415,10 +415,15 @@ impl<T: Transport> KtClient<T> {
     ///
     /// [`ClientError::Unreachable`], or [`ClientError::Protocol`] if the policy
     /// does not decode, is for another log, or its signature does not verify.
-    /// **A failure here leaves [`KtClient::vouching`] at [`Vouching::Unknown`],
-    /// which every caller treats as at least as loud as [`Vouching::Unvouched`]
-    /// — an unanswered question about who may claim a handle is not a
-    /// reassuring answer.**
+    /// **A failure here leaves [`KtClient::vouching`] as it was** — at
+    /// [`Vouching::Unknown`] on a client that has never fetched a policy,
+    /// which is how a fresh client starts and is what every caller treats as
+    /// at least as loud as [`Vouching::Unvouched`]; at the last verified
+    /// answer on one that has. It is deliberately not reset to `Unknown` by a
+    /// failed refresh: a timeout is not evidence that the log stopped
+    /// vouching. A caller that needs the policy to be *currently* true asks
+    /// [`KtClient::require_authority_policy`], which refuses rather than
+    /// reporting.
     pub fn refresh_authority_policy(&mut self) -> Result<Vouching> {
         let policy = wire::decode_authority_policy(&self.transport.authority_policy()?)?;
         policy.verify(&self.config.log_id, self.view.accepted_log_pk())?;

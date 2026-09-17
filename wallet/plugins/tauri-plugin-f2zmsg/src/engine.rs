@@ -3086,6 +3086,10 @@ impl<B: StorageBackend> Inner<B> {
             )
             .unwrap_or(0),
             last_error: self.last_error,
+            // Read from the directory itself, so nothing on this struct can
+            // overwrite it: §8's `lastError` belongs to whatever happened
+            // last, and this belongs to a condition that persists.
+            directory_blocked: directory.directory_blocked(),
         })
     }
 
@@ -4051,17 +4055,17 @@ impl<B: StorageBackend> SealedCheckpoints<B> {
 impl<B: StorageBackend + Send + Sync + 'static> CheckpointStore for SealedCheckpoints<B> {
     fn load(&self) -> Result<Option<Vec<u8>>> {
         let records = RecordStore::new(&self.records);
-        let stored = records.kt_checkpoint().map_err(|error| {
-            if error.code() == ErrorCode::Internal {
+        // A store that will not answer is **not** a damaged record: the codes
+        // and the advice differ, so the two are read apart (#1027 review, F5).
+        // Whatever `kt_checkpoint_bytes` refuses with — `storage-full`, or
+        // `internal` for a locked database or an io error — is passed through
+        // untouched, and says nothing about unenrolling.
+        if let Some(bytes) = records.kt_checkpoint_bytes()? {
+            let sealed: SealedCheckpoint = serde_json::from_slice(&bytes).map_err(|error| {
                 checkpoint_invalid(&format!(
-                    "the saved directory checkpoint does not decode ({})",
-                    error.context()
+                    "the saved directory checkpoint does not decode ({error})"
                 ))
-            } else {
-                error
-            }
-        })?;
-        if let Some(sealed) = stored {
+            })?;
             return open_checkpoint(&sealed, &self.key).map(Some);
         }
         let relied = records.identity()?.is_some_and(|identity| {
@@ -7894,9 +7898,15 @@ mod activation_tests {
         published: Mutex<Option<VerifiedEntry>>,
         submitted: Mutex<Vec<SubmissionExpectation>>,
         refuse_with: Option<ErrorCode>,
+        /// ADR 0017 §3's persistent state, as the directory reports it.
+        blocked: Option<ErrorCode>,
     }
 
     impl Directory for Configured {
+        fn directory_blocked(&self) -> Option<ErrorCode> {
+            self.blocked
+        }
+
         fn resolve(&self, _handle: &str) -> Result<DirectoryResolution> {
             Err(Error::internal("not under test"))
         }
@@ -8197,6 +8207,42 @@ mod activation_tests {
     }
 
     #[tokio::test]
+    async fn a_blocked_directory_is_reported_apart_from_whatever_failed_last() {
+        // #1027 review, F2: `lastError` is rewritten by every inbound poll, so
+        // a UI keyed on it would stop saying that the directory is unusable
+        // while it still is. `directoryBlocked` comes from the directory
+        // itself and nothing on the engine can overwrite it.
+        let engine = enrolled(Arc::new(Configured {
+            blocked: Some(ErrorCode::DirectoryUnvouched),
+            ..Configured::default()
+        }))
+        .await;
+        let status = engine.status().await.unwrap();
+        assert_eq!(
+            status.directory_blocked,
+            Some(ErrorCode::DirectoryUnvouched)
+        );
+
+        // The relay weather moves. `pump_inbound` writes exactly this field.
+        engine.inner.lock().await.last_error = Some(ErrorCode::RelayUnreachable);
+        let later = engine.status().await.unwrap();
+        assert_eq!(later.last_error, Some(ErrorCode::RelayUnreachable));
+        assert_eq!(
+            later.directory_blocked,
+            Some(ErrorCode::DirectoryUnvouched),
+            "a relay failure is not a verdict on the directory"
+        );
+
+        // And a directory with nothing wrong reports nothing, however badly
+        // the rest of the engine is doing.
+        let fine = enrolled(Arc::new(Configured::default())).await;
+        fine.inner.lock().await.last_error = Some(ErrorCode::DirectoryRateLimited);
+        let status = fine.status().await.unwrap();
+        assert_eq!(status.last_error, Some(ErrorCode::DirectoryRateLimited));
+        assert_eq!(status.directory_blocked, None);
+    }
+
+    #[tokio::test]
     async fn an_unenrolled_engine_has_nothing_to_refresh() {
         let engine = Engine::new(
             MemoryBackend::new(),
@@ -8253,6 +8299,55 @@ mod directory_state_tests {
         f2z_msg_store::F2zStorageProvider::new(backend.clone())
     }
 
+    fn sealed_record(
+        provider: &f2z_msg_store::F2zStorageProvider<SharedBackend<MemoryBackend>>,
+    ) -> Option<crate::store::SealedCheckpoint> {
+        crate::store::RecordStore::new(provider)
+            .kt_checkpoint_bytes()
+            .expect("read the record")
+            .map(|bytes| serde_json::from_slice(&bytes).expect("a sealed record"))
+    }
+
+    /// A backend whose reads fail the way a locked database fails.
+    struct UnreadableBackend(MemoryBackend);
+
+    impl StorageBackend for UnreadableBackend {
+        fn get(&self, _key: &[u8]) -> f2z_msg_store::Result<Option<Vec<u8>>> {
+            Err(f2z_msg_store::StoreError::Backend("database is locked"))
+        }
+
+        fn apply(&self, ops: &[f2z_msg_store::Op]) -> f2z_msg_store::Result<()> {
+            self.0.apply(ops)
+        }
+
+        fn durability(&self) -> f2z_msg_store::Durability {
+            self.0.durability()
+        }
+    }
+
+    #[test]
+    fn a_store_that_will_not_answer_is_not_a_damaged_record() {
+        // #1027 review, F5: `SQLITE_BUSY` and an io error reach the plugin as
+        // `internal`, and an earlier version mapped every one of them to "your
+        // saved directory state is broken; unenroll this device". A locked
+        // database must not produce destructive advice.
+        let backend = SharedBackend::new(Arc::new(UnreadableBackend(MemoryBackend::new())));
+        let refusal = SealedCheckpoints::new(backend, &SEED)
+            .load()
+            .expect_err("a store that cannot be read is an error");
+        assert_ne!(
+            refusal.code(),
+            ErrorCode::DirectoryStateInvalid,
+            "a transient read failure is not a verdict on the record"
+        );
+        assert!(
+            !refusal.context().contains("unenroll"),
+            "and it never tells the user to destroy their enrollment: {}",
+            refusal.context()
+        );
+        assert!(refusal.context().contains("locked"));
+    }
+
     #[test]
     fn a_saved_head_comes_back_and_a_fresh_device_starts_at_first_use() {
         let backend = SharedBackend::new(Arc::new(MemoryBackend::new()));
@@ -8271,10 +8366,7 @@ mod directory_state_tests {
         let backend = SharedBackend::new(Arc::new(MemoryBackend::new()));
         store(&backend).save(HEAD).unwrap();
         let provider = records(&backend);
-        let mut sealed = crate::store::RecordStore::new(&provider)
-            .kt_checkpoint()
-            .unwrap()
-            .expect("saved");
+        let mut sealed = sealed_record(&provider).expect("saved");
 
         // One byte of the sealed head — the review's `log_id` flip, at the
         // layer where it is now visible.
@@ -8295,10 +8387,7 @@ mod directory_state_tests {
         SealedCheckpoints::new(elsewhere.clone(), &[0x5a; 32])
             .save(HEAD)
             .unwrap();
-        sealed = crate::store::RecordStore::new(&records(&elsewhere))
-            .kt_checkpoint()
-            .unwrap()
-            .expect("saved elsewhere");
+        sealed = sealed_record(&records(&elsewhere)).expect("saved elsewhere");
         crate::store::RecordStore::new(&provider)
             .put_kt_checkpoint(&sealed)
             .unwrap();
@@ -8412,7 +8501,7 @@ mod directory_state_tests {
         );
         let inner = engine.inner.lock().await;
         assert!(
-            inner.records().kt_checkpoint().unwrap().is_none(),
+            sealed_record(&records(&inner.backend.clone())).is_none(),
             "unenrolling is the reset, and it takes the checkpoint with the identity"
         );
         let shared = inner.backend.clone();

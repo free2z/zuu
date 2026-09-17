@@ -47,6 +47,7 @@ const STATUS: EngineStatus = {
   pendingInbound: 0,
   unacknowledgedAlarms: 0,
   lastError: null,
+  directoryBlocked: null,
 };
 const ENROLLMENT: EnrollmentStatus = {
   enrolled: true,
@@ -159,7 +160,7 @@ describe("the witness warning", () => {
 // page, not only when a lookup fails.
 describe("a directory this build refuses to use", () => {
   it("names an unvouched log and what it means", async () => {
-    await renderWith({ lastError: "directory-unvouched" });
+    await renderWith({ directoryBlocked: "directory-unvouched" });
     expect(container.querySelector("[data-directory-unvouched]")).not.toBeNull();
     expect(container.textContent).toContain(
       "no longer proves that free2z vouched for the handles on it",
@@ -167,7 +168,7 @@ describe("a directory this build refuses to use", () => {
   });
 
   it("names a damaged local directory record and the only way out", async () => {
-    await renderWith({ lastError: "directory-state-invalid" });
+    await renderWith({ directoryBlocked: "directory-state-invalid" });
     expect(
       container.querySelector("[data-directory-state-invalid]"),
     ).not.toBeNull();
@@ -176,6 +177,28 @@ describe("a directory this build refuses to use", () => {
 
   it("says nothing when the directory is usable", async () => {
     await renderWith({ lastError: "relay-unreachable" });
+    expect(container.querySelector("[data-directory-unvouched]")).toBeNull();
+    expect(
+      container.querySelector("[data-directory-state-invalid]"),
+    ).toBeNull();
+  });
+
+  // The whole reason `directoryBlocked` exists: `lastError` is rewritten by
+  // every inbound poll, so a banner keyed on it vanishes while the directory
+  // is still refusing to be used (#1027 review, F2).
+  it("stays up while the relay weather rewrites lastError", async () => {
+    await renderWith({
+      directoryBlocked: "directory-unvouched",
+      lastError: "relay-unreachable",
+    });
+    expect(container.querySelector("[data-directory-unvouched]")).not.toBeNull();
+  });
+
+  it("is not raised by a relay failure alone", async () => {
+    await renderWith({
+      directoryBlocked: null,
+      lastError: "directory-rate-limited",
+    });
     expect(container.querySelector("[data-directory-unvouched]")).toBeNull();
     expect(
       container.querySelector("[data-directory-state-invalid]"),
