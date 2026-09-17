@@ -1058,7 +1058,7 @@ const androidProtectedMutations = [
   ],
   [
     "verifier tooling retained into secret scope",
-    (source) => source.replace('          rm -f -- "$bundletool" "$RUNNER_TEMP/current-aab-members.txt"\n', "          true\n"),
+    (source) => source.replace('          rm -f -- "$bundletool" "$RUNNER_TEMP/current-aab-members.txt" "$RUNNER_TEMP/aab-manifest-dump.xml"\n', "          true\n"),
   ],
   [
     "build command in credential scope",

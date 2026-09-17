@@ -654,6 +654,8 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "        run: |",
   "          node --test scripts/rtl-source-policy.node-test.mjs",
   "          node scripts/rtl-source-policy.mjs",
+  "      - name: Verify Android self-permission checker",
+  "        run: node --test scripts/android-self-permission.node-test.mjs",
   "      - name: Verify the viewport-test browser",
   "        run: google-chrome --version",
   "      - name: Test frontend contracts",
@@ -1904,6 +1906,14 @@ function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
       "          node scripts/rtl-source-policy.mjs",
     ].join("\n"),
     "RTL source policy must be self-tested and enforced exactly",
+  );
+  exactNamedStep(
+    "Verify Android self-permission checker",
+    [
+      "      - name: Verify Android self-permission checker",
+      "        run: node --test scripts/android-self-permission.node-test.mjs",
+    ].join("\n"),
+    "Android self-permission checker must be self-tested exactly",
   );
   exactNamedStep(
     "Test frontend contracts",
@@ -5268,6 +5278,26 @@ function runCurrentWorkflowMutationTests(repoRoot) {
           "",
         ].join("\n"),
         "",
+      ),
+    },
+    {
+      name: "real workflow rejects a deleted Android self-permission self-test",
+      needle: "Android self-permission checker must be self-tested exactly",
+      source: replaceFrontend(
+        [
+          "      - name: Verify Android self-permission checker",
+          "        run: node --test scripts/android-self-permission.node-test.mjs",
+          "",
+        ].join("\n"),
+        "",
+      ),
+    },
+    {
+      name: "real workflow rejects a soft-failing Android self-permission self-test",
+      needle: "Android self-permission checker must be self-tested exactly",
+      source: replaceFrontend(
+        "      - name: Verify Android self-permission checker",
+        "      - name: Verify Android self-permission checker\n        continue-on-error: true",
       ),
     },
     {
