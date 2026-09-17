@@ -1,0 +1,24 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" android:compileSdkVersion="36" android:compileSdkVersionCodename="16" android:versionCode="22" android:versionName="0.1.0" package="cash.free2z.zuuli" platformBuildVersionCode="36" platformBuildVersionName="16">
+      
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="36"/>
+      
+  <uses-permission android:name="android.permission.INTERNET"/>
+      
+  <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+      
+  <uses-permission android:name="android.permission.USE_FINGERPRINT"/>
+      
+  <permission android:name="cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" android:protectionLevel="0x00000022"/>
+      
+    
+  <uses-permission android:name="cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"/>
+      
+  <application android:hasCode="false" android:label="ZUULI">
+            
+    <activity android:exported="true" android:name="cash.free2z.zuuli.MainActivity"/>
+            
+    <receiver android:exported="true" android:name="androidx.profileinstaller.ProfileInstallReceiver" android:permission="android.permission.DUMP"/>
+        
+  </application>
+  
+</manifest>

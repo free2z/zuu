@@ -19,6 +19,87 @@
     "tryAgain": "Try again."
   },
   "creator": {
+    "chat": {
+      "trigger": "Start encrypted chat",
+      "triggerAccessible": "Start encrypted chat with @{username}",
+      "again": "Message again",
+      "againAccessible": "Message again with @{username} in e2e2z",
+      "installHint": "Don't have e2e2z yet? “Open e2e2z” takes you to its install page.",
+      "confirm": {
+        "title": "Start an encrypted chat with @{username}",
+        "body": "{cost}, paid to @{username}. Messages are end-to-end encrypted in the e2e2z app.",
+        "costLabel": "Chat request",
+        "balance": "Your balance: {balance}",
+        "noAutoSend": "e2e2z opens with @{username} filled in. Nothing is sent until you write it.",
+        "priceLoading": "Checking the price",
+        "priceError": "The price could not be loaded, so nothing was charged."
+      },
+      "action": {
+        "cancel": "Cancel",
+        "checking": "Checking account",
+        "signIn": "Sign in to start chat",
+        "lowBalance": "Not enough 2Z — buy more",
+        "pay": "Pay {cost} and start chat",
+        "paying": "Starting chat",
+        "open": "Open e2e2z",
+        "get": "Get e2e2z",
+        "done": "Done",
+        "tryAgain": "Try again",
+        "buy": "Buy 2Zs",
+        "retryPrice": "Retry",
+        "openFailed": "free2z couldn't open e2e2z. Get it from the install page, then try again."
+      },
+      "outcome": {
+        "connected": {
+          "title": "Chat ready with @{username}",
+          "body": "{charged} paid to @{username}. Open e2e2z to write your first message. Nothing is sent until you do."
+        },
+        "awaitingHandle": {
+          "title": "@{username} has been notified",
+          "body": "{charged} paid to @{username}. They need to claim a messaging handle in e2e2z before a chat can open, so there is no link to follow yet."
+        },
+        "insufficient": {
+          "title": "Not enough 2Z",
+          "body": "Starting a chat costs {cost}, and nothing was charged. Your balance is {balance}."
+        },
+        "notFound": {
+          "title": "@{username} can't be found",
+          "body": "free2z has no account at @{username}, so nothing was charged."
+        },
+        "self": {
+          "title": "This is your own profile",
+          "body": "A chat request goes to someone else. Open e2e2z to see your own messages."
+        },
+        "rateLimited": {
+          "title": "Too many chat requests",
+          "body": "free2z asked you to slow down, so nothing was charged. Wait a minute, then try again."
+        },
+        "signedOut": {
+          "title": "Sign in again",
+          "body": "Your free2z session ended before the request was accepted, so nothing was charged."
+        },
+        "refused": {
+          "title": "free2z refused this request",
+          "body": "Check your 2Z balance before you try again."
+        },
+        "mismatch": {
+          "title": "free2z's answer didn't match",
+          "body": "The reply did not match the {cost} chat request you approved for @{username}, so free2z will not open a chat. Check your 2Z balance before you try again."
+        },
+        "uncertain": {
+          "title": "free2z did not get an answer",
+          "body": "free2z can't tell whether @{username} got your request or whether {cost} was charged. Trying again is safe: the same request can only be charged once."
+        },
+        "priceChanged": {
+          "title": "The price changed",
+          "body": "Starting a chat now costs {cost}. Your request was not sent at the old price, so nothing was charged. Confirm the new price to continue."
+        },
+        "senderHandle": {
+          "title": "Claim your messaging handle in e2e2z first",
+          "body": "Encrypted chats go between messaging handles, and your account doesn't have one yet, so nothing was charged. Get e2e2z, claim your handle there, then come back to message @{username}."
+        }
+      }
+    },
     "zecTip": {
       "blocked": {
         "body": "free2z prepared a request for {amount} to {creator} and holds no key to sign it. The verified link to ZUULI is not live yet, so nothing was sent.",

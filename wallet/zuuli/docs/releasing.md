@@ -370,7 +370,13 @@ attested checksum manifest, fixed application/version/build identity, member
 inventory, and exact arm64-v8a/armeabi-v7a/x86/x86_64 set with a digest-pinned
 Bundletool carried inside that same attested artifact; the protected job does
 not fetch dependencies and deletes the verifier before materializing
-credentials. It signs the already-built AAB with `jarsigner`, proves that every
+credentials. The same inspection re-asserts the declared permission allowlist
+and runs `scripts/android-self-permission.sh` (installed verbatim, since the job
+cannot check out source) on Bundletool's decoded manifest: the only
+`<permission>` must be `cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`
+at exactly protection level signature. Bundletool prints that compiled value as
+`0x00000002`, not the source string `signature`; flag bits such as
+`privileged` or `knownSigner` are rejected, not masked (#1016). It signs the already-built AAB with `jarsigner`, proves that every
 non-signature member is unchanged, rechecks the upload certificate and ABI set,
 and retries only the Play bundle upload—not a build. Credentials are destroyed before the
 one-day internal signed artifact is handed to the credential-free finalizer;
