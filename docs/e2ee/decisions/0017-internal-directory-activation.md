@@ -388,50 +388,88 @@ refuses here, `relay-unreachable`, rather than enrolling a device nobody could
 reach. An abandoned enrollment leaves an idle queue at the relay, which expires
 on its own.
 
-#### The order ZUULI runs, and the one place it differs from version 1
+#### The order ZUULI runs, and the rule it keeps
 
 ```text
   admit                       every guard, one call
-  account_identity            the account's PUBLIC identity key, and nothing else
-  plan_publication            the log's entry for this handle, or Contract C's
-                              assertion — verified against the bundled key
-  native confirmation         names the AUTHORITY's handle, the relay host, how
-                              many devices are already published, and PUBLISHED
+  plan_publication            WHOSE session this is (free2z names the account)
+                              and what the log already publishes. No seed, and
+                              nothing about this wallet on the wire.
+  native confirmation         names the ACCOUNT, the device, the relay host, the
+                              devices already published, and PUBLISHED
     ▼ approved
-  messaging::account_keys     the signing keys, after the yes
+  messaging::account_keys     the one seed read, in process
+  vouch_first_entry           Contract C — the request that carries identity_pk,
+                              now that an approval exists
   issue_device_credential     the wallet's own lifetime policy
   adding_device → sign        DirectoryAuthKey signs the entry, IdentitySigningKey
                               the binding (the same drafting rule §4 uses)
   precheck                    f2z-authority's rules, locally
+  ─────────────────────────── the phase boundary
   submit_entry_for_device     POST /kt/v1/submit; the receipt is verified against
                               the pinned log key and kept
   → the credential is answered only now
 ```
 
-Version 1 shows its dialog before the wallet's custody is opened at all. This
-path cannot, and the reason is the thing the dialog has to say: a publication
-names a **handle**, and the only sources for a handle that are not the
-requesting app are the handle authority's signed assertion and an entry the log
-already publishes — both keyed by this account's identity key, which is
-seed-derived. So the *public* half of that key is derived first and everything
-else dropped; the handle is established; only then is a human asked; and the
-signing keys are read after the approval. A refused request signs nothing,
-publishes nothing and spends nothing.
+**Version 1's rule holds here: the wallet's custody is not opened, and nothing
+about this wallet leaves the process, until somebody has said yes.** The first
+version of this work broke that — it derived the account's public identity key
+and fetched the assertion *before* the dialog, so that the dialog could name a
+handle the authority had signed. Adversarial review found what that costs, and
+it is not worth the handle:
 
-What that costs is stated rather than hidden: a request from a registered
-caller now reaches the handle authority — one `POST`, with the user's own
-session, for the user's own account — before the user has approved anything.
-The answer is useless without the seed's binding signature, it never reaches
-the caller, and any app that can send this request can already bring ZUULI to
-the foreground.
+- The Knox token reaches this process through §4.1's write-only slot, and an
+  app-crate command is **not capability-gated**. ZUULI's CSP forbids frames
+  (`frame-src 'none'`), so the `#367` deputy needs an XSS in ZUULI's own origin
+  rather than a hostile embed — but anything that reaches the invoke bridge can
+  write a **foreign** session into the slot, which is a capability the slot
+  would otherwise be adding. With the assertion fetched before the dialog, that
+  hands this wallet's `identity_pk` to somebody else's account and asks the
+  authority to bind it there, with no user interaction at all.
+- The same ordering let an unattested caller make ZUULI decrypt the wallet's
+  custody, unprompted, by sending a request.
+
+So the plan is built from two answers that disclose nothing: free2z says which
+**account** the session belongs to (that request carries the session's own token
+and nothing else), and the log says whether it already publishes the handle (an
+ordinary unauthenticated lookup). The confirmation names the account. The seed
+is read, and `identity_pk` is sent, only after the approval — and the
+publication is still refused unless the authority signs the handle the app asked
+for.
+
+**What the account name buys, stated narrowly.** It does not make a poisoned
+slot harmless; it makes it *visible and inert*: publishing under somebody else's
+account now requires a human to approve a dialog naming that account, and a
+declined or ignored request leaks nothing about the victim — no identity key, no
+custody read, no assertion issued. The residual is a user who approves a
+publication under an account they do not recognise.
 
 **The confirmation says PUBLISHED**, because `ARCHITECTURE.md` is explicit that
-adding a device to an account is what a wiretap looks like. It shows the handle
-the authority signed (or the one the log already publishes under this wallet's
-identity), never the handle in the request; the relay **host**, because that is
-where strangers will reach the new device; and the number of devices already
-published. If the authority's handle is not the one the requesting app asked
-for, the request is refused instead of published.
+adding a device to an account is what a wiretap looks like. It names:
+
+- the **free2z account** the session belongs to, as free2z named it;
+- the **handle**, when the log already publishes one — from the log, never from
+  the request. A first entry has no such name yet, so it says so rather than
+  rendering a handle the requesting app chose;
+- the **device**, as a head-and-tail fingerprint of its `device_pk`, so the
+  person can tell which device is being added;
+- that **every new conversation will reach this device first, ahead of the N
+  devices already published** — because `adding_device` puts the new endpoint at
+  index 0 and a resolving client uses the first one (`ARCHITECTURE.md` §13-G).
+  Approving is not "one more device"; it is "this device answers first";
+- the **relay host** where that will happen.
+
+#### Certainty is a property of the phase, not of the code
+
+`INTENT_HANDLE_UNAVAILABLE` promises the caller that nothing was submitted.
+Everything up to and including the local precheck can keep that promise. Nothing
+after `submit_entry_for_device` can: the log may have admitted the entry and
+lost or mangled the answer, and a receipt whose `handle` field is not a handle
+arrives as `handle-ineligible` — a code that would otherwise travel as a certain
+"nothing happened" for an entry that is about to merge. So the submission and
+everything after it is `INTENT_UNAVAILABLE` unconditionally, by a mapping
+function that ignores its argument, and a source-asserted test keeps the certain
+mapping on its own side of the boundary.
 
 **A device is installed only if it was published.** Unlike ZUULI's own
 enrollment — where publication may fail and be retried, because the device is
@@ -448,6 +486,44 @@ nobody can find. The cost is recorded in §10.
 | the user declined | `INTENT_NOT_CONFIRMED` (9) | yes |
 | no directory in this build, the log refused, the log did not answer | `INTENT_UNAVAILABLE` (12) | **no** — `PROTOCOL.md` §6.2's rule; a submission whose answer was lost may still merge |
 
+#### What is accepted, and what it costs
+
+- **The contact endpoint is the requesting app's to choose**, and nothing binds
+  it beyond the hostname the user reads in the confirmation. A caller that
+  passes the registry and the confirmation can point first contact at a relay it
+  controls — which learns *that* someone is contacting this handle, and can
+  withhold delivery. It cannot read anything: first contact is an MLS `Welcome`
+  encrypted to a key package authenticated against the proved entry (ADR 0015).
+  The follow-up, when there is more than one relay in the deployment, is to
+  refuse an endpoint whose `relay_id` the wallet has not itself authenticated a
+  connection to — today the bundled build has exactly one relay, so the cheap
+  form of that check is "the published relay must be the bundled one", and it is
+  recorded here rather than added blind before the deployment exists.
+- **The pre-dialog lookup makes ZUULI a handle-resolution oracle** for a
+  registered caller: send a request, watch how long it takes or whether the
+  dialog says "no published devices yet". The log is a public directory and the
+  same lookup is available to anyone who can reach it, so this discloses nothing
+  the caller could not learn directly — what it does add is that *this wallet*
+  performed it. Accepted for the internal deployment.
+- **An unattested caller can still make ZUULI show a dialog**, and with it make
+  one authenticated request (the account probe) to free2z. That is the same
+  standing weakness every family on this bridge has — a caller identifier nobody
+  attests (`CALLER-AUTHENTICATION.md` §2) — and the dialog is the control.
+
+#### An open question for the backend (workstream 7)
+
+**Does the authority record the handle → `identity_pk` binding when it *issues*
+an assertion, or only when the log admits the entry?** The artifacts in this
+repository do not settle it: `KT.md` and ADR §5.2 make the issuer responsible
+for never reusing an `(authority_id, nonce)` pair and for maintaining
+`account_epoch` as a durable counter, so issuance necessarily writes *some*
+server-side state — but whether the identity key is retained with it is the
+backend's decision. It matters for a declined flow: if issuance binds, an
+abandoned request leaves a record. The design above no longer depends on the
+answer — nothing is issued before an approval — but the answer should be written
+into Contract C, and if issuance does bind, the endpoint should say so and the
+UI copy should say it too.
+
 #### The session slot, argued on its own merits
 
 §9 records that carrying the Knox token in Rust state was rejected for
@@ -459,19 +535,23 @@ mean the WebView naming the account an inbound request is answered under, which
 is the confused deputy `intent.rs` exists to avoid.
 
 So `wallet/zuuli/src-tauri/src/session.rs` holds one **write-only** slot, in
-memory, for the process. The WebView publishes the token it already holds
+memory, for the process. Publication into it is serialized through a
+single-slot queue on the renderer side, so the value the wallet ends up holding
+is the last value the renderer asked for and not the last `invoke` to return —
+a sign-in that overtakes a sign-out would otherwise leave a live session in the
+wallet after the user signed out. The WebView publishes the token it already holds
 whenever it changes and once at startup — including `null`, so "signed out" is
 stated rather than inferred from silence, and so a cold start that is handed an
 intent before the window finishes loading waits for an answer instead of
 assuming one. Nothing reads it back over IPC: the command returns `()`, and a
 test asserts this module exposes no command that hands a token out.
 
-What it does not widen: the renderer already holds this token and already
-authenticates every free2z call with it, and it can already call
-`f2zmsg_enroll` with it. What it gains is the ability to state *which session* a
-later native publication runs under — bounded by the two guards above, because
-the confirmation names the handle the authority signed and the publication is
-refused unless that is the handle the requesting app asked for.
+What it does not widen: the renderer already holds *the user's* token and
+already authenticates every free2z call with it, and it can already call
+`f2zmsg_enroll` with it. What writing the slot adds is the ability to name
+**somebody else's** session, and that is why the flow above resolves the account
+before it discloses anything and shows the name to the user. A slot somebody
+else wrote costs a declined dialog.
 
 ## 5. Decision 4 — Contract C, ratified for this directory
 
@@ -602,8 +682,10 @@ this device's own handle showed an entry publishing this device's `device_pk`.**
 | plugin | `directory::tests` (5), `engine::directory_state_tests` (5) | A bundled directory with no sealed state refuses instead of trusting on first use; the sealed store round-trips a head, refuses an edited or transplanted record, refuses a missing one on a device that has relied on the directory, and unenroll clears it and detaches the store |
 | e2e2z | `index.witness-warning.test.tsx` (5 more) | `directory-unvouched` and `directory-state-invalid` are said on the page, keyed on `directoryBlocked`, so the relay weather rewriting `lastError` neither raises nor clears them |
 | plugin | `engine` tests | Bundled witness state, `set_witness_set` refusal, receipt recording, `mergedAtEpoch` only from a verified lookup, truthful `blocked` |
-| ZUULI | `directory_publish::tests` (18) | Contract C against a loopback server (POST, token, JSON body, base64url decoding, refusals, oversize), the precheck, draft assembly, refusing another wallet; and §4.1's plan: the handle read from the authority's *signature* rather than its JSON, an assertion that does not verify naming no handle, a handle published under another identity refused before anything is asked, and a log refusal publishing nothing |
-| ZUULI | `intent::tests` (8 new) | Version 2 reaches its own dispatch and neither other family answers for it; the answer echoes the version that was asked; the confirmation says PUBLISHED, names the authority's handle and the relay host and never the request's handle; a hostile `purpose` cannot add a publication line; the refusal certainty mapping; and the publish order, source-asserted |
+| ZUULI | `directory_publish::tests` (20) | Contract C against a loopback server (POST, token, JSON body, base64url decoding, refusals, oversize), the precheck, draft assembly, refusing another wallet; the account probe (its URL, that it carries only the session, and every answer it refuses); a plan that reaches the network once and discloses nothing about this wallet; a remembered account costing no request; a handle published under another identity refused before anything is signed; and a log refusal publishing nothing |
+| ZUULI | `intent::tests` (11 new) | Version 2 reaches its own dispatch and neither other family answers for it; the answer echoes the version that was asked; the confirmation says PUBLISHED, names the **account**, the device fingerprint and the first-contact order, and never the request's handle; a hostile `purpose` or account name cannot add a line; both refusal-certainty mappings; and the publish order — plan, prompt, seed, assertion, submit — source-asserted |
+| ZUULI | `session::tests` (4) | The slot is write-only and redacts; a reader waits for the first publication; and a resolved account is reused only for the session it was resolved for |
+| ZUULI (renderer) | `native-session.test.ts` (5) | The wallet ends up holding the **last value asked for**, not the last `invoke` to return, and a value overtaken before dispatch is never sent |
 | `f2z-intent` | `wire::tests`, `tests/wire_vectors.rs` | Version 2's endpoint rules (scheme, host, zero address, zero relay id) and every version-1 rule it inherits; the two payload versions never decode as each other; the **frozen** version-1 vector still parses as version 1, under the same digest |
 | plugin | `tests/endpoint_before_credential.rs` (3) | Against a real relay: the contact queue exists before any identity does, `install_identity` commits exactly that queue, a second preparation discards the first, a build with no relay refuses, and a `ws://` default is judged like any other relay |
 | plugin | `engine::activation_tests` (+3) | An issuer-submitted device is waiting rather than blocked, and still says so with no log; an entry for another device is looked up and submitted with no identity present, its receipt kept and bounded; a refused submission keeps nothing |
@@ -627,9 +709,12 @@ suite, and restoring (`CONFORMANCE.md`'s method):
 | `f2z-intent`: the all-zero endpoint check dropped | `a_v2_endpoint_must_be_a_real_wss_relay` |
 | shared TS: the version-2 encoder's endpoint rules dropped | `refuses a version-2 payload with …` (13 cases) |
 | ZUULI `vouched_handle`: the authority signature result ignored | `an_assertion_that_does_not_verify_names_no_handle` |
-| ZUULI `plan_publication`: the predecessor identity check dropped | `a_handle_published_under_another_identity_is_refused_before_anything_is_asked` |
-| ZUULI `publish_device`: the precheck skipped | `an_assertion_the_log_would_refuse_is_caught_before_submission` |
-| ZUULI `publish_confirmation`: the handle taken from the request | `the_publish_confirmation_never_renders_the_requested_handle` |
+| ZUULI: the predecessor identity check dropped | `a_handle_published_under_another_identity_is_refused_before_anything_is_signed` |
+| ZUULI `sign_for_publication`: the precheck skipped | `an_assertion_the_log_would_refuse_is_caught_before_submission` |
+| ZUULI: the assertion fetched, or the seed read, before the confirmation | `the_publish_order_is_plan_then_prompt_then_seed_then_assertion_then_submit` |
+| ZUULI `refusal_after_submission`: delegating to the certain mapping | `nothing_after_the_submission_claims_that_nothing_happened`, `the_certain_refusal_mapping_is_never_applied_after_the_submission` |
+| ZUULI (renderer): the single-slot queue replaced by a generation counter | `leaves the wallet holding the last value asked for, not the last to arrive` |
+| ZUULI `publish_confirmation`: a name taken from the request | `the_publish_confirmation_never_renders_the_requested_handle` |
 | ZUULI: the dialog moved after the entry is signed | `the_publish_order_is_identity_then_plan_then_prompt_then_sign_then_submit` |
 | plugin `install_identity`: the pending contact queue not committed | `the_queue_is_opened_before_the_credential_and_installed_with_it` |
 | plugin `prepare_device`: the pending queue not cleared | `a_second_preparation_discards_the_first_queue` |

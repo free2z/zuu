@@ -78,7 +78,29 @@ struct Slot {
     /// first publication is "not known"; after it, it is "signed out".
     published: bool,
     token: Option<SecretString>,
+    /// Bumped on every publication. It is what the account cache is keyed by,
+    /// so a session that changed can never be answered from a cache entry the
+    /// old one filled — without keeping a second copy of the token to compare.
+    generation: u64,
+    account: Option<CachedAccount>,
 }
+
+/// What free2z last answered about this session, and when.
+struct CachedAccount {
+    generation: u64,
+    name: String,
+    at: std::time::Instant,
+}
+
+/// How long a resolved account name is reused.
+///
+/// This is the rate limit on the one authenticated request the publishing path
+/// makes **before** a human has approved anything (ADR 0017 §4.1): a caller
+/// that sends intents in a loop gets one `GET /api/auth/user/` a minute per
+/// session rather than one per intent. Short enough that a sign-out that
+/// somehow did not reach the slot cannot keep answering for long, and the
+/// generation key means a *changed* session is never answered from it at all.
+const ACCOUNT_CACHE_TTL: Duration = Duration::from_secs(60);
 
 /// Hand-written: a derived `Debug` would print the slot's contents.
 impl std::fmt::Debug for Free2zSession {
@@ -100,16 +122,44 @@ impl Free2zSession {
     pub fn publish(&self, token: Option<String>) {
         if let Ok(mut slot) = self.slot.lock() {
             slot.published = true;
+            slot.generation = slot.generation.saturating_add(1);
             slot.token = token
                 .map(|token| token.trim().to_owned())
                 .filter(|token| !token.is_empty())
                 .map(SecretString::new);
+            // Whatever free2z said about the previous session is about the
+            // previous session.
+            slot.account = None;
+        }
+    }
+
+    /// The account free2z last named for **this** session, if that answer is
+    /// still fresh.
+    #[must_use]
+    pub fn cached_account(&self, generation: u64) -> Option<String> {
+        let slot = self.slot.lock().ok()?;
+        let cached = slot.account.as_ref()?;
+        (cached.generation == generation && cached.at.elapsed() < ACCOUNT_CACHE_TTL)
+            .then(|| cached.name.clone())
+    }
+
+    /// Remember free2z's answer for this session.
+    pub fn remember_account(&self, generation: u64, name: &str) {
+        if let Ok(mut slot) = self.slot.lock() {
+            if slot.generation == generation {
+                slot.account = Some(CachedAccount {
+                    generation,
+                    name: name.to_owned(),
+                    at: std::time::Instant::now(),
+                });
+            }
         }
     }
 
     /// The token, if the WebView has published one. `None` covers both "not
     /// published yet" and "signed out"; [`Free2zSession::token`] is the caller
     /// that tells them apart by waiting.
+    #[cfg(test)]
     fn current(&self) -> Option<String> {
         let slot = self.slot.lock().ok()?;
         slot.token
@@ -121,19 +171,23 @@ impl Free2zSession {
         self.slot.lock().is_ok_and(|slot| slot.published)
     }
 
-    /// The token for one native request, waiting up to [`FIRST_SYNC_TIMEOUT`]
-    /// for the WebView's first publication.
+    /// The session for one native request, waiting up to
+    /// [`FIRST_SYNC_TIMEOUT`] for the WebView's first publication.
     ///
     /// Returns `None` for a signed-out session and for a WebView that never
     /// answered — the caller cannot distinguish them, and neither can act on
     /// the difference: both mean this process cannot speak for a free2z
     /// account right now.
-    pub async fn token(&self) -> Option<String> {
+    /// The token **and** the generation it belongs to, so a caller can key a
+    /// cache on the session rather than on the secret.
+    pub async fn session(&self) -> Option<(u64, String)> {
         let deadline = std::time::Instant::now() + FIRST_SYNC_TIMEOUT;
         while !self.published() && std::time::Instant::now() < deadline {
             tokio::time::sleep(POLL_INTERVAL).await;
         }
-        self.current()
+        let slot = self.slot.lock().ok()?;
+        let token = slot.token.as_ref()?.expose_secret().clone();
+        Some((slot.generation, token))
     }
 }
 
@@ -194,6 +248,39 @@ mod tests {
         assert_eq!(session.current(), None);
     }
 
+    /// The account cache is the rate limit on the one authenticated request
+    /// the publishing path makes before anybody has approved anything, and it
+    /// is keyed by the session rather than by the secret: a republished slot
+    /// is a different session, and nothing free2z said about the old one may
+    /// answer for it.
+    #[test]
+    fn a_resolved_account_is_reused_only_for_the_session_it_was_resolved_for() {
+        let session = Free2zSession::default();
+        session.publish(Some("knox-token".to_owned()));
+        let (generation, _) = tauri::async_runtime::block_on(session.session()).unwrap();
+        assert_eq!(session.cached_account(generation), None);
+
+        session.remember_account(generation, "alice");
+        assert_eq!(session.cached_account(generation).as_deref(), Some("alice"));
+        assert_eq!(
+            session.cached_account(generation + 1),
+            None,
+            "another session is not this one",
+        );
+
+        // A new publication is a new session, cache and all — including a
+        // republication of the very same token.
+        session.publish(Some("knox-token".to_owned()));
+        let (next, _) = tauri::async_runtime::block_on(session.session()).unwrap();
+        assert_ne!(next, generation);
+        assert_eq!(session.cached_account(next), None);
+
+        // An answer for a session that has already moved on is dropped rather
+        // than written.
+        session.remember_account(generation, "mallory");
+        assert_eq!(session.cached_account(next), None);
+    }
+
     #[test]
     fn the_arguments_carry_a_token_and_nothing_else_and_redact_it() {
         let args: SessionArgs =
@@ -250,11 +337,17 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(120)).await;
             writer.publish(Some("late-token".to_owned()));
         });
-        assert_eq!(session.token().await.as_deref(), Some("late-token"));
+        assert_eq!(
+            session.session().await.map(|(_, token)| token).as_deref(),
+            Some("late-token")
+        );
 
         // Once published, a read is immediate.
         let started = std::time::Instant::now();
-        assert_eq!(session.token().await.as_deref(), Some("late-token"));
+        assert_eq!(
+            session.session().await.map(|(_, token)| token).as_deref(),
+            Some("late-token")
+        );
         assert!(started.elapsed() < Duration::from_secs(1));
     }
 }

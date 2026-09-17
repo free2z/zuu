@@ -101,20 +101,25 @@ the log's receipt. The credential is answered **only** if the log admitted the
 entry, so a refusal leaves the requesting app with nothing to install rather than
 with a credential nobody can find.
 
-Two orderings are worth stating because they differ from every other path here:
+Three things are worth stating because they are what this path rests on:
 
-- **The account's public identity is derived before the dialog.** A publication
-  names a handle, and every source for a handle that is not the caller is keyed
-  by this account's identity key. So the public half is derived first and
-  everything else dropped; the signing keys are read only after the approval.
-  ADR 0017 §4.1 records the cost: a registered caller can cause one `POST` to
-  the handle authority, with the user's own session, before the user has agreed
-  to anything.
-- **The session is a write-only native slot.** An intent arrives from the
-  operating system, so there is no argument for a Knox token to ride on, and a
-  renderer-supplied session *per intent* would let the WebView name the account
-  an inbound request is answered under. `src-tauri/src/session.rs` holds one
-  slot the WebView publishes into and nothing reads back over IPC.
+- **Nothing is disclosed before the dialog.** The plan is built from two
+  answers that carry nothing about this wallet: free2z names the **account** the
+  session belongs to (that request carries the session's own token and nothing
+  else), and the log says whether it already publishes the handle. The seed is
+  read, and `identity_pk` is sent to the authority, only after an approval. An
+  earlier revision fetched the assertion first so that the dialog could show an
+  authority-signed handle; review established that a session somebody else wrote
+  into the slot would then hand this wallet's identity key to their account with
+  no user interaction, so the handle moved behind the approval and the account
+  moved onto the screen.
+- **The session is a write-only native slot**, and the account name is what
+  makes a poisoned one visible. An intent arrives from the operating system, so
+  there is no argument for a Knox token to ride on; `src-tauri/src/session.rs`
+  holds one slot the WebView publishes into and nothing reads back over IPC.
+- **Certainty is decided by phase.** Everything up to the local precheck is a
+  certain "nothing happened"; the submission and everything after it is
+  `INTENT_UNAVAILABLE`, whatever code produced it.
 
 #### The publish confirmation, field by field
 
@@ -123,10 +128,11 @@ Two orderings are worth stating because they differ from every other path here:
 | "Another app asked ZUULI to add a device to your messaging account." | literal | no |
 | `Requesting app:` / `Identity:` | **our** registry, and `CallerTrust` | no |
 | `Its stated reason, in its own words:` | the request's `purpose` | yes — quoted and escaped |
-| "This device will be **PUBLISHED** … under `@handle`" | the authority's signed assertion, or the entry the log proved | no — the request's own handle field never reaches the screen, and a mismatch is a refusal |
-| "free2z's handle authority signed for … just now" / "already published under this wallet's messaging identity" | which of the two sources answered | no |
-| `Your account already publishes N device(s).` | the verified predecessor | no |
-| `First contact … will be delivered at <host>` | the request's `contact_relay_url`, as a **host** | yes — which is why it is shown |
+| `Publishing under the free2z account: "name"` | **free2z's** answer for the session this wallet holds | no — and this is where a session written by somebody else becomes visible |
+| "This device will be **PUBLISHED** … under `@handle`, which already publishes N device(s)" | the entry **the log proved** | no — the request's own handle field never reaches the screen |
+| "… under `account`'s messaging handle, which has no published devices yet" | the first-entry case, where the log has no name to give | no |
+| `The device being added: <fingerprint>` | the request's `device_pk`, head-and-tail | yes, as a key — which is the point: it is how a person tells which device this is |
+| "every NEW conversation will reach this device first — ahead of your N existing device(s) — at `<host>`" | `adding_device`'s ordering rule and the request's relay, as a **host** | the host, yes — which is why it is shown |
 | the wiretap paragraph | literal | no |
 
 ## 4. The confirmation, field by field

@@ -39,27 +39,53 @@ export interface NativeSessionDeps {
 }
 
 /**
- * Publish `token`, dropping any answer that has been overtaken.
+ * Publish `token`, and make the **last value asked for** the one the wallet
+ * ends up holding.
  *
- * Invocations are asynchronous and a sign-out can overtake a sign-in, so each
- * publication carries a generation and a late one is discarded rather than
- * written. Without that, a slow "signed in" landing after a fast "signed out"
- * would leave the wallet holding a session the user has ended.
+ * Two independent hazards, and a generation counter alone answers neither:
+ *
+ * 1. **Concurrency.** `invoke` is asynchronous, so two publications overlap and
+ *    the *native write happens inside the call*. A slow "signed in" issued
+ *    before a fast "signed out" lands after it, and the wallet is left holding
+ *    a live session the user ended — checking a generation *after* the await
+ *    cannot undo a write that already happened.
+ * 2. **Staleness.** A publication that has been overtaken before it is even
+ *    dispatched should not be sent at all.
+ *
+ * So publications are **serialized through a single-slot queue**: one call is
+ * in flight at a time, and while one is in flight only the newest pending
+ * value is kept. A value that is overtaken while it waits is dropped, and the
+ * final `invoke` is always the newest value — so the wallet's slot converges on
+ * what the renderer last said, regardless of which call was slow.
  */
 export function createNativeSessionPublisher(deps: NativeSessionDeps) {
-  let issued = 0;
-  let applied = 0;
-  return async function publish(token: string | null): Promise<void> {
-    const generation = (issued += 1);
-    try {
-      await deps.invoke(FREE2Z_SESSION_COMMAND, { args: { token } });
-      if (generation > applied) applied = generation;
-    } catch (error) {
-      // A wallet that cannot be told about the session is one that will refuse
-      // a publication later with `INTENT_HANDLE_UNAVAILABLE`, which is the
-      // honest outcome. It must not break sign-in.
-      deps.onFailure?.(error);
+  /** The newest value asked for that has not been dispatched yet. */
+  let pending: { token: string | null } | null = null;
+  /** Resolves when the queue drains; one drain runs at a time. */
+  let draining: Promise<void> | null = null;
+
+  async function drain(): Promise<void> {
+    while (pending !== null) {
+      const next = pending;
+      pending = null;
+      try {
+        await deps.invoke(FREE2Z_SESSION_COMMAND, { args: { token: next.token } });
+      } catch (error) {
+        // A wallet that cannot be told about the session is one that will
+        // refuse a publication later with `INTENT_HANDLE_UNAVAILABLE`, which is
+        // the honest outcome. It must not break sign-in.
+        deps.onFailure?.(error);
+      }
     }
+    draining = null;
+  }
+
+  return function publish(token: string | null): Promise<void> {
+    // Replaces, rather than queues: an older value that has not been sent is a
+    // value nobody wants written any more.
+    pending = { token };
+    draining ??= drain();
+    return draining;
   };
 }
 

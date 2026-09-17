@@ -32,7 +32,7 @@ beforeEach(() => {
 });
 
 describe("mirroring the free2z session into the wallet process", () => {
-  it("publishes the signed-out state at startup, and every change after it", () => {
+  it("publishes the signed-out state at startup, and every change after it", async () => {
     const slot = nativeSlot();
     const listeners: Array<(token: string | null) => void> = [];
     const stop = installNativeSessionMirror({
@@ -46,16 +46,23 @@ describe("mirroring the free2z session into the wallet process", () => {
       },
     });
     // Silence is not "signed out": the native slot waits for a first answer,
-    // so one is sent even when there is nothing to send.
+    // so one is sent even when there is nothing to send. Publications are
+    // queued, so a tick is what "has reached the wallet" means here.
+    await Promise.resolve();
     expect(slot.published).toEqual([null]);
     listeners[0]?.("knox-token");
+    await Promise.resolve();
+    await Promise.resolve();
     expect(slot.published).toEqual([null, "knox-token"]);
     stop();
     expect(listeners).toHaveLength(0);
   });
 
-  it("never lets a slow sign-in overtake a sign-out", async () => {
-    const order: string[] = [];
+  it("leaves the wallet holding the last value asked for, not the last to arrive", async () => {
+    // The slot as the wallet holds it: whatever the last completed `invoke`
+    // wrote. Asserting arrival order would pass on the bug this is about — a
+    // stale sign-in landing last leaves a live session behind.
+    let slot: string | null | undefined;
     const gate: { release: (() => void) | null } = { release: null };
     const publish = createNativeSessionPublisher({
       invoke: async (_command, args) => {
@@ -65,20 +72,49 @@ describe("mirroring the free2z session into the wallet process", () => {
             gate.release = resolve;
           });
         }
-        order.push(String(token));
+        slot = token;
         return null;
       },
       token: () => null,
       subscribe: () => () => {},
     });
+
     const slow = publish("slow");
-    const fast = publish(null);
-    await fast;
+    const signedOut = publish(null);
+    // The first call is still in flight; release it and let the queue drain.
     gate.release?.();
-    await slow;
-    // Both reached the wallet, and the *last issued* one is the one that stands:
-    // the generation check is what makes a late answer inert.
-    expect(order).toEqual(["null", "slow"]);
+    await Promise.all([slow, signedOut]);
+
+    expect(slot).toBeNull();
+  });
+
+  it("drops a value that was overtaken before it was ever sent", async () => {
+    const sent: Array<string | null> = [];
+    const gate: { release: (() => void) | null } = { release: null };
+    const publish = createNativeSessionPublisher({
+      invoke: async (_command, args) => {
+        const token = (args as { args: { token: string | null } }).args.token;
+        if (token === "first") {
+          await new Promise<void>((resolve) => {
+            gate.release = resolve;
+          });
+        }
+        sent.push(token);
+        return null;
+      },
+      token: () => null,
+      subscribe: () => () => {},
+    });
+
+    const first = publish("first");
+    // Two more while the first is in flight: only the newest may be sent.
+    const second = publish("stale");
+    const third = publish(null);
+    gate.release?.();
+    await Promise.all([first, second, third]);
+
+    expect(sent).toEqual(["first", null]);
+    expect(sent).not.toContain("stale");
   });
 
   it("does not break sign-in when the wallet process refuses", async () => {

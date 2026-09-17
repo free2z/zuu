@@ -248,10 +248,14 @@ one row at a time: patch, `cargo test --lib <test> -- --exact`, restore.
 | Guard, as mutated | Test that must fail | Result |
 |---|---|---|
 | `vouched_handle` ignores the authority signature's result | `an_assertion_that_does_not_verify_names_no_handle` | FAILS |
-| `plan_publication` drops the predecessor identity-key comparison | `a_handle_published_under_another_identity_is_refused_before_anything_is_asked` | FAILS |
-| `publish_device` skips the precheck | `an_assertion_the_log_would_refuse_is_caught_before_submission` | FAILS |
+| the predecessor identity-key comparison is dropped | `a_handle_published_under_another_identity_is_refused_before_anything_is_signed` | FAILS |
+| `sign_for_publication` skips the precheck | `an_assertion_the_log_would_refuse_is_caught_before_submission` | FAILS |
 | the native dialog is not called at all | `the_publish_order_is_identity_then_plan_then_prompt_then_sign_then_submit` | FAILS |
 | the confirmation's handle taken from the admitted request | `the_publish_confirmation_never_renders_the_requested_handle` | FAILS |
+| `refusal_after_submission` delegating to `publication_refusal` | `nothing_after_the_submission_claims_that_nothing_happened` | FAILS |
+| the certain mapping applied to the submission's own refusal | `the_certain_refusal_mapping_is_never_applied_after_the_submission` | FAILS |
+| the assertion fetched before the confirmation (the reviewed ordering) | `the_publish_order_is_plan_then_prompt_then_seed_then_assertion_then_submit` | FAILS |
+| the seed read before the confirmation | same | FAILS |
 | the fulfilled answer echoes a fixed family instead of the one asked | `a_fulfilled_answer_echoes_the_version_that_was_asked` | FAILS |
 
 One row that **cannot** be written, recorded rather than omitted: "the
@@ -271,8 +275,24 @@ published device is reachable at all:
 | `enrollment_status` ignores `submitted_by_issuer` | `an_issuer_submitted_device_is_waiting_rather_than_blocked` | FAILS |
 | `e2e2z_enrollment_status` stops asking the log whether the entry merged | `the_enrollment_read_asks_the_log_while_the_entry_is_unmerged` | FAILS |
 
-**14 Rust mutations across these two tables, 14 failures, 0 survivors**, plus
-the four TypeScript rows above — 18 in all. Every one was applied, watched to
+And the renderer's half of the session slot, whose guard is about *which value
+the wallet ends up holding*:
+
+| Guard, as mutated | Test that must fail | Result |
+|---|---|---|
+| the single-slot queue, replaced by the generation counter this branch first shipped | `leaves the wallet holding the last value asked for, not the last to arrive` | FAILS |
+| a value overtaken before dispatch sent anyway | `drops a value that was overtaken before it was ever sent` | FAILS |
+
+The first row is the one worth reading. The generation counter it replaces
+*looked* like an ordering guard — it incremented, compared and recorded — but
+the comparison happened **after** `invoke` had already written the slot, and
+nothing read the recorded value. The test that shipped with it asserted arrival
+order, which the bug satisfies: a stale sign-in landing last was the expected
+result. Both are now stated as the property that matters, which is the value the
+wallet holds when the dust settles, and the old implementation fails them.
+
+**19 Rust mutations across these tables, 19 failures, 0 survivors**, plus the
+six TypeScript rows above — 25 in all. Every one was applied, watched to
 fail with a named assertion, restored **from a saved copy of the working file**
 (never `git checkout`, which would discard the change under test), and re-run
 green.

@@ -137,6 +137,21 @@ turning caller-supplied bytes into a payment confirmation would be the deputy
 that issue is about. A test reads `lib.rs` and fails if anything from the module
 reaches the invoke handler.
 
+**One thing the intent path does add to the invoke surface, and what bounds
+it.** `free2z_session_sync` (ADR 0017 §4.1) lets the WebView publish the
+signed-in free2z session into a native slot, because an intent arrives from the
+operating system with no argument to carry a Knox token on. It is write-only —
+it answers `()`, and a test asserts this module exposes no command that hands a
+token back — but it is a *write*, and an app-crate command is not
+capability-gated, so under #367 anything reaching the invoke bridge can write
+it. ZUULI's CSP forbids frames (`frame-src 'none'`), so that means an XSS in
+ZUULI's own origin rather than a hostile embed. What bounds the damage is the
+publishing path rather than the command: it resolves **which account** the
+session belongs to before it discloses anything, names that account in the
+native confirmation, and reads the seed and sends `identity_pk` only after an
+approval. A session somebody else wrote therefore costs a declined dialog, and
+a declined or ignored request leaks nothing about the wallet.
+
 ## 4. What enforces the boundary
 
 The split is worth nothing if it is a convention. "free2z has no wallet

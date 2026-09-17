@@ -141,10 +141,21 @@ test.describe("enroll with ZUULI", () => {
     ).toHaveCount(0);
 
     // The log merges the entry at an epoch boundary. Nothing tells this device;
-    // it re-reads, and the screen moves on its own.
+    // it re-reads, and the screen moves on its own. Focus is one of the two
+    // re-read points (the other is a timer this spec does not wait out), so the
+    // re-read is driven rather than awaited once: a single dispatched event
+    // that lands while a reconcile is already in flight is a race, not a
+    // property.
     await mergeAt(page, 12);
-    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await expect(page.getByText("Handle active")).toBeVisible();
+    await expect
+      .poll(
+        async () => {
+          await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+          return page.getByText("Handle active").count();
+        },
+        { timeout: 15_000 },
+      )
+      .toBeGreaterThan(0);
     await expect(page.getByText("is published in the directory")).toBeVisible();
     await expect(page.getByText("Submitted, not yet active")).toHaveCount(0);
     await expect(
