@@ -70,6 +70,7 @@ describe("paid login intent", () => {
     ],
     ["/creator/alice", { kind: "creator-tip", subject: "alice", amount: "50" }],
     ["/creator/alice", { kind: "creator-subscription", subject: "alice" }],
+    ["/creator/alice", { kind: "start-encrypted-chat", subject: "alice" }],
     ["/live/alice", { kind: "live-entry", subject: "alice", mode: "ppv" }],
   ] as const)("preserves the %s paid intent across login", (path, intent) => {
     const storage = new MemoryStorage();
@@ -188,6 +189,19 @@ describe("paid login intent", () => {
     expect(consumePaidIntent(returnTo, "creator-tip", storage, 200)).toEqual(
       intent,
     );
+  });
+
+  it("rejects a chat intent whose subject is not a bounded username", () => {
+    const storage = new MemoryStorage();
+    storage.value = JSON.stringify({
+      returnTo: "/creator/alice",
+      createdAt: 100,
+      intent: { kind: "start-encrypted-chat", subject: "a".repeat(151) },
+    });
+    expect(
+      consumePaidIntent("/creator/alice", "start-encrypted-chat", storage, 200),
+    ).toBeNull();
+    expect(storage.value).toBeNull();
   });
 
   it("lets the creator page consume either of its owned intent kinds once", () => {

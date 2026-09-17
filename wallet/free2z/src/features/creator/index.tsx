@@ -68,6 +68,17 @@ import { creatorTipCopy } from "./tip-copy";
 import { CreatorSocialLinks } from "./SocialLinks";
 import { useCreatorCatalog } from "./catalog";
 import { MESSAGE_KEYS } from "@/i18n/messages";
+import { StartChatButton } from "./StartChatButton";
+
+/**
+ * Every paid intent this page can resume. A module constant, not an inline
+ * array: `usePaidIntent` lists it as an effect dependency.
+ */
+const CREATOR_INTENTS: readonly PaidIntent["kind"][] = [
+  "creator-subscription",
+  "creator-tip",
+  "start-encrypted-chat",
+];
 
 export default function CreatorFeature() {
   const { t } = useTranslation();
@@ -158,10 +169,7 @@ function CreatorProfile({
 }) {
   const name = creator.display_name || creator.username;
   const location = useLocation();
-  const restoredPaidIntent = usePaidIntent(location.pathname, [
-    "creator-subscription",
-    "creator-tip",
-  ]);
+  const restoredPaidIntent = usePaidIntent(location.pathname, CREATOR_INTENTS);
   const pages = useCreatorCatalog(creator.username);
   const pageCount = pages.count ?? creator.zpages;
   const { body: bio, socials } = useMemo(
@@ -280,6 +288,7 @@ function CreatorProfile({
           ) : null}
           <TipButton creator={creator} restored={restoredPaidIntent} />
           <SubscribeButton creator={creator} restored={restoredPaidIntent} />
+          <StartChatButton creator={creator} restored={restoredPaidIntent} />
         </div>
       </div>
 
