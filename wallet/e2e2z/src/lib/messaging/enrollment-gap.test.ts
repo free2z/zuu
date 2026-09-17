@@ -1,35 +1,70 @@
-// The enrollment gap is a contract, so it is tested like one.
+// @vitest-environment jsdom
+//
+// The enrollment boundary is a contract, so it is tested like one.
 //
 // #904's whole premise is that e2e2z never holds the Zcash seed. Enrollment is
 // the one messaging operation that needs it (ARCHITECTURE.md §4.2), so this app
-// cannot perform it, and the failure mode that matters is not "it errors" — it
+// asks ZUULI for it, and the failure mode that matters is not "it errors" — it
 // is "it quietly appears to have worked". These assertions are the ones that
-// would go red if someone replaced the refusal with a synthesized status, or
-// let the call fall through to a Tauri host that has no such command.
+// would go red if someone replaced a refusal or a read with a synthesized
+// status, or let a call fall through to a command this app never registered.
+//
+// #1022 changed one member of the trio deliberately. `getEnrollmentStatus` is
+// now a read of this device's own store through the app crate
+// (`e2e2z_enrollment_status`), because the screen has to know whether the
+// device is enrolled. It still never answers with anything the engine did not
+// say. `enroll` still refuses wherever there is no transport, and `unenroll`
+// still refuses outright.
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ENROLLMENT_STATUS_COMMAND } from "../enrollment/commands";
 import {
   EnrollmentUnavailableError,
   RESULTS,
   WIRE_COMMANDS,
   enrollment,
+  enrollmentTransport,
   isEnrollmentUnavailable,
 } from "./bridge";
 
-const TRIO = ["getEnrollmentStatus", "enroll", "unenroll"] as const;
+const REFUSED = ["enroll", "unenroll"] as const;
+const TRIO = ["getEnrollmentStatus", ...REFUSED] as const;
 
-/** Each trio member called the way a screen would call it. */
-const CALLS: Record<(typeof TRIO)[number], () => Promise<unknown>> = {
-  getEnrollmentStatus: () => enrollment.getEnrollmentStatus(),
+/** Each refused member called the way a screen would call it. */
+const CALLS: Record<(typeof REFUSED)[number], () => Promise<unknown>> = {
   enroll: () => enrollment.enroll("alice"),
   unenroll: () => enrollment.unenroll("DELETE"),
 };
 
-describe("the enrollment gap", () => {
-  it("refuses every enrollment call with a typed refusal", async () => {
-    await expect(enrollment.getEnrollmentStatus()).rejects.toBeInstanceOf(
-      EnrollmentUnavailableError,
-    );
+const NOT_ENROLLED = {
+  enrolled: false,
+  handle: null,
+  eligibility: { eligible: false, candidate: null, reason: "not-signed-in" },
+  directoryEntryVersion: null,
+  submittedAt: null,
+  mergedAtEpoch: null,
+  blocked: null,
+};
+
+function installHost(answer: (cmd: string) => unknown) {
+  const invoke = vi.fn(async (cmd: string) => answer(cmd));
+  Object.defineProperty(window, "__TAURI_INTERNALS__", {
+    configurable: true,
+    writable: true,
+    value: { invoke },
+  });
+  return invoke;
+}
+
+afterEach(() => {
+  Reflect.deleteProperty(
+    window as unknown as Record<string, unknown>,
+    "__TAURI_INTERNALS__",
+  );
+});
+
+describe("the enrollment boundary", () => {
+  it("refuses enroll and unenroll with a typed refusal where nothing can carry them", async () => {
     await expect(enrollment.enroll("alice")).rejects.toBeInstanceOf(
       EnrollmentUnavailableError,
     );
@@ -39,7 +74,7 @@ describe("the enrollment gap", () => {
   });
 
   it("carries a machine-readable reason and the refused method", async () => {
-    for (const method of TRIO) {
+    for (const method of REFUSED) {
       const refusal = await CALLS[method]().catch((cause: unknown) => cause);
       expect(isEnrollmentUnavailable(refusal)).toBe(true);
       expect((refusal as EnrollmentUnavailableError).reason).toBe(
@@ -51,38 +86,45 @@ describe("the enrollment gap", () => {
     }
   });
 
-  it("never reaches the Tauri IPC surface", async () => {
-    // A stub host that answers everything. If the bridge invoked at all, the
-    // refusal would be gone and this spy would have been called.
-    const invoke = vi.fn(async () => ({}));
-    const previous = Object.getOwnPropertyDescriptor(
-      globalThis,
-      "__TAURI_INTERNALS__",
-    );
-    Object.defineProperty(globalThis, "__TAURI_INTERNALS__", {
-      configurable: true,
-      writable: true,
-      value: { invoke },
-    });
-    try {
-      for (const method of TRIO) {
-        await CALLS[method]().catch(() => undefined);
-      }
-    } finally {
-      if (previous) {
-        Object.defineProperty(globalThis, "__TAURI_INTERNALS__", previous);
-      } else {
-        Reflect.deleteProperty(
-          globalThis as unknown as Record<string, unknown>,
-          "__TAURI_INTERNALS__",
-        );
-      }
+  it("reaches no command for enroll or unenroll without a transport", async () => {
+    // A host that answers everything. If either refused call invoked at all,
+    // the spy would have been called.
+    const invoke = installHost(() => ({}));
+    for (const method of REFUSED) {
+      await CALLS[method]().catch(() => undefined);
     }
     expect(invoke).not.toHaveBeenCalled();
+    expect(enrollmentTransport.canEnroll()).toBe(false);
   });
 
-  it("never resolves to an EnrollmentStatus, however shaped", async () => {
-    for (const method of TRIO) {
+  it("reads enrollment through the app crate, and never through an f2zmsg_ command", async () => {
+    const invoke = installHost((cmd) => {
+      if (cmd === ENROLLMENT_STATUS_COMMAND) return NOT_ENROLLED;
+      throw new Error(`Command ${cmd} not found`);
+    });
+    await expect(enrollment.getEnrollmentStatus()).resolves.toEqual(
+      NOT_ENROLLED,
+    );
+    expect(invoke.mock.calls.map(([cmd]) => cmd)).toEqual([
+      "e2e2z_enrollment_status",
+    ]);
+  });
+
+  it("never resolves to a status the engine did not give", async () => {
+    // A host that answers the read with something that is not a status.
+    installHost(() => ({ enrolled: true }));
+    await expect(enrollment.getEnrollmentStatus()).rejects.toThrow(
+      "e2e2z_enrollment_status",
+    );
+
+    // And one that refuses: the engine's code comes through untouched, so the
+    // screen can name it.
+    installHost(() => {
+      throw "internal";
+    });
+    await expect(enrollment.getEnrollmentStatus()).rejects.toBe("internal");
+
+    for (const method of REFUSED) {
       const settled = await CALLS[method]().then(
         (value) => ({ resolved: true as const, value }),
         () => ({ resolved: false as const }),
@@ -93,8 +135,8 @@ describe("the enrollment gap", () => {
 
   it("keeps the trio in the bridge's declared population", () => {
     // Deleting them would shrink the contract §3 declares rather than record
-    // that this app cannot serve it, and `messaging-contract.node-test.mjs`
-    // compares those populations by name.
+    // how this app serves it, and `messaging-contract.node-test.mjs` compares
+    // those populations by name.
     expect(WIRE_COMMANDS.getEnrollmentStatus).toBe("f2zmsg_enrollment_status");
     expect(WIRE_COMMANDS.enroll).toBe("f2zmsg_enroll");
     expect(WIRE_COMMANDS.unenroll).toBe("f2zmsg_unenroll");

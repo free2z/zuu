@@ -166,6 +166,24 @@ pub async fn e2e2z_install_device_credential<R: Runtime>(
         .await
 }
 
+/// What this device's store says about its own enrollment (#1022).
+///
+/// The seed-free half of ZUULI's `f2zmsg_enrollment_status`: it reads the
+/// identity [`e2e2z_install_device_credential`] stored, if any, and nothing
+/// else. Without it the screen cannot tell an enrolled device from one that
+/// still needs ZUULI, because the plugin's own IPC surface has no enrollment
+/// read (§2.2 keeps the trio app-crate). Named `e2e2z_*`, never `f2zmsg_*`:
+/// `lib.rs` asserts this app registers no command of the seed-holding trio's
+/// names.
+///
+/// # Errors
+///
+/// `internal` if the store cannot be read.
+#[tauri::command]
+pub async fn e2e2z_enrollment_status<R: Runtime>(app: AppHandle<R>) -> Result<EnrollmentStatus> {
+    app.f2zmsg().engine_handle()?.enrollment_status().await
+}
+
 /// Re-ask the OS secret store for this device's wrap key and leave §6.1's
 /// `locked`.
 ///

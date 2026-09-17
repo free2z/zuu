@@ -56,6 +56,7 @@ import {
   type IntentSessionOutcome,
   type IntentSession,
 } from "@free2z/wallet-shared";
+import { REQUEST_LIFETIME_MS } from "./lifetime";
 import {
   readDeviceCredentialKeys,
   type DeviceCredentialKeys,
@@ -91,14 +92,10 @@ export const ISSUE_DEVICE_CREDENTIAL_PURPOSE =
   "Issue this device a messaging credential";
 
 /**
- * How long the *request* stays answerable, in milliseconds.
- *
- * Two minutes, against §3.4's five-minute ceiling. The user has to read a
- * confirmation in another app, so seconds are too few; the ceiling exists
- * because "nothing here is a continuous grant" (#904), so the whole window
- * should be no longer than the task needs.
+ * How long the *request* stays answerable. Declared in `./lifetime` so the
+ * screen can show the same deadline without loading this module eagerly.
  */
-export const REQUEST_LIFETIME_MS = 120_000;
+export { REQUEST_LIFETIME_MS } from "./lifetime";
 
 /**
  * How long the *credential* is requested for.
