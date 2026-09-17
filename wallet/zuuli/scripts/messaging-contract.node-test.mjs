@@ -341,7 +341,12 @@ const REVIEWED_BIND_HELPER_DIGESTS = {
   // ADR 0017: the closing `enrollment_status` now takes the directory so its
   // `blocked` field can say whether a log is configured. The commit, alarm
   // flush and fallback-clear ordering is unchanged and checked above.
-  unenroll: "8bb9d4a8ebc41a2a916099a97ce0dde6f392f971de3a23a7f5057bfca80e42f7",
+  // ADR 0017 §3 (directory hardening): `unenroll` now also detaches the
+  // directory's sealed checkpoint store, which `clear_identity` deletes in the
+  // same transaction as the identity and its secrets — unenrolling is the one
+  // reset of this device's directory state. The commit, alarm flush and
+  // fallback-clear ordering is unchanged and checked above.
+  unenroll: "ef5bf7add477471f75850887843ea963a545374ec2ed0fc31b19f51757cdd1b2",
   leave_conversation: "673121980c042560f89118c0f3e10e1e03433bf26471c4efaac6cec33fd0b376",
   flush_volatile_compromise_alarms: "b948b2da7ce0e2a51a95a72dda3e79f273eb69ef3c06e0b950ec5ad28ccbad22",
   mark_send_address_stolen_delivery: "3d2495c0d3ce5b117045b37cd798fe839ba9720d7c4b5d9047a0baaa8b1b2283",
@@ -352,7 +357,10 @@ const REVIEWED_BIND_HELPER_DIGESTS = {
 
 const REVIEWED_LIFECYCLE_DIGESTS = {
   stop: "1ab5cc28add926019943b9bdbde5c09db05d9b47f74aac99a8814e04d40c6f99",
-  shutdown: "0279d85eee1e4b74bc6284ed26bd1e603affe0e4f2677be61941493eb0ba144c",
+  // ADR 0017 §3: `shutdown` also detaches the checkpoint store, because the
+  // secrets its key is derived from are being dropped here. The volatile
+  // alarm flush and the teardown order are unchanged.
+  shutdown: "c861b848e4033b516fcf2cdc133f414a827ae81247cbaeea3108679711fae87e",
 };
 
 function relayErrorContractFailures({

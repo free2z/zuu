@@ -13,10 +13,13 @@
 //! The file ships with every key and URL set to `PLACEHOLDER`, and in that
 //! state [`bundled`] answers [`Bundled::Unconfigured`]: the engine keeps
 //! [`crate::directory::NoDirectory`] and no relay is added. A half-filled file
-//! is **malformed**, not partially configured — the unit test below fails the
-//! build on it, and a binary that carried one anyway logs the reason and stays
-//! unconfigured. There is no environment variable and no runtime override: the
-//! only way to point a build at a log is a reviewed change to that one file.
+//! is **malformed**, not partially configured, and malformed is a **compile
+//! error**: `build.rs` runs [`syntax::parse`] — the same function this module
+//! runs — over the file and fails the build, so no binary can carry one. The
+//! runtime still re-checks and treats an error as unconfigured, which is
+//! unreachable in a build that compiled and costs nothing to keep. There is no
+//! environment variable and no runtime override: the only way to point a
+//! build at a log is a reviewed change to that one file.
 //!
 //! # What the posture does not let the file say
 //!
@@ -26,21 +29,23 @@
 //! (`KT.md` §8.3). The threshold is met and the independent count is zero, so
 //! `EngineStatus.independentWitnesses` stays `0` and the UI's warning stays up.
 
-use std::collections::BTreeSet;
 use std::time::Duration;
 
 use f2z_codec::types::PublicKey;
 
 use crate::directory::{DirectoryConfig, WitnessConfig};
 
+pub mod syntax;
+
+/// `build.rs`'s own `log_id`, compiled here only so a test can compare it.
+#[cfg(test)]
+#[path = "internal_directory/log_id.rs"]
+mod build_log_id;
+
+pub use syntax::{MIN_RESET_COOLDOWN_SECONDS, PLACEHOLDER, POSTURE};
+
 /// The file, as compiled into this build.
 pub const BUNDLED_TEXT: &str = include_str!("../internal-directory.conf");
-
-/// The one posture this file may declare.
-pub const POSTURE: &str = "internal-disposable";
-
-/// The literal a not-yet-deployed value carries.
-pub const PLACEHOLDER: &str = "PLACEHOLDER";
 
 /// How long a lookup or submission waits for the log.
 const LOG_TIMEOUT: Duration = Duration::from_secs(15);
@@ -67,12 +72,17 @@ pub struct InternalDirectory {
     pub witnesses: Vec<[u8; 32]>,
     /// *t*.
     pub threshold: usize,
-    /// Contract C: the key a `HandleAssertion` must be signed by.
+    /// Contract C: the key a `HandleAssertion` must be signed by — and the
+    /// one key the log's signed authority policy must list (ADR 0017 §3).
     pub handle_authority_pk: [u8; 32],
     /// Contract C: where the enrolling wallet fetches one, `https://`.
     pub handle_assertion_url: String,
     /// The relay a fresh engine is configured with, `wss://`.
     pub relay_url: String,
+    /// Genesis keys of log generations this build has deliberately left. A
+    /// device's stored checkpoint from one of them is set aside; a checkpoint
+    /// from any other log is refused (ADR 0017 §3).
+    pub retired_log_public_keys: Vec<[u8; 32]>,
 }
 
 impl InternalDirectory {
@@ -97,7 +107,8 @@ impl InternalDirectory {
             threshold: self.threshold,
             timeout: LOG_TIMEOUT,
             vrf_public_key: Some(self.vrf_public_key),
-            checkpoint_path: None,
+            required_authority: Some(self.handle_authority_pk),
+            retired_log_public_keys: self.retired_log_public_keys.clone(),
         }
     }
 }
@@ -141,168 +152,56 @@ pub fn bundled() -> Bundled {
     }
 }
 
-/// Parse the file's text.
+/// Parse the file's text: [`syntax::parse`] with `KT.md` §6.1's `log_id`.
 ///
 /// # Errors
 ///
 /// A description of the first problem: an unknown or repeated key, a missing
 /// one, a posture other than [`POSTURE`], a mix of placeholder and real
-/// values, a URL with the wrong scheme, a key that is not 64 hex characters, a
-/// duplicate witness, or a threshold outside `1..=witnesses`.
+/// values, a value that is not printable ASCII or carries a `#`, a URL with
+/// the wrong scheme or no plain host, a key that is not 64 lowercase hex
+/// characters, a duplicate witness or retired key, a cooldown under
+/// [`MIN_RESET_COOLDOWN_SECONDS`], or a threshold outside `1..=witnesses`.
 pub fn parse(text: &str) -> Result<Bundled, String> {
-    let mut posture = None;
-    let mut singles: std::collections::BTreeMap<&str, &str> = std::collections::BTreeMap::new();
-    let mut witnesses: Vec<&str> = Vec::new();
-
-    for (index, raw) in text.lines().enumerate() {
-        let line = raw.split('#').next().unwrap_or("").trim();
-        if line.is_empty() {
-            continue;
-        }
-        let number = index.saturating_add(1);
-        let (key, value) = line
-            .split_once('=')
-            .ok_or_else(|| format!("line {number}: expected `key = value`"))?;
-        let (key, value) = (key.trim(), value.trim());
-        match key {
-            "posture" => {
-                if posture.replace(value).is_some() {
-                    return Err(format!("line {number}: `posture` is set twice"));
-                }
-            }
-            "witness_pk" => witnesses.push(value),
-            "log_url"
-            | "log_public_key"
-            | "log_id"
-            | "vrf_public_key"
-            | "reset_authority_pk"
-            | "reset_cooldown_seconds"
-            | "threshold"
-            | "handle_authority_pk"
-            | "handle_assertion_url"
-            | "relay_url" => {
-                if singles.insert(key, value).is_some() {
-                    return Err(format!("line {number}: `{key}` is set twice"));
-                }
-            }
-            other => return Err(format!("line {number}: unknown key `{other}`")),
-        }
-    }
-
-    if posture != Some(POSTURE) {
-        return Err(format!("`posture` must be `{POSTURE}`"));
-    }
-    let get = |key: &str| {
-        singles
-            .get(key)
-            .copied()
-            .ok_or_else(|| format!("`{key}` is required"))
-    };
-
-    // Every value a deployment supplies. The two numbers have real defaults in
-    // the placeholder file and are not part of this census.
-    let deployable = [
-        get("log_url")?,
-        get("log_public_key")?,
-        get("log_id")?,
-        get("vrf_public_key")?,
-        get("reset_authority_pk")?,
-        get("handle_authority_pk")?,
-        get("handle_assertion_url")?,
-        get("relay_url")?,
-    ];
-    if witnesses.is_empty() {
-        return Err("at least one `witness_pk` is required".to_owned());
-    }
-    let placeholders = deployable
-        .iter()
-        .chain(witnesses.iter())
-        .filter(|value| **value == PLACEHOLDER)
-        .count();
-    let reset_cooldown_seconds = get("reset_cooldown_seconds")?
-        .parse::<u32>()
-        .map_err(|_| "`reset_cooldown_seconds` is not a u32".to_owned())?;
-    let threshold = get("threshold")?
-        .parse::<usize>()
-        .map_err(|_| "`threshold` is not a number".to_owned())?;
-
-    if placeholders == deployable.len().saturating_add(witnesses.len()) {
-        return Ok(Bundled::Unconfigured(
+    Ok(match syntax::parse(text, &log_id_of)? {
+        syntax::Outcome::Unconfigured => Bundled::Unconfigured(
             "internal-directory.conf still carries PLACEHOLDER values".to_owned(),
-        ));
-    }
-    if placeholders > 0 {
-        return Err(
-            "some values are PLACEHOLDER and some are not; fill in every value or none".to_owned(),
-        );
-    }
-
-    let log_public_key = key("log_public_key", get("log_public_key")?)?;
-    let log_id = *f2z_kt_core::labels::log_id(&PublicKey::new(log_public_key)).as_bytes();
-    if key("log_id", get("log_id")?)? != log_id {
-        return Err(
-            "`log_id` is not BLAKE2b-256(\"free2z/kt/v1/log-id\" || log_public_key); the two \
-             values come from different logs"
-                .to_owned(),
-        );
-    }
-    let mut distinct = BTreeSet::new();
-    let witnesses = witnesses
-        .iter()
-        .map(|value| {
-            let parsed = key("witness_pk", value)?;
-            if distinct.insert(parsed) {
-                Ok(parsed)
-            } else {
-                Err("a `witness_pk` is listed twice".to_owned())
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    if threshold == 0 || threshold > witnesses.len() {
-        return Err(format!(
-            "`threshold` must be between 1 and {} (the number of witness_pk lines)",
-            witnesses.len()
-        ));
-    }
-
-    Ok(Bundled::Configured(Box::new(InternalDirectory {
-        log_url: url("log_url", get("log_url")?, "https://")?,
-        log_id,
-        log_public_key,
-        vrf_public_key: key("vrf_public_key", get("vrf_public_key")?)?,
-        reset_authority_pk: key("reset_authority_pk", get("reset_authority_pk")?)?,
-        reset_cooldown_seconds,
-        witnesses,
-        threshold,
-        handle_authority_pk: key("handle_authority_pk", get("handle_authority_pk")?)?,
-        handle_assertion_url: url(
-            "handle_assertion_url",
-            get("handle_assertion_url")?,
-            "https://",
-        )?,
-        relay_url: url("relay_url", get("relay_url")?, "wss://")?,
-    })))
+        ),
+        syntax::Outcome::Configured(parsed) => {
+            let syntax::Parsed {
+                log_url,
+                log_public_key,
+                log_id,
+                vrf_public_key,
+                reset_authority_pk,
+                reset_cooldown_seconds,
+                witnesses,
+                threshold,
+                handle_authority_pk,
+                handle_assertion_url,
+                relay_url,
+                retired_log_public_keys,
+            } = *parsed;
+            Bundled::Configured(Box::new(InternalDirectory {
+                log_url,
+                log_public_key,
+                log_id,
+                vrf_public_key,
+                reset_authority_pk,
+                reset_cooldown_seconds,
+                witnesses,
+                threshold,
+                handle_authority_pk,
+                handle_assertion_url,
+                relay_url,
+                retired_log_public_keys,
+            }))
+        }
+    })
 }
 
-fn key(name: &str, value: &str) -> Result<[u8; 32], String> {
-    let invalid = || format!("`{name}` is not 64 lowercase hex characters");
-    if value.len() != 64 || value.bytes().any(|byte| byte.is_ascii_uppercase()) {
-        return Err(invalid());
-    }
-    hex::decode(value)
-        .ok()
-        .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
-        .ok_or_else(invalid)
-}
-
-fn url(name: &str, value: &str, scheme: &str) -> Result<String, String> {
-    let rest = value
-        .strip_prefix(scheme)
-        .ok_or_else(|| format!("`{name}` must start with {scheme}"))?;
-    if rest.is_empty() || rest.contains(char::is_whitespace) {
-        return Err(format!("`{name}` has no host"));
-    }
-    Ok(value.to_owned())
+fn log_id_of(public_key: &[u8; 32]) -> [u8; 32] {
+    *f2z_kt_core::labels::log_id(&PublicKey::new(*public_key)).as_bytes()
 }
 
 #[cfg(test)]
@@ -339,9 +238,201 @@ mod tests {
 
     #[test]
     fn the_checked_in_file_is_well_formed() {
-        // A half-filled file fails here, in CI, rather than shipping a build
-        // that silently stays on NoDirectory.
+        // `build.rs` already refused to compile a malformed file; this is the
+        // same verdict through the runtime path.
         assert!(parse(BUNDLED_TEXT).is_ok(), "{:?}", parse(BUNDLED_TEXT));
+    }
+
+    #[test]
+    fn the_build_time_log_id_is_the_protocol_log_id() {
+        // `build.rs` checks `log_id` with its own BLAKE2b; it must be exactly
+        // `KT.md` §6.1's, or the compile-time check refuses good files (or
+        // passes bad ones).
+        for seed in [
+            [0u8; 32],
+            [1; 32],
+            [0xa1; 32],
+            *b"0123456789abcdef0123456789abcdef",
+        ] {
+            assert_eq!(super::build_log_id::log_id(&seed), log_id_of(&seed));
+        }
+    }
+
+    #[test]
+    fn the_build_script_runs_the_runtime_grammar() {
+        // The compile-time guarantee is only as good as the claim that
+        // build.rs parses with THIS grammar and fails the build on an error.
+        let script = include_str!("../build.rs");
+        assert!(script.contains("#[path = \"src/internal_directory/syntax.rs\"]"));
+        assert!(script.contains("directory_syntax::parse(&text"));
+        assert!(script.contains("std::process::exit(1)"));
+        assert!(script.contains("check_internal_directory();"));
+    }
+
+    #[test]
+    fn a_hash_is_never_a_trailing_comment() {
+        // The old parser cut each line at its first `#`, so this configured
+        // `https://kt.internal.example` without a word.
+        for text in [
+            filled().replace(
+                "log_url = https://kt.internal.example",
+                "log_url = https://kt.internal.example#.evil.example",
+            ),
+            filled().replace(
+                "relay_url = wss://relay.internal.example/relay/v1",
+                "relay_url = wss://relay.internal.example/relay/v1 # the relay",
+            ),
+            filled().replace("threshold = 1", "threshold = 1#2"),
+            BUNDLED_TEXT.replace("threshold = 1", "threshold = 1 # t"),
+        ] {
+            let refusal = parse(&text).unwrap_err();
+            assert!(refusal.contains('#'), "{refusal}");
+        }
+        // A whole-line comment, indented or not, is still a comment.
+        assert!(parse(&format!("  # note\n{}# end\n", filled())).is_ok());
+    }
+
+    #[test]
+    fn values_are_printable_ascii_only() {
+        for text in [
+            // A zero-width space inside the host.
+            filled().replace("kt.internal.example", "kt.inter\u{200b}nal.example"),
+            // A Cyrillic `а` for the Latin one.
+            filled().replace("relay.internal.example", "rel\u{0430}y.internal.example"),
+            // A no-break space inside the value.
+            filled().replace(
+                "/api/kt/handle-assertion/",
+                "/api/kt/handle\u{00a0}assertion/",
+            ),
+            // A plain space inside the value.
+            filled().replace(
+                "relay.internal.example/relay/v1",
+                "relay.internal.example /relay/v1",
+            ),
+            // A tab inside the value.
+            filled().replace("threshold = 1", "threshold = 1\t1"),
+            // Empty.
+            filled().replace(
+                "relay_url = wss://relay.internal.example/relay/v1",
+                "relay_url =",
+            ),
+        ] {
+            let refusal = parse(&text).unwrap_err();
+            assert!(refusal.contains("printable ASCII"), "{refusal}\n{text}");
+        }
+        // Comment prose may carry any UTF-8.
+        assert!(parse(&format!("# ADR 0017 — the internal log\n{}", filled())).is_ok());
+    }
+
+    #[test]
+    fn urls_name_a_plain_host() {
+        for (from, to) in [
+            (
+                "https://kt.internal.example",
+                "https://free2z.cash@kt.internal.example",
+            ),
+            (
+                "https://kt.internal.example",
+                "https://kt.internal.example\\@x",
+            ),
+            (
+                "https://kt.internal.example",
+                "https:///kt.internal.example",
+            ),
+            ("https://kt.internal.example", "https://:443"),
+            ("https://kt.internal.example", "https://kt_internal.example"),
+            ("wss://relay.internal.example/relay/v1", "wss://?relay"),
+        ] {
+            assert!(
+                parse(&filled().replace(from, to)).is_err(),
+                "{to} must be refused"
+            );
+        }
+        let with_port = filled().replace(
+            "https://kt.internal.example",
+            "https://kt.internal.example:8443",
+        );
+        assert!(parse(&with_port).unwrap().configured().is_some());
+    }
+
+    #[test]
+    fn the_reset_cooldown_has_a_floor() {
+        let below = MIN_RESET_COOLDOWN_SECONDS - 1;
+        for text in [
+            filled().replace(
+                "reset_cooldown_seconds = 604800",
+                &format!("reset_cooldown_seconds = {below}"),
+            ),
+            filled().replace(
+                "reset_cooldown_seconds = 604800",
+                "reset_cooldown_seconds = 60",
+            ),
+            filled().replace(
+                "reset_cooldown_seconds = 604800",
+                "reset_cooldown_seconds = 0",
+            ),
+            // The unconfigured file is held to it too: the floor is not a
+            // surprise that waits for deployment day.
+            BUNDLED_TEXT.replace(
+                "reset_cooldown_seconds = 604800",
+                "reset_cooldown_seconds = 60",
+            ),
+        ] {
+            assert!(parse(&text).unwrap_err().contains("reset_cooldown_seconds"));
+        }
+        let at_floor = filled().replace(
+            "reset_cooldown_seconds = 604800",
+            &format!("reset_cooldown_seconds = {MIN_RESET_COOLDOWN_SECONDS}"),
+        );
+        assert!(parse(&at_floor).is_ok());
+        assert_eq!(MIN_RESET_COOLDOWN_SECONDS, 604_800);
+    }
+
+    #[test]
+    fn retired_generations_are_real_distinct_and_not_the_current_log() {
+        let text = format!(
+            "{}retired_log_public_key = {B}\nretired_log_public_key = {C}\n",
+            filled()
+        );
+        let Bundled::Configured(directory) = parse(&text).unwrap() else {
+            panic!("configured");
+        };
+        assert_eq!(directory.retired_log_public_keys, vec![[2; 32], [3; 32]]);
+        assert_eq!(
+            directory.directory_config().retired_log_public_keys,
+            vec![[2; 32], [3; 32]]
+        );
+        assert!(
+            parse(&filled())
+                .unwrap()
+                .configured()
+                .unwrap()
+                .retired_log_public_keys
+                .is_empty()
+        );
+
+        for text in [
+            format!(
+                "{}retired_log_public_key = {B}\nretired_log_public_key = {B}\n",
+                filled()
+            ),
+            format!("{}retired_log_public_key = {A}\n", filled()),
+            format!("{}retired_log_public_key = {PLACEHOLDER}\n", filled()),
+            format!("{}retired_log_public_key = {PLACEHOLDER}\n", BUNDLED_TEXT),
+        ] {
+            assert!(parse(&text).is_err(), "must be refused:\n{text}");
+        }
+    }
+
+    #[test]
+    fn the_bundled_authority_becomes_the_required_authority() {
+        let Bundled::Configured(directory) = parse(&filled()).unwrap() else {
+            panic!("configured");
+        };
+        assert_eq!(
+            directory.directory_config().required_authority,
+            Some([4; 32])
+        );
     }
 
     #[test]

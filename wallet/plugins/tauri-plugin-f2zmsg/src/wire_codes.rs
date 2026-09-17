@@ -20,7 +20,8 @@
 //! instead of an `undefined` branch.
 //!
 //! **What is deliberately absent.** `directory-proof-invalid`,
-//! `witness-threshold-unmet`, `relay-identity-mismatch`, `relay-unreachable`,
+//! `witness-threshold-unmet`, `directory-unvouched`,
+//! `directory-state-invalid`, `relay-identity-mismatch`, `relay-unreachable`,
 //! `relay-refused-insecure`, `handle-ineligible`, and the local-only members
 //! from `not-enrolled` through `not-supported-in-browser` are **client-side
 //! outcomes, not wire codes**: the client computes them and no server sends

@@ -413,6 +413,8 @@ function engineStatus(): EngineStatus {
     pendingInbound: state.pendingInbound,
     unacknowledgedAlarms: state.unacknowledgedAlarms,
     lastError: null,
+    // The mock never reaches a directory, so it is never blocked by one.
+    directoryBlocked: null,
   };
 }
 

@@ -136,6 +136,10 @@ impl<R: Runtime> F2zMsg<R> {
             pending_inbound: 0,
             unacknowledged_alarms: 0,
             last_error: Some(fault.code()),
+            // There is no directory here either: an engine that never opened
+            // its store has no directory state to be blocked by, and saying
+            // otherwise would be the same invention as the counts above.
+            directory_blocked: None,
         })
     }
 }

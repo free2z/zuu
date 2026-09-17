@@ -78,6 +78,18 @@ pub enum ClientError {
     /// *"silently dropping the pin would complete the attack."*
     PinConflict,
 
+    /// A persisted checkpoint names a `log_id` this client neither trusts nor
+    /// was told is a retired generation of its log. What a tampered id looks
+    /// like; never a reason to trust the next head on first use
+    /// ([`crate::KtClient::open`]).
+    UnrecognisedCheckpoint,
+
+    /// The log's signed §4.6 policy verified, but it is unvouched or names a
+    /// different set of handle authorities than the client requires
+    /// ([`crate::KtClient::require_authority_policy`]). Handles on that log
+    /// are not the handles this client was built to resolve.
+    AuthorityPolicyMismatch,
+
     /// The caller asked for something this build cannot do without a feature
     /// it was compiled without, or gave a configuration that cannot be used —
     /// a cleartext log URL, a threshold larger than the configured set.
@@ -152,6 +164,14 @@ impl fmt::Display for ClientError {
             Self::PinConflict => f.write_str(
                 "the directory shows a key change or a break in the entry chain for a pinned \
                  handle; a pin is never overwritten silently (CLIENT-CONTRACT.md §9 rule 9)",
+            ),
+            Self::UnrecognisedCheckpoint => f.write_str(
+                "the stored checkpoint names a log this client neither trusts nor lists as a \
+                 retired generation; refusing rather than trusting the next head on first use",
+            ),
+            Self::AuthorityPolicyMismatch => f.write_str(
+                "the log's signed handle-authority policy is not vouched by exactly the \
+                 authority this client requires (KT.md §4.6, ADR 0017)",
             ),
             Self::Configuration(detail) => write!(f, "misconfigured client: {detail}"),
         }

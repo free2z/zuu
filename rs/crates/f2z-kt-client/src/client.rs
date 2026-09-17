@@ -56,6 +56,7 @@
 use f2z_codec::types::PublicKey;
 use f2z_kt_core::api::{Presence, TreeHeadBundle};
 use f2z_kt_core::entry::EntryKind;
+use f2z_kt_core::policy::AuthorityPolicyTBS;
 use f2z_kt_core::sth::{LogView, SignedTreeHead};
 use f2z_kt_core::submit::{LogPolicy, PublishedEntry, SubmissionContext};
 use f2z_kt_core::types::{Handle, LogId};
@@ -79,9 +80,11 @@ pub enum Opened {
     Bootstrapped,
     /// The checkpoint was this log's; §6.3 now applies against it.
     Resumed,
-    /// The checkpoint named another log and was set aside; the head was
-    /// trusted on first use. Report it: it means the configured log changed.
-    ReplacedAnotherLogsCheckpoint,
+    /// The checkpoint was a **retired** log generation's — one the caller
+    /// named in `retired_log_pks`, with a signature that verifies under that
+    /// generation's key — and was set aside; the new log's head was trusted on
+    /// first use. Report it: it means the configured log changed.
+    ReplacedRetiredLogsCheckpoint,
 }
 
 /// How many tree heads a client will fetch and verify to close a §6.3 rule 7
@@ -141,6 +144,8 @@ pub struct KtClient<T> {
     pins: PinStore,
     alarms: AlarmLog,
     vouching: Vouching,
+    /// The last §4.6 policy that verified, with its signature already checked.
+    authority_policy: Option<AuthorityPolicyTBS>,
 }
 
 /// Hand-written: `T` is not required to be `Debug`, and the state worth
@@ -185,21 +190,49 @@ impl<T: Transport> KtClient<T> {
             pins: PinStore::new(),
             alarms: AlarmLog::new(),
             vouching: Vouching::Unknown,
+            authority_policy: None,
         })
     }
 
-    /// Resume from `checkpoint` when it is this log's, and bootstrap otherwise
-    /// — the one entry point an application that persists
-    /// [`KtClient::checkpoint_bytes`] should call on start.
+    /// Resume from `checkpoint` when it is this log's; bootstrap when there is
+    /// none, or when it is a **retired** generation's — the one entry point an
+    /// application that persists [`KtClient::checkpoint_bytes`] should call on
+    /// start.
     ///
-    /// The rule is narrow on purpose. A checkpoint that names **another**
-    /// `log_id` is set aside and the client bootstraps: the application's
-    /// reviewed configuration now names a different log, and a head from the
-    /// old one is evidence about nothing this client trusts (ADR 0017's wipe
-    /// procedure changes the genesis key, and with it the id). Anything else
-    /// wrong with the checkpoint — it does not decode, or it is this log's id
-    /// and does not verify — is an error, because silently bootstrapping over
-    /// it would discard exactly the history that makes a rollback detectable.
+    /// # What "set aside" requires, and why it is this narrow
+    ///
+    /// [`SignedTreeHead::verify`] checks `log_id` *before* the signature, so a
+    /// [`KtError::WrongLog`] says nothing about whether the bytes were ever
+    /// signed by anybody. An earlier version of this function bootstrapped on
+    /// that error alone, which meant flipping one `log_id` byte in a stored
+    /// checkpoint made the device trust the log's next head on first use — the
+    /// exact history loss the checkpoint exists to prevent.
+    ///
+    /// So a checkpoint naming another `log_id` is set aside **only** when:
+    ///
+    /// 1. that `log_id` is `H("free2z/kt/v1/log-id", pk)` for some `pk` in
+    ///    `retired_log_pks` — a generation the application's reviewed
+    ///    configuration says it has left (ADR 0017's wipe procedure gives the
+    ///    replacement log a new genesis key, and with it a new id); and
+    /// 2. the head's signature verifies under that `pk`.
+    ///
+    /// Anything else is refused, and each refusal says which:
+    ///
+    /// - a head that verifies under the **current** key while naming another
+    ///   id is the configured log signing a foreign identity —
+    ///   [`KtError::WrongLog`];
+    /// - an id this client neither trusts nor lists as retired —
+    ///   [`ClientError::UnrecognisedCheckpoint`], which is what a tampered id
+    ///   looks like;
+    /// - a retired id whose signature does not verify —
+    ///   [`KtError::BadSignature`];
+    /// - bytes that do not decode, or this log's id with a signature that does
+    ///   not verify — the protocol error.
+    ///
+    /// None of them bootstraps: silently trusting the next head over a
+    /// checkpoint that cannot be explained would discard exactly the history
+    /// that makes a rollback detectable. Recovering from one is the
+    /// application's decision, and it must be a visible one (ADR 0017 §3).
     ///
     /// Resuming does not contact the log. The first [`KtClient::sync`] or
     /// [`KtClient::resolve`] afterwards applies §6.3 against the checkpoint,
@@ -207,19 +240,21 @@ impl<T: Transport> KtClient<T> {
     ///
     /// # Errors
     ///
-    /// As [`KtClient::bootstrap`] and [`KtClient::resume`], except
-    /// [`KtError::WrongLog`] from the checkpoint, which bootstraps instead.
+    /// As [`KtClient::bootstrap`] and [`KtClient::resume`], plus the refusals
+    /// above.
     pub fn open(
         transport: T,
         config: ClientConfig,
         checkpoint: Option<&[u8]>,
+        retired_log_pks: &[PublicKey],
     ) -> Result<(Self, Opened)> {
         let Some(bytes) = checkpoint else {
             return Ok((Self::bootstrap(transport, config)?, Opened::Bootstrapped));
         };
         let head = f2z_codec::decode_canonical::<SignedTreeHead>(bytes)?.into_value();
-        match LogView::pin(config.log_id, config.accepted_log_pk, &head) {
-            Ok(view) => Ok((
+        if head.sth.log_id == config.log_id {
+            let view = LogView::pin(config.log_id, config.accepted_log_pk, &head)?;
+            return Ok((
                 Self {
                     transport,
                     config,
@@ -227,15 +262,28 @@ impl<T: Transport> KtClient<T> {
                     pins: PinStore::new(),
                     alarms: AlarmLog::new(),
                     vouching: Vouching::Unknown,
+                    authority_policy: None,
                 },
                 Opened::Resumed,
-            )),
-            Err(KtError::WrongLog) => Ok((
-                Self::bootstrap(transport, config)?,
-                Opened::ReplacedAnotherLogsCheckpoint,
-            )),
-            Err(error) => Err(error.into()),
+            ));
         }
+        // Another id. The signature is checked under the key this client
+        // trusts *regardless* of the id first: bytes the configured log
+        // signed for a foreign identity are the log misbehaving, not a
+        // generation change.
+        let foreign = head.sth.log_id;
+        if head.verify(&foreign, &config.accepted_log_pk).is_ok() {
+            return Err(KtError::WrongLog.into());
+        }
+        let retired = retired_log_pks
+            .iter()
+            .find(|pk| f2z_kt_core::labels::log_id(pk) == foreign)
+            .ok_or(ClientError::UnrecognisedCheckpoint)?;
+        head.verify(&foreign, retired)?;
+        Ok((
+            Self::bootstrap(transport, config)?,
+            Opened::ReplacedRetiredLogsCheckpoint,
+        ))
     }
 
     /// Resume from canonically encoded, persisted signed-head checkpoint bytes.
@@ -265,6 +313,7 @@ impl<T: Transport> KtClient<T> {
             pins,
             alarms,
             vouching: Vouching::Unknown,
+            authority_policy: None,
         })
     }
 
@@ -366,10 +415,15 @@ impl<T: Transport> KtClient<T> {
     ///
     /// [`ClientError::Unreachable`], or [`ClientError::Protocol`] if the policy
     /// does not decode, is for another log, or its signature does not verify.
-    /// **A failure here leaves [`KtClient::vouching`] at [`Vouching::Unknown`],
-    /// which every caller treats as at least as loud as [`Vouching::Unvouched`]
-    /// — an unanswered question about who may claim a handle is not a
-    /// reassuring answer.**
+    /// **A failure here leaves [`KtClient::vouching`] as it was** — at
+    /// [`Vouching::Unknown`] on a client that has never fetched a policy,
+    /// which is how a fresh client starts and is what every caller treats as
+    /// at least as loud as [`Vouching::Unvouched`]; at the last verified
+    /// answer on one that has. It is deliberately not reset to `Unknown` by a
+    /// failed refresh: a timeout is not evidence that the log stopped
+    /// vouching. A caller that needs the policy to be *currently* true asks
+    /// [`KtClient::require_authority_policy`], which refuses rather than
+    /// reporting.
     pub fn refresh_authority_policy(&mut self) -> Result<Vouching> {
         let policy = wire::decode_authority_policy(&self.transport.authority_policy()?)?;
         policy.verify(&self.config.log_id, self.view.accepted_log_pk())?;
@@ -378,7 +432,67 @@ impl<T: Transport> KtClient<T> {
         } else {
             Vouching::Unvouched
         };
+        self.authority_policy = Some(policy.policy);
         Ok(self.vouching)
+    }
+
+    /// The last §4.6 policy that verified under the accepted log key, if any.
+    #[must_use]
+    pub const fn authority_policy(&self) -> Option<&AuthorityPolicyTBS> {
+        self.authority_policy.as_ref()
+    }
+
+    /// §8.1 step 7, **enforced**: fetch and verify the policy, then require
+    /// that it vouches and lists exactly `expected` — no key missing, none
+    /// extra.
+    ///
+    /// For a client whose configuration pins the handle authority (ADR 0017's
+    /// bundled directory). [`KtClient::refresh_authority_policy`] only
+    /// *reports* vouching, which is right for a client that shows a user an
+    /// arbitrary log; a client that was built for one log with one authority
+    /// has a stronger expectation, and a log deployed without that authority
+    /// would otherwise admit first-come registrations while this client went
+    /// on resolving them.
+    ///
+    /// The comparison is on public keys. A `HandleAssertion` names its signer
+    /// by `authority_id = H("free2z/kt/v1/authority-id", pk)`, which is a
+    /// function of the key, so equal key sets are equal id sets.
+    ///
+    /// What this cannot establish is stated in [`Vouching::Claimed`]: that the
+    /// log *applied* the policy it signed (`KT.md` §8.5).
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::Configuration`] for an empty or duplicated `expected`;
+    /// as [`KtClient::refresh_authority_policy`];
+    /// [`ClientError::AuthorityPolicyMismatch`] when the verified policy is
+    /// unvouched or lists another set of authorities.
+    pub fn require_authority_policy(&mut self, expected: &[PublicKey]) -> Result<()> {
+        let distinct = expected
+            .iter()
+            .enumerate()
+            .all(|(index, key)| !expected.iter().take(index).any(|earlier| earlier == key));
+        if expected.is_empty() || !distinct {
+            return Err(ClientError::Configuration(
+                "the required handle authorities must be a non-empty set of distinct keys"
+                    .to_owned(),
+            ));
+        }
+        let vouching = self.refresh_authority_policy()?;
+        let listed = self
+            .authority_policy
+            .as_ref()
+            .map_or(&[][..], |policy| policy.authorities.as_slice());
+        // `expected` is distinct, so equal lengths plus containment of every
+        // expected key leaves no room for an extra or a repeated one.
+        let exact = vouching == Vouching::Claimed
+            && listed.len() == expected.len()
+            && expected.iter().all(|key| listed.contains(key));
+        if exact {
+            Ok(())
+        } else {
+            Err(ClientError::AuthorityPolicyMismatch)
+        }
     }
 
     /// §8.1 — resolve a handle.

@@ -5711,6 +5711,7 @@ dependencies = [
 name = "tauri-plugin-f2zmsg"
 version = "0.1.0"
 dependencies = [
+ "blake2",
  "chacha20poly1305",
  "f2z-codec",
  "f2z-kt-client",

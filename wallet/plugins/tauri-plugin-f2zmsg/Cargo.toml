@@ -34,6 +34,12 @@ required-features = ["relay-harness"]
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
 tauri-build = "2"
+# `build.rs` validates `internal-directory.conf`, including its `log_id`, which
+# is BLAKE2b-256 (`KT.md` §6.1). A build script cannot link `f2z-kt-core`, so it
+# names the digest crate that `f2z-codec`'s `hash` is built on — the same
+# `0.10` line `rs/Cargo.toml` pins, already in every lockfile that holds this
+# plugin, so this adds an edge and no crate.
+blake2 = { version = "0.10", default-features = false }
 
 [dependencies]
 tauri = "2"
@@ -225,6 +231,8 @@ keyring = { version = "3.6.3", features = ["windows-native"] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
+# Only so a unit test can hold `build.rs`'s `log_id` to `f2z-kt-core`'s.
+blake2 = { version = "0.10", default-features = false }
 tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }
 # The relay the integration tests run against. A dev-dependency, never a

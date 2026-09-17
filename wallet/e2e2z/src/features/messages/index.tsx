@@ -223,6 +223,57 @@ function ServiceNotConfigured({ status }: { status: EngineStatus }) {
 }
 
 /**
+ * ADR 0017 §3: the two states in which this build refuses to use the directory
+ * it was compiled against at all.
+ *
+ * Neither is a network condition and neither clears itself, so they are said
+ * here — beside the witness warning, before anyone taps anything — rather than
+ * only when a lookup fails.
+ *
+ * Keyed on `directoryBlocked`, **not** on `lastError`. `lastError` is the last
+ * thing that went wrong anywhere, and the inbound poll rewrites it every five
+ * seconds with the current relay weather, so this callout would blink out
+ * while the directory was still refusing to be used. `directoryBlocked` is
+ * written by directory state and by nothing else.
+ */
+function DirectoryUnusable({ status }: { status: EngineStatus }) {
+  if (status.directoryBlocked === "directory-unvouched") {
+    return (
+      <Callout
+        tone="destructive"
+        icon={ShieldAlert}
+        title="This directory is not the one this app was built for"
+        data-directory-unvouched
+      >
+        The key-transparency log this build trusts no longer proves that
+        free2z vouched for the handles on it, so anyone could claim any name
+        there. Nothing is resolved or published against it. Update e2e2z, and
+        report this if an update does not fix it. Existing conversations are
+        unaffected, and comparing safety numbers in person still works.
+      </Callout>
+    );
+  }
+  if (status.directoryBlocked === "directory-state-invalid") {
+    return (
+      <Callout
+        tone="destructive"
+        icon={ShieldAlert}
+        title="This device's directory record cannot be trusted"
+        data-directory-state-invalid
+      >
+        The record of what this device last saw in the directory is missing or
+        damaged, so this device cannot tell whether the log is showing it the
+        same history as before. It will not start over quietly: that is what an
+        attacker rewinding the log would want. Set messaging up again from
+        scratch — turn it off on this device and enroll again — which clears the
+        record along with this device's keys.
+      </Callout>
+    );
+  }
+  return null;
+}
+
+/**
  * KT.md §8.3: the anti-equivocation value of a witnessed root is zero until at
  * least two witnesses run by parties outside free2z cosign it — the same bound
  * as `f2z-kt-client`'s `WitnessStanding::is_independently_witnessed`.
@@ -695,6 +746,8 @@ export default function MessagesFeature() {
 
         <EngineSummary status={status} />
 
+        <DirectoryUnusable status={status} />
+
         <WitnessWarning status={status} />
       </div>
     );
@@ -796,6 +849,8 @@ export default function MessagesFeature() {
       )}
 
       <ServiceNotConfigured status={status} />
+
+      <DirectoryUnusable status={status} />
 
       <WitnessWarning status={status} />
 

@@ -32,6 +32,7 @@ use f2z_kt_client::{
     ClientConfig, ClientError, Expected, KtClient, SubmitTransport, Transport, submit,
 };
 use f2z_kt_core::entry::{ContactEndpoint, DirectoryEntry};
+use f2z_kt_core::sth::SignedTreeHead;
 use f2z_kt_core::types::{Handle, KemPublicKey};
 use f2z_kt_core::{ConfiguredWitness, ErrorCode, WitnessSet};
 use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest, SubmissionDraft};
@@ -45,6 +46,9 @@ const AUTHORITY_SEED: [u8; 32] = [0xa3; 32];
 struct LogTransport {
     runtime: tokio::runtime::Runtime,
     log: Arc<LogService>,
+    /// What `GET /.well-known/free2z-kt/v1/authority` serves, when a test
+    /// sets it: the canonical bytes of a `SignedAuthorityPolicy`.
+    policy: std::sync::Mutex<Option<Vec<u8>>>,
 }
 
 impl LogTransport {
@@ -85,7 +89,12 @@ impl Transport for LogHandle {
     }
 
     fn authority_policy(&self) -> f2z_kt_client::Result<Vec<u8>> {
-        Err(ClientError::Unreachable("not served here".to_owned()))
+        self.0
+            .policy
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| ClientError::Unreachable("not served here".to_owned()))
     }
 
     fn descriptor(&self) -> f2z_kt_client::Result<Vec<u8>> {
@@ -157,6 +166,7 @@ impl Internal {
         let transport = Arc::new(LogTransport {
             runtime,
             log: Arc::clone(&harness.log),
+            policy: std::sync::Mutex::new(None),
         });
         let dir = f2z_kt::testing::temp_dir(&format!("{name}-w"));
         let witness = Witness::new(
@@ -461,8 +471,13 @@ fn a_log_wiped_under_the_same_key_is_refused_after_a_restart() {
     after.publish_and_cosign();
     assert_eq!(after.harness.log_id, before.harness.log_id);
 
-    let (mut resumed, opened) =
-        KtClient::open(after.handle(), client_config(&after), Some(&checkpoint)).unwrap();
+    let (mut resumed, opened) = KtClient::open(
+        after.handle(),
+        client_config(&after),
+        Some(&checkpoint),
+        &[],
+    )
+    .unwrap();
     assert_eq!(opened, f2z_kt_client::Opened::Resumed);
     let refusal = resumed
         .sync(NOW)
@@ -476,21 +491,32 @@ fn a_log_wiped_under_the_same_key_is_refused_after_a_restart() {
     // The same bytes, not persisted — which is what the plugin did before ADR
     // 0017 — accept the wiped log without a murmur. This is the property the
     // checkpoint buys.
-    let (mut fresh, opened) = KtClient::open(after.handle(), client_config(&after), None).unwrap();
+    let (mut fresh, opened) =
+        KtClient::open(after.handle(), client_config(&after), None, &[]).unwrap();
     assert_eq!(opened, f2z_kt_client::Opened::Bootstrapped);
     fresh.sync(NOW).unwrap();
 }
 
+/// Re-encode a checkpoint after `edit` changed its decoded head.
+fn edited(checkpoint: &[u8], edit: impl FnOnce(&mut SignedTreeHead)) -> Vec<u8> {
+    let mut head = f2z_codec::decode_canonical::<SignedTreeHead>(checkpoint)
+        .unwrap()
+        .into_value();
+    edit(&mut head);
+    head.encode_canonical().unwrap()
+}
+
 #[test]
-fn a_checkpoint_for_another_log_is_set_aside_and_anything_else_wrong_is_refused() {
+fn only_a_named_retired_generation_is_set_aside_and_anything_else_wrong_is_refused() {
     let mut old = Internal::new("wipe-new-key-old");
     old.publish_and_cosign();
     let mut client = old.client();
     client.sync(NOW).unwrap();
     let checkpoint = client.checkpoint_bytes().unwrap();
+    let old_pk = old.harness.log.log_public_key();
 
     // The wipe procedure ADR 0017 prescribes: a new genesis key, so a new log
-    // id, shipped in a reviewed build.
+    // id, shipped in a reviewed build that names the old key as retired.
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)
         .enable_all()
@@ -521,6 +547,7 @@ fn a_checkpoint_for_another_log_is_set_aside_and_anything_else_wrong_is_refused(
     let transport = Arc::new(LogTransport {
         runtime,
         log: Arc::new(log),
+        policy: std::sync::Mutex::new(None),
     });
     let new_config = || ClientConfig {
         log_id: new_log_id,
@@ -533,37 +560,179 @@ fn a_checkpoint_for_another_log_is_set_aside_and_anything_else_wrong_is_refused(
         reset_authority_pk: reset.public,
         reset_cooldown_seconds: 60,
     };
+    let open_new = |bytes: &[u8], retired: &[PublicKey]| {
+        KtClient::open(
+            LogHandle(Arc::clone(&transport)),
+            new_config(),
+            Some(bytes),
+            retired,
+        )
+        .map(|(_, opened)| opened)
+    };
 
-    let (_, opened) = KtClient::open(
-        LogHandle(Arc::clone(&transport)),
-        new_config(),
-        Some(&checkpoint),
-    )
-    .unwrap();
-    assert_eq!(opened, f2z_kt_client::Opened::ReplacedAnotherLogsCheckpoint);
+    // Named as retired, and really that generation's signed head: set aside.
+    assert_eq!(
+        open_new(&checkpoint, &[old_pk]).unwrap(),
+        f2z_kt_client::Opened::ReplacedRetiredLogsCheckpoint
+    );
+
+    // The same genuine head, but this build does not name its log: refused.
+    // A generation change has to be a reviewed statement, not an inference.
+    assert_eq!(
+        open_new(&checkpoint, &[]).unwrap_err(),
+        ClientError::UnrecognisedCheckpoint
+    );
+
+    // The review's attack: flip one `log_id` byte. The id is now nobody's,
+    // and the device must not trust the next head on first use.
+    let flipped = edited(&checkpoint, |head| {
+        let mut id = *head.sth.log_id.as_bytes();
+        id[0] ^= 0x01;
+        head.sth.log_id = f2z_kt_core::types::LogId::new(id);
+    });
+    assert_eq!(
+        open_new(&flipped, &[old_pk]).unwrap_err(),
+        ClientError::UnrecognisedCheckpoint
+    );
+    // …and under the old log's own configuration it is not "another log's"
+    // checkpoint either.
+    assert_eq!(
+        KtClient::open(old.handle(), client_config(&old), Some(&flipped), &[])
+            .map(|(_, opened)| opened)
+            .unwrap_err(),
+        ClientError::UnrecognisedCheckpoint
+    );
+
+    // A retired generation's id with a signature that does not verify.
+    let forged_retired = edited(&checkpoint, |head| head.sth.epoch += 1);
+    assert_eq!(
+        open_new(&forged_retired, &[old_pk]).unwrap_err(),
+        ClientError::Protocol(f2z_kt_core::KtError::BadSignature)
+    );
+
+    // The CURRENT log's key signing a head that names a foreign id: the log
+    // misbehaving, not a generation change — even if the id is listed.
+    let foreign_under_current = edited(&checkpoint, |head| {
+        head.signature = new_key.sign(&head.sth.signing_bytes().unwrap());
+    });
+    assert_eq!(
+        open_new(&foreign_under_current, &[old_pk]).unwrap_err(),
+        ClientError::Protocol(f2z_kt_core::KtError::WrongLog)
+    );
 
     // A checkpoint that does not decode is not "no checkpoint".
     let mut corrupt = checkpoint.clone();
     corrupt.push(0);
-    assert!(
-        KtClient::open(
-            LogHandle(Arc::clone(&transport)),
-            new_config(),
-            Some(&corrupt)
-        )
-        .is_err()
-    );
+    assert!(open_new(&corrupt, &[old_pk]).is_err());
+    let truncated = &checkpoint[..checkpoint.len() - 1];
+    assert!(open_new(truncated, &[old_pk]).is_err());
 
     // Nor is this log's head with a signature that does not verify — the
     // one case where "bootstrap instead" would succeed and silently discard
     // the history.
     let mut forged = checkpoint.clone();
     *forged.last_mut().unwrap() ^= 0x01;
-    assert!(KtClient::open(old.handle(), client_config(&old), Some(&forged)).is_err());
-    assert!(KtClient::open(old.handle(), client_config(&old), None).is_ok());
+    assert!(KtClient::open(old.handle(), client_config(&old), Some(&forged), &[]).is_err());
+    assert!(KtClient::open(old.handle(), client_config(&old), None, &[]).is_ok());
 
     // Nor is this log's id under a key that did not sign it.
     let mut wrong_key = client_config(&old);
     wrong_key.accepted_log_pk = PublicKey::new([0x02; 32]);
-    assert!(KtClient::open(old.handle(), wrong_key, Some(&checkpoint)).is_err());
+    assert!(KtClient::open(old.handle(), wrong_key, Some(&checkpoint), &[]).is_err());
+}
+
+// ---------------------------------------------------------------------------
+// ADR 0017 §2.1: the bundled client requires the log to vouch, with exactly
+// the bundled handle authority.
+// ---------------------------------------------------------------------------
+
+/// Sign a §4.6 policy for `internal`'s log over `authorities` (`None` = the
+/// explicit no-authority mode), with the log's own signer unless `signer`
+/// says otherwise.
+fn serve_policy(
+    internal: &Internal,
+    authorities: Option<Vec<PublicKey>>,
+    signer: Option<&dyn f2z_kt::LogSigner>,
+) {
+    let set = match authorities {
+        Some(keys) => f2z_authority::AuthoritySet::new(
+            keys.into_iter()
+                .map(f2z_authority::AuthorityKey::new)
+                .collect(),
+        )
+        .unwrap(),
+        None => f2z_authority::AuthoritySet::none(),
+    };
+    let config = f2z_authority::AuthorityConfig::with_defaults(
+        f2z_authority::LogId::new(*internal.harness.log_id.as_bytes()),
+        set,
+    )
+    .unwrap();
+    let signed = f2z_kt::sign_policy(
+        &config,
+        internal.harness.log_id,
+        signer.unwrap_or_else(|| internal.harness.log.signer()),
+        NOW,
+    )
+    .unwrap();
+    *internal.transport.policy.lock().unwrap() = Some(signed.encode_canonical().unwrap());
+}
+
+#[test]
+fn the_bundled_client_requires_exactly_the_bundled_authority() {
+    let internal = Internal::new("policy-exact");
+    let bundled = SigningKey::from_seed(&AUTHORITY_SEED).public_key();
+    let stranger = SigningKey::from_seed(&[0x5e; 32]).public_key();
+    let mut client = internal.client();
+
+    // Not served at all: an unanswered question is a refusal, not a pass.
+    assert!(matches!(
+        client.require_authority_policy(&[bundled]),
+        Err(ClientError::Unreachable(_))
+    ));
+
+    // The deployment ADR 0017 describes.
+    serve_policy(&internal, Some(vec![bundled]), None);
+    client.require_authority_policy(&[bundled]).unwrap();
+    assert_eq!(client.vouching(), f2z_kt_client::Vouching::Claimed);
+
+    // The log deployed without its authority: first come, first served.
+    serve_policy(&internal, None, None);
+    assert_eq!(
+        client.require_authority_policy(&[bundled]),
+        Err(ClientError::AuthorityPolicyMismatch)
+    );
+
+    // Vouched, by somebody else.
+    serve_policy(&internal, Some(vec![stranger]), None);
+    assert_eq!(
+        client.require_authority_policy(&[bundled]),
+        Err(ClientError::AuthorityPolicyMismatch)
+    );
+
+    // Vouched by ours AND another: an extra issuer is an issuer this build
+    // did not agree to.
+    serve_policy(&internal, Some(vec![bundled, stranger]), None);
+    assert_eq!(
+        client.require_authority_policy(&[bundled]),
+        Err(ClientError::AuthorityPolicyMismatch)
+    );
+
+    // A policy naming ours, signed by a key that is not the log's.
+    let impostor = f2z_kt::FileSigner::from_seed(&[0x66; 32]);
+    serve_policy(&internal, Some(vec![bundled]), Some(&impostor));
+    assert_eq!(
+        client.require_authority_policy(&[bundled]),
+        Err(ClientError::Protocol(f2z_kt_core::KtError::BadSignature))
+    );
+
+    // And the requirement itself must say something.
+    assert!(matches!(
+        client.require_authority_policy(&[]),
+        Err(ClientError::Configuration(_))
+    ));
+    assert!(matches!(
+        client.require_authority_policy(&[bundled, bundled]),
+        Err(ClientError::Configuration(_))
+    ));
 }

@@ -60,6 +60,22 @@ function errorPresentation(code: ErrorCode): {
       tone: "warning",
     };
   }
+  if (code === "directory-unvouched") {
+    return {
+      title: "This directory is not the one this app was built for",
+      body:
+        "The log this build trusts does not prove that free2z vouched for the handles on it, so a name there is not evidence of who owns it. First contact is refused. Update e2e2z and report this if it persists.",
+      tone: "destructive",
+    };
+  }
+  if (code === "directory-state-invalid") {
+    return {
+      title: "This device's directory record cannot be trusted",
+      body:
+        "The record of what this device last saw in the directory is missing or damaged, so a rewound log would be indistinguishable from an honest one. First contact is refused until messaging is set up again on this device from scratch.",
+      tone: "destructive",
+    };
+  }
   if (
     code === "directory-protocol-violation" ||
     code === "relay-protocol-violation" ||

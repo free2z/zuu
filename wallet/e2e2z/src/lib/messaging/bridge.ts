@@ -153,8 +153,15 @@ const ALWAYS_PARSED: ReadonlySet<BridgeMethod> = new Set<BridgeMethod>([
   "stopEngine",
 ]);
 
+// `z.ZodType<T, z.ZodTypeDef, unknown>` rather than `z.ZodType<T>`: the second
+// leaves the schema's *input* type free, so a schema whose parsed shape differs
+// from what may be sent — `EngineStatusSchema.directoryBlocked`, which a native
+// build older than the field may omit and `.default(null)` fills in — still
+// binds `T` to the parsed shape. With `z.ZodType<T>` the two are forced equal
+// and `T` would come back with an optional field the rest of this file has
+// already been told is always present.
 function checked<T>(
-  schema: z.ZodType<T>,
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
   value: unknown,
   method: BridgeMethod,
 ): T {
@@ -169,7 +176,7 @@ function checked<T>(
 }
 
 async function invoke<T>(
-  schema: z.ZodType<T>,
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
   method: BridgeMethod,
   args?: Record<string, unknown>,
 ): Promise<T> {

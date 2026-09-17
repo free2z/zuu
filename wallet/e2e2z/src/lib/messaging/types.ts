@@ -38,6 +38,8 @@ export const ErrorCodeSchema = z.enum([
   "directory-cooldown",
   "directory-epoch-unavailable",
   "directory-protocol-violation",
+  "directory-unvouched",
+  "directory-state-invalid",
   "witness-threshold-unmet",
   "handle-ineligible",
   // local
@@ -113,6 +115,19 @@ export const EngineStatusSchema = z.object({
   pendingInbound: z.number().int().nonnegative(),
   unacknowledgedAlarms: z.number().int().nonnegative(),
   lastError: ErrorCodeSchema.nullable(),
+  /**
+   * ADR 0017 §3: why the directory will not work until something outside the
+   * app changes — `directory-unvouched` or `directory-state-invalid`.
+   *
+   * Deliberately not `lastError`. That one is the last thing that went wrong
+   * anywhere and the inbound poll rewrites it every few seconds, so a banner
+   * keyed on it disappears while the condition still holds. Only directory
+   * state writes this.
+   *
+   * `.default(null)` so a native build older than the field, and the store
+   * capture's fixture host, still parse.
+   */
+  directoryBlocked: ErrorCodeSchema.nullable().default(null),
 });
 export type EngineStatus = z.infer<typeof EngineStatusSchema>;
 

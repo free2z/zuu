@@ -60,6 +60,14 @@ pub enum ErrorCode {
     DirectoryCooldown,
     DirectoryEpochUnavailable,
     DirectoryProtocolViolation,
+    /// ADR 0017 §3: the log's signed authority policy does not vouch with
+    /// exactly the handle authority this build pins. Client-side, never a wire
+    /// code.
+    DirectoryUnvouched,
+    /// ADR 0017 §3: this device's saved directory checkpoint is missing,
+    /// damaged, or names a log this build does not know. Client-side, never a
+    /// wire code; cleared only by unenrolling.
+    DirectoryStateInvalid,
     WitnessThresholdUnmet,
     HandleIneligible,
     // local
@@ -123,6 +131,8 @@ impl ErrorCode {
             Self::DirectoryCooldown => "directory-cooldown",
             Self::DirectoryEpochUnavailable => "directory-epoch-unavailable",
             Self::DirectoryProtocolViolation => "directory-protocol-violation",
+            Self::DirectoryUnvouched => "directory-unvouched",
+            Self::DirectoryStateInvalid => "directory-state-invalid",
             Self::WitnessThresholdUnmet => "witness-threshold-unmet",
             Self::HandleIneligible => "handle-ineligible",
             Self::NotEnrolled => "not-enrolled",
@@ -161,6 +171,8 @@ impl ErrorCode {
         Self::DirectoryCooldown,
         Self::DirectoryEpochUnavailable,
         Self::DirectoryProtocolViolation,
+        Self::DirectoryUnvouched,
+        Self::DirectoryStateInvalid,
         Self::WitnessThresholdUnmet,
         Self::HandleIneligible,
         Self::NotEnrolled,
@@ -239,6 +251,17 @@ pub struct EngineStatus {
     pub pending_inbound: u32,
     pub unacknowledged_alarms: u32,
     pub last_error: Option<ErrorCode>,
+    /// Why the directory will not work until something outside the app
+    /// changes: `directory-unvouched` or `directory-state-invalid`
+    /// (ADR 0017 §3), and `None` otherwise.
+    ///
+    /// **Not a duplicate of [`EngineStatus::last_error`], and the difference is
+    /// the point.** `lastError` is the last thing that went wrong anywhere,
+    /// and the inbound pump rewrites it every few seconds with the current
+    /// relay weather — so a UI that keyed a "this directory is not usable"
+    /// banner on it would take the banner down while the condition still
+    /// held. Only directory state writes this one.
+    pub directory_blocked: Option<ErrorCode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1095,7 +1118,7 @@ mod tests {
     fn every_error_code_is_registered_in_all() {
         // A member added to the enum without extending ALL would make every
         // contract comparison silently narrower.
-        assert_eq!(ErrorCode::ALL.len(), 31);
+        assert_eq!(ErrorCode::ALL.len(), 33);
     }
 
     #[test]
