@@ -86,9 +86,11 @@ the engine's running state. The wire result still contains only credential bytes
 **The whole enrollment round trip now exists**, and no shipping build can run
 it. e2e2z opens its contact queue at the relay, sends
 `issue-device-credential-v2` with the endpoint the relay issued, and ZUULI —
-after a native confirmation that names the handle **free2z's authority signed**
-and says the device will be PUBLISHED — issues the credential, signs and submits
-the `DirectoryEntry`, and verifies the log's receipt
+after a native confirmation that names the **free2z account** its session
+belongs to, the device being added, and that the device will be PUBLISHED and
+will answer first — reads the seed, fetches Contract C's assertion, issues the
+credential, signs and submits the `DirectoryEntry`, and verifies the log's
+receipt
 ([ADR 0017](e2ee/decisions/0017-internal-directory-activation.md) §4.1). e2e2z
 installs the credential only if that succeeded, and reaches "Handle active"
 only from its **own** verified lookup. What stops it in a shipping build is the
