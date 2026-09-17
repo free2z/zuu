@@ -461,6 +461,7 @@ mod tests {
             handle_assertion_url: "https://api.internal.example/api/kt/handle-assertion/"
                 .to_owned(),
             relay_url: "wss://relay.internal.example/relay/v1".to_owned(),
+            retired_log_public_keys: Vec::new(),
         }
     }
 

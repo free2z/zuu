@@ -28,7 +28,13 @@ absence rather than trusting it.
 `KT.md` §8 over HTTPS through `f2z-kt-client` and it is real. The only way a
 shipping build gets one is `internal-directory.conf` (ADR 0017): a checked-in,
 compiled-in file for the **disposable internal** log, which **fails closed**
-while any value is `PLACEHOLDER`. Otherwise `NoDirectory` is the default,
+while any value is `PLACEHOLDER` and does not compile at all when it is
+malformed (`build.rs` parses it with `src/internal_directory/syntax.rs`).
+A bundled directory also **requires** the log's signed authority policy to
+vouch with exactly the bundled `handle_authority_pk`, and **requires** this
+device's sealed checkpoint to be readable — it refuses rather than trusting
+the log's head on first use again (ADR 0017 §3). Otherwise `NoDirectory` is
+the default,
 because `KT.md` §12 has not decided a public log's identity, witnesses or *t*,
 and `WitnessSet` has no `Default` either. Do not add an environment override,
 a remote config, or an "independent" flag to that file: each would let

@@ -100,15 +100,35 @@ file is checked in with placeholder values, so **every build from this source
 is still `NoDirectory` with no relay** until the deployment supplies real
 values in a reviewed change.
 
-Implemented and tested against a real log and witness:
+Tested **against a real log and witness**, in `f2z-kt-client`'s
+`tests/seed_submission.rs`, which drives `AccountKeys` and `f2z-kt-client`
+directly — every value the way ZUULI produces it, but not through ZUULI's
+`f2zmsg_enroll`:
 
-- ZUULI's `f2zmsg_enroll` signs this device's `DirectoryEntry` with the
-  seed-derived keys and attaches the backend's `HandleAssertion` (Contract C).
-- The log refuses an assertion from any other authority key.
+- A seed-signed `DirectoryEntry` carrying the backend's `HandleAssertion`
+  (Contract C) is admitted, merged and resolved; a second device chains.
+- The log refuses an assertion from any other authority key, or for another
+  identity key.
+- A log wiped under the same key is refused after a restart; only a checkpoint
+  from a **named retired** generation is set aside.
+- The client refuses a log whose signed authority policy does not vouch with
+  exactly the bundled handle-authority key.
+
+Tested **without** a real log, in the plugin's and ZUULI's own unit tests:
+
+- ZUULI's `f2zmsg_enroll` path: Contract C against a loopback server, the
+  assertion precheck, draft assembly, and the refusals — but the
+  `publish_steps` orchestration itself has never run end to end against a log.
+  It cannot be tested where it lives: `f2z-kt` and `f2z-witness` are AGPL-3.0,
+  and a dev-dependency on either from ZUULI or from the plugin would put them
+  in a shipping lockfile (`rs/README.md`'s licence boundary), while
+  `f2z-kt-client` — which may dev-depend on them — cannot depend on Tauri. The
+  honest closure is an observation against the deployed log, which §2.4's last
+  bullet already says has not happened.
 - The client keeps a verified receipt.
 - `mergedAtEpoch` is set only from a verified lookup of the device's own handle.
 - e2e2z keeps its "not independently witnessed" warning while fewer than two
-  independent witnesses cosign.
+  independent witnesses cosign, and says so when the directory is unusable.
 
 Not yet available:
 

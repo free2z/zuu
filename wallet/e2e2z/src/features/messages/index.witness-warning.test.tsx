@@ -154,3 +154,31 @@ describe("the witness warning", () => {
     expect(container.textContent).not.toContain(TITLE);
   });
 });
+
+// ADR 0017 §3: a directory this build refuses to use at all is said on the
+// page, not only when a lookup fails.
+describe("a directory this build refuses to use", () => {
+  it("names an unvouched log and what it means", async () => {
+    await renderWith({ lastError: "directory-unvouched" });
+    expect(container.querySelector("[data-directory-unvouched]")).not.toBeNull();
+    expect(container.textContent).toContain(
+      "no longer proves that free2z vouched for the handles on it",
+    );
+  });
+
+  it("names a damaged local directory record and the only way out", async () => {
+    await renderWith({ lastError: "directory-state-invalid" });
+    expect(
+      container.querySelector("[data-directory-state-invalid]"),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("enroll again");
+  });
+
+  it("says nothing when the directory is usable", async () => {
+    await renderWith({ lastError: "relay-unreachable" });
+    expect(container.querySelector("[data-directory-unvouched]")).toBeNull();
+    expect(
+      container.querySelector("[data-directory-state-invalid]"),
+    ).toBeNull();
+  });
+});

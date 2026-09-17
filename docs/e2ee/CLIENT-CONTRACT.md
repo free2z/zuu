@@ -1730,6 +1730,8 @@ type ErrorCode =
   | "directory-cooldown"
   | "directory-epoch-unavailable"
   | "directory-protocol-violation"
+  | "directory-unvouched"
+  | "directory-state-invalid"
   | "witness-threshold-unmet"
   | "handle-ineligible"
   // local
@@ -1767,6 +1769,8 @@ type ErrorCode =
 | `directory-cooldown` | | A platform reset is pending and its cooldown has not elapsed. Show the cooldown end, and state that the old key remains in force and can still cancel the reset ([ADR 0014](./decisions/0014-directory-key-rotation.md)). |
 | `directory-epoch-unavailable` | | The epoch or audit range asked for is outside the horizon the log still serves; it has been pruned ([`KT.md` §9.3](./KT.md#93-sizes-are-a-rate-limit-input-not-a-footnote)). This is the log answering honestly that it no longer holds those bytes — **not** a network failure and **not** fork evidence. Do not retry the same range and do not "try another server". |
 | `directory-protocol-violation` | | The log rejected our request as malformed, unsupported, unauthorized-by-construction or over-wide, or answered something we cannot parse. **This is a bug in one of the two implementations**, exactly as `relay-protocol-violation` is for the relay. Surface it as a defect with a report affordance; never silently retry. Deliberately **not** `directory-proof-invalid`: that one is a *cryptographic* failure and is fork evidence, and collapsing the two would turn every one of our own encoding bugs into an accusation. |
+| `directory-unvouched` | | **Fail closed.** The log's signed authority policy ([`KT.md` §4.6](./KT.md)) does not vouch with exactly the handle authority this build pins ([ADR 0017](./decisions/0017-internal-directory-activation.md) §3): a log deployed without its authority admits first-come registrations, and one with an extra authority admits handles this build never agreed to. Resolve nothing and publish nothing against it. Say that this directory is not the one this app was built for; suggest updating the app and reporting it. Never retry automatically. |
+| `directory-state-invalid` | | **Fail closed.** The directory state this device saved — the last tree head it verified — is missing while the device has already relied on the directory, does not authenticate under this device's key, does not decode, or names a log this build does not know ([ADR 0017](./decisions/0017-internal-directory-activation.md) §3). Trusting the log's next head instead would discard the history that makes a rollback detectable, so nothing is resolved. The only recovery is explicit: unenroll this device, which clears the saved state with the identity, and enroll again. Say exactly that. Never retry automatically. |
 | `witness-threshold-unmet` | | **Fail closed, per §6.4's matrix.** Never "proceed anyway", never a silent degrade. Offer manual safety-number verification, which is always available and is the strongest check. |
 | `handle-ineligible` | | The account's username is not a valid messaging handle. §11.3 — this must be a first-class, non-apologetic state. |
 | `not-enrolled` | | Route to enrollment. |
@@ -1834,7 +1838,8 @@ how a wrong device clock ends up rendered as a relay defect.
 | 11 | `ERR_INTERNAL` | `internal` |
 
 **Note what is not in either table.** `directory-proof-invalid`,
-`witness-threshold-unmet`, `relay-identity-mismatch`, `relay-unreachable`,
+`witness-threshold-unmet`, `directory-unvouched`, `directory-state-invalid`,
+`relay-identity-mismatch`, `relay-unreachable`,
 `relay-refused-insecure`, `handle-ineligible`, and the local-only members from
 `not-enrolled` through `not-supported-in-browser` are **client-side outcomes,
 not wire codes**: the client computes them and no server sends them. `internal`

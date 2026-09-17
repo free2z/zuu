@@ -57,7 +57,7 @@ use openmls::prelude::{GroupId, MlsGroup};
 use openmls_traits::OpenMlsProvider as _;
 use rand::Rng as _;
 
-use crate::directory::{Directory, NoDirectory, SubmissionExpectation};
+use crate::directory::{CheckpointStore, Directory, NoDirectory, SubmissionExpectation};
 use crate::envelope::{
     self, AppMessage, DagEntry, GapRequest, GapResponse, Insertion, MessageDag, MessageType, MsgId,
     RepairEntry, RepairRefusal, RetentionClass,
@@ -68,9 +68,9 @@ use crate::handle;
 use crate::models::*;
 use crate::relay::{BindSendOutcome, ConnectionPolicy, RelayConnection};
 use crate::store::{
-    BindState, DeviceSecrets, InboundQueue, OutboundQueue, RecordStore, SealedSecrets,
-    SharedBackend, StoredContactRequest, StoredConversation, StoredDelivery, StoredIdentity,
-    StoredMessage, StoredQueues, StoredRelay, StoredWitnessSet, UnrecoverableCause,
+    BindState, DeviceSecrets, InboundQueue, OutboundQueue, RecordStore, SealedCheckpoint,
+    SealedSecrets, SharedBackend, StoredContactRequest, StoredConversation, StoredDelivery,
+    StoredIdentity, StoredMessage, StoredQueues, StoredRelay, StoredWitnessSet, UnrecoverableCause,
 };
 
 /// Domain-separated derivation of a conversation's receive-side queue key.
@@ -114,6 +114,9 @@ const LAST_RESORT_LIFETIME_SECONDS: u64 = 2_592_000;
 /// an online owner has a full day of retries without ever publishing a package
 /// whose validity has already ended.
 const LAST_RESORT_ROTATE_BEFORE_MS: i64 = 86_400_000;
+/// The key this device's directory checkpoint is sealed under, derived from
+/// its queue seed (ADR 0017 §3).
+const LABEL_KT_CHECKPOINT_SEAL: &[u8] = b"free2z/msg/v1/kt-checkpoint-seal";
 const LABEL_ROUTING_ADVERT: &[u8] = b"free2z/msg/v1/first-routing-advert";
 const LABEL_ROUTING_FIELDS: &[u8] = b"free2z/msg/v1/first-routing-fields";
 const LABEL_ROUTING_WELCOME: &[u8] = b"free2z/msg/v1/first-routing-welcome";
@@ -349,7 +352,11 @@ pub struct DevicePublicKeys {
     pub device_kem_pk: Vec<u8>,
 }
 
-impl<B: StorageBackend> Engine<B> {
+// `Send + Sync + 'static` because the engine hands the directory a
+// checkpoint store over its own backend (ADR 0017 §3), and the directory is
+// shared across threads. Both shipping backends — `SqliteBackend` and the
+// tests' `MemoryBackend` — are.
+impl<B: StorageBackend + Send + Sync + 'static> Engine<B> {
     /// Build an engine over a backend, before anything is known about
     /// enrollment.
     ///
@@ -453,6 +460,21 @@ impl<B: StorageBackend> Engine<B> {
     // §3.1 — engine lifecycle
     // ------------------------------------------------------------------
 
+    /// Hand the directory this device's sealed checkpoint store. Called with
+    /// the queue seed unsealed, which the store's key is derived from.
+    fn attach_directory_state(&self, inner: &Inner<B>) -> Result<()> {
+        let seed = inner
+            .queue_seed
+            .as_ref()
+            .ok_or_else(|| Error::internal("attaching directory state without the queue seed"))?;
+        self.directory
+            .attach_checkpoints(Some(Arc::new(SealedCheckpoints::new(
+                inner.backend.clone(),
+                seed,
+            ))));
+        Ok(())
+    }
+
     /// §3.1 `get_engine_status`.
     ///
     /// # Errors
@@ -549,11 +571,16 @@ impl<B: StorageBackend> Engine<B> {
         // not a `false` that only means "nothing has asked yet". Then learn
         // whether this device's own submission has merged (ADR 0017 §6).
         let directory = Arc::clone(&self.directory);
-        if tokio::task::spawn_blocking(move || directory.refresh())
-            .await
-            .is_err()
-        {
-            tracing::warn!("the directory refresh task panicked");
+        match tokio::task::spawn_blocking(move || directory.refresh()).await {
+            Ok(Ok(())) => {}
+            // `lastError` is where the UI learns that the directory is
+            // unusable — `directory-unvouched`, `directory-state-invalid` —
+            // before a lookup has had the chance to fail (ADR 0017 §3).
+            Ok(Err(error)) => {
+                tracing::info!(code = %error.code(), "the directory did not refresh");
+                inner.last_error = Some(error.code());
+            }
+            Err(_) => tracing::warn!("the directory refresh task panicked"),
         }
         if self.directory.is_configured()
             && let Err(error) = inner.refresh_merge(&self.directory).await
@@ -628,6 +655,7 @@ impl<B: StorageBackend> Engine<B> {
         inner.mls = None;
         inner.pending_device = None;
         inner.queue_seed = None;
+        self.directory.attach_checkpoints(None);
         inner.state = EngineState::Locked;
     }
 
@@ -851,6 +879,7 @@ impl<B: StorageBackend> Engine<B> {
             records.put_identity(&identity)?;
             records.put_sealed_secrets(&sealed)
         })?;
+        self.attach_directory_state(&inner)?;
 
         inner.mls = Some(mls);
         inner.state = EngineState::Enrolling;
@@ -910,6 +939,7 @@ impl<B: StorageBackend> Engine<B> {
         .map_err(|error| Error::internal(format!("building the MLS engine: {error}")))?;
 
         inner.queue_seed = Some(decode_key(&secrets.queue_seed)?);
+        self.attach_directory_state(&inner)?;
         inner.mls = Some(mls);
         inner.state = EngineState::Stopped;
         let status = inner.status(&*self.directory)?;
@@ -1097,6 +1127,10 @@ impl<B: StorageBackend> Engine<B> {
         inner.dags.clear();
         inner.mls = None;
         inner.queue_seed = None;
+        // The checkpoint is sealed under the secrets being dropped, and
+        // `clear_identity` deletes it with them: unenrolling is ADR 0017 §3's
+        // one reset of this device's directory state.
+        self.directory.attach_checkpoints(None);
         let ids = inner.records().conversation_ids()?;
         let mut alarms = inner.records().alarms()?;
         for alarm in inner.volatile_compromise_alarms.values() {
@@ -3975,6 +4009,115 @@ fn queue_address(hex_addr: &str) -> Result<f2z_codec::types::QueueAddress> {
         .map_err(|_| Error::internal("a queue address is the wrong length"))
 }
 
+/// ADR 0017 §3: the directory checkpoint, kept in this engine's store and
+/// sealed under a key only an unlocked device has.
+///
+/// # What it protects, and what it cannot
+///
+/// - **Edited, truncated, transplanted or `log_id`-flipped records** do not
+///   open under this device's key, and [`CheckpointStore::load`] refuses them
+///   with `directory-state-invalid` rather than treating them as absent.
+/// - **A deleted record** is refused too once the device has relied on the
+///   directory — it holds a submission receipt, a merged epoch, or a
+///   conversation — because a device in that state necessarily saved one
+///   (`KtDirectory::connect_with` makes the first save mandatory).
+/// - **Durability** is SQLite's: one transaction per save, `synchronous =
+///   FULL` (`f2z-msg-store`), so a save is on disk, file and journal both,
+///   when it returns, and a crash leaves the old record or the new one.
+/// - **What it cannot stop** is a party that can rewrite this SQLite file
+///   arbitrarily: it can delete the record *and* the evidence beside it. That
+///   party can equally rewrite stored peer identities, and the store's lack
+///   of at-rest protection is already recorded in `store.rs` as
+///   `f2z-msg-store`'s gap. This closes the review's attack — one loose file
+///   whose deletion or one-byte edit reset the device's trust — without
+///   claiming more.
+pub(crate) struct SealedCheckpoints<B: StorageBackend> {
+    records: F2zStorageProvider<SharedBackend<B>>,
+    key: zeroize::Zeroizing<[u8; 32]>,
+}
+
+impl<B: StorageBackend> SealedCheckpoints<B> {
+    fn new(backend: SharedBackend<B>, queue_seed: &[u8; 32]) -> Self {
+        Self {
+            // A second provider over the shared backend: whole transactions
+            // interleave, never halves (`SharedBackend`'s note), so this never
+            // waits on the engine's lock.
+            records: F2zStorageProvider::new(backend),
+            key: zeroize::Zeroizing::new(*hash(LABEL_KT_CHECKPOINT_SEAL, queue_seed).as_bytes()),
+        }
+    }
+}
+
+impl<B: StorageBackend + Send + Sync + 'static> CheckpointStore for SealedCheckpoints<B> {
+    fn load(&self) -> Result<Option<Vec<u8>>> {
+        let records = RecordStore::new(&self.records);
+        let stored = records.kt_checkpoint().map_err(|error| {
+            if error.code() == ErrorCode::Internal {
+                checkpoint_invalid(&format!(
+                    "the saved directory checkpoint does not decode ({})",
+                    error.context()
+                ))
+            } else {
+                error
+            }
+        })?;
+        if let Some(sealed) = stored {
+            return open_checkpoint(&sealed, &self.key).map(Some);
+        }
+        let relied = records.identity()?.is_some_and(|identity| {
+            identity.merged_at_epoch.is_some() || identity.directory_receipt.is_some()
+        }) || !records.conversation_ids()?.is_empty();
+        if relied {
+            return Err(checkpoint_invalid(
+                "this device has relied on the directory, but its saved checkpoint is missing",
+            ));
+        }
+        Ok(None)
+    }
+
+    fn save(&self, checkpoint: &[u8]) -> Result<()> {
+        let sealed = seal_checkpoint(checkpoint, &self.key)?;
+        RecordStore::new(&self.records).put_kt_checkpoint(&sealed)
+    }
+}
+
+fn checkpoint_invalid(what: &str) -> Error {
+    Error::new(
+        ErrorCode::DirectoryStateInvalid,
+        format!("{what}; unenroll this device and enroll again to reset it (ADR 0017 §3)"),
+    )
+}
+
+fn seal_checkpoint(checkpoint: &[u8], key: &[u8; 32]) -> Result<SealedCheckpoint> {
+    let cipher = chacha20poly1305::ChaCha20Poly1305::new(key.into());
+    let mut nonce = [0u8; 12];
+    rand::rng().fill_bytes(&mut nonce);
+    let ciphertext = cipher
+        .encrypt((&nonce).into(), checkpoint)
+        .map_err(|_| Error::internal("sealing the directory checkpoint"))?;
+    Ok(SealedCheckpoint {
+        nonce: hex::encode(nonce),
+        ciphertext: hex::encode(ciphertext),
+    })
+}
+
+fn open_checkpoint(sealed: &SealedCheckpoint, key: &[u8; 32]) -> Result<Vec<u8>> {
+    let cipher = chacha20poly1305::ChaCha20Poly1305::new(key.into());
+    let nonce: [u8; 12] = hex::decode(&sealed.nonce)
+        .ok()
+        .and_then(|bytes| bytes.as_slice().try_into().ok())
+        .ok_or_else(|| checkpoint_invalid("the saved directory checkpoint's nonce is malformed"))?;
+    let ciphertext = hex::decode(&sealed.ciphertext)
+        .map_err(|_| checkpoint_invalid("the saved directory checkpoint is not hex"))?;
+    cipher
+        .decrypt((&nonce).into(), ciphertext.as_slice())
+        .map_err(|_| {
+            checkpoint_invalid(
+                "the saved directory checkpoint does not authenticate under this device's key",
+            )
+        })
+}
+
 /// Seal the device secrets under the seed-derived `BackupWrapKey`.
 fn seal(secrets: &DeviceSecrets, wrap_key: &[u8; 32]) -> Result<SealedSecrets> {
     let cipher = chacha20poly1305::ChaCha20Poly1305::new(wrap_key.into());
@@ -6218,7 +6361,7 @@ mod tests {
         }
     }
 
-    fn test_engine<B: StorageBackend>(backend: B) -> Engine<B> {
+    fn test_engine<B: StorageBackend + Send + Sync + 'static>(backend: B) -> Engine<B> {
         Engine::new(backend, Arc::new(NullSink), Platform::ZuuliDesktop).expect("test engine")
     }
 
@@ -8065,6 +8208,219 @@ mod activation_tests {
         assert_eq!(
             engine.refresh_enrollment().await.unwrap_err().code(),
             ErrorCode::NotEnrolled
+        );
+    }
+}
+
+/// ADR 0017 §3: this device's directory checkpoint, sealed in the engine's own
+/// store rather than in a loose file beside it.
+#[cfg(test)]
+mod directory_state_tests {
+    use std::sync::{Arc, Mutex};
+
+    use f2z_msg_store::{MemoryBackend, StorageBackend};
+
+    use super::{Engine, SealedCheckpoints, SharedBackend, StoredIdentity};
+    use crate::directory::{CheckpointStore, Directory, NoDirectory};
+    use crate::events::NullSink;
+    use crate::models::{ErrorCode, Platform};
+
+    const SEED: [u8; 32] = [0x7e; 32];
+    const HEAD: &[u8] = b"a canonically encoded SignedTreeHead";
+
+    fn store(backend: &SharedBackend<MemoryBackend>) -> SealedCheckpoints<MemoryBackend> {
+        SealedCheckpoints::new(backend.clone(), &SEED)
+    }
+
+    fn identity() -> StoredIdentity {
+        StoredIdentity {
+            device_id: "device".to_owned(),
+            handle: "alice".to_owned(),
+            identity_pk: "11".repeat(32),
+            device_pk: "22".repeat(32),
+            credential: String::new(),
+            created_at: 0,
+            directory_entry_version: None,
+            submitted_at: Some(1),
+            merged_at_epoch: None,
+            directory_receipt: None,
+        }
+    }
+
+    fn records(
+        backend: &SharedBackend<MemoryBackend>,
+    ) -> f2z_msg_store::F2zStorageProvider<SharedBackend<MemoryBackend>> {
+        f2z_msg_store::F2zStorageProvider::new(backend.clone())
+    }
+
+    #[test]
+    fn a_saved_head_comes_back_and_a_fresh_device_starts_at_first_use() {
+        let backend = SharedBackend::new(Arc::new(MemoryBackend::new()));
+        let checkpoints = store(&backend);
+        assert_eq!(
+            checkpoints.load().unwrap(),
+            None,
+            "nothing saved and nothing relied on: trust on first use"
+        );
+        checkpoints.save(HEAD).unwrap();
+        assert_eq!(checkpoints.load().unwrap().as_deref(), Some(HEAD));
+    }
+
+    #[test]
+    fn an_edited_or_transplanted_record_is_refused_rather_than_ignored() {
+        let backend = SharedBackend::new(Arc::new(MemoryBackend::new()));
+        store(&backend).save(HEAD).unwrap();
+        let provider = records(&backend);
+        let mut sealed = crate::store::RecordStore::new(&provider)
+            .kt_checkpoint()
+            .unwrap()
+            .expect("saved");
+
+        // One byte of the sealed head — the review's `log_id` flip, at the
+        // layer where it is now visible.
+        let mut bytes = hex::decode(&sealed.ciphertext).unwrap();
+        bytes[0] ^= 0x01;
+        let edited = crate::store::SealedCheckpoint {
+            nonce: sealed.nonce.clone(),
+            ciphertext: hex::encode(bytes),
+        };
+        crate::store::RecordStore::new(&provider)
+            .put_kt_checkpoint(&edited)
+            .unwrap();
+        let refusal = store(&backend).load().unwrap_err();
+        assert_eq!(refusal.code(), ErrorCode::DirectoryStateInvalid);
+
+        // Another device's record, dropped in here.
+        let elsewhere = SharedBackend::new(Arc::new(MemoryBackend::new()));
+        SealedCheckpoints::new(elsewhere.clone(), &[0x5a; 32])
+            .save(HEAD)
+            .unwrap();
+        sealed = crate::store::RecordStore::new(&records(&elsewhere))
+            .kt_checkpoint()
+            .unwrap()
+            .expect("saved elsewhere");
+        crate::store::RecordStore::new(&provider)
+            .put_kt_checkpoint(&sealed)
+            .unwrap();
+        assert_eq!(
+            store(&backend).load().unwrap_err().code(),
+            ErrorCode::DirectoryStateInvalid
+        );
+    }
+
+    #[test]
+    fn a_missing_record_is_refused_once_the_device_has_relied_on_the_directory() {
+        let backend = SharedBackend::new(Arc::new(MemoryBackend::new()));
+        let provider = records(&backend);
+        let mut identity = identity();
+        crate::store::RecordStore::new(&provider)
+            .put_identity(&identity)
+            .unwrap();
+        assert_eq!(
+            store(&backend).load().unwrap(),
+            None,
+            "enrolled, but nothing has been resolved or published yet"
+        );
+
+        identity.merged_at_epoch = Some(7);
+        crate::store::RecordStore::new(&provider)
+            .put_identity(&identity)
+            .unwrap();
+        assert_eq!(
+            store(&backend).load().unwrap_err().code(),
+            ErrorCode::DirectoryStateInvalid,
+            "a device that has merged an entry saved a checkpoint; its absence is evidence"
+        );
+
+        identity.merged_at_epoch = None;
+        identity.directory_receipt = Some("00".to_owned());
+        crate::store::RecordStore::new(&provider)
+            .put_identity(&identity)
+            .unwrap();
+        assert_eq!(
+            store(&backend).load().unwrap_err().code(),
+            ErrorCode::DirectoryStateInvalid
+        );
+    }
+
+    #[tokio::test]
+    async fn unenrolling_clears_the_checkpoint_and_detaches_the_store() {
+        #[derive(Default)]
+        struct Detachable {
+            attached: Mutex<Vec<bool>>,
+        }
+        impl Directory for Detachable {
+            fn resolve(
+                &self,
+                handle: &str,
+            ) -> crate::error::Result<crate::models::DirectoryResolution> {
+                NoDirectory.resolve(handle)
+            }
+            fn resolve_identity(
+                &self,
+                handle: &str,
+            ) -> crate::error::Result<crate::directory::ResolvedIdentity> {
+                NoDirectory.resolve_identity(handle)
+            }
+            fn resolve_peer(
+                &self,
+                handle: &str,
+            ) -> crate::error::Result<crate::directory::ResolvedPeer> {
+                NoDirectory.resolve_peer(handle)
+            }
+            fn independent_witnesses(&self) -> u32 {
+                0
+            }
+            fn threshold_met(&self) -> bool {
+                false
+            }
+            fn attach_checkpoints(&self, store: Option<Arc<dyn CheckpointStore>>) {
+                self.attached.lock().unwrap().push(store.is_some());
+            }
+        }
+
+        let directory = Arc::new(Detachable::default());
+        let backend = MemoryBackend::new();
+        let engine = Engine::new(backend, Arc::new(NullSink), Platform::ZuuliDesktop)
+            .unwrap()
+            .with_directory(Arc::clone(&directory) as Arc<dyn Directory>);
+        {
+            let mut inner = engine.inner.lock().await;
+            inner.queue_seed = Some(SEED);
+            let shared = inner.backend.clone();
+            inner
+                .records()
+                .commit(|records| records.put_identity(&identity()))
+                .unwrap();
+            engine.attach_directory_state(&inner).unwrap();
+            store(&shared).save(HEAD).unwrap();
+            assert!(
+                inner
+                    .backend
+                    .get(b"is-not-a-key")
+                    .expect("backend reads")
+                    .is_none()
+            );
+        }
+        assert_eq!(*directory.attached.lock().unwrap(), vec![true]);
+
+        engine.unenroll("delete my messaging").await.unwrap();
+        assert_eq!(
+            *directory.attached.lock().unwrap(),
+            vec![true, false],
+            "the store is sealed under secrets that no longer exist"
+        );
+        let inner = engine.inner.lock().await;
+        assert!(
+            inner.records().kt_checkpoint().unwrap().is_none(),
+            "unenrolling is the reset, and it takes the checkpoint with the identity"
+        );
+        let shared = inner.backend.clone();
+        drop(inner);
+        assert_eq!(
+            store(&shared).load().unwrap(),
+            None,
+            "and the next enrollment starts from a genuine first use"
         );
     }
 }

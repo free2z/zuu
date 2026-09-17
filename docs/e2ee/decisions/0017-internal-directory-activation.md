@@ -113,12 +113,13 @@ so both apps get the same values from the same reviewed file.
 | `log_id` | `BLAKE2b-256("free2z/kt/v1/log-id" ‖ log_public_key)`. It must equal that derivation, so a key and an id pasted from two different logs are refused. | the id the log publishes |
 | `vrf_public_key` | The log's ECVRF key, **pinned**: a first tree head that carries another key is refused, and §6.3 refuses any later change. | the key in the log's tree heads |
 | `reset_authority_pk` | ADR 0014's reset authority, pinned. | the log config's `reset_authority_pk` |
-| `reset_cooldown_seconds` | ADR 0014's cooldown. | the log config's value (default 604800) |
+| `reset_cooldown_seconds` | ADR 0014's cooldown, **at least 604800** (seven days). The client enforces it on every reset it sees, and the window protects only a user who opens the app inside it; a smaller value is a code change, reviewed as one. | the log config's value (default 604800) |
 | `witness_pk` | A witness key. Repeatable. **Always dependent.** | each `f2z-witness` public key, and the log config's `witness_pk` lines |
 | `threshold` | *t*, from 1 to the number of witnesses. | — |
 | `handle_authority_pk` | Contract C's signing key. | the log config's `authority_pk` |
 | `handle_assertion_url` | Contract C's endpoint, `https://`. | the backend route in §5 |
 | `relay_url` | The default relay, `wss://`. | the relay's public ingress |
+| `retired_log_public_key` | A genesis key of a log generation this build has left. Repeatable, absent until the first wipe. Only a checkpoint from a listed generation may be set aside. | the previous log's genesis key |
 
 **Fail-closed rules.**
 
@@ -157,17 +158,78 @@ ZUULI and e2e2z disagree about which log they trust.
   set that nothing reads would make the reported state false.
 - `start_engine` refreshes the directory's root on a blocking thread before it
   decides between `running` and `degraded`.
-- **The last verified tree head is persisted.** It is written to
-  `f2zmsg-kt-checkpoint.bin` beside the store after every connect, sync and
-  lookup, and read back through `KtClient::open` on the next launch. Before
-  this, every launch trusted the log's head on first use again, which is the
-  failure `KtClient::bootstrap`'s own documentation warns about. Now:
-  - A checkpoint for **another** `log_id` is set aside (the reviewed build names
-    a new log), and the device trusts the new log's first head.
+- **The log's signed authority policy is required, not merely reported.**
+  `KT.md` §8.1 step 7 has a client *fetch* §4.6's policy and show what it says.
+  A build compiled for one log with one authority expects more, so
+  `KtDirectory` calls `KtClient::require_authority_policy` with the bundled
+  `handle_authority_pk`: the policy must be fetched, verify under the accepted
+  log key, say **vouched**, and list **exactly** that key — no key missing and
+  none extra. Anything else, including a policy that cannot be fetched at all,
+  refuses the connection with `directory-unvouched`; lookups, submissions and
+  `start_engine`'s refresh all fail closed, and e2e2z says so on the page.
+  Without this, a log deployed without its authority would take first-come
+  registrations while the app went on resolving them, which is the whole value
+  of Contract C. The comparison is on public keys, and `authority_id` is
+  `H("free2z/kt/v1/authority-id", pk)`, so equal key sets are equal id sets.
+  The policy is also **pinned for the process**: the first one verified is kept
+  with its `published_at_ms` zeroed, and it is checked again on every root
+  refresh — `start_engine`'s, and any later one — so a policy that differs in
+  any other field makes the directory unusable from then on, for lookups and
+  submissions alike. It is deliberately *not* re-fetched on every lookup: that
+  would put a second round trip in front of each one, and a log that keeps its
+  policy while equivocating is `KT.md` §8.5's limit rather than something a
+  refetch would catch. A log that cannot be reached has not changed its
+  policy, so a transport failure on a refresh is not a change. What this cannot establish is `KT.md` §8.5's limit: that the
+  log *applied* the policy it signed.
+- **The last verified tree head is persisted, sealed, in the engine's store.**
+  It is written after every connect, sync and lookup, and read back through
+  `KtClient::open` on the next launch. Before this, every launch trusted the
+  log's head on first use again, which is the failure `KtClient::bootstrap`'s
+  own documentation warns about. It lives in `f2zmsg.sqlite` beside the
+  identity, sealed with ChaCha20-Poly1305 under a key derived from this
+  device's unsealed queue seed (`engine::SealedCheckpoints`) — not in a loose
+  file, where deleting it or flipping one byte was enough to reset this
+  device's trust. Now:
   - A checkpoint for **this** log is resumed. The first sync then applies §6.3
     against it, so a log reset under the same key is **refused as a rollback**.
-  - A checkpoint that does not decode, or does not verify, is refused rather
-    than replaced.
+  - A checkpoint for a **listed** `retired_log_public_key`, whose signature
+    verifies under that generation's key, is set aside, and the device trusts
+    the new log's first head. The reviewed build says which generation it left;
+    the device does not infer it.
+  - Everything else is **refused**, with `directory-state-invalid`, and the
+    directory stays unusable on that device: a checkpoint naming a log this
+    build neither trusts nor lists as retired (which is what a flipped `log_id`
+    is), one whose signature does not verify, one that does not decode, one
+    that does not open under this device's key, and a **missing** one on a
+    device that has already relied on the directory — it holds a receipt, a
+    merged epoch or a conversation. `SignedTreeHead::verify` checks `log_id`
+    before the signature, so `WrongLog` alone says nothing about who signed the
+    bytes; the signature is now checked under the accepted key regardless of
+    the id, and a head the *current* key signed for a foreign id is the log
+    misbehaving rather than a generation change.
+  - **The safe recovery is explicit and destructive, by choice.** There is no
+    "reset the directory state" button: a button that clears the evidence of
+    what this device saw is a button an attacker wants the user to press, and a
+    single-purpose reset would have to be reasoned about separately from the
+    pins and conversations that were established against that history. The
+    recovery is `f2zmsg_unenroll`, which the user already has to type a
+    confirmation for: it deletes the identity, its sealed secrets and the
+    checkpoint in one transaction, and the next enrollment starts from a
+    genuine first use. The UI says exactly that.
+  - The first save is **mandatory**: `connect_with` fails if it cannot store
+    the head, because a device that went on to use the directory with nothing
+    saved would refuse itself on the next start. Later saves are best-effort —
+    saving less is safe, since the prefix is verified again after a restart,
+    and only loses progress.
+  - Durability is SQLite's, not a hand-rolled `fsync`: one transaction per
+    save under `synchronous = FULL` and WAL (`f2z-msg-store`), so a completed
+    save is on disk and a crash leaves the old record or the new one.
+  - What this does **not** stop is a party who can rewrite `f2zmsg.sqlite`
+    arbitrarily: it can delete the record and the evidence beside it. That
+    party can equally rewrite stored peer identities, and the store's lack of
+    at-rest encryption is `f2z-msg-store`'s recorded gap (`store.rs`). The
+    claim here is narrower and true: the checkpoint is no longer a loose file
+    whose deletion or one-byte edit silently re-trusts the log.
   - Pins and alarms are still per-process (see §10).
 
 ## 4. Decision 3 — enrollment and `DirectoryEntry` submission
@@ -391,10 +453,12 @@ this device's own handle showed an entry publishing this device's `device_pk`.**
 |---|---|---|
 | `f2z-msg-identity` | `directory::tests` (7) | Version, chain and assertion boundaries; both signatures verify under the seed keys; the binding commits to the assertion |
 | `f2z-kt-client` | `submit::tests` (4) | A receipt under another key, or for another entry or version, or with a trailing byte, is refused |
-| `f2z-kt-client` | `tests/seed_submission.rs` (5) | Against a **real** log and witness: a seed-signed enrollment is admitted, merged and resolved with `independent() == 0`; a second device chains; an unconfigured authority and another identity key are refused. A log wiped under the same key is refused after a restart. Another log's checkpoint is set aside; a corrupt or forged one is refused |
+| `f2z-kt-client` | `tests/seed_submission.rs` (6) | Against a **real** log and witness: a seed-signed enrollment is admitted, merged and resolved with `independent() == 0`; a second device chains; an unconfigured authority and another identity key are refused. A log wiped under the same key is refused after a restart. Only a **named retired** generation's checkpoint is set aside; an unlisted log, a flipped `log_id`, a foreign id signed by the current key, a forged, corrupt or truncated one are each refused with their own verdict. The signed authority policy must vouch with exactly the bundled key: unvouched, another key, an extra key, a policy signed by anyone else, and an unanswered fetch are all refused |
 | `f2z-kt` | `adversarial.rs`: `an_assertion_signed_by_an_unconfigured_authority_is_refused`, `an_assertion_forged_under_the_configured_authority_id_is_refused` | Contract C on the log |
 | `f2z-authority` | `tests/contract_c_vectors.rs` (2) | The vectors match the code; the vector passes the log's check; the stranger does not |
-| plugin | `internal_directory::tests` (7) | Fail-closed parsing |
+| plugin | `internal_directory::tests` (15) | Fail-closed parsing; `#` inside a value, non-ASCII and confusable characters, URLs with userinfo or no host, the cooldown floor, retired generations, the required authority, and that `build.rs` runs this same grammar and stops the build |
+| plugin | `directory::tests` (2), `engine::directory_state_tests` (4) | A bundled directory with no sealed state refuses instead of trusting on first use; the sealed store round-trips a head, refuses an edited or transplanted record, refuses a missing one on a device that has relied on the directory, and unenroll clears it and detaches the store |
+| e2e2z | `index.witness-warning.test.tsx` (3 more) | `directory-unvouched` and `directory-state-invalid` are said on the page, and nothing is said when the directory is usable |
 | plugin | `engine` tests | Bundled witness state, `set_witness_set` refusal, receipt recording, `mergedAtEpoch` only from a verified lookup, truthful `blocked` |
 | ZUULI | `directory_publish::tests` (10) | Contract C against a loopback server (POST, token, JSON body, base64url decoding, refusals, oversize), the precheck, draft assembly, and refusing another wallet |
 | e2e2z | `index.witness-warning.test.tsx` (4) | The warning stays up until two independent witnesses cosign |
@@ -407,9 +471,28 @@ suite, and restoring (`CONFORMANCE.md`'s method):
 | `f2z-authority` rule 12: any configured key accepted regardless of `authority_id` | `an_assertion_signed_by_an_unconfigured_authority_is_refused`, `an_assertion_from_an_unconfigured_authority_is_refused_by_the_log` |
 | `f2z-authority` rule 13: authority signature result ignored | `an_assertion_forged_under_the_configured_authority_id_is_refused` |
 | ZUULI `precheck` accepts everything | `the_precheck_refuses_what_the_log_would_refuse` |
-| `KtClient::open`: any unusable checkpoint bootstraps instead of refusing | `a_checkpoint_for_another_log_is_set_aside_and_anything_else_wrong_is_refused` |
+| `KtClient::open`: any unusable checkpoint bootstraps instead of refusing | `only_a_named_retired_generation_is_set_aside_and_anything_else_wrong_is_refused` |
 | `KtClient::open`: the checkpoint is ignored | both wipe tests |
 | e2e2z: warning keyed on the threshold only | `stays up when the threshold is met…`, `stays up with one independent witness…` |
+
+**Mutations for this hardening pass** (#1022, same method):
+
+| Guard mutated | Test that failed |
+|---|---|
+| `KtClient::open`: another log's checkpoint bootstraps with no retired list | `only_a_named_retired_generation_is_set_aside_and_anything_else_wrong_is_refused` |
+| `KtClient::open`: the foreign-id-under-the-current-key check removed | the same test, on the `WrongLog` assertion |
+| `KtClient::open`: the checkpoint ignored entirely | the same test and `a_log_wiped_under_the_same_key_is_refused_after_a_restart` |
+| `require_authority_policy`: `exact = true` | `the_bundled_client_requires_exactly_the_bundled_authority` |
+| `internal-directory.conf` given a `#` inside a URL | **the build**: `cargo build` failed with `internal-directory.conf is malformed (ADR 0017 §3): line 90` |
+| parser: the cooldown floor removed | `the_reset_cooldown_has_a_floor` |
+| parser: the printable-ASCII rule removed | `values_are_printable_ascii_only` |
+| parser: a retired key may equal the current log key | `retired_generations_are_real_distinct_and_not_the_current_log` |
+| `directory_config()`: `required_authority: None` | `the_bundled_authority_becomes_the_required_authority` |
+| `BundledDirectory`: connects without a checkpoint store | both `directory::tests` |
+| `SealedCheckpoints::load`: a record that does not open treated as absent | `an_edited_or_transplanted_record_is_refused_rather_than_ignored` |
+| `SealedCheckpoints::load`: the missing-but-relied-on rule removed | `a_missing_record_is_refused_once_the_device_has_relied_on_the_directory` |
+| `clear_identity`: the checkpoint left behind | `unenrolling_clears_the_checkpoint_and_detaches_the_store` |
+| e2e2z: the unvouched banner never rendered | `names an unvouched log and what it means` |
 
 After restoring, all 20 `adversarial` tests, all 5 `seed_submission` tests and
 all 4 e2e2z warning tests passed.
@@ -424,10 +507,14 @@ all 4 e2e2z warning tests passed.
 2. **`device_kem_pk`** (ADR 0016 §6): remove or redefine the field before any
    public entry exists.
 3. **Wipe the log, correctly.** Start the replacement log with a **new
-   genesis signing key**, which gives it a new `log_id`, and ship its values in
-   this file. Devices running the new build set the old checkpoint aside and
-   start trusting the new log. Held receipts and `mergedAtEpoch` values refer to
-   the old log, so re-enrollment is required.
+   genesis signing key**, which gives it a new `log_id`, ship its values in
+   this file, **and list the old genesis key as `retired_log_public_key`**.
+   Devices running the new build set the old checkpoint aside — but only
+   because the build named that generation — and start trusting the new log. A
+   build that forgot the line leaves every existing device with
+   `directory-state-invalid` until it enrolls again, which is the conservative
+   direction. Held receipts and `mergedAtEpoch` values refer to the old log, so
+   re-enrollment is required.
    **Do not reset a log under its existing key.** A device that verified the
    old history refuses the new one as a rollback (§3), so messaging stays
    unusable on that device until a build with a new `log_id` arrives. That
@@ -474,10 +561,15 @@ all 4 e2e2z warning tests passed.
   with some placeholders is malformed by design, so the values land together
   in a follow-up once the key exists and the services answer.
 - **The backend endpoint** (workstream 7).
-- **Persisted pins and alarms.** The tree-head checkpoint survives a restart.
-  Per-handle pins and the alarm log do not yet, so a key change seen in one
-  session is not remembered in the next. The conversation's own stored peer
-  identity still catches a change for existing conversations.
+- **Persisted pins and alarms.** The tree-head checkpoint survives a restart,
+  sealed in the engine's store. Per-handle pins and the alarm log do not yet,
+  so a key change seen in one session is not remembered in the next. The
+  conversation's own stored peer identity still catches a change for existing
+  conversations. When they are persisted, they belong in the same sealed
+  record, and the §3 refusals apply to them unchanged.
+- **The authority policy is pinned per process, not per device.** Across a
+  restart the bundled `handle_authority_pk` is the pin, which is the stronger
+  half; a log that changed `max_validity_ms` between two runs is not detected.
 - **One environment per build.** The file holds one directory. Pointing
   development builds at staging would need a second file selected at build
   time.

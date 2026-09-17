@@ -304,7 +304,10 @@ impl Directory for HarnessDirectory {
     }
 }
 
-fn engine<B: StorageBackend>(backend: B, directory: Arc<HarnessDirectory>) -> Engine<B> {
+fn engine<B: StorageBackend + Send + Sync + 'static>(
+    backend: B,
+    directory: Arc<HarnessDirectory>,
+) -> Engine<B> {
     Engine::new(
         backend,
         Arc::new(NullSink) as Arc<dyn EventSink>,
@@ -315,7 +318,7 @@ fn engine<B: StorageBackend>(backend: B, directory: Arc<HarnessDirectory>) -> En
     .with_directory(directory)
 }
 
-async fn enroll<B: StorageBackend>(
+async fn enroll<B: StorageBackend + Send + Sync + 'static>(
     engine: &Engine<B>,
     handle: &str,
     seed: u8,
@@ -345,7 +348,7 @@ async fn enroll<B: StorageBackend>(
     (credential, directory_auth_pk)
 }
 
-async fn configure_relay<B: StorageBackend>(engine: &Engine<B>, url: &str) {
+async fn configure_relay<B: StorageBackend + Send + Sync + 'static>(engine: &Engine<B>, url: &str) {
     let refusal = engine
         .add_relay(url)
         .await
@@ -364,7 +367,7 @@ async fn configure_relay<B: StorageBackend>(engine: &Engine<B>, url: &str) {
         .expect("relay consent");
 }
 
-async fn publish<B: StorageBackend>(
+async fn publish<B: StorageBackend + Send + Sync + 'static>(
     engine: &Engine<B>,
     directory: &HarnessDirectory,
     handle: &str,

@@ -159,6 +159,9 @@ mod keys {
     pub fn blocked() -> Vec<u8> {
         format!("{PREFIX}blocked").into_bytes()
     }
+    pub fn kt_checkpoint() -> Vec<u8> {
+        format!("{PREFIX}kt-checkpoint").into_bytes()
+    }
 }
 
 /// The public half of this device's messaging identity.
@@ -214,6 +217,23 @@ pub struct DeviceSecrets {
     /// are derived from it so a restart can re-derive them without a second
     /// secret to protect.
     pub queue_seed: String,
+}
+
+/// The last key-transparency tree head this device verified (ADR 0017 §3),
+/// sealed.
+///
+/// ChaCha20-Poly1305 under a key derived from the device's unsealed queue
+/// seed, which exists only while the engine is unlocked. The seal is what
+/// makes the record *integrity*-protected rather than merely present: an
+/// edited head, one copied from another device, or one whose `log_id` bytes
+/// were flipped does not open, and a record that does not open is refused
+/// rather than replaced.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SealedCheckpoint {
+    /// Hex, 12 bytes.
+    pub nonce: String,
+    /// Hex. ChaCha20-Poly1305 over the canonical `SignedTreeHead`.
+    pub ciphertext: String,
 }
 
 /// Where a conversation's traffic goes and comes from.
@@ -519,10 +539,21 @@ impl<'a, B: StorageBackend> RecordStore<'a, B> {
         self.put(&keys::secrets(), sealed)
     }
 
-    /// Remove the identity and its secrets. `f2zmsg_unenroll` (§3.2).
+    /// Remove the identity, its secrets, and the directory checkpoint sealed
+    /// under them. `f2zmsg_unenroll` (§3.2) — and ADR 0017 §3's only reset of
+    /// the directory state.
     pub fn clear_identity(&self) -> Result<()> {
         self.delete(&keys::identity())?;
-        self.delete(&keys::secrets())
+        self.delete(&keys::secrets())?;
+        self.delete(&keys::kt_checkpoint())
+    }
+
+    pub fn kt_checkpoint(&self) -> Result<Option<SealedCheckpoint>> {
+        self.get(&keys::kt_checkpoint())
+    }
+
+    pub fn put_kt_checkpoint(&self, sealed: &SealedCheckpoint) -> Result<()> {
+        self.put(&keys::kt_checkpoint(), sealed)
     }
 
     // -- conversations -----------------------------------------------------

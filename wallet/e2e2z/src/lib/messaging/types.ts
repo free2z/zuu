@@ -38,6 +38,8 @@ export const ErrorCodeSchema = z.enum([
   "directory-cooldown",
   "directory-epoch-unavailable",
   "directory-protocol-violation",
+  "directory-unvouched",
+  "directory-state-invalid",
   "witness-threshold-unmet",
   "handle-ineligible",
   // local

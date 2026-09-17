@@ -60,6 +60,14 @@ pub enum ErrorCode {
     DirectoryCooldown,
     DirectoryEpochUnavailable,
     DirectoryProtocolViolation,
+    /// ADR 0017 §3: the log's signed authority policy does not vouch with
+    /// exactly the handle authority this build pins. Client-side, never a wire
+    /// code.
+    DirectoryUnvouched,
+    /// ADR 0017 §3: this device's saved directory checkpoint is missing,
+    /// damaged, or names a log this build does not know. Client-side, never a
+    /// wire code; cleared only by unenrolling.
+    DirectoryStateInvalid,
     WitnessThresholdUnmet,
     HandleIneligible,
     // local
@@ -123,6 +131,8 @@ impl ErrorCode {
             Self::DirectoryCooldown => "directory-cooldown",
             Self::DirectoryEpochUnavailable => "directory-epoch-unavailable",
             Self::DirectoryProtocolViolation => "directory-protocol-violation",
+            Self::DirectoryUnvouched => "directory-unvouched",
+            Self::DirectoryStateInvalid => "directory-state-invalid",
             Self::WitnessThresholdUnmet => "witness-threshold-unmet",
             Self::HandleIneligible => "handle-ineligible",
             Self::NotEnrolled => "not-enrolled",
@@ -161,6 +171,8 @@ impl ErrorCode {
         Self::DirectoryCooldown,
         Self::DirectoryEpochUnavailable,
         Self::DirectoryProtocolViolation,
+        Self::DirectoryUnvouched,
+        Self::DirectoryStateInvalid,
         Self::WitnessThresholdUnmet,
         Self::HandleIneligible,
         Self::NotEnrolled,
@@ -1095,7 +1107,7 @@ mod tests {
     fn every_error_code_is_registered_in_all() {
         // A member added to the enum without extending ALL would make every
         // contract comparison silently narrower.
-        assert_eq!(ErrorCode::ALL.len(), 31);
+        assert_eq!(ErrorCode::ALL.len(), 33);
     }
 
     #[test]

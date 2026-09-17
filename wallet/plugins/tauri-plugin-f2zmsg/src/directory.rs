@@ -66,6 +66,7 @@
 //! [§13-Q]: https://github.com/free2z/zuu/issues/311
 //! [#133]: https://github.com/free2z/zuu/issues/133
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -75,6 +76,7 @@ use f2z_kt_client::{
     ResolvedHandle,
 };
 use f2z_kt_core::entry::{DirectoryEntry, DirectoryEntryTBS};
+use f2z_kt_core::policy::AuthorityPolicyTBS;
 use f2z_kt_core::receipt::SubmissionReceipt;
 use f2z_kt_core::types::{Handle, LogId};
 use f2z_kt_core::{ConfiguredWitness, KtError, WitnessSet};
@@ -266,7 +268,25 @@ pub trait Directory: Send + Sync + 'static {
     /// Re-establish the root this directory stands on, so
     /// [`Directory::threshold_met`] is an answer from the log rather than a
     /// stale one. **Blocking**: call it off the async runtime.
-    fn refresh(&self) {}
+    ///
+    /// # Errors
+    ///
+    /// Why the directory is not usable right now — for `start_engine` to put
+    /// in `EngineStatus.lastError`, so the UI can say it without a lookup
+    /// having failed first.
+    fn refresh(&self) -> crate::error::Result<()> {
+        Ok(())
+    }
+
+    /// Give the directory the place this device keeps its last verified tree
+    /// head, or take it away (`None`).
+    ///
+    /// The engine calls this when the device's secrets are unsealed — the
+    /// store is keyed by them — and with `None` when they are dropped
+    /// (shutdown, unenroll). A directory that persists nothing ignores it.
+    fn attach_checkpoints(&self, store: Option<Arc<dyn CheckpointStore>>) {
+        let _ = store;
+    }
 
     /// Resolve a handle and hand back the whole verified entry, or `None` when
     /// the log asserts — unproved — that it is not registered.
@@ -296,6 +316,35 @@ pub trait Directory: Send + Sync + 'static {
         let _ = (envelope, expected);
         Err(no_directory("submitting a directory entry"))
     }
+}
+
+/// Where a [`KtDirectory`] keeps the last tree head it verified — ADR 0017 §3.
+///
+/// The engine's implementation seals the head under a key derived from this
+/// device's unsealed secrets and keeps it in the same SQLite store as the
+/// identity (`engine::SealedCheckpoints`). Moving it there from a loose file
+/// is what makes deleting or editing it something other than a way to make
+/// the device trust the log's next head on first use.
+pub trait CheckpointStore: Send + Sync + 'static {
+    /// The stored checkpoint bytes.
+    ///
+    /// `Ok(None)` means **first use**: nothing is stored and this device has
+    /// never relied on the directory, so trusting the log's current head is
+    /// the only thing possible.
+    ///
+    /// # Errors
+    ///
+    /// `directory-state-invalid` when something is stored that does not
+    /// authenticate or decode, or when nothing is stored although the device
+    /// has already relied on the directory. Never "treat it as first use".
+    fn load(&self) -> crate::error::Result<Option<Vec<u8>>>;
+
+    /// Durably replace the stored checkpoint.
+    ///
+    /// # Errors
+    ///
+    /// The store's own refusal.
+    fn save(&self, checkpoint: &[u8]) -> crate::error::Result<()>;
 }
 
 /// The **default**, and it fails closed loudly every time.
@@ -410,13 +459,15 @@ pub struct DirectoryConfig {
     /// tree head this client accepts must carry it; §6.3 refuses a change
     /// after that. `None` trusts the first head's key on first use.
     pub vrf_public_key: Option<[u8; 32]>,
-    /// Where the last verified tree head is kept across restarts.
-    ///
-    /// `None` makes every process start trust-on-first-use again, which is
-    /// what lets a log that was reset under the same key go unnoticed.
-    /// `KtClient::bootstrap`'s own documentation says a client that has run
-    /// before must resume instead (ADR 0017 §3).
-    pub checkpoint_path: Option<std::path::PathBuf>,
+    /// The handle authority the log's signed §4.6 policy must list — alone,
+    /// and vouched. `None` only reports vouching (§8.1 step 7); `Some` makes
+    /// anything else [`ErrorCode::DirectoryUnvouched`] and the directory
+    /// unusable (ADR 0017 §3). The bundled directory always sets it.
+    pub required_authority: Option<[u8; 32]>,
+    /// Genesis keys of log generations this client has deliberately left. A
+    /// stored checkpoint from one of them is set aside; from any other log it
+    /// is refused (`KtClient::open`).
+    pub retired_log_public_keys: Vec<[u8; 32]>,
 }
 
 /// `KT.md` §8 against a real log.
@@ -433,9 +484,18 @@ pub struct KtDirectory {
     log_id: LogId,
     log_pk: f2z_codec::types::PublicKey,
     policy: WitnessPolicy,
-    checkpoint_path: Option<std::path::PathBuf>,
+    checkpoints: Option<Arc<dyn CheckpointStore>>,
     independent_witnesses: u32,
     threshold_met: Mutex<bool>,
+    required_authority: Option<f2z_codec::types::PublicKey>,
+    /// The first authority policy this process verified, with its only
+    /// time-varying field zeroed. A later one that differs is a policy change,
+    /// and a bundled client refuses the log from then on.
+    pinned_policy: Mutex<Option<AuthorityPolicyTBS>>,
+    /// Once set, every operation fails with this. A log that stopped vouching,
+    /// or started vouching differently, does not become trustworthy again by
+    /// answering the next question.
+    unusable: Mutex<Option<Error>>,
 }
 
 /// Hand-written: `KtClient`'s own `Debug` is a handful of scalars behind a
@@ -449,25 +509,46 @@ impl core::fmt::Debug for KtDirectory {
 }
 
 impl KtDirectory {
-    /// Connect to a log and pin its current tree head.
+    /// Connect to a log and pin its current tree head, with no persistence:
+    /// every process starts trust-on-first-use again. For tests and tools;
+    /// a device uses [`KtDirectory::connect_with`].
     ///
-    /// **Trust on first use, and nothing more.** The first head cannot be
-    /// checked against anything — §6.3's rules are all relative — so what this
-    /// establishes is a starting point. What makes the pin worth having is
-    /// every head after it.
+    /// # Errors
     ///
-    /// § 8.1 step 7's authority policy is fetched here too, and a failure to
-    /// fetch it is **not** fatal: it leaves the client reporting `Unknown`,
-    /// which every caller treats as at least as loud as `unvouched`.
+    /// As [`KtDirectory::connect_with`].
+    pub fn connect(config: &DirectoryConfig) -> crate::error::Result<Self> {
+        Self::connect_with(config, None)
+    }
+
+    /// Connect to a log, resuming from this device's checkpoint when it has
+    /// one.
+    ///
+    /// **Trust on first use, and nothing more, when there is no checkpoint.**
+    /// The first head cannot be checked against anything — §6.3's rules are
+    /// all relative — so what this establishes is a starting point. What makes
+    /// the pin worth having is every head after it, and the checkpoint is what
+    /// carries it across a restart.
+    ///
+    /// §8.1 step 7's authority policy is fetched here too. With
+    /// [`DirectoryConfig::required_authority`] unset a failure is **not**
+    /// fatal and leaves the client reporting `Unknown`. With it set, the policy
+    /// must be fetched, verify, vouch, and list exactly that key, or the
+    /// connection is refused.
     ///
     /// # Errors
     ///
     /// `directory-unreachable` if the log did not answer,
-    /// `directory-protocol-violation` if the tree head does not verify under
-    /// the configured key, and `internal` for a configuration that cannot be
-    /// used — a cleartext URL, a threshold of zero, a threshold larger than the
-    /// witness list, or a duplicate witness key.
-    pub fn connect(config: &DirectoryConfig) -> crate::error::Result<Self> {
+    /// `directory-state-invalid` if the checkpoint store refused or the
+    /// stored head cannot be resumed or set aside, `directory-unvouched` for a
+    /// policy that is not the required one, `directory-protocol-violation` if
+    /// the tree head does not verify under the configured key, and `internal`
+    /// for a configuration that cannot be used — a cleartext URL, a threshold
+    /// of zero, a threshold larger than the witness list, or a duplicate
+    /// witness key — or a checkpoint that could not be saved.
+    pub fn connect_with(
+        config: &DirectoryConfig,
+        checkpoints: Option<Arc<dyn CheckpointStore>>,
+    ) -> crate::error::Result<Self> {
         let witnesses: Vec<ConfiguredWitness> = config
             .witnesses
             .iter()
@@ -486,18 +567,16 @@ impl KtDirectory {
 
         let transport = HttpTransport::new(&config.base_url, config.timeout).map_err(map_error)?;
         let submitter = HttpTransport::new(&config.base_url, config.timeout).map_err(map_error)?;
-        let checkpoint = match &config.checkpoint_path {
-            Some(path) => match std::fs::read(path) {
-                Ok(bytes) => Some(bytes),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-                Err(error) => {
-                    return Err(Error::internal(format!(
-                        "reading the directory checkpoint: {error}"
-                    )));
-                }
-            },
+        let checkpoint = match &checkpoints {
+            Some(store) => store.load()?,
             None => None,
         };
+        let retired: Vec<f2z_codec::types::PublicKey> = config
+            .retired_log_public_keys
+            .iter()
+            .map(|key| f2z_codec::types::PublicKey::new(*key))
+            .collect();
+        let resuming = checkpoint.is_some();
         let (mut client, opened) = KtClient::open(
             transport,
             ClientConfig {
@@ -508,22 +587,30 @@ impl KtDirectory {
                 reset_cooldown_seconds: config.reset_cooldown_seconds,
             },
             checkpoint.as_deref(),
+            &retired,
         )
-        .map_err(|error| {
-            // A checkpoint for this log that no longer verifies is a device
-            // that cannot tell what it saw before. Refuse, loudly.
-            let mapped = map_error(error);
-            Error::new(
-                ErrorCode::DirectoryProtocolViolation,
-                format!(
-                    "opening the directory from its checkpoint: {}",
-                    mapped.context()
-                ),
-            )
+        .map_err(|error| match error {
+            // Bootstrapping talks to the log; its silence is not a verdict on
+            // the stored state.
+            ClientError::Unreachable(_) => map_error(error),
+            // A stored head this build cannot resume and may not set aside.
+            // Trusting the next head instead would discard what this device
+            // saw before, so the directory stays unusable until the user
+            // explicitly resets it by unenrolling (ADR 0017 §3).
+            other if resuming => state_invalid(&format!(
+                "the saved directory checkpoint cannot be used: {other}"
+            )),
+            other => {
+                let mapped = map_error(other);
+                Error::new(
+                    ErrorCode::DirectoryProtocolViolation,
+                    format!("opening the directory: {}", mapped.context()),
+                )
+            }
         })?;
-        if opened == Opened::ReplacedAnotherLogsCheckpoint {
+        if opened == Opened::ReplacedRetiredLogsCheckpoint {
             tracing::warn!(
-                "the configured key-transparency log changed; the previous log's checkpoint \
+                "the configured key-transparency log changed; the retired log's checkpoint \
                  was set aside (ADR 0017)"
             );
         }
@@ -535,9 +622,26 @@ impl KtDirectory {
                 "the log's VRF key is not the one this build pins (ADR 0017)",
             ));
         }
-        // §8.1 step 7. An unanswered question about who may claim a handle is
-        // not a reassuring answer, so a failure here is recorded and not raised.
-        let _ = client.refresh_authority_policy();
+        let required_authority = config
+            .required_authority
+            .map(f2z_codec::types::PublicKey::new);
+        let pinned_policy = match &required_authority {
+            // ADR 0017 §3: a bundled client does not resolve against a log
+            // that does not vouch with the bundled authority — not even once.
+            Some(authority) => {
+                client
+                    .require_authority_policy(std::slice::from_ref(authority))
+                    .map_err(map_error)?;
+                client.authority_policy().map(comparable_policy)
+            }
+            // §8.1 step 7, reported only. An unanswered question about who
+            // may claim a handle is not a reassuring answer, so a failure here
+            // is recorded (as `Unknown`) and not raised.
+            None => {
+                let _ = client.refresh_authority_policy();
+                None
+            }
+        };
 
         // One §8.3 pass before anything asks, so `EngineStatus.witnessThresholdMet`
         // is an answer from the log rather than a `false` that only means "no
@@ -546,10 +650,15 @@ impl KtDirectory {
         // this client could not establish, and §6.4's matrix is keyed on exactly
         // that.
         let threshold_met = client.sync(now_ms()).is_ok();
-        persist_checkpoint(config.checkpoint_path.as_deref(), &client);
+        // The first save is not best-effort. A device that went on to rely on
+        // this directory with nothing saved would, on its next start, find no
+        // checkpoint beside evidence that it had one — and refuse.
+        if let Some(store) = &checkpoints {
+            save_checkpoint(store.as_ref(), &client)?;
+        }
 
         Ok(Self {
-            checkpoint_path: config.checkpoint_path.clone(),
+            checkpoints,
             client: Mutex::new(client),
             submitter,
             log_id: LogId::new(config.log_id),
@@ -557,21 +666,92 @@ impl KtDirectory {
             policy: policy_of(config),
             independent_witnesses,
             threshold_met: Mutex::new(threshold_met),
+            required_authority,
+            pinned_policy: Mutex::new(pinned_policy),
+            unusable: Mutex::new(None),
         })
     }
 
     /// One §8.3 pass over the latest head, recorded for
-    /// [`Directory::threshold_met`]. Blocking.
-    pub fn refresh_root(&self) {
-        let Ok(mut client) = self.client.lock() else {
-            return;
-        };
+    /// [`Directory::threshold_met`], and — for a bundled client — the
+    /// authority policy checked again. Blocking.
+    ///
+    /// # Errors
+    ///
+    /// The reason this directory is unusable, if it is.
+    pub fn refresh_root(&self) -> crate::error::Result<()> {
+        self.usable()?;
+        let mut client = self.client.lock().map_err(|_| poisoned())?;
         let met = client.sync(now_ms()).is_ok();
         // After every call, error or not: a failed sync can still have
         // advanced the view through a verified prefix (`KtClient`'s note).
-        persist_checkpoint(self.checkpoint_path.as_deref(), &client);
+        self.persist(&client);
         if let Ok(mut slot) = self.threshold_met.lock() {
             *slot = met;
+        }
+        self.recheck_policy(&mut client)
+    }
+
+    /// ADR 0017 §3, over time: the policy this process pinned must still be
+    /// the one the log signs. A log that cannot be reached right now has not
+    /// changed its policy; one that answers with anything else has, and the
+    /// directory is unusable from then on.
+    fn recheck_policy(&self, client: &mut KtClient<HttpTransport>) -> crate::error::Result<()> {
+        let Some(authority) = self.required_authority else {
+            return Ok(());
+        };
+        let refusal = match client.require_authority_policy(std::slice::from_ref(&authority)) {
+            Ok(()) => {
+                let now = client.authority_policy().map(comparable_policy);
+                let mut pinned = self.pinned_policy.lock().map_err(|_| poisoned())?;
+                match (pinned.as_ref(), now) {
+                    (Some(before), Some(now)) if *before != now => Error::new(
+                        ErrorCode::DirectoryUnvouched,
+                        "the log's signed authority policy changed since this directory was \
+                         opened; refusing it from now on (ADR 0017)",
+                    ),
+                    (None, now) => {
+                        *pinned = now;
+                        return Ok(());
+                    }
+                    _ => return Ok(()),
+                }
+            }
+            Err(ClientError::Unreachable(_)) => return Ok(()),
+            Err(other) => map_error(other),
+        };
+        tracing::error!(
+            code = %refusal.code(),
+            context = %refusal.context(),
+            "the directory is no longer usable"
+        );
+        if let Ok(mut slot) = self.unusable.lock() {
+            *slot = Some(refusal.clone());
+        }
+        if let Ok(mut met) = self.threshold_met.lock() {
+            *met = false;
+        }
+        Err(refusal)
+    }
+
+    fn usable(&self) -> crate::error::Result<()> {
+        match self.unusable.lock().map_err(|_| poisoned())?.as_ref() {
+            Some(refusal) => Err(refusal.clone()),
+            None => Ok(()),
+        }
+    }
+
+    /// Save the view after an operation. Best-effort past the first save in
+    /// [`KtDirectory::connect_with`]: saving less is safe — the prefix is
+    /// verified again after a restart — and only loses progress.
+    fn persist(&self, client: &KtClient<HttpTransport>) {
+        if let Some(store) = &self.checkpoints
+            && let Err(error) = save_checkpoint(store.as_ref(), client)
+        {
+            tracing::warn!(
+                code = %error.code(),
+                "the directory checkpoint was not persisted"
+            );
         }
     }
 
@@ -596,11 +776,10 @@ impl KtDirectory {
                 format!("{handle:?} is not a messaging handle"),
             )
         })?;
-        let mut client = self.client.lock().map_err(|_| {
-            Error::internal("the directory client's lock was poisoned by an earlier panic")
-        })?;
+        self.usable()?;
+        let mut client = self.client.lock().map_err(|_| poisoned())?;
         let outcome = client.resolve(&parsed, now_ms());
-        persist_checkpoint(self.checkpoint_path.as_deref(), &client);
+        self.persist(&client);
         if let Ok(resolution) = &outcome
             && let Ok(mut met) = self.threshold_met.lock()
         {
@@ -652,6 +831,9 @@ fn map_error(error: ClientError) -> Error {
         ClientError::PinContradiction | ClientError::PinConflict => {
             ErrorCode::DirectoryProtocolViolation
         }
+        // ADR 0017 §3.
+        ClientError::AuthorityPolicyMismatch => ErrorCode::DirectoryUnvouched,
+        ClientError::UnrecognisedCheckpoint => ErrorCode::DirectoryStateInvalid,
         // A misconfigured client is our fault, not the log's.
         ClientError::Configuration(_) => ErrorCode::Internal,
         // `ClientError` is `#[non_exhaustive]`. §8.1's default rule decides what
@@ -846,8 +1028,8 @@ impl Directory for KtDirectory {
         Some(self.policy.clone())
     }
 
-    fn refresh(&self) {
-        self.refresh_root();
+    fn refresh(&self) -> crate::error::Result<()> {
+        self.refresh_root()
     }
 
     fn lookup_entry(&self, handle: &str) -> crate::error::Result<Option<VerifiedEntry>> {
@@ -865,6 +1047,9 @@ impl Directory for KtDirectory {
         envelope: &[u8],
         expected: &SubmissionExpectation,
     ) -> crate::error::Result<SubmissionReceipt> {
+        // Publishing to a log this client refuses to resolve against would put
+        // an entry where nobody this build talks to should look.
+        self.usable()?;
         let handle = Handle::new(expected.handle.as_bytes().to_vec()).map_err(|_| {
             Error::new(
                 ErrorCode::HandleIneligible,
@@ -887,25 +1072,36 @@ impl Directory for KtDirectory {
     }
 }
 
-/// Keep the last verified head, atomically: a torn write would leave a
-/// checkpoint that no longer decodes, and [`KtDirectory::connect`] refuses
-/// those rather than trusting the next head it is shown.
-fn persist_checkpoint(path: Option<&std::path::Path>, client: &KtClient<HttpTransport>) {
-    let Some(path) = path else {
-        return;
-    };
-    let written = client
+/// Hand the last verified head to the store, which writes it in one SQLite
+/// transaction under `synchronous = FULL`: durable once this returns, and
+/// never torn.
+fn save_checkpoint(
+    store: &dyn CheckpointStore,
+    client: &KtClient<HttpTransport>,
+) -> crate::error::Result<()> {
+    let bytes = client
         .checkpoint_bytes()
-        .map_err(|error| error.to_string())
-        .and_then(|bytes| {
-            let staging = path.with_extension("tmp");
-            std::fs::write(&staging, bytes)
-                .and_then(|()| std::fs::rename(&staging, path))
-                .map_err(|error| error.to_string())
-        });
-    if let Err(error) = written {
-        tracing::warn!(%error, "the directory checkpoint was not persisted");
+        .map_err(|error| Error::internal(format!("encoding the directory checkpoint: {error}")))?;
+    store.save(&bytes)
+}
+
+/// A policy with its one time-varying field removed, for comparison.
+fn comparable_policy(policy: &AuthorityPolicyTBS) -> AuthorityPolicyTBS {
+    AuthorityPolicyTBS {
+        published_at_ms: 0,
+        ..policy.clone()
     }
+}
+
+fn state_invalid(what: &str) -> Error {
+    Error::new(
+        ErrorCode::DirectoryStateInvalid,
+        format!("{what}; unenroll this device and enroll again to reset it (ADR 0017 §3)"),
+    )
+}
+
+fn poisoned() -> Error {
+    Error::internal("the directory client's lock was poisoned by an earlier panic")
 }
 
 fn policy_of(config: &DirectoryConfig) -> WitnessPolicy {
@@ -930,7 +1126,12 @@ fn policy_of(config: &DirectoryConfig) -> WitnessPolicy {
 pub struct BundledDirectory {
     config: DirectoryConfig,
     policy: WitnessPolicy,
-    connected: Mutex<Option<Arc<KtDirectory>>>,
+    /// The store a connection saves into, and its generation. Replaced by
+    /// [`Directory::attach_checkpoints`]; the generation lets a connection
+    /// made against an older store be dropped without waiting on it.
+    checkpoints: Mutex<Option<Arc<dyn CheckpointStore>>>,
+    generation: AtomicU64,
+    connected: Mutex<Option<(u64, Arc<KtDirectory>)>>,
 }
 
 impl core::fmt::Debug for BundledDirectory {
@@ -942,12 +1143,15 @@ impl core::fmt::Debug for BundledDirectory {
 }
 
 impl BundledDirectory {
-    /// A directory over `config` that has not connected yet.
+    /// A directory over `config` that has not connected yet, and has nowhere
+    /// to keep a checkpoint until the engine attaches one.
     #[must_use]
     pub fn new(config: DirectoryConfig) -> Self {
         Self {
             policy: policy_of(&config),
             config,
+            checkpoints: Mutex::new(None),
+            generation: AtomicU64::new(0),
             connected: Mutex::new(None),
         }
     }
@@ -956,11 +1160,34 @@ impl BundledDirectory {
         let mut slot = self.connected.lock().map_err(|_| {
             Error::internal("the bundled directory's lock was poisoned by an earlier panic")
         })?;
-        if let Some(directory) = slot.as_ref() {
+        let generation = self.generation.load(Ordering::SeqCst);
+        if let Some((made_for, directory)) = slot.as_ref()
+            && *made_for == generation
+        {
             return Ok(Arc::clone(directory));
         }
-        let directory = Arc::new(KtDirectory::connect(&self.config)?);
-        *slot = Some(Arc::clone(&directory));
+        *slot = None;
+        let store = self
+            .checkpoints
+            .lock()
+            .map_err(|_| poisoned())?
+            .clone()
+            .ok_or_else(|| {
+                // Without the device's secrets there is nowhere to keep, or
+                // read, what this device saw before — and a connection that
+                // could not remember would be trust on first use every time.
+                Error::new(
+                    ErrorCode::EngineLocked,
+                    "the directory's saved state is sealed under this device's keys; unlock \
+                     the engine first",
+                )
+            })?;
+        let directory = Arc::new(KtDirectory::connect_with(&self.config, Some(store))?);
+        // Cached only if no attach happened meanwhile; either way this caller
+        // gets the connection it asked for.
+        if self.generation.load(Ordering::SeqCst) == generation {
+            *slot = Some((generation, Arc::clone(&directory)));
+        }
         Ok(directory)
     }
 }
@@ -986,10 +1213,15 @@ impl Directory for BundledDirectory {
         // `try_lock`: a status read must never wait behind a connection
         // attempt. Busy or unconnected is "not met", which is the conservative
         // answer.
+        let generation = self.generation.load(Ordering::SeqCst);
         self.connected
             .try_lock()
             .ok()
-            .and_then(|slot| slot.as_ref().map(|directory| directory.threshold_met()))
+            .and_then(|slot| {
+                slot.as_ref()
+                    .filter(|(made_for, _)| *made_for == generation)
+                    .map(|(_, directory)| directory.threshold_met())
+            })
             .unwrap_or(false)
     }
 
@@ -1001,13 +1233,26 @@ impl Directory for BundledDirectory {
         Some(self.policy.clone())
     }
 
-    fn refresh(&self) {
+    fn refresh(&self) -> crate::error::Result<()> {
         match self.connected() {
-            // A fresh connection has just run its own §8.3 pass.
             Ok(directory) => directory.refresh_root(),
             Err(error) => {
                 tracing::info!(code = %error.code(), "the bundled directory did not connect");
+                Err(error)
             }
+        }
+    }
+
+    fn attach_checkpoints(&self, store: Option<Arc<dyn CheckpointStore>>) {
+        // Short critical sections only: this is called from async engine
+        // code, and a connection attempt may hold `connected` for a network
+        // timeout. Bumping the generation retires any cached connection.
+        if let Ok(mut slot) = self.checkpoints.lock() {
+            *slot = store;
+        }
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        if let Ok(mut slot) = self.connected.try_lock() {
+            *slot = None;
         }
     }
 
@@ -1021,5 +1266,88 @@ impl Directory for BundledDirectory {
         expected: &SubmissionExpectation,
     ) -> crate::error::Result<SubmissionReceipt> {
         self.connected()?.submit(envelope, expected)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::{BundledDirectory, CheckpointStore, Directory, DirectoryConfig, WitnessConfig};
+    use crate::error::Result;
+    use crate::models::ErrorCode;
+
+    /// A store that answers from memory, so nothing here touches a disk or a
+    /// log.
+    #[derive(Default)]
+    struct InMemory(Mutex<Option<Vec<u8>>>);
+
+    impl CheckpointStore for InMemory {
+        fn load(&self) -> Result<Option<Vec<u8>>> {
+            Ok(self.0.lock().expect("lock").clone())
+        }
+
+        fn save(&self, checkpoint: &[u8]) -> Result<()> {
+            *self.0.lock().expect("lock") = Some(checkpoint.to_vec());
+            Ok(())
+        }
+    }
+
+    fn config() -> DirectoryConfig {
+        DirectoryConfig {
+            // Nothing below connects: every test here is refused before the
+            // first byte would go out.
+            base_url: "https://kt.invalid".to_owned(),
+            log_id: [1; 32],
+            log_public_key: [2; 32],
+            reset_authority_pk: [3; 32],
+            reset_cooldown_seconds: 604_800,
+            witnesses: vec![WitnessConfig {
+                public_key: [4; 32],
+                independent: false,
+            }],
+            threshold: 1,
+            timeout: std::time::Duration::from_millis(1),
+            vrf_public_key: Some([5; 32]),
+            required_authority: Some([6; 32]),
+            retired_log_public_keys: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_bundled_directory_with_no_sealed_state_refuses_instead_of_trusting_on_first_use() {
+        // ADR 0017 §3: the checkpoint lives in the engine's store, sealed
+        // under this device's secrets. Without them there is nowhere to read
+        // what this device saw before — and a connection that could not
+        // remember would be trust on first use on every launch.
+        let directory = BundledDirectory::new(config());
+        for code in [
+            directory.resolve("alice").unwrap_err().code(),
+            directory.resolve_identity("alice").unwrap_err().code(),
+            directory.resolve_peer("alice").unwrap_err().code(),
+            directory.lookup_entry("alice").unwrap_err().code(),
+            directory.refresh().unwrap_err().code(),
+        ] {
+            assert_eq!(code, ErrorCode::EngineLocked);
+        }
+        assert!(!directory.threshold_met());
+        assert!(directory.is_configured());
+    }
+
+    #[test]
+    fn detaching_the_store_puts_it_back_in_that_state() {
+        let directory = BundledDirectory::new(config());
+        directory.attach_checkpoints(Some(Arc::new(InMemory::default())));
+        // `kt.invalid` does not resolve, so this is the transport's verdict
+        // rather than the locked one: the store was accepted.
+        assert_ne!(
+            directory.resolve("alice").unwrap_err().code(),
+            ErrorCode::EngineLocked
+        );
+        directory.attach_checkpoints(None);
+        assert_eq!(
+            directory.resolve("alice").unwrap_err().code(),
+            ErrorCode::EngineLocked
+        );
     }
 }

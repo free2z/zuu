@@ -115,11 +115,6 @@ const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 /// The plugin's SQLite file, under the app's data directory.
 const STORE_FILE: &str = "f2zmsg.sqlite";
 
-/// The last key-transparency tree head this device verified (ADR 0017). Kept
-/// beside the store so that a log reset under the same key is refused after a
-/// restart instead of being trusted on first use again.
-const CHECKPOINT_FILE: &str = "f2zmsg-kt-checkpoint.bin";
-
 /// Builds the command handler shared by the shipping plugin and IPC probes.
 fn command_builder<R: Runtime>() -> Builder<R> {
     Builder::new("f2zmsg").invoke_handler(with_f2zmsg_commands!(command_handler))
@@ -171,10 +166,12 @@ fn open_engine<R: Runtime>(
         models::Platform::ZuuliDesktop
     };
     let sink = Arc::new(events::TauriSink::new(app.clone()));
+    // The last key-transparency tree head this device verified lives in that
+    // same store, sealed under the device's secrets, and is attached to the
+    // directory when the engine unlocks (ADR 0017 §3).
     Ok(Arc::new(with_bundled_directory(
         engine::Engine::new(backend, sink, platform)?.with_wrap_key_custody(custody),
         &internal_directory::bundled(),
-        Some(&data_dir.join(CHECKPOINT_FILE)),
     )))
 }
 
@@ -182,10 +179,9 @@ fn open_engine<R: Runtime>(
 /// relay — or, when `internal-directory.conf` is unfilled or malformed, leave
 /// it on [`directory::NoDirectory`] with no relay. Never both halves of one and
 /// neither of the other.
-fn with_bundled_directory<B: f2z_msg_store::StorageBackend>(
+fn with_bundled_directory<B: f2z_msg_store::StorageBackend + Send + Sync + 'static>(
     engine: engine::Engine<B>,
     bundled: &internal_directory::Bundled,
-    checkpoint_path: Option<&std::path::Path>,
 ) -> engine::Engine<B> {
     match bundled {
         internal_directory::Bundled::Configured(internal) => {
@@ -195,12 +191,10 @@ fn with_bundled_directory<B: f2z_msg_store::StorageBackend>(
                 "messaging uses the INTERNAL-DISPOSABLE directory (ADR 0017): free2z runs the \
                  log and its only witness, and the log is wiped before public launch"
             );
-            let config = directory::DirectoryConfig {
-                checkpoint_path: checkpoint_path.map(std::path::Path::to_path_buf),
-                ..internal.directory_config()
-            };
             engine
-                .with_directory(Arc::new(directory::BundledDirectory::new(config)))
+                .with_directory(Arc::new(directory::BundledDirectory::new(
+                    internal.directory_config(),
+                )))
                 .with_default_relay(internal.relay_url.clone())
         }
         internal_directory::Bundled::Unconfigured(reason) => {
@@ -381,7 +375,6 @@ mod bundled_directory_tests {
         let engine = with_bundled_directory(
             engine(),
             &internal_directory::Bundled::Unconfigured("placeholders".to_owned()),
-            None,
         );
         assert_eq!(engine.default_relay(), None);
         let state = engine.witness_set_state().await.unwrap();
@@ -392,7 +385,7 @@ mod bundled_directory_tests {
 
     #[tokio::test]
     async fn the_shipped_file_leaves_the_engine_unconfigured() {
-        let engine = with_bundled_directory(engine(), &internal_directory::bundled(), None);
+        let engine = with_bundled_directory(engine(), &internal_directory::bundled());
         assert_eq!(engine.default_relay(), None);
         assert_eq!(engine.witness_set_state().await.unwrap().configured, 0);
     }
@@ -446,11 +439,7 @@ mod bundled_directory_tests {
         let bundled = internal_directory::parse(&text).unwrap();
         assert!(bundled.configured().is_some());
 
-        let engine = with_bundled_directory(
-            engine(),
-            &bundled,
-            Some(std::path::Path::new("/nonexistent/checkpoint")),
-        );
+        let engine = with_bundled_directory(engine(), &bundled);
         assert_eq!(
             engine.default_relay(),
             Some("wss://relay.internal.example/relay/v1")
