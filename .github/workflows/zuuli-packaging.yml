@@ -281,13 +281,10 @@ jobs:
             }
             # androidx's injected self-permission is only benign because it is
             # signature-level and package-scoped. Check that, do not assume it.
-            self_permission=$(tr '\n' ' ' < "$manifest" | tr '<' '\n' |
-              grep -a '^permission ' |
-              grep -aF 'android:name="cash.free2z.zuuli.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"')
-            grep -qF 'android:protectionLevel="signature"' <<<"$self_permission" || {
-              echo "$manifest injected self-permission is not signature-level" >&2
-              exit 1
-            }
+            # This is the same checker the protected signer installs, so the
+            # source rendering ("signature") and the compiled one bundletool
+            # prints ("0x00000002") are held to one rule (#1016).
+            scripts/android-self-permission.sh cash.free2z.zuuli "$manifest"
           done <<<"$merged"
 
           aab=release-artifacts/ZUULI-android-unsigned.aab
