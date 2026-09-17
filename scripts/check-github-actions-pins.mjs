@@ -479,7 +479,7 @@ function walletProjectBoundaryInputs(repoRoot) {
 const REQUIRED_FRONTEND_PACKAGE_SCRIPTS = new Map([
   [
     "test",
-    "vitest run && node --test scripts/safe-area-contract.node-test.mjs scripts/android-device-catalog.node-test.mjs scripts/media-permission-manifests.node-test.mjs scripts/android-release-artifact.node-test.mjs scripts/aab-payload-digest.node-test.mjs scripts/android-self-permission.node-test.mjs scripts/auth-session-boundary.node-test.mjs scripts/mermaid-security.node-test.mjs scripts/send-review-boundary.node-test.mjs scripts/mobile-webview-authority.node-test.mjs scripts/surface-capability-authority.node-test.mjs scripts/seed-capture-boundary.node-test.mjs scripts/ui-copy-truncation.node-test.mjs scripts/csp-policy.node-test.mjs scripts/fixture-privacy.node-test.mjs scripts/apple-credential-boundary.node-test.mjs scripts/macos-keychain-entitlements.node-test.mjs scripts/artifact-sbom.node-test.mjs scripts/release-tag-identity.node-test.mjs scripts/status-freshness.node-test.mjs scripts/wasm-boundary.node-test.mjs scripts/messaging-contract.node-test.mjs scripts/rtl-source-policy.node-test.mjs scripts/app-link-association.node-test.mjs && node scripts/app-link-association.mjs && node scripts/surface-capability-authority.mjs && node scripts/apple-credential-boundary.mjs && node scripts/macos-keychain-entitlements.mjs && node scripts/rtl-source-policy.mjs && node scripts/check-mermaid-security.mjs && node scripts/csp-policy.mjs --self-test && playwright test",
+    "vitest run && node --test scripts/safe-area-contract.node-test.mjs scripts/android-device-catalog.node-test.mjs scripts/media-permission-manifests.node-test.mjs scripts/android-release-artifact.node-test.mjs scripts/aab-payload-digest.node-test.mjs scripts/auth-session-boundary.node-test.mjs scripts/mermaid-security.node-test.mjs scripts/send-review-boundary.node-test.mjs scripts/mobile-webview-authority.node-test.mjs scripts/surface-capability-authority.node-test.mjs scripts/seed-capture-boundary.node-test.mjs scripts/ui-copy-truncation.node-test.mjs scripts/csp-policy.node-test.mjs scripts/fixture-privacy.node-test.mjs scripts/apple-credential-boundary.node-test.mjs scripts/macos-keychain-entitlements.node-test.mjs scripts/artifact-sbom.node-test.mjs scripts/release-tag-identity.node-test.mjs scripts/status-freshness.node-test.mjs scripts/wasm-boundary.node-test.mjs scripts/messaging-contract.node-test.mjs scripts/rtl-source-policy.node-test.mjs scripts/app-link-association.node-test.mjs && node scripts/app-link-association.mjs && node scripts/surface-capability-authority.mjs && node scripts/apple-credential-boundary.mjs && node scripts/macos-keychain-entitlements.mjs && node scripts/rtl-source-policy.mjs && node scripts/check-mermaid-security.mjs && node scripts/csp-policy.mjs --self-test && playwright test",
   ],
   [
     "build",
@@ -654,6 +654,8 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "        run: |",
   "          node --test scripts/rtl-source-policy.node-test.mjs",
   "          node scripts/rtl-source-policy.mjs",
+  "      - name: Verify Android self-permission checker",
+  "        run: node --test scripts/android-self-permission.node-test.mjs",
   "      - name: Verify the viewport-test browser",
   "        run: google-chrome --version",
   "      - name: Test frontend contracts",
@@ -1904,6 +1906,14 @@ function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
       "          node scripts/rtl-source-policy.mjs",
     ].join("\n"),
     "RTL source policy must be self-tested and enforced exactly",
+  );
+  exactNamedStep(
+    "Verify Android self-permission checker",
+    [
+      "      - name: Verify Android self-permission checker",
+      "        run: node --test scripts/android-self-permission.node-test.mjs",
+    ].join("\n"),
+    "Android self-permission checker must be self-tested exactly",
   );
   exactNamedStep(
     "Test frontend contracts",
@@ -5268,6 +5278,26 @@ function runCurrentWorkflowMutationTests(repoRoot) {
           "",
         ].join("\n"),
         "",
+      ),
+    },
+    {
+      name: "real workflow rejects a deleted Android self-permission self-test",
+      needle: "Android self-permission checker must be self-tested exactly",
+      source: replaceFrontend(
+        [
+          "      - name: Verify Android self-permission checker",
+          "        run: node --test scripts/android-self-permission.node-test.mjs",
+          "",
+        ].join("\n"),
+        "",
+      ),
+    },
+    {
+      name: "real workflow rejects a soft-failing Android self-permission self-test",
+      needle: "Android self-permission checker must be self-tested exactly",
+      source: replaceFrontend(
+        "      - name: Verify Android self-permission checker",
+        "      - name: Verify Android self-permission checker\n        continue-on-error: true",
       ),
     },
     {
