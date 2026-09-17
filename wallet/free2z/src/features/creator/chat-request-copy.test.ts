@@ -32,6 +32,11 @@ const OUTCOMES: ReadonlyArray<readonly [string, ChatRequestOutcome]> = [
   ["insufficient/no-balance", { kind: "insufficient", balance: null }],
   ["not-found", { kind: "not-found" }],
   ["self", { kind: "self" }],
+  ["price-changed", { kind: "price-changed" }],
+  [
+    "sender-handle-unavailable",
+    { kind: "sender-handle-unavailable" },
+  ],
   ["rate-limited", { kind: "rate-limited" }],
   ["signed-out", { kind: "signed-out" }],
   ["refused", { kind: "refused", status: 400 }],
@@ -83,7 +88,9 @@ describe("every chat request outcome maps to copy", () => {
       "insufficient",
       "insufficient/no-balance",
       "not-found",
+      "price-changed",
       "rate-limited",
+      "sender-handle-unavailable",
       "signed-out",
     ]);
   });
@@ -94,6 +101,10 @@ describe("every chat request outcome maps to copy", () => {
     ).map(([label]) => label);
     expect(sameAttempt).toEqual(["uncertain"]);
     expect(chatRequestCopy({ kind: "mismatch" }).retry).toBeNull();
+    expect(chatRequestCopy({ kind: "price-changed" }).retry).toBe("re-confirm");
+    expect(
+      chatRequestCopy({ kind: "sender-handle-unavailable" }).retry,
+    ).toBeNull();
   });
 });
 
@@ -126,6 +137,33 @@ describe("no chat message claims nothing was charged unless that is provable", (
       expect((REASSURANCES[locale] ?? []).some((p) => p.test(rendered))).toBe(
         true,
       );
+    },
+  );
+
+  it.each(SUPPORTED_LOCALES)(
+    "the %s sender-handle and price-changed copy say nothing was charged",
+    (locale) => {
+      const i18n = createTestI18n(locale);
+      for (const outcome of [
+        { kind: "sender-handle-unavailable" },
+        { kind: "price-changed" },
+      ] as const) {
+        const copy = chatRequestCopy(outcome);
+        const rendered = i18n.t(copy.bodyKey, VALUES);
+        expect(
+          (REASSURANCES[locale] ?? []).some((p) => p.test(rendered)),
+          `${locale} ${outcome.kind}: ${rendered}`,
+        ).toBe(true);
+      }
+      expect(
+        i18n.t(chatRequestCopy({ kind: "price-changed" }).bodyKey, VALUES),
+      ).toContain("1 2Z");
+      expect(
+        i18n.t(
+          chatRequestCopy({ kind: "sender-handle-unavailable" }).titleKey,
+          VALUES,
+        ),
+      ).toContain("e2e2z");
     },
   );
 

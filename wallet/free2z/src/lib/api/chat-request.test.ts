@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   ChatRequestContractError,
+  canReceiveChatRequest,
+  chatRequestErrorCode,
   chatRequestRoute,
   classifyChatRequestFailure,
   isMessagingHandle,
@@ -69,6 +71,32 @@ describe("normalizeChatRequestResult", () => {
       recipient: { username: "Alice", handle: "alice", handleStatus: "bound" },
     });
   });
+
+  it("accepts the real backend's decimal-string balance and charge", () => {
+    expect(
+      normalizeChatRequestResult(
+        response({ balance: "9.000", charged: "1.000" }),
+        1,
+        "alice",
+      ),
+    ).toMatchObject({ balance: 9, charged: 1 });
+    expect(
+      normalizeChatRequestResult(
+        response({ balance: "0.250", charged: "3.000" }),
+        3,
+        "alice",
+      ),
+    ).toMatchObject({ balance: 0.25, charged: 3 });
+  });
+
+  it.each(["1.500", "1.001", "2.000", "0.000", "1e0", " 1.000", "1,000", ""])(
+    "refuses the decimal-string charge %j for a 1 2Z request",
+    (charged) => {
+      expect(() =>
+        normalizeChatRequestResult(response({ charged }), 1, "alice"),
+      ).toThrow(ChatRequestContractError);
+    },
+  );
 
   it("refuses a charge different from the cost the payer was shown", () => {
     expect(() =>
@@ -151,6 +179,31 @@ describe("classifyChatRequestFailure", () => {
     expect(classifyChatRequestFailure(new ApiError(409, "x"))).toEqual({
       kind: "self",
     });
+    expect(
+      classifyChatRequestFailure(
+        new ApiError(409, "x", { code: "price_changed", cost: "2.000" }),
+      ),
+    ).toEqual({ kind: "price-changed" });
+    expect(
+      classifyChatRequestFailure(
+        new ApiError(409, "x", { code: "cannot_message_self" }),
+      ),
+    ).toEqual({ kind: "self" });
+    expect(
+      classifyChatRequestFailure(
+        new ApiError(422, "x", {
+          code: "sender_handle_unavailable",
+          detail: "Claim a messaging handle first.",
+        }),
+      ),
+    ).toEqual({ kind: "sender-handle-unavailable" });
+    expect(
+      classifyChatRequestFailure(new ApiError(422, "x", { code: "other" })),
+    ).toEqual({ kind: "refused", status: 422 });
+    expect(classifyChatRequestFailure(new ApiError(405, "x"))).toEqual({
+      kind: "refused",
+      status: 405,
+    });
     expect(classifyChatRequestFailure(new ApiError(429, "x"))).toEqual({
       kind: "rate-limited",
     });
@@ -184,6 +237,49 @@ describe("classifyChatRequestFailure", () => {
     expect(
       classifyChatRequestFailure(new ChatRequestContractError("x")),
     ).toEqual({ kind: "mismatch" });
+  });
+});
+
+describe("chatRequestErrorCode", () => {
+  it("reads a top-level or DRF-nested code string", () => {
+    expect(chatRequestErrorCode({ code: "price_changed" })).toBe("price_changed");
+    expect(
+      chatRequestErrorCode({ detail: { code: "sender_handle_unavailable" } }),
+    ).toBe("sender_handle_unavailable");
+  });
+
+  it.each([
+    null,
+    undefined,
+    "price_changed",
+    ["price_changed"],
+    { code: 409 },
+    { code: ["price_changed"] },
+    { detail: "price_changed" },
+    { detail: ["price_changed"] },
+    { error: { code: "price_changed" } },
+  ])("finds no code in %j", (body) => {
+    expect(chatRequestErrorCode(body)).toBeNull();
+  });
+
+  it("does not mistake a malformed 409 or 422 for a certain refusal", () => {
+    expect(
+      classifyChatRequestFailure(new ApiError(409, "x", "price_changed")),
+    ).toEqual({ kind: "self" });
+    expect(
+      classifyChatRequestFailure(
+        new ApiError(422, "x", ["sender_handle_unavailable"]),
+      ),
+    ).toEqual({ kind: "refused", status: 422 });
+  });
+});
+
+describe("canReceiveChatRequest", () => {
+  it("excludes only the username that collides with the price route", () => {
+    expect(canReceiveChatRequest("price")).toBe(false);
+    expect(canReceiveChatRequest("Price")).toBe(false);
+    expect(canReceiveChatRequest("prices")).toBe(true);
+    expect(canReceiveChatRequest("alice")).toBe(true);
   });
 });
 

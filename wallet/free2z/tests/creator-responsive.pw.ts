@@ -146,7 +146,12 @@ function expectNoHorizontalOverflow(layout: CreatorLayout, width: number) {
     "Start encrypted chat with @zooko",
   ]);
   for (const target of layout.actionTargets) {
-    expect(target.height, `${target.name} must keep its 44px touch height`).toBeGreaterThanOrEqual(
+    // `getBoundingClientRect()` height is bottom minus top in floats, so a
+    // 44px button at a fractional offset can read 43.99997. Chromium lays out
+    // in 1/64px units; snapping to that grid keeps the check exact (a real
+    // 43.984px target still fails) without the float noise.
+    const layoutHeight = Math.round(target.height * 64) / 64;
+    expect(layoutHeight, `${target.name} must keep its 44px touch height`).toBeGreaterThanOrEqual(
       44,
     );
     expect(

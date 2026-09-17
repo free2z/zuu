@@ -4,17 +4,25 @@
  * ```
  * GET  /api/e2ee/chat-requests/price/            → 200 {"cost": 1}
  * POST /api/e2ee/chat-requests/{username}/
- *      Authorization: Token <knox>   Idempotency-Key: <uuid-v4>   body: {}
- *   200 → {"balance", "charged", "replayed", "request_id",
+ *      Authorization: Token <knox>   Idempotency-Key: <uuid-v4>
+ *      body: {"expected_cost": <the cost the payer confirmed>}
+ *   200 → {"balance": "9.000", "charged": "1.000", "replayed", "request_id",
  *          "recipient": {"username", "handle", "handle_status"}}
  *   402 → insufficient 2Z (carries the authoritative balance)
- *   404 → unknown user   409 → cannot message yourself   429 → rate limited
+ *   404 → unknown user
+ *   409 → {"code": "price_changed"} (nothing charged), otherwise self
+ *   422 → {"code": "sender_handle_unavailable"} (nothing charged)
+ *   429 → rate limited
  * ```
  *
- * The server sets the price and the client never sends an amount. What the
- * client does own is the refusal: a `charged` that differs from the cost the
- * payer was shown is a contract failure, never something to accept, exactly
- * like `normalizeDonationResult`.
+ * `balance` and `charged` arrive as decimal strings from the real backend;
+ * both parsers accept them without rounding.
+ *
+ * The server sets the price. `expected_cost` only lets it refuse when the
+ * price moved after the payer saw it; it is never an amount to charge. The
+ * client still owns the other refusal: a `charged` that differs from the cost
+ * the payer was shown is a contract failure, never something to accept,
+ * exactly like `normalizeDonationResult`.
  *
  * Everything here is pure so the money boundary can be tested against the
  * shapes the backend may really send, not against a component.
@@ -29,6 +37,14 @@ import {
 } from "./donation";
 
 export const CHAT_REQUEST_PRICE_ROUTE = "/api/e2ee/chat-requests/price/";
+
+/**
+ * A creator literally named `price` cannot receive a request: that path is the
+ * price endpoint. The page hides the button for them.
+ */
+export function canReceiveChatRequest(username: string): boolean {
+  return username.toLowerCase() !== "price";
+}
 
 export function chatRequestRoute(username: string): string {
   return `/api/e2ee/chat-requests/${encodeURIComponent(username)}/`;
@@ -167,6 +183,10 @@ export type ChatRequestOutcome =
   | { kind: "insufficient"; balance: number | null }
   | { kind: "not-found" }
   | { kind: "self" }
+  /** The server price moved after the payer saw it. Nothing was charged. */
+  | { kind: "price-changed" }
+  /** The payer has no bound messaging handle yet. Nothing was charged. */
+  | { kind: "sender-handle-unavailable" }
   | { kind: "rate-limited" }
   | { kind: "signed-out" }
   /** Some other 4xx. A refusal, but not one this client can prove was free. */
@@ -175,6 +195,22 @@ export type ChatRequestOutcome =
   | { kind: "mismatch" }
   /** No trustworthy answer: network loss, a 5xx, a body we cannot read. */
   | { kind: "uncertain" };
+
+/**
+ * The machine-readable refusal code, read defensively: a top-level `code`
+ * string, or DRF's `{"detail": {"code": …}}` nesting. Anything else is none.
+ */
+export function chatRequestErrorCode(body: unknown): string | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const raw = body as Record<string, unknown>;
+  if (typeof raw.code === "string") return raw.code;
+  const detail = raw.detail;
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const code = (detail as Record<string, unknown>).code;
+    if (typeof code === "string") return code;
+  }
+  return null;
+}
 
 export function classifyChatRequestFailure(error: unknown): ChatRequestOutcome {
   if (error instanceof ChatRequestContractError) return { kind: "mismatch" };
@@ -190,11 +226,18 @@ export function classifyChatRequestFailure(error: unknown): ChatRequestOutcome {
         return { kind: "signed-out" };
       case 404:
         return { kind: "not-found" };
-      // Contract A defines 409 as "cannot message yourself". This client never
-      // reuses a key across recipients, so an idempotency-key conflict cannot
-      // arise from it; the UI still refuses to claim anything was free there.
+      // `price_changed` is a definitive refusal before any charge. Any other
+      // 409 is read as "cannot message yourself". This client never reuses a
+      // key across recipients, so an idempotency-key conflict should not arise
+      // from it; the UI still refuses to claim anything was free there.
       case 409:
-        return { kind: "self" };
+        return chatRequestErrorCode(error.body) === "price_changed"
+          ? { kind: "price-changed" }
+          : { kind: "self" };
+      case 422:
+        return chatRequestErrorCode(error.body) === "sender_handle_unavailable"
+          ? { kind: "sender-handle-unavailable" }
+          : { kind: "refused", status: 422 };
       case 429:
         return { kind: "rate-limited" };
       default:

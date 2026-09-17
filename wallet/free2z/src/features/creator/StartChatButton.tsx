@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { MESSAGE_KEYS } from "@/i18n/messages";
 import {
+  canReceiveChatRequest,
   classifyChatRequestFailure,
   type ChatRequestOutcome,
   type ChatRequestResult,
@@ -101,6 +102,10 @@ export function StartChatButton({
   const [sending, setSending] = useState(false);
   const [outcome, setOutcome] = useState<ChatRequestOutcome | null>(null);
   const [refusedSelf, setRefusedSelf] = useState(false);
+  // Set when the server refused a stale price: the sheet is back on the
+  // confirmation, with the new price, and says why.
+  const [priceNotice, setPriceNotice] = useState(false);
+  const noticeRef = useRef<HTMLDivElement>(null);
   const attempt = useRef<Attempt | null>(null);
   const priceRequest = useRef(0);
   const primaryAction = useRef<HTMLButtonElement>(null);
@@ -157,9 +162,15 @@ export function StartChatButton({
     if (open && copy) primaryAction.current?.focus();
   }, [open, copy]);
 
+  useEffect(() => {
+    if (open && priceNotice) noticeRef.current?.focus();
+  }, [open, priceNotice]);
+
   const ownProfile =
     user !== null && user.username.toLowerCase() === username.toLowerCase();
-  if (ownProfile || refusedSelf) return null;
+  if (ownProfile || refusedSelf || !canReceiveChatRequest(username)) {
+    return null;
+  }
 
   const cost = price.status === "ready" ? price.cost : null;
   const gate = paidActionGate({ sessionLoading, user, balance, cost });
@@ -212,6 +223,7 @@ export function StartChatButton({
       cost: cost as number,
     };
     attempt.current = terms;
+    setPriceNotice(false);
     setSending(true);
     let next: ChatRequestOutcome;
     try {
@@ -230,6 +242,15 @@ export function StartChatButton({
     }
     const nextCopy = chatRequestCopy(next);
     if (nextCopy.retry !== "same-attempt") attempt.current = null;
+    if (nextCopy.retry === "re-confirm") {
+      // Nothing was charged. Fetch the new price and ask again; the next Pay
+      // is a new attempt with a new key and the new `expected_cost`.
+      setOutcome(null);
+      setPriceNotice(true);
+      setSending(false);
+      void loadPrice();
+      return;
+    }
     if (next.kind === "insufficient" && next.balance !== null) {
       setTuzis(next.balance);
     } else if (
@@ -367,6 +388,26 @@ export function StartChatButton({
                 <DialogTitle className="pe-6">
                   {t(MESSAGE_KEYS.creatorChatConfirmTitle, { username })}
                 </DialogTitle>
+                {priceNotice ? (
+                  <div
+                    ref={noticeRef}
+                    tabIndex={-1}
+                    role="status"
+                    data-creator-chat-notice="price-changed"
+                    className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <p className="font-medium text-foreground">
+                      {t(MESSAGE_KEYS.creatorChatOutcomePriceChangedTitle)}
+                    </p>
+                    {cost !== null ? (
+                      <p className="mt-1 text-muted-foreground">
+                        {t(MESSAGE_KEYS.creatorChatOutcomePriceChangedBody, {
+                          cost: formatTuzis(cost),
+                        })}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
                 <DialogDescription>
                   {cost !== null
                     ? t(MESSAGE_KEYS.creatorChatConfirmBody, values)
@@ -491,7 +532,7 @@ function OutcomeActions({
   onDone,
 }: {
   outcome: ChatRequestOutcome;
-  retry: "same-attempt" | "new-attempt" | null;
+  retry: "same-attempt" | "new-attempt" | "re-confirm" | null;
   sending: boolean;
   primaryRef: RefObject<HTMLButtonElement>;
   className: string;
@@ -565,6 +606,22 @@ function OutcomeActions({
     );
   }
 
+  if (outcome.kind === "sender-handle-unavailable") {
+    return (
+      <>
+        {done}
+        <Button
+          ref={primaryRef}
+          className={className}
+          onClick={() => void onGet()}
+        >
+          <Download className="h-4 w-4" aria-hidden />
+          {t(MESSAGE_KEYS.creatorChatActionGet)}
+        </Button>
+      </>
+    );
+  }
+
   if (outcome.kind === "signed-out") {
     return (
       <>
@@ -576,7 +633,7 @@ function OutcomeActions({
     );
   }
 
-  if (retry !== null) {
+  if (retry === "same-attempt" || retry === "new-attempt") {
     return (
       <>
         {done}

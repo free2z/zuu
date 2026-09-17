@@ -89,6 +89,14 @@
         "uncertain": {
           "title": "free2z n'a pas reçu de réponse",
           "body": "free2z ne sait pas si @{username} a reçu votre demande ni si {cost} ont été débités. Vous pouvez réessayer sans risque : une même demande n'est débitée qu'une fois."
+        },
+        "priceChanged": {
+          "title": "Le prix a changé",
+          "body": "Démarrer un chat coûte désormais {cost}. Votre demande n'a pas été envoyée à l'ancien prix, donc rien n'a été débité. Confirmez le nouveau prix pour continuer."
+        },
+        "senderHandle": {
+          "title": "Réservez d'abord votre identifiant de messagerie dans e2e2z",
+          "body": "Les chats chiffrés relient des identifiants de messagerie et votre compte n'en a pas encore, donc rien n'a été débité. Obtenez e2e2z, réservez-y votre identifiant, puis revenez écrire à @{username}."
         }
       }
     },

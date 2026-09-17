@@ -89,6 +89,14 @@
         "uncertain": {
           "title": "free2z no recibió respuesta",
           "body": "free2z no sabe si @{username} recibió tu solicitud ni si se cobraron {cost}. Puedes volver a intentarlo sin riesgo: la misma solicitud solo se cobra una vez."
+        },
+        "priceChanged": {
+          "title": "El precio cambió",
+          "body": "Iniciar un chat ahora cuesta {cost}. Tu solicitud no se envió con el precio anterior, así que no se cobró nada. Confirma el nuevo precio para continuar."
+        },
+        "senderHandle": {
+          "title": "Primero reclama tu identificador de mensajería en e2e2z",
+          "body": "Los chats cifrados van entre identificadores de mensajería y tu cuenta aún no tiene uno, así que no se cobró nada. Obtén e2e2z, reclama allí tu identificador y vuelve para escribir a @{username}."
         }
       }
     },

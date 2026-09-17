@@ -89,6 +89,14 @@
         "uncertain": {
           "title": "free2z did not get an answer",
           "body": "free2z can't tell whether @{username} got your request or whether {cost} was charged. Trying again is safe: the same request can only be charged once."
+        },
+        "priceChanged": {
+          "title": "The price changed",
+          "body": "Starting a chat now costs {cost}. Your request was not sent at the old price, so nothing was charged. Confirm the new price to continue."
+        },
+        "senderHandle": {
+          "title": "Claim your messaging handle in e2e2z first",
+          "body": "Encrypted chats go between messaging handles, and your account doesn't have one yet, so nothing was charged. Get e2e2z, claim your handle there, then come back to message @{username}."
         }
       }
     },

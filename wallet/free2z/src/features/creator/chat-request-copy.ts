@@ -9,7 +9,8 @@
  * ## The distinction the copy is built around
  *
  * `certainNothingWasCharged: true` only where the server gave a definitive
- * refusal before it could have touched the ledger (402, 404, 429, 401/403).
+ * refusal before it could have touched the ledger (402, 404, 429, 401/403,
+ * 409 `price_changed`, 422 `sender_handle_unavailable`).
  * Everything else — network loss, a 5xx, an answer that does not match the
  * request, an unfamiliar 4xx — says nothing about the charge except "go look".
  *
@@ -18,6 +19,8 @@
  * - `"same-attempt"`: the outcome is unknown, so the retry MUST reuse the key.
  *   The server then replays the original result and never charges twice.
  * - `"new-attempt"`: the server refused outright; a later try is a new request.
+ * - `"re-confirm"`: the price moved. The attempt ends, the new price is
+ *   fetched, and the payer confirms it before anything is sent again.
  * - `null`: no retry belongs on this screen.
  */
 
@@ -32,7 +35,7 @@ export interface ChatRequestCopy {
   readonly titleKey: string;
   readonly bodyKey: string;
   readonly certainNothingWasCharged: boolean;
-  readonly retry: "same-attempt" | "new-attempt" | null;
+  readonly retry: "same-attempt" | "new-attempt" | "re-confirm" | null;
 }
 
 const CONNECTED: ChatRequestCopy = {
@@ -82,6 +85,26 @@ const SELF: ChatRequestCopy = {
   titleKey: MESSAGE_KEYS.creatorChatOutcomeSelfTitle,
   bodyKey: MESSAGE_KEYS.creatorChatOutcomeSelfBody,
   certainNothingWasCharged: false,
+  retry: null,
+};
+
+/** Shown above the confirmation, with the NEW price as `{cost}`. */
+const PRICE_CHANGED: ChatRequestCopy = {
+  id: "price-changed",
+  tone: "info",
+  titleKey: MESSAGE_KEYS.creatorChatOutcomePriceChangedTitle,
+  bodyKey: MESSAGE_KEYS.creatorChatOutcomePriceChangedBody,
+  certainNothingWasCharged: true,
+  retry: "re-confirm",
+};
+
+/** The payer, not the recipient, has no messaging handle yet. */
+const SENDER_HANDLE_UNAVAILABLE: ChatRequestCopy = {
+  id: "sender-handle-unavailable",
+  tone: "info",
+  titleKey: MESSAGE_KEYS.creatorChatOutcomeSenderHandleTitle,
+  bodyKey: MESSAGE_KEYS.creatorChatOutcomeSenderHandleBody,
+  certainNothingWasCharged: true,
   retry: null,
 };
 
@@ -136,6 +159,8 @@ export const CHAT_REQUEST_COPY_STATES: readonly ChatRequestCopy[] = [
   INSUFFICIENT,
   NOT_FOUND,
   SELF,
+  PRICE_CHANGED,
+  SENDER_HANDLE_UNAVAILABLE,
   RATE_LIMITED,
   SIGNED_OUT,
   REFUSED,
@@ -156,6 +181,10 @@ export function chatRequestCopy(outcome: ChatRequestOutcome): ChatRequestCopy {
       return NOT_FOUND;
     case "self":
       return SELF;
+    case "price-changed":
+      return PRICE_CHANGED;
+    case "sender-handle-unavailable":
+      return SENDER_HANDLE_UNAVAILABLE;
     case "rate-limited":
       return RATE_LIMITED;
     case "signed-out":

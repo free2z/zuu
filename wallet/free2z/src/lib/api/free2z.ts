@@ -2693,8 +2693,8 @@ export const kyc = {
 
 // ─── Encrypted chat requests (Contract A, #1022) ─────────────────────────────
 
-/** The mock ledger's price, and the contract's launch price. */
-const MOCK_CHAT_REQUEST_COST = 1;
+/** The mock ledger's price; a `price-changed` fault raises it by one. */
+let mockChatRequestCost = 1;
 
 const mockChatRequestResults = new Map<
   string,
@@ -2711,10 +2711,23 @@ const mockChatRequestResults = new Map<
  *   `TypeError`, as `fetch` throws), so the retry with the same key replays.
  * - `insufficient`: a 402 carrying an authoritative zero balance.
  * - `rate-limited`: a 429.
+ * - `price-changed`: the price rises by one before the request lands, so the
+ *   server refuses the stale `expected_cost` with a 409.
+ * - `sender-handle-unavailable`: a 422, as for a payer with no bound handle.
+ *   (The mock session's `demo-creator` could not hold a handle under the real
+ *   rule, but the mock otherwise treats the payer as having one.)
  */
 const MOCK_CHAT_FAULTS_KEY = "zuuli.mock.chat-request";
 
-type MockChatFault = "lost-response" | "insufficient" | "rate-limited";
+const MOCK_CHAT_FAULTS = [
+  "lost-response",
+  "insufficient",
+  "rate-limited",
+  "price-changed",
+  "sender-handle-unavailable",
+] as const;
+
+type MockChatFault = (typeof MOCK_CHAT_FAULTS)[number];
 
 function takeMockChatFault(): MockChatFault | null {
   if (typeof window === "undefined") return null;
@@ -2723,10 +2736,8 @@ function takeMockChatFault(): MockChatFault | null {
     .filter(Boolean);
   const next = queue.shift();
   window.sessionStorage.setItem(MOCK_CHAT_FAULTS_KEY, queue.join(","));
-  return next === "lost-response" ||
-    next === "insufficient" ||
-    next === "rate-limited"
-    ? next
+  return (MOCK_CHAT_FAULTS as readonly string[]).includes(next ?? "")
+    ? (next as MockChatFault)
     : null;
 }
 
@@ -2735,7 +2746,7 @@ export const e2ee = {
   async chatRequestPrice(signal?: AbortSignal): Promise<number> {
     if (useMock()) {
       await delay(150);
-      return normalizeChatRequestPrice({ cost: MOCK_CHAT_REQUEST_COST });
+      return normalizeChatRequestPrice({ cost: mockChatRequestCost });
     }
     const response = await request<unknown>(CHAT_REQUEST_PRICE_ROUTE, {
       signal,
@@ -2744,8 +2755,9 @@ export const e2ee = {
   },
 
   /**
-   * POST a paid chat request. `shownCost` is what the payer confirmed; any
-   * other `charged` is refused. `idempotencyKey` must be reused on a retry of
+   * POST a paid chat request. `shownCost` is what the payer confirmed. It is
+   * sent as `expected_cost` so the server can refuse a stale price, and any
+   * other `charged` is refused here. `idempotencyKey` must be reused on a retry of
    * the same attempt so the server replays instead of charging twice.
    */
   async startChatRequest(
@@ -2784,20 +2796,34 @@ export const e2ee = {
           code: "self",
         });
       }
-      if (fault === "insufficient" || mockUser.tuzis < MOCK_CHAT_REQUEST_COST) {
+      if (fault === "sender-handle-unavailable") {
+        throw new ApiError(422, "Claim a messaging handle first.", {
+          code: "sender_handle_unavailable",
+          detail: "Claim a messaging handle first.",
+        });
+      }
+      if (fault === "price-changed") mockChatRequestCost += 1;
+      if (shownCost !== mockChatRequestCost) {
+        throw new ApiError(409, "The price changed.", {
+          code: "price_changed",
+          cost: mockChatRequestCost,
+        });
+      }
+      if (fault === "insufficient" || mockUser.tuzis < mockChatRequestCost) {
         if (fault === "insufficient") mockUser.tuzis = 0;
         throw new ApiError(402, "Not enough 2Zs.", {
           code: "insufficient_funds",
           balance: String(mockUser.tuzis),
         });
       }
-      mockUser.tuzis -= MOCK_CHAT_REQUEST_COST;
+      mockUser.tuzis -= mockChatRequestCost;
       // The working assumption in #1022: an eligible username reserves the
       // same lowercase handle; anything else must claim one first.
       const candidate = username.toLowerCase();
       const response = {
-        balance: String(mockUser.tuzis),
-        charged: MOCK_CHAT_REQUEST_COST,
+        // The real backend's decimal-string shapes.
+        balance: mockUser.tuzis.toFixed(3),
+        charged: mockChatRequestCost.toFixed(3),
         replayed: false,
         request_id: crypto.randomUUID(),
         recipient: isMessagingHandle(candidate)
@@ -2815,7 +2841,7 @@ export const e2ee = {
     }
     const response = await request<unknown>(chatRequestRoute(username), {
       method: "POST",
-      body: {},
+      body: { expected_cost: shownCost },
       headers: { "Idempotency-Key": idempotencyKey },
     });
     return normalizeChatRequestResult(response, shownCost, username);

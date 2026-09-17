@@ -311,6 +311,98 @@ test("a rate limit says nothing was charged and starts a new attempt", async ({
   await expectBalance(page, "4,210 2Z");
 });
 
+test("a sender without a messaging handle is sent to e2e2z, and nothing is charged", async ({
+  page,
+}) => {
+  await prepare(page, {
+    signedIn: true,
+    faults: ["sender-handle-unavailable"],
+  });
+  await openCreator(page);
+  await openConfirmation(page);
+  await sheet(page)
+    .getByRole("button", { name: "Pay 1 2Z and start chat" })
+    .click();
+
+  await expect(
+    sheet(page).getByRole("heading", {
+      name: "Claim your messaging handle in e2e2z first",
+    }),
+  ).toBeVisible();
+  await expect(
+    sheet(page).getByText(
+      "Encrypted chats go between messaging handles, and your account doesn't have one yet, so nothing was charged. Get e2e2z, claim your handle there, then come back to message @zooko.",
+    ),
+  ).toBeVisible();
+  await expect(
+    sheet(page).getByRole("button", { name: "Open e2e2z" }),
+  ).toHaveCount(0);
+  const getApp = sheet(page).getByRole("button", { name: "Get e2e2z" });
+  await expect(getApp).toBeFocused();
+  await getApp.click();
+  await expect.poll(() => openedUrls(page)).toEqual([INSTALL_LINK]);
+  await expectBalance(page, "4,210 2Z");
+
+  // No request succeeded, so the page still offers the paid action and a
+  // later try starts from the confirmation.
+  await sheet(page).getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: START_BUTTON }).click();
+  await expect(
+    sheet(page).getByRole("button", { name: "Pay 1 2Z and start chat" }),
+  ).toBeVisible();
+});
+
+test("a price change is re-confirmed at the new price before anything is charged", async ({
+  page,
+}) => {
+  await prepare(page, { signedIn: true, faults: ["price-changed"] });
+  await openCreator(page);
+  await openConfirmation(page);
+  await sheet(page)
+    .getByRole("button", { name: "Pay 1 2Z and start chat" })
+    .click();
+
+  const notice = sheet(page).getByRole("status").filter({
+    hasText: "The price changed",
+  });
+  await expect(notice).toBeVisible();
+  await expect(notice).toBeFocused();
+  await expect(
+    notice.getByText(
+      "Starting a chat now costs 2 2Z. Your request was not sent at the old price, so nothing was charged. Confirm the new price to continue.",
+    ),
+  ).toBeVisible();
+  await expect(
+    sheet(page).getByText(
+      "2 2Z, paid to @zooko. Messages are end-to-end encrypted in the e2e2z app.",
+    ),
+  ).toBeVisible();
+  await expectBalance(page, "4,210 2Z");
+
+  await sheet(page)
+    .getByRole("button", { name: "Pay 2 2Z and start chat" })
+    .click();
+  await expect(
+    sheet(page).getByRole("heading", { name: "Chat ready with @zooko" }),
+  ).toBeVisible();
+  await expect(
+    sheet(page).getByText(
+      "2 2Z paid to @zooko. Open e2e2z to write your first message. Nothing is sent until you do.",
+    ),
+  ).toBeVisible();
+  await expectBalance(page, "4,208 2Z");
+});
+
+test("a creator named price has no chat button", async ({ page }) => {
+  await prepare(page, { signedIn: true });
+  await openCreator(page, "price");
+  await expectBalance(page, "4,210 2Z");
+  await expect(
+    page.locator("[data-creator-actions] button").first(),
+  ).toBeVisible();
+  await expect(page.locator("[data-creator-chat]")).toHaveCount(0);
+});
+
 test("your own profile has no chat button", async ({ page }) => {
   await prepare(page, { signedIn: true });
   // The mock session is `demo-creator`.
