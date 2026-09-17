@@ -24,6 +24,42 @@ messaging therefore never needs the seed — only enrollment does.**
 So `src-tauri/Cargo.toml` links `tauri-plugin-f2zmsg` and never
 `tauri-plugin-zcash`, and the capability files carry no `zcash:*` entry.
 
+### Since #1022: enrolling on a phone, and the chat link
+
+The history below is kept because it explains why the boundary looks the way it
+does, but three things it says are no longer the whole story:
+
+- **On iPhone and Android the gap is closed.** The screen offers "Enroll with
+  ZUULI" (`src/features/messages/Enrollment.tsx`): it asks the engine whether
+  the typed username can be a handle (`check_handle_eligibility`), sends ZUULI
+  an `issue-device-credential` request over the App Link transport, waits (with
+  cancel, and the request's own two-minute deadline), and installs the answer.
+  Declined, expired, ZUULI not installed or not ready, a credential for another
+  handle (the engine compares it to the handle requested, ADR 0016 §4) and
+  storage that cannot keep a key each get their own words
+  (`src/lib/enrollment/outcome.ts`). The handle shown is labeled as a
+  *request*: free2z's directory decides whether it belongs to the account.
+- **The screen reads enrollment.** `e2e2z_enrollment_status` is a seed-free
+  app-crate read of this device's store. `enroll` still reaches the wallet
+  authority, and `unenroll` still refuses.
+- **Desktop and browser builds keep the standing gap.** The deep-link
+  association is mobile-only, so `installAppLinkIntentTransport` leaves them on
+  the fail-closed transport and the screen says "Enrollment happens in the
+  wallet app".
+
+The chat link, Contract B of #1022, is
+`https://free2z.com/bridge/e2e2z/chat/#peer=<handle>`
+(`src/lib/chat/chatLink.ts`). It is read on a cold start (`getCurrent`) and a
+warm one (`onOpenUrl`), parsed strictly, and only ever fills in first contact:
+it never sends anything. If the device is not enrolled, or its handle is not
+active yet, the handle waits (for up to a day, on this device only) and is
+filled in once first contact is available. Its exact path cannot collide with
+the intent reply route, `/bridge/e2e2z/#res=…&rid=…`, which is now matched
+exactly too.
+
+Proved in a real browser by `tests/enrollment-flow.pw.ts`,
+`tests/chat-link.pw.ts` and `tests/enrollment-gap.pw.ts` (the desktop case).
+
 ### The enrollment trio is deliberately absent
 
 ZUULI registers three app-crate commands — `f2zmsg_enrollment_status`,

@@ -36,7 +36,7 @@
  */
 
 import { fromHex } from "@free2z/wallet-shared";
-import { isTauri } from "../platform";
+import { isMobileRuntime, isTauri, type RuntimeNavigator } from "../platform";
 import {
   setIntentTransport,
   type IntentDispatchContext,
@@ -46,7 +46,16 @@ import {
 /** #977. */
 const ASSOCIATION_HOST = "free2z.com";
 
-const INBOUND_PATH_PREFIX = "/bridge/e2e2z/";
+/**
+ * The path ZUULI answers on — its registry's `reply_to` for this caller,
+ * `https://free2z.com/bridge/e2e2z/`, exactly.
+ *
+ * Exact rather than a prefix, because this app's association covers the whole
+ * `/bridge/e2e2z/` prefix and other routes live under it: the chat link
+ * (`/bridge/e2e2z/chat/`, `src/lib/chat/chatLink.ts`) carries no authority,
+ * and a prefix match would let a link shaped like one be read as the other.
+ */
+export const REPLY_PATH = "/bridge/e2e2z/";
 
 const RESPONSE_KEY = "res";
 
@@ -74,6 +83,36 @@ export class IntentResponseTimeoutError extends Error {
     );
     this.name = "IntentResponseTimeoutError";
     this.family = family;
+  }
+}
+
+/** The user stopped waiting. Nothing was installed. */
+export class IntentDispatchCancelledError extends Error {
+  readonly reason = "intent-dispatch-cancelled" as const;
+
+  constructor() {
+    super(
+      "the request to the wallet authority was cancelled here. An answer " +
+        "that arrives later finds nothing waiting and is ignored.",
+    );
+    this.name = "IntentDispatchCancelledError";
+  }
+}
+
+/** The platform would not open the authority's link at all. */
+export class AuthorityLinkError extends Error {
+  readonly reason = "authority-link-failed" as const;
+  /** Declared, not `Error`'s ES2022 `options.cause`; this app compiles to ES2020. */
+  readonly cause?: unknown;
+
+  constructor(cause: unknown) {
+    super(
+      `the wallet authority's link could not be opened: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    );
+    this.name = "AuthorityLinkError";
+    this.cause = cause;
   }
 }
 
@@ -115,8 +154,9 @@ function fragmentValue(fragment: string, key: string): string | null {
  * The answer carried by `raw`, if it is an inbound reply to this app.
  *
  * Same four conditions as the authority side: a custom scheme authenticates
- * nobody, the association is bound to one host, the prefix is what this app
- * claimed, and §4.1 forbids the query component.
+ * nobody, the association is bound to one host, the path is the one the
+ * authority answers on (see {@link REPLY_PATH}), and §4.1 forbids the query
+ * component.
  */
 export function inboundAnswer(
   raw: string,
@@ -129,7 +169,7 @@ export function inboundAnswer(
   }
   if (url.protocol !== "https:") return null;
   if (url.hostname !== ASSOCIATION_HOST) return null;
-  if (!url.pathname.startsWith(INBOUND_PATH_PREFIX)) return null;
+  if (url.pathname !== REPLY_PATH) return null;
 
   // `URL.hash` keeps its leading `#`.
   const fragment = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
@@ -194,26 +234,35 @@ export const appLinkIntentTransport: IntentTransport = {
       pending = { requestId: context.requestId, resolve, reject, timer };
 
       void openAuthorityLink(request).catch((error: unknown) => {
-        settle((dispatch) =>
-          dispatch.reject(
-            error instanceof Error ? error : new Error(String(error)),
-          ),
-        );
+        settle((dispatch) => dispatch.reject(new AuthorityLinkError(error)));
       });
     });
+  },
+  cancel(): void {
+    settle((dispatch) => dispatch.reject(new IntentDispatchCancelledError()));
   },
 };
 
 /**
- * Install the transport — in a native runtime only.
+ * Install the transport — in a native **mobile** runtime only.
  *
  * A browser cannot hand a link to a native app, so nothing would deliver the
- * answer. Reporting `available` there would make the enrollment client sample
- * a device key set for a request with nowhere to go, since it checks
- * `available` before sampling. The browser keeps `#926`'s fail-closed refusal.
+ * answer. A desktop build is in the same position for a different reason:
+ * `tauri.conf.json` declares the App Link association under
+ * `plugins.deep-link.mobile` only, so the authority's link opens a browser tab
+ * and ZUULI's answer has no way back. Reporting `available` in either would
+ * make the enrollment client sample a device key set for a request with
+ * nowhere to go (it checks `available` before sampling) and leave the user
+ * waiting out the request's whole lifetime. Both keep `#926`'s fail-closed
+ * refusal, which the screen renders as "enrollment happens in the wallet app".
+ *
+ * `runtime` exists for the tests; production passes nothing.
  */
-export function installAppLinkIntentTransport(): void {
+export function installAppLinkIntentTransport(
+  runtime?: RuntimeNavigator,
+): void {
   if (!isTauri()) return;
+  if (!isMobileRuntime(runtime)) return;
   setIntentTransport(appLinkIntentTransport);
   void (async () => {
     try {

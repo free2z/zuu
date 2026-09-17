@@ -13,7 +13,7 @@
 //! `DeviceCredential` (#905), and #461 still owes that call a transport that
 //! authenticates either end.
 //!
-//! What this crate *does* register is three app-crate commands, none of which
+//! What this crate *does* register is five app-crate commands, none of which
 //! needs a seed or a capability entry:
 //!
 //! * [`device::e2e2z_device_credential_keys`] — the public halves of this
@@ -22,6 +22,10 @@
 //!   wallet authority answers with (ADR 0016 §5, #928).
 //! * [`device::e2e2z_retry_device_unlock`] — the seed-free exit from §6.1's
 //!   `locked` that ADR 0016 §3 requires this app to have.
+//! * [`device::e2e2z_enrollment_status`] — a read of what this device's store
+//!   holds, so the screen knows whether it is enrolled (#1022).
+//! * [`bridge::e2e2z_dispatch_intent`] — hands an intent to the wallet
+//!   authority's verified App Link (#1019).
 
 pub mod bridge;
 pub mod device;
@@ -62,6 +66,7 @@ pub fn run() {
             device::e2e2z_device_credential_keys,
             device::e2e2z_install_device_credential,
             device::e2e2z_retry_device_unlock,
+            device::e2e2z_enrollment_status,
             // The caller half of the intent bridge's transport (#905/#461).
             // App-crate, so no capability grants it: this app's narrow command
             // set is the argument for the surface existing at all.
@@ -87,8 +92,8 @@ mod tests {
 
     /// The enrollment trio must stay absent from this crate's IPC surface.
     ///
-    /// The three `e2e2z_*` commands are deliberately not among them — none can
-    /// reach a seed. A command named `f2zmsg_*` appearing here would mean this
+    /// The `e2e2z_*` commands are deliberately not among them — none can reach
+    /// a seed. A command named `f2zmsg_*` appearing here would mean this
     /// app grew the surface #904 split away, so the source is asserted.
     #[test]
     fn no_enrollment_command_is_registered() {
@@ -106,6 +111,8 @@ mod tests {
             "e2e2z_device_credential_keys",
             "e2e2z_install_device_credential",
             "e2e2z_retry_device_unlock",
+            "e2e2z_enrollment_status",
+            "e2e2z_dispatch_intent",
         ] {
             assert!(handler.contains(command), "{command} must stay registered");
         }

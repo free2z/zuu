@@ -34,6 +34,7 @@ import {
 import App from "./App";
 import { mountApplication, RootFallback } from "./app-bootstrap";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
+import { installChatLinkListener } from "./lib/chat/chatLink";
 import { diagnostics } from "./lib/diagnostics";
 import { installAppLinkIntentTransport } from "./lib/enrollment/appLinkTransport";
 import { installDocumentDirection } from "./lib/document-direction";
@@ -57,6 +58,11 @@ diagnostics.breadcrumb("lifecycle", "app-start");
 // #926 left `setIntentTransport` as the single registration point for exactly
 // this call; #461 landed the verified App Links it was waiting on.
 installAppLinkIntentTransport();
+
+// Contract B (#1022): `https://free2z.com/bridge/e2e2z/chat/#peer=<handle>`.
+// Before the first render for the same reason: the link that launched the app
+// is read once, and the screen that shows it subscribes to what was read.
+installChatLinkListener();
 
 void mountApplication({
   root: ReactDOM.createRoot(container),

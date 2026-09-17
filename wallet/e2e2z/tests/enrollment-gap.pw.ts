@@ -1,21 +1,27 @@
-// The enrollment gap, proved where it actually exists.
+// The enrollment gap, proved where it still exists.
 //
 // The mock run in `messaging.pw.ts` cannot see this: `VITE_MOCK=1` replaces the
 // whole data layer with fixtures. So this file runs against the *default*
 // build — the one a packaged e2e2z ships — and installs the Tauri IPC surface
 // that build really talks to: `tauri-plugin-f2zmsg` is registered and answers,
-// and the app-crate enrollment trio does not exist, exactly as
-// `wallet/e2e2z/src-tauri/src/lib.rs` leaves it.
+// the seed-holding `f2zmsg_*` enrollment trio does not exist, exactly as
+// `wallet/e2e2z/src-tauri/src/lib.rs` leaves it, and the seed-free
+// `e2e2z_enrollment_status` read reports an unenrolled device.
+//
+// #1022 closed the gap on iPhone and Android, where "Enroll with ZUULI" now
+// works over the App Link transport (`enrollment-flow.pw.ts`). This file runs
+// with Chromium's desktop user agent, which is exactly a desktop build: the
+// deep-link association is mobile-only, so there is no transport and the
+// standing state must still be the honest one.
 //
 // What must hold:
 //   1. The surface renders. A missing command must not leave the page on its
 //      skeleton or throw into an empty screen.
 //   2. It says enrollment happens in the wallet app.
-//   3. There is no claim control, no conversation list, and nothing that reads
-//      as enrolled.
-//   4. The enrollment commands are never invoked at all — the refusal is a
-//      designed boundary in `bridge.ts`, not a "command not found" that
-//      happened to look like one.
+//   3. There is no claim control, no enroll control, no conversation list, and
+//      nothing that reads as enrolled.
+//   4. No `f2zmsg_*` command is ever invoked, and nothing that would start an
+//      enrollment is either: no key sample, no dispatch.
 //
 // # Why this file shipped #973 anyway
 //
@@ -59,6 +65,17 @@ const ENGINE_STATUS = {
  */
 const NOT_ENROLLED = "not-enrolled";
 
+/** What `e2e2z_enrollment_status` answers on a device that never enrolled. */
+const NOT_ENROLLED_STATUS = {
+  enrolled: false,
+  handle: null,
+  eligibility: { eligible: false, candidate: null, reason: "not-signed-in" },
+  directoryEntryVersion: null,
+  submittedAt: null,
+  mergedAtEpoch: null,
+  blocked: null,
+};
+
 /** The port the second `webServer` in playwright.config.ts serves. */
 function unmockedBaseUrl(baseURL: string | undefined): string {
   const url = new URL(baseURL ?? "http://127.0.0.1:1437");
@@ -69,7 +86,7 @@ function unmockedBaseUrl(baseURL: string | undefined): string {
 test.describe("enrollment gap", () => {
   test("fails closed and names the wallet app", async ({ page, baseURL }) => {
     await page.addInitScript(
-      ({ status, notEnrolled }) => {
+      ({ status, notEnrolled, notEnrolledStatus }) => {
         const invoked: string[] = [];
         let nextCallback = 1;
         (window as unknown as { __E2E2Z_INVOKED__: string[] }).__E2E2Z_INVOKED__ =
@@ -96,6 +113,8 @@ test.describe("enrollment gap", () => {
           async invoke(cmd: string) {
             invoked.push(cmd);
             if (cmd === "plugin:f2zmsg|get_engine_status") return status;
+            // The seed-free read (#1022): an unenrolled device says so.
+            if (cmd === "e2e2z_enrollment_status") return notEnrolledStatus;
             // The real refusal, as a bare code string — see the file header.
             // Tauri rejects an `invoke` with the serialized error, and this
             // plugin's serialized error *is* the code.
@@ -108,7 +127,11 @@ test.describe("enrollment gap", () => {
           },
         };
       },
-      { status: ENGINE_STATUS, notEnrolled: NOT_ENROLLED },
+      {
+        status: ENGINE_STATUS,
+        notEnrolled: NOT_ENROLLED,
+        notEnrolledStatus: NOT_ENROLLED_STATUS,
+      },
     );
 
     await page.goto(unmockedBaseUrl(baseURL));
@@ -142,6 +165,10 @@ test.describe("enrollment gap", () => {
     await expect(
       page.getByRole("heading", { name: "Start a conversation" }),
     ).toHaveCount(0);
+    // No transport on a desktop build, so nothing offers to reach ZUULI.
+    await expect(
+      page.getByRole("button", { name: /Enroll with ZUULI/ }),
+    ).toHaveCount(0);
 
     // The engine summary still renders: the plugin half of the surface works,
     // and pretending otherwise would understate what this app can do.
@@ -151,9 +178,12 @@ test.describe("enrollment gap", () => {
       () => (window as unknown as { __E2E2Z_INVOKED__: string[] }).__E2E2Z_INVOKED__,
     );
     expect(invoked).toContain("plugin:f2zmsg|get_engine_status");
+    expect(invoked).toContain("e2e2z_enrollment_status");
     expect(
       invoked.filter((cmd) => cmd.startsWith("f2zmsg_")),
     ).toEqual([]);
+    expect(invoked).not.toContain("e2e2z_device_credential_keys");
+    expect(invoked).not.toContain("e2e2z_dispatch_intent");
   });
 
   // The other half of #973. `get_device_info` refusing is a standing state, so
