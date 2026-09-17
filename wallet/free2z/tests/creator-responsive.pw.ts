@@ -138,10 +138,12 @@ function expectNoHorizontalOverflow(layout: CreatorLayout, width: number) {
 
   // ZUULI's action row leads with "Watch Zooko live". `features/live` has not
   // moved to this surface (#904), so the live signal is a non-interactive
-  // marker here and only the two paid actions are touch targets.
+  // marker here and only the three paid actions are touch targets: tip,
+  // subscribe, and the encrypted chat request (#1022).
   expect(layout.actionTargets.map(({ name }) => name)).toEqual([
     "Tip Zooko",
     "Subscribe to Zooko · 500 2Z/mo",
+    "Start encrypted chat with @zooko",
   ]);
   for (const target of layout.actionTargets) {
     expect(target.height, `${target.name} must keep its 44px touch height`).toBeGreaterThanOrEqual(

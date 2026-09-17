@@ -19,6 +19,79 @@
     "tryAgain": "Inténtalo de nuevo."
   },
   "creator": {
+    "chat": {
+      "trigger": "Iniciar chat cifrado",
+      "triggerAccessible": "Iniciar chat cifrado con @{username}",
+      "again": "Escribir de nuevo",
+      "againAccessible": "Escribir de nuevo a @{username} en e2e2z",
+      "installHint": "¿Aún no tienes e2e2z? «Abrir e2e2z» te lleva a su página de instalación.",
+      "confirm": {
+        "title": "Iniciar un chat cifrado con @{username}",
+        "body": "{cost}, pagados a @{username}. Los mensajes van cifrados de extremo a extremo en la app e2e2z.",
+        "costLabel": "Solicitud de chat",
+        "balance": "Tu saldo: {balance}",
+        "noAutoSend": "e2e2z se abre con @{username} ya indicado. No se envía nada hasta que lo escribas.",
+        "priceLoading": "Consultando el precio",
+        "priceError": "No se pudo cargar el precio, así que no se cobró nada."
+      },
+      "action": {
+        "cancel": "Cancelar",
+        "checking": "Comprobando la cuenta",
+        "signIn": "Inicia sesión para chatear",
+        "lowBalance": "No tienes suficientes 2Z — compra más",
+        "pay": "Pagar {cost} e iniciar chat",
+        "paying": "Iniciando chat",
+        "open": "Abrir e2e2z",
+        "get": "Obtener e2e2z",
+        "done": "Listo",
+        "tryAgain": "Intentar de nuevo",
+        "buy": "Comprar 2Zs",
+        "retryPrice": "Reintentar",
+        "openFailed": "free2z no pudo abrir e2e2z. Instálala desde la página de instalación y vuelve a intentarlo."
+      },
+      "outcome": {
+        "connected": {
+          "title": "Chat listo con @{username}",
+          "body": "{charged} pagados a @{username}. Abre e2e2z para escribir tu primer mensaje. No se envía nada hasta que lo hagas."
+        },
+        "awaitingHandle": {
+          "title": "Se avisó a @{username}",
+          "body": "{charged} pagados a @{username}. Debe reclamar un identificador de mensajería en e2e2z antes de que se pueda abrir un chat, así que todavía no hay enlace."
+        },
+        "insufficient": {
+          "title": "No tienes suficientes 2Z",
+          "body": "Iniciar un chat cuesta {cost} y no se cobró nada. Tu saldo es {balance}."
+        },
+        "notFound": {
+          "title": "No se encuentra a @{username}",
+          "body": "free2z no tiene ninguna cuenta @{username}, así que no se cobró nada."
+        },
+        "self": {
+          "title": "Este es tu propio perfil",
+          "body": "Las solicitudes de chat son para otras personas. Abre e2e2z para ver tus mensajes."
+        },
+        "rateLimited": {
+          "title": "Demasiadas solicitudes de chat",
+          "body": "free2z pidió que esperes, así que no se cobró nada. Espera un minuto y vuelve a intentarlo."
+        },
+        "signedOut": {
+          "title": "Vuelve a iniciar sesión",
+          "body": "Tu sesión de free2z terminó antes de que se aceptara la solicitud, así que no se cobró nada."
+        },
+        "refused": {
+          "title": "free2z rechazó esta solicitud",
+          "body": "Revisa tu saldo de 2Z antes de volver a intentarlo."
+        },
+        "mismatch": {
+          "title": "La respuesta de free2z no coincide",
+          "body": "La respuesta no coincide con la solicitud de chat de {cost} que aprobaste para @{username}, así que free2z no abrirá el chat. Revisa tu saldo de 2Z antes de volver a intentarlo."
+        },
+        "uncertain": {
+          "title": "free2z no recibió respuesta",
+          "body": "free2z no sabe si @{username} recibió tu solicitud ni si se cobraron {cost}. Puedes volver a intentarlo sin riesgo: la misma solicitud solo se cobra una vez."
+        }
+      }
+    },
     "zecTip": {
       "blocked": {
         "body": "free2z preparó una solicitud de {amount} para {creator} y no tiene ninguna clave para firmarla. El enlace verificado a ZUULI todavía no existe, así que no se envió nada.",

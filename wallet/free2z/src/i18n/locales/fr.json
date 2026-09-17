@@ -19,6 +19,79 @@
     "tryAgain": "Réessayez."
   },
   "creator": {
+    "chat": {
+      "trigger": "Démarrer un chat chiffré",
+      "triggerAccessible": "Démarrer un chat chiffré avec @{username}",
+      "again": "Écrire à nouveau",
+      "againAccessible": "Écrire à nouveau à @{username} dans e2e2z",
+      "installHint": "Pas encore e2e2z ? « Ouvrir e2e2z » mène à sa page d'installation.",
+      "confirm": {
+        "title": "Démarrer un chat chiffré avec @{username}",
+        "body": "{cost}, versés à @{username}. Les messages sont chiffrés de bout en bout dans l'app e2e2z.",
+        "costLabel": "Demande de chat",
+        "balance": "Votre solde : {balance}",
+        "noAutoSend": "e2e2z s'ouvre avec @{username} déjà renseigné. Rien n'est envoyé avant que vous l'écriviez.",
+        "priceLoading": "Vérification du prix",
+        "priceError": "Le prix n'a pas pu être chargé, donc rien n'a été débité."
+      },
+      "action": {
+        "cancel": "Annuler",
+        "checking": "Vérification du compte",
+        "signIn": "Connectez-vous pour discuter",
+        "lowBalance": "Pas assez de 2Z — en acheter",
+        "pay": "Payer {cost} et démarrer le chat",
+        "paying": "Démarrage du chat",
+        "open": "Ouvrir e2e2z",
+        "get": "Obtenir e2e2z",
+        "done": "Terminé",
+        "tryAgain": "Réessayer",
+        "buy": "Acheter des 2Zs",
+        "retryPrice": "Réessayer",
+        "openFailed": "free2z n'a pas pu ouvrir e2e2z. Installez-la depuis la page d'installation, puis réessayez."
+      },
+      "outcome": {
+        "connected": {
+          "title": "Chat prêt avec @{username}",
+          "body": "{charged} versés à @{username}. Ouvrez e2e2z pour écrire votre premier message. Rien n'est envoyé avant."
+        },
+        "awaitingHandle": {
+          "title": "@{username} a été prévenu",
+          "body": "{charged} versés à @{username}. Cette personne doit réserver un identifiant de messagerie dans e2e2z avant qu'un chat puisse s'ouvrir : il n'y a donc pas encore de lien."
+        },
+        "insufficient": {
+          "title": "Pas assez de 2Z",
+          "body": "Démarrer un chat coûte {cost} et rien n'a été débité. Votre solde est de {balance}."
+        },
+        "notFound": {
+          "title": "@{username} est introuvable",
+          "body": "free2z n'a aucun compte @{username}, donc rien n'a été débité."
+        },
+        "self": {
+          "title": "C'est votre propre profil",
+          "body": "Une demande de chat s'adresse à quelqu'un d'autre. Ouvrez e2e2z pour voir vos messages."
+        },
+        "rateLimited": {
+          "title": "Trop de demandes de chat",
+          "body": "free2z vous demande de patienter, donc rien n'a été débité. Attendez une minute, puis réessayez."
+        },
+        "signedOut": {
+          "title": "Reconnectez-vous",
+          "body": "Votre session free2z a pris fin avant que la demande soit acceptée, donc rien n'a été débité."
+        },
+        "refused": {
+          "title": "free2z a refusé cette demande",
+          "body": "Vérifiez votre solde de 2Z avant de réessayer."
+        },
+        "mismatch": {
+          "title": "La réponse de free2z ne correspond pas",
+          "body": "La réponse ne correspond pas à la demande de chat à {cost} que vous avez approuvée pour @{username} : free2z n'ouvrira donc pas le chat. Vérifiez votre solde de 2Z avant de réessayer."
+        },
+        "uncertain": {
+          "title": "free2z n'a pas reçu de réponse",
+          "body": "free2z ne sait pas si @{username} a reçu votre demande ni si {cost} ont été débités. Vous pouvez réessayer sans risque : une même demande n'est débitée qu'une fois."
+        }
+      }
+    },
     "zecTip": {
       "blocked": {
         "body": "free2z a préparé une demande de {amount} pour {creator} et ne détient aucune clé pour la signer. Le lien vérifié vers ZUULI n'existe pas encore, donc rien n'a été envoyé.",

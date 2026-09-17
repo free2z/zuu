@@ -30,6 +30,16 @@ import {
   type DonationResult,
 } from "./donation";
 import {
+  CHAT_REQUEST_PRICE_ROUTE,
+  ChatRequestContractError,
+  chatRequestRoute,
+  isChatRequestIdempotencyKey,
+  isMessagingHandle,
+  normalizeChatRequestPrice,
+  normalizeChatRequestResult,
+  type ChatRequestResult,
+} from "./chat-request";
+import {
   mockAiReply,
   mockArticleFeed,
   mockArticles,
@@ -2678,5 +2688,136 @@ export const kyc = {
       return;
     }
     await request("/api/kyc/change-status", { method: "POST" });
+  },
+};
+
+// ─── Encrypted chat requests (Contract A, #1022) ─────────────────────────────
+
+/** The mock ledger's price, and the contract's launch price. */
+const MOCK_CHAT_REQUEST_COST = 1;
+
+const mockChatRequestResults = new Map<
+  string,
+  { username: string; response: Record<string, unknown> }
+>();
+
+/**
+ * Mock-only fault injection for the chat request, in the same shape as the
+ * `zuuli.mock.creator-pages` scenario: a comma-separated queue in session
+ * storage that a Playwright init script sets. Each fault is consumed once, so
+ * a retry after it reaches the ordinary path. Only the mock branch reads it.
+ *
+ * - `lost-response`: the ledger commits, then the response is lost (a
+ *   `TypeError`, as `fetch` throws), so the retry with the same key replays.
+ * - `insufficient`: a 402 carrying an authoritative zero balance.
+ * - `rate-limited`: a 429.
+ */
+const MOCK_CHAT_FAULTS_KEY = "zuuli.mock.chat-request";
+
+type MockChatFault = "lost-response" | "insufficient" | "rate-limited";
+
+function takeMockChatFault(): MockChatFault | null {
+  if (typeof window === "undefined") return null;
+  const queue = (window.sessionStorage.getItem(MOCK_CHAT_FAULTS_KEY) ?? "")
+    .split(",")
+    .filter(Boolean);
+  const next = queue.shift();
+  window.sessionStorage.setItem(MOCK_CHAT_FAULTS_KEY, queue.join(","));
+  return next === "lost-response" ||
+    next === "insufficient" ||
+    next === "rate-limited"
+    ? next
+    : null;
+}
+
+export const e2ee = {
+  /** GET the server-set price. The client never proposes an amount. */
+  async chatRequestPrice(signal?: AbortSignal): Promise<number> {
+    if (useMock()) {
+      await delay(150);
+      return normalizeChatRequestPrice({ cost: MOCK_CHAT_REQUEST_COST });
+    }
+    const response = await request<unknown>(CHAT_REQUEST_PRICE_ROUTE, {
+      signal,
+    });
+    return normalizeChatRequestPrice(response);
+  },
+
+  /**
+   * POST a paid chat request. `shownCost` is what the payer confirmed; any
+   * other `charged` is refused. `idempotencyKey` must be reused on a retry of
+   * the same attempt so the server replays instead of charging twice.
+   */
+  async startChatRequest(
+    username: string,
+    shownCost: number,
+    idempotencyKey: string,
+  ): Promise<ChatRequestResult> {
+    if (!isChatRequestIdempotencyKey(idempotencyKey)) {
+      throw new ChatRequestContractError(
+        "Chat request idempotency key is invalid",
+      );
+    }
+    if (useMock()) {
+      await delay(400);
+      const fault = takeMockChatFault();
+      if (fault === "rate-limited") {
+        throw new ApiError(429, "Request was throttled.", {
+          detail: "Request was throttled.",
+        });
+      }
+      const prior = mockChatRequestResults.get(idempotencyKey);
+      if (prior) {
+        if (prior.username !== username.toLowerCase()) {
+          throw new ApiError(409, "Idempotency key request mismatch", {
+            code: "idempotency_mismatch",
+          });
+        }
+        return normalizeChatRequestResult(
+          { ...prior.response, replayed: true },
+          shownCost,
+          username,
+        );
+      }
+      if (username.toLowerCase() === mockUser.username.toLowerCase()) {
+        throw new ApiError(409, "You cannot message yourself.", {
+          code: "self",
+        });
+      }
+      if (fault === "insufficient" || mockUser.tuzis < MOCK_CHAT_REQUEST_COST) {
+        if (fault === "insufficient") mockUser.tuzis = 0;
+        throw new ApiError(402, "Not enough 2Zs.", {
+          code: "insufficient_funds",
+          balance: String(mockUser.tuzis),
+        });
+      }
+      mockUser.tuzis -= MOCK_CHAT_REQUEST_COST;
+      // The working assumption in #1022: an eligible username reserves the
+      // same lowercase handle; anything else must claim one first.
+      const candidate = username.toLowerCase();
+      const response = {
+        balance: String(mockUser.tuzis),
+        charged: MOCK_CHAT_REQUEST_COST,
+        replayed: false,
+        request_id: crypto.randomUUID(),
+        recipient: isMessagingHandle(candidate)
+          ? { username, handle: candidate, handle_status: "bound" }
+          : { username, handle: null, handle_status: "unclaimed" },
+      };
+      mockChatRequestResults.set(idempotencyKey, {
+        username: username.toLowerCase(),
+        response,
+      });
+      if (fault === "lost-response") {
+        throw new TypeError("Failed to fetch");
+      }
+      return normalizeChatRequestResult(response, shownCost, username);
+    }
+    const response = await request<unknown>(chatRequestRoute(username), {
+      method: "POST",
+      body: {},
+      headers: { "Idempotency-Key": idempotencyKey },
+    });
+    return normalizeChatRequestResult(response, shownCost, username);
   },
 };

@@ -30,6 +30,11 @@ export type PaidIntent =
   | { kind: "article-tip"; subject: string; amount: string }
   | { kind: "creator-tip"; subject: string; amount: string }
   | { kind: "creator-subscription"; subject: string }
+  /**
+   * A paid chat request (#1022). Restoring it only reopens the confirmation
+   * sheet; the charge always waits for a fresh tap after sign-in.
+   */
+  | { kind: "start-encrypted-chat"; subject: string }
   | { kind: "live-entry"; subject: string; mode: "ppv" | "subscriber" };
 
 interface StoredPaidIntent {
@@ -65,6 +70,7 @@ function validIntent(value: unknown): value is PaidIntent {
     case "creator-tip":
       return usernameString(record.subject) && shortString(record.amount, 32);
     case "creator-subscription":
+    case "start-encrypted-chat":
       return usernameString(record.subject);
     case "live-entry":
       return (
