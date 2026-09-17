@@ -6,6 +6,13 @@
 //! crate is an implementation candidate for review, not a claim that those
 //! choices are ratified protocol.
 //!
+//! **One exception, and it is scoped.** ADR 0017 ratifies this crate's
+//! `HandleAssertion` bytes as Contract C for the *disposable internal*
+//! directory: the free2z backend issues them, and the shared vectors in
+//! `tests/fixtures/handle-assertion-v1.vectors` are what that issuer is held
+//! to. A format change is therefore a wire change for the backend, and
+//! `tests/contract_c_vectors.rs` fails until the vectors are regenerated.
+//!
 //! # Why this is a crate and not a module
 //!
 //! Everything else in the directory is cryptographic. `akd` proves the tree is

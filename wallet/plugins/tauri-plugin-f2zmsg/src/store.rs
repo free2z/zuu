@@ -181,6 +181,11 @@ pub struct StoredIdentity {
     pub directory_entry_version: Option<i64>,
     pub submitted_at: Option<i64>,
     pub merged_at_epoch: Option<i64>,
+    /// The log's `SubmissionReceipt` for `directory_entry_version`,
+    /// canonically encoded, hex (`KT.md` §5.3: kept until the entry is seen
+    /// included). `default` so an identity written before ADR 0017 still reads.
+    #[serde(default)]
+    pub directory_receipt: Option<String>,
 }
 
 /// The device's signing material, sealed under the seed-derived `BackupWrapKey`.

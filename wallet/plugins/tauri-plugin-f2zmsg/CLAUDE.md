@@ -25,14 +25,16 @@ fails `wallet/zuuli/scripts/messaging-contract.node-test.mjs`, which asserts the
 absence rather than trusting it.
 
 **4. Do not make the directory resolve without a real log.** `KtDirectory` is
-`KT.md` §8 over HTTPS through `f2z-kt-client` and it is real. `NoDirectory` is
-still the **default**, because a client cannot be configured without the log's
-identity, its signing key, the shipped witness list and *t* — and `KT.md` §12
-has decided none of them, which is why `WitnessSet` has no `Default` either.
-Inventing one so the shipping build resolves something would be inventing it for
-every user at the point where being wrong *is* the MITM (§6.4, §9 rule 5). The
-two-process harness substitutes the resolution from outside the crate, which is
-why it is a test binary.
+`KT.md` §8 over HTTPS through `f2z-kt-client` and it is real. The only way a
+shipping build gets one is `internal-directory.conf` (ADR 0017): a checked-in,
+compiled-in file for the **disposable internal** log, which **fails closed**
+while any value is `PLACEHOLDER`. Otherwise `NoDirectory` is the default,
+because `KT.md` §12 has not decided a public log's identity, witnesses or *t*,
+and `WitnessSet` has no `Default` either. Do not add an environment override,
+a remote config, or an "independent" flag to that file: each would let
+something other than a reviewed diff decide who verifies keys (§6.4, §9 rule 5).
+The two-process harness substitutes the resolution from outside the crate,
+which is why it is a test binary.
 
 **5. Never use a `KeyPackage` a relay handed you without checking it.**
 `WIRE.md` §12.6 puts a device's pool at its relay, keyed by the `contact_addr`

@@ -24,7 +24,7 @@ const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 // changed. This digest remains the exact selector tripwire; changing it alone
 // cannot bypass the independent executable selector and required-job controls.
 const changeDetectorDigest =
-  "8cf5f67cc6216df39f05b31515a952b38550bea8e99910f1adb7578e92ab002a";
+  "b51c9d646d8388a0fe0c04e103d47e99baf3cad525a96f7345d06f629f64f2ef";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
@@ -69,13 +69,15 @@ function namedStep(jobContents, name) {
 /// messaging plugin links six of these and takes a seventh as a
 /// dev-dependency; a change to any of them changes the wallet's own build, and
 /// before the selector named them an `rs/` change that broke the wallet would
-/// have skipped the entire ZUULI suite.
+/// have skipped the entire ZUULI suite. ZUULI names `f2z-authority` directly
+/// since ADR 0017 (it pre-checks handle assertions, and `f2z-msg-identity`
+/// signs that crate's binding).
 ///
 /// It must be **exactly** these, and not `rs/crates/*`: `f2z-relay`,
-/// `f2z-relay-store`, `f2z-kt`, `f2z-witness` and `f2z-authority` are server
-/// crates the wallet does not link, and selecting the whole ZUULI gate for a
-/// relay change is the over-selection `check-github-actions-pins.mjs`'s
-/// frontend-build contract already refuses.
+/// `f2z-relay-store`, `f2z-kt` and `f2z-witness` are server crates the wallet
+/// does not link, and selecting the whole ZUULI gate for a relay change is the
+/// over-selection `check-github-actions-pins.mjs`'s frontend-build contract
+/// already refuses.
 function linkedRsCrates(root = repoRoot) {
   const manifests = execFileSync("git", ["ls-files", "--", "wallet/**/Cargo.toml"], {
     cwd: root,

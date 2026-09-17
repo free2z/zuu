@@ -151,6 +151,7 @@ pub mod error;
 pub mod pin;
 pub mod resolve;
 pub mod standing;
+pub mod submit;
 pub mod transport;
 pub mod wire;
 
@@ -166,13 +167,14 @@ pub use error::{ClientError, Result};
 pub use pin::{HandlePin, PinStore};
 pub use resolve::{AbsentAnswer, Authorization, PinOutcome, Resolution, ResolvedHandle, Vouching};
 pub use standing::WitnessStanding;
+pub use submit::{Expected, PATH_SUBMIT, SubmitTransport, submit};
 pub use transport::{Detached, Transport};
 pub use wire::{
     CONTENT_TYPE, PATH_AUTHORITY, PATH_DESCRIPTOR, PATH_HISTORY, PATH_LOOKUP, PATH_STH,
 };
 
 #[cfg(feature = "verifier")]
-pub use client::{ClientConfig, KtClient, MAX_EPOCH_CATCHUP};
+pub use client::{ClientConfig, KtClient, MAX_EPOCH_CATCHUP, Opened};
 
 #[cfg(feature = "http")]
 pub use transport::HttpTransport;

@@ -8,9 +8,10 @@ edition.workspace = true
 # it cannot drift. Not inherited: that check reads this literal line.
 rust-version = "1.97"
 # Permissive, deliberately and explicitly, so clients and third-party relays
-# can eventually share the same assertion verifier. This experimental crate is
-# currently a standalone leaf: no browser, ZUULI, or log package depends on it
-# yet. The AGPL-3.0 boundary starts at server binaries, not here. Stated
+# can share the same assertion verifier. The log verifies with it, and since
+# ADR 0017 `f2z-msg-identity` signs its binding and ZUULI pre-checks
+# assertions with it. The AGPL-3.0 boundary starts at server binaries, not
+# here. Stated
 # literally rather than inherited so it is visible to anyone opening the
 # crate; rs/deny.toml enforces it.
 license = "MIT"

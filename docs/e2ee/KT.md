@@ -2734,7 +2734,11 @@ Deliberately, and listed rather than invented.
   the existing one, and belongs in an ADR and a two-implementation agreement
   the way §4.5's `HandleAssertion` was, not invented to close a documentation
   defect. Named, not designed.
-- **The authority key's own distribution and rotation.** §4.6 publishes the
+- **The authority key's own distribution and rotation.** *For the disposable
+  internal directory only*, [ADR 0017](./decisions/0017-internal-directory-activation.md)
+  pins the key in the build (`handle_authority_pk`) and ratifies `f2z-authority`'s
+  `HandleAssertion` bytes as Contract C, with shared test vectors. Rotation,
+  and distribution for a public log, remain open. §4.6 publishes the
   authority set in a document signed by the log, which is not a trust root —
   exactly the caveat §9.1 states for `reset_authority_pk`, and the same
   unanswered question §1.2 already lists for the reset authority key. Rotation is
@@ -2746,13 +2750,21 @@ Deliberately, and listed rather than invented.
   placeholders chosen to make silence detectable, not measured answers.
 - **The default *t*, the shipped witness list, and what makes a witness
   independent** — [§13-Q](./ARCHITECTURE.md#13-open-questions). §8.3 fixes the
-  rule and the failure mode; the numbers would be an invention.
+  rule and the failure mode; the numbers would be an invention. **Open for any
+  public log.** [ADR 0017](./decisions/0017-internal-directory-activation.md)
+  answers it for one *disposable internal* log only: free2z runs the log and its
+  single witness, *t* = 1, and that witness is configured as **not**
+  independent. Lookups therefore resolve, the independent count stays at zero,
+  and the warning stays visible. The values come from a checked-in file that
+  fails closed, and the log is wiped before public launch.
 - **The client gossip protocol** —
   [§13-R](./ARCHITECTURE.md#13-open-questions). §8.4 defines the evidence and
   stops there.
 - **Reset authority key pinning and its own rotation.**
   [ADR 0014](./decisions/0014-directory-key-rotation.md) requires the key to be
-  pinned in clients and does not say how; nothing anywhere says what happens when
+  pinned in clients and did not say how; for the internal directory
+  [ADR 0017](./decisions/0017-internal-directory-activation.md) pins it in the
+  build (`reset_authority_pk`), and for a public log the question stands; nothing anywhere says what happens when
   that key must itself be replaced. A gap, named.
 - **~~MLS `KeyPackage` publication and exhaustion~~ — closed 2026-08-26**, and
   not by this document. It was deferred out of

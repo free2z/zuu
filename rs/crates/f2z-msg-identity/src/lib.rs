@@ -150,6 +150,7 @@ pub mod account;
 pub mod blake;
 pub mod credential;
 pub mod device;
+pub mod directory;
 pub mod error;
 pub mod labels;
 pub mod node;
@@ -159,6 +160,7 @@ pub use account::{
 };
 pub use credential::DeviceCredentialRequest;
 pub use device::{DeviceKeys, DeviceSignatureKey, QueueKey};
+pub use directory::{SignedSubmission, SubmissionDraft, publishes_device};
 pub use error::IdentityError;
 pub use node::{
     COIN_TYPE, DEFAULT_ACCOUNT, ExtendedNode, HardenedIndex, PURPOSE, account_node, ckd_hardened,

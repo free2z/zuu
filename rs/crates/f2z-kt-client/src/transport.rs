@@ -275,6 +275,15 @@ impl Transport for HttpTransport {
     }
 }
 
+/// The seed-holding application's half (ADR 0017). The same socket, the same
+/// cleartext refusal, the same §9.5 error handling as every read.
+#[cfg(feature = "http")]
+impl crate::submit::SubmitTransport for HttpTransport {
+    fn submit(&self, envelope: &[u8]) -> Result<Vec<u8>, ClientError> {
+        self.post(crate::submit::PATH_SUBMIT, envelope)
+    }
+}
+
 #[cfg(all(test, feature = "http"))]
 mod tests {
     use std::io::{Read as _, Write as _};

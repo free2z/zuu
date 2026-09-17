@@ -1,4 +1,5 @@
 mod bridge;
+mod directory_publish;
 pub mod intent;
 mod messaging;
 mod oauth;

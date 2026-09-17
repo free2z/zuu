@@ -197,7 +197,7 @@ const TRACKED = [
 ///   `edge`      — a named package in one lockfile resolves a crate on a named
 ///                 line, which is how "they all share this copy" is verified.
 ///   `consumers` — how many packages resolve a crate on a named line. The
-///                 register states these counts ("11 packages, including …"),
+///                 register states these counts ("12 packages, including …"),
 ///                 so they are numbers a reader will trust, and a number nobody
 ///                 re-reads is the thing this file exists to prevent.
 ///
@@ -307,7 +307,7 @@ const HOLDS = [
       { kind: "copies", path: ZUULI_LOCK, versions: ["0.21.7", "0.22.1", "0.23.1"] },
       { kind: "edge", path: ZUULI_LOCK, from: { name: "zcash_client_backend" }, on: "0.22" },
       { kind: "edge", path: ZUULI_LOCK, from: { name: "zip321" }, on: "0.22" },
-      { kind: "consumers", path: ZUULI_LOCK, on: "0.22", count: 11, rowClaim: true },
+      { kind: "consumers", path: ZUULI_LOCK, on: "0.22", count: 12, rowClaim: true },
       /// The island the row says bumping would move us onto, measured so
       /// "for nothing" is a checked statement rather than a rhetorical one.
       { kind: "consumers", path: ZUULI_LOCK, on: "0.23", count: 2 },
