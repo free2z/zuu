@@ -1,5 +1,15 @@
 // Encrypted messages — this app's whole screen.
 //
+// # #1022 — the gap is closed on phones
+//
+// `e2e2z_enrollment_status` reads this device's own store, so the screen now
+// knows whether it is enrolled. An unenrolled phone gets "Enroll with ZUULI"
+// (`./Enrollment.tsx`); a build with no App Link transport (desktop, a browser)
+// still gets the standing "Enrollment happens in the wallet app" state. A chat
+// link (Contract B, `src/lib/chat/chatLink.ts`) fills in first contact once
+// it is available, and waits until then. The history below is kept because it
+// is why every read here ends in a rendered state.
+//
 // Moved from `wallet/zuuli/src/features/messages/index.tsx` in #904 phase 3.
 // The only behavioural change is the enrollment gap: e2e2z holds no wallet
 // seed, so `enrollment.getEnrollmentStatus()` refuses rather than answering,
@@ -41,23 +51,40 @@
 //      command that produced it, because the cost of #973 was not the outage —
 //      it was that a device could not tell anyone which of three calls failed.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   AlertTriangle,
-  KeyRound,
+  Link2,
   Loader2,
+  LockKeyhole,
   Play,
   Power,
   RotateCw,
+  ServerOff,
   ShieldAlert,
   ShieldCheck,
-  Wallet,
+  X,
 } from "lucide-react";
 import { PageHeader } from "../../components/common/PageHeader";
 import { Button } from "../../components/ui/button";
 import { Callout } from "../../components/ui/callout";
 import { Skeleton } from "../../components/ui/skeleton";
 import {
+  chatLinkSnapshot,
+  clearPendingPeer,
+  dismissRejectedChatLink,
+  subscribeChatLinks,
+  type PendingPeer,
+} from "../../lib/chat/chatLink";
+import { ENROLLMENT_STATUS_COMMAND } from "../../lib/enrollment/commands";
+import {
+  deviceSeal,
   enrollment,
   isEnrollmentUnavailable,
   messaging,
@@ -70,34 +97,25 @@ import {
   type EngineState,
   type EngineStatus,
   type EnrollmentStatus,
-  type IneligibilityReason,
 } from "../../lib/messaging/types";
 import { BrowserGuarantee } from "./BrowserGuarantee";
+import { Enrollment, EnrollmentUnavailable } from "./Enrollment";
 import { FirstContact } from "./FirstContact";
 import { Transcript } from "./Transcript";
 
 const STATE_COPY: Record<EngineState, string> = {
-  uninitialized: "No wallet, or the engine has not started.",
-  ineligible: "This account's username cannot be a messaging handle.",
-  "not-enrolled": "Eligible, with no directory entry yet.",
+  uninitialized: "The engine has not started.",
+  ineligible: "This handle cannot be a messaging handle.",
+  "not-enrolled": "This device is not enrolled yet.",
   enrolling: "Submitted to the directory, waiting for the log to merge it.",
   locked:
-    "Enrolled, but the seed is unavailable, so local history stays sealed.",
+    "Enrolled, but this device's secure storage has not opened local history yet.",
   starting: "Connecting to relays.",
   running: "Connected.",
   degraded:
     "Connected, with relays unreachable or the witness threshold unmet.",
   stopped: "Stopped. Local history is untouched.",
   faulted: "Stopped by an error that needs you to act before restarting.",
-};
-
-const INELIGIBILITY_COPY: Record<IneligibilityReason, string> = {
-  punctuation:
-    "A messaging handle cannot contain a dot, an at sign, a plus or a hyphen.",
-  "non-ascii":
-    "A messaging handle can only use the characters a to z, 0 to 9, and the underscore.",
-  "too-long": "A messaging handle can be at most 30 characters long.",
-  "not-signed-in": "Sign in to see whether your username can be a handle.",
 };
 
 /** A running state, in §6.1's sense: degraded still sends and receives. */
@@ -183,6 +201,115 @@ function DegradedReads({ failures }: { failures: CallFailure[] }) {
   );
 }
 
+/**
+ * No relay in this build. `tauri-plugin-f2zmsg` reports `relaysConfigured`
+ * straight from its store, and a build nobody gave a relay can reach nobody —
+ * which is the build's problem, not the device's, and the copy says so.
+ */
+function ServiceNotConfigured({ status }: { status: EngineStatus }) {
+  if (status.relaysConfigured > 0) return null;
+  return (
+    <Callout
+      tone="warning"
+      icon={ServerOff}
+      title="Messaging service not configured in this build"
+      data-service-not-configured
+    >
+      This build of e2e2z has no messaging relay set up, so it can't connect to
+      anyone yet. Nothing is wrong with this device, and nothing you do here
+      will fix it: a later build will.
+    </Callout>
+  );
+}
+
+/**
+ * §9 rule 5: never proceed silently below the witness threshold. The owner's
+ * decision for #1022 is a free2z-run log that is also its only witness, so this
+ * is the normal state for now rather than an incident — the copy has to say
+ * what is and is not protected without overclaiming either way.
+ */
+function WitnessWarning({ status }: { status: EngineStatus }) {
+  if (status.witnessThresholdMet) return null;
+  return (
+    <Callout
+      tone="warning"
+      icon={ShieldAlert}
+      title="The directory is not independently witnessed yet"
+    >
+      A log that is also its own only witness can present different answers to
+      different people without leaving evidence. Existing conversations are
+      unaffected, because their keys were checked when they were pinned. What
+      is held back is resolving a new handle and accepting a key change.
+      Comparing safety numbers with someone in person, or over a call you
+      already trust, works regardless and is the strongest check available.
+    </Callout>
+  );
+}
+
+/** A chat link that is waiting for first contact to become available. */
+function PendingPeerNotice({
+  pending,
+  waitingFor,
+}: {
+  pending: PendingPeer | null;
+  waitingFor: "enrollment" | "activation";
+}) {
+  if (!pending) return null;
+  const why =
+    waitingFor === "enrollment"
+      ? "Set up messaging on this device first. The chat opens here as soon as your handle is active."
+      : "It opens here as soon as your handle is active in the directory.";
+  return (
+    <Callout
+      tone="info"
+      icon={Link2}
+      title={`Chat with @${pending.handle} is waiting`}
+      data-pending-peer={pending.handle}
+    >
+      <p>
+        {why} Nothing is sent until you tap Start chat.
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="mt-2"
+        onClick={clearPendingPeer}
+      >
+        <X className="size-4" aria-hidden />
+        Dismiss
+      </Button>
+    </Callout>
+  );
+}
+
+/** A link to the chat route that did not parse. Never acted on. */
+function RejectedChatLink({ rejected }: { rejected: boolean }) {
+  if (!rejected) return null;
+  return (
+    <Callout
+      tone="warning"
+      icon={Link2}
+      title="That chat link didn't work"
+      role="alert"
+      data-chat-link-rejected
+    >
+      <p>
+        The link was incomplete or changed, so e2e2z ignored it. Ask for the
+        link again, or type the person's handle below once messaging is set up.
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="mt-2"
+        onClick={dismissRejectedChatLink}
+      >
+        <X className="size-4" aria-hidden />
+        Dismiss
+      </Button>
+    </Callout>
+  );
+}
+
 function EngineSummary({ status }: { status: EngineStatus }) {
   return (
     <dl className="grid gap-4 sm:grid-cols-3">
@@ -200,7 +327,11 @@ function EngineSummary({ status }: { status: EngineStatus }) {
           {status.relaysConnected} of {status.relaysConfigured}
         </dd>
         <dd className="mt-1 text-sm text-muted-foreground">
-          Connected relays out of those configured.
+          {status.relaysConfigured === 0
+            ? "None configured in this build."
+            : status.relaysConnected === 0
+              ? "Not connected. Start messaging to connect."
+              : "Connected relays out of those configured."}
         </dd>
       </div>
 
@@ -232,6 +363,12 @@ export default function MessagesFeature() {
   const [actionFailure, setActionFailure] = useState<CallFailure | null>(null);
   const [listenFailure, setListenFailure] = useState<CallFailure | null>(null);
   const reconcileGeneration = useRef(0);
+  const chatLinks = useSyncExternalStore(
+    subscribeChatLinks,
+    chatLinkSnapshot,
+    chatLinkSnapshot,
+  );
+  const [unlocking, setUnlocking] = useState(false);
 
   /**
    * Read everything the screen needs, and **end in a rendered state whatever
@@ -249,9 +386,8 @@ export default function MessagesFeature() {
     const [engineResult, enrollmentResult, deviceResult] =
       await Promise.allSettled([
         messaging.getEngineStatus(),
-        // The one call this app cannot make. A refusal is a state to render,
-        // not an error to swallow: anything else here reads as "not enrolled
-        // yet", which is a different and untrue thing.
+        // This device's own store, through the app crate (#1022). A typed
+        // refusal is still a state to render, not an error to swallow.
         enrollment.getEnrollmentStatus(),
         messaging.getDeviceInfo(),
       ]);
@@ -279,7 +415,7 @@ export default function MessagesFeature() {
       if (!isEnrollmentUnavailable(enrollmentResult.reason)) {
         if (superseded()) return;
         setFailure({
-          call: "f2zmsg_enrollment_status",
+          call: ENROLLMENT_STATUS_COMMAND,
           detail: failureDetail(enrollmentResult.reason),
         });
         return;
@@ -499,12 +635,11 @@ export default function MessagesFeature() {
     );
   }
 
-  // The enrollment gap (#904, #905). This app can run the engine, hold device
-  // keys and render everything below — but it cannot claim a handle, because
-  // claiming one means signing with a key derived from the wallet seed
-  // (ARCHITECTURE.md §4.2). Rather than guess, it says so and stops: no claim
-  // control, no conversation list, and nothing that could be read as enrolled.
-  if (!enrolled) {
+  // Not enrolled. Claiming a handle means a signature from a key derived from
+  // the wallet seed (ARCHITECTURE.md §4.2), and this app never holds one, so
+  // ZUULI signs for it (#1022). Nothing here reads as enrolled: no conversation
+  // list, no first contact, until the engine says otherwise.
+  if (!enrolled || !enrolled.enrolled) {
     return (
       <div className="animate-slide-up space-y-6">
         <PageHeader
@@ -512,31 +647,34 @@ export default function MessagesFeature() {
           description="End-to-end encrypted messaging."
         />
 
+        <RejectedChatLink rejected={chatLinks.rejected} />
+        <PendingPeerNotice
+          pending={chatLinks.pending}
+          waitingFor="enrollment"
+        />
+
         <DegradedReads failures={reads} />
+
+        {enrolled && !enrollmentGap ? (
+          <Enrollment onEnrolled={refresh} />
+        ) : (
+          <EnrollmentUnavailable />
+        )}
 
         {device && <BrowserGuarantee device={device} />}
 
+        <ServiceNotConfigured status={status} />
+
         <EngineSummary status={status} />
 
-        <Callout
-          tone="info"
-          icon={Wallet}
-          title="Enrollment happens in the wallet app"
-        >
-          Your messaging handle is published to the key transparency directory
-          under a key derived from your wallet's recovery phrase, and this app
-          never holds that phrase — which is exactly why it is safe to run your
-          conversations here. Claiming a handle, and issuing this device its
-          credential, is done in the wallet app. That handover is not built yet,
-          so nothing here is enrolled and no conversation can start.
-        </Callout>
+        <WitnessWarning status={status} />
       </div>
     );
   }
 
-  const { eligibility } = enrolled;
-  const candidate = eligibility.candidate;
   const running = isRunning(status.state);
+  const active = enrolled.mergedAtEpoch !== null;
+  const locked = status.state === "locked";
 
   return (
     <div className="animate-slide-up space-y-6">
@@ -544,7 +682,7 @@ export default function MessagesFeature() {
         title="Messages"
         description="End-to-end encrypted messaging."
         actions={
-          enrolled.enrolled ? (
+          !locked ? (
             <Button
               variant={running ? "outline" : "default"}
               disabled={busy}
@@ -593,71 +731,84 @@ export default function MessagesFeature() {
 
       <EngineSummary status={status} />
 
-      {/*
-        §9 rule 5: never proceed silently below the witness threshold. On day
-        one free2z runs the only relay and is therefore the only witness, so
-        this is the normal state rather than an incident — the copy has to say
-        what is and is not protected without overclaiming either way.
-      */}
-      {!status.witnessThresholdMet && (
+      <RejectedChatLink rejected={chatLinks.rejected} />
+
+      {locked && (
         <Callout
           tone="warning"
-          icon={ShieldAlert}
-          title="The directory is not independently witnessed yet"
+          icon={LockKeyhole}
+          title="Messages are locked on this device"
+          data-device-locked
         >
-          A log that is also its own only witness can present different answers
-          to different people without leaving evidence. Existing conversations
-          are unaffected, because their keys were checked when they were pinned.
-          What is held back is resolving a new handle and accepting a key
-          change. Comparing safety numbers with someone in person, or over a
-          call you already trust, works regardless and is the strongest check
-          available.
-        </Callout>
-      )}
-
-      {!eligibility.eligible && eligibility.reason && (
-        <Callout tone="info" icon={KeyRound} title="No messaging handle">
-          {INELIGIBILITY_COPY[eligibility.reason]}
-        </Callout>
-      )}
-
-      {eligibility.eligible && !enrolled.enrolled && candidate && (
-        <div className="space-y-4 rounded-xl border border-border bg-card p-6">
-          <div>
-            <h2 className="font-medium text-foreground">Claim your handle</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Your handle is published to the key transparency directory so
-              other people can find your keys. It is derived from your username.
-            </p>
-          </div>
-          <p className="mono-id text-lg text-foreground">@{candidate}</p>
+          <p>
+            This device is enrolled, but its secure storage hasn't opened your
+            local history yet. That usually clears once the device is unlocked.
+            Your messages and keys are untouched.
+          </p>
           <Button
-            disabled={busy}
-            onClick={() =>
-              void run("f2zmsg_enroll", () => enrollment.enroll(candidate))
-            }
-            aria-label={`Claim the handle ${candidate}`}
+            variant="outline"
+            size="sm"
+            className="mt-2"
+            disabled={unlocking || busy}
+            onClick={() => {
+              setUnlocking(true);
+              void run("e2e2z_retry_device_unlock", deviceSeal.retryUnlock).finally(
+                () => setUnlocking(false),
+              );
+            }}
           >
-            {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
-            Claim @{candidate}
+            {unlocking ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <LockKeyhole className="size-4" aria-hidden />
+            )}
+            Unlock
           </Button>
-        </div>
-      )}
-
-      {enrolled.enrolled && enrolled.mergedAtEpoch === null && (
-        <Callout tone="info" icon={Loader2} title="Submitted, not yet active">
-          The directory merges new entries at an epoch boundary, so your handle
-          is not resolvable by other people until that happens. There is no
-          deadline to show you here, and nothing to retry.
         </Callout>
       )}
 
-      {enrolled.enrolled && enrolled.mergedAtEpoch !== null && (
+      <ServiceNotConfigured status={status} />
+
+      <WitnessWarning status={status} />
+
+      {!active && (
+        <PendingPeerNotice
+          pending={chatLinks.pending}
+          waitingFor="activation"
+        />
+      )}
+
+      {!active && (
+        <Callout
+          tone="info"
+          icon={Loader2}
+          title="Submitted, not yet active"
+          data-enrollment-submitted
+        >
+          <p>
+            This device is enrolled as{" "}
+            <span className="mono-id">@{enrolled.handle}</span>. The directory
+            merges new entries at an epoch boundary, so other people can't find
+            your handle until that happens. There is no deadline to show you
+            here, and nothing to retry.
+          </p>
+          {enrolled.blocked ? (
+            <p className="mt-2 text-muted-foreground">
+              What the engine reports holding it back:{" "}
+              <span className="mono-id break-words">{enrolled.blocked}</span>
+            </p>
+          ) : null}
+        </Callout>
+      )}
+
+      {active && (
         <FirstContact
           engineRunning={running}
           witnessThresholdMet={status.witnessThresholdMet}
           onConversation={selectConversation}
           onStateChanged={reconcile}
+          prefill={chatLinks.pending}
+          onPrefillApplied={clearPendingPeer}
         />
       )}
 
@@ -702,7 +853,7 @@ export default function MessagesFeature() {
         </div>
       )}
 
-      {enrolled.enrolled && enrolled.mergedAtEpoch !== null && (
+      {active && (
         <Callout tone="success" icon={ShieldCheck} title="Handle active">
           <span className="mono-id">@{enrolled.handle}</span> is published in
           the directory.

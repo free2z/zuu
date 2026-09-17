@@ -428,4 +428,80 @@ describe("ZUULI first contact", () => {
     );
     expect(container.textContent).toContain("@newcomer");
   });
+
+  // Contract B (#1022): a chat link fills the field and does nothing else.
+  describe("a chat-link prefill", () => {
+    it("fills the handle, reports it applied, and never starts a conversation", async () => {
+      const onPrefillApplied = vi.fn();
+      await renderFirstContact({
+        prefill: { handle: "alice_123", sequence: 1 },
+        onPrefillApplied,
+      });
+      const input = container.querySelector("input") as HTMLInputElement;
+      expect(input.value).toBe("alice_123");
+      expect(onPrefillApplied).toHaveBeenCalledTimes(1);
+      expect(container.textContent).toContain("Filled in from a chat link");
+      expect(container.textContent).toContain("Nothing has been sent");
+      // Settle every queued read. A prefill must not become a send.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(controls.startConversation).not.toHaveBeenCalled();
+      expect(button("Start chat").disabled).toBe(false);
+    });
+
+    it("still needs the same gates as a typed handle", async () => {
+      await renderFirstContact({
+        engineRunning: false,
+        prefill: { handle: "alice", sequence: 1 },
+      });
+      expect(button("Start chat").disabled).toBe(true);
+      await act(async () => submit());
+      expect(controls.startConversation).not.toHaveBeenCalled();
+    });
+
+    it("sends only when the person submits, and only the linked handle", async () => {
+      await renderFirstContact({ prefill: { handle: "alice", sequence: 1 } });
+      expect(controls.startConversation).not.toHaveBeenCalled();
+      await act(async () => submit());
+      await vi.waitFor(() =>
+        expect(controls.startConversation).toHaveBeenCalledWith("alice"),
+      );
+      expect(controls.startConversation).toHaveBeenCalledTimes(1);
+    });
+
+    it("applies a second delivery, but not a re-render of the first", async () => {
+      const onPrefillApplied = vi.fn();
+      const base = {
+        engineRunning: true,
+        witnessThresholdMet: true,
+        onConversation: vi.fn(),
+        onStateChanged: vi.fn(async () => {}),
+        onPrefillApplied,
+      };
+      await act(async () =>
+        root.render(
+          <FirstContact {...base} prefill={{ handle: "alice", sequence: 1 }} />,
+        ),
+      );
+      await enterHandle("typed_by_hand");
+      await act(async () =>
+        root.render(
+          <FirstContact {...base} prefill={{ handle: "alice", sequence: 1 }} />,
+        ),
+      );
+      const input = container.querySelector("input") as HTMLInputElement;
+      expect(input.value).toBe("typed_by_hand");
+      expect(container.textContent).not.toContain("Filled in from a chat link");
+
+      await act(async () =>
+        root.render(
+          <FirstContact {...base} prefill={{ handle: "bob", sequence: 2 }} />,
+        ),
+      );
+      expect(input.value).toBe("bob");
+      expect(onPrefillApplied).toHaveBeenCalledTimes(2);
+      expect(controls.startConversation).not.toHaveBeenCalled();
+    });
+  });
 });

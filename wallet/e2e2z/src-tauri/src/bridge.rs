@@ -3,10 +3,18 @@
 //!
 //! # Why the renderer does not open the link itself
 //!
-//! It cannot: `@tauri-apps/plugin-opener` is not a dependency here, and adding
-//! it means granting `opener:*` in a capability file that
-//! `surface-capability-authority.mjs` audits. An app-crate command needs no
-//! capability, which is why the other three commands here are app-crate too.
+//! This command is a **validation point, not a boundary.** Both capability
+//! files grant `opener:default`, which includes `allow-default-urls`, so a
+//! renderer that bundled `@tauri-apps/plugin-opener` could open an `https`
+//! URL — including the authority's — without coming through here. What this
+//! command adds is that the one path the app actually uses builds the URL
+//! itself: the destination is a constant, and the payload is checked to be
+//! hex before it is interpolated into a fragment the authority parses.
+//!
+//! The authority does not rely on this. It re-validates every request it
+//! receives (`wallet/zuuli/src-tauri/src/bridge.rs`), and the answer comes back
+//! only over this app's own verified App Link, whichever way the request left.
+//! An app-crate command needs no capability entry, which is why it is one.
 //!
 //! # A string is not a URL
 //!

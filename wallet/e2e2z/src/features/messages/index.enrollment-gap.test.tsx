@@ -170,7 +170,8 @@ describe("the messages screen without enrollment authority", () => {
     );
     expect(container.querySelector("[data-messages-failure]")).not.toBe(null);
     expect(container.querySelector("[data-messages-loading]")).toBe(null);
-    expect(container.textContent).toContain("f2zmsg_enrollment_status");
+    // The app-crate read that replaced the refused trio member (#1022).
+    expect(container.textContent).toContain("e2e2z_enrollment_status");
     expect(container.textContent).toContain("engine-not-running");
   });
 

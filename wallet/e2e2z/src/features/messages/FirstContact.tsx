@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Ban, Loader2, MessageCirclePlus, UserPlus } from "lucide-react";
+import { Ban, Link2, Loader2, MessageCirclePlus, UserPlus } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Callout } from "../../components/ui/callout";
 import { Input } from "../../components/ui/input";
@@ -13,11 +13,25 @@ import {
   type ErrorCode,
 } from "../../lib/messaging/types";
 
+/** A handle a chat link asked to open (Contract B, #1022). */
+export interface FirstContactPrefill {
+  readonly handle: string;
+  /** Changes on every delivery, so the same link opened twice applies twice. */
+  readonly sequence: number;
+}
+
 interface FirstContactProps {
   engineRunning: boolean;
   witnessThresholdMet: boolean;
   onConversation: (conversation: Conversation) => void;
   onStateChanged: () => Promise<void>;
+  /**
+   * Fill the handle in, and do nothing else. A chat link carries no authority,
+   * so it never starts a conversation: the person taps "Start chat" or not.
+   */
+  prefill?: FirstContactPrefill | null;
+  /** The prefill is now in the field. */
+  onPrefillApplied?: () => void;
 }
 
 function refusalCode(error: unknown): ErrorCode {
@@ -115,8 +129,13 @@ export function FirstContact({
   witnessThresholdMet,
   onConversation,
   onStateChanged,
+  prefill = null,
+  onPrefillApplied,
 }: FirstContactProps) {
   const [handle, setHandle] = useState("");
+  const [linkedHandle, setLinkedHandle] = useState<string | null>(null);
+  const handleInput = useRef<HTMLInputElement>(null);
+  const appliedPrefill = useRef<number | null>(null);
   const [requests, setRequests] = useState<ContactRequest[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<ErrorCode | null>(null);
@@ -201,6 +220,22 @@ export function FirstContact({
     };
   }, [loadRequests, reconcileAfterSignal]);
 
+  // Contract B. Only the field changes; `start` still needs a tap, and the
+  // same gates as a typed handle.
+  const prefillSequence = prefill?.sequence ?? null;
+  const prefillHandle = prefill?.handle ?? null;
+  useEffect(() => {
+    if (prefillSequence === null || prefillHandle === null) return;
+    if (appliedPrefill.current === prefillSequence) return;
+    appliedPrefill.current = prefillSequence;
+    setHandle(prefillHandle);
+    setLinkedHandle(prefillHandle);
+    const input = handleInput.current;
+    input?.scrollIntoView?.({ block: "center" });
+    input?.focus?.({ preventScroll: true });
+    onPrefillApplied?.();
+  }, [onPrefillApplied, prefillHandle, prefillSequence]);
+
   const canEstablish = engineRunning && witnessThresholdMet;
   const validHandle = HANDLE_PATTERN.test(handle);
 
@@ -231,6 +266,7 @@ export function FirstContact({
       const conversation = await messaging.startConversation(handle);
       onConversation(conversation);
       setHandle("");
+      setLinkedHandle(null);
     });
   }, [canEstablish, handle, onConversation, run, validHandle]);
 
@@ -281,6 +317,7 @@ export function FirstContact({
             Messaging handle
           </label>
           <Input
+            ref={handleInput}
             id="first-contact-handle"
             value={handle}
             onChange={(event) => setHandle(event.target.value)}
@@ -302,6 +339,20 @@ export function FirstContact({
             {busy === "start" ? "Computing on this device…" : "Start chat"}
           </Button>
         </form>
+
+        {linkedHandle !== null && handle === linkedHandle && busy !== "start" ? (
+          <p
+            className="mt-2 flex items-start gap-1.5 text-sm text-muted-foreground"
+            data-first-contact-from-link
+          >
+            <Link2 className="mt-0.5 size-4 shrink-0" aria-hidden />
+            <span>
+              Filled in from a chat link. Nothing has been sent. Check that{" "}
+              <span className="mono-id text-foreground">@{linkedHandle}</span>{" "}
+              is who you expect, then tap Start chat.
+            </span>
+          </p>
+        ) : null}
 
         {busy === "start" ? (
           <p

@@ -15,6 +15,8 @@
 
 import { toHex } from "@free2z/wallet-shared";
 
+import { ENROLLMENT_STATUS_COMMAND } from "./commands";
+
 import {
   EngineStatusSchema,
   EnrollmentStatusSchema,
@@ -24,6 +26,9 @@ import {
 
 /** The app-crate install command. No `plugin:` prefix — §2.2. */
 export const INSTALL_DEVICE_CREDENTIAL_COMMAND = "e2e2z_install_device_credential";
+
+/** The app-crate enrollment read. Declared in `./commands`; see there. */
+export { ENROLLMENT_STATUS_COMMAND } from "./commands";
 
 /** The app-crate unlock-retry command. */
 export const RETRY_DEVICE_UNLOCK_COMMAND = "e2e2z_retry_device_unlock";
@@ -141,4 +146,22 @@ export async function retryDeviceUnlock(): Promise<EngineStatus> {
     throw new DeviceCredentialInstallError(String(cause), { cause });
   }
   return parseUnlockResult(answer);
+}
+
+/**
+ * What this device's engine says about its own enrollment.
+ *
+ * Parsed, never composed: every field is the engine's. A refusal is rethrown
+ * as the engine sent it (a bare §8 code string) so the screen can name it.
+ */
+export async function readEnrollmentStatus(): Promise<EnrollmentStatus> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const answer: unknown = await invoke(ENROLLMENT_STATUS_COMMAND);
+  const parsed = EnrollmentStatusSchema.safeParse(answer);
+  if (!parsed.success) {
+    throw new Error(
+      `${ENROLLMENT_STATUS_COMMAND} answered something that is not an enrollment status: ${parsed.error.message}`,
+    );
+  }
+  return parsed.data;
 }
