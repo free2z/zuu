@@ -1,8 +1,11 @@
 # The ZUULI authority side
 
-**Status:** `execute-payment` implemented and mutation-verified.
-`sign-challenge` and `issue-device-credential` **deliberately not implemented**.
-Still no transport — see [`PROTOCOL.md` §7](./PROTOCOL.md#7-what-is-blocked-on-461).
+**Status:** `execute-payment`, `issue-device-credential` (#1019) and
+`issue-device-credential-v2` (ADR 0017 §4.1) implemented and mutation-verified.
+`sign-challenge` **deliberately not implemented**. The transport is the verified
+App Link #977 landed — see
+[`PROTOCOL.md` §7.1](./PROTOCOL.md#71-what-has-landed-of-461-and-what-has-not)
+for what that does and does not yet prove.
 
 Issues: [#905](https://github.com/free2z/zuu/issues/905),
 [#904](https://github.com/free2z/zuu/issues/904),
@@ -80,6 +83,51 @@ was never able to tell the difference.
 So both other families are **admitted by the gate and refused by this surface**,
 with `INTENT_UNKNOWN_INTENT`. That status is not a lie: this build genuinely does
 not implement them.
+
+### 3.1 The two credential families, and what publishing adds
+
+`issue-device-credential` (family 2) issues a `DeviceCredential` and publishes
+nothing, because it cannot: the `DirectoryEntry` that would publish the device
+carries the `contact_addr` the **relay** issued to that device, and nothing in a
+version-1 request says what it is.
+
+`issue-device-credential-v2` (family 4) carries it, and then this surface does
+the rest: it establishes whose handle the request names — from the entry the log
+already publishes under this wallet's identity, or from Contract C's
+`HandleAssertion` verified against the bundled authority key — shows a
+confirmation naming **that** handle, and only on approval issues the credential,
+signs the entry with the seed-derived `DirectoryAuthKey`, submits it and verifies
+the log's receipt. The credential is answered **only** if the log admitted the
+entry, so a refusal leaves the requesting app with nothing to install rather than
+with a credential nobody can find.
+
+Two orderings are worth stating because they differ from every other path here:
+
+- **The account's public identity is derived before the dialog.** A publication
+  names a handle, and every source for a handle that is not the caller is keyed
+  by this account's identity key. So the public half is derived first and
+  everything else dropped; the signing keys are read only after the approval.
+  ADR 0017 §4.1 records the cost: a registered caller can cause one `POST` to
+  the handle authority, with the user's own session, before the user has agreed
+  to anything.
+- **The session is a write-only native slot.** An intent arrives from the
+  operating system, so there is no argument for a Knox token to ride on, and a
+  renderer-supplied session *per intent* would let the WebView name the account
+  an inbound request is answered under. `src-tauri/src/session.rs` holds one
+  slot the WebView publishes into and nothing reads back over IPC.
+
+#### The publish confirmation, field by field
+
+| Line | Source | Caller can influence? |
+|---|---|---|
+| "Another app asked ZUULI to add a device to your messaging account." | literal | no |
+| `Requesting app:` / `Identity:` | **our** registry, and `CallerTrust` | no |
+| `Its stated reason, in its own words:` | the request's `purpose` | yes — quoted and escaped |
+| "This device will be **PUBLISHED** … under `@handle`" | the authority's signed assertion, or the entry the log proved | no — the request's own handle field never reaches the screen, and a mismatch is a refusal |
+| "free2z's handle authority signed for … just now" / "already published under this wallet's messaging identity" | which of the two sources answered | no |
+| `Your account already publishes N device(s).` | the verified predecessor | no |
+| `First contact … will be delivered at <host>` | the request's `contact_relay_url`, as a **host** | yes — which is why it is shown |
+| the wiretap paragraph | literal | no |
 
 ## 4. The confirmation, field by field
 
@@ -197,6 +245,23 @@ list says how much that is worth and why it is not exploitable today. Both halve
 `rs/crates/f2z-intent/src/error.rs` and `wallet/shared/src/intent/error.ts` — and
 the density/stability test moved its "unknown status" probe from 12 to 13.
 
+### `INTENT_HANDLE_UNAVAILABLE` (13), added with family 4
+
+The publishing path can fail for one reason the caller can act on and the wallet
+can state with certainty: the handle is not the signed-in free2z account's — no
+session in ZUULI, no bound messaging handle, or a different handle. It is
+decided before anything is issued or submitted, so a caller may say nothing
+happened, and the person's next step is in ZUULI. Every other publication
+failure is `INTENT_UNAVAILABLE`, under §6.2's rule: a submission whose answer
+was lost may still merge.
+
+It carries no detail, like every other refusal, and it is no new oracle: an
+answer reaches only the registered caller's own verified reply link, and a
+messaging handle is the account's public username. Both halves of the protocol
+were updated — `rs/crates/f2z-intent/src/error.rs` and
+`wallet/shared/src/intent/error.ts` — and the density/stability test moved its
+"unknown status" probe from 13 to 14.
+
 An **ambiguous** broadcast (`BroadcastStatus::Unknown`) is reported as
 `INTENT_UNAVAILABLE` and not as a fulfilled payment. The wallet retains the exact
 bytes for `retry_pending_send`; telling the caller a txid landed when it may not
@@ -223,8 +288,10 @@ cargo test --locked --manifest-path wallet/zuuli/src-tauri/Cargo.toml
 # for each row: patch, cargo test --lib <test> -- --exact, restore
 ```
 
-Baseline: **48 tests green** in `wallet/zuuli/src-tauri` — 26 of them new, in
-`intent::tests` — and 63 still green in `f2z-intent`.
+Baseline: **88 tests green** in `wallet/zuuli/src-tauri` — 36 in
+`intent::tests` and 18 in `directory_publish::tests` — and 69 in `f2z-intent` (38 unit, 25 conformance, 6 wire vectors).
+The rows below are `execute-payment`'s; ADR 0017 §4.1's publishing path has its
+own table in [`CONFORMANCE.md`](./CONFORMANCE.md).
 
 | Guard, as mutated | Test that must fail | Result |
 |---|---|---|

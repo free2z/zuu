@@ -834,6 +834,7 @@ dependencies = [
  "akd_core",
  "f2z-authority",
  "f2z-codec",
+ "f2z-intent",
  "f2z-kt",
  "f2z-kt-core",
  "f2z-msg-identity",

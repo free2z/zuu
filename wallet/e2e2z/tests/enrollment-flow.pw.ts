@@ -15,12 +15,15 @@ import {
   IPHONE_USER_AGENT,
   hostRecord,
   installNativeHost,
+  mergeAt,
   unmockedBaseUrl,
   type HostOptions,
 } from "./support/nativeHost";
 
 const NOT_CONFIRMED = 9;
 const UNAVAILABLE = 12;
+/** ADR 0017 §4.1's refusal: the handle is not the signed-in account's. */
+const HANDLE_UNAVAILABLE = 13;
 
 const hexOf = (text: string) =>
   [...new TextEncoder().encode(text)]
@@ -113,6 +116,74 @@ test.describe("enroll with ZUULI", () => {
     // so the engine can refuse one signed for anyone else.
     expect(installs[0]?.["expectedHandle"]).toBe("alice");
     expect(installs[0]?.["credential"]).toBe("c0ffee00");
+  });
+
+  test("carries the endpoint it opened, and goes active only when the log has merged", async ({
+    page,
+    baseURL,
+  }) => {
+    await open(page, baseURL);
+    await startEnrollment(page);
+
+    // ADR 0017 §4.1: the queue is opened before the request leaves, and the
+    // request carries the address the relay issued.
+    const { dispatched } = await hostRecord(page);
+    expect(dispatched[0]).toContain(hexOf("wss://relay.free2z.com/relay/v1"));
+    expect(dispatched[0]).toContain("44".repeat(32));
+    // Family 4: `issue-device-credential-v2`. version(2) + length(3) + intent.
+    expect(dispatched[0]?.slice(10, 14)).toBe("0004");
+
+    await answer(page, 0);
+    await expect(page.getByText("Submitted, not yet active")).toBeVisible();
+    await expect(page.getByText("Handle active")).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "Start a conversation" }),
+    ).toHaveCount(0);
+
+    // The log merges the entry at an epoch boundary. Nothing tells this device;
+    // it re-reads, and the screen moves on its own.
+    await mergeAt(page, 12);
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(page.getByText("Handle active")).toBeVisible();
+    await expect(page.getByText("is published in the directory")).toBeVisible();
+    await expect(page.getByText("Submitted, not yet active")).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "Start a conversation" }),
+    ).toBeVisible();
+  });
+
+  test("says whose handle it is when ZUULI cannot vouch for this one", async ({
+    page,
+    baseURL,
+  }) => {
+    await open(page, baseURL);
+    await startEnrollment(page);
+    await answer(page, HANDLE_UNAVAILABLE);
+    await expect(
+      page.getByText("ZUULI couldn't confirm @alice is yours"),
+    ).toBeVisible();
+    await expect(
+      page.getByText("claim your messaging handle if you haven't yet", {
+        exact: false,
+      }),
+    ).toBeVisible();
+    // Nothing was installed, and nothing claims a submission.
+    expect((await hostRecord(page)).installs).toHaveLength(0);
+    await expect(page.getByText("Submitted, not yet active")).toHaveCount(0);
+  });
+
+  test("stops before asking when this build has no relay to be reached at", async ({
+    page,
+    baseURL,
+  }) => {
+    await open(page, baseURL, { keysError: "relay-unreachable" });
+    await page.getByLabel("Your free2z username").fill("alice");
+    await page.getByRole("button", { name: "Enroll with ZUULI" }).click();
+    await expect(
+      page.getByText("This build has no messaging service"),
+    ).toBeVisible();
+    await expect(page.getByText("relay-unreachable")).toBeVisible();
+    expect((await hostRecord(page)).dispatched).toHaveLength(0);
   });
 
   test("says so when the person declines in ZUULI", async ({ page, baseURL }) => {

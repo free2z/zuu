@@ -54,7 +54,7 @@ function fulfilled(requestId: Uint8Array): Uint8Array {
   const payload = [...be(CREDENTIAL.length, 3), ...CREDENTIAL];
   const body = [
     ...requestId,
-    ...be(IntentFamily.IssueDeviceCredential, 2),
+    ...be(IntentFamily.IssueDeviceCredentialV2, 2),
     ...be(0, 2),
     ...be(payload.length, 3),
     ...payload,
@@ -100,6 +100,9 @@ function installTauriHost(
           return Promise.resolve({
             devicePk: DEVICE_PK_HEX,
             deviceKemPk: KEM_HEX,
+            contactRelayUrl: "wss://relay.free2z.com/relay/v1",
+            contactRelayId: "33".repeat(32),
+            contactAddr: "44".repeat(32),
           });
         }
         if (cmd === INSTALL_DEVICE_CREDENTIAL_COMMAND && install === "accept") {
@@ -159,7 +162,7 @@ describe("enroll builds a real intent and still cannot enroll", () => {
     const decoded = decodeIntentRequest(sent[0] as Uint8Array);
     expect(decoded.ok).toBe(true);
     if (!decoded.ok) return;
-    expect(decoded.value.intent).toBe(IntentFamily.IssueDeviceCredential);
+    expect(decoded.value.intent).toBe(IntentFamily.IssueDeviceCredentialV2);
     expect(decoded.value.caller).toBe(E2E2Z_CALLER);
     expect(decoded.value.purpose).toBe(ISSUE_DEVICE_CREDENTIAL_PURPOSE);
   });

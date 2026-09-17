@@ -83,11 +83,19 @@ signed credential, and offers a seed-free unlock retry. A repeated install
 cannot overwrite an enrolled device's key; an already-unlocked retry preserves
 the engine's running state. The wire result still contains only credential bytes.
 
-**Enrollment is still unavailable in shipping builds.** ADR 0016 §6 leaves
-`device_kem_pk` unresolved, and e2e2z cannot publish its own device yet.
-[ADR 0017](e2ee/decisions/0017-internal-directory-activation.md) §4.1 names
-the missing request field. The UI retains its wallet-app enrollment refusal
-and does not synthesize an enrolled status.
+**The whole enrollment round trip now exists**, and no shipping build can run
+it. e2e2z opens its contact queue at the relay, sends
+`issue-device-credential-v2` with the endpoint the relay issued, and ZUULI —
+after a native confirmation that names the handle **free2z's authority signed**
+and says the device will be PUBLISHED — issues the credential, signs and submits
+the `DirectoryEntry`, and verifies the log's receipt
+([ADR 0017](e2ee/decisions/0017-internal-directory-activation.md) §4.1). e2e2z
+installs the credential only if that succeeded, and reaches "Handle active"
+only from its **own** verified lookup. What stops it in a shipping build is the
+configuration: `internal-directory.conf` holds placeholders, so there is no
+relay to open a queue at and no log to publish to, and enrollment refuses with
+`relay-unreachable`. ADR 0016 §6 still leaves `device_kem_pk` unresolved. The UI
+synthesizes no enrolled status on any path.
 
 ### 2.4 The directory is wired, and ships unconfigured
 
@@ -130,10 +138,21 @@ Tested **without** a real log, in the plugin's and ZUULI's own unit tests:
 - e2e2z keeps its "not independently witnessed" warning while fewer than two
   independent witnesses cosign, and says so when the directory is unusable.
 
+Also implemented and tested against a real log, witness and relay
+(ADR 0017 §4.1): a real `IssueDeviceCredentialRequestV2` admitted by the real
+intent gate, the wallet's submission of another app's device, that device
+finding its own key published at the address the relay issued, and a stranger
+who knew only the handle claiming a key package there.
+
 Not yet available:
 
-- The backend endpoint and the deployed services do not exist.
-- No ZUULI screen calls `f2zmsg_enroll`.
+- The backend endpoint and the deployed services do not exist, so every build
+  from this source still has no relay and no log.
+- No ZUULI screen calls `f2zmsg_enroll`, so ZUULI's **own** device is still
+  unpublished; an e2e2z device does not need it.
+- A handle's *first* entry needs a signed-in free2z session in ZUULI, which the
+  WebView publishes to a write-only native slot
+  (`wallet/zuuli/src-tauri/src/session.rs`).
 - Nothing has run against a deployed log or on a device.
 
 ## 3. What is blocked
@@ -141,9 +160,9 @@ Not yet available:
 | Work | Current disposition |
 | --- | --- |
 | Cross-app transport and caller authentication | Unimplemented; #905 and [caller-authentication decisions](intent-bridge/CALLER-AUTHENTICATION.md). No shipping dispatch path |
-| Credential issuance through the intent authority | `INTENT_UNKNOWN_INTENT`; an E2E2Z install command does not issue a credential |
+| Credential issuance through the intent authority | Implemented for both credential families (#1019, ADR 0017 §4.1); `sign-challenge` is still `INTENT_UNKNOWN_INTENT`. Unreachable in shipping builds, which have no configured relay or log |
 | Messaging KEM/directory deployment | ADR 0016 §6 remains open. The internal directory's configuration is decided (ADR 0017), but its values are placeholders until the log, witness, relay and handle-assertion endpoint are deployed. A public directory's witness policy remains undecided |
-| e2e2z directory publication | Needs the requesting device's contact endpoint in the credential request (ADR 0017 §4.1) and an engine entry point that opens the contact queue before install |
+| e2e2z directory publication | Implemented: `IssueDeviceCredentialRequestV2` carries the endpoint, `prepare_device_with_endpoint` opens the queue before install, and ZUULI signs, submits and verifies the receipt. Blocked only on the deployment — and on observation, since none of it has run against a deployed log |
 | Signed-device acceptance | Internal distribution supplies builds for observation; physical install, wallet and OS-link evidence remain separate requirements |
 | Public release and broader tester rollout | Deferred while the readiness matrix contains unresolved operations and store-presentation gaps |
 

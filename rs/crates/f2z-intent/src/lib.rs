@@ -113,11 +113,12 @@ pub use ledger::IntentLedger;
 pub use session::{AcceptedResponse, IntentSession};
 pub use text::{MAX_TEXT_BYTES, VisibleText, escape_layout_controls, is_forbidden};
 pub use wire::{
-    ExecutePaymentRequestV1, ExecutePaymentResultV1, Intent, IntentBody, IntentRequest,
-    IntentRequestEnvelope, IntentRequestV1, IntentResponseEnvelope, IntentResponseV1,
-    IssueDeviceCredentialRequestV1, IssueDeviceCredentialResultV1, LABEL_INTENT_REQUEST,
-    MAX_CHALLENGE_BYTES, MAX_INTENT_LIFETIME_MS, RequestId, SignChallengeRequestV1,
-    SignChallengeResultV1, TxId, decode_response, encode_request, encode_response,
+    CONTACT_RELAY_SCHEME, ExecutePaymentRequestV1, ExecutePaymentResultV1, Intent, IntentBody,
+    IntentRequest, IntentRequestEnvelope, IntentRequestV1, IntentResponseEnvelope,
+    IntentResponseV1, IssueDeviceCredentialRequestV1, IssueDeviceCredentialRequestV2,
+    IssueDeviceCredentialResultV1, LABEL_INTENT_REQUEST, MAX_CHALLENGE_BYTES,
+    MAX_INTENT_LIFETIME_MS, RequestId, SignChallengeRequestV1, SignChallengeResultV1, TxId,
+    decode_response, encode_request, encode_response,
 };
 
 /// The protocol version this crate implements.

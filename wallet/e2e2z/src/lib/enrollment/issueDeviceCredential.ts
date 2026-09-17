@@ -48,7 +48,7 @@ import {
   IntentFamily,
   createIntentSession,
   decodeIssueDeviceCredentialResult,
-  encodeIssueDeviceCredentialPayload,
+  encodeIssueDeviceCredentialV2Payload,
   intentErrorName,
   intentFamilyName,
   newRequestId,
@@ -183,11 +183,15 @@ export interface DeviceCredentialClientOptions {
 /** The client half of `issue-device-credential`. */
 export interface DeviceCredentialClient {
   /**
-   * Ask the wallet authority to issue this device a credential for `handle`.
+   * Ask the wallet authority to issue this device a credential for `handle`
+   * **and publish it in the directory** (ADR 0017 §4.1).
    *
    * Resolves with the credential's canonical bytes — opaque here on purpose:
    * it is a `f2z_kt_core::DeviceCredential`, defined once in that crate, and
-   * the layer that installs it is the one that validates it.
+   * the layer that installs it is the one that validates it. A fulfilled
+   * answer means the wallet also submitted this device's directory entry and
+   * verified the log's receipt; a refusal means it did not, and this app
+   * installs nothing.
    *
    * @throws {@link IntentTransportUnavailableError} in every shipping build.
    * @throws {@link IntentRefusedError} when the protocol refuses either half.
@@ -213,7 +217,7 @@ export function createDeviceCredentialClient(
   const transportOf = options.transport ?? intentTransport;
   const readKeys = options.readKeys ?? readDeviceCredentialKeys;
   const now = options.now ?? (() => Date.now());
-  const family = intentFamilyName(IntentFamily.IssueDeviceCredential);
+  const family = intentFamilyName(IntentFamily.IssueDeviceCredentialV2);
 
   return {
     get pending(): number {
@@ -231,15 +235,21 @@ export function createDeviceCredentialClient(
         throw new IntentTransportUnavailableError(family);
       }
 
+      // `readKeys` has already opened this device's contact queue: the entry
+      // that publishes the device carries the relay-issued address, and the
+      // wallet authority cannot know it (ADR 0017 §4.1).
       const keys = await readKeys();
       const issuedAtMs = now();
       const payload = orRefuse(
-        encodeIssueDeviceCredentialPayload({
+        encodeIssueDeviceCredentialV2Payload({
           handle,
           devicePublicKey: keys.devicePublicKey,
           deviceKemPublicKey: keys.deviceKemPublicKey,
           notBeforeMs: Math.max(0, issuedAtMs - CREDENTIAL_BACKDATE_MS),
           notAfterMs: issuedAtMs + CREDENTIAL_LIFETIME_MS,
+          contactRelayUrl: keys.contactRelayUrl,
+          contactRelayId: keys.contactRelayId,
+          contactAddr: keys.contactAddr,
         }),
         "request",
       );
@@ -251,7 +261,7 @@ export function createDeviceCredentialClient(
       const encoded = orRefuse(
         session.issue(
           {
-            intent: IntentFamily.IssueDeviceCredential,
+            intent: IntentFamily.IssueDeviceCredentialV2,
             requestId,
             caller: E2E2Z_CALLER,
             purpose: ISSUE_DEVICE_CREDENTIAL_PURPOSE,
@@ -292,7 +302,7 @@ export function createDeviceCredentialClient(
       // record rather than from the reply, and refuses a family mismatch; this
       // costs nothing and means a future change to that tagging cannot quietly
       // route another family's payload into a credential.
-      if (accepted.intent !== IntentFamily.IssueDeviceCredential) {
+      if (accepted.intent !== IntentFamily.IssueDeviceCredentialV2) {
         throw new IntentRefusedError("response", IntentErrorCode.Unsolicited);
       }
 

@@ -21,6 +21,8 @@
  * | `not-registered`   | ZUULI does not recognise this app as a caller          |
  * | `link-failed`      | the platform would not open ZUULI's link               |
  * | `handle-mismatch`  | the credential names another handle (ADR 0016 §4)      |
+ * | `handle-unavailable` | ZUULI could not establish the handle is this account's |
+ * | `no-relay`         | this device has no relay, so no address to publish     |
  * | `durability`       | this device cannot keep a wrap key                     |
  * | `unknown-outcome`  | ZUULI answered a status this build cannot read         |
  * | `defect`           | anything else, with the detail kept for a bug report   |
@@ -38,6 +40,8 @@ export type EnrollmentFailureKind =
   | "not-registered"
   | "link-failed"
   | "handle-mismatch"
+  | "handle-unavailable"
+  | "no-relay"
   | "durability"
   | "unknown-outcome"
   | "defect";
@@ -129,8 +133,14 @@ export function classifyEnrollmentFailure(error: unknown): EnrollmentFailure {
       return { kind: "link-failed", detail };
     case "intent-status-unknown":
       return { kind: "unknown-outcome", detail };
-    case "device-keys-unavailable":
-      return { kind: "defect", detail };
+    case "device-keys-unavailable": {
+      // The one refusal from this step a person can act on: the build has no
+      // relay, so the device has no address to publish (ADR 0017 §4.1).
+      const code = engineCode(record.cause) ?? engineCode(detail);
+      return code === "relay-unreachable"
+        ? { kind: "no-relay", detail: code }
+        : { kind: "defect", detail };
+    }
     case "intent-refused": {
       const code = record.code as IntentErrorCode;
       const name = intentErrorName(code);
@@ -147,6 +157,11 @@ export function classifyEnrollmentFailure(error: unknown): EnrollmentFailure {
         if (code === IntentErrorCode.CallerNotAuthorized) {
           return { kind: "not-registered", detail: name };
         }
+        if (code === IntentErrorCode.HandleUnavailable) {
+          // ADR 0017 §4.1: no free2z session in ZUULI, no bound handle on that
+          // account, or a different handle. Nothing was issued or published.
+          return { kind: "handle-unavailable", detail: name };
+        }
       }
       return { kind: "defect", detail: name };
     }
@@ -157,6 +172,9 @@ export function classifyEnrollmentFailure(error: unknown): EnrollmentFailure {
   const code = engineCode(cause);
   if (code === "durability-unavailable") {
     return { kind: "durability", detail: code };
+  }
+  if (code === "relay-unreachable" && !installFailed) {
+    return { kind: "no-relay", detail: code };
   }
   if (code === "handle-ineligible" && installFailed) {
     return { kind: "handle-mismatch", detail: code };

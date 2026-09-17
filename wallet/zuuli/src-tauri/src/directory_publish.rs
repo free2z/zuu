@@ -58,16 +58,20 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
 use f2z_authority::{
-    AuthorityConfig, AuthoritySet, EntryKind, Handle as AuthorityHandle, LogId as AuthorityLogId,
-    NonceLedger, Submission,
+    AuthorityConfig, AuthorityError, AuthorityKey, AuthoritySet, EntryKind,
+    Handle as AuthorityHandle, HandleAssertion, Intent as AssertionIntent, LogId as AuthorityLogId,
+    NonceLedger, Submission, VerifyingKey,
 };
 use f2z_codec::canonical::decode_canonical;
 use f2z_codec::types::{PublicKey, QueueAddress, RelayId, ShortBytes};
 use f2z_kt_core::api::SubmissionEnvelope;
 use f2z_kt_core::entry::{ContactEndpoint, DeviceCredential};
+use f2z_kt_core::receipt::SubmissionReceipt;
 use f2z_kt_core::types::{Handle, LogId};
 use f2z_msg_identity::{AccountKeys, SignedSubmission, SubmissionDraft};
-use tauri_plugin_f2zmsg::engine::DirectoryPublication;
+use f2z_msg_store::StorageBackend;
+use tauri_plugin_f2zmsg::directory::{SubmissionExpectation, VerifiedEntry};
+use tauri_plugin_f2zmsg::engine::{DeviceEndpoint, DirectoryPublication, Engine};
 use tauri_plugin_f2zmsg::error::{Error, Result};
 use tauri_plugin_f2zmsg::internal_directory::InternalDirectory;
 use tauri_plugin_f2zmsg::models::ErrorCode;
@@ -311,43 +315,276 @@ pub fn draft_for<'a>(
         contact_addr: QueueAddress::new(publication.contact_addr),
     };
 
-    let published = publication.predecessor.as_ref().map(|found| &found.entry);
-    let mut devices = vec![credential];
-    let mut contact_endpoints = vec![endpoint];
-    let mut revocations = Vec::new();
-    if let Some(previous) = published {
-        devices.extend(
-            previous
-                .entry
-                .devices
-                .as_slice()
-                .iter()
-                .filter(|existing| {
-                    existing.credential.device_pk.as_bytes() != &publication.device_pk
-                })
-                .cloned(),
-        );
-        contact_endpoints.extend(
-            previous
-                .entry
-                .contact_endpoints
-                .as_slice()
-                .iter()
-                .filter(|existing| existing.contact_addr.as_bytes() != &publication.contact_addr)
-                .cloned(),
-        );
-        revocations.extend(previous.entry.revocations.as_slice().iter().cloned());
+    // The list building is `f2z-msg-identity`'s, so ZUULI's own enrollment and
+    // a device it publishes for another app cannot disagree about what adding
+    // one does to the devices already published.
+    Ok(SubmissionDraft::adding_device(
+        LogId::new(internal.log_id),
+        handle,
+        credential,
+        endpoint,
+        publication.predecessor.as_ref().map(|found| &found.entry),
+        now_ms,
+    ))
+}
+
+/// Ask the handle authority to bind `identity_pk`, and refuse an answer for a
+/// handle other than `expected` (ADR 0017 §5.1's precheck rule 6, stated in
+/// plainer words than the signed bytes would give).
+///
+/// # Errors
+///
+/// [`status_refusal`]'s codes; `handle-ineligible` when the account's handle is
+/// not the one being enrolled.
+pub async fn fetch_assertion(
+    client: &HandleAssertionClient,
+    knox_token: &str,
+    identity_pk: &[u8; 32],
+    expected: &str,
+) -> Result<IssuedAssertion> {
+    let issued = client.fetch(knox_token, identity_pk).await?;
+    if issued.handle != expected {
+        return Err(Error::new(
+            ErrorCode::HandleIneligible,
+            format!(
+                "the free2z account's handle is {:?}, but this device enrolled {:?}",
+                issued.handle, expected
+            ),
+        ));
+    }
+    Ok(issued)
+}
+
+/// The handle the **authority signed**, from an assertion this build's bundled
+/// authority key verifies.
+///
+/// A subset of the log's rules ([`precheck`] runs the rest, over the signed
+/// submission), chosen for one job: the confirmation a human approves must
+/// name a handle that a key this build trusts vouched for, rather than one the
+/// requesting app wrote. It is checked **before** the dialog because a dialog
+/// that named the request's handle would be asking the user to approve a claim
+/// nobody made.
+///
+/// # Errors
+///
+/// `handle-ineligible`, naming which of the rules failed.
+pub fn vouched_handle(
+    internal: &InternalDirectory,
+    issued: &IssuedAssertion,
+    identity_pk: &[u8; 32],
+    now_ms: u64,
+) -> Result<String> {
+    let refuse = |why: String| Error::new(ErrorCode::HandleIneligible, why);
+    let assertion = decode_canonical::<HandleAssertion>(&issued.bytes)
+        .map_err(|error| refuse(format!("the assertion does not decode: {error}")))?
+        .into_value();
+    let body = &assertion.assertion;
+    if body.log_id.as_bytes() != &internal.log_id {
+        return Err(refuse("the assertion is for another log".to_owned()));
+    }
+    if body.identity_pk.as_bytes() != identity_pk {
+        return Err(refuse(
+            "the assertion binds another messaging identity".to_owned(),
+        ));
+    }
+    if body.intent != AssertionIntent::Bind {
+        return Err(refuse("the assertion is not a binding".to_owned()));
+    }
+    if body.expires_ms <= body.issued_ms
+        || body.expires_ms.saturating_sub(body.issued_ms) > f2z_authority::DEFAULT_MAX_VALIDITY_MS
+        || now_ms >= body.expires_ms
+        || body.issued_ms.saturating_sub(now_ms) > f2z_authority::DEFAULT_CLOCK_SKEW_MS
+    {
+        return Err(refuse("the assertion is not valid now".to_owned()));
+    }
+    let bundled = AuthorityKey::new(PublicKey::new(internal.handle_authority_pk));
+    if body.authority_id != bundled.id() {
+        return Err(refuse(
+            "the assertion is signed by an authority this build does not trust".to_owned(),
+        ));
+    }
+    let signing_bytes = body
+        .signing_bytes()
+        .map_err(|error| refuse(format!("the assertion will not re-encode: {error}")))?;
+    VerifyingKey::from_public_key(&bundled.key(), AuthorityError::BadAuthoritySignature)
+        .and_then(|key| {
+            key.verify(
+                &signing_bytes,
+                &assertion.signature,
+                AuthorityError::BadAuthoritySignature,
+            )
+        })
+        .map_err(|error| {
+            refuse(format!(
+                "the authority's signature does not verify: {error}"
+            ))
+        })?;
+    // `Handle`'s charset is a type invariant, so this is a `&str` already.
+    Ok(body.handle.as_str().to_owned())
+}
+
+/// Everything the wallet has to establish **before** it asks a human whether
+/// to publish a device it did not enroll itself (ADR 0017 §4.1).
+#[derive(Debug)]
+pub struct PublicationPlan {
+    /// The handle, from the authority's signed assertion or from the verified
+    /// entry already published under this wallet's identity — **never** from
+    /// the request.
+    pub handle: String,
+    /// The assertion a first entry carries, `None` for a routine update.
+    pub assertion: Option<IssuedAssertion>,
+    /// The verified entry this one chains to.
+    pub predecessor: Option<VerifiedEntry>,
+}
+
+impl PublicationPlan {
+    /// How many devices the handle already publishes. Shown in the
+    /// confirmation: adding a device to an account is a wiretap
+    /// (`ARCHITECTURE.md`), and how many are already there is part of what a
+    /// human is judging.
+    #[must_use]
+    pub fn published_devices(&self) -> usize {
+        self.predecessor
+            .as_ref()
+            .map_or(0, |found| found.entry.entry.devices.as_slice().len())
     }
 
-    Ok(SubmissionDraft {
-        log_id: LogId::new(internal.log_id),
+    /// Where the authenticated handle came from, for the confirmation's copy.
+    #[must_use]
+    pub const fn handle_is_vouched(&self) -> bool {
+        self.assertion.is_some()
+    }
+}
+
+/// Resolve who this handle belongs to, from the log and the handle authority.
+///
+/// A first entry needs an assertion, so this fetches one and refuses it unless
+/// it is signed, current, for this log, for this identity key, and for the
+/// handle the requesting app asked for. A handle the log already publishes
+/// under **this wallet's** identity key is stronger evidence than any
+/// assertion — the seed proved it — so no assertion is fetched for an update,
+/// and a handle published under another identity is refused outright.
+///
+/// # Errors
+///
+/// `handle-ineligible` when the handle is not this account's, when no free2z
+/// session is signed in, or when the assertion does not verify; the directory's
+/// lookup errors; [`status_refusal`]'s codes.
+pub async fn plan_publication<B: StorageBackend>(
+    internal: &InternalDirectory,
+    engine: &Engine<B>,
+    client: &HandleAssertionClient,
+    identity_pk: &[u8; 32],
+    requested_handle: &str,
+    knox_token: Option<&str>,
+    now_ms: u64,
+) -> Result<PublicationPlan> {
+    Handle::new(requested_handle.as_bytes().to_vec()).map_err(|_| {
+        Error::new(
+            ErrorCode::HandleIneligible,
+            format!("{requested_handle:?} is not a directory handle"),
+        )
+    })?;
+    let predecessor = engine.lookup_published_entry(requested_handle).await?;
+    if let Some(published) = predecessor {
+        if published.entry.entry.identity_pk.as_bytes() != identity_pk {
+            return Err(Error::new(
+                ErrorCode::HandleIneligible,
+                format!(
+                    "{requested_handle:?} is published under another messaging identity; \
+                     this wallet cannot add a device to it"
+                ),
+            ));
+        }
+        return Ok(PublicationPlan {
+            handle: String::from_utf8_lossy(published.entry.entry.handle.as_slice()).into_owned(),
+            assertion: None,
+            predecessor: Some(published),
+        });
+    }
+
+    let token = knox_token.ok_or_else(|| {
+        Error::new(
+            ErrorCode::HandleIneligible,
+            "publishing a first directory entry needs a signed-in free2z session in this wallet",
+        )
+    })?;
+    let issued = fetch_assertion(client, token, identity_pk, requested_handle).await?;
+    let handle = vouched_handle(internal, &issued, identity_pk, now_ms)?;
+    if handle != requested_handle {
+        return Err(Error::new(
+            ErrorCode::HandleIneligible,
+            format!("the authority signed {handle:?}, not {requested_handle:?}"),
+        ));
+    }
+    Ok(PublicationPlan {
         handle,
-        devices,
-        revocations,
-        contact_endpoints,
-        predecessor: published,
-        created_at_ms: now_ms,
+        assertion: Some(issued),
+        predecessor: None,
     })
+}
+
+/// The device this wallet is about to vouch for in the directory.
+///
+/// One value rather than three arguments, because the three only ever travel
+/// together: a credential, the key it binds, and where that key receives first
+/// contact.
+#[derive(Debug)]
+pub struct DeviceToPublish {
+    /// The `DeviceCredential` this wallet just issued, canonically encoded.
+    pub credential: Vec<u8>,
+    /// `DSK.public`, as the requesting device generated it.
+    pub device_pk: [u8; 32],
+    /// The contact queue the requesting device opened.
+    pub endpoint: DeviceEndpoint,
+}
+
+/// Sign the entry that adds `device` at its endpoint, submit it, and return the
+/// log's verified receipt (ADR 0017 §4.1).
+///
+/// The same signing, prechecking and submitting `f2zmsg_enroll` does for this
+/// wallet's own device — [`draft_for`], [`sign`], [`precheck`] — with the
+/// receipt kept against the *issuing* wallet rather than against an identity
+/// this engine does not hold.
+///
+/// # Errors
+///
+/// `internal` if the credential does not match the plan; `handle-ineligible`
+/// when the precheck refuses; the log's refusals.
+pub async fn publish_device<B: StorageBackend>(
+    internal: &InternalDirectory,
+    engine: &Engine<B>,
+    account: &AccountKeys,
+    plan: &PublicationPlan,
+    device: DeviceToPublish,
+    now_ms: u64,
+) -> Result<SubmissionReceipt> {
+    let publication = DirectoryPublication {
+        handle: plan.handle.clone(),
+        identity_pk: *account.identity.public().as_bytes(),
+        device_pk: device.device_pk,
+        credential: device.credential,
+        relay_url: device.endpoint.relay_url,
+        relay_id: device.endpoint.relay_id,
+        contact_addr: device.endpoint.contact_addr,
+        predecessor: plan.predecessor.clone(),
+    };
+    let draft = draft_for(internal, &publication, now_ms)?;
+    let assertion = plan.assertion.as_ref().map(|issued| issued.bytes.clone());
+    let signed = sign(account, &publication, &draft, assertion.as_deref())?;
+    if let Some(assertion) = &assertion {
+        precheck(internal, &signed, assertion, now_ms)?;
+    }
+    engine
+        .submit_entry_for_device(
+            signed.envelope.clone(),
+            SubmissionExpectation {
+                handle: plan.handle.clone(),
+                entry_version: signed.entry_version(),
+                entry_digest: *signed.entry_digest.as_bytes(),
+            },
+        )
+        .await
 }
 
 /// Run the log's own assertion rules on a signed first entry before sending
@@ -440,7 +677,6 @@ mod tests {
     use f2z_codec::canonical::Canonical as _;
     use f2z_kt_core::types::KemPublicKey;
     use f2z_msg_identity::DeviceCredentialRequest;
-    use tauri_plugin_f2zmsg::directory::VerifiedEntry;
 
     const NOW: u64 = 1_758_067_200_000;
     const AUTHORITY_SEED: [u8; 32] = [0x21; 32];
@@ -760,5 +996,460 @@ mod tests {
             let (.., outcome) = exchange(status, answer, [0; 32]);
             assert_eq!(outcome.unwrap_err().code(), code, "HTTP {status}");
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Publishing a device this wallet did not enroll (ADR 0017 §4.1).
+    // ------------------------------------------------------------------
+
+    /// A log that publishes whatever it is told to, and records what it was
+    /// asked. The real one is `KtDirectory`; what these tests are about is the
+    /// wallet's half, and a real log has its own suite in
+    /// `rs/crates/f2z-kt-client/tests`.
+    #[derive(Default)]
+    struct FakeLog {
+        published: std::sync::Mutex<Option<VerifiedEntry>>,
+        submitted: std::sync::Mutex<Vec<SubmissionExpectation>>,
+        refuse_with: Option<ErrorCode>,
+    }
+
+    impl tauri_plugin_f2zmsg::directory::Directory for FakeLog {
+        fn resolve(
+            &self,
+            _handle: &str,
+        ) -> Result<tauri_plugin_f2zmsg::models::DirectoryResolution> {
+            Err(Error::internal("not under test"))
+        }
+
+        fn resolve_identity(
+            &self,
+            _handle: &str,
+        ) -> Result<tauri_plugin_f2zmsg::directory::ResolvedIdentity> {
+            Err(Error::internal("not under test"))
+        }
+
+        fn resolve_peer(
+            &self,
+            _handle: &str,
+        ) -> Result<tauri_plugin_f2zmsg::directory::ResolvedPeer> {
+            Err(Error::internal("not under test"))
+        }
+
+        fn independent_witnesses(&self) -> u32 {
+            0
+        }
+
+        fn threshold_met(&self) -> bool {
+            true
+        }
+
+        fn is_configured(&self) -> bool {
+            true
+        }
+
+        fn lookup_entry(&self, _handle: &str) -> Result<Option<VerifiedEntry>> {
+            Ok(self.published.lock().unwrap().clone())
+        }
+
+        fn submit(
+            &self,
+            _envelope: &[u8],
+            expected: &SubmissionExpectation,
+        ) -> Result<SubmissionReceipt> {
+            if let Some(code) = self.refuse_with {
+                return Err(Error::new(code, "refused by the fake log"));
+            }
+            self.submitted.lock().unwrap().push(expected.clone());
+            Ok(SubmissionReceipt {
+                receipt: f2z_kt_core::receipt::SubmissionReceiptTBS {
+                    label: f2z_kt_core::receipt::SubmissionReceiptTBS::label_bytes().unwrap(),
+                    kt_version: f2z_kt_core::KT_VERSION,
+                    log_id: LogId::new(internal().log_id),
+                    handle: Handle::new(expected.handle.as_bytes().to_vec()).unwrap(),
+                    entry_version: expected.entry_version,
+                    entry_hash: f2z_codec::types::Digest::new(expected.entry_digest),
+                    received_at_ms: NOW,
+                    merge_by_ms: NOW + 60_000,
+                },
+                signature: f2z_codec::types::Signature::new([0; 64]),
+            })
+        }
+    }
+
+    fn engine_over(log: std::sync::Arc<FakeLog>) -> Engine<f2z_msg_store::MemoryBackend> {
+        Engine::new(
+            f2z_msg_store::MemoryBackend::new(),
+            std::sync::Arc::new(tauri_plugin_f2zmsg::events::NullSink),
+            tauri_plugin_f2zmsg::models::Platform::ZuuliDesktop,
+        )
+        .unwrap()
+        .with_directory(log as std::sync::Arc<dyn tauri_plugin_f2zmsg::directory::Directory>)
+    }
+
+    fn endpoint_at(address: u8) -> DeviceEndpoint {
+        DeviceEndpoint {
+            relay_url: "wss://relay.internal.example/relay/v1".to_owned(),
+            relay_id: [0x77; 32],
+            contact_addr: [address; 32],
+        }
+    }
+
+    /// A credential for a device this wallet is vouching for, as `intent.rs`
+    /// issues one.
+    fn credential_for(account: &AccountKeys, device: u8) -> Vec<u8> {
+        let credential = account
+            .identity
+            .issue_device_credential(&DeviceCredentialRequest {
+                handle: Handle::new(b"alice".to_vec()).unwrap(),
+                device_pk: PublicKey::new([device; 32]),
+                device_kem_pk: KemPublicKey::new(vec![9]).unwrap(),
+                not_before_ms: NOW - 1,
+                not_after_ms: NOW + 1_000_000,
+            })
+            .unwrap();
+        f2z_msg_mls::credential::encode(&credential).unwrap()
+    }
+
+    fn issued(bytes: Vec<u8>, handle: &str) -> IssuedAssertion {
+        IssuedAssertion {
+            bytes,
+            handle: handle.to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_handle_is_read_from_the_authoritys_signature_and_not_from_the_answer() {
+        let account = account();
+        let bytes = assertion_for(account.identity.public(), b"alice", AUTHORITY_SEED);
+        // The JSON's `handle` field is advisory; the signed one is the answer.
+        let lying = issued(bytes.clone(), "mallory");
+        assert_eq!(
+            vouched_handle(
+                &internal(),
+                &lying,
+                account.identity.public().as_bytes(),
+                NOW + 1
+            )
+            .unwrap(),
+            "alice"
+        );
+    }
+
+    #[test]
+    fn an_assertion_that_does_not_verify_names_no_handle() {
+        let account = account();
+        let other = AccountKeys::from_seed(&[0x34; 64], 0).unwrap();
+        let identity_pk = *account.identity.public().as_bytes();
+        let good = assertion_for(account.identity.public(), b"alice", AUTHORITY_SEED);
+
+        let mut forged = good.clone();
+        let last = forged.len() - 1;
+        forged[last] ^= 0x01;
+
+        let cases: [(&str, Vec<u8>, u64); 6] = [
+            (
+                "another authority",
+                assertion_for(account.identity.public(), b"alice", [0x22; 32]),
+                NOW + 1,
+            ),
+            (
+                "another identity",
+                assertion_for(other.identity.public(), b"alice", AUTHORITY_SEED),
+                NOW + 1,
+            ),
+            ("a tampered signature", forged, NOW + 1),
+            ("an expired window", good.clone(), NOW + 60_001),
+            ("a not-yet-issued assertion", good.clone(), NOW - 200_000),
+            (
+                "bytes that are not an assertion",
+                vec![0x01, 0x02, 0x03],
+                NOW + 1,
+            ),
+        ];
+        for (name, bytes, now) in cases {
+            assert_eq!(
+                vouched_handle(&internal(), &issued(bytes, "alice"), &identity_pk, now)
+                    .unwrap_err()
+                    .code(),
+                ErrorCode::HandleIneligible,
+                "{name} must not name a handle"
+            );
+        }
+        // The positive control.
+        assert_eq!(
+            vouched_handle(&internal(), &issued(good, "alice"), &identity_pk, NOW + 1).unwrap(),
+            "alice"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_handle_this_wallet_already_publishes_needs_no_assertion() {
+        let account = account();
+        let first = signed_first(
+            &account,
+            &assertion_for(account.identity.public(), b"alice", AUTHORITY_SEED),
+        );
+        let log = std::sync::Arc::new(FakeLog::default());
+        *log.published.lock().unwrap() = Some(VerifiedEntry {
+            entry: first.entry.clone(),
+            epoch: 7,
+        });
+        let engine = engine_over(std::sync::Arc::clone(&log));
+        // No assertion client can answer here: the URL is not served, and the
+        // plan must not need it.
+        let client = HandleAssertionClient::new("http://127.0.0.1:1/unused").unwrap();
+        let plan = plan_publication(
+            &internal(),
+            &engine,
+            &client,
+            account.identity.public().as_bytes(),
+            "alice",
+            None,
+            NOW,
+        )
+        .await
+        .expect("a published handle plans without an assertion");
+        assert_eq!(plan.handle, "alice");
+        assert!(!plan.handle_is_vouched());
+        assert_eq!(plan.published_devices(), 1);
+
+        // Publishing chains to it, keeps the published device, and the log's
+        // receipt is what comes back.
+        let receipt = publish_device(
+            &internal(),
+            &engine,
+            &account,
+            &plan,
+            DeviceToPublish {
+                credential: credential_for(&account, 0x21),
+                device_pk: [0x21; 32],
+                endpoint: endpoint_at(0x21),
+            },
+            NOW,
+        )
+        .await
+        .expect("the log admitted it");
+        assert_eq!(receipt.receipt.entry_version, 2);
+        assert_eq!(log.submitted.lock().unwrap()[0].handle, "alice".to_owned());
+    }
+
+    #[tokio::test]
+    async fn a_handle_published_under_another_identity_is_refused_before_anything_is_asked() {
+        let stranger = AccountKeys::from_seed(&[0x99; 64], 0).unwrap();
+        let theirs = signed_first(
+            &stranger,
+            &assertion_for(stranger.identity.public(), b"alice", AUTHORITY_SEED),
+        );
+        let log = std::sync::Arc::new(FakeLog::default());
+        *log.published.lock().unwrap() = Some(VerifiedEntry {
+            entry: theirs.entry.clone(),
+            epoch: 3,
+        });
+        let engine = engine_over(log);
+        let client = HandleAssertionClient::new("http://127.0.0.1:1/unused").unwrap();
+        let mine = account();
+        assert_eq!(
+            plan_publication(
+                &internal(),
+                &engine,
+                &client,
+                mine.identity.public().as_bytes(),
+                "alice",
+                Some("knox-token"),
+                NOW,
+            )
+            .await
+            .unwrap_err()
+            .code(),
+            ErrorCode::HandleIneligible,
+        );
+    }
+
+    #[tokio::test]
+    async fn a_first_entry_needs_a_session_and_an_assertion_for_the_handle_asked_for() {
+        let account = account();
+        let engine = engine_over(std::sync::Arc::new(FakeLog::default()));
+        let client = HandleAssertionClient::new("http://127.0.0.1:1/unused").unwrap();
+        // Signed out: refused before any request leaves the process.
+        assert_eq!(
+            plan_publication(
+                &internal(),
+                &engine,
+                &client,
+                account.identity.public().as_bytes(),
+                "alice",
+                None,
+                NOW,
+            )
+            .await
+            .unwrap_err()
+            .code(),
+            ErrorCode::HandleIneligible,
+        );
+        // …and a handle that is not a handle never reaches the log.
+        assert_eq!(
+            plan_publication(
+                &internal(),
+                &engine,
+                &client,
+                account.identity.public().as_bytes(),
+                "Alice!",
+                Some("knox-token"),
+                NOW,
+            )
+            .await
+            .unwrap_err()
+            .code(),
+            ErrorCode::HandleIneligible,
+        );
+    }
+
+    /// One loopback answer from the handle authority, planned against a log
+    /// that publishes nothing yet.
+    fn plan_against(status: u16, answer: Vec<u8>) -> Result<PublicationPlan> {
+        let account = account();
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let request = server.recv().unwrap();
+            request
+                .respond(tiny_http::Response::from_data(answer).with_status_code(status))
+                .unwrap();
+        });
+        let engine = engine_over(std::sync::Arc::new(FakeLog::default()));
+        let client = HandleAssertionClient::new(&format!(
+            "http://127.0.0.1:{port}/api/kt/handle-assertion/"
+        ))
+        .unwrap();
+        let outcome = tauri::async_runtime::block_on(plan_publication(
+            &internal(),
+            &engine,
+            &client,
+            account.identity.public().as_bytes(),
+            "alice",
+            Some("knox-token"),
+            NOW + 1,
+        ));
+        handle.join().unwrap();
+        outcome
+    }
+
+    #[test]
+    fn contract_cs_refusals_reach_the_plan_as_themselves() {
+        let account = account();
+        let good = serde_json::to_vec(&serde_json::json!({
+            "assertion": URL_SAFE_NO_PAD
+                .encode(assertion_for(account.identity.public(), b"alice", AUTHORITY_SEED)),
+            "handle": "alice",
+            "issued_ms": NOW,
+            "expires_ms": NOW + 60_000,
+        }))
+        .unwrap();
+        let planned = plan_against(200, good).expect("a valid assertion plans a first entry");
+        assert!(planned.handle_is_vouched());
+        assert_eq!(planned.handle, "alice");
+        assert_eq!(planned.published_devices(), 0);
+
+        // An account with no bound handle, and a backend with no authority key.
+        assert_eq!(
+            plan_against(409, br#"{"reason":"handle_unclaimed"}"#.to_vec())
+                .unwrap_err()
+                .code(),
+            ErrorCode::HandleIneligible,
+        );
+        assert_eq!(
+            plan_against(503, b"{}".to_vec()).unwrap_err().code(),
+            ErrorCode::DirectoryUnreachable,
+        );
+        // An assertion for somebody else's handle.
+        let elsewhere = serde_json::to_vec(&serde_json::json!({
+            "assertion": URL_SAFE_NO_PAD
+                .encode(assertion_for(account.identity.public(), b"bob", AUTHORITY_SEED)),
+            "handle": "bob",
+            "issued_ms": NOW,
+            "expires_ms": NOW + 60_000,
+        }))
+        .unwrap();
+        assert_eq!(
+            plan_against(200, elsewhere).unwrap_err().code(),
+            ErrorCode::HandleIneligible,
+        );
+    }
+
+    #[tokio::test]
+    async fn a_log_that_refuses_the_entry_publishes_nothing() {
+        let account = account();
+        let log = std::sync::Arc::new(FakeLog {
+            refuse_with: Some(ErrorCode::DirectoryProtocolViolation),
+            ..FakeLog::default()
+        });
+        let engine = engine_over(std::sync::Arc::clone(&log));
+        let plan = PublicationPlan {
+            handle: "alice".to_owned(),
+            assertion: Some(issued(
+                assertion_for(account.identity.public(), b"alice", AUTHORITY_SEED),
+                "alice",
+            )),
+            predecessor: None,
+        };
+        assert_eq!(
+            publish_device(
+                &internal(),
+                &engine,
+                &account,
+                &plan,
+                DeviceToPublish {
+                    credential: credential_for(&account, 0x21),
+                    device_pk: [0x21; 32],
+                    endpoint: endpoint_at(0x21),
+                },
+                NOW,
+            )
+            .await
+            .unwrap_err()
+            .code(),
+            ErrorCode::DirectoryProtocolViolation,
+        );
+        assert!(log.submitted.lock().unwrap().is_empty());
+    }
+
+    /// The precheck is not skipped on this path: an assertion the log would
+    /// refuse never reaches it.
+    #[tokio::test]
+    async fn an_assertion_the_log_would_refuse_is_caught_before_submission() {
+        let account = account();
+        let log = std::sync::Arc::new(FakeLog::default());
+        let engine = engine_over(std::sync::Arc::clone(&log));
+        let plan = PublicationPlan {
+            handle: "alice".to_owned(),
+            // Signed by an authority this build does not bundle.
+            assertion: Some(issued(
+                assertion_for(account.identity.public(), b"alice", [0x22; 32]),
+                "alice",
+            )),
+            predecessor: None,
+        };
+        assert_eq!(
+            publish_device(
+                &internal(),
+                &engine,
+                &account,
+                &plan,
+                DeviceToPublish {
+                    credential: credential_for(&account, 0x21),
+                    device_pk: [0x21; 32],
+                    endpoint: endpoint_at(0x21),
+                },
+                NOW,
+            )
+            .await
+            .unwrap_err()
+            .code(),
+            ErrorCode::HandleIneligible,
+        );
+        assert!(
+            log.submitted.lock().unwrap().is_empty(),
+            "a precheck that ran after the submission would prove nothing"
+        );
     }
 }

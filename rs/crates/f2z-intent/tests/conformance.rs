@@ -43,7 +43,8 @@ mod common;
 
 use common::{
     CALLER, CALLER_CERT, ISSUED_AT_MS, canonical_request, execute_payment_payload, gate,
-    issue_device_credential_payload, now, registry, request_with_id, sign_challenge_payload,
+    issue_device_credential_payload, issue_device_credential_v2_payload, now, registry,
+    request_with_id, sign_challenge_payload,
 };
 
 /// The wallet's own re-derivation of what it rendered. Opaque to this crate.
@@ -110,6 +111,10 @@ fn every_family_is_admitted_by_the_same_gate() {
             issue_device_credential_payload(),
         ),
         (Intent::ExecutePayment, execute_payment_payload()),
+        (
+            Intent::IssueDeviceCredentialV2,
+            issue_device_credential_v2_payload(),
+        ),
     ] {
         let mut gate = gate();
         let request = request_with_id(intent, payload, [intent.code() as u8; 32]);
@@ -469,7 +474,7 @@ fn a_future_version_body_is_never_parsed_as_version_one() {
 #[test]
 fn an_unknown_intent_family_is_refused_rather_than_reinterpreted() {
     let mut request = canonical_request();
-    for code in [0u16, 4, 9, u16::MAX] {
+    for code in [0u16, 5, 9, u16::MAX] {
         request.intent = code;
         let bytes = encode_request(&request).unwrap();
         assert_eq!(

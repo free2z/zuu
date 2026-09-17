@@ -47,6 +47,7 @@ async fn enrolled_engine() -> Engine<MemoryBackend> {
             credential: f2z_msg_mls::credential::encode(&credential).expect("encode"),
             expected_handle: "alice".to_owned(),
             submitted_at: NOW,
+            submitted_by_issuer: false,
         })
         .await
         .expect("install");

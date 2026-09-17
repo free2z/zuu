@@ -52,6 +52,14 @@ export const IntentErrorCode = {
    * no detail — "insufficient funds" would be a balance oracle.
    */
   Unavailable: 12,
+  /**
+   * The wallet could not establish that the requested handle belongs to the
+   * account it would publish under: no free2z session is signed in there, the
+   * account has no bound messaging handle, or its handle is another one.
+   * `issue-device-credential-v2` only, and always decided before anything is
+   * issued or submitted, so it is a certain "nothing happened".
+   */
+  HandleUnavailable: 13,
 } as const;
 
 /** One of {@link IntentErrorCode}'s values. */
@@ -71,6 +79,7 @@ const NAMES: ReadonlyMap<IntentErrorCode, string> = new Map([
   [IntentErrorCode.CallerNotAuthorized, "INTENT_CALLER_NOT_AUTHORIZED"],
   [IntentErrorCode.Unsolicited, "INTENT_UNSOLICITED"],
   [IntentErrorCode.Unavailable, "INTENT_UNAVAILABLE"],
+  [IntentErrorCode.HandleUnavailable, "INTENT_HANDLE_UNAVAILABLE"],
 ] as const);
 
 /** The stable screaming-snake name for a status, for logs. */

@@ -1356,6 +1356,7 @@ dependencies = [
  "tauri-plugin-deep-link",
  "tauri-plugin-f2zmsg",
  "tauri-plugin-opener",
+ "tracing",
 ]
 
 [[package]]

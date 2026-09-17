@@ -31,13 +31,19 @@ does, but three things it says are no longer the whole story:
 
 - **On iPhone and Android the gap is closed.** The screen offers "Enroll with
   ZUULI" (`src/features/messages/Enrollment.tsx`): it asks the engine whether
-  the typed username can be a handle (`check_handle_eligibility`), sends ZUULI
-  an `issue-device-credential` request over the App Link transport, waits (with
-  cancel, and the request's own two-minute deadline), and installs the answer.
-  Declined, expired, ZUULI not installed or not ready, a credential for another
-  handle (the engine compares it to the handle requested, ADR 0016 §4) and
-  storage that cannot keep a key each get their own words
-  (`src/lib/enrollment/outcome.ts`). The handle shown is labeled as a
+  the typed username can be a handle (`check_handle_eligibility`), **opens this
+  device's contact queue at the relay**, sends ZUULI an
+  `issue-device-credential-v2` request carrying the endpoint the relay issued
+  over the App Link transport, waits (with cancel, and the request's own
+  two-minute deadline), and installs the answer. ZUULI answers that family only
+  after it has published this device in the directory and verified the log's
+  receipt (ADR 0017 §4.1), so an install here means an entry was submitted;
+  "Handle active" still waits for this device's **own** verified lookup.
+  Declined, expired, ZUULI not installed or not ready, a handle the signed-in
+  free2z account does not hold (`INTENT_HANDLE_UNAVAILABLE`), a build with no
+  relay, a credential for another handle (the engine compares it to the handle
+  requested, ADR 0016 §4) and storage that cannot keep a key each get their own
+  words (`src/lib/enrollment/outcome.ts`). The handle shown is labeled as a
   *request*: free2z's directory decides whether it belongs to the account.
 - **The screen reads enrollment.** `e2e2z_enrollment_status` is a seed-free
   app-crate read of this device's store. `enroll` still reaches the wallet
@@ -75,10 +81,13 @@ registers none of the trio and no capability addresses one.
 
 The one command this crate *does* register is
 `e2e2z_device_credential_keys` (`src-tauri/src/device.rs`): the **public**
-halves of this device's key set, which are exactly what an
-`issue-device-credential` request carries. It calls
-`tauri_plugin_f2zmsg::engine::Engine::prepare_device`, which samples from the OS
-CSPRNG, keeps the private halves in that process and hands back nothing else. It
+halves of this device's key set, plus the contact endpoint it just opened, which
+are exactly what an `issue-device-credential-v2` request carries. It calls
+`tauri_plugin_f2zmsg::engine::Engine::prepare_device_with_endpoint`, which
+samples from the OS CSPRNG, opens the contact queue at the relay — the
+`contact_addr` the entry publishes is the relay's to issue, and only this device
+learns it (ADR 0017 §4.1) — keeps the private halves in that process and hands
+back nothing else. It
 is an app-crate command for §2.2's reason — no `plugin:` prefix, no capability
 entry — and it is deliberately not part of the contract's §3 plugin surface,
 because it grants nothing. Generating that keypair in the renderer instead would

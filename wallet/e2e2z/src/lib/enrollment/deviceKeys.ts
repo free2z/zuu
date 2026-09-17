@@ -19,24 +19,43 @@
  * What this file *does* own is distrust of the answer. The command is
  * app-crate, so the response is not covered by the plugin's `ErrorCode`
  * contract or by any zod schema in `../messaging/types.ts`; it is parsed here,
- * to the exact shape `IssueDeviceCredentialRequestV1` needs
+ * to the exact shape `IssueDeviceCredentialRequestV2` needs
  * (`docs/intent-bridge/PROTOCOL.md` §3.3), and refused otherwise.
+ *
+ * ## The endpoint comes back with the keys, and it has to
+ *
+ * ADR 0017 §4.1: the directory entry that publishes this device carries the
+ * relay-issued `contact_addr`, which only the device that opened the queue
+ * knows — so the command opens the contact queue before it returns, and the
+ * request carries the endpoint to the wallet authority. A build with no relay
+ * refuses here, with `relay-unreachable`, rather than enrolling a device
+ * nobody could reach.
  */
 
-import { fromHex } from "@free2z/wallet-shared";
+import {
+  CONTACT_ENDPOINT_KEY_BYTES as ENDPOINT_KEY_BYTES,
+  CONTACT_RELAY_SCHEME,
+  fromHex,
+} from "@free2z/wallet-shared";
 
 /** The wire name of the app-crate command. No `plugin:` prefix — §2.2. */
 export const DEVICE_CREDENTIAL_KEYS_COMMAND = "e2e2z_device_credential_keys";
 
-/** `IssueDeviceCredentialRequestV1.device_pk` is `opaque[32]`. */
+/** `IssueDeviceCredentialRequestV2.device_pk` is `opaque[32]`. */
 export const DEVICE_PUBLIC_KEY_BYTES = 32;
 
-/** The public halves an `issue-device-credential` request carries. */
+/** The public values an `issue-device-credential-v2` request carries. */
 export interface DeviceCredentialKeys {
   /** `DSK.public` — the MLS leaf signature key, exactly 32 bytes. */
   readonly devicePublicKey: Uint8Array;
   /** The X-Wing hybrid KEM public key, opaque and non-empty. */
   readonly deviceKemPublicKey: Uint8Array;
+  /** The relay this device's contact queue was opened at. `wss://`. */
+  readonly contactRelayUrl: string;
+  /** The relay identity that connection authenticated, exactly 32 bytes. */
+  readonly contactRelayId: Uint8Array;
+  /** The relay-issued contact address, exactly 32 bytes. */
+  readonly contactAddr: Uint8Array;
 }
 
 /**
@@ -87,6 +106,9 @@ export function parseDeviceCredentialKeys(value: unknown): DeviceCredentialKeys 
   const record = value as Record<string, unknown>;
   const devicePublicKey = requireHex(record["devicePk"], "devicePk");
   const deviceKemPublicKey = requireHex(record["deviceKemPk"], "deviceKemPk");
+  const contactRelayId = requireHex(record["contactRelayId"], "contactRelayId");
+  const contactAddr = requireHex(record["contactAddr"], "contactAddr");
+  const contactRelayUrl = record["contactRelayUrl"];
   if (devicePublicKey.length !== DEVICE_PUBLIC_KEY_BYTES) {
     throw new DeviceKeysUnavailableError(
       `devicePk is ${devicePublicKey.length} bytes, not ${DEVICE_PUBLIC_KEY_BYTES}`,
@@ -95,16 +117,43 @@ export function parseDeviceCredentialKeys(value: unknown): DeviceCredentialKeys 
   if (deviceKemPublicKey.length === 0) {
     throw new DeviceKeysUnavailableError("deviceKemPk is empty");
   }
-  return { devicePublicKey, deviceKemPublicKey };
+  if (typeof contactRelayUrl !== "string") {
+    throw new DeviceKeysUnavailableError("contactRelayUrl is not a string");
+  }
+  // The scheme is checked here as well as in the encoder, because "this device
+  // has no reachable address" and "this request is malformed" are different
+  // things to tell a person (`./outcome.ts`).
+  if (!contactRelayUrl.startsWith(CONTACT_RELAY_SCHEME)) {
+    throw new DeviceKeysUnavailableError(
+      "contactRelayUrl is not a wss:// relay",
+    );
+  }
+  for (const [name, value] of [
+    ["contactRelayId", contactRelayId],
+    ["contactAddr", contactAddr],
+  ] as const) {
+    if (value.length !== ENDPOINT_KEY_BYTES) {
+      throw new DeviceKeysUnavailableError(
+        `${name} is ${value.length} bytes, not ${ENDPOINT_KEY_BYTES}`,
+      );
+    }
+  }
+  return {
+    devicePublicKey,
+    deviceKemPublicKey,
+    contactRelayUrl,
+    contactRelayId,
+    contactAddr,
+  };
 }
 
 /**
  * Sample this device's keys and read back their public halves.
  *
- * **Not idempotent.** Each call replaces the engine's pending device key set
- * and discards the previous secrets — `prepare_device`'s existing contract. So
- * the enrollment client calls this only once it knows a request can actually be
- * dispatched.
+ * **Not idempotent.** Each call replaces the engine's pending device key set,
+ * discards the previous secrets and opens a fresh contact queue —
+ * `prepare_device_with_endpoint`'s contract. So the enrollment client calls
+ * this only once it knows a request can actually be dispatched.
  *
  * The `@tauri-apps/api/core` import is lazy, matching `../messaging/bridge.ts`,
  * so the browser bundle never requires it.

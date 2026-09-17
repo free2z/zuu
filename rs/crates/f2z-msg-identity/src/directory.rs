@@ -77,6 +77,73 @@ pub struct SubmissionDraft<'a> {
     pub created_at_ms: u64,
 }
 
+impl<'a> SubmissionDraft<'a> {
+    /// The draft that publishes one device: `credential` and `endpoint` go
+    /// **first**, followed by everything `predecessor` already publishes.
+    ///
+    /// First, because a client uses the first endpoint (`ARCHITECTURE.md`
+    /// §13-G, `k = 1`) and the device being enrolled is the one that should
+    /// receive first contact. A predecessor's credential for the same
+    /// `device_pk`, or its endpoint at the same `contact_addr`, is replaced
+    /// rather than repeated, so re-publishing a device is idempotent in shape.
+    /// Revocations are carried forward whole: §4.4 refuses an entry that drops
+    /// one.
+    ///
+    /// The one drafting rule for every enrollment path — ZUULI publishing its
+    /// own device, and ZUULI publishing a device another app asked it to vouch
+    /// for (ADR 0017 §4.1) — so the two cannot disagree about what an added
+    /// device does to the ones already published.
+    ///
+    /// Nothing is checked here beyond that shape; [`AccountKeys::sign_directory_submission`]
+    /// refuses a predecessor that is not this account's, and `KT.md` §4.1's
+    /// rules run when the entry is built.
+    #[must_use]
+    pub fn adding_device(
+        log_id: LogId,
+        handle: Handle,
+        credential: DeviceCredential,
+        endpoint: ContactEndpoint,
+        predecessor: Option<&'a DirectoryEntry>,
+        created_at_ms: u64,
+    ) -> Self {
+        let device_pk = credential.credential.device_pk;
+        let contact_addr = endpoint.contact_addr;
+        let mut devices = alloc::vec![credential];
+        let mut contact_endpoints = alloc::vec![endpoint];
+        let mut revocations = Vec::new();
+        if let Some(previous) = predecessor {
+            devices.extend(
+                previous
+                    .entry
+                    .devices
+                    .as_slice()
+                    .iter()
+                    .filter(|existing| existing.credential.device_pk != device_pk)
+                    .cloned(),
+            );
+            contact_endpoints.extend(
+                previous
+                    .entry
+                    .contact_endpoints
+                    .as_slice()
+                    .iter()
+                    .filter(|existing| existing.contact_addr != contact_addr)
+                    .cloned(),
+            );
+            revocations.extend(previous.entry.revocations.as_slice().iter().cloned());
+        }
+        Self {
+            log_id,
+            handle,
+            devices,
+            revocations,
+            contact_endpoints,
+            predecessor,
+            created_at_ms,
+        }
+    }
+}
+
 /// A signed submission, ready for `POST /kt/v1/submit`.
 #[derive(Clone, PartialEq, Eq)]
 pub struct SignedSubmission {
@@ -500,5 +567,76 @@ mod tests {
             account.sign_directory_submission(&draft(&account, None), Some(&bytes)),
             Err(IdentityError::MalformedCredential)
         );
+    }
+
+    fn endpoint_at(address: u8) -> ContactEndpoint {
+        ContactEndpoint {
+            contact_addr: QueueAddress::new([address; 32]),
+            ..endpoint()
+        }
+    }
+
+    /// The one drafting rule both enrollment paths use: the added device and
+    /// its endpoint first, everything already published after them, nothing
+    /// twice, and every revocation kept.
+    #[test]
+    fn adding_a_device_puts_it_first_and_keeps_what_is_published() {
+        let account = account();
+        let first = account
+            .sign_directory_submission(
+                &SubmissionDraft::adding_device(
+                    log_id(),
+                    handle(),
+                    credential(&account, 0x10),
+                    endpoint_at(0x40),
+                    None,
+                    2_000,
+                ),
+                Some(&assertion(&account)),
+            )
+            .unwrap();
+        assert_eq!(first.entry.entry.devices.as_slice().len(), 1);
+
+        let draft = SubmissionDraft::adding_device(
+            log_id(),
+            handle(),
+            credential(&account, 0x11),
+            endpoint_at(0x41),
+            Some(&first.entry),
+            3_000,
+        );
+        let devices: Vec<[u8; 32]> = draft
+            .devices
+            .iter()
+            .map(|device| *device.credential.device_pk.as_bytes())
+            .collect();
+        assert_eq!(devices, vec![[0x11; 32], [0x10; 32]]);
+        let addresses: Vec<[u8; 32]> = draft
+            .contact_endpoints
+            .iter()
+            .map(|endpoint| *endpoint.contact_addr.as_bytes())
+            .collect();
+        assert_eq!(addresses, vec![[0x41; 32], [0x40; 32]]);
+        let second = account.sign_directory_submission(&draft, None).unwrap();
+        assert_eq!(second.entry_version(), 2);
+
+        // Adding a device that is already published replaces it in place of
+        // repeating it, and moves it first.
+        let again = SubmissionDraft::adding_device(
+            log_id(),
+            handle(),
+            credential(&account, 0x10),
+            endpoint_at(0x40),
+            Some(&second.entry),
+            4_000,
+        );
+        let devices: Vec<[u8; 32]> = again
+            .devices
+            .iter()
+            .map(|device| *device.credential.device_pk.as_bytes())
+            .collect();
+        assert_eq!(devices, vec![[0x10; 32], [0x11; 32]]);
+        assert_eq!(again.contact_endpoints.len(), 2);
+        assert_eq!(again.predecessor, Some(&second.entry));
     }
 }

@@ -50,6 +50,16 @@ describe("classifyEnrollmentFailure", () => {
     // Custody refused at key sampling (a bare code) or at install.
     ["durability", "durability-unavailable"],
     ["durability", installRefused("durability-unavailable")],
+    // ADR 0017 §4.1: ZUULI could not establish the handle is this account's —
+    // no free2z session there, no bound handle, or a different one. Nothing
+    // was issued and nothing was published.
+    [
+      "handle-unavailable",
+      new IntentRefusedError("response", IntentErrorCode.HandleUnavailable),
+    ],
+    // This build has no relay, so the device has no address to publish and the
+    // key command refused before anything was sampled.
+    ["no-relay", "relay-unreachable"],
   ] as const)("reads %s", (kind, cause) => {
     expect(classifyEnrollmentFailure(wrapped(cause)).kind).toBe(kind);
     // The same answer without the wrapper, and after a structured clone.

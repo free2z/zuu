@@ -30,7 +30,18 @@ A versioned request/response protocol carrying **authority delegation** from
 |---|---|---|---|
 | `sign-challenge` | challenge bytes, purpose, claimed caller | native confirmation | signature |
 | `issue-device-credential` | device **public** keys, handle, validity window | derives §4.2 account keys, native confirmation | `DeviceCredential` |
+| `issue-device-credential-v2` | the same, **plus the contact endpoint the device opened** | establishes whose handle it is, native confirmation naming the **authority's** handle, then signs and submits the `DirectoryEntry` and verifies the log's receipt | `DeviceCredential` |
 | `execute-payment` | recipient, amount, memo, fee | re-derives and shows its **own** payment review | txid or refusal |
+
+`issue-device-credential-v2` is
+[ADR 0017 §4.1](../e2ee/decisions/0017-internal-directory-activation.md)'s
+follow-up, and it is a **family code of its own** rather than a version field
+inside the payload: version 1's payload carries no tag, so the only selector
+that refuses instead of best-guessing is the one `payload` is already opaque
+behind (§3.2). Code `2` keeps meaning exactly what it meant, and its vector
+(§3.6) is frozen: e2e2z builds already in testers' hands send it, and ZUULI
+still answers it — with a credential and no publication, which is all a v1
+request can ask for.
 
 Two invariants that the format itself enforces, rather than leaving to
 discipline:
@@ -156,6 +167,17 @@ struct {
 struct { opaque credential<0..2^24-1>; } IssueDeviceCredentialResultV1;
 
 struct {
+    opaque handle<0..255>;
+    opaque device_pk[32];
+    opaque device_kem_pk<0..2^24-1>;
+    uint64 not_before_ms;
+    uint64 not_after_ms;
+    opaque contact_relay_url<0..255>;   /* wss://, non-empty, bridge text */
+    opaque contact_relay_id[32];
+    opaque contact_addr[32];
+} IssueDeviceCredentialRequestV2;      /* answered with IssueDeviceCredentialResultV1 */
+
+struct {
     opaque recipient<0..255>;
     uint64 amount_zatoshis;
     opaque memo<0..255>;
@@ -193,6 +215,30 @@ key-transparency directory is built on.
 > for `issue-device-credential` are still missing. ADR 0016 §6 also leaves the
 > `device_kem_pk` binding unresolved.
 
+#### Why version 2 carries an endpoint, and why that is not a "new field"
+
+A `DirectoryEntry` publishes a `ContactEndpoint`: the relay URL, the relay
+identity a connection authenticated, and the `contact_addr` the **relay issued
+to the device that created the queue**. Only that device knows it. ZUULI
+therefore cannot build a publishable entry for another app's device from
+version 1's fields, which is exactly why version 1 publishes nothing.
+
+[ADR 0016](../e2ee/decisions/0016-enrollment-sealing-boundary.md) §4's "no new
+fields" rule forbids an *unsigned copy of a value a signed structure already
+fixes*, because an unauthenticated responder would choose the copy and the copy
+would win. The endpoint copies nothing: the **requester** supplies it, and the
+wallet then signs it into the entry with the seed-derived `DirectoryAuthKey`. A
+hostile requester that passes the caller registry and the user's confirmation
+can already obtain a credential for its own `device_pk`; choosing where that
+device receives first contact adds nothing beyond that — and the confirmation
+names the relay host, so the choice is visible.
+
+The **result** is unchanged, and stays `IssueDeviceCredentialResultV1`. The
+caller learns that its device merged the way ZUULI does: by a verified lookup of
+its own handle (ADR 0017 §6). A receipt in the response would be log-signed and
+self-authenticating, but it is the *submitter's* evidence (`KT.md` §5.3), and
+ZUULI keeps it.
+
 `ExecutePaymentRequestV1` is a **proposal, not an instruction.** ZUULI
 re-derives its own payment review from its own wallet state and shows that; the
 values here only have to survive comparison against it.
@@ -208,6 +254,8 @@ Refused at parse, on both sides:
 | `0 < challenge ≤ 512 bytes` | the wallet signs what it is given; an unbounded field is a general-purpose signing oracle, and a user cannot audit a kilobyte of base64 |
 | `amount_zatoshis > 0` | a zero-value payment is not a payment |
 | `not_after_ms > not_before_ms` | as above |
+| `contact_relay_url` starts `wss://` and has a host | a directory entry is a promise to every stranger who resolves the handle that this is where to reach the device; a plaintext transport is refused at parse rather than published |
+| `contact_relay_id` and `contact_addr` are not all-zero | the codec uses zero for "unset" and no relay issues it |
 | bridge text (see §3.5) on `caller`, `purpose`, `handle`, `recipient`, non-empty `memo` | these are rendered to a human who is about to delegate authority |
 | a refusal carries an empty payload | a payload beside a non-zero status is a channel with no defined meaning |
 
@@ -260,6 +308,28 @@ of a re-decode stays green straight through a format change.
 
 Its request digest (§5) is
 `2e23dfbdfa0ad8da3036bac0756e9191b29f8d7aac3e46b192934c7ddf09affb`.
+
+#### The two `issue-device-credential` vectors
+
+Pinned the same way, in the same two suites, one per payload version. Both are
+laid out field by field from §3.3 and both digests were computed independently
+(Python's `hashlib`), not printed from either encoder.
+
+| Vector | Family | Bytes | Request digest |
+|---|---|---|---|
+| `IssueDeviceCredentialRequestV1` | 2 | 178 | `cc07333d57f7fab0e26fca4a3987dcca8916c61b121fb1f53b874f0f2f953451` |
+| `IssueDeviceCredentialRequestV2` | 4 | 262 | `a6a763c9b6a631f1e81220eeb303caf10cf90a2d3df512d4faf110ff96e42170` |
+
+Both carry `request_id = 77…`, `caller = "cash.free2z.e2e2z"`,
+`purpose = "Issue this device a messaging credential"`, the same window as the
+canonical vector, `handle = "alice"`, `device_pk = 11…`,
+`device_kem_pk = 22222222`, and a one-day validity window. Version 2 appends
+`contact_relay_url = "wss://relay.example"`, `contact_relay_id = 33…` and
+`contact_addr = 44…`, so its payload is version 1's with three fields on the
+end — **and neither decodes as the other**: canonical decoding refuses version
+2's trailing fields as trailing bytes, and version 1 is version 2 truncated.
+The version-1 vector parsing, as version 1, under that same digest, is the
+guard that says adding version 2 changed nothing about what version 1 means.
 
 ## 4. The wallet-side pipeline
 
@@ -439,6 +509,7 @@ Callers MUST distinguish what they know about this request:
 | Request could not be encoded; dispatch never occurred | Yes |
 | A validated, authenticated `INTENT_NOT_CONFIRMED` response | Yes: ZUULI returns it before `execute_send` |
 | `INTENT_UNAVAILABLE` | No: the action's effect is unknown |
+| `INTENT_HANDLE_UNAVAILABLE` (status 13) | Yes: the wallet decided before it issued or submitted anything |
 | Transport failure after dispatch, an invalid response, or local response expiry | No: failure to judge an answer proves nothing about the wallet's action |
 | A well-formed response with an unfamiliar status | No: the client cannot interpret the outcome |
 
@@ -458,6 +529,17 @@ recognize; it does not relax the unsupported-version or canonical-decoding
 gates. Family, request identifier and expiry checks still run first, and a
 correlated answer consumes the outstanding question even when its status is
 unfamiliar. A replay MUST remain unsolicited.
+
+**Status 13, `INTENT_HANDLE_UNAVAILABLE`**, is `issue-device-credential-v2`'s
+only added refusal and is appended under the same stability rule as every other
+status: the wallet could not establish that the requested handle belongs to the
+account it would publish under — no free2z session is signed in there, the
+account has no bound messaging handle, or its handle is another one. It is
+decided before anything is issued or submitted, so a caller may state that
+nothing happened, and the person's next step is in ZUULI rather than in the
+calling app. It is not a new oracle: a refusal is delivered only to the
+registered caller's own verified reply link (§7.1), and a messaging handle is
+the account's public username.
 
 `IntentSession.accept` exposes this as
 `{ ok: false, error: "unknown-status", status }`, a client-only outcome rather

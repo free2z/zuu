@@ -124,6 +124,19 @@ function failureCopy(failure: EnrollmentFailure, handle: string): FailureCopy {
         maybeMissing: true,
         showDetail: true,
       };
+    case "handle-unavailable":
+      return {
+        tone: "warning",
+        title: `ZUULI couldn't confirm @${handle} is yours`,
+        body: `ZUULI publishes this device under the handle of the free2z account signed in there. Open ZUULI, sign in to free2z as @${handle}, claim your messaging handle if you haven't yet, then try again. Nothing was published and nothing was installed.`,
+      };
+    case "no-relay":
+      return {
+        tone: "warning",
+        title: "This build has no messaging service",
+        body: "e2e2z opens a mailbox at a relay before it enrolls, so other people can reach this device. This build has no relay configured, so there is nothing to enroll into yet.",
+        showDetail: true,
+      };
     case "handle-mismatch":
       return {
         tone: "destructive",
@@ -361,7 +374,9 @@ export function Enrollment({ onEnrolled }: EnrollmentProps) {
           icon={
             failed.failure.kind === "declined"
               ? Ban
-              : failed.failure.kind === "durability"
+              : failed.failure.kind === "handle-unavailable"
+                ? KeyRound
+                : failed.failure.kind === "durability"
                 ? ShieldAlert
                 : failed.failure.kind === "cancelled"
                   ? X

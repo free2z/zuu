@@ -162,6 +162,9 @@ mod keys {
     pub fn kt_checkpoint() -> Vec<u8> {
         format!("{PREFIX}kt-checkpoint").into_bytes()
     }
+    pub fn issued_receipts() -> Vec<u8> {
+        format!("{PREFIX}issued-receipts").into_bytes()
+    }
 }
 
 /// The public half of this device's messaging identity.
@@ -189,6 +192,10 @@ pub struct StoredIdentity {
     /// included). `default` so an identity written before ADR 0017 still reads.
     #[serde(default)]
     pub directory_receipt: Option<String>,
+    /// The issuer submitted this device's entry and holds the receipt
+    /// (ADR 0017 §4.1). Display only; see `IdentityInstall::submitted_by_issuer`.
+    #[serde(default)]
+    pub submitted_by_issuer: bool,
 }
 
 /// The device's signing material, sealed under the seed-derived `BackupWrapKey`.
@@ -701,6 +708,16 @@ impl<'a, B: StorageBackend> RecordStore<'a, B> {
 
     pub fn put_blocked(&self, blocked: &[String]) -> Result<()> {
         self.put(&keys::blocked(), &blocked.to_vec())
+    }
+
+    /// Receipts for entries this wallet submitted on behalf of **other**
+    /// devices (ADR 0017 §4.1), canonically encoded, hex, oldest first.
+    pub fn issued_receipts(&self) -> Result<Vec<String>> {
+        Ok(self.get(&keys::issued_receipts())?.unwrap_or_default())
+    }
+
+    pub fn put_issued_receipts(&self, receipts: &[String]) -> Result<()> {
+        self.put(&keys::issued_receipts(), &receipts.to_vec())
     }
 
     // -- relays, witnesses, retention --------------------------------------

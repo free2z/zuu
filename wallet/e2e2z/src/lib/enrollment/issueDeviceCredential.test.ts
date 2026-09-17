@@ -52,10 +52,17 @@ const DEVICE_PK = new Uint8Array(32).fill(0x11);
 const DEVICE_KEM_PK = new Uint8Array(1216).fill(0x22);
 const CREDENTIAL = new Uint8Array(96).fill(0x33);
 
+const CONTACT_RELAY_URL = "wss://relay.free2z.com/relay/v1";
+const CONTACT_RELAY_ID = new Uint8Array(32).fill(0x33);
+const CONTACT_ADDR = new Uint8Array(32).fill(0x44);
+
 const keys = () =>
   Promise.resolve({
     devicePublicKey: DEVICE_PK,
     deviceKemPublicKey: DEVICE_KEM_PK,
+    contactRelayUrl: CONTACT_RELAY_URL,
+    contactRelayId: CONTACT_RELAY_ID,
+    contactAddr: CONTACT_ADDR,
   });
 
 /** Big-endian, the only endianness the format has. */
@@ -90,7 +97,7 @@ function responseBytes(options: {
   const payload = options.payload ?? credentialResult(CREDENTIAL);
   const body = [
     ...options.requestId,
-    ...be(options.intent ?? IntentFamily.IssueDeviceCredential, 2),
+    ...be(options.intent ?? IntentFamily.IssueDeviceCredentialV2, 2),
     ...be(options.status ?? 0, 2),
     ...be(payload.length, 3),
     ...payload,
@@ -209,18 +216,20 @@ describe("the request this app builds", () => {
     if (!decoded.ok) return;
     const request = decoded.value;
 
-    expect(request.intent).toBe(IntentFamily.IssueDeviceCredential);
+    expect(request.intent).toBe(IntentFamily.IssueDeviceCredentialV2);
     expect(request.caller).toBe(E2E2Z_CALLER);
     expect(request.purpose).toBe(ISSUE_DEVICE_CREDENTIAL_PURPOSE);
     expect(request.issuedAtMs).toBe(NOW);
     expect(request.expiresAtMs).toBe(NOW + REQUEST_LIFETIME_MS);
     expect(request.requestId).toHaveLength(32);
 
-    // §3.3's payload: handle, device_pk[32], device_kem_pk<0..2^24-1>,
-    // not_before_ms, not_after_ms. Asserted as bytes, because the point of the
-    // shared encoder is that these are the bytes the wallet's digest covers.
+    // §3.3's version-2 payload: version 1's fields, then the contact endpoint
+    // the queue was opened at (ADR 0017 §4.1). Asserted as bytes, because the
+    // point of the shared encoder is that these are the bytes the wallet's
+    // digest covers.
     const notBefore = NOW - CREDENTIAL_BACKDATE_MS;
     const notAfter = NOW + CREDENTIAL_LIFETIME_MS;
+    const relayUrl = new TextEncoder().encode(CONTACT_RELAY_URL);
     expect(toHex(request.payload)).toBe(
       "05" +
         toHex(new TextEncoder().encode("alice")) +
@@ -228,7 +237,11 @@ describe("the request this app builds", () => {
         "0004c0" +
         toHex(DEVICE_KEM_PK) +
         BigInt(notBefore).toString(16).padStart(16, "0") +
-        BigInt(notAfter).toString(16).padStart(16, "0"),
+        BigInt(notAfter).toString(16).padStart(16, "0") +
+        relayUrl.length.toString(16).padStart(2, "0") +
+        toHex(relayUrl) +
+        toHex(CONTACT_RELAY_ID) +
+        toHex(CONTACT_ADDR),
     );
   });
 
@@ -283,6 +296,9 @@ describe("the request this app builds", () => {
       readKeys: async () => ({
         devicePublicKey: new Uint8Array(31).fill(0x11),
         deviceKemPublicKey: DEVICE_KEM_PK,
+        contactRelayUrl: CONTACT_RELAY_URL,
+        contactRelayId: CONTACT_RELAY_ID,
+        contactAddr: CONTACT_ADDR,
       }),
     });
     // Not a protocol refusal: the wrong side was wrong, and saying

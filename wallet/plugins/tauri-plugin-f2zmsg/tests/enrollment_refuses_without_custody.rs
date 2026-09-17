@@ -86,6 +86,7 @@ async fn enroll(engine: &Engine<MemoryBackend>, handle: &str) -> tauri_plugin_f2
             // credential, so the comparison stays a real one.
             expected_handle: handle.to_owned(),
             submitted_at: NOW,
+            submitted_by_issuer: false,
         })
         .await?;
     Ok(())
@@ -172,6 +173,7 @@ async fn a_refused_enrollment_mints_nothing() {
             credential: f2z_msg_mls::credential::encode(&credential).expect("encode"),
             expected_handle: "someone".to_owned(),
             submitted_at: NOW,
+            submitted_by_issuer: false,
         })
         .await
         .expect_err("no device was prepared, so none can be installed");

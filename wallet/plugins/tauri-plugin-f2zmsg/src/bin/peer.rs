@@ -465,6 +465,7 @@ async fn enroll(engine: &Engine<SqliteBackend>, options: &Options) -> Result<()>
             credential: credential_bytes,
             expected_handle: options.handle.clone(),
             submitted_at: now,
+            submitted_by_issuer: false,
         })
         .await?;
     engine.unlock().await?;
