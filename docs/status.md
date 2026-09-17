@@ -83,12 +83,38 @@ signed credential, and offers a seed-free unlock retry. A repeated install
 cannot overwrite an enrolled device's key; an already-unlocked retry preserves
 the engine's running state. The wire result still contains only credential bytes.
 
-**Enrollment is still unavailable in shipping builds.** The transport refuses,
-ZUULI has no `issue-device-credential` authority handler, and ADR 0016 §6 leaves
-`device_kem_pk` unresolved. The shipping directory also remains `NoDirectory`.
-No directory identity, witness policy or working chat session is supplied by this
-install step. The UI retains its wallet-app enrollment refusal and does not
-synthesize an enrolled status.
+**Enrollment is still unavailable in shipping builds.** ADR 0016 §6 leaves
+`device_kem_pk` unresolved, and e2e2z cannot publish its own device yet.
+[ADR 0017](e2ee/decisions/0017-internal-directory-activation.md) §4.1 names
+the missing request field. The UI retains its wallet-app enrollment refusal
+and does not synthesize an enrolled status.
+
+### 2.4 The directory is wired, and ships unconfigured
+
+[ADR 0017](e2ee/decisions/0017-internal-directory-activation.md) defines a
+**disposable internal** directory. free2z runs the log and its only witness,
+*t* = 1, and the witness is not counted as independent. The engine now
+constructs a real key-transparency client and a default relay **when**
+`wallet/plugins/tauri-plugin-f2zmsg/internal-directory.conf` is filled in. The
+file is checked in with placeholder values, so **every build from this source
+is still `NoDirectory` with no relay** until the deployment supplies real
+values in a reviewed change.
+
+Implemented and tested against a real log and witness:
+
+- ZUULI's `f2zmsg_enroll` signs this device's `DirectoryEntry` with the
+  seed-derived keys and attaches the backend's `HandleAssertion` (Contract C).
+- The log refuses an assertion from any other authority key.
+- The client keeps a verified receipt.
+- `mergedAtEpoch` is set only from a verified lookup of the device's own handle.
+- e2e2z keeps its "not independently witnessed" warning while fewer than two
+  independent witnesses cosign.
+
+Not yet available:
+
+- The backend endpoint and the deployed services do not exist.
+- No ZUULI screen calls `f2zmsg_enroll`.
+- Nothing has run against a deployed log or on a device.
 
 ## 3. What is blocked
 
@@ -96,7 +122,8 @@ synthesize an enrolled status.
 | --- | --- |
 | Cross-app transport and caller authentication | Unimplemented; #905 and [caller-authentication decisions](intent-bridge/CALLER-AUTHENTICATION.md). No shipping dispatch path |
 | Credential issuance through the intent authority | `INTENT_UNKNOWN_INTENT`; an E2E2Z install command does not issue a credential |
-| Messaging KEM/directory deployment | ADR 0016 §6 and the undecided directory/witness configuration remain open |
+| Messaging KEM/directory deployment | ADR 0016 §6 remains open. The internal directory's configuration is decided (ADR 0017), but its values are placeholders until the log, witness, relay and handle-assertion endpoint are deployed. A public directory's witness policy remains undecided |
+| e2e2z directory publication | Needs the requesting device's contact endpoint in the credential request (ADR 0017 §4.1) and an engine entry point that opens the contact queue before install |
 | Signed-device acceptance | Internal distribution supplies builds for observation; physical install, wallet and OS-link evidence remain separate requirements |
 | Public release and broader tester rollout | Deferred while the readiness matrix contains unresolved operations and store-presentation gaps |
 

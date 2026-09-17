@@ -223,25 +223,53 @@ function ServiceNotConfigured({ status }: { status: EngineStatus }) {
 }
 
 /**
+ * KT.md §8.3: the anti-equivocation value of a witnessed root is zero until at
+ * least two witnesses run by parties outside free2z cosign it — the same bound
+ * as `f2z-kt-client`'s `WitnessStanding::is_independently_witnessed`.
+ */
+const INDEPENDENTLY_WITNESSED = 2;
+
+/**
  * §9 rule 5: never proceed silently below the witness threshold. The owner's
  * decision for #1022 is a free2z-run log that is also its only witness, so this
  * is the normal state for now rather than an incident — the copy has to say
  * what is and is not protected without overclaiming either way.
+ *
+ * ADR 0017: that internal directory MEETS its threshold with the witness free2z
+ * runs, so `witnessThresholdMet` is true and new handles resolve. The
+ * independent count is still zero, so the warning keys on independence as
+ * well, with copy for the state the device is actually in.
  */
 function WitnessWarning({ status }: { status: EngineStatus }) {
-  if (status.witnessThresholdMet) return null;
+  if (!status.witnessThresholdMet) {
+    return (
+      <Callout
+        tone="warning"
+        icon={ShieldAlert}
+        title="The directory is not independently witnessed yet"
+      >
+        A log that is also its own only witness can present different answers
+        to different people without leaving evidence. Existing conversations are
+        unaffected, because their keys were checked when they were pinned. What
+        is held back is resolving a new handle and accepting a key change.
+        Comparing safety numbers with someone in person, or over a call you
+        already trust, works regardless and is the strongest check available.
+      </Callout>
+    );
+  }
+  if (status.independentWitnesses >= INDEPENDENTLY_WITNESSED) return null;
   return (
     <Callout
       tone="warning"
       icon={ShieldAlert}
       title="The directory is not independently witnessed yet"
     >
-      A log that is also its own only witness can present different answers to
-      different people without leaving evidence. Existing conversations are
-      unaffected, because their keys were checked when they were pinned. What
-      is held back is resolving a new handle and accepting a key change.
-      Comparing safety numbers with someone in person, or over a call you
-      already trust, works regardless and is the strongest check available.
+      This is an internal test directory. free2z runs the log and every witness
+      that checks it, so it could show different people different keys without
+      leaving evidence. New handles resolve anyway so testing can proceed, and
+      the directory is erased before public launch. Comparing safety numbers
+      with someone in person, or over a call you already trust, does not depend
+      on the directory and is the strongest check available.
     </Callout>
   );
 }

@@ -264,6 +264,113 @@ async fn a_stolen_assertion_is_useless_without_the_identity_key() {
     assert_eq!(publish_and_count(&harness).await, 0);
 }
 
+/// A first-entry envelope whose assertion is built by `mint` rather than by the
+/// harness's configured issuer, with a **correct** identity binding over it —
+/// so the only thing a refusal can be about is the assertion itself.
+fn envelope_with_minted_assertion(
+    harness: &Harness,
+    entry: &f2z_kt_core::entry::DirectoryEntry,
+    identity: &Identity,
+    mint: impl FnOnce(f2z_authority::HandleAssertionTBS) -> f2z_authority::HandleAssertion,
+) -> Vec<u8> {
+    let bytes = entry_bytes(entry);
+    let digest = labels::entry_value(&bytes);
+    let handle = f2z_authority::Handle::parse(entry.entry.handle.as_slice()).unwrap();
+    // The body names the *configured* issuer's id where a test wants it to, and
+    // otherwise whatever `mint` puts there; either way the log re-derives
+    // nothing from it that the test did not choose.
+    let configured = harness.issuer.as_ref().unwrap().public_key();
+    let body = f2z_authority::HandleAssertionTBS::new(
+        &configured,
+        f2z_authority::LogId::new(*harness.log_id.as_bytes()),
+        handle.clone(),
+        entry.entry.identity_pk,
+        f2z_authority::Intent::Bind,
+        0,
+        NOW,
+        NOW + 60_000,
+        f2z_authority::AssertionNonce::new([0x3c; 16]),
+    )
+    .unwrap();
+    let assertion = mint(body);
+    let binding = harness
+        .log
+        .authority()
+        .binding(&handle, &entry.entry.identity_pk, Some(&assertion), &digest)
+        .unwrap();
+    let identity_signature = identity.isk.sign(&binding.signing_bytes().unwrap());
+    SubmissionEnvelope::new(
+        &bytes,
+        Some(&assertion.encode_canonical().unwrap()),
+        identity_signature,
+    )
+    .unwrap()
+    .encode_canonical()
+    .unwrap()
+}
+
+#[tokio::test]
+async fn an_assertion_signed_by_an_unconfigured_authority_is_refused() {
+    // Contract C (zuu#1022): the log admits a first entry only under the
+    // authority key it was configured with. This assertion is well formed, is
+    // for the right handle, key and log, carries a valid identity binding, and
+    // is signed — by a key nobody configured. Its `authority_id` is that key's,
+    // so the log does not know it.
+    let harness = Harness::vouched("adv-unconfigured-authority").await;
+    harness.log.publish_epoch(NOW).await.unwrap();
+
+    let alice = Identity::from_byte(1);
+    let entry = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
+    let stranger = f2z_authority::SigningKey::from_seed(&[0x5e; 32]);
+    let envelope = envelope_with_minted_assertion(&harness, &entry, &alice, |body| {
+        f2z_authority::HandleAssertionTBS {
+            authority_id: f2z_authority::authority_id(&stranger.public_key()),
+            ..body
+        }
+        .sign(&stranger)
+        .unwrap()
+    });
+
+    assert_eq!(
+        refusal(harness.log.submit(&envelope, NOW).await),
+        ErrorCode::BadAuthorization
+    );
+    assert_eq!(harness.log.pending_count().await, 0);
+    assert_eq!(publish_and_count(&harness).await, 0);
+}
+
+#[tokio::test]
+async fn an_assertion_forged_under_the_configured_authority_id_is_refused() {
+    // The sharper forgery: the body names the *configured* authority, so the id
+    // lookup succeeds, and the signature is by somebody else. Only the
+    // authority signature check stands between this and a handle takeover.
+    let harness = Harness::vouched("adv-forged-authority").await;
+    harness.log.publish_epoch(NOW).await.unwrap();
+
+    let alice = Identity::from_byte(1);
+    let entry = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
+    let forger = f2z_authority::SigningKey::from_seed(&[0x5f; 32]);
+    let envelope = envelope_with_minted_assertion(&harness, &entry, &alice, |body| {
+        body.sign(&forger).unwrap()
+    });
+
+    assert_eq!(
+        refusal(harness.log.submit(&envelope, NOW).await),
+        ErrorCode::BadSignature
+    );
+    assert_eq!(harness.log.pending_count().await, 0);
+    assert_eq!(publish_and_count(&harness).await, 0);
+
+    // The same body signed by the configured key is admitted, so the refusal
+    // above is about the signature and nothing else.
+    let issuer = harness.issuer.clone().unwrap();
+    let honest = envelope_with_minted_assertion(&harness, &entry, &alice, |body| {
+        body.sign(&issuer).unwrap()
+    });
+    harness.log.submit(&honest, NOW).await.unwrap();
+    assert_eq!(publish_and_count(&harness).await, 1);
+}
+
 #[tokio::test]
 async fn a_platform_assertion_on_a_user_authorized_entry_is_a_category_error() {
     // The boundary `f2z-authority` draws, and the reason it matters: `same_key`

@@ -1480,6 +1480,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "f2z-authority"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek 3.0.0",
+ "f2z-codec",
+ "tls_codec",
+]
+
+[[package]]
 name = "f2z-codec"
 version = "0.1.0"
 dependencies = [
@@ -1522,6 +1531,7 @@ version = "0.1.0"
 dependencies = [
  "blake2",
  "ed25519-dalek 3.0.0",
+ "f2z-authority",
  "f2z-codec",
  "f2z-kt-core",
  "hkdf 0.12.4",

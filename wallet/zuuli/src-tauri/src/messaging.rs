@@ -82,11 +82,15 @@ use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
 use secrecy::ExposeSecret as _;
 use serde::Deserialize;
 use tauri::{AppHandle, Runtime};
-use tauri_plugin_f2zmsg::engine::IdentityInstall;
+use tauri_plugin_f2zmsg::engine::{Engine, IdentityInstall};
 use tauri_plugin_f2zmsg::error::{Error, Result};
+use tauri_plugin_f2zmsg::internal_directory;
 use tauri_plugin_f2zmsg::models::{EngineState, EnrollmentStatus, ErrorCode};
+use tauri_plugin_f2zmsg::state::Backend;
 use tauri_plugin_f2zmsg::state::F2zMsgExt as _;
 use tauri_plugin_zcash::ZcashExt as _;
+
+use crate::directory_publish;
 
 /// A `DeviceCredential` is valid from an hour before issuance…
 ///
@@ -105,10 +109,29 @@ pub(crate) const CREDENTIAL_LIFETIME_MS: u64 = 31_536_000_000;
 /// mnemonic, and nothing in the contract can express which one a peer resolved.
 const MESSAGING_ACCOUNT: u32 = 0;
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EnrollArgs {
     pub handle: String,
+    /// The signed-in free2z session's Knox token, used once to fetch this
+    /// identity's `HandleAssertion` (ADR 0017 §5) and then dropped. Optional:
+    /// without it enrollment still installs the device, and publication
+    /// reports `blocked: "handle-ineligible"` until a call carries one.
+    #[serde(default)]
+    pub knox_token: Option<String>,
+}
+
+/// Hand-written so the token never reaches a log line.
+impl std::fmt::Debug for EnrollArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EnrollArgs")
+            .field("handle", &self.handle)
+            .field(
+                "knox_token",
+                &self.knox_token.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -126,9 +149,13 @@ pub async fn f2zmsg_enrollment_status<R: Runtime>(app: AppHandle<R>) -> Result<E
 /// §3.2 `f2zmsg_enroll`.
 ///
 /// A directory *submission*, not an instant effect: `mergedAtEpoch` stays null
-/// until the log merges it, and the returned status says `blocked:
-/// "directory-unreachable"` for as long as this build has no log to talk to.
-/// The UI shows "submitted", not "active" (§3.2).
+/// until a verified lookup shows the log merged it, and the returned status says
+/// `blocked: "directory-unreachable"` for as long as this build has no log to
+/// talk to. The UI shows "submitted", not "active" (§3.2).
+///
+/// With a bundled internal directory (ADR 0017) this also publishes the device:
+/// see [`publish`]. Calling it again on an enrolled device retries publication,
+/// so a failed first attempt is not terminal.
 #[tauri::command]
 pub async fn f2zmsg_enroll<R: Runtime>(
     app: AppHandle<R>,
@@ -157,6 +184,12 @@ pub async fn f2zmsg_enroll<R: Runtime>(
         if engine.status().await?.state == EngineState::Locked {
             engine.unlock().await?;
         }
+        publish(
+            &engine,
+            AccountSource::Wallet(&app),
+            args.knox_token.as_deref(),
+        )
+        .await;
         return engine.enrollment_status().await;
     }
 
@@ -202,12 +235,122 @@ pub async fn f2zmsg_enroll<R: Runtime>(
             // itself, from the seed, so today the comparison cannot fail — it
             // is the same check e2e2z will need when the credential arrives
             // over the intent bridge instead (#936).
-            expected_handle: args.handle,
+            expected_handle: args.handle.clone(),
             submitted_at: now,
         })
         .await?;
     engine.unlock().await?;
+    // The same account keys sign the entry; read the seed once, not twice.
+    publish::<R>(
+        &engine,
+        AccountSource::Held(&account),
+        args.knox_token.as_deref(),
+    )
+    .await;
     engine.enrollment_status().await
+}
+
+/// Where the account keys for signing come from.
+enum AccountSource<'a, R: Runtime> {
+    /// `f2zmsg_enroll` derived them a moment ago for the credential.
+    Held(&'a AccountKeys),
+    /// Read the wallet seed only if there turns out to be something to sign.
+    Wallet(&'a AppHandle<R>),
+}
+
+/// Publish this device to the bundled directory (ADR 0017 §4). Never fails the
+/// enrollment it follows: a refusal is recorded on the engine, where
+/// `enrollment_status().blocked` reports it, and logged with its detail.
+async fn publish<R: Runtime>(
+    engine: &Engine<Backend>,
+    source: AccountSource<'_, R>,
+    knox_token: Option<&str>,
+) {
+    if let Err(error) = publish_steps(engine, source, knox_token).await {
+        tracing::warn!(
+            code = %error.code(),
+            context = %error.context(),
+            "messaging directory publication did not complete"
+        );
+        engine.record_publication_error(error.code()).await;
+    }
+}
+
+async fn publish_steps<R: Runtime>(
+    engine: &Engine<Backend>,
+    source: AccountSource<'_, R>,
+    knox_token: Option<&str>,
+) -> Result<()> {
+    let bundled = internal_directory::bundled();
+    let Some(internal) = bundled.configured() else {
+        // Fail closed: no log, nothing to publish, `blocked` already says so.
+        return Ok(());
+    };
+
+    // The contact endpoint is the one the relay issues to a running engine.
+    engine.start().await?;
+    if engine.refresh_enrollment().await?.merged_at_epoch.is_some() {
+        return Ok(());
+    }
+    let now = u64::try_from(now_ms()).unwrap_or_default();
+    if engine.submission_pending(internal.log_id, now).await? {
+        // Submitted and promised; resubmitting before the merge deadline
+        // would only collide with our own pending entry.
+        return Ok(());
+    }
+    let publication = engine.directory_publication().await?;
+    if publication.already_published() {
+        return Ok(());
+    }
+
+    let held;
+    let account = match source {
+        AccountSource::Held(account) => account,
+        AccountSource::Wallet(app) => {
+            held = account_keys(app).await?;
+            &held
+        }
+    };
+
+    let draft = directory_publish::draft_for(internal, &publication, now)?;
+    let assertion = if publication.predecessor.is_none() {
+        let token = knox_token.ok_or_else(|| {
+            Error::new(
+                ErrorCode::HandleIneligible,
+                "publishing a first directory entry needs a signed-in free2z session",
+            )
+        })?;
+        let client = directory_publish::HandleAssertionClient::new(&internal.handle_assertion_url)?;
+        let issued = client.fetch(token, &publication.identity_pk).await?;
+        // The signed bytes are what count, and `precheck` reads them; this is
+        // the earlier, plainer refusal for the common mismatch.
+        if issued.handle != publication.handle {
+            return Err(Error::new(
+                ErrorCode::HandleIneligible,
+                format!(
+                    "the free2z account's handle is {:?}, but this device enrolled {:?}",
+                    issued.handle, publication.handle
+                ),
+            ));
+        }
+        Some(issued.bytes)
+    } else {
+        None
+    };
+
+    let signed = directory_publish::sign(account, &publication, &draft, assertion.as_deref())?;
+    if let Some(assertion) = &assertion {
+        directory_publish::precheck(internal, &signed, assertion, now)?;
+    }
+    engine
+        .submit_directory_entry(
+            signed.envelope.clone(),
+            signed.entry_version(),
+            *signed.entry_digest.as_bytes(),
+        )
+        .await?;
+    engine.refresh_enrollment().await?;
+    Ok(())
 }
 
 /// §3.2 `f2zmsg_unenroll`. Destructive and irreversible from the user's point

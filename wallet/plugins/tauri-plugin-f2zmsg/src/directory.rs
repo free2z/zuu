@@ -21,9 +21,10 @@
 //! inventing it on everyone's behalf, silently, in the one place where getting
 //! it wrong is the MITM.
 //!
-//! So the seam is now real and unused: `Engine::with_directory` takes a
-//! [`KtDirectory`] the moment an operator has a [`DirectoryConfig`] to hand it,
-//! and until then the shipping build gets [`NoDirectory`], which fails closed.
+//! So the seam is real and conditional: `Engine::with_directory` takes a
+//! [`BundledDirectory`] when the build's `internal-directory.conf` is filled in
+//! (ADR 0017's disposable internal log, [`crate::internal_directory`]), and
+//! otherwise the shipping build gets [`NoDirectory`], which fails closed.
 //! `CLIENT-CONTRACT.md` §6.4's matrix is what makes that the correct default
 //! rather than a gap:
 //!
@@ -65,14 +66,16 @@
 //! [§13-Q]: https://github.com/free2z/zuu/issues/311
 //! [#133]: https://github.com/free2z/zuu/issues/133
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use f2z_codec::types::RelayId;
+use f2z_codec::types::{Digest, RelayId};
 use f2z_kt_client::{
-    ClientConfig, ClientError, HttpTransport, KtClient, Resolution, ResolvedHandle,
+    ClientConfig, ClientError, Expected, HttpTransport, KtClient, Opened, Resolution,
+    ResolvedHandle,
 };
-use f2z_kt_core::entry::DirectoryEntryTBS;
+use f2z_kt_core::entry::{DirectoryEntry, DirectoryEntryTBS};
+use f2z_kt_core::receipt::SubmissionReceipt;
 use f2z_kt_core::types::{Handle, LogId};
 use f2z_kt_core::{ConfiguredWitness, KtError, WitnessSet};
 
@@ -144,6 +147,55 @@ pub struct ResolvedIdentity {
     pub contact_addr: String,
 }
 
+/// The witness policy a configured directory is actually applying — what
+/// `get_witness_set_state` must report when one is in effect (ADR 0017).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WitnessPolicy {
+    /// The configured witnesses, in order.
+    pub witnesses: Vec<WitnessConfig>,
+    /// *t*.
+    pub threshold: u32,
+}
+
+impl WitnessPolicy {
+    /// How many of the configured witnesses are asserted independent.
+    #[must_use]
+    pub fn independent(&self) -> u32 {
+        u32::try_from(self.witnesses.iter().filter(|w| w.independent).count()).unwrap_or(u32::MAX)
+    }
+}
+
+/// A handle's published entry, proved against a witnessed root — what the
+/// enrolling device needs to chain its next entry and to learn that its own
+/// submission merged.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedEntry {
+    /// The whole entry, authorization included: the next entry's
+    /// `prev_entry_hash` is over these bytes (`KT.md` §4.2).
+    pub entry: DirectoryEntry,
+    /// The epoch of the root the inclusion proof was verified against.
+    pub epoch: u64,
+}
+
+/// What a submission's receipt must promise, beside the log identity the
+/// directory already pins.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubmissionExpectation {
+    /// The handle submitted for.
+    pub handle: String,
+    /// The version submitted.
+    pub entry_version: u32,
+    /// `H("free2z/kt/v1/value", tls_codec(entry))`.
+    pub entry_digest: [u8; 32],
+}
+
+fn no_directory(what: &str) -> Error {
+    Error::new(
+        ErrorCode::DirectoryUnreachable,
+        format!("{what} needs a key-transparency log, and this build configures none (ADR 0017)"),
+    )
+}
+
 pub trait Directory: Send + Sync + 'static {
     /// Resolve a handle against a witness-cosigned root.
     ///
@@ -199,6 +251,51 @@ pub trait Directory: Send + Sync + 'static {
 
     /// Whether the threshold is met, which is what §6.4's matrix is keyed on.
     fn threshold_met(&self) -> bool;
+
+    /// Whether a real log is behind this directory at all.
+    fn is_configured(&self) -> bool {
+        false
+    }
+
+    /// The witness policy in effect, when this directory has one. `None` for
+    /// [`NoDirectory`], whose state is whatever the user stored.
+    fn witness_policy(&self) -> Option<WitnessPolicy> {
+        None
+    }
+
+    /// Re-establish the root this directory stands on, so
+    /// [`Directory::threshold_met`] is an answer from the log rather than a
+    /// stale one. **Blocking**: call it off the async runtime.
+    fn refresh(&self) {}
+
+    /// Resolve a handle and hand back the whole verified entry, or `None` when
+    /// the log asserts — unproved — that it is not registered.
+    ///
+    /// # Errors
+    ///
+    /// As [`Directory::resolve`]; `directory-unreachable` when no log is
+    /// configured.
+    fn lookup_entry(&self, handle: &str) -> crate::error::Result<Option<VerifiedEntry>> {
+        let _ = handle;
+        Err(no_directory("looking up this device's own entry"))
+    }
+
+    /// `POST /kt/v1/submit` with bytes the seed-holding app signed, and check
+    /// the receipt against the pinned log key and against `expected`.
+    ///
+    /// # Errors
+    ///
+    /// `directory-unreachable` when no log is configured or it did not answer,
+    /// the §9.5 mapping of a refusal, `directory-protocol-violation` for a
+    /// receipt that does not verify or promises something else.
+    fn submit(
+        &self,
+        envelope: &[u8],
+        expected: &SubmissionExpectation,
+    ) -> crate::error::Result<SubmissionReceipt> {
+        let _ = (envelope, expected);
+        Err(no_directory("submitting a directory entry"))
+    }
 }
 
 /// The **default**, and it fails closed loudly every time.
@@ -269,7 +366,7 @@ impl Directory for NoDirectory {
 /// here infers it. It is the operator's assertion, and it is the number
 /// `KT.md` §8.3 requires the UI to display — so asserting it wrongly is worse
 /// than leaving it false.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WitnessConfig {
     /// The witness's Ed25519 public key.
     pub public_key: [u8; 32],
@@ -309,6 +406,17 @@ pub struct DirectoryConfig {
     pub threshold: usize,
     /// How long to wait for the log.
     pub timeout: Duration,
+    /// The log's ECVRF public key, when the configuration pins one. The first
+    /// tree head this client accepts must carry it; §6.3 refuses a change
+    /// after that. `None` trusts the first head's key on first use.
+    pub vrf_public_key: Option<[u8; 32]>,
+    /// Where the last verified tree head is kept across restarts.
+    ///
+    /// `None` makes every process start trust-on-first-use again, which is
+    /// what lets a log that was reset under the same key go unnoticed.
+    /// `KtClient::bootstrap`'s own documentation says a client that has run
+    /// before must resume instead (ADR 0017 §3).
+    pub checkpoint_path: Option<std::path::PathBuf>,
 }
 
 /// `KT.md` §8 against a real log.
@@ -319,6 +427,13 @@ pub struct DirectoryConfig {
 /// part of it would be the second implementation that rule exists to prevent.
 pub struct KtDirectory {
     client: Mutex<KtClient<HttpTransport>>,
+    /// A second socket to the same log, for `/kt/v1/submit`. `KtClient` owns
+    /// its read transport and deliberately has no submit method.
+    submitter: HttpTransport,
+    log_id: LogId,
+    log_pk: f2z_codec::types::PublicKey,
+    policy: WitnessPolicy,
+    checkpoint_path: Option<std::path::PathBuf>,
     independent_witnesses: u32,
     threshold_met: Mutex<bool>,
 }
@@ -370,7 +485,20 @@ impl KtDirectory {
         let witnesses = WitnessSet::new(witnesses, config.threshold).map_err(map_kt_error)?;
 
         let transport = HttpTransport::new(&config.base_url, config.timeout).map_err(map_error)?;
-        let mut client = KtClient::bootstrap(
+        let submitter = HttpTransport::new(&config.base_url, config.timeout).map_err(map_error)?;
+        let checkpoint = match &config.checkpoint_path {
+            Some(path) => match std::fs::read(path) {
+                Ok(bytes) => Some(bytes),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => {
+                    return Err(Error::internal(format!(
+                        "reading the directory checkpoint: {error}"
+                    )));
+                }
+            },
+            None => None,
+        };
+        let (mut client, opened) = KtClient::open(
             transport,
             ClientConfig {
                 log_id: LogId::new(config.log_id),
@@ -379,8 +507,34 @@ impl KtDirectory {
                 reset_authority_pk: f2z_codec::types::PublicKey::new(config.reset_authority_pk),
                 reset_cooldown_seconds: config.reset_cooldown_seconds,
             },
+            checkpoint.as_deref(),
         )
-        .map_err(map_error)?;
+        .map_err(|error| {
+            // A checkpoint for this log that no longer verifies is a device
+            // that cannot tell what it saw before. Refuse, loudly.
+            let mapped = map_error(error);
+            Error::new(
+                ErrorCode::DirectoryProtocolViolation,
+                format!(
+                    "opening the directory from its checkpoint: {}",
+                    mapped.context()
+                ),
+            )
+        })?;
+        if opened == Opened::ReplacedAnotherLogsCheckpoint {
+            tracing::warn!(
+                "the configured key-transparency log changed; the previous log's checkpoint \
+                 was set aside (ADR 0017)"
+            );
+        }
+        if let Some(expected) = config.vrf_public_key
+            && client.view().vrf_public_key().as_bytes() != &expected
+        {
+            return Err(Error::new(
+                ErrorCode::DirectoryProtocolViolation,
+                "the log's VRF key is not the one this build pins (ADR 0017)",
+            ));
+        }
         // §8.1 step 7. An unanswered question about who may claim a handle is
         // not a reassuring answer, so a failure here is recorded and not raised.
         let _ = client.refresh_authority_policy();
@@ -392,12 +546,33 @@ impl KtDirectory {
         // this client could not establish, and §6.4's matrix is keyed on exactly
         // that.
         let threshold_met = client.sync(now_ms()).is_ok();
+        persist_checkpoint(config.checkpoint_path.as_deref(), &client);
 
         Ok(Self {
+            checkpoint_path: config.checkpoint_path.clone(),
             client: Mutex::new(client),
+            submitter,
+            log_id: LogId::new(config.log_id),
+            log_pk: f2z_codec::types::PublicKey::new(config.log_public_key),
+            policy: policy_of(config),
             independent_witnesses,
             threshold_met: Mutex::new(threshold_met),
         })
+    }
+
+    /// One §8.3 pass over the latest head, recorded for
+    /// [`Directory::threshold_met`]. Blocking.
+    pub fn refresh_root(&self) {
+        let Ok(mut client) = self.client.lock() else {
+            return;
+        };
+        let met = client.sync(now_ms()).is_ok();
+        // After every call, error or not: a failed sync can still have
+        // advanced the view through a verified prefix (`KtClient`'s note).
+        persist_checkpoint(self.checkpoint_path.as_deref(), &client);
+        if let Ok(mut slot) = self.threshold_met.lock() {
+            *slot = met;
+        }
     }
 
     /// The client, for the app crate's self-audit loop (§8.2) and for
@@ -425,6 +600,7 @@ impl KtDirectory {
             Error::internal("the directory client's lock was poisoned by an earlier panic")
         })?;
         let outcome = client.resolve(&parsed, now_ms());
+        persist_checkpoint(self.checkpoint_path.as_deref(), &client);
         if let Ok(resolution) = &outcome
             && let Ok(mut met) = self.threshold_met.lock()
         {
@@ -660,5 +836,190 @@ impl Directory for KtDirectory {
 
     fn threshold_met(&self) -> bool {
         self.threshold_met.lock().is_ok_and(|met| *met)
+    }
+
+    fn is_configured(&self) -> bool {
+        true
+    }
+
+    fn witness_policy(&self) -> Option<WitnessPolicy> {
+        Some(self.policy.clone())
+    }
+
+    fn refresh(&self) {
+        self.refresh_root();
+    }
+
+    fn lookup_entry(&self, handle: &str) -> crate::error::Result<Option<VerifiedEntry>> {
+        Ok(self
+            .lookup(handle)?
+            .resolved()
+            .map(|resolved| VerifiedEntry {
+                entry: resolved.entry().clone(),
+                epoch: resolved.epoch(),
+            }))
+    }
+
+    fn submit(
+        &self,
+        envelope: &[u8],
+        expected: &SubmissionExpectation,
+    ) -> crate::error::Result<SubmissionReceipt> {
+        let handle = Handle::new(expected.handle.as_bytes().to_vec()).map_err(|_| {
+            Error::new(
+                ErrorCode::HandleIneligible,
+                format!("{:?} is not a messaging handle", expected.handle),
+            )
+        })?;
+        let digest = Digest::new(expected.entry_digest);
+        f2z_kt_client::submit(
+            &self.submitter,
+            envelope,
+            &Expected {
+                log_id: &self.log_id,
+                log_pk: &self.log_pk,
+                handle: &handle,
+                entry_version: expected.entry_version,
+                entry_digest: &digest,
+            },
+        )
+        .map_err(map_error)
+    }
+}
+
+/// Keep the last verified head, atomically: a torn write would leave a
+/// checkpoint that no longer decodes, and [`KtDirectory::connect`] refuses
+/// those rather than trusting the next head it is shown.
+fn persist_checkpoint(path: Option<&std::path::Path>, client: &KtClient<HttpTransport>) {
+    let Some(path) = path else {
+        return;
+    };
+    let written = client
+        .checkpoint_bytes()
+        .map_err(|error| error.to_string())
+        .and_then(|bytes| {
+            let staging = path.with_extension("tmp");
+            std::fs::write(&staging, bytes)
+                .and_then(|()| std::fs::rename(&staging, path))
+                .map_err(|error| error.to_string())
+        });
+    if let Err(error) = written {
+        tracing::warn!(%error, "the directory checkpoint was not persisted");
+    }
+}
+
+fn policy_of(config: &DirectoryConfig) -> WitnessPolicy {
+    WitnessPolicy {
+        witnesses: config.witnesses.clone(),
+        threshold: u32::try_from(config.threshold).unwrap_or(u32::MAX),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The bundled one: a KtDirectory that connects when first needed.
+// ---------------------------------------------------------------------------
+
+/// ADR 0017's directory: [`KtDirectory`] over the build's
+/// `internal-directory.conf`, connected on first use rather than at launch.
+///
+/// Lazily, because [`KtDirectory::connect`] is a blocking round trip to the log
+/// and the plugin's `setup` hook must neither block a launch nor fail one
+/// (#753). Until a connection succeeds this reports the threshold unmet — the
+/// conservative answer §6.4's matrix is keyed on — and every lookup retries the
+/// connection, so an offline launch recovers without a restart.
+pub struct BundledDirectory {
+    config: DirectoryConfig,
+    policy: WitnessPolicy,
+    connected: Mutex<Option<Arc<KtDirectory>>>,
+}
+
+impl core::fmt::Debug for BundledDirectory {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("BundledDirectory")
+            .field("base_url", &self.config.base_url)
+            .finish_non_exhaustive()
+    }
+}
+
+impl BundledDirectory {
+    /// A directory over `config` that has not connected yet.
+    #[must_use]
+    pub fn new(config: DirectoryConfig) -> Self {
+        Self {
+            policy: policy_of(&config),
+            config,
+            connected: Mutex::new(None),
+        }
+    }
+
+    fn connected(&self) -> crate::error::Result<Arc<KtDirectory>> {
+        let mut slot = self.connected.lock().map_err(|_| {
+            Error::internal("the bundled directory's lock was poisoned by an earlier panic")
+        })?;
+        if let Some(directory) = slot.as_ref() {
+            return Ok(Arc::clone(directory));
+        }
+        let directory = Arc::new(KtDirectory::connect(&self.config)?);
+        *slot = Some(Arc::clone(&directory));
+        Ok(directory)
+    }
+}
+
+impl Directory for BundledDirectory {
+    fn resolve(&self, handle: &str) -> crate::error::Result<DirectoryResolution> {
+        self.connected()?.resolve(handle)
+    }
+
+    fn resolve_identity(&self, handle: &str) -> crate::error::Result<ResolvedIdentity> {
+        self.connected()?.resolve_identity(handle)
+    }
+
+    fn resolve_peer(&self, handle: &str) -> crate::error::Result<ResolvedPeer> {
+        self.connected()?.resolve_peer(handle)
+    }
+
+    fn independent_witnesses(&self) -> u32 {
+        self.policy.independent()
+    }
+
+    fn threshold_met(&self) -> bool {
+        // `try_lock`: a status read must never wait behind a connection
+        // attempt. Busy or unconnected is "not met", which is the conservative
+        // answer.
+        self.connected
+            .try_lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(|directory| directory.threshold_met()))
+            .unwrap_or(false)
+    }
+
+    fn is_configured(&self) -> bool {
+        true
+    }
+
+    fn witness_policy(&self) -> Option<WitnessPolicy> {
+        Some(self.policy.clone())
+    }
+
+    fn refresh(&self) {
+        match self.connected() {
+            // A fresh connection has just run its own §8.3 pass.
+            Ok(directory) => directory.refresh_root(),
+            Err(error) => {
+                tracing::info!(code = %error.code(), "the bundled directory did not connect");
+            }
+        }
+    }
+
+    fn lookup_entry(&self, handle: &str) -> crate::error::Result<Option<VerifiedEntry>> {
+        self.connected()?.lookup_entry(handle)
+    }
+
+    fn submit(
+        &self,
+        envelope: &[u8],
+        expected: &SubmissionExpectation,
+    ) -> crate::error::Result<SubmissionReceipt> {
+        self.connected()?.submit(envelope, expected)
     }
 }

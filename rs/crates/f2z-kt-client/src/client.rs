@@ -34,7 +34,9 @@
 //!
 //! It does not submit. `KT.md` §9.2's `/kt/v1/submit` needs the seed-derived
 //! `DirectoryAuthKey`, which belongs to the application that owns the wallet
-//! seed and not to a directory client.
+//! seed and not to a directory client. [`crate::submit`] carries bytes that
+//! application already signed and checks the receipt; it holds no key, and
+//! `KtClient` has no method that reaches it (ADR 0017).
 //!
 //! It does not gossip. §8.4 defines *what* two clients would exchange and is
 //! explicit that the protocol which exchanges them *"is not specified here"*.
@@ -69,6 +71,18 @@ use crate::resolve::{
 use crate::standing::WitnessStanding;
 use crate::transport::Transport;
 use crate::wire;
+
+/// What [`KtClient::open`] did with the checkpoint it was given.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Opened {
+    /// There was none; the head was trusted on first use.
+    Bootstrapped,
+    /// The checkpoint was this log's; §6.3 now applies against it.
+    Resumed,
+    /// The checkpoint named another log and was set aside; the head was
+    /// trusted on first use. Report it: it means the configured log changed.
+    ReplacedAnotherLogsCheckpoint,
+}
 
 /// How many tree heads a client will fetch and verify to close a §6.3 rule 7
 /// gap in one call.
@@ -172,6 +186,56 @@ impl<T: Transport> KtClient<T> {
             alarms: AlarmLog::new(),
             vouching: Vouching::Unknown,
         })
+    }
+
+    /// Resume from `checkpoint` when it is this log's, and bootstrap otherwise
+    /// — the one entry point an application that persists
+    /// [`KtClient::checkpoint_bytes`] should call on start.
+    ///
+    /// The rule is narrow on purpose. A checkpoint that names **another**
+    /// `log_id` is set aside and the client bootstraps: the application's
+    /// reviewed configuration now names a different log, and a head from the
+    /// old one is evidence about nothing this client trusts (ADR 0017's wipe
+    /// procedure changes the genesis key, and with it the id). Anything else
+    /// wrong with the checkpoint — it does not decode, or it is this log's id
+    /// and does not verify — is an error, because silently bootstrapping over
+    /// it would discard exactly the history that makes a rollback detectable.
+    ///
+    /// Resuming does not contact the log. The first [`KtClient::sync`] or
+    /// [`KtClient::resolve`] afterwards applies §6.3 against the checkpoint,
+    /// which is what refuses a log that was reset under the same key.
+    ///
+    /// # Errors
+    ///
+    /// As [`KtClient::bootstrap`] and [`KtClient::resume`], except
+    /// [`KtError::WrongLog`] from the checkpoint, which bootstraps instead.
+    pub fn open(
+        transport: T,
+        config: ClientConfig,
+        checkpoint: Option<&[u8]>,
+    ) -> Result<(Self, Opened)> {
+        let Some(bytes) = checkpoint else {
+            return Ok((Self::bootstrap(transport, config)?, Opened::Bootstrapped));
+        };
+        let head = f2z_codec::decode_canonical::<SignedTreeHead>(bytes)?.into_value();
+        match LogView::pin(config.log_id, config.accepted_log_pk, &head) {
+            Ok(view) => Ok((
+                Self {
+                    transport,
+                    config,
+                    view,
+                    pins: PinStore::new(),
+                    alarms: AlarmLog::new(),
+                    vouching: Vouching::Unknown,
+                },
+                Opened::Resumed,
+            )),
+            Err(KtError::WrongLog) => Ok((
+                Self::bootstrap(transport, config)?,
+                Opened::ReplacedAnotherLogsCheckpoint,
+            )),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// Resume from canonically encoded, persisted signed-head checkpoint bytes.

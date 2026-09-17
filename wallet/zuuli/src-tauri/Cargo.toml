@@ -58,11 +58,19 @@ f2z-kt-core = { path = "../../../rs/crates/f2z-kt-core", version = "0.1.0", defa
 f2z-codec = { path = "../../../rs/crates/f2z-codec", version = "0.1.0" }
 # `credential::encode`, the canonical encoding `install_identity` parses back.
 f2z-msg-mls = { path = "../../../rs/crates/f2z-msg-mls", version = "0.1.0" }
+# ADR 0017 / Contract C: the handle-assertion rules, run locally on the
+# assertion the backend issued before the submission leaves this process
+# (`src/directory_publish.rs`). MIT, `no_std`, and already in this graph
+# beneath `f2z-msg-identity`, which signs the binding it defines.
+f2z-authority = { path = "../../../rs/crates/f2z-authority", version = "0.1.0" }
 # `SecretVec`'s `ExposeSecret`, for the one line that reads the derived seed.
 # Same version `tauri-plugin-zcash` resolves, so this adds nothing to the graph.
 secrecy = "0.8"
 # Hex for `identity_pk`, which crosses into the engine as a string.
 hex = "0.4"
+# Contract C's JSON carries the identity key and the assertion as base64url
+# (`src/directory_publish.rs`). The 0.22 line is already in this lock.
+base64 = "0.22"
 # The intent bridge, version 1 (`docs/intent-bridge/PROTOCOL.md`). ZUULI is the
 # authority side: `src/intent.rs` calls `IntentGate::admit` and re-implements
 # none of its guards. `no_std`, no I/O, no clock, no randomness — every one of

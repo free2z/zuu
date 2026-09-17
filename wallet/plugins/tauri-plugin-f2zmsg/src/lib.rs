@@ -34,6 +34,7 @@
 //! | [`custody`] | Where this device's `DeviceWrapKey` lives, per platform, and the refusal where it cannot. |
 //! | [`relay`] | ZUULI's `WIRE.md` v1 client. |
 //! | [`directory`] | The key-transparency seam. Fails closed, by design. |
+//! | [`internal_directory`] | ADR 0017's bundled internal log, relay and handle authority — or nothing. |
 //! | [`engine`] | Everything §3 asks for, with no Tauri in it. |
 //! | [`events`] | §5's eleven events, behind a sink the harness can substitute. |
 //! | [`commands`] | The IPC layer, and the only file that names `AppHandle`. |
@@ -89,6 +90,7 @@ pub mod envelope;
 pub mod error;
 pub mod events;
 pub mod handle;
+pub mod internal_directory;
 pub mod models;
 pub mod relay;
 pub mod state;
@@ -112,6 +114,11 @@ const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The plugin's SQLite file, under the app's data directory.
 const STORE_FILE: &str = "f2zmsg.sqlite";
+
+/// The last key-transparency tree head this device verified (ADR 0017). Kept
+/// beside the store so that a log reset under the same key is refused after a
+/// restart instead of being trusted on first use again.
+const CHECKPOINT_FILE: &str = "f2zmsg-kt-checkpoint.bin";
 
 /// Builds the command handler shared by the shipping plugin and IPC probes.
 fn command_builder<R: Runtime>() -> Builder<R> {
@@ -164,9 +171,43 @@ fn open_engine<R: Runtime>(
         models::Platform::ZuuliDesktop
     };
     let sink = Arc::new(events::TauriSink::new(app.clone()));
-    Ok(Arc::new(
+    Ok(Arc::new(with_bundled_directory(
         engine::Engine::new(backend, sink, platform)?.with_wrap_key_custody(custody),
-    ))
+        &internal_directory::bundled(),
+        Some(&data_dir.join(CHECKPOINT_FILE)),
+    )))
+}
+
+/// ADR 0017: point the engine at the build's internal directory and default
+/// relay — or, when `internal-directory.conf` is unfilled or malformed, leave
+/// it on [`directory::NoDirectory`] with no relay. Never both halves of one and
+/// neither of the other.
+fn with_bundled_directory<B: f2z_msg_store::StorageBackend>(
+    engine: engine::Engine<B>,
+    bundled: &internal_directory::Bundled,
+    checkpoint_path: Option<&std::path::Path>,
+) -> engine::Engine<B> {
+    match bundled {
+        internal_directory::Bundled::Configured(internal) => {
+            tracing::warn!(
+                log = %internal.log_url,
+                relay = %internal.relay_url,
+                "messaging uses the INTERNAL-DISPOSABLE directory (ADR 0017): free2z runs the \
+                 log and its only witness, and the log is wiped before public launch"
+            );
+            let config = directory::DirectoryConfig {
+                checkpoint_path: checkpoint_path.map(std::path::Path::to_path_buf),
+                ..internal.directory_config()
+            };
+            engine
+                .with_directory(Arc::new(directory::BundledDirectory::new(config)))
+                .with_default_relay(internal.relay_url.clone())
+        }
+        internal_directory::Bundled::Unconfigured(reason) => {
+            tracing::info!(%reason, "no bundled directory; messaging stays on NoDirectory");
+            engine
+        }
+    }
 }
 
 /// Build device wrap-key custody for the host application (#937).
@@ -318,6 +359,110 @@ pub fn init_with_store_dir<R: Runtime>(
     wrap_key_namespace: &'static str,
 ) -> TauriPlugin<R> {
     plugin(StoreLocation::Fixed(store_dir), wrap_key_namespace)
+}
+
+#[cfg(test)]
+mod bundled_directory_tests {
+    use std::sync::Arc;
+
+    use super::{engine, events, internal_directory, models, with_bundled_directory};
+
+    fn engine() -> engine::Engine<f2z_msg_store::MemoryBackend> {
+        engine::Engine::new(
+            f2z_msg_store::MemoryBackend::new(),
+            Arc::new(events::NullSink),
+            models::Platform::ZuuliDesktop,
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_unconfigured_build_gets_no_directory_and_no_relay() {
+        let engine = with_bundled_directory(
+            engine(),
+            &internal_directory::Bundled::Unconfigured("placeholders".to_owned()),
+            None,
+        );
+        assert_eq!(engine.default_relay(), None);
+        let state = engine.witness_set_state().await.unwrap();
+        assert_eq!(state.configured, 0, "NoDirectory: the empty stored set");
+        assert!(!state.threshold_met);
+        assert!(!engine.status().await.unwrap().witness_threshold_met);
+    }
+
+    #[tokio::test]
+    async fn the_shipped_file_leaves_the_engine_unconfigured() {
+        let engine = with_bundled_directory(engine(), &internal_directory::bundled(), None);
+        assert_eq!(engine.default_relay(), None);
+        assert_eq!(engine.witness_set_state().await.unwrap().configured, 0);
+    }
+
+    #[tokio::test]
+    async fn a_configured_build_gets_both_the_directory_and_the_relay() {
+        let key = "01".repeat(32);
+        let text = internal_directory::BUNDLED_TEXT
+            .replace(
+                "log_url = PLACEHOLDER",
+                "log_url = https://kt.internal.example",
+            )
+            .replace(
+                "log_public_key = PLACEHOLDER",
+                &format!("log_public_key = {key}"),
+            )
+            .replace(
+                "log_id = PLACEHOLDER",
+                &format!(
+                    "log_id = {}",
+                    hex::encode(
+                        f2z_kt_core::labels::log_id(&f2z_codec::types::PublicKey::new([1; 32]))
+                            .as_bytes()
+                    )
+                ),
+            )
+            .replace(
+                "vrf_public_key = PLACEHOLDER",
+                &format!("vrf_public_key = {}", "03".repeat(32)),
+            )
+            .replace(
+                "reset_authority_pk = PLACEHOLDER",
+                &format!("reset_authority_pk = {key}"),
+            )
+            .replace(
+                "witness_pk = PLACEHOLDER",
+                &format!("witness_pk = {}", "02".repeat(32)),
+            )
+            .replace(
+                "handle_authority_pk = PLACEHOLDER",
+                &format!("handle_authority_pk = {key}"),
+            )
+            .replace(
+                "handle_assertion_url = PLACEHOLDER",
+                "handle_assertion_url = https://api.internal.example/a/",
+            )
+            .replace(
+                "relay_url = PLACEHOLDER",
+                "relay_url = wss://relay.internal.example/relay/v1",
+            );
+        let bundled = internal_directory::parse(&text).unwrap();
+        assert!(bundled.configured().is_some());
+
+        let engine = with_bundled_directory(
+            engine(),
+            &bundled,
+            Some(std::path::Path::new("/nonexistent/checkpoint")),
+        );
+        assert_eq!(
+            engine.default_relay(),
+            Some("wss://relay.internal.example/relay/v1")
+        );
+        let state = engine.witness_set_state().await.unwrap();
+        assert_eq!(state.configured, 1);
+        assert_eq!(state.independent, 0);
+        assert!(state.bootstrap_disclaimer);
+        // Not connected yet — the bundled directory connects on first use, so a
+        // launch never blocks on the log — and therefore conservatively unmet.
+        assert!(!state.threshold_met);
+    }
 }
 
 #[cfg(test)]

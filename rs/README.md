@@ -218,11 +218,13 @@ happen by accident, and a library crate appearing in that list would be a review
 failure.
 
 The current dependency graph is narrower than that intended architecture:
-`f2z-relay-proto` depends on `f2z-codec`, while `f2z-authority` is still a
-standalone experimental leaf. Wiring the authority candidate into a relay or
-client is future integration work, not a property this README claims today.
-`f2z-kt` and `f2z-witness` **do** depend on it, and on `f2z-kt-core` — they are
-the server binaries below, and they are the reason that layer exists. Every
+`f2z-relay-proto` depends on `f2z-codec`. `f2z-authority` is linked by
+`f2z-msg-identity`, which signs its identity binding, and by ZUULI, which
+pre-checks handle assertions with it
+([ADR 0017](../docs/e2ee/decisions/0017-internal-directory-activation.md)). No
+relay uses it yet. `f2z-kt` and `f2z-witness` also depend on it, and on
+`f2z-kt-core`: they are the server binaries below, and they are the reason that
+layer exists. Every
 library crate above remains MIT so downstream relays and clients can share the
 rules.
 

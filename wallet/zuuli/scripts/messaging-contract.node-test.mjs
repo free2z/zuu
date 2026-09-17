@@ -338,7 +338,10 @@ const REVIEWED_BIND_HELPER_DIGESTS = {
   // replaced `OutboundQueue` records it alongside the (now canonicalized)
   // send address.
   set_peer_advert: "acacf12342fdc59fb2f04ed19b79804baab1c53b5359b4e2d6e266515c2a0214",
-  unenroll: "7010b1db1c2ad84340fa54fb6e068f9b6775644df6dd2cde86ab6e906009ffea",
+  // ADR 0017: the closing `enrollment_status` now takes the directory so its
+  // `blocked` field can say whether a log is configured. The commit, alarm
+  // flush and fallback-clear ordering is unchanged and checked above.
+  unenroll: "8bb9d4a8ebc41a2a916099a97ce0dde6f392f971de3a23a7f5057bfca80e42f7",
   leave_conversation: "673121980c042560f89118c0f3e10e1e03433bf26471c4efaac6cec33fd0b376",
   flush_volatile_compromise_alarms: "b948b2da7ce0e2a51a95a72dda3e79f273eb69ef3c06e0b950ec5ad28ccbad22",
   mark_send_address_stolen_delivery: "3d2495c0d3ce5b117045b37cd798fe839ba9720d7c4b5d9047a0baaa8b1b2283",

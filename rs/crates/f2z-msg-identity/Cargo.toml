@@ -53,6 +53,10 @@ zeroize = { workspace = true }
 # through `[workspace.dependencies]`: `version` is carried alongside `path`
 # because `rs/deny.toml` sets `wildcards = "deny"` for our own crates too.
 f2z-kt-core = { path = "../f2z-kt-core", version = "0.1.0", default-features = false }
+# The handle-assertion binding (`AssertionBindingTBS`) the identity key signs
+# beside a directory submission (ADR 0017). MIT and `no_std` like this crate;
+# only its structures and digests are used here, never its verifier.
+f2z-authority = { path = "../f2z-authority", version = "0.1.0" }
 f2z-codec = { workspace = true }
 tls_codec = { workspace = true }
 
