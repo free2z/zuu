@@ -108,18 +108,22 @@ pressure; an absent command cannot be invoked.
 
 `wallet/e2e2z/src-tauri/Cargo.lock` contains **zero Zcash crates** — no
 `zcash_*`, no `orchard`, no `sapling`. It registers `tauri-plugin-f2zmsg` and
-three app commands: `e2e2z_device_credential_keys` returns the **public** halves
+five app commands: `e2e2z_device_credential_keys` returns the **public** halves
 of an OS-CSPRNG device key set, `e2e2z_install_device_credential` installs the
-signed credential, and `e2e2z_retry_device_unlock` reopens this device's seal.
-None accepts or derives account keys.
+signed credential, `e2e2z_retry_device_unlock` reopens this device's seal,
+`e2e2z_enrollment_status` reads what this device's store holds, and
+`e2e2z_dispatch_intent` hands an `issue-device-credential` request to ZUULI's
+verified App Link. None accepts or derives account keys.
 
 ZUULI's three app-crate enrollment commands — `f2zmsg_enrollment_status`,
 `f2zmsg_enroll`, `f2zmsg_unenroll` — are deliberately absent here. In ZUULI they
 borrow the seed from `tauri-plugin-zcash`'s managed state in-process
 ([`e2ee/CLIENT-CONTRACT.md`](./e2ee/CLIENT-CONTRACT.md) §2.2). There is no seed
-here to borrow, so enrollment becomes a bridge call — and until that lands the
-frontend refuses with a typed error rather than synthesising an
-`EnrollmentStatus` nobody published.
+here to borrow, so enrollment is a bridge call: on iPhone and Android e2e2z
+asks ZUULI for a credential over the App Link transport (#1019) and installs
+it (#1022). A build without that transport (desktop, a browser) still refuses
+with a typed error rather than synthesising an `EnrollmentStatus` nobody
+published.
 
 ### 3.3 What the wallet authority does not have
 

@@ -81,6 +81,15 @@ export interface IntentTransport {
     request: Uint8Array,
     context: IntentDispatchContext,
   ): Promise<Uint8Array>;
+  /**
+   * Stop waiting for the outstanding answer, if there is one, and reject its
+   * dispatch.
+   *
+   * It can only narrow what this app does. A request already delivered stays
+   * delivered, and an answer that arrives later finds nothing waiting and is
+   * ignored, so the credential it carries is never installed.
+   */
+  cancel?(): void;
 }
 
 /**

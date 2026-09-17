@@ -346,6 +346,13 @@ jobs:
           node --test scripts/rtl-source-policy.node-test.mjs
           node scripts/rtl-source-policy.mjs
 
+      # The protected Android signer installs a verbatim copy of this checker
+      # and cannot check out source, so the only place its fixtures (real
+      # bundletool 1.18.3 dumps) and the copy's byte identity are proven is
+      # here, before merge (#1016).
+      - name: Verify Android self-permission checker
+        run: node --test scripts/android-self-permission.node-test.mjs
+
       # GitHub's Ubuntu runner image includes stable Google Chrome. Using it in
       # CI avoids an apt-mirror dependency while preserving real browser tests.
       - name: Verify the viewport-test browser

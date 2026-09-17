@@ -12,6 +12,7 @@
 // `docs/e2ee/CLIENT-CONTRACT.md` §4.
 
 import { useMock } from "../platform";
+import { intentTransport } from "../enrollment/transport";
 import { mockMessaging } from "./mock";
 import {
   AlarmSchema,
@@ -650,15 +651,30 @@ export const messaging = {
  * `docs/e2ee/CLIENT-CONTRACT.md`. Deleting them would silently shrink the
  * contract instead of recording that this app cannot serve them.
  *
+ * `getEnrollmentStatus` is no longer refused (#1022): it is a read of this
+ * device's own store through the app crate, and needs no seed. `enroll` goes to
+ * the wallet authority, and `unenroll` still refuses.
+ *
  * `useMock()` still answers first, and only there: `VITE_MOCK=1` is an explicit
  * build-time opt-in that replaces the entire data layer with fixtures for
  * offline UI work and the browser test run. It is never set in a packaged
  * build, so no shipped e2e2z can reach a mocked enrollment.
  */
 export const enrollment = {
+  /**
+   * What this device's engine holds, read through the app crate's
+   * `e2e2z_enrollment_status` (#1022). Seed-free: it reports the identity
+   * `e2e2z_install_device_credential` stored and nothing else, so the screen
+   * can tell an enrolled device from one that still needs ZUULI.
+   *
+   * Every field is the engine's. A refusal is rethrown as the engine sent it.
+   */
   async getEnrollmentStatus(): Promise<EnrollmentStatus> {
     if (useMock()) return mockMessaging.getEnrollmentStatus();
-    return refuseEnrollment("getEnrollmentStatus");
+    const { readEnrollmentStatus } = await import(
+      "../enrollment/installDeviceCredential"
+    );
+    return readEnrollmentStatus();
   },
 
   /**
@@ -702,6 +718,49 @@ export const enrollment = {
     if (useMock()) return mockMessaging.unenroll(confirmation);
     void confirmation;
     return refuseEnrollment("unenroll");
+  },
+};
+
+/**
+ * This device's seal, after enrollment. Not a `WIRE_COMMANDS` member: the
+ * command is app-crate (`e2e2z_retry_device_unlock`, ADR 0016 §3).
+ */
+export const deviceSeal = {
+  /** Re-ask the OS secret store for the wrap key and leave §6.1's `locked`. */
+  async retryUnlock(): Promise<EngineStatus> {
+    if (useMock()) return mockMessaging.getEngineStatus();
+    const { retryDeviceUnlock } = await import(
+      "../enrollment/installDeviceCredential"
+    );
+    return retryDeviceUnlock();
+  },
+};
+
+/**
+ * The enrollment transport, as the screen needs to see it.
+ *
+ * Deliberately not part of `enrollment`: that object is one population with
+ * `WIRE_COMMANDS` and `RESULTS`, and neither of these is a command.
+ */
+export const enrollmentTransport = {
+  /**
+   * Whether "Enroll with ZUULI" can do anything in this build.
+   *
+   * The transport's own flag, which is `true` only for the App Link transport
+   * on iOS and Android (`appLinkTransport.ts`). The enrollment client checks
+   * the same flag again before it samples keys, and the default transport
+   * refuses regardless of it, so this decides what the screen offers and
+   * nothing else.
+   */
+  canEnroll(): boolean {
+    if (useMock()) return true;
+    return intentTransport().available;
+  },
+
+  /** Stop waiting for ZUULI. A later answer is ignored, never installed. */
+  cancelEnroll(): void {
+    if (useMock()) return;
+    intentTransport().cancel?.();
   },
 };
 
