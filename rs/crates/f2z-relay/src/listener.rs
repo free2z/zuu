@@ -33,9 +33,10 @@
 //! connection before sending data" as **502**, so 100% of non-upgrade traffic
 //! to the public hostname became a 5xx attributed to the shared production URL
 //! map — ~5,700 a day, and a page on an alert whose whole meaning is "the site
-//! is broken" while the site was entirely healthy (free2z/zuu#1037,
-//! free2z/tuzi#1937). The 502 also actively lied: it said *this* backend had
-//! failed, when the truth was that the caller had not spoken the protocol.
+//! is broken" while the site was entirely healthy (free2z/zuu#1037, and the
+//! incident write-up in the tuzi repo). The 502 also actively lied: it said
+//! *this* backend had failed, when the truth was that the caller had not
+//! spoken the protocol.
 //!
 //! So [`handshake`] answers that case itself, with a constant **426 Upgrade
 //! Required** ([`NOT_A_WEBSOCKET`]), before `accept_hdr_async` ever sees the
@@ -369,7 +370,6 @@ where
 }
 
 /// What reading the head concluded.
-#[derive(Debug)]
 enum Head {
     /// A complete head that asks for no upgrade. Answer it with a 426.
     NotAnUpgrade(Vec<u8>),
@@ -377,6 +377,23 @@ enum Head {
     HandOver(Vec<u8>),
     /// The peer went away before it said anything usable.
     Gone,
+}
+
+// A derived `Debug` renders a `Vec<u8>` as a list of decimal integers, and
+// these variants carry a request head from an unauthenticated peer — headers,
+// cookies, credentials. That is the exact form `crate::log` exists to keep out
+// of the process's output, and `f2z-codec`'s workspace-wide scan enforces it
+// rather than trusting anyone to remember. Same shape as `WireMessage`'s.
+impl core::fmt::Debug for Head {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::NotAnUpgrade(bytes) => {
+                write!(f, "NotAnUpgrade(<redacted; {} bytes>)", bytes.len())
+            }
+            Self::HandOver(bytes) => write!(f, "HandOver(<redacted; {} bytes>)", bytes.len()),
+            Self::Gone => f.write_str("Gone"),
+        }
+    }
 }
 
 /// Collect the request head, stopping as soon as there is enough to decide.

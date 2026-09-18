@@ -4,8 +4,9 @@
 //!
 //! `relay.free2z.cash` returned **502 to 100% of non-WebSocket requests for 22
 //! hours** — ~5,700 a day — and paged production's site-wide load-balancer 5xx
-//! alert while free2z.cash itself was entirely healthy (free2z/zuu#1037,
-//! free2z/tuzi#1937). Nothing was wrong with the relay: `/healthz` on the
+//! alert while free2z.cash itself was entirely healthy (free2z/zuu#1037, and
+//! the incident write-up in the tuzi repo). Nothing was wrong with the relay:
+//! `/healthz` on the
 //! health listener answered `200`, and a real handshake returned `101` both
 //! against the pod and through the load balancer.
 //!
