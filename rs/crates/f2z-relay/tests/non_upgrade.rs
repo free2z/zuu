@@ -169,17 +169,15 @@ async fn a_plain_get_on_the_protocol_port_is_answered_rather_than_dropped() {
         body.len(),
         "Content-Length disagrees with the body"
     );
-    assert_eq!(body, "upgrade required\n");
+    // RFC 9112 §6.3 forbids a body on a response to HEAD, and this listener
+    // does not parse the method, so the answer has no body at all.
+    assert_eq!(body, "", "the refusal grew a body");
 
     // The `/healthz` discipline: the answer is the same for everyone and says
-    // nothing. Nothing of the request comes back, and no number does either.
+    // nothing. Nothing of the request comes back.
     assert!(
         !response.contains("relay.free2z.cash"),
         "the refusal echoed the request: {response}"
-    );
-    assert!(
-        !body.chars().any(|character| character.is_ascii_digit()),
-        "the refusal reported a number: {body:?}"
     );
 
     server.shutdown().await;
@@ -217,6 +215,98 @@ async fn every_shape_of_scanner_traffic_is_answered_the_same_way() {
         answers.windows(2).all(|pair| pair[0] == pair[1]),
         "the refusal varied between requests: {answers:?}"
     );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_head_split_across_segments_is_still_answered() {
+    // Found by the codex adversarial review of this change. The first version
+    // looked at the socket exactly once, so a head that arrived in two pieces
+    // was handed straight to `accept_hdr_async` and closed without a response:
+    // the original defect, still reachable, and now dependent on TCP arrival
+    // boundaries rather than on anything anyone could reason about. One write
+    // by the sender is not one read by the receiver.
+    let server = Server::start(base()).await.expect("the relay starts");
+    let protocol = server.protocol_addr();
+
+    let mut stream = tokio::net::TcpStream::connect(protocol)
+        .await
+        .expect("the protocol listener accepts");
+    stream
+        .write_all(b"GET / HTTP/1.1\r\nHost: relay.free2z.cash\r\n")
+        .await
+        .expect("the first segment is written");
+    // Long enough that the relay has certainly already looked once.
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    stream
+        .write_all(b"\r\n")
+        .await
+        .expect("the terminator is written");
+
+    let mut response = String::new();
+    let _ =
+        tokio::time::timeout(Duration::from_secs(5), stream.read_to_string(&mut response)).await;
+
+    assert!(
+        response.starts_with("HTTP/1.1 426 Upgrade Required\r\n"),
+        "a fragmented request went unanswered: {response:?}"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_with_a_binary_body_is_answered_from_its_head() {
+    // Also from the codex review. Requiring the whole peeked prefix to be
+    // UTF-8 let the BODY decide whether the HEAD could be answered, so the
+    // same request got a 426 or a closed socket depending on whether the two
+    // shared a segment. Framing must not depend on packet boundaries.
+    let server = Server::start(base()).await.expect("the relay starts");
+    let protocol = server.protocol_addr();
+
+    let mut stream = tokio::net::TcpStream::connect(protocol)
+        .await
+        .expect("the protocol listener accepts");
+    let mut request = b"POST /upload HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\n\r\n".to_vec();
+    request.push(0xff);
+    stream
+        .write_all(&request)
+        .await
+        .expect("the request is written");
+
+    let mut response = String::new();
+    let _ =
+        tokio::time::timeout(Duration::from_secs(5), stream.read_to_string(&mut response)).await;
+
+    assert!(
+        response.starts_with("HTTP/1.1 426 Upgrade Required\r\n"),
+        "a binary body hid a perfectly good head: {response:?}"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_head_request_gets_no_body() {
+    // RFC 9112 §6.3: a response to HEAD ends at the header terminator whatever
+    // its Content-Length says. This listener does not parse the method, so the
+    // only way the answer can be legal for HEAD is for it to have no body for
+    // anyone — which is also the most content-free thing it could say.
+    let server = Server::start(base()).await.expect("the relay starts");
+    let protocol = server.protocol_addr();
+
+    let response = exchange_until_close(protocol, "HEAD / HTTP/1.1\r\nHost: x\r\n\r\n").await;
+    assert!(
+        response.starts_with("HTTP/1.1 426 Upgrade Required\r\n"),
+        "{response:?}"
+    );
+    assert!(
+        response.ends_with("\r\n\r\n"),
+        "a body followed the head of a HEAD response: {response:?}"
+    );
+    let (_head, body) = response.split_once("\r\n\r\n").expect("a parseable head");
+    assert_eq!(body, "");
 
     server.shutdown().await;
 }

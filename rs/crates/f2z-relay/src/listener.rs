@@ -79,14 +79,23 @@ use crate::transport::{RELAY_PATH, SUBPROTOCOL, Transport, wrap};
 
 const HEADER_SUBPROTOCOL: &str = "sec-websocket-protocol";
 
-/// The most of a peer's first segment that is looked at before deciding whether
+/// The most of a peer's request head that is looked at before deciding whether
 /// it is attempting a WebSocket upgrade.
 ///
-/// The same bound, chosen for the same reason, as the single read in
-/// [`crate::admin`]: a request line plus whatever headers arrived alongside it.
 /// It bounds the LOOK and not the protocol — nothing here consumes a byte, and
-/// a request head longer than this is simply handed on undecided.
-const SNIFF_LIMIT: usize = 2048;
+/// a head longer than this is handed on undecided rather than answered.
+///
+/// 8 KiB rather than the 2 KiB [`crate::admin`] uses for its single read,
+/// because the populations are different: that listener's whole population is
+/// a kubelet and a health checker, and this one's is the open internet. A
+/// crawler or a browser carrying a few kilobytes of cookies and a long
+/// `User-Agent` really does exceed 2 KiB, and at 2 KiB every one of those
+/// requests fell through to the closed socket this change exists to remove.
+/// It is the conventional header bound (nginx, Go and the load balancer in
+/// front of this all sit in the same range), and it costs nothing at runtime:
+/// the buffer lives in the handshake's state only, which the async state
+/// machine overlaps with the much larger session state that follows it.
+const SNIFF_LIMIT: usize = 8192;
 
 /// How long the refusal goes on discarding what the peer sent, after the
 /// response is written, before closing anyway.
@@ -112,38 +121,60 @@ const SNIFF_LIMIT: usize = 2048;
 /// `Connection: close` response closes as soon as it has it.
 const LINGER: Duration = Duration::from_millis(250);
 
+/// How long the sniff waits before looking again at a head that has not all
+/// arrived yet.
+///
+/// See [`is_non_upgrade`] for why looking again cannot be a tight loop. Only a
+/// peer whose incomplete head contains no upgrade request ever waits this out,
+/// so the cost falls on the scanner being answered and not on a client.
+const SNIFF_INTERVAL: Duration = Duration::from_millis(20);
+
+/// How many times the sniff will look before giving up and handing the stream
+/// on with the behaviour that existed before #1037.
+///
+/// With [`SNIFF_INTERVAL`] this is a bound of about 140ms on a peer that opens
+/// a connection and dribbles. It is not a security bound — `accept_hdr_async`
+/// would have held the same task for the same peer indefinitely before this
+/// existed, and still does after the hand-off — it is the point at which
+/// waiting stops being likely to pay.
+const SNIFF_LOOKS: u32 = 8;
+
 /// The whole of the answer to a peer that is not speaking WebSocket, exactly as
 /// it goes on the wire.
 ///
 /// **Constant, in the same sense `/healthz` is constant** (see
 /// [`crate::admin`]): the same bytes for every peer, every target and every
 /// source address. It echoes no request, names no queue, and carries no
-/// counter, no version and no client address; the body contains no digit at
-/// all. That it is a `const` rather than anything formatted is the enforcement
-/// rather than the intention — there is no parameter here through which a
-/// request could travel into a response, in the same way [`crate::log`] has no
-/// parameter through which a payload could travel into a log line.
+/// counter, no version and no client address. That it is a `const` rather than
+/// anything formatted is the enforcement rather than the intention — there is
+/// no parameter here through which a request could travel into a response, in
+/// the same way [`crate::log`] has no parameter through which a payload could
+/// travel into a log line.
+///
+/// **The body is empty, and that is a decision.** A short `upgrade required`
+/// line was the first draft, and it bought nothing that
+/// `426 Upgrade Required` plus `Upgrade: websocket` does not already say.
+/// Dropping it removes three problems at once: RFC 9112 §6.3 forbids a body on
+/// a response to `HEAD`, so a constant body would have been illegal for every
+/// crawler that sends one and would have needed the method parsed to avoid it;
+/// a `Content-Length` and a body can drift apart; and an empty body is the
+/// furthest this can go towards saying nothing, which is the discipline the
+/// whole listener is held to.
 ///
 /// `Upgrade: websocket` is not decoration: RFC 9110 §15.5.22 makes the
 /// `Upgrade` field REQUIRED on a 426, and it is the one thing that makes the
 /// status actionable rather than merely honest.
 ///
-/// `Connection: close` and an exact `Content-Length` together mean nothing in
-/// front of this relay ever has to guess where the message ends — a peer left
-/// guessing is the whole of what went wrong here in the first place.
+/// `Connection: close` and an explicit `Content-Length: 0` together mean
+/// nothing in front of this relay ever has to guess where the message ends — a
+/// peer left guessing is the whole of what went wrong here in the first place.
 const NOT_A_WEBSOCKET: &str = concat!(
     "HTTP/1.1 426 Upgrade Required\r\n",
     "Upgrade: websocket\r\n",
     "Connection: close\r\n",
-    "Content-Type: text/plain; charset=utf-8\r\n",
-    // 17, the length of the body below. The two are pinned together by
-    // `the_refusal_is_a_parseable_http_response_that_discloses_nothing`,
-    // because a `Content-Length` that disagrees with its body is precisely the
-    // sort of thing that reads fine and breaks a proxy.
-    "Content-Length: 17\r\n",
+    "Content-Length: 0\r\n",
     "Cache-Control: no-store\r\n",
     "\r\n",
-    "upgrade required\n",
 );
 
 /// Why a listener could not be created.
@@ -322,20 +353,7 @@ async fn handshake(
 ///   new code on the hot path, to fix a cold path that no load balancer is
 ///   turning into a 5xx.
 async fn refuse_non_upgrade(stream: &mut TcpStream) -> bool {
-    let mut prefix = [0u8; SNIFF_LIMIT];
-    // ONE peek, with no reassembly loop, which is the same discipline
-    // `crate::admin` applies to its single `read`. A loop here would be a SPIN
-    // loop: `peek` is non-destructive and returns immediately with whatever is
-    // already buffered, so a peer that sends half a request and then stalls
-    // would be re-peeked as fast as the scheduler allows, on an internet-facing
-    // port, for as long as it cared to hold the socket open. A request head
-    // split across segments is therefore left to `accept_hdr_async` exactly as
-    // it was — every client that matters here, the load balancer and `curl`
-    // and a scanner alike, writes the whole head in a single write.
-    let Ok(peeked) = stream.peek(&mut prefix).await else {
-        return false;
-    };
-    if !is_settled_non_upgrade(prefix.get(..peeked).unwrap_or_default()) {
+    if !is_non_upgrade(stream).await {
         return false;
     }
     // Borrowing the stream rather than taking it by value is what lets the
@@ -348,6 +366,126 @@ async fn refuse_non_upgrade(stream: &mut TcpStream) -> bool {
     let _ = stream.shutdown().await;
     discard_request(stream).await;
     true
+}
+
+/// Look at what the peer has sent, waiting a bounded while for the rest of it,
+/// and decide whether it is definitely not a handshake.
+///
+/// `peek` is non-destructive, so every path out of here leaves the stream
+/// byte-for-byte as it was found.
+///
+/// # Why this looks more than once
+///
+/// One look is wrong, and the first version of this change was wrong that way:
+/// a sender writing the whole head in one `write` does not mean the receiver
+/// sees it in one `peek`, and a head split across two segments would have
+/// fallen through to the closed socket — the production defect, still
+/// reachable, now dependent on TCP arrival boundaries. So it looks again.
+///
+/// It cannot look again in a tight loop: `peek` returns immediately with
+/// whatever is already buffered, so re-peeking a peer that has stalled
+/// mid-request would spin a core on an internet-facing port for as long as
+/// that peer cared to hold the socket open. [`SNIFF_INTERVAL`] is what makes
+/// looking again cheap instead.
+///
+/// **Nothing that might be a handshake ever waits.** [`Sniff::HandOver`] is
+/// returned the moment an `Upgrade` field naming `websocket` appears, without
+/// waiting for the end of the head, so a real client's connection is never
+/// delayed by this even when its own request arrives in pieces. Only a peer
+/// that has sent an incomplete head containing no such field waits, and that
+/// peer is the one being answered.
+async fn is_non_upgrade(stream: &TcpStream) -> bool {
+    let mut prefix = [0u8; SNIFF_LIMIT];
+    let mut looks = 0u32;
+    loop {
+        let Ok(peeked) = stream.peek(&mut prefix).await else {
+            return false;
+        };
+        // End of stream: nothing arrived and nothing will, so there is nobody
+        // left to answer.
+        if peeked == 0 {
+            return false;
+        }
+        match sniff(prefix.get(..peeked).unwrap_or_default()) {
+            Sniff::Answer => return true,
+            Sniff::HandOver => return false,
+            // A head that fills the whole bound without ending is not one this
+            // will answer: the `Upgrade` field could still be past the bound,
+            // and refusing a working client is far worse than leaving a very
+            // unusual request on the old behaviour.
+            Sniff::Wait if peeked >= SNIFF_LIMIT => return false,
+            Sniff::Wait => {}
+        }
+        looks = looks.saturating_add(1);
+        if looks >= SNIFF_LOOKS {
+            return false;
+        }
+        tokio::time::sleep(SNIFF_INTERVAL).await;
+    }
+}
+
+/// What [`sniff`] concluded from the bytes in hand.
+#[derive(Debug, PartialEq, Eq)]
+enum Sniff {
+    /// A complete head that asks for no upgrade. Answer it with a 426.
+    Answer,
+    /// It is a handshake, or it is something this has no business deciding.
+    /// Hand the stream to `accept_hdr_async` now, unchanged.
+    HandOver,
+    /// Not enough has arrived to say. Look again.
+    Wait,
+}
+
+/// Classify the bytes received so far.
+///
+/// **This is not an HTTP parser and must not become one.** It reads no method,
+/// no target and no version, it interprets no header but one, and its entire
+/// output is the three-way choice above between code paths that already
+/// existed. RFC 6455 §4.1 requires `Upgrade: websocket` on every handshake, so
+/// a completed head without one is not a handshake — including the malformed
+/// near-miss that sends `Sec-WebSocket-Key` and forgets to ask for the
+/// upgrade, which never reaches [`reject`]'s 400 anyway because it never
+/// parses as a handshake at all.
+fn sniff(prefix: &[u8]) -> Sniff {
+    // The end of the head is found in BYTES, before any question of UTF-8 is
+    // asked, and only the head is then required to be text. Checking the whole
+    // prefix instead makes a perfectly ordinary request undecidable because of
+    // its BODY: `POST / HTTP/1.1 … Content-Length: 1` followed by `0xff` is
+    // enough, and whether the two arrived in the same segment then decides
+    // whether the peer gets a 426 or a closed socket. Framing must not depend
+    // on packet boundaries.
+    let terminator = prefix.windows(4).position(|window| window == b"\r\n\r\n");
+    // With no terminator yet, everything in hand is still head, and it is worth
+    // reading: the `Upgrade` field may already be there.
+    let head_bytes = match terminator {
+        Some(end) => prefix.get(..end).unwrap_or_default(),
+        None => prefix,
+    };
+    // A head that is not even text is not one this answers: a TLS `ClientHello`
+    // that found the plaintext port, or any binary probe, is handed on rather
+    // than replied to in a language it was never going to read.
+    let Ok(head) = core::str::from_utf8(head_bytes) else {
+        return Sniff::HandOver;
+    };
+    // `skip(1)` drops the request line, which is not a header: a scanner asking
+    // for `/upgrade` must not read as one asking to upgrade.
+    let asks_to_upgrade = head.split("\r\n").skip(1).any(|line| {
+        let Some((name, value)) = line.split_once(':') else {
+            return false;
+        };
+        name.trim().eq_ignore_ascii_case("upgrade")
+            && contains_ignore_ascii_case(value, b"websocket")
+    });
+    if asks_to_upgrade {
+        // Decided without waiting for the end of the head, deliberately: this
+        // is the path a real client takes.
+        return Sniff::HandOver;
+    }
+    if terminator.is_some() {
+        Sniff::Answer
+    } else {
+        Sniff::Wait
+    }
 }
 
 /// Read and drop whatever the peer sent, so that closing does not reset it.
@@ -368,46 +506,6 @@ async fn discard_request(stream: &mut TcpStream) {
         }
     })
     .await;
-}
-
-/// Whether `prefix` holds a **complete** request head that is **not** asking to
-/// upgrade.
-///
-/// "Settled" is the whole of the contract: `false` means either "this is a
-/// handshake" or "I cannot tell yet", and both hand the connection on
-/// untouched. Only a head that has ended — `\r\n\r\n` seen — and carries no
-/// `Upgrade` field naming `websocket` is answered.
-///
-/// **This is not an HTTP parser and must not become one.** It reads no method,
-/// no target and no version, it interprets no other header, and its entire
-/// output is one bit choosing between two code paths that both already existed.
-/// RFC 6455 §4.1 requires `Upgrade: websocket` on every handshake, so a head
-/// without one is not a handshake — including the malformed near-miss that
-/// sends `Sec-WebSocket-Key` and forgets to ask for the upgrade, which never
-/// reaches [`reject`]'s 400 anyway because it never parses as a handshake at
-/// all.
-fn is_settled_non_upgrade(prefix: &[u8]) -> bool {
-    // Not being UTF-8 is not a decision: a TLS `ClientHello` that arrived on the
-    // plaintext port, or any binary probe, is handed on rather than answered in
-    // text it was never going to read.
-    let Ok(text) = core::str::from_utf8(prefix) else {
-        return false;
-    };
-    let Some(end) = text.find("\r\n\r\n") else {
-        return false;
-    };
-    let Some(head) = text.get(..end) else {
-        return false;
-    };
-    // `skip(1)` drops the request line, which is not a header: a scanner asking
-    // for `/upgrade` must not read as one asking to upgrade.
-    !head.split("\r\n").skip(1).any(|line| {
-        let Some((name, value)) = line.split_once(':') else {
-            return false;
-        };
-        name.trim().eq_ignore_ascii_case("upgrade")
-            && contains_ignore_ascii_case(value, b"websocket")
-    })
 }
 
 /// A case-insensitive substring test that allocates nothing.
@@ -516,8 +614,11 @@ mod tests {
             "{head}"
         );
 
-        // A `Content-Length` that disagrees with the body is a framing bug that
-        // looks fine in a test that only reads the status line.
+        // RFC 9112 §6.3 forbids a body on a response to HEAD, and this
+        // listener does not parse the method — so the only way the answer can
+        // be legal for every request is for it to have no body at all. An
+        // empty body is also the furthest "says nothing" can be taken.
+        assert_eq!(body, "", "the refusal grew a body");
         let declared: usize = head
             .lines()
             .find_map(|line| line.strip_prefix("Content-Length: "))
@@ -527,74 +628,97 @@ mod tests {
         assert_eq!(
             declared,
             body.len(),
-            "Content-Length disagrees with {body:?}"
-        );
-
-        // The `/healthz` discipline, applied here: the body is constant and
-        // carries no number. Nothing about the queue, the peer, the build or
-        // the request can reach it, because there is no parameter to reach it
-        // through — this is a `const`.
-        assert_eq!(body, "upgrade required\n");
-        assert!(
-            !body.chars().any(|character| character.is_ascii_digit()),
-            "the refusal reported a number"
+            "Content-Length disagrees with the body"
         );
     }
 
     #[test]
-    fn a_plain_request_is_settled_as_a_non_upgrade() {
+    fn a_plain_request_is_answered() {
         // Exactly the traffic that was turning into 502s.
-        assert!(is_settled_non_upgrade(
-            b"GET / HTTP/1.1\r\nHost: relay.free2z.cash\r\n\r\n"
-        ));
-        assert!(is_settled_non_upgrade(
-            b"GET /favicon.ico HTTP/1.1\r\nHost: relay.free2z.cash\r\n\r\n"
-        ));
-        assert!(is_settled_non_upgrade(b"GET /.env HTTP/1.0\r\n\r\n"));
+        assert_eq!(
+            sniff(b"GET / HTTP/1.1\r\nHost: relay.free2z.cash\r\n\r\n"),
+            Sniff::Answer
+        );
+        assert_eq!(
+            sniff(b"GET /favicon.ico HTTP/1.1\r\nHost: relay.free2z.cash\r\n\r\n"),
+            Sniff::Answer
+        );
+        assert_eq!(sniff(b"GET /.env HTTP/1.0\r\n\r\n"), Sniff::Answer);
 
         // The request TARGET is not a header. `/websocket` and `/upgrade` are
         // scanner paths, not an intention to upgrade, and a substring search
         // over the whole head would get both of these wrong.
-        assert!(is_settled_non_upgrade(
-            b"GET /websocket HTTP/1.1\r\nHost: x\r\n\r\n"
-        ));
-        assert!(is_settled_non_upgrade(
-            b"GET /upgrade HTTP/1.1\r\nHost: x\r\n\r\n"
-        ));
+        assert_eq!(
+            sniff(b"GET /websocket HTTP/1.1\r\nHost: x\r\n\r\n"),
+            Sniff::Answer
+        );
+        assert_eq!(
+            sniff(b"GET /upgrade HTTP/1.1\r\nHost: x\r\n\r\n"),
+            Sniff::Answer
+        );
     }
 
     #[test]
-    fn a_handshake_is_never_settled_as_a_non_upgrade() {
+    fn a_binary_body_does_not_hide_a_perfectly_good_head() {
+        // Codex finding #2 on this change. Requiring the WHOLE prefix to be
+        // UTF-8 made the verdict depend on the BODY, and therefore on whether
+        // the body happened to arrive in the same segment as the head: the
+        // same request got a 426 or a closed socket depending on packet
+        // timing. The terminator is found in bytes and only the head is text.
+        let mut request = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\n\r\n".to_vec();
+        request.push(0xff);
+        assert_eq!(sniff(&request), Sniff::Answer);
+    }
+
+    #[test]
+    fn a_handshake_is_handed_over_and_never_answered() {
         // The regression that would matter most: a 426 written over a real
         // client's handshake breaks the relay for everyone who can use it.
-        assert!(!is_settled_non_upgrade(HANDSHAKE.as_bytes()));
+        assert_eq!(sniff(HANDSHAKE.as_bytes()), Sniff::HandOver);
 
         // Field names and values are case-insensitive, and clients genuinely
         // differ — `Upgrade: WebSocket` is the spelling in RFC 6455's own
         // example, and `UPGRADE:` is legal too.
-        assert!(!is_settled_non_upgrade(
-            b"GET /relay/v1 HTTP/1.1\r\nUPGRADE: WebSocket\r\n\r\n"
-        ));
+        assert_eq!(
+            sniff(b"GET /relay/v1 HTTP/1.1\r\nUPGRADE: WebSocket\r\n\r\n"),
+            Sniff::HandOver
+        );
         // A header value may carry more than one token.
-        assert!(!is_settled_non_upgrade(
-            b"GET /relay/v1 HTTP/1.1\r\nUpgrade: h2c, websocket\r\n\r\n"
-        ));
+        assert_eq!(
+            sniff(b"GET /relay/v1 HTTP/1.1\r\nUpgrade: h2c, websocket\r\n\r\n"),
+            Sniff::HandOver
+        );
     }
 
     #[test]
-    fn an_undecided_prefix_is_handed_to_the_handshake() {
-        // No end of head yet, so these bytes may still become a handshake and
-        // nothing is answered. This is the direction the ambiguity HAS to
-        // fall: handing it on is precisely the behaviour that existed before
-        // #1037, whereas answering early would break a client mid-handshake.
-        assert!(!is_settled_non_upgrade(b""));
-        assert!(!is_settled_non_upgrade(b"GET / HTTP/1.1\r\nHost: x\r\n"));
-        // A head longer than the bound is undecided rather than refused.
-        let long = format!("GET / HTTP/1.1\r\nX: {}\r\n\r\n", "y".repeat(SNIFF_LIMIT));
-        let truncated = long.as_bytes().get(..SNIFF_LIMIT).unwrap();
-        assert!(!is_settled_non_upgrade(truncated));
-        // Not UTF-8 at all: a TLS `ClientHello` that found the plaintext port.
-        assert!(!is_settled_non_upgrade(&[0x16, 0x03, 0x01, 0xff, 0xfe]));
+    fn a_handshake_is_recognised_before_its_head_is_complete() {
+        // A client never waits on this. As soon as the upgrade request is
+        // visible the stream is handed over, even though the head has not
+        // ended — otherwise a fragmented handshake would pay SNIFF_INTERVAL
+        // for nothing.
+        let partial = b"GET /relay/v1 HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\n";
+        assert_eq!(sniff(partial), Sniff::HandOver);
+    }
+
+    #[test]
+    fn an_incomplete_head_is_waited_for_rather_than_guessed() {
+        // Codex finding #1 on this change. A single look made the fix depend
+        // on TCP arrival boundaries: a head split across two segments was
+        // handed on and closed silently, which is the original defect. These
+        // are `Wait`, not `HandOver` — the caller looks again.
+        assert_eq!(sniff(b""), Sniff::Wait);
+        assert_eq!(sniff(b"GET / HTTP/1.1\r\nHost: x\r\n"), Sniff::Wait);
+        assert_eq!(sniff(b"GE"), Sniff::Wait);
+
+        // And once the rest arrives, it is answered.
+        assert_eq!(sniff(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n"), Sniff::Answer);
+    }
+
+    #[test]
+    fn something_that_is_not_http_at_all_is_handed_over() {
+        // A TLS `ClientHello` that found the plaintext port. Answering it in
+        // text would be answering in a language it cannot read.
+        assert_eq!(sniff(&[0x16, 0x03, 0x01, 0xff, 0xfe]), Sniff::HandOver);
     }
 
     #[test]
@@ -607,10 +731,10 @@ mod tests {
         assert!(NOT_A_WEBSOCKET.starts_with("HTTP/1.1 426 "));
 
         // And the case each one takes. A wrong path WITH an upgrade request is
-        // the 400 case, so it must not be settled away here before
-        // `check_upgrade` ever runs.
+        // the 400 case, so it must reach `check_upgrade` rather than being
+        // answered here.
         let wrong_path = HANDSHAKE.replace("/relay/v1", "/nope");
-        assert!(!is_settled_non_upgrade(wrong_path.as_bytes()));
+        assert_eq!(sniff(wrong_path.as_bytes()), Sniff::HandOver);
     }
 
     #[tokio::test]
@@ -639,5 +763,6 @@ mod tests {
         assert!(server.await.unwrap(), "the peer was not answered");
         assert!(!response.is_empty(), "the socket closed without a response");
         assert_eq!(response, NOT_A_WEBSOCKET);
+        assert!(response.ends_with("\r\n\r\n"), "a body reached the wire");
     }
 }
