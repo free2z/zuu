@@ -10,9 +10,13 @@
 //! free2z as its only witness — and this module is where that decision enters
 //! the build: `../internal-directory.conf`, compiled in with `include_str!`.
 //!
-//! The file ships with every key and URL set to `PLACEHOLDER`, and in that
-//! state [`bundled`] answers [`Bundled::Unconfigured`]: the engine keeps
-//! [`crate::directory::NoDirectory`] and no relay is added. A half-filled file
+//! The file shipped with every key and URL set to `PLACEHOLDER` until zuu#1022
+//! workstream 9 deployed the log, the witness, the handle authority and the
+//! relay; it now carries their real values, and [`bundled`] answers
+//! [`Bundled::Configured`]. With any key or URL still `PLACEHOLDER` the answer
+//! is [`Bundled::Unconfigured`]: the engine keeps
+//! [`crate::directory::NoDirectory`] and no relay is added — the state
+//! `PLACEHOLDER_TEXT` keeps under test. A half-filled file
 //! is **malformed**, not partially configured, and malformed is a **compile
 //! error**: `build.rs` runs [`syntax::parse`] — the same function this module
 //! runs — over the file and fails the build, so no binary can carry one. The
@@ -46,6 +50,15 @@ pub use syntax::{MIN_RESET_COOLDOWN_SECONDS, PLACEHOLDER, POSTURE};
 
 /// The file, as compiled into this build.
 pub const BUNDLED_TEXT: &str = include_str!("../internal-directory.conf");
+
+/// The unfilled file, as a **test fixture only** — never compiled into a build.
+///
+/// [`BUNDLED_TEXT`] now carries the internal deployment's real values, so it is
+/// no longer an instance of the state the fail-closed rule is about. This is,
+/// in the same grammar, and the tests below prove `Unconfigured` over it and
+/// hold it to the shipped file's key set.
+#[cfg(test)]
+pub const PLACEHOLDER_TEXT: &str = include_str!("internal_directory/placeholder.conf");
 
 /// How long a lookup or submission waits for the log.
 const LOG_TIMEOUT: Duration = Duration::from_secs(15);
@@ -419,6 +432,12 @@ mod tests {
             format!("{}retired_log_public_key = {A}\n", filled()),
             format!("{}retired_log_public_key = {PLACEHOLDER}\n", filled()),
             format!("{}retired_log_public_key = {PLACEHOLDER}\n", BUNDLED_TEXT),
+            format!("{PLACEHOLDER_TEXT}retired_log_public_key = {PLACEHOLDER}\n"),
+            // The shipped file's own genesis key is not a generation it left.
+            format!(
+                "{BUNDLED_TEXT}retired_log_public_key = \
+                 650b5cadbe37ad0054bbcfd77e202917318ca3fd847ac835f810bfb41c913e61\n"
+            ),
         ] {
             assert!(parse(&text).is_err(), "must be refused:\n{text}");
         }
@@ -436,11 +455,133 @@ mod tests {
     }
 
     #[test]
-    fn the_checked_in_placeholders_fail_closed() {
-        // While the deployment has not supplied values, nothing is configured.
-        // When workstream 9 fills the file, this test is the one to update.
-        assert!(matches!(bundled(), Bundled::Unconfigured(_)));
-        assert!(bundled().configured().is_none());
+    fn a_placeholder_file_fails_closed() {
+        // The property the shipped file used to carry itself. It is deployed
+        // now, so the fixture carries it: a file whose deployable values are
+        // all `PLACEHOLDER` configures NOTHING — not a log, not a relay, not a
+        // partial anything.
+        let parsed = parse(PLACEHOLDER_TEXT).expect("a well-formed unfilled file");
+        assert!(matches!(parsed, Bundled::Unconfigured(_)), "{parsed:?}");
+        assert!(parsed.configured().is_none());
+        let Bundled::Unconfigured(reason) = parsed else {
+            unreachable!()
+        };
+        assert!(reason.contains("PLACEHOLDER"), "{reason}");
+    }
+
+    #[test]
+    fn the_placeholder_fixture_declares_the_shipped_files_keys() {
+        // The fixture is only worth having while it is the shipped file with
+        // its values removed. A key added to one and not the other would leave
+        // fail-closed proven over a grammar nothing ships.
+        fn settings(text: &str) -> Vec<(&str, &str)> {
+            let mut settings: Vec<(&str, &str)> = text
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                .map(|line| {
+                    let (key, value) = line.split_once('=').unwrap_or((line, ""));
+                    (key.trim(), value.trim())
+                })
+                .collect();
+            settings.sort_unstable();
+            settings
+        }
+        let fixture = settings(PLACEHOLDER_TEXT);
+        let shipped = settings(BUNDLED_TEXT);
+        assert_eq!(
+            fixture.iter().map(|(key, _)| *key).collect::<Vec<_>>(),
+            shipped.iter().map(|(key, _)| *key).collect::<Vec<_>>()
+        );
+        // The fixture is unfilled wherever a value is deployable, and the
+        // shipped file is filled there. `PLACEHOLDER` appears in both files'
+        // *prose*, which is why this reads settings and not the whole text.
+        assert!(
+            fixture
+                .iter()
+                .any(|(key, value)| *key == "log_url" && *value == PLACEHOLDER)
+        );
+        assert!(
+            !shipped.iter().any(|(_, value)| *value == PLACEHOLDER),
+            "the shipped file carries no placeholder value"
+        );
+    }
+
+    #[test]
+    fn the_shipped_file_configures_the_internal_deployment() {
+        // zuu#1022 workstream 9's deployed values, each verified against the
+        // live service before this file was filled in: the log's signed tree
+        // head verifies under `log_public_key` and carries this `log_id`, its
+        // heads carry this `vrf_public_key`, its §4.6 policy vouches for
+        // exactly this `handle_authority_pk`, and
+        // `GET https://free2z.cash/api/e2ee/authority/` publishes the same key.
+        let Bundled::Configured(directory) = bundled() else {
+            panic!(
+                "the shipped file configures the internal directory: {:?}",
+                bundled()
+            );
+        };
+        assert_eq!(directory.log_url, "https://kt.free2z.cash");
+        assert_eq!(
+            hex::encode(directory.log_public_key),
+            "650b5cadbe37ad0054bbcfd77e202917318ca3fd847ac835f810bfb41c913e61"
+        );
+        assert_eq!(
+            hex::encode(directory.log_id),
+            "05b5dc5aa07ecae55442b8b32b6b8bebcc6490031112caa30adefa84070dc7e9"
+        );
+        assert_eq!(
+            hex::encode(directory.vrf_public_key),
+            "6b86eeff3c36a159f2841b16b73568bc85f60ba6aa7a0478eff2d3d2ac4b7706"
+        );
+        assert_eq!(
+            hex::encode(directory.reset_authority_pk),
+            "98d24429bc467cd94f2d4863ae84d50d5321c93030389bc144fd75f1afb34db3"
+        );
+        assert_eq!(directory.reset_cooldown_seconds, MIN_RESET_COOLDOWN_SECONDS);
+        assert_eq!(
+            directory
+                .witnesses
+                .iter()
+                .map(hex::encode)
+                .collect::<Vec<_>>(),
+            vec!["98868a0c8239837425f4fbb9e5293691940457d5fd0ccd4aff465701f8669518"]
+        );
+        assert_eq!(directory.threshold, 1);
+        assert_eq!(
+            hex::encode(directory.handle_authority_pk),
+            "332e237e2f9db842905c2a6011f4d306824b2f33eef01686d5b29d69e843934f"
+        );
+        assert_eq!(
+            directory.handle_assertion_url,
+            "https://free2z.cash/api/kt/handle-assertion/"
+        );
+        assert_eq!(directory.relay_url, "wss://relay.free2z.cash/relay/v1");
+        // Nothing has been wiped yet, so no generation has been left behind.
+        assert!(directory.retired_log_public_keys.is_empty());
+
+        // The posture, restated where it is used: one witness, free2z's own,
+        // counted as NOT independent, so the warning stays on screen.
+        let config = directory.directory_config();
+        assert_eq!(config.witnesses.len(), 1);
+        assert!(!config.witnesses[0].independent);
+        assert_eq!(config.threshold, 1);
+        assert_eq!(config.base_url, "https://kt.free2z.cash");
+        assert_eq!(config.vrf_public_key, Some(directory.vrf_public_key));
+        // ADR 0017 §3 / #1027: the log must vouch for exactly this authority,
+        // and this is the value the client holds it to.
+        assert_eq!(
+            config.required_authority,
+            Some(directory.handle_authority_pk)
+        );
+
+        // `KT.md` §6.1, derived here rather than read from the file — the same
+        // check `build.rs` made, restated so a pasted-in pair from two
+        // different logs cannot survive review.
+        assert_eq!(
+            f2z_kt_core::labels::log_id(&PublicKey::new(directory.log_public_key)).as_bytes(),
+            &directory.log_id
+        );
     }
 
     #[test]
@@ -468,8 +609,15 @@ mod tests {
     fn a_partly_filled_file_is_malformed_not_partly_configured() {
         let partial = filled().replace(C, PLACEHOLDER);
         assert!(parse(&partial).unwrap_err().contains("PLACEHOLDER"));
-        let partial = BUNDLED_TEXT.replace("log_url = PLACEHOLDER", "log_url = https://kt.x");
+        let partial = PLACEHOLDER_TEXT.replace("log_url = PLACEHOLDER", "log_url = https://kt.x");
         assert!(parse(&partial).is_err());
+        // And the other direction, over the file that actually ships: knocking
+        // one deployed value back out is malformed, not "mostly configured".
+        let partial = BUNDLED_TEXT.replace(
+            "relay_url = wss://relay.free2z.cash/relay/v1",
+            "relay_url = PLACEHOLDER",
+        );
+        assert!(parse(&partial).unwrap_err().contains("PLACEHOLDER"));
     }
 
     #[test]

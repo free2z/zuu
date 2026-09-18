@@ -225,10 +225,14 @@ the channel.
 `sign-challenge` has neither a caller nor an authority-side implementation.
 Both credential families now have both halves — e2e2z asks over the App Link
 transport and ZUULI answers, and version 2 also publishes the device in the
-directory and keeps the log's receipt — but **no build is configured to reach a
-log or a relay**: `internal-directory.conf` ships placeholders, so a shipping
-e2e2z refuses at the contact queue and a shipping ZUULI has nothing to publish
-to. What [#928](https://github.com/free2z/zuu/issues/928) closed is the install
+directory and keeps the log's receipt — and **a build is now configured to
+reach a log and a relay**: `internal-directory.conf` names the deployed
+disposable internal log, its single free2z-operated witness, the handle
+authority and the relay
+([status](status.md#24-the-directory-is-configured-and-it-is-disposable)), so a
+shipping e2e2z opens a contact queue and a shipping ZUULI has somewhere to
+publish. None of it has been observed on a device.
+What [#928](https://github.com/free2z/zuu/issues/928) closed is the install
 step, and #1019 and ADR 0017 §4.1 closed the two above it. Free2Z's native layer landed in
 [#942](https://github.com/free2z/zuu/pull/942), closing #918; its production
 HTTP capability remains scoped and stateless, without wallet or device-key
