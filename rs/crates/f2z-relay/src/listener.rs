@@ -60,7 +60,9 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use tokio::io::AsyncWriteExt as _;
+use std::time::Duration;
+
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use tokio_rustls::TlsAcceptor;
@@ -85,6 +87,30 @@ const HEADER_SUBPROTOCOL: &str = "sec-websocket-protocol";
 /// It bounds the LOOK and not the protocol — nothing here consumes a byte, and
 /// a request head longer than this is simply handed on undecided.
 const SNIFF_LIMIT: usize = 2048;
+
+/// How long the refusal goes on discarding what the peer sent, after the
+/// response is written, before closing anyway.
+///
+/// **This is not politeness, it is whether the response survives.** Closing a
+/// TCP socket that still has unread data in its receive queue makes the kernel
+/// send an **RST rather than a FIN** — Linux's `tcp_close` does it and so do
+/// the BSD-derived stacks — and an RST tells the peer's stack to discard what
+/// it has buffered but not yet handed to the application. Since the sniff
+/// above deliberately does not CONSUME the request, every refused connection
+/// would close with the whole request still unread, and the 426 would be
+/// written and then thrown away. The peer would see a reset connection, which
+/// a load balancer renders as… a 502. That is the bug this change exists to
+/// fix, reintroduced one layer down.
+///
+/// It was observed rather than reasoned about:
+/// `a_plain_get_over_a_real_socket_is_answered_not_dropped` failed with
+/// `ECONNRESET` before this existed.
+///
+/// So: write, FIN, then read and drop whatever arrives until the peer closes
+/// too. 250ms is a bound on a peer that sends and never stops — it is not a
+/// budget anything well-behaved spends, because a client reading a
+/// `Connection: close` response closes as soon as it has it.
+const LINGER: Duration = Duration::from_millis(250);
 
 /// The whole of the answer to a peer that is not speaking WebSocket, exactly as
 /// it goes on the wire.
@@ -224,7 +250,7 @@ const fn refusal_code(reason: Refusal) -> u32 {
 }
 
 async fn handshake(
-    stream: TcpStream,
+    mut stream: TcpStream,
     acceptor: Option<&TlsAcceptor>,
 ) -> Option<(Transport, f2z_codec::types::ChannelBinding)> {
     // Nagle costs a relay latency and buys it nothing: every frame is written
@@ -258,7 +284,7 @@ async fn handshake(
             // so and the connection ends here; `accept_hdr_async` never sees
             // it. Everything else — including every case that cannot be
             // decided — falls through to exactly the code that ran before.
-            if refuse_non_upgrade(&stream).await {
+            if refuse_non_upgrade(&mut stream).await {
                 return None;
             }
             let socket = tokio_tungstenite::accept_hdr_async(stream, check_upgrade)
@@ -295,7 +321,7 @@ async fn handshake(
 ///   underneath every frame of every connection for the life of the session —
 ///   new code on the hot path, to fix a cold path that no load balancer is
 ///   turning into a 5xx.
-async fn refuse_non_upgrade(stream: &TcpStream) -> bool {
+async fn refuse_non_upgrade(stream: &mut TcpStream) -> bool {
     let mut prefix = [0u8; SNIFF_LIMIT];
     // ONE peek, with no reassembly loop, which is the same discipline
     // `crate::admin` applies to its single `read`. A loop here would be a SPIN
@@ -312,16 +338,32 @@ async fn refuse_non_upgrade(stream: &TcpStream) -> bool {
     if !is_settled_non_upgrade(prefix.get(..peeked).unwrap_or_default()) {
         return false;
     }
-    // Writing through `&TcpStream` rather than taking the stream by value is
-    // what lets the caller keep ownership for the handshake path. Every step is
-    // best-effort: a peer that has already hung up is not an error worth a
-    // branch, because there is nothing to fall back to and nothing to report
-    // that would not be a log line about an unauthenticated stranger.
-    let mut io = stream;
-    let _ = io.write_all(NOT_A_WEBSOCKET.as_bytes()).await;
-    let _ = io.flush().await;
-    let _ = io.shutdown().await;
+    // Borrowing the stream rather than taking it by value is what lets the
+    // caller keep ownership for the handshake path. Every step is best-effort:
+    // a peer that has already hung up is not an error worth a branch, because
+    // there is nothing to fall back to and nothing to report that would not be
+    // a log line about an unauthenticated stranger.
+    let _ = stream.write_all(NOT_A_WEBSOCKET.as_bytes()).await;
+    let _ = stream.flush().await;
+    let _ = stream.shutdown().await;
+    discard_request(stream).await;
     true
+}
+
+/// Read and drop whatever the peer sent, so that closing does not reset it.
+///
+/// See [`LINGER`] for why a refusal that skips this is a refusal the peer never
+/// receives. Bounded in time rather than in bytes: a peer that keeps sending is
+/// dropped on the deadline, and every other peer reaches end-of-stream long
+/// before it.
+async fn discard_request(stream: &mut TcpStream) {
+    let mut sink = [0u8; SNIFF_LIMIT];
+    let deadline = tokio::time::Instant::now() + LINGER;
+    while let Ok(Ok(read)) = tokio::time::timeout_at(deadline, stream.read(&mut sink)).await {
+        if read == 0 {
+            break;
+        }
+    }
 }
 
 /// Whether `prefix` holds a **complete** request head that is **not** asking to
@@ -575,8 +617,8 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
-            let (stream, _peer) = listener.accept().await.unwrap();
-            refuse_non_upgrade(&stream).await
+            let (mut stream, _peer) = listener.accept().await.unwrap();
+            refuse_non_upgrade(&mut stream).await
         });
 
         let mut client = TcpStream::connect(addr).await.unwrap();
