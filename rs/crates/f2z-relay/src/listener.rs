@@ -23,10 +23,44 @@
 //! that does not echo it is one the client must refuse, so a relay that forgets
 //! to is a relay nobody can talk to — which is a bug worth failing loudly rather
 //! than a nicety.
+//!
+//! # What answers a peer that is not speaking WebSocket at all
+//!
+//! A request that is not a handshake — a scanner, a crawler, `/favicon.ico`,
+//! `/.env`, or any HTTP/2 client, since a WebSocket upgrade cannot be expressed
+//! over h2 — used to get **no HTTP response whatsoever**: the socket simply
+//! closed. A Google Cloud load balancer renders "the backend closed the
+//! connection before sending data" as **502**, so 100% of non-upgrade traffic
+//! to the public hostname became a 5xx attributed to the shared production URL
+//! map — ~5,700 a day, and a page on an alert whose whole meaning is "the site
+//! is broken" while the site was entirely healthy (free2z/zuu#1037,
+//! free2z/tuzi#1937). The 502 also actively lied: it said *this* backend had
+//! failed, when the truth was that the caller had not spoken the protocol.
+//!
+//! So [`handshake`] answers that case itself, with a constant **426 Upgrade
+//! Required** ([`NOT_A_WEBSOCKET`]), before `accept_hdr_async` ever sees the
+//! bytes. Two things it deliberately is not:
+//!
+//! * **It is not an HTTP surface.** Nothing is routed, no target is examined,
+//!   there is no `/metrics` and no health endpoint here — `/healthz` stays on
+//!   the separate health listener ([`crate::admin`]) where a probe can reach
+//!   it. One constant status for "you are not a WebSocket", and §2.2's argument
+//!   against a second parser on the unauthenticated port is exactly why it
+//!   stops there.
+//! * **It is not [`reject`]'s 400, and the difference is the point.** A 400
+//!   says *your handshake is wrong*, and it is the honest answer to a peer that
+//!   **did** ask to upgrade and then named the wrong path or omitted the
+//!   mandatory subprotocol (§2.1). A 426 says *this port only speaks
+//!   WebSocket*, and it is the honest answer to a peer that never asked at all.
+//!   Answering the second case with a 400 would tell a crawler its perfectly
+//!   well-formed request was malformed; answering the first with a 426 would
+//!   tell a real client to go and do the thing it just did. Both statuses stay,
+//!   on their own cases.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use tokio::io::AsyncWriteExt as _;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use tokio_rustls::TlsAcceptor;
@@ -42,6 +76,49 @@ use crate::metrics::Metrics;
 use crate::transport::{RELAY_PATH, SUBPROTOCOL, Transport, wrap};
 
 const HEADER_SUBPROTOCOL: &str = "sec-websocket-protocol";
+
+/// The most of a peer's first segment that is looked at before deciding whether
+/// it is attempting a WebSocket upgrade.
+///
+/// The same bound, chosen for the same reason, as the single read in
+/// [`crate::admin`]: a request line plus whatever headers arrived alongside it.
+/// It bounds the LOOK and not the protocol — nothing here consumes a byte, and
+/// a request head longer than this is simply handed on undecided.
+const SNIFF_LIMIT: usize = 2048;
+
+/// The whole of the answer to a peer that is not speaking WebSocket, exactly as
+/// it goes on the wire.
+///
+/// **Constant, in the same sense `/healthz` is constant** (see
+/// [`crate::admin`]): the same bytes for every peer, every target and every
+/// source address. It echoes no request, names no queue, and carries no
+/// counter, no version and no client address; the body contains no digit at
+/// all. That it is a `const` rather than anything formatted is the enforcement
+/// rather than the intention — there is no parameter here through which a
+/// request could travel into a response, in the same way [`crate::log`] has no
+/// parameter through which a payload could travel into a log line.
+///
+/// `Upgrade: websocket` is not decoration: RFC 9110 §15.5.22 makes the
+/// `Upgrade` field REQUIRED on a 426, and it is the one thing that makes the
+/// status actionable rather than merely honest.
+///
+/// `Connection: close` and an exact `Content-Length` together mean nothing in
+/// front of this relay ever has to guess where the message ends — a peer left
+/// guessing is the whole of what went wrong here in the first place.
+const NOT_A_WEBSOCKET: &str = concat!(
+    "HTTP/1.1 426 Upgrade Required\r\n",
+    "Upgrade: websocket\r\n",
+    "Connection: close\r\n",
+    "Content-Type: text/plain; charset=utf-8\r\n",
+    // 17, the length of the body below. The two are pinned together by
+    // `the_refusal_is_a_parseable_http_response_that_discloses_nothing`,
+    // because a `Content-Length` that disagrees with its body is precisely the
+    // sort of thing that reads fine and breaks a proxy.
+    "Content-Length: 17\r\n",
+    "Cache-Control: no-store\r\n",
+    "\r\n",
+    "upgrade required\n",
+);
 
 /// Why a listener could not be created.
 #[derive(Debug)]
@@ -166,12 +243,24 @@ async fn handshake(
                 let (_io, connection) = tls.get_ref();
                 crate::tls::export(connection)?
             };
+            // No 426 on this path, and that is a scope decision rather than
+            // an oversight — see `refuse_non_upgrade`, which explains why the
+            // answer is offered over plaintext only. A relay that terminates
+            // TLS itself and is then sent a non-upgrade request still gets the
+            // closed socket it got before #1037.
             let socket = tokio_tungstenite::accept_hdr_async(tls, check_upgrade)
                 .await
                 .ok()?;
             Some((wrap(socket), binding))
         }
         None => {
+            // #1037. If the peer plainly is not asking to upgrade, it is told
+            // so and the connection ends here; `accept_hdr_async` never sees
+            // it. Everything else — including every case that cannot be
+            // decided — falls through to exactly the code that ran before.
+            if refuse_non_upgrade(&stream).await {
+                return None;
+            }
             let socket = tokio_tungstenite::accept_hdr_async(stream, check_upgrade)
                 .await
                 .ok()?;
@@ -179,6 +268,112 @@ async fn handshake(
             Some((wrap(socket), f2z_codec::types::ChannelBinding::zero()))
         }
     }
+}
+
+/// Answer a peer that is not attempting a WebSocket upgrade, reporting whether
+/// it was answered.
+///
+/// `true` means the connection has been served and shut down and the caller
+/// must not go on to use it. `false` means "hand it to the handshake", and it
+/// is the answer to every case this cannot settle — the refusal is only ever
+/// issued from evidence already in hand, so anything ambiguous degrades to the
+/// behaviour that existed before rather than to a confident wrong answer.
+///
+/// # Why this is on the plaintext path only
+///
+/// * **It is the deployed topology, and the one that produced the 502s.** The
+///   load balancer terminates TLS and the pod speaks plaintext behind it
+///   (`F2Z_RELAY_LISTEN_INSECURE=true` in `k8s/f2z-relay/deployment.yaml` in
+///   the tuzi repo, which [`crate::caps`] then publishes honestly as
+///   `transport_security: none`), so every request the load balancer forwards
+///   arrives here.
+/// * **`peek` is what makes this free.** It leaves the stream byte-for-byte
+///   untouched, so `accept_hdr_async` reads exactly what it read before this
+///   existed and the working `101` path cannot regress: there is no new
+///   buffering layer anywhere in a session's read path. `rustls` offers no
+///   equivalent, and faking one means a prefix-buffering wrapper sitting
+///   underneath every frame of every connection for the life of the session —
+///   new code on the hot path, to fix a cold path that no load balancer is
+///   turning into a 5xx.
+async fn refuse_non_upgrade(stream: &TcpStream) -> bool {
+    let mut prefix = [0u8; SNIFF_LIMIT];
+    // ONE peek, with no reassembly loop, which is the same discipline
+    // `crate::admin` applies to its single `read`. A loop here would be a SPIN
+    // loop: `peek` is non-destructive and returns immediately with whatever is
+    // already buffered, so a peer that sends half a request and then stalls
+    // would be re-peeked as fast as the scheduler allows, on an internet-facing
+    // port, for as long as it cared to hold the socket open. A request head
+    // split across segments is therefore left to `accept_hdr_async` exactly as
+    // it was — every client that matters here, the load balancer and `curl`
+    // and a scanner alike, writes the whole head in a single write.
+    let Ok(peeked) = stream.peek(&mut prefix).await else {
+        return false;
+    };
+    if !is_settled_non_upgrade(prefix.get(..peeked).unwrap_or_default()) {
+        return false;
+    }
+    // Writing through `&TcpStream` rather than taking the stream by value is
+    // what lets the caller keep ownership for the handshake path. Every step is
+    // best-effort: a peer that has already hung up is not an error worth a
+    // branch, because there is nothing to fall back to and nothing to report
+    // that would not be a log line about an unauthenticated stranger.
+    let mut io = stream;
+    let _ = io.write_all(NOT_A_WEBSOCKET.as_bytes()).await;
+    let _ = io.flush().await;
+    let _ = io.shutdown().await;
+    true
+}
+
+/// Whether `prefix` holds a **complete** request head that is **not** asking to
+/// upgrade.
+///
+/// "Settled" is the whole of the contract: `false` means either "this is a
+/// handshake" or "I cannot tell yet", and both hand the connection on
+/// untouched. Only a head that has ended — `\r\n\r\n` seen — and carries no
+/// `Upgrade` field naming `websocket` is answered.
+///
+/// **This is not an HTTP parser and must not become one.** It reads no method,
+/// no target and no version, it interprets no other header, and its entire
+/// output is one bit choosing between two code paths that both already existed.
+/// RFC 6455 §4.1 requires `Upgrade: websocket` on every handshake, so a head
+/// without one is not a handshake — including the malformed near-miss that
+/// sends `Sec-WebSocket-Key` and forgets to ask for the upgrade, which never
+/// reaches [`reject`]'s 400 anyway because it never parses as a handshake at
+/// all.
+fn is_settled_non_upgrade(prefix: &[u8]) -> bool {
+    // Not being UTF-8 is not a decision: a TLS `ClientHello` that arrived on the
+    // plaintext port, or any binary probe, is handed on rather than answered in
+    // text it was never going to read.
+    let Ok(text) = core::str::from_utf8(prefix) else {
+        return false;
+    };
+    let Some(end) = text.find("\r\n\r\n") else {
+        return false;
+    };
+    let Some(head) = text.get(..end) else {
+        return false;
+    };
+    // `skip(1)` drops the request line, which is not a header: a scanner asking
+    // for `/upgrade` must not read as one asking to upgrade.
+    !head.split("\r\n").skip(1).any(|line| {
+        let Some((name, value)) = line.split_once(':') else {
+            return false;
+        };
+        name.trim().eq_ignore_ascii_case("upgrade")
+            && contains_ignore_ascii_case(value, b"websocket")
+    })
+}
+
+/// A case-insensitive substring test that allocates nothing.
+///
+/// `to_ascii_lowercase` would be one `String` per header line of every
+/// connection arriving on an unauthenticated port, to answer a question about
+/// nine bytes.
+fn contains_ignore_ascii_case(haystack: &str, needle: &[u8]) -> bool {
+    haystack
+        .as_bytes()
+        .windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(needle))
 }
 
 /// §2.1's two mandatory properties of the upgrade.
@@ -242,5 +437,161 @@ mod tests {
     async fn loopback_without_tls_needs_no_override() {
         let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
         assert!(bind(addr, false, false).await.is_ok());
+    }
+
+    /// A handshake as a real client sends one: RFC 6455's own sample key, the
+    /// path §2.1 mandates, and the subprotocol §2.1 mandates.
+    const HANDSHAKE: &str = "GET /relay/v1 HTTP/1.1\r\n\
+         Host: relay.free2z.cash\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+         Sec-WebSocket-Version: 13\r\n\
+         Sec-WebSocket-Protocol: free2z-relay.v1\r\n\
+         \r\n";
+
+    #[test]
+    fn the_refusal_is_a_parseable_http_response_that_discloses_nothing() {
+        // The production failure was an UNPARSEABLE reply — specifically, no
+        // reply — so "it parses" is the property, not a formality.
+        let (head, body) = NOT_A_WEBSOCKET
+            .split_once("\r\n\r\n")
+            .expect("the response has a head and a body");
+        assert!(
+            head.starts_with("HTTP/1.1 426 Upgrade Required\r\n"),
+            "{NOT_A_WEBSOCKET}"
+        );
+
+        // RFC 9110 §15.5.22: `Upgrade` is REQUIRED on a 426. Without it the
+        // status names no protocol and the caller learns nothing actionable.
+        assert!(
+            head.lines()
+                .any(|line| line.eq_ignore_ascii_case("upgrade: websocket")),
+            "{head}"
+        );
+
+        // A `Content-Length` that disagrees with the body is a framing bug that
+        // looks fine in a test that only reads the status line.
+        let declared: usize = head
+            .lines()
+            .find_map(|line| line.strip_prefix("Content-Length: "))
+            .expect("the response declares its length")
+            .parse()
+            .expect("the declared length is a number");
+        assert_eq!(
+            declared,
+            body.len(),
+            "Content-Length disagrees with {body:?}"
+        );
+
+        // The `/healthz` discipline, applied here: the body is constant and
+        // carries no number. Nothing about the queue, the peer, the build or
+        // the request can reach it, because there is no parameter to reach it
+        // through — this is a `const`.
+        assert_eq!(body, "upgrade required\n");
+        assert!(
+            !body.chars().any(|character| character.is_ascii_digit()),
+            "the refusal reported a number"
+        );
+    }
+
+    #[test]
+    fn a_plain_request_is_settled_as_a_non_upgrade() {
+        // Exactly the traffic that was turning into 502s.
+        assert!(is_settled_non_upgrade(
+            b"GET / HTTP/1.1\r\nHost: relay.free2z.cash\r\n\r\n"
+        ));
+        assert!(is_settled_non_upgrade(
+            b"GET /favicon.ico HTTP/1.1\r\nHost: relay.free2z.cash\r\n\r\n"
+        ));
+        assert!(is_settled_non_upgrade(b"GET /.env HTTP/1.0\r\n\r\n"));
+
+        // The request TARGET is not a header. `/websocket` and `/upgrade` are
+        // scanner paths, not an intention to upgrade, and a substring search
+        // over the whole head would get both of these wrong.
+        assert!(is_settled_non_upgrade(
+            b"GET /websocket HTTP/1.1\r\nHost: x\r\n\r\n"
+        ));
+        assert!(is_settled_non_upgrade(
+            b"GET /upgrade HTTP/1.1\r\nHost: x\r\n\r\n"
+        ));
+    }
+
+    #[test]
+    fn a_handshake_is_never_settled_as_a_non_upgrade() {
+        // The regression that would matter most: a 426 written over a real
+        // client's handshake breaks the relay for everyone who can use it.
+        assert!(!is_settled_non_upgrade(HANDSHAKE.as_bytes()));
+
+        // Field names and values are case-insensitive, and clients genuinely
+        // differ — `Upgrade: WebSocket` is the spelling in RFC 6455's own
+        // example, and `UPGRADE:` is legal too.
+        assert!(!is_settled_non_upgrade(
+            b"GET /relay/v1 HTTP/1.1\r\nUPGRADE: WebSocket\r\n\r\n"
+        ));
+        // A header value may carry more than one token.
+        assert!(!is_settled_non_upgrade(
+            b"GET /relay/v1 HTTP/1.1\r\nUpgrade: h2c, websocket\r\n\r\n"
+        ));
+    }
+
+    #[test]
+    fn an_undecided_prefix_is_handed_to_the_handshake() {
+        // No end of head yet, so these bytes may still become a handshake and
+        // nothing is answered. This is the direction the ambiguity HAS to
+        // fall: handing it on is precisely the behaviour that existed before
+        // #1037, whereas answering early would break a client mid-handshake.
+        assert!(!is_settled_non_upgrade(b""));
+        assert!(!is_settled_non_upgrade(b"GET / HTTP/1.1\r\nHost: x\r\n"));
+        // A head longer than the bound is undecided rather than refused.
+        let long = format!("GET / HTTP/1.1\r\nX: {}\r\n\r\n", "y".repeat(SNIFF_LIMIT));
+        let truncated = long.as_bytes().get(..SNIFF_LIMIT).unwrap();
+        assert!(!is_settled_non_upgrade(truncated));
+        // Not UTF-8 at all: a TLS `ClientHello` that found the plaintext port.
+        assert!(!is_settled_non_upgrade(&[0x16, 0x03, 0x01, 0xff, 0xfe]));
+    }
+
+    #[test]
+    fn the_two_refusals_are_different_statuses_on_purpose() {
+        // `reject` answers a peer that DID ask to upgrade and got §2.1 wrong;
+        // `NOT_A_WEBSOCKET` answers a peer that never asked. Pinned here so
+        // that a later "simplification" to one shared status has to argue with
+        // a test rather than with a comment.
+        assert_eq!(reject("whatever").status(), StatusCode::BAD_REQUEST);
+        assert!(NOT_A_WEBSOCKET.starts_with("HTTP/1.1 426 "));
+
+        // And the case each one takes. A wrong path WITH an upgrade request is
+        // the 400 case, so it must not be settled away here before
+        // `check_upgrade` ever runs.
+        let wrong_path = HANDSHAKE.replace("/relay/v1", "/nope");
+        assert!(!is_settled_non_upgrade(wrong_path.as_bytes()));
+    }
+
+    #[tokio::test]
+    async fn a_plain_get_over_a_real_socket_is_answered_not_dropped() {
+        // The unit-level statement of the production defect: bytes on the
+        // wire, from the code path `serve` actually calls. `tests/non_upgrade.rs`
+        // makes the same assertion against a whole running relay.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _peer) = listener.accept().await.unwrap();
+            refuse_non_upgrade(&stream).await
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        client
+            .write_all(b"GET / HTTP/1.1\r\nHost: relay.free2z.cash\r\n\r\n")
+            .await
+            .unwrap();
+
+        let mut response = String::new();
+        tokio::io::AsyncReadExt::read_to_string(&mut client, &mut response)
+            .await
+            .unwrap();
+
+        assert!(server.await.unwrap(), "the peer was not answered");
+        assert!(!response.is_empty(), "the socket closed without a response");
+        assert_eq!(response, NOT_A_WEBSOCKET);
     }
 }
