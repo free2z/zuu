@@ -38,7 +38,12 @@ async function serverFor(root) {
 export function allowedPublicRequest(app, action, request) {
   return app === 'free2z' && (CAPTURE_PUBLIC_REQUESTS[action] ?? []).includes(request);
 }
-export const NATIVE_CALLS = ['plugin:f2zmsg|get_engine_status', 'plugin:f2zmsg|get_device_info', 'plugin:event|listen', 'plugin:event|unlisten'];
+// Every native command a packaged e2e2z issues before its first screen settles,
+// enumerated from the built app rather than from reading it: `main.tsx` installs
+// the chat-link listener (`plugin:deep-link|*`, `plugin:event|listen`) before the
+// first render, and the messaging screen reads the engine and this device's own
+// enrollment. Anything outside this list is an unanswered call, not a default.
+export const NATIVE_CALLS = ['plugin:f2zmsg|get_engine_status', 'plugin:f2zmsg|get_device_info', 'e2e2z_enrollment_status', 'plugin:deep-link|get_current', 'plugin:event|listen', 'plugin:event|unlisten'];
 async function preparePage(context, { app, origin, config, target, shot, fixture }) {
   const page = await context.newPage();
   const requests = [], refused = [], failures = [];
@@ -78,8 +83,19 @@ async function preparePage(context, { app, origin, config, target, shot, fixture
       unregisterCallback(id) { Reflect.deleteProperty(window, `_${id}`); },
       async invoke(cmd) {
         window.__STORE_NATIVE_CALLS__.push(cmd);
-        if (cmd === 'plugin:f2zmsg|get_engine_status') return { state: 'stopped', enrolled: false, handle: null, relaysConnected: 0, relaysConfigured: 1, witnessThresholdMet: false, independentWitnesses: 1, pendingInbound: 0, unacknowledgedAlarms: 0, lastError: null };
+        // `models.rs` EngineStatus, serialized camelCase, for an engine that has
+        // never been started because nothing installed an identity.
+        if (cmd === 'plugin:f2zmsg|get_engine_status') return { state: 'stopped', enrolled: false, handle: null, relaysConnected: 0, relaysConfigured: 1, witnessThresholdMet: false, independentWitnesses: 1, pendingInbound: 0, unacknowledgedAlarms: 0, lastError: null, directoryBlocked: null };
+        // `Engine::device_info` reads the stored identity and there is none, so
+        // it refuses. f2zmsg's `Error` serializes as its bare §8 code string.
         if (cmd === 'plugin:f2zmsg|get_device_info') throw 'not-enrolled';
+        // `device.rs` `e2e2z_enrollment_status`, the seed-free read (#1022):
+        // `engine.rs`'s `identity == None` branch verbatim — not enrolled, no
+        // handle, `handle::not_signed_in()`, and nothing submitted or blocked.
+        if (cmd === 'e2e2z_enrollment_status') return { enrolled: false, handle: null, eligibility: { eligible: false, candidate: null, reason: 'not-signed-in' }, directoryEntryVersion: null, submittedAt: null, mergedAtEpoch: null, blocked: null };
+        // `tauri-plugin-deep-link`'s `get_current` is `Option<Vec<Url>>`; this
+        // app was not launched from a link, so the plugin answers `None`.
+        if (cmd === 'plugin:deep-link|get_current') return null;
         if (cmd === 'plugin:event|listen') return callbackId++;
         if (cmd === 'plugin:event|unlisten') return null;
         throw new Error(`Unexpected native command: ${cmd}`);
@@ -138,7 +154,7 @@ async function preparePage(context, { app, origin, config, target, shot, fixture
     const bounds = await focus.boundingBox();
     assert(bounds && bounds.y >= target.safeArea.top - 1 && bounds.y + bounds.height <= target.cssHeight - target.safeArea.bottom + 1, `capture focus is clipped: ${target.setId}/${shot.id} ${JSON.stringify(bounds)}`);
     const calls = await page.evaluate(() => window.__STORE_NATIVE_CALLS__);
-    assert(calls.includes('plugin:f2zmsg|get_device_info') && calls.includes('plugin:f2zmsg|get_engine_status'));
+    assert(calls.includes('plugin:f2zmsg|get_device_info') && calls.includes('plugin:f2zmsg|get_engine_status') && calls.includes('e2e2z_enrollment_status'));
     assert(calls.every((cmd) => NATIVE_CALLS.includes(cmd)), 'undeclared native call');
   }
   await page.evaluate(() => document.fonts.ready);
