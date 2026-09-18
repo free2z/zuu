@@ -534,10 +534,13 @@ unfamiliar. A replay MUST remain unsolicited.
 only added refusal and is appended under the same stability rule as every other
 status: the wallet could not establish that the requested handle belongs to the
 account it would publish under — no free2z session is signed in there, the
-account has no bound messaging handle, or its handle is another one. It is
-decided before anything is issued or submitted, so a caller may state that
-nothing happened, and the person's next step is in ZUULI rather than in the
-calling app. It is not a new oracle: a refusal is delivered only to the
+account has no bound messaging handle, or its handle is another one. Every site
+that produces it is on the **pre-submission** side of the wallet's phase
+boundary, so a caller may state that nothing happened, and the person's next
+step is in ZUULI rather than in the calling app. (The last such site runs after
+a `DeviceCredential` has been minted in memory — issuance is pure and persists
+nothing, so "nothing happened" stays true of everything outside the process.)
+Anything the wallet cannot say that about is `INTENT_UNAVAILABLE` instead. It is not a new oracle: a refusal is delivered only to the
 registered caller's own verified reply link (§7.1), and a messaging handle is
 the account's public username.
 

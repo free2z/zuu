@@ -34,18 +34,36 @@
 //! - It is never persisted, never logged (both `Debug` impls redact), and is
 //!   dropped with the process.
 //!
-//! # What it does not widen
+//! # What it widens, and what bounds it
 //!
-//! The renderer already holds this token: it is the credential it authenticates
-//! every free2z API call with. A compromised WebView can call the backend
-//! directly, and can call `f2zmsg_enroll` with the token as an argument — the
-//! residual risk `lib.rs` already records for the enrollment trio. What it
-//! gains here is the ability to *state which session* a later native
-//! publication runs under. That is bounded by the two guards on the other side:
-//! the native confirmation names the handle the **authority** signed for, and
-//! the publication is refused unless that handle is the one the requesting app
-//! asked for. So a slot filled with another account's token cannot publish a
-//! device under a handle the user did not see and approve.
+//! The renderer already holds **the user's** token: it is the credential it
+//! authenticates every free2z API call with. A compromised WebView can call the
+//! backend directly, and can call `f2zmsg_enroll` with that token as an
+//! argument — the residual risk `lib.rs` already records for the enrollment
+//! trio.
+//!
+//! What writing this slot adds is different, and it is worth naming precisely:
+//! the ability to state that the wallet's session is **somebody else's**. An
+//! app-crate command is not capability-gated, so under `#367` anything that
+//! reaches the invoke bridge can write it; ZUULI's CSP forbids frames
+//! (`frame-src 'none'`), so that means an XSS in ZUULI's own origin rather than
+//! a hostile embed.
+//!
+//! What bounds it is the publishing path rather than this module
+//! ([ADR 0017](../../../../docs/e2ee/decisions/0017-internal-directory-activation.md)
+//! §4.1), and the bound is the reason that path is ordered the way it is:
+//!
+//! - **Nothing about this wallet is disclosed before the confirmation.** The
+//!   seed is not read and `identity_pk` is not sent anywhere. The one request
+//!   made first — free2z naming the account this session belongs to — carries
+//!   the session's own token and nothing else.
+//! - **The confirmation names that account.** The handle the *authority* signs
+//!   is established **after** the approval, and the publication is refused
+//!   unless it is the handle the requesting app asked for.
+//!
+//! So a slot somebody else wrote costs a declined dialog: a request that is
+//! declined or ignored leaks nothing about this wallet, and publishing under a
+//! foreign account requires a human to approve a dialog naming it.
 
 use std::sync::Mutex;
 use std::time::Duration;

@@ -129,6 +129,32 @@ describe("mirroring the free2z session into the wallet process", () => {
     expect(failures).toHaveLength(1);
   });
 
+  it("keeps publishing after a reporter throws", async () => {
+    // The seam accepts a callback, so a callback that throws is a shape this
+    // module has to survive: a `drain` that ended by throwing would leave the
+    // queue holding a rejected promise and the mirror would never publish
+    // again.
+    const sent: Array<string | null> = [];
+    const publish = createNativeSessionPublisher({
+      invoke: (_command, args) => {
+        const token = (args as { args: { token: string | null } }).args.token;
+        sent.push(token);
+        return token === "doomed"
+          ? Promise.reject(new Error("the wallet refused"))
+          : Promise.resolve(null);
+      },
+      token: () => null,
+      subscribe: () => () => {},
+      onFailure: () => {
+        throw new Error("a reporter that throws");
+      },
+    });
+
+    await publish("doomed");
+    await publish("after");
+    expect(sent).toEqual(["doomed", "after"]);
+  });
+
   it("is inert in a browser, where there is no wallet process to tell", () => {
     // No `invoke` seam and no Tauri host: nothing is published and nothing
     // throws.

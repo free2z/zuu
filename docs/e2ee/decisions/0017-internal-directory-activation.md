@@ -482,7 +482,7 @@ nobody can find. The cost is recorded in §10.
 
 | Refusal | Status | Certain? |
 |---|---|---|
-| no free2z session in ZUULI, no bound handle, or another handle | `INTENT_HANDLE_UNAVAILABLE` (13, new) | yes — decided before anything was issued or submitted |
+| no free2z session in ZUULI, no bound handle, or another handle | `INTENT_HANDLE_UNAVAILABLE` (13, new) | yes — every site that produces it is before the submission; the last one runs after a credential has been minted in memory, which persists nothing |
 | the user declined | `INTENT_NOT_CONFIRMED` (9) | yes |
 | no directory in this build, the log refused, the log did not answer | `INTENT_UNAVAILABLE` (12) | **no** — `PROTOCOL.md` §6.2's rule; a submission whose answer was lost may still merge |
 
@@ -685,7 +685,7 @@ this device's own handle showed an entry publishing this device's `device_pk`.**
 | ZUULI | `directory_publish::tests` (20) | Contract C against a loopback server (POST, token, JSON body, base64url decoding, refusals, oversize), the precheck, draft assembly, refusing another wallet; the account probe (its URL, that it carries only the session, and every answer it refuses); a plan that reaches the network once and discloses nothing about this wallet; a remembered account costing no request; a handle published under another identity refused before anything is signed; and a log refusal publishing nothing |
 | ZUULI | `intent::tests` (11 new) | Version 2 reaches its own dispatch and neither other family answers for it; the answer echoes the version that was asked; the confirmation says PUBLISHED, names the **account**, the device fingerprint and the first-contact order, and never the request's handle; a hostile `purpose` or account name cannot add a line; both refusal-certainty mappings; and the publish order — plan, prompt, seed, assertion, submit — source-asserted |
 | ZUULI | `session::tests` (4) | The slot is write-only and redacts; a reader waits for the first publication; and a resolved account is reused only for the session it was resolved for |
-| ZUULI (renderer) | `native-session.test.ts` (5) | The wallet ends up holding the **last value asked for**, not the last `invoke` to return, and a value overtaken before dispatch is never sent |
+| ZUULI (renderer) | `native-session.test.ts` (6) | The wallet ends up holding the **last value asked for**, not the last `invoke` to return; a value overtaken before dispatch is never sent; and neither a refusing wallet nor a reporter that throws can wedge the queue |
 | `f2z-intent` | `wire::tests`, `tests/wire_vectors.rs` | Version 2's endpoint rules (scheme, host, zero address, zero relay id) and every version-1 rule it inherits; the two payload versions never decode as each other; the **frozen** version-1 vector still parses as version 1, under the same digest |
 | plugin | `tests/endpoint_before_credential.rs` (3) | Against a real relay: the contact queue exists before any identity does, `install_identity` commits exactly that queue, a second preparation discards the first, a build with no relay refuses, and a `ws://` default is judged like any other relay |
 | plugin | `engine::activation_tests` (+3) | An issuer-submitted device is waiting rather than blocked, and still says so with no log; an entry for another device is looked up and submitted with no identity present, its receipt kept and bounded; a refused submission keeps nothing |
@@ -714,8 +714,9 @@ suite, and restoring (`CONFORMANCE.md`'s method):
 | ZUULI: the assertion fetched, or the seed read, before the confirmation | `the_publish_order_is_plan_then_prompt_then_seed_then_assertion_then_submit` |
 | ZUULI `refusal_after_submission`: delegating to the certain mapping | `nothing_after_the_submission_claims_that_nothing_happened`, `the_certain_refusal_mapping_is_never_applied_after_the_submission` |
 | ZUULI (renderer): the single-slot queue replaced by a generation counter | `leaves the wallet holding the last value asked for, not the last to arrive` |
+| ZUULI (renderer): the `finally` that re-arms the queue, or the guard around a throwing reporter | `keeps publishing after a reporter throws` |
 | ZUULI `publish_confirmation`: a name taken from the request | `the_publish_confirmation_never_renders_the_requested_handle` |
-| ZUULI: the dialog moved after the entry is signed | `the_publish_order_is_identity_then_plan_then_prompt_then_sign_then_submit` |
+| ZUULI: the dialog moved after the entry is signed | `the_publish_order_is_plan_then_prompt_then_seed_then_assertion_then_submit` |
 | plugin `install_identity`: the pending contact queue not committed | `the_queue_is_opened_before_the_credential_and_installed_with_it` |
 | plugin `prepare_device`: the pending queue not cleared | `a_second_preparation_discards_the_first_queue` |
 | plugin `enrollment_status`: `submitted_by_issuer` ignored | `an_issuer_submitted_device_is_waiting_rather_than_blocked` |

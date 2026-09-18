@@ -250,7 +250,7 @@ one row at a time: patch, `cargo test --lib <test> -- --exact`, restore.
 | `vouched_handle` ignores the authority signature's result | `an_assertion_that_does_not_verify_names_no_handle` | FAILS |
 | the predecessor identity-key comparison is dropped | `a_handle_published_under_another_identity_is_refused_before_anything_is_signed` | FAILS |
 | `sign_for_publication` skips the precheck | `an_assertion_the_log_would_refuse_is_caught_before_submission` | FAILS |
-| the native dialog is not called at all | `the_publish_order_is_identity_then_plan_then_prompt_then_sign_then_submit` | FAILS |
+| the native dialog is not called at all | `the_publish_order_is_plan_then_prompt_then_seed_then_assertion_then_submit` | FAILS |
 | the confirmation's handle taken from the admitted request | `the_publish_confirmation_never_renders_the_requested_handle` | FAILS |
 | `refusal_after_submission` delegating to `publication_refusal` | `nothing_after_the_submission_claims_that_nothing_happened` | FAILS |
 | the certain mapping applied to the submission's own refusal | `the_certain_refusal_mapping_is_never_applied_after_the_submission` | FAILS |
@@ -282,6 +282,8 @@ the wallet ends up holding*:
 |---|---|---|
 | the single-slot queue, replaced by the generation counter this branch first shipped | `leaves the wallet holding the last value asked for, not the last to arrive` | FAILS |
 | a value overtaken before dispatch sent anyway | `drops a value that was overtaken before it was ever sent` | FAILS |
+| the `finally` that re-arms the queue | `keeps publishing after a reporter throws` | FAILS |
+| the guard around a reporter that throws | same | FAILS |
 
 The first row is the one worth reading. The generation counter it replaces
 *looked* like an ordering guard — it incremented, compared and recorded — but
@@ -292,7 +294,7 @@ result. Both are now stated as the property that matters, which is the value the
 wallet holds when the dust settles, and the old implementation fails them.
 
 **19 Rust mutations across these tables, 19 failures, 0 survivors**, plus the
-six TypeScript rows above — 25 in all. Every one was applied, watched to
+eight TypeScript rows above — 27 in all. Every one was applied, watched to
 fail with a named assertion, restored **from a saved copy of the working file**
 (never `git checkout`, which would discard the change under test), and re-run
 green.

@@ -65,19 +65,35 @@ export function createNativeSessionPublisher(deps: NativeSessionDeps) {
   let draining: Promise<void> | null = null;
 
   async function drain(): Promise<void> {
-    while (pending !== null) {
-      const next = pending;
-      pending = null;
-      try {
-        await deps.invoke(FREE2Z_SESSION_COMMAND, { args: { token: next.token } });
-      } catch (error) {
-        // A wallet that cannot be told about the session is one that will
-        // refuse a publication later with `INTENT_HANDLE_UNAVAILABLE`, which is
-        // the honest outcome. It must not break sign-in.
-        deps.onFailure?.(error);
+    try {
+      while (pending !== null) {
+        const next = pending;
+        pending = null;
+        try {
+          await deps.invoke(FREE2Z_SESSION_COMMAND, { args: { token: next.token } });
+        } catch (error) {
+          // A wallet that cannot be told about the session is one that will
+          // refuse a publication later with `INTENT_HANDLE_UNAVAILABLE`, which
+          // is the honest outcome. It must not break sign-in.
+          //
+          // The reporter is called inside its own `try` because a reporter that
+          // throws is a *reporting* failure, and treating it as a publishing
+          // failure would abandon the value still pending behind it.
+          try {
+            deps.onFailure?.(error);
+          } catch {
+            /* a reporter is not allowed to stop the queue */
+          }
+        }
       }
+    } finally {
+      // Always, and this is the load-bearing word: a `drain` that ended by
+      // throwing would otherwise leave `draining` holding a rejected promise,
+      // and every later publication would chain onto it and never run — the
+      // mirror would go quiet for the life of the process, which is the one
+      // failure mode that silently un-does everything this module is for.
+      draining = null;
     }
-    draining = null;
   }
 
   return function publish(token: string | null): Promise<void> {
