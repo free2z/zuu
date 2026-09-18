@@ -108,12 +108,15 @@ pressure; an absent command cannot be invoked.
 
 `wallet/e2e2z/src-tauri/Cargo.lock` contains **zero Zcash crates** — no
 `zcash_*`, no `orchard`, no `sapling`. It registers `tauri-plugin-f2zmsg` and
-five app commands: `e2e2z_device_credential_keys` returns the **public** halves
-of an OS-CSPRNG device key set, `e2e2z_install_device_credential` installs the
-signed credential, `e2e2z_retry_device_unlock` reopens this device's seal,
-`e2e2z_enrollment_status` reads what this device's store holds, and
-`e2e2z_dispatch_intent` hands an `issue-device-credential` request to ZUULI's
-verified App Link. None accepts or derives account keys.
+five app commands: `e2e2z_device_credential_keys` opens this device's contact
+queue at the relay and returns the **public** halves of an OS-CSPRNG device key
+set together with the endpoint the relay issued (ADR 0017 §4.1),
+`e2e2z_install_device_credential` installs the signed credential,
+`e2e2z_retry_device_unlock` reopens this device's seal,
+`e2e2z_enrollment_status` reads what this device's store holds — asking the log
+whether the entry has merged while it has not — and `e2e2z_dispatch_intent`
+hands an `issue-device-credential-v2` request to ZUULI's verified App Link.
+None accepts or derives account keys.
 
 ZUULI's three app-crate enrollment commands — `f2zmsg_enrollment_status`,
 `f2zmsg_enroll`, `f2zmsg_unenroll` — are deliberately absent here. In ZUULI they
@@ -133,6 +136,21 @@ that the WebView's frames are not separated from one another, so a command
 turning caller-supplied bytes into a payment confirmation would be the deputy
 that issue is about. A test reads `lib.rs` and fails if anything from the module
 reaches the invoke handler.
+
+**One thing the intent path does add to the invoke surface, and what bounds
+it.** `free2z_session_sync` (ADR 0017 §4.1) lets the WebView publish the
+signed-in free2z session into a native slot, because an intent arrives from the
+operating system with no argument to carry a Knox token on. It is write-only —
+it answers `()`, and a test asserts this module exposes no command that hands a
+token back — but it is a *write*, and an app-crate command is not
+capability-gated, so under #367 anything reaching the invoke bridge can write
+it. ZUULI's CSP forbids frames (`frame-src 'none'`), so that means an XSS in
+ZUULI's own origin rather than a hostile embed. What bounds the damage is the
+publishing path rather than the command: it resolves **which account** the
+session belongs to before it discloses anything, names that account in the
+native confirmation, and reads the seed and sends `identity_pk` only after an
+approval. A session somebody else wrote therefore costs a declined dialog, and
+a declined or ignored request leaks nothing about the wallet.
 
 ## 4. What enforces the boundary
 
@@ -161,17 +179,21 @@ is the required gate above, not their own build.
 
 ## 5. How the surfaces talk
 
-Over the versioned [intent bridge](./intent-bridge/PROTOCOL.md). Three families
-are defined; **one is implemented on the authority side.**
+Over the versioned [intent bridge](./intent-bridge/PROTOCOL.md). Four families
+are defined; **three are implemented on the authority side.**
 
 | Intent | The request carries | ZUULI does | Returns | Authority side |
 | --- | --- | --- | --- | --- |
 | `execute-payment` | recipient, amount, memo, fee | re-derives and shows its **own** payment review | txid or refusal | **implemented** |
-| `issue-device-credential` | device **public** keys, handle, validity window | *(designed)* derive account keys, confirm natively | `DeviceCredential` | refused, `INTENT_UNKNOWN_INTENT` |
+| `issue-device-credential` | device **public** keys, handle, validity window | derives account keys, confirms natively | `DeviceCredential` | **implemented** (#1019); publishes nothing |
+| `issue-device-credential-v2` | the same, plus the contact endpoint the device opened | establishes whose handle it is, confirms natively naming the **authority's** handle, signs and submits the `DirectoryEntry`, verifies the receipt | `DeviceCredential` | **implemented** (ADR 0017 §4.1) |
 | `sign-challenge` | challenge bytes, purpose, claimed caller | *(designed)* confirm natively | signature | refused, `INTENT_UNKNOWN_INTENT` |
 
-The two refusals are deliberate and the status is not a lie: this build
-genuinely does not implement them.
+`sign-challenge`'s refusal is deliberate and the status is not a lie: this
+build genuinely does not implement it. Version 1 of the credential family stays
+implemented and its wire vector stays frozen, because builds already in
+testers' hands send it; what it cannot do is publish the device, which is why
+version 2 exists and carries an endpoint only the requesting device knows.
 
 Two invariants the format itself enforces: **the seed never appears in a
 message** — there is no field it could occupy — and **device private keys never
@@ -200,13 +222,14 @@ Read [`status.md`](./status.md) rather than inferring from this page. In short:
 there is **no transport** ([#905](https://github.com/free2z/zuu/issues/905));
 #461 closed after client association declarations landed, without implementing
 the channel.
-`sign-challenge` has neither a caller nor an authority-side implementation, and
-`issue-device-credential` has a caller and an install step but **no
-authority-side implementation** — ZUULI still answers it `INTENT_UNKNOWN_INTENT`
-([`intent.rs`](../wallet/zuuli/src-tauri/src/intent.rs)), so nothing issues a
-credential over the bridge. What [#928](https://github.com/free2z/zuu/issues/928)
-closed is the step *after* that one: e2e2z can now install a credential it
-receives, which it could not before. Free2Z's native layer landed in
+`sign-challenge` has neither a caller nor an authority-side implementation.
+Both credential families now have both halves — e2e2z asks over the App Link
+transport and ZUULI answers, and version 2 also publishes the device in the
+directory and keeps the log's receipt — but **no build is configured to reach a
+log or a relay**: `internal-directory.conf` ships placeholders, so a shipping
+e2e2z refuses at the contact queue and a shipping ZUULI has nothing to publish
+to. What [#928](https://github.com/free2z/zuu/issues/928) closed is the install
+step, and #1019 and ADR 0017 §4.1 closed the two above it. Free2Z's native layer landed in
 [#942](https://github.com/free2z/zuu/pull/942), closing #918; its production
 HTTP capability remains scoped and stateless, without wallet or device-key
 authority. ZUULI's phase-4 hardening is in progress.

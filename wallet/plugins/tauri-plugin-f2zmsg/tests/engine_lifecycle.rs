@@ -51,6 +51,7 @@ async fn enroll(engine: &Engine<MemoryBackend>, handle: &str, seed: u8) {
             credential: f2z_msg_mls::credential::encode(&credential).expect("encode"),
             expected_handle: handle.to_owned(),
             submitted_at: NOW,
+            submitted_by_issuer: false,
         })
         .await
         .expect("install");
@@ -142,6 +143,7 @@ async fn a_flawlessly_signed_credential_for_another_handle_is_refused() {
             credential: f2z_msg_mls::credential::encode(&forged).expect("encode"),
             expected_handle: "alice".to_owned(),
             submitted_at: NOW,
+            submitted_by_issuer: false,
         })
         .await
         .expect_err("a credential for another handle must not install");
@@ -168,6 +170,7 @@ async fn a_flawlessly_signed_credential_for_another_handle_is_refused() {
             credential: f2z_msg_mls::credential::encode(&genuine).expect("encode"),
             expected_handle: "alice".to_owned(),
             submitted_at: NOW,
+            submitted_by_issuer: false,
         })
         .await
         .expect("install");
@@ -205,6 +208,7 @@ async fn an_install_asking_for_a_handle_the_credential_does_not_attest_is_refuse
             credential: f2z_msg_mls::credential::encode(&credential).expect("encode"),
             expected_handle: "bob".to_owned(),
             submitted_at: NOW,
+            submitted_by_issuer: false,
         })
         .await
         .expect_err("the request and the credential disagree");
@@ -529,6 +533,7 @@ async fn a_late_install_preserves_the_existing_seal_even_when_writes_fail() {
             credential: f2z_msg_mls::credential::encode(&credential).expect("encode"),
             expected_handle: "alice".to_owned(),
             submitted_at: NOW,
+            submitted_by_issuer: false,
         }
     };
     let first_install = issue(first.prepare_device().await.expect("first device"));

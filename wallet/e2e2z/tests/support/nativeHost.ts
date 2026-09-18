@@ -138,16 +138,37 @@ export async function installNativeHost(
           const request = host.dispatched[host.dispatched.length - 1];
           if (!request) throw new Error("nothing was dispatched");
           // version(2) + length(3) + intent(2), then the 32-byte request id.
+          // The family is **echoed from the request** rather than assumed: a
+          // client refuses an answer to a question it did not ask, so a host
+          // that hard-coded one would stop being a stand-in the day a new
+          // payload version shipped (ADR 0017 §4.1).
+          const family = request.slice(10, 14);
           const requestId = request.slice(14, 14 + 64);
           const hex = (value: number, bytes: number) =>
             value.toString(16).padStart(bytes * 2, "0");
           const payload = status === 0 ? hex(4, 3) + "c0ffee00" : "";
           const body =
-            requestId + hex(2, 2) + hex(status, 2) + hex(payload.length / 2, 3) + payload;
+            requestId + family + hex(status, 2) + hex(payload.length / 2, 3) + payload;
           const response = hex(1, 2) + hex(body.length / 2, 3) + body;
           host.openUrl(
             `https://free2z.com/bridge/e2e2z/#res=${response}&rid=${requestId}`,
           );
+        },
+        /**
+         * Play the log merging this device's entry at `epoch`.
+         *
+         * The real path is `e2e2z_enrollment_status`, which asks the engine to
+         * resolve this handle against a witness-cosigned root while it is not
+         * yet merged (ADR 0017 §6). What the screen must do with that answer is
+         * this host's subject.
+         */
+        mergeAt(epoch: number) {
+          host.enrollment = {
+            ...host.enrollment,
+            mergedAtEpoch: epoch,
+            directoryEntryVersion: 1,
+            blocked: null,
+          };
         },
       };
       (window as unknown as { __HOST__: typeof host }).__HOST__ = host;
@@ -218,7 +239,15 @@ export async function installNativeHost(
               return host.enrollment;
             case "e2e2z_device_credential_keys":
               if (host.options.keysError) throw host.options.keysError;
-              return { devicePk: "ab".repeat(32), deviceKemPk: "22".repeat(1216) };
+              return {
+                devicePk: "ab".repeat(32),
+                deviceKemPk: "22".repeat(1216),
+                // ADR 0017 §4.1: the command opens the contact queue before it
+                // answers, so the request can carry the endpoint.
+                contactRelayUrl: "wss://relay.free2z.com/relay/v1",
+                contactRelayId: "33".repeat(32),
+                contactAddr: "44".repeat(32),
+              };
             case "e2e2z_dispatch_intent":
               if (host.options.dispatchError) throw host.options.dispatchError;
               host.dispatched.push(String(inner["request"]));
@@ -246,6 +275,17 @@ export async function installNativeHost(
       };
     },
     { options, engine: ENGINE_STOPPED, enrollment: NOT_ENROLLED },
+  );
+}
+
+/** Play the log merging this device's entry, then let the screen re-read. */
+export async function mergeAt(page: Page, epoch: number): Promise<void> {
+  await page.evaluate(
+    (value) =>
+      (
+        window as unknown as { __HOST__: { mergeAt(epoch: number): void } }
+      ).__HOST__.mergeAt(value),
+    epoch,
   );
 }
 

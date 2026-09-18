@@ -3,6 +3,7 @@ mod directory_publish;
 pub mod intent;
 mod messaging;
 mod oauth;
+mod session;
 
 fn app_context<R: tauri::Runtime>() -> tauri::Context<R> {
     tauri::generate_context!()
@@ -95,6 +96,11 @@ pub fn run() {
         // Do not add a capability entry for them; that would not gate them, it
         // would only look like it did.
         .manage(intent::IntentAuthority::new())
+        // The free2z session, published by the WebView and read only in
+        // process. `src/session.rs` argues for it: an intent that arrives from
+        // the operating system has no argument to carry a Knox token on, and
+        // ADR 0017 §5's assertion fetch needs one.
+        .manage(session::Free2zSession::default())
         .manage(oauth::OauthLoopbackState::default())
         .manage(oauth::OauthMobileState::default())
         .invoke_handler(tauri::generate_handler![
@@ -114,6 +120,9 @@ pub fn run() {
             messaging::f2zmsg_enrollment_status,
             messaging::f2zmsg_enroll,
             messaging::f2zmsg_unenroll,
+            // Write-only: it publishes the WebView's own session to the native
+            // slot and answers nothing. See `src/session.rs`.
+            session::free2z_session_sync,
         ])
         // The intent bridge's transport (#905/#461). Registered here and not
         // in `generate_handler!` above, and that is the whole point: an

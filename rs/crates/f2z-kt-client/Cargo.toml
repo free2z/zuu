@@ -100,3 +100,10 @@ f2z-msg-identity = { path = "../f2z-msg-identity", version = "0.1.0" }
 f2z-msg-store = { path = "../f2z-msg-store", version = "0.1.0" }
 f2z-relay-testkit = { path = "../f2z-relay-testkit", version = "0.1.0" }
 f2z-relay-proto = { path = "../f2z-relay-proto", version = "0.1.0" }
+# ---------------------------------------------------------------------------
+# `tests/intent_publication.rs` — ADR 0017 §4.1's round trip, where the request
+# that carries a device's contact endpoint is a real
+# `IssueDeviceCredentialRequestV2` admitted by the real `IntentGate`. MIT and
+# `no_std`; a dev-dependency for the same reason every crate above is one.
+# ---------------------------------------------------------------------------
+f2z-intent = { path = "../f2z-intent", version = "0.1.0" }

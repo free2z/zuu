@@ -32,7 +32,10 @@ import {
   encodeExecutePaymentPayload,
   encodeIntentRequest,
   encodeIssueDeviceCredentialPayload,
+  encodeIssueDeviceCredentialV2Payload,
   encodeSignChallengePayload,
+  intentErrorFromStatus,
+  intentErrorName,
   escapeLayoutControls,
   fromHex,
   isForbiddenCodePoint,
@@ -240,7 +243,7 @@ describe("an unknown version is refused rather than best-guessed", () => {
 
   it("refuses an unimplemented intent family", () => {
     const canonical = fromHex(CANONICAL_REQUEST_HEX);
-    for (const family of [0, 4, 0xffff]) {
+    for (const family of [0, 5, 0xffff]) {
       const mutated = Uint8Array.from(canonical);
       mutated[5] = (family >>> 8) & 0xff;
       mutated[6] = family & 0xff;
@@ -435,7 +438,7 @@ describe("the session refuses answers to questions it did not ask", () => {
 
   });
 
-  it.each([13, 4242, 60_000, 65_535])("preserves unknown status %i and consumes the question exactly once", (status) => {
+  it.each([14, 4242, 60_000, 65_535])("preserves unknown status %i and consumes the question exactly once", (status) => {
     const session = createIntentSession();
     unwrap(session.issue(canonicalRequest(), ISSUED_AT_MS));
     const reply = response({ status, payload: new Uint8Array(0) });
@@ -546,5 +549,144 @@ describe("the issue-device-credential family result", () => {
     expect(
       refusal(decodeIssueDeviceCredentialResult(result(new Uint8Array(0)))),
     ).toBe(IntentErrorCode.InvalidValue);
+  });
+});
+
+/**
+ * The `issue-device-credential` vectors, one per payload version.
+ *
+ * **These two constants are the contract**, pinned identically in
+ * `rs/crates/f2z-intent/tests/wire_vectors.rs`, laid out by hand from
+ * `docs/intent-bridge/PROTOCOL.md` §3.3. Version 1 is frozen: e2e2z builds
+ * already in testers' hands send it. Version 2 (ADR 0017 §4.1) is family 4 and
+ * appends the contact endpoint.
+ */
+const CREDENTIAL_REQUEST_HEAD =
+  "0001" +
+  "%BODY%" +
+  "%FAMILY%" +
+  "77".repeat(32) +
+  "11" +
+  "636173682e66726565327a2e653265327a" + // "cash.free2z.e2e2z"
+  "28" +
+  "49737375652074686973206465766963652061206d6573736167696e672063726564656e7469616c" +
+  "0000018bcfe56800" +
+  "0000018bcfe65260";
+
+const CREDENTIAL_V1_FIELDS =
+  "05" +
+  "616c696365" + // "alice"
+  "11".repeat(32) +
+  "000004" +
+  "22222222" +
+  "0000018bcfe56800" +
+  "0000018bd50bc400";
+
+const CREDENTIAL_V1_REQUEST_HEX =
+  CREDENTIAL_REQUEST_HEAD.replace("%BODY%", "0000ad").replace("%FAMILY%", "0002") +
+  "00003d" +
+  CREDENTIAL_V1_FIELDS;
+
+const CREDENTIAL_V2_REQUEST_HEX =
+  CREDENTIAL_REQUEST_HEAD.replace("%BODY%", "000101").replace("%FAMILY%", "0004") +
+  "000091" +
+  CREDENTIAL_V1_FIELDS +
+  "13" +
+  "7773733a2f2f72656c61792e6578616d706c65" + // "wss://relay.example"
+  "33".repeat(32) +
+  "44".repeat(32);
+
+function credentialVectorRequest(intent: IntentFamily, payload: Uint8Array): IntentRequest {
+  return {
+    intent,
+    requestId: REQUEST_ID,
+    caller: "cash.free2z.e2e2z",
+    purpose: "Issue this device a messaging credential",
+    issuedAtMs: ISSUED_AT_MS,
+    expiresAtMs: EXPIRES_AT_MS,
+    payload,
+  };
+}
+
+const V1_DEVICE = {
+  handle: "alice",
+  devicePublicKey: new Uint8Array(32).fill(0x11),
+  deviceKemPublicKey: new Uint8Array(4).fill(0x22),
+  notBeforeMs: ISSUED_AT_MS,
+  notAfterMs: ISSUED_AT_MS + 86_400_000,
+};
+
+const V2_DEVICE = {
+  ...V1_DEVICE,
+  contactRelayUrl: "wss://relay.example",
+  contactRelayId: new Uint8Array(32).fill(0x33),
+  contactAddr: new Uint8Array(32).fill(0x44),
+};
+
+describe("the issue-device-credential payload versions", () => {
+  it("encodes the frozen version-1 vector byte for byte", () => {
+    const bytes = unwrap(
+      encodeIntentRequest(
+        credentialVectorRequest(
+          IntentFamily.IssueDeviceCredential,
+          unwrap(encodeIssueDeviceCredentialPayload(V1_DEVICE)),
+        ),
+      ),
+    );
+    expect(toHex(bytes)).toBe(CREDENTIAL_V1_REQUEST_HEX);
+    expect(bytes.length).toBe(178);
+    const decoded = unwrap(decodeIntentRequest(bytes));
+    expect(decoded.intent).toBe(IntentFamily.IssueDeviceCredential);
+  });
+
+  it("encodes the version-2 vector byte for byte, as family 4", () => {
+    const bytes = unwrap(
+      encodeIntentRequest(
+        credentialVectorRequest(
+          IntentFamily.IssueDeviceCredentialV2,
+          unwrap(encodeIssueDeviceCredentialV2Payload(V2_DEVICE)),
+        ),
+      ),
+    );
+    expect(toHex(bytes)).toBe(CREDENTIAL_V2_REQUEST_HEX);
+    expect(bytes.length).toBe(262);
+    expect(unwrap(decodeIntentRequest(bytes)).intent).toBe(
+      IntentFamily.IssueDeviceCredentialV2,
+    );
+  });
+
+  it("keeps version 2's payload a strict extension of version 1's", () => {
+    const v1 = toHex(unwrap(encodeIssueDeviceCredentialPayload(V1_DEVICE)));
+    const v2 = toHex(unwrap(encodeIssueDeviceCredentialV2Payload(V2_DEVICE)));
+    expect(v2.startsWith(v1)).toBe(true);
+    expect(v2.length).toBeGreaterThan(v1.length);
+  });
+
+  it.each([
+    ["a plaintext relay", { contactRelayUrl: "ws://relay.example" }],
+    ["an https relay", { contactRelayUrl: "https://relay.example" }],
+    ["an empty relay", { contactRelayUrl: "" }],
+    ["a scheme with no host", { contactRelayUrl: "wss://" }],
+    ["a path with no host", { contactRelayUrl: "wss:///relay" }],
+    ["a layout control in the relay", { contactRelayUrl: "wss://relay‮.example" }],
+    ["an untrimmed relay", { contactRelayUrl: "wss://relay.example " }],
+    ["a short relay id", { contactRelayId: new Uint8Array(31).fill(0x33) }],
+    ["a zero relay id", { contactRelayId: new Uint8Array(32) }],
+    ["a long contact address", { contactAddr: new Uint8Array(33).fill(0x44) }],
+    ["a zero contact address", { contactAddr: new Uint8Array(32) }],
+    ["an empty KEM key", { deviceKemPublicKey: new Uint8Array(0) }],
+    ["an inverted window", { notAfterMs: ISSUED_AT_MS }],
+  ])("refuses a version-2 payload with %s", (_name, change) => {
+    expect(
+      refusal(encodeIssueDeviceCredentialV2Payload({ ...V2_DEVICE, ...change })),
+    ).toBe(IntentErrorCode.InvalidValue);
+  });
+
+  it("knows status 13 as the handle refusal, which only the wallet issues", () => {
+    expect(intentErrorFromStatus(13)).toBe(IntentErrorCode.HandleUnavailable);
+    expect(intentErrorName(IntentErrorCode.HandleUnavailable)).toBe(
+      "INTENT_HANDLE_UNAVAILABLE",
+    );
+    expect(intentErrorFromStatus(14)).toBeNull();
   });
 });

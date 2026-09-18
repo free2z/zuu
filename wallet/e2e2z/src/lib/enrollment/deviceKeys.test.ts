@@ -39,14 +39,39 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** The endpoint the command opens before it answers (ADR 0017 §4.1). */
+const ENDPOINT = {
+  contactRelayUrl: "wss://relay.free2z.com/relay/v1",
+  contactRelayId: "33".repeat(32),
+  contactAddr: "44".repeat(32),
+};
+
+const ANSWER = { devicePk: DEVICE_PK_HEX, deviceKemPk: KEM_HEX, ...ENDPOINT };
+
 describe("parsing this device's public keys", () => {
   it("accepts the shape the app-crate command returns", () => {
-    const keys = parseDeviceCredentialKeys({
-      devicePk: DEVICE_PK_HEX,
-      deviceKemPk: KEM_HEX,
-    });
+    const keys = parseDeviceCredentialKeys(ANSWER);
     expect(keys.devicePublicKey).toHaveLength(DEVICE_PUBLIC_KEY_BYTES);
     expect(keys.deviceKemPublicKey).toHaveLength(1216);
+    expect(keys.contactRelayUrl).toBe(ENDPOINT.contactRelayUrl);
+    expect(keys.contactRelayId).toHaveLength(32);
+    expect(keys.contactAddr).toHaveLength(32);
+  });
+
+  it("refuses an endpoint a stranger could not reach this device at", () => {
+    const rejected = [
+      { ...ANSWER, contactRelayUrl: "ws://relay.free2z.com/relay/v1" },
+      { ...ANSWER, contactRelayUrl: "https://relay.free2z.com" },
+      { ...ANSWER, contactRelayUrl: 17 },
+      { ...ANSWER, contactRelayId: "33".repeat(31) },
+      { ...ANSWER, contactAddr: "44".repeat(33) },
+      { ...ANSWER, contactAddr: "" },
+    ];
+    for (const value of rejected) {
+      expect(() => parseDeviceCredentialKeys(value)).toThrow(
+        DeviceKeysUnavailableError,
+      );
+    }
   });
 
   it("refuses every shape a request cannot be built from", () => {
@@ -54,20 +79,26 @@ describe("parsing this device's public keys", () => {
       null,
       "not an object",
       {},
-      { devicePk: DEVICE_PK_HEX },
-      { deviceKemPk: KEM_HEX },
-      { devicePk: 17, deviceKemPk: KEM_HEX },
-      { devicePk: DEVICE_PK_HEX, deviceKemPk: null },
+      { ...ENDPOINT, devicePk: DEVICE_PK_HEX },
+      { ...ENDPOINT, deviceKemPk: KEM_HEX },
+      { ...ENDPOINT, devicePk: 17, deviceKemPk: KEM_HEX },
+      { ...ENDPOINT, devicePk: DEVICE_PK_HEX, deviceKemPk: null },
       // Uppercase and odd-length are not hex the shared parser accepts, and a
       // local regexp here would be a second answer to "what is hex".
-      { devicePk: DEVICE_PK_HEX.toUpperCase(), deviceKemPk: KEM_HEX },
-      { devicePk: "1".repeat(63), deviceKemPk: KEM_HEX },
+      { ...ENDPOINT, devicePk: DEVICE_PK_HEX.toUpperCase(), deviceKemPk: KEM_HEX },
+      { ...ENDPOINT, devicePk: "1".repeat(63), deviceKemPk: KEM_HEX },
       // Short, long, and empty keys are each a credential bound to the wrong
       // thing, so none of them may reach the encoder.
-      { devicePk: "ab".repeat(31), deviceKemPk: KEM_HEX },
-      { devicePk: "ab".repeat(33), deviceKemPk: KEM_HEX },
-      { devicePk: DEVICE_PK_HEX, deviceKemPk: "" },
-    ];
+      { ...ENDPOINT, devicePk: "ab".repeat(31), deviceKemPk: KEM_HEX },
+      { ...ENDPOINT, devicePk: "ab".repeat(33), deviceKemPk: KEM_HEX },
+      { ...ENDPOINT, devicePk: DEVICE_PK_HEX, deviceKemPk: "" },
+      // …and the endpoint fields are as required as the keys are.
+      { devicePk: DEVICE_PK_HEX, deviceKemPk: KEM_HEX },
+    ].map((value) =>
+      typeof value === "object" && value !== null && "devicePk" in value
+        ? value
+        : value,
+    );
     for (const value of rejected) {
       expect(() => parseDeviceCredentialKeys(value)).toThrow(DeviceKeysUnavailableError);
     }
@@ -78,7 +109,7 @@ describe("parsing this device's public keys", () => {
     // throwing, which would enroll a device nobody holds the private half of.
     let produced: unknown = null;
     try {
-      produced = parseDeviceCredentialKeys({ deviceKemPk: KEM_HEX });
+      produced = parseDeviceCredentialKeys({ ...ENDPOINT, deviceKemPk: KEM_HEX });
     } catch {
       produced = "refused";
     }
@@ -88,10 +119,7 @@ describe("parsing this device's public keys", () => {
 
 describe("reading them over IPC", () => {
   it("invokes exactly the app-crate command, with no arguments and no prefix", async () => {
-    const invoked = installTauriHost(() => ({
-      devicePk: DEVICE_PK_HEX,
-      deviceKemPk: KEM_HEX,
-    }));
+    const invoked = installTauriHost(() => ({ ...ANSWER }));
     const keys = await readDeviceCredentialKeys();
     expect(invoked).toEqual([DEVICE_CREDENTIAL_KEYS_COMMAND]);
     // §2.2: app-crate commands carry no `plugin:` prefix and need no capability
@@ -103,7 +131,7 @@ describe("reading them over IPC", () => {
   });
 
   it("refuses a host that answers with the wrong shape", async () => {
-    installTauriHost(() => ({ devicePk: DEVICE_PK_HEX, secretKey: "oh no" }));
+    installTauriHost(() => ({ ...ANSWER, devicePk: undefined, secretKey: "oh no" }));
     await expect(readDeviceCredentialKeys()).rejects.toBeInstanceOf(
       DeviceKeysUnavailableError,
     );

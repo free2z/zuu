@@ -82,7 +82,7 @@ use core::fmt;
 
 use f2z_codec::canonical::{Canonical, Canonicalized, decode_canonical};
 use f2z_codec::hash::hash;
-use f2z_codec::types::{Body, Digest, PublicKey, ShortBytes, Signature};
+use f2z_codec::types::{Body, Digest, PublicKey, QueueAddress, RelayId, ShortBytes, Signature};
 use tls_codec::{
     DeserializeBytes, Error as TlsError, SerializeBytes, Size, TlsDeserializeBytes,
     TlsSerializeBytes, TlsSize,
@@ -203,14 +203,27 @@ pub enum Intent {
     IssueDeviceCredential,
     /// Send ZEC. ZUULI re-derives and shows its **own** payment review.
     ExecutePayment,
+    /// [`Self::IssueDeviceCredential`]'s second payload version: the same
+    /// device public keys **plus the contact endpoint the requesting device
+    /// already opened**, so the wallet can publish that device in the
+    /// directory (ADR 0017 §4.1). The result is still
+    /// [`IssueDeviceCredentialResultV1`].
+    ///
+    /// A family code of its own rather than a version field inside the
+    /// payload: version 1's payload carries no tag, so the only selector that
+    /// refuses instead of best-guessing is the one `payload` is already opaque
+    /// behind. Code `2` keeps meaning exactly what it meant, and its vector
+    /// stays frozen.
+    IssueDeviceCredentialV2,
 }
 
 impl Intent {
     /// Every family, in wire order.
-    pub const ALL: [Self; 3] = [
+    pub const ALL: [Self; 4] = [
         Self::SignChallenge,
         Self::IssueDeviceCredential,
         Self::ExecutePayment,
+        Self::IssueDeviceCredentialV2,
     ];
 
     /// The wire code. `0` is not a family.
@@ -220,6 +233,7 @@ impl Intent {
             Self::SignChallenge => 1,
             Self::IssueDeviceCredential => 2,
             Self::ExecutePayment => 3,
+            Self::IssueDeviceCredentialV2 => 4,
         }
     }
 
@@ -233,6 +247,7 @@ impl Intent {
             1 => Self::SignChallenge,
             2 => Self::IssueDeviceCredential,
             3 => Self::ExecutePayment,
+            4 => Self::IssueDeviceCredentialV2,
             _ => return Err(IntentError::UnknownIntent),
         })
     }
@@ -245,6 +260,7 @@ impl Intent {
             Self::SignChallenge => "sign-challenge",
             Self::IssueDeviceCredential => "issue-device-credential",
             Self::ExecutePayment => "execute-payment",
+            Self::IssueDeviceCredentialV2 => "issue-device-credential-v2",
         }
     }
 }
@@ -339,7 +355,60 @@ pub struct IssueDeviceCredentialRequestV1 {
     pub not_after_ms: u64,
 }
 
-/// `issue-device-credential` result.
+/// `issue-device-credential-v2` request: [`IssueDeviceCredentialRequestV1`]'s
+/// fields, then the requesting device's first-contact endpoint
+/// (`WIRE.md` §12.2, `KT.md` §4.1's `ContactEndpoint`).
+///
+/// ```text
+/// struct {
+///     opaque handle<0..255>;
+///     opaque device_pk[32];
+///     opaque device_kem_pk<0..2^24-1>;
+///     uint64 not_before_ms;
+///     uint64 not_after_ms;
+///     opaque contact_relay_url<0..255>;   /* wss://, non-empty */
+///     opaque contact_relay_id[32];
+///     opaque contact_addr[32];
+/// } IssueDeviceCredentialRequestV2;
+/// ```
+///
+/// # Why these three are not ADR 0016's forbidden "unsigned copy"
+///
+/// ADR 0016 §4 refuses a field that repeats a value some signed structure
+/// already fixes, because whoever answers would choose the copy. The endpoint
+/// repeats nothing: only the device that opened the queue knows the
+/// relay-issued `contact_addr`, the *requester* supplies it, and the wallet
+/// then signs it into the `DirectoryEntry` with the seed-derived
+/// `DirectoryAuthKey`. ADR 0017 §4.1 has the full argument.
+#[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+pub struct IssueDeviceCredentialRequestV2 {
+    /// The handle the device will speak for, and be published under.
+    pub handle: ShortBytes,
+    /// `DSK.public`, as in version 1.
+    pub device_pk: PublicKey,
+    /// The X-Wing hybrid KEM public key, as in version 1.
+    pub device_kem_pk: Body,
+    /// Requested validity start, as in version 1. Advisory.
+    pub not_before_ms: u64,
+    /// Requested validity end, as in version 1. Advisory.
+    pub not_after_ms: u64,
+    /// The relay holding the device's contact queue. `wss://`, and rendered in
+    /// the wallet's confirmation, so it is bridge text as well.
+    pub contact_relay_url: ShortBytes,
+    /// The relay identity the requesting device's connection authenticated.
+    pub contact_relay_id: RelayId,
+    /// The relay-issued contact address strangers `CONTACT_APPEND` to.
+    pub contact_addr: QueueAddress,
+}
+
+/// The scheme every published contact relay must use.
+///
+/// A directory entry is a promise to every stranger who resolves the handle
+/// that this is where to reach the device, so a plaintext transport is
+/// refused at parse rather than published.
+pub const CONTACT_RELAY_SCHEME: &str = "wss://";
+
+/// `issue-device-credential` result, for both payload versions.
 ///
 /// The credential is carried as opaque bytes on purpose: it is a
 /// `f2z_kt_core::DeviceCredential`, defined once in that crate, and a second
@@ -405,6 +474,8 @@ pub enum IntentBody {
     IssueDeviceCredential(IssueDeviceCredentialRequestV1),
     /// [`Intent::ExecutePayment`].
     ExecutePayment(ExecutePaymentRequestV1),
+    /// [`Intent::IssueDeviceCredentialV2`].
+    IssueDeviceCredentialV2(IssueDeviceCredentialRequestV2),
 }
 
 impl IntentBody {
@@ -415,6 +486,7 @@ impl IntentBody {
             Self::SignChallenge(_) => Intent::SignChallenge,
             Self::IssueDeviceCredential(_) => Intent::IssueDeviceCredential,
             Self::ExecutePayment(_) => Intent::ExecutePayment,
+            Self::IssueDeviceCredentialV2(_) => Intent::IssueDeviceCredentialV2,
         }
     }
 }
@@ -562,15 +634,24 @@ fn decode_family(intent: Intent, payload: &[u8]) -> Result<IntentBody, IntentErr
         }
         Intent::IssueDeviceCredential => {
             let body = decode_canonical::<IssueDeviceCredentialRequestV1>(payload)?.into_value();
-            // The handle is text a wallet renders, so it goes through the same
-            // gate as every other rendered field. Its *charset* rule belongs to
-            // `f2z_kt_core::Handle` and is applied there, at issuance, rather
-            // than restated here where it could drift.
-            VisibleText::new(body.handle.as_slice())?;
-            if body.device_kem_pk.is_empty() || body.not_after_ms <= body.not_before_ms {
-                return Err(IntentError::InvalidValue);
-            }
+            check_device_fields(
+                &body.handle,
+                &body.device_kem_pk,
+                body.not_before_ms,
+                body.not_after_ms,
+            )?;
             IntentBody::IssueDeviceCredential(body)
+        }
+        Intent::IssueDeviceCredentialV2 => {
+            let body = decode_canonical::<IssueDeviceCredentialRequestV2>(payload)?.into_value();
+            check_device_fields(
+                &body.handle,
+                &body.device_kem_pk,
+                body.not_before_ms,
+                body.not_after_ms,
+            )?;
+            check_contact_endpoint(&body)?;
+            IntentBody::IssueDeviceCredentialV2(body)
         }
         Intent::ExecutePayment => {
             let body = decode_canonical::<ExecutePaymentRequestV1>(payload)?.into_value();
@@ -586,6 +667,48 @@ fn decode_family(intent: Intent, payload: &[u8]) -> Result<IntentBody, IntentErr
             IntentBody::ExecutePayment(body)
         }
     })
+}
+
+/// The rules both `issue-device-credential` payload versions share.
+///
+/// One function, so version 2 cannot quietly drop a rule version 1 keeps.
+fn check_device_fields(
+    handle: &ShortBytes,
+    device_kem_pk: &Body,
+    not_before_ms: u64,
+    not_after_ms: u64,
+) -> Result<(), IntentError> {
+    // The handle is text a wallet renders, so it goes through the same gate as
+    // every other rendered field. Its *charset* rule belongs to
+    // `f2z_kt_core::Handle` and is applied there, at issuance, rather than
+    // restated here where it could drift.
+    VisibleText::new(handle.as_slice())?;
+    if device_kem_pk.is_empty() || not_after_ms <= not_before_ms {
+        return Err(IntentError::InvalidValue);
+    }
+    Ok(())
+}
+
+/// Version 2's endpoint rules.
+///
+/// The URL is rendered (the confirmation names the relay host), so it is
+/// bridge text; and it is published to every stranger who resolves the handle,
+/// so it must name the one transport a directory entry may carry. An all-zero
+/// address or relay identity is no value at all: the codec uses zero for
+/// "unset", and no relay issues it.
+fn check_contact_endpoint(body: &IssueDeviceCredentialRequestV2) -> Result<(), IntentError> {
+    let url = VisibleText::new(body.contact_relay_url.as_slice())?;
+    let host = url
+        .as_str()
+        .strip_prefix(CONTACT_RELAY_SCHEME)
+        .ok_or(IntentError::InvalidValue)?;
+    if host.is_empty() || host.starts_with('/') {
+        return Err(IntentError::InvalidValue);
+    }
+    if body.contact_addr.is_zero() || body.contact_relay_id.is_zero() {
+        return Err(IntentError::InvalidValue);
+    }
+    Ok(())
 }
 
 /// Wrap a version-1 request body in its envelope and encode it.
@@ -651,8 +774,8 @@ pub fn decode_response(bytes: &[u8]) -> Result<IntentResponseV1, IntentError> {
 mod tests {
     use super::*;
     use crate::test_support::{
-        sample_execute_payment, sample_issue_device_credential, sample_request,
-        sample_sign_challenge,
+        sample_execute_payment, sample_issue_device_credential, sample_issue_device_credential_v2,
+        sample_request, sample_sign_challenge, sample_v2_body,
     };
 
     #[test]
@@ -662,7 +785,7 @@ mod tests {
             assert_eq!(Intent::from_code(intent.code()), Ok(*intent));
         }
         assert_eq!(Intent::from_code(0), Err(IntentError::UnknownIntent));
-        assert_eq!(Intent::from_code(4), Err(IntentError::UnknownIntent));
+        assert_eq!(Intent::from_code(5), Err(IntentError::UnknownIntent));
     }
 
     #[test]
@@ -693,6 +816,10 @@ mod tests {
                 sample_issue_device_credential(),
             ),
             (Intent::ExecutePayment, sample_execute_payment()),
+            (
+                Intent::IssueDeviceCredentialV2,
+                sample_issue_device_credential_v2(),
+            ),
         ] {
             let bytes = encode_request(&sample_request(sample)).unwrap();
             let parsed = IntentRequest::parse(&bytes).unwrap();
@@ -714,6 +841,146 @@ mod tests {
             IntentRequest::parse(&bytes),
             Err(IntentError::Malformed | IntentError::InvalidValue)
         ));
+    }
+
+    /// The two `issue-device-credential` payload versions are selected by the
+    /// family code alone, and neither decodes as the other: version 2 is
+    /// version 1 plus trailing fields, which canonical decoding refuses, and
+    /// version 1 is version 2 truncated.
+    #[test]
+    fn the_two_credential_payload_versions_never_decode_as_each_other() {
+        let (_, v1) = sample_issue_device_credential();
+        let (_, v2) = sample_issue_device_credential_v2();
+        for (announced, payload) in [
+            (Intent::IssueDeviceCredential, v2),
+            (Intent::IssueDeviceCredentialV2, v1),
+        ] {
+            let bytes = encode_request(&sample_request((announced, payload))).unwrap();
+            assert_eq!(
+                IntentRequest::parse(&bytes),
+                Err(IntentError::Malformed),
+                "{announced:?} must not accept the other version's payload"
+            );
+        }
+    }
+
+    fn parse_v2(body: &IssueDeviceCredentialRequestV2) -> Result<IntentRequest, IntentError> {
+        let bytes = encode_request(&sample_request((
+            Intent::IssueDeviceCredentialV2,
+            body.encode_canonical().unwrap(),
+        )))
+        .unwrap();
+        IntentRequest::parse(&bytes)
+    }
+
+    #[test]
+    fn a_v2_endpoint_must_be_a_real_wss_relay() {
+        let url = |text: &str| ShortBytes::new(text.as_bytes().to_vec()).unwrap();
+        let cases: [(&str, IssueDeviceCredentialRequestV2); 8] = [
+            (
+                "a plaintext relay",
+                IssueDeviceCredentialRequestV2 {
+                    contact_relay_url: url("ws://relay.example"),
+                    ..sample_v2_body()
+                },
+            ),
+            (
+                "an https relay",
+                IssueDeviceCredentialRequestV2 {
+                    contact_relay_url: url("https://relay.example"),
+                    ..sample_v2_body()
+                },
+            ),
+            (
+                "an empty relay",
+                IssueDeviceCredentialRequestV2 {
+                    contact_relay_url: url(""),
+                    ..sample_v2_body()
+                },
+            ),
+            (
+                "a scheme with no host",
+                IssueDeviceCredentialRequestV2 {
+                    contact_relay_url: url("wss://"),
+                    ..sample_v2_body()
+                },
+            ),
+            (
+                "a path with no host",
+                IssueDeviceCredentialRequestV2 {
+                    contact_relay_url: url("wss:///relay"),
+                    ..sample_v2_body()
+                },
+            ),
+            (
+                "a layout control in the relay",
+                IssueDeviceCredentialRequestV2 {
+                    contact_relay_url: url("wss://relay\u{202e}.example"),
+                    ..sample_v2_body()
+                },
+            ),
+            (
+                "a zero contact address",
+                IssueDeviceCredentialRequestV2 {
+                    contact_addr: QueueAddress::zero(),
+                    ..sample_v2_body()
+                },
+            ),
+            (
+                "a zero relay identity",
+                IssueDeviceCredentialRequestV2 {
+                    contact_relay_id: RelayId::new([0; 32]),
+                    ..sample_v2_body()
+                },
+            ),
+        ];
+        for (name, body) in cases {
+            assert_eq!(
+                parse_v2(&body),
+                Err(IntentError::InvalidValue),
+                "{name} must be refused"
+            );
+        }
+        let parsed = parse_v2(&sample_v2_body()).expect("the positive control parses");
+        assert_eq!(
+            parsed.body(),
+            &IntentBody::IssueDeviceCredentialV2(sample_v2_body())
+        );
+    }
+
+    #[test]
+    fn a_v2_request_keeps_every_v1_rule() {
+        let text = |value: &str| ShortBytes::new(value.as_bytes().to_vec()).unwrap();
+        let base = sample_v2_body();
+        for (name, body) in [
+            (
+                "an inverted window",
+                IssueDeviceCredentialRequestV2 {
+                    not_after_ms: base.not_before_ms,
+                    ..sample_v2_body()
+                },
+            ),
+            (
+                "an empty KEM key",
+                IssueDeviceCredentialRequestV2 {
+                    device_kem_pk: Body::new(Vec::new()).unwrap(),
+                    ..sample_v2_body()
+                },
+            ),
+            (
+                "a layout control in the handle",
+                IssueDeviceCredentialRequestV2 {
+                    handle: text("ali\u{200b}ce"),
+                    ..sample_v2_body()
+                },
+            ),
+        ] {
+            assert_eq!(
+                parse_v2(&body),
+                Err(IntentError::InvalidValue),
+                "{name} must be refused"
+            );
+        }
     }
 
     #[test]

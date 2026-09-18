@@ -40,6 +40,14 @@ export const IntentFamily = {
   IssueDeviceCredential: 2,
   /** Send ZEC, after the wallet's own payment review. */
   ExecutePayment: 3,
+  /**
+   * `IssueDeviceCredential`'s second payload version: the device public keys
+   * plus the contact endpoint the device already opened, so the wallet can
+   * publish it in the directory (ADR 0017 §4.1). Answered with the same
+   * result as version 1. Its own family code because version 1's payload
+   * carries no tag, and code 2 keeps meaning exactly what it meant.
+   */
+  IssueDeviceCredentialV2: 4,
 } as const;
 
 /** One of {@link IntentFamily}'s values. */
@@ -49,6 +57,7 @@ const FAMILY_NAMES: ReadonlyMap<IntentFamily, string> = new Map([
   [IntentFamily.SignChallenge, "sign-challenge"],
   [IntentFamily.IssueDeviceCredential, "issue-device-credential"],
   [IntentFamily.ExecutePayment, "execute-payment"],
+  [IntentFamily.IssueDeviceCredentialV2, "issue-device-credential-v2"],
 ] as const);
 
 /** The stable name of a family, for logs and telemetry-free diagnostics. */
@@ -361,30 +370,103 @@ export function decodeIssueDeviceCredentialResult(
   });
 }
 
-/** Encode an `issue-device-credential` family payload. Public keys only. */
-export function encodeIssueDeviceCredentialPayload(device: {
+/** The device fields both `issue-device-credential` payload versions carry. */
+export interface DeviceCredentialFields {
   readonly handle: string;
   readonly devicePublicKey: Uint8Array;
   readonly deviceKemPublicKey: Uint8Array;
   readonly notBeforeMs: number;
   readonly notAfterMs: number;
-}): IntentOutcome<Uint8Array> {
+}
+
+/**
+ * Version 1's fields, checked and written. One function, so version 2 cannot
+ * quietly drop a rule version 1 keeps.
+ */
+function writeDeviceCredentialFields(
+  writer: ByteWriter,
+  device: DeviceCredentialFields,
+): void {
+  if (
+    device.devicePublicKey.length !== 32 ||
+    device.deviceKemPublicKey.length === 0 ||
+    !Number.isSafeInteger(device.notBeforeMs) ||
+    !Number.isSafeInteger(device.notAfterMs) ||
+    device.notAfterMs <= device.notBeforeMs
+  ) {
+    refuse(IntentErrorCode.InvalidValue);
+  }
+  writer.opaque8(encodeVisibleText(device.handle));
+  writer.bytes(device.devicePublicKey);
+  writer.opaque24(device.deviceKemPublicKey);
+  writer.u64(BigInt(device.notBeforeMs));
+  writer.u64(BigInt(device.notAfterMs));
+}
+
+/** Encode an `issue-device-credential` family payload. Public keys only. */
+export function encodeIssueDeviceCredentialPayload(
+  device: DeviceCredentialFields,
+): IntentOutcome<Uint8Array> {
   return outcome(() => {
+    const writer = new ByteWriter();
+    writeDeviceCredentialFields(writer, device);
+    return writer.finish();
+  });
+}
+
+/** The scheme every published contact relay must use. */
+export const CONTACT_RELAY_SCHEME = "wss://";
+
+/** The number of bytes in a relay identity and in a queue address. */
+export const CONTACT_ENDPOINT_KEY_BYTES = 32;
+
+/** Where the requesting device receives first contact (`WIRE.md` §12.2). */
+export interface ContactEndpointFields {
+  /** The relay holding the contact queue. `wss://`. */
+  readonly contactRelayUrl: string;
+  /** The relay identity this device's connection authenticated. 32 bytes. */
+  readonly contactRelayId: Uint8Array;
+  /** The relay-issued contact address. 32 bytes. */
+  readonly contactAddr: Uint8Array;
+}
+
+function isAllZero(bytes: Uint8Array): boolean {
+  return bytes.every((byte) => byte === 0);
+}
+
+/**
+ * Encode an `issue-device-credential-v2` family payload: version 1's fields,
+ * then the contact endpoint (`PROTOCOL.md` §3.3, ADR 0017 §4.1).
+ *
+ * The endpoint rules are the wallet's, restated so a client learns it built
+ * something unsendable where it built it: a `wss://` URL with a host, in
+ * bridge text, and a relay identity and address that are 32 bytes and not
+ * all zero.
+ */
+export function encodeIssueDeviceCredentialV2Payload(
+  device: DeviceCredentialFields & ContactEndpointFields,
+): IntentOutcome<Uint8Array> {
+  return outcome(() => {
+    const writer = new ByteWriter();
+    writeDeviceCredentialFields(writer, device);
+    const url = encodeVisibleText(device.contactRelayUrl);
+    const host = device.contactRelayUrl.startsWith(CONTACT_RELAY_SCHEME)
+      ? device.contactRelayUrl.slice(CONTACT_RELAY_SCHEME.length)
+      : null;
+    if (host === null || host.length === 0 || host.startsWith("/")) {
+      refuse(IntentErrorCode.InvalidValue);
+    }
     if (
-      device.devicePublicKey.length !== 32 ||
-      device.deviceKemPublicKey.length === 0 ||
-      !Number.isSafeInteger(device.notBeforeMs) ||
-      !Number.isSafeInteger(device.notAfterMs) ||
-      device.notAfterMs <= device.notBeforeMs
+      device.contactRelayId.length !== CONTACT_ENDPOINT_KEY_BYTES ||
+      device.contactAddr.length !== CONTACT_ENDPOINT_KEY_BYTES ||
+      isAllZero(device.contactRelayId) ||
+      isAllZero(device.contactAddr)
     ) {
       refuse(IntentErrorCode.InvalidValue);
     }
-    const writer = new ByteWriter();
-    writer.opaque8(encodeVisibleText(device.handle));
-    writer.bytes(device.devicePublicKey);
-    writer.opaque24(device.deviceKemPublicKey);
-    writer.u64(BigInt(device.notBeforeMs));
-    writer.u64(BigInt(device.notAfterMs));
+    writer.opaque8(url);
+    writer.bytes(device.contactRelayId);
+    writer.bytes(device.contactAddr);
     return writer.finish();
   });
 }

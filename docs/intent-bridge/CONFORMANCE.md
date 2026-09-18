@@ -43,7 +43,7 @@ tree that ships.
 
 ## Rust — `rs/crates/f2z-intent`
 
-Baseline: 63 tests green (35 unit, 25 conformance, 3 wire vectors).
+Baseline: 69 tests green (38 unit, 25 conformance, 6 wire vectors).
 
 | Guard, as mutated | Test that must fail | Result |
 |---|---|---|
@@ -68,6 +68,29 @@ Baseline: 63 tests green (35 unit, 25 conformance, 3 wire vectors).
 
 **18 mutations, 18 failures, 0 survivors.**
 
+### Version 2 of the credential payload (ADR 0017 §4.1)
+
+`issue-device-credential-v2` is a **family code** rather than a version field
+inside the payload, so the guards worth mutating are the selector and the new
+field rules. Same method, same standard.
+
+| Guard, as mutated | Test that must fail | Result |
+|---|---|---|
+| the family selector: code 2 resolved to version 2 | `the_two_credential_payload_versions_never_decode_as_each_other`, `the_frozen_v1_credential_request_still_parses_as_v1` | FAILS |
+| the `wss://` scheme and host check | `a_v2_endpoint_must_be_a_real_wss_relay` | FAILS |
+| the all-zero endpoint check | `a_v2_endpoint_must_be_a_real_wss_relay` | FAILS |
+| the shared device-field rules, reached from version 2 | `a_v2_request_keeps_every_v1_rule` | FAILS |
+
+**4 mutations, 4 failures, 0 survivors**, each restored and re-run green.
+
+The first row is the one to read twice. Version 2's payload is version 1's with
+three fields appended, so a decoder that "tried both" would accept either under
+either code — which is exactly the best-guessing `#905` refuses. Under the
+family gate, version 2's bytes are trailing data to version 1's decoder and
+version 1's are a truncation to version 2's, and the **frozen** version-1
+vector still parses as version 1 under the same request digest a confirmation
+bound before version 2 existed.
+
 The three dual-clock rows are the ones worth reading twice. Each half of
 `Deadline::check` defends against a *different* ordinary device behaviour, and
 the first version of that test only caught one of them — removing the monotonic
@@ -79,7 +102,7 @@ not a weak guard.
 
 ## TypeScript — `wallet/shared/src/intent`
 
-Baseline: 24 tests green.
+Baseline: 50 tests green.
 
 | Guard, as mutated | Result |
 |---|---|
@@ -98,6 +121,8 @@ Baseline: 24 tests green.
 | session expiry | FAILS |
 | session fails closed when full | FAILS |
 | trailing-byte refusal **and** request re-encode equality, together | FAILS |
+| the version-2 encoder's endpoint rules (scheme, host, 32-byte keys, all-zero) | FAILS |
+| status 13 known as `INTENT_HANDLE_UNAVAILABLE` rather than unknown | FAILS |
 
 ### Two guards that survive their own mutation, and why that is a fact about the format
 
@@ -135,7 +160,7 @@ that is `appLinkTransport.ts`, over the verified App Links `#977` landed for
 `#461`; everywhere else, including every row below, it is the fail-closed
 default, which refuses.
 
-Baseline: 42 tests green across `transport.test.ts`, `deviceKeys.test.ts` and
+Baseline: 43 tests green across `transport.test.ts`, `deviceKeys.test.ts` and
 `issueDeviceCredential.test.ts`, plus 5 across
 `wallet/e2e2z/src/lib/messaging/enroll-intent.test.ts` and
 `enroll-chunk-failure.test.ts`, plus the 8 in
@@ -154,6 +179,8 @@ Baseline: 42 tests green across `transport.test.ts`, `deviceKeys.test.ts` and
 | seed authority: the wallet plugin as a dependency | `e2e2z holds no seed authority, and no unreviewed dispatch authority` | FAILS |
 | seed authority: a `plugin:zcash\|` invoke in the renderer | `e2e2z holds no seed authority, and no unreviewed dispatch authority` | FAILS |
 | seed authority: `get_seed_phrase` named in executable code | `e2e2z holds no seed authority, and no unreviewed dispatch authority` | FAILS |
+| the endpoint dropped from the parsed device keys | `refuses an endpoint a stranger could not reach this device at` | FAILS |
+| the version-1 encoder used for the request | `is the structure the wallet parses, with the fields #905 specifies` | FAILS |
 | `enroll`'s lazy `import()` inside the `try`, so a chunk-load failure still wears the typed refusal | `a chunk that never loads > still refuses with the typed enrollment refusal` | FAILS |
 | dispatch authority: a second production module calls `setIntentTransport` | `e2e2z holds no seed authority, and no unreviewed dispatch authority` | FAILS |
 
@@ -210,6 +237,78 @@ association, so while the association resolves, no other app receives the
 request or the answer. What these tests cannot observe is that association
 failing — §4.1's case, where a link silently degrades to the web — and nothing
 here signs a response ([#929](https://github.com/free2z/zuu/issues/929)).
+
+## The publishing authority — `wallet/zuuli/src-tauri`
+
+ADR 0017 §4.1's path: the handle a confirmation names, the entry the wallet
+signs, and the order the two happen in. Reproduce with
+`cargo test --locked --manifest-path wallet/zuuli/src-tauri/Cargo.toml`, then
+one row at a time: patch, `cargo test --lib <test> -- --exact`, restore.
+
+| Guard, as mutated | Test that must fail | Result |
+|---|---|---|
+| `vouched_handle` ignores the authority signature's result | `an_assertion_that_does_not_verify_names_no_handle` | FAILS |
+| the predecessor identity-key comparison is dropped | `a_handle_published_under_another_identity_is_refused_before_anything_is_signed` | FAILS |
+| `sign_for_publication` skips the precheck | `an_assertion_the_log_would_refuse_is_caught_before_submission` | FAILS |
+| the native dialog is not called at all | `the_publish_order_is_plan_then_prompt_then_seed_then_assertion_then_submit` | FAILS |
+| the confirmation's handle taken from the admitted request | `the_publish_confirmation_never_renders_the_requested_handle` | FAILS |
+| `refusal_after_submission` delegating to `publication_refusal` | `nothing_after_the_submission_claims_that_nothing_happened` | FAILS |
+| the certain mapping applied to the submission's own refusal | `the_certain_refusal_mapping_is_never_applied_after_the_submission` | FAILS |
+| the assertion fetched before the confirmation (the reviewed ordering) | `the_publish_order_is_plan_then_prompt_then_seed_then_assertion_then_submit` | FAILS |
+| the seed read before the confirmation | same | FAILS |
+| the fulfilled answer echoes a fixed family instead of the one asked | `a_fulfilled_answer_echoes_the_version_that_was_asked` | FAILS |
+
+One row that **cannot** be written, recorded rather than omitted: "the
+version-2 family answered on version 1's handler". The dispatch is a match on
+`IntentBody`, so a handler that took the other version's body does not compile —
+`version_two_is_dispatched_to_the_publishing_path_and_nowhere_else` is a
+positive-and-negative control over that, not a mutation. Type-enforced is
+stronger than test-enforced; claiming a mutation for it would not be.
+
+And in the engine and the messaging surface, whose guards decide whether a
+published device is reachable at all:
+
+| Guard, as mutated | Test that must fail | Result |
+|---|---|---|
+| `install_identity` does not commit the pending contact queue | `the_queue_is_opened_before_the_credential_and_installed_with_it` | FAILS |
+| `prepare_device` does not clear a pending queue | `a_second_preparation_discards_the_first_queue` | FAILS |
+| `enrollment_status` ignores `submitted_by_issuer` | `an_issuer_submitted_device_is_waiting_rather_than_blocked` | FAILS |
+| `e2e2z_enrollment_status` stops asking the log whether the entry merged | `the_enrollment_read_asks_the_log_while_the_entry_is_unmerged` | FAILS |
+
+And the renderer's half of the session slot, whose guard is about *which value
+the wallet ends up holding*:
+
+| Guard, as mutated | Test that must fail | Result |
+|---|---|---|
+| the single-slot queue, replaced by the generation counter this branch first shipped | `leaves the wallet holding the last value asked for, not the last to arrive` | FAILS |
+| a value overtaken before dispatch sent anyway | `drops a value that was overtaken before it was ever sent` | FAILS |
+| the `finally` that re-arms the queue | `keeps publishing after a reporter throws` | FAILS |
+| the guard around a reporter that throws | same | FAILS |
+
+The first row is the one worth reading. The generation counter it replaces
+*looked* like an ordering guard — it incremented, compared and recorded — but
+the comparison happened **after** `invoke` had already written the slot, and
+nothing read the recorded value. The test that shipped with it asserted arrival
+order, which the bug satisfies: a stale sign-in landing last was the expected
+result. Both are now stated as the property that matters, which is the value the
+wallet holds when the dust settles, and the old implementation fails them.
+
+**19 Rust mutations across these tables, 19 failures, 0 survivors**, plus the
+eight TypeScript rows above — 27 in all. Every one was applied, watched to
+fail with a named assertion, restored **from a saved copy of the working file**
+(never `git checkout`, which would discard the change under test), and re-run
+green.
+
+### What none of this proves, again
+
+The last row is **source-asserted**, like the ordering rows: reaching the real
+branch needs a Tauri app, an engine and a log, and the Playwright spec that
+watches the screen move from "Submitted, not yet active" to "Handle active"
+drives a host stand-in rather than a real lookup. What *is* exercised against a
+real log, witness and relay is `rs/crates/f2z-kt-client/tests/intent_publication.rs`:
+a real `IssueDeviceCredentialRequestV2`, admitted by the real gate, published by
+the real submission path, found by a stranger who knew only the handle. Nothing
+in either place has run on a device against a deployed log.
 
 ## TypeScript — the caller side, `wallet/free2z`
 

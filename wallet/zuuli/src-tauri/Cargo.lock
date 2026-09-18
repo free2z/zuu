@@ -9497,6 +9497,7 @@ dependencies = [
  "f2z-kt-core",
  "f2z-msg-identity",
  "f2z-msg-mls",
+ "f2z-msg-store",
  "getrandom 0.3.4",
  "hex",
  "secrecy",
@@ -9512,6 +9513,7 @@ dependencies = [
  "tauri-plugin-zcash",
  "tempfile",
  "tiny_http",
+ "tokio",
  "tracing",
  "url",
 ]

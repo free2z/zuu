@@ -10,11 +10,19 @@ import App from "./App";
 import { mountApplication, RootFallback } from "./app-bootstrap";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
 import { diagnostics } from "./lib/diagnostics";
+import { installNativeSessionMirror } from "./lib/auth/native-session";
 import { installDocumentDirection } from "./lib/document-direction";
 import { runWasmSpike } from "./lib/wasm-spike";
 import "./index.css";
 
 installDocumentDirection();
+
+// Tell the wallet process which free2z session is signed in, and keep telling
+// it. The intent authority needs one to fetch a `HandleAssertion` when another
+// app asks to be published in the directory (ADR 0017 §4.1), and an intent
+// arrives from the operating system with no argument to carry one on. The slot
+// is write-only: see `src-tauri/src/session.rs`.
+installNativeSessionMirror();
 
 // Before the first `await`, so a rejection during locale bootstrap reaches a
 // listener rather than nobody. A `void promise` whose rejection no handler ever

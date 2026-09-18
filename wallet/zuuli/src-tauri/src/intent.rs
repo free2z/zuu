@@ -33,6 +33,31 @@
 //!                     messaging::account_keys    the one seed read, in process
 //!                       ▼
 //!                     issue_device_credential    §4.2's identity key signs
+//!
+//!   issue-device-credential-v2:                  (ADR 0017 §4.1)
+//!                     plan_publication           WHOSE session this is (free2z
+//!                                                names the account) and what the
+//!                                                log already publishes. No seed,
+//!                                                and nothing about this wallet
+//!                                                leaves the process.
+//!                       ▼
+//!                     native dialog              BEFORE the seed is read, and
+//!                                                before the identity key is sent
+//!                                                anywhere: names the ACCOUNT, the
+//!                                                relay, the device, the existing
+//!                                                devices, and "PUBLISHED"
+//!                       ▼ approved
+//!                     messaging::account_keys    the one seed read, in process
+//!                       ▼
+//!                     vouch_first_entry          Contract C, now that an approval
+//!                                                exists: identity_pk → assertion
+//!                       ▼
+//!                     issue_device_credential    §4.2's identity key signs
+//!                       ▼
+//!                     sign_for_publication       DirectoryAuthKey signs the entry
+//!                       ▼
+//!                     submit_entry_for_device    from here nothing is certain:
+//!                                                every refusal is UNAVAILABLE
 //! ```
 //!
 //! # What is NOT here, deliberately
@@ -105,13 +130,19 @@ use f2z_intent::{
     encode_response, AdmittedIntent, CallerAttestation, CallerRegistry, CallerTrust,
     ConfirmationAuthorization, ConfirmationToken, ExecutePaymentRequestV1, ExecutePaymentResultV1,
     Intent, IntentBody, IntentClock, IntentError, IntentGate, IntentRequest, IntentResponseV1,
-    IssueDeviceCredentialRequestV1, IssueDeviceCredentialResultV1, RegisteredCaller, TxId,
-    VisibleText, CONFIRMATION_TTL_MS,
+    IssueDeviceCredentialRequestV1, IssueDeviceCredentialRequestV2, IssueDeviceCredentialResultV1,
+    RegisteredCaller, TxId, VisibleText, CONFIRMATION_TTL_MS,
 };
 use f2z_kt_core::types::{Handle, KemPublicKey};
 use f2z_msg_identity::DeviceCredentialRequest;
 use tauri::{AppHandle, Manager as _, Runtime};
 use tauri_plugin_dialog::{DialogExt as _, MessageDialogButtons, MessageDialogKind};
+use tauri_plugin_f2zmsg::engine::DeviceEndpoint;
+use tauri_plugin_f2zmsg::internal_directory;
+use tauri_plugin_f2zmsg::models::ErrorCode;
+use tauri_plugin_f2zmsg::state::F2zMsgExt as _;
+
+use crate::directory_publish::{self, PublicationPlan};
 use tauri_plugin_zcash::models::{BroadcastStatus, ExecuteSendResult, SendReview};
 use tauri_plugin_zcash::wallet::send;
 use tauri_plugin_zcash::ZcashExt as _;
@@ -294,14 +325,18 @@ pub async fn receive_intent<R: Runtime>(
             Ok(txid) => fulfil_payment(request, txid),
             Err(refusal) => refuse(request, refusal),
         }
+    } else if let Ok(credential_request) = credential_request(&admitted) {
+        match issue_device_credential(app, &admitted, credential_request).await {
+            Ok(credential) => fulfil_credential(request, credential),
+            Err(refusal) => refuse(request, refusal),
+        }
     } else {
-        match credential_request(&admitted) {
-            Ok(credential_request) => {
-                match issue_device_credential(app, &admitted, credential_request).await {
-                    Ok(credential) => fulfil_credential(request, credential),
-                    Err(refusal) => refuse(request, refusal),
-                }
-            }
+        match publish_request(&admitted) {
+            Ok(publish) => match issue_and_publish_device_credential(app, &admitted, publish).await
+            {
+                Ok(credential) => fulfil_credential(request, credential),
+                Err(refusal) => refuse(request, refusal),
+            },
             Err(refusal) => refuse(request, refusal),
         }
     }?;
@@ -324,11 +359,12 @@ fn payment_request(admitted: &AdmittedIntent) -> Result<&ExecutePaymentRequestV1
     match admitted.body() {
         IntentBody::ExecutePayment(payment) => Ok(payment),
         // `sign-challenge` cannot ship without caller attestation (see the
-        // module note); `issue-device-credential` is well-formed but belongs
-        // to `credential_request`, not this function.
-        IntentBody::SignChallenge(_) | IntentBody::IssueDeviceCredential(_) => {
-            Err(IntentError::UnknownIntent)
-        }
+        // module note); the two `issue-device-credential` payload versions are
+        // well-formed but belong to `credential_request` and
+        // `publish_request`, not this function.
+        IntentBody::SignChallenge(_)
+        | IntentBody::IssueDeviceCredential(_)
+        | IntentBody::IssueDeviceCredentialV2(_) => Err(IntentError::UnknownIntent),
         // `IntentBody` is `#[non_exhaustive]`: a family added upstream is
         // refused here until somebody decides what confirming it would mean.
         _ => Err(IntentError::UnknownIntent),
@@ -347,6 +383,22 @@ fn credential_request(
 ) -> Result<&IssueDeviceCredentialRequestV1, IntentError> {
     match admitted.body() {
         IntentBody::IssueDeviceCredential(credential) => Ok(credential),
+        _ => Err(IntentError::UnknownIntent),
+    }
+}
+
+/// The family dispatch for `issue-device-credential-v2` — the same credential,
+/// plus the directory entry that publishes the device (ADR 0017 §4.1).
+///
+/// # Errors
+///
+/// [`IntentError::UnknownIntent`] for every family but
+/// `issue-device-credential-v2`.
+fn publish_request(
+    admitted: &AdmittedIntent,
+) -> Result<&IssueDeviceCredentialRequestV2, IntentError> {
+    match admitted.body() {
+        IntentBody::IssueDeviceCredentialV2(publish) => Ok(publish),
         _ => Err(IntentError::UnknownIntent),
     }
 }
@@ -582,6 +634,383 @@ async fn issue_device_credential<R: Runtime>(
     })
 }
 
+/// Issue the credential **and publish the device**, which is the whole of
+/// version 2 (ADR 0017 §4.1).
+///
+/// # What happens before the human is asked, and what deliberately does not
+///
+/// Version 1's rule holds here too: **the wallet's custody is not opened, and
+/// nothing about this wallet leaves the process, until somebody has said yes.**
+/// Two questions are answered first because a human cannot judge the request
+/// without them, and neither one discloses anything:
+///
+/// - **Whose session is this?** free2z answers, from the Knox token in
+///   [`crate::session`]'s slot. The request carries that token and nothing
+///   else. The answer is the account name the confirmation shows, and it is
+///   the guard against a slot somebody else wrote: publishing under a foreign
+///   account now needs a human to approve a dialog naming it.
+/// - **Does the log already publish this handle?** An ordinary unauthenticated
+///   lookup, the same one any client makes.
+///
+/// The `HandleAssertion` — the one request that carries this wallet's
+/// `identity_pk` — is fetched **after** the approval, and the publication is
+/// refused unless the authority signs the handle that was asked for.
+///
+/// # Certainty is decided by phase, not by error code
+///
+/// Everything above `submit_entry_for_device` is decided locally or refused by
+/// a party before anything was submitted, so it can be reported as a certain
+/// "nothing happened". Everything from the submission onward is
+/// [`IntentError::Unavailable`] **unconditionally** — including a receipt that
+/// does not verify, because a log that answered badly may still have admitted
+/// the entry (`PROTOCOL.md` §6.2).
+async fn issue_and_publish_device_credential<R: Runtime>(
+    app: &AppHandle<R>,
+    admitted: &AdmittedIntent,
+    request: &IssueDeviceCredentialRequestV2,
+) -> Result<Vec<u8>, IntentError> {
+    let handle =
+        Handle::new(request.handle.as_slice().to_vec()).map_err(|_| IntentError::InvalidValue)?;
+    let requested_handle = core::str::from_utf8(request.handle.as_slice())
+        .map_err(|_| IntentError::InvalidValue)?
+        .to_owned();
+    let device_kem_pk = KemPublicKey::new(request.device_kem_pk.as_slice().to_vec())
+        .map_err(|_| IntentError::InvalidValue)?;
+    let endpoint = DeviceEndpoint {
+        relay_url: core::str::from_utf8(request.contact_relay_url.as_slice())
+            .map_err(|_| IntentError::InvalidValue)?
+            .to_owned(),
+        relay_id: *request.contact_relay_id.as_bytes(),
+        contact_addr: *request.contact_addr.as_bytes(),
+    };
+    let relay_host = relay_host(&endpoint.relay_url).ok_or(IntentError::InvalidValue)?;
+
+    let bundled = internal_directory::bundled();
+    let Some(internal) = bundled.configured() else {
+        tracing::warn!("intent issue-device-credential-v2 has no directory to publish to");
+        return Err(IntentError::Unavailable);
+    };
+    let engine = app.f2zmsg().engine_handle().map_err(|error| {
+        tracing::warn!(code = %error.code(), "intent publish could not reach the engine");
+        IntentError::Unavailable
+    })?;
+    let accounts = directory_publish::Free2zAccountClient::for_authority(
+        &internal.handle_assertion_url,
+    )
+    .map_err(|error| {
+        tracing::warn!(code = %error.code(), "intent publish could not build an account client");
+        IntentError::Unavailable
+    })?;
+
+    // The session, and the generation it belongs to: free2z's answer about it
+    // is cached against that generation, which is this path's rate limit on
+    // the one authenticated request it makes before anybody has approved
+    // anything (`session.rs`'s `ACCOUNT_CACHE_TTL`).
+    let session = app.state::<crate::session::Free2zSession>();
+    let held = session.session().await;
+    let cached = held
+        .as_ref()
+        .and_then(|(generation, _)| session.cached_account(*generation));
+    let plan = directory_publish::plan_publication(
+        &engine,
+        &accounts,
+        &requested_handle,
+        held.as_ref().map(|(_, token)| token.as_str()),
+        cached,
+    )
+    .await
+    .map_err(|error| {
+        tracing::warn!(
+            code = %error.code(),
+            context = %error.context(),
+            "intent publish could not establish whose session this is"
+        );
+        publication_refusal(error.code())
+    })?;
+    if let Some((generation, _)) = &held {
+        session.remember_account(*generation, &plan.account);
+    }
+
+    let message = publish_confirmation(admitted, &plan, &relay_host, request.device_pk.as_bytes());
+    if !confirm_natively(
+        app,
+        "Publish a messaging device in your account",
+        "Publish this device",
+        message,
+    )
+    .await
+    {
+        return Err(IntentError::NotConfirmed);
+    }
+
+    // Everything below happens only because somebody said yes.
+    let account = crate::messaging::account_keys(app).await.map_err(|error| {
+        tracing::warn!(code = %error.code(), "intent publish could not read wallet custody");
+        IntentError::Unavailable
+    })?;
+    let identity_pk = *account.identity.public().as_bytes();
+    let now_ms = clock_now()?.wall_ms;
+
+    // Contract C, for a first entry only, and only now: this is the request
+    // that carries the wallet's identity key, and it goes to the account the
+    // confirmation named.
+    let assertion = match plan.predecessor {
+        Some(_) => None,
+        None => {
+            let token = held
+                .as_ref()
+                .map(|(_, token)| token.as_str())
+                .ok_or(IntentError::HandleUnavailable)?;
+            let client =
+                directory_publish::HandleAssertionClient::new(&internal.handle_assertion_url)
+                    .map_err(|error| {
+                        tracing::warn!(code = %error.code(), "intent publish: no assertion client");
+                        IntentError::Unavailable
+                    })?;
+            Some(
+                directory_publish::vouch_first_entry(
+                    internal,
+                    &client,
+                    token,
+                    &identity_pk,
+                    &requested_handle,
+                    now_ms,
+                )
+                .await
+                .map_err(|error| {
+                    tracing::warn!(
+                        code = %error.code(),
+                        context = %error.context(),
+                        "intent publish was not vouched for by the handle authority"
+                    );
+                    publication_refusal(error.code())
+                })?,
+            )
+        }
+    };
+
+    let not_before_ms = now_ms.saturating_sub(crate::messaging::CREDENTIAL_BACKDATE_MS);
+    let not_after_ms = now_ms.saturating_add(crate::messaging::CREDENTIAL_LIFETIME_MS);
+    let credential = account
+        .identity
+        .issue_device_credential(&DeviceCredentialRequest {
+            handle,
+            device_pk: request.device_pk,
+            device_kem_pk,
+            not_before_ms,
+            not_after_ms,
+        })
+        .map_err(|error| {
+            tracing::warn!("intent publish was refused by the identity key: {error}");
+            IntentError::InvalidValue
+        })?;
+    let encoded = f2z_msg_mls::credential::encode(&credential).map_err(|error| {
+        tracing::warn!("intent publish could not encode its credential: {error}");
+        IntentError::Unavailable
+    })?;
+
+    let signed = directory_publish::sign_for_publication(
+        internal,
+        &account,
+        &plan,
+        &requested_handle,
+        directory_publish::DeviceToPublish {
+            credential: encoded.clone(),
+            device_pk: *request.device_pk.as_bytes(),
+            endpoint,
+        },
+        assertion.as_ref(),
+        now_ms,
+    )
+    .map_err(|error| {
+        tracing::warn!(
+            code = %error.code(),
+            context = %error.context(),
+            "intent publish could not sign an entry to submit"
+        );
+        publication_refusal(error.code())
+    })?;
+
+    // **The phase boundary.** Only a device the log accepted is a device this
+    // wallet answers for, so the credential is answered only after this — and
+    // every refusal from here is `Unavailable`, whatever code produced it,
+    // because a submission whose answer was lost may still merge.
+    let receipt = engine
+        .submit_entry_for_device(
+            signed.envelope.clone(),
+            directory_publish::expectation_for(&requested_handle, &signed),
+        )
+        .await
+        .map_err(|error| {
+            tracing::warn!(
+                code = %error.code(),
+                context = %error.context(),
+                "intent publish did not complete at the log"
+            );
+            refusal_after_submission(error.code())
+        })?;
+    tracing::info!(
+        handle = %requested_handle,
+        account = %plan.account,
+        entry_version = receipt.receipt.entry_version,
+        merge_by_ms = receipt.receipt.merge_by_ms,
+        "published a device for another app, and kept the log's receipt"
+    );
+    Ok(encoded)
+}
+
+/// The refusal a publication failure travels as, **before** anything is
+/// submitted.
+///
+/// `handle-ineligible` is the one case the caller can do something about — no
+/// free2z session in this wallet, an account with no bound handle, or an
+/// account whose handle is a different one — and PROTOCOL.md §6.2's rule
+/// applies to the rest: [`IntentError::Unavailable`] claims nothing about
+/// whether the entry reached the log.
+///
+/// **Only callers on the pre-submission side of the phase boundary may use
+/// this.** Applying it after `submit_entry_for_device` would let a code that
+/// happens to be `handle-ineligible` — a receipt whose handle field is not a
+/// handle, say — travel as `INTENT_HANDLE_UNAVAILABLE`, which promises the
+/// caller nothing was submitted. That promise is exactly what a lost answer
+/// cannot keep; see [`refusal_after_submission`].
+const fn publication_refusal(code: ErrorCode) -> IntentError {
+    match code {
+        ErrorCode::HandleIneligible => IntentError::HandleUnavailable,
+        _ => IntentError::Unavailable,
+    }
+}
+
+/// The refusal anything **after** the submission travels as: always
+/// [`IntentError::Unavailable`], whatever the code says.
+///
+/// The submission has left the process. A refusal now may mean the log
+/// rejected the entry, or that it admitted it and the answer was lost or
+/// malformed — and nothing at this end can tell those apart. `PROTOCOL.md`
+/// §6.2 gives exactly one status for "the effect is unknown", and certainty is
+/// a property of *when* a refusal happened rather than of which code it
+/// carries. Written as a function that ignores its argument, so the rule is a
+/// thing a test can drive and a reader cannot miss.
+const fn refusal_after_submission(_code: ErrorCode) -> IntentError {
+    IntentError::Unavailable
+}
+
+/// The host of a `wss://` relay URL, for the confirmation.
+///
+/// `f2z_intent` has already refused a URL that is not `wss://` with a host, so
+/// this is the rendering half: a human judges "where will strangers reach this
+/// device", and that is a host, not a path.
+fn relay_host(relay_url: &str) -> Option<String> {
+    let parsed = url::Url::parse(relay_url).ok()?;
+    let host = parsed.host_str()?.to_owned();
+    Some(match parsed.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host,
+    })
+}
+
+/// ZUULI's own confirmation copy for `issue-device-credential-v2`.
+///
+/// Three rules beyond [`format_payment_confirmation`]'s two:
+///
+/// 1. **It says PUBLISHED.** `ARCHITECTURE.md`: "adding a device to an account
+///    is a wiretap". The user is not approving a local setup step; they are
+///    approving an append-only, world-readable statement that another device
+///    may speak as them.
+/// 2. **The handle is the authority's, never the request's.** `plan.handle`
+///    comes from a signed `HandleAssertion` this build's bundled key verified,
+///    or from an entry the log publishes under this wallet's own identity key.
+///    The request's handle never reaches this function.
+/// 3. **The relay is named.** ADR 0017 §4.1: the endpoint is a value the
+///    *requester* chose, so the confirmation shows where first contact will be
+///    delivered.
+fn publish_confirmation(
+    admitted: &AdmittedIntent,
+    plan: &PublicationPlan,
+    relay_host: &str,
+    device_pk: &[u8; 32],
+) -> String {
+    let caller = admitted.caller();
+    format_publish_confirmation(
+        caller.display_name().as_str(),
+        caller.trust(),
+        admitted.request().purpose().as_str(),
+        plan,
+        relay_host,
+        device_pk,
+    )
+}
+
+/// A device key, as a human can compare it: head and tail, middle elided.
+///
+/// The same shape the rest of the product truncates opaque identifiers with —
+/// never the copy around them — so a user who has the other app's screen in
+/// front of them can tell whether this is the device they are setting up.
+fn device_fingerprint(device_pk: &[u8; 32]) -> String {
+    let hex = hex::encode(device_pk);
+    format!("{}…{}", &hex[..8], &hex[hex.len() - 10..])
+}
+
+fn format_publish_confirmation(
+    caller_display_name: &str,
+    trust: CallerTrust,
+    purpose: &str,
+    plan: &PublicationPlan,
+    relay_host: &str,
+    device_pk: &[u8; 32],
+) -> String {
+    let named = send::quote_native_memo(caller_display_name);
+    let account = send::quote_native_memo(&plan.account);
+    let published = plan.published_devices();
+    let mut lines = vec![
+        "Another app asked ZUULI to add a device to your messaging account.".to_owned(),
+        String::new(),
+        format!("Requesting app: {named}"),
+        match trust {
+            CallerTrust::Attested => {
+                "Identity: CONFIRMED by this device's operating system.".to_owned()
+            }
+            CallerTrust::Claimed => "Identity: NOT CONFIRMED. This device cannot tell whether the app that sent this request is the one named above.".to_owned(),
+        },
+        format!("Its stated reason, in its own words: {}", send::quote_native_memo(purpose)),
+        String::new(),
+        // The account is free2z's answer about the session this wallet holds —
+        // not the requesting app's claim, and not this wallet's guess. A slot
+        // somebody else wrote shows up here, as a name the user does not know.
+        format!("Publishing under the free2z account: {account}"),
+    ];
+    lines.push(match plan.published_handle() {
+        Some(handle) => format!(
+            "This device will be PUBLISHED in the free2z directory under {}, which already \
+             publishes {published} device(s).",
+            send::quote_native_memo(&format!("@{handle}")),
+        ),
+        None => format!(
+            "This device will be PUBLISHED in the free2z directory under {account}'s messaging \
+             handle, which has no published devices yet. ZUULI will refuse unless free2z signs \
+             for the handle the requesting app asked for."
+        ),
+    });
+    lines.extend([
+        format!("The device being added: {}", device_fingerprint(device_pk)),
+        // `adding_device` puts the new endpoint first and a resolving client
+        // uses the first one (ARCHITECTURE.md §13-G), so this is not "one more
+        // device": it is the device strangers reach first.
+        format!(
+            "From now on, every NEW conversation will reach this device first — ahead of your \
+             {published} existing device(s) — at {}.",
+            send::quote_native_memo(relay_host)
+        ),
+        String::new(),
+        "Publishing is permanent and public: anyone who looks up your handle will see that this \
+         device may send and receive encrypted messages as you. Adding a device you did not set \
+         up yourself is what a wiretap looks like. Authorize only if you are setting up messaging \
+         on that device, right now, under the account named above."
+            .to_owned(),
+    ]);
+    lines.join("\n")
+}
+
 /// The confirmation for one admitted intent, assembled from the wallet's own
 /// values.
 ///
@@ -740,7 +1169,10 @@ fn fulfil_credential(request: &IntentRequest, credential: Vec<u8>) -> Result<Vec
     .encode_canonical()?;
     encode_response(&IntentResponseV1 {
         request_id: *request.request_id(),
-        intent: Intent::IssueDeviceCredential.code(),
+        // The family that was asked: version 2 is answered as version 2, and a
+        // client that checked the echo against its own question would refuse
+        // anything else.
+        intent: request.intent().code(),
         status: 0,
         payload: Body::new(payload)?,
     })
@@ -937,6 +1369,7 @@ mod tests {
     use f2z_intent::{
         decode_response, encode_request, IntentRequestV1, RequestId, SigningCertDigest,
     };
+    use tauri_plugin_f2zmsg::directory::VerifiedEntry;
     use tauri_plugin_zcash::models::SendPaymentReview;
 
     const ISSUED_AT_MS: u64 = 1_700_000_000_000;
@@ -1703,6 +2136,467 @@ mod tests {
             lib.contains("intent::IntentAuthority::new()"),
             "…and it must still be managed state, or one process holds two replay ledgers",
         );
+    }
+
+    // ------------------------------------------------------------------
+    // `issue-device-credential-v2` — publishing another app's device.
+    // ------------------------------------------------------------------
+
+    fn publish_payload(handle: &str, relay: &str) -> Vec<u8> {
+        f2z_intent::IssueDeviceCredentialRequestV2 {
+            handle: ShortBytes::new(handle.as_bytes().to_vec()).unwrap(),
+            device_pk: f2z_codec::types::PublicKey::new([0x11; 32]),
+            device_kem_pk: Body::new(vec![0x22; 64]).unwrap(),
+            not_before_ms: ISSUED_AT_MS,
+            not_after_ms: ISSUED_AT_MS + 86_400_000,
+            contact_relay_url: ShortBytes::new(relay.as_bytes().to_vec()).unwrap(),
+            contact_relay_id: f2z_codec::types::RelayId::new([0x33; 32]),
+            contact_addr: f2z_codec::types::QueueAddress::new([0x44; 32]),
+        }
+        .encode_canonical()
+        .unwrap()
+    }
+
+    /// A plan as `plan_publication` builds one: free2z named the account, and
+    /// the log either publishes the handle already or does not.
+    fn plan(account: &str, published: Option<&str>) -> PublicationPlan {
+        PublicationPlan {
+            account: account.to_owned(),
+            predecessor: published.map(|handle| VerifiedEntry {
+                entry: entry_publishing(handle),
+                epoch: 7,
+            }),
+        }
+    }
+
+    /// A published entry for `handle` with one device — enough for the
+    /// confirmation, which reads the handle and the device count.
+    fn entry_publishing(handle: &str) -> f2z_kt_core::entry::DirectoryEntry {
+        use f2z_codec::types::Signature;
+        use f2z_codec::vec::VecU16;
+        use f2z_kt_core::entry::{
+            DeviceCredential, DeviceCredentialTBS, DirectoryEntry, DirectoryEntryTBS,
+            EntryAuthorization, EntryKind,
+        };
+        use f2z_kt_core::types::{label_field, KemPublicKey, LogId};
+        let credential = DeviceCredential {
+            credential: DeviceCredentialTBS {
+                label: label_field(f2z_kt_core::labels::LABEL_DEVICE_CREDENTIAL).unwrap(),
+                identity_pk: f2z_codec::types::PublicKey::new([0x11; 32]),
+                handle: Handle::new(handle.as_bytes().to_vec()).unwrap(),
+                device_pk: f2z_codec::types::PublicKey::new([0x22; 32]),
+                device_kem_pk: KemPublicKey::new(vec![1]).unwrap(),
+                not_before_ms: 0,
+                not_after_ms: 1,
+            },
+            signature: Signature::new([0; 64]),
+        };
+        DirectoryEntry {
+            entry: DirectoryEntryTBS {
+                label: label_field(f2z_kt_core::labels::LABEL_ENTRY).unwrap(),
+                kt_version: f2z_kt_core::KT_VERSION,
+                log_id: LogId::new([1; 32]),
+                handle: Handle::new(handle.as_bytes().to_vec()).unwrap(),
+                entry_version: 1,
+                kind: EntryKind::SameKey,
+                identity_pk: f2z_codec::types::PublicKey::new([0x11; 32]),
+                directory_auth_pk: f2z_codec::types::PublicKey::new([0x12; 32]),
+                devices: VecU16::from(vec![credential]),
+                revocations: VecU16::from(Vec::new()),
+                contact_endpoints: VecU16::from(Vec::new()),
+                prev_entry_hash: f2z_codec::types::Digest::zero(),
+                no_reset: 0,
+                created_at_ms: 0,
+            },
+            authorization: EntryAuthorization::SameKey {
+                auth_signature: Signature::new([0; 64]),
+            },
+        }
+    }
+
+    /// The third family reaches its own dispatch, and neither of the other two
+    /// answers for it.
+    #[test]
+    fn version_two_is_dispatched_to_the_publishing_path_and_nowhere_else() {
+        let mut gate = gate();
+        let admitted = admit(
+            &mut gate,
+            &request_bytes(
+                Intent::IssueDeviceCredentialV2,
+                publish_payload("skylar", "wss://relay.free2z.com/relay/v1"),
+                "cash.free2z.e2e2z",
+                40,
+            ),
+        )
+        .expect("a well-formed version 2 is admitted");
+        assert_eq!(
+            payment_request(&admitted).unwrap_err(),
+            IntentError::UnknownIntent
+        );
+        assert_eq!(
+            credential_request(&admitted).unwrap_err(),
+            IntentError::UnknownIntent,
+            "version 1's handler must not act on a version-2 body",
+        );
+        assert!(publish_request(&admitted).is_ok());
+
+        // …and the positive control in the other direction.
+        let v1 = admit(
+            &mut gate,
+            &request_bytes(
+                Intent::IssueDeviceCredential,
+                f2z_intent::IssueDeviceCredentialRequestV1 {
+                    handle: ShortBytes::new(b"skylar".to_vec()).unwrap(),
+                    device_pk: f2z_codec::types::PublicKey::new([0x11; 32]),
+                    device_kem_pk: Body::new(vec![0x22; 64]).unwrap(),
+                    not_before_ms: ISSUED_AT_MS,
+                    not_after_ms: ISSUED_AT_MS + 86_400_000,
+                }
+                .encode_canonical()
+                .unwrap(),
+                "cash.free2z.e2e2z",
+                41,
+            ),
+        )
+        .expect("version 1 is still admitted");
+        assert_eq!(
+            publish_request(&v1).unwrap_err(),
+            IntentError::UnknownIntent,
+            "a version-1 request must not be published on version 2's path",
+        );
+        assert!(credential_request(&v1).is_ok());
+    }
+
+    /// A fulfilled answer echoes the family that was asked. A client checks
+    /// the echo against its own outstanding question, so answering version 2
+    /// as version 1 would be refused as unsolicited.
+    #[test]
+    fn a_fulfilled_answer_echoes_the_version_that_was_asked() {
+        let mut gate = gate();
+        for (family, payload, id) in [
+            (
+                Intent::IssueDeviceCredentialV2,
+                publish_payload("skylar", "wss://relay.free2z.com/relay/v1"),
+                42,
+            ),
+            (
+                Intent::IssueDeviceCredential,
+                f2z_intent::IssueDeviceCredentialRequestV1 {
+                    handle: ShortBytes::new(b"skylar".to_vec()).unwrap(),
+                    device_pk: f2z_codec::types::PublicKey::new([0x11; 32]),
+                    device_kem_pk: Body::new(vec![0x22; 64]).unwrap(),
+                    not_before_ms: ISSUED_AT_MS,
+                    not_after_ms: ISSUED_AT_MS + 86_400_000,
+                }
+                .encode_canonical()
+                .unwrap(),
+                43,
+            ),
+        ] {
+            let admitted = admit(
+                &mut gate,
+                &request_bytes(family, payload, "cash.free2z.e2e2z", id),
+            )
+            .expect("admitted");
+            let encoded = fulfil_credential(admitted.request(), vec![0xc0, 0xff]).unwrap();
+            let response = decode_response(&encoded).unwrap();
+            assert_eq!(response.intent, family.code());
+            assert_eq!(response.status, 0);
+        }
+    }
+
+    /// The confirmation is the whole security model of this path, and what it
+    /// has to say is: this is a **publication**, under the free2z account this
+    /// wallet's session belongs to, of a device strangers will reach first.
+    #[test]
+    fn the_publish_confirmation_says_published_and_names_the_account_and_the_device() {
+        let confirmation = format_publish_confirmation(
+            "free2z Chat",
+            CallerTrust::Claimed,
+            "Issue this device a messaging credential",
+            &plan("alice", None),
+            "relay.free2z.com",
+            &[0xab; 32],
+        );
+        assert!(confirmation.contains("PUBLISHED"));
+        assert!(
+            confirmation.contains("Publishing under the free2z account: \"alice\""),
+            "the account free2z named is where a session somebody else wrote shows up: \
+             {confirmation}",
+        );
+        assert!(confirmation.contains("Requesting app: \"free2z Chat\""));
+        assert!(confirmation.contains("Identity: NOT CONFIRMED"));
+        assert!(confirmation.contains("relay.free2z.com"));
+        assert!(
+            confirmation.contains("abababab…ababababab"),
+            "the device being added has to be identifiable: {confirmation}",
+        );
+        assert!(
+            confirmation.contains("every NEW conversation will reach this device first"),
+            "the new endpoint goes first, so the dialog may not read as 'one more device': \
+             {confirmation}",
+        );
+        assert!(
+            confirmation.contains("wiretap"),
+            "ARCHITECTURE.md's warning has to reach the person: {confirmation}",
+        );
+        assert!(
+            confirmation.contains("no published devices yet"),
+            "a first entry says so rather than naming a handle nobody has vouched for yet",
+        );
+
+        // A handle the log already publishes is named — by the log — and the
+        // device count is what the user is weighing the new device against.
+        let published = format_publish_confirmation(
+            "free2z Chat",
+            CallerTrust::Claimed,
+            "Issue this device a messaging credential",
+            &plan("alice", Some("alice")),
+            "relay.free2z.com",
+            &[0xab; 32],
+        );
+        assert!(published.contains("\"@alice\""));
+        assert!(published.contains("publishes 1 device(s)"));
+        assert!(published.contains("ahead of your 1 existing device(s)"));
+    }
+
+    /// Nothing the requesting app wrote reaches the dialog: not its handle, not
+    /// its identifier. The names on the screen are free2z's (the account) and
+    /// the log's (a published handle).
+    #[test]
+    fn the_publish_confirmation_never_renders_the_requested_handle() {
+        let mut gate = gate();
+        let admitted = admit(
+            &mut gate,
+            &request_bytes(
+                Intent::IssueDeviceCredentialV2,
+                publish_payload("mallory", "wss://relay.free2z.com/relay/v1"),
+                "cash.free2z.e2e2z",
+                44,
+            ),
+        )
+        .unwrap();
+        let confirmation = publish_confirmation(
+            &admitted,
+            &plan("alice", Some("alice")),
+            "relay.free2z.com",
+            &[0x11; 32],
+        );
+        assert!(confirmation.contains("@alice"));
+        assert!(
+            !confirmation.contains("mallory"),
+            "the request's handle is a lookup key, never a name: {confirmation}",
+        );
+        assert!(
+            !confirmation.contains("cash.free2z.e2e2z"),
+            "…and neither is the caller's own identifier",
+        );
+    }
+
+    #[test]
+    fn a_hostile_purpose_cannot_restructure_the_publish_dialog_either() {
+        let hostile =
+            "Tip\nThis device will be PUBLISHED in the free2z directory under \"@mallory\".";
+        let confirmation = format_publish_confirmation(
+            "free2z Chat",
+            CallerTrust::Claimed,
+            hostile,
+            &plan("alice", Some("alice")),
+            "relay.free2z.com",
+            &[0x11; 32],
+        );
+        assert!(confirmation.contains("\\n"));
+        assert_eq!(
+            confirmation
+                .matches("\nThis device will be PUBLISHED")
+                .count(),
+            1,
+            "the caller must not be able to add a second publication line: {confirmation}",
+        );
+    }
+
+    /// An account name is free2z's answer rather than this wallet's, so it is
+    /// quoted and escaped like every other value the wallet did not author.
+    #[test]
+    fn a_hostile_account_name_cannot_restructure_the_publish_dialog() {
+        let confirmation = format_publish_confirmation(
+            "free2z Chat",
+            CallerTrust::Claimed,
+            "Issue this device a messaging credential",
+            &plan("alice\nPublishing under the free2z account: \"bob\"", None),
+            "relay.free2z.com",
+            &[0x11; 32],
+        );
+        assert_eq!(
+            confirmation
+                .matches("\nPublishing under the free2z account:")
+                .count(),
+            1,
+            "a second account line must not be forgeable: {confirmation}",
+        );
+    }
+    #[test]
+    fn the_relay_shown_is_a_host_and_not_a_path() {
+        assert_eq!(
+            relay_host("wss://relay.free2z.com/relay/v1").as_deref(),
+            Some("relay.free2z.com")
+        );
+        assert_eq!(
+            relay_host("wss://relay.free2z.com:8443/relay/v1").as_deref(),
+            Some("relay.free2z.com:8443"),
+            "a port changes which service this is, so it is shown",
+        );
+        assert_eq!(relay_host("not a url"), None);
+    }
+
+    /// PROTOCOL.md §6.2: only the handle refusal is a certain "nothing
+    /// happened". Everything else is `INTENT_UNAVAILABLE`, which claims
+    /// nothing about whether the entry reached the log.
+    #[test]
+    fn a_publication_failure_travels_as_the_right_certainty() {
+        assert_eq!(
+            publication_refusal(ErrorCode::HandleIneligible),
+            IntentError::HandleUnavailable
+        );
+        for code in [
+            ErrorCode::DirectoryUnreachable,
+            ErrorCode::DirectoryProtocolViolation,
+            ErrorCode::DirectoryRateLimited,
+            ErrorCode::Internal,
+            ErrorCode::RelayUnreachable,
+        ] {
+            assert_eq!(
+                publication_refusal(code),
+                IntentError::Unavailable,
+                "{code} must not be reported as a certain no-op",
+            );
+        }
+    }
+
+    /// **Certainty is a property of the phase, not of the code.**
+    ///
+    /// `INTENT_HANDLE_UNAVAILABLE` promises the caller that nothing was
+    /// submitted. After `submit_entry_for_device` nothing at this end can keep
+    /// that promise: the log may have admitted the entry and lost or mangled
+    /// the answer — a receipt whose handle field is not a handle reaches this
+    /// wallet as `handle-ineligible`, and would otherwise travel as a certain
+    /// "nothing happened" for an entry that is about to merge.
+    #[test]
+    fn nothing_after_the_submission_claims_that_nothing_happened() {
+        for code in [
+            ErrorCode::HandleIneligible,
+            ErrorCode::DirectoryProtocolViolation,
+            ErrorCode::DirectoryUnreachable,
+            ErrorCode::DirectoryRateLimited,
+            ErrorCode::Internal,
+            ErrorCode::RelayUnreachable,
+            ErrorCode::NotEnrolled,
+        ] {
+            assert_eq!(
+                refusal_after_submission(code),
+                IntentError::Unavailable,
+                "{code} after a submission must not promise the caller a no-op",
+            );
+        }
+        // The positive control, and the exact divergence this is about: before
+        // the submission the same code is a certain refusal.
+        assert_eq!(
+            publication_refusal(ErrorCode::HandleIneligible),
+            IntentError::HandleUnavailable
+        );
+    }
+
+    /// The phase boundary, in source: the submission is the last thing the
+    /// handler does, and `publication_refusal` — the mapping that can produce a
+    /// certain refusal — is never applied to anything after it.
+    #[test]
+    fn the_certain_refusal_mapping_is_never_applied_after_the_submission() {
+        let body = publish_handler_source();
+        let submitted = body
+            .find("submit_entry_for_device(")
+            .expect("the handler must still submit");
+        let certain = body
+            .rfind("publication_refusal(")
+            .expect("the handler must still map its pre-submission refusals");
+        assert!(
+            certain < submitted,
+            "a certain refusal is mapped after the submission; \
+             everything past it is Unavailable",
+        );
+        assert!(
+            body[submitted..].contains("refusal_after_submission(error.code())"),
+            "the submission's own refusal must go through the phase mapping",
+        );
+    }
+
+    /// This function's body, for the source-asserted rules above.
+    fn publish_handler_source() -> &'static str {
+        let source = include_str!("intent.rs");
+        let production = source
+            .split_once("\nmod tests {")
+            .expect("this module must keep its tests in one place")
+            .0;
+        production
+            .split_once("async fn issue_and_publish_device_credential")
+            .expect("the publishing path must still exist")
+            .1
+            .split_once("\n/// The refusal a publication failure travels as")
+            .expect("the publishing path must end before its helpers")
+            .0
+    }
+
+    /// The publishing order, asserted in source for the reason the payment
+    /// path's is: no unit test can reach a real dialog, and the order is the
+    /// security property. The handle is established **before** the human is
+    /// asked, and the signing keys are read **after** they say yes.
+    /// The order **is** the security property on this path, and no unit test
+    /// can reach a real dialog, so the order is asserted in source.
+    ///
+    /// Two rules beyond "the dialog comes first": the wallet's custody is not
+    /// opened until after the approval, and the one request that carries this
+    /// wallet's `identity_pk` — the handle assertion — happens after it too.
+    /// A slot somebody else wrote can therefore cost a declined dialog and
+    /// nothing else.
+    #[test]
+    fn the_publish_order_is_plan_then_prompt_then_seed_then_assertion_then_submit() {
+        let body = publish_handler_source();
+        let steps = [
+            "directory_publish::plan_publication(",
+            "publish_confirmation(",
+            "if !confirm_natively(",
+            "crate::messaging::account_keys(app).await",
+            "directory_publish::vouch_first_entry(",
+            "issue_device_credential(&DeviceCredentialRequest {",
+            "directory_publish::sign_for_publication(",
+            "submit_entry_for_device(",
+        ];
+        let mut previous = 0;
+        for step in steps {
+            let at = body
+                .find(step)
+                .unwrap_or_else(|| panic!("the publishing path must still perform {step}"));
+            assert!(
+                at > previous,
+                "{step} is out of order; a dialog after the seed is read, or an identity key \
+                 sent before anyone approved, is not a confirmation",
+            );
+            previous = at;
+        }
+        let prompt = body.find("if !confirm_natively(").unwrap();
+        for before_the_prompt in [
+            "account_keys(app)",
+            "vouch_first_entry(",
+            "identity.public()",
+            "fetch_assertion(",
+        ] {
+            if let Some(at) = body.find(before_the_prompt) {
+                assert!(
+                    at > prompt,
+                    "{before_the_prompt} must not run before the confirmation: nothing about \
+                     this wallet may leave the process, or be decrypted, until somebody says yes",
+                );
+            }
+        }
     }
 
     /// The delegation order, which no unit test can reach — every step past

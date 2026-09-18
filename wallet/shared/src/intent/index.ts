@@ -28,6 +28,8 @@ export {
   parseVisibleText,
 } from "./text";
 export {
+  CONTACT_ENDPOINT_KEY_BYTES,
+  CONTACT_RELAY_SCHEME,
   INTENT_PROTOCOL_VERSION,
   IntentFamily,
   MAX_CHALLENGE_BYTES,
@@ -41,11 +43,17 @@ export {
   encodeExecutePaymentPayload,
   encodeIntentRequest,
   encodeIssueDeviceCredentialPayload,
+  encodeIssueDeviceCredentialV2Payload,
   encodeSignChallengePayload,
   intentFamilyName,
   newRequestId,
 } from "./wire";
-export type { IntentRequest, IntentResponse } from "./wire";
+export type {
+  ContactEndpointFields,
+  DeviceCredentialFields,
+  IntentRequest,
+  IntentResponse,
+} from "./wire";
 export {
   MAX_PENDING_INTENTS,
   createIntentSession,

@@ -237,6 +237,7 @@ pub async fn f2zmsg_enroll<R: Runtime>(
             // over the intent bridge instead (#936).
             expected_handle: args.handle.clone(),
             submitted_at: now,
+            submitted_by_issuer: false,
         })
         .await?;
     engine.unlock().await?;
@@ -321,18 +322,16 @@ async fn publish_steps<R: Runtime>(
             )
         })?;
         let client = directory_publish::HandleAssertionClient::new(&internal.handle_assertion_url)?;
-        let issued = client.fetch(token, &publication.identity_pk).await?;
-        // The signed bytes are what count, and `precheck` reads them; this is
-        // the earlier, plainer refusal for the common mismatch.
-        if issued.handle != publication.handle {
-            return Err(Error::new(
-                ErrorCode::HandleIneligible,
-                format!(
-                    "the free2z account's handle is {:?}, but this device enrolled {:?}",
-                    issued.handle, publication.handle
-                ),
-            ));
-        }
+        // The signed bytes are what count, and `precheck` reads them; the
+        // shared fetch adds the earlier, plainer refusal for the common
+        // mismatch, and `intent.rs` uses the same one.
+        let issued = directory_publish::fetch_assertion(
+            &client,
+            token,
+            &publication.identity_pk,
+            &publication.handle,
+        )
+        .await?;
         Some(issued.bytes)
     } else {
         None

@@ -323,19 +323,18 @@ ZUULI  f2zmsg_enroll { handle, knoxToken? }
   logs it (`EnrollArgs`' `Debug` redacts it), and does not keep it. Without a
   token a first entry is `blocked: "handle-ineligible"`.
 
-### 4.1 e2e2z, and the one request field it needs
+### 4.1 e2e2z's device, published by the wallet — **implemented**
 
-**This PR publishes ZUULI's own device. It does not yet publish an e2e2z
-device.** A `ContactEndpoint` carries the `contact_addr` that the relay issued
-to the device that opened the queue. Only that device knows it. #1019's
-`IssueDeviceCredentialRequestV1` carries `handle`, `device_pk`,
-`device_kem_pk` and the requested validity window, and nothing else. ZUULI
-therefore cannot build a publishable entry for an e2e2z device from what
-arrives.
+**Decided as a follow-up, and shipped.** A `ContactEndpoint` carries the
+`contact_addr` that the relay issued to the device that opened the queue. Only
+that device knows it. #1019's `IssueDeviceCredentialRequestV1` carries
+`handle`, `device_pk`, `device_kem_pk` and the requested validity window, and
+nothing else, so ZUULI could not build a publishable entry for an e2e2z device
+from what arrived — which is why version 1 answers with a credential and
+publishes nothing, and still does.
 
-**Decision.** A follow-up adds the requesting device's endpoint to the
-request, as `IssueDeviceCredentialRequestV2` (a new versioned body, so v1's
-vectors stay frozen):
+**Decision.** The requesting device sends its endpoint, as
+`IssueDeviceCredentialRequestV2`:
 
 ```text
 struct {
@@ -344,36 +343,215 @@ struct {
     opaque device_kem_pk<0..2^24-1>;
     uint64 not_before_ms;
     uint64 not_after_ms;
-    opaque contact_relay_url<1..255>;   /* wss:// */
+    opaque contact_relay_url<0..255>;   /* wss://, non-empty, bridge text */
     opaque contact_relay_id[32];
     opaque contact_addr[32];
 } IssueDeviceCredentialRequestV2;
 ```
 
-ZUULI signs these into the entry with the steps above. The response stays
-`IssueDeviceCredentialResultV1`.
+The response stays `IssueDeviceCredentialResultV1`.
+
+**It is a new family code (4), not a version field in the payload.** Version
+1's payload carries no tag, so the only selector that refuses instead of
+best-guessing is the one `payload` is already opaque behind
+(`PROTOCOL.md` §3.2). Code 2 keeps meaning exactly what it meant and its vector
+is frozen — e2e2z builds already in testers' hands send it — and the two never
+decode as each other: canonical decoding refuses version 2's trailing fields as
+trailing bytes, and version 1 is version 2 truncated.
 
 **Why this is consistent with ADR 0016 §4's "no new fields".** That rule
-forbids an *unsigned copy of a value already fixed by a signed structure*.
-The rule exists because an unauthenticated responder would get to choose the
-copy, and the copy would win. The endpoint is not a copy of anything. It is a
-new input that the *requester* supplies and ZUULI then signs over with the
+forbids an *unsigned copy of a value already fixed by a signed structure*. The
+rule exists because an unauthenticated responder would get to choose the copy,
+and the copy would win. The endpoint is not a copy of anything. It is a new
+input that the *requester* supplies and ZUULI then signs over with the
 `DirectoryAuthKey`. A hostile requester that passes the caller registry and the
 user's confirmation can already obtain a credential for its own `device_pk`.
-Choosing where that device receives first contact adds nothing beyond that.
-The confirmation should name the relay host so the user can see it.
+Choosing where that device receives first contact adds nothing beyond that —
+and the confirmation names the relay host, so the choice is visible.
 
 **Why the response still gains nothing.** e2e2z learns that its device merged
 the way ZUULI does, by a verified lookup of its own handle (§6). That code
-already runs in e2e2z's `start_engine`, because the plugin is shared. A receipt
-in the response would be log-signed and so self-authenticating, but e2e2z has no
-use for it: the receipt is the *submitter's* evidence (`KT.md` §5.3), and ZUULI
-keeps it.
+already runs in the shared plugin. A receipt in the response would be
+log-signed and so self-authenticating, but the receipt is the *submitter's*
+evidence (`KT.md` §5.3), and ZUULI keeps it — in a short list of the last 16,
+because evidence past `merge_by_ms` is a retry rather than a record.
 
-**What the follow-up also needs.** e2e2z has to open its contact queue before
-it asks. That means an engine entry point that connects the default relay and
-creates the queue from the pending device's queue seed before
-`install_identity`. That work belongs to the e2e2z workstream.
+#### What e2e2z does before it asks
+
+`Engine::prepare_device_with_endpoint`: sample the device keys, add this
+build's default relay through the ordinary `add_relay` path if none is
+configured, connect, and `CREATE_CONTACT_QUEUE` with the receive key derived
+from the **pending** device's queue seed. The queue is held beside the pending
+keys and committed by `install_identity`, so it cannot outlive the keys it
+belongs to — a second `prepare_device` discards it. A build with no relay
+refuses here, `relay-unreachable`, rather than enrolling a device nobody could
+reach. An abandoned enrollment leaves an idle queue at the relay, which expires
+on its own.
+
+#### The order ZUULI runs, and the rule it keeps
+
+```text
+  admit                       every guard, one call
+  plan_publication            WHOSE session this is (free2z names the account)
+                              and what the log already publishes. No seed, and
+                              nothing about this wallet on the wire.
+  native confirmation         names the ACCOUNT, the device, the relay host, the
+                              devices already published, and PUBLISHED
+    ▼ approved
+  messaging::account_keys     the one seed read, in process
+  vouch_first_entry           Contract C — the request that carries identity_pk,
+                              now that an approval exists
+  issue_device_credential     the wallet's own lifetime policy
+  adding_device → sign        DirectoryAuthKey signs the entry, IdentitySigningKey
+                              the binding (the same drafting rule §4 uses)
+  precheck                    f2z-authority's rules, locally
+  ─────────────────────────── the phase boundary
+  submit_entry_for_device     POST /kt/v1/submit; the receipt is verified against
+                              the pinned log key and kept
+  → the credential is answered only now
+```
+
+**Version 1's rule holds here: the wallet's custody is not opened, and nothing
+about this wallet leaves the process, until somebody has said yes.** The first
+version of this work broke that — it derived the account's public identity key
+and fetched the assertion *before* the dialog, so that the dialog could name a
+handle the authority had signed. Adversarial review found what that costs, and
+it is not worth the handle:
+
+- The Knox token reaches this process through §4.1's write-only slot, and an
+  app-crate command is **not capability-gated**. ZUULI's CSP forbids frames
+  (`frame-src 'none'`), so the `#367` deputy needs an XSS in ZUULI's own origin
+  rather than a hostile embed — but anything that reaches the invoke bridge can
+  write a **foreign** session into the slot, which is a capability the slot
+  would otherwise be adding. With the assertion fetched before the dialog, that
+  hands this wallet's `identity_pk` to somebody else's account and asks the
+  authority to bind it there, with no user interaction at all.
+- The same ordering let an unattested caller make ZUULI decrypt the wallet's
+  custody, unprompted, by sending a request.
+
+So the plan is built from two answers that disclose nothing: free2z says which
+**account** the session belongs to (that request carries the session's own token
+and nothing else), and the log says whether it already publishes the handle (an
+ordinary unauthenticated lookup). The confirmation names the account. The seed
+is read, and `identity_pk` is sent, only after the approval — and the
+publication is still refused unless the authority signs the handle the app asked
+for.
+
+**What the account name buys, stated narrowly.** It does not make a poisoned
+slot harmless; it makes it *visible and inert*: publishing under somebody else's
+account now requires a human to approve a dialog naming that account, and a
+declined or ignored request leaks nothing about the victim — no identity key, no
+custody read, no assertion issued. The residual is a user who approves a
+publication under an account they do not recognise.
+
+**The confirmation says PUBLISHED**, because `ARCHITECTURE.md` is explicit that
+adding a device to an account is what a wiretap looks like. It names:
+
+- the **free2z account** the session belongs to, as free2z named it;
+- the **handle**, when the log already publishes one — from the log, never from
+  the request. A first entry has no such name yet, so it says so rather than
+  rendering a handle the requesting app chose;
+- the **device**, as a head-and-tail fingerprint of its `device_pk`, so the
+  person can tell which device is being added;
+- that **every new conversation will reach this device first, ahead of the N
+  devices already published** — because `adding_device` puts the new endpoint at
+  index 0 and a resolving client uses the first one (`ARCHITECTURE.md` §13-G).
+  Approving is not "one more device"; it is "this device answers first";
+- the **relay host** where that will happen.
+
+#### Certainty is a property of the phase, not of the code
+
+`INTENT_HANDLE_UNAVAILABLE` promises the caller that nothing was submitted.
+Everything up to and including the local precheck can keep that promise. Nothing
+after `submit_entry_for_device` can: the log may have admitted the entry and
+lost or mangled the answer, and a receipt whose `handle` field is not a handle
+arrives as `handle-ineligible` — a code that would otherwise travel as a certain
+"nothing happened" for an entry that is about to merge. So the submission and
+everything after it is `INTENT_UNAVAILABLE` unconditionally, by a mapping
+function that ignores its argument, and a source-asserted test keeps the certain
+mapping on its own side of the boundary.
+
+**A device is installed only if it was published.** Unlike ZUULI's own
+enrollment — where publication may fail and be retried, because the device is
+already installed — this path answers with the credential only after the log
+admitted the entry and the receipt verified. A refusal means nothing was
+installed anywhere, so the person retries rather than holding a credential
+nobody can find. The cost is recorded in §10.
+
+**Refusals**, and what a caller may say about them:
+
+| Refusal | Status | Certain? |
+|---|---|---|
+| no free2z session in ZUULI, no bound handle, or another handle | `INTENT_HANDLE_UNAVAILABLE` (13, new) | yes — every site that produces it is before the submission; the last one runs after a credential has been minted in memory, which persists nothing |
+| the user declined | `INTENT_NOT_CONFIRMED` (9) | yes |
+| no directory in this build, the log refused, the log did not answer | `INTENT_UNAVAILABLE` (12) | **no** — `PROTOCOL.md` §6.2's rule; a submission whose answer was lost may still merge |
+
+#### What is accepted, and what it costs
+
+- **The contact endpoint is the requesting app's to choose**, and nothing binds
+  it beyond the hostname the user reads in the confirmation. A caller that
+  passes the registry and the confirmation can point first contact at a relay it
+  controls — which learns *that* someone is contacting this handle, and can
+  withhold delivery. It cannot read anything: first contact is an MLS `Welcome`
+  encrypted to a key package authenticated against the proved entry (ADR 0015).
+  The follow-up, when there is more than one relay in the deployment, is to
+  refuse an endpoint whose `relay_id` the wallet has not itself authenticated a
+  connection to — today the bundled build has exactly one relay, so the cheap
+  form of that check is "the published relay must be the bundled one", and it is
+  recorded here rather than added blind before the deployment exists.
+- **The pre-dialog lookup makes ZUULI a handle-resolution oracle** for a
+  registered caller: send a request, watch how long it takes or whether the
+  dialog says "no published devices yet". The log is a public directory and the
+  same lookup is available to anyone who can reach it, so this discloses nothing
+  the caller could not learn directly — what it does add is that *this wallet*
+  performed it. Accepted for the internal deployment.
+- **An unattested caller can still make ZUULI show a dialog**, and with it make
+  one authenticated request (the account probe) to free2z. That is the same
+  standing weakness every family on this bridge has — a caller identifier nobody
+  attests (`CALLER-AUTHENTICATION.md` §2) — and the dialog is the control.
+
+#### An open question for the backend (workstream 7)
+
+**Does the authority record the handle → `identity_pk` binding when it *issues*
+an assertion, or only when the log admits the entry?** The artifacts in this
+repository do not settle it: `KT.md` and ADR §5.2 make the issuer responsible
+for never reusing an `(authority_id, nonce)` pair and for maintaining
+`account_epoch` as a durable counter, so issuance necessarily writes *some*
+server-side state — but whether the identity key is retained with it is the
+backend's decision. It matters for a declined flow: if issuance binds, an
+abandoned request leaves a record. The design above no longer depends on the
+answer — nothing is issued before an approval — but the answer should be written
+into Contract C, and if issuance does bind, the endpoint should say so and the
+UI copy should say it too.
+
+#### The session slot, argued on its own merits
+
+§9 records that carrying the Knox token in Rust state was rejected for
+`f2zmsg_enroll`, because the WebView can pass one per call and a second
+long-lived copy buys nothing. That reasoning does not reach this path: the
+request arrives from the operating system, is handled entirely in Rust, and has
+no argument to carry a token on. A renderer-supplied session *per intent* would
+mean the WebView naming the account an inbound request is answered under, which
+is the confused deputy `intent.rs` exists to avoid.
+
+So `wallet/zuuli/src-tauri/src/session.rs` holds one **write-only** slot, in
+memory, for the process. Publication into it is serialized through a
+single-slot queue on the renderer side, so the value the wallet ends up holding
+is the last value the renderer asked for and not the last `invoke` to return —
+a sign-in that overtakes a sign-out would otherwise leave a live session in the
+wallet after the user signed out. The WebView publishes the token it already holds
+whenever it changes and once at startup — including `null`, so "signed out" is
+stated rather than inferred from silence, and so a cold start that is handed an
+intent before the window finishes loading waits for an answer instead of
+assuming one. Nothing reads it back over IPC: the command returns `()`, and a
+test asserts this module exposes no command that hands a token out.
+
+What it does not widen: the renderer already holds *the user's* token and
+already authenticates every free2z call with it, and it can already call
+`f2zmsg_enroll` with it. What writing the slot adds is the ability to name
+**somebody else's** session, and that is why the flow above resolves the account
+before it discloses anything and shows the name to the user. A slot somebody
+else wrote costs a declined dialog.
 
 ## 5. Decision 4 — Contract C, ratified for this directory
 
@@ -504,8 +682,16 @@ this device's own handle showed an entry publishing this device's `device_pk`.**
 | plugin | `directory::tests` (5), `engine::directory_state_tests` (5) | A bundled directory with no sealed state refuses instead of trusting on first use; the sealed store round-trips a head, refuses an edited or transplanted record, refuses a missing one on a device that has relied on the directory, and unenroll clears it and detaches the store |
 | e2e2z | `index.witness-warning.test.tsx` (5 more) | `directory-unvouched` and `directory-state-invalid` are said on the page, keyed on `directoryBlocked`, so the relay weather rewriting `lastError` neither raises nor clears them |
 | plugin | `engine` tests | Bundled witness state, `set_witness_set` refusal, receipt recording, `mergedAtEpoch` only from a verified lookup, truthful `blocked` |
-| ZUULI | `directory_publish::tests` (10) | Contract C against a loopback server (POST, token, JSON body, base64url decoding, refusals, oversize), the precheck, draft assembly, and refusing another wallet |
+| ZUULI | `directory_publish::tests` (20) | Contract C against a loopback server (POST, token, JSON body, base64url decoding, refusals, oversize), the precheck, draft assembly, refusing another wallet; the account probe (its URL, that it carries only the session, and every answer it refuses); a plan that reaches the network once and discloses nothing about this wallet; a remembered account costing no request; a handle published under another identity refused before anything is signed; and a log refusal publishing nothing |
+| ZUULI | `intent::tests` (11 new) | Version 2 reaches its own dispatch and neither other family answers for it; the answer echoes the version that was asked; the confirmation says PUBLISHED, names the **account**, the device fingerprint and the first-contact order, and never the request's handle; a hostile `purpose` or account name cannot add a line; both refusal-certainty mappings; and the publish order — plan, prompt, seed, assertion, submit — source-asserted |
+| ZUULI | `session::tests` (4) | The slot is write-only and redacts; a reader waits for the first publication; and a resolved account is reused only for the session it was resolved for |
+| ZUULI (renderer) | `native-session.test.ts` (6) | The wallet ends up holding the **last value asked for**, not the last `invoke` to return; a value overtaken before dispatch is never sent; and neither a refusing wallet nor a reporter that throws can wedge the queue |
+| `f2z-intent` | `wire::tests`, `tests/wire_vectors.rs` | Version 2's endpoint rules (scheme, host, zero address, zero relay id) and every version-1 rule it inherits; the two payload versions never decode as each other; the **frozen** version-1 vector still parses as version 1, under the same digest |
+| plugin | `tests/endpoint_before_credential.rs` (3) | Against a real relay: the contact queue exists before any identity does, `install_identity` commits exactly that queue, a second preparation discards the first, a build with no relay refuses, and a `ws://` default is judged like any other relay |
+| plugin | `engine::activation_tests` (+3) | An issuer-submitted device is waiting rather than blocked, and still says so with no log; an entry for another device is looked up and submitted with no identity present, its receipt kept and bounded; a refused submission keeps nothing |
+| `f2z-kt-client` | `tests/intent_publication.rs` (2) | Against a **real** log, witness and relay: a real `IssueDeviceCredentialRequestV2` is admitted by the real gate, the wallet signs and submits the entry, the requesting device sees its own key published at the address the relay issued, a stranger who knew only the handle claims a key package there and it authenticates against the proved entry, a second device chains and goes first, and the log refuses a forged authority and a second first entry |
 | e2e2z | `index.witness-warning.test.tsx` (4) | The warning stays up until two independent witnesses cosign |
+| e2e2z | `tests/enrollment-flow.pw.ts` (+3) | In a real browser: the request carries the endpoint the device opened and is family 4; the screen moves from "Submitted, not yet active" to "Handle active" only once a lookup shows the merge; status 13 reads as "ZUULI couldn't confirm @alice is yours"; a build with no relay stops before asking |
 
 **Mutations, run on this branch**, each by editing the guard, running the
 suite, and restoring (`CONFORMANCE.md`'s method):
@@ -518,6 +704,22 @@ suite, and restoring (`CONFORMANCE.md`'s method):
 | `KtClient::open`: any unusable checkpoint bootstraps instead of refusing | `only_a_named_retired_generation_is_set_aside_and_anything_else_wrong_is_refused` |
 | `KtClient::open`: the checkpoint is ignored | both wipe tests |
 | e2e2z: warning keyed on the threshold only | `stays up when the threshold is met…`, `stays up with one independent witness…` |
+| `f2z-intent`: family 2 decodes the version-2 body | `the_two_credential_payload_versions_never_decode_as_each_other`, `the_frozen_v1_credential_request_still_parses_as_v1` |
+| `f2z-intent`: the `wss://` scheme check dropped | `a_v2_endpoint_must_be_a_real_wss_relay` |
+| `f2z-intent`: the all-zero endpoint check dropped | `a_v2_endpoint_must_be_a_real_wss_relay` |
+| shared TS: the version-2 encoder's endpoint rules dropped | `refuses a version-2 payload with …` (13 cases) |
+| ZUULI `vouched_handle`: the authority signature result ignored | `an_assertion_that_does_not_verify_names_no_handle` |
+| ZUULI: the predecessor identity check dropped | `a_handle_published_under_another_identity_is_refused_before_anything_is_signed` |
+| ZUULI `sign_for_publication`: the precheck skipped | `an_assertion_the_log_would_refuse_is_caught_before_submission` |
+| ZUULI: the assertion fetched, or the seed read, before the confirmation | `the_publish_order_is_plan_then_prompt_then_seed_then_assertion_then_submit` |
+| ZUULI `refusal_after_submission`: delegating to the certain mapping | `nothing_after_the_submission_claims_that_nothing_happened`, `the_certain_refusal_mapping_is_never_applied_after_the_submission` |
+| ZUULI (renderer): the single-slot queue replaced by a generation counter | `leaves the wallet holding the last value asked for, not the last to arrive` |
+| ZUULI (renderer): the `finally` that re-arms the queue, or the guard around a throwing reporter | `keeps publishing after a reporter throws` |
+| ZUULI `publish_confirmation`: a name taken from the request | `the_publish_confirmation_never_renders_the_requested_handle` |
+| ZUULI: the dialog moved after the entry is signed | `the_publish_order_is_plan_then_prompt_then_seed_then_assertion_then_submit` |
+| plugin `install_identity`: the pending contact queue not committed | `the_queue_is_opened_before_the_credential_and_installed_with_it` |
+| plugin `prepare_device`: the pending queue not cleared | `a_second_preparation_discards_the_first_queue` |
+| plugin `enrollment_status`: `submitted_by_issuer` ignored | `an_issuer_submitted_device_is_waiting_rather_than_blocked` |
 
 **Mutations for this hardening pass** (#1022, same method):
 
@@ -600,10 +802,24 @@ all 4 e2e2z warning tests passed.
 
 ## 10. What is left
 
-- **e2e2z publication:** §4.1's request body, e2e2z opening its contact queue
-  before install, and ZUULI publishing from `issue_device_credential`.
-- **A ZUULI trigger.** Nothing in ZUULI's UI calls `f2zmsg_enroll` today. The
-  command publishes when invoked with `knoxToken`.
+- **A ZUULI trigger.** Nothing in ZUULI's UI calls `f2zmsg_enroll` today, so
+  ZUULI's *own* device is still unpublished until something invokes it with a
+  `knoxToken`. An e2e2z device does not need one: §4.1's path publishes it, and
+  ZUULI's own entry can arrive later as a routine update.
+- **A refused publication discards a device.** §4.1 answers with the credential
+  only after the log admitted the entry, so a refusal leaves e2e2z with nothing
+  — and a retry samples fresh device keys and a fresh queue. If the refusal was
+  an *ambiguous* one (the submission left, the answer did not), the abandoned
+  device may already be published, and the next entry carries it forward as a
+  device nobody holds the key for. On a disposable internal log that is noise
+  rather than damage; before a public log it needs either a revocation on retry
+  or a resumable pending device.
+- **ZUULI must be signed in to free2z** for a handle's *first* entry, because
+  Contract C's assertion is issued against that session. A later device needs no
+  session: the published entry is the evidence.
+- **The merge is polled, not pushed.** e2e2z re-reads on focus and every 20
+  seconds while it is enrolled and not yet merged. Nothing tells a device that
+  an epoch closed.
 - **Real values** in `internal-directory.conf`. The deployment has published
   every value except `handle_authority_pk`, which is not minted yet. A file
   with some placeholders is malformed by design, so the values land together

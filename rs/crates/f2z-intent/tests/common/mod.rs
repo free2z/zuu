@@ -19,11 +19,11 @@
 )]
 
 use f2z_codec::canonical::Canonical;
-use f2z_codec::types::{Body, PublicKey, ShortBytes};
+use f2z_codec::types::{Body, PublicKey, QueueAddress, RelayId, ShortBytes};
 use f2z_intent::{
     CallerRegistry, ExecutePaymentRequestV1, Intent, IntentClock, IntentGate, IntentRequestV1,
-    IssueDeviceCredentialRequestV1, RegisteredCaller, RequestId, SignChallengeRequestV1,
-    SigningCertDigest, VisibleText,
+    IssueDeviceCredentialRequestV1, IssueDeviceCredentialRequestV2, RegisteredCaller, RequestId,
+    SignChallengeRequestV1, SigningCertDigest, VisibleText,
 };
 
 /// The wall-clock instant every fixture is dated against.
@@ -94,6 +94,56 @@ pub fn issue_device_credential_payload() -> Vec<u8> {
     }
     .encode_canonical()
     .unwrap()
+}
+
+/// The canonical `issue-device-credential-v2` family payload.
+#[must_use]
+pub fn issue_device_credential_v2_payload() -> Vec<u8> {
+    credential_vector_v2().encode_canonical().unwrap()
+}
+
+/// `tests/wire_vectors.rs`'s version-1 credential body.
+#[must_use]
+pub fn credential_vector_v1() -> IssueDeviceCredentialRequestV1 {
+    IssueDeviceCredentialRequestV1 {
+        handle: ShortBytes::new(b"alice".to_vec()).unwrap(),
+        device_pk: PublicKey::new([0x11; 32]),
+        device_kem_pk: Body::new(vec![0x22; 4]).unwrap(),
+        not_before_ms: ISSUED_AT_MS,
+        not_after_ms: ISSUED_AT_MS + 86_400_000,
+    }
+}
+
+/// `tests/wire_vectors.rs`'s version-2 credential body: version 1's, plus an
+/// endpoint.
+#[must_use]
+pub fn credential_vector_v2() -> IssueDeviceCredentialRequestV2 {
+    let v1 = credential_vector_v1();
+    IssueDeviceCredentialRequestV2 {
+        handle: v1.handle,
+        device_pk: v1.device_pk,
+        device_kem_pk: v1.device_kem_pk,
+        not_before_ms: v1.not_before_ms,
+        not_after_ms: v1.not_after_ms,
+        contact_relay_url: ShortBytes::new(b"wss://relay.example".to_vec()).unwrap(),
+        contact_relay_id: RelayId::new([0x33; 32]),
+        contact_addr: QueueAddress::new([0x44; 32]),
+    }
+}
+
+/// The request both credential vectors wrap their payload in: e2e2z's own
+/// caller and purpose.
+#[must_use]
+pub fn credential_vector_request(intent: Intent, payload: Vec<u8>) -> IntentRequestV1 {
+    IntentRequestV1 {
+        intent: intent.code(),
+        request_id: RequestId::new([0x77; 32]),
+        caller: ShortBytes::new(b"cash.free2z.e2e2z".to_vec()).unwrap(),
+        purpose: ShortBytes::new(b"Issue this device a messaging credential".to_vec()).unwrap(),
+        issued_at_ms: ISSUED_AT_MS,
+        expires_at_ms: ISSUED_AT_MS + 60_000,
+        payload: Body::new(payload).unwrap(),
+    }
 }
 
 /// The canonical `execute-payment` family payload.

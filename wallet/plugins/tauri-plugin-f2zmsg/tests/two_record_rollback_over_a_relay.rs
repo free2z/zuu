@@ -340,6 +340,7 @@ async fn enroll<B: StorageBackend + Send + Sync + 'static>(
             credential: f2z_msg_mls::credential::encode(&credential).expect("encode credential"),
             expected_handle: handle.to_owned(),
             submitted_at: NOW,
+            submitted_by_issuer: false,
         })
         .await
         .expect("install identity");

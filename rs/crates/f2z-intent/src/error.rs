@@ -77,11 +77,25 @@ pub enum IntentError {
     /// here does — the caller is an app the wallet does not trust, and
     /// "insufficient funds" is a balance oracle.
     Unavailable,
+    /// The wallet could not establish that the handle a request names belongs
+    /// to the account it would publish under: no free2z session is signed in,
+    /// the account has no bound messaging handle, or its handle is another
+    /// one. `issue-device-credential-v2` only (ADR 0017 §4.1), and always
+    /// **before** anything is issued or submitted, so unlike
+    /// [`Self::Unavailable`] it is a certain "nothing happened".
+    ///
+    /// Why a status of its own despite the "no detail" rule above: the fix is
+    /// the user's (sign in, or claim a handle), and a caller that could only
+    /// say "the wallet was not ready" would send them looking in the wrong
+    /// place. It is no new oracle: the answer is delivered only to the
+    /// registered caller's own reply link, and the handle is the account's
+    /// public username.
+    HandleUnavailable,
 }
 
 impl IntentError {
     /// Every refusal, in wire order. Used by the exhaustiveness tests.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Malformed,
         Self::UnsupportedVersion,
         Self::UnknownIntent,
@@ -94,6 +108,7 @@ impl IntentError {
         Self::CallerNotAuthorized,
         Self::Unsolicited,
         Self::Unavailable,
+        Self::HandleUnavailable,
     ];
 
     /// The wire status. `0` means fulfilled and is therefore not a variant.
@@ -112,6 +127,7 @@ impl IntentError {
             Self::CallerNotAuthorized => 10,
             Self::Unsolicited => 11,
             Self::Unavailable => 12,
+            Self::HandleUnavailable => 13,
         }
     }
 
@@ -134,6 +150,7 @@ impl IntentError {
             10 => Self::CallerNotAuthorized,
             11 => Self::Unsolicited,
             12 => Self::Unavailable,
+            13 => Self::HandleUnavailable,
             _ => return None,
         })
     }
@@ -154,6 +171,7 @@ impl IntentError {
             Self::CallerNotAuthorized => "INTENT_CALLER_NOT_AUTHORIZED",
             Self::Unsolicited => "INTENT_UNSOLICITED",
             Self::Unavailable => "INTENT_UNAVAILABLE",
+            Self::HandleUnavailable => "INTENT_HANDLE_UNAVAILABLE",
         }
     }
 }
@@ -197,7 +215,7 @@ mod tests {
             "0 is `fulfilled`, never a refusal"
         );
         assert_eq!(
-            IntentError::from_status(13),
+            IntentError::from_status(14),
             None,
             "an unknown status must stay unknown rather than map onto a default"
         );

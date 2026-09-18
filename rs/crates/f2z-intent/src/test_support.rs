@@ -11,11 +11,11 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use f2z_codec::canonical::Canonical;
-use f2z_codec::types::{Body, ShortBytes};
+use f2z_codec::types::{Body, QueueAddress, RelayId, ShortBytes};
 
 use crate::wire::{
-    ExecutePaymentRequestV1, Intent, IntentRequestV1, IssueDeviceCredentialRequestV1, RequestId,
-    SignChallengeRequestV1,
+    ExecutePaymentRequestV1, Intent, IntentRequestV1, IssueDeviceCredentialRequestV1,
+    IssueDeviceCredentialRequestV2, RequestId, SignChallengeRequestV1,
 };
 
 /// A fixed wall-clock instant the fixtures are dated against.
@@ -41,6 +41,28 @@ pub fn sample_issue_device_credential() -> (Intent, Vec<u8>) {
     (
         Intent::IssueDeviceCredential,
         body.encode_canonical().unwrap(),
+    )
+}
+
+/// An `issue-device-credential-v2` body.
+pub fn sample_v2_body() -> IssueDeviceCredentialRequestV2 {
+    IssueDeviceCredentialRequestV2 {
+        handle: ShortBytes::new(b"skylar".to_vec()).unwrap(),
+        device_pk: f2z_codec::types::PublicKey::new([0x11; 32]),
+        device_kem_pk: Body::new(vec![0x22; 64]).unwrap(),
+        not_before_ms: ISSUED_AT_MS,
+        not_after_ms: ISSUED_AT_MS + 86_400_000,
+        contact_relay_url: ShortBytes::new(b"wss://relay.free2z.com/relay/v1".to_vec()).unwrap(),
+        contact_relay_id: RelayId::new([0x33; 32]),
+        contact_addr: QueueAddress::new([0x44; 32]),
+    }
+}
+
+/// An `issue-device-credential-v2` payload.
+pub fn sample_issue_device_credential_v2() -> (Intent, Vec<u8>) {
+    (
+        Intent::IssueDeviceCredentialV2,
+        sample_v2_body().encode_canonical().unwrap(),
     )
 }
 

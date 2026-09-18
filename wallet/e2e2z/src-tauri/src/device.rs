@@ -60,7 +60,8 @@ use tauri_plugin_f2zmsg::error::Error;
 use tauri_plugin_f2zmsg::models::{EngineStatus, EnrollmentStatus};
 use tauri_plugin_f2zmsg::{F2zMsgExt as _, Result};
 
-/// The public halves of this device's key set, hex-encoded.
+/// The public halves of this device's key set and the endpoint it just opened,
+/// hex-encoded.
 ///
 /// Hex rather than bytes because that is what the rest of this surface already
 /// speaks — `DeviceInfo.deviceFingerprint`, `StoredIdentity.device_pk` — and a
@@ -69,10 +70,10 @@ use tauri_plugin_f2zmsg::{F2zMsgExt as _, Result};
 #[serde(rename_all = "camelCase")]
 pub struct DeviceCredentialKeys {
     /// `DSK.public` — the MLS leaf `signature_key`, 32 bytes, 64 hex
-    /// characters. `IssueDeviceCredentialRequestV1.device_pk`.
+    /// characters. `IssueDeviceCredentialRequestV2.device_pk`.
     pub device_pk: String,
     /// The X-Wing hybrid KEM public key.
-    /// `IssueDeviceCredentialRequestV1.device_kem_pk`.
+    /// `IssueDeviceCredentialRequestV2.device_kem_pk`.
     ///
     /// `tauri_plugin_f2zmsg::engine::DevicePublicKeys` documents at length why
     /// this is a placeholder in this build: the HPKE init key MLS actually
@@ -81,6 +82,18 @@ pub struct DeviceCredentialKeys {
     /// here, so that when that circularity is broken upstream this path does
     /// not have to change.
     pub device_kem_pk: String,
+    /// The relay this device's contact queue was opened at.
+    /// `IssueDeviceCredentialRequestV2.contact_relay_url`.
+    ///
+    /// ADR 0017 §4.1: the wallet authority cannot know this. The relay issues
+    /// the contact address to the device that creates the queue, and the
+    /// directory entry that publishes the device has to carry it, so the
+    /// device opens the queue **before** it asks for a credential.
+    pub contact_relay_url: String,
+    /// The relay identity this device's connection authenticated, hex.
+    pub contact_relay_id: String,
+    /// The relay-issued contact address strangers reach this device at, hex.
+    pub contact_addr: String,
 }
 
 /// Lowercase hex. Four lines, so that this crate does not grow a dependency to
@@ -93,22 +106,34 @@ fn hex(bytes: &[u8]) -> String {
     out
 }
 
-/// Sample this device's keys and return only their public halves.
+/// Sample this device's keys, open its contact queue, and return only public
+/// values.
+///
+/// The queue comes first because the credential cannot (ADR 0017 §4.1): the
+/// entry that publishes this device carries the relay-issued `contact_addr`,
+/// and only the device that created the queue knows it. A device that asked
+/// for a credential without one would be issued a credential it could not be
+/// found with.
 ///
 /// # Errors
 ///
 /// Whatever `tauri_plugin_f2zmsg` refuses with — the engine failing to open its
-/// store, or `prepare_device` refusing a degenerate sample. As every f2zmsg
-/// error does, it reaches the webview as a bare `ErrorCode` string.
+/// store, `prepare_device` refusing a degenerate sample, or
+/// `relay-unreachable` when this build has no relay to open a queue at. As
+/// every f2zmsg error does, it reaches the webview as a bare `ErrorCode`
+/// string.
 #[tauri::command]
 pub async fn e2e2z_device_credential_keys<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<DeviceCredentialKeys> {
     let engine = app.f2zmsg().engine_handle()?;
-    let device = engine.prepare_device().await?;
+    let prepared = engine.prepare_device_with_endpoint().await?;
     Ok(DeviceCredentialKeys {
-        device_pk: hex(&device.device_pk),
-        device_kem_pk: hex(&device.device_kem_pk),
+        device_pk: hex(&prepared.keys.device_pk),
+        device_kem_pk: hex(&prepared.keys.device_kem_pk),
+        contact_relay_url: prepared.endpoint.relay_url,
+        contact_relay_id: hex(&prepared.endpoint.relay_id),
+        contact_addr: hex(&prepared.endpoint.contact_addr),
     })
 }
 
@@ -162,6 +187,14 @@ pub async fn e2e2z_install_device_credential<R: Runtime>(
             credential,
             expected_handle: args.expected_handle,
             submitted_at: now_ms(),
+            // A credential only ever reaches this app as the answer to a
+            // fulfilled `issue-device-credential-v2`, and ZUULI answers that
+            // one only after the log admitted this device's entry and its
+            // receipt verified (ADR 0017 §4.1). So "submitted" is a fact about
+            // how the credential got here, not a claim this app invented — and
+            // it is display only: `mergedAtEpoch` still needs this device's own
+            // verified lookup.
+            submitted_by_issuer: true,
         })
         .await
 }
@@ -181,7 +214,26 @@ pub async fn e2e2z_install_device_credential<R: Runtime>(
 /// `internal` if the store cannot be read.
 #[tauri::command]
 pub async fn e2e2z_enrollment_status<R: Runtime>(app: AppHandle<R>) -> Result<EnrollmentStatus> {
-    app.f2zmsg().engine_handle()?.enrollment_status().await
+    let engine = app.f2zmsg().engine_handle()?;
+    let status = engine.enrollment_status().await?;
+    // The one thing a stored status cannot tell this device: whether the log
+    // has merged its entry yet. ZUULI's word for it is not evidence (ADR 0017
+    // §6), so the engine resolves this handle itself, against a
+    // witness-cosigned root, and records the epoch of the first proof. Only
+    // while that is still outstanding, and never fatally: an unreachable log
+    // leaves the stored status exactly as it was.
+    if status.enrolled && status.merged_at_epoch.is_none() && engine.directory_configured() {
+        match engine.refresh_enrollment().await {
+            Ok(refreshed) => return Ok(refreshed),
+            Err(error) => {
+                tracing::info!(
+                    code = %error.code(),
+                    "the directory could not be asked whether this device has merged"
+                );
+            }
+        }
+    }
+    Ok(status)
 }
 
 /// Re-ask the OS secret store for this device's wrap key and leave §6.1's
@@ -289,6 +341,70 @@ mod tests {
         );
     }
 
+    /// The response carries the endpoint, and the endpoint is not optional.
+    ///
+    /// ADR 0017 §4.1: a device that asked for a credential without one would be
+    /// issued a credential nobody could find it with, because the entry that
+    /// publishes it carries the relay-issued `contact_addr`.
+    #[test]
+    fn the_response_carries_the_endpoint_the_relay_issued() {
+        let json = serde_json::to_value(DeviceCredentialKeys {
+            device_pk: hex(&[0x11; 32]),
+            device_kem_pk: hex(&[0x22; 8]),
+            contact_relay_url: "wss://relay.free2z.com/relay/v1".to_owned(),
+            contact_relay_id: hex(&[0x33; 32]),
+            contact_addr: hex(&[0x44; 32]),
+        })
+        .expect("the response serializes");
+        let object = json.as_object().expect("a JSON object");
+        let mut names: Vec<&str> = object.keys().map(String::as_str).collect();
+        names.sort_unstable();
+        assert_eq!(
+            names,
+            [
+                "contactAddr",
+                "contactRelayId",
+                "contactRelayUrl",
+                "deviceKemPk",
+                "devicePk"
+            ]
+        );
+    }
+
+    /// The one thing a stored status cannot answer is whether the log has
+    /// merged this device's entry, and ADR 0017 §6 says the device must decide
+    /// that from its **own** verified lookup rather than from the issuer's
+    /// word. Source-asserted, because reaching the real branch needs a Tauri
+    /// app, an engine and a log; without it the screen would sit on
+    /// "Submitted, not yet active" until something else happened to re-read.
+    #[test]
+    fn the_enrollment_read_asks_the_log_while_the_entry_is_unmerged() {
+        let source = include_str!("device.rs");
+        let production = source
+            .split_once("\nmod tests {")
+            .expect("this module keeps its tests in one place")
+            .0;
+        let (_, status) = production
+            .split_once("pub async fn e2e2z_enrollment_status")
+            .expect("the enrollment read must still exist");
+        let body = status
+            .split_once("\n}\n")
+            .expect("a closed function body")
+            .0;
+        assert!(
+            body.contains("status.merged_at_epoch.is_none()"),
+            "the lookup must be conditional on not having merged yet: {body}",
+        );
+        assert!(
+            body.contains("engine.directory_configured()"),
+            "…and on there being a log to ask",
+        );
+        assert!(
+            body.contains("engine.refresh_enrollment()"),
+            "…and it must actually ask it",
+        );
+    }
+
     /// The response type is public keys and nothing else. A private half added
     /// here would be exported device key material, which `ARCHITECTURE.md`
     /// §4.2 forbids outright — so the field set is asserted rather than left to
@@ -298,11 +414,19 @@ mod tests {
         let json = serde_json::to_value(DeviceCredentialKeys {
             device_pk: hex(&[0x11; 32]),
             device_kem_pk: hex(&[0x22; 8]),
+            contact_relay_url: "wss://relay.free2z.com/relay/v1".to_owned(),
+            contact_relay_id: hex(&[0x33; 32]),
+            contact_addr: hex(&[0x44; 32]),
         })
         .expect("the response serializes");
         let object = json.as_object().expect("a JSON object");
-        let mut names: Vec<&str> = object.keys().map(String::as_str).collect();
-        names.sort_unstable();
-        assert_eq!(names, ["deviceKemPk", "devicePk"]);
+        assert!(
+            object
+                .keys()
+                .all(|name| !name.to_lowercase().contains("secret")
+                    && !name.to_lowercase().contains("private")
+                    && !name.to_lowercase().contains("seed")),
+            "nothing here may be a private half: {object:?}"
+        );
     }
 }

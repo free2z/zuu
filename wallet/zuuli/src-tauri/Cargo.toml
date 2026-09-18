@@ -71,6 +71,12 @@ hex = "0.4"
 # Contract C's JSON carries the identity key and the assertion as base64url
 # (`src/directory_publish.rs`). The 0.22 line is already in this lock.
 base64 = "0.22"
+# `StorageBackend`, which `tauri_plugin_f2zmsg::engine::Engine<B>` is generic
+# over: `src/directory_publish.rs` publishes a device through whichever backend
+# the host built its engine on, and the publication tests use the in-memory one
+# rather than a SQLite file. Already in this graph beneath the messaging plugin,
+# so naming it adds no package.
+f2z-msg-store = { path = "../../../rs/crates/f2z-msg-store", version = "0.1.0" }
 # The intent bridge, version 1 (`docs/intent-bridge/PROTOCOL.md`). ZUULI is the
 # authority side: `src/intent.rs` calls `IntentGate::admit` and re-implements
 # none of its guards. `no_std`, no I/O, no clock, no randomness — every one of
@@ -78,6 +84,11 @@ base64 = "0.22"
 # package to the graph: `f2z-codec`, `tls_codec` and `subtle` are already here
 # through the messaging crates.
 f2z-intent = { path = "../../../rs/crates/f2z-intent", version = "0.1.0" }
+# One `sleep`, in `src/session.rs`: an inbound App Link can reach the intent
+# authority before the WebView has published the signed-in free2z session, and
+# the wait for that first publication is bounded rather than absent. Already in
+# this graph — both plugins hold the same 1.x line — so naming it adds no crate.
+tokio = { version = "1", features = ["time"] }
 # Structured logging for the intent authority's refusals. A refusal carries a
 # code and nothing else across the bridge (`f2z-intent`'s error rule), so the
 # plugin error that produced it has to go somewhere an operator can read, and
@@ -87,8 +98,17 @@ tracing = "0.1"
 # Keep Tauri's mock runtime out of Windows test executables; the hosted runner
 # cannot load that linkage. The shipping router still compiles on Windows, and
 # its behavioral IPC probe runs on macOS/Linux.
+# The `#[tokio::test]` macro and a runtime to attach it to: `session.rs`'s wait
+# for the WebView's first publication and `directory_publish.rs`'s loopback
+# servers are async. **Not** under the Windows-excluded block below, unlike
+# Tauri's mock runtime: those tests are not Windows-gated, and a dev-dependency
+# the compiler cannot see on one target is a build that fails only there.
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
 [target.'cfg(not(target_os = "windows"))'.dev-dependencies]
 tauri = { version = "2", features = ["test"] }
+
 # #753's census needs a data directory it can make *unopenable*. Already in the
 # lock as a transitive dependency, so naming it adds no crate to the graph.
 tempfile = "3"

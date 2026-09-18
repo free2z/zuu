@@ -427,6 +427,9 @@ function EngineSummary({ status }: { status: EngineStatus }) {
   );
 }
 
+/** How often a device that is enrolled but not yet merged re-asks the log. */
+const MERGE_POLL_MS = 20_000;
+
 export default function MessagesFeature() {
   const [status, setStatus] = useState<EngineStatus | null>(null);
   const [enrolled, setEnrolled] = useState<EnrollmentStatus | null>(null);
@@ -621,6 +624,20 @@ export default function MessagesFeature() {
       document.removeEventListener("visibilitychange", onFocus);
     };
   }, [refresh]);
+
+  // A submitted entry becomes active at an epoch boundary, and nothing tells
+  // this device when that happens: the engine has to resolve its own handle
+  // against a witness-cosigned root and see this device published (ADR 0017
+  // §6). Focus re-reads cover the person who switches away and back; this
+  // covers the one who sits on this screen waiting. It stops the moment
+  // `mergedAtEpoch` is set, so an active handle polls nothing.
+  const awaitingMerge =
+    enrolled !== null && enrolled.enrolled && enrolled.mergedAtEpoch === null;
+  useEffect(() => {
+    if (!awaitingMerge) return;
+    const timer = setInterval(() => void refresh(), MERGE_POLL_MS);
+    return () => clearInterval(timer);
+  }, [awaitingMerge, refresh]);
 
   /**
    * Run something the user asked for, then re-read.

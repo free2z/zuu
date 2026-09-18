@@ -34,6 +34,10 @@ tauri-plugin-opener = "2"
 tauri-plugin-f2zmsg = { path = "../../plugins/tauri-plugin-f2zmsg" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# One log line: a directory that could not be asked whether this device has
+# merged is a state to report, not a refusal (`src/device.rs`). The facade is
+# already in this graph beneath `tauri-plugin-f2zmsg`.
+tracing = "0.1"
 
 # ---------------------------------------------------------------------------
 # Build profiles. This package is its own workspace root — the repository keeps
