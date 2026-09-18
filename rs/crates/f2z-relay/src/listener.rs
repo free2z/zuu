@@ -386,9 +386,10 @@ where
 {
     let mut buffer = Vec::new();
     let mut chunk = [0u8; READ_CHUNK];
+    let mut scan = HeadScan::default();
     let verdict = tokio::time::timeout(HEAD_TIMEOUT, async {
         loop {
-            match classify(&buffer) {
+            match scan.feed(&buffer) {
                 Sniff::Answer => return Some(true),
                 Sniff::HandOver => return Some(false),
                 Sniff::Wait => {}
@@ -417,7 +418,7 @@ where
     }
 }
 
-/// What [`classify`] concluded from the bytes in hand.
+/// What the scan concluded from the bytes in hand.
 #[derive(Debug, PartialEq, Eq)]
 enum Sniff {
     /// A complete head that asks for no upgrade.
@@ -430,7 +431,7 @@ enum Sniff {
     Wait,
 }
 
-/// Classify the bytes received so far.
+/// An incremental, line-at-a-time scan of the request head.
 ///
 /// **This is not an HTTP parser and must not become one.** It reads no method,
 /// no target and no version, it interprets no header but one, and its entire
@@ -446,69 +447,106 @@ enum Sniff {
 /// whether the body shared a segment with the head, and HTTP field values are
 /// not required to be UTF-8 in the first place (RFC 9110 §5.5), so an opaque
 /// byte in an unrelated header would have been enough to drop the answer.
-fn classify(prefix: &[u8]) -> Sniff {
-    // RFC 9112 §2.2 lets a server ignore empty lines before the request line,
-    // and `httparse` — the parser inside `accept_hdr_async` — does. Reading a
-    // leading CRLF as a complete, empty head would answer 426 to a handshake
-    // that works today, which is a regression rather than a fix.
-    let Some(begin) = prefix
-        .iter()
-        .position(|byte| !matches!(*byte, b'\r' | b'\n'))
-    else {
-        return Sniff::Wait;
-    };
-    let prefix = prefix.get(begin..).unwrap_or_default();
-
-    let end = head_end(prefix);
-    // With no terminator yet, everything in hand is still head, and it is worth
-    // reading: the `Upgrade` field may already be there.
-    let head = match end {
-        Some(end) => prefix.get(..end).unwrap_or_default(),
-        None => prefix,
-    };
-    if asks_to_upgrade(head) {
-        return Sniff::HandOver;
-    }
-    if end.is_some() {
-        Sniff::Answer
-    } else {
-        Sniff::Wait
-    }
-}
-
-/// Where the request head ends, if it has.
 ///
-/// `\n\n` counts as well as `\r\n\r\n`. A bare-LF request is not conformant,
-/// but it is what a hand-rolled scanner sends, and treating it as an unfinished
-/// head would leave it waiting out [`HEAD_TIMEOUT`] to be given the closed
-/// socket this change exists to remove.
-fn head_end(prefix: &[u8]) -> Option<usize> {
-    let crlf = prefix.windows(4).position(|window| window == b"\r\n\r\n");
-    let lf = prefix.windows(2).position(|window| window == b"\n\n");
-    match (crlf, lf) {
-        (Some(crlf), Some(lf)) => Some(crlf.min(lf)),
-        (found, None) | (None, found) => found,
+/// # Why it is incremental rather than a fresh look each time
+///
+/// [`read_head`] calls this once per read, and the naive version re-examined
+/// the whole accumulated buffer every time. The read boundaries belong to the
+/// PEER, so that is quadratic in a quantity an attacker chooses: one-byte
+/// fragments up to [`MAX_HEAD`] cost on the order of a hundred million byte
+/// visits for a connection that has sent 16 KiB, and it sits in front of the
+/// fragmentation defence `tungstenite` applies to the same pattern. The
+/// cursors below make the whole scan linear in the bytes received — every byte
+/// is looked at once, whatever boundaries it arrives on — which is also what
+/// makes the verdict independent of those boundaries. That independence is
+/// asserted directly by
+/// `the_verdict_does_not_depend_on_how_the_bytes_are_split`.
+#[derive(Debug, Default)]
+struct HeadScan {
+    /// Where the current, not-yet-complete line begins.
+    line_start: usize,
+    /// How far into that line the search for its end has already looked, so a
+    /// long line is not rescanned from the beginning on every read.
+    searched: usize,
+    /// Whether the request line has gone past. Until it has, a blank line is
+    /// one of the empty lines RFC 9112 §2.2 lets a server ignore before the
+    /// request line — `httparse`, the parser inside `accept_hdr_async`, does
+    /// ignore them, so reading one as a complete empty head would answer 426
+    /// to a handshake that works today.
+    begun: bool,
+    /// An `Upgrade` field naming `websocket` has been seen.
+    upgrade: bool,
+    /// The end of the head has been seen.
+    ended: bool,
+}
+
+impl HeadScan {
+    /// Examine whatever is new in `buffer` and report the verdict so far.
+    ///
+    /// `buffer` must be the same growing buffer on every call: the cursors are
+    /// offsets into it.
+    fn feed(&mut self, buffer: &[u8]) -> Sniff {
+        while !self.upgrade && !self.ended {
+            let line = buffer.get(self.line_start..).unwrap_or_default();
+            let Some(unsearched) = line.get(self.searched..) else {
+                break;
+            };
+            let Some(offset) = unsearched.iter().position(|byte| *byte == b'\n') else {
+                // No end of line yet. Remember how far this looked so the next
+                // read resumes here instead of starting over.
+                self.searched = line.len();
+                break;
+            };
+            let end = self.searched.saturating_add(offset);
+            let complete = line.get(..end).unwrap_or_default();
+            // A bare LF is not conformant, but it is what a hand-rolled
+            // scanner sends, and treating it as an unfinished line would leave
+            // it waiting out HEAD_TIMEOUT for the closed socket this change
+            // exists to remove.
+            let complete = complete.strip_suffix(b"\r").unwrap_or(complete);
+
+            self.line_start = self.line_start.saturating_add(end).saturating_add(1);
+            self.searched = 0;
+
+            if complete.is_empty() {
+                if self.begun {
+                    self.ended = true;
+                }
+                // Otherwise: an ignorable empty line before the request line.
+                continue;
+            }
+            if !self.begun {
+                // That was the request line, which is not a header: a scanner
+                // asking for `/upgrade` must not read as one asking to
+                // upgrade.
+                self.begun = true;
+                continue;
+            }
+            if is_upgrade_field(complete) {
+                self.upgrade = true;
+            }
+        }
+
+        if self.upgrade {
+            Sniff::HandOver
+        } else if self.ended {
+            Sniff::Answer
+        } else {
+            Sniff::Wait
+        }
     }
 }
 
-/// Whether any header line in `head` is an `Upgrade` field naming `websocket`.
-fn asks_to_upgrade(head: &[u8]) -> bool {
-    // Split on LF and drop a trailing CR, so a client using bare LF is read the
-    // same way `httparse` reads it rather than having its upgrade request
-    // hidden by the line splitter. `skip(1)` drops the request line, which is
-    // not a header: a scanner asking for `/upgrade` must not read as one asking
-    // to upgrade.
-    head.split(|byte| *byte == b'\n').skip(1).any(|line| {
-        let line = line.strip_suffix(b"\r").unwrap_or(line);
-        let Some(colon) = line.iter().position(|byte| *byte == b':') else {
-            return false;
-        };
-        let (Some(name), Some(value)) = (line.get(..colon), line.get(colon..)) else {
-            return false;
-        };
-        name.trim_ascii().eq_ignore_ascii_case(b"upgrade")
-            && contains_ignore_ascii_case(value, b"websocket")
-    })
+/// Whether one header line is an `Upgrade` field naming `websocket`.
+fn is_upgrade_field(line: &[u8]) -> bool {
+    let Some(colon) = line.iter().position(|byte| *byte == b':') else {
+        return false;
+    };
+    let (Some(name), Some(value)) = (line.get(..colon), line.get(colon..)) else {
+        return false;
+    };
+    name.trim_ascii().eq_ignore_ascii_case(b"upgrade")
+        && contains_ignore_ascii_case(value, b"websocket")
 }
 
 /// A stream that hands back bytes already taken from `inner` before reading any
@@ -702,6 +740,57 @@ mod tests {
          Sec-WebSocket-Version: 13\r\n\
          Sec-WebSocket-Protocol: free2z-relay.v1\r\n\
          \r\n";
+
+    /// The verdict for a whole buffer at once. `read_head` feeds the scan
+    /// incrementally instead; `the_verdict_does_not_depend_on_how_the_bytes_are_split`
+    /// is what pins the two together.
+    fn classify(prefix: &[u8]) -> Sniff {
+        HeadScan::default().feed(prefix)
+    }
+
+    /// Feed `request` to one scan in chunks of `chunk` bytes, the way
+    /// `read_head` does when the peer fragments it.
+    fn classify_in_chunks(request: &[u8], chunk: usize) -> Sniff {
+        let mut scan = HeadScan::default();
+        let mut buffer = Vec::new();
+        let mut verdict = Sniff::Wait;
+        for piece in request.chunks(chunk.max(1)) {
+            buffer.extend_from_slice(piece);
+            verdict = scan.feed(&buffer);
+            if verdict != Sniff::Wait {
+                return verdict;
+            }
+        }
+        verdict
+    }
+
+    #[test]
+    fn the_verdict_does_not_depend_on_how_the_bytes_are_split() {
+        // The property the whole design turns on, and the one the first two
+        // attempts did not have: the answer is a function of the REQUEST, not
+        // of the TCP segments it arrived in. The peer chooses the boundaries,
+        // so anything that varies with them is attacker-controlled.
+        //
+        // This also covers the incremental scan's cursors: byte-at-a-time is
+        // the worst case for them, and it must agree with one-shot exactly.
+        let handshake_with_pad = format!("\r\n{HANDSHAKE}");
+        for request in [
+            "GET / HTTP/1.1\r\nHost: relay.free2z.cash\r\n\r\n",
+            "GET /favicon.ico HTTP/1.1\r\nHost: x\r\nCookie: aaaaaaaaaaaaaaaa\r\n\r\n",
+            "GET / HTTP/1.1\nHost: x\n\n",
+            HANDSHAKE,
+            handshake_with_pad.as_str(),
+        ] {
+            let whole = classify(request.as_bytes());
+            for chunk in [1usize, 2, 3, 7, 64, 4096] {
+                assert_eq!(
+                    classify_in_chunks(request.as_bytes(), chunk),
+                    whole,
+                    "{request:?} split {chunk} at a time disagreed with one shot"
+                );
+            }
+        }
+    }
 
     #[test]
     fn the_refusal_is_a_parseable_http_response_that_discloses_nothing() {
