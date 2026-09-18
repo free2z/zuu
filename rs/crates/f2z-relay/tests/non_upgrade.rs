@@ -237,8 +237,11 @@ async fn a_request_head_split_across_segments_is_still_answered() {
         .write_all(b"GET / HTTP/1.1\r\nHost: relay.free2z.cash\r\n")
         .await
         .expect("the first segment is written");
-    // Long enough that the relay has certainly already looked once.
-    tokio::time::sleep(Duration::from_millis(60)).await;
+    // Well past any short polling budget. The first version of this fix
+    // looked eight times at 20ms and then gave up, so a 400ms gap put the
+    // request straight back on the closed-socket path; reading rather than
+    // polling means the gap simply does not matter.
+    tokio::time::sleep(Duration::from_millis(400)).await;
     stream
         .write_all(b"\r\n")
         .await
@@ -282,6 +285,47 @@ async fn a_request_with_a_binary_body_is_answered_from_its_head() {
     assert!(
         response.starts_with("HTTP/1.1 426 Upgrade Required\r\n"),
         "a binary body hid a perfectly good head: {response:?}"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cookie_laden_request_is_still_answered() {
+    // The first version bounded the look at 2 KiB, so an ordinary crawler or
+    // browser request carrying a few kilobytes of cookies fell through to the
+    // closed socket. 4 KiB of headers is unremarkable on the open internet.
+    let server = Server::start(base()).await.expect("the relay starts");
+    let protocol = server.protocol_addr();
+
+    let cookie = "a".repeat(4096);
+    let request = format!("GET / HTTP/1.1\r\nHost: relay.free2z.cash\r\nCookie: {cookie}\r\n\r\n");
+    let response = exchange_until_close(protocol, &request).await;
+
+    assert!(
+        response.starts_with("HTTP/1.1 426 Upgrade Required\r\n"),
+        "a 4 KiB header block went unanswered: {response:?}"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_handshake_behind_a_leading_blank_line_still_upgrades() {
+    // RFC 9112 §2.2 lets a server ignore empty lines before the request line,
+    // and the parser inside `accept_hdr_async` does — so this shape WORKS on
+    // the relay in production today. An early version of this fix read those
+    // four bytes as a complete empty head and answered 426, taking a working
+    // client's connectivity away. That is a regression the fix must not make.
+    let server = Server::start(base()).await.expect("the relay starts");
+    let protocol = server.protocol_addr();
+
+    let padded = format!("\r\n{}", handshake_for(protocol, "/relay/v1"));
+    let response = exchange_head(protocol, &padded).await;
+
+    assert!(
+        response.starts_with("HTTP/1.1 101 "),
+        "a handshake that works today was refused: {response:?}"
     );
 
     server.shutdown().await;
