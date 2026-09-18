@@ -384,16 +384,31 @@ mod bundled_directory_tests {
     }
 
     #[tokio::test]
-    async fn the_shipped_file_leaves_the_engine_unconfigured() {
+    async fn the_shipped_file_gets_the_internal_directory_and_its_relay() {
+        // zuu#1022 workstream 9 deployed the log, the witness and the relay,
+        // and `internal-directory.conf` now names them, so the shipping build
+        // dispatches at the real relay instead of staying on `NoDirectory`.
         let engine = with_bundled_directory(engine(), &internal_directory::bundled());
-        assert_eq!(engine.default_relay(), None);
-        assert_eq!(engine.witness_set_state().await.unwrap().configured, 0);
+        assert_eq!(
+            engine.default_relay(),
+            Some("wss://relay.free2z.cash/relay/v1")
+        );
+        let state = engine.witness_set_state().await.unwrap();
+        assert_eq!(state.configured, 1);
+        // ADR 0017's posture: free2z runs the log AND its only witness, so the
+        // warning stays up no matter how many heads verify.
+        assert_eq!(state.independent, 0);
+        assert!(state.bootstrap_disclaimer);
+        // The directory connects on first use, so a launch never blocks on the
+        // log — and a device with no network is conservatively unmet here
+        // rather than waiting on a socket.
+        assert!(!state.threshold_met);
     }
 
     #[tokio::test]
     async fn a_configured_build_gets_both_the_directory_and_the_relay() {
         let key = "01".repeat(32);
-        let text = internal_directory::BUNDLED_TEXT
+        let text = internal_directory::PLACEHOLDER_TEXT
             .replace(
                 "log_url = PLACEHOLDER",
                 "log_url = https://kt.internal.example",

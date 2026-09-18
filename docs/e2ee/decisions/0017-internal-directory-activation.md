@@ -135,9 +135,12 @@ so both apps get the same values from the same reviewed file.
 - The file **cannot** mark a witness independent. That setting is not in the
   grammar.
 
-**Filling it in is a one-file change** (workstream 9), plus flipping one test:
-`the_checked_in_placeholders_fail_closed` asserts the unconfigured state, and a
-filled file must replace it with an assertion on the real values.
+**Filling it in was a one-file change** (workstream 9), plus moving one test.
+`the_checked_in_placeholders_fail_closed` asserted the unconfigured state over
+the shipped file; the shipped file is now filled, so that property is proven over
+`src/internal_directory/placeholder.conf` — a test-only fixture held to the
+shipped file's key set — by `a_placeholder_file_fails_closed`, and
+`the_shipped_file_configures_the_internal_deployment` asserts the real values.
 
 **Why not the alternatives.** Configuration fetched from the log would let the
 log choose its own witnesses, which §8.3 forbids. An environment variable would
@@ -510,19 +513,41 @@ nobody can find. The cost is recorded in §10.
   standing weakness every family on this bridge has — a caller identifier nobody
   attests (`CALLER-AUTHENTICATION.md` §2) — and the dialog is the control.
 
-#### An open question for the backend (workstream 7)
+#### Answered: what the deployed authority records at issuance (workstream 7)
 
 **Does the authority record the handle → `identity_pk` binding when it *issues*
-an assertion, or only when the log admits the entry?** The artifacts in this
-repository do not settle it: `KT.md` and ADR §5.2 make the issuer responsible
-for never reusing an `(authority_id, nonce)` pair and for maintaining
-`account_epoch` as a durable counter, so issuance necessarily writes *some*
-server-side state — but whether the identity key is retained with it is the
-backend's decision. It matters for a declined flow: if issuance binds, an
-abandoned request leaves a record. The design above no longer depends on the
-answer — nothing is issued before an approval — but the answer should be written
-into Contract C, and if issuance does bind, the endpoint should say so and the
-UI copy should say it too.
+an assertion, or only when the log admits the entry?** This was open here; the
+backend has answered it, and what follows is **the behaviour of the deployed
+authority**, not a protocol guarantee. The log, not the backend, is where
+"was this entry admitted?" lives, and nothing below is enforced by the byte
+format or by anything this repository can check.
+
+- **The assertion is never recorded.** The issuing app (`ktauth`) has no models,
+  by design: no row, no log line, and nothing that stores `identity_pk`, the
+  intent, the nonce or the assertion bytes. A declined or abandoned enrollment
+  therefore leaves nothing on the backend that names the identity key — which is
+  what the question was really asking. The design above never depended on this
+  (nothing is issued before an approval), and it is better than the design
+  needed.
+- **One write can happen, and it is not about the enrollment.** Before signing,
+  the endpoint calls `ensure_username_handle(user)`: if the account has no
+  handle row at all, and its lowercased username is eligible, unreserved and
+  unheld, that handle is reserved for that account. This is the same reservation
+  the migration already performed for all 1,586 bound accounts; it exists so an
+  account created mid-deploy is not stuck, and it binds an account to *its own*
+  handle, never to a key.
+- **It cannot be farmed.** It is a one-time transition per account — after the
+  migration every eligible account already has its row, so calls only read —
+  ineligible, collision-losing and reserved-word accounts never get a row and
+  receive `409 handle_unclaimed`, and the endpoint is capped at 10 requests per
+  hour per account. The most any caller can cause is a single insert of the
+  binding their own account was already entitled to.
+- **Issuance still writes some state**, as §5.2 requires: the issuer must never
+  reuse an `(authority_id, nonce)` pair and must keep `account_epoch` as a
+  durable counter. That state is about the *account*, and identifies no wallet.
+
+Because nothing about a wallet is retained, the endpoint has nothing extra to
+disclose and the enrollment UI has no additional retention to state.
 
 #### The session slot, argued on its own merits
 
@@ -820,11 +845,15 @@ all 4 e2e2z warning tests passed.
 - **The merge is polled, not pushed.** e2e2z re-reads on focus and every 20
   seconds while it is enrolled and not yet merged. Nothing tells a device that
   an epoch closed.
-- **Real values** in `internal-directory.conf`. The deployment has published
-  every value except `handle_authority_pk`, which is not minted yet. A file
-  with some placeholders is malformed by design, so the values land together
-  in a follow-up once the key exists and the services answer.
-- **The backend endpoint** (workstream 7).
+- ~~**Real values** in `internal-directory.conf`.~~ **Landed.** The file names
+  the deployed log, its single free2z-operated witness, the handle authority and
+  the relay, and each value was checked against the live service before it was
+  committed — the signed tree head under the bundled log key, the published
+  descriptor's genesis/VRF/reset-authority/cooldown, the §4.6 policy's vouching
+  for exactly the bundled authority, and the backend's own
+  `GET /api/e2ee/authority/`. No generation is retired yet.
+- ~~**The backend endpoint** (workstream 7).~~ Deployed; this repository
+  verifies the authority key it was given and nothing else about it.
 - **Persisted pins and alarms.** The tree-head checkpoint survives a restart,
   sealed in the engine's store. Per-handle pins and the alarm log do not yet,
   so a key change seen in one session is not remembered in the next. The
@@ -839,4 +868,15 @@ all 4 e2e2z warning tests passed.
 - **One environment per build.** The file holds one directory. Pointing
   development builds at staging would need a second file selected at build
   time.
-- **Observation on devices.** Nothing here has run against a deployed log.
+- **The deployed log's witness is not cosigning.** Every tree head the log
+  served on 2026-09-17, from epoch 1 to the current one, carried **zero**
+  cosignatures, so *t* = 1 is unmet and every `resolve` is refused with
+  `WitnessThresholdUnmet` (§2.1's "no anti-equivocation" is about *independence*;
+  this is the threshold itself). The log's `/kt/v1/cosign` is enabled and
+  recognises witnesses, so `f2z-witness` is simply not posting. First contact
+  cannot work until it does, and it is a deployment fix, not a change here.
+  It also leaves `witness_pk` as the one bundled value with no live signature to
+  check it against.
+- **Observation on devices.** Nothing here has run on a device, and no
+  automated check reaches the deployed services — the verification above was a
+  person checking once, at the moment the file was filled in.
