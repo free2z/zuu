@@ -164,7 +164,11 @@ async fn a_plain_get_on_the_protocol_port_is_answered_rather_than_dropped() {
         .expect("the response declares its length")
         .parse()
         .expect("the declared length is a number");
-    assert_eq!(declared, body.len(), "Content-Length disagrees with the body");
+    assert_eq!(
+        declared,
+        body.len(),
+        "Content-Length disagrees with the body"
+    );
     assert_eq!(body, "upgrade required\n");
 
     // The `/healthz` discipline: the answer is the same for everyone and says

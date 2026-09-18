@@ -358,12 +358,16 @@ async fn refuse_non_upgrade(stream: &mut TcpStream) -> bool {
 /// before it.
 async fn discard_request(stream: &mut TcpStream) {
     let mut sink = [0u8; SNIFF_LIMIT];
-    let deadline = tokio::time::Instant::now() + LINGER;
-    while let Ok(Ok(read)) = tokio::time::timeout_at(deadline, stream.read(&mut sink)).await {
-        if read == 0 {
-            break;
+    // One timeout around the whole loop rather than one per read, so a peer
+    // that dribbles a byte at a time cannot renew its own deadline forever.
+    let _ = tokio::time::timeout(LINGER, async {
+        while let Ok(read) = stream.read(&mut sink).await {
+            if read == 0 {
+                break;
+            }
         }
-    }
+    })
+    .await;
 }
 
 /// Whether `prefix` holds a **complete** request head that is **not** asking to
