@@ -13,12 +13,16 @@ receives only those public fixture responses. Real accounts, authenticated API
 requests, third-party requests and WebSockets are excluded. The screenshots
 show the article feed and article reader, including the actual navigation.
 
-E2E2Z receives the same stopped-engine and `not-enrolled` responses exercised
-by its enrollment-gap regression test. This is a simulation of the native
-unenrolled contract, not a running messaging transport. Only engine status,
-device-info and event subscription calls are allowed. No enrollment command,
-credential, identity or conversation is invented. Its views show the complete
-enrollment-unavailable notice and empty, locally stored diagnostics.
+E2E2Z receives the same stopped-engine, `not-enrolled` and not-enrolled
+`e2e2z_enrollment_status` responses exercised by its enrollment-gap regression
+test. This is a simulation of the native unenrolled contract, not a running
+messaging transport. The allowed calls are exactly the ones a packaged e2e2z
+issues before its first screen settles: engine status, device info, this
+device's own seed-free enrollment read, the deep-link launch URL (which is
+`null`, because no link launched this run) and event subscription. Every other
+command is refused, and the runner fails on any call outside that list. No
+credential, identity, handle or conversation is invented. Its views show the
+complete enrollment-unavailable notice and empty, locally stored diagnostics.
 
 ## Reproduce
 
