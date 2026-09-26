@@ -1,0 +1,143 @@
+{
+  "schema": 1,
+  "description": "Shared pricing fixtures for f2z-ai-proto::pricing (Rust), and the Python and SQL implementations of the same formula. Expected values were computed independently with exact rationals from the formula as written: p = cost_usd*100*(1+platform_margin), d = p*dev_markup, total = max(min_charge, ceil(p+d)) whole 2Z; provider = ceil(cost), developer = floor(d), platform = total - provider - developer, all in milli-2Z. 1 2Z = $0.01 = 10,000,000 nano-USD. Margins are basis points (10000 = 100%).",
+  "input_unit": "usage: counts; prices: nano-USD per 1M tokens, or per image / per tool call",
+  "cases": [
+    {
+      "name": "prompt_cache_mix",
+      "note": "$3/M in, $0.30/M cached, $3.75/M cache write, $15/M out. Cost $0.01335 = 1.335 2Z; at 50% that is 2.0025, which rounds to 3. reasoning_tokens is inside output_tokens and is not priced twice.",
+      "input": {
+        "usage": {
+          "input_tokens": 1200,
+          "cached_input_tokens": 5000,
+          "cache_write_tokens": 800,
+          "output_tokens": 350,
+          "reasoning_tokens": 100,
+          "images": 0,
+          "tool_calls": 0
+        },
+        "prices": {
+          "input_nusd_per_mtok": 3000000000,
+          "cached_input_nusd_per_mtok": 300000000,
+          "cache_write_nusd_per_mtok": 3750000000,
+          "output_nusd_per_mtok": 15000000000,
+          "image_nusd": 0,
+          "tool_call_nusd": 0
+        },
+        "platform_margin_bps": 5000,
+        "dev_markup_bps": 0,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "cost_femto_usd": 13350000000000,
+        "cost_nusd_ceil": 13350000,
+        "total_milli": 3000,
+        "provider_milli": 1335,
+        "developer_milli": 0,
+        "platform_milli": 1665
+      }
+    },
+    {
+      "name": "sub_nano_usd_cost_is_exact",
+      "note": "$0.0375/M in x 7, $0.15/M out x 3 = 712.5 nano-USD: not a whole nano-USD, carried exactly. cost_nusd_ceil (what settle receives) is 713.",
+      "input": {
+        "usage": {
+          "input_tokens": 7,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 3,
+          "reasoning_tokens": 0,
+          "images": 0,
+          "tool_calls": 0
+        },
+        "prices": {
+          "input_nusd_per_mtok": 37500000,
+          "cached_input_nusd_per_mtok": 0,
+          "cache_write_nusd_per_mtok": 0,
+          "output_nusd_per_mtok": 150000000,
+          "image_nusd": 0,
+          "tool_call_nusd": 0
+        },
+        "platform_margin_bps": 5000,
+        "dev_markup_bps": 0,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "cost_femto_usd": 712500000,
+        "cost_nusd_ceil": 713,
+        "total_milli": 1000,
+        "provider_milli": 1,
+        "developer_milli": 0,
+        "platform_milli": 999
+      }
+    },
+    {
+      "name": "images_and_tools",
+      "note": "2 images at $0.001, 1 tool call at $0.01, 100 in at $2.50/M, 50 out at $10/M = $0.01275; 50% margin + 10% markup = 2.10375 -> 3 2Z.",
+      "input": {
+        "usage": {
+          "input_tokens": 100,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 50,
+          "reasoning_tokens": 0,
+          "images": 2,
+          "tool_calls": 1
+        },
+        "prices": {
+          "input_nusd_per_mtok": 2500000000,
+          "cached_input_nusd_per_mtok": 0,
+          "cache_write_nusd_per_mtok": 0,
+          "output_nusd_per_mtok": 10000000000,
+          "image_nusd": 1000000,
+          "tool_call_nusd": 10000000
+        },
+        "platform_margin_bps": 5000,
+        "dev_markup_bps": 1000,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "cost_femto_usd": 12750000000000,
+        "cost_nusd_ceil": 12750000,
+        "total_milli": 3000,
+        "provider_milli": 1275,
+        "developer_milli": 191,
+        "platform_milli": 1534
+      }
+    },
+    {
+      "name": "worked_example_from_usage",
+      "note": "1,400 output tokens at $15/M = $0.021 at 0% margin -> 3 2Z, the worked example reached from a usage vector.",
+      "input": {
+        "usage": {
+          "input_tokens": 0,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 1400,
+          "reasoning_tokens": 0,
+          "images": 0,
+          "tool_calls": 0
+        },
+        "prices": {
+          "input_nusd_per_mtok": 0,
+          "cached_input_nusd_per_mtok": 0,
+          "cache_write_nusd_per_mtok": 0,
+          "output_nusd_per_mtok": 15000000000,
+          "image_nusd": 0,
+          "tool_call_nusd": 0
+        },
+        "platform_margin_bps": 0,
+        "dev_markup_bps": 0,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "cost_femto_usd": 21000000000000,
+        "cost_nusd_ceil": 21000000,
+        "total_milli": 3000,
+        "provider_milli": 2100,
+        "developer_milli": 0,
+        "platform_milli": 900
+      }
+    }
+  ]
+}
