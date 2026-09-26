@@ -46,7 +46,15 @@ use crate::pricing::{Bps, ModelPrices};
 pub const CATALOG_SIGNING_LABEL: &[u8] = b"free2z/ai-catalog/v1";
 
 /// The only catalogue schema this crate understands.
+///
+/// Bump it for any change an old consumer must not silently misread — in
+/// particular **a new price dimension**: [`ModelPrices`] refuses unknown
+/// members, so an old consumer refuses such a catalogue anyway, and the bump
+/// makes that refusal say why.
 pub const CATALOG_SCHEMA: u32 = 1;
+
+/// The largest platform margin [`Catalog::validate`] accepts: 1 000 %.
+pub const MAX_PLATFORM_MARGIN_BPS: Bps = Bps(100_000);
 
 /// The signed model catalogue.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +68,17 @@ pub struct Catalog {
     pub version: u64,
     /// Unix seconds at which this catalogue was signed.
     pub issued_at: u64,
+    /// Unix seconds after which this catalogue must not be used.
+    /// [`verify_catalog`] refuses it from this instant on.
+    ///
+    /// This is the defence against a **frozen** catalogue: without an expiry,
+    /// an attacker (or a stuck cache) that keeps serving one old, validly
+    /// signed catalogue could pin prices forever, and the version check only
+    /// helps a consumer that has already seen a newer one. The cost is that a
+    /// signer outage longer than `expires_at − issued_at` stops pricing: the
+    /// window must be chosen to exceed the longest tolerable signer outage,
+    /// and publishing a fresh signature is required even when nothing changed.
+    pub expires_at: u64,
     /// The rate card the ledger settles against; carried into every hold and
     /// settle so the two sides price with the same numbers.
     pub rate_card_version: u64,
@@ -102,6 +121,12 @@ pub struct CatalogModel {
 }
 
 /// The upstream API a model is reached through.
+///
+/// A style newer than this crate deserializes as [`ApiStyle::Unknown`] rather
+/// than failing the whole catalogue: one new model must not make every older
+/// gateway refuse the entire signed price list (and so price nothing). Such a
+/// model is simply not callable here — [`Catalog::callable_model`] skips it.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApiStyle {
@@ -111,20 +136,37 @@ pub enum ApiStyle {
     OpenaiChat,
     /// Anthropic Messages API.
     AnthropicMessages,
+    /// A style newer than this crate. Deserialization only; never callable.
+    #[serde(other)]
+    Unknown,
 }
 
 impl Catalog {
-    /// The model named `id`, if it exists **and** is callable: enabled, and
-    /// not from a disabled provider.
+    /// The model named `id`, if it exists **and** is callable: enabled, not
+    /// from a disabled provider, and reached through an [`ApiStyle`] this
+    /// crate knows.
     #[must_use]
     pub fn callable_model(&self, id: &str) -> Option<&CatalogModel> {
-        self.models
-            .iter()
-            .find(|m| m.id == id && m.enabled && !self.disabled_providers.contains(&m.provider))
+        self.models.iter().find(|m| {
+            m.id == id
+                && m.enabled
+                && m.api_style != ApiStyle::Unknown
+                && !self.disabled_providers.contains(&m.provider)
+        })
     }
 
-    /// Structural checks a signature cannot make: the schema, unique model
-    /// ids, and a safety factor that can only ever scale an estimate up.
+    /// Structural checks a signature cannot make. A signed catalogue is
+    /// trusted to be *authentic*, not to be *sane*: a signer bug should stop
+    /// the gateway loudly rather than price every call at zero.
+    ///
+    /// * the schema is [`CATALOG_SCHEMA`], and `expires_at > issued_at`;
+    /// * `platform_margin_bps ≤` [`MAX_PLATFORM_MARGIN_BPS`];
+    /// * model ids are non-empty and unique;
+    /// * every model has `min_charge_2z ≥ 1` — the per-call floor is what
+    ///   makes a call with no billable usage still cost something;
+    /// * `max_output_tokens ≤ context_window`;
+    /// * prices are not all zero;
+    /// * the safety factor only ever scales an estimate up.
     ///
     /// # Errors
     ///
@@ -132,6 +174,14 @@ impl Catalog {
     pub fn validate(&self) -> Result<(), CatalogError> {
         if self.schema != CATALOG_SCHEMA {
             return Err(CatalogError::Invalid("unsupported catalogue schema"));
+        }
+        if self.expires_at <= self.issued_at {
+            return Err(CatalogError::Invalid("expires_at not after issued_at"));
+        }
+        if self.platform_margin_bps > MAX_PLATFORM_MARGIN_BPS {
+            return Err(CatalogError::Invalid(
+                "platform margin above the sane bound",
+            ));
         }
         let mut seen = BTreeSet::new();
         for model in &self.models {
@@ -143,6 +193,17 @@ impl Catalog {
             }
             if model.safety_factor_bps < Bps(crate::pricing::BPS_DENOMINATOR) {
                 return Err(CatalogError::Invalid("safety factor below 1.0"));
+            }
+            if model.min_charge_2z == 0 {
+                return Err(CatalogError::Invalid("min_charge_2z below 1"));
+            }
+            if model.max_output_tokens > model.context_window {
+                return Err(CatalogError::Invalid(
+                    "max_output_tokens exceeds context_window",
+                ));
+            }
+            if model.prices == ModelPrices::default() {
+                return Err(CatalogError::Invalid("all prices are zero"));
             }
         }
         Ok(())
@@ -200,6 +261,7 @@ impl DetachedSignature {
 }
 
 /// Why a catalogue was refused.
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum CatalogError {
     /// The payload is not JSON.
@@ -216,6 +278,8 @@ pub enum CatalogError {
     BadSignature,
     /// Verified, but not a valid catalogue.
     Invalid(&'static str),
+    /// Verified, but `now ≥ expires_at`.
+    Expired,
 }
 
 impl fmt::Display for CatalogError {
@@ -228,6 +292,7 @@ impl fmt::Display for CatalogError {
             Self::BadSignatureEncoding => f.write_str("malformed catalogue signature"),
             Self::BadSignature => f.write_str("catalogue signature does not verify"),
             Self::Invalid(why) => write!(f, "invalid catalogue: {why}"),
+            Self::Expired => f.write_str("catalogue has expired"),
         }
     }
 }
@@ -259,8 +324,13 @@ pub fn catalog_signing_message(payload: &Value) -> Result<Vec<u8>, CatalogError>
 /// name a trusted key id and verify under that key, and the verified document
 /// must pass [`Catalog::validate`].
 ///
+/// `now_unix` is the caller's clock (this crate reads none); the catalogue
+/// is refused when `now_unix ≥ expires_at`. The caller should re-check expiry
+/// on its own schedule while it keeps using a catalogue, not only on accept.
+///
 /// This does **not** check [`Catalog::version`] against a previously accepted
-/// catalogue; only the caller knows that value.
+/// catalogue; only the caller knows that value, and it must refuse a lower
+/// one.
 ///
 /// # Errors
 ///
@@ -269,6 +339,7 @@ pub fn verify_catalog(
     payload: &[u8],
     signature: &DetachedSignature,
     trusted: &[TrustedKey],
+    now_unix: u64,
 ) -> Result<Catalog, CatalogError> {
     let key = trusted
         .iter()
@@ -281,6 +352,9 @@ pub fn verify_catalog(
         .map_err(|_| CatalogError::BadSignature)?;
     let catalog: Catalog = serde_json::from_value(tree).map_err(CatalogError::Json)?;
     catalog.validate()?;
+    if now_unix >= catalog.expires_at {
+        return Err(CatalogError::Expired);
+    }
     Ok(catalog)
 }
 

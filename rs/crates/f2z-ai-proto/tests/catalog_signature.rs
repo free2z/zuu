@@ -53,7 +53,7 @@ fn load() -> Fixture {
 #[test]
 fn an_independently_signed_catalogue_verifies() {
     let f = load();
-    let catalog = verify_catalog(&f.served, &f.sig, &[f.key]).unwrap();
+    let catalog = verify_now(&f.served, &f.sig, &[f.key]).unwrap();
     assert_eq!(catalog.version, 7);
     assert_eq!(catalog.platform_margin_bps.0, 5_000);
     let large = catalog.callable_model("example-large").unwrap();
@@ -81,7 +81,7 @@ fn the_signing_message_is_label_then_canonical_json() {
 fn reformatting_the_served_json_does_not_break_the_signature() {
     let f = load();
     // Canonical bytes, and a different whitespace, both verify.
-    verify_catalog(
+    verify_now(
         &fixture("catalog.canonical.json"),
         &f.sig,
         std::slice::from_ref(&f.key),
@@ -89,7 +89,7 @@ fn reformatting_the_served_json_does_not_break_the_signature() {
     .unwrap();
     let tree: Value = serde_json::from_slice(&f.served).unwrap();
     let compact = serde_json::to_vec(&tree).unwrap();
-    verify_catalog(&compact, &f.sig, &[f.key]).unwrap();
+    verify_now(&compact, &f.sig, &[f.key]).unwrap();
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn a_changed_price_is_refused() {
         .unwrap()
         .replacen("15000000000", "1500000000", 1);
     assert!(matches!(
-        verify_catalog(tampered.as_bytes(), &f.sig, &[f.key]),
+        verify_now(tampered.as_bytes(), &f.sig, &[f.key]),
         Err(CatalogError::BadSignature)
     ));
 }
@@ -112,7 +112,7 @@ fn a_changed_ignored_member_is_still_refused() {
         .unwrap()
         .replacen("fixture —", "fixture -", 1);
     assert!(matches!(
-        verify_catalog(tampered.as_bytes(), &f.sig, &[f.key]),
+        verify_now(tampered.as_bytes(), &f.sig, &[f.key]),
         Err(CatalogError::BadSignature)
     ));
 }
@@ -125,7 +125,7 @@ fn an_untrusted_key_id_is_refused() {
         key: f.key.key,
     };
     assert!(matches!(
-        verify_catalog(&f.served, &f.sig, &[other]),
+        verify_now(&f.served, &f.sig, &[other]),
         Err(CatalogError::UnknownKey)
     ));
 }
@@ -139,7 +139,7 @@ fn a_trusted_id_with_the_wrong_key_is_refused() {
         key: wrong,
     };
     assert!(matches!(
-        verify_catalog(&f.served, &f.sig, &[key]),
+        verify_now(&f.served, &f.sig, &[key]),
         Err(CatalogError::BadSignature)
     ));
 }
@@ -157,7 +157,7 @@ fn a_signature_without_the_label_is_refused() {
         signature: bare,
     };
     assert!(matches!(
-        verify_catalog(&f.served, &sig, &[f.key]),
+        verify_now(&f.served, &sig, &[f.key]),
         Err(CatalogError::BadSignature)
     ));
 }
@@ -172,7 +172,7 @@ fn a_duplicate_member_is_refused_even_though_the_signature_would_verify() {
         .unwrap()
         .replacen("{", "{\"version\": 999,", 1);
     assert!(matches!(
-        verify_catalog(dup.as_bytes(), &f.sig, &[f.key]),
+        verify_now(dup.as_bytes(), &f.sig, &[f.key]),
         Err(CatalogError::Json(_))
     ));
 }
@@ -185,37 +185,138 @@ fn a_float_is_refused_before_verification() {
             .unwrap()
             .replacen("\"version\": 7", "\"version\": 7.0", 1);
     assert!(matches!(
-        verify_catalog(with_float.as_bytes(), &f.sig, &[f.key]),
-        Err(CatalogError::Canonical(_))
+        verify_now(with_float.as_bytes(), &f.sig, &[f.key]),
+        // `Canonical` normally; `Json` if a dependent unified serde_json's
+        // `arbitrary_precision` on, where the float is refused at parse.
+        Err(CatalogError::Canonical(_) | CatalogError::Json(_))
+    ));
+}
+
+type Mutation = fn(&mut Value);
+
+#[test]
+fn a_validly_signed_but_invalid_catalogue_is_refused() {
+    let cases: [(&str, Mutation); 9] = [
+        ("schema", |t| t["schema"] = serde_json::json!(2)),
+        ("duplicate", |t| {
+            let first = t["models"][0].clone();
+            t["models"] = serde_json::json!([first.clone(), first]);
+        }),
+        ("safety", |t| {
+            t["models"][0]["safety_factor_bps"] = serde_json::json!(9_999);
+        }),
+        ("min_charge", |t| {
+            t["models"][0]["min_charge_2z"] = serde_json::json!(0);
+        }),
+        ("context_window", |t| {
+            t["models"][0]["max_output_tokens"] = serde_json::json!(200_001);
+        }),
+        ("zero", |t| {
+            for (_, v) in t["models"][0]["prices"].as_object_mut().unwrap() {
+                *v = serde_json::json!(0);
+            }
+        }),
+        ("margin", |t| {
+            t["platform_margin_bps"] = serde_json::json!(100_001);
+        }),
+        ("expires_at", |t| t["expires_at"] = t["issued_at"].clone()),
+        ("empty model id", |t| {
+            t["models"][0]["id"] = serde_json::json!("")
+        }),
+    ];
+    for (why, mutate) in cases {
+        let mut tree: Value = serde_json::from_slice(&fixture("catalog.json")).unwrap();
+        mutate(&mut tree);
+        let (body, sig) = sign_tree(&tree);
+        match verify_now(&body, &sig, &[load().key]) {
+            Err(CatalogError::Invalid(msg)) => assert!(msg.contains(why), "{why}: {msg}"),
+            other => panic!("{why}: expected Invalid, got {other:?}"),
+        }
+    }
+    // The unmutated tree, re-signed the same way, is accepted: every refusal
+    // above is the mutation's, not the harness's.
+    let tree: Value = serde_json::from_slice(&fixture("catalog.json")).unwrap();
+    let (body, sig) = sign_tree(&tree);
+    verify_now(&body, &sig, &[load().key]).unwrap();
+}
+
+#[test]
+fn an_unknown_price_dimension_is_refused_not_priced_at_zero() {
+    let mut tree: Value = serde_json::from_slice(&fixture("catalog.json")).unwrap();
+    tree["models"][0]["prices"]["audio_nusd_per_mtok"] = serde_json::json!(5);
+    let (body, sig) = sign_tree(&tree);
+    assert!(matches!(
+        verify_now(&body, &sig, &[load().key]),
+        Err(CatalogError::Json(_))
     ));
 }
 
 #[test]
-fn a_validly_signed_but_invalid_catalogue_is_refused() {
-    let secret: [u8; 32] =
-        hex32("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
-    let signer = SigningKey::from_bytes(&secret);
+fn an_unknown_api_style_disables_one_model_not_the_catalogue() {
     let f = load();
-    let mut tree: Value = serde_json::from_slice(&f.served).unwrap();
-    for (field, value, why) in [
-        ("schema", serde_json::json!(2), "schema"),
-        ("models", dup_models(&tree), "duplicate"),
-        ("models", low_safety(&tree), "safety"),
-    ] {
-        let original = tree[field].clone();
-        tree[field] = value;
-        let message = catalog_signing_message(&tree).unwrap();
-        let sig = DetachedSignature {
-            key_id: f.key.key_id.clone(),
-            signature: signer.sign(&message),
-        };
-        let body = serde_json::to_vec(&tree).unwrap();
-        match verify_catalog(&body, &sig, std::slice::from_ref(&f.key)) {
-            Err(CatalogError::Invalid(msg)) => assert!(msg.contains(why), "{why}: {msg}"),
-            other => panic!("{why}: expected Invalid, got {other:?}"),
-        }
-        tree[field] = original;
+    let catalog = verify_now(&f.served, &f.sig, &[f.key]).unwrap();
+    let future = catalog
+        .models
+        .iter()
+        .find(|m| m.id == "example-future-style")
+        .unwrap();
+    assert_eq!(future.api_style, ApiStyle::Unknown);
+    assert!(future.enabled);
+    assert!(catalog.callable_model("example-future-style").is_none());
+    assert!(catalog.callable_model("example-mini").is_some());
+}
+
+#[test]
+fn an_expired_catalogue_is_refused() {
+    let f = load();
+    let expires_at = verify_now(&f.served, &f.sig, std::slice::from_ref(&f.key))
+        .unwrap()
+        .expires_at;
+    verify_catalog(
+        &f.served,
+        &f.sig,
+        std::slice::from_ref(&f.key),
+        expires_at - 1,
+    )
+    .unwrap();
+    for now in [expires_at, expires_at + 1, u64::MAX] {
+        assert!(matches!(
+            verify_catalog(&f.served, &f.sig, std::slice::from_ref(&f.key), now),
+            Err(CatalogError::Expired)
+        ));
     }
+}
+
+#[test]
+fn a_small_order_key_is_refused_even_where_plain_verify_would_accept() {
+    // The identity point as a public key, and the signature (R = identity,
+    // s = 0). Plain `verify` checks [s]B == R + [k]A, i.e. 0 == 0 + 0, and so
+    // accepts it for EVERY message. `verify_strict` refuses the weak key. If
+    // verify_catalog were ever relaxed to `verify`, an attacker who got the
+    // identity key trusted would forge any catalogue.
+    let mut identity = [0u8; 32];
+    identity[0] = 1;
+    let mut sig_bytes = [0u8; 64];
+    sig_bytes[0] = 1;
+    let weak = ed25519_dalek::VerifyingKey::from_bytes(&identity).unwrap();
+    let forged = ed25519_dalek::Signature::from_bytes(&sig_bytes);
+    // Precondition: the forgery really does pass non-strict verification.
+    use ed25519_dalek::Verifier as _;
+    assert!(weak.verify(b"anything", &forged).is_ok());
+
+    let f = load();
+    let key = TrustedKey {
+        key_id: "weak".into(),
+        key: weak,
+    };
+    let sig = DetachedSignature {
+        key_id: "weak".into(),
+        signature: forged,
+    };
+    assert!(matches!(
+        verify_now(&f.served, &sig, &[key]),
+        Err(CatalogError::BadSignature)
+    ));
 }
 
 #[test]
@@ -230,15 +331,26 @@ fn malformed_hex_is_refused() {
     ));
 }
 
-fn dup_models(tree: &Value) -> Value {
-    let first = tree["models"][0].clone();
-    serde_json::json!([first.clone(), first])
+/// Fixture time: after `issued_at`, before `expires_at`.
+const NOW: u64 = 1_790_000_100;
+
+fn verify_now(
+    payload: &[u8],
+    sig: &DetachedSignature,
+    trusted: &[TrustedKey],
+) -> Result<f2z_ai_proto::catalog::Catalog, CatalogError> {
+    verify_catalog(payload, sig, trusted, NOW)
 }
 
-fn low_safety(tree: &Value) -> Value {
-    let mut models = tree["models"].clone();
-    models[0]["safety_factor_bps"] = serde_json::json!(9_999);
-    models
+/// Sign `tree` with the fixture key, exactly as the platform signer would.
+fn sign_tree(tree: &Value) -> (Vec<u8>, DetachedSignature) {
+    let secret = hex32("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
+    let signer = SigningKey::from_bytes(&secret);
+    let sig = DetachedSignature {
+        key_id: load().key.key_id,
+        signature: signer.sign(&catalog_signing_message(tree).unwrap()),
+    };
+    (serde_json::to_vec(tree).unwrap(), sig)
 }
 
 fn hex32(s: &str) -> [u8; 32] {

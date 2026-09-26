@@ -22,6 +22,7 @@ catalog = {
     "version": 7,
     "schema": 1,
     "issued_at": 1790000000,
+    "expires_at": 1790604800,
     "rate_card_version": 3,
     "platform_margin_bps": 5000,
     "disabled_providers": ["example-provider"],
@@ -68,6 +69,26 @@ catalog = {
             "enabled": True,
         },
         {
+            "id": "example-future-style",
+            "provider": "openai",
+            "provider_model_id": "future-1",
+            "api_style": "a_style_this_crate_does_not_know",
+            "prices": {
+                "input_nusd_per_mtok": 1000000000,
+                "cached_input_nusd_per_mtok": 0,
+                "cache_write_nusd_per_mtok": 0,
+                "output_nusd_per_mtok": 1000000000,
+                "image_nusd": 0,
+                "tool_call_nusd": 0,
+            },
+            "min_charge_2z": 1,
+            "safety_factor_bps": 10000,
+            "context_window": 8000,
+            "max_output_tokens": 1000,
+            "ttfb_timeout_ms": 15000,
+            "enabled": True,
+        },
+        {
             "id": "example-disabled-provider",
             "provider": "example-provider",
             "provider_model_id": "k-1",
@@ -90,6 +111,13 @@ catalog = {
     ],
 }
 
+# CAVEAT for anyone porting this signer: `sort_keys=True` sorts member names
+# by Unicode CODE POINT, while RFC 8785 (and f2z_ai_proto::canonical) sorts by
+# UTF-16 CODE UNIT. The two orders agree for every name inside the Basic
+# Multilingual Plane, which includes every name this schema uses (all ASCII);
+# they differ only when a name contains a character above U+FFFF compared
+# against one in U+E000..U+FFFF. A signer that could ever emit such a name must
+# sort by `name.encode("utf-16-be")` instead.
 served = json.dumps(catalog, indent=2, ensure_ascii=False) + "\n"
 canonical = json.dumps(catalog, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 key = Ed25519PrivateKey.from_private_bytes(SECRET)

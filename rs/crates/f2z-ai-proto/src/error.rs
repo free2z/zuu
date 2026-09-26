@@ -9,6 +9,10 @@ use core::fmt;
 use serde::{Deserialize, Serialize};
 
 /// Every error the gateway reports.
+///
+/// `#[non_exhaustive]`: new codes are additive, and a client must handle one
+/// it does not know (it deserializes as [`ErrorCode::Unknown`]).
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
@@ -21,7 +25,7 @@ pub enum ErrorCode {
     /// The operation needs a more recent sign-in (RFC 9470).
     InsufficientUserAuthentication,
     /// The balance cannot cover the hold.
-    Insufficient,
+    InsufficientBalance,
     /// The app's spend cap for this user would be exceeded.
     CapExceeded,
     /// The model id is not in the catalogue.
@@ -60,7 +64,7 @@ impl ErrorCode {
         match self {
             Self::InvalidRequest | Self::ContextLengthExceeded => 400,
             Self::InvalidToken | Self::InsufficientUserAuthentication => 401,
-            Self::Insufficient => 402,
+            Self::InsufficientBalance => 402,
             Self::InsufficientScope | Self::CapExceeded | Self::ModelDisabled => 403,
             Self::ModelNotFound => 404,
             Self::PayloadTooLarge => 413,
@@ -95,7 +99,7 @@ impl ErrorCode {
             Self::InvalidToken => "invalid_token",
             Self::InsufficientScope => "insufficient_scope",
             Self::InsufficientUserAuthentication => "insufficient_user_authentication",
-            Self::Insufficient => "insufficient",
+            Self::InsufficientBalance => "insufficient_balance",
             Self::CapExceeded => "cap_exceeded",
             Self::ModelNotFound => "model_not_found",
             Self::ModelDisabled => "model_disabled",

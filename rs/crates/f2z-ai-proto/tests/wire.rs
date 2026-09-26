@@ -132,10 +132,10 @@ fn every_event_has_a_pinned_sse_frame() {
         ),
         (
             Event::Error(ApiError {
-                code: ErrorCode::Insufficient,
+                code: ErrorCode::InsufficientBalance,
                 message: "balance too low".into(),
             }),
-            "event: error\ndata: {\"code\":\"insufficient\",\"message\":\"balance too low\"}\n\n",
+            "event: error\ndata: {\"code\":\"insufficient_balance\",\"message\":\"balance too low\"}\n\n",
         ),
     ];
     for (event, frame) in cases {
@@ -198,7 +198,7 @@ fn error_codes_are_stable_strings_with_statuses() {
             "insufficient_user_authentication",
             401,
         ),
-        (ErrorCode::Insufficient, "insufficient", 402),
+        (ErrorCode::InsufficientBalance, "insufficient_balance", 402),
         (ErrorCode::CapExceeded, "cap_exceeded", 403),
         (ErrorCode::ModelNotFound, "model_not_found", 404),
         (ErrorCode::ModelDisabled, "model_disabled", 403),
@@ -281,4 +281,43 @@ fn a_response_tolerates_what_a_newer_gateway_adds() {
     let json = serde_json::to_string(&history).unwrap();
     serde_json::from_str::<Message>(&json).unwrap();
     let _ = AssistantMessage::default();
+}
+
+#[test]
+fn a_new_usage_source_does_not_discard_a_paid_answer() {
+    let Event::Usage(u) = Event::from_sse(
+        "usage",
+        r#"{"usage":{"input_tokens":1},"source":"partial"}"#,
+    )
+    .unwrap() else {
+        panic!()
+    };
+    assert_eq!(u.source, UsageSource::Unknown);
+    assert_eq!(u.usage.input_tokens, 1);
+}
+
+#[test]
+fn a_crlf_reader_still_parses() {
+    // A reader that split lines on `\n` alone leaves the `\r` of a CRLF stream
+    // on the event name.
+    let e = Event::from_sse("delta\r", r#"{"text":"x"}"#).unwrap();
+    assert_eq!(e, Event::Delta(Delta { text: "x".into() }));
+}
+
+#[test]
+fn the_ipc_form_parses_and_an_unknown_type_is_skippable() {
+    let e = Event::from_ipc_json(r#"{"type":"delta","text":"x"}"#).unwrap();
+    assert_eq!(e, Event::Delta(Delta { text: "x".into() }));
+    assert!(matches!(
+        Event::from_ipc_json(r#"{"type":"thinking","text":"x"}"#),
+        Err(EventError::UnknownEvent(name)) if name == "thinking"
+    ));
+    assert!(matches!(
+        Event::from_ipc_json(r#"{"type":"delta"}"#),
+        Err(EventError::Payload(_))
+    ));
+    assert!(matches!(
+        Event::from_ipc_json("not json"),
+        Err(EventError::Payload(_))
+    ));
 }

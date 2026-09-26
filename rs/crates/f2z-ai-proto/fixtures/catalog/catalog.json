@@ -2,6 +2,7 @@
   "version": 7,
   "schema": 1,
   "issued_at": 1790000000,
+  "expires_at": 1790604800,
   "rate_card_version": 3,
   "platform_margin_bps": 5000,
   "disabled_providers": [
@@ -46,6 +47,26 @@
       "safety_factor_bps": 10000,
       "context_window": 128000,
       "max_output_tokens": 16384,
+      "ttfb_timeout_ms": 15000,
+      "enabled": true
+    },
+    {
+      "id": "example-future-style",
+      "provider": "openai",
+      "provider_model_id": "future-1",
+      "api_style": "a_style_this_crate_does_not_know",
+      "prices": {
+        "input_nusd_per_mtok": 1000000000,
+        "cached_input_nusd_per_mtok": 0,
+        "cache_write_nusd_per_mtok": 0,
+        "output_nusd_per_mtok": 1000000000,
+        "image_nusd": 0,
+        "tool_call_nusd": 0
+      },
+      "min_charge_2z": 1,
+      "safety_factor_bps": 10000,
+      "context_window": 8000,
+      "max_output_tokens": 1000,
       "ttfb_timeout_ms": 15000,
       "enabled": true
     },

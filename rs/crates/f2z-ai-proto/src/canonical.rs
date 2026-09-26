@@ -10,9 +10,15 @@
 //!   catalogue number is an integer (prices in nano-USD, ratios in basis
 //!   points), so a float is refused outright rather than canonicalized. The
 //!   2⁵³ bound is I-JSON's (RFC 7493): beyond it, a JavaScript verifier would
-//!   silently read a different number than the one that was signed. `-0`,
-//!   `1.0` and `1e3` are refused too, even though they denote integers: a
-//!   signer should never emit them, and refusing is the fail-closed answer.
+//!   silently read a different number than the one that was signed. `1.0`
+//!   and `1e3` are refused too, even though they denote integers: a signer
+//!   should never emit them, and refusing is the fail-closed answer. `-0` is
+//!   refused as well — except in a build where a dependent has unified
+//!   `serde_json/arbitrary_precision` on, where serde_json itself reads it as
+//!   the integer 0 and it canonicalizes to `0`, RFC 8785's own answer. In that
+//!   build every non-integer number is refused at parse by [`parse_strict`]
+//!   instead of here; integers behave identically in both builds, which the
+//!   suite shows by passing under `--features serde_json/arbitrary_precision`.
 //! * **Object members are sorted by the UTF-16 code units of their names**,
 //!   as JCS §3.2.3 requires (not by UTF-8 bytes, which order differently above
 //!   U+FFFF).
@@ -35,6 +41,7 @@ use serde_json::Value;
 pub const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 /// Why a value has no canonical form.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CanonicalError {
     /// A number that is not an integer.
@@ -69,6 +76,10 @@ impl core::error::Error for CanonicalError {}
 pub fn parse_strict(json: &[u8]) -> Result<Value, serde_json::Error> {
     serde_json::from_slice::<NoDuplicates>(json).map(|v| v.0)
 }
+
+/// The private map key `serde_json`'s `arbitrary_precision` feature uses to
+/// carry a number through `visit_map`.
+const ARBITRARY_PRECISION_TOKEN: &str = "$serde_json::private::Number";
 
 /// A [`Value`] whose deserialization refuses duplicate member names.
 struct NoDuplicates(Value);
@@ -133,6 +144,21 @@ impl<'de> serde::de::Visitor<'de> for NoDuplicatesVisitor {
     fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
         let mut object = serde_json::Map::new();
         while let Some(name) = map.next_key::<alloc::string::String>()? {
+            if name == ARBITRARY_PRECISION_TOKEN {
+                // serde_json with `arbitrary_precision` — which any crate in a
+                // dependent's graph can switch on by feature unification —
+                // hands a number that is not a plain u64/i64 (every float) to
+                // `visit_map` as a one-member map under this key. Accepting it
+                // would turn that number into an object and change the
+                // canonical bytes; refuse it instead — the catalogue admits
+                // integers only, so nothing valid is lost. (A JSON
+                // document that literally uses this member name is refused
+                // too: no honest catalogue does.)
+                return Err(serde::de::Error::custom(
+                    "non-integer number (serde_json `arbitrary_precision` form) \
+                     or reserved member name; canonical JSON admits integers only",
+                ));
+            }
             if object.contains_key(&name) {
                 return Err(serde::de::Error::custom(format_args!(
                     "duplicate member name {name:?}"
@@ -198,7 +224,11 @@ fn write_integer(out: &mut Vec<u8>, n: &serde_json::Number) -> Result<(), Canoni
         }
         push_decimal(out, u);
     } else if let Some(i) = n.as_i64() {
-        // as_u64 failed, so i < 0.
+        // as_u64 failed, so i < 0. Guarded anyway: emitting `-` before a
+        // zero magnitude would produce `-0`, which is not canonical.
+        if i >= 0 {
+            return Err(CanonicalError::NonIntegerNumber);
+        }
         let magnitude = i.unsigned_abs();
         if magnitude > MAX_SAFE_INTEGER {
             return Err(CanonicalError::UnsafeInteger);
@@ -296,22 +326,64 @@ mod tests {
     }
 
     #[test]
+    fn every_control_character_is_escaped_in_lowercase_and_del_is_not() {
+        // 0x00–0x1f: the five short forms, everything else `\u00xx` with
+        // lowercase hex. 0x7f (DEL) is not a control character to JCS and is
+        // emitted literally.
+        let mut input = String::new();
+        let mut expected = String::from("\"");
+        for c in 0u8..0x20 {
+            input.push(char::from(c));
+            expected.push_str(&match c {
+                0x08 => "\\b".into(),
+                0x09 => "\\t".into(),
+                0x0a => "\\n".into(),
+                0x0c => "\\f".into(),
+                0x0d => "\\r".into(),
+                _ => alloc::format!("\\u{c:04x}"),
+            });
+        }
+        input.push('\u{7f}');
+        expected.push('\u{7f}');
+        expected.push('"');
+        let out = to_canonical_json(&Value::String(input)).unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), expected);
+        assert!(expected.contains("\\u001a") && expected.contains("\\u001f"));
+    }
+
+    #[test]
+    fn the_arbitrary_precision_number_token_is_refused() {
+        // What serde_json hands `visit_map` for `1.5` when the feature is on.
+        assert!(parse_strict(br#"{"$serde_json::private::Number":"1.5"}"#).is_err());
+        assert!(parse_strict(br#"{"a":[{"$serde_json::private::Number":"1"}]}"#).is_err());
+    }
+
+    #[test]
     fn duplicate_member_names_are_refused_at_any_depth() {
         assert!(parse_strict(br#"{"a":1,"a":2}"#).is_err());
         assert!(parse_strict(br#"{"x":[{"b":1,"c":{"d":0,"d":0}}]}"#).is_err());
-        let ok = parse_strict(br#"{"a":{"a":1},"b":[1.5,null,"s",true]}"#).unwrap();
+        // Integers only here: under `arbitrary_precision` a float is refused
+        // at parse (see `the_arbitrary_precision_number_token_is_refused`).
+        let ok = parse_strict(br#"{"a":{"a":1},"b":[-15,null,"s",true]}"#).unwrap();
         let expected: Value =
-            serde_json::from_str(r#"{"a":{"a":1},"b":[1.5,null,"s",true]}"#).unwrap();
+            serde_json::from_str(r#"{"a":{"a":1},"b":[-15,null,"s",true]}"#).unwrap();
         assert_eq!(ok, expected);
     }
 
     #[test]
     fn integers_only_within_the_safe_range() {
         assert_eq!(canon("[0,-7,9007199254740991]"), "[0,-7,9007199254740991]");
-        // `-0` too: serde_json reads it as a float. Python reads it as the int 0, so
-        // a signer that emitted it would be refused here — fail closed, and no
-        // honest signer writes `-0`.
-        for bad in ["1.5", "1e3", "1.0", "-0"] {
+        // `-0`: serde_json reads it as a float and it is refused — unless a
+        // dependent unified serde_json's `arbitrary_precision` on, where it
+        // reads as the integer 0 and canonicalizes to `0`, which is exactly
+        // RFC 8785's (and Python's) answer. Either way it is never `-0`.
+        let neg_zero: Value = serde_json::from_str("-0").unwrap();
+        match to_canonical_json(&neg_zero) {
+            Err(CanonicalError::NonIntegerNumber) => {}
+            Ok(bytes) => assert_eq!(bytes, b"0"),
+            other => panic!("-0: {other:?}"),
+        }
+        for bad in ["1.5", "1e3", "1.0"] {
             let v: Value = serde_json::from_str(bad).unwrap();
             assert_eq!(
                 to_canonical_json(&v),

@@ -29,7 +29,11 @@ use serde::{Deserialize, Serialize};
 use crate::chat::{FinishReason, ToolCall, Usage, UsageSource};
 use crate::error::ApiError;
 
+/// Every event name this crate knows, in grammar order.
+pub const KNOWN_EVENTS: [&str; 6] = ["meta", "delta", "tool_call", "usage", "done", "error"];
+
 /// One event of a chat stream.
+#[non_exhaustive]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
@@ -91,6 +95,7 @@ pub struct Done {
 }
 
 /// Why an SSE frame could not be turned into an [`Event`].
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum EventError {
     /// The `event:` name is not one this crate knows. Skip the frame.
@@ -171,11 +176,25 @@ impl Event {
 
     /// Parse one SSE frame's `event:` name and its (joined) `data:` payload.
     ///
+    /// # Framing the caller does
+    ///
+    /// This crate does no I/O and does not split a byte stream. The caller's
+    /// SSE reader (per the WHATWG EventSource rules) splits frames on a blank
+    /// line, accepts `\n`, `\r\n` or `\r` line endings, takes the value after
+    /// `event:` (one optional leading space removed) as `name`, and joins the
+    /// `data:` lines with `\n` as `data`. The gateway always sends exactly one
+    /// `data:` line per frame. A frame with no `event:` line is not one of
+    /// ours; comment lines (`:`) and `id:`/`retry:` fields are the reader's to
+    /// drop. As a guard against a reader that splits on `\n` alone, a
+    /// trailing `\r` on `name` is removed here.
+    ///
     /// # Errors
     ///
-    /// [`EventError::UnknownEvent`] for a name this crate does not know;
-    /// [`EventError::Payload`] for a payload that does not fit the name.
+    /// [`EventError::UnknownEvent`] for a name this crate does not know —
+    /// skip the frame; [`EventError::Payload`] for a payload that does not
+    /// fit the name.
     pub fn from_sse(name: &str, data: &str) -> Result<Self, EventError> {
+        let name = name.strip_suffix('\r').unwrap_or(name);
         let parsed = match name {
             "meta" => serde_json::from_str(data).map(Self::Meta),
             "delta" => serde_json::from_str(data).map(Self::Delta),
@@ -186,5 +205,26 @@ impl Event {
             other => return Err(EventError::UnknownEvent(other.into())),
         };
         parsed.map_err(EventError::Payload)
+    }
+
+    /// Parse the tagged IPC form (`{"type":"meta",…}`).
+    ///
+    /// Prefer this to deserializing [`Event`] directly: a `type` this crate
+    /// does not know comes back as the skippable
+    /// [`EventError::UnknownEvent`], exactly as [`Event::from_sse`] reports
+    /// it, rather than as an opaque deserialization error.
+    ///
+    /// # Errors
+    ///
+    /// [`EventError::UnknownEvent`] for an unknown `type`;
+    /// [`EventError::Payload`] for anything else that does not parse.
+    pub fn from_ipc_json(json: &str) -> Result<Self, EventError> {
+        let value: serde_json::Value = serde_json::from_str(json).map_err(EventError::Payload)?;
+        if let Some(kind) = value.get("type").and_then(serde_json::Value::as_str)
+            && !KNOWN_EVENTS.contains(&kind)
+        {
+            return Err(EventError::UnknownEvent(kind.into()));
+        }
+        serde_json::from_value(value).map_err(EventError::Payload)
     }
 }

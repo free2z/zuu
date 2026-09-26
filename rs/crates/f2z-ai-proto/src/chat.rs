@@ -180,6 +180,7 @@ pub struct Usage {
 }
 
 /// Where a [`Usage`] came from.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UsageSource {
@@ -189,9 +190,14 @@ pub enum UsageSource {
     /// The provider reported none; the gateway estimated it from the streamed
     /// output and recorded that it did.
     Estimated,
+    /// A source newer than this crate. Deserialization only: an old client
+    /// must not throw away a paid-for answer over a label it does not know.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Why generation stopped.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FinishReason {
@@ -230,6 +236,7 @@ pub struct AssistantMessage {
 }
 
 /// One part of an [`AssistantMessage`].
+#[non_exhaustive]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OutputPart {

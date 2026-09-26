@@ -108,7 +108,14 @@ impl Bps {
 /// Token prices are **nano-USD per million tokens**; image and tool prices are
 /// nano-USD per image / per tool call. `$3.00 / 1M` input is
 /// `input_nusd_per_mtok: 3_000_000_000`.
+///
+/// Decoding refuses unknown members (`deny_unknown_fields`). This is a signed
+/// price list: a price dimension this crate does not know about would
+/// otherwise be silently priced at zero — failing open, on money. A new
+/// dimension therefore needs a catalogue schema bump
+/// ([`crate::catalog::CATALOG_SCHEMA`]), which old consumers refuse.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ModelPrices {
     /// Uncached input tokens.
     pub input_nusd_per_mtok: u64,
@@ -150,6 +157,7 @@ impl Charge {
 
 /// Why a price could not be computed. The only failure is arithmetic overflow
 /// on an absurd input; every realistic call prices without error.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PricingError {
     /// An intermediate or final value did not fit its integer type.
