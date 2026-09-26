@@ -30,7 +30,7 @@ field the crate does not yet define, it is such an addition.
 | Ids | `call_id` is a UUIDv7 assigned by the gateway and returned in the `X-F2Z-Call-Id` response header on every `/v1/chat` response, streamed or not, including errors after a call was created |
 | Idempotency | `Idempotency-Key` header, 1–128 ASCII characters, scoped to (app, user). Recommended on every `/v1/chat` (§2.5) |
 | Rate limits | Per (app, user): a token bucket on requests and a concurrency limit of **4 open streams per user**. Exceeding either is `429` with `Retry-After` (§7) |
-| Timeouts | Connect and first-byte limits are per model and published in `/v1/models`; a stream that produces nothing for **60 s** ends with `error provider_timeout`; no call runs longer than **300 s** |
+| Timeouts | The first-byte limit is per model and published in `/v1/models` (`ttfb_timeout_ms`); the provider connect timeout is a fixed 5 s; a stream that produces nothing for **60 s** ends with `error provider_timeout`; no call runs longer than **300 s** |
 
 ## 2. `POST /v1/chat`
 
@@ -81,8 +81,9 @@ Each arrives, if it does, as a priced, documented addition.
 
 ### 2.2 What happens before the first byte
 
-In order. Each step's failure is an error response *before* any stream
-begins, so a client that has received `meta` knows every check passed.
+In order. Steps 1–6 fail as HTTP error responses, before any stream
+begins; step 7 fails inside the stream (below). A client that has
+received `meta` knows every step passed.
 
 1. **Token.** Signature, `iss`, `aud`, `exp`, `aep`, `agen`
    ([oidc.md](./oidc.md) §6). Failure → `401 invalid_token` /
@@ -105,8 +106,10 @@ begins, so a client that has received `meta` knows every check passed.
    ledger's own answer decides: `402`, `403 cap_exceeded`,
    `403 account_frozen`, `409 too_many_holds`.
 7. **Provider request.** A provider error here, on the primary and any
-   `fallback`, releases the hold and answers `502 provider_error`,
-   `503 unavailable` or `504 provider_timeout`. Nothing was charged.
+   `fallback`, releases the hold and ends the (already open) stream with
+   a lone `error` event carrying `provider_error`, `unavailable` or
+   `provider_timeout` and `charged_2z: 0`. Nothing was charged. In
+   non-streamed mode the same failure is the HTTP `502`, `503` or `504`.
 
 The HTTP response headers (§2.3) are sent as soon as the hold exists —
 step 6 — so that the client's connection is established and `: ping`
@@ -163,7 +166,8 @@ same key** is receipt recovery — "did my call happen, and what did it
 cost?" — and can never do new work; **retrying a failed call** that the
 user wants attempted again is a new key. In particular a call that failed
 before `meta` with a retryable code is recorded as failed, and re-sending
-its key returns that record forever; the SDK's retry uses a fresh key.
+its key returns that record for the whole 24-hour window (after which the
+key is simply new); the SDK's retry uses a fresh key rather than waiting.
 
 ## 3. The SSE event grammar
 
@@ -225,7 +229,7 @@ data: {"call_id":"019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c","model":"gpt-5-mini","re
 |---|---|
 | `call_id` | The call. Same as the `X-F2Z-Call-Id` header |
 | `model` | The model actually serving the call (differs from `requested_model` only after `fallback`) |
-| `hold_2z` | The 2Z reserved for this call — the **most** it can charge, except in the write-off case of [metering.md](./metering.md) §5.5 |
+| `hold_2z` | The 2Z reserved for this call: the ceiling on its charge, except in the write-off case of [metering.md](./metering.md) §5.5 and except that an extension for usage outside the initial estimate can raise it (`done.hold_2z` is the final value; [metering.md](./metering.md) §3) |
 | `requested_model`, `provider` | Informational: what was asked for, and `openai`, `anthropic`, `xai`, … |
 | `max_output_tokens` | The effective output cap after clamping (§2.2 step 5). A client SHOULD show the user when this is lower than asked |
 | `input_tokens_estimate` | What the hold was computed from |
@@ -258,8 +262,9 @@ field set of `delta` will grow (`kind`) rather than change if that changes.
 ### 3.4 `tool_call`
 
 One **complete** tool call. The gateway buffers a provider's argument
-fragments and emits the call once its arguments are complete JSON, so a
-client never parses partial JSON.
+fragments and emits the call once the provider has finished producing
+them, so a client never sees a fragment; whether the finished text is
+valid JSON is the model's doing, not the gateway's promise.
 
 ```
 event: tool_call
@@ -322,8 +327,8 @@ data: {"charged_2z":1,"receipt_id":"rcpt_019a2f1d-2b0e-7c4a-9f11-6d0e2a8b3c44","
 | `receipt_id` | The ledger's id for this settlement — what a statement line points at. Distinct from `call_id`; absent while `settlement` is `pending` |
 | `finish_reason` | `stop`, `length` (hit `max_output_tokens` — check `meta` for whether that was clamped), `tool_calls`, `content_filter`, `cancelled` |
 | `balance_hint_milli_2z` | The user's **available** balance after this settlement, as of settlement. A hint: other calls may have moved it. `GET /api/sdk/v1/balance` is authoritative |
-| `settlement` | `settled` (the default when absent), or `pending` when the ledger had not confirmed the charge within 10 s of the provider finishing ([metering.md](./metering.md) §5.11). When `pending`, every money field except `hold_2z` is **absent**, and the client reads `GET /v1/calls/{id}` until `status` leaves `settling` |
-| `hold_2z`, `released_2z` | What was reserved and what was given back. `charged + released = hold` except in the write-off case |
+| `settlement` | `settled` (the default when absent); `pending` when the ledger had not confirmed the charge within 10 s of the provider finishing ([metering.md](./metering.md) §5.11) — every money field except `hold_2z` is then **absent** and the client reads `GET /v1/calls/{id}` until `status` leaves `settling`; or `released` when the settler found the hold already expired ([metering.md](./metering.md) §5.6) — `charged_2z` is `0` and no `receipt_id` exists |
+| `hold_2z`, `released_2z` | The **final** reservation (it can exceed `meta.hold_2z` after an extension) and what was given back. `charged + released = hold` except in the write-off case |
 | `collected_milli_2z`, `shortfall_milli_2z` | What was actually taken, and what could not be ([metering.md](./metering.md) §5.5). `collected = charged × 1000 − shortfall`; a receipt shows `collected` when `shortfall` is non-zero |
 | `cap_remaining_milli_2z` | Remaining spend under the grant's cap for the current period; `null` when the grant has no cap |
 | `usage_source` | As in `usage` |
@@ -431,13 +436,16 @@ rest are tolerated additions.
 A failure **after output began** in non-streamed mode is an HTTP **`502`**
 whatever the stream-level code would have been — `provider_error`,
 `provider_timeout`, `internal` — with that code preserved in the
-envelope's `code`, and `details` carrying `call_id`, `charged_2z`,
-`receipt_id`, `partial: true` and the partial `message`. The client is
-charged for what was produced exactly as in a stream, and this is why
-streaming is the default. A content-filter stop is never a failure in
-this mode: it is `200` with `finish_reason: "content_filter"`. A
-`settlement: "pending"` outcome is `200` with the money fields absent, as
-in `done`.
+envelope's `code`, and `details` carrying exactly the `error` event's
+fields (§3.7): `call_id`, `settlement`, `charged_2z`, `receipt_id`,
+`collected_milli_2z`, `shortfall_milli_2z`, `partial: true`, plus the
+partial `message`. The client is charged for what was produced exactly as
+in a stream, and this is why streaming is the default. A content-filter
+stop is never a failure in this mode: it is `200` with
+`finish_reason: "content_filter"`. On a **successful** completion,
+`settlement: "pending"` or `"released"` is `200` with the money fields
+absent or zero, as in `done`; on a failure it stays inside the `502`'s
+`details`.
 
 ## 5. `GET /v1/models`
 
@@ -482,7 +490,7 @@ model ids, API styles, safety factors) are not projected.
 |---|---|
 | `catalog_version` | The signed catalogue's `version`: an integer that only increases. A `meta` event does not carry it; `GET /v1/calls/{id}` does |
 | `includes_markup_bps` | The markup the calling user consented to for this app, already inside every price below. `0` for an app without markup |
-| `prices.*_milli_2z_per_mtok` | Milli-2Z per **million** tokens (`mtok`), rounded **up** to an integer from the exact rate ([metering.md](./metering.md) §2.4) — a client's own estimate is never below the ledger's charge. `0` means the model has no such price (no cache pricing; no per-image price, so images are billed as tokens) |
+| `prices.*_milli_2z_per_mtok` | Milli-2Z per **million** tokens (`mtok`), rounded **up** to an integer from the exact rate ([metering.md](./metering.md) §2.4) — a client's own estimate from these is within one 2Z of the ledger's charge, not a bound. `0` means the model has no such price (no cache pricing; no per-image price, so images are billed as tokens) |
 | `image_milli_2z`, `tool_call_milli_2z` | Per-unit prices where the provider bills per unit; `0` otherwise |
 | `min_charge_2z` | The floor for a call on this model, in whole 2Z. Never below `1`: the catalogue refuses a model priced at zero minimum |
 | `ttfb_timeout_ms` | How long the gateway waits for the provider's first byte before `504 provider_timeout` |
@@ -560,8 +568,10 @@ can read it. Requires `ai:invoke`.
 §5.11), `settled` (charged; `charged_2z` ≥ `min_charge_2z`), `released`
 (nothing charged — the provider failed before output, or the hold expired
 unsettled), `settled_partial` (an error or cancellation after output;
-charged for what was produced). `error` is `null` or `{code, message}` for
-a call that ended in an `error` event. `collected_milli_2z` is what was
+charged for what was produced). `error` is `null`, or `{code, message}`
+for a call that ended in an `error` event or whose hold expired unsettled
+(then `unavailable`, written by the sweeper — [metering.md](./metering.md)
+§5.6). `collected_milli_2z` is what was
 actually taken (`charged_2z × 1000 − shortfall_milli_2z`). `replayed` is
 `true` when the record was returned by an idempotent replay (§2.5).
 Records are readable for 90 days. Prompts and completions are **not** in

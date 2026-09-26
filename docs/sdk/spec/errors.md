@@ -105,7 +105,7 @@ always `502` with the code preserved ([chat-api.md](./chat-api.md) §4).
 | 503 | `unavailable` | yes | See §2: draining, revocation state unknown, or the provider's circuit breaker open. Nothing charged |
 | 503 | `catalog_unavailable` | yes | The gateway has no verified, unexpired price catalogue and refuses to price anything |
 | 500 | `internal` | yes | A gateway fault. Nothing charged if before `meta`; otherwise settled from what is known |
-| (SDK-local) | `stream_interrupted` | yes | **Not a gateway code** and not in `ErrorCode`: an SDK synthesises it when the connection closed without a terminal event. Consult `GET /v1/calls/{id}` |
+| (SDK-local) | `stream_interrupted` | yes | **Not a gateway code** and not in `ErrorCode`: an SDK synthesises it when the connection closed without a terminal event, and it never appears in a call record — a call whose gateway died records `unavailable` ([metering.md](./metering.md) §5.6). Consult `GET /v1/calls/{id}` |
 
 A content-filter stop is **not an error** on any surface: it is
 `finish_reason: "content_filter"` on `done` or on the non-streamed
@@ -146,7 +146,7 @@ Codes specific to [purchase.md](./purchase.md); the envelope is §1.
 |---|---|---|---|---|
 | 400 | `invalid_quantity` | no | Below the rail's minimum, above its maximum, not a whole 2Z, or not one of the rail's fixed packs | `min_2z`, `max_2z`, `packs` |
 | 400 | `rail_unavailable` | no | The rail is not offered to this app or on this platform (for example `apple_iap` from a non-iOS client) | `rail` |
-| 409 | `intent_not_pending` | no | The intent is `failed` or in a post-credit reversal state; the operation does not apply. (A receipt resubmitted for an intent that is already `credited` is **not** an error: it answers `200` with the intent; an `expired` IAP intent still accepts a verifying receipt) | `status` |
+| 409 | `intent_not_pending` | no | The intent is `failed`; the operation does not apply. (A receipt resubmitted for an intent that is already `credited`, `expired` or in a reversal state is **not** an error: it answers `200` with the intent — [purchase.md](./purchase.md) §4.4) | `status` |
 | 409 | `receipt_already_used` | no | This store transaction already credited a **different** purchase intent | `purchase_id` |
 | 422 | `receipt_invalid` | no | The store receipt did not verify, names a different product or app, is not a production transaction, was revoked, or its account token does not match this intent | `reason` ∈ `signature`, `product`, `app`, `environment`, `revoked`, `account_token` |
 | 202 | — | — | Not an error: a Google purchase whose store state is still pending ([purchase.md](./purchase.md) §4.3). The intent is returned with `status: pending` and `rail_data.store_state: "pending"`; resubmit later or wait for the poll | — |
@@ -156,6 +156,10 @@ Codes specific to [purchase.md](./purchase.md); the envelope is §1.
 
 - **Status and code agree.** The tables above are exhaustive for which
   status a code arrives with; a code never changes status between servers.
+  The one documented exception is a non-streamed call that fails **after
+  output began**, which is always `502` whatever the code, so that the
+  partial result and its settlement travel in one shape
+  ([chat-api.md](./chat-api.md) §4).
 - **Money errors are never retryable by the client alone.** `402` and
   `403 cap_exceeded` say what would have to change (`details`); an SDK shows
   the buy or cap surface rather than retrying.

@@ -156,7 +156,10 @@ Consequences that follow directly:
 
 - **MUST / SHOULD / MAY** are used as in RFC 2119.
 - JSON examples are complete unless a line reads `...`.
-- All timestamps are RFC 3339 in UTC with a `Z` suffix.
+- Timestamps in this contract's own JSON (the gateway and account APIs)
+  are RFC 3339 in UTC with a `Z` suffix. Where a standard dictates
+  otherwise the standard wins: OIDC claims (`exp`, `iat`, `auth_time`) and
+  the signed catalogue (`issued_at`, `expires_at`) are Unix seconds.
 - Identifiers (`call_id`, purchase `id`, `hold` ids) are UUIDs rendered in
   lower-case hyphenated form. Call ids are UUIDv7, so they sort by time.
 - "Native client" means an app running on a device the user controls —

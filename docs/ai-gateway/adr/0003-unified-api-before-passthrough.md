@@ -29,8 +29,10 @@ switches models switches parsers.
 of [chat-api.md](../../sdk/spec/chat-api.md), over every provider. Its
 request schema is the intersection the platform can price and meter
 today — messages with text and inline image parts, function tools that
-the client executes, an output cap, a temperature, and streaming — and
-its usage event is one shape whatever the provider reported.
+the client executes, an output cap, and streaming — and its usage event
+is one shape whatever the provider reported. Sampling controls such as a
+temperature are not in v1: they are cheap to add and were left out so
+that the first schema is exactly what every provider adapter honours.
 
 Native passthrough endpoints (`/v1/native/<provider>/…`) are a **later
 addition**, and when they ship they are:
@@ -80,7 +82,7 @@ unified API, and the reference app uses only it.
 - **Passthrough only, with a "you pay whatever it costs" clause.** Not
   compatible with a hold: the worst case of an arbitrary native request is
   unbounded. Not compatible with the promise to the user that a call costs
-  at most what `meta.hold_2z` says.
+  at most its hold.
 - **A unified API that is the union of every provider's features.** A
   schema nobody can implement completely, whose fields silently do
   nothing on most models. The intersection is smaller and honest; growth

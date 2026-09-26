@@ -87,13 +87,20 @@ the processor's or store's *current* view: `refunded_minor` (cumulative,
 as the processor reports it) and `disputed_minor` (the amount under an
 open or lost dispute; `0` once a dispute is won). The 2Z taken back from
 the user for a line is always recomputed as
-`floor(credited_milli_2z × (refunded_minor + disputed_minor) / amount_minor)`,
-and the ledger is moved by the **difference** between that number and
-what was previously taken back — which may be negative (a re-credit). A
-notification delivered twice, out of order, or replayed after a won
-dispute therefore changes nothing, because it sets a value rather than
-adding one; and a partial refund followed by a won dispute restores
-exactly the dispute's share.
+`floor(credited_milli_2z × min(amount_minor, refunded_minor + disputed_minor) / amount_minor)`
+— never more than the line credited, however the processor overlaps a
+refund and a dispute on the same money — and the ledger is moved by the
+**difference** between that number and what was previously taken back,
+which may be negative (a re-credit). Two rules make "set, don't add"
+safe against ordering: every processor event is applied only if it is
+**newer than the last event applied to that line** (by the processor's
+own event sequence or timestamp), and on any event that arrives out of
+order, or names a value below the one already held, the platform
+**re-reads the processor's current state** for the charge and sets the
+line from that rather than from the event. A notification delivered
+twice, out of order, or replayed after a won dispute therefore changes
+nothing; and a partial refund followed by a won dispute restores exactly
+the dispute's share.
 
 ### 1.3 Polling
 
@@ -150,7 +157,7 @@ never touches card data and is outside PCI scope.
 the app prefers a hosted page:
 
 ```json
-{ "checkout_url": "https://checkout.example-processor.com/c/pay/cs_live_…" }
+{ "checkout_url": "https://checkout.processor.example/c/pay/cs_live_…" }
 ```
 
 The app opens `checkout_url` in the **system browser** (desktop: the default
@@ -231,7 +238,7 @@ third party's, and that nothing in them requires a privileged path.
 ### 4.1 Packs
 
 IAP sells **fixed packs**, because the stores require pre-registered
-products. `GET /purchases/packs` (no scope beyond a valid token):
+products. `GET /purchases/packs` (requires `purchase:create`, §1):
 
 ```json
 {
@@ -330,7 +337,12 @@ an existing one's 2Z.
 
    The platform verifies the purchase with Google's API against the app's
    registered package name and checks the product id and obfuscated
-   account id. Then:
+   account id. A purchase Google marks as a **test** purchase
+   (`purchaseType` = test, from a licence-tester account) is treated
+   exactly as Apple's `Sandbox`: accepted only for an intent created by a
+   registered test account, crediting a sandbox-flagged balance that
+   cannot be spent in production, `422 receipt_invalid` with
+   `reason: "environment"` otherwise. Then:
 
    - `purchaseState` **pending** (the user chose a deferred payment
      method): nothing is credited. The endpoint answers `202` with the
@@ -362,12 +374,16 @@ an existing one's 2Z.
 ### 4.4 Receipt endpoint, both stores
 
 `POST /purchases/{id}/receipt` requires `purchase:create`, the same user
-and app as the intent, and an intent in `pending`, `paid`, `expired` or
-`credited`. Answers: `200` with the intent (`credited` — including on
+and app as the intent, and an intent in any state but `failed` — a
+reversal state does not refuse a receipt, because a second paid
+transaction bound to the intent (§4.2) or a lost first response must
+still be able to complete; a new transaction becomes a new line, and
+resubmitting a reversed line's transaction answers `200` with the intent
+as it is. Answers: `200` with the intent (`credited` — including on
 resubmission), `202` with the intent (`pending`, Google deferred
 payment), `422 receipt_invalid`, `409 receipt_already_used` (another
-intent), `409 intent_not_pending` (the intent is `failed` or in a
-post-credit reversal state), `503 store_unavailable` (retryable). An IAP
+intent), `409 intent_not_pending` (the intent is `failed`),
+`503 store_unavailable` (retryable). An IAP
 intent expires **24 hours** after creation for the purpose of the app's
 UI; a verifying receipt for an expired intent is still credited, because
 the store already took the money.
@@ -435,7 +451,7 @@ credited when it reaches 3 confirmations:
 | Case | Credited |
 |---|---|
 | Exact | `quantity_2z` |
-| Over- or underpayment | Pro rata at the locked rate, rounded **down** to a whole milli-2Z: `credited_milli_2z = floor(received_zat × quantity_2z / amount_zat)` |
+| Over- or underpayment | Pro rata at the locked rate, rounded **down** to a whole milli-2Z: `credited_milli_2z = floor(received_zat × quantity_2z × 1000 / amount_zat)` (the `× 1000` converts the whole-2Z quantity to milli-2Z before the one floor) |
 | First observed after `locked_until` | At the **better for the platform** of the locked rate and the rate current at first observation: `min(locked, current)` 2Z per ZEC, pro rata as above |
 | Several outputs to the same address | Each is a separate line valued at its own first observation; the intent's `credited_milli_2z` is their sum, and `rail_data.payments[]` lists them |
 | An output below `min_credit_2z` (1 2Z) | Held on the intent, uncredited, and **aggregated**: once the sum of uncredited outputs on the intent reaches 1 2Z they are credited together at their individual rates. Until then `rail_data.below_minimum_zat` shows the running total |

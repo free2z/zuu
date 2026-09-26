@@ -15,8 +15,8 @@ approximation of what was billed. There is no streaming to browsers at
 all.
 
 The v1 platform needs the opposite profile: **ten thousand concurrent
-streams** per deployment as the design point, a single database round trip
-on the hot path, settlement from the provider's numbers, and drain
+streams** per deployment as the design point, at most two database round
+trips on the hot path, settlement from the provider's numbers, and drain
 behaviour that lets a rolling deploy finish every open stream without
 double-settling or losing one.
 

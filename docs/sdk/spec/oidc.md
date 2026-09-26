@@ -44,7 +44,7 @@ platform's own apps register the same way. Registration fixes:
 | `redirect_uris` | The exact set of allowed redirect URIs (§3). Matching is exact, except the port of a loopback URI |
 | `allowed_scopes` | The subset of §4 the app may request. Requesting a scope outside it fails with `invalid_scope` |
 | `markup_bps` | The developer markup in basis points applied to every AI call made through this app, credited to the developer. `0` to the platform cap (v1: **5000**, i.e. 50 %). Shown to the user at consent; changing it re-prompts consent (§5) |
-| `default_spend_cap` | The cap pre-selected on the consent screen when `ai:invoke` is requested: an amount in milli-2Z and a period (§5) |
+| `default_spend_cap_2z`, `default_cap_period` | The cap pre-selected on the consent screen when `ai:invoke` is requested: a whole number of 2Z and a period (§5) |
 | `allow_zcash_assertion` | Whether the app may use the Zcash sign-in grant (§9.4). Off by default |
 | `rails` | Which purchase rails the app offers. `card` and `zcash` are on for every app; `apple_iap` and `google_iap` require the store identity below and a developer billing agreement ([purchase.md](./purchase.md) §4.0) |
 | Store identity | iOS bundle id, Android package name, and per-store verification credentials entered in the console and never returned by any API. Required for the IAP rails |
@@ -122,7 +122,7 @@ an amount and a period.
 
 | Field | Values |
 |---|---|
-| `spend_cap_2z` | A whole number of 2Z, or `null` for no cap. The user chooses; the app's `default_spend_cap` is only the pre-selection |
+| `spend_cap_2z` | A whole number of 2Z, or `null` for no cap. The user chooses; the app's `default_spend_cap_2z` is only the pre-selection |
 | `cap_period` | `day`, `week`, `month` or `total`. Periods are calendar-aligned in UTC (`day` resets at 00:00Z; `week` on Monday 00:00Z; `month` on the 1st). `total` never resets |
 
 The result is a **grant**: (user, app, scopes, cap, **consented markup**,
@@ -521,6 +521,7 @@ suite exercises the same list from the other side.
 - `aep` and `agen` are monotonic per account and per grant, and the current
   values are published to resource servers on every change.
 - A token's `scope` never exceeds the grant's scopes at issue time; a token's
-  `aud` never includes an audience no granted scope requires.
+  `aud` never includes `f2z-ai` or `f2z-api` unless a granted scope
+  requires it (`f2z-id` is always present, §6.1).
 - `auth_time` is the real time of the last interactive authentication, not
   the time of token issue.
