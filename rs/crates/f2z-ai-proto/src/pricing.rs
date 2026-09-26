@@ -1,18 +1,36 @@
 //! `price_2z` — the cost-plus 2Z pricing formula, in exact integer arithmetic.
 //!
-//! # The formula
+//! # Two steps: meter, then price
 //!
 //! ```text
-//! p     = cost_usd × 100 × (1 + platform_margin)      2Z owed to the platform side
-//! d     = p × dev_markup                              2Z owed to the app developer
-//! total = max(min_charge, ceil(p + d))                whole 2Z, ONE ceil
+//! 1. meter   cost_nusd = ceil( Σ quantity × unit price )          whole nano-USD
 //!
-//! provider  = ceil(cost)    milli-2Z   what the model provider is owed
-//! developer = floor(d)      milli-2Z   the developer's markup, never rounded up
-//! platform  = total − provider − developer   milli-2Z, including the round-up surplus
+//! 2. price   p     = cost_usd × 100 × (1 + platform_margin)       2Z
+//!            d     = p × dev_markup                               2Z
+//!            total = max(min_charge, ceil(p + d))                 whole 2Z, ONE ceil
+//!
+//!            provider  = ceil(cost)                  milli-2Z  what the model provider is owed
+//!            developer = floor(d)                    milli-2Z  the markup, never rounded up
+//!            platform  = total − provider − developer  milli-2Z, incl. the round-up surplus
 //! ```
 //!
 //! 1 2Z corresponds to $0.01 of usage, so `cost_usd × 100` is the cost in 2Z.
+//!
+//! **`cost_nusd` is the one number that crosses to the ledger.** The gateway
+//! meters a call with [`metered_cost_nusd`] and hands that integer to the
+//! ledger's settle; the ledger applies step 2. [`price_2z`] is exactly
+//! `price_nusd(metered_cost_nusd(usage))`, so an estimate or hold computed here
+//! and the settled charge are computed from the *same integer*. Pricing the
+//! exact sub-nano-USD cost directly would not be: 100 001 tokens at
+//! 66 666 000 nUSD per million is exactly 6 666 666.666 nUSD, which at a 50 %
+//! margin is 0.99999… 2Z and rounds to 1 — while the metered 6 666 667 nUSD is
+//! 1.00000005 2Z and rounds to 2.
+//! `fixtures/pricing/from_usage.json` pins that boundary.
+//!
+//! Metering rounds **up** to whole nano-USD (10⁻⁷ 2Z), so the ledger is never
+//! told a cost below the provider's. That quantization is a property of the
+//! unit, not a second rounding of the price: the 2Z amount is rounded exactly
+//! once, in step 2.
 //!
 //! # Units, and why there are no floats
 //!
@@ -20,34 +38,30 @@
 //! |---|---|---|
 //! | token prices | nano-USD per **million** tokens ([`ModelPrices`]) | `u64` |
 //! | per-image / per-tool prices | nano-USD per unit | `u64` |
-//! | a cost handed over by a caller | nano-USD ([`Cost::from_nusd`]) | `u64` |
-//! | exact internal cost | femto-USD (10⁻¹⁵ USD = 10⁻⁶ nano-USD) | `u128` |
+//! | metered cost | nano-USD | `u64` |
 //! | margin and markup | basis points ([`Bps`], 10 000 = 100 %) | `u32` |
 //! | minimum charge | whole 2Z | `u64` |
 //! | every output | milli-2Z ([`Charge`]) | `u64` |
 //!
 //! Prices are quoted per million tokens because that is how every provider
 //! publishes them, and because a per-token price in nano-USD cannot represent
-//! `$0.0375 / 1M` (37.5 nUSD). `tokens × nUSD-per-Mtok` is *exactly* a
-//! femto-USD amount, so the cost of any usage vector is an integer with no
-//! division at all. The whole formula then reduces to three integer
-//! divisions — one `ceil` for the total, one `ceil` for the provider split,
-//! one `floor` for the developer split — each over the exact numerator.
+//! `$0.0375 / 1M` (37.5 nUSD). `tokens × nUSD-per-Mtok` is exactly 10⁻⁶ nUSD,
+//! so step 1 sums integers and divides once.
 //!
 //! # Exactly one rounding of the total
 //!
-//! `total` is `ceil` of the exact rational `p + d`. No intermediate value — not
-//! `p`, not `d`, not the cost — is rounded on the way there. Rounding `p` and
-//! `d` separately would overcharge: $0.021 at a 10 % developer markup is
-//! `p = 2.1`, `d = 0.21`, `ceil(2.31) = 3`, whereas `ceil(2.1) + ceil(0.21)`
-//! would be `4`. `fixtures/pricing/worked_examples.json` pins that case.
+//! `total` is `ceil` of the exact rational `p + d`. Neither `p` nor `d` is
+//! rounded on the way there. Rounding them separately would overcharge:
+//! $0.021 at a 10 % developer markup is `p = 2.1`, `d = 0.21`,
+//! `ceil(2.31) = 3`, whereas `ceil(2.1) + ceil(0.21)` would be `4`.
+//! `fixtures/pricing/worked_examples.json` pins that case.
 //!
 //! The *splits* are computed from the same exact numerator, and only ever
 //! partition `total`: they never change it.
 //!
 //! # Parity
 //!
-//! The ledger (SQL) is the authority that settles a charge; this function
+//! The ledger (SQL) is the authority that settles a charge; this module
 //! mirrors it for estimates and holds. The JSON fixtures under
 //! `rs/crates/f2z-ai-proto/fixtures/pricing/` are the shared contract the
 //! Python and SQL implementations are tested against.
@@ -60,6 +74,8 @@ use crate::chat::Usage;
 
 /// nano-USD in one 2Z. 1 2Z = $0.01 = 10⁷ nUSD.
 pub const NUSD_PER_2Z: u64 = 10_000_000;
+/// nano-USD in one milli-2Z.
+pub const NUSD_PER_MILLI_2Z: u64 = 10_000;
 /// milli-2Z in one 2Z.
 pub const MILLI_PER_2Z: u64 = 1_000;
 /// Tokens per price unit: token prices are quoted per million tokens.
@@ -67,16 +83,10 @@ pub const TOKENS_PER_PRICE_UNIT: u64 = 1_000_000;
 /// The basis-point denominator: 10 000 bps = 100 %.
 pub const BPS_DENOMINATOR: u32 = 10_000;
 
-/// femto-USD per nano-USD.
-const FUSD_PER_NUSD: u128 = 1_000_000;
-/// femto-USD per milli-2Z: 10⁴ nUSD × 10⁶.
-const FUSD_PER_MILLI_2Z: u128 = 10_000_000_000;
-/// femto-USD per 2Z: 10⁷ nUSD × 10⁶.
-const FUSD_PER_2Z: u128 = 10_000_000_000_000;
-/// `BPS_DENOMINATOR` squared, as `u128`: `(1 + m)(1 + k)` carries two of them.
-const BPS_SQUARED: u128 = 100_000_000;
 /// `BPS_DENOMINATOR` as `u128`.
 const BPS: u128 = 10_000;
+/// `BPS_DENOMINATOR` squared: `(1 + m)(1 + k)` carries two of them.
+const BPS_SQUARED: u128 = 100_000_000;
 
 /// A proportion in basis points: `Bps(5_000)` is 50 %, `Bps(10_000)` is 100 %.
 ///
@@ -112,83 +122,6 @@ pub struct ModelPrices {
     pub image_nusd: u64,
     /// Per server-side tool invocation the catalogue prices.
     pub tool_call_nusd: u64,
-}
-
-/// An exact provider cost, in femto-USD (10⁻¹⁵ USD).
-///
-/// Obtained from a usage vector with [`Cost::of_usage`] (no rounding at all)
-/// or from a caller-supplied nano-USD amount with [`Cost::from_nusd`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Cost {
-    fusd: u128,
-}
-
-impl Cost {
-    /// A cost stated in whole nano-USD — the unit the ledger's `settle`
-    /// receives as `cost_nusd`.
-    #[must_use]
-    pub fn from_nusd(nusd: u64) -> Self {
-        // u64::MAX × 10⁶ < u128::MAX, so this cannot overflow; saturate
-        // anyway rather than carry an arithmetic-side-effect allowance.
-        Self {
-            fusd: u128::from(nusd).saturating_mul(FUSD_PER_NUSD),
-        }
-    }
-
-    /// The exact cost of `usage` at `prices`: `Σ quantity × price`, with no
-    /// division and therefore no rounding.
-    ///
-    /// # Errors
-    ///
-    /// [`PricingError::Overflow`] if the cost does not fit in `u128`
-    /// femto-USD (about 3.4 × 10²³ USD). Only an absurd usage vector reaches
-    /// it.
-    pub fn of_usage(usage: &Usage, prices: &ModelPrices) -> Result<Self, PricingError> {
-        let per_mtok = [
-            (usage.input_tokens, prices.input_nusd_per_mtok),
-            (usage.cached_input_tokens, prices.cached_input_nusd_per_mtok),
-            (usage.cache_write_tokens, prices.cache_write_nusd_per_mtok),
-            (usage.output_tokens, prices.output_nusd_per_mtok),
-        ];
-        let per_unit = [
-            (usage.images, prices.image_nusd),
-            (usage.tool_calls, prices.tool_call_nusd),
-        ];
-        let mut fusd: u128 = 0;
-        // tokens × (nUSD / 10⁶ tokens) = 10⁻⁶ nUSD = femto-USD, exactly.
-        for (quantity, price) in per_mtok {
-            let term = u128::from(quantity).checked_mul(u128::from(price));
-            fusd = term
-                .and_then(|t| fusd.checked_add(t))
-                .ok_or(PricingError::Overflow)?;
-        }
-        for (quantity, price) in per_unit {
-            let term = u128::from(quantity)
-                .checked_mul(u128::from(price))
-                .and_then(|t| t.checked_mul(FUSD_PER_NUSD));
-            fusd = term
-                .and_then(|t| fusd.checked_add(t))
-                .ok_or(PricingError::Overflow)?;
-        }
-        Ok(Self { fusd })
-    }
-
-    /// The exact cost in femto-USD.
-    #[must_use]
-    pub fn femto_usd(self) -> u128 {
-        self.fusd
-    }
-
-    /// The cost rounded **up** to whole nano-USD — the value to hand the
-    /// ledger's `settle(cost_nusd)`. Rounding up means the ledger can never be
-    /// told a cost below the provider's.
-    ///
-    /// # Errors
-    ///
-    /// [`PricingError::Overflow`] if the result does not fit in `u64`.
-    pub fn ceil_nusd(self) -> Result<u64, PricingError> {
-        u64::try_from(ceil_div(self.fusd, FUSD_PER_NUSD)?).map_err(|_| PricingError::Overflow)
-    }
 }
 
 /// A priced call, in milli-2Z.
@@ -233,8 +166,46 @@ impl fmt::Display for PricingError {
 
 impl core::error::Error for PricingError {}
 
-/// Price a call from its usage vector: [`Cost::of_usage`] then
-/// [`price_cost`]. The cost is exact, so the total is still rounded once.
+/// Step 1: the cost of `usage` at `prices`, rounded **up** to whole nano-USD.
+///
+/// This is the `cost_nusd` the gateway hands to the ledger's settle.
+///
+/// # Errors
+///
+/// [`PricingError::Overflow`] if the cost does not fit in `u64` nano-USD
+/// (about $1.8 × 10¹⁰). Only an absurd usage vector reaches it.
+pub fn metered_cost_nusd(usage: &Usage, prices: &ModelPrices) -> Result<u64, PricingError> {
+    let per_mtok = [
+        (usage.input_tokens, prices.input_nusd_per_mtok),
+        (usage.cached_input_tokens, prices.cached_input_nusd_per_mtok),
+        (usage.cache_write_tokens, prices.cache_write_nusd_per_mtok),
+        (usage.output_tokens, prices.output_nusd_per_mtok),
+    ];
+    let per_unit = [
+        (usage.images, prices.image_nusd),
+        (usage.tool_calls, prices.tool_call_nusd),
+    ];
+    // Accumulate in 10⁻⁶ nUSD: tokens × (nUSD / 10⁶ tokens), exactly.
+    let mut micro_nusd: u128 = 0;
+    for (quantity, price) in per_mtok {
+        let term = u128::from(quantity).checked_mul(u128::from(price));
+        micro_nusd = term
+            .and_then(|t| micro_nusd.checked_add(t))
+            .ok_or(PricingError::Overflow)?;
+    }
+    for (quantity, price) in per_unit {
+        let term = u128::from(quantity)
+            .checked_mul(u128::from(price))
+            .and_then(|t| t.checked_mul(u128::from(TOKENS_PER_PRICE_UNIT)));
+        micro_nusd = term
+            .and_then(|t| micro_nusd.checked_add(t))
+            .ok_or(PricingError::Overflow)?;
+    }
+    to_u64(ceil_div(micro_nusd, u128::from(TOKENS_PER_PRICE_UNIT))?)
+}
+
+/// Meter and price a call from its usage vector:
+/// `price_nusd(metered_cost_nusd(usage, prices)?, …)`.
 ///
 /// # Errors
 ///
@@ -246,34 +217,36 @@ pub fn price_2z(
     dev_markup: Bps,
     min_charge_2z: u64,
 ) -> Result<Charge, PricingError> {
-    price_cost(
-        Cost::of_usage(usage, prices)?,
+    price_nusd(
+        metered_cost_nusd(usage, prices)?,
         platform_margin,
         dev_markup,
         min_charge_2z,
     )
 }
 
-/// Price an exact cost. See the module documentation for the formula.
+/// Step 2: price a metered cost in nano-USD. See the module documentation.
 ///
 /// # Errors
 ///
 /// [`PricingError::Overflow`] on an input too large to price.
-pub fn price_cost(
-    cost: Cost,
+pub fn price_nusd(
+    cost_nusd: u64,
     platform_margin: Bps,
     dev_markup: Bps,
     min_charge_2z: u64,
 ) -> Result<Charge, PricingError> {
-    let c = cost.fusd;
+    let c = u128::from(cost_nusd);
     let one_plus_m = BPS
         .checked_add(u128::from(platform_margin.0))
         .ok_or(PricingError::Overflow)?;
     let one_plus_k = BPS
         .checked_add(u128::from(dev_markup.0))
         .ok_or(PricingError::Overflow)?;
+    let per_2z = u128::from(NUSD_PER_2Z);
+    let per_milli = u128::from(NUSD_PER_MILLI_2Z);
 
-    // p + d = c·(1+m)·(1+k), in femto-USD × BPS².
+    // p + d = c·(1+m)·(1+k), in nUSD × BPS².
     let p_plus_d = c
         .checked_mul(one_plus_m)
         .and_then(|v| v.checked_mul(one_plus_k))
@@ -282,7 +255,7 @@ pub fn price_cost(
     let raw_2z = ceil_div(
         p_plus_d,
         BPS_SQUARED
-            .checked_mul(FUSD_PER_2Z)
+            .checked_mul(per_2z)
             .ok_or(PricingError::Overflow)?,
     )?;
     let total_2z = raw_2z.max(u128::from(min_charge_2z));
@@ -291,8 +264,8 @@ pub fn price_cost(
         .ok_or(PricingError::Overflow)?;
 
     // provider = ceil(c) in milli-2Z.
-    let provider_milli = ceil_div(c, FUSD_PER_MILLI_2Z)?;
-    // developer = floor(d) in milli-2Z, d = c·(1+m)·k (femto-USD × BPS²).
+    let provider_milli = ceil_div(c, per_milli)?;
+    // developer = floor(d) in milli-2Z, d = c·(1+m)·k (nUSD × BPS²).
     let d = c
         .checked_mul(one_plus_m)
         .and_then(|v| v.checked_mul(u128::from(dev_markup.0)))
@@ -300,7 +273,7 @@ pub fn price_cost(
     let developer_milli = d
         .checked_div(
             BPS_SQUARED
-                .checked_mul(FUSD_PER_MILLI_2Z)
+                .checked_mul(per_milli)
                 .ok_or(PricingError::Overflow)?,
         )
         .ok_or(PricingError::Overflow)?;
@@ -355,7 +328,7 @@ mod tests {
     #[test]
     fn the_worked_example_is_three_2z() {
         // $0.021 at 0 % margin: 2.1 2Z, rounded once, up, to 3.
-        let charge = price_cost(Cost::from_nusd(21_000_000), Bps::ZERO, Bps::ZERO, 1).unwrap();
+        let charge = price_nusd(21_000_000, Bps::ZERO, Bps::ZERO, 1).unwrap();
         assert_eq!(
             charge,
             Charge {
@@ -370,7 +343,7 @@ mod tests {
 
     #[test]
     fn rounding_p_and_d_separately_would_overcharge() {
-        let charge = price_cost(Cost::from_nusd(21_000_000), Bps::ZERO, Bps(1_000), 1).unwrap();
+        let charge = price_nusd(21_000_000, Bps::ZERO, Bps(1_000), 1).unwrap();
         assert_eq!(
             charge.total_2z(),
             3,
@@ -381,22 +354,22 @@ mod tests {
 
     #[test]
     fn min_charge_applies_to_a_free_call() {
-        let charge = price_cost(Cost::default(), Bps(5_000), Bps::ZERO, 1).unwrap();
+        let charge = price_nusd(0, Bps(5_000), Bps::ZERO, 1).unwrap();
         assert_eq!(charge.total_milli, 1_000);
         assert_eq!(charge.platform_milli, 1_000);
     }
 
     #[test]
     fn an_exact_whole_2z_is_not_rounded_up() {
-        let charge = price_cost(Cost::from_nusd(20_000_000), Bps::ZERO, Bps::ZERO, 0).unwrap();
+        let charge = price_nusd(20_000_000, Bps::ZERO, Bps::ZERO, 0).unwrap();
         assert_eq!(charge.total_milli, 2_000);
         assert_eq!(charge.platform_milli, 0);
     }
 
     #[test]
-    fn a_sub_nano_usd_cost_is_still_charged() {
-        // 1 token at $0.000001/1M = 1 femto-USD. It must still price to ≥ 1 2Z
-        // and the provider split must be ≥ 1 milli, never 0.
+    fn a_sub_nano_usd_cost_is_metered_up_and_still_charged() {
+        // 1 token at 1 nUSD per million tokens is 10⁻⁶ nUSD: metered to 1 nUSD,
+        // priced to ≥ 1 2Z, and the provider split is ≥ 1 milli, never 0.
         let usage = Usage {
             input_tokens: 1,
             ..Usage::default()
@@ -405,16 +378,31 @@ mod tests {
             input_nusd_per_mtok: 1,
             ..ModelPrices::default()
         };
+        assert_eq!(metered_cost_nusd(&usage, &prices).unwrap(), 1);
         let charge = price_2z(&usage, &prices, Bps::ZERO, Bps::ZERO, 0).unwrap();
         assert_eq!(charge.total_milli, 1_000);
         assert_eq!(charge.provider_milli, 1);
-        assert_eq!(
-            Cost::of_usage(&usage, &prices)
-                .unwrap()
-                .ceil_nusd()
-                .unwrap(),
-            1
-        );
+    }
+
+    #[test]
+    fn an_estimate_prices_the_same_integer_the_ledger_settles() {
+        // The boundary case adversarial review found: exact 9 999 999.999 nUSD
+        // would price to 1 2Z, the metered 6 666 667 nUSD × 1.5 to 2 2Z. The
+        // estimate must agree with settlement, so it must be 2.
+        let usage = Usage {
+            input_tokens: 100_001,
+            ..Usage::default()
+        };
+        let prices = ModelPrices {
+            input_nusd_per_mtok: 66_666_000,
+            ..ModelPrices::default()
+        };
+        let metered = metered_cost_nusd(&usage, &prices).unwrap();
+        assert_eq!(metered, 6_666_667);
+        let settled = price_nusd(metered, Bps(5_000), Bps::ZERO, 1).unwrap();
+        let estimated = price_2z(&usage, &prices, Bps(5_000), Bps::ZERO, 1).unwrap();
+        assert_eq!(estimated, settled);
+        assert_eq!(estimated.total_2z(), 2);
     }
 
     #[test]
@@ -435,7 +423,11 @@ mod tests {
             ..ModelPrices::default()
         };
         assert_eq!(
-            price_2z(&usage, &prices, Bps(u32::MAX), Bps(u32::MAX), 0),
+            price_2z(&usage, &prices, Bps::ZERO, Bps::ZERO, 0),
+            Err(PricingError::Overflow)
+        );
+        assert_eq!(
+            price_nusd(u64::MAX, Bps(u32::MAX), Bps(u32::MAX), 0),
             Err(PricingError::Overflow)
         );
     }

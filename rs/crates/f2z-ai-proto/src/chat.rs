@@ -182,6 +182,74 @@ pub enum FinishReason {
     Unknown,
 }
 
+/// The assistant turn inside a [`ChatResponse`].
+///
+/// A separate type from the request's [`Message`] on purpose: [`Message`] is
+/// strict (`deny_unknown_fields`) because a gateway must refuse what it does
+/// not understand, and a *response* decoded with those rules would make every
+/// deployed client reject a whole completed, paid-for answer the day the
+/// gateway adds a field. This type tolerates unknown fields and unknown
+/// content-part types. To send the reply back as history, convert it with
+/// [`AssistantMessage::into_message`].
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssistantMessage {
+    /// The reply's content, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub content: Vec<OutputPart>,
+    /// The tool calls the model made.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<ToolCall>,
+}
+
+/// One part of an [`AssistantMessage`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum OutputPart {
+    /// Plain text.
+    Text {
+        /// The text.
+        text: String,
+    },
+    /// A part type newer than this crate. Deserialization only; dropped by
+    /// [`AssistantMessage::into_message`].
+    #[serde(other)]
+    Unknown,
+}
+
+impl AssistantMessage {
+    /// The reply as an `assistant` [`Message`] for the next request's history.
+    /// Parts of an unknown type are dropped: this crate cannot re-send what it
+    /// cannot name.
+    #[must_use]
+    pub fn into_message(self) -> Message {
+        Message {
+            role: Role::Assistant,
+            content: self
+                .content
+                .into_iter()
+                .filter_map(|part| match part {
+                    OutputPart::Text { text } => Some(ContentPart::Text { text }),
+                    OutputPart::Unknown => None,
+                })
+                .collect(),
+            tool_calls: self.tool_calls,
+            tool_call_id: None,
+        }
+    }
+
+    /// The concatenated text of every text part.
+    #[must_use]
+    pub fn text(&self) -> String {
+        let mut out = String::new();
+        for part in &self.content {
+            if let OutputPart::Text { text } = part {
+                out.push_str(text);
+            }
+        }
+        out
+    }
+}
+
 /// The body of a `POST /v1/chat` answered with `"stream": false`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChatResponse {
@@ -190,7 +258,7 @@ pub struct ChatResponse {
     /// The catalogue model that actually answered (a fallback, if one did).
     pub model: String,
     /// The assistant's reply.
-    pub message: Message,
+    pub message: AssistantMessage,
     /// Why generation stopped.
     pub finish_reason: FinishReason,
     /// What the call used.

@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "description": "Shared pricing fixtures for f2z-ai-proto::pricing (Rust), and the Python and SQL implementations of the same formula. Expected values were computed independently with exact rationals from the formula as written: p = cost_usd*100*(1+platform_margin), d = p*dev_markup, total = max(min_charge, ceil(p+d)) whole 2Z; provider = ceil(cost), developer = floor(d), platform = total - provider - developer, all in milli-2Z. 1 2Z = $0.01 = 10,000,000 nano-USD. Margins are basis points (10000 = 100%).",
-  "input_unit": "usage: counts; prices: nano-USD per 1M tokens, or per image / per tool call",
+  "input_unit": "usage: counts; prices: nano-USD per 1M tokens, or per image / per tool call; expected.cost_nusd is the metered cost (rounded up to whole nano-USD) that settle receives",
   "cases": [
     {
       "name": "prompt_cache_mix",
@@ -29,8 +29,7 @@
         "min_charge_2z": 1
       },
       "expected": {
-        "cost_femto_usd": 13350000000000,
-        "cost_nusd_ceil": 13350000,
+        "cost_nusd": 13350000,
         "total_milli": 3000,
         "provider_milli": 1335,
         "developer_milli": 0,
@@ -38,8 +37,8 @@
       }
     },
     {
-      "name": "sub_nano_usd_cost_is_exact",
-      "note": "$0.0375/M in x 7, $0.15/M out x 3 = 712.5 nano-USD: not a whole nano-USD, carried exactly. cost_nusd_ceil (what settle receives) is 713.",
+      "name": "sub_nano_usd_cost_meters_up",
+      "note": "$0.0375/M in x 7, $0.15/M out x 3 = 712.5 nano-USD exactly; metered up to 713, the integer settle receives.",
       "input": {
         "usage": {
           "input_tokens": 7,
@@ -63,8 +62,7 @@
         "min_charge_2z": 1
       },
       "expected": {
-        "cost_femto_usd": 712500000,
-        "cost_nusd_ceil": 713,
+        "cost_nusd": 713,
         "total_milli": 1000,
         "provider_milli": 1,
         "developer_milli": 0,
@@ -97,12 +95,44 @@
         "min_charge_2z": 1
       },
       "expected": {
-        "cost_femto_usd": 12750000000000,
-        "cost_nusd_ceil": 12750000,
+        "cost_nusd": 12750000,
         "total_milli": 3000,
         "provider_milli": 1275,
         "developer_milli": 191,
         "platform_milli": 1534
+      }
+    },
+    {
+      "name": "metering_boundary_estimate_matches_settle",
+      "note": "100,001 in at 66,666,000 nUSD/M is exactly 6,666,666.666 nUSD (0.99999... 2Z at 50%, which would round to 1) but meters to 6,666,667 nUSD (1.00000005 2Z) -> 2. An estimate must price the metered integer, as settle does.",
+      "input": {
+        "usage": {
+          "input_tokens": 100001,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "reasoning_tokens": 0,
+          "images": 0,
+          "tool_calls": 0
+        },
+        "prices": {
+          "input_nusd_per_mtok": 66666000,
+          "cached_input_nusd_per_mtok": 0,
+          "cache_write_nusd_per_mtok": 0,
+          "output_nusd_per_mtok": 0,
+          "image_nusd": 0,
+          "tool_call_nusd": 0
+        },
+        "platform_margin_bps": 5000,
+        "dev_markup_bps": 0,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "cost_nusd": 6666667,
+        "total_milli": 2000,
+        "provider_milli": 667,
+        "developer_milli": 0,
+        "platform_milli": 1333
       }
     },
     {
@@ -131,8 +161,7 @@
         "min_charge_2z": 1
       },
       "expected": {
-        "cost_femto_usd": 21000000000000,
-        "cost_nusd_ceil": 21000000,
+        "cost_nusd": 21000000,
         "total_milli": 3000,
         "provider_milli": 2100,
         "developer_milli": 0,

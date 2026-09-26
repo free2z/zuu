@@ -22,8 +22,9 @@
 //! [`verify_catalog`] parses the payload once into a JSON tree, computes the
 //! signing message from that tree, verifies, and then deserializes the typed
 //! [`Catalog`] **from the same tree**. There is no second parse whose result
-//! could differ from what the signature covered — a duplicate member name,
-//! for instance, resolves identically in both.
+//! could differ from what the signature covered. A payload with a duplicate
+//! member name is refused before verification (RFC 8785 §3.1): another
+//! consumer of the same bytes might resolve the duplicate differently.
 //!
 //! Verification uses `verify_strict`, which rejects the non-canonical and
 //! small-order encodings plain `verify` tolerates. Every signature an honest
@@ -38,7 +39,7 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::canonical::{CanonicalError, to_canonical_json};
+use crate::canonical::{CanonicalError, parse_strict, to_canonical_json};
 use crate::pricing::{Bps, ModelPrices};
 
 /// Domain-separation prefix of the catalogue signing message.
@@ -273,7 +274,7 @@ pub fn verify_catalog(
         .iter()
         .find(|k| k.key_id == signature.key_id)
         .ok_or(CatalogError::UnknownKey)?;
-    let tree: Value = serde_json::from_slice(payload).map_err(CatalogError::Json)?;
+    let tree = parse_strict(payload).map_err(CatalogError::Json)?;
     let message = catalog_signing_message(&tree)?;
     key.key
         .verify_strict(&message, &signature.signature)

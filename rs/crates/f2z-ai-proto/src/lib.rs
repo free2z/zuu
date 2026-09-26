@@ -27,7 +27,7 @@
 //! | [`error`] | [`error::ErrorCode`] and its HTTP status mapping |
 //! | [`catalog`] | The signed model catalogue and [`catalog::verify_catalog`] |
 //! | [`canonical`] | The canonical JSON the catalogue signature covers |
-//! | [`pricing`] | [`pricing::price_2z`]: nano-USD in, milli-2Z out, integers only, one rounding |
+//! | [`pricing`] | [`pricing::price_2z`]: meter to nano-USD, price to milli-2Z, integers only, one rounding of the 2Z total |
 //!
 //! # What is not
 //!
@@ -38,11 +38,11 @@
 //! # Example: the worked pricing example
 //!
 //! ```
-//! use f2z_ai_proto::pricing::{Bps, Cost, price_cost};
+//! use f2z_ai_proto::pricing::{Bps, price_nusd};
 //!
-//! // $0.021 of provider cost at 0 % margin and no developer markup is 2.1 2Z,
-//! // rounded once, up, to 3 2Z.
-//! let charge = price_cost(Cost::from_nusd(21_000_000), Bps(0), Bps(0), 1)?;
+//! // $0.021 (21 000 000 nano-USD) of provider cost at 0 % margin and no
+//! // developer markup is 2.1 2Z, rounded once, up, to 3 2Z.
+//! let charge = price_nusd(21_000_000, Bps(0), Bps(0), 1)?;
 //! assert_eq!(charge.total_2z(), 3);
 //! assert_eq!(charge.provider_milli, 2_100);
 //! assert_eq!(charge.platform_milli, 900);
@@ -74,4 +74,4 @@ pub mod pricing;
 pub use chat::{ChatRequest, ChatResponse, Usage};
 pub use error::ErrorCode;
 pub use event::Event;
-pub use pricing::{Bps, Charge, Cost, ModelPrices, price_2z, price_cost};
+pub use pricing::{Bps, Charge, ModelPrices, metered_cost_nusd, price_2z, price_nusd};

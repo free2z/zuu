@@ -13,7 +13,8 @@
 )]
 
 use f2z_ai_proto::chat::{
-    ChatRequest, ContentPart, FinishReason, Message, Role, ToolCall, Usage, UsageSource,
+    AssistantMessage, ChatRequest, ChatResponse, ContentPart, FinishReason, Message, OutputPart,
+    Role, ToolCall, Usage, UsageSource,
 };
 use f2z_ai_proto::error::{ApiError, ErrorBody, ErrorCode};
 use f2z_ai_proto::event::{Delta, Done, Event, EventError, Meta, UsageEvent};
@@ -240,4 +241,40 @@ fn an_assistant_message_round_trips() {
         serde_json::to_string(&m).unwrap(),
         r#"{"role":"assistant","content":[{"type":"text","text":"ok"}]}"#
     );
+}
+
+#[test]
+fn a_response_tolerates_what_a_newer_gateway_adds() {
+    // Unknown members at every level, and an unknown content-part type, must
+    // not make a client reject a completed, charged answer.
+    let resp: ChatResponse = serde_json::from_str(
+        r#"{
+          "call_id": "c", "model": "m",
+          "message": {
+            "content": [
+              {"type": "text", "text": "hel", "annotations": []},
+              {"type": "citation", "url": "x"},
+              {"type": "text", "text": "lo"}
+            ],
+            "annotations": [],
+            "tool_calls": [{"id": "t", "name": "f", "arguments": "{}", "index": 0}]
+          },
+          "finish_reason": "stop",
+          "usage": {"input_tokens": 1, "output_tokens": 2, "audio_tokens": 3},
+          "charged_2z": 1, "receipt_id": "r",
+          "brand_new": true
+        }"#,
+    )
+    .unwrap();
+    assert_eq!(resp.message.text(), "hello");
+    assert_eq!(resp.message.content[1], OutputPart::Unknown);
+    assert_eq!(resp.usage_source, UsageSource::Provider);
+    let history = resp.message.into_message();
+    assert_eq!(history.role, Role::Assistant);
+    assert_eq!(history.content.len(), 2, "the unknown part is dropped");
+    assert_eq!(history.tool_calls.len(), 1);
+    // …and the resulting history message is a valid strict request message.
+    let json = serde_json::to_string(&history).unwrap();
+    serde_json::from_str::<Message>(&json).unwrap();
+    let _ = AssistantMessage::default();
 }

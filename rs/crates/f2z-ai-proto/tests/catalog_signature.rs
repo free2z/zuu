@@ -163,6 +163,21 @@ fn a_signature_without_the_label_is_refused() {
 }
 
 #[test]
+fn a_duplicate_member_is_refused_even_though_the_signature_would_verify() {
+    // `serde_json` keeps the last duplicate, so prepending `"version": 999`
+    // leaves a tree that still verifies. A first-wins parser elsewhere would
+    // read 999. Refuse the ambiguity.
+    let f = load();
+    let dup = String::from_utf8(f.served)
+        .unwrap()
+        .replacen("{", "{\"version\": 999,", 1);
+    assert!(matches!(
+        verify_catalog(dup.as_bytes(), &f.sig, &[f.key]),
+        Err(CatalogError::Json(_))
+    ));
+}
+
+#[test]
 fn a_float_is_refused_before_verification() {
     let f = load();
     let with_float =

@@ -14,7 +14,7 @@
 )]
 
 use f2z_ai_proto::Usage;
-use f2z_ai_proto::pricing::{Bps, Charge, Cost, ModelPrices, price_2z, price_cost};
+use f2z_ai_proto::pricing::{Bps, Charge, ModelPrices, metered_cost_nusd, price_2z, price_nusd};
 use serde_json::Value;
 
 fn load(name: &str) -> Vec<Value> {
@@ -49,8 +49,8 @@ fn every_cost_fixture_prices_exactly() {
     for case in &cases {
         let name = case["name"].as_str().unwrap();
         let input = &case["input"];
-        let got = price_cost(
-            Cost::from_nusd(input["cost_nusd"].as_u64().unwrap()),
+        let got = price_nusd(
+            input["cost_nusd"].as_u64().unwrap(),
             bps(&input["platform_margin_bps"]),
             bps(&input["dev_markup_bps"]),
             input["min_charge_2z"].as_u64().unwrap(),
@@ -86,16 +86,11 @@ fn every_usage_fixture_prices_exactly() {
         let prices: ModelPrices = serde_json::from_value(input["prices"].clone()).unwrap();
         let expected = &case["expected"];
 
-        let cost = Cost::of_usage(&usage, &prices).unwrap();
+        let metered = metered_cost_nusd(&usage, &prices).unwrap();
         assert_eq!(
-            cost.femto_usd(),
-            u128::from(expected["cost_femto_usd"].as_u64().unwrap()),
-            "fixture {name}: exact cost"
-        );
-        assert_eq!(
-            cost.ceil_nusd().unwrap(),
-            expected["cost_nusd_ceil"].as_u64().unwrap(),
-            "fixture {name}: cost handed to settle"
+            metered,
+            expected["cost_nusd"].as_u64().unwrap(),
+            "fixture {name}: the metered cost settle receives"
         );
         let got = price_2z(
             &usage,
@@ -106,5 +101,14 @@ fn every_usage_fixture_prices_exactly() {
         )
         .unwrap();
         assert_eq!(got, charge(expected), "fixture {name}");
+        // An estimate and a settlement price the same integer.
+        let settled = price_nusd(
+            metered,
+            bps(&input["platform_margin_bps"]),
+            bps(&input["dev_markup_bps"]),
+            input["min_charge_2z"].as_u64().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(got, settled, "fixture {name}: estimate != settlement");
     }
 }

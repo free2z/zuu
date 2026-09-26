@@ -54,6 +54,97 @@ impl fmt::Display for CanonicalError {
 
 impl core::error::Error for CanonicalError {}
 
+/// Parse JSON into a [`Value`], refusing any object with a duplicate member
+/// name.
+///
+/// RFC 8785 §3.1 requires input free of duplicate names, and for a signed
+/// document it matters: `serde_json` (like Python's `json`) keeps the *last*
+/// duplicate, but another consumer of the same served bytes may keep the
+/// first, and would then act on a value the signature was never computed
+/// over. Refusing duplicates removes the ambiguity rather than picking a side.
+///
+/// # Errors
+///
+/// A `serde_json` error for malformed JSON or a duplicate member name.
+pub fn parse_strict(json: &[u8]) -> Result<Value, serde_json::Error> {
+    serde_json::from_slice::<NoDuplicates>(json).map(|v| v.0)
+}
+
+/// A [`Value`] whose deserialization refuses duplicate member names.
+struct NoDuplicates(Value);
+
+impl<'de> serde::Deserialize<'de> for NoDuplicates {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        d.deserialize_any(NoDuplicatesVisitor).map(NoDuplicates)
+    }
+}
+
+struct NoDuplicatesVisitor;
+
+impl<'de> serde::de::Visitor<'de> for NoDuplicatesVisitor {
+    type Value = Value;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("a JSON value without duplicate member names")
+    }
+
+    fn visit_bool<E>(self, v: bool) -> Result<Value, E> {
+        Ok(Value::Bool(v))
+    }
+
+    fn visit_i64<E>(self, v: i64) -> Result<Value, E> {
+        Ok(Value::from(v))
+    }
+
+    fn visit_u64<E>(self, v: u64) -> Result<Value, E> {
+        Ok(Value::from(v))
+    }
+
+    fn visit_f64<E>(self, v: f64) -> Result<Value, E> {
+        // Kept, so that `to_canonical_json` is what refuses it — with the
+        // specific "integers only" error rather than a parse error.
+        Ok(serde_json::Number::from_f64(v).map_or(Value::Null, Value::Number))
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Value, E> {
+        Ok(Value::String(v.into()))
+    }
+
+    fn visit_string<E>(self, v: alloc::string::String) -> Result<Value, E> {
+        Ok(Value::String(v))
+    }
+
+    fn visit_unit<E>(self) -> Result<Value, E> {
+        Ok(Value::Null)
+    }
+
+    fn visit_none<E>(self) -> Result<Value, E> {
+        Ok(Value::Null)
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Value, A::Error> {
+        let mut items = Vec::new();
+        while let Some(NoDuplicates(item)) = seq.next_element()? {
+            items.push(item);
+        }
+        Ok(Value::Array(items))
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
+        let mut object = serde_json::Map::new();
+        while let Some(name) = map.next_key::<alloc::string::String>()? {
+            if object.contains_key(&name) {
+                return Err(serde::de::Error::custom(format_args!(
+                    "duplicate member name {name:?}"
+                )));
+            }
+            let NoDuplicates(member) = map.next_value()?;
+            object.insert(name, member);
+        }
+        Ok(Value::Object(object))
+    }
+}
+
 /// The canonical encoding of `value`.
 ///
 /// # Errors
@@ -202,6 +293,16 @@ mod tests {
             canon(r#""a\"b\\c\/d\u0001\né ""#),
             "\"a\\\"b\\\\c/d\\u0001\\n\u{e9}\u{2028}\""
         );
+    }
+
+    #[test]
+    fn duplicate_member_names_are_refused_at_any_depth() {
+        assert!(parse_strict(br#"{"a":1,"a":2}"#).is_err());
+        assert!(parse_strict(br#"{"x":[{"b":1,"c":{"d":0,"d":0}}]}"#).is_err());
+        let ok = parse_strict(br#"{"a":{"a":1},"b":[1.5,null,"s",true]}"#).unwrap();
+        let expected: Value =
+            serde_json::from_str(r#"{"a":{"a":1},"b":[1.5,null,"s",true]}"#).unwrap();
+        assert_eq!(ok, expected);
     }
 
     #[test]
