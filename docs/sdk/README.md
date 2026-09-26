@@ -47,14 +47,19 @@ something a user pays directly.
 
 ### Units on the wire
 
-Every amount of 2Z on every API in this contract is an **integer number of
-milli-2Z** (one thousandth of a 2Z) in a field whose name ends in `_m2z`.
-Charges, holds and caps are always whole 2Z and therefore multiples of
-`1000`; balances may carry fractional 2Z from purchases and are not. There is
-no field that carries a decimal, a float or a string amount, and there is no
-field named `_2z` carrying whole units — one unit, one suffix, so a
-milli-for-whole mix-up cannot compile past a type check. SDKs format for
-display (`3000` → "3 2Z"); the wire never does.
+Every amount of 2Z on every API in this contract is an **integer**, and the
+field name says the unit — there are exactly two:
+
+| Suffix | Unit | Used for |
+|---|---|---|
+| `_2z` | whole 2Z | Anything that is whole by construction: charges, holds, minimum charges, spend caps, purchase quantities, pack sizes |
+| `_milli_2z` | milli-2Z (one thousandth of a 2Z) | Anything that can be fractional: balances, remaining cap, credited purchase amounts, the collected part of a charge and its shortfall, published rates (`_milli_2z_per_mtok`), the three-way split of a charge |
+
+A field never carries a decimal, a float or a string amount, and a name
+never carries an amount without its unit, so a milli-for-whole mix-up is
+visible at the field name and can be caught by a type. `f2z-ai-proto`
+follows the same rule (`hold_2z`, `charged_2z`, `balance_hint_milli_2z`);
+SDKs format for display, the wire never does.
 
 ## Where things live
 

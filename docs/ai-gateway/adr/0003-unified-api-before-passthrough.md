@@ -80,7 +80,7 @@ unified API, and the reference app uses only it.
 - **Passthrough only, with a "you pay whatever it costs" clause.** Not
   compatible with a hold: the worst case of an arbitrary native request is
   unbounded. Not compatible with the promise to the user that a call costs
-  at most what `meta.hold_m2z` says.
+  at most what `meta.hold_2z` says.
 - **A unified API that is the union of every provider's features.** A
   schema nobody can implement completely, whose fields silently do
   nothing on most models. The intersection is smaller and honest; growth

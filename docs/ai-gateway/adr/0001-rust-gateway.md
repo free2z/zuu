@@ -64,12 +64,13 @@ of [metering.md](../../sdk/spec/metering.md) §5.6 holds.
   newtypes in `f2z-ai-proto`; the compiler refuses to add them. The
   integer formula of [metering.md](../../sdk/spec/metering.md) §2 has no
   floating-point path.
-- **Two languages in the platform.** The identity provider, the ledger
-  and the purchase rails remain Python; the gateway is the one Rust
-  service in the money path. The cost is two toolchains for anyone
-  working across the boundary, and it is paid deliberately: the boundary
-  is a set of database functions and a signed JSON catalogue, both of
-  which are contracts with fixtures rather than shared code.
+- **Two stacks in the platform.** The identity provider, the ledger and
+  the purchase rails stay in the platform's existing web stack; the
+  gateway is the one Rust service in the money path. The cost is two
+  toolchains for anyone working across the boundary, and it is paid
+  deliberately: the boundary is the ledger's operation contract and a
+  signed JSON catalogue, both of which are contracts with fixtures rather
+  than shared code.
 - **The catalogue is data, not code.** Model prices, limits and
   capabilities are published by the platform as a signed document and
   polled; adding a model or changing a price never requires a gateway
@@ -78,12 +79,12 @@ of [metering.md](../../sdk/spec/metering.md) §5.6 holds.
 
 ## Alternatives rejected
 
-- **Async Python (ASGI) in the existing tier.** It would remove the
-  worker-per-stream ceiling but keep a garbage-collected interpreter with
-  per-object overhead in the hottest path in the platform, keep the
-  ledger call inside the same process as unrelated web traffic, and keep
-  the current tokeniser-based accounting unless rewritten anyway. The
-  rewrite cost is the same; the ceiling is lower.
+- **An async server in the existing web tier's language.** It would
+  remove the worker-per-stream ceiling but keep a garbage-collected
+  interpreter with per-object overhead in the hottest path in the
+  platform, keep the ledger call inside the same process as unrelated web
+  traffic, and keep the current tokeniser-based accounting unless
+  rewritten anyway. The rewrite cost is the same; the ceiling is lower.
 - **Go.** A credible choice for the concurrency profile. Rejected because
   this repository already builds, lints, audits and ships Rust services
   with a proven gate (`rs/`), because the SDK core is Rust for the Tauri

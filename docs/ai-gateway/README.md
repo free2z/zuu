@@ -32,19 +32,19 @@ values; the specification cites them.
 
 | Property | Value | Where it matters |
 |---|---|---|
-| Overhead before the first upstream byte | p50 < 8 ms, p99 < 25 ms | The gateway adds one database round trip (the hold) and nothing else to the hot path |
-| Provider connect timeout | 5 s | `503 provider_unavailable` |
+| Overhead before the first upstream byte | p50 < 8 ms, p99 < 25 ms | The gateway adds at most two database round trips (a read-only inquire to size the output clamp, then the hold) and nothing else to the hot path |
+| Provider connect timeout | 5 s | `503 unavailable` |
 | First-byte timeout | per model, published in `/v1/models` | `504 provider_timeout` |
-| Idle timeout | 60 s without provider output | `error stream_timeout` |
-| Hard limit per call | 300 s | `error stream_timeout` |
+| Idle timeout | 60 s without provider output | `error provider_timeout` |
+| Hard limit per call | 300 s | `error provider_timeout` |
 | Hold TTL | 300 s from the last extension; extended every 60 s while streaming | [metering.md](../sdk/spec/metering.md) §5.6 |
-| Retries to the provider | Only before the first byte reaches the client, within a small budget, behind a circuit breaker | A client never sees a retry; `fallback` is the client-visible form |
-| Concurrency | 4 open streams per user | `429 concurrency_exceeded` |
+| Retries to the provider | Only before the gateway commits — before the provider's first content event, which is when `meta` is sent — within a small budget, behind a circuit breaker. Headers and `: ping` comments already sent to the client do not count as commitment | A client never sees a retry; `fallback` is the client-visible form of the same rule |
+| Concurrency | 4 open streams per user | `429 concurrency_limit` |
 | Body limits | 4 MiB without images, 20 MiB with | `413 payload_too_large` |
 | Keep-alive | `: ping` every 15 s | SSE clients ignore it |
-| Draining | A gateway instance that is shutting down stops accepting new calls and lets open streams finish for up to 300 s | A rolling deploy never cuts a stream; a call is settled exactly once across it |
-| Catalogue | Signed by the platform, polled every 30 s; the gateway **refuses to start** without a verified catalogue | `503 catalogue_unavailable` |
-| Revocation | Account epoch and grant generation checked per call; **fails closed** when the state is unknown | `503 revocation_check_unavailable` |
+| Draining | A gateway instance that is shutting down stops accepting new calls and lets open streams finish for up to 300 s | A rolling deploy never cuts a stream; across it every call is settled at most once and released or settled exactly once |
+| Catalogue | Signed by the platform, polled every 30 s; the gateway **refuses to start** without a verified catalogue | `503 catalog_unavailable` |
+| Revocation | Account epoch and grant generation checked per call; **fails closed** when the state is unknown | `503 unavailable` |
 | Logs | Never prompts, never completions. Per-app debug capture is opt-in, sampled and disclosed at consent | The trust model in [`docs/sdk`](../sdk/README.md) |
 
 ## The catalogue contract
@@ -55,10 +55,11 @@ teams rather than a file:
 
 | Property | Rule |
 |---|---|
-| Schema | Defined in `f2z-ai-proto` (models, per-model prices in nano-USD per token or per unit, limits, capabilities, `min_charge_2z`, the platform margin in bps, `catalogue_version`, `issued_at`, `expires_at`) and generated into the D3 reference. The public projection is `GET /v1/models` |
-| Signature | Ed25519 over the canonical (RFC 8785) JSON of the document, in a detached header field; the verifying public key is configuration the gateway starts with, never fetched from the same place as the catalogue |
-| Version | `catalogue_version` is a string that sorts lexicographically by issue order; the gateway never replaces a verified catalogue with an older version, and every hold records the version it was priced under |
-| Freshness | The gateway polls every 30 s. A catalogue past its `expires_at` (the platform issues them with a 15-minute validity, so a stalled publisher is noticed within a quarter of an hour) is **not** used for new holds: new calls get `503 catalogue_unavailable`; open streams settle under the version their hold recorded |
+| Schema | `f2z-ai-proto::catalog::Catalog`: `schema` (the crate understands exactly one value), `version`, `issued_at` and `expires_at` (Unix seconds), `rate_card_version` (carried into every hold and settle so the ledger and the gateway price with the same numbers), `platform_margin_bps`, `disabled_providers`, and `models[]` — each with `id`, `provider`, `provider_model_id`, `api_style`, `prices` (nano-USD per million tokens for the four token buckets; nano-USD per unit for images and tool calls), `min_charge_2z` (≥ 1), `safety_factor_bps` (≥ 10,000), `context_window`, `max_output_tokens`, `ttfb_timeout_ms`, `enabled`. The public projection is `GET /v1/models` |
+| Strictness | `prices` denies unknown fields: **a new price dimension is a schema bump**, not an extra key, because a gateway that silently ignored a price it did not know would under-charge every call on that model. An unknown `api_style` or usage source deserialises to an `Unknown` variant and the model is not callable |
+| Signature | Ed25519 over `"free2z/ai-catalog/v1" ‖ canonical_json(payload)` — the label is domain separation; canonical JSON is RFC 8785 restricted to integers ≤ 2⁵³ − 1 with no floats, so the payload may be served with any whitespace or member order. The signature is detached, 64 bytes as lower-case hex, with the `key_id` it was made under; the gateway holds a set of trusted keys (rotation is two keys at once) as configuration it starts with, never fetched from where the catalogue is. Verification is strict (non-canonical encodings refused), a payload with a duplicate member is refused before verification, and the typed catalogue is deserialised from the same parsed tree the signature covered |
+| Version | `version` is an integer that only increases; the gateway never replaces a verified catalogue with a lower version, so a replayed old catalogue cannot reinstate old prices. Every hold records the version it was priced under |
+| Freshness | The gateway polls every 30 s. A catalogue past its `expires_at` is refused by the verifier itself, so a stalled publisher is noticed at the next poll after expiry; new calls then get `503 catalog_unavailable`, and open streams settle under the version their hold recorded. The platform issues catalogues with a validity long enough to ride out a short publisher outage and short enough that a price change cannot lag by more than that validity |
 | Start-up | No verified, unexpired catalogue means the process does not report ready |
 | Rollback | A price correction is a new version; there is no "previous version" mechanism, because a hold already priced under a version settles under it |
 

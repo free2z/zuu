@@ -7,8 +7,13 @@
 Every error a client can receive from the gateway, the account API, or the
 identity provider, with the HTTP status it comes with, whether retrying the
 same request can succeed, and what a client should do. `f2z-ai-proto`
-carries this list as a closed enum; the SDKs map each code to user-facing
-copy so that app code switches on `code`, never on `message`.
+carries the gateway's codes as `ErrorCode`, each with its `http_status()`
+and `retryable()`, plus an `Unknown` variant for a code newer than the
+crate; the SDKs map each code to user-facing copy so that app code
+switches on `code`, never on `message`. The codes in §2–§4 that the crate
+does not yet carry — `token_revoked`, `account_frozen`, `app_disabled`,
+`call_not_found`, `idempotency_conflict`, `too_many_holds` — are
+additions this contract requires of it.
 
 ## 1. The envelope
 
@@ -20,9 +25,8 @@ Every non-2xx response from `ai.free2z.cash/v1/*` and
   "error": {
     "code": "cap_exceeded",
     "message": "This app's spend cap for the current week is exhausted.",
-    "retryable": false,
     "details": {
-      "cap_m2z": 200000,
+      "cap_2z": 200,
       "cap_period": "week",
       "resets_at": "2026-09-28T00:00:00Z"
     }
@@ -33,9 +37,13 @@ Every non-2xx response from `ai.free2z.cash/v1/*` and
 | Field | Rule |
 |---|---|
 | `code` | One of the codes below. Stable; new codes may be added, so a client MUST have a default branch |
-| `message` | English, for logs and developers. Not localised; not for end users |
-| `retryable` | `true` means the identical request may succeed later. It never means "retry immediately": honour `Retry-After` when present, otherwise back off exponentially from 1 s |
+| `message` | English, for logs and developers. Not localised; not for end users; never contains prompt or completion text |
 | `details` | Optional, code-specific, documented per code below. A client MUST tolerate its absence and unknown keys |
+
+**Retryability is a property of the code, not a field.** The "Retry"
+column below is what `ErrorCode::retryable()` answers; `yes` means the
+identical request may succeed later, never "retry immediately" — honour
+`Retry-After` when present, otherwise back off exponentially from 1 s.
 
 Two surfaces use a different shape because their standards require it:
 
@@ -46,8 +54,8 @@ Two surfaces use a different shape because their standards require it:
   [RFC 9470](https://www.rfc-editor.org/rfc/rfc9470)) with the same `error`
   code; the body is still the envelope.
 
-Inside an SSE stream, the terminal `error` event carries `code`, `message`
-and `retryable` with the same meanings, plus `charged_m2z` and `partial`
+Inside an SSE stream, the terminal `error` event carries `code` and
+`message` with the same meanings, plus the settlement fields and `partial`
 ([chat-api.md](./chat-api.md) §3.7).
 
 ## 2. Authentication and authorization — shared by every resource server
@@ -60,43 +68,48 @@ and `retryable` with the same meanings, plus `charged_m2z` and `partial`
 | 403 | `insufficient_scope` | no | The token lacks the scope this endpoint requires (RFC 6750) | Re-authorize requesting the scope in `details.scope` | `scope` |
 | 403 | `app_disabled` | no | The app's registration is suspended | Nothing the client can do; surface to the developer | — |
 | 403 | `account_frozen` | no | The user's account cannot spend (for example a payment dispute is open) | Tell the user to visit their account | — |
-| 503 | `revocation_check_unavailable` | yes | The server could not confirm the token's `aep`/`agen` and fails closed | Retry with backoff; do **not** sign the user out | — |
+| 503 | `unavailable` | yes | The server cannot serve the request right now and fails closed: it could not confirm the token's `aep`/`agen`, it is draining, or (gateway) the provider's circuit breaker is open | Retry with backoff; do **not** sign the user out | `reason` ∈ `revocation_check`, `draining`, `provider_circuit_open` |
 
 ## 3. Requests, limits and money
 
 | Status | `code` | Retry | Meaning | `details` |
 |---|---|---|---|---|
 | 400 | `invalid_request` | no | A field is missing, malformed or out of range; an unknown field was sent; an image part on a model without vision | `field`, `reason` |
-| 400 | `context_too_long` | no | The input does not fit the model's context window with at least one output token | `input_tokens_estimate`, `context_window` |
-| 402 | `insufficient_balance` | no (until topped up) | The user's available 2Z cannot cover the model's minimum charge for this request | `available_m2z`, `required_m2z` (the minimum hold for one output token), `min_charge_m2z` |
-| 403 | `cap_exceeded` | no (until the period resets or the user raises the cap) | The grant's spend cap for the current period cannot cover the minimum charge | `cap_m2z`, `cap_period`, `cap_remaining_m2z`, `resets_at` (`null` for `total`) |
-| 403 | `model_not_allowed` | no | The model exists but this app may not use it | `model` |
-| 404 | `model_not_found` | no | Unknown or disabled model id | `model` |
+| 400 | `context_length_exceeded` | no | The input does not fit the model's context window with at least one output token | `input_tokens_estimate`, `context_window` |
+| 402 | `insufficient_balance` | no (until topped up) | The user's available 2Z cannot cover the model's minimum charge for this request | `available_milli_2z`, `required_2z` (the minimum hold for one output token), `min_charge_2z` |
+| 403 | `cap_exceeded` | no (until the period resets or the user raises the cap) | The grant's spend cap for the current period cannot cover the minimum charge | `cap_2z`, `cap_period`, `cap_remaining_milli_2z`, `resets_at` (`null` for `total`) |
+| 403 | `model_disabled` | no | The model exists but is not callable: disabled, its provider disabled by policy, or not available to this app | `model` |
+| 404 | `model_not_found` | no | Unknown model id | `model` |
 | 404 | `call_not_found` | no | No such call for this (user, app) | — |
 | 404 | `purchase_not_found` | no | No such purchase for this (user, app) | — |
 | 409 | `idempotency_conflict` | no | The `Idempotency-Key` was used with a different body, or names a call that is still streaming | `call_id` |
-| 409 | `too_many_holds` | yes | The account already has 16 open holds | — |
+| 409 | `too_many_holds` | yes | The account already has 16 open holds (the limit); this would be the seventeenth | — |
 | 413 | `payload_too_large` | no | Over the 4 MiB / 20 MiB body limit | `limit_bytes` |
 | 429 | `rate_limited` | yes, after `Retry-After` | Requests per minute for this (app, user) exceeded | — |
-| 429 | `concurrency_exceeded` | yes, after `Retry-After` | A fifth simultaneous stream for this user | `limit` |
+| 429 | `concurrency_limit` | yes, after `Retry-After` | A fifth simultaneous stream for this user | `limit` |
 
 ## 4. Providers and the stream
 
-These can be an HTTP response (before the stream exists) or an SSE
-`error` event (after `meta`). In a stream, `charged_m2z` says what the
-failed call still cost ([metering.md](./metering.md) §5).
+These can be an HTTP response (before the HTTP response began) or an SSE
+`error` event (after it). In a stream, the settlement fields say what the
+failed call still cost ([metering.md](./metering.md) §5). The status
+column is the HTTP status when the error is an HTTP response; once a
+stream is open the status is already `200` and the code arrives in the
+`error` event, and in non-streamed mode a failure after output began is
+always `502` with the code preserved ([chat-api.md](./chat-api.md) §4).
 
 | Status | `code` | Retry | Meaning |
 |---|---|---|---|
-| 502 | `provider_error` | yes | The provider answered with an error or malformed stream. Before the first byte: nothing charged, `fallback` tried if given. After: charged for what was produced |
-| 503 | `provider_unavailable` | yes | The provider is down or the gateway's circuit breaker for it is open. Nothing charged |
-| 504 | `provider_timeout` | yes | No first byte within the model's `first_byte_timeout_s`. Nothing charged |
-| (stream) / 502 | `stream_timeout` | yes | 60 s without any provider output, or the 300 s hard limit. Charged for what was produced. In non-streamed mode, `502` with this code |
-| (stream) / 502 | `provider_error`, `provider_timeout` after output | yes | In non-streamed mode, a failure after output began is `502` with the stream-level code preserved ([chat-api.md](./chat-api.md) §4) |
-| (stream) | `content_filter` | no | The provider refused or stopped for policy. Charged for what was produced; often 0. In non-streamed mode this is not an error: `200` with `finish_reason: "content_filter"` |
-| (stream, local) | `stream_interrupted` | yes | Not sent by the gateway: an SDK synthesises it when the connection closed without a terminal event. Consult `GET /v1/calls/{id}` |
-| 503 | `catalogue_unavailable` | yes | The gateway has no verified price catalogue and refuses to price anything |
+| 502 | `provider_error` | yes | The provider answered with an error or a malformed stream. Before `meta`: nothing charged, `fallback` tried if given. After: charged for what was produced |
+| 504 | `provider_timeout` | yes | The provider did not answer in time: no first byte within the model's `ttfb_timeout_ms` (nothing charged; `details.phase: "first_byte"`), or, in a stream, 60 s without output or the 300 s hard limit (charged for what was produced; `details.phase` ∈ `idle`, `hard_limit`) |
+| 503 | `unavailable` | yes | See §2: draining, revocation state unknown, or the provider's circuit breaker open. Nothing charged |
+| 503 | `catalog_unavailable` | yes | The gateway has no verified, unexpired price catalogue and refuses to price anything |
 | 500 | `internal` | yes | A gateway fault. Nothing charged if before `meta`; otherwise settled from what is known |
+| (SDK-local) | `stream_interrupted` | yes | **Not a gateway code** and not in `ErrorCode`: an SDK synthesises it when the connection closed without a terminal event. Consult `GET /v1/calls/{id}` |
+
+A content-filter stop is **not an error** on any surface: it is
+`finish_reason: "content_filter"` on `done` or on the non-streamed
+response, charged for what was produced.
 
 ## 5. The identity provider
 
@@ -131,10 +144,9 @@ Codes specific to [purchase.md](./purchase.md); the envelope is §1.
 
 | Status | `code` | Retry | Meaning | `details` |
 |---|---|---|---|---|
-| 400 | `invalid_quantity` | no | Below the rail's minimum, above its maximum, not a whole 2Z, or not one of the rail's fixed packs | `min_m2z`, `max_m2z`, `packs` |
+| 400 | `invalid_quantity` | no | Below the rail's minimum, above its maximum, not a whole 2Z, or not one of the rail's fixed packs | `min_2z`, `max_2z`, `packs` |
 | 400 | `rail_unavailable` | no | The rail is not offered to this app or on this platform (for example `apple_iap` from a non-iOS client) | `rail` |
-| 409 | `intent_expired` | no | A card or Zcash intent passed `expires_at` before payment (IAP intents accept a verifying receipt after expiry) | — |
-| 409 | `intent_not_pending` | no | The intent is `failed` or in a post-credit reversal state; the operation does not apply. (A receipt resubmitted for an intent that is already `credited` is **not** an error: it answers `200` with the intent) | `status` |
+| 409 | `intent_not_pending` | no | The intent is `failed` or in a post-credit reversal state; the operation does not apply. (A receipt resubmitted for an intent that is already `credited` is **not** an error: it answers `200` with the intent; an `expired` IAP intent still accepts a verifying receipt) | `status` |
 | 409 | `receipt_already_used` | no | This store transaction already credited a **different** purchase intent | `purchase_id` |
 | 422 | `receipt_invalid` | no | The store receipt did not verify, names a different product or app, is not a production transaction, was revoked, or its account token does not match this intent | `reason` ∈ `signature`, `product`, `app`, `environment`, `revoked`, `account_token` |
 | 202 | — | — | Not an error: a Google purchase whose store state is still pending ([purchase.md](./purchase.md) §4.3). The intent is returned with `status: pending` and `rail_data.store_state: "pending"`; resubmit later or wait for the poll | — |
@@ -149,7 +161,12 @@ Codes specific to [purchase.md](./purchase.md); the envelope is §1.
   the buy or cap surface rather than retrying.
 - **Nothing is charged for a refused request.** Every `4xx` before `meta`
   means no hold was taken or the hold was released.
-- **A `5xx` before `meta` is safe to retry** with the same
-  `Idempotency-Key`; a `5xx` after `meta` is a new call if retried.
+- **Re-sending with the same `Idempotency-Key` never does new work**: it
+  returns what the key already produced (a call record, or a
+  `409 idempotency_conflict` while it is in flight). A retry the user
+  wants attempted again — after a retryable `5xx` before `meta`, or a
+  network failure with no response at all — is a **new key**; the old key
+  can first be re-sent to learn whether the original in fact ran
+  ([chat-api.md](./chat-api.md) §2.5).
 - **`message` is not stable** and MUST NOT be parsed; `code` and `details`
   are.

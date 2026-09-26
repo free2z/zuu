@@ -20,9 +20,9 @@ the rail, because store fees are deducted before crediting.
 | Item | Rule |
 |---|---|
 | Base URL | `https://free2z.cash/api/sdk/v1` |
-| Authentication | `Authorization: Bearer <access_token>` with `aud` containing `f2z-api`. Reading a balance needs `balance:read`; creating or completing a purchase needs `purchase:create` |
+| Authentication | `Authorization: Bearer <access_token>` with `aud` containing `f2z-api`. Reading a balance needs `balance:read`. `purchase:create` covers creating a purchase, submitting its receipt, **reading the intents this app created** (`GET /purchases/{id}`) and reading `GET /purchases/packs` |
 | Idempotency | `POST /purchases` **requires** an `Idempotency-Key` header (1–128 ASCII characters, scoped to (app, user), valid 24 h). A replay returns the original intent; a replay with a different body is `409 idempotency_conflict`. Without the header: `400 invalid_request` |
-| Amounts | Milli-2Z integers (`_m2z`). Purchase quantities are whole 2Z, so multiples of `1000` |
+| Amounts | Whole 2Z in `_2z` fields (quantities, packs, limits); milli-2Z in `_milli_2z` fields (balances, credited amounts) — [README](../README.md#units-on-the-wire) |
 | Prices | Minor units of the currency (`amount_minor`, ISO 4217 `currency`): `499` and `USD` is $4.99 |
 | Errors | The envelope and codes in [errors.md](./errors.md) §6 |
 
@@ -30,9 +30,9 @@ the rail, because store fees are deducted before crediting.
 
 ```json
 {
-  "available_m2z": 41500,
-  "held_m2z": 2000,
-  "balance_m2z": 43500,
+  "available_milli_2z": 41500,
+  "held_milli_2z": 2000,
+  "balance_milli_2z": 43500,
   "as_of": "2026-09-26T21:04:14Z"
 }
 ```
@@ -48,13 +48,13 @@ streaming. Apps show `available`. Requires `balance:read`.
   "id": "0f6e3b2a-7c1d-4e8f-9a0b-1c2d3e4f5a6b",
   "rail": "card",
   "status": "pending",
-  "quantity_m2z": 500000,
+  "quantity_2z": 500,
   "price": { "currency": "USD", "amount_minor": 500 },
   "pricing_version": "2026-09-01",
   "created_at": "2026-09-26T21:10:00Z",
   "expires_at": "2026-09-26T21:40:00Z",
   "credited_at": null,
-  "credited_m2z": null,
+  "credited_milli_2z": null,
   "rail_data": { "...": "rail-specific, §3–§5" }
 }
 ```
@@ -64,7 +64,7 @@ streaming. Apps show `available`. Requires `balance:read`.
 | `created` | The intent exists; no payment surface has been opened yet (only briefly observable) | no |
 | `pending` | Waiting for the user to pay | no |
 | `paid` | Payment observed, not yet credited (Zcash: seen but under-confirmed) | no |
-| `credited` | 2Z are on the balance: `credited_m2z` and `credited_at` set | yes |
+| `credited` | 2Z are on the balance: `credited_milli_2z` and `credited_at` set | yes |
 | `expired` | `expires_at` passed without payment | yes |
 | `failed` | The payment failed or was cancelled by the user | yes |
 | `refunded`, `partially_refunded` | After crediting, the payment was refunded in full or in part; the 2Z were taken back pro rata (§6) | `refunded` yes; `partially_refunded` no |
@@ -73,16 +73,27 @@ streaming. Apps show `available`. Requires `balance:read`.
 
 Transitions: `created → pending → paid → credited`, and from any
 non-terminal state to `expired` or `failed`. `expired → paid` is allowed
-on the Zcash rail (§5.3) and on the card rail when the processor's
-confirmation arrives late. The post-credit states follow `credited` and
+on every rail: a Zcash payment after the quote (§5.3), a card
+confirmation that arrives late, and an IAP receipt submitted after the
+intent's 24 hours (§4.4). The post-credit states follow `credited` and
 **may follow each other**: `partially_refunded → refunded`,
 `partially_refunded → disputed`, `disputed → credited` (dispute won, 2Z
-re-credited), `disputed → refunded` (dispute lost). Every reversal is
-computed from the **cumulative** reversed amount the processor or store
-reports — `reversed_minor` on the intent — so a notification delivered
-twice or out of order takes back nothing twice:
-`credited_m2z × reversed_minor / amount_minor`, rounded down, is the total
-ever taken back for the intent.
+re-credited), `disputed → refunded` (dispute lost).
+
+**Reversals are a net position, not a log.** An intent carries one
+**line** per payment that credited it (one store transaction, one card
+charge, one on-chain output — §4, §5). For each line the platform keeps
+the processor's or store's *current* view: `refunded_minor` (cumulative,
+as the processor reports it) and `disputed_minor` (the amount under an
+open or lost dispute; `0` once a dispute is won). The 2Z taken back from
+the user for a line is always recomputed as
+`floor(credited_milli_2z × (refunded_minor + disputed_minor) / amount_minor)`,
+and the ledger is moved by the **difference** between that number and
+what was previously taken back — which may be negative (a re-credit). A
+notification delivered twice, out of order, or replayed after a won
+dispute therefore changes nothing, because it sets a value rather than
+adding one; and a partial refund followed by a won dispute restores
+exactly the dispute's share.
 
 ### 1.3 Polling
 
@@ -92,7 +103,7 @@ client*: `credited`, `failed`, or `expired` **with nothing seen**. A
 `paid` intent is polled past `expires_at` until it settles (a Zcash
 payment seen just before the quote expired still needs its
 confirmations). The response carries `Retry-After` as a hint. A
-`credited` intent's `credited_m2z` may differ from `quantity_m2z` on the
+`credited` intent's `credited_milli_2z` may differ from `quantity_2z` on the
 Zcash rail (§5.4).
 
 Late success after the client stopped polling — a card confirmation
@@ -108,7 +119,7 @@ The `hello-ai` reference app polls; a push channel is not part of v1.
 ```json
 {
   "rail": "card",
-  "quantity_m2z": 500000,
+  "quantity_2z": 500,
   "platform": "desktop",
   "return_url": "http://127.0.0.1:49153/purchase-done"
 }
@@ -117,7 +128,7 @@ The `hello-ai` reference app polls; a push channel is not part of v1.
 | Field | Rules |
 |---|---|
 | `rail` | `card`, `apple_iap`, `google_iap`, `zcash` |
-| `quantity_m2z` | Whole 2Z. **Card:** any amount from **100,000** (100 2Z, $1.00) to **10,000,000** (10,000 2Z). **IAP:** must equal a pack in `GET /purchases/packs` (§4.1). **Zcash:** any amount from **100,000** |
+| `quantity_2z` | Whole 2Z. **Card:** any amount from **100** ($1.00) to **10,000**. **IAP:** must equal a pack in `GET /purchases/packs` (§4.1). **Zcash:** any amount from **100** to **1,000,000** |
 | `platform` | `desktop`, `ios`, `android`, `web`. Decides which surface the rail returns, and `apple_iap` / `google_iap` are refused off their platform with `400 rail_unavailable` |
 | `return_url` | Card only. Where the hosted checkout sends the browser afterwards. Must be one of the app's registered redirect URIs or a loopback URI; the platform appends `?purchase_id=…&status=…` |
 
@@ -225,16 +236,16 @@ products. `GET /purchases/packs` (no scope beyond a valid token):
 ```json
 {
   "pricing_version": "2026-09-01",
-  "card": { "m2z_per_minor_unit": { "USD": 1000 }, "min_m2z": 100000, "max_m2z": 10000000 },
+  "card": { "milli_2z_per_minor_unit": { "USD": 1000 }, "min_2z": 100, "max_2z": 10000 },
   "apple_iap": [
-    { "product_id": "cash.free2z.iap.v1.0499", "quantity_m2z": 349000, "display_price": "$4.99" },
-    { "product_id": "cash.free2z.iap.v1.0999", "quantity_m2z": 699000, "display_price": "$9.99" }
+    { "product_id": "cash.free2z.iap.v1.0499", "quantity_2z": 349, "display_price": "$4.99" },
+    { "product_id": "cash.free2z.iap.v1.0999", "quantity_2z": 699, "display_price": "$9.99" }
   ],
   "google_iap": [
-    { "product_id": "iap_v1_0499", "quantity_m2z": 349000, "display_price": "$4.99" },
-    { "product_id": "iap_v1_0999", "quantity_m2z": 699000, "display_price": "$9.99" }
+    { "product_id": "iap_v1_0499", "quantity_2z": 349, "display_price": "$4.99" },
+    { "product_id": "iap_v1_0999", "quantity_2z": 699, "display_price": "$9.99" }
   ],
-  "zcash": { "min_m2z": 100000, "quote_ttl_s": 1800 }
+  "zcash": { "min_2z": 100, "quote_ttl_s": 1800 }
 }
 ```
 
@@ -242,16 +253,17 @@ A pack yields **fewer 2Z per unit of price than a card purchase**, because
 the store's commission is deducted before crediting: the platform sets
 each pack's 2Z from the pack's minimum net proceeds across the store's
 regions after commission. The worked case: a $4.99 pack whose net proceeds
-after a 30 % commission are $3.49 yields `floor(3.49 / 0.01) = 349` 2Z
-(`349000` m2Z), against 499 2Z for $4.99 by card. The number is in the
-`packs` response; an app shows what the response says and never computes
-it. Product ids are versioned; a new pricing version adds products rather
-than changing an existing one's 2Z.
+after a 30 % commission are $3.493 yields `floor(3.493 / 0.01) = floor(349.3)
+= 349` 2Z — the floor is taken once, on the 2Z, never on the dollars —
+against 499 2Z for $4.99 by card. The number is in the `packs` response;
+an app shows what the response says and never computes it. Product ids
+are versioned; a new pricing version adds products rather than changing
+an existing one's 2Z.
 
 ### 4.2 Apple — StoreKit 2
 
 1. `POST /purchases` with `rail: apple_iap`, `platform: ios`, and
-   `quantity_m2z` equal to a pack. `rail_data`:
+   `quantity_2z` equal to a pack. `rail_data`:
 
    ```json
    { "product_id": "cash.free2z.iap.v1.0499", "app_account_token": "0f6e3b2a-7c1d-4e8f-9a0b-1c2d3e4f5a6b" }
@@ -287,7 +299,12 @@ than changing an existing one's 2Z.
    never saw stays unfinished and is re-delivered by StoreKit on the next
    launch; the app submits it against the intent whose id is its
    `appAccountToken`. `409 receipt_already_used` is reserved for a
-   transaction that credited a **different** intent.
+   transaction that credited a **different** intent. A **second, distinct**
+   transaction carrying the same `appAccountToken` (an app that reused an
+   intent id for two purchases) is credited as a second **line** on the
+   same intent — the store took the money, so refusing it would strand a
+   paid purchase — and each line reverses independently (§1.2). An app
+   SHOULD create one intent per purchase regardless.
 4. Refunds and revocations arrive from Apple's server notifications and
    move the intent to `refunded` or `clawed_back` (§6).
 
@@ -335,7 +352,9 @@ than changing an existing one's 2Z.
    `409 receipt_already_used` is reserved for a token that credited a
    different intent. A purchase that was not consumed is re-delivered by
    Play on the next launch, and the app submits it against the intent
-   whose id is its obfuscated account id.
+   whose id is its obfuscated account id. A second, distinct purchase
+   bound to the same intent id becomes a second line on the intent,
+   exactly as for Apple.
 4. Refunds and voided purchases arrive from Google's real-time developer
    notifications and the voided-purchases feed and move the intent to
    `refunded` or `clawed_back`.
@@ -362,7 +381,7 @@ it arrived*, not by a memo; the user need not type anything.
 ### 5.1 Create
 
 `POST /purchases` with `rail: zcash` and, in this example,
-`quantity_m2z: 5000000` (5,000 2Z). `rail_data`:
+`quantity_2z: 5000` (5,000 2Z). `rail_data`:
 
 ```json
 {
@@ -371,7 +390,7 @@ it arrived*, not by a memo; the user need not type anything.
   "zip321_uri": "zcash:u1…?amount=1.0&message=Free2Z%202Z%20purchase",
   "rate": { "zec_per_2z": "0.00020000", "locked_until": "2026-09-26T21:40:00Z" },
   "confirmations_required": 3,
-  "min_credit_m2z": 1000
+  "min_credit_2z": 1
 }
 ```
 
@@ -415,11 +434,11 @@ credited when it reaches 3 confirmations:
 
 | Case | Credited |
 |---|---|
-| Exact | `quantity_m2z` |
-| Over- or underpayment | Pro rata at the locked rate, rounded **down** to a whole milli-2Z: `credited_m2z = floor(received_zat × quantity_m2z / amount_zat)` |
+| Exact | `quantity_2z` |
+| Over- or underpayment | Pro rata at the locked rate, rounded **down** to a whole milli-2Z: `credited_milli_2z = floor(received_zat × quantity_2z / amount_zat)` |
 | First observed after `locked_until` | At the **better for the platform** of the locked rate and the rate current at first observation: `min(locked, current)` 2Z per ZEC, pro rata as above |
-| Several outputs to the same address | Each is a separate line valued at its own first observation; the intent's `credited_m2z` is their sum, and `rail_data.payments[]` lists them |
-| An output below `min_credit_m2z` (1 2Z) | Held on the intent, uncredited, and **aggregated**: once the sum of uncredited outputs on the intent reaches 1 2Z they are credited together at their individual rates. Until then `rail_data.below_minimum_zat` shows the running total |
+| Several outputs to the same address | Each is a separate line valued at its own first observation; the intent's `credited_milli_2z` is their sum, and `rail_data.payments[]` lists them |
+| An output below `min_credit_2z` (1 2Z) | Held on the intent, uncredited, and **aggregated**: once the sum of uncredited outputs on the intent reaches 1 2Z they are credited together at their individual rates. Until then `rail_data.below_minimum_zat` shows the running total |
 
 The rate itself comes from the platform's exchange-rate aggregation and
 includes a spread; it is quoted, not negotiated, and the intent shows it.
@@ -430,7 +449,7 @@ includes a spread; it is quoted, not negotiated, and the intent shows it.
   payment credits twice, however many times a receipt is submitted, a
   notification is delivered, or a poll runs.
 - **The balance is the truth.** After `credited`, `GET /balance` reflects
-  it. An app should re-read the balance rather than add `credited_m2z`
+  it. An app should re-read the balance rather than add `credited_milli_2z`
   locally.
 - **Post-credit reversals are visible.** `refunded`,
   `partially_refunded`, `disputed` and `clawed_back` appear on the intent

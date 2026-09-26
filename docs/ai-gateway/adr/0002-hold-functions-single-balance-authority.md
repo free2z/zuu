@@ -63,10 +63,10 @@ a shortfall the platform writes off; a user's balance never goes negative
 because of an AI call, and the gateway is never left holding a completed
 call it cannot account for.
 
-The gateway reaches the ledger through a connection that can **execute
-those functions and nothing else** — it cannot read or write balances
-directly. This is enforced by the database, not by convention in the
-gateway's code.
+The gateway's access to the ledger is **those operations and nothing
+else** — it cannot read or write a balance by any other path, and that
+is enforced where the ledger lives, not by convention in the gateway's
+code.
 
 ## Consequences
 
@@ -74,24 +74,27 @@ gateway's code.
   `agen` give fast rejection at the edge; the hold re-checks both. A
   revocation that has not yet propagated to the gateway costs at most one
   hold attempt that the ledger refuses.
-- **The hot path has one database round trip**, and the budget for it is
-  the whole of the gateway's latency budget for money: hold p99 ≤ 10 ms
-  in the database, settle p99 ≤ 15 ms, and neither sits on the request's
-  critical path after the first byte.
-- **Contention is per user, never global.** Only the user's own account
-  row is locked by a hold. The platform's, the provider's and every
-  developer's side of a settlement are journal entries aggregated
-  asynchronously, so a popular app's developer account never becomes a
-  hot row that slows its own users.
+- **The hot path has at most two database round trips** — a read-only
+  inquire to size the output clamp, then the hold — and the budget for
+  them is the whole of the gateway's latency budget for money: hold p99
+  ≤ 10 ms in the database, settle p99 ≤ 15 ms, and neither sits on the
+  request's critical path after the first byte.
+- **Contention is per user, never global.** A hold contends only with
+  that user's other holds; the platform's, the provider's and every
+  developer's side of a settlement are recorded asynchronously, so a
+  popular app's developer account never becomes a point of contention
+  that slows its own users.
 - **No second balance exists to drift.** There is no in-memory or cached
   balance in the gateway to reconcile, invalidate or explain. The
-  `balance_hint_m2z` a client receives is a *hint* read at settlement,
+  `balance_hint_milli_2z` a client receives is a *hint* read at settlement,
   named as such, and the balance endpoint is authoritative.
 - **A gateway restart cannot double-charge or lose a call.** Holds are
   keyed on the call's idempotency; settlement on the hold; an unsettled
-  hold expires and releases. The invariant "every call settled exactly
-  once, including across a rolling deploy" is a load-test assertion, not a
-  hope.
+  hold expires and releases. The invariant "every call reaches exactly
+  one terminal disposition and is settled at most once, including across
+  a rolling deploy" is a load-test assertion, not a hope — and a
+  gateway-kill test expects the killed calls to be *released*, not
+  settled.
 - **The ledger's function signatures are a public contract**, versioned
   with the platform and pinned by fixtures in `f2z-ai-testkit`. Changing
   them is a coordinated change with the gateway, not an internal

@@ -87,9 +87,10 @@ does not have. So that a page can complete the flow with `fetch` alone:
   and `https://ai.free2z.cash/v1/*` answer CORS preflights for every
   origin registered on a public web client (`Access-Control-Allow-Origin`
   echoing that origin, `Access-Control-Allow-Headers: Authorization,
-  Content-Type, Idempotency-Key`, no credentials) and expose
-  `X-F2Z-Call-Id`, `Retry-After`, `ETag` and the `X-F2Z-RateLimit-*`
-  headers to scripts.
+  Content-Type, Idempotency-Key, If-None-Match`, no credentials) and
+  expose `X-F2Z-Call-Id`, `Retry-After`, `ETag`, `WWW-Authenticate` (the
+  step-up challenge of §10 must be readable by the page) and the
+  `X-F2Z-RateLimit-*` headers to scripts.
 - The authorization endpoint is navigated to, never fetched; the callback
   page reads `code`, `state` and `iss` from its own URL.
 - Tokens live in page memory only ([§8](#8-refresh-tokens)).
@@ -103,7 +104,7 @@ does not have. So that a page can complete the flow with `fetch` alone:
 | `email` | `email`, `email_verified` | `f2z-id` |
 | `offline_access` | A refresh token (§8). Without it, the session ends when the access token expires | — |
 | `balance:read` | `GET /api/sdk/v1/balance` | `f2z-api` |
-| `purchase:create` | `POST /api/sdk/v1/purchases` and the receipt endpoints ([purchase.md](./purchase.md)) | `f2z-api` |
+| `purchase:create` | `POST /api/sdk/v1/purchases`, the receipt endpoint, reading the intents this app created, and the packs list ([purchase.md](./purchase.md)) | `f2z-api` |
 | `ai:invoke` | Every `ai.free2z.cash/v1/*` endpoint ([chat-api.md](./chat-api.md)). Requesting it makes the spend cap part of consent (§5) | `f2z-ai` |
 
 Scopes are space-separated in the `scope` parameter. The IdP returns the
@@ -121,7 +122,7 @@ an amount and a period.
 
 | Field | Values |
 |---|---|
-| `spend_cap_m2z` | A whole number of 2Z in milli-2Z (a multiple of `1000`), or `null` for no cap. The user chooses; the app's `default_spend_cap` is only the pre-selection |
+| `spend_cap_2z` | A whole number of 2Z, or `null` for no cap. The user chooses; the app's `default_spend_cap` is only the pre-selection |
 | `cap_period` | `day`, `week`, `month` or `total`. Periods are calendar-aligned in UTC (`day` resets at 00:00Z; `week` on Monday 00:00Z; `month` on the 1st). `total` never resets |
 
 The result is a **grant**: (user, app, scopes, cap, **consented markup**,
@@ -206,7 +207,7 @@ A resource server compares the token's `aep` with the account's current
 epoch — the platform publishes the current value to resource servers on every
 change — and refuses a token whose epoch is behind with `401 token_revoked`.
 **If the current epoch cannot be determined, the resource server fails
-closed** with `503 revocation_check_unavailable` rather than accepting the
+closed** with `503 unavailable` rather than accepting the
 token; a client treats that as retryable.
 
 A stale epoch also invalidates every refresh token of the account; the
@@ -509,7 +510,7 @@ suite exercises the same list from the other side.
   changed underneath it.
 - On `401 insufficient_user_authentication`, runs the step-up flow of §10 and
   retries once.
-- On `503 revocation_check_unavailable`, retries with backoff; does not sign
+- On `503 unavailable`, retries with backoff; does not sign
   the user out.
 - Opens the system browser or the platform's authentication session for
   sign-in; never an embedded web view.
