@@ -60,12 +60,40 @@ pub struct Message {
     /// The turn's content, in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub content: Vec<ContentPart>,
-    /// On an `assistant` turn: the tool calls the model made.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// On an `assistant` turn: the tool calls the model made. Decoded
+    /// strictly here, although [`ToolCall`] itself is tolerant (it also
+    /// arrives in responses and events): `deny_unknown_fields` does not
+    /// propagate into a nested type on its own.
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "strict_tool_calls"
+    )]
     pub tool_calls: Vec<ToolCall>,
     /// On a `tool` turn: the [`ToolCall::id`] this result answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+}
+
+/// [`ToolCall`]'s request-side shape: the same fields, refusing any other.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StrictToolCall {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+fn strict_tool_calls<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<ToolCall>, D::Error> {
+    let calls = Vec::<StrictToolCall>::deserialize(d)?;
+    Ok(calls
+        .into_iter()
+        .map(|c| ToolCall {
+            id: c.id,
+            name: c.name,
+            arguments: c.arguments,
+        })
+        .collect())
 }
 
 /// The author of a [`Message`].

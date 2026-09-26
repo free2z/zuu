@@ -76,6 +76,10 @@ fn requests_are_strict() {
         // image by URL: the gateway never fetches client URLs
         r#"{"model":"m","messages":[{"role":"user","content":[{"type":"image","url":"http://x"}]}]}"#,
         r#"{"model":"m","messages":[{"role":"robot"}]}"#,
+        // strictness reaches nested request types too
+        r#"{"model":"m","messages":[{"role":"assistant","tool_calls":[{"id":"t","name":"f","arguments":"{}","extra":1}]}]}"#,
+        r#"{"model":"m","messages":[{"role":"user","content":[{"type":"text","text":"x","extra":1}]}]}"#,
+        r#"{"model":"m","messages":[],"tools":[{"name":"f","parameters":{},"extra":1}]}"#,
     ] {
         assert!(serde_json::from_str::<ChatRequest>(bad).is_err(), "{bad}");
     }
