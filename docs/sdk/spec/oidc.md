@@ -46,6 +46,8 @@ platform's own apps register the same way. Registration fixes:
 | `markup_bps` | The developer markup in basis points applied to every AI call made through this app, credited to the developer. `0` to the platform cap (v1: **5000**, i.e. 50 %). Shown to the user at consent; changing it re-prompts consent (§5) |
 | `default_spend_cap` | The cap pre-selected on the consent screen when `ai:invoke` is requested: an amount in milli-2Z and a period (§5) |
 | `allow_zcash_assertion` | Whether the app may use the Zcash sign-in grant (§9.4). Off by default |
+| `rails` | Which purchase rails the app offers. `card` and `zcash` are on for every app; `apple_iap` and `google_iap` require the store identity below and a developer billing agreement ([purchase.md](./purchase.md) §4.0) |
+| Store identity | iOS bundle id, Android package name, and per-store verification credentials entered in the console and never returned by any API. Required for the IAP rails |
 | Name, logo, privacy URL, terms URL | Shown at consent |
 
 A registration has a **developer account** — an ordinary Free2Z account —
@@ -59,8 +61,9 @@ one for a confidential client.
 | Shape | Form | Notes |
 |---|---|---|
 | **Loopback** | `http://127.0.0.1:{port}/{path}` or `http://[::1]:{port}/{path}` | Register with any port (for example `http://127.0.0.1:0/callback`); the IdP ignores the port when matching (RFC 8252 §7.3). `localhost` as a name is **not** accepted — it may resolve off-device. Desktop apps use this |
-| **Claimed `https`** | `https://tutor.example.com/oauth/callback` | A universal link (iOS) or App Link (Android) the app has proven it controls. The IdP verifies the domain association file at registration time and again daily; a URI whose association is missing is refused at authorization time with `invalid_request` |
+| **Claimed `https`** (mobile) | `https://tutor.example.com/oauth/callback` | A universal link (iOS) or App Link (Android) the app has proven it controls. The IdP verifies the domain association file at registration time and again daily; a URI whose association is missing is refused at authorization time with `invalid_request` |
 | **Private-use scheme** | `com.example.tutor:/oauth/callback` | The scheme MUST be a reverse-DNS name the developer controls (RFC 8252 §7.1). One slash after the colon, as the RFC recommends. This is the **fallback** on iOS and Android when a claimed link is not available |
+| **`https` web origin** (browser app) | `https://app.example.com/oauth/callback` | A public client running as a page. No domain association is needed; the origin is also registered as an allowed CORS origin (§3.1). `http` is accepted only for loopback |
 | **`https` (confidential)** | `https://api.example.com/oauth/callback` | Server-side apps only |
 
 Mobile guidance, both platforms equal:
@@ -75,13 +78,29 @@ Mobile guidance, both platforms equal:
 A redirect URI never carries a query string of its own, so the IdP appends
 `?code=…&state=…&iss=…` unambiguously.
 
+### 3.1 Browser clients and CORS
+
+A browser page is a public client and cannot proxy through a server it
+does not have. So that a page can complete the flow with `fetch` alone:
+
+- The token, revocation and userinfo endpoints, `https://free2z.cash/api/sdk/v1/*`
+  and `https://ai.free2z.cash/v1/*` answer CORS preflights for every
+  origin registered on a public web client (`Access-Control-Allow-Origin`
+  echoing that origin, `Access-Control-Allow-Headers: Authorization,
+  Content-Type, Idempotency-Key`, no credentials) and expose
+  `X-F2Z-Call-Id`, `Retry-After`, `ETag` and the `X-F2Z-RateLimit-*`
+  headers to scripts.
+- The authorization endpoint is navigated to, never fetched; the callback
+  page reads `code`, `state` and `iss` from its own URL.
+- Tokens live in page memory only ([§8](#8-refresh-tokens)).
+
 ## 4. Scopes
 
 | Scope | Grants | Token audience |
 |---|---|---|
-| `openid` | An ID token; the `sub` claim | — |
-| `profile` | `preferred_username`, `name`, `picture` in the ID token and at `userinfo_endpoint` | — |
-| `email` | `email`, `email_verified` | — |
+| `openid` | An ID token; the `sub` claim; access to `userinfo_endpoint` | `f2z-id` |
+| `profile` | `preferred_username`, `name`, `picture` in the ID token and at `userinfo_endpoint` | `f2z-id` |
+| `email` | `email`, `email_verified` | `f2z-id` |
 | `offline_access` | A refresh token (§8). Without it, the session ends when the access token expires | — |
 | `balance:read` | `GET /api/sdk/v1/balance` | `f2z-api` |
 | `purchase:create` | `POST /api/sdk/v1/purchases` and the receipt endpoints ([purchase.md](./purchase.md)) | `f2z-api` |
@@ -105,10 +124,16 @@ an amount and a period.
 | `spend_cap_m2z` | A whole number of 2Z in milli-2Z (a multiple of `1000`), or `null` for no cap. The user chooses; the app's `default_spend_cap` is only the pre-selection |
 | `cap_period` | `day`, `week`, `month` or `total`. Periods are calendar-aligned in UTC (`day` resets at 00:00Z; `week` on Monday 00:00Z; `month` on the 1st). `total` never resets |
 
-The result is a **grant**: (user, app, scopes, cap, generation). One grant
-exists per (user, app). Re-authorizing replaces its scopes and cap in place.
-The user can inspect, edit or revoke every grant at
-`https://free2z.cash/account/apps`:
+The result is a **grant**: (user, app, scopes, cap, **consented markup**,
+**consented capture flag**, generation). One grant exists per (user, app).
+Re-authorizing replaces its scopes, cap, markup and capture flag in place
+and never resets its spending history ([metering.md](./metering.md) §4).
+The consented markup — not the registration's current `markup_bps` — is
+what the ledger prices this user's calls with, so raising the markup earns
+nothing from a user until they re-consent. The same applies to debug
+capture: the gateway captures a user's prompts only under a grant whose
+capture flag the user saw and accepted. The user can inspect, edit or
+revoke every grant at `https://free2z.cash/account/apps`:
 
 - **Lowering** a cap or **reducing** scopes takes effect immediately: the cap
   is enforced inside the ledger's hold ([metering.md](./metering.md) §3) and
@@ -121,7 +146,10 @@ The user can inspect, edit or revoke every grant at
 
 The IdP re-prompts consent (`prompt=consent` behaviour, even when the client
 did not ask for it) when the app's `markup_bps` has increased since the grant
-was made, or when requested scopes are not all already granted.
+was made, when the app has since enabled debug capture, or when requested
+scopes are not all already granted. Until the user re-consents, the
+existing grant continues on its old terms; nothing about a registration
+change invalidates tokens.
 
 ## 6. Access tokens
 
@@ -135,7 +163,7 @@ header:  {"alg":"ES256","typ":"at+jwt","kid":"2026-09-a"}
 payload: {
   "iss":       "https://free2z.cash",
   "sub":       "u_01J8ZK3Q9V6W0E4H7X2C5N8M1T",
-  "aud":       ["f2z-ai", "f2z-api"],
+  "aud":       ["f2z-id", "f2z-ai", "f2z-api"],
   "client_id": "app_7f3c2e",
   "scope":     "openid profile balance:read ai:invoke",
   "iat":       1790000000,
@@ -153,7 +181,7 @@ payload: {
 |---|---|---|
 | `iss` | Always `https://free2z.cash` | Every resource server, exact string match |
 | `sub` | The user's stable, opaque account id. The same for every app (`subject_types_supported: ["public"]`). Never a username or email — those change | — |
-| `aud` | **Always a JSON array.** `f2z-ai` for the gateway, `f2z-api` for the account API. Which appear depends on the granted scopes (§4). A resource server MUST refuse a token whose `aud` does not contain its own identifier | Every resource server |
+| `aud` | **Always a JSON array.** `f2z-id` for the IdP's own `userinfo_endpoint`, `f2z-ai` for the gateway, `f2z-api` for the account API. Which appear depends on the granted scopes (§4); a token whose scopes need no audience carries `["f2z-id"]` so the array is never empty. A resource server MUST refuse a token whose `aud` does not contain its own identifier | Every resource server |
 | `client_id` | The app the token was issued to | Resource servers, for rate limits and markup |
 | `scope` | Space-separated granted scopes (RFC 9068 §2.2.3) | Resource servers, per endpoint |
 | `exp` | `iat + 300`. **Five minutes**, not configurable per app | Every resource server, with at most 30 s of leeway |
@@ -269,11 +297,7 @@ Host: free2z.cash
   "end_session_endpoint": "https://free2z.cash/oauth/logout",
   "response_types_supported": ["code"],
   "response_modes_supported": ["query"],
-  "grant_types_supported": [
-    "authorization_code",
-    "refresh_token",
-    "urn:f2z:grant-type:zcash-signature"
-  ],
+  "grant_types_supported": ["authorization_code", "refresh_token"],
   "subject_types_supported": ["public"],
   "id_token_signing_alg_values_supported": ["RS256"],
   "token_endpoint_auth_methods_supported": ["none", "client_secret_basic", "client_secret_post"],
@@ -365,10 +389,12 @@ receive a narrower access token; it can never widen.
 
 Zcash sign-in, `grant_type=urn:f2z:grant-type:zcash-signature`: an extension
 grant in which the client proves control of a Zcash address by signing an
-IdP-issued challenge. It is available only to apps registered with
+IdP-issued challenge. It will be available only to apps registered with
 `allow_zcash_assertion`. **Its parameters are reserved in v1 and specified in
-a later revision of this document**; discovery advertises the grant type so
-that clients can detect support.
+a later revision of this document.** Until then the IdP does **not** list it
+in `grant_types_supported` and answers it with `unsupported_grant_type`;
+a client detects support by its presence in discovery once that revision
+lands, and not before.
 
 Success (RFC 6749 §5.1):
 
@@ -399,10 +425,15 @@ Content-Type: application/x-www-form-urlencoded
 token=3qkdY3m9v2c...&token_type_hint=refresh_token&client_id=app_7f3c2e
 ```
 
-Always `200` (RFC 7009 §2.2). Revoking a refresh token revokes its family.
-Revoking an access token is accepted and is a no-op beyond its five-minute
-life; use `end_session_endpoint` or the account's app list to revoke a
-grant.
+`200` for a refresh token, whether or not it was still valid (RFC 7009
+§2.2), and revoking it revokes its family. **Access tokens cannot be
+revoked individually** — they are stateless JWTs — so presenting one is
+answered with `400 unsupported_token_type` (RFC 7009 §2.2.1) rather than a
+`200` that would let a client believe a compromised token is dead. A
+compromised access token is handled by revoking the grant (the account's
+app list, or `end_session_endpoint`), which bumps `agen` and stops it
+within the propagation delay of §6.3; its remaining life is at most five
+minutes in any case.
 
 ### 9.6 Userinfo
 
@@ -447,9 +478,11 @@ through an app. The rule is the same everywhere:
 `acr` values: `urn:f2z:acr:1fa` (one factor) and `urn:f2z:acr:mfa` (a
 second factor was used, or a passkey with user verification, which counts as
 MFA). `amr` values follow [RFC 8176](https://www.rfc-editor.org/rfc/rfc8176)
-where one exists — `pwd`, `otp`, `hwk` (passkey), `mfa` — plus
-`urn:f2z:amr:federated` for a linked provider sign-in and
-`urn:f2z:amr:zcash-signature`.
+where one exists — `pwd`, `otp`, `mfa`, and `user` when a passkey verified
+the user — plus `urn:f2z:amr:passkey` for a WebAuthn credential (the IdP
+does not claim `hwk`, which asserts hardware-bound key possession that
+attestation is not checked for), `urn:f2z:amr:federated` for a linked
+provider sign-in and `urn:f2z:amr:zcash-signature`.
 
 The IdP **fails closed**: an operation that requires recent authentication
 refuses when `auth_time` is absent from the session rather than assuming it

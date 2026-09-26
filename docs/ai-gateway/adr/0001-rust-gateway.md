@@ -6,14 +6,13 @@
 
 ## Context
 
-Metered AI on the platform today runs inside the synchronous Python web
-tier: a request holds a worker for the whole duration of the provider's
-stream, so concurrency is bounded by the number of workers rather than by
-the network, and a burst of a few dozen simultaneous calls saturates the
-tier for every other request. Output tokens are re-counted client-side
-with a general-purpose tokeniser instead of taken from the provider's
-reported usage, so the charge is an approximation of what was billed.
-There is no streaming to browsers at all.
+Metered AI on the platform today runs inside the synchronous web tier: a
+request holds a worker for the whole duration of the provider's stream,
+so concurrency is bounded by the number of workers rather than by the
+network. Output tokens are re-counted with a general-purpose tokeniser
+instead of taken from the provider's reported usage, so the charge is an
+approximation of what was billed. There is no streaming to browsers at
+all.
 
 The v1 platform needs the opposite profile: **ten thousand concurrent
 streams** per deployment as the design point, a single database round trip

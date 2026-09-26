@@ -47,6 +47,21 @@ values; the specification cites them.
 | Revocation | Account epoch and grant generation checked per call; **fails closed** when the state is unknown | `503 revocation_check_unavailable` |
 | Logs | Never prompts, never completions. Per-app debug capture is opt-in, sampled and disclosed at consent | The trust model in [`docs/sdk`](../sdk/README.md) |
 
+## The catalogue contract
+
+The gateway prices nothing it did not read from a **signed catalogue**
+published by the platform. The parts that make it a contract between two
+teams rather than a file:
+
+| Property | Rule |
+|---|---|
+| Schema | Defined in `f2z-ai-proto` (models, per-model prices in nano-USD per token or per unit, limits, capabilities, `min_charge_2z`, the platform margin in bps, `catalogue_version`, `issued_at`, `expires_at`) and generated into the D3 reference. The public projection is `GET /v1/models` |
+| Signature | Ed25519 over the canonical (RFC 8785) JSON of the document, in a detached header field; the verifying public key is configuration the gateway starts with, never fetched from the same place as the catalogue |
+| Version | `catalogue_version` is a string that sorts lexicographically by issue order; the gateway never replaces a verified catalogue with an older version, and every hold records the version it was priced under |
+| Freshness | The gateway polls every 30 s. A catalogue past its `expires_at` (the platform issues them with a 15-minute validity, so a stalled publisher is noticed within a quarter of an hour) is **not** used for new holds: new calls get `503 catalogue_unavailable`; open streams settle under the version their hold recorded |
+| Start-up | No verified, unexpired catalogue means the process does not report ready |
+| Rollback | A price correction is a new version; there is no "previous version" mechanism, because a hold already priced under a version settles under it |
+
 ## What the gateway never does
 
 - Never fetches a client-supplied URL (images are inline bytes).

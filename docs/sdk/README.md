@@ -122,15 +122,19 @@ Consequences that follow directly:
   applied by the ledger at settlement.
 - **A user cannot be charged more than they agreed to.** The spend cap
   chosen at consent is enforced inside the same atomic operation that
-  reserves the 2Z; the gateway cannot bypass it.
+  reserves the 2Z, and bounds what settlement may collect when an
+  estimate was low; the gateway cannot bypass it. The markup the user is
+  charged is the one they consented to, not the one the app registers
+  later.
 - **The platform never sees a card number or an Apple/Google account.**
   Cards are handled by the payment processor's hosted surfaces; in-app
   purchases are verified against the store's signed receipt; Zcash payments
   are observed with a viewing key, so the platform can *see* a payment but
   holds no key that could *spend* one.
 - **Prompts and completions are not logged** by the gateway. Per-app debug
-  capture is opt-in by the developer, sampled, and disclosed to the user at
-  consent when enabled.
+  capture is opt-in by the developer, sampled, and applies only to users
+  whose grant records that they consented to it — enabling it re-prompts
+  consent ([`spec/oidc.md`](./spec/oidc.md) §5).
 
 ## Reading order
 

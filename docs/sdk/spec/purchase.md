@@ -67,20 +67,39 @@ streaming. Apps show `available`. Requires `balance:read`.
 | `credited` | 2Z are on the balance: `credited_m2z` and `credited_at` set | yes |
 | `expired` | `expires_at` passed without payment | yes |
 | `failed` | The payment failed or was cancelled by the user | yes |
-| `refunded`, `partially_refunded` | After crediting, the payment was refunded; the 2Z were taken back pro rata (see §6) | yes |
+| `refunded`, `partially_refunded` | After crediting, the payment was refunded in full or in part; the 2Z were taken back pro rata (§6) | `refunded` yes; `partially_refunded` no |
 | `disputed` | After crediting, the payment is under dispute; the 2Z were taken back and the account is frozen while it is open | no |
 | `clawed_back` | After crediting, the store revoked the purchase; the 2Z were taken back | yes |
 
 Transitions: `created → pending → paid → credited`, and from any
-non-terminal state to `expired` or `failed`. The post-credit states only
-follow `credited`.
+non-terminal state to `expired` or `failed`. `expired → paid` is allowed
+on the Zcash rail (§5.3) and on the card rail when the processor's
+confirmation arrives late. The post-credit states follow `credited` and
+**may follow each other**: `partially_refunded → refunded`,
+`partially_refunded → disputed`, `disputed → credited` (dispute won, 2Z
+re-credited), `disputed → refunded` (dispute lost). Every reversal is
+computed from the **cumulative** reversed amount the processor or store
+reports — `reversed_minor` on the intent — so a notification delivered
+twice or out of order takes back nothing twice:
+`credited_m2z × reversed_minor / amount_minor`, rounded down, is the total
+ever taken back for the intent.
 
 ### 1.3 Polling
 
 `GET /purchases/{id}` returns the intent. Clients poll with backoff —
-2 s, 4 s, 8 s, then every 15 s — until a terminal state or `expires_at`.
-The response carries `Retry-After` as a hint. A `credited` intent's
-`credited_m2z` may differ from `quantity_m2z` on the Zcash rail (§5.4).
+2 s, 4 s, 8 s, then every 15 s — until a state that is terminal *for the
+client*: `credited`, `failed`, or `expired` **with nothing seen**. A
+`paid` intent is polled past `expires_at` until it settles (a Zcash
+payment seen just before the quote expired still needs its
+confirmations). The response carries `Retry-After` as a hint. A
+`credited` intent's `credited_m2z` may differ from `quantity_m2z` on the
+Zcash rail (§5.4).
+
+Late success after the client stopped polling — a card confirmation
+that arrives after the client gave up, a Zcash payment sent after the
+quote expired — is still credited on the server. An app therefore
+re-reads `GET /balance` when it comes to the foreground, and may re-read
+an `expired` intent it still displays; it does not poll one indefinitely.
 
 The `hello-ai` reference app polls; a push channel is not part of v1.
 
@@ -149,18 +168,54 @@ Timeouts: a card intent expires **30 minutes** after creation.
 ### 3.1 Refunds and disputes
 
 If the processor refunds a charge, the platform takes the corresponding 2Z
-back pro rata (`refunded` / `partially_refunded`). If the user's balance
-no longer covers it, the account carries the difference as a debt that
-future credits repay first, and the account cannot spend until then. A
-chargeback (`disputed`) takes the 2Z back and freezes the account while
-the dispute is open; a dispute the platform wins re-credits. An app sees
-these as intent states and as `403 account_frozen` on spending.
+back pro rata (`refunded` / `partially_refunded`). The reversal debits
+what is available; if that does not cover it, the account carries the
+difference as a debt that future credits repay first, and the account
+cannot spend until then. 2Z under an open AI-call hold are not taken by a
+reversal — the hold settles normally and any remainder is then subject to
+the debt. A chargeback (`disputed`) takes the 2Z back and freezes the
+account while the dispute is open; a dispute the platform wins
+re-credits. An app sees these as intent states and as `403 account_frozen`
+on spending.
 
 ## 4. In-app purchase — StoreKit 2 and Play Billing, as equals
 
 Both stores are supported on the same terms: the same intent, the same
 packs concept, the same receipt endpoint, the same test matrix. Neither
 lags the other.
+
+### 4.0 Who owns the store product
+
+A store sells an in-app product **on behalf of the app that lists it**,
+and pays the proceeds to that app's store account. For the platform's own
+apps that is the platform. For a third-party app it is the developer —
+so an IAP rail on a third-party app means the developer's store account
+receives the money and the platform credits the 2Z. That is only sound
+under a **developer billing agreement**, and the rail is therefore
+gated on registration rather than on by default:
+
+- The app's registration ([oidc.md](./oidc.md) §2) records its store
+  identity — the iOS bundle id and the Android package name — and, for
+  each store, the credential the platform needs to verify that app's
+  purchases and receive its server notifications (an App Store Server API
+  key scoped to the app; a Play service account with read access to the
+  app's purchases). Those credentials are entered in the developer
+  console and never appear in any API response.
+- The pack products must exist under **that** app's store listing with
+  the product ids the platform assigns in `GET /purchases/packs`, which
+  is per app for the IAP rails.
+- The receipt endpoint verifies a receipt against the store identity of
+  the app the token was issued to. A receipt from another app's listing
+  is `422 receipt_invalid` with `reason: "app"`.
+- Whether a given app has the IAP rails at all is a registration
+  property (`rails`), and `POST /purchases` answers `400 rail_unavailable`
+  for an app without them. Card and Zcash need no store identity and are
+  available to every app.
+
+The proceeds arrangement between a developer and the platform is
+commercial, outside this contract. The contract's promise is only that
+the mechanics above are identical for the platform's own apps and for a
+third party's, and that nothing in them requires a privileged path.
 
 ### 4.1 Packs
 
@@ -213,13 +268,26 @@ than changing an existing one's 2Z.
    { "store": "apple", "signed_transaction": "<JWS from Transaction.jwsRepresentation>" }
    ```
 
-   The platform verifies the JWS against Apple's root, checks the product
-   id and that the transaction's `appAccountToken` equals the intent id,
-   credits, and returns the intent as `credited`. Then — and only then —
-   the app calls `Transaction.finish()`. A transaction the platform never
-   saw stays unfinished and is re-delivered by StoreKit on the next launch;
-   submitting it again is idempotent (`receipt_already_used` if it was in
-   fact credited, with `details.purchase_id`).
+   The platform verifies the JWS chain against Apple's root certificate
+   and then checks, in this order, that: the `bundleId` equals the app's
+   registered bundle id; the `environment` is `Production` (a `Sandbox`
+   transaction is accepted only for an intent created by a registered
+   test account, and credits a sandbox-flagged balance that cannot be
+   spent in production); the `productId` equals the intent's; the
+   `type` is a consumable; there is no `revocationDate`; and the
+   `appAccountToken` equals the intent id. Each failure is
+   `422 receipt_invalid` with its `reason`. Then it credits — keyed on the
+   transaction's `transactionId`, so the same transaction can never credit
+   twice — and returns the intent as `credited`. Then — and only then —
+   the app calls `Transaction.finish()`.
+
+   Resubmitting the same transaction for the same intent answers `200`
+   with the intent (`credited`) again; that is how an app whose first
+   response was lost learns it may finish. A transaction the platform
+   never saw stays unfinished and is re-delivered by StoreKit on the next
+   launch; the app submits it against the intent whose id is its
+   `appAccountToken`. `409 receipt_already_used` is reserved for a
+   transaction that credited a **different** intent.
 4. Refunds and revocations arrive from Apple's server notifications and
    move the intent to `refunded` or `clawed_back` (§6).
 
@@ -243,11 +311,31 @@ than changing an existing one's 2Z.
    { "store": "google", "purchase_token": "<Purchase.getPurchaseToken()>" }
    ```
 
-   The platform verifies the purchase with Google's API, checks the product
-   id and obfuscated account id, credits, and **consumes** the purchase
-   server-side. The app does **not** call `consumeAsync` itself; a purchase
-   that was not consumed is re-delivered by Play, and resubmitting is
-   idempotent exactly as for Apple.
+   The platform verifies the purchase with Google's API against the app's
+   registered package name and checks the product id and obfuscated
+   account id. Then:
+
+   - `purchaseState` **pending** (the user chose a deferred payment
+     method): nothing is credited. The endpoint answers `202` with the
+     intent still `pending` and `rail_data.store_state: "pending"`; the
+     platform completes it from Google's real-time notification when the
+     payment lands, or the app resubmits later. An intent with a pending
+     store purchase is polled like any `pending` intent.
+   - `purchaseState` **purchased**: the platform credits — keyed on the
+     `orderId`, so the same purchase can never credit twice — and then
+     **consumes** the purchase server-side. The credit and the obligation
+     to consume are recorded together, and the consume is retried by the
+     platform until Google acknowledges it, independently of any further
+     request from the app; a crash between crediting and consuming cannot
+     leave a purchase unconsumed for Play to refund.
+
+   The app does **not** call `consumeAsync` itself. Resubmitting the same
+   purchase token for the same intent answers `200` with the intent
+   (`credited`) — and re-attempts the consume if it is still owed;
+   `409 receipt_already_used` is reserved for a token that credited a
+   different intent. A purchase that was not consumed is re-delivered by
+   Play on the next launch, and the app submits it against the intent
+   whose id is its obfuscated account id.
 4. Refunds and voided purchases arrive from Google's real-time developer
    notifications and the voided-purchases feed and move the intent to
    `refunded` or `clawed_back`.
@@ -255,12 +343,15 @@ than changing an existing one's 2Z.
 ### 4.4 Receipt endpoint, both stores
 
 `POST /purchases/{id}/receipt` requires `purchase:create`, the same user
-and app as the intent, and an intent in `pending` (or `paid`, for a
-retry). Answers: the intent (`credited`), `422 receipt_invalid`,
-`409 receipt_already_used`, `409 intent_not_pending`,
-`503 store_unavailable` (retryable). An IAP intent expires **24 hours**
-after creation; a receipt for an expired intent is still accepted if it
-verifies, because the store already took the money.
+and app as the intent, and an intent in `pending`, `paid`, `expired` or
+`credited`. Answers: `200` with the intent (`credited` — including on
+resubmission), `202` with the intent (`pending`, Google deferred
+payment), `422 receipt_invalid`, `409 receipt_already_used` (another
+intent), `409 intent_not_pending` (the intent is `failed` or in a
+post-credit reversal state), `503 store_unavailable` (retryable). An IAP
+intent expires **24 hours** after creation for the purpose of the app's
+UI; a verifying receipt for an expired intent is still credited, because
+the store already took the money.
 
 ## 5. Zcash
 
@@ -270,7 +361,8 @@ it arrived*, not by a memo; the user need not type anything.
 
 ### 5.1 Create
 
-`POST /purchases` with `rail: zcash`. `rail_data`:
+`POST /purchases` with `rail: zcash` and, in this example,
+`quantity_m2z: 5000000` (5,000 2Z). `rail_data`:
 
 ```json
 {
@@ -299,22 +391,35 @@ could spend from the address.
 
 ### 5.3 States
 
-- Payment seen in the mempool or at fewer than 3 confirmations → `paid`,
-  with `rail_data.confirmations` counting up.
+- An output to the address seen in a block, or in the mempool, at fewer
+  than 3 confirmations → `paid`, with `rail_data.confirmations` counting
+  up (mempool = 0).
 - 3 confirmations → `credited`.
 - Nothing seen by `expires_at` (the quote lock, 30 minutes) → `expired`.
   **A payment that arrives after expiry is still credited** (§5.4); the
   intent moves from `expired` back to `paid` then `credited`.
+- **Reorganisation.** An output that was credited at 3 confirmations
+  and then disappears from the chain is **not** taken back from the
+  user; the loss is the platform's, and three confirmations is the depth
+  chosen to make it rare. An output that was `paid` (under 3
+  confirmations) and disappears returns the intent to its previous state.
+  If the same output is later re-mined it is the same payment — a
+  payment's identity is its transaction id and output position, and that
+  identity never credits twice, across rescans or reorganisations.
 
 ### 5.4 Amount rules
+
+Each output to the address is valued separately, **at the moment the
+platform first observes it** (mempool or block, whichever is first), and
+credited when it reaches 3 confirmations:
 
 | Case | Credited |
 |---|---|
 | Exact | `quantity_m2z` |
-| Over- or underpayment | Pro rata at the locked rate, rounded **down** to a whole milli-2Z: `credited_m2z = floor(received_zat / amount_zat × quantity_m2z)` |
-| Late (after `locked_until`) | At the **better for the platform** of the locked rate and the current rate: `min(locked, current)` 2Z per ZEC |
-| Below `min_credit_m2z` (1 2Z) | Not credited; the intent shows `paid` with `rail_data.below_minimum: true` and the platform's support process handles it |
-| A second payment to the same address | Credited as a second line on the same intent at the current rate |
+| Over- or underpayment | Pro rata at the locked rate, rounded **down** to a whole milli-2Z: `credited_m2z = floor(received_zat × quantity_m2z / amount_zat)` |
+| First observed after `locked_until` | At the **better for the platform** of the locked rate and the rate current at first observation: `min(locked, current)` 2Z per ZEC, pro rata as above |
+| Several outputs to the same address | Each is a separate line valued at its own first observation; the intent's `credited_m2z` is their sum, and `rail_data.payments[]` lists them |
+| An output below `min_credit_m2z` (1 2Z) | Held on the intent, uncredited, and **aggregated**: once the sum of uncredited outputs on the intent reaches 1 2Z they are credited together at their individual rates. Until then `rail_data.below_minimum_zat` shows the running total |
 
 The rate itself comes from the platform's exchange-rate aggregation and
 includes a spread; it is quoted, not negotiated, and the intent shows it.
@@ -322,8 +427,8 @@ includes a spread; it is quoted, not negotiated, and the intent shows it.
 ## 6. What an app can rely on
 
 - **Crediting is idempotent per store transaction / on-chain output.** No
-  payment credits twice, however many times a receipt is submitted or a
-  poll runs.
+  payment credits twice, however many times a receipt is submitted, a
+  notification is delivered, or a poll runs.
 - **The balance is the truth.** After `credited`, `GET /balance` reflects
   it. An app should re-read the balance rather than add `credited_m2z`
   locally.

@@ -27,6 +27,14 @@ Anchors: **1 2Z = $0.01 = 10,000,000 nUSD**, so **1 m2Z = 10,000 nUSD**.
 Every computation is exact integer arithmetic; there are no floats anywhere
 in the money path, and rounding happens at exactly one point (§2.2).
 
+Widths: every `_m2z` value on the wire fits in a signed 64-bit integer and
+is at most `2⁵³ − 1`, so a JavaScript client reads it exactly; an
+implementation MUST refuse (not truncate) a value outside that range. The
+intermediate `N` of §2.2 needs more than 64 bits for large calls (a $100
+cost with margin and markup is `10¹¹ × 10⁴ × 10⁴ = 10¹⁹`) and MUST be
+computed in 128-bit or arbitrary-precision arithmetic — overflow is a
+refusal, never a wrap.
+
 ## 2. The formula
 
 ### 2.1 Cost
@@ -48,9 +56,14 @@ never see them — `/v1/models` publishes the *marked-up* prices of §2.4.
 
 ### 2.2 Price
 
-With `m` = the platform margin in bps and `b` = the app's markup in bps
-(both properties of the catalogue and the registration, never of a
-request):
+With `m` = the platform margin in bps and `b` = the app's markup in bps.
+Neither is a property of a request. `m` comes from the catalogue version
+the hold was taken under. **`b` is the markup the user consented to** —
+recorded on the grant at consent ([oidc.md](./oidc.md) §5) — never the
+registration's current value: an app that raises its markup gets the new
+value only from users who have re-consented, and every hold snapshots the
+`(catalogue_version, b)` it was priced with, so a change during a stream
+cannot move that stream's settlement.
 
 ```
 p = cost × (1 + m/10000)                     the platform price
@@ -88,13 +101,29 @@ Properties, each pinned by a test in every implementation:
   round-up is at least `p + d`, which is at least `cost + d`; the provider
   part exceeds cost by less than 1 m2Z; the developer part does not exceed
   `d`; and the result is an integer.)
-- `charged_m2z × $0.01 / 1000 ≥ provider cost` — **a call is never sold
-  below cost**, before margin.
+- `charged_m2z × 10⁴ ≥ cost_nusd` — **a call is never priced below
+  cost**, before margin. (Whether the price is *collected* is §5.5; whether
+  the cost is *known* is §5.4.)
 - `developer_m2z` never exceeds `d`: the developer is never credited the
   round-up surplus, which belongs to the platform.
 - Rounding happens once: `charged_m2z` computed from the sum equals
   `charged_m2z` computed from the parts — there is no path where components
   are rounded and then added.
+
+**When less than the charge is collected** (a shortfall, §5.5), the splits
+are computed on the amount collected, and the loss falls on the platform
+first, then the developer, never the provider part — the provider's cost is
+real whatever was collected:
+
+```
+provider_m2z  = ceil(cost_nusd / 10⁴)                                 unchanged
+developer_m2z = min(floor(d), max(0, collected_m2z − provider_m2z))
+platform_m2z  = collected_m2z − provider_m2z − developer_m2z          may be negative: the platform's loss
+```
+
+The `platform_m2z ≥ 0` property holds only when `collected_m2z =
+charged_m2z`; a shortfall is the one case where it does not, and the call
+record says so.
 
 The developer's `developer_m2z` is credited to the developer's own Free2Z
 account, as 2Z. Anything beyond that credit is governed by the developer
@@ -106,11 +135,17 @@ Every price in `/v1/models` ([chat-api.md](./chat-api.md) §5) is the
 provider price with margin and the calling app's markup already applied:
 
 ```
-published_m2z_per_mtok = provider_usd_per_mtok × 100 × 1000 × (1 + m/10000) × (1 + b/10000)
+published_m2z_per_mtok = ceil(provider_usd_per_mtok × 100 × 1000 × (1 + m/10000) × (1 + b/10000))
 ```
 
-so that a client's own estimate is `Σ usage × published rate`, rounded up
-once to a whole 2Z, and agrees with the ledger.
+The published rate is an integer, rounded **up** to the milli-2Z per
+million tokens; the ledger and the gateway price from the exact provider
+rates, not from the published integers. A client's own estimate
+(`Σ usage × published rate`, rounded up once to a whole 2Z) is therefore
+**never lower** than the ledger's charge and may exceed it by at most one
+2Z near a boundary. `POST /v1/chat/estimate` and `meta.hold_m2z` are the
+authoritative numbers; a client shows its own arithmetic only as
+"about".
 
 ## 3. The lifecycle
 
@@ -130,23 +165,38 @@ once to a whole 2Z, and agrees with the ledger.
      │◀────────────────│                            │                    │
 ```
 
-Three ledger operations carry the whole contract. They are the **only**
+Five ledger operations carry the whole contract. They are the **only**
 way 2Z move for an AI call, and the ledger is the only authority on whether
 they may ([ADR 0002](../../ai-gateway/adr/0002-hold-functions-single-balance-authority.md)).
+The gateway never reads or writes a balance by any other path.
 
 | Operation | Effect | Answers |
 |---|---|---|
-| **hold**(user, app, `amount_m2z`, idempotency key, ttl) | Atomically: check the account is not frozen, the grant is live (epoch and generation current), `available ≥ amount`, and `cap_remaining ≥ amount`; then reserve `amount`. All or nothing, in one operation; there is no window in which the balance was checked but not yet reserved | `held` (with `hold_id`, `available_m2z`, `expires_at`), `replayed` (same key → same hold), `insufficient`, `cap_exceeded`, `frozen`, `too_many_holds` (more than 16 open holds on one account) |
-| **extend**(`hold_id`, `add_m2z`, ttl) | Push the expiry out and, optionally, reserve more. The gateway extends every **60 s** during a stream, and reserves more when the stream's output has consumed **80 %** of what the hold was computed for. An extension that cannot be afforded leaves the hold as it was — the stream continues and may end in a write-off (§5.5) | as **hold** |
-| **settle**(`hold_id`, `cost_nusd`, catalogue version, usage) | Compute `charged_m2z` by §2 from `cost_nusd` and the versioned rates, charge it, release the rest of the hold, credit the splits, record the call. **Idempotent** per `hold_id`: a second settle returns the first result and moves nothing. **Never fails** for lack of balance (§5.5) | `charged_m2z`, `shortfall_m2z`, `balance_m2z` |
-| **release**(`hold_id`) | Release the whole hold; nothing charged. Idempotent | — |
+| **inquire**(user, app) | Read-only: what a hold could reserve right now. Used to compute the output clamp (§4) and by `/v1/chat/estimate`. Not a reservation: the numbers can change before the hold | `available_m2z`, `cap_remaining_m2z` (`null` when uncapped), `open_holds`, `frozen` |
+| **hold**(user, app, `amount_m2z`, `hold_key`, `aep`, `agen`, `catalogue_version`, `markup_bps`, ttl) | Atomically: check the account is not frozen; the grant is live **and** the token's `aep` and `agen` equal the account's and the grant's current values; `available ≥ amount`; and `cap_remaining ≥ amount`; then reserve `amount` and record the pricing snapshot `(catalogue_version, markup_bps)` the settlement will use. All or nothing, in one operation; there is no window in which the balance was checked but not yet reserved. `markup_bps` MUST equal the grant's consented markup or the hold is refused | `held` (with `hold_id`, `available_m2z`, `cap_remaining_m2z`, `expires_at`), `replayed` (same `hold_key` → the same hold, whatever its state), `insufficient`, `cap_exceeded`, `frozen`, `revoked` (epoch or generation stale), `too_many_holds` (more than 16 open holds on one account) |
+| **extend**(`hold_id`, `reserve_to_m2z`, ttl) | Push the expiry out and, when `reserve_to_m2z` exceeds the current reservation, reserve the difference. The target is **absolute**, so a retried extension whose first response was lost reserves nothing twice. The gateway extends every **60 s** during a stream, and raises the target when the stream's output has consumed **80 %** of what the hold was computed for. An extension that cannot be afforded (or exceeds the cap) leaves the reservation as it was and still pushes the expiry — the stream continues and may end in a write-off (§5.5) | `held` (with the reservation now in force), `insufficient`, `cap_exceeded`, `not_open` (the hold is settled, released or expired) |
+| **settle**(`hold_id`, `cost_nusd`, usage) | Compute `charged_m2z` by §2 from `cost_nusd` and the hold's pricing snapshot, charge it, release the rest of the hold, credit the splits, record the call. **Idempotent** per `hold_id`: a second settle returns the first result and moves nothing. **Never fails** for lack of balance (§5.5) | `settled` (`charged_m2z`, `collected_m2z`, `shortfall_m2z`, `balance_m2z`, `cap_remaining_m2z`), or `not_open` when the hold was already released or expired — nothing is charged then, and the provider's cost is the platform's (§5.6) |
+| **release**(`hold_id`) | Release the whole hold; nothing charged. Idempotent | `released`, or `settled` when a settle won — the settlement stands |
+
+A hold is in exactly one state — `open`, `settled`, `released`, `expired`
+— and the **first terminal transition wins**: a settle after a release or
+expiry charges nothing; a release after a settle changes nothing; an
+extend on anything but `open` is refused. Every answer names the state
+the hold is in, so a caller that lost a response learns what happened
+rather than guessing.
+
+`hold_key` is `(app, user, idempotency key, attempt)`. A call has attempt
+`1`; a `fallback` retry (§5.7) is attempt `2` with its own hold, and the
+call record links both. One call therefore has at most two holds and at
+most one settlement — the first attempt's hold is released before the
+second is taken, and a settle on the released one answers `not_open`.
 
 Two invariants a user can observe:
 
 - **Exactly one settlement per call.** Settling is keyed on the hold, and
-  the hold on the (app, user, idempotency key) of the call. A retried
-  settle, a gateway restart mid-stream, or a rolling deploy cannot charge
-  twice, and cannot skip: an unsettled hold **expires** (§5.6).
+  the hold on the call's `hold_key`. A retried settle, a gateway restart
+  mid-stream, or a rolling deploy cannot charge twice, and cannot skip: an
+  unsettled hold **expires** (§5.6).
 - **The hold is the ceiling** (except §5.5): `charged_m2z ≤ hold_m2z` after
   extensions, and `charged_m2z + released_m2z = hold_m2z`.
 
@@ -155,26 +205,46 @@ Two invariants a user can observe:
 Before the provider is called, the gateway computes the **worst case**:
 
 ```
-input_est   = tokenise(messages) × safety_factor      (exact tokeniser ⇒ factor 1.0)
+input_est   = tokenise(messages + tools + provider framing) × safety_factor   (exact tokeniser ⇒ factor 1.0)
 out_cap     = min(max_output_tokens, context_window − input_est, affordable)
-hold_m2z    = price(input_est, out_cap, images, tool_budget)    by §2, rounded up
+hold_m2z    = price(input_est at the dearest input rate, out_cap, images, tool_budget)    by §2, rounded up
 ```
 
-`tool_budget` is `min(len(tools), 8)` tool calls when the catalogue prices
-them per call, else 0. Cache prices are not part of the hold (a cache hit
-only makes a call cheaper).
+What the estimate covers, so that no implementation leaves a predictable
+part of the bill out of the hold:
+
+- `tokenise(…)` counts the messages **and** the serialised tool
+  definitions **and** the per-message framing the provider adds; image
+  parts are counted at the model's documented tokens-per-image when the
+  model bills images as tokens.
+- **The dearest input rate** applies: when the model has a cache-write
+  price above its input price, the hold prices every input token at the
+  cache-write rate (the worst case is that the whole prompt is written to
+  cache). Cache *reads* are never part of the hold; a cache hit only makes
+  a call cheaper. The usage buckets are disjoint: `input_tokens` excludes
+  both `cached_input_tokens` and `cache_write_tokens`.
+- `out_cap` bounds the model's **total** generated tokens, reasoning
+  included, and `max_output_tokens` is passed to the provider as that
+  total.
+- `tool_budget` is `min(len(tools), 8)` tool calls when the catalogue
+  prices them per call, else 0.
 
 **`affordable`** is the largest `out` such that
-`price(input_est, out, …) ≤ min(available_m2z, cap_remaining_m2z)`. The
-price is monotonic in `out`, so this is a bounded search. When even
-`out = 1` — or the model's `min_charge_m2z` — does not fit, the call is
-refused: `402 insufficient_balance` when the balance is the binding limit,
-`403 cap_exceeded` when the cap is. `POST /v1/chat/estimate` reports the
-same numbers without holding.
+`price(input_est, out, …) ≤ min(available_m2z, cap_remaining_m2z)`, both
+read by **inquire** (§3). The price is monotonic in `out`, so this is a
+bounded search. When even `out = 1` — or the model's `min_charge_m2z` —
+does not fit, the call is refused: `402 insufficient_balance` when the
+balance is the binding limit, `403 cap_exceeded` when the cap is.
+`POST /v1/chat/estimate` reports the same numbers without holding.
 
 `cap_remaining_m2z = spend_cap_m2z − charged_this_period − held_now`: open
 holds count against the cap while they are open, and released amounts
-return to it.
+return to it. **A charge belongs to the period in which its hold was
+taken**, so a stream that crosses midnight settles against the period it
+started in. Spending history is per grant and survives re-authorization:
+changing the cap or its period never resets what was already spent —
+the new cap is compared with the same history, windowed by the new
+period — so repeated re-consent cannot manufacture allowance.
 
 A clamped `out_cap` is reported in `meta.max_output_tokens` so the app can
 tell the user why a long answer stopped early, and `finish_reason: length`
@@ -188,18 +258,19 @@ marks the stop.
 | 5.2 | Provider error **before** any output | **0** — hold released | — | `released` |
 | 5.2 | Provider error **after** output began | `price(usage)` if the provider reported usage on the failed stream, else §5.4 | `provider` / `estimated` | `settled_partial` |
 | 5.3 | Client disconnects mid-stream | The gateway aborts the provider request at once. Charged `price(usage)` for what was generated, from reported usage if the provider sends it on abort, else §5.4 | `provider` / `estimated` | `settled_partial` |
-| 5.4 | Provider reports **no usage** | Estimated: `input_est` (the hold's estimate) and `tokenise(streamed text) × 1.1` for output. Capped at the hold | `estimated` | as above |
-| 5.5 | Actual **exceeds** the hold | Settle does not fail. The excess is taken from what is available; whatever cannot be taken is recorded as `shortfall_m2z` and **written off** — the user is never taken below zero and never put in debt by an AI call. The gateway alerts on every non-zero shortfall; the write-off is the platform's cost of a bad estimate, not the user's | `provider` | `settled`, `shortfall_m2z > 0` |
-| 5.6 | Gateway dies mid-stream (no settle) | The hold expires **300 s** after its last extension and is released by a sweeper. If the provider had generated output, the platform pays for it; the user is charged nothing, because nothing was recorded. `GET /v1/calls/{id}` shows `released` with `error.code = "stream_interrupted"` | — | `released` |
-| 5.7 | `fallback` used | The hold is released and re-taken at the fallback model's price before the second attempt; `meta` carries the model used. One charge | `provider` | `settled` |
-| 5.8 | Idempotent replay of a finished call | **0** — the original result is returned | — | unchanged |
+| 5.4 | Provider reports **no usage** | Estimated: `input_est` (the hold's estimate) for input; for output, `tokenise(streamed text + tool-call arguments) × 1.1`. Reasoning tokens are not streamed and **cannot be estimated**: a reasoning model whose usage frame was lost is under-charged, and that loss is the platform's. This is the one case where "never priced below cost" does not hold, because the cost is unknown; the record says `estimated` so it can be counted | `estimated` | as above |
+| 5.5 | Actual **exceeds** the hold | Settle does not fail. The excess is taken from what the user could have reserved at that moment — **the lesser of the available balance and the remaining cap** — so the cap the user consented to bounds the collection exactly as it bounds a hold. Whatever cannot be taken is recorded as `shortfall_m2z` and **written off** — the user is never taken below zero, never past the cap, and never put in debt by an AI call. The gateway alerts on every non-zero shortfall; the write-off is the platform's cost of a bad estimate, not the user's | `provider` | `settled`, `shortfall_m2z > 0` |
+| 5.6 | Gateway dies mid-stream (no settle) | The hold expires **300 s** after its last extension and is released by a sweeper. If the provider had generated output, the platform pays for it; the user is charged nothing, because nothing was recorded. A settle that arrives after the expiry answers `not_open` and charges nothing. `GET /v1/calls/{id}` shows `released` with `error.code = "stream_interrupted"` | — | `released` |
+| 5.7 | `fallback` used | The first attempt's hold is released and a second hold (attempt `2`) is taken at the fallback model's price before the second attempt; `meta` carries the model used. One charge | `provider` | `settled` |
+| 5.8 | Idempotent replay of a finished call | **0** — the call record is returned ([chat-api.md](./chat-api.md) §2.5) | — | unchanged |
 | 5.9 | Cap or balance exhausted **during** a stream | Nothing stops the stream: `out_cap` was sized so the hold fits. (Only a bad estimate reaches §5.5.) | — | — |
 | 5.10 | Grant revoked **during** a stream | The stream completes and settles against the hold that was taken while the grant was live; the next call is refused | `provider` | `settled` |
+| 5.11 | The ledger is **unreachable at settlement** | The settler retries with backoff until the hold's expiry. `done` is emitted with `settlement: "pending"` and no `charged_m2z` when settlement has not succeeded within **10 s** of the provider finishing; the call is `settling` until the settle lands (`settled`) or the hold expires (`released`, the platform pays). A draining instance keeps retrying until its grace period ends; it never emits a charge it did not commit | `provider` | `settling` → `settled` or `released` |
 
 The rule that generates the table: **the user pays for what was produced,
 never for what was not, and never more than was reserved unless the
 platform's own estimate was wrong — in which case the platform eats the
-difference.**
+difference beyond what the user's balance and cap allow.**
 
 ## 6. Worked examples
 
@@ -308,25 +379,33 @@ charged_m2z = 57000   provider_m2z = 30000   developer_m2z = 11250   platform_m2
 
 ### 6.7 A write-off
 
-Hold 2,000 m2Z; the provider reports usage whose price is 3,000 m2Z; the
-user's available balance at settlement is 400 m2Z:
+Hold 2,000 m2Z on a call whose cost turns out to be 1,000 m2Z with
+`m = 5000`, `b = 5000` (a 50 % markup): the price is
+`1000 × 1.5 × 1.5 = 2250 → 3000` m2Z. The user's available balance at
+settlement is 400 m2Z and the cap has 10,000 m2Z left:
 
 ```
-charged_m2z  = 3000 (the price is the price)
-taken        = 2000 (the hold) + 400 (all that was available) = 2400
+charged_m2z   = 3000 (the price is the price)
+collected     = 2000 (the hold) + min(400 available, 10000 cap) = 2400
 shortfall_m2z = 600 → written off; the user's balance is 0, not −600
+provider_m2z  = 1000
+developer_m2z = min(floor(d) = 750, max(0, 2400 − 1000)) = 750
+platform_m2z  = 2400 − 1000 − 750 = 650
 ```
 
-The call record shows `charged_m2z: 3000, shortfall_m2z: 600`; the
-splits are computed on the full 3,000 and the platform's part absorbs the
-600.
+Had only 1,200 been collectable, the developer's part would have been
+`min(750, 200) = 200` and the platform's `0`; at 900 collected the
+developer gets `0` and the platform's part is `−100` — its loss. The call
+record shows `charged_m2z: 3000, collected_m2z: 2400, shortfall_m2z: 600`.
 
 ## 7. What the SDK may promise a user
 
 - **"This will cost at most N 2Z"** — from `/v1/chat/estimate` or `meta.hold_m2z`,
   true except in the write-off case, which never costs the user more than
   their balance.
-- **"This cost N 2Z"** — `done.charged_m2z`, final when received.
+- **"This cost N 2Z"** — `done.charged_m2z`, final when received. When
+  `done.settlement` is `pending` the SDK says "settling" and reads
+  `GET /v1/calls/{id}` for the number; it never invents one.
 - **"You have about N 2Z left"** — `done.balance_hint_m2z`, a hint; the
   balance endpoint is authoritative.
 - **Never** "N tokens cost N 2Z" as a fixed rate: the per-call round-up and

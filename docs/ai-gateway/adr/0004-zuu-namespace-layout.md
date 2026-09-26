@@ -59,8 +59,10 @@ Rules that follow from the placement:
    Pre-1.0 versions follow a strict changelog; `1.0` freezes the public
    surface.
 5. **Servers are AGPL, shared crates are MIT** (`rs/README.md`). The
-   testkit is MIT so that a third party can run the same mock provider and
-   ledger-contract fixtures against their own integration.
+   testkit is MIT and unpublished in v1: it exists for the gateway's and
+   the SDK's own CI. A third party tests against the platform's staging
+   environment with a registered app, not against the testkit; publishing
+   it is a later decision, and the licence is chosen so that it can be.
 6. **`docs/sdk/` is the developer product**; `docs/ai-gateway/` holds
    the gateway's decisions. Guides (D2), generated reference (D3) and
    security and operations notes (D4) are added under `docs/sdk/` as they

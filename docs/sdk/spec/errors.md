@@ -91,8 +91,9 @@ failed call still cost ([metering.md](./metering.md) §5).
 | 502 | `provider_error` | yes | The provider answered with an error or malformed stream. Before the first byte: nothing charged, `fallback` tried if given. After: charged for what was produced |
 | 503 | `provider_unavailable` | yes | The provider is down or the gateway's circuit breaker for it is open. Nothing charged |
 | 504 | `provider_timeout` | yes | No first byte within the model's `first_byte_timeout_s`. Nothing charged |
-| (stream) | `stream_timeout` | yes | 60 s without any provider output, or the 300 s hard limit. Charged for what was produced |
-| (stream) | `content_filter` | no | The provider refused or stopped for policy. Charged for what was produced; often 0 |
+| (stream) / 502 | `stream_timeout` | yes | 60 s without any provider output, or the 300 s hard limit. Charged for what was produced. In non-streamed mode, `502` with this code |
+| (stream) / 502 | `provider_error`, `provider_timeout` after output | yes | In non-streamed mode, a failure after output began is `502` with the stream-level code preserved ([chat-api.md](./chat-api.md) §4) |
+| (stream) | `content_filter` | no | The provider refused or stopped for policy. Charged for what was produced; often 0. In non-streamed mode this is not an error: `200` with `finish_reason: "content_filter"` |
 | (stream, local) | `stream_interrupted` | yes | Not sent by the gateway: an SDK synthesises it when the connection closed without a terminal event. Consult `GET /v1/calls/{id}` |
 | 503 | `catalogue_unavailable` | yes | The gateway has no verified price catalogue and refuses to price anything |
 | 500 | `internal` | yes | A gateway fault. Nothing charged if before `meta`; otherwise settled from what is known |
@@ -114,9 +115,15 @@ client should handle:
 | token | `invalid_scope` | A refresh asked for a scope outside the grant | Developer error |
 | token | `unauthorized_client` | The app may not use this grant type (for example the Zcash grant without `allow_zcash_assertion`) | Developer error |
 | token | `unsupported_grant_type` | — | Developer error |
+| revoke | `unsupported_token_type` | An access token was presented; only refresh tokens can be revoked ([oidc.md](./oidc.md) §9.5) | Revoke the grant instead |
 
 Authorization-endpoint errors are delivered on the redirect URI with
 `state` and `iss`; a client MUST verify both before trusting `error`.
+**Except**: when the `client_id` is unknown or the `redirect_uri` is
+missing or not registered, the IdP MUST NOT redirect (RFC 6749 §4.1.2.1)
+— it shows an error page and the client's callback is never invoked. An
+SDK therefore treats "no callback within its timeout" as a failed sign-in
+that is almost always a registration mistake.
 
 ## 6. Purchases
 
@@ -126,10 +133,11 @@ Codes specific to [purchase.md](./purchase.md); the envelope is §1.
 |---|---|---|---|---|
 | 400 | `invalid_quantity` | no | Below the rail's minimum, above its maximum, not a whole 2Z, or not one of the rail's fixed packs | `min_m2z`, `max_m2z`, `packs` |
 | 400 | `rail_unavailable` | no | The rail is not offered to this app or on this platform (for example `apple_iap` from a non-iOS client) | `rail` |
-| 409 | `intent_expired` | no | The purchase intent passed `expires_at` before payment | — |
-| 409 | `intent_not_pending` | no | The intent is already `credited`, `failed` or `expired`; the operation does not apply | `status` |
-| 409 | `receipt_already_used` | no | This store transaction already credited a purchase | `purchase_id` |
-| 422 | `receipt_invalid` | no | The store receipt did not verify, names a different product, or its account token does not match this intent | `reason` |
+| 409 | `intent_expired` | no | A card or Zcash intent passed `expires_at` before payment (IAP intents accept a verifying receipt after expiry) | — |
+| 409 | `intent_not_pending` | no | The intent is `failed` or in a post-credit reversal state; the operation does not apply. (A receipt resubmitted for an intent that is already `credited` is **not** an error: it answers `200` with the intent) | `status` |
+| 409 | `receipt_already_used` | no | This store transaction already credited a **different** purchase intent | `purchase_id` |
+| 422 | `receipt_invalid` | no | The store receipt did not verify, names a different product or app, is not a production transaction, was revoked, or its account token does not match this intent | `reason` ∈ `signature`, `product`, `app`, `environment`, `revoked`, `account_token` |
+| 202 | — | — | Not an error: a Google purchase whose store state is still pending ([purchase.md](./purchase.md) §4.3). The intent is returned with `status: pending` and `rail_data.store_state: "pending"`; resubmit later or wait for the poll | — |
 | 503 | `store_unavailable` | yes | The store's verification service could not be reached | — |
 
 ## 7. Rules for every implementation

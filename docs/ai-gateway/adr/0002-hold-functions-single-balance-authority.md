@@ -28,16 +28,25 @@ database, are the only authority on whether 2Z can be reserved or
 charged.** Nothing else — not the gateway, not a cache, not a token — is
 consulted for that decision, and nothing else holds a balance.
 
-The contract is four operations, specified for the gateway in
-[metering.md](../../sdk/spec/metering.md) §3: **hold**, **extend**,
-**settle**, **release** (plus a periodic **expire** that the platform
-runs). Each is **one atomic operation**: the hold checks that the account
-is not frozen, that the grant is live (the account epoch and grant
-generation the token carries are still current), that the available
+The contract is five operations, specified for the gateway in
+[metering.md](../../sdk/spec/metering.md) §3: a read-only **inquire**,
+then **hold**, **extend**, **settle**, **release** (plus a periodic
+**expire** that the platform runs). Each mutating one is **one atomic
+operation**: the hold checks that the account is not frozen, that the
+grant is live (the account epoch and grant generation the token carries
+are passed in and compared with the current values), that the available
 balance covers the amount and that the grant's cap for the period covers
-it — and reserves the amount — as a single conditional update. There is
-no read-then-write, so there is no window in which two calls both see
-enough balance and both proceed.
+it — and reserves the amount, recording the pricing snapshot the
+settlement will use — as a single conditional update. There is no
+read-then-write, so there is no window in which two calls both see enough
+balance and both proceed. **inquire** exists only so the gateway can size
+the output clamp; its answer is advisory and the hold decides.
+
+A hold has one state at a time — open, settled, released, expired — and
+the first terminal transition wins. A settle that arrives after a release
+or an expiry charges nothing and says so; a release after a settle
+changes nothing. Extensions set an absolute reservation target rather
+than adding to it, so a retried extension is harmless.
 
 Settlement is **idempotent per hold** and **computes the charge inside
 the ledger** from the versioned rate card and the usage the gateway
