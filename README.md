@@ -69,6 +69,7 @@ them.
 | [docs/development.md](docs/development.md) | Build, test, and the CI gate model |
 | [docs/intent-bridge/](docs/intent-bridge/PROTOCOL.md) | The cross-app protocol: wire format, authority side, caller authentication, conformance |
 | [docs/e2ee/](docs/e2ee/README.md) | The E2EE messaging design and key transparency |
+| [docs/sdk/](docs/sdk/README.md) · [docs/ai-gateway/](docs/ai-gateway/README.md) | The f2z-sdk v1 contract — Free2Z sign-in (OIDC), 2Z balance and purchases, the metered AI gateway — and the gateway's ADRs |
 | [AGENTS.md](AGENTS.md) · [docs/PARALLEL-AGENTS.md](docs/PARALLEL-AGENTS.md) | Contribution doctrine and the parallel-agent workflow |
 
 ## Repository map
