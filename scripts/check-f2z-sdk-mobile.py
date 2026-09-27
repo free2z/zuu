@@ -46,6 +46,7 @@ def main():
         host = 'darwin-x86_64' if sys.platform == 'darwin' else 'linux-x86_64'
         compiler = ndk / 'toolchains/llvm/prebuilt' / host / 'bin/aarch64-linux-android29-clang'
         env = dict(os.environ, ANDROID_NDK_HOME=str(ndk), CC_aarch64_linux_android=str(compiler),
+                   AR_aarch64_linux_android=str(compiler.parent / 'llvm-ar'),
                    CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=str(compiler))
         run('rustup', 'target', 'add', 'aarch64-linux-android')
         run('cargo', 'check', '--locked', '--target', 'aarch64-linux-android', '--manifest-path', str(PLUGIN / 'Cargo.toml'), env=env)
