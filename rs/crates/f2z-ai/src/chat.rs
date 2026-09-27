@@ -42,12 +42,14 @@ use bytes::Bytes;
 use f2z_ai_proto::ErrorCode;
 use f2z_ai_proto::chat::{ChatRequest, ContentPart, Role};
 use http_body_util::{BodyExt as _, LengthLimitError, Limited};
-use tokio::sync::oneshot;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 
 use crate::admission::CallHandle;
 use crate::call::{self, Upstream};
 use crate::catalog::{self, VerifiedCatalog};
 use crate::error::ApiFailure;
+use crate::metrics::Rejection;
+use crate::serve::ConnectionKill;
 
 /// The image media types chat-api.md §2.1 accepts.
 pub const IMAGE_MEDIA_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/webp", "image/gif"];
@@ -117,6 +119,12 @@ pub struct ChatState {
     pub max_body_bytes_with_images: usize,
     /// How long the body may take to arrive.
     pub body_read_timeout: Duration,
+    /// Where the upload-budget refusal is counted.
+    pub metrics: Option<Arc<crate::metrics::Metrics>>,
+    /// The gateway-wide budget, in bytes, for request bodies being read.
+    pub upload_budget: Arc<Semaphore>,
+    /// `Retry-After` for a refusal on the upload budget.
+    pub retry_after_secs: u32,
     /// How long a backend may take to start a call.
     pub start_timeout: Duration,
     /// Undelivered event bytes a stream may buffer.
@@ -144,9 +152,14 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
         ));
     };
     check_headers(&parts.headers)?;
-    let bytes = read_body(state, &parts.headers, body).await?;
+    let (bytes, upload) = read_body(state, &parts.headers, body).await?;
     let request = decode(&bytes, state.max_body_bytes)?;
     validate(&request)?;
+    // The raw bytes are no longer needed; their share of the upload budget
+    // goes back with them.
+    let body_bytes = bytes.len();
+    drop(bytes);
+    drop(upload);
 
     let Some(catalog) = state.catalog.current(catalog::now_unix()) else {
         return Err(ApiFailure::new(
@@ -163,7 +176,7 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
         call = call.id(),
         messages = request.messages.len(),
         tools = request.tools.len(),
-        body_bytes = bytes.len(),
+        body_bytes,
         "chat request admitted"
     );
     let Some(slot) = call.take_slot() else {
@@ -180,6 +193,7 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
             catalog,
             call,
             slot,
+            kill: parts.extensions.get::<ConnectionKill>().cloned(),
             limits: call::Limits {
                 buffer_bytes: state.delivery_buffer_bytes,
                 stall: state.delivery_stall,
@@ -248,11 +262,19 @@ fn too_large(limit: usize) -> ApiFailure {
     .detail("limit_bytes", limit)
 }
 
+/// Read the body within the limits, holding its share of the upload budget:
+/// the declared `Content-Length`, or — for a body that declares none — the
+/// hard cap, since that is what it may grow to.
+///
+/// The budget exists because the per-request cap alone is not a bound: 10,000
+/// admitted requests each reading up to 20 MiB is ~195 GiB. A request that
+/// cannot reserve its share is refused `503 unavailable` + `Retry-After`
+/// before a byte of its body is read.
 async fn read_body(
     state: &ChatState,
     headers: &HeaderMap,
     body: Body,
-) -> Result<Bytes, ApiFailure> {
+) -> Result<(Bytes, OwnedSemaphorePermit), ApiFailure> {
     let hard = state.max_body_bytes_with_images;
     let declared = headers
         .get(header::CONTENT_LENGTH)
@@ -266,10 +288,23 @@ async fn read_body(
         // sends it).
         return Err(too_large(hard));
     }
+    let reserve = declared
+        .and_then(|n| u32::try_from(n).ok())
+        .unwrap_or_else(|| u32::try_from(hard).unwrap_or(u32::MAX));
+    let Ok(upload) = Arc::clone(&state.upload_budget).try_acquire_many_owned(reserve) else {
+        if let Some(metrics) = &state.metrics {
+            metrics.record_rejection(Rejection::UploadBudget);
+        }
+        return Err(ApiFailure::new(
+            ErrorCode::Unavailable,
+            "this gateway instance is at its budget for request bodies in flight",
+        )
+        .retry_after(state.retry_after_secs));
+    };
     let collected =
         tokio::time::timeout(state.body_read_timeout, Limited::new(body, hard).collect()).await;
     match collected {
-        Ok(Ok(collected)) => Ok(collected.to_bytes()),
+        Ok(Ok(collected)) => Ok((collected.to_bytes(), upload)),
         Ok(Err(error)) if error.downcast_ref::<LengthLimitError>().is_some() => {
             Err(too_large(hard))
         }

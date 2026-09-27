@@ -38,6 +38,10 @@ pub const DEFAULT_MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
 /// 20 MiB: the body limit for a request with image parts (chat-api.md §1).
 pub const DEFAULT_MAX_BODY_BYTES_WITH_IMAGES: usize = 20 * 1024 * 1024;
 
+/// 256 MiB: request bodies being read at once, gateway-wide — twelve
+/// maximum-size image requests, or sixty-four maximum-size text ones.
+pub const DEFAULT_MAX_UPLOAD_BUFFER_BYTES: usize = 256 * 1024 * 1024;
+
 /// 256 KiB: the per-stream delivery buffer (chat-api.md §2.4, ADR 0001).
 pub const DEFAULT_DELIVERY_BUFFER_BYTES: usize = 256 * 1024;
 
@@ -84,6 +88,12 @@ pub struct Config {
     /// The body limit for a request with image parts; also the hard cap on
     /// what is read at all.
     pub max_body_bytes_with_images: usize,
+    /// Gateway-wide bytes of request bodies being read at once. A body
+    /// reserves its declared length (the image cap if it declares none)
+    /// before it is read; beyond the budget, `503 unavailable` +
+    /// `Retry-After`. Without it, `max_concurrent_calls` × 20 MiB would be
+    /// the memory bound.
+    pub max_upload_buffer_bytes: usize,
     /// How often the catalogue source is polled.
     pub catalog_poll: Duration,
     /// Undelivered event bytes one stream may buffer before delivery ends
@@ -118,6 +128,7 @@ impl Default for Config {
             header_read_timeout: Duration::from_secs(10),
             max_body_bytes: DEFAULT_MAX_BODY_BYTES,
             max_body_bytes_with_images: DEFAULT_MAX_BODY_BYTES_WITH_IMAGES,
+            max_upload_buffer_bytes: DEFAULT_MAX_UPLOAD_BUFFER_BYTES,
             catalog_poll: Duration::from_secs(30),
             delivery_buffer_bytes: DEFAULT_DELIVERY_BUFFER_BYTES,
             delivery_stall: Duration::from_secs(30),
@@ -192,6 +203,7 @@ struct Raw {
     header_read_timeout_secs: Option<u64>,
     max_body_bytes: Option<u64>,
     max_body_bytes_with_images: Option<u64>,
+    max_upload_buffer_bytes: Option<u64>,
     catalog_poll_secs: Option<u64>,
     delivery_buffer_bytes: Option<u64>,
     delivery_stall_secs: Option<u64>,
@@ -220,6 +232,7 @@ const KEYS: &[(&str, Kind)] = &[
     ("header_read_timeout_secs", Kind::Integer),
     ("max_body_bytes", Kind::Integer),
     ("max_body_bytes_with_images", Kind::Integer),
+    ("max_upload_buffer_bytes", Kind::Integer),
     ("catalog_poll_secs", Kind::Integer),
     ("delivery_buffer_bytes", Kind::Integer),
     ("delivery_stall_secs", Kind::Integer),
@@ -372,6 +385,11 @@ impl Config {
                 raw.max_body_bytes_with_images,
                 defaults.max_body_bytes_with_images,
             )?,
+            max_upload_buffer_bytes: size(
+                "max_upload_buffer_bytes",
+                raw.max_upload_buffer_bytes,
+                defaults.max_upload_buffer_bytes,
+            )?,
             catalog_poll: secs(raw.catalog_poll_secs, defaults.catalog_poll),
             delivery_buffer_bytes: size(
                 "delivery_buffer_bytes",
@@ -391,6 +409,15 @@ impl Config {
     fn validate(&self) -> Result<(), ConfigError> {
         if self.max_concurrent_calls == 0 {
             return Err(err("`max_concurrent_calls` must be at least 1"));
+        }
+        if self.max_upload_buffer_bytes < self.max_body_bytes_with_images {
+            return Err(err(
+                "`max_upload_buffer_bytes` must be at least `max_body_bytes_with_images`, or a \
+                 body without a Content-Length could never be read",
+            ));
+        }
+        if u32::try_from(self.max_body_bytes_with_images).is_err() {
+            return Err(err("`max_body_bytes_with_images` must be below 4 GiB"));
         }
         if self.delivery_buffer_bytes == 0 {
             return Err(err("`delivery_buffer_bytes` must be at least 1"));

@@ -17,7 +17,8 @@ those exist.
 | `/healthz` (liveness, constant) and `/readyz` (200 only with a verified, unexpired catalogue and not draining) on a separate admin listener | `src/server.rs`, `src/catalog.rs` |
 | `/metrics`: request counts, `f2z_ai_active_streams`, the overhead histogram, rejections, settlements, readiness | `src/metrics.rs` |
 | Structured JSON logs that never carry a prompt or completion; OpenTelemetry over OTLP/HTTP, off unless configured | `src/telemetry.rs` |
-| Concurrent call limit → `503` + `Retry-After`, a call counted from admission **until its settle returns** (a disconnected call still counts) | `src/admission.rs`, `src/settle.rs` |
+| Concurrent call limit → `503` + `Retry-After`, a call counted from admission **until its settle returns and its delivery has ended** (a disconnected call still counts) | `src/admission.rs`, `src/settle.rs`, `src/call.rs` |
+| A gateway-wide budget for request bodies being read (256 MiB): a body reserves its declared length before it is read, or `503` + `Retry-After` | `src/chat.rs` |
 | The upstream read at provider speed on a detached task; delivery through a bounded per-stream buffer (256 KiB) — full, or 30 s without progress, ends **delivery only** with `delivery_aborted` / `settlement: "pending"` | `src/call.rs` |
 | Request, body-read and header-read timeouts | `src/server.rs`, `src/chat.rs`, `src/serve.rs` |
 | Graceful drain on `SIGTERM` with a settler hook | `src/server.rs`, `src/settle.rs` |
@@ -67,6 +68,7 @@ variable is a startup error.
 | `header_read_timeout_secs` | `10` | The connection is closed |
 | `max_body_bytes` | `4194304` | Without image parts; `413 payload_too_large` |
 | `max_body_bytes_with_images` | `20971520` | With image parts; the hard cap on what is read |
+| `max_upload_buffer_bytes` | `268435456` | Request bodies being read at once, gateway-wide; a body reserves its `Content-Length` (the image cap if it has none). Without it the bound would be `max_concurrent_calls` × 20 MiB ≈ 195 GiB |
 | `catalog_poll_secs` | `30` | |
 | `delivery_buffer_bytes` | `262144` | Undelivered event bytes per stream before `delivery_aborted` |
 | `delivery_stall_secs` | `30` | Frames waiting and none delivered for this long → `delivery_aborted` |
@@ -90,7 +92,15 @@ what is buffered is replaced by one best-effort `error` event
 (`code: "delivery_aborted"`, `settlement: "pending"`) and the body ends. A
 client that disconnects ends delivery the same way. In every case the
 upstream is still read to its usage frame, and the call is settled on it —
-and counts against the concurrency limit until that settle returns.
+and counts against the concurrency limit until that settle has returned
+**and** delivery has ended. The stall rule keeps running after the upstream
+ends, and one stall period after an abort the connection is dropped, so a
+client that never reads cannot hold a socket or a buffer past its slot.
+
+Settlement ownership starts **before** the backend's `start` runs: a call
+whose `start` fails, times out or is cancelled by a drain still reaches the
+settler, as `NotStarted`, so a hold taken inside `start` can always be
+released.
 (`delivery_aborted` is not yet an `f2z_ai_proto::ErrorCode`; zuu#1052.)
 
 ## The drain, precisely
@@ -110,9 +120,10 @@ On `SIGTERM`:
    dropped.
 5. The settler gets `settle_grace_secs` to finish its queue; exit `0`.
 
-Every started call is handed to the settler exactly once, with how its
-upstream ended (`Finished`, `Drained`), where delivery stood (`Open`,
-`Delivered`, `ClientGone`, `BufferFull`, `Stalled`, `Cut`) and the usage the
+Every call that reached the backend is handed to the settler exactly once,
+with how its upstream ended (`NotStarted`, `Finished`, `Drained`), where
+delivery stood (`None`, `Open`, `Delivered`, `ClientGone`, `BufferFull`,
+`Stalled`, `Cut`) and the usage the
 upstream reported — from a detached task, never on the request's future
 (ADR 0001).
 
@@ -123,10 +134,10 @@ loopback ports and drive it with hyper's client over real sockets:
 
 | File | Proves |
 |---|---|
-| `tests/drain.rs` | an open call keeps reading and delivering through the drain and is settled with its usage; new work is refused; readiness flips; a call past the window is cut, its provider request dropped, and settled `Drained`; a client hang-up ends delivery only and the upstream is read to its usage |
-| `tests/delivery.rs` | a client that does not read never throttles the upstream; a full buffer and a stall each end delivery with `delivery_aborted` / `settlement: "pending"` while the call is read to its usage and settled; a disconnected call counts against the limit until its settle returns |
+| `tests/drain.rs` | a hanging catalogue fetch cannot hold shutdown; an open call keeps reading and delivering through the drain and is settled with its usage; new work is refused; readiness flips; a call past the window is cut, its provider request dropped, and settled `Drained`; a client hang-up ends delivery only and the upstream is read to its usage |
+| `tests/delivery.rs` | a client that does not read never throttles the upstream; a full buffer and a stall each end delivery with `delivery_aborted` / `settlement: "pending"` while the call is read to its usage and settled; a stall after the upstream ended is still caught, and the connection dropped; a disconnected call counts against the limit until its settle returns |
 | `tests/sigterm.rs` | the same, with a real `SIGTERM` sent to the test process |
-| `tests/concurrency.rs` | the limit is `503` + `Retry-After` and counts calls until settled, not heads; probes are never refused; the request timeout |
-| `tests/limits.rs` | 4 MiB / 20 MiB at their defaults, a declared oversize refused before the body, chunked bodies cut at the limit, the body-read timeout, strict decoding, readiness on the catalogue |
+| `tests/concurrency.rs` | the limit is `503` + `Retry-After` and counts calls until settled, not heads; probes are never refused; the request timeout, and a call whose start timed out still reaching the settler as `NotStarted` |
+| `tests/limits.rs` | 4 MiB / 20 MiB at their defaults, a declared oversize refused before the body, chunked bodies cut at the limit, the gateway-wide upload budget, the body-read timeout, strict decoding, readiness on the catalogue |
 | `tests/redaction.rs` | a canary in every client-controlled field never reaches a log line at `trace` or an error body |
 | `tests/otel.rs` | spans reach an OTLP collector with the configured `authorization`, and carry no prompt |

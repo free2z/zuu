@@ -26,6 +26,24 @@ use tokio::sync::watch;
 use tokio::task::JoinSet;
 use tower::ServiceExt as _;
 
+/// A handle that drops the connection a request arrived on. Inserted into
+/// every request's extensions.
+///
+/// It exists for one case: delivery to a client that has stopped reading was
+/// aborted, and the `delivery_aborted` frame is not being taken either. The
+/// response body is then never polled again, so nothing in it can end the
+/// connection; without this, a client that never reads would hold a socket
+/// for as long as it liked ([`crate::call`]).
+#[derive(Clone, Debug)]
+pub struct ConnectionKill(watch::Sender<bool>);
+
+impl ConnectionKill {
+    /// Drop the connection now, mid-response if need be.
+    pub fn kill(&self) {
+        self.0.send_replace(true);
+    }
+}
+
 /// Serve `router` on `listener` until `stop` becomes true, then close:
 /// graceful for `grace`, then forced.
 pub async fn serve(
@@ -51,11 +69,15 @@ pub async fn serve(
                     }
                 };
                 let _ = stream.set_nodelay(true);
+                let (kill_tx, mut kill_rx) = watch::channel(false);
+                let kill = ConnectionKill(kill_tx);
                 let service = TowerToHyperService::new(
                     router
                         .clone()
-                        .map_request(|request: hyper::Request<Incoming>| {
-                            request.map(axum::body::Body::new)
+                        .map_request(move |request: hyper::Request<Incoming>| {
+                            let mut request = request.map(axum::body::Body::new);
+                            request.extensions_mut().insert(kill.clone());
+                            request
                         })
                         .map_err(|never: Infallible| match never {}),
                 );
@@ -69,10 +91,14 @@ pub async fn serve(
                     let mut connection = std::pin::pin!(connection);
                     tokio::select! {
                         _ = connection.as_mut() => return,
+                        () = crate::shutdown::raised(&mut kill_rx) => return,
                         () = crate::shutdown::raised(&mut closing) => {}
                     }
                     connection.as_mut().graceful_shutdown();
-                    let _ = connection.await;
+                    tokio::select! {
+                        _ = connection.as_mut() => {}
+                        () = crate::shutdown::raised(&mut kill_rx) => {}
+                    }
                 });
                 // Reap finished connections so the set does not grow with
                 // every connection this process has ever served.

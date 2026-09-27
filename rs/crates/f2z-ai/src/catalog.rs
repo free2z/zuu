@@ -157,7 +157,15 @@ pub(crate) async fn poll(
     mut stop: watch::Receiver<bool>,
 ) {
     loop {
-        match source.fetch().await {
+        // A fetch is bounded by the poll interval and interrupted by shutdown:
+        // a source that hangs must neither stop the refresh loop for good nor
+        // hold the process at SIGTERM.
+        let fetched = tokio::select! {
+            fetched = tokio::time::timeout(interval, source.fetch()) => fetched
+                .unwrap_or_else(|_| Err("catalogue fetch timed out".to_owned())),
+            () = crate::shutdown::raised(&mut stop) => return,
+        };
+        match fetched {
             Ok(candidate) => {
                 let version = candidate.catalog().version;
                 match state.install(candidate, now_unix()) {

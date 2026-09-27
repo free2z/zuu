@@ -11,9 +11,9 @@
 //!
 //! **A call counts** — against `max_concurrent_calls`, and in `/metrics`'s
 //! `f2z_ai_active_streams`, and for the drain — **from admission until its
-//! settle returns**, not until its HTTP body ends: the call's concurrency slot
+//! settle returns and its delivery has ended**: the call's concurrency slot
 //! travels inside the handover and is released only after
-//! [`Settler::settle`] completes. That is the README's "counted from hold to
+//! [`Settler::settle`] completes (and after delivery, see [`crate::call`]). That is the README's "counted from hold to
 //! settlement (a drained, disconnected call still counts)" for the
 //! gateway-wide limit; the per-user limit of Wave 2 hangs off the same slot.
 //!
@@ -35,6 +35,10 @@ use crate::metrics::Metrics;
 /// How the upstream read ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UpstreamEnd {
+    /// The backend's `start` failed, timed out, or was cancelled by a drain:
+    /// no stream. Handed over anyway, because `start` may have taken a hold
+    /// the settler must release.
+    NotStarted,
     /// The upstream was read to its end — the normal case, whatever the
     /// client did (metering.md §5.3).
     Finished,
@@ -48,6 +52,7 @@ impl UpstreamEnd {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
+            Self::NotStarted => "not_started",
             Self::Finished => "finished",
             Self::Drained => "drained",
         }
@@ -61,6 +66,8 @@ impl UpstreamEnd {
 /// [`UpstreamEnd::Finished`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Delivery {
+    /// No stream was started, so nothing was ever delivered.
+    None,
     /// Still delivering: the client is connected and the buffer is draining
     /// to it (or has just drained).
     Open,
@@ -82,6 +89,7 @@ impl Delivery {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
+            Self::None => "none",
             Self::Open => "open",
             Self::Delivered => "delivered",
             Self::ClientGone => "client_gone",
@@ -137,7 +145,7 @@ impl Settler for LogSettler {
                 elapsed_ms,
                 "call aborted by drain; handed to settler"
             ),
-            UpstreamEnd::Finished => tracing::debug!(
+            UpstreamEnd::Finished | UpstreamEnd::NotStarted => tracing::debug!(
                 call = record.id,
                 upstream = record.upstream.label(),
                 delivery = record.delivery.label(),
@@ -153,7 +161,8 @@ impl Settler for LogSettler {
 #[derive(Debug)]
 pub(crate) struct Settlement {
     pub(crate) record: CallRecord,
-    pub(crate) slot: Slot,
+    /// Shared with the call's delivery; released when both are done.
+    pub(crate) slot: Arc<Slot>,
 }
 
 /// The detached settler task: receive settlements, run the settler on each

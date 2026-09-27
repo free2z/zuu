@@ -230,3 +230,33 @@ async fn a_client_that_hangs_up_ends_delivery_only_and_the_upstream_is_read_to_i
     assert_eq!(records[0].usage.unwrap().output_tokens, 200);
     wait_metric(running.admin, "f2z_ai_active_streams ", "0").await;
 }
+
+/// A catalogue source whose fetch never returns.
+struct HangingSource;
+
+#[async_trait::async_trait]
+impl f2z_ai::catalog::CatalogSource for HangingSource {
+    async fn fetch(&self) -> Result<f2z_ai::catalog::VerifiedCatalog, String> {
+        std::future::pending().await
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_hanging_catalogue_fetch_does_not_hold_the_process_at_shutdown() {
+    let (backend, _streams) = ControlledBackend::new();
+    let config = config(&[]);
+    let running = start(
+        &config,
+        deps(
+            std::sync::Arc::new(HangingSource),
+            backend,
+            RecordingSettler::default(),
+        ),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let stopped = tokio::time::timeout(Duration::from_secs(5), running.gateway.run_until(async {}))
+        .await
+        .expect("shutdown waited on a hanging catalogue fetch");
+    assert!(matches!(stopped, Stopped::Drained(_)));
+}

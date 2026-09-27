@@ -8,8 +8,7 @@
 //!   [`Upstream`] at provider speed, to its end, whatever the client is
 //!   doing, encodes each event as an SSE frame and pushes it into the call's
 //!   delivery buffer. When the upstream ends it hands the call to the settler
-//!   — with the usage the upstream reported — and only then releases the
-//!   call's concurrency slot. It never waits for the client.
+//!   with the usage the upstream reported. It never waits for the client.
 //! * **The delivery** — the HTTP response body ([`DeliveryBody`]). It pops
 //!   frames from the buffer as fast as the client takes them. It is the only
 //!   thing a slow or vanished client affects.
@@ -19,8 +18,29 @@
 //! on unchanged: the buffer filling, and `delivery_stall_secs` (30 s) with
 //! frames waiting and none taken. Both replace whatever is buffered with one
 //! best-effort `error` event — `code: "delivery_aborted"`,
-//! `settlement: "pending"` — and end the body. A client that disconnects ends
-//! delivery the same way minus the event. None of these touches the upstream.
+//! `settlement: "pending"` — and end the body. One stall period after an
+//! abort the connection is dropped ([`crate::serve::ConnectionKill`]): a
+//! client that is not reading would otherwise hold its socket, and the bytes
+//! queued in it, for as long as it liked — a body nobody polls cannot end
+//! itself.
+//! A client that disconnects ends delivery the same way minus the event. None
+//! of these touches the upstream.
+//!
+//! # What a call holds, and until when
+//!
+//! The call's concurrency slot is shared by the settlement and the delivery,
+//! and is released when **both** are over: the settle has returned *and*
+//! delivery has ended (delivered, client gone, aborted and its connection
+//! dropped, or cut). The first half is chat-api.md §2.4's "a drained call still counts
+//! until it settles"; the second keeps a slow reader's buffer and socket
+//! inside `max_concurrent_calls` too, instead of outliving its slot.
+//!
+//! # Settlement ownership starts before `start`
+//!
+//! The settle guard exists before the backend's `start` runs, so a call is
+//! handed to the settler exactly once even if `start` fails, times out, or is
+//! cancelled by a drain — as [`UpstreamEnd::NotStarted`]. A Wave 2 backend
+//! takes its hold inside `start`; the settler can then always release it.
 //!
 //! **Drain.** Calls keep reading their upstream through the drain window. At
 //! the window's end the gateway aborts the rest: the reader stops, the body
@@ -48,6 +68,7 @@ use crate::admission::{CallHandle, InFlight, Slot};
 use crate::catalog::VerifiedCatalog;
 use crate::chat::ChatBackend;
 use crate::error::ApiFailure;
+use crate::serve::ConnectionKill;
 use crate::settle::{CallRecord, Delivery, Settlement, UpstreamEnd};
 
 /// A started provider stream, as unified events.
@@ -63,7 +84,7 @@ pub trait Upstream: Send + 'static {
     async fn next(&mut self) -> Option<Event>;
 }
 
-/// How often the reader checks the stall limit while nothing else happens.
+/// How often the watchers check the stall limit.
 const STALL_CHECK: Duration = Duration::from_millis(250);
 
 /// The per-call limits.
@@ -96,14 +117,19 @@ struct Buffer {
     /// When the buffer last went from empty to non-empty, or a frame was
     /// last taken — whichever is later. Only meaningful while frames wait.
     last_progress: Instant,
+    /// When delivery was aborted.
+    aborted_at: Option<Instant>,
+    /// The connection was dropped because nothing took the abort frame.
+    killed: bool,
     waker: Option<Waker>,
 }
 
-/// The buffer plus the gateway-wide byte gauge it reports into.
+/// The buffer plus what it reports into.
 #[derive(Debug)]
 struct Shared {
     buffer: Mutex<Buffer>,
     inflight: Arc<InFlight>,
+    kill: Option<ConnectionKill>,
 }
 
 impl Shared {
@@ -117,18 +143,23 @@ impl Shared {
         }
     }
 
-    /// Discard everything buffered; returns the waker to wake.
+    /// Discard everything buffered.
     fn clear(&self, buffer: &mut Buffer) {
-        self.inflight.sub_buffered(buffer.bytes);
+        if !matches!(buffer.state, State::Aborted(_)) {
+            self.inflight.sub_buffered(buffer.bytes);
+        }
         buffer.frames.clear();
         buffer.bytes = 0;
     }
 
     /// End delivery with `delivery_aborted`, keeping the upstream read going.
-    fn abort_delivery(&self, buffer: &mut Buffer, reason: Delivery) {
+    fn abort_delivery(&self, buffer: &mut Buffer, reason: Delivery, now: Instant) {
         self.clear(buffer);
+        // Not counted in `bytes`: it is the one frame an aborted delivery
+        // still owes, and it replaces everything that was.
         buffer.frames.push_back(delivery_aborted_frame(reason));
         buffer.state = State::Aborted(reason);
+        buffer.aborted_at = Some(now);
         self.inflight.metrics().record_delivery_aborted(reason);
         tracing::info!(
             delivery = reason.label(),
@@ -150,34 +181,60 @@ impl Shared {
                 buffer.last_progress = now;
             }
             if buffer.bytes.saturating_add(frame.len()) > limit {
-                self.abort_delivery(&mut buffer, Delivery::BufferFull);
+                self.abort_delivery(&mut buffer, Delivery::BufferFull, now);
             } else {
                 self.inflight.add_buffered(frame.len());
                 buffer.bytes = buffer.bytes.saturating_add(frame.len());
                 buffer.frames.push_back(frame);
-                self.check_stall(&mut buffer, now, stall);
+                self.check(&mut buffer, now, stall);
             }
             buffer.waker.take()
         };
         Self::wake(waker);
     }
 
-    fn check_stall(&self, buffer: &mut Buffer, now: Instant, stall: Duration) {
+    /// The stall rule, and the kill for an abort frame nobody takes.
+    fn check(&self, buffer: &mut Buffer, now: Instant, stall: Duration) {
         if buffer.state == State::Open
             && !buffer.frames.is_empty()
             && now.saturating_duration_since(buffer.last_progress) >= stall
         {
-            self.abort_delivery(buffer, Delivery::Stalled);
+            self.abort_delivery(buffer, Delivery::Stalled, now);
+        }
+        // hyper takes frames into its own write buffer whether or not the
+        // socket drains, so "the abort frame was taken" says nothing about
+        // whether the client got it. The connection of an aborted delivery
+        // is therefore always dropped one stall period after the abort: time
+        // enough for a client that is reading to receive the frame.
+        if let (State::Aborted(_), Some(at)) = (buffer.state, buffer.aborted_at)
+            && !buffer.killed
+            && now.saturating_duration_since(at) >= stall
+        {
+            buffer.killed = true;
+            buffer.frames.clear();
+            if let Some(kill) = &self.kill {
+                kill.kill();
+            }
         }
     }
 
     fn tick(&self, stall: Duration) {
         let waker = {
             let mut buffer = self.lock();
-            self.check_stall(&mut buffer, Instant::now(), stall);
+            self.check(&mut buffer, Instant::now(), stall);
             buffer.waker.take()
         };
         Self::wake(waker);
+    }
+
+    /// Whether delivery needs nothing more from the gateway.
+    fn delivery_over(&self) -> bool {
+        let buffer = self.lock();
+        match buffer.state {
+            State::Delivered | State::ClientGone | State::Cut => true,
+            State::Aborted(_) => buffer.killed || (self.kill.is_none() && buffer.frames.is_empty()),
+            State::Open => buffer.upstream_done && buffer.frames.is_empty(),
+        }
     }
 
     /// The upstream ended (or was aborted); returns delivery's state then.
@@ -185,7 +242,7 @@ impl Shared {
         let (delivery, waker) = {
             let mut buffer = self.lock();
             buffer.upstream_done = true;
-            if cut && matches!(buffer.state, State::Open) {
+            if cut && matches!(buffer.state, State::Open | State::Aborted(_)) {
                 self.clear(&mut buffer);
                 buffer.state = State::Cut;
             }
@@ -285,14 +342,17 @@ impl http_body::Body for DeliveryBody {
 impl Drop for DeliveryBody {
     fn drop(&mut self) {
         let mut buffer = self.shared.lock();
-        if buffer.state == State::Open {
-            if buffer.upstream_done && buffer.frames.is_empty() {
+        match buffer.state {
+            State::Open if buffer.upstream_done && buffer.frames.is_empty() => {
                 buffer.state = State::Delivered;
-            } else {
+            }
+            State::Open => {
                 // The client went away. Only delivery stops.
                 self.shared.clear(&mut buffer);
                 buffer.state = State::ClientGone;
             }
+            State::Aborted(_) => buffer.frames.clear(),
+            State::Delivered | State::ClientGone | State::Cut => {}
         }
     }
 }
@@ -304,13 +364,14 @@ pub(crate) struct Start {
     pub(crate) catalog: Arc<VerifiedCatalog>,
     pub(crate) call: CallHandle,
     pub(crate) slot: Slot,
+    pub(crate) kill: Option<ConnectionKill>,
     pub(crate) limits: Limits,
 }
 
 /// The call's task: start the backend (bounded, abortable), hand the delivery
-/// body to the handler through `head`, then read the upstream to its end and
-/// settle. Runs detached: the handler going away changes nothing here except
-/// that nobody is delivered to.
+/// body to the handler through `head`, read the upstream to its end, settle,
+/// and watch delivery until it is over. Runs detached: the handler going away
+/// changes nothing here except that nobody is delivered to.
 pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody, ApiFailure>>) {
     let Start {
         backend,
@@ -318,10 +379,45 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
         catalog,
         call,
         slot,
+        kill,
         limits,
     } = start;
     let inflight = Arc::clone(call.inflight());
     let mut abort = inflight.abort_signal();
+    let slot = Arc::new(slot);
+    let shared = Arc::new(Shared {
+        buffer: Mutex::new(Buffer {
+            frames: VecDeque::new(),
+            bytes: 0,
+            state: State::Open,
+            upstream_done: false,
+            cut_reported: false,
+            last_progress: Instant::now(),
+            aborted_at: None,
+            killed: false,
+            waker: None,
+        }),
+        inflight: Arc::clone(&inflight),
+        kill,
+    });
+
+    // Settlement ownership starts here, before the backend can take a hold:
+    // from this line the call reaches the settler exactly once, on every path
+    // — `start` failing, timing out, being cancelled, or this task dropped.
+    let mut guard = SettleGuard {
+        record: CallRecord {
+            id: call.id(),
+            upstream: UpstreamEnd::NotStarted,
+            delivery: Delivery::None,
+            usage: None,
+            elapsed: Duration::ZERO,
+        },
+        started: call.started(),
+        shared: Arc::clone(&shared),
+        inflight: Arc::clone(&inflight),
+        slot: Some(Arc::clone(&slot)),
+        state: GuardState::Starting,
+    };
 
     let started = tokio::select! {
         started = tokio::time::timeout(
@@ -340,7 +436,8 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
     let mut upstream = match started {
         Ok(Ok(upstream)) => upstream,
         Ok(Err(failure)) => {
-            // Refused before any stream: an HTTP error, nothing to settle.
+            // Refused before any stream: an HTTP error. The guard still
+            // reports the call, as not started.
             let _ = head.send(Err(failure));
             return;
         }
@@ -352,35 +449,8 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
             return;
         }
     };
+    guard.state = GuardState::Reading;
 
-    // From here the call is started: it will be settled exactly once, by the
-    // guard below, on every path — including this task being aborted.
-    let shared = Arc::new(Shared {
-        buffer: Mutex::new(Buffer {
-            frames: VecDeque::new(),
-            bytes: 0,
-            state: State::Open,
-            upstream_done: false,
-            cut_reported: false,
-            last_progress: Instant::now(),
-            waker: None,
-        }),
-        inflight: Arc::clone(&inflight),
-    });
-    let mut guard = SettleGuard {
-        record: CallRecord {
-            id: call.id(),
-            upstream: UpstreamEnd::Drained,
-            delivery: Delivery::Cut,
-            usage: None,
-            elapsed: Duration::ZERO,
-        },
-        started: call.started(),
-        shared: Arc::clone(&shared),
-        inflight: Arc::clone(&inflight),
-        slot: Some(slot),
-        finished: false,
-    };
     // If the handler is gone the body comes back in the error and is dropped
     // at once, which is exactly "the client went away".
     drop(head.send(Ok(DeliveryBody {
@@ -412,26 +482,55 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
         UpstreamEnd::Finished
     };
     guard.record.delivery = shared.finish(drained);
-    guard.finished = true;
+    guard.state = GuardState::Done;
+    drop(guard); // hands the call to the settler now; delivery may go on
+
+    // Delivery can outlive the upstream: a slow client is still draining the
+    // buffer. Keep the stall rule running, and keep the slot, until it is
+    // over — or until a drain cuts it.
+    while !shared.delivery_over() {
+        tokio::select! {
+            _ = tick.tick() => shared.tick(limits.stall),
+            () = crate::shutdown::raised(&mut abort) => {
+                shared.finish(true);
+                break;
+            }
+        }
+    }
+    drop(slot);
 }
 
-/// Hands the call to the settler when the task ends, however it ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GuardState {
+    Starting,
+    Reading,
+    Done,
+}
+
+/// Hands the call to the settler when dropped, however the task ends.
 struct SettleGuard {
     record: CallRecord,
     started: Instant,
     shared: Arc<Shared>,
     inflight: Arc<InFlight>,
-    slot: Option<Slot>,
-    finished: bool,
+    slot: Option<Arc<Slot>>,
+    state: GuardState,
 }
 
 impl Drop for SettleGuard {
     fn drop(&mut self) {
-        if !self.finished {
-            // The task was dropped mid-read (a runtime shutting down): treat
-            // it as the drain it is.
-            self.record.upstream = UpstreamEnd::Drained;
-            self.record.delivery = self.shared.finish(true);
+        match self.state {
+            GuardState::Starting => {
+                self.record.upstream = UpstreamEnd::NotStarted;
+                self.record.delivery = Delivery::None;
+            }
+            GuardState::Reading => {
+                // The task was dropped mid-read (a runtime shutting down):
+                // treat it as the drain it is.
+                self.record.upstream = UpstreamEnd::Drained;
+                self.record.delivery = self.shared.finish(true);
+            }
+            GuardState::Done => {}
         }
         self.record.elapsed = self.started.elapsed();
         if let Some(slot) = self.slot.take() {

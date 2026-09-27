@@ -59,6 +59,14 @@ async fn push_fast(upstream: &mpsc::Sender<f2z_ai_proto::Event>, count: usize, s
     }
 }
 
+/// The gateway drops the connection within a few seconds, without the client
+/// reading anything first... apart from what the kernel already buffered.
+async fn assert_connection_closed(mut client: TcpStream) {
+    let mut sink = Vec::new();
+    let closed = tokio::time::timeout(Duration::from_secs(6), client.read_to_end(&mut sink)).await;
+    assert!(closed.is_ok(), "the connection was never dropped");
+}
+
 async fn read_everything(mut client: TcpStream) -> String {
     let mut out = Vec::new();
     let _ = tokio::time::timeout(Duration::from_secs(3), client.read_to_end(&mut out)).await;
@@ -149,11 +157,53 @@ async fn no_delivery_progress_for_the_stall_limit_aborts_delivery_only() {
     assert_eq!(records[0].upstream, UpstreamEnd::Finished);
     assert_eq!(records[0].delivery, Delivery::Stalled);
     assert_eq!(records[0].usage.unwrap().output_tokens, 7);
-    let seen = read_everything(client).await;
-    assert!(
-        seen.contains("\"code\":\"delivery_aborted\""),
-        "no delivery_aborted"
+
+    // The client never takes the abort frame either: after another stall
+    // period the connection is dropped, and only then is the slot free.
+    assert_eq!(metric(running.admin, "f2z_ai_active_streams ").await, "1");
+    assert_connection_closed(client).await;
+    wait_metric(running.admin, "f2z_ai_active_streams ", "0").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delivery_that_stalls_after_the_upstream_ended_is_still_bounded() {
+    let (backend, mut streams) = ControlledBackend::new();
+    let settler = RecordingSettler::default();
+    let config = config(&[
+        ("F2Z_AI_DELIVERY_STALL_SECS", "1"),
+        ("F2Z_AI_DELIVERY_BUFFER_BYTES", "268435456"),
+    ]);
+    let running = start(&config, deps(fixed_catalog(), backend, settler.clone())).await;
+    wait_readyz(running.admin, StatusCode::OK).await;
+
+    // The provider finishes at once, with most of its output undelivered.
+    let client = stalled_client(running.public).await;
+    let upstream = streams.recv().await.unwrap();
+    push_fast(&upstream, 1024, 16 * 1024).await;
+    upstream.send(usage(5)).await.unwrap();
+    drop(upstream);
+    let records = wait_records(&settler, 1).await;
+    assert_eq!(records[0].upstream, UpstreamEnd::Finished);
+    assert_eq!(records[0].delivery, Delivery::Open);
+    // Settled, but its delivery still holds the slot and the buffer...
+    assert_eq!(metric(running.admin, "f2z_ai_active_streams ").await, "1");
+    assert_ne!(
+        metric(running.admin, "f2z_ai_delivery_buffered_bytes ").await,
+        "0"
     );
+    // ...until the stall rule, still running after the upstream ended, ends it.
+    wait_metric(
+        running.admin,
+        "f2z_ai_delivery_aborted_total{reason=\"stalled\"} ",
+        "1",
+    )
+    .await;
+    assert_eq!(
+        metric(running.admin, "f2z_ai_delivery_buffered_bytes ").await,
+        "0"
+    );
+    assert_connection_closed(client).await;
+    wait_metric(running.admin, "f2z_ai_active_streams ", "0").await;
 }
 
 /// A settler that holds each settle until released.

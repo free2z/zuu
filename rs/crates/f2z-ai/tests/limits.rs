@@ -221,3 +221,46 @@ async fn with_a_verified_catalogue_the_gateway_is_ready_and_reports_its_version(
         fresh_catalog().catalog().version.to_string()
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn request_bodies_in_flight_are_bounded_gateway_wide() {
+    let running = gateway(&[
+        ("F2Z_AI_MAX_BODY_BYTES", "1000"),
+        ("F2Z_AI_MAX_BODY_BYTES_WITH_IMAGES", "2000"),
+        ("F2Z_AI_MAX_UPLOAD_BUFFER_BYTES", "3000"),
+        ("F2Z_AI_BODY_READ_TIMEOUT_SECS", "5"),
+        ("F2Z_AI_RETRY_AFTER_SECS", "2"),
+    ])
+    .await;
+    // One upload declares 2000 bytes and sends none of them: it holds 2000
+    // of the 3000-byte budget while it waits.
+    let slow = "POST /v1/chat HTTP/1.1\r\nHost: g\r\nContent-Type: application/json\r\n\
+                Content-Length: 2000\r\n\r\n";
+    let mut holder = tokio::net::TcpStream::connect(running.public)
+        .await
+        .unwrap();
+    tokio::io::AsyncWriteExt::write_all(&mut holder, slow.as_bytes())
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // A second that would need 2000 more is refused before it is read.
+    let refused = raw(running.public, slow.as_bytes(), Duration::from_secs(2)).await;
+    assert!(refused.starts_with("HTTP/1.1 503"), "{refused}");
+    assert!(
+        refused.to_ascii_lowercase().contains("retry-after: 2"),
+        "{refused}"
+    );
+    assert_eq!(
+        metric(
+            running.admin,
+            "f2z_ai_rejected_total{reason=\"upload_budget\"} "
+        )
+        .await,
+        "1"
+    );
+    // A small one still fits in what is left.
+    let (status, _) = post_bytes(&running, valid_chat("hi").to_string().into_bytes()).await;
+    assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    drop(holder);
+}

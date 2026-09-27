@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::http::{StatusCode, header};
+use f2z_ai::settle::{Delivery, UpstreamEnd};
 use support::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -91,7 +92,7 @@ async fn a_handler_that_never_answers_is_a_500_at_the_request_timeout() {
     let settler = RecordingSettler::default();
     let running = start(
         &config,
-        deps(fixed_catalog(), Arc::new(StallingBackend), settler),
+        deps(fixed_catalog(), Arc::new(StallingBackend), settler.clone()),
     )
     .await;
     wait_readyz(running.admin, StatusCode::OK).await;
@@ -100,6 +101,11 @@ async fn a_handler_that_never_answers_is_a_500_at_the_request_timeout() {
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     assert!(started.elapsed() >= Duration::from_millis(900));
     assert_eq!(error_of(response).await["code"], "internal");
-    // And its slot is released once the call's own start timeout fires.
+    // And its slot is released once the call's own start timeout fires —
+    // after the call was handed to the settler as not started, so a hold the
+    // backend took inside `start` could be released.
     wait_metric(running.admin, "f2z_ai_active_streams ", "0").await;
+    let records = wait_records(&settler, 1).await;
+    assert_eq!(records[0].upstream, UpstreamEnd::NotStarted);
+    assert_eq!(records[0].delivery, Delivery::None);
 }

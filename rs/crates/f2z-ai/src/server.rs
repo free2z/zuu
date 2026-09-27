@@ -205,6 +205,13 @@ impl Gateway {
             max_body_bytes_with_images: config.max_body_bytes_with_images,
             body_read_timeout: config.body_read_timeout,
             start_timeout: config.request_timeout,
+            upload_budget: Arc::new(tokio::sync::Semaphore::new(
+                config
+                    .max_upload_buffer_bytes
+                    .min(tokio::sync::Semaphore::MAX_PERMITS),
+            )),
+            retry_after_secs: config.retry_after_secs,
+            metrics: Some(Arc::clone(&metrics)),
             delivery_buffer_bytes: config.delivery_buffer_bytes,
             delivery_stall: config.delivery_stall,
         };
@@ -331,7 +338,13 @@ impl Gateway {
             tracing::error!("the settler did not finish within settle_grace");
             settler_task.abort();
         }
-        let _ = self.catalog_task.await;
+        let mut catalog_task = self.catalog_task;
+        if tokio::time::timeout(Duration::from_secs(1), &mut catalog_task)
+            .await
+            .is_err()
+        {
+            catalog_task.abort();
+        }
 
         self.stop_admin.send_replace(true);
         let _ = self.admin_task.await;

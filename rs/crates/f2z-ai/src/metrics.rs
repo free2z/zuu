@@ -16,8 +16,8 @@
 //! | `f2z_ai_delivery_buffered_bytes` | gauge | Undelivered event bytes across every stream (ADR 0001 budgets 10k × 256 KiB) |
 //! | `f2z_ai_delivery_aborted_total{reason}` | counter | Delivery ended early while the upstream read continued: `buffer_full`, `stalled` |
 //! | `f2z_ai_overhead_seconds` | histogram | Request received → response head. With no provider behind it this is the gateway's whole cost; once adapters land it becomes request → first upstream byte (the README's p50 < 8 ms, p99 < 25 ms) |
-//! | `f2z_ai_rejected_total{reason}` | counter | Refused at admission: `overloaded`, `draining` |
-//! | `f2z_ai_calls_settled_total{upstream}` | counter | Calls handed to the settler, by how the upstream read ended: `finished`, `drained` |
+//! | `f2z_ai_rejected_total{reason}` | counter | Refused: `overloaded`, `draining` (at admission), `upload_budget` (before a body is read) |
+//! | `f2z_ai_calls_settled_total{upstream}` | counter | Calls handed to the settler, by how the upstream read ended: `finished`, `drained`, `not_started` |
 //! | `f2z_ai_ready` / `f2z_ai_draining` | gauge | 1 or 0 |
 //! | `f2z_ai_catalog_version` | gauge | The verified catalogue in use; 0 when there is none |
 
@@ -71,6 +71,8 @@ pub enum Rejection {
     Overloaded,
     /// The instance is draining.
     Draining,
+    /// The gateway-wide budget for request bodies being read is spent.
+    UploadBudget,
 }
 
 /// The statuses counted individually. Anything else is counted under `other`
@@ -96,7 +98,8 @@ pub struct Metrics {
     overhead_sum_us: AtomicU64,
     rejected_overloaded: AtomicU64,
     rejected_draining: AtomicU64,
-    settled: [AtomicU64; 2],
+    rejected_upload_budget: AtomicU64,
+    settled: [AtomicU64; 3],
     delivery_aborted: [AtomicU64; 2],
     catalog_version: AtomicU64,
 }
@@ -110,6 +113,7 @@ impl Default for Metrics {
             overhead_sum_us: AtomicU64::new(0),
             rejected_overloaded: AtomicU64::new(0),
             rejected_draining: AtomicU64::new(0),
+            rejected_upload_budget: AtomicU64::new(0),
             settled: std::array::from_fn(|_| AtomicU64::new(0)),
             delivery_aborted: std::array::from_fn(|_| AtomicU64::new(0)),
             catalog_version: AtomicU64::new(0),
@@ -141,6 +145,7 @@ const fn upstream_slot(end: UpstreamEnd) -> usize {
     match end {
         UpstreamEnd::Finished => 0,
         UpstreamEnd::Drained => 1,
+        UpstreamEnd::NotStarted => 2,
     }
 }
 
@@ -174,6 +179,7 @@ impl Metrics {
         match why {
             Rejection::Overloaded => &self.rejected_overloaded,
             Rejection::Draining => &self.rejected_draining,
+            Rejection::UploadBudget => &self.rejected_upload_budget,
         }
         .fetch_add(1, Ordering::Relaxed);
     }
@@ -283,10 +289,19 @@ impl Metrics {
             "f2z_ai_rejected_total{{reason=\"draining\"}} {}",
             load(&self.rejected_draining)
         );
+        let _ = writeln!(
+            out,
+            "f2z_ai_rejected_total{{reason=\"upload_budget\"}} {}",
+            load(&self.rejected_upload_budget)
+        );
 
         out.push_str("# HELP f2z_ai_calls_settled_total Calls handed to the settler.\n");
         out.push_str("# TYPE f2z_ai_calls_settled_total counter\n");
-        for end in [UpstreamEnd::Finished, UpstreamEnd::Drained] {
+        for end in [
+            UpstreamEnd::Finished,
+            UpstreamEnd::Drained,
+            UpstreamEnd::NotStarted,
+        ] {
             let value = self.settled.get(upstream_slot(end)).map_or(0, load);
             let _ = writeln!(
                 out,
