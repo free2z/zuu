@@ -36,7 +36,7 @@ export class FetchTransport implements Transport {
   #api: string;
   #ai: string;
   #streams = new Set<AbortController>();
-  #checkouts = new Map<string, string>();
+  #checkouts = new Map<string, { generation: string; url: string }>();
   #catalog:
     | {
         generation: string;
@@ -228,12 +228,13 @@ export class FetchTransport implements Transport {
       ),
     );
   }
-  #remember(intent: Purchase): Purchase {
+  #remember(intent: Purchase, generation: string): Purchase {
+    if (generation !== this.#auth.generation) failure("signed_out");
     if (typeof intent.rail_data.checkout_url === "string") {
       const url = secureUrl(intent.rail_data.checkout_url).href;
       if (this.#checkouts.size >= 128)
         this.#checkouts.delete(this.#checkouts.keys().next().value!);
-      this.#checkouts.set(intent.id, url);
+      this.#checkouts.set(intent.id, { generation, url });
     }
     return intent;
   }
@@ -241,6 +242,7 @@ export class FetchTransport implements Transport {
     request: PurchaseRequest,
     options: OperationOptions,
   ): Promise<Purchase> {
+    const generation = this.#auth.generation;
     key(options.idempotencyKey);
     uint(request.quantity2z);
     if (request.rail !== "card" && request.rail !== "zcash")
@@ -262,12 +264,14 @@ export class FetchTransport implements Transport {
             options.idempotencyKey,
           ),
         ),
+        generation,
       );
     } catch (error) {
       throw withOperation(error, options.idempotencyKey);
     }
   }
   async purchase(id: string, signal?: AbortSignal): Promise<Purchase> {
+    const generation = this.#auth.generation;
     return this.#remember(
       decode.purchase(
         await this.#json(
@@ -276,14 +280,16 @@ export class FetchTransport implements Transport {
           signal,
         ),
       ),
+      generation,
     );
   }
   async openCheckout(id: string): Promise<void> {
     if (!this.config.openExternal) failure("external_opener_required");
     if (!this.#checkouts.has(id)) await this.purchase(id);
-    const url = this.#checkouts.get(id);
-    if (!url) failure("checkout_unavailable");
-    await this.config.openExternal(url);
+    const checkout = this.#checkouts.get(id);
+    if (!checkout) failure("checkout_unavailable");
+    if (checkout.generation !== this.#auth.generation) failure("signed_out");
+    await this.config.openExternal(checkout.url);
   }
   async call(id: string, signal?: AbortSignal): Promise<CallRecord> {
     return decode.callRecord(

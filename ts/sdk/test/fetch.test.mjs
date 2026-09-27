@@ -282,3 +282,76 @@ test("truncated refresh JSON recovers the same predecessor within the grace wind
   );
   assert.deepEqual(predecessors, ["refresh-1", "refresh-1"]);
 });
+test("web call lookup and idempotent replay preserve metadata that resembles amount fields", async () => {
+  const mock = issuer(),
+    transport = new FetchTransport(mock.config);
+  await transport.signIn();
+  const record = {
+    call_id: "call-1",
+    status: "settled",
+    charged_2z: 2,
+    receipt_id: "receipt",
+    metadata: { input_tokens: "lesson-1", hold_2z: "42" },
+    extension: { input_tokens: "an extension string" },
+  };
+  mock.api = () => mock.json(record);
+  const looked = await transport.call("call-1"),
+    replay = (await (await transport.chat(request, options)).next()).value
+      .record;
+  for (const received of [looked, replay]) {
+    assert.deepEqual({ ...received.metadata }, record.metadata);
+    assert.equal(received.extension.input_tokens, "an extension string");
+    assert.equal(received.charge.charged2z, 2n);
+  }
+});
+test("late purchase responses cannot restore an old checkout after sign-out", async () => {
+  const intent = {
+    id: "intent-1",
+    rail: "card",
+    status: "created",
+    quantity_2z: 100,
+    price: { currency: "usd", amount_minor: 100 },
+    credited_milli_2z: null,
+    credited_at: null,
+    rail_data: { checkout_url: "https://checkout.example/old-user" },
+  };
+  for (const method of ["createPurchase", "purchase"])
+    for (let turns = 0; turns < 35; turns++) {
+      const mock = issuer();
+      let opened = 0,
+        signedOut;
+      const transport = new FetchTransport({
+        ...mock.config,
+        openExternal: async () => {
+          opened++;
+        },
+      });
+      await transport.signIn();
+      mock.api = () => {
+        let remaining = turns;
+        const tick = () => {
+          if (remaining-- === 0) signedOut = transport.signOut();
+          else queueMicrotask(tick);
+        };
+        queueMicrotask(tick);
+        return mock.json(intent);
+      };
+      try {
+        if (method === "createPurchase")
+          await transport.createPurchase(
+            { rail: "card", quantity2z: 100n },
+            options,
+          );
+        else await transport.purchase("intent-1");
+      } catch {}
+      await new Promise((resolve) => setImmediate(resolve));
+      await signedOut;
+      assert.equal((await transport.session()).signedIn, false);
+      await assert.rejects(transport.openCheckout("intent-1"));
+      assert.equal(
+        opened,
+        0,
+        `${method} revived a checkout at microtask offset ${turns}`,
+      );
+    }
+});

@@ -182,7 +182,8 @@ export function withOperation(
     idempotencyKey,
     retryable: false,
   };
-  if (callId !== undefined) context.callId = callId;
+  const recoveryCallId = callId ?? cause.callId;
+  if (recoveryCallId !== undefined) context.callId = recoveryCallId;
   if (cause.status !== undefined) context.status = cause.status;
   if (cause.retryAfterSeconds !== undefined)
     context.retryAfterSeconds = cause.retryAfterSeconds;

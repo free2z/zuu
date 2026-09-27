@@ -68,12 +68,16 @@ test("native adapter converts request quantities without rounding and pulls one 
 });
 test("cancel during native start retries cancellation after registration and retains recovery key", async () => {
   const start = deferred(),
+    started = deferred(),
     controller = new AbortController();
   let cancels = 0,
     registered = false,
     cancelledRegistered = false;
   const b = bridge({
-    startChat: () => start.promise,
+    startChat: () => {
+      started.resolve();
+      return start.promise;
+    },
     cancelChat: async () => {
       cancels++;
       if (!registered) throw { code: "operation_not_found" };
@@ -84,6 +88,7 @@ test("cancel during native start retries cancellation after registration and ret
     ...options,
     signal: controller.signal,
   });
+  await started.promise;
   controller.abort();
   await assert.rejects(
     pending,
@@ -167,5 +172,137 @@ test("polling deadline returns paid purchase and pending charge without claiming
   assert.equal(
     (await client.waitForCall("c", { timeoutMs: 0 })).charge.state,
     "pending",
+  );
+});
+test("native receipt metadata remains caller strings through call lookup and replay", async () => {
+  const record = {
+    call_id: "call-1",
+    status: "settled",
+    charge: { state: "charged", charged2z: "2", receiptId: "receipt" },
+    metadata: { input_tokens: "lesson-1", hold_2z: "42" },
+    extension: { input_tokens: "not-a-protocol-count" },
+  };
+  const client = new NativeTransport(
+    bridge({
+      call: async () => record,
+      startChat: async () => ({
+        operationId: options.operationId,
+        replay: record,
+      }),
+      cancelChat: async () => {},
+    }),
+  );
+  for (const received of [
+    await client.call("call-1"),
+    (await (await client.chat(request, options)).next()).value.record,
+  ]) {
+    assert.deepEqual({ ...received.metadata }, record.metadata);
+    assert.equal(received.extension.input_tokens, "not-a-protocol-count");
+    assert.equal(received.charge.charged2z, 2n);
+  }
+});
+test("native buffered replay is invalidated on sign-out and account switch", async () => {
+  for (const transition of ["signOut", "signIn"]) {
+    let generation = "1";
+    const session = () => ({
+      signedIn: true,
+      subject: generation === "1" ? "alice" : "bob",
+      grantedScopes: [],
+      persistence: "persistent",
+      generation,
+    });
+    const record = {
+      call_id: "alice-call",
+      status: "released",
+      charge: { state: "released", charged2z: "0" },
+    };
+    const client = new NativeTransport(
+      bridge({
+        session: async () => session(),
+        startChat: async () => ({
+          operationId: options.operationId,
+          replay: record,
+        }),
+        cancelChat: async () => {},
+        signOut: async () => {
+          generation = "2";
+          return { revoked: true, generation };
+        },
+        signIn: async () => {
+          generation = "2";
+          return session();
+        },
+      }),
+    );
+    const stream = await client.chat(request, options);
+    await client[transition]();
+    await assert.rejects(
+      stream.next(),
+      (e) =>
+        e.code === "signed_out" && e.idempotencyKey === options.idempotencyKey,
+    );
+  }
+});
+test("native buffered replay detects a session replaced through another bridge caller", async () => {
+  let generation = "1";
+  const client = new NativeTransport(
+    bridge({
+      session: async () => ({
+        signedIn: true,
+        subject: "user",
+        grantedScopes: [],
+        persistence: "persistent",
+        generation,
+      }),
+      startChat: async () => ({
+        operationId: options.operationId,
+        replay: {
+          call_id: "old-call",
+          status: "released",
+          charge: { state: "released", charged2z: "0" },
+        },
+      }),
+      cancelChat: async () => {},
+    }),
+  );
+  const stream = await client.chat(request, options);
+  generation = "2";
+  await assert.rejects(stream.next(), { code: "signed_out" });
+});
+test("native cancel discards a reply that was already in flight", async () => {
+  const read = deferred(),
+    reading = deferred();
+  const client = new NativeTransport(
+    bridge({
+      startChat: async () => ({ operationId: options.operationId }),
+      nextChat: () => {
+        reading.resolve();
+        return read.promise;
+      },
+      cancelChat: async () => {},
+    }),
+  );
+  const stream = await client.chat(request, options),
+    pending = stream.next();
+  await reading.promise;
+  await stream.cancel();
+  read.resolve({ type: "delta", text: "late private text" });
+  assert.equal((await pending).done, true);
+});
+test("native opening failure preserves the server call ID when no stream was returned", async () => {
+  const client = new NativeTransport(
+    bridge({
+      startChat: async () => {
+        throw { code: "unconfirmed", callId: "known-call" };
+      },
+      cancelChat: async () => {},
+    }),
+  );
+  await assert.rejects(
+    client.chat(request, options),
+    (e) =>
+      e.code === "unconfirmed" &&
+      e.callId === "known-call" &&
+      e.idempotencyKey === options.idempotencyKey,
   );
 });

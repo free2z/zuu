@@ -153,6 +153,13 @@ async function invoke<T>(
   }
 }
 export class NativeTransport implements Transport {
+  #epoch = 0;
+  #streams = new Set<() => void>();
+  #invalidateStreams(): void {
+    this.#epoch++;
+    for (const stop of this.#streams) stop();
+    this.#streams.clear();
+  }
   constructor(private readonly bridge: NativeBridge) {}
   async session() {
     return decode.session(await invoke(() => this.bridge.session()));
@@ -169,9 +176,14 @@ export class NativeTransport implements Transport {
         failure("invalid_request");
       native.maxAge = String(options.maxAge);
     }
-    return decode.session(await invoke(() => this.bridge.signIn(native)));
+    const session = decode.session(
+      await invoke(() => this.bridge.signIn(native)),
+    );
+    this.#invalidateStreams();
+    return session;
   }
   async signOut() {
+    this.#invalidateStreams();
     return invoke(() => this.bridge.signOut());
   }
   async balance(signal?: AbortSignal) {
@@ -229,17 +241,31 @@ export class NativeTransport implements Transport {
     key(options.idempotencyKey);
     identifier(options.operationId);
     cancelled(options.signal);
-    const bridge = this.bridge;
+    const bridge = this.bridge,
+      owner = this,
+      epoch = this.#epoch;
+    const current = () => {
+      if (epoch !== owner.#epoch) failure("signed_out");
+    };
     let stopped = false,
       reading = false,
       callId: string | undefined;
     const abort = () => {
       stopped = true;
+      cleanup();
       void bridge.cancelChat(options.operationId).catch(() => {});
     };
     options.signal?.addEventListener("abort", abort, { once: true });
-    const cleanup = () => options.signal?.removeEventListener("abort", abort);
+    this.#streams.add(abort);
+    const cleanup = () => {
+      options.signal?.removeEventListener("abort", abort);
+      owner.#streams.delete(abort);
+    };
     try {
+      const initial = decode.session(
+        await invoke(() => bridge.session(), options.signal),
+      );
+      current();
       // Keep observing start after caller cancellation so the registered stream
       // is also closed if cancellation reached native before registration did.
       const pending = invoke(() =>
@@ -254,6 +280,7 @@ export class NativeTransport implements Transport {
         })
         .catch(() => {});
       const opened = await waitWithSignal(pending, options.signal);
+      current();
       if (opened.operationId !== options.operationId)
         failure("invalid_response");
       callId = opened.callId;
@@ -278,10 +305,18 @@ export class NativeTransport implements Transport {
               options.idempotencyKey,
               callId,
             );
-          if (stopped) return { done: true, value: undefined };
           reading = true;
           try {
+            current();
+            if (stopped) return { done: true, value: undefined };
             if (replay !== undefined) {
+              const latest = decode.session(
+                await invoke(() => bridge.session(), options.signal),
+              );
+              current();
+              if (latest.generation !== initial.generation)
+                failure("signed_out");
+              if (stopped) return { done: true, value: undefined };
               const record = replay;
               replay = undefined;
               stopped = true;
@@ -293,6 +328,8 @@ export class NativeTransport implements Transport {
                 () => bridge.nextChat(options.operationId),
                 options.signal,
               );
+              current();
+              if (stopped) return { done: true, value: undefined };
               if (result === null) failure("stream_interrupted");
               const data = object(decode.nativeData(result));
               const event = decode.event(string(data.type), data);

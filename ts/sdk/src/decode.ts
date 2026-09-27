@@ -46,39 +46,66 @@ function amountKey(key: string): boolean {
     key.endsWith("_milli_2z_per_mtok")
   );
 }
-/** Native IPC numbers are decimal strings; content and identifiers remain strings. */
-export function nativeData(
-  value: unknown,
-  key = "",
-  parent = "",
-  depth = 0,
-): Json {
-  if (depth > 64) failure("response_too_complex");
+/** Amount names have meaning only at protocol schema locations. Caller
+ * metadata and unknown extension objects must retain their own string values. */
+function unsignedLocation(path: readonly string[]): boolean {
+  const key = path[path.length - 1] ?? "";
+  if (path.length === 1) return amountKey(key);
   if (
-    typeof value === "string" &&
-    (amountKey(key) || parent === "milli_2z_per_minor_unit")
-  ) {
-    if (!/^(0|[1-9][0-9]{0,19})$/.test(value)) failure("invalid_response");
-    return uint(BigInt(value));
-  }
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean" ||
-    typeof value === "bigint"
+    path.length === 2 &&
+    ["usage", "price", "prices", "charge", "rate"].includes(path[0]!)
   )
-    return value;
-  if (typeof value === "number") {
-    if (!Number.isSafeInteger(value)) failure("unsafe_integer");
-    return BigInt(value);
+    return amountKey(key);
+  if (path[0] === "models" && path[1] === "*") {
+    return (
+      (path.length === 3 || (path.length === 4 && path[2] === "prices")) &&
+      amountKey(key)
+    );
   }
-  if (Array.isArray(value))
-    return value.map((v) => nativeData(v, "", key, depth + 1));
-  const result: ObjectData = Object.create(null) as ObjectData;
-  for (const [k, v] of Object.entries(object(value))) {
-    if (v !== undefined) result[k] = nativeData(v, k, key, depth + 1);
+  if (path[0] === "rail_data") {
+    return (
+      (path.length === 2 ||
+        (path.length === 3 && path[1] === "rate") ||
+        (path.length === 4 && path[1] === "payments" && path[2] === "*")) &&
+      amountKey(key)
+    );
   }
-  return result;
+  return path.length === 2 && path[0] === "milli_2z_per_minor_unit";
+}
+/** Native IPC numbers are decimal strings; content and identifiers remain strings. */
+export function nativeData(value: unknown): Json {
+  function visit(value: unknown, path: readonly string[]): Json {
+    if (path.length > 64) failure("response_too_complex");
+    if (typeof value === "string" && unsignedLocation(path)) {
+      if (!/^(0|[1-9][0-9]{0,19})$/.test(value)) failure("invalid_response");
+      return uint(BigInt(value));
+    }
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "boolean" ||
+      typeof value === "bigint"
+    )
+      return value;
+    if (typeof value === "number") {
+      if (
+        !Number.isFinite(value) ||
+        (Number.isInteger(value) && !Number.isSafeInteger(value))
+      )
+        failure("unsafe_integer");
+      if (unsignedLocation(path)) {
+        if (!Number.isSafeInteger(value)) failure("invalid_response");
+        return uint(BigInt(value));
+      }
+      return value;
+    }
+    if (Array.isArray(value)) return value.map((v) => visit(v, [...path, "*"]));
+    const result: ObjectData = Object.create(null) as ObjectData;
+    for (const [k, v] of Object.entries(object(value)))
+      if (v !== undefined) result[k] = visit(v, [...path, k]);
+    return result;
+  }
+  return visit(value, []);
 }
 function optionalUint(value: unknown): bigint | undefined {
   return value === null || value === undefined ? undefined : uint(value);
@@ -147,21 +174,20 @@ export function charge(
 }
 function validated(value: unknown): ObjectData {
   const d = object(value);
-  function check(value: unknown, key = "", parent = "", depth = 0): void {
-    if (depth > 64) failure("response_too_complex");
+  function check(value: unknown, path: readonly string[]): void {
+    if (path.length > 64) failure("response_too_complex");
     if (value == null) return;
-    if (amountKey(key) || parent === "milli_2z_per_minor_unit") {
+    if (unsignedLocation(path)) {
       uint(value);
       return;
     }
-    if (Array.isArray(value)) {
-      for (const child of value) check(child, "", key, depth + 1);
-    } else if (typeof value === "object") {
+    if (Array.isArray(value))
+      for (const child of value) check(child, [...path, "*"]);
+    else if (typeof value === "object")
       for (const [k, child] of Object.entries(value))
-        check(child, k, key, depth + 1);
-    }
+        check(child, [...path, k]);
   }
-  check(d);
+  check(d, []);
   return d;
 }
 export function balance(value: unknown): Balance {
