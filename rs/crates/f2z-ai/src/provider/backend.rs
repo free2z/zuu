@@ -231,6 +231,12 @@ impl ProviderBackend {
                 .checked_add(self.tuning.timeouts.hard_limit)
                 .unwrap_or(admitted),
             retry: self.tuning.retry,
+            images: request
+                .messages
+                .iter()
+                .flat_map(|m| &m.content)
+                .filter(|p| matches!(p, f2z_ai_proto::chat::ContentPart::Image { .. }))
+                .fold(0u64, |n, _| n.saturating_add(1)),
         }))
     }
 }

@@ -100,6 +100,8 @@ pub struct ProviderUpstream {
     idle: Duration,
     hard_deadline: Instant,
     retry: RetryPolicy,
+    /// The request's image parts: `usage.images` (no provider reports it).
+    images: u64,
     state: State,
     queue: VecDeque<Event>,
     attempts: u32,
@@ -134,6 +136,7 @@ pub(crate) struct Prepared {
     pub(crate) idle: Duration,
     pub(crate) hard_deadline: Instant,
     pub(crate) retry: RetryPolicy,
+    pub(crate) images: u64,
 }
 
 impl ProviderUpstream {
@@ -148,6 +151,7 @@ impl ProviderUpstream {
             idle: p.idle,
             hard_deadline: p.hard_deadline,
             retry: p.retry,
+            images: p.images,
             state: State::Start,
             queue: VecDeque::new(),
             attempts: 0,
@@ -336,6 +340,13 @@ impl ProviderUpstream {
 
     /// Move parsed content into the event queue.
     fn drain_content(&mut self) {
+        if !self.content.is_empty() && !self.body.is_empty() {
+            // Committed: no retry can happen now, so the request body (up to
+            // 20 MiB of prompt and images) is not kept for the rest of a
+            // stream that may run for minutes. The upload budget was released
+            // when `start` returned.
+            self.body = Bytes::new();
+        }
         for content in self.content.drain(..) {
             self.output_produced = true;
             self.queue.push_back(match content {
@@ -478,6 +489,17 @@ impl ProviderUpstream {
                 Some(_) => Verdict::Failure,
             });
         }
+        // Every provider bills images inside its token counts and none
+        // reports how many it saw; the catalogue's per-image price
+        // (metering.md §2.1) applies to the image parts the request sent.
+        let usage = match usage {
+            UsageReport::Reported(u) => UsageReport::Reported(f2z_ai_proto::chat::Usage {
+                images: self.images,
+                ..u
+            }),
+            missing @ UsageReport::Missing { .. } => missing,
+        };
+        self.body = Bytes::new();
         // `usage` goes to the client only on a stream it belongs to: a
         // success, or a failure after output. A failure before any content
         // is a lone `error` (chat-api.md §3.1), so its usage — if a provider

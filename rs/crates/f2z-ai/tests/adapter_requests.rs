@@ -71,6 +71,17 @@ async fn sent_body(mock: &MockProvider, model: Model) -> Value {
 async fn each_adapter_translates_the_unified_request() {
     let mock = MockProvider::start(Scenario::default()).await.unwrap();
 
+    // The request's image parts are the usage's images, whatever the
+    // provider's own report says nothing about.
+    let run = drive(
+        &backend(&mock.base_url(), tuning(0)),
+        &catalog(10_000),
+        &rich(ANTHROPIC.id),
+    )
+    .await;
+    assert_eq!(run.outcome.usage.reported().unwrap().images, 1);
+    assert_eq!(run.usage_event().unwrap().images, 1);
+
     let chat = sent_body(&mock, CHAT).await;
     assert_eq!(chat["model"], "m-chat-upstream");
     assert_eq!(chat["stream"], true);
