@@ -245,6 +245,11 @@ exceptions = [
   # is worthless in a way nobody can see from outside (§7.4), which is precisely
   # the case for requiring the source of a running modification.
   { name = "f2z-witness", allow = ["AGPL-3.0-only"] },
+  # The AI gateway (docs/ai-gateway ADR 0001/0004, zuu#1054). The server that
+  # holds and settles 2Z for third-party apps: an operator running a modified
+  # copy for others owes its users that modification. Its contract crate,
+  # `f2z-ai-proto`, stays MIT and is not named here.
+  { name = "f2z-ai", allow = ["AGPL-3.0-only"] },
 ]
 
 # =============================================================================
