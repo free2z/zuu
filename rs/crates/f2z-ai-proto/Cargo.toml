@@ -1,0 +1,46 @@
+[package]
+name = "f2z-ai-proto"
+version = "0.1.0"
+description = "The free2z AI gateway's code-level contract: /v1/chat wire types, the SSE event grammar, the signed model catalogue, error codes, and price_2z() — the integer-exact cost-plus 2Z pricing formula"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered in `scripts/check-rust-toolchain.sh`'s `MANIFESTS` so it cannot
+# drift. Not inherited: that check reads this literal line.
+rust-version = "1.97"
+# Permissive, deliberately and explicitly. The gateway (`f2z-ai`, AGPL), the
+# Rust SDK (`f2z-sdk`, MIT) and any third-party client must all link the SAME
+# wire types and the SAME `price_2z`, because an estimate that disagrees with
+# the charge is a bug a stranger cannot diagnose. A copyleft contract crate
+# would force a second implementation. rs/deny.toml enforces the licence.
+license = "MIT"
+repository.workspace = true
+# Intended for crates.io (zuu #1047's namespace table), but not published yet:
+# the first publish is a deliberate act once the prose spec (docs/sdk, #1048)
+# and this crate are reconciled. Until then it inherits `publish = false`, so a
+# stray `cargo publish` cannot freeze an unreviewed 0.1.0 forever.
+publish.workspace = true
+keywords = ["free2z", "ai", "metering", "sse"]
+categories = ["api-bindings", "encoding"]
+
+[lints]
+workspace = true
+
+[dependencies]
+# `alloc` is declared rather than inherited: the workspace entry is
+# `default-features = false` + `derive`, and `String`/`Vec` deserialization
+# needs `alloc`. AGENTS.md: a feature enabled only by unification is a feature
+# we do not actually have.
+serde = { workspace = true, features = ["alloc"] }
+# The wire format of `/v1/chat` and the catalogue, and the `Value` tree the
+# canonical-JSON signing message is computed from.
+serde_json = { workspace = true }
+# Verification of the catalogue's detached Ed25519 signature. The workspace
+# entry drops `fast` and `std`; verification of one catalogue every 30 seconds
+# does not need precomputed tables.
+ed25519-dalek = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+# Integration tests read the JSON fixtures from disk and pretty-print on
+# failure; `std` is test-only, the library stays `no_std` + `alloc`.
+serde_json = { workspace = true, features = ["std"] }

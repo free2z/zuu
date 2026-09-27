@@ -599,6 +599,25 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
             call: "sig::verify",
         },
     },
+    // ---- f2z-ai-proto -------------------------------------------------------
+    //
+    // The AI gateway's signed model catalogue (#1049). Its own base, not a
+    // delegation: the crate holds a dalek `VerifyingKey` inside `TrustedKey`
+    // and calls `verify_strict` on it directly, over
+    // `CATALOG_SIGNING_LABEL || canonical_json(payload)`. Strict is the point
+    // here as much as anywhere: under plain `verify` the identity point as a
+    // trusted key accepts (R = identity, s = 0) for every message, i.e. any
+    // catalogue — any price list. `f2z-ai-proto/tests/catalog_signature.rs`
+    // (`a_small_order_key_is_refused_even_where_plain_verify_would_accept`)
+    // asserts that forgery passes `verify` and is refused here.
+    VerifyFn {
+        file: "f2z-ai-proto/src/catalog.rs",
+        name: "verify_catalog",
+        occurrence: 0,
+        strictness: Strictness::CallsVerifyStrict {
+            receiver: "key.key",
+        },
+    },
 ];
 
 /// A flagged line: where it is, what it says, and which rule caught it.

@@ -89,6 +89,9 @@ MANIFESTS=(
   # The cross-app intent bridge (#905). Linked by the ZUULI wallet, so it takes
   # the same channel restatement as every other client-linked crate under rs/.
   rs/crates/f2z-intent/Cargo.toml
+  # The AI gateway's wire contract and pricing formula (#1049). MIT, linked by
+  # the gateway and by every SDK, so it restates the same channel.
+  rs/crates/f2z-ai-proto/Cargo.toml
 )
 
 # Other rust-toolchain.toml files. Cargo picks the toolchain from the directory
