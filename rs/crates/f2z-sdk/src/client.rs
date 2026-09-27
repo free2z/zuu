@@ -247,7 +247,9 @@ impl Client {
     /// [`Error::Timeout`] when nothing came back within
     /// [`Config::callback_timeout`]; [`Error::IdToken`] for an ID token that
     /// does not verify; [`Error::Storage`] if the new session could not be
-    /// persisted (it is still active in memory).
+    /// persisted (it is still active in memory). If clearing the previous
+    /// stored session fails, the previous session remains active instead;
+    /// the replacement is not installed. Re-read session state after an error.
     pub async fn sign_in(
         &self,
         session: &dyn AuthSession,
@@ -340,6 +342,17 @@ impl Client {
                     let _ = self.revoke(&discovery, &Secret::new(rt)).await;
                 }
                 return Err(Error::SignedOut(SignedOutReason::SessionChanged));
+            }
+            // Remove prior durable authority before activating a different
+            // session. A failed replacement save must not restore the old
+            // account on restart, even when remote revocation is unavailable.
+            if let Err(error) = self.store_delete().await {
+                if let Some(rt) = tokens.refresh_token {
+                    let client = self.clone();
+                    let discovery = discovery.clone();
+                    tokio::spawn(async move { client.revoke(&discovery, &Secret::new(rt)).await });
+                }
+                return Err(error);
             }
             s.loaded = true;
             s.generation = s.generation.wrapping_add(1);
@@ -615,8 +628,8 @@ impl Client {
         ]);
         // A reset may happen after the issuer rotated this token. Recover
         // using the same predecessor promptly, inside its 60-second grace.
-        // Three attempts of at most 15 seconds plus 600 ms backoff stay below
-        // that window, even when the configured request timeout is longer.
+        // Each attempt respects the configured request timeout, while the
+        // whole sequence has one deadline shorter than the grace window.
         // This entire loop owns the session lock in the detached refresh task.
         let now = tokio::time::Instant::now();
         let recovery_deadline = now.checked_add(Duration::from_secs(55)).unwrap_or(now);
@@ -629,9 +642,7 @@ impl Client {
                 )));
             }
             let result = tokio::time::timeout_at(
-                now.checked_add(Duration::from_secs(15))
-                    .unwrap_or(now)
-                    .min(recovery_deadline),
+                recovery_deadline,
                 self.post_token(&token_endpoint, body.clone()),
             )
             .await

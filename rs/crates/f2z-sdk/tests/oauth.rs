@@ -618,6 +618,7 @@ struct BlockingStore {
     block_save: std::sync::atomic::AtomicBool,
     block_delete: std::sync::atomic::AtomicBool,
     fail_save: std::sync::atomic::AtomicBool,
+    fail_delete: std::sync::atomic::AtomicBool,
     entered: std::sync::atomic::AtomicBool,
 }
 impl BlockingStore {
@@ -627,6 +628,7 @@ impl BlockingStore {
             block_save: false.into(),
             block_delete: false.into(),
             fail_save: false.into(),
+            fail_delete: false.into(),
             entered: false.into(),
         }
     }
@@ -662,6 +664,9 @@ impl TokenStore for BlockingStore {
     fn delete(&self, account: &str) -> Result<(), f2z_sdk::StoreError> {
         if self.block_delete.load(Ordering::SeqCst) {
             self.block();
+        }
+        if self.fail_delete.load(Ordering::SeqCst) {
+            return Err(f2z_sdk::StoreError("injected deletion failure".into()));
         }
         self.inner.delete(account)
     }
@@ -750,11 +755,11 @@ async fn failed_account_switch_persistence_revokes_the_previous_family() {
     ));
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(fake.revoke_calls.load(Ordering::SeqCst), 1);
-    // The old keychain blob remains after the failure, but has no authority.
+    // Prior durable authority was removed before the new save.
     let restored = Client::new(fake.config(), store).unwrap();
     assert!(matches!(
         restored.balance().await,
-        Err(Error::SignedOut(SignedOutReason::RefreshRejected))
+        Err(Error::SignedOut(SignedOutReason::NoSession))
     ));
     client.balance().await.unwrap();
 }
@@ -813,4 +818,85 @@ async fn lost_refresh_response_is_recovered_with_the_same_predecessor() {
         .balance()
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn save_failure_and_revoke_unavailable_cannot_restore_the_old_account() {
+    let fake = Fake::start().await;
+    let store = Arc::new(BlockingStore::new());
+    let client = Client::new(fake.config(), store.clone()).unwrap();
+    client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    store.fail_save.store(true, Ordering::SeqCst);
+    fake.refuse_revocation.store(true, Ordering::SeqCst);
+    assert!(matches!(
+        client
+            .sign_in(
+                &ScriptedBrowser::new(MOBILE_REDIRECT),
+                SignInOptions::default()
+            )
+            .await,
+        Err(Error::Storage(_))
+    ));
+    assert!(store.inner.load(&account(&fake)).unwrap().is_none());
+    let restored = Client::new(fake.config(), store).unwrap();
+    assert!(matches!(
+        restored.balance().await,
+        Err(Error::SignedOut(SignedOutReason::NoSession))
+    ));
+    client.balance().await.unwrap();
+}
+
+#[tokio::test]
+async fn failed_prior_deletion_does_not_activate_the_replacement() {
+    let fake = Fake::start().await;
+    let store = Arc::new(BlockingStore::new());
+    let client = Client::new(fake.config(), store.clone()).unwrap();
+    client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    let previous_access = client.access_token().await.unwrap();
+    let previous_blob = store.inner.load(&account(&fake)).unwrap();
+    store.fail_delete.store(true, Ordering::SeqCst);
+    assert!(matches!(
+        client
+            .sign_in(
+                &ScriptedBrowser::new(MOBILE_REDIRECT),
+                SignInOptions::default()
+            )
+            .await,
+        Err(Error::Storage(_))
+    ));
+    assert_eq!(client.access_token().await.unwrap(), previous_access);
+    assert_eq!(store.inner.load(&account(&fake)).unwrap(), previous_blob);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        fake.live_refresh_tokens(),
+        1,
+        "replacement grant must be revoked"
+    );
+    Client::new(fake.config(), store)
+        .unwrap()
+        .balance()
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn slow_refresh_success_within_configured_timeout_is_not_retried() {
+    let fake = Fake::start().await;
+    let (client, _) = signed_in(&fake).await;
+    *fake.refresh_body_delay.lock().unwrap() = Duration::from_secs(20);
+    fake.expire_access_tokens();
+    client.balance().await.unwrap();
+    assert_eq!(fake.refresh_calls.load(Ordering::SeqCst), 1);
 }

@@ -151,6 +151,7 @@ pub struct Fake {
     pub create_delay_first: Mutex<Duration>,
     /// Delay before the revocation endpoint answers.
     pub revoke_delay: Mutex<Duration>,
+    pub refuse_revocation: AtomicBool,
     /// Delay before the balance endpoint looks at the token.
     pub balance_delay: Mutex<Duration>,
     /// A purchase is credited after this many polls.
@@ -249,6 +250,7 @@ impl Fake {
             require_step_up: AtomicBool::new(false),
             create_delay_first: Mutex::new(Duration::ZERO),
             revoke_delay: Mutex::new(Duration::ZERO),
+            refuse_revocation: AtomicBool::new(false),
             balance_delay: Mutex::new(Duration::ZERO),
             credit_after_polls: AtomicU32::new(1),
             fail_first: AtomicU32::new(1),
@@ -659,6 +661,12 @@ async fn revoke(State(f): State<Arc<Fake>>, body: Bytes) -> Response<Body> {
         tokio::time::sleep(delay).await;
     }
     f.revoke_calls.fetch_add(1, Ordering::SeqCst);
+    if f.refuse_revocation.load(Ordering::SeqCst) {
+        return Response::builder()
+            .status(StatusCode::SERVICE_UNAVAILABLE)
+            .body(Body::empty())
+            .unwrap();
+    }
     let form: HashMap<String, String> = url::form_urlencoded::parse(&body).into_owned().collect();
     let token = form.get("token").cloned().unwrap_or_default();
     let mut s = f.issuer_state.lock().unwrap();
