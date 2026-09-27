@@ -100,8 +100,10 @@ pub trait Store: Send + Sync + 'static {
     async fn admit(&self, request: &AdmitRequest) -> Result<Admission, StoreError>;
     /// Drop `member` from the lease set.
     async fn release(&self, lease_key: &str, member: &str) -> Result<(), StoreError>;
-    /// Push `member`'s expiry to `ttl` from now — only if it is still in the
-    /// set, so renewing a released (or never-added) member adds nothing.
+    /// Set `member`'s expiry to `ttl` from now, **adding it if it is
+    /// missing**: the caller holds a live lease, and a member Redis lost (an
+    /// outage at admission, an eviction, a flush) must count again. Only the
+    /// lease's own renewer calls it, and it releases after its last renew.
     async fn renew(&self, lease_key: &str, member: &str, ttl: Duration) -> Result<(), StoreError>;
 }
 
@@ -110,14 +112,11 @@ const RENEW_LUA: &str = r"
 local t = redis.call('TIME')
 local now = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
 local ttl = tonumber(ARGV[2])
-if redis.call('ZSCORE', KEYS[1], ARGV[1]) then
-  redis.call('ZADD', KEYS[1], 'XX', now + ttl, ARGV[1])
-  if redis.call('PTTL', KEYS[1]) < ttl then
-    redis.call('PEXPIRE', KEYS[1], ttl)
-  end
-  return 1
+local added = redis.call('ZADD', KEYS[1], now + ttl, ARGV[1])
+if redis.call('PTTL', KEYS[1]) < ttl then
+  redis.call('PEXPIRE', KEYS[1], ttl)
 end
-return 0
+return added
 ";
 
 /// KEYS: user bucket, app bucket, lease set.

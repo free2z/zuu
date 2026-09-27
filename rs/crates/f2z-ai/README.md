@@ -58,8 +58,11 @@ chat-api.md §2.2 steps 1–2, against the IdP of tuzi #2238
 **The lease lives on the call's admission slot**, which is dropped only
 after the settler has returned for the call and its delivery has ended — so a
 drained call, a disconnected one whose upstream is still being read, and one
-whose task panicked all count until they are settled. Its Redis member
-expires after `concurrency_lease_secs` if a pod dies holding it.
+whose task panicked all count until they are settled. While held, its Redis
+member is renewed every `concurrency_lease_secs / 3` (and re-added if Redis
+lost it, e.g. a call admitted during an outage); the renewer task releases it
+when the lease drops. It expires after `concurrency_lease_secs` only if a pod
+dies holding it.
 
 **If Redis is down** (every call is bounded by `redis_timeout_ms`, then it is
 skipped for 1 s), the limits fall back to their local copies — `N` pods then
@@ -69,7 +72,11 @@ never falls back to allowing.
 
 The JWKS comes from `auth_jwks_uri` or the issuer's discovery document, is
 warmed at start-up, refreshed in the background after an hour, and refetched
-on an unknown `kid` at most once per `auth_jwks_refetch_secs` (60).
+on an unknown `kid` at most once per `auth_jwks_refetch_secs` (60). One fetch
+runs at a time (5 s at most); at most 64 callers wait for it, and none wait
+while the last fetch failed. A `200` key set is authoritative — a withdrawn key
+stops verifying at once — and a cached set is not used more than 24 h after its
+fetch. An unknown `kid` while the issuer is unreachable is `503`, not `401`.
 
 ## The provider adapters (`src/provider`)
 

@@ -52,6 +52,8 @@ pub const MAX_AGE: Duration = Duration::from_secs(3600);
 pub const MAX_STALE: Duration = Duration::from_secs(24 * 3600);
 /// The most of a JWKS or discovery document read.
 pub const MAX_DOCUMENT_BYTES: usize = 256 * 1024;
+/// Callers that may wait for an in-flight fetch; beyond it, `503` at once.
+pub const MAX_REFRESH_WAITERS: usize = 64;
 /// The per-fetch timeout.
 pub const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -104,6 +106,8 @@ pub struct KeyCache {
     set: RwLock<Arc<KeySet>>,
     /// Serialises fetches, so a burst of unknown-`kid` tokens costs one.
     fetching: tokio::sync::Mutex<()>,
+    /// Bounds the callers queued behind an in-flight fetch.
+    waiters: tokio::sync::Semaphore,
     last_attempt: Mutex<Option<Instant>>,
     /// Whether the most recent fetch succeeded.
     last_ok: std::sync::atomic::AtomicBool,
@@ -168,6 +172,7 @@ impl KeyCache {
             source,
             set: RwLock::new(Arc::new(KeySet::default())),
             fetching: tokio::sync::Mutex::new(()),
+            waiters: tokio::sync::Semaphore::new(MAX_REFRESH_WAITERS),
             last_attempt: Mutex::new(None),
             last_ok: std::sync::atomic::AtomicBool::new(false),
             min_refetch,
@@ -238,7 +243,17 @@ impl KeyCache {
     /// `kid`s are answered `503` at once rather than parked on admission
     /// slots behind a slow issuer.
     pub async fn refresh(&self) -> Refresh {
-        let one = if self.healthy() {
+        let one = if let Ok(guard) = self.fetching.try_lock() {
+            guard
+        } else if self.healthy() {
+            // A fetch is in flight. At most MAX_REFRESH_WAITERS callers wait
+            // for it (a rotation: many new-`kid` tokens at once); the rest
+            // are answered `503` at once, so unsigned tokens with made-up
+            // `kid`s cannot park a gateway's admission slots on a slow
+            // issuer (codex round 3).
+            let Ok(_waiting) = self.waiters.try_acquire() else {
+                return Refresh::Busy;
+            };
             match tokio::time::timeout(
                 FETCH_TIMEOUT.saturating_add(Duration::from_secs(1)),
                 self.fetching.lock(),

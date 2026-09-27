@@ -22,9 +22,10 @@
 //! Accepting a regression means version order no longer implies issue
 //! order, so a replay of any catalogue issued before the regressed one —
 //! seen by this pod or not, whatever its version — could come back in by the
-//! ordinary "higher wins" rule. It does not: accepting a regression raises an
-//! **issue floor** to that catalogue's `issued_at`, and from then on nothing
-//! issued before the floor is installed. Before any regression the floor is
+//! ordinary "higher wins" rule. It does not: accepting a regression starts an
+//! **issue floor** at that catalogue's `issued_at`, the floor follows every
+//! catalogue installed after it, and nothing issued before the floor is
+//! installed. Before any regression the floor is
 //! zero and the rules are exactly the version rules. Signature and expiry
 //! checks are unchanged and happen before any of this.
 //!
@@ -185,9 +186,22 @@ impl State {
                     "installing a lower catalogue version: its issued_at is newer and within the \
                      regression window (zuu#1067)"
                 );
-                self.issue_floor
-                    .fetch_max(offered.issued_at, std::sync::atomic::Ordering::SeqCst);
             }
+        }
+        // Once a regression has been accepted, version order no longer implies
+        // issue order, so issue order is what every later install must keep:
+        // the floor follows each catalogue installed from then on (codex
+        // round 3 — a floor frozen at the regression let a superseded
+        // `(52, 1070)` in after `(51, 1120)`).
+        let regressed = issue_floor > 0
+            || guard
+                .as_ref()
+                .is_some_and(|held| candidate.catalog().version < held.catalog().version);
+        if regressed {
+            self.issue_floor.fetch_max(
+                candidate.catalog().issued_at,
+                std::sync::atomic::Ordering::SeqCst,
+            );
         }
         *guard = Some(Arc::new(candidate));
         Installed::Replaced
@@ -288,10 +302,16 @@ mod tests {
             state.install(issued(52, t + 30, t + 3600), t + 61),
             Installed::Older
         );
+        // The floor keeps following (codex round 3): after (51, t+120) is
+        // installed below, a superseded (53, t+70) stays out.
         // A genuinely newer one is installed as usual.
         assert_eq!(
             state.install(issued(51, t + 120, t + 3600), t + 120),
             Installed::Replaced
+        );
+        assert_eq!(
+            state.install(issued(53, t + 70, t + 3600), t + 121),
+            Installed::Older
         );
     }
 

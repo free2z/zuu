@@ -303,12 +303,12 @@ impl Store for MemoryStore {
         if self.down.load(Ordering::SeqCst) {
             return Err(StoreError);
         }
-        if let Some(set) = self.leases.lock().unwrap().get_mut(lease_key)
-            && let Some(expiry) = set.get_mut(member)
-            && *expiry > Instant::now()
-        {
-            *expiry = Instant::now() + ttl;
-        }
+        self.leases
+            .lock()
+            .unwrap()
+            .entry(lease_key.to_owned())
+            .or_default()
+            .insert(member.to_owned(), Instant::now() + ttl);
         Ok(())
     }
 
@@ -1180,6 +1180,21 @@ async fn the_redis_store_against_a_real_redis() {
         .release(&format!("{ns}:ai:cc:{SUB}"), "m2")
         .await
         .unwrap();
+    // A renew re-adds a member Redis lost (m1 was released above), and a
+    // release then removes it.
+    let lease_key = format!("{ns}:ai:cc:{SUB}");
+    store
+        .renew(&lease_key, "m1", Duration::from_secs(30))
+        .await
+        .unwrap();
+    let score: Option<f64> = redis::cmd("ZSCORE")
+        .arg(&lease_key)
+        .arg("m1")
+        .query_async(&mut raw)
+        .await
+        .unwrap();
+    assert!(score.is_some(), "renew did not re-add a lost member");
+    store.release(&lease_key, "m1").await.unwrap();
     // The bucket (burst 3) is empty: refused by the user bucket, with a wait
     // of about one second (60 per minute).
     match store.admit(&request("m4")).await.unwrap() {
@@ -1375,4 +1390,44 @@ async fn a_call_outliving_the_lease_ttl_still_counts_on_another_pod() {
     assert_eq!(verdict(&b, Some(&h.token())).await.1, "concurrency_limit");
     drop(sender);
     drop(body);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_call_admitted_during_a_redis_outage_counts_again_once_redis_is_back() {
+    let h = Harness::new().await;
+    let (backend, mut streams) = ControlledBackend::new();
+    let mut short = limits_config(100_000, 10_000, 1);
+    // Long enough that only a release, not the TTL, can clear the member
+    // within the final poll; a renewal fires every second.
+    short.lease_ttl = Duration::from_secs(3);
+    let a = h.gateway(short, backend, RecordingSettler::default()).await;
+    let b = h
+        .gateway(short, not_implemented(), RecordingSettler::default())
+        .await;
+    // Pod a admits a call while Redis is down: no member is written.
+    h.store.down.store(true, Ordering::SeqCst);
+    h.idp.set_epoch(EpochMode::Answer {
+        aep: 4,
+        agen: json!({CLIENT: 2}),
+    });
+    let body = call(&a, Some(&h.token())).await;
+    assert_eq!(body.status(), StatusCode::OK);
+    let sender = streams.recv().await.unwrap();
+    assert_eq!(h.store.open_leases(), 0);
+    // Redis comes back; within a renewal period the live call is counted
+    // again, so pod b refuses the user's second call.
+    h.store.down.store(false, Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_millis(1300)).await;
+    assert_eq!(h.store.open_leases(), 1);
+    assert_eq!(verdict(&b, Some(&h.token())).await.1, "concurrency_limit");
+    // The call ends: its member is released, not left to expire.
+    drop(sender);
+    drop(body);
+    for _ in 0..100 {
+        if h.store.open_leases() == 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(h.store.open_leases(), 0);
 }

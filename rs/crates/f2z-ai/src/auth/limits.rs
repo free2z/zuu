@@ -25,9 +25,10 @@
 //! ended — so a drained call, a call whose client disconnected while its
 //! upstream is still being read, and a call whose task panicked all keep
 //! counting until they are settled, and stop counting then. While it is held
-//! its Redis member is renewed every `lease_ttl / 3`, so a call that outlives
-//! `lease_ttl` (a settle that takes a long time) keeps counting on every pod
-//! too. Dropping the
+//! its Redis member is renewed every `lease_ttl / 3` — re-added if Redis lost
+//! it — so a call that outlives `lease_ttl` (a settle that takes a long
+//! time), or was admitted locally during a Redis outage, counts on every pod
+//! once Redis can say so. Dropping the
 //! lease decrements the local count at once and removes the call from the
 //! Redis set in the background; if that removal is lost (a pod killed, Redis
 //! unreachable at that moment) the member expires after `lease_ttl`, the
@@ -123,10 +124,15 @@ pub struct Lease {
     counts: Counts,
     user: String,
     remote: Option<(Arc<dyn Store>, String, String)>,
-    /// Keeps the Redis member's expiry ahead of now while the lease is held,
-    /// so a call that outlives `lease_ttl` (a settle that takes long) still
-    /// counts on every pod. Aborted when the lease drops.
-    renewer: Option<tokio::task::JoinHandle<()>>,
+    /// The renewer task, which keeps the Redis member's expiry ahead of now
+    /// while the lease is held — so a call that outlives `lease_ttl` (a
+    /// settle that takes long) still counts on every pod — and re-adds the
+    /// member if Redis lost it (an outage at admission, a flush), so a live
+    /// call is counted again once Redis is back. Dropping this sender stops
+    /// it, and **the task then releases the member itself**, after any renew
+    /// it has in flight: one task, one connection order, so a release can
+    /// never be overtaken by a renew that re-adds the member.
+    renewer: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl std::fmt::Debug for Lease {
@@ -139,9 +145,8 @@ impl std::fmt::Debug for Lease {
 
 impl Drop for Lease {
     fn drop(&mut self) {
-        if let Some(renewer) = self.renewer.take() {
-            renewer.abort();
-        }
+        // Dropping the sender tells the renewer to release; it owns `remote`.
+        drop(self.renewer.take());
         {
             let mut counts = self
                 .counts
@@ -340,25 +345,32 @@ impl Limits {
             request.lease_key.clone(),
             request.member.clone(),
         ));
+        let ttl = self.config.lease_ttl;
         let renew = |lease: &mut Lease| {
-            let (store, key, member) = (
-                Arc::clone(store),
-                request.lease_key.clone(),
-                request.member.clone(),
-            );
-            let ttl = self.config.lease_ttl;
+            let Some((store, key, member)) = lease.remote.take() else {
+                return;
+            };
             let every = ttl
                 .checked_div(3)
                 .unwrap_or(ttl)
                 .max(Duration::from_millis(10));
-            lease.renewer = Some(tokio::spawn(async move {
+            let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
+            lease.renewer = Some(stop);
+            tokio::spawn(async move {
                 loop {
-                    tokio::time::sleep(every).await;
-                    if store.renew(&key, &member, ttl).await.is_err() {
-                        tracing::warn!("concurrency lease renewal failed; retrying");
+                    tokio::select! {
+                        _ = &mut stopped => break,
+                        () = tokio::time::sleep(every) => {
+                            if store.renew(&key, &member, ttl).await.is_err() {
+                                tracing::warn!("concurrency lease renewal failed; retrying");
+                            }
+                        }
                     }
                 }
-            }));
+                if store.release(&key, &member).await.is_err() {
+                    tracing::warn!("concurrency lease release failed; it will expire by TTL");
+                }
+            });
         };
         match store.admit(&request).await {
             Ok(Admission::Admitted { .. }) => {
