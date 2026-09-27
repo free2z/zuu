@@ -149,6 +149,7 @@ async fn each_adapter_translates_the_unified_request() {
     assert_eq!(input[3]["call_id"], "call_1");
     assert_eq!(input[4]["output"], "{\"f\":1}");
     assert_eq!(responses["tools"][0]["type"], "function");
+    assert_eq!(responses["tools"][0]["strict"], false);
     mock.shutdown().await;
 }
 

@@ -359,10 +359,13 @@ impl StreamParser for Parser {
                     continue;
                 }
                 if let Some(delta) = choice.get("delta") {
-                    if let Some(text) = delta.get("content").and_then(Value::as_str)
-                        && !text.is_empty()
-                    {
-                        out.push(Content::Text(text.to_owned()));
+                    // A refusal is the model's answer, streamed like text.
+                    for field in ["content", "refusal"] {
+                        if let Some(text) = delta.get(field).and_then(Value::as_str)
+                            && !text.is_empty()
+                        {
+                            out.push(Content::Text(text.to_owned()));
+                        }
                     }
                     if let Some(calls) = delta.get("tool_calls").and_then(Value::as_array) {
                         for call in calls {
@@ -497,6 +500,21 @@ mod tests {
                 }),
             ]
         );
+    }
+
+    #[test]
+    fn a_refusal_is_streamed_as_text() {
+        let mut p = Parser::default();
+        let mut out = Vec::new();
+        p.feed(
+            &SseEvent {
+                event: String::new(),
+                data: json!({"choices":[{"index":0,"delta":{"refusal":"I can't."}}]}).to_string(),
+            },
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(out, vec![Content::Text("I can't.".into())]);
     }
 
     #[test]

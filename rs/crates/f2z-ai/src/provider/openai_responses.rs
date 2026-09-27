@@ -178,6 +178,12 @@ impl Provider for OpenAiResponses {
                                 t.insert("description".into(), json!(d));
                             }
                             t.insert("parameters".into(), tool.parameters.clone());
+                            // Responses normalises schemas to strict mode
+                            // unless told not to; Chat Completions and
+                            // Anthropic do not. The unified API has no strict
+                            // option, so the schema means the same thing on
+                            // every provider.
+                            t.insert("strict".into(), json!(false));
                             Value::Object(t)
                         })
                         .collect(),
