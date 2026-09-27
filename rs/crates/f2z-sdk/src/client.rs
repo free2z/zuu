@@ -50,10 +50,27 @@ pub(crate) struct Inner {
     pub(crate) config: Validated,
     pub(crate) http: reqwest::Client,
     store: Arc<dyn TokenStore>,
+    /// Orders writes to the store by when they were issued (always under
+    /// the session lock), not by when their blocking task happens to finish:
+    /// a slow save whose caller was cancelled can never land after a later
+    /// delete or a later session's save.
+    store_order: Arc<std::sync::Mutex<StoreOrder>>,
     account: String,
     discovery: OnceCell<Discovery>,
     session: Mutex<SessionState>,
     pub(crate) models_cache: std::sync::Mutex<Option<(String, crate::ai::Models)>>,
+}
+
+/// Issued and last-applied sequence numbers of store writes.
+#[derive(Debug, Default)]
+struct StoreOrder {
+    issued: u64,
+    applied: u64,
+}
+
+enum StoreWrite {
+    Save(Secret),
+    Delete,
 }
 
 #[derive(Default)]
@@ -159,6 +176,7 @@ impl Client {
                 http: http::build_client()?,
                 config,
                 store,
+                store_order: Arc::default(),
                 account,
                 discovery: OnceCell::new(),
                 session: Mutex::new(SessionState::default()),
@@ -371,14 +389,31 @@ impl Client {
         }
         let refresh = s.refresh.take();
         s.reset();
-        let revoked = match (&refresh, self.discovery().await) {
-            (Some(rt), Ok(d)) => {
-                let d = d.clone();
-                self.revoke(&d, rt).await
+        // Local state first: the store delete is issued before anything that
+        // can stall, and its blocking task completes even if this future is
+        // dropped — a cancelled sign-out never leaves the session restorable.
+        let deleted = self.store_delete().await;
+        drop(s);
+        // The revocation runs on its own task for the same reason: the only
+        // copy of the refresh token is in it now.
+        let revoked = match refresh {
+            Some(rt) => {
+                let client = self.clone();
+                tokio::spawn(async move {
+                    match client.discovery().await {
+                        Ok(d) => {
+                            let d = d.clone();
+                            client.revoke(&d, &rt).await
+                        }
+                        Err(_) => false,
+                    }
+                })
+                .await
+                .unwrap_or(false)
             }
-            _ => false,
+            None => false,
         };
-        self.store_delete().await?;
+        deleted?;
         Ok(revoked)
     }
 
@@ -497,21 +532,47 @@ impl Client {
         );
         // Wipe the plaintext copy the blob was built from.
         drop(Secret::new(stored.refresh_token));
-        let store = Arc::clone(&self.inner.store);
-        let account = self.inner.account.clone();
-        tokio::task::spawn_blocking(move || store.save(&account, &blob))
-            .await
-            .map_err(|e| Error::Storage(format!("token store task: {e}")))?
-            .map_err(|e| Error::Storage(e.to_string()))
+        self.store_write(StoreWrite::Save(blob)).await
     }
 
     async fn store_delete(&self) -> Result<(), Error> {
+        self.store_write(StoreWrite::Delete).await
+    }
+
+    /// One store write, sequenced (see [`Inner::store_order`]). Called with
+    /// the session lock held, so issue order is the session's own order. The
+    /// blocking task runs to completion even if this future is dropped; a
+    /// write that a later one has already overtaken is skipped.
+    async fn store_write(&self, write: StoreWrite) -> Result<(), Error> {
+        let order = Arc::clone(&self.inner.store_order);
+        let seq = {
+            let mut o = order
+                .lock()
+                .map_err(|_| Error::Storage("store order lock poisoned".into()))?;
+            o.issued = o.issued.wrapping_add(1);
+            o.issued
+        };
         let store = Arc::clone(&self.inner.store);
         let account = self.inner.account.clone();
-        tokio::task::spawn_blocking(move || store.delete(&account))
-            .await
-            .map_err(|e| Error::Storage(format!("token store task: {e}")))?
-            .map_err(|e| Error::Storage(e.to_string()))
+        tokio::task::spawn_blocking(move || {
+            let mut o = order
+                .lock()
+                .map_err(|_| crate::keychain::StoreError("store order lock poisoned".into()))?;
+            if seq < o.applied {
+                return Ok(());
+            }
+            let result = match &write {
+                StoreWrite::Save(blob) => store.save(&account, blob),
+                StoreWrite::Delete => store.delete(&account),
+            };
+            if result.is_ok() {
+                o.applied = seq;
+            }
+            result
+        })
+        .await
+        .map_err(|e| Error::Storage(format!("token store task: {e}")))?
+        .map_err(|e| Error::Storage(e.to_string()))
     }
 
     /// Put a token response into the session and persist the refresh token.
@@ -700,8 +761,13 @@ impl Client {
                     self.invalidate(&token).await;
                 }
                 "token_revoked" => {
+                    // Only the session this request was sent under is
+                    // cleared: a late answer must not sign out whoever
+                    // signed in since.
                     let mut s = self.inner.session.lock().await;
-                    self.clear_locked(&mut s).await?;
+                    if *generation == Some(s.generation) {
+                        self.clear_locked(&mut s).await?;
+                    }
                     return Err(Error::SignedOut(SignedOutReason::TokenRevoked));
                 }
                 "insufficient_user_authentication" => {

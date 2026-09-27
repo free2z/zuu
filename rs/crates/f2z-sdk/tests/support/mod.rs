@@ -145,6 +145,10 @@ pub struct Fake {
     pub require_step_up: AtomicBool,
     /// The first purchase create sleeps this long before answering.
     pub create_delay_first: Mutex<Duration>,
+    /// Delay before the revocation endpoint answers.
+    pub revoke_delay: Mutex<Duration>,
+    /// Delay before the balance endpoint looks at the token.
+    pub balance_delay: Mutex<Duration>,
     /// A purchase is credited after this many polls.
     pub credit_after_polls: AtomicU32,
     /// `error-before-meta` fails this many calls before succeeding.
@@ -236,6 +240,8 @@ impl Fake {
             id_token_nonce_override: Mutex::default(),
             require_step_up: AtomicBool::new(false),
             create_delay_first: Mutex::new(Duration::ZERO),
+            revoke_delay: Mutex::new(Duration::ZERO),
+            balance_delay: Mutex::new(Duration::ZERO),
             credit_after_polls: AtomicU32::new(1),
             fail_first: AtomicU32::new(1),
             auth_code_calls: AtomicU32::new(0),
@@ -637,6 +643,10 @@ async fn token(State(f): State<Arc<Fake>>, body: Bytes) -> Response<Body> {
 }
 
 async fn revoke(State(f): State<Arc<Fake>>, body: Bytes) -> Response<Body> {
+    let delay = *f.revoke_delay.lock().unwrap();
+    if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
+    }
     f.revoke_calls.fetch_add(1, Ordering::SeqCst);
     let form: HashMap<String, String> = url::form_urlencoded::parse(&body).into_owned().collect();
     let token = form.get("token").cloned().unwrap_or_default();
@@ -666,6 +676,10 @@ fn has_scope(scope: &str, want: &str) -> bool {
 }
 
 async fn balance(State(f): State<Arc<Fake>>, headers: HeaderMap) -> Response<Body> {
+    let delay = *f.balance_delay.lock().unwrap();
+    if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
+    }
     let scope = match f.check_bearer(&headers) {
         Ok(s) => s,
         Err(r) => return r,
@@ -925,6 +939,12 @@ async fn chat(State(f): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) -> Re
     let body = match model.as_str() {
         "settled" => {
             remember("settled", Some(1));
+            happy(false)
+        }
+        "slow-headers" => {
+            // The call is accepted and settled; only the answer is lost.
+            remember("settled", Some(1));
+            tokio::time::sleep(Duration::from_millis(800)).await;
             happy(false)
         }
         "crlf" => {

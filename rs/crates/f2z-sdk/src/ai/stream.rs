@@ -100,6 +100,18 @@ impl std::fmt::Debug for ChatStream {
     }
 }
 
+/// A transport failure of a request that carried `key` may have been acted
+/// on: report the key so the caller can recover the receipt.
+fn unconfirmed(error: Error, key: &str) -> Error {
+    match error {
+        Error::Transport(cause) => Error::Unconfirmed {
+            idempotency_key: key.to_owned(),
+            cause,
+        },
+        other => other,
+    }
+}
+
 /// `future`, or a transport timeout after `limit`.
 async fn bounded<T>(limit: Duration, future: impl Future<Output = T>) -> Result<T, Error> {
     tokio::time::timeout(limit, future).await.map_err(|_| {
@@ -224,7 +236,7 @@ impl ChatStream {
                     self.attempt = self.attempt.saturating_add(1);
                     continue;
                 }
-                other => other?,
+                other => other.map_err(|e| unconfirmed(e, &self.key))?,
             };
             if let Some(id) = http::header_string(response.headers(), "x-f2z-call-id") {
                 self.call_id = Some(id);
@@ -241,8 +253,9 @@ impl ChatStream {
                     // An idempotent replay of a finished call: its record,
                     // no content (§2.5). Branch on Content-Type, not on what
                     // was asked for.
-                    let record: CallRecord =
-                        bounded(header_timeout, http::read_json(response)).await??;
+                    let record: CallRecord = bounded(header_timeout, http::read_json(response))
+                        .await
+                        .map_err(|e| unconfirmed(e, &self.key))??;
                     return Err(Error::Replayed(Box::new(record)));
                 }
                 return Err(Error::Protocol(format!(
@@ -251,7 +264,9 @@ impl ChatStream {
             }
             // The body of a refusal is bounded too: headers followed by a
             // stalled body must not hang a call nobody can cancel yet.
-            let error = bounded(header_timeout, http::read_error(response)).await?;
+            let error = bounded(header_timeout, http::read_error(response))
+                .await
+                .map_err(|e| unconfirmed(e, &self.key))?;
             if error.retryable() && self.retries_left > 0 {
                 self.retries_left = self.retries_left.saturating_sub(1);
                 let wait = error

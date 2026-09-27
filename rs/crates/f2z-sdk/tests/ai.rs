@@ -475,9 +475,99 @@ async fn a_refusal_whose_body_stalls_does_not_hang() {
     .await
     .expect("chat() hung on a stalled body")
     .unwrap_err();
+    // Headers arrived, so the call may exist: the key is handed back.
     assert!(
-        matches!(err, Error::Transport(ref t) if t.is_timeout()),
+        matches!(err, Error::Unconfirmed { ref cause, .. } if cause.is_timeout()),
         "{err:?}"
     );
     assert!(started.elapsed() < Duration::from_secs(3));
+}
+
+/// A call whose answer is lost is re-sent with the SAME key, which recovers
+/// the receipt of the call that ran rather than running a second one.
+#[tokio::test]
+async fn a_lost_answer_is_recovered_by_a_same_key_resend() {
+    let fake = Fake::start().await;
+    let client = Client::new(
+        fake.config()
+            .with_request_timeout(Duration::from_millis(200)),
+        Arc::new(MemoryStore::new()),
+    )
+    .unwrap();
+    client
+        .sign_in(
+            &ScriptedBrowser::new("com.example.tutor:/oauth/callback"),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    let err = client
+        .ai()
+        .chat_with(chat_request("slow-headers"), fast())
+        .await
+        .unwrap_err();
+    let Error::Replayed(record) = err else {
+        panic!("{err:?}")
+    };
+    assert_eq!(record.charge().charged_2z(), Some(Whole2z::new(1)));
+    assert_eq!(
+        keys_for(&fake, "slow-headers").len(),
+        1,
+        "never charged twice"
+    );
+}
+
+/// When every re-send goes unanswered, the error carries the key, and
+/// re-sending with it later recovers the receipt instead of paying twice.
+#[tokio::test]
+async fn an_unanswered_call_reports_its_key_for_recovery() {
+    let fake = Fake::start().await;
+    let client = Client::new(
+        fake.config()
+            .with_request_timeout(Duration::from_millis(200)),
+        Arc::new(MemoryStore::new()),
+    )
+    .unwrap();
+    client
+        .sign_in(
+            &ScriptedBrowser::new("com.example.tutor:/oauth/callback"),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    let err = client
+        .ai()
+        .chat_with(
+            chat_request("slow-headers"),
+            fast().with_transport_retries(0),
+        )
+        .await
+        .unwrap_err();
+    let Error::Unconfirmed {
+        idempotency_key, ..
+    } = err
+    else {
+        panic!("{err:?}")
+    };
+    assert_eq!(
+        keys_for(&fake, "slow-headers"),
+        std::slice::from_ref(&idempotency_key)
+    );
+    let err = client
+        .ai()
+        .chat_with(
+            chat_request("slow-headers"),
+            fast().with_idempotency_key(idempotency_key),
+        )
+        .await
+        .unwrap_err();
+    let Error::Replayed(record) = err else {
+        panic!("{err:?}")
+    };
+    assert_eq!(record.charge().charged_2z(), Some(Whole2z::new(1)));
+    assert_eq!(
+        keys_for(&fake, "slow-headers").len(),
+        1,
+        "never charged twice"
+    );
 }

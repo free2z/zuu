@@ -497,3 +497,96 @@ async fn a_sign_out_during_a_pending_sign_in_is_not_undone() {
         "the late tokens were revoked"
     );
 }
+
+/// A sign-out whose revocation stalls and whose caller gives up still leaves
+/// nothing restorable, and the revocation still happens.
+#[tokio::test]
+async fn a_cancelled_sign_out_still_clears_the_store_and_revokes() {
+    let fake = Fake::start().await;
+    let (client, store) = signed_in(&fake).await;
+    *fake.revoke_delay.lock().unwrap() = Duration::from_millis(400);
+    let _ = tokio::time::timeout(Duration::from_millis(100), client.sign_out()).await;
+    assert!(stored_refresh_token(&store, &fake).is_none());
+    let restarted = Client::new(fake.config(), store.clone()).unwrap();
+    assert!(!restarted.is_signed_in().await.unwrap());
+    for _ in 0..50 {
+        if fake.live_refresh_tokens() == 0 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the refresh token family was never revoked");
+}
+
+/// A store whose saves are slow, like a keychain waiting on the user.
+struct SlowStore {
+    inner: MemoryStore,
+    save_delay: Duration,
+}
+
+impl TokenStore for SlowStore {
+    fn load(&self, account: &str) -> Result<Option<f2z_sdk::Secret>, f2z_sdk::StoreError> {
+        self.inner.load(account)
+    }
+    fn save(&self, account: &str, value: &f2z_sdk::Secret) -> Result<(), f2z_sdk::StoreError> {
+        std::thread::sleep(self.save_delay);
+        self.inner.save(account, value)
+    }
+    fn delete(&self, account: &str) -> Result<(), f2z_sdk::StoreError> {
+        self.inner.delete(account)
+    }
+    fn persistence(&self) -> Persistence {
+        Persistence::Persistent
+    }
+}
+
+/// A slow save whose caller was cancelled must not land after a later
+/// sign-out and resurrect the session.
+#[tokio::test]
+async fn a_cancelled_slow_save_cannot_undo_a_later_sign_out() {
+    let fake = Fake::start().await;
+    let store = Arc::new(SlowStore {
+        inner: MemoryStore::new(),
+        save_delay: Duration::from_millis(300),
+    });
+    let client = Client::new(fake.config(), store.clone()).unwrap();
+    client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    fake.expire_access_tokens();
+    // The refresh's save starts; its caller gives up.
+    let _ = tokio::time::timeout(Duration::from_millis(50), client.balance()).await;
+    client.sign_out().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(store.inner.load(&account(&fake)).unwrap().is_none());
+}
+
+/// A `401 token_revoked` for a request sent under an earlier session does not
+/// sign out whoever signed in since.
+#[tokio::test]
+async fn a_late_token_revoked_does_not_clear_a_newer_session() {
+    let fake = Fake::start().await;
+    let (client, store) = signed_in(&fake).await;
+    *fake.balance_delay.lock().unwrap() = Duration::from_millis(300);
+    let old = client.clone();
+    let pending = tokio::spawn(async move { old.balance().await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    fake.revoke_grant();
+    client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        pending.await.unwrap(),
+        Err(Error::SignedOut(SignedOutReason::TokenRevoked))
+    ));
+    assert!(client.is_signed_in().await.unwrap());
+    assert!(stored_refresh_token(&store, &fake).is_some());
+}

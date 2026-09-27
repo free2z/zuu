@@ -112,6 +112,13 @@ impl ChatOptions {
         self
     }
 
+    /// With at most `n` same-key re-sends of a request that got no response.
+    #[must_use]
+    pub fn with_transport_retries(mut self, n: u32) -> Self {
+        self.transport_retries = n;
+        self
+    }
+
     /// With a different first backoff.
     #[must_use]
     pub fn with_retry_base_delay(mut self, delay: Duration) -> Self {

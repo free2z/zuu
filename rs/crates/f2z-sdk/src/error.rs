@@ -79,6 +79,17 @@ pub enum Error {
     /// carries the event and what the failed call still cost; its
     /// `retryable()` says whether a new call may be made automatically.
     ChatFailed(Box<crate::ai::ChatFailure>),
+    /// A request carrying an `Idempotency-Key` got no usable answer after
+    /// every re-send: the server may or may not have acted on it (a chat call
+    /// may be running and billable; a purchase intent may exist). Re-send
+    /// with this key to find out — it can never do the work twice — rather
+    /// than start again with a new one.
+    Unconfirmed {
+        /// The key the request carried.
+        idempotency_key: String,
+        /// The last transport failure.
+        cause: TransportError,
+    },
     /// The call was cancelled through its [`crate::ai::CancelHandle`].
     /// Cancelling stops delivery, not generation: the call still settles.
     Cancelled,
@@ -134,6 +145,13 @@ impl fmt::Display for Error {
                 f,
                 "chat call {:?} failed: {} ({})",
                 f2.call_id, f2.error.code, f2.error.message
+            ),
+            Self::Unconfirmed {
+                idempotency_key,
+                cause,
+            } => write!(
+                f,
+                "no answer for Idempotency-Key {idempotency_key} ({cause}); re-send with it"
             ),
             Self::Cancelled => f.write_str("cancelled"),
             Self::Protocol(m) => write!(f, "protocol: {m}"),

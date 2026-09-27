@@ -311,6 +311,13 @@ impl Client {
                     delay = delay.saturating_mul(2);
                     continue;
                 }
+                Err(Error::Transport(cause)) => {
+                    // Every re-send went unanswered: the intent may exist.
+                    return Err(Error::Unconfirmed {
+                        idempotency_key: key,
+                        cause,
+                    });
+                }
                 other => other?,
             };
             if response.status().is_success() {
