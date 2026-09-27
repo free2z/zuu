@@ -1163,6 +1163,26 @@ jobs:
         shell: bash
         run: cargo test --locked --manifest-path wallet/zuuli/crypto-target-spike/Cargo.toml -- --nocapture
 
+  free2z_sdk_typescript:
+    name: free2z-sdk / TypeScript package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ts/free2z/sdk/package-lock.json
+      - name: Install pinned SDK dependencies
+        run: npm ci --prefix ts/free2z/sdk
+      - name: Verify SDK source formatting
+        run: npm run format:check --prefix ts/free2z/sdk
+      - name: Exercise auth, precision, recovery and pull streams
+        run: npm test --prefix ts/free2z/sdk
+      - name: Verify isolated package consumer
+        run: npm run test:package --prefix ts/free2z/sdk
+
   # Branch protection requires this stable context. It succeeds only when the
   # change detector and every applicable full-stack job succeeded; legitimate
   # non-ZUULI skips continue to report success instead of remaining pending.
@@ -1250,7 +1270,7 @@ jobs:
         run: python3 scripts/check-f2z-sdk-mobile.py ${{ matrix.platform }}
 
   gate:
-    needs: [changes, frontend, surfaces, rust_fmt, rust_deny, rust_clippy, rust_native_clippy, rust_native_tests, rust_plugin, rust_msg_plugin, rust_android_32, rust_app, zuuallet_schema, rust_crypto_targets, sdk_native, sdk_mobile]
+    needs: [changes, frontend, surfaces, rust_fmt, rust_deny, rust_clippy, rust_native_clippy, rust_native_tests, rust_plugin, rust_msg_plugin, rust_android_32, rust_app, zuuallet_schema, rust_crypto_targets, sdk_native, sdk_mobile, free2z_sdk_typescript]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

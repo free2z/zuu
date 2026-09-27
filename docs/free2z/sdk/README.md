@@ -94,14 +94,15 @@ binaries are AGPL.
 | `rs/crates/f2z-sdk` | `f2z-sdk` (crates.io) | Rust SDK core: `oauth`, `keychain`, `balance`, `purchase`, `ai`. No Tauri dependency | MIT |
 | `rs/crates/f2z-zec-scanner` | — (unpublished) | Receive-only (viewing-key) Zcash payment scanner | AGPL |
 | `wallet/plugins/tauri-plugin-f2z` | `tauri-plugin-f2z` (crates.io) + `@free2z/tauri-plugin-f2z-api` (npm) | Tauri 2 plugin (`tauri = "2"`, from 2.5 up; peer `@tauri-apps/api ^2.5`). Tokens stay in Rust; JavaScript never sees them | MIT |
-| `ts/free2z/sdk` | `@free2z/sdk` (npm) | Framework-agnostic TypeScript client. `FetchTransport` for the web, `TauriTransport` auto-detected inside a Tauri webview; same API on both | MIT |
+| `ts/free2z/sdk` | `@free2z/sdk` (npm) | Framework-agnostic TypeScript client. `FetchTransport` for the web, explicit `NativeTransport(nativeBridge)` inside a Tauri webview; same API on both (pre-release source preview) | MIT |
 | `ts/free2z/sdk-ui` | `@free2z/sdk-ui` (npm, later) | Web components `<f2z-sign-in>`, `<f2z-balance>`, `<f2z-buy>` | MIT |
 | `wallet/examples/free2z/hello-ai` | — | The reference Tauri app: sign in, buy 2Z, stream a chat | — |
 | `docs/free2z/sdk/` | — | This contract (D1), later the guides (D2), reference (D3) and security/operations notes (D4) | — |
 | `docs/free2z/ai-gateway/` | — | The gateway's architecture decision records | — |
 
-Third parties consume **published packages only** — crates.io and npm — never
-path dependencies into this repository. Pre-1.0 (`0.x`) releases follow a
+Supported releases use **published packages** from crates.io and npm, never
+private or workspace path dependencies. The documented public source preview
+is an interim integration route, not a stable release. Pre-1.0 (`0.x`) releases follow a
 strict changelog; the public surface is frozen at `1.0`. The layout is
 decided in [ADR 0004](../ai-gateway/adr/0004-zuu-namespace-layout.md).
 
