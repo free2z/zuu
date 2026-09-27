@@ -94,8 +94,13 @@ client that disconnects ends delivery the same way. In every case the
 upstream is still read to its usage frame, and the call is settled on it —
 and counts against the concurrency limit until that settle has returned
 **and** delivery has ended. The stall rule keeps running after the upstream
-ends, and one stall period after an abort the connection is dropped, so a
-client that never reads cannot hold a socket or a buffer past its slot.
+ends; an aborted response is the last on its connection (it closes once
+the abort frame is flushed, so it is never reused), and one stall period
+after an abort the connection is dropped outright, so a client that never
+reads cannot hold a socket or a buffer past its slot. Request bodies are read
+into one contiguous buffer, so a body sent in one-byte chunks costs its
+payload and not a descriptor per chunk, and a body's share of the upload
+budget is held until the backend's `start` has consumed the request.
 
 Settlement ownership starts **before** the backend's `start` runs: a call
 whose `start` fails, times out or is cancelled by a drain still reaches the

@@ -264,3 +264,16 @@ async fn request_bodies_in_flight_are_bounded_gateway_wide() {
     assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
     drop(holder);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_body_sent_as_one_byte_chunks_is_read_into_one_buffer_and_decodes() {
+    let running = gateway(&[]).await;
+    let body = valid_chat("tiny chunks").to_string().into_bytes();
+    let (tx, rx) = mpsc::channel::<Bytes>(body.len());
+    for byte in body {
+        tx.send(Bytes::from(vec![byte])).await.unwrap();
+    }
+    drop(tx);
+    let response = send(running.public, chat_request(Body::new(ChannelBody(rx)))).await;
+    assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+}

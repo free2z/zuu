@@ -18,8 +18,11 @@
 //! on unchanged: the buffer filling, and `delivery_stall_secs` (30 s) with
 //! frames waiting and none taken. Both replace whatever is buffered with one
 //! best-effort `error` event — `code: "delivery_aborted"`,
-//! `settlement: "pending"` — and end the body. One stall period after an
-//! abort the connection is dropped ([`crate::serve::ConnectionKill`]): a
+//! `settlement: "pending"` — and end the body, with the connection told to
+//! close once that response is flushed, so it is never reused for another
+//! request (chat-api.md §2.4: "then closes the connection"). If the client is
+//! not reading even that, one stall period after the abort the connection is
+//! dropped ([`crate::serve::ConnectionKill`]): a
 //! client that is not reading would otherwise hold its socket, and the bytes
 //! queued in it, for as long as it liked — a body nobody polls cannot end
 //! itself.
@@ -101,7 +104,8 @@ enum State {
     Open,
     Delivered,
     ClientGone,
-    /// `delivery_aborted` queued (the only frame left), then the body ends.
+    /// `delivery_aborted` queued (the only frame left), then the body ends
+    /// and the connection closes after it.
     Aborted(Delivery),
     /// Drain: the body fails at its next poll.
     Cut,
@@ -113,7 +117,9 @@ struct Buffer {
     bytes: usize,
     state: State,
     upstream_done: bool,
-    cut_reported: bool,
+    /// The body has returned its terminal error (cut, or after the abort
+    /// frame); the connection is closing and nothing more is polled.
+    error_reported: bool,
     /// When the buffer last went from empty to non-empty, or a frame was
     /// last taken — whichever is later. Only meaningful while frames wait.
     last_progress: Instant,
@@ -160,6 +166,12 @@ impl Shared {
         buffer.frames.push_back(delivery_aborted_frame(reason));
         buffer.state = State::Aborted(reason);
         buffer.aborted_at = Some(now);
+        // No further request on this connection: it closes once this response
+        // is flushed. The kill below is then the only thing that can reach it,
+        // and it can only reach this response.
+        if let Some(kill) = &self.kill {
+            kill.close_after_response();
+        }
         self.inflight.metrics().record_delivery_aborted(reason);
         tracing::info!(
             delivery = reason.label(),
@@ -232,7 +244,9 @@ impl Shared {
         let buffer = self.lock();
         match buffer.state {
             State::Delivered | State::ClientGone | State::Cut => true,
-            State::Aborted(_) => buffer.killed || (self.kill.is_none() && buffer.frames.is_empty()),
+            // Over only once the kill timer has run: whether the abort frame
+            // ever left hyper's write buffer is not observable from here.
+            State::Aborted(_) => buffer.killed || self.kill.is_none(),
             State::Open => buffer.upstream_done && buffer.frames.is_empty(),
         }
     }
@@ -275,17 +289,23 @@ fn delivery_aborted_frame(reason: Delivery) -> Bytes {
     Bytes::from(format!("event: error\ndata: {data}\n\n"))
 }
 
-/// The error a cut body fails with.
+/// Why a delivery body failed — deliberately, so the client sees a
+/// truncated stream rather than one that looks complete.
 #[derive(Debug)]
-pub struct DrainCut;
+pub enum DeliveryEnded {
+    /// The drain window closed.
+    Cut,
+}
 
-impl std::fmt::Display for DrainCut {
+impl std::fmt::Display for DeliveryEnded {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("stream cut: the gateway instance finished draining")
+        f.write_str(match self {
+            Self::Cut => "stream cut: the gateway instance finished draining",
+        })
     }
 }
 
-impl std::error::Error for DrainCut {}
+impl std::error::Error for DeliveryEnded {}
 
 /// The HTTP response body of a streamed call: delivery only.
 #[derive(Debug)]
@@ -295,20 +315,20 @@ pub struct DeliveryBody {
 
 impl http_body::Body for DeliveryBody {
     type Data = Bytes;
-    type Error = DrainCut;
+    type Error = DeliveryEnded;
 
     fn poll_frame(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Bytes>, DrainCut>>> {
+    ) -> Poll<Option<Result<Frame<Bytes>, DeliveryEnded>>> {
         let shared = &self.shared;
         let mut buffer = shared.lock();
+        if buffer.error_reported {
+            return Poll::Ready(None);
+        }
         if buffer.state == State::Cut {
-            if buffer.cut_reported {
-                return Poll::Ready(None);
-            }
-            buffer.cut_reported = true;
-            return Poll::Ready(Some(Err(DrainCut)));
+            buffer.error_reported = true;
+            return Poll::Ready(Some(Err(DeliveryEnded::Cut)));
         }
         if let Some(frame) = buffer.frames.pop_front() {
             if !matches!(buffer.state, State::Aborted(_)) {
@@ -319,6 +339,9 @@ impl http_body::Body for DeliveryBody {
             return Poll::Ready(Some(Ok(Frame::data(frame))));
         }
         match buffer.state {
+            // After the abort frame: a clean end, so hyper flushes the frame.
+            // The connection was already told to close after this response
+            // (`abort_delivery`), so it is never reused.
             State::Aborted(_) | State::ClientGone | State::Delivered => Poll::Ready(None),
             State::Open if buffer.upstream_done => {
                 buffer.state = State::Delivered;
@@ -365,6 +388,9 @@ pub(crate) struct Start {
     pub(crate) call: CallHandle,
     pub(crate) slot: Slot,
     pub(crate) kill: Option<ConnectionKill>,
+    /// The request body's share of the upload budget, held until `start`
+    /// has consumed the request.
+    pub(crate) upload: tokio::sync::OwnedSemaphorePermit,
     pub(crate) limits: Limits,
 }
 
@@ -380,6 +406,7 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
         call,
         slot,
         kill,
+        upload,
         limits,
     } = start;
     let inflight = Arc::clone(call.inflight());
@@ -391,7 +418,7 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
             bytes: 0,
             state: State::Open,
             upstream_done: false,
-            cut_reported: false,
+            error_reported: false,
             last_progress: Instant::now(),
             aborted_at: None,
             killed: false,
@@ -433,6 +460,7 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
             return;
         }
     };
+    drop(upload);
     let mut upstream = match started {
         Ok(Ok(upstream)) => upstream,
         Ok(Err(failure)) => {

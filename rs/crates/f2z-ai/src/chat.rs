@@ -41,7 +41,7 @@ use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use f2z_ai_proto::ErrorCode;
 use f2z_ai_proto::chat::{ChatRequest, ContentPart, Role};
-use http_body_util::{BodyExt as _, LengthLimitError, Limited};
+use http_body_util::BodyExt as _;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 
 use crate::admission::CallHandle;
@@ -155,11 +155,11 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
     let (bytes, upload) = read_body(state, &parts.headers, body).await?;
     let request = decode(&bytes, state.max_body_bytes)?;
     validate(&request)?;
-    // The raw bytes are no longer needed; their share of the upload budget
-    // goes back with them.
+    // The raw bytes are no longer needed, but the decoded request is about
+    // as large and lives on into the backend's `start`: the reservation goes
+    // with it and is released only once `start` has returned (`call::run`).
     let body_bytes = bytes.len();
     drop(bytes);
-    drop(upload);
 
     let Some(catalog) = state.catalog.current(catalog::now_unix()) else {
         return Err(ApiFailure::new(
@@ -194,6 +194,7 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
             call,
             slot,
             kill: parts.extensions.get::<ConnectionKill>().cloned(),
+            upload,
             limits: call::Limits {
                 buffer_bytes: state.delivery_buffer_bytes,
                 stall: state.delivery_stall,
@@ -301,14 +302,16 @@ async fn read_body(
         )
         .retry_after(state.retry_after_secs));
     };
+    let initial = declared
+        .and_then(|n| usize::try_from(n).ok())
+        .unwrap_or(0)
+        .min(hard);
     let collected =
-        tokio::time::timeout(state.body_read_timeout, Limited::new(body, hard).collect()).await;
+        tokio::time::timeout(state.body_read_timeout, collect(body, hard, initial)).await;
     match collected {
-        Ok(Ok(collected)) => Ok((collected.to_bytes(), upload)),
-        Ok(Err(error)) if error.downcast_ref::<LengthLimitError>().is_some() => {
-            Err(too_large(hard))
-        }
-        Ok(Err(_)) => Err(invalid(
+        Ok(Ok(bytes)) => Ok((bytes, upload)),
+        Ok(Err(Collect::TooLarge)) => Err(too_large(hard)),
+        Ok(Err(Collect::Failed)) => Err(invalid(
             "body",
             "read_failed",
             "the request body could not be read",
@@ -319,6 +322,31 @@ async fn read_body(
             "the request body did not arrive within the body read timeout",
         )),
     }
+}
+
+enum Collect {
+    TooLarge,
+    Failed,
+}
+
+/// Read `body` into **one contiguous buffer** of at most `limit` bytes.
+///
+/// Not `BodyExt::collect`: that keeps every incoming frame as its own `Bytes`
+/// (a heap descriptor each), so a body sent as one-byte chunks costs tens of
+/// times its payload in memory — while the upload budget counts payload.
+/// Here the memory is the payload, which is what the budget reserved.
+async fn collect(mut body: Body, limit: usize, initial: usize) -> Result<Bytes, Collect> {
+    let mut buffer = bytes::BytesMut::with_capacity(initial);
+    while let Some(frame) = body.frame().await {
+        let frame = frame.map_err(|_| Collect::Failed)?;
+        if let Ok(data) = frame.into_data() {
+            if buffer.len().saturating_add(data.len()) > limit {
+                return Err(Collect::TooLarge);
+            }
+            buffer.extend_from_slice(&data);
+        }
+    }
+    Ok(buffer.freeze())
 }
 
 /// Decode `bytes`, applying the text-only limit once the presence of an

@@ -26,22 +26,39 @@ use tokio::sync::watch;
 use tokio::task::JoinSet;
 use tower::ServiceExt as _;
 
-/// A handle that drops the connection a request arrived on. Inserted into
-/// every request's extensions.
+/// Control over the connection a request arrived on. Inserted into every
+/// request's extensions.
 ///
-/// It exists for one case: delivery to a client that has stopped reading was
-/// aborted, and the `delivery_aborted` frame is not being taken either. The
-/// response body is then never polled again, so nothing in it can end the
-/// connection; without this, a client that never reads would hold a socket
-/// for as long as it liked ([`crate::call`]).
+/// It exists for an aborted delivery ([`crate::call`]): the connection must
+/// not be reused for another request after it (chat-api.md §2.4 "then
+/// closes the connection"), and a client that is not reading at all must not
+/// hold its socket for as long as it likes — a response body nobody polls
+/// cannot end the connection by itself.
 #[derive(Clone, Debug)]
-pub struct ConnectionKill(watch::Sender<bool>);
+pub struct ConnectionKill(watch::Sender<u8>);
+
+const CLOSE_AFTER_RESPONSE: u8 = 1;
+const KILL: u8 = 2;
 
 impl ConnectionKill {
+    /// Serve no further request on this connection: finish the current
+    /// response, then close.
+    pub fn close_after_response(&self) {
+        self.0.send_if_modified(|v| {
+            let changed = *v < CLOSE_AFTER_RESPONSE;
+            *v = (*v).max(CLOSE_AFTER_RESPONSE);
+            changed
+        });
+    }
+
     /// Drop the connection now, mid-response if need be.
     pub fn kill(&self) {
-        self.0.send_replace(true);
+        self.0.send_replace(KILL);
     }
+}
+
+async fn reaches(control: &mut watch::Receiver<u8>, level: u8) {
+    let _ = control.wait_for(|v| *v >= level).await;
 }
 
 /// Serve `router` on `listener` until `stop` becomes true, then close:
@@ -69,7 +86,7 @@ pub async fn serve(
                     }
                 };
                 let _ = stream.set_nodelay(true);
-                let (kill_tx, mut kill_rx) = watch::channel(false);
+                let (kill_tx, control) = watch::channel(0u8);
                 let kill = ConnectionKill(kill_tx);
                 let service = TowerToHyperService::new(
                     router
@@ -89,15 +106,22 @@ pub async fn serve(
                         .header_read_timeout(header_read_timeout);
                     let connection = builder.serve_connection(TokioIo::new(stream), service);
                     let mut connection = std::pin::pin!(connection);
-                    tokio::select! {
-                        _ = connection.as_mut() => return,
-                        () = crate::shutdown::raised(&mut kill_rx) => return,
-                        () = crate::shutdown::raised(&mut closing) => {}
-                    }
-                    connection.as_mut().graceful_shutdown();
-                    tokio::select! {
-                        _ = connection.as_mut() => {}
-                        () = crate::shutdown::raised(&mut kill_rx) => {}
+                    let mut kill_rx = control.clone();
+                    let mut close_rx = control;
+                    let mut graceful = false;
+                    loop {
+                        tokio::select! {
+                            _ = connection.as_mut() => return,
+                            () = reaches(&mut kill_rx, KILL) => return,
+                            () = reaches(&mut close_rx, CLOSE_AFTER_RESPONSE), if !graceful => {
+                                graceful = true;
+                                connection.as_mut().graceful_shutdown();
+                            }
+                            () = crate::shutdown::raised(&mut closing), if !graceful => {
+                                graceful = true;
+                                connection.as_mut().graceful_shutdown();
+                            }
+                        }
                     }
                 });
                 // Reap finished connections so the set does not grow with

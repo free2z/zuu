@@ -105,8 +105,15 @@ async fn a_full_delivery_buffer_aborts_delivery_and_the_upstream_is_read_to_its_
         "0"
     );
 
-    // When the client finally reads, delivery ends with delivery_aborted.
+    // When the client finally reads, delivery ends with delivery_aborted and
+    // then the connection closes — well before the 30 s kill — so it can
+    // never be reused for another request (it would inherit this one's end).
+    let started = std::time::Instant::now();
     let seen = read_everything(client).await;
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "the connection stayed open after the aborted delivery"
+    );
     assert!(
         seen.starts_with("HTTP/1.1 200"),
         "{}",
