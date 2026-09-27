@@ -2,7 +2,8 @@
 //!
 //! A versioned request/response protocol carrying **authority delegation**
 //! from `cash.free2z.zuuli`, which holds the Zcash seed, to applications that
-//! hold none. `docs/architecture` context is [#904]; this crate is [#905].
+//! hold none. `docs/free2z/app-suite/architecture.md` records the [#904]
+//! context; this crate is [#905].
 //!
 //! ```text
 //!   caller app                     ZUULI (this crate)
