@@ -1093,3 +1093,52 @@ async fn repeated_timed_out_loads_share_one_blocking_operation() {
     drop(cleanup);
     assert!(!client.is_signed_in().await.unwrap());
 }
+
+#[tokio::test]
+async fn hung_initial_read_does_not_block_sign_out_deletion() {
+    let fake = Fake::start().await;
+    let store = Arc::new(HangingStore {
+        inner: MemoryStore::new(),
+        hang_load: false.into(),
+        loads: 0.into(),
+        deletes: 0.into(),
+        hang: false.into(),
+        entered: false.into(),
+        released: std::sync::Mutex::new(false),
+        wake: std::sync::Condvar::new(),
+    });
+    let cleanup = ReleaseStore(store.clone());
+    let config = fake
+        .config()
+        .with_request_timeout(Duration::from_millis(30));
+    let initial = Client::new(config.clone(), store.clone()).unwrap();
+    initial
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    assert!(store.inner.load(&account(&fake)).unwrap().is_some());
+    drop(initial);
+    store.hang_load.store(true, Ordering::SeqCst);
+    let client = Client::new(config.clone(), store.clone()).unwrap();
+    assert!(matches!(
+        client.is_signed_in().await,
+        Err(Error::Storage(_))
+    ));
+    assert!(
+        !client
+            .sign_out()
+            .await
+            .expect("hung read prevented independent deletion")
+    );
+    assert!(store.inner.load(&account(&fake)).unwrap().is_none());
+    drop(cleanup);
+    assert!(!client.is_signed_in().await.unwrap());
+    let restarted = Client::new(config, store).unwrap();
+    assert!(
+        !restarted.is_signed_in().await.unwrap(),
+        "deleted session restored after restart"
+    );
+}

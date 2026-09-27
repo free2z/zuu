@@ -32,6 +32,8 @@ const STORED_VERSION: u32 = 1;
 /// Cheap to clone; clones share the session, so a refresh done through one
 /// is seen by all, and refreshes are single-flight across all of them. There
 /// is no global state: two `Client`s are two independent sessions.
+/// Keep a client on one living Tokio runtime; create a new client after
+/// shutting that runtime down rather than reusing pending work on another.
 ///
 /// ```no_run
 /// use std::sync::Arc;
@@ -50,8 +52,10 @@ pub(crate) struct Inner {
     pub(crate) config: Validated,
     pub(crate) http: reqwest::Client,
     store: Arc<dyn TokenStore>,
-    // One blocking worker, one coalesced write, and one shared load per client.
+    // Independent bounded read/write lanes: an OS read prompt cannot prevent
+    // logout deletion. Writes still have only one active + one newest pending.
     store_order: Arc<std::sync::Mutex<StoreOrder>>,
+    store_reads: Arc<std::sync::Mutex<StoreOrder>>,
     account: String,
     discovery: OnceCell<Discovery>,
     session: Arc<Mutex<SessionState>>,
@@ -183,6 +187,7 @@ impl Client {
                 config,
                 store,
                 store_order: Arc::default(),
+                store_reads: Arc::default(),
                 account,
                 discovery: OnceCell::new(),
                 session: Arc::new(Mutex::new(SessionState::default())),
@@ -576,7 +581,11 @@ impl Client {
     }
 
     fn queue_store(&self, write: Option<StoreWrite>) -> Result<StoreReceiver, Error> {
-        let state = Arc::clone(&self.inner.store_order);
+        let state = Arc::clone(if write.is_none() {
+            &self.inner.store_reads
+        } else {
+            &self.inner.store_order
+        });
         let mut order = state
             .lock()
             .map_err(|_| Error::Storage("store lock poisoned".into()))?;
