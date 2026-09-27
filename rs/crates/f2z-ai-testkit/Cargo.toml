@@ -1,0 +1,66 @@
+[package]
+name = "f2z-ai-testkit"
+version = "0.1.0"
+description = "Test harness for the free2z AI gateway: mock OpenAI / xAI / Anthropic streaming providers with fault injection, an in-memory fake of the ledger's hold/extend/settle/release contract, and a goose load-scenario skeleton"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered in `scripts/check-rust-toolchain.sh`'s `MANIFESTS` so it cannot
+# drift. Not inherited: that check reads this literal line.
+rust-version = "1.97"
+# Permissive, deliberately and explicitly (zuu #1047's namespace table). A test
+# harness is linked by other people's test suites — the gateway's, the SDK's,
+# and any third-party integrator who wants to run a client against a mock
+# provider — so it sits on the same side of the licence boundary as
+# `f2z-ai-proto`. It stores nothing durably and binds only loopback. The AGPL
+# boundary starts at the gateway binary (`f2z-ai`), which this is not.
+# rs/deny.toml enforces it.
+license = "MIT"
+repository.workspace = true
+# Unpublished by design (#1047): it exists for this repository's own test
+# suites. Inherits `publish = false`.
+publish.workspace = true
+keywords = ["free2z", "ai", "testing", "sse", "mock"]
+categories = ["development-tools::testing"]
+
+[lints]
+workspace = true
+
+[dependencies]
+# `version` beside `path` is not redundant: rs/deny.toml sets
+# `wildcards = "deny"`, and a bare path dependency is a wildcard requirement.
+# Every usage number, price and charge here is an `f2z-ai-proto` type, so the
+# harness cannot drift from the contract it tests.
+f2z-ai-proto = { path = "../f2z-ai-proto", version = "0.1.0" }
+serde = { workspace = true, features = ["alloc", "std"] }
+serde_json = { workspace = true, features = ["std"] }
+# The mock provider's HTTP server. The workspace entry is
+# `default-features = false` + `http1` + `tokio`; SSE bodies are written by
+# hand as bytes (the point is byte-exact control, including cutting a frame in
+# half), so neither `json` nor axum's own `sse` helper is wanted.
+axum = { workspace = true }
+# Native-only, on purpose, like `f2z-relay-testkit`: this crate opens sockets,
+# spawns tasks and sleeps, and is never on rs.yml's wasm32 line.
+tokio = { workspace = true, features = [
+  "macros",
+  "net",
+  "rt",
+  "rt-multi-thread",
+  "sync",
+  "time",
+] }
+# `stream::unfold`, to hand axum a body stream fed by the pacing task. Already
+# in the lock beneath axum and `f2z-relay-testkit`.
+futures-util = { version = "0.3", default-features = false }
+
+[dev-dependencies]
+# An HTTP client for the tests to read the mock's bytes over a real socket.
+# No TLS feature: the mock binds plain-HTTP loopback only.
+reqwest = { version = "0.12", default-features = false }
+# The load-scenario skeleton (`examples/goose_mock_provider.rs`) — a
+# dev-dependency so that `cargo test --all-targets` builds the example and it
+# cannot rot, while nothing that links the library pulls goose in. goose does
+# not compile without a TLS backend, so `rustls-tls` replaces its default
+# `native-tls` (OpenSSL): the same rustls/ring/webpki-roots graph `f2z-relay`
+# and `ureq` already carry, and no system library. It only ever targets the
+# plain-HTTP loopback mock.
+goose = { version = "0.18", default-features = false, features = ["rustls-tls"] }

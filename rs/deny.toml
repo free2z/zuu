@@ -107,7 +107,7 @@ yanked = "warn"
 # not about libcrux, and it will be true again the next time someone tries this.
 ignore = [
   # ---------------------------------------------------------------------------
-  # BUILD-TIME ONLY, and the only entry left. `proc-macro-error2` is
+  # BUILD-TIME ONLY. `proc-macro-error2` is
   # unmaintained (a fork of an already unmaintained crate). It reaches this
   # graph as a proc-macro dependency of `hax-lib-macros`, which libcrux uses for
   # its formal-verification annotations. It runs on the build host and no code
@@ -115,6 +115,15 @@ ignore = [
   # supply-chain-of-the-build concern and not a runtime one. Nothing we control
   # can drop it while libcrux is in the graph.
   { id = "RUSTSEC-2026-0173", reason = "unmaintained proc-macro; build-host only, nothing from it is linked into a shipped artifact" },
+  # ---------------------------------------------------------------------------
+  # DEV-DEPENDENCY ONLY. `gumdrop` is unmaintained (no fixed version exists).
+  # It is `goose`'s command-line parser, and `goose` is a dev-dependency of
+  # `f2z-ai-testkit` alone, used by the load-scenario example
+  # (`examples/goose_mock_provider.rs`, #1053). It parses the flags of the
+  # person running a load test on their own machine against a loopback mock;
+  # it is never linked into a library, a server binary or a client. Remove this
+  # entry when goose moves off gumdrop or the example moves off goose.
+  { id = "RUSTSEC-2026-0214", reason = "unmaintained CLI parser reached only through goose, a dev-dependency of f2z-ai-testkit's load-test example; never linked into a shipped artifact" },
 ]
 
 # =============================================================================

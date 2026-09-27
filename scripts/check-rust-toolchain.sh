@@ -92,6 +92,9 @@ MANIFESTS=(
   # The AI gateway's wire contract and pricing formula (#1049). MIT, linked by
   # the gateway and by every SDK, so it restates the same channel.
   rs/crates/f2z-ai-proto/Cargo.toml
+  # The AI gateway's test harness (#1053): mock providers and the in-memory
+  # ledger contract. MIT, native-only, linked by test suites.
+  rs/crates/f2z-ai-testkit/Cargo.toml
 )
 
 # Other rust-toolchain.toml files. Cargo picks the toolchain from the directory
