@@ -1,0 +1,90 @@
+[package]
+name = "f2z-sdk"
+version = "0.1.0"
+description = "The Free2Z Rust SDK core: OAuth 2.0 / OpenID Connect sign-in (PKCE S256, RFC 8252 loopback or a platform auth session, RFC 9207 iss check, rotating refresh tokens with single-flight refresh), a pluggable token store, the 2Z balance, card purchases, and the metered AI gateway's /v1/chat SSE client"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered in `scripts/check-rust-toolchain.sh`'s `MANIFESTS` so it cannot
+# drift. Not inherited: that check reads this literal line.
+rust-version = "1.97"
+# Permissive, like `f2z-ai-proto`: third-party apps link this crate (directly,
+# or through the Tauri plugin and the TypeScript SDK that wrap it), so it must
+# not impose a licence on them. rs/deny.toml enforces the licence.
+license = "MIT"
+repository.workspace = true
+# Intended for crates.io (zuu #1047's namespace table), but not published
+# until v1: the public surface is frozen at 1.0, and a stray `cargo publish`
+# must not freeze an unreviewed 0.1.0 forever.
+publish.workspace = true
+keywords = ["free2z", "oauth", "oidc", "sdk", "sse"]
+categories = ["api-bindings", "authentication"]
+
+[lints]
+workspace = true
+
+[features]
+default = ["keyring"]
+# On by default: the Tauri plugin wants it on every target, and it costs one
+# small crate (`keyring-core`, whose only dependency is `log`).
+#
+# A `TokenStore` over `keyring-core`'s `CredentialStore` trait. The platform
+# store itself (apple-native-keyring-store, windows-native-keyring-store,
+# android-native-keyring-store, a Secret Service store, ...) is chosen and
+# constructed by the caller — the Tauri plugin, per target — and handed in, so
+# this crate links no platform keychain library and sets no process-global
+# default store.
+keyring = ["dep:keyring-core"]
+
+[dependencies]
+f2z-ai-proto = { path = "../f2z-ai-proto", version = "0.1.0" }
+
+serde = { workspace = true, features = ["alloc", "std"] }
+serde_json = { workspace = true, features = ["std"] }
+
+# The async runtime the SDK is written for (the Tauri plugin runs on tokio).
+#   net      — the RFC 8252 loopback listener
+#   io-util  — reading the one callback request off it
+#   sync     — the single-flight refresh lock and the cancel signal
+#   time     — timeouts and purchase polling
+#   macros   — `select!` between a stream read and cancellation
+#   rt       — `spawn_blocking` for token-store calls (a keychain may block)
+tokio = { workspace = true, features = [
+  "net",
+  "io-util",
+  "sync",
+  "time",
+  "macros",
+  "rt",
+] }
+# The HTTP client, over rustls with the webpki root set: no system TLS library
+# to find on any target (desktop, iOS, Android). The same version and TLS
+# choice as `f2z-ai`, so the workspace carries one reqwest 0.12 graph.
+# `json`, `form` and `stream` are deliberately off: bodies are encoded with
+# serde_json and `url::form_urlencoded`, and the SSE body is read with
+# `Response::chunk`.
+reqwest = { version = "0.12.28", default-features = false, features = [
+  "http2",
+  "rustls-tls-webpki-roots",
+] }
+# URL parsing for discovery endpoints, the authorization request and the
+# callback. Already in the graph beneath reqwest; declared because we use it.
+url = { version = "2.5", default-features = false, features = ["std"] }
+# SHA-256 for PKCE S256, RS256 verification of the ID token, and the OS CSPRNG
+# for the verifier, `state`, `nonce` and idempotency keys. The same crate and
+# version `f2z-ai` verifies access tokens with.
+ring = { version = "0.17.14", default-features = false }
+base64 = { version = "0.22", default-features = false, features = ["std"] }
+# Refresh tokens and access tokens are wiped from memory when dropped.
+zeroize = { workspace = true, features = ["alloc"] }
+
+keyring-core = { version = "1.0.0", default-features = false, optional = true }
+
+[dev-dependencies]
+axum = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "io-util"] }
+# `alloc` for `RsaKeyPair`: the fake issuer signs RS256 ID tokens with a
+# test-only key.
+ring = { version = "0.17.14", default-features = false, features = ["alloc"] }
+reqwest = { version = "0.12.28", default-features = false }
+futures-util = { version = "0.3", default-features = false }
+bytes = { version = "1", default-features = false, features = ["std"] }

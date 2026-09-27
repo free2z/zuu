@@ -1,0 +1,472 @@
+//! Sign-in, refresh, revocation and the negative controls of
+//! `docs/sdk/spec/oidc.md` §11, against the fake issuer over real HTTP.
+//!
+//! Every refusal test is paired with a success test on the same fake, so a
+//! refusal cannot pass because the flow was broken anyway.
+
+#![allow(
+    missing_docs,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects
+)]
+
+mod support;
+
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+
+use f2z_sdk::oauth::{LoopbackSession, Prompt};
+use f2z_sdk::{
+    Client, Error, MemoryStore, Persistence, SignInOptions, SignedOutReason, TokenStore,
+};
+use support::{
+    CLIENT_ID, Fake, SUBJECT, ScriptedBrowser, follow_authorize, get_param, loopback_browser,
+    set_param,
+};
+
+const MOBILE_REDIRECT: &str = "com.example.tutor:/oauth/callback";
+
+fn account(fake: &Fake) -> String {
+    format!("{} {CLIENT_ID}", fake.issuer)
+}
+
+fn stored_refresh_token(store: &MemoryStore, fake: &Fake) -> Option<String> {
+    let blob = store.load(&account(fake)).unwrap()?;
+    let v: serde_json::Value = serde_json::from_str(blob.expose()).unwrap();
+    Some(v["refresh_token"].as_str().unwrap().to_owned())
+}
+
+async fn signed_in(fake: &Fake) -> (Client, Arc<MemoryStore>) {
+    let store = Arc::new(MemoryStore::new());
+    let client = Client::new(fake.config(), store.clone()).unwrap();
+    client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    (client, store)
+}
+
+#[tokio::test]
+async fn desktop_loopback_sign_in_end_to_end() {
+    let fake = Fake::start().await;
+    let store = Arc::new(MemoryStore::new());
+    let client = Client::new(fake.config(), store.clone()).unwrap();
+    let session = LoopbackSession::bind(loopback_browser()).await.unwrap();
+
+    let signed = client
+        .sign_in(&session, SignInOptions::default())
+        .await
+        .unwrap();
+
+    assert_eq!(signed.subject.as_deref(), Some(SUBJECT));
+    let claims = signed.id_token.unwrap();
+    assert_eq!(claims.preferred_username.as_deref(), Some("tutor_user"));
+    assert_eq!(claims.acr.as_deref(), Some("urn:f2z:acr:1fa"));
+    assert!(signed.refreshable);
+    assert!(signed.scopes.contains(&"ai:invoke".to_owned()));
+    assert_eq!(signed.persistence, Persistence::MemoryOnly);
+    assert_eq!(client.token_persistence(), Persistence::MemoryOnly);
+    assert!(stored_refresh_token(&store, &fake).is_some());
+    assert!(client.is_signed_in().await.unwrap());
+    assert_eq!(client.subject().await.as_deref(), Some(SUBJECT));
+    // The access token is usable at once, without a refresh.
+    client.balance().await.unwrap();
+    assert_eq!(fake.refresh_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn the_authorization_request_is_s256_with_fresh_state_and_nonce() {
+    let fake = Fake::start().await;
+    let client = Client::new(fake.config(), Arc::new(MemoryStore::new())).unwrap();
+    let browser = ScriptedBrowser::new(MOBILE_REDIRECT);
+    client
+        .sign_in(&browser, SignInOptions::default())
+        .await
+        .unwrap();
+    client
+        .sign_in(
+            &browser,
+            SignInOptions::default().with_prompt(Prompt::Login),
+        )
+        .await
+        .unwrap();
+    let seen = browser.seen.lock().unwrap().clone();
+    let (a, b) = (&seen[0], &seen[1]);
+    for url in [a, b] {
+        assert_eq!(get_param(url, "response_type").as_deref(), Some("code"));
+        assert_eq!(
+            get_param(url, "code_challenge_method").as_deref(),
+            Some("S256")
+        );
+        assert_eq!(get_param(url, "code_challenge").unwrap().len(), 43);
+        assert!(get_param(url, "state").unwrap().len() >= 22, "≥128 bits");
+        assert!(get_param(url, "nonce").is_some());
+        assert_eq!(
+            get_param(url, "redirect_uri").as_deref(),
+            Some(MOBILE_REDIRECT)
+        );
+        assert!(
+            get_param(url, "code_verifier").is_none(),
+            "the verifier never leaves"
+        );
+    }
+    for p in ["code_challenge", "state", "nonce"] {
+        assert_ne!(
+            get_param(a, p),
+            get_param(b, p),
+            "{p} must be fresh per request"
+        );
+    }
+    assert_eq!(get_param(b, "prompt").as_deref(), Some("login"));
+}
+
+/// Negative control: an authorization code injected from another
+/// authorization request (bound to someone else's PKCE challenge) is refused
+/// at the token endpoint, because our verifier does not match it.
+#[tokio::test]
+async fn an_injected_code_with_another_pkce_challenge_is_refused() {
+    let fake = Fake::start().await;
+    let client = Client::new(fake.config(), Arc::new(MemoryStore::new())).unwrap();
+    let browser =
+        ScriptedBrowser::new(MOBILE_REDIRECT).with_tamper(|auth_url, callback| async move {
+            // The attacker runs the same request with their own challenge.
+            let attacker_url = set_param(
+                &auth_url,
+                "code_challenge",
+                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            );
+            let attacker_callback = follow_authorize(&attacker_url).await;
+            let attacker_code = get_param(&attacker_callback, "code").unwrap();
+            set_param(&callback, "code", &attacker_code)
+        });
+    let err = client
+        .sign_in(&browser, SignInOptions::default())
+        .await
+        .unwrap_err();
+    match err {
+        Error::Token(e) => assert_eq!(e.error, "invalid_grant"),
+        other => panic!("expected invalid_grant, got {other:?}"),
+    }
+    assert_eq!(fake.auth_code_calls.load(Ordering::SeqCst), 1);
+    assert!(!client.is_signed_in().await.unwrap());
+}
+
+/// Negative control (RFC 9207 mix-up defence): a response whose `iss` is not
+/// our issuer is refused, and its code is never sent to the token endpoint.
+#[tokio::test]
+async fn iss_mismatch_is_refused_before_the_code_is_used() {
+    let fake = Fake::start().await;
+    let client = Client::new(fake.config(), Arc::new(MemoryStore::new())).unwrap();
+    let evil = ScriptedBrowser::new(MOBILE_REDIRECT).with_tamper(|_, callback| async move {
+        set_param(&callback, "iss", "https://evil.example")
+    });
+    match client.sign_in(&evil, SignInOptions::default()).await {
+        Err(Error::IssuerMismatch { got, .. }) => {
+            assert_eq!(got.as_deref(), Some("https://evil.example"));
+        }
+        other => panic!("expected IssuerMismatch, got {other:?}"),
+    }
+    let missing = ScriptedBrowser::new(MOBILE_REDIRECT).with_tamper(|_, callback| async move {
+        let mut u = url::Url::parse(&callback).unwrap();
+        let kept: Vec<(String, String)> = u
+            .query_pairs()
+            .filter(|(k, _)| k != "iss")
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect();
+        u.query_pairs_mut().clear().extend_pairs(kept);
+        u.into()
+    });
+    assert!(matches!(
+        client.sign_in(&missing, SignInOptions::default()).await,
+        Err(Error::IssuerMismatch { got: None, .. })
+    ));
+    assert_eq!(
+        fake.auth_code_calls.load(Ordering::SeqCst),
+        0,
+        "code never used"
+    );
+}
+
+/// Negative control: a response carrying another request's `state` is
+/// refused before its code is used.
+#[tokio::test]
+async fn state_mismatch_is_refused_before_the_code_is_used() {
+    let fake = Fake::start().await;
+    let client = Client::new(fake.config(), Arc::new(MemoryStore::new())).unwrap();
+    let forged = ScriptedBrowser::new(MOBILE_REDIRECT).with_tamper(|_, callback| async move {
+        set_param(
+            &callback,
+            "state",
+            "an-attackers-state-value-from-elsewhere",
+        )
+    });
+    assert!(matches!(
+        client.sign_in(&forged, SignInOptions::default()).await,
+        Err(Error::StateMismatch)
+    ));
+    assert_eq!(
+        fake.auth_code_calls.load(Ordering::SeqCst),
+        0,
+        "code never used"
+    );
+}
+
+#[tokio::test]
+async fn an_error_response_is_reported_only_after_iss_and_state_verify() {
+    let fake = Fake::start().await;
+    let client = Client::new(fake.config(), Arc::new(MemoryStore::new())).unwrap();
+    let denied = ScriptedBrowser::new(MOBILE_REDIRECT).with_tamper(|_, callback| async move {
+        let state = get_param(&callback, "state").unwrap();
+        let iss = get_param(&callback, "iss").unwrap();
+        let mut u = url::Url::parse(MOBILE_REDIRECT).unwrap();
+        u.query_pairs_mut()
+            .append_pair("error", "access_denied")
+            .append_pair("state", &state)
+            .append_pair("iss", &iss);
+        u.into()
+    });
+    match client.sign_in(&denied, SignInOptions::default()).await {
+        Err(Error::Authorization(e)) => assert_eq!(e.error, "access_denied"),
+        other => panic!("expected access_denied, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn an_id_token_with_the_wrong_nonce_is_refused() {
+    let fake = Fake::start().await;
+    *fake.id_token_nonce_override.lock().unwrap() = Some("replayed-nonce".into());
+    let store = Arc::new(MemoryStore::new());
+    let client = Client::new(fake.config(), store.clone()).unwrap();
+    match client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+    {
+        Err(Error::IdToken(m)) => assert!(m.contains("nonce"), "{m}"),
+        other => panic!("expected IdToken, got {other:?}"),
+    }
+    assert!(stored_refresh_token(&store, &fake).is_none());
+}
+
+#[tokio::test]
+async fn declined_scopes_are_reported_and_no_refresh_token_is_kept() {
+    let fake = Fake::start().await;
+    *fake.declined_scopes.lock().unwrap() = vec!["offline_access".into(), "ai:invoke".into()];
+    let store = Arc::new(MemoryStore::new());
+    let client = Client::new(fake.config(), store.clone()).unwrap();
+    let signed = client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    assert!(!signed.refreshable);
+    assert!(!signed.scopes.contains(&"ai:invoke".to_owned()));
+    assert!(stored_refresh_token(&store, &fake).is_none());
+    // Without a refresh token, an expired access token is the end.
+    fake.expire_access_tokens();
+    assert!(matches!(
+        client.balance().await,
+        Err(Error::SignedOut(SignedOutReason::NoSession))
+    ));
+}
+
+/// Single-flight refresh: 16 concurrent requests all see `401
+/// invalid_token`, and exactly one refresh reaches the IdP. The fake runs
+/// with no grace and a slow refresh, so a second refresh of the same token
+/// would be reuse — the family would die and requests would fail.
+#[tokio::test]
+async fn concurrent_401s_cause_exactly_one_refresh() {
+    let fake = Fake::start().await;
+    let (client, store) = signed_in(&fake).await;
+    *fake.grace.lock().unwrap() = Duration::ZERO;
+    *fake.refresh_delay.lock().unwrap() = Duration::from_millis(200);
+    let before = stored_refresh_token(&store, &fake).unwrap();
+    fake.expire_access_tokens();
+
+    let mut tasks = Vec::new();
+    for _ in 0..16 {
+        let c = client.clone();
+        tasks.push(tokio::spawn(async move { c.balance().await }));
+    }
+    for t in tasks {
+        t.await.unwrap().unwrap();
+    }
+    assert_eq!(fake.refresh_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(fake.live_refresh_tokens(), 1);
+    let after = stored_refresh_token(&store, &fake).unwrap();
+    assert_ne!(before, after, "the rotated refresh token is persisted");
+}
+
+/// The negative control for the test above: the fake really does treat a
+/// second presentation of a rotated token as reuse. Without single-flight,
+/// that is what two parallel refreshes are.
+#[tokio::test]
+async fn the_fake_treats_a_second_refresh_of_one_token_as_reuse() {
+    let fake = Fake::start().await;
+    let (_client, store) = signed_in(&fake).await;
+    *fake.grace.lock().unwrap() = Duration::ZERO;
+    let rt = stored_refresh_token(&store, &fake).unwrap();
+    let http = reqwest::Client::new();
+    let body = format!("grant_type=refresh_token&refresh_token={rt}&client_id={CLIENT_ID}");
+    let post = || {
+        http.post(format!("{}/api/oauth/token", fake.issuer))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(body.clone())
+            .send()
+    };
+    assert_eq!(post().await.unwrap().status(), 200);
+    let second = post().await.unwrap();
+    assert_eq!(second.status(), 400);
+    assert!(second.text().await.unwrap().contains("invalid_grant"));
+    assert_eq!(fake.live_refresh_tokens(), 0, "the whole family is revoked");
+}
+
+/// A refresh token presented after it was rotated (a stale copy restored on
+/// another device, or a thief's) is refused; the SDK signs out, clears the
+/// store, and never retries.
+#[tokio::test]
+async fn refresh_reuse_signs_out_and_clears_the_store() {
+    let fake = Fake::start().await;
+    let (client, store) = signed_in(&fake).await;
+    *fake.grace.lock().unwrap() = Duration::ZERO;
+    let stale = store.load(&account(&fake)).unwrap().unwrap();
+
+    // The legitimate client rotates.
+    fake.expire_access_tokens();
+    client.balance().await.unwrap();
+    assert_eq!(fake.refresh_calls.load(Ordering::SeqCst), 1);
+
+    // A second client starts from the stale copy.
+    let stale_store = Arc::new(MemoryStore::new());
+    stale_store.save(&account(&fake), &stale).unwrap();
+    let other = Client::new(fake.config(), stale_store.clone()).unwrap();
+    assert!(matches!(
+        other.balance().await,
+        Err(Error::SignedOut(SignedOutReason::RefreshRejected))
+    ));
+    assert!(stale_store.load(&account(&fake)).unwrap().is_none());
+    assert_eq!(fake.refresh_calls.load(Ordering::SeqCst), 2, "no retry");
+
+    // Reuse killed the family: the legitimate client is signed out too at its
+    // next refresh.
+    fake.expire_access_tokens();
+    assert!(matches!(
+        client.balance().await,
+        Err(Error::SignedOut(SignedOutReason::RefreshRejected))
+    ));
+}
+
+#[tokio::test]
+async fn a_restarted_client_restores_from_the_store() {
+    let fake = Fake::start().await;
+    let (_first, store) = signed_in(&fake).await;
+    let second = Client::new(fake.config(), store.clone()).unwrap();
+    assert!(second.is_signed_in().await.unwrap());
+    // No access token in the new process's memory: it refreshes once.
+    second.balance().await.unwrap();
+    second.balance().await.unwrap();
+    assert_eq!(fake.refresh_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(second.subject().await.as_deref(), Some(SUBJECT));
+}
+
+#[tokio::test]
+async fn token_revoked_clears_the_session() {
+    let fake = Fake::start().await;
+    let (client, store) = signed_in(&fake).await;
+    fake.revoke_grant();
+    assert!(matches!(
+        client.balance().await,
+        Err(Error::SignedOut(SignedOutReason::TokenRevoked))
+    ));
+    assert!(stored_refresh_token(&store, &fake).is_none());
+    assert!(!client.is_signed_in().await.unwrap());
+}
+
+#[tokio::test]
+async fn a_step_up_challenge_is_surfaced_with_its_parameters() {
+    let fake = Fake::start().await;
+    let (client, _) = signed_in(&fake).await;
+    fake.require_step_up.store(true, Ordering::SeqCst);
+    let Err(Error::StepUpRequired(challenge)) = client.balance().await else {
+        panic!("expected step-up");
+    };
+    assert_eq!(challenge.max_age, Some(300));
+    assert_eq!(challenge.acr_values.as_deref(), Some("urn:f2z:acr:mfa"));
+
+    // Answering it: a new authorization with max_age, acr_values and
+    // prompt=login.
+    let browser = ScriptedBrowser::new(MOBILE_REDIRECT);
+    client
+        .sign_in(&browser, SignInOptions::step_up(&challenge))
+        .await
+        .unwrap();
+    let url = browser.seen.lock().unwrap()[0].clone();
+    assert_eq!(get_param(&url, "max_age").as_deref(), Some("300"));
+    assert_eq!(
+        get_param(&url, "acr_values").as_deref(),
+        Some("urn:f2z:acr:mfa")
+    );
+    assert_eq!(get_param(&url, "prompt").as_deref(), Some("login"));
+}
+
+#[tokio::test]
+async fn sign_out_revokes_the_family_and_clears_everything() {
+    let fake = Fake::start().await;
+    let (client, store) = signed_in(&fake).await;
+    assert_eq!(fake.live_refresh_tokens(), 1);
+    assert!(client.sign_out().await.unwrap(), "the IdP confirmed");
+    assert_eq!(fake.revoke_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(fake.live_refresh_tokens(), 0);
+    assert!(stored_refresh_token(&store, &fake).is_none());
+    assert!(matches!(
+        client.access_token().await,
+        Err(Error::SignedOut(SignedOutReason::NoSession))
+    ));
+}
+
+#[tokio::test]
+async fn signing_in_again_revokes_the_previous_family() {
+    let fake = Fake::start().await;
+    let (client, _) = signed_in(&fake).await;
+    client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(fake.revoke_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(fake.live_refresh_tokens(), 1);
+}
+
+#[tokio::test]
+async fn an_unregistered_redirect_times_out_as_a_registration_mistake() {
+    let fake = Fake::start().await;
+    let config = fake
+        .config()
+        .with_callback_timeout(Duration::from_millis(300));
+    let client = Client::new(config, Arc::new(MemoryStore::new())).unwrap();
+    // The IdP refuses to redirect to an unregistered URI; the browser just
+    // sits on the IdP's error page and nothing comes back.
+    let session = LoopbackSession::bind_with_path(
+        |_: &str| -> Result<(), String> { Ok(()) },
+        "/not-registered",
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        client.sign_in(&session, SignInOptions::default()).await,
+        Err(Error::Timeout(_))
+    ));
+}

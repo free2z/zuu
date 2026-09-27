@@ -1102,6 +1102,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "f2z-sdk"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "f2z-ai-proto",
+ "futures-util",
+ "keyring-core",
+ "reqwest 0.12.28",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+ "zeroize",
+]
+
+[[package]]
 name = "f2z-witness"
 version = "0.1.0"
 dependencies = [
@@ -1896,6 +1915,15 @@ checksum = "01737161ba802849cfd486b5bd209d38ba4943494c249a8126005170c7621edd"
 dependencies = [
  "crypto-common 0.2.2",
  "rand_core 0.10.1",
+]
+
+[[package]]
+name = "keyring-core"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb1e621458ca9c51aa110bd0339d4751a056b9576bf1253aee1aa560dda0fc9d"
+dependencies = [
+ "log",
 ]
 
 [[package]]
