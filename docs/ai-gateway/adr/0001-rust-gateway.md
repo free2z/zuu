@@ -61,15 +61,22 @@ of [metering.md](../../sdk/spec/metering.md) §5.6 holds.
   includes reasoning tokens no stream ever carried, is what settles
   ([metering.md](../../sdk/spec/metering.md) §5.3). Aborting would leave
   the charge to an estimate that cannot see reasoning, and the provider
-  bills for the abandoned generation regardless.
+  bills for the abandoned generation regardless. The same holds for a
+  client that stays connected but stops reading: after 30 s without a
+  successful delivery it is treated as disconnected, so a full channel
+  can never stall the upstream read past the point where the usage frame
+  is lost.
 - **Settlement never runs on the request future.** A guard hands the call
   to a detached settler task on completion, cancellation or error, so a
   client going away cannot prevent a settle, and a settle cannot delay the
   next request.
-- **The amount types are types.** Milli-2Z and nano-USD are distinct
-  newtypes in `f2z-ai-proto`; the compiler refuses to add them. The
-  integer formula of [metering.md](../../sdk/spec/metering.md) §2 has no
-  floating-point path.
+- **The amount types are types.** The integer formula of
+  [metering.md](../../sdk/spec/metering.md) §2 has no floating-point path
+  in `f2z-ai-proto`, and every field carries its unit in its name. The
+  crate today uses plain `u64` for nano-USD and milli-2Z (only basis
+  points have a wrapper), so the compiler does not yet refuse to add
+  them; distinct newtypes are crate v0.x follow-up: #1052, and until they
+  land the unit-named fields and the parity fixtures are the guard.
 - **Two stacks in the platform.** The identity provider, the ledger and
   the purchase rails stay in the platform's existing web stack; the
   gateway is the one Rust service in the metering path. The cost is two

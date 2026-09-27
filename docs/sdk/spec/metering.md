@@ -203,9 +203,9 @@ The gateway never reads or writes a balance by any other path.
 
 | Operation | Effect | Answers |
 |---|---|---|
-| **inquire**(user, app) | Read-only: what a hold could reserve right now. Used to compute the output clamp (§4) and by `/v1/chat/estimate`. Not a reservation: the numbers can change before the hold | `available_milli_2z`, `cap_remaining_milli_2z` (`null` when uncapped), `open_holds`, `frozen` |
-| **hold**(user, app, `amount_2z`, `hold_key`, `aep`, `agen`, `model_id`, `rate_card_version`, `catalog_version`, `markup_bps`, ttl) | Atomically: check the account is not frozen; the grant is live **and** the token's `aep` and `agen` equal the account's and the grant's current values; `available_milli_2z ≥ amount_2z × 1000`; and `cap_remaining_milli_2z ≥ amount_2z × 1000`; then reserve `amount_2z` and record the **pricing snapshot** the settlement will use: the rates and platform margin of `rate_card_version` (the rate card the ledger holds; the catalogue names it, and `catalog_version` is recorded on the call for reference), the `min_charge_2z` of `model_id` in it, and `markup_bps`. All or nothing, in one operation; there is no window in which the balance was checked but not yet reserved. `markup_bps` MUST equal the grant's consented markup | `held` (with `hold_id`, `available_milli_2z`, `cap_remaining_milli_2z`, `expires_at`), `replayed` (same `hold_key` → the same hold, whatever its state, with that state named), `insufficient_balance`, `cap_exceeded`, `frozen`, `revoked` (epoch or generation stale), `markup_mismatch`, `unknown_rate_card`, `too_many_holds` (16 open holds is the limit; a seventeenth is refused) |
-| **extend**(`hold_id`, `reserve_to_2z`, ttl) | Push the expiry out and, when `reserve_to_2z` exceeds the current reservation, reserve the difference. The target is **absolute** and **recomputed, never accumulated**: `reserve_to_2z = price(input_est at the dearest input rate, out_cap, images, observed_tool_calls + tool_budget)` — the §4 hold formula with the tool allowance re-based on the tool calls the stream has actually emitted — so a retried extension whose first response was lost reserves nothing twice, and two gateways computing it for the same stream state get the same number. The gateway extends every **60 s** during a stream with the same target (an expiry push), and raises the target whenever a `tool_call` event takes `observed_tool_calls` past the allowance the current reservation covers. An extension that cannot be afforded (or exceeds the cap) leaves the reservation as it was and still pushes the expiry — the stream continues and may end in a write-off (§5.5) | `held` (with the reservation now in force), `insufficient_balance`, `cap_exceeded`, `not_open` (with `state` ∈ `settled`, `released`, `expired`) |
+| **inquire**(user, app) | Read-only: what a hold could reserve right now. Used to compute the output clamp (§4) and by `/v1/chat/estimate`. Not a reservation: the numbers can change before the hold | `available_milli_2z`, `cap_remaining_milli_2z` (`null` when uncapped), `debt_milli_2z`, `open_holds`, `frozen` |
+| **hold**(user, app, `amount_2z`, `hold_key`, `aep`, `agen`, `model_id`, `rate_card_version`, `catalog_version`, `markup_bps`, ttl) | Atomically: check the account is not frozen; the grant is live **and** the token's `aep` and `agen` equal the account's and the grant's current values; `available_milli_2z ≥ amount_2z × 1000`; and `cap_remaining_milli_2z ≥ amount_2z × 1000`; then reserve `amount_2z` and record the **pricing snapshot** the settlement will use: the rates and platform margin of `rate_card_version` (the rate card the ledger holds; the catalogue names it, and `catalog_version` is recorded on the call for reference), the `min_charge_2z` of `model_id` in it, and `markup_bps`. All or nothing, in one operation; there is no window in which the balance was checked but not yet reserved. `markup_bps` MUST equal the grant's consented markup | `held` (with `hold_id`, `available_milli_2z`, `cap_remaining_milli_2z`, `expires_at`), `replayed` (same `hold_key` → the same hold, whatever its state, with that state named), `in_debt` (checked before the balance, so debt is never reported as an ordinary shortage), `insufficient_balance`, `cap_exceeded`, `frozen`, `revoked` (epoch or generation stale), `markup_mismatch`, `unknown_rate_card`, `too_many_holds` (16 open holds is the limit; a seventeenth is refused) |
+| **extend**(`hold_id`, `reserve_to_2z`, ttl) | Push the expiry out and, when `reserve_to_2z` exceeds the current reservation, reserve the difference. The target is **absolute** and **recomputed, never accumulated**: `reserve_to_2z = price(input_est at the dearest input rate, out_cap, images, observed_tool_calls + tool_budget)` — the §4 hold formula with the tool allowance re-based on the tool calls the stream has actually emitted — so a retried extension whose first response was lost reserves nothing twice, and two gateways computing it for the same stream state get the same number. The target is **recomputed from the current `observed_tool_calls` at every extend**, and an extend is issued at two moments only: every **60 s** of streaming, and immediately when a `tool_call` event arrives. So after one observed tool call the target is the price with `1 + 8` tool calls and the reservation rises at that event, not later; a stream with no tool calls extends every 60 s with an unchanged target (an expiry push). An extension that cannot be afforded (or exceeds the cap) leaves the reservation as it was and still pushes the expiry — the stream continues and may end in a write-off (§5.5) | `held` (with the reservation now in force), `insufficient_balance`, `cap_exceeded`, `not_open` (with `state` ∈ `settled`, `released`, `expired`) |
 | **settle**(`hold_id`, `cost_nusd`, usage) | Compute `charged_2z` by §2 from `cost_nusd` and the hold's pricing snapshot, charge it, release the rest of the hold, credit the splits, record the call. **Idempotent** per `hold_id`: a second settle returns the first result and moves nothing. **Never fails** for lack of balance (§5.5) | `settled` (`charged_2z`, `collected_milli_2z`, `shortfall_milli_2z`, `available_milli_2z`, `cap_remaining_milli_2z`, `receipt_id`), or `not_open` (with `state` ∈ `released`, `expired`) — nothing is charged then, and the provider's cost is the platform's (§5.6) |
 | **release**(`hold_id`) | Release the whole hold; nothing charged. Idempotent | `released` (whether by this call or an earlier one), `expired`, or `settled` when a settle won — the settlement stands |
 
@@ -225,13 +225,17 @@ gateway and the ledger disagree about configuration — as `500 internal`
 with `details.reason`. The codes the crate does not carry yet are crate
 v0.x follow-up: #1052.
 
-`hold_key` is `(app, user, call key, attempt)`. The **call key** is the
-request's `Idempotency-Key` when one was sent; when none was, the gateway
-uses the `call_id` it just minted (a UUIDv7, unique by construction), so a
-keyless call has a hold key that no retry can collide with and no replay
-can find. A call has attempt `1`; each `fallback` model tried (§5.7) is
-the next attempt with its own hold, and the call record links them all.
-One call therefore has at most `1 + len(fallback)` holds and at most one
+`hold_key` is `(call_id, attempt)`. The `call_id` is minted by the
+gateway per call (a UUIDv7, unique by construction), so a hold key can
+never collide across calls — including when an app reuses an
+`Idempotency-Key` after its 24-hour window, which mints a *new* `call_id`.
+The `Idempotency-Key` → `call_id` mapping is the gateway's, kept for the
+24 hours of [chat-api.md](./chat-api.md) §2.5; the ledger never sees the
+request key. Hold replay (`replayed`) is therefore only ever a gateway
+retrying its own `hold` for the same attempt after a lost response. A
+call has attempt `1`; each `fallback` model tried (§5.7) is the next
+attempt with its own hold, and the call record links them all. One call
+therefore has at most `1 + len(fallback)` holds and at most one
 settlement — an attempt's hold is released before the next is taken, and
 a settle on a released one answers `not_open`.
 
@@ -482,9 +486,12 @@ collected_milli_2z: 2400, shortfall_milli_2z: 600`, so a receipt can say
 
 ## 7. What the SDK may promise a user
 
-- **"This will cost at most N 2Z"** — from `/v1/chat/estimate` or `meta.hold_2z`,
-  true except in the write-off case, which never costs the user more than
-  their balance.
+- **"About N 2Z will be held for this"** — from `/v1/chat/estimate` or
+  `meta.hold_2z`. Not "at most": an extension can raise the reservation
+  for tool calls beyond the allowance, and a bad estimate can collect
+  above the hold from what the balance and cap allow (§5.5). The only
+  ceilings an SDK may state are the user's own: never more than their
+  available balance, never past their cap.
 - **"This cost N 2Z"** — `done.charged_2z`, final when received; when
   `done.shortfall_milli_2z` is non-zero the honest line is "priced at N 2Z,
   M taken" from `collected_milli_2z`. When `done.settlement` is `pending`

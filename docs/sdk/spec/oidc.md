@@ -149,9 +149,14 @@ revoke every grant at `https://free2z.cash/account/apps`:
 - **Lowering** a cap or **reducing** scopes takes effect immediately: the cap
   is enforced inside the ledger's hold ([metering.md](./metering.md) §3) and
   scope reduction increments the grant's **generation** (`agen`, §6.3).
-- **Raising** a cap — at `/account/apps` or by choosing a higher value on
-  a re-consent — requires a recent authentication (step-up, §10). It takes
-  effect immediately and does not change `agen`.
+- **Raising** a cap — at `/account/apps` or on a re-consent — requires a
+  recent authentication (step-up, §10). A change is a raise whenever it
+  can increase what the app may spend in *any* future window: a higher
+  amount, a **shorter** period at the same amount (100 2Z per day is more
+  than 100 2Z per month), or removing the cap. Only a change that lowers
+  the amount **and** does not shorten the period (`total` counts as the
+  longest) is a lowering. A raise takes effect immediately and does not
+  change `agen`.
 - **Revoking** increments `agen` and deletes every refresh token of the
   grant. The next request with any older access token fails with
   `401 token_revoked`.
@@ -193,7 +198,7 @@ payload: {
 |---|---|---|
 | `iss` | Always `https://free2z.cash` | Every resource server, exact string match |
 | `sub` | The user's stable, opaque **per-account UUID** — not a username or email (those change) and not the platform's sequential internal id (that would enumerate). It is the same for every app (`subject_types_supported: ["public"]`), which is the deliberate trade-off: two apps that both hold a user's `sub` can correlate that user, and in exchange a user's identity is one thing across the ecosystem. Pairwise subjects per app are a possible v2 and would be announced by `pairwise` appearing in discovery | — |
-| `aud` | **Always a JSON array.** `f2z-id` for the IdP's own `userinfo_endpoint`, `f2z-ai` for the gateway, `f2z-api` for the account API. Which appear depends on the granted scopes (§4); a token whose scopes need no audience carries `["f2z-id"]` so the array is never empty. A resource server MUST refuse a token whose `aud` does not contain its own identifier | Every resource server |
+| `aud` | **Always a JSON array, and `f2z-id` is always in it.** `f2z-id` is the IdP's own `userinfo_endpoint`; `f2z-ai` (the gateway) is added when `ai:invoke` was granted and `f2z-api` (the account API) when `balance:read` or `purchase:create` was (§4). A resource server MUST refuse a token whose `aud` does not contain its own identifier | Every resource server |
 | `client_id` | The app the token was issued to | Resource servers, for rate limits and markup |
 | `scope` | Space-separated granted scopes (RFC 9068 §2.2.3) | Resource servers, per endpoint |
 | `exp` | `iat + 300`. **Five minutes**, not configurable per app | Every resource server, with at most 30 s of leeway |

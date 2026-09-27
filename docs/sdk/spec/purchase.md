@@ -215,11 +215,31 @@ remainder is then subject to the debt. A chargeback (`disputed`) takes the
 platform wins re-credits. An app sees these as intent states and as
 `403 account_frozen` or `403 account_in_debt` on spending.
 
-**Developer markup is reversed with the purchase.** When reversed 2Z had
-been spent on AI calls, the developer credits those calls earned
-([metering.md](./metering.md) §2.3) are clawed back pro rata from the
-developer's account in the same operation; a developer account that
-cannot cover it carries the difference as debt on the same terms.
+**Developer markup is reversed with the purchase.** Credits are
+fungible, so the ledger keeps the attribution the rule needs: a user's
+2Z are consumed **oldest credit first** (FIFO by the time each purchase
+line was credited), and every settlement records which lines funded its
+`collected_milli_2z` and how much of its `developer_milli` each line's
+share carried. A reversal then targets, per line, the developer credit
+attributable to that line's spent portion, scaled by the same reversed
+share as the user's reversal:
+
+```
+line.dev_clawback_target_milli = floor(line.dev_credit_milli × min(amount_minor, refunded_minor + disputed_minor) / amount_minor)
+```
+
+and the developer's account is moved by the **difference** between that
+target and what was previously clawed back for the line — negative on a
+won dispute, so the developer is restored when the user is. It is the
+same cumulative net-position rule as the user's (§1.2), applied to the
+same events, in the same operation, so a partial refund followed by a
+dispute never claws back the overlap twice. A settlement whose funding
+line has **already** been reversed computes the developer credit and
+claws it back in the same settle, so a hold opened before the reversal
+cannot deliver markup on reversed 2Z; the platform's asynchronous
+posting of developer totals runs after that check, never instead of it.
+A developer account that cannot cover a clawback carries the difference
+as debt on the same terms as a user's.
 
 ## 4. In-app purchase — StoreKit 2 and Play Billing, as equals
 

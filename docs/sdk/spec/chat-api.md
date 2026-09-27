@@ -99,11 +99,15 @@ received `meta` knows every step passed.
    whose tokeniser it has; with a per-model safety factor otherwise) and
    refuses input that cannot fit the context window with at least one output
    token: `400 context_length_exceeded`.
-5. **Output clamp.** `out_cap = min(max_output_tokens, context_window −
-   input_estimate, affordable)`, where `affordable` is the largest output
-   length whose worst-case price fits the user's available balance *and* the
-   grant's remaining cap ([metering.md](./metering.md) §4). If even the
-   model's minimum charge is unaffordable → `402 insufficient_balance` or
+5. **Output clamp.** The gateway reads the account (`inquire`,
+   [metering.md](./metering.md) §3). An account in debt is refused first:
+   `403 account_in_debt`, before any affordability arithmetic, so a user
+   who owes 2Z never sees an ordinary "insufficient" message. Then
+   `out_cap = min(max_output_tokens, context_window − input_estimate,
+   affordable)`, where `affordable` is the largest output length whose
+   worst-case price fits the user's available balance *and* the grant's
+   remaining cap ([metering.md](./metering.md) §4). If even the model's
+   minimum charge is unaffordable → `402 insufficient_balance` or
    `403 cap_exceeded`.
 6. **Hold.** The ledger reserves the worst-case price for `out_cap`. The
    ledger's own answer decides: `402`, `403 cap_exceeded`,
@@ -148,7 +152,14 @@ provider reports, with `finish_reason: cancelled`
 whole generation up to `out_cap`, not for the part the client read; an
 app that wants a cheap cancel sets a small `max_output_tokens`. A
 disconnect before the upstream request was sent releases the hold and
-charges nothing. There is no cancel endpoint: a closed connection is
+charges nothing. Cancellation is a property of the **call**, not of one
+attempt: after a disconnect no new provider attempt is started — if the
+in-flight attempt fails before content, its hold is released and no
+`fallback` model is tried, because there is nobody to deliver to. A client
+that is connected but has **stopped reading** is treated as disconnected
+once the gateway has been unable to deliver to it for **30 s**: delivery
+stops, the upstream is still read to completion, and the call settles on
+provider usage. There is no cancel endpoint: a closed connection is
 unambiguous and cannot be forged. `GET /v1/calls/{id}` shows the final
 state.
 
@@ -342,7 +353,7 @@ data: {"charged_2z":1,"receipt_id":"rcpt_019a2f1d-2b0e-7c4a-9f11-6d0e2a8b3c44","
 | `settlement` | `settled` (the default when absent); `pending` when the ledger had not confirmed the charge within 10 s of the provider finishing ([metering.md](./metering.md) §5.11) — every 2Z field except `hold_2z` is then **absent** and the client reads `GET /v1/calls/{id}` until `status` leaves `settling`; or `released` when the settler found the hold already expired ([metering.md](./metering.md) §5.6) — `charged_2z` is `0` and no `receipt_id` exists. The crate's `Done` has `charged_2z` and `receipt_id` as required fields; making them optional under `pending`/`released` is part of the follow-up |
 | `hold_2z`, `released_2z` | The **final** reservation (it can exceed `meta.hold_2z` after an extension) and what was given back. `charged + released = hold` except in the write-off case |
 | `collected_milli_2z`, `shortfall_milli_2z` | What was actually taken, and what could not be ([metering.md](./metering.md) §5.5). `collected = charged × 1000 − shortfall`; a receipt shows `collected` when `shortfall` is non-zero |
-| `cap_remaining_milli_2z` | Remaining spend under the grant's cap for the current period; `null` when the grant has no cap |
+| `cap_remaining_milli_2z` | Remaining spend under the grant's cap **for the period the hold belongs to** ([metering.md](./metering.md) §4) — after a stream that crossed a period boundary this is the old period's remainder, which is what the settlement was bounded by; `null` when the grant has no cap |
 | `usage_source` | The `source` of the `usage` event, repeated here (one value set — `provider` / `estimated` — two field names: `source` inside the `usage` event, `usage_source` beside a `usage` object everywhere else, as the crate spells them) |
 
 The first four are the crate's `Done`; the rest are crate v0.x follow-up:
@@ -364,7 +375,7 @@ data: {"code":"provider_error","message":"The provider closed the stream before 
 |---|---|
 | `code` | From [errors.md](./errors.md). After `meta`: `provider_error`, `provider_timeout`, `internal`. Before `meta`: any pre-stream code (§3.1). Whether a retry can succeed is a property of the code, not a field |
 | `message` | For a log, not for the user; SDKs map `code` to user-facing copy. Never contains prompt or completion text |
-| `settlement` | As in `done`: `settled` (default) or `pending`. An error after output is settled for what was produced, and the ledger can be unreachable then too |
+| `settlement` | As in `done`: `settled` (default), `pending`, or `released` (the settler found the hold expired — `charged_2z: 0`). An error after output is settled for what was produced, and the ledger can be unreachable or the hold expired then too |
 | `charged_2z`, `receipt_id`, `collected_milli_2z`, `shortfall_milli_2z` | What this failed call still cost, as in `done`. `charged_2z: 0` and no `receipt_id` when the provider failed before producing anything ([metering.md](./metering.md) §5.2); absent when `settlement` is `pending` |
 | `partial` | `true` when the client received at least one `delta` or `tool_call` before the error |
 
@@ -581,8 +592,11 @@ can read it. Requires `ai:invoke`.
 (provider finished, ledger not yet confirmed — [metering.md](./metering.md)
 §5.11), `settled` (charged; `charged_2z` ≥ `min_charge_2z`), `released`
 (nothing charged — the provider failed before output, or the hold expired
-unsettled), `settled_partial` (an error or cancellation after output;
-charged for what was produced). `error` is `null`, or `{code, message}`
+unsettled), `settled_partial` (an error after output; charged for what
+was produced — a client disconnect is **not** this: the upstream is read
+to completion and the call is `settled` with `finish_reason: cancelled`,
+unless the provider then fails, which is `settled_partial` like any
+error after output). `error` is `null`, or `{code, message}`
 for a call that ended in an `error` event or whose hold expired unsettled
 (then `unavailable`, written by the sweeper — [metering.md](./metering.md)
 §5.6). `collected_milli_2z` is what was
