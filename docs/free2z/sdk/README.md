@@ -204,3 +204,7 @@ to this table first.
 - **Wording rule.** 2Z are *platform credits*. Documentation, UI copy and
   error messages never call them money, currency, coins or tokens, and never
   describe a purchase as a deposit, an exchange or an investment.
+
+For a real Tauri adapter before registry publication, use the
+[pinned source-preview installation guide](./SOURCE-PREVIEW.md). Live service
+acceptance remains a separate prerequisite.

@@ -1,21 +1,23 @@
 # Integrating a tutor app with Free2Z
 
-**Implementation snapshot: 2026-09-27.** An app worker can start the tutor UI,
-its native adapter boundary, and mock-driven flows now. Real end-to-end SDK
-integration is not ready yet. The API examples below target Rust core
-[PR #1071](https://github.com/free2z/zuu/pull/1071), revision
-[`27bed9be`](https://github.com/free2z/zuu/commit/27bed9be05902876182f8cdf030acee890499e13),
-which has independent approval and is awaiting the required CI gate and merge.
-Its 102 local all-target tests and strict lint checks pass; this is reviewed
-preview source, not a published release or live-platform acceptance result.
+**Implementation snapshot: 2026-09-27.** The reviewed Rust core is merged, and
+reviewed native/TypeScript source previews can be used for real SDK integration.
+Start with [the pinned source-preview installation and Tauri adapter guide](./SOURCE-PREVIEW.md).
+Registry publication and live end-to-end acceptance are still pending; building
+the real SDK does not establish availability of every service or payment rail.
+
+The Rust examples below target merged core
+[`69b4c25f`](https://github.com/free2z/zuu/commit/69b4c25fd7b33c827e54997f979d7d971da8fa20),
+which passed independent review and both required gates. Its 102 local
+all-target tests exercise fake-service regression scenarios.
 
 ## What can run today
 
 | Surface | Verified implementation status | App work that can proceed |
 |---|---|---|
-| Rust core | Pending #1071; login, balance, card purchase and AI tests use local HTTP fakes | Build against the preview API in an isolated experiment; use the fake full-flow example |
-| Desktop, iOS and Android Tauri integration | Plugin work tracked in [#1072](https://github.com/free2z/zuu/issues/1072) | Define commands, safe DTOs and event/cancellation ownership; implement a mock adapter |
-| TypeScript facade and reference app | Tracked in [#1073](https://github.com/free2z/zuu/issues/1073) | Keep the tutor UI behind an app-owned interface that can later use the facade |
+| Rust core | Merged #1071; login, balance, card purchase and AI tests use local HTTP fakes | Build against the preview API in an isolated experiment; use the fake full-flow example |
+| Desktop, iOS and Android Tauri integration | Reviewed source preview [#1081](https://github.com/free2z/zuu/pull/1081) | Register the real native plugin and local capabilities using the source-preview guide |
+| TypeScript facade and reference app | Reviewed facade preview [#1080](https://github.com/free2z/zuu/pull/1080); reference app remains under #1073 | Use Client + NativeTransport through an app-owned adapter; retain mocks for unavailable services |
 | Live metered AI | Deployment and ledger integration are still prerequisites in [#1047](https://github.com/free2z/zuu/issues/1047) | Model streams, failures and settlement in mocks; do not promise live charges or receipts |
 
 The gateway source currently routes `POST /v1/chat`, but its metering/ledger
@@ -33,7 +35,7 @@ intended distribution names. On 2026-09-27, the official crates.io metadata
 endpoints for `f2z-sdk`, `f2z-ai-proto` and `tauri-plugin-f2z`, and the npm
 metadata endpoints for `@free2z/sdk` and `@free2z/tauri-plugin-f2z-api`, each
 returned HTTP 404. The Rust workspace currently disables publishing.
-The Tauri plugin and TypeScript facade are under implementation; their package
+The Tauri plugin and TypeScript facade have reviewed source previews; their package
 interfaces are not released yet. Do not add an invented npm version or assume
 an in-progress plugin command is a supported release API. Supported third-party integration will use published
 packages when the release is announced. The intended commands below are
@@ -54,7 +56,7 @@ preview by commit, without a private repository or a path into this workspace:
 
 ```toml
 [dependencies]
-f2z-sdk = { git = "https://github.com/free2z/zuu", rev = "27bed9be05902876182f8cdf030acee890499e13" }
+f2z-sdk = { git = "https://github.com/free2z/zuu", rev = "69b4c25fd7b33c827e54997f979d7d971da8fa20" }
 ```
 
 This is not the supported published-package installation and does not establish
@@ -66,7 +68,7 @@ initializing them and run the SDK's own fake example:
 ```sh
 git clone --filter=blob:none https://github.com/free2z/zuu.git zuu-sdk-preview
 cd zuu-sdk-preview
-git checkout 27bed9be05902876182f8cdf030acee890499e13
+git checkout 69b4c25fd7b33c827e54997f979d7d971da8fa20
 cd rs
 cargo +1.97.1 run --locked -p f2z-sdk --example full_flow
 cargo +1.97.1 test --locked -p f2z-sdk --all-targets
@@ -87,9 +89,9 @@ app asked for them. `client_id` is public configuration.
 
 Desktop uses a registered `http://127.0.0.1:<port>/callback` redirect, with a
 random listener port and the registration's exact path. `localhost` is not the
-loopback profile. For iOS and Android, implement `oauth::AuthSession` through
-the platform authentication browser and return the complete callback URL to
-the core. Prefer claimed HTTPS redirects where supported; register a controlled
+loopback profile. For iOS and Android, use the native plugin's platform authentication browser
+adapter and configure its registered mobile redirects; a custom Rust host can
+implement `oauth::AuthSession` directly. Prefer claimed HTTPS redirects where supported; register a controlled
 reverse-DNS scheme as the fallback. See [redirect rules](./spec/oidc.md#3-redirect-uris).
 The core validates state, issuer and tokens; the adapter must not synthesize a
 successful callback or use an embedded webview for login.
@@ -109,24 +111,24 @@ In a Tauri 2 app, **access and refresh tokens stay in Rust**. Do not expose
 `Client::access_token`, serialized session blobs, OAuth callback URLs or
 arbitrary authenticated HTTP requests as JavaScript commands. Grant the tutor
 window only the commands it needs; untrusted lesson HTML, external windows and
-remote content must not inherit those capabilities. The planned plugin will
-supply this integration; the command names below are an app design proposal,
-not an existing plugin API.
+remote content must not inherit those capabilities. The reviewed native plugin
+supplies this boundary; use its exported guest API through `NativeTransport`,
+rather than reimplementing authentication or invoking guessed command names.
 
-| Proposed adapter operation | Native responsibility | Safe UI result |
+| Native guest operation | Native responsibility | Safe UI result |
 |---|---|---|
 | `session` / `signIn` / `signOut` | Own `Client`, authentication session and keychain | Signed-in state, subject, granted scopes, persistence mode, revocation confirmation |
 | `balance` | Call `Client::balance` | Available, held, total and debt milli-2Z plus `as_of` |
-| `buy2z` / `purchaseStatus` | Create intent, open validated hosted checkout, poll | Intent ID and status; refreshed balance once credited |
+| `createPurchase` / `purchase` / `waitForPurchase` | Create intent, open validated hosted checkout, poll | Intent ID and status; refreshed balance once credited |
 | `models` / `estimate` | Call the corresponding AI methods when live support is ready | Capabilities and provisional hold estimate |
 | `startChat` / `nextChat` / `cancelChat` | Own stream task and cancel handle, correlate by app operation ID | Text/tool events, call ID, receipt/settlement state and classified errors |
 
-The native bridge under development uses **pull delivery**: `startChat` opens
+The reviewed native bridge uses **pull delivery**: `startChat` opens
 one operation, `nextChat(operationId)` returns one event (or `null` when exhausted),
 and `cancelChat(operationId)` stops delivery. Permit only one outstanding reader
 per operation. A replay returns the existing call record rather than new answer
-text. These are interface-design names while #1072/#1073 are in progress, not
-commands to invoke against an assumed installed package.
+text. The source-preview guide installs the exact guest and facade packages
+that expose these methods; registry installation remains pending.
 
 Generate and retain both an operation ID and an idempotency key **before** the
 opening invoke. Cancellation can happen while opening or waiting for refresh,
@@ -257,9 +259,10 @@ requires a JavaScript-safe bound, the current Rust amount types accept `u64`
 and ordinary account responses do not yet establish that bound. Therefore
 serialize native-to-JavaScript amount DTOs as **decimal strings**, and use
 JavaScript `bigint` internally. This is an app bridge representation, not a
-change to the service's JSON wire format. A future web transport must preserve
-integer number lexemes with a lossless parser or reject values outside the
-safe range; converting an already-rounded `number` to `bigint` cannot recover
+change to the service's JSON wire format. The reviewed TypeScript FetchTransport
+preserves integer number lexemes with a lossless parser; a custom transport must
+preserve them or reject unsafe values. Converting an already-rounded `number`
+to `bigint` cannot recover
 its original value. Keep `_2z` and `_milli_2z` names distinct. Format 41,500
 milli-2Z as 41.500 2Z only at the display boundary.
 
@@ -273,9 +276,10 @@ credit**. Poll even if the browser is closed without a callback.
 that intent may still be `created`, `pending` or `paid`. Only `credited` means
 credits reached the account. Retain the intent ID, continue polling on resume,
 and handle expiration, failure, refunds, disputes and unknown statuses.
-The first core implementation is card-first. Zcash and first-party store billing
-names in the protocol are not implemented purchase flows for this tutor;
-third-party apps do not use Free2Z's Apple/Google IAP rails.
+The reviewed native/facade preview can create card or Zcash intents; this does
+not certify a live payment rail for the tutor. The plugin uses its registered
+HTTPS purchase-return URL. Third-party apps do not use Free2Z's first-party
+Apple/Google IAP rails.
 
 ### Cancellation, receipts and errors
 
@@ -329,7 +333,9 @@ approved fields explicitly.
 
 ## Copyable tutor-worker handoff
 
-Build the tutor UI and a mock implementation of an app-owned native adapter now.
+Build the tutor UI behind an app-owned adapter using the real pinned
+`Client(new NativeTransport(nativeBridge))` preview, with a mock implementation
+for deterministic tests and service flows not yet confirmed live.
 Use the six scopes listed above. Model signed-out, signing-in, signed-in,
 memory-only persistence and step-up states. Represent balances as integer
 milli-2Z with debt separate; represent purchases by intent ID/status and streams
@@ -339,9 +345,9 @@ pending settlement, lost-response same-key recovery and account switching.
 
 Own no Free2Z passwords, client secrets or provider keys. Keep credentials in
 native code, keep untrusted content outside privileged Tauri capabilities, and
-keep the adapter replaceable by #1072/#1073. Real integration starts after the
-core merge/CI, plugin and facade implementation, published-package instructions,
-and live registration/payment/metering readiness are confirmed. Acceptance then
+keep package versions pinned through the preview merge/release process. Source
+integration can begin now; live acceptance requires confirmed client registration,
+payment and metering readiness. Acceptance then
 requires one real registered-user sign-in, authoritative balance read, approved
 test purchase through credited, and metered chat whose final receipt reconciles
 with the refreshed balance, on each supported platform.
