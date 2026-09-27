@@ -2,6 +2,7 @@
 //! sends. Pure: no I/O and no clock, so the shapes are testable without a
 //! socket and the server is only a pacing loop over a [`Plan`].
 
+use core::fmt;
 use core::time::Duration;
 
 use serde_json::{Value, json};
@@ -32,7 +33,10 @@ pub struct RenderContext {
 
 /// One write: wait `delay`, then send `bytes`. Every step of a stream plan is
 /// exactly one SSE frame, so a step boundary is a frame boundary.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// `Debug` reports the bytes by length, per the workspace rule against
+/// derived byte dumps (`f2z-codec/tests/workspace_debug_scan.rs`).
+#[derive(Clone, PartialEq, Eq)]
 pub struct Step {
     /// The pause before this write.
     pub delay: Duration,
@@ -40,8 +44,8 @@ pub struct Step {
     pub bytes: Vec<u8>,
 }
 
-/// Everything one response does.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Everything one response does. `Debug` reports bodies by length.
+#[derive(Clone, PartialEq, Eq)]
 pub enum Plan {
     /// A non-streaming error answer.
     Status {
@@ -60,6 +64,44 @@ pub enum Plan {
         /// ending the body cleanly ([`Fault::DisconnectAtByte`]).
         abort: bool,
     },
+}
+
+impl fmt::Debug for Step {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Step")
+            .field("delay", &self.delay)
+            .field("bytes_len", &self.bytes.len())
+            .finish()
+    }
+}
+
+impl fmt::Debug for Plan {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Status {
+                status,
+                retry_after,
+                body,
+            } => f
+                .debug_struct("Status")
+                .field("status", status)
+                .field("retry_after", retry_after)
+                .field("body_len", &body.len())
+                .finish(),
+            Self::Stream { steps, abort } => f
+                .debug_struct("Stream")
+                .field("steps", &steps.len())
+                .field(
+                    "body_len",
+                    &steps
+                        .iter()
+                        .map(|s| s.bytes.len())
+                        .fold(0usize, usize::saturating_add),
+                )
+                .field("abort", abort)
+                .finish(),
+        }
+    }
 }
 
 impl Plan {

@@ -31,6 +31,10 @@ pub const SCENARIO_HEADER: &str = "x-f2z-mock-scenario";
 /// counts every request.
 const RECORD_LIMIT: usize = 4_096;
 
+/// How long a due write must wait on a full body buffer before it counts as
+/// the reader applying backpressure ([`MockProvider::backpressured_writes`]).
+const BACKPRESSURE_THRESHOLD: core::time::Duration = core::time::Duration::from_millis(25);
+
 /// Pause between the last byte of a [`super::Fault::DisconnectAtByte`]
 /// stream and the abort, so the prefix is flushed to the socket.
 const ABORT_FLUSH_GRACE: core::time::Duration = core::time::Duration::from_millis(50);
@@ -50,6 +54,7 @@ struct Shared {
     default: RwLock<Scenario>,
     named: RwLock<HashMap<String, Scenario>>,
     seq: AtomicU64,
+    backpressured: AtomicU64,
     log: Mutex<VecDeque<RecordedRequest>>,
 }
 
@@ -78,6 +83,7 @@ impl MockProvider {
             default: RwLock::new(default),
             named: RwLock::new(HashMap::new()),
             seq: AtomicU64::new(0),
+            backpressured: AtomicU64::new(0),
             log: Mutex::new(VecDeque::new()),
         });
         let app = Router::new()
@@ -151,6 +157,24 @@ impl MockProvider {
     #[must_use]
     pub fn request_count(&self) -> u64 {
         self.shared.seq.load(Ordering::Relaxed)
+    }
+
+    /// How many writes of a **paced** stream (one with
+    /// [`Scenario::tokens_per_sec`]) found the reader not keeping up: the
+    /// write was due but the response body's buffer stayed full for at least
+    /// 25 ms, so the mock fell behind its own schedule. `0` after a run means
+    /// every paced stream was read at provider speed. Unpaced streams are
+    /// never counted — they have no provider speed.
+    ///
+    /// This is the probe for the gateway's drain rule (chat-api.md: upstream
+    /// is read at provider speed regardless of client backpressure). A slow
+    /// *client* of a correct gateway never shows up here; a gateway that
+    /// forwards its client's backpressure upstream does — once its socket and
+    /// this mock's small body buffer (8 frames) are full, so give the probe a
+    /// stream long enough to fill them, and a client that stops reading.
+    #[must_use]
+    pub fn backpressured_writes(&self) -> u64 {
+        self.shared.backpressured.load(Ordering::Relaxed)
     }
 
     /// The most recent requests (at most 4 096), oldest first.
@@ -274,16 +298,49 @@ async fn handle(
         }
         Plan::Stream { steps, abort } => {
             let (tx, rx) = mpsc::channel::<Result<Bytes, io::Error>>(8);
+            let probe = Arc::clone(&shared);
+            // Unpaced, the mock is always faster than its reader; only a paced
+            // stream has a provider speed to fall behind.
+            let paced = scenario.tokens_per_sec.is_some();
             tokio::spawn(async move {
+                // Pace against an absolute schedule, not by sleeping each
+                // delay: timers are millisecond-coarse, so per-step sleeps
+                // would run a 5 000 tokens/s stream at under 1 000. Behind
+                // schedule, frames go out back to back until it catches up.
+                let mut due = tokio::time::Instant::now();
                 for step in steps {
                     if !step.delay.is_zero() {
-                        tokio::time::sleep(step.delay).await;
+                        due = due.checked_add(step.delay).unwrap_or(due);
+                        tokio::time::sleep_until(due).await;
                     }
-                    if tx.send(Ok(Bytes::from(step.bytes))).await.is_err() {
+                    let item = Ok(Bytes::from(step.bytes));
+                    let item = match tx.try_send(item) {
+                        Ok(()) => continue,
                         // The client went away; stop generating, as a real
                         // provider does when its request is aborted.
-                        return;
-                    }
+                        Err(mpsc::error::TrySendError::Closed(_)) => return,
+                        Err(mpsc::error::TrySendError::Full(item)) => item,
+                    };
+                    // A full buffer alone is not backpressure: catching up
+                    // after a coarse timer tick fills it for microseconds. A
+                    // reader that holds it full for a while is — counted
+                    // while still blocked, since a reader that never resumes
+                    // would otherwise never be counted at all.
+                    let permit =
+                        match tokio::time::timeout(BACKPRESSURE_THRESHOLD, tx.reserve()).await {
+                            Ok(Ok(permit)) => permit,
+                            Ok(Err(_)) => return,
+                            Err(_) => {
+                                if paced {
+                                    probe.backpressured.fetch_add(1, Ordering::Relaxed);
+                                }
+                                match tx.reserve().await {
+                                    Ok(permit) => permit,
+                                    Err(_) => return,
+                                }
+                            }
+                        };
+                    permit.send(item);
                 }
                 if abort {
                     // Let the body stream go idle first so hyper flushes the

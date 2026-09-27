@@ -67,9 +67,7 @@ fn hold_request(agen: u64, key: &str, amount_2z: u64) -> HoldRequest {
         app: "app".into(),
         amount_2z,
         hold_key: HoldKey {
-            app: "app".into(),
-            user: "u".into(),
-            idempotency_key: key.into(),
+            call_id: key.into(),
             attempt: 1,
         },
         aep: 1,

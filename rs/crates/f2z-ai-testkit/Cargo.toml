@@ -53,6 +53,9 @@ tokio = { workspace = true, features = [
 futures-util = { version = "0.3", default-features = false }
 
 [dev-dependencies]
+# `io-util` for the raw-socket reader in tests/mock_server.rs, declared rather
+# than inherited through another crate's feature unification.
+tokio = { workspace = true, features = ["io-util"] }
 # An HTTP client for the tests to read the mock's bytes over a real socket.
 # No TLS feature: the mock binds plain-HTTP loopback only.
 reqwest = { version = "0.12", default-features = false }

@@ -125,6 +125,15 @@
 //! after byte N. [`Scenario::omit_usage`] removes the final usage report
 //! (see its documentation for what that means per style) and [`Stall`]
 //! pauses the stream mid-way.
+//!
+//! # Pacing and the drain probe
+//!
+//! A paced stream ([`Scenario::tokens_per_sec`]) is written against an
+//! absolute schedule, so its average rate is exact even at thousands of
+//! tokens per second. The v1 spec requires the gateway to read upstream at
+//! provider speed however slowly its own client reads (chat-api.md, the drain
+//! rule); [`MockProvider::backpressured_writes`] counts the writes of paced
+//! streams that the reader held up, so a test can assert it stayed `0`.
 
 mod render;
 mod server;

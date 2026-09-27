@@ -96,9 +96,7 @@ impl World {
             app: "app".into(),
             amount_2z,
             hold_key: HoldKey {
-                app: "app".into(),
-                user: "u".into(),
-                idempotency_key: format!("idem-{k}"),
+                call_id: format!("idem-{k}"),
                 attempt: 1,
             },
             aep: self.ledger.account_epoch("u").unwrap(),
@@ -622,9 +620,7 @@ async fn parallel_holds_never_overspend() {
                     app: "app".into(),
                     amount_2z: 1,
                     hold_key: HoldKey {
-                        app: "app".into(),
-                        user: "u".into(),
-                        idempotency_key: format!("k{i}"),
+                        call_id: format!("k{i}"),
                         attempt: 1,
                     },
                     aep: 1,
@@ -649,4 +645,64 @@ async fn parallel_holds_never_overspend() {
     }
     assert_eq!(held, 10, "exactly the balance, never more");
     ledger.check_invariants().unwrap();
+}
+
+#[tokio::test]
+async fn a_reversal_beyond_the_available_balance_is_debt_and_refuses_every_hold() {
+    let w = World::new(5_000, Bps(0), Bps(0), 1, None);
+    let open = w.hold(2).await;
+    // A 4 000 m2Z refund: 3 000 is available (2 000 is under the open hold
+    // and is not taken), so 1 000 becomes debt.
+    w.ledger.reverse_credit("u", 4_000);
+    assert_eq!(w.ledger.debt_milli_2z("u"), Some(1_000));
+    let inq = w.ledger.inquire("u", "app").await.unwrap();
+    assert_eq!(inq.debt_milli_2z, 1_000);
+    assert_eq!(inq.available_milli_2z, 0, "available is 0 while in debt");
+    // Debt is reported before any affordability arithmetic: a 99 2Z hold is
+    // `in_debt`, never `insufficient_balance`.
+    assert_eq!(
+        w.ledger.hold(w.request(99)).await.unwrap(),
+        HoldOutcome::InDebt
+    );
+    // The open hold settles normally; its excess cannot deepen the debt.
+    let s = settled(w.settle(open, 25_000_000).await);
+    assert_eq!(s.charged_2z, 3);
+    assert_eq!(s.collected_milli_2z, 2_000, "only the hold: available is 0");
+    assert_eq!(s.shortfall_milli_2z, 1_000);
+    assert_eq!(w.ledger.debt_milli_2z("u"), Some(1_000));
+    // A purchase repays the debt first; only the rest reaches the balance.
+    w.ledger.credit("u", 1_500);
+    assert_eq!(w.ledger.debt_milli_2z("u"), Some(0));
+    assert_eq!(w.ledger.balance_milli_2z("u"), Some(500));
+    assert_eq!(
+        w.ledger.hold(w.request(1)).await.unwrap(),
+        HoldOutcome::InsufficientBalance
+    );
+    w.ledger.check_invariants().unwrap();
+}
+
+#[tokio::test]
+async fn the_unused_remainder_of_a_hold_repays_debt_when_it_ends() {
+    let w = World::new(3_000, Bps(0), Bps(0), 1, None);
+    let id = w.hold(3).await;
+    w.ledger.reverse_credit("u", 2_500);
+    assert_eq!(
+        w.ledger.debt_milli_2z("u"),
+        Some(2_500),
+        "nothing was available"
+    );
+    // Settles for 1 2Z; the 2 000 released is then subject to the debt.
+    settled(w.settle(id, 5_000_000).await);
+    assert_eq!(w.ledger.debt_milli_2z("u"), Some(500));
+    assert_eq!(w.ledger.balance_milli_2z("u"), Some(0));
+    w.ledger.check_invariants().unwrap();
+
+    // The same through a release.
+    let w = World::new(3_000, Bps(0), Bps(0), 1, None);
+    let id = w.hold(3).await;
+    w.ledger.reverse_credit("u", 1_000);
+    w.ledger.release(id).await.unwrap();
+    assert_eq!(w.ledger.debt_milli_2z("u"), Some(0));
+    assert_eq!(w.ledger.balance_milli_2z("u"), Some(2_000));
+    w.ledger.check_invariants().unwrap();
 }

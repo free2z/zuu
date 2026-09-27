@@ -10,7 +10,8 @@
 //!
 //! * **Modelled:** frozen accounts, the account epoch (`aep`) and grant
 //!   generation (`agen`), consented markup, per-grant spend caps with
-//!   per-period collection history that survives re-consent, the 16-open-hold
+//!   per-period collection history that survives re-consent, account debt
+//!   from purchase reversals (purchase.md §3.1), the 16-open-hold
 //!   limit (per user), replay by `hold_key`, absolute extension targets,
 //!   expiry by a manual clock, idempotent settle and release, the
 //!   first-terminal-transition-wins rule, and §5.5 shortfall settlement with
@@ -114,8 +115,14 @@ struct Account {
     balance_milli: u64,
     frozen: bool,
     epoch: u64,
+    /// Owed after a reversal took back 2Z already spent (purchase.md §3.1).
+    debt_milli: u64,
+    /// Every credit ever applied, including the part that repaid debt.
     funded_milli: u64,
+    /// Collected by settlements.
     spent_milli: u64,
+    /// Left the balance other than by spending: reversals, debt repayment.
+    debited_milli: u64,
 }
 
 #[derive(Debug)]
@@ -184,17 +191,36 @@ impl State {
     fn sweep(&mut self) -> usize {
         let now = self.now_ms;
         let mut n: usize = 0;
+        let mut users = Vec::new();
         for hold in self.holds.values_mut() {
             if hold.record.state == HoldState::Open && now >= hold.record.expires_at_ms {
                 hold.record.state = HoldState::Expired;
+                users.push(hold.user.clone());
                 n = n.saturating_add(1);
             }
+        }
+        for user in users {
+            self.absorb_debt(&user);
         }
         self.totals.expired = self
             .totals
             .expired
             .saturating_add(u64::try_from(n).unwrap_or(u64::MAX));
         n
+    }
+
+    /// 2Z freed from a hold while the account owes a debt repay it first
+    /// (purchase.md §3.1: "the hold settles normally and any remainder is
+    /// then subject to the debt").
+    fn absorb_debt(&mut self, user: &str) {
+        let reserved = self.open_reserved_milli(user);
+        if let Some(a) = self.accounts.get_mut(user) {
+            let free = a.balance_milli.saturating_sub(reserved);
+            let take = free.min(a.debt_milli);
+            a.balance_milli = a.balance_milli.saturating_sub(take);
+            a.debt_milli = a.debt_milli.saturating_sub(take);
+            a.debited_milli = a.debited_milli.saturating_add(take);
+        }
     }
 
     fn open_holds<'a>(&'a self, user: &'a str) -> impl Iterator<Item = &'a Hold> + 'a {
@@ -213,8 +239,14 @@ impl State {
         u32::try_from(self.open_holds(user).count()).unwrap_or(u32::MAX)
     }
 
+    /// `balance − held`, and `0` while the account is in debt
+    /// (purchase.md §1.1). Because a settle's excess is bounded by this, an AI
+    /// call can never deepen a debt (metering.md §5.5).
     fn available_milli(&self, user: &str) -> u64 {
         self.accounts.get(user).map_or(0, |a| {
+            if a.debt_milli > 0 {
+                return 0;
+            }
             a.balance_milli
                 .saturating_sub(self.open_reserved_milli(user))
         })
@@ -245,7 +277,7 @@ impl State {
     fn inquire(&mut self, user: &str, app: &str) -> Result<Inquiry, LedgerError> {
         self.gate()?;
         let account = self.accounts.get(user).ok_or(LedgerError::UnknownAccount)?;
-        let frozen = account.frozen;
+        let (frozen, debt_milli_2z) = (account.frozen, account.debt_milli);
         let period = self
             .grants
             .get(&(user.to_owned(), app.to_owned()))
@@ -253,6 +285,7 @@ impl State {
         Ok(Inquiry {
             available_milli_2z: self.available_milli(user),
             cap_remaining_milli_2z: self.cap_remaining_milli(user, app, period),
+            debt_milli_2z,
             open_holds: self.open_count(user),
             frozen,
         })
@@ -279,6 +312,11 @@ impl State {
             .ok_or(LedgerError::UnknownAccount)?;
         if account.frozen {
             return Ok(HoldOutcome::Frozen);
+        }
+        // Before any affordability arithmetic, so debt is never reported as
+        // an ordinary shortage (metering.md §3, chat-api.md).
+        if account.debt_milli > 0 {
+            return Ok(HoldOutcome::InDebt);
         }
         let epoch = account.epoch;
         let key = (req.user.clone(), req.app.clone());
@@ -489,6 +527,7 @@ impl State {
         if let Some(hold) = self.holds.get_mut(&req.hold_id) {
             hold.record.state = HoldState::Settled;
         }
+        self.absorb_debt(&user);
         let settlement = Settlement {
             hold_id: req.hold_id,
             receipt_id,
@@ -520,7 +559,9 @@ impl State {
         Ok(match hold.record.state {
             HoldState::Open => {
                 hold.record.state = HoldState::Released;
+                let user = hold.user.clone();
                 self.totals.released = self.totals.released.saturating_add(1);
+                self.absorb_debt(&user);
                 ReleaseOutcome::Released
             }
             HoldState::Released => ReleaseOutcome::Released,
@@ -551,19 +592,50 @@ impl InMemoryLedger {
                 balance_milli: balance_milli_2z,
                 frozen: false,
                 epoch: 1,
+                debt_milli: 0,
                 funded_milli: balance_milli_2z,
                 spent_milli: 0,
+                debited_milli: 0,
             },
         );
     }
 
-    /// Add `milli_2z` to `user`'s balance (a purchase). No-op without an
-    /// account.
+    /// A purchase: credit `milli_2z`, repaying any debt first
+    /// (purchase.md §3.1). No-op without an account.
     pub fn credit(&self, user: &str, milli_2z: u64) {
         if let Some(a) = self.lock().accounts.get_mut(user) {
-            a.balance_milli = a.balance_milli.saturating_add(milli_2z);
+            let repay = a.debt_milli.min(milli_2z);
+            a.debt_milli = a.debt_milli.saturating_sub(repay);
             a.funded_milli = a.funded_milli.saturating_add(milli_2z);
+            a.debited_milli = a.debited_milli.saturating_add(repay);
+            a.balance_milli = a
+                .balance_milli
+                .saturating_add(milli_2z.saturating_sub(repay));
         }
+    }
+
+    /// A refund or chargeback taking back `milli_2z` (purchase.md §3.1): it
+    /// debits what is *available* — 2Z under an open hold are not taken, and
+    /// settle normally — and the rest becomes debt, which refuses every hold
+    /// with `in_debt` until credits repay it. No-op without an account.
+    pub fn reverse_credit(&self, user: &str, milli_2z: u64) {
+        let mut s = self.lock();
+        let available = match s.accounts.get(user) {
+            Some(a) => a.balance_milli.saturating_sub(s.open_reserved_milli(user)),
+            None => return,
+        };
+        if let Some(a) = s.accounts.get_mut(user) {
+            let take = available.min(milli_2z);
+            a.balance_milli = a.balance_milli.saturating_sub(take);
+            a.debited_milli = a.debited_milli.saturating_add(take);
+            a.debt_milli = a.debt_milli.saturating_add(milli_2z.saturating_sub(take));
+        }
+    }
+
+    /// What `user` owes, in milli-2Z.
+    #[must_use]
+    pub fn debt_milli_2z(&self, user: &str) -> Option<u64> {
+        self.lock().accounts.get(user).map(|a| a.debt_milli)
     }
 
     /// `user`'s balance (open holds not subtracted), in milli-2Z.
@@ -697,7 +769,8 @@ impl InMemoryLedger {
     /// Check the invariants a load test must hold at the end of a run:
     ///
     /// * no user's open holds exceed their balance (available never negative);
-    /// * every user's balance plus what they spent equals what they funded;
+    /// * every user's balance, plus what they spent, plus what reversals and
+    ///   debt repayment took, equals what they were credited;
     /// * no user has more than [`MAX_OPEN_HOLDS`] open holds;
     /// * every settlement's collection plus shortfall is its price, and its
     ///   parts sum to its collection;
@@ -716,10 +789,14 @@ impl InMemoryLedger {
                     a.balance_milli
                 ));
             }
-            if a.balance_milli.checked_add(a.spent_milli) != Some(a.funded_milli) {
+            if a.balance_milli
+                .checked_add(a.spent_milli)
+                .and_then(|v| v.checked_add(a.debited_milli))
+                != Some(a.funded_milli)
+            {
                 return Err(format!(
-                    "{user}: balance {} + spent {} != funded {}",
-                    a.balance_milli, a.spent_milli, a.funded_milli
+                    "{user}: balance {} + spent {} + debited {} != funded {}",
+                    a.balance_milli, a.spent_milli, a.debited_milli, a.funded_milli
                 ));
             }
             if s.open_count(user) > MAX_OPEN_HOLDS {

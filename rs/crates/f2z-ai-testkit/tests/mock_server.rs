@@ -252,3 +252,57 @@ async fn a_named_scenario_is_selected_per_request() {
     );
     mock.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reader_that_stops_reading_is_counted_as_backpressure() {
+    // Paced fast enough that a stalled reader fills the socket buffers
+    // within the test's wait.
+    let mock = MockProvider::start(
+        Scenario::default()
+            .with_output_tokens(20_000)
+            .with_tokens_per_sec(20_000),
+    )
+    .await
+    .unwrap();
+    // A prompt reader at a realistic provider speed: no backpressure.
+    mock.insert_scenario(
+        "realistic",
+        Scenario::default()
+            .with_output_tokens(300)
+            .with_tokens_per_sec(1_000),
+    );
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "{}{}",
+            mock.base_url(),
+            ProviderStyle::ChatCompletions.path()
+        ))
+        .header(SCENARIO_HEADER, "realistic")
+        .json_body(&request_body(ProviderStyle::ChatCompletions))
+        .send()
+        .await
+        .unwrap();
+    read_all(resp).await.unwrap();
+    assert_eq!(mock.backpressured_writes(), 0);
+    // A reader that sends its request and never reads, with a small receive
+    // buffer so the socket fills deterministically rather than after however
+    // many megabytes the OS auto-tunes to.
+    let socket = tokio::net::TcpSocket::new_v4().unwrap();
+    socket.set_recv_buffer_size(4_096).unwrap();
+    let mut stalled = socket.connect(mock.addr()).await.unwrap();
+    let body = request_body(ProviderStyle::ChatCompletions).to_string();
+    let request = format!(
+        "POST {} HTTP/1.1\r\nhost: {}\r\ncontent-type: application/json\r\n\
+         content-length: {}\r\n\r\n{body}",
+        ProviderStyle::ChatCompletions.path(),
+        mock.addr(),
+        body.len()
+    );
+    tokio::io::AsyncWriteExt::write_all(&mut stalled, request.as_bytes())
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    assert!(mock.backpressured_writes() > 0);
+    drop(stalled);
+    mock.shutdown().await;
+}

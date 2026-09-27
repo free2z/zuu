@@ -1,8 +1,8 @@
 //! The ledger contract the gateway meters against, and an in-memory fake.
 //!
-//! `docs/sdk/spec/metering.md` §3 (zuu #1051, **provisional** — in review when
-//! this was written) specifies five operations, and ADR 0002 makes them the
-//! only authority on whether 2Z can be reserved or charged:
+//! `docs/sdk/spec/metering.md` §3 (merged in zuu #1051) specifies five
+//! operations, and ADR 0002 makes them the only authority on whether 2Z can be
+//! reserved or charged:
 //!
 //! | Operation | Here |
 //! |---|---|
@@ -15,8 +15,14 @@
 //!
 //! The trait is what a gateway codes against; [`InMemoryLedger`] is one
 //! implementation of it, so tests can run the whole hold → stream → settle
-//! lifecycle, and every edge case of metering.md §5, without Postgres. When
-//! the contract changes in review, the trait changes and the fake follows.
+//! lifecycle, and every edge case of metering.md §5, without Postgres. The
+//! contract is v1-final, but the crate-level follow-ups it names (zuu #1052)
+//! are still landing; when it moves, the trait moves and the fake follows.
+//!
+//! What is deliberately **not** here: the client-facing settlement states of
+//! `done.settlement` (`settled` / `pending` / `released`) and the output
+//! clamp and extension-target arithmetic of §4 are the gateway's, computed
+//! from these answers — the ledger never sees them.
 //!
 //! Amounts follow metering.md §1: holds and charges in whole 2Z (`_2z`),
 //! balances, caps, collections and splits in milli-2Z (`_milli_2z`), provider
@@ -45,18 +51,16 @@ impl fmt::Display for HoldId {
     }
 }
 
-/// `hold_key` of metering.md §3: `(app, user, idempotency key, attempt)`.
-/// A second hold with the same key is a replay of the first.
+/// `hold_key` of metering.md §3: `(call_id, attempt)`. The gateway mints
+/// `call_id` per call (a UUIDv7), so keys never collide across calls and the
+/// ledger never sees the request's `Idempotency-Key`. A second hold with the
+/// same key is the gateway retrying its own hold after a lost response.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct HoldKey {
-    /// The registered app.
-    pub app: String,
-    /// The user.
-    pub user: String,
-    /// The call's idempotency key.
-    pub idempotency_key: String,
-    /// `1` for a call, `2` for its `fallback` retry.
-    pub attempt: u8,
+    /// The gateway's call id.
+    pub call_id: String,
+    /// `1` for a call; each `fallback` model tried is the next attempt.
+    pub attempt: u32,
 }
 
 /// The one state a hold is in. The first terminal transition wins.
@@ -75,11 +79,14 @@ pub enum HoldState {
 /// The answer to [`LedgerContract::inquire`]. Advisory: the hold decides.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Inquiry {
-    /// Balance minus open holds, in milli-2Z.
+    /// Balance minus open holds, in milli-2Z; `0` while the account is in
+    /// debt.
     pub available_milli_2z: u64,
     /// The grant's remaining cap for the current period, or `None` when
     /// uncapped.
     pub cap_remaining_milli_2z: Option<u64>,
+    /// What the account owes after a purchase reversal (purchase.md §3.1).
+    pub debt_milli_2z: u64,
     /// The user's open holds.
     pub open_holds: u32,
     /// Whether the account is frozen.
@@ -140,6 +147,9 @@ pub enum HoldOutcome {
         /// Its current state.
         state: HoldState,
     },
+    /// The account carries debt. Checked before the balance, so debt is never
+    /// reported as an ordinary shortage (`403 account_in_debt`).
+    InDebt,
     /// `available_milli_2z < amount_2z × 1000`.
     InsufficientBalance,
     /// The grant's cap for the period does not cover the amount.
