@@ -144,7 +144,10 @@ after an abort the connection is dropped outright, so a client that never
 reads cannot hold a socket or a buffer past its slot. Request bodies are read
 into one contiguous buffer, so a body sent in one-byte chunks costs its
 payload and not a descriptor per chunk, and a body's share of the upload
-budget is held until the backend's `start` has consumed the request.
+budget is held until the backend's `start` has consumed the request — or,
+for an upstream that keeps the request's bytes to send them
+(`Upstream::keep_upload_reservation`; the provider adapters do, until the
+provider's 2xx head), until it lets them go.
 
 Settlement ownership starts **before** the backend's `start` runs: a call
 whose `start` fails, times out or is cancelled by a drain still reaches the
