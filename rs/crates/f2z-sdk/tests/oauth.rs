@@ -938,26 +938,39 @@ async fn cancelled_account_switch_during_delete_finishes_before_queued_sign_out(
 
 struct HangingStore {
     inner: MemoryStore,
+    hang_load: std::sync::atomic::AtomicBool,
+    loads: std::sync::atomic::AtomicUsize,
+    deletes: std::sync::atomic::AtomicUsize,
     hang: std::sync::atomic::AtomicBool,
     entered: std::sync::atomic::AtomicBool,
     released: std::sync::Mutex<bool>,
     wake: std::sync::Condvar,
 }
+impl HangingStore {
+    fn wait(&self) {
+        self.entered.store(true, Ordering::SeqCst);
+        let mut released = self.released.lock().unwrap();
+        while !*released {
+            released = self.wake.wait(released).unwrap();
+        }
+    }
+}
 impl TokenStore for HangingStore {
     fn load(&self, account: &str) -> Result<Option<f2z_sdk::Secret>, f2z_sdk::StoreError> {
+        self.loads.fetch_add(1, Ordering::SeqCst);
+        if self.hang_load.load(Ordering::SeqCst) {
+            self.wait();
+        }
         self.inner.load(account)
     }
     fn save(&self, account: &str, value: &f2z_sdk::Secret) -> Result<(), f2z_sdk::StoreError> {
         if self.hang.load(Ordering::SeqCst) {
-            self.entered.store(true, Ordering::SeqCst);
-            let mut released = self.released.lock().unwrap();
-            while !*released {
-                released = self.wake.wait(released).unwrap();
-            }
+            self.wait();
         }
         self.inner.save(account, value)
     }
     fn delete(&self, account: &str) -> Result<(), f2z_sdk::StoreError> {
+        self.deletes.fetch_add(1, Ordering::SeqCst);
         self.inner.delete(account)
     }
     fn persistence(&self) -> Persistence {
@@ -977,6 +990,9 @@ async fn a_hung_detached_refresh_save_does_not_prevent_sign_out_revocation() {
     let fake = Fake::start().await;
     let store = Arc::new(HangingStore {
         inner: MemoryStore::new(),
+        hang_load: false.into(),
+        loads: 0.into(),
+        deletes: 0.into(),
         hang: false.into(),
         entered: false.into(),
         released: std::sync::Mutex::new(false),
@@ -1022,6 +1038,10 @@ async fn a_hung_detached_refresh_save_does_not_prevent_sign_out_revocation() {
         "remote revocation must not wait for keychain"
     );
     assert!(!client.is_signed_in().await.unwrap());
+    let deletes_before_release = store.deletes.load(Ordering::SeqCst);
+    for _ in 0..8 {
+        assert!(matches!(client.sign_out().await, Err(Error::Storage(_))));
+    }
     // Only test cleanup releases the OS operation; late save then delete must
     // retain their order and cannot restore the signed-out session.
     drop(cleanup);
@@ -1032,4 +1052,44 @@ async fn a_hung_detached_refresh_save_does_not_prevent_sign_out_revocation() {
     })
     .await
     .unwrap();
+    assert_eq!(
+        store.deletes.load(Ordering::SeqCst),
+        deletes_before_release + 1,
+        "repeated timed-out deletes must coalesce to one pending operation"
+    );
+}
+
+#[tokio::test]
+async fn repeated_timed_out_loads_share_one_blocking_operation() {
+    let fake = Fake::start().await;
+    let store = Arc::new(HangingStore {
+        inner: MemoryStore::new(),
+        hang_load: true.into(),
+        loads: 0.into(),
+        deletes: 0.into(),
+        hang: false.into(),
+        entered: false.into(),
+        released: std::sync::Mutex::new(false),
+        wake: std::sync::Condvar::new(),
+    });
+    let cleanup = ReleaseStore(store.clone());
+    let client = Client::new(
+        fake.config()
+            .with_request_timeout(Duration::from_millis(20)),
+        store.clone(),
+    )
+    .unwrap();
+    for _ in 0..12 {
+        assert!(matches!(
+            client.is_signed_in().await,
+            Err(Error::Storage(_))
+        ));
+    }
+    assert_eq!(
+        store.loads.load(Ordering::SeqCst),
+        1,
+        "retries spawned more blocked keychain loads"
+    );
+    drop(cleanup);
+    assert!(!client.is_signed_in().await.unwrap());
 }

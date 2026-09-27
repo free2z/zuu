@@ -2,7 +2,6 @@
 
 use std::fmt;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use reqwest::StatusCode;
@@ -51,22 +50,28 @@ pub(crate) struct Inner {
     pub(crate) config: Validated,
     pub(crate) http: reqwest::Client,
     store: Arc<dyn TokenStore>,
-    /// Orders writes to the store by when they were issued (always under
-    /// the session lock), not by when their blocking task happens to finish:
-    /// a slow save whose caller was cancelled can never land after a later
-    /// delete or a later session's save.
+    // One blocking worker, one coalesced write, and one shared load per client.
     store_order: Arc<std::sync::Mutex<StoreOrder>>,
-    store_issued: AtomicU64,
     account: String,
     discovery: OnceCell<Discovery>,
     session: Arc<Mutex<SessionState>>,
     pub(crate) models_cache: std::sync::Mutex<Option<(String, crate::ai::Models)>>,
 }
 
-/// Last-applied sequence number of store writes.
-#[derive(Debug, Default)]
+type StoreResult = Result<Option<Secret>, String>;
+type StoreReceiver = tokio::sync::watch::Receiver<Option<StoreResult>>;
+
+#[derive(Default)]
 struct StoreOrder {
-    applied: u64,
+    running: bool,
+    pending_write: Option<StoreJob>,
+    pending_load: Option<StoreJob>,
+    load: Option<StoreReceiver>,
+}
+
+struct StoreJob {
+    write: Option<StoreWrite>,
+    done: tokio::sync::watch::Sender<Option<StoreResult>>,
 }
 
 enum StoreWrite {
@@ -178,7 +183,6 @@ impl Client {
                 config,
                 store,
                 store_order: Arc::default(),
-                store_issued: AtomicU64::new(0),
                 account,
                 discovery: OnceCell::new(),
                 session: Arc::new(Mutex::new(SessionState::default())),
@@ -526,11 +530,7 @@ impl Client {
     }
 
     async fn load(&self, s: &mut SessionState) -> Result<(), Error> {
-        let store = Arc::clone(&self.inner.store);
-        let account = self.inner.account.clone();
-        let blob = self
-            .await_store(tokio::task::spawn_blocking(move || store.load(&account)))
-            .await?;
+        let blob = self.await_store(self.queue_store(None)?).await?;
         s.loaded = true;
         if let Some(blob) = blob {
             match serde_json::from_str::<Stored>(blob.expose()) {
@@ -568,50 +568,100 @@ impl Client {
         self.store_write(StoreWrite::Delete).await
     }
 
-    /// One store write, sequenced (see [`Inner::store_order`]). Called with
-    /// the session lock held, so issue order is the session's own order. The
-    /// blocking task runs to completion even if this future is dropped; a
-    /// write that a later one has already overtaken is skipped.
+    // Session-lock issue order is preserved. A timed-out pending write can be
+    // superseded by a newer write, but the active OS call always finishes first.
     async fn store_write(&self, write: StoreWrite) -> Result<(), Error> {
-        let order = Arc::clone(&self.inner.store_order);
-        // Never acquire the blocking I/O mutex on a runtime thread.
-        let seq = self.inner.store_issued.fetch_add(1, Ordering::Relaxed);
-        let store = Arc::clone(&self.inner.store);
-        let account = self.inner.account.clone();
-        self.await_store(tokio::task::spawn_blocking(move || {
-            let mut o = order
-                .lock()
-                .map_err(|_| crate::keychain::StoreError("store order lock poisoned".into()))?;
-            if seq < o.applied {
-                return Ok(());
-            }
-            let result = match &write {
-                StoreWrite::Save(blob) => store.save(&account, blob),
-                StoreWrite::Delete => store.delete(&account),
-            };
-            if result.is_ok() {
-                o.applied = seq;
-            }
-            result
-        }))
-        .await
+        self.await_store(self.queue_store(Some(write))?).await?;
+        Ok(())
     }
 
-    // A keychain can wait indefinitely for OS UI. Bound only the async wait:
-    // blocking operations cannot be killed safely and continue in issue order.
-    // Releasing the session guard on this error lets sign-out clear memory and
-    // start remote revocation even while a previous storage operation is stuck.
-    async fn await_store<T>(
-        &self,
-        task: tokio::task::JoinHandle<Result<T, crate::keychain::StoreError>>,
-    ) -> Result<T, Error> {
-        tokio::time::timeout(self.inner.config.request_timeout, task)
-            .await
-            .map_err(|_| {
-                Error::Storage("token store operation timed out; cleanup may complete later".into())
-            })?
-            .map_err(|e| Error::Storage(format!("token store task: {e}")))?
-            .map_err(|e| Error::Storage(e.to_string()))
+    fn queue_store(&self, write: Option<StoreWrite>) -> Result<StoreReceiver, Error> {
+        let state = Arc::clone(&self.inner.store_order);
+        let mut order = state
+            .lock()
+            .map_err(|_| Error::Storage("store lock poisoned".into()))?;
+        if write.is_none()
+            && let Some(load) = &order.load
+        {
+            return Ok(load.clone());
+        }
+        let (done, receiver) = tokio::sync::watch::channel(None);
+        let job = StoreJob { write, done };
+        if job.write.is_none() {
+            order.load = Some(receiver.clone());
+            order.pending_load = Some(job);
+        } else if let Some(old) = order.pending_write.replace(job) {
+            old.done
+                .send_replace(Some(Err("store write superseded".into())));
+        }
+        if !order.running {
+            order.running = true;
+            let store = Arc::clone(&self.inner.store);
+            let account = self.inner.account.clone();
+            let state = Arc::clone(&state);
+            tokio::task::spawn_blocking(move || {
+                loop {
+                    let job = {
+                        let mut order = state
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        match order
+                            .pending_write
+                            .take()
+                            .or_else(|| order.pending_load.take())
+                        {
+                            Some(job) => job,
+                            None => {
+                                order.running = false;
+                                return;
+                            }
+                        }
+                    };
+                    // No mutex is held across OS calls. A backend panic must not
+                    // strand the executor's running flag or its completion waiters.
+                    let result =
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            match &job.write {
+                                Some(StoreWrite::Save(blob)) => {
+                                    store.save(&account, blob).map(|()| None)
+                                }
+                                Some(StoreWrite::Delete) => store.delete(&account).map(|()| None),
+                                None => store.load(&account),
+                            }
+                        }))
+                        .map_err(|_| "token store panicked".to_owned())
+                        .and_then(|r| r.map_err(|e| e.to_string()));
+                    if job.write.is_none() {
+                        state
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .load = None;
+                    }
+                    job.done.send_replace(Some(result));
+                }
+            });
+        }
+        Ok(receiver)
+    }
+
+    // Bound the async wait without creating another blocking task on retry.
+    // Timed-out writes remain queued, and later writes replace that single slot.
+    async fn await_store(&self, mut receiver: StoreReceiver) -> Result<Option<Secret>, Error> {
+        tokio::time::timeout(self.inner.config.request_timeout, async {
+            loop {
+                if let Some(result) = receiver.borrow_and_update().clone() {
+                    return result.map_err(Error::Storage);
+                }
+                receiver
+                    .changed()
+                    .await
+                    .map_err(|_| Error::Storage("token store worker stopped".into()))?;
+            }
+        })
+        .await
+        .map_err(|_| {
+            Error::Storage("token store operation timed out; cleanup may complete later".into())
+        })?
     }
 
     /// Put a token response into the session and persist the refresh token.

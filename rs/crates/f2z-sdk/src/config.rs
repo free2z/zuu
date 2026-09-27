@@ -46,7 +46,9 @@ pub struct Config {
     pub ai_base: String,
     /// The limit on one non-streaming request and on waiting for a token-store
     /// operation. A store timeout is `Error::Storage`; its blocking operation
-    /// may finish later, with writes still sequenced. Refresh's first attempt
+    /// may finish later, so durability is uncertain until it completes. Each
+    /// client permits one blocking store call; repeated loads share it and
+    /// pending writes coalesce to the newest save/delete. Refresh's first attempt
     /// is additionally capped at 30 seconds to leave recovery time, and its
     /// entire same-token recovery sequence is capped at 55 seconds.
     pub request_timeout: Duration,
