@@ -48,7 +48,7 @@ function rustChannel() {
     /^channel\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"\s*$/m,
   );
   if (!match)
-    throw new Error("wallet/rust-toolchain.toml has no exact Rust channel");
+    throw new Error("wallet toolchain restatement has no exact Rust channel");
   return match[1];
 }
 

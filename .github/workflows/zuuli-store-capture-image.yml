@@ -9,7 +9,7 @@ on:
       - .github/containers/zuuli-store-capture/**
       - .github/workflows/zuuli-store-capture-image.yml
       - .github/workflows/zuuli.yml
-      - docs/ZUULI-STORE-CAPTURE-IMAGE.md
+      - docs/zuuli/build/ZUULI-STORE-CAPTURE-IMAGE.md
       - scripts/check-zuuli-store-capture-image.mjs
   push:
     branches: [main]
@@ -17,7 +17,7 @@ on:
       - .github/containers/zuuli-store-capture/**
       - .github/workflows/zuuli-store-capture-image.yml
       - .github/workflows/zuuli.yml
-      - docs/ZUULI-STORE-CAPTURE-IMAGE.md
+      - docs/zuuli/build/ZUULI-STORE-CAPTURE-IMAGE.md
       - scripts/check-zuuli-store-capture-image.mjs
   schedule:
     - cron: "41 9 * * 3"

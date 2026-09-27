@@ -76,7 +76,7 @@ export const BREADCRUMB_CODES = [
   // navigation
   "route-enter",
   "route-leave",
-  // bridge — the cross-surface intent bridge (docs/intent-bridge/PROTOCOL.md)
+  // bridge — the cross-surface intent bridge (docs/free2z/intent-bridge/PROTOCOL.md)
   "bridge-request-encoded",
   "bridge-response-decoded",
   "bridge-refused",

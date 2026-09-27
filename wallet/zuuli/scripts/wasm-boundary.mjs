@@ -13,6 +13,7 @@ const currentRepoRoot = path.resolve(
 
 const requiredFiles = [
   ".github/workflows/zuuli.yml",
+  "rust-toolchain.toml",
   "wallet/rust-toolchain.toml",
   "wallet/zuuli/.gitignore",
   "wallet/zuuli/docs/wasm-spike.md",
@@ -40,7 +41,7 @@ const exactNeedles = new Map([
     "wallet/zuuli/src-tauri/tauri.conf.json",
     ["script-src 'self' 'wasm-unsafe-eval'"],
   ],
-  ["wallet/rust-toolchain.toml", ['targets = ["wasm32-unknown-unknown"]']],
+  ["rust-toolchain.toml", ['targets = ["wasm32-unknown-unknown"]']],
   ["wallet/zuuli/.gitignore", ["wasm-spike/generated/", "wasm-spike/target/"]],
   [
     "wallet/zuuli/scripts/wasm-build.mjs",

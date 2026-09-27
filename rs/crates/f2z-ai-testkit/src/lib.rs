@@ -29,7 +29,7 @@
 //!
 //! # Why the ledger is a trait
 //!
-//! The ledger contract follows `docs/sdk/spec/metering.md` §3, v1-final as
+//! The ledger contract follows `docs/free2z/sdk/spec/metering.md` §3, v1-final as
 //! merged in zuu #1051; the crate-level follow-ups it names are zuu #1052.
 //! The operations are a trait ([`ledger::LedgerContract`]) and the fake only
 //! one implementation of it, so when the contract moves the trait moves with

@@ -2,7 +2,7 @@
 //! `error` and the non-streamed response, and the per-state rules for the
 //! amount fields beside it.
 //!
-//! `docs/sdk/spec/chat-api.md` §3.6–§3.7 and `docs/sdk/spec/metering.md`
+//! `docs/free2z/sdk/spec/chat-api.md` §3.6–§3.7 and `docs/free2z/sdk/spec/metering.md`
 //! §3, §5.5, §5.6 and §5.11 are the prose this module encodes.
 //!
 //! | `settlement` | `charged_2z` | `receipt_id` | `collected` / `shortfall` | `released_2z` |

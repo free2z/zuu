@@ -25,7 +25,7 @@ use common::{NOW, device, directory_entry, issue_credential, with_revocation};
 #[path = "../../../tests/support/markdown.rs"]
 mod markdown;
 
-const WIRE: &str = include_str!("../../../../docs/e2ee/WIRE.md");
+const WIRE: &str = include_str!("../../../../docs/free2z/messaging/WIRE.md");
 const KEY_PACKAGE_AUTHENTICATION_HEADING: &str =
     "#### 12.6.5 Authentication — mandatory, and structural";
 const NEXT_WIRE_HEADING: &str = "#### 12.6.6 Exhaustion, and the package of last resort";

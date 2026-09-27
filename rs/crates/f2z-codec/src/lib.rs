@@ -1,6 +1,6 @@
 //! Canonical encoding for the free2z relay wire protocol, version 1.
 //!
-//! This crate implements the encoding layer of [`docs/e2ee/WIRE.md`], and only
+//! This crate implements the encoding layer of [`docs/free2z/messaging/WIRE.md`], and only
 //! that layer. It holds the `tls_codec` wrappers for every wire structure the
 //! specification defines, the domain-separated signing-transcript builder of
 //! §5, the newtypes for queue addresses, payloads and keys, and the
@@ -66,8 +66,8 @@
 //! # }
 //! ```
 //!
-//! [`docs/e2ee/WIRE.md`]: https://github.com/free2z/zuu/blob/main/docs/e2ee/WIRE.md
-//! [ADR 0001]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0001-platform-priority.md
+//! [`docs/free2z/messaging/WIRE.md`]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/WIRE.md
+//! [ADR 0001]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0001-platform-priority.md
 
 #![no_std]
 #![forbid(unsafe_code)]

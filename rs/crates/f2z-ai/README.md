@@ -1,8 +1,8 @@
 # `f2z-ai` — the free2z AI gateway (skeleton)
 
 The service behind `https://ai.free2z.cash`
-([`docs/ai-gateway`](../../../docs/ai-gateway/README.md), the contract in
-[`docs/sdk/spec`](../../../docs/sdk/spec/chat-api.md), epic
+([`docs/free2z/ai-gateway`](../../../docs/free2z/ai-gateway/README.md), the contract in
+[`docs/free2z/sdk/spec`](../../../docs/free2z/sdk/spec/chat-api.md), epic
 [#1047](https://github.com/free2z/zuu/issues/1047)). **AGPL-3.0-only**, never
 published to crates.io, native only.
 

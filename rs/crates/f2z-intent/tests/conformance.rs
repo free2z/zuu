@@ -8,7 +8,7 @@
 //! without the code it claims to test is the `#589`/`#603` inert-fixture
 //! defect, and this repository has already been bitten by it twice. The
 //! mutations and the failures they produced are recorded in
-//! `docs/intent-bridge/CONFORMANCE.md`.
+//! `docs/free2z/intent-bridge/CONFORMANCE.md`.
 //!
 //! # The cases
 //!

@@ -3,7 +3,7 @@ name = "f2z-ai-proto"
 version = "0.1.0"
 description = "The free2z AI gateway's code-level contract: /v1/chat wire types, the SSE event grammar, the signed model catalogue, error codes, and price_2z() — the integer-exact cost-plus 2Z pricing formula"
 edition.workspace = true
-# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# A restatement of rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered in `scripts/check-rust-toolchain.sh`'s `MANIFESTS` so it cannot
 # drift. Not inherited: that check reads this literal line.
 rust-version = "1.97"
@@ -19,7 +19,7 @@ readme = "README.md"
 # conformance tests depend on files outside a packaged crate.
 include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
 # Intended for crates.io (zuu #1047's namespace table), but not published yet:
-# the first publish is a deliberate act once the prose spec (docs/sdk, #1048)
+# the first publish is a deliberate act once the prose spec (docs/free2z/sdk, #1048)
 # and this crate are reconciled. Until then it inherits `publish = false`, so a
 # stray `cargo publish` cannot freeze an unreviewed 0.1.0 forever.
 publish.workspace = true

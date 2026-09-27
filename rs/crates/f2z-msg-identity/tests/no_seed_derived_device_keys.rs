@@ -30,7 +30,7 @@
 //! be added to `device.rs`, whose module note says in the first paragraph why
 //! it must not be.
 //!
-//! [ADR 0002]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0002-multi-device.md
+//! [ADR 0002]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0002-multi-device.md
 
 #![allow(
     clippy::unwrap_used,

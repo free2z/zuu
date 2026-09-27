@@ -31,7 +31,7 @@ name: wallet/surfaces
 # `scripts/check-workflow-gates.mjs`'s UNGATED_WORKFLOWS.
 #
 # The contract test that holds the messaging client to
-# `docs/e2ee/CLIENT-CONTRACT.md` — `messaging-contract.node-test.mjs` — never
+# `docs/free2z/messaging/CLIENT-CONTRACT.md` — `messaging-contract.node-test.mjs` — never
 # moved out of ZUULI at all: it stays in `wallet/zuuli/scripts` so it keeps
 # running inside the protected `gate`, and it reads across both trees.
 
@@ -44,6 +44,7 @@ on:
       - 'wallet/package.json'
       - 'wallet/package-lock.json'
       - 'wallet/plugins/tauri-plugin-f2zmsg/**'
+      - 'rust-toolchain.toml'
       - 'wallet/rust-toolchain.toml'
       - 'wallet/deny.toml'
       - 'rs/crates/f2z-codec/**'
@@ -68,6 +69,7 @@ on:
       - 'wallet/package.json'
       - 'wallet/package-lock.json'
       - 'wallet/plugins/tauri-plugin-f2zmsg/**'
+      - 'rust-toolchain.toml'
       - 'wallet/rust-toolchain.toml'
       - 'wallet/deny.toml'
       - 'rs/crates/f2z-codec/**'

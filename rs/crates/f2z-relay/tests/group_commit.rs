@@ -11,7 +11,7 @@
 //! That is the whole of why [`f2z_relay::commit`] exists. A cheap VPS's disk
 //! does on the order of 50-200 fsyncs a second; one transaction per `APPEND`
 //! would cap the relay there, and
-//! [ADR 0005](https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0005-federation.md)'s
+//! [ADR 0005](https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0005-federation.md)'s
 //! economics do not survive that ceiling.
 //!
 //! # And the claim it must not weaken

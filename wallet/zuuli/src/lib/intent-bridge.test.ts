@@ -9,7 +9,7 @@
  *
  * Every case was mutation-verified the same way the Rust suite was: the guard
  * was broken in `wallet/shared/src/intent/`, this file was watched to fail,
- * and the guard was restored. `docs/intent-bridge/CONFORMANCE.md` records the
+ * and the guard was restored. `docs/free2z/intent-bridge/CONFORMANCE.md` records the
  * mutations — **including the two that leave this file green**, because
  * version 1 has exactly one encoding per value and so `finish()` and
  * re-encode equality each catch a trailing byte on their own. Removing both
@@ -50,7 +50,7 @@ import type { IntentSessionOutcome, IntentRequest } from "@free2z/wallet-shared"
  *
  * **This constant is the contract.** `rs/crates/f2z-intent/tests/wire_vectors.rs`
  * pins the identical string, derived by hand from
- * `docs/intent-bridge/PROTOCOL.md` §3 rather than printed from either encoder.
+ * `docs/free2z/intent-bridge/PROTOCOL.md` §3 rather than printed from either encoder.
  * Two implementations agreeing with themselves proves nothing; two
  * implementations agreeing with one written-down constant is what makes "one
  * wire format" a fact.
@@ -557,7 +557,7 @@ describe("the issue-device-credential family result", () => {
  *
  * **These two constants are the contract**, pinned identically in
  * `rs/crates/f2z-intent/tests/wire_vectors.rs`, laid out by hand from
- * `docs/intent-bridge/PROTOCOL.md` §3.3. Version 1 is frozen: e2e2z builds
+ * `docs/free2z/intent-bridge/PROTOCOL.md` §3.3. Version 1 is frozen: e2e2z builds
  * already in testers' hands send it. Version 2 (ADR 0017 §4.1) is family 4 and
  * appends the contact endpoint.
  */

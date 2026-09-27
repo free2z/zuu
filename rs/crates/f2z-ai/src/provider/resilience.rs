@@ -3,7 +3,7 @@
 //! **When a retry is allowed at all** is the call's business, not this
 //! module's: only before the first content event — before anything reached
 //! the client and before the gateway committed to the model (the ADR table in
-//! `docs/ai-gateway/README.md`). This module decides **whether one more** is
+//! `docs/free2z/ai-gateway/README.md`). This module decides **whether one more** is
 //! affordable:
 //!
 //! * [`RetryPolicy`] — per call: at most `max_retries` retries, exponential

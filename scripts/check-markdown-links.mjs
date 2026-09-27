@@ -6,8 +6,8 @@
 // The repository had no link check at all until this one. That was survivable
 // while the documentation was a handful of long specifications that linked
 // mostly to each other; #932 ended it by splitting the root `README.md` into a
-// concise entry point plus `docs/architecture.md`, `docs/status.md` and
-// `docs/development.md`, which multiplied the internal cross-linking. A dead
+// concise entry point plus `docs/free2z/app-suite/architecture.md`, `docs/free2z/app-suite/status.md` and
+// `docs/free2z/app-suite/development.md`, which multiplied the internal cross-linking. A dead
 // link in the first document anybody reads is the cheapest possible signal that
 // nothing here is maintained, and it is exactly the kind of rot no test, no
 // build and no reviewer reliably catches.
@@ -106,7 +106,7 @@ const VENDOR_ROOT = "z/";
 /// Checked in both directions. Each root must contain at least one tracked
 /// Markdown file, and a site-absolute target appearing *outside* every root
 /// fails — so this exemption cannot quietly spread to documents that have no
-/// router and where `/docs/architecture.md` is simply wrong.
+/// router and where `/docs/free2z/app-suite/architecture.md` is simply wrong.
 const SITE_ROUTE_ROOTS = [
   {
     root: "docs/about-free2z/",
@@ -135,21 +135,7 @@ const ROUTER_RESOLVED_TARGETS = [];
 ///
 /// An entry that has been fixed fails, so this cannot become a place where
 /// breakage accumulates: the registration dies with the defect.
-const KNOWN_BROKEN_LINKS = [
-  {
-    file: "py/dj/proj/zuu/README.md",
-    target: "../../../requirements/main.txt",
-    reason:
-      "The link is correct about where the file would be — `py/requirements/main.txt`, which " +
-      "is exactly what the same README's own quickstart tells you to `pip install -r` — and " +
-      "the file is absent because only *parts* of the Free2Z backend are open-sourced into " +
-      "this public repository; the requirements manifest stays in the private backend repo. " +
-      "So there is no correct edit available from here: publishing the manifest is a decision " +
-      "about what to open-source, and deleting the link would hide that the quickstart names " +
-      "a file the reader cannot get. Registered rather than guessed at, and this entry fails " +
-      "the moment somebody resolves it either way.",
-  },
-];
+const KNOWN_BROKEN_LINKS = [];
 
 /// Floors. Deliberately floors and not exact counts — adding a document should
 /// not require editing this file — but losing most of the population, or losing
@@ -800,6 +786,7 @@ function overlap(left, right) {
 /// A minimal tree that passes: a root document linking out by path and by
 /// anchor, a target with duplicate headings, a directory link, a link to a
 /// non-Markdown file with a line anchor, and a site with router-resolved links.
+// These paths describe an in-memory test tree, not live repository namespaces.
 const CLEAN_TREE = {
   "README.md": [
     "# Zuu",

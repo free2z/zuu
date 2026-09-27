@@ -1,7 +1,7 @@
 # `f2z-relay` — the relay daemon
 
 The server that runs in production. It implements
-[`docs/e2ee/WIRE.md`](../../../docs/e2ee/WIRE.md) v1 §2 through §13 on top of
+[`docs/free2z/messaging/WIRE.md`](../../../docs/free2z/messaging/WIRE.md) v1 §2 through §13 on top of
 `f2z-codec` (canonical encoding, framing, re-encode equality),
 `f2z-relay-proto` (the signing transcript, anti-replay, queue and ACK rules,
 the capability document) and `f2z-relay-store` (durability, quota admission,
@@ -50,7 +50,7 @@ quota you believe you set.
 2. **Group commit, because `synchronous = FULL` makes the fsync rate the
    ceiling.** A commodity VPS does 50–200 fsyncs a second; one transaction per
    `APPEND` would cap the relay there, and
-   [ADR 0005](../../../docs/e2ee/decisions/0005-federation.md)'s economics do
+   [ADR 0005](../../../docs/free2z/messaging/decisions/0005-federation.md)'s economics do
    not survive it. `tests/group_commit.rs` measures the amortization against
    `SqliteStore::commits` rather than asserting it — **100 concurrent appends
    cost 1 durable transaction.** This does not weaken §11.1's published

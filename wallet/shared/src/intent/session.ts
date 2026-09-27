@@ -24,7 +24,7 @@
  * routed there — holds the identifier and can answer. That is exactly why
  * [#461](https://github.com/free2z/zuu/issues/461), verified App Links and
  * Universal Links, is a hard prerequisite before any intent carrying authority
- * ships. `docs/intent-bridge/CALLER-AUTHENTICATION.md` §4 states the residual
+ * ships. `docs/free2z/intent-bridge/CALLER-AUTHENTICATION.md` §4 states the residual
  * risk if that assumption fails.
  *
  * ## Deliberately not persisted
