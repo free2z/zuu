@@ -5,9 +5,9 @@
 //! whole check-and-reserve is the in-memory equivalent of the ledger's single
 //! conditional update. A burst of parallel holds therefore races exactly as
 //! the spec says it may not: never two holds both seeing enough balance.
-//! It also means an operation takes effect when it is **called**; the
-//! returned future is already complete. A test that wants a ledger call to
-//! race something else should spawn it.
+//! Like a database call, an operation takes effect when its future is first
+//! **polled**, not when it is constructed: a dropped, never-polled `settle`
+//! moves nothing, so a cancellation test sees what a real ledger would do.
 //!
 //! # What is modelled, and what is simplified
 //!
@@ -24,10 +24,9 @@
 //!   and platform's credits are totals in [`LedgerTotals`], not accounts; the
 //!   ledger clock starts at 0 and moves only by [`InMemoryLedger::advance`].
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use core::future::{Future, ready};
 use core::time::Duration;
 
 use f2z_ai_proto::Usage;
@@ -158,6 +157,11 @@ struct State {
     rate_cards: BTreeMap<u64, RateCard>,
     holds: BTreeMap<HoldId, Hold>,
     by_key: HashMap<HoldKey, HoldId>,
+    /// Open holds per user. Every balance and cap computation reads only
+    /// these, so an operation's cost does not grow with settled history.
+    open_by_user: HashMap<String, BTreeSet<HoldId>>,
+    /// Open holds by expiry, so the sweep pops only what is due.
+    expiry: BTreeSet<(u64, HoldId)>,
     next_hold: u64,
     next_receipt: u64,
     fail_next: u32,
@@ -194,16 +198,15 @@ impl State {
     fn sweep(&mut self) -> usize {
         let now = self.now_ms;
         let mut n: usize = 0;
-        let mut users = Vec::new();
-        for hold in self.holds.values_mut() {
-            if hold.record.state == HoldState::Open && now >= hold.record.expires_at_ms {
-                hold.record.state = HoldState::Expired;
-                users.push(hold.user.clone());
-                n = n.saturating_add(1);
+        while let Some(&(at, id)) = self.expiry.first() {
+            if at > now {
+                break;
             }
-        }
-        for user in users {
-            self.absorb_debt(&user);
+            self.close(id, HoldState::Expired);
+            if let Some(user) = self.holds.get(&id).map(|h| h.user.clone()) {
+                self.absorb_debt(&user);
+            }
+            n = n.saturating_add(1);
         }
         self.totals.expired = self
             .totals
@@ -226,10 +229,28 @@ impl State {
         }
     }
 
+    /// Move an open hold to a terminal `state` and drop it from the indexes.
+    fn close(&mut self, id: HoldId, state: HoldState) {
+        let Some(hold) = self.holds.get_mut(&id) else {
+            return;
+        };
+        if hold.record.state != HoldState::Open {
+            return;
+        }
+        hold.record.state = state;
+        let (user, at) = (hold.user.clone(), hold.record.expires_at_ms);
+        self.expiry.remove(&(at, id));
+        if let Some(set) = self.open_by_user.get_mut(&user) {
+            set.remove(&id);
+        }
+    }
+
     fn open_holds<'a>(&'a self, user: &'a str) -> impl Iterator<Item = &'a Hold> + 'a {
-        self.holds
-            .values()
-            .filter(move |h| h.record.state == HoldState::Open && h.user == user)
+        self.open_by_user
+            .get(user)
+            .into_iter()
+            .flatten()
+            .filter_map(|id| self.holds.get(id))
     }
 
     fn open_reserved_milli(&self, user: &str) -> u64 {
@@ -360,6 +381,11 @@ impl State {
         let hold_id = HoldId(self.next_hold);
         let expires_at_ms = self.now_ms.saturating_add(millis(req.ttl));
         self.by_key.insert(req.hold_key.clone(), hold_id);
+        self.open_by_user
+            .entry(req.user.clone())
+            .or_default()
+            .insert(hold_id);
+        self.expiry.insert((expires_at_ms, hold_id));
         self.holds.insert(
             hold_id,
             Hold {
@@ -436,7 +462,9 @@ impl State {
             }
         }
         if let Some(hold) = self.holds.get_mut(&hold_id) {
-            hold.record.expires_at_ms = expires_at_ms;
+            let old = core::mem::replace(&mut hold.record.expires_at_ms, expires_at_ms);
+            self.expiry.remove(&(old, hold_id));
+            self.expiry.insert((expires_at_ms, hold_id));
             hold.record.reserved_2z = outcome_reserved;
         }
         Ok(match refusal {
@@ -527,9 +555,7 @@ impl State {
         t.platform_milli_2z = t.platform_milli_2z.saturating_add(platform);
         t.settled = t.settled.saturating_add(1);
 
-        if let Some(hold) = self.holds.get_mut(&req.hold_id) {
-            hold.record.state = HoldState::Settled;
-        }
+        self.close(req.hold_id, HoldState::Settled);
         self.absorb_debt(&user);
         let settlement = Settlement {
             hold_id: req.hold_id,
@@ -561,8 +587,8 @@ impl State {
         hold.record.release_calls = hold.record.release_calls.saturating_add(1);
         Ok(match hold.record.state {
             HoldState::Open => {
-                hold.record.state = HoldState::Released;
                 let user = hold.user.clone();
+                self.close(hold_id, HoldState::Released);
                 self.totals.released = self.totals.released.saturating_add(1);
                 self.absorb_debt(&user);
                 ReleaseOutcome::Released
@@ -843,41 +869,28 @@ impl InMemoryLedger {
 }
 
 impl LedgerContract for InMemoryLedger {
-    fn inquire(
-        &self,
-        user: &str,
-        app: &str,
-    ) -> impl Future<Output = Result<Inquiry, LedgerError>> + Send {
-        ready(self.lock().inquire(user, app))
+    async fn inquire(&self, user: &str, app: &str) -> Result<Inquiry, LedgerError> {
+        self.lock().inquire(user, app)
     }
 
-    fn hold(
-        &self,
-        request: HoldRequest,
-    ) -> impl Future<Output = Result<HoldOutcome, LedgerError>> + Send {
-        ready(self.lock().hold(request))
+    async fn hold(&self, request: HoldRequest) -> Result<HoldOutcome, LedgerError> {
+        self.lock().hold(request)
     }
 
-    fn extend(
+    async fn extend(
         &self,
         hold_id: HoldId,
         reserve_to_2z: u64,
         ttl: Duration,
-    ) -> impl Future<Output = Result<ExtendOutcome, LedgerError>> + Send {
-        ready(self.lock().extend(hold_id, reserve_to_2z, ttl))
+    ) -> Result<ExtendOutcome, LedgerError> {
+        self.lock().extend(hold_id, reserve_to_2z, ttl)
     }
 
-    fn settle(
-        &self,
-        request: SettleRequest,
-    ) -> impl Future<Output = Result<SettleOutcome, LedgerError>> + Send {
-        ready(self.lock().settle(request))
+    async fn settle(&self, request: SettleRequest) -> Result<SettleOutcome, LedgerError> {
+        self.lock().settle(request)
     }
 
-    fn release(
-        &self,
-        hold_id: HoldId,
-    ) -> impl Future<Output = Result<ReleaseOutcome, LedgerError>> + Send {
-        ready(self.lock().release(hold_id))
+    async fn release(&self, hold_id: HoldId) -> Result<ReleaseOutcome, LedgerError> {
+        self.lock().release(hold_id)
     }
 }

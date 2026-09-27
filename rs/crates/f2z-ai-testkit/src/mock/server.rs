@@ -296,7 +296,7 @@ async fn handle(
             }
             resp
         }
-        Plan::Stream { steps, abort } => {
+        Plan::Stream(stream) => {
             let (tx, rx) = mpsc::channel::<Result<Bytes, io::Error>>(8);
             let probe = Arc::clone(&shared);
             // Unpaced, the mock is always faster than its reader; only a paced
@@ -308,7 +308,9 @@ async fn handle(
                 // would run a 5 000 tokens/s stream at under 1 000. Behind
                 // schedule, frames go out back to back until it catches up.
                 let mut due = tokio::time::Instant::now();
-                for step in steps {
+                // Frames are generated one at a time as they are written.
+                let mut steps = stream.steps();
+                for step in steps.by_ref() {
                     if !step.delay.is_zero() {
                         due = due.checked_add(step.delay).unwrap_or(due);
                         tokio::time::sleep_until(due).await;
@@ -342,7 +344,7 @@ async fn handle(
                         };
                     permit.send(item);
                 }
-                if abort {
+                if steps.aborted() {
                     // Let the body stream go idle first so hyper flushes the
                     // bytes already written: an error on the very next poll
                     // tears the connection down with them still buffered,

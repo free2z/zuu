@@ -29,7 +29,7 @@ fn ctx(include_usage: bool) -> RenderContext {
 
 fn stream(style: ProviderStyle, s: &Scenario, include_usage: bool) -> (Vec<Step>, bool) {
     match plan(style, s, &ctx(include_usage)) {
-        Plan::Stream { steps, abort } => (steps, abort),
+        Plan::Stream(s) => s.collect_steps(),
         Plan::Status { .. } => panic!("expected a stream"),
     }
 }
@@ -343,7 +343,7 @@ fn a_status_fault_answers_with_the_providers_error_body() {
             let v: Value = serde_json::from_slice(&body).unwrap();
             assert_eq!(v["error"]["code"], "rate_limit_exceeded");
         }
-        Plan::Stream { .. } => panic!("expected a status"),
+        Plan::Stream(_) => panic!("expected a status"),
     }
     let s = Scenario::default().with_fault(Fault::Status { status: 529 });
     match plan(ProviderStyle::AnthropicMessages, &s, &ctx(true)) {
@@ -355,7 +355,7 @@ fn a_status_fault_answers_with_the_providers_error_body() {
             assert_eq!(v["type"], "error");
             assert_eq!(v["error"]["type"], "overloaded_error");
         }
-        Plan::Stream { .. } => panic!("expected a status"),
+        Plan::Stream(_) => panic!("expected a status"),
     }
 }
 
@@ -380,4 +380,20 @@ fn pacing_spreads_tokens_at_the_requested_rate_and_stalls_add_on_top() {
         let (steps, _) = stream(style, &unpaced, true);
         assert_eq!(total(&steps), Duration::ZERO);
     }
+}
+
+#[test]
+fn a_long_stream_is_generated_lazily_and_its_prefix_is_exact() {
+    // A million-token stream renders nothing until iterated: taking the first
+    // few frames is instant and allocates only those frames.
+    let long = Scenario::default().with_output_tokens(1_000_000);
+    let Plan::Stream(s) = plan(ProviderStyle::AnthropicMessages, &long, &ctx(true)) else {
+        panic!("expected a stream")
+    };
+    let first: Vec<Step> = s.steps().take(5).collect();
+    assert_eq!(first.len(), 5);
+    let short = Scenario::default().with_output_tokens(3);
+    let full = body(ProviderStyle::AnthropicMessages, &short, true);
+    let prefix: Vec<u8> = first.iter().take(4).flat_map(|s| s.bytes.clone()).collect();
+    assert_eq!(&full[..prefix.len()], &prefix[..], "same frames either way");
 }

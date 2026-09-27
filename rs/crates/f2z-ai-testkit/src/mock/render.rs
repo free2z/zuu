@@ -1,13 +1,15 @@
 //! Rendering a [`Scenario`] into the exact bytes (and pauses) one response
 //! sends. Pure: no I/O and no clock, so the shapes are testable without a
-//! socket and the server is only a pacing loop over a [`Plan`].
+//! socket and the server is only a pacing loop over a [`Plan`]. Streams are
+//! generated lazily ([`StreamPlan::steps`]), so their memory does not grow
+//! with their length.
 
 use core::fmt;
 use core::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::{ChatFlavor, Fault, ProviderStyle, Scenario};
+use super::{ChatFlavor, Fault, ProviderStyle, Scenario, Stall};
 
 /// Fixed `created` / `created_at` timestamp. The mock has no clock; a stable
 /// value keeps every rendering reproducible.
@@ -31,8 +33,9 @@ pub struct RenderContext {
     pub request_seq: u64,
 }
 
-/// One write: wait `delay`, then send `bytes`. Every step of a stream plan is
-/// exactly one SSE frame, so a step boundary is a frame boundary.
+/// One write: wait `delay`, then send `bytes`. Every step of a stream is
+/// exactly one SSE frame, so a step boundary is a frame boundary — except the
+/// last step of a [`Fault::DisconnectAtByte`] stream, which may be cut short.
 ///
 /// `Debug` reports the bytes by length, per the workspace rule against
 /// derived byte dumps (`f2z-codec/tests/workspace_debug_scan.rs`).
@@ -44,8 +47,204 @@ pub struct Step {
     pub bytes: Vec<u8>,
 }
 
+impl fmt::Debug for Step {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Step")
+            .field("delay", &self.delay)
+            .field("bytes_len", &self.bytes.len())
+            .finish()
+    }
+}
+
+/// A frame generator for the `i`-th step of a run of deltas.
+type Gen = Box<dyn Fn(u64) -> Vec<u8> + Send + Sync>;
+
+/// A stream is a few fixed frames around runs of per-token deltas. Runs are
+/// generated one frame at a time as the stream is written, so a stream's
+/// memory is independent of its length — 10 000 concurrent streams of 10 000
+/// tokens each must not mean 10⁸ frames rendered up front.
+enum Segment {
+    Frame(Step),
+    Run {
+        count: u64,
+        /// Extra pause before the first frame of the run.
+        lead: Duration,
+        /// Pause before every frame (the per-token time).
+        each: Duration,
+        /// `(index, pause)`: an extra pause before frame `index`.
+        stall: Option<(u64, Duration)>,
+        make: Gen,
+    },
+}
+
+/// A `200 text/event-stream` answer, generated lazily by [`StreamPlan::steps`].
+pub struct StreamPlan {
+    segments: Vec<Segment>,
+    style: ProviderStyle,
+    fault: Fault,
+}
+
+impl fmt::Debug for StreamPlan {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StreamPlan")
+            .field("segments", &self.segments.len())
+            .field("style", &self.style)
+            .field("fault", &self.fault)
+            .finish()
+    }
+}
+
+impl StreamPlan {
+    /// The writes, in order, with the fault applied as they are produced.
+    #[must_use]
+    pub fn steps(&self) -> Steps<'_> {
+        Steps {
+            plan: self,
+            segment: 0,
+            index: 0,
+            sent: 0,
+            frames: 0,
+            done: false,
+            aborted: false,
+        }
+    }
+
+    /// Every write, and whether the connection is aborted after the last one.
+    /// Materializes the whole stream: for tests, not for serving.
+    #[must_use]
+    pub fn collect_steps(&self) -> (Vec<Step>, bool) {
+        let mut it = self.steps();
+        let steps: Vec<Step> = it.by_ref().collect();
+        (steps, it.aborted())
+    }
+}
+
+/// The iterator of [`StreamPlan::steps`].
+pub struct Steps<'a> {
+    plan: &'a StreamPlan,
+    segment: usize,
+    index: u64,
+    sent: u64,
+    frames: u64,
+    done: bool,
+    aborted: bool,
+}
+
+impl Steps<'_> {
+    /// After the iterator is exhausted: whether the stream ends in an abort
+    /// ([`Fault::DisconnectAtByte`] fired) rather than a clean end of body.
+    #[must_use]
+    pub fn aborted(&self) -> bool {
+        self.aborted
+    }
+
+    /// The next unfaulted step.
+    fn raw_next(&mut self) -> Option<Step> {
+        loop {
+            let seg = self.plan.segments.get(self.segment)?;
+            match seg {
+                Segment::Frame(step) => {
+                    self.segment = self.segment.saturating_add(1);
+                    return Some(step.clone());
+                }
+                Segment::Run {
+                    count,
+                    lead,
+                    each,
+                    stall,
+                    make,
+                } => {
+                    if self.index >= *count {
+                        self.segment = self.segment.saturating_add(1);
+                        self.index = 0;
+                        continue;
+                    }
+                    let i = self.index;
+                    let mut delay = *each;
+                    if i == 0 {
+                        delay = delay.saturating_add(*lead);
+                    }
+                    if let Some((at, pause)) = stall
+                        && *at == i
+                    {
+                        delay = delay.saturating_add(*pause);
+                    }
+                    self.index = i.saturating_add(1);
+                    return Some(Step {
+                        delay,
+                        bytes: make(i),
+                    });
+                }
+            }
+        }
+    }
+}
+
+impl Iterator for Steps<'_> {
+    type Item = Step;
+
+    fn next(&mut self) -> Option<Step> {
+        if self.done {
+            return None;
+        }
+        if let Fault::ErrorEventAtByte { byte, status } = self.plan.fault
+            && self.sent >= byte
+        {
+            // Only at a frame boundary still inside the stream: a `byte` at
+            // or past its end never fires.
+            if self.clone_peek_exists() {
+                self.done = true;
+                return Some(Step {
+                    delay: Duration::ZERO,
+                    bytes: stream_error_frame(self.plan.style, status, self.frames),
+                });
+            }
+        }
+        let Some(mut step) = self.raw_next() else {
+            self.done = true;
+            return None;
+        };
+        let len = u64::try_from(step.bytes.len()).unwrap_or(u64::MAX);
+        if let Fault::DisconnectAtByte { byte } = self.plan.fault {
+            let end = self.sent.saturating_add(len);
+            if end > byte {
+                let take = usize::try_from(byte.saturating_sub(self.sent)).unwrap_or(0);
+                self.done = true;
+                self.aborted = true;
+                if take == 0 {
+                    return None;
+                }
+                step.bytes.truncate(take);
+                self.sent = byte;
+                return Some(step);
+            }
+        }
+        self.sent = self.sent.saturating_add(len);
+        self.frames = self.frames.saturating_add(1);
+        Some(step)
+    }
+}
+
+impl Steps<'_> {
+    /// Whether any unfaulted step remains, without consuming it.
+    fn clone_peek_exists(&self) -> bool {
+        let mut segment = self.segment;
+        let mut index = self.index;
+        while let Some(seg) = self.plan.segments.get(segment) {
+            match seg {
+                Segment::Frame(_) => return true,
+                Segment::Run { count, .. } if index < *count => return true,
+                Segment::Run { .. } => {
+                    segment = segment.saturating_add(1);
+                    index = 0;
+                }
+            }
+        }
+        false
+    }
+}
+
 /// Everything one response does. `Debug` reports bodies by length.
-#[derive(Clone, PartialEq, Eq)]
 pub enum Plan {
     /// A non-streaming error answer.
     Status {
@@ -57,22 +256,7 @@ pub enum Plan {
         body: Vec<u8>,
     },
     /// A `200 text/event-stream` answer.
-    Stream {
-        /// The writes, in order.
-        steps: Vec<Step>,
-        /// Whether to abort the connection after the last step instead of
-        /// ending the body cleanly ([`Fault::DisconnectAtByte`]).
-        abort: bool,
-    },
-}
-
-impl fmt::Debug for Step {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Step")
-            .field("delay", &self.delay)
-            .field("bytes_len", &self.bytes.len())
-            .finish()
-    }
+    Stream(StreamPlan),
 }
 
 impl fmt::Debug for Plan {
@@ -88,18 +272,7 @@ impl fmt::Debug for Plan {
                 .field("retry_after", retry_after)
                 .field("body_len", &body.len())
                 .finish(),
-            Self::Stream { steps, abort } => f
-                .debug_struct("Stream")
-                .field("steps", &steps.len())
-                .field(
-                    "body_len",
-                    &steps
-                        .iter()
-                        .map(|s| s.bytes.len())
-                        .fold(0usize, usize::saturating_add),
-                )
-                .field("abort", abort)
-                .finish(),
+            Self::Stream(s) => s.fmt(f),
         }
     }
 }
@@ -110,7 +283,7 @@ impl Plan {
     pub fn body_bytes(&self) -> Vec<u8> {
         match self {
             Self::Status { body, .. } => body.clone(),
-            Self::Stream { steps, .. } => steps.iter().flat_map(|s| s.bytes.clone()).collect(),
+            Self::Stream(s) => s.steps().flat_map(|s| s.bytes).collect(),
         }
     }
 }
@@ -125,12 +298,16 @@ pub fn plan(style: ProviderStyle, scenario: &Scenario, ctx: &RenderContext) -> P
             body: status_body(style, status, ctx.request_seq),
         };
     }
-    let steps = match style {
+    let segments = match style {
         ProviderStyle::OpenAiResponses => responses(scenario, ctx),
         ProviderStyle::ChatCompletions => chat(scenario, ctx),
         ProviderStyle::AnthropicMessages => anthropic(scenario, ctx),
     };
-    apply_fault(style, scenario.fault, steps)
+    Plan::Stream(StreamPlan {
+        segments,
+        style,
+        fault: scenario.fault,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -149,17 +326,27 @@ fn token_time(tps: Option<u32>, tokens: u64) -> Duration {
     Duration::from_nanos(u64::try_from(nanos).unwrap_or(u64::MAX))
 }
 
-/// Accumulates frames, attaching any pending pause to the next one.
+fn named_bytes(event: &str, data: &Value) -> Vec<u8> {
+    format!("event: {event}\ndata: {data}\n\n").into_bytes()
+}
+
+fn data_bytes(data: &str) -> Vec<u8> {
+    format!("data: {data}\n\n").into_bytes()
+}
+
+/// Accumulates segments, attaching any pending pause to the next frame.
 struct Out {
-    steps: Vec<Step>,
+    segs: Vec<Segment>,
     pending: Duration,
+    frames: u64,
 }
 
 impl Out {
     fn new() -> Self {
         Self {
-            steps: Vec::new(),
+            segs: Vec::new(),
             pending: Duration::ZERO,
+            frames: 0,
         }
     }
 
@@ -168,41 +355,54 @@ impl Out {
     }
 
     fn named(&mut self, event: &str, data: &Value) {
-        self.push(format!("event: {event}\ndata: {data}\n\n").into_bytes());
+        self.push(named_bytes(event, data));
     }
 
     fn data(&mut self, data: &str) {
-        self.push(format!("data: {data}\n\n").into_bytes());
+        self.push(data_bytes(data));
     }
 
     fn push(&mut self, bytes: Vec<u8>) {
         let delay = core::mem::take(&mut self.pending);
-        self.steps.push(Step { delay, bytes });
+        self.segs.push(Segment::Frame(Step { delay, bytes }));
+        self.frames = self.frames.saturating_add(1);
+    }
+
+    /// A run of `count` frames, `each` apart, generated on demand.
+    fn run(&mut self, count: u64, each: Duration, stall: Option<Stall>, make: Gen) {
+        let in_run = stall.filter(|s| s.before_delta < count);
+        if count > 0 {
+            let lead = core::mem::take(&mut self.pending);
+            self.segs.push(Segment::Run {
+                count,
+                lead,
+                each,
+                stall: in_run.map(|s| (s.before_delta, s.duration)),
+                make,
+            });
+            self.frames = self.frames.saturating_add(count);
+        }
+        // A stall at or past the last delta pauses before what follows.
+        if let Some(s) = stall.filter(|s| s.before_delta >= count) {
+            self.wait(s.duration);
+        }
     }
 
     /// The number of frames so far — also the next Responses
     /// `sequence_number`, since every frame there is one event.
     fn len(&self) -> u64 {
-        u64::try_from(self.steps.len()).unwrap_or(u64::MAX)
+        self.frames
     }
 }
 
-/// Emit `visible` deltas through `emit`, pacing each and applying the stall.
-fn visible_deltas(out: &mut Out, scenario: &Scenario, mut emit: impl FnMut(&mut Out, &str)) {
-    let per_token = token_time(scenario.tokens_per_sec, 1);
-    let mut i: u64 = 0;
-    while i < scenario.visible_tokens() {
-        if let Some(stall) = scenario.stall.filter(|s| s.before_delta == i) {
-            out.wait(stall.duration);
-        }
-        out.wait(per_token);
-        emit(out, word(i));
-        i = i.saturating_add(1);
-    }
-    // A stall at or past the last delta pauses before the closing events.
-    if let Some(stall) = scenario.stall.filter(|s| s.before_delta >= i) {
-        out.wait(stall.duration);
-    }
+/// The visible-token run: one frame per visible token, paced, with the stall.
+fn visible_run(out: &mut Out, scenario: &Scenario, make: Gen) {
+    out.run(
+        scenario.visible_tokens(),
+        token_time(scenario.tokens_per_sec, 1),
+        scenario.stall,
+        make,
+    );
 }
 
 fn word(i: u64) -> &'static str {
@@ -225,7 +425,7 @@ fn visible_text(scenario: &Scenario) -> String {
 // OpenAI Responses
 // ---------------------------------------------------------------------------
 
-fn responses(scenario: &Scenario, ctx: &RenderContext) -> Vec<Step> {
+fn responses(scenario: &Scenario, ctx: &RenderContext) -> Vec<Segment> {
     let id = format!("resp_mock_{}", ctx.request_seq);
     let msg_id = format!("msg_mock_{}", ctx.request_seq);
     let rs_id = format!("rs_mock_{}", ctx.request_seq);
@@ -282,15 +482,21 @@ fn responses(scenario: &Scenario, ctx: &RenderContext) -> Vec<Step> {
                 "item_id": msg_id, "output_index": output_index, "content_index": 0,
                 "part": {"type": "output_text", "text": "", "annotations": []}}),
     );
-    visible_deltas(&mut out, scenario, |out, w| {
-        let s = out.len();
-        out.named(
-            "response.output_text.delta",
-            &json!({"type": "response.output_text.delta", "sequence_number": s,
-                    "item_id": msg_id, "output_index": output_index, "content_index": 0,
-                    "delta": w, "logprobs": []}),
-        );
-    });
+    let base = out.len();
+    let item_id = msg_id.clone();
+    visible_run(
+        &mut out,
+        scenario,
+        Box::new(move |i| {
+            named_bytes(
+                "response.output_text.delta",
+                &json!({"type": "response.output_text.delta",
+                        "sequence_number": base.saturating_add(i),
+                        "item_id": item_id, "output_index": output_index, "content_index": 0,
+                        "delta": word(i), "logprobs": []}),
+            )
+        }),
+    );
     out.named(
         "response.output_text.done",
         &json!({"type": "response.output_text.done", "sequence_number": seq(&out),
@@ -335,32 +541,22 @@ fn responses(scenario: &Scenario, ctx: &RenderContext) -> Vec<Step> {
         &json!({"type": "response.completed", "sequence_number": seq(&out),
                 "response": response("completed", Value::Array(output), usage)}),
     );
-    out.steps
+    out.segs
 }
 
 // ---------------------------------------------------------------------------
 // Chat Completions (OpenAI / xAI)
 // ---------------------------------------------------------------------------
 
-fn chat(scenario: &Scenario, ctx: &RenderContext) -> Vec<Step> {
+fn chat(scenario: &Scenario, ctx: &RenderContext) -> Vec<Segment> {
     let id = format!("chatcmpl-mock-{}", ctx.request_seq);
-    let chunk = |choices: Value, usage: Option<Value>| {
-        let mut v = json!({
-            "id": id, "object": "chat.completion.chunk", "created": CREATED,
-            "model": ctx.model, "system_fingerprint": Value::Null, "choices": choices,
-        });
-        // With include_usage every chunk carries `usage`: null until the last.
-        if ctx.include_usage
-            && let Some(obj) = v.as_object_mut()
-        {
-            obj.insert("usage".into(), usage.unwrap_or(Value::Null));
-        }
-        v.to_string()
+    let (model, include_usage) = (ctx.model.clone(), ctx.include_usage);
+    let chunk = move |choices: Value, usage: Option<Value>| {
+        chat_chunk(&id, &model, include_usage, choices, usage)
     };
-    let choice = |delta: Value, finish: Value| json!([{"index": 0, "delta": delta, "logprobs": Value::Null, "finish_reason": finish}]);
     let mut out = Out::new();
     out.data(&chunk(
-        choice(json!({"role": "assistant", "content": ""}), Value::Null),
+        chat_choice(json!({"role": "assistant", "content": ""}), Value::Null),
         None,
     ));
     // Reasoning is not streamed in this shape; its time passes before the
@@ -369,15 +565,45 @@ fn chat(scenario: &Scenario, ctx: &RenderContext) -> Vec<Step> {
         scenario.tokens_per_sec,
         scenario.effective_reasoning_tokens(),
     ));
-    visible_deltas(&mut out, scenario, |out, w| {
-        out.data(&chunk(choice(json!({"content": w}), Value::Null), None));
-    });
-    out.data(&chunk(choice(json!({}), json!("stop")), None));
+    let delta_chunk = chunk.clone();
+    visible_run(
+        &mut out,
+        scenario,
+        Box::new(move |i| {
+            data_bytes(&delta_chunk(
+                chat_choice(json!({"content": word(i)}), Value::Null),
+                None,
+            ))
+        }),
+    );
+    out.data(&chunk(chat_choice(json!({}), json!("stop")), None));
     if ctx.include_usage && !scenario.omit_usage {
         out.data(&chunk(json!([]), Some(chat_usage(scenario))));
     }
     out.data("[DONE]");
-    out.steps
+    out.segs
+}
+
+fn chat_chunk(
+    id: &str,
+    model: &str,
+    include_usage: bool,
+    choices: Value,
+    usage: Option<Value>,
+) -> String {
+    let mut v = json!({
+        "id": id, "object": "chat.completion.chunk", "created": CREATED,
+        "model": model, "system_fingerprint": Value::Null, "choices": choices,
+    });
+    // With include_usage every chunk carries `usage`: null until the last.
+    if include_usage && let Some(obj) = v.as_object_mut() {
+        obj.insert("usage".into(), usage.unwrap_or(Value::Null));
+    }
+    v.to_string()
+}
+
+fn chat_choice(delta: Value, finish: Value) -> Value {
+    json!([{"index": 0, "delta": delta, "logprobs": Value::Null, "finish_reason": finish}])
 }
 
 fn chat_usage(scenario: &Scenario) -> Value {
@@ -413,7 +639,7 @@ fn chat_usage(scenario: &Scenario) -> Value {
 // Anthropic Messages
 // ---------------------------------------------------------------------------
 
-fn anthropic(scenario: &Scenario, ctx: &RenderContext) -> Vec<Step> {
+fn anthropic(scenario: &Scenario, ctx: &RenderContext) -> Vec<Segment> {
     let reasoning = scenario.effective_reasoning_tokens();
     let mut out = Out::new();
     out.named(
@@ -437,17 +663,17 @@ fn anthropic(scenario: &Scenario, ctx: &RenderContext) -> Vec<Step> {
             &json!({"type": "content_block_start", "index": index,
                     "content_block": {"type": "thinking", "thinking": "", "signature": ""}}),
         );
-        let per_token = token_time(scenario.tokens_per_sec, 1);
-        let mut i: u64 = 0;
-        while i < reasoning {
-            out.wait(per_token);
-            out.named(
-                "content_block_delta",
-                &json!({"type": "content_block_delta", "index": index,
-                        "delta": {"type": "thinking_delta", "thinking": "hmm "}}),
-            );
-            i = i.saturating_add(1);
-        }
+        let thinking = named_bytes(
+            "content_block_delta",
+            &json!({"type": "content_block_delta", "index": index,
+                    "delta": {"type": "thinking_delta", "thinking": "hmm "}}),
+        );
+        out.run(
+            reasoning,
+            token_time(scenario.tokens_per_sec, 1),
+            None,
+            Box::new(move |_| thinking.clone()),
+        );
         out.named(
             "content_block_delta",
             &json!({"type": "content_block_delta", "index": index,
@@ -465,13 +691,17 @@ fn anthropic(scenario: &Scenario, ctx: &RenderContext) -> Vec<Step> {
                 "content_block": {"type": "text", "text": ""}}),
     );
     out.named("ping", &json!({"type": "ping"}));
-    visible_deltas(&mut out, scenario, |out, w| {
-        out.named(
-            "content_block_delta",
-            &json!({"type": "content_block_delta", "index": index,
-                    "delta": {"type": "text_delta", "text": w}}),
-        );
-    });
+    visible_run(
+        &mut out,
+        scenario,
+        Box::new(move |i| {
+            named_bytes(
+                "content_block_delta",
+                &json!({"type": "content_block_delta", "index": index,
+                        "delta": {"type": "text_delta", "text": word(i)}}),
+            )
+        }),
+    );
     out.named(
         "content_block_stop",
         &json!({"type": "content_block_stop", "index": index}),
@@ -488,72 +718,12 @@ fn anthropic(scenario: &Scenario, ctx: &RenderContext) -> Vec<Step> {
     }
     out.named("message_delta", &delta);
     out.named("message_stop", &json!({"type": "message_stop"}));
-    out.steps
+    out.segs
 }
 
 // ---------------------------------------------------------------------------
 // Faults
 // ---------------------------------------------------------------------------
-
-fn apply_fault(style: ProviderStyle, fault: Fault, mut steps: Vec<Step>) -> Plan {
-    match fault {
-        Fault::None | Fault::Status { .. } => Plan::Stream {
-            steps,
-            abort: false,
-        },
-        Fault::DisconnectAtByte { byte } => {
-            let mut sent: u64 = 0;
-            let mut kept = Vec::new();
-            for mut step in steps.drain(..) {
-                let len = u64::try_from(step.bytes.len()).unwrap_or(u64::MAX);
-                let end = sent.saturating_add(len);
-                if end <= byte {
-                    kept.push(step);
-                    sent = end;
-                    continue;
-                }
-                let take = usize::try_from(byte.saturating_sub(sent)).unwrap_or(0);
-                if take > 0 {
-                    step.bytes.truncate(take);
-                    kept.push(step);
-                }
-                return Plan::Stream {
-                    steps: kept,
-                    abort: true,
-                };
-            }
-            // The stream is shorter than `byte`: the fault never fires.
-            Plan::Stream {
-                steps: kept,
-                abort: false,
-            }
-        }
-        Fault::ErrorEventAtByte { byte, status } => {
-            let mut sent: u64 = 0;
-            let mut cut = None;
-            for (i, step) in steps.iter().enumerate() {
-                if sent >= byte {
-                    cut = Some(i);
-                    break;
-                }
-                let len = u64::try_from(step.bytes.len()).unwrap_or(u64::MAX);
-                sent = sent.saturating_add(len);
-            }
-            if let Some(i) = cut {
-                steps.truncate(i);
-                let seq = u64::try_from(i).unwrap_or(u64::MAX);
-                steps.push(Step {
-                    delay: Duration::ZERO,
-                    bytes: stream_error_frame(style, status, seq),
-                });
-            }
-            Plan::Stream {
-                steps,
-                abort: false,
-            }
-        }
-    }
-}
 
 /// OpenAI's `(type, code, message)` for a status.
 fn openai_error(status: u16) -> (&'static str, Option<&'static str>, &'static str) {

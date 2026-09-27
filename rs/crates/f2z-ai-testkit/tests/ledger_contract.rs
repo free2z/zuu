@@ -706,3 +706,38 @@ async fn the_unused_remainder_of_a_hold_repays_debt_when_it_ends() {
     assert_eq!(w.ledger.balance_milli_2z("u"), Some(2_000));
     w.ledger.check_invariants().unwrap();
 }
+
+#[tokio::test]
+async fn an_operation_that_is_never_polled_moves_nothing() {
+    let w = World::new(10_000, Bps(0), Bps(0), 1, None);
+    let id = w.hold(3).await;
+    let pending = w.ledger.settle(SettleRequest {
+        hold_id: id,
+        cost_nusd: 20_000_000,
+        usage: Usage::default(),
+        source: UsageSource::Provider,
+    });
+    drop(pending);
+    assert_eq!(w.ledger.call(id).unwrap().state, HoldState::Open);
+    assert_eq!(w.ledger.balance_milli_2z("u"), Some(10_000));
+    drop(w.ledger.hold(w.request(1)));
+    assert_eq!(w.ledger.inquire("u", "app").await.unwrap().open_holds, 1);
+}
+
+#[tokio::test]
+async fn an_extension_moves_the_expiry_the_sweeper_uses() {
+    let w = World::new(10_000, Bps(0), Bps(0), 1, None);
+    let id = w.hold(1).await;
+    w.ledger.advance(Duration::from_secs(200));
+    w.ledger.extend(id, 1, TTL).await.unwrap();
+    w.ledger.advance(Duration::from_secs(200));
+    assert_eq!(
+        w.ledger.expire_due(),
+        0,
+        "the original expiry (300 s) passed"
+    );
+    assert_eq!(w.ledger.call(id).unwrap().state, HoldState::Open);
+    w.ledger.advance(Duration::from_secs(100));
+    assert_eq!(w.ledger.expire_due(), 1);
+    assert_eq!(w.ledger.inquire("u", "app").await.unwrap().open_holds, 0);
+}
