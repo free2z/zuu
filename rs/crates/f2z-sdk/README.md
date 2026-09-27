@@ -7,7 +7,7 @@ purchase intents, and micro-metered AI. MIT licensed; no Tauri dependency.
 but this crate is not published. `publish = false` remains in force. Production
 OAuth/payment/gateway acceptance and native OS integration are separate release
 requirements. Start with the public
-[integration guide](https://github.com/free2z/zuu/blob/main/docs/sdk/INTEGRATION.md).
+[integration guide](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/INTEGRATION.md).
 
 ## Constructing a client
 
@@ -81,4 +81,4 @@ cargo +1.97.1 run --locked -p f2z-sdk --example full_flow
 The full-flow example uses only local fakes and does not make a real purchase.
 Repository-only fake examples/tests are excluded from the library tarball;
 public rustdoc and this README accompany it. Packaging/consumer verification is
-specified in the [release guide](https://github.com/free2z/zuu/blob/main/docs/sdk/RELEASING.md).
+specified in the [release guide](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASING.md).

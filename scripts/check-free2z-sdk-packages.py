@@ -2,7 +2,7 @@
 """Audit pre-release SDK archives and compile a consumer of unpacked artifacts.
 
 No publication. Dependency patches are confined to this verification process.
-Requires Python 3.11+, Git and the repository's pinned Rust toolchain.
+Requires Python 3.12+, Git and the repository's pinned Rust toolchain.
 """
 from __future__ import annotations
 
@@ -29,18 +29,18 @@ def main() -> None:
     root = args.source_root.resolve()
     if run(["git", "status", "--porcelain", "--untracked-files=all"], root):
         raise SystemExit("Package verification requires a clean committed source worktree.")
-    channel = tomllib.loads((root / "wallet/rust-toolchain.toml").read_text())["toolchain"]["channel"]
+    channel = tomllib.loads((root / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
     sdk = "rs/crates/f2z-sdk"
     proto = "rs/crates/f2z-ai-proto"
     plugin = "wallet/plugins/tauri-plugin-f2z"
-    paths = ["rs/Cargo.toml", "rs/Cargo.lock", "rs/rust-toolchain.toml", sdk, proto]
+    paths = ["rust-toolchain.toml", "rs/Cargo.toml", "rs/Cargo.lock", "rs/rust-toolchain.toml", sdk, proto]
     crates = [("f2z-ai-proto", proto), ("f2z-sdk", sdk)]
     if args.with_native:
         if not (root / plugin / "Cargo.toml").is_file():
             raise SystemExit("Native plugin is not present in this source revision.")
         paths.append(plugin)
         crates.append(("tauri-plugin-f2z", plugin))
-    output = root / "target/sdk-package-preview"
+    output = root / "target/free2z-sdk-package-preview"
     output.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env["CARGO_TARGET_DIR"] = str(output / "build")

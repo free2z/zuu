@@ -13,14 +13,14 @@ checkout: they depend on repository paths and are not a consumer API. Run those
 repository tests before packaging. The SDK and protocol crate still inherit
 `publish = false`; this preparation does not enable publication.
 
-Run `python3 scripts/check-sdk-packages.py` from a clean public source checkout.
+Run `python3 scripts/check-free2z-sdk-packages.py` from a clean public source checkout.
 It exports the committed SDK/protocol source into an independent temporary Git
 snapshot, builds `.crate` archives, checks their allowlisted contents, then
 compiles/runs a fresh consumer using the **unpacked archives**. Add
 `--with-native` once the native plugin is in that checkout to audit its archive
 and compile it against the same unpacked core. `--source-root` permits running
 this checker against another clean public worktree; generated output remains
-inside that source worktree's `target/sdk-package-preview` directory.
+inside that source worktree's `target/free2z-sdk-package-preview` directory.
 
 The snapshot avoids a reproduced Cargo 1.97.1 VCS-inspection failure in this
 synthetic monorepo's shared worktrees: `cargo package --list` can report

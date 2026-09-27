@@ -14,8 +14,8 @@ preview source, not a published release or live-platform acceptance result.
 | Surface | Verified implementation status | App work that can proceed |
 |---|---|---|
 | Rust core | Merged #1071; login, balance, card purchase and AI tests use local HTTP fakes | Build against the preview API in an isolated experiment; use the fake full-flow example |
-| Desktop, iOS and Android Tauri integration | Plugin preview [#1081](https://github.com/free2z/zuu/pull/1081), tracked in [#1072](https://github.com/free2z/zuu/issues/1072) | Define commands, safe DTOs and event/cancellation ownership; implement a mock adapter |
-| TypeScript facade and reference app | Facade preview [#1080](https://github.com/free2z/zuu/pull/1080), reference app tracked in [#1073](https://github.com/free2z/zuu/issues/1073) | Keep the tutor UI behind an app-owned interface that can later use the facade |
+| Desktop, iOS and Android Tauri integration | Draft plugin preview [#1081](https://github.com/free2z/zuu/pull/1081), tracked in [#1072](https://github.com/free2z/zuu/issues/1072) | Define commands, safe DTOs and event/cancellation ownership; implement a mock adapter |
+| TypeScript facade and reference app | Draft facade preview [#1080](https://github.com/free2z/zuu/pull/1080), reference app tracked in [#1073](https://github.com/free2z/zuu/issues/1073) | Keep the tutor UI behind an app-owned interface that can later use the facade |
 | Live metered AI | Deployment and ledger integration are still prerequisites in [#1047](https://github.com/free2z/zuu/issues/1047) | Model streams, failures and settlement in mocks; do not promise live charges or receipts |
 
 The gateway source currently routes `POST /v1/chat`, but its metering/ledger
@@ -340,7 +340,7 @@ pending settlement, lost-response same-key recovery and account switching.
 Own no Free2Z passwords, client secrets or provider keys. Keep credentials in
 native code, keep untrusted content outside privileged Tauri capabilities, and
 keep the adapter replaceable by #1072/#1073. Real integration starts after the
-core merge/CI, plugin and facade implementation, published-package instructions,
+plugin and facade merge/CI, published-package instructions,
 and live registration/payment/metering readiness are confirmed. Acceptance then
 requires one real registered-user sign-in, authoritative balance read, approved
 test purchase through credited, and metered chat whose final receipt reconciles

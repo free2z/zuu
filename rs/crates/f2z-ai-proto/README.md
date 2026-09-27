@@ -7,7 +7,7 @@ integer pricing. MIT licensed; `no_std` plus `alloc`, with no transport/runtime.
 **Pre-release source preview; not published.** `publish = false` remains in
 force. This library is shared by the gateway and Rust SDK so their units,
 settlement rules and pricing arithmetic agree. The normative public contract is
-[docs/sdk](https://github.com/free2z/zuu/tree/main/docs/sdk).
+[docs/free2z/sdk](https://github.com/free2z/zuu/tree/main/docs/free2z/sdk).
 
 `Milli2z` represents one thousandth of a platform credit. `Whole2z` represents
 whole credits. `Nusd` is internal provider cost in nano-USD. All use unsigned
@@ -39,5 +39,5 @@ cargo +1.97.1 test --locked -p f2z-ai-proto --doc
 
 Repository tests compare fixtures and public prose; they are intentionally
 excluded from the reusable library tarball because they require repository
-files. See the [release guide](https://github.com/free2z/zuu/blob/main/docs/sdk/RELEASING.md)
+files. See the [release guide](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASING.md)
 for package ordering and isolated consumer checks.
