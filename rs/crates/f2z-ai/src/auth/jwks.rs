@@ -10,16 +10,25 @@
 //!
 //! # What an unknown `kid` means
 //!
-//! * The set has loaded at least once and the `kid` is still unknown after the
-//!   refetch the rate limit allows → [`Lookup::Unknown`], a `401` — the token
-//!   was not signed by a key the issuer publishes.
-//! * The set has **never** loaded (the issuer was unreachable since start-up)
-//!   → [`Lookup::Unavailable`], a `503`. Telling every client its token is
-//!   invalid because this pod cannot reach the issuer would sign users out
-//!   for an outage; while nothing has loaded, the refetch interval is
-//!   [`UNLOADED_RETRY`] rather than a full minute.
+//! * The **most recent fetch succeeded** and the `kid` is not in what it
+//!   returned (after the refetch the rate limit allows) → [`Lookup::Unknown`],
+//!   a `401`: the issuer, asked, does not publish that key.
+//! * Otherwise — nothing has ever loaded, the last fetch failed (the issuer
+//!   may have rotated to a key this pod could not fetch), or the set is older
+//!   than [`MAX_STALE`] → [`Lookup::Unavailable`], a `503`. Telling a client
+//!   its token is invalid because this pod cannot reach the issuer would sign
+//!   users out for an outage. While the last fetch failed, the refetch
+//!   interval is [`UNLOADED_RETRY`] rather than a full minute.
 //!
-//! A refresh that fails, or yields no usable key, keeps the previous set.
+//! # A successful fetch is authoritative
+//!
+//! A `200` carrying a valid key set **replaces** the cached one, even when it
+//! holds no usable ES256 key: withdrawing a key is how an issuer revokes it
+//! after a compromise, and keeping the withdrawn key would honour tokens
+//! minted with it indefinitely. A fetch that fails keeps the previous set, but
+//! only for [`MAX_STALE`] after it was fetched; past that the cached keys are
+//! not used at all (`503`), so an issuer outage cannot extend a key's life
+//! without bound.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
@@ -36,6 +45,11 @@ pub const UNLOADED_RETRY: Duration = Duration::from_secs(2);
 /// A set older than this is refreshed (in the background) on next use. The
 /// IdP serves its JWKS with `max-age=3600`.
 pub const MAX_AGE: Duration = Duration::from_secs(3600);
+/// The longest a key set is used after its fetch, whatever happens to later
+/// fetches. The IdP keeps a retired key in its JWKS for at least 24 hours
+/// (oidc.md §6.1); a withdrawn key stops verifying at the latest this long
+/// after this pod last saw the set, even through an issuer outage.
+pub const MAX_STALE: Duration = Duration::from_secs(24 * 3600);
 /// The most of a JWKS or discovery document read.
 pub const MAX_DOCUMENT_BYTES: usize = 256 * 1024;
 /// The per-fetch timeout.
@@ -53,9 +67,10 @@ pub trait KeySource: Send + Sync + 'static {
 pub enum Lookup {
     /// The key: an uncompressed SEC1 P-256 point.
     Found(Arc<[u8]>),
-    /// The set is loaded and has no such key, even after a refetch.
+    /// The most recent fetch succeeded and has no such key.
     Unknown,
-    /// No key set has ever loaded.
+    /// No current key set: never loaded, the last fetch failed, or the set is
+    /// older than [`MAX_STALE`].
     Unavailable,
 }
 
@@ -65,6 +80,13 @@ struct KeySet {
     fetched_at: Option<Instant>,
 }
 
+impl KeySet {
+    /// Fetched, and not older than [`MAX_STALE`].
+    fn usable(&self) -> bool {
+        self.fetched_at.is_some_and(|at| at.elapsed() <= MAX_STALE)
+    }
+}
+
 /// The cache. Cheap to share: `Arc<KeyCache>`.
 pub struct KeyCache {
     source: Arc<dyn KeySource>,
@@ -72,6 +94,8 @@ pub struct KeyCache {
     /// Serialises fetches, so a burst of unknown-`kid` tokens costs one.
     fetching: tokio::sync::Mutex<()>,
     last_attempt: Mutex<Option<Instant>>,
+    /// Whether the most recent fetch succeeded.
+    last_ok: std::sync::atomic::AtomicBool,
     min_refetch: Duration,
     fetches: std::sync::atomic::AtomicU64,
 }
@@ -134,6 +158,7 @@ impl KeyCache {
             set: RwLock::new(Arc::new(KeySet::default())),
             fetching: tokio::sync::Mutex::new(()),
             last_attempt: Mutex::new(None),
+            last_ok: std::sync::atomic::AtomicBool::new(false),
             min_refetch,
             fetches: std::sync::atomic::AtomicU64::new(0),
         }
@@ -154,13 +179,31 @@ impl KeyCache {
         )
     }
 
-    /// Whether a fetch may start now, and if so, record that one does.
-    fn claim_attempt(&self, loaded: bool) -> bool {
-        let interval = if loaded {
+    fn healthy(&self) -> bool {
+        self.last_ok.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn interval(&self) -> Duration {
+        if self.healthy() && self.current().usable() {
             self.min_refetch
         } else {
             self.min_refetch.min(UNLOADED_RETRY)
-        };
+        }
+    }
+
+    /// Whether a fetch may start now (without claiming it).
+    fn attempt_due(&self) -> bool {
+        let interval = self.interval();
+        let last = self
+            .last_attempt
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        !last.is_some_and(|at| at.elapsed() < interval)
+    }
+
+    /// Whether a fetch may start now, and if so, record that one does.
+    fn claim_attempt(&self) -> bool {
+        let interval = self.interval();
         let mut last = self
             .last_attempt
             .lock()
@@ -175,13 +218,21 @@ impl KeyCache {
     /// Fetch now if the rate limit allows. Returns whether a fetch ran.
     pub async fn refresh(&self) -> bool {
         let _one = self.fetching.lock().await;
-        if !self.claim_attempt(self.current().fetched_at.is_some()) {
+        if !self.claim_attempt() {
             return false;
         }
         self.fetches
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         match self.source.fetch().await.and_then(|b| parse_jwks(&b)) {
-            Ok(keys) if !keys.is_empty() => {
+            Ok(keys) => {
+                if keys.is_empty() {
+                    // Authoritative: every previously trusted key is
+                    // withdrawn. Tokens are refused until the issuer
+                    // publishes one again.
+                    tracing::error!("the issuer's JWKS holds no ES256 key; no token will verify");
+                } else {
+                    tracing::info!("access-token key set refreshed");
+                }
                 let set = Arc::new(KeySet {
                     keys,
                     fetched_at: Some(Instant::now()),
@@ -190,10 +241,14 @@ impl KeyCache {
                     .set
                     .write()
                     .unwrap_or_else(std::sync::PoisonError::into_inner) = set;
-                tracing::info!("access-token key set refreshed");
+                self.last_ok
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
             }
-            Ok(_) => tracing::error!("the issuer's JWKS holds no ES256 key; keeping the old set"),
-            Err(error) => tracing::warn!(%error, "the issuer's JWKS could not be fetched"),
+            Err(error) => {
+                self.last_ok
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                tracing::warn!(%error, "the issuer's JWKS could not be fetched");
+            }
         }
         true
     }
@@ -201,8 +256,10 @@ impl KeyCache {
     /// The key for `kid`.
     pub async fn lookup(self: &Arc<Self>, kid: &str) -> Lookup {
         let set = self.current();
-        if let Some(key) = set.keys.get(kid) {
-            if set.fetched_at.is_some_and(|at| at.elapsed() > MAX_AGE) {
+        if set.usable()
+            && let Some(key) = set.keys.get(kid)
+        {
+            if set.fetched_at.is_some_and(|at| at.elapsed() > MAX_AGE) && self.attempt_due() {
                 let this = Arc::clone(self);
                 tokio::spawn(async move {
                     this.refresh().await;
@@ -212,9 +269,12 @@ impl KeyCache {
         }
         self.refresh().await;
         let set = self.current();
+        if !set.usable() {
+            return Lookup::Unavailable;
+        }
         match set.keys.get(kid) {
             Some(key) => Lookup::Found(Arc::clone(key)),
-            None if set.fetched_at.is_some() => Lookup::Unknown,
+            None if self.healthy() => Lookup::Unknown,
             None => Lookup::Unavailable,
         }
     }
@@ -391,6 +451,47 @@ mod tests {
             assert_eq!(cache.lookup("zzz").await, Lookup::Unknown);
         }
         assert_eq!(source.calls.load(Ordering::SeqCst), 1);
+    }
+
+    fn doc(kids: &[&str]) -> Vec<u8> {
+        let (x, y) = xy();
+        let keys: Vec<_> = kids
+            .iter()
+            .map(|k| json!({"kty": "EC", "crv": "P-256", "kid": k, "x": x, "y": y}))
+            .collect();
+        json!({ "keys": keys }).to_string().into_bytes()
+    }
+
+    #[tokio::test]
+    async fn a_successful_fetch_without_the_key_withdraws_it() {
+        let source = Arc::new(Counting {
+            calls: AtomicU32::new(0),
+            doc: Mutex::new(doc(&["a"])),
+        });
+        let cache = Arc::new(KeyCache::new(source.clone(), Duration::ZERO));
+        assert!(matches!(cache.lookup("a").await, Lookup::Found(_)));
+        // The issuer withdraws every ES256 key (a compromise response).
+        *source.doc.lock().unwrap() = json!({"keys": []}).to_string().into_bytes();
+        assert!(cache.refresh().await);
+        assert_eq!(cache.lookup("a").await, Lookup::Unknown);
+    }
+
+    #[tokio::test]
+    async fn an_unknown_kid_during_an_issuer_outage_is_unavailable_not_unknown() {
+        let source = Arc::new(Counting {
+            calls: AtomicU32::new(0),
+            doc: Mutex::new(doc(&["a"])),
+        });
+        let cache = Arc::new(KeyCache::new(source.clone(), Duration::ZERO));
+        assert!(matches!(cache.lookup("a").await, Lookup::Found(_)));
+        // The issuer rotates to "b" and this pod cannot reach it.
+        source.doc.lock().unwrap().clear();
+        assert_eq!(cache.lookup("b").await, Lookup::Unavailable);
+        // The key it has still verifies meanwhile.
+        assert!(matches!(cache.lookup("a").await, Lookup::Found(_)));
+        // The issuer is back: "b" is found.
+        *source.doc.lock().unwrap() = doc(&["a", "b"]);
+        assert!(matches!(cache.lookup("b").await, Lookup::Found(_)));
     }
 
     #[tokio::test]

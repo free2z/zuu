@@ -317,12 +317,23 @@ impl Limits {
             lease_limit: self.config.concurrency,
             lease_ttl: self.config.lease_ttl,
         };
+        // The script may have added the member even when its answer never
+        // arrives (a timeout after Redis ran it) or this future is dropped
+        // mid-call (the client hung up). So the lease owns the member's
+        // removal from *before* the call: whatever happens, dropping the
+        // lease removes it. A `ZREM` of a member that was never added is
+        // harmless; a member nobody removes would count against the user for
+        // `lease_ttl` on every pod.
+        lease.remote = Some((
+            Arc::clone(store),
+            request.lease_key.clone(),
+            request.member.clone(),
+        ));
         match store.admit(&request).await {
-            Ok(Admission::Admitted { .. }) => {
-                lease.remote = Some((Arc::clone(store), request.lease_key, request.member));
-                Ok(lease)
-            }
+            Ok(Admission::Admitted { .. }) => Ok(lease),
             Ok(Admission::Refused { by, retry_after_ms }) => {
+                // A definite refusal added nothing: no removal is owed.
+                lease.remote = None;
                 let wait = Duration::from_millis(retry_after_ms);
                 Err(match by {
                     Refusal::User => self.rate_limited(self.config.user, 0, wait),
@@ -331,7 +342,8 @@ impl Limits {
                 })
             }
             Err(_) => {
-                // Limits only: the local layer above already applied.
+                // Limits only: the local layer above already applied. The
+                // remote member stays owned, in case the script did run.
                 tracing::warn!("shared rate limits unavailable; local limits only");
                 Ok(lease)
             }

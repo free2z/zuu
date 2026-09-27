@@ -206,6 +206,9 @@ struct MemoryStore {
     buckets: Mutex<HashMap<String, (u64, Instant)>>,
     leases: Mutex<HashMap<String, HashMap<String, Instant>>>,
     down: AtomicBool,
+    /// Run `admit` and then lose its reply, as a timeout after Redis ran the
+    /// script does.
+    lose_admit_replies: AtomicBool,
     counter_reads: AtomicU32,
 }
 
@@ -288,6 +291,9 @@ impl Store for MemoryStore {
             .entry(r.lease_key.clone())
             .or_default()
             .insert(r.member.clone(), now + r.lease_ttl);
+        if self.lose_admit_replies.load(Ordering::SeqCst) {
+            return Err(StoreError);
+        }
         Ok(Admission::Admitted {
             remaining: u32::try_from((user - 1000) / 1000).unwrap(),
         })
@@ -1074,14 +1080,26 @@ async fn nothing_is_spent_on_a_refused_token() {
 // The real Redis, when one is provided.
 // ---------------------------------------------------------------------------
 
+/// Without `F2Z_AI_TEST_REDIS_URL` a real-Redis test is skipped, loudly; with
+/// `F2Z_AI_REQUIRE_REDIS=1` (CI, which runs a Redis service) it fails instead.
+fn skip_without_redis(message: &str) {
+    assert!(
+        std::env::var("F2Z_AI_REQUIRE_REDIS").as_deref() != Ok("1"),
+        "F2Z_AI_REQUIRE_REDIS=1 but F2Z_AI_TEST_REDIS_URL is not set"
+    );
+    eprintln!("{message}");
+}
+
 /// Runs the Lua script and the counter read against a real Redis when
 /// `F2Z_AI_TEST_REDIS_URL` is set (`docker run -p 6390:6379 redis:7` then
-/// `F2Z_AI_TEST_REDIS_URL=redis://127.0.0.1:6390`). CI has no Redis, and says
-/// so rather than passing silently: the test prints that it was skipped.
+/// `F2Z_AI_TEST_REDIS_URL=redis://127.0.0.1:6390`). CI runs a Redis service and
+/// sets both variables; elsewhere the test prints that it was skipped.
 #[tokio::test]
 async fn the_redis_store_against_a_real_redis() {
     let Ok(url) = std::env::var("F2Z_AI_TEST_REDIS_URL") else {
-        eprintln!("SKIPPED: F2Z_AI_TEST_REDIS_URL is not set; the Lua script was not exercised");
+        skip_without_redis(
+            "SKIPPED: F2Z_AI_TEST_REDIS_URL is not set; the Lua script was not exercised",
+        );
         return;
     };
     use f2z_ai::auth::store::RedisStore;
@@ -1174,7 +1192,9 @@ async fn the_redis_store_against_a_real_redis() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_gate_on_a_real_redis() {
     let Ok(url) = std::env::var("F2Z_AI_TEST_REDIS_URL") else {
-        eprintln!("SKIPPED: F2Z_AI_TEST_REDIS_URL is not set; the gate never met a real Redis");
+        skip_without_redis(
+            "SKIPPED: F2Z_AI_TEST_REDIS_URL is not set; the gate never met a real Redis",
+        );
         return;
     };
     use f2z_ai::auth::store::RedisStore;
@@ -1293,4 +1313,33 @@ async fn without_auth_configured_every_call_is_refused() {
             (503, "unavailable", "token_keys")
         );
     }
+}
+
+#[tokio::test]
+async fn a_lease_whose_admit_reply_was_lost_is_still_released() {
+    let h = Harness::new().await;
+    let gw = h
+        .gateway(
+            open_limits(),
+            not_implemented(),
+            RecordingSettler::default(),
+        )
+        .await;
+    // Redis runs the script (the member is added) but the reply never
+    // arrives: the gateway falls back to local limits and must still own the
+    // member's removal.
+    h.store.lose_admit_replies.store(true, Ordering::SeqCst);
+    for _ in 0..6 {
+        assert_eq!(verdict(&gw, Some(&h.token())).await.0, 501);
+    }
+    h.store.lose_admit_replies.store(false, Ordering::SeqCst);
+    for _ in 0..100 {
+        if h.store.open_leases() == 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(h.store.open_leases(), 0, "orphaned lease members");
+    // And the user is not locked out of the shared limit.
+    assert_eq!(verdict(&gw, Some(&h.token())).await.0, 501);
 }
