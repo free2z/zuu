@@ -34,7 +34,7 @@
 //! the client charged for one at most. So exactly two failures retry: a
 //! refused **connection** (nothing was sent), and a **non-2xx status** the
 //! provider answered with (it refused the request; `429`, `5xx`, `529`, per
-//! [`super::classify_status`]) — except `504` and `408`, which an
+//! [`super::classify_status`]) — except `502`, `504` and `408`, which an
 //! intermediary can answer after forwarding the request to a model that is
 //! still generating it. A timeout waiting for the
 //! head, a transport error after the request was written, and anything after
@@ -479,11 +479,11 @@ impl ProviderUpstream {
     fn attempt_failed(&mut self, failure: ProviderFailure) {
         let usage = UsageReport::Missing { partial: None };
         let verdict = breaker_verdict(&failure);
-        // A 504 or 408 is an intermediary (or the provider's front end)
-        // giving up on a request it may already have forwarded: the model
-        // may be generating it. Retryable for the client — a new call — but
-        // never re-sent here.
-        let forwarded = matches!(failure.status, Some(408 | 504));
+        // A 502, 504 or 408 is an intermediary (or the provider's front
+        // end) failing on a request it may already have forwarded: the model
+        // may be generating it (RFC 9110 §15.6.3, §15.6.5). Retryable for the
+        // client — a new call — but never re-sent here.
+        let forwarded = matches!(failure.status, Some(408 | 502 | 504));
         if let Some(permit) = self.permit.take() {
             permit.record(verdict);
         }

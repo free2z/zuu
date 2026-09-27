@@ -39,7 +39,7 @@ async fn a_transient_status_is_retried_before_content_and_then_reported() {
     let backend = backend(&mock.base_url(), tuning(2));
     let catalog = catalog(10_000);
     for model in [RESPONSES, ANTHROPIC, CHAT] {
-        for status in [500, 502, 503, 529] {
+        for status in [500, 503, 529] {
             mock.set_scenario(Scenario::default().with_fault(Fault::Status { status }));
             let before = mock.request_count();
             let run = drive(&backend, &catalog, &request(model.id)).await;
@@ -445,15 +445,23 @@ async fn the_probe_closes_the_breaker_at_its_head() {
 /// A 504 may come from an intermediary that already forwarded the request:
 /// the model may be generating (and billing) it. Not re-sent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_gateway_timeout_status_is_not_re_sent() {
-    let mock = MockProvider::start(Scenario::default().with_fault(Fault::Status { status: 504 }))
-        .await
-        .unwrap();
+async fn an_intermediary_failure_status_is_not_re_sent() {
+    let mock = MockProvider::start(Scenario::default()).await.unwrap();
     let backend = backend(&mock.base_url(), tuning(2));
-    let run = drive(&backend, &catalog(10_000), &request(RESPONSES.id)).await;
-    let f = run.outcome.failure.unwrap();
-    assert_eq!((f.code, f.retryable), (ErrorCode::ProviderTimeout, true));
-    assert_eq!(run.outcome.attempts, 1);
-    assert_eq!(mock.request_count(), 1);
+    for (n, (status, code)) in [
+        (504, ErrorCode::ProviderTimeout),
+        (408, ErrorCode::ProviderTimeout),
+        (502, ErrorCode::ProviderError),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        mock.set_scenario(Scenario::default().with_fault(Fault::Status { status }));
+        let run = drive(&backend, &catalog(10_000), &request(RESPONSES.id)).await;
+        let f = run.outcome.failure.unwrap();
+        assert_eq!((f.code, f.retryable), (code, true), "{status}");
+        assert_eq!(run.outcome.attempts, 1, "{status}");
+        assert_eq!(mock.request_count(), n as u64 + 1, "{status}");
+    }
     mock.shutdown().await;
 }
