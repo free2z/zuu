@@ -27,7 +27,13 @@ synthetic monorepo's shared worktrees: `cargo package --list` can report
 `No such file or directory` after `check_repo_state`, while the same files
 package in an independent Git repository. No shared Git configuration or
 submodule registration is changed. The snapshot's VCS metadata belongs to a
-test artifact; **do not upload these preview archives as releases**. Build
+test artifact. Core packaging may normalize the reduced snapshot workspace lock.
+Native packaging resolves with the same unpacked overrides and permits only the
+exact SDK/protocol unused-patch records in its snapshot lock: resolved package
+entries and lock version must stay unchanged, and native resolution cannot
+change the core lock further. Only that native snapshot lock is committed to
+let Cargo audit a clean package; reviewed source checkouts are never modified.
+**Do not upload these preview archives as releases**. Build
 release archives from a clean canonical checkout after the release PR merges.
 
 Since `f2z-ai-proto` is not yet in the registry, the local SDK packaging check

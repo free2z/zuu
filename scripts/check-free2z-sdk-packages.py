@@ -21,6 +21,54 @@ def run(args: list[str], cwd: Path, env: dict[str, str] | None = None) -> str:
     return subprocess.check_output(args, cwd=cwd, env=env, text=True).strip()
 
 
+def check_native_lock_change(before: str, after: str, allowed: list[dict[str, str]]) -> None:
+    """Only exact unused local overrides may be appended; preserve the resolved graph."""
+    old, new = tomllib.loads(before), tomllib.loads(after)
+    old_patch, new_patch = old.pop("patch", {}), new.pop("patch", {})
+    old_unused = old_patch.pop("unused", [])
+    remaining = new_patch.pop("unused", []).copy()
+    if old != new or old_patch != new_patch:
+        raise SystemExit("Native snapshot lock normalization changed resolved dependencies or metadata.")
+    for entry in old_unused:
+        if entry not in remaining:
+            raise SystemExit("Native snapshot lock normalization removed an existing override.")
+        remaining.remove(entry)
+    permitted = allowed.copy()
+    for entry in remaining:
+        if entry not in permitted:
+            raise SystemExit("Native snapshot lock normalization added an unexpected override.")
+        permitted.remove(entry)
+
+
+def normalize_native_lock(command: list[str], stage: Path, env: dict[str, str],
+                          relative: str, unpacked: dict[str, Path]) -> None:
+    lock_name = relative + "/Cargo.lock"
+    run(["git", "ls-files", "--error-unmatch", lock_name], stage)
+    lock = stage / lock_name
+    before = lock.read_text()
+    # Core packaging already normalized the reduced snapshot workspace. Native
+    # resolution may not change that graph, nor commit its earlier local diff.
+    rs_lock = stage / "rs/Cargo.lock"
+    rs_before = rs_lock.read_bytes()
+    metadata = command.copy()
+    metadata[metadata.index("package")] = "metadata"
+    metadata.remove("--no-verify")
+    metadata.extend(["--format-version", "1"])
+    run(metadata, stage, env)
+    allowed = [{"name": name, "version": tomllib.loads((path / "Cargo.toml").read_text())["package"]["version"]}
+               for name, path in unpacked.items() if name in ("f2z-ai-proto", "f2z-sdk")]
+    check_native_lock_change(before, lock.read_text(), allowed)
+    if rs_lock.read_bytes() != rs_before:
+        raise SystemExit("Native snapshot normalization changed the core workspace lock.")
+    changed = set(run(["git", "diff", "--name-only"], stage).splitlines())
+    if changed - {lock_name, "rs/Cargo.lock"} or run(["git", "diff", "--cached", "--name-only"], stage):
+        raise SystemExit("Unexpected tracked snapshot changes before native packaging.")
+    if lock.read_text() != before:
+        run(["git", "add", lock_name], stage)
+        run(["git", "-c", "user.name=SDK package verification", "-c", "user.email=package-test@example.invalid",
+             "-c", "commit.gpgsign=false", "commit", "-qm", "Record snapshot-only unused local overrides"], stage)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-root", type=Path, default=Path(__file__).resolve().parents[1])
@@ -61,6 +109,8 @@ def main() -> None:
             command = ["cargo", f"+{channel}", "package", "--manifest-path", str(manifest), "--no-verify"]
             for dependency, path in unpacked.items():
                 command.extend(["--config", f"patch.crates-io.{dependency}.path={json.dumps(str(path))}"])
+            if name == "tauri-plugin-f2z":
+                normalize_native_lock(command, stage, env, relative, unpacked)
             subprocess.run(command, cwd=stage, env=env, check=True)
             artifact = output / "build/package" / f"{name}-{version}.crate"
             if not artifact.is_file():
@@ -109,6 +159,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ''')
+        if args.with_native:
+            source = consumer / "src/main.rs"
+            source.write_text(source.read_text().replace("    let charge =", '    let _native = tauri_plugin_f2z::Builder::new(Config::new("package-preview"), "https://tutor.example/purchase-return");\n    let charge ='))
         subprocess.run(["cargo", f"+{channel}", "run", "--manifest-path", str(consumer / "Cargo.toml")], cwd=stage, env=env, check=True)
     print(f"Preview package consumer passed for source {source_sha}; no package was published.")
 
