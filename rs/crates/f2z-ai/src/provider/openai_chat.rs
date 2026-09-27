@@ -212,6 +212,8 @@ struct Parser {
     tools: BTreeMap<u64, PendingTool>,
     /// The index the previous fragment went to.
     last_index: Option<u64>,
+    /// Argument and name bytes buffered across every pending tool call.
+    pending_bytes: usize,
     finish_reason: Option<FinishReason>,
     usage: Option<Usage>,
     failure: Option<ProviderFailure>,
@@ -316,6 +318,7 @@ impl Parser {
     }
 
     fn flush_tools(&mut self, out: &mut Vec<Content>) {
+        self.pending_bytes = 0;
         for (_, tool) in std::mem::take(&mut self.tools) {
             out.push(Content::ToolCall(ToolCall {
                 id: tool.id,
@@ -373,6 +376,23 @@ impl StreamParser for Parser {
                             let index =
                                 self.fragment_index(call.get("index").and_then(Value::as_u64), id);
                             self.last_index = Some(index);
+                            if !self.tools.contains_key(&index)
+                                && self.tools.len() >= super::MAX_PENDING_TOOLS
+                            {
+                                return Err(Malformed("too many pending tool calls"));
+                            }
+                            let added = call.get("function").map_or(0, |f| {
+                                f.get("arguments")
+                                    .and_then(Value::as_str)
+                                    .map_or(0, str::len)
+                                    .saturating_add(
+                                        f.get("name").and_then(Value::as_str).map_or(0, str::len),
+                                    )
+                            });
+                            self.pending_bytes = self.pending_bytes.saturating_add(added);
+                            if self.pending_bytes > super::MAX_PENDING_TOOL_BYTES {
+                                return Err(Malformed("tool call arguments too large"));
+                            }
                             let tool = self.tools.entry(index).or_default();
                             if let Some(id) = id {
                                 id.clone_into(&mut tool.id);

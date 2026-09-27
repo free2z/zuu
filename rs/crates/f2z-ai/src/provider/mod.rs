@@ -417,6 +417,16 @@ pub fn images_only_on(
     Ok(())
 }
 
+/// The most tool-call argument text one stream may accumulate before it is
+/// emitted: 4 MiB. Fragments are small and individually within the SSE
+/// bound, and nothing reaches the bounded delivery buffer until a call is
+/// complete, so without this an endpoint that never finished a call could
+/// grow it without limit.
+pub const MAX_PENDING_TOOL_BYTES: usize = 4 * 1024 * 1024;
+
+/// The most tool calls one stream may have pending at once.
+pub const MAX_PENDING_TOOLS: usize = 128;
+
 /// `data:` URL for an inline image. Built from the client's own bytes; it is
 /// not a location anything fetches.
 #[must_use]

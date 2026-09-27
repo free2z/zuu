@@ -300,6 +300,8 @@ struct Parser {
     deltas: Counts,
     stop_reason: Option<FinishReason>,
     tools: BTreeMap<u64, PendingTool>,
+    /// Argument bytes buffered across every pending tool call.
+    pending_bytes: usize,
     failure: Option<ProviderFailure>,
     finished: bool,
 }
@@ -353,6 +355,9 @@ impl StreamParser for Parser {
                     .get("content_block")
                     .ok_or(Malformed("content_block"))?;
                 if block.get("type").and_then(Value::as_str) == Some("tool_use") {
+                    if self.tools.len() >= super::MAX_PENDING_TOOLS {
+                        return Err(Malformed("too many pending tool calls"));
+                    }
                     let field = |k: &str| block.get(k).and_then(Value::as_str).map(str::to_owned);
                     self.tools.insert(
                         index,
@@ -387,6 +392,10 @@ impl StreamParser for Parser {
                             .and_then(Value::as_str)
                             .ok_or(Malformed("input_json_delta"))?;
                         if let Some(tool) = self.tools.get_mut(&index) {
+                            self.pending_bytes = self.pending_bytes.saturating_add(part.len());
+                            if self.pending_bytes > super::MAX_PENDING_TOOL_BYTES {
+                                return Err(Malformed("tool call arguments too large"));
+                            }
                             tool.json.push_str(part);
                         }
                     }
@@ -400,6 +409,7 @@ impl StreamParser for Parser {
                     .and_then(Value::as_u64)
                     .ok_or(Malformed("block index"))?;
                 if let Some(tool) = self.tools.remove(&index) {
+                    self.pending_bytes = self.pending_bytes.saturating_sub(tool.json.len());
                     let arguments = if tool.json.is_empty() {
                         tool.initial.to_string()
                     } else {
@@ -619,6 +629,37 @@ mod tests {
             ContentPart::Text { text: "x".into() },
         ]);
         assert_eq!(parts, vec![json!({"type": "text", "text": "x"})]);
+    }
+
+    #[test]
+    fn unbounded_tool_arguments_are_refused() {
+        let mut p = Parser::default();
+        start(&mut p);
+        feed(
+            &mut p,
+            "content_block_start",
+            json!({"type":"content_block_start","index":0,
+                   "content_block":{"type":"tool_use","id":"t","name":"f","input":{}}}),
+        );
+        let part = "x".repeat(64 * 1024);
+        let mut refused = false;
+        for _ in 0..100 {
+            let mut out = Vec::new();
+            let r = p.feed(
+                &SseEvent {
+                    event: "content_block_delta".into(),
+                    data: json!({"type":"content_block_delta","index":0,
+                                 "delta":{"type":"input_json_delta","partial_json":part}})
+                    .to_string(),
+                },
+                &mut out,
+            );
+            if r.is_err() {
+                refused = true;
+                break;
+            }
+        }
+        assert!(refused, "4 MiB of pending arguments is the limit");
     }
 
     #[test]

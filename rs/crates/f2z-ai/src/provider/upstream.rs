@@ -108,6 +108,8 @@ pub struct ProviderUpstream {
     url: reqwest::Url,
     headers: HeaderMap,
     body: Bytes,
+    /// The body's share of the upload budget, released with the body.
+    reservation: Option<tokio::sync::OwnedSemaphorePermit>,
     ttfb: Duration,
     idle: Duration,
     hard_deadline: Instant,
@@ -159,6 +161,7 @@ impl ProviderUpstream {
             url: p.url,
             headers: p.headers,
             body: p.body,
+            reservation: None,
             ttfb: p.ttfb,
             idle: p.idle,
             hard_deadline: p.hard_deadline,
@@ -236,7 +239,7 @@ impl ProviderUpstream {
                         // Accepted: nothing after this is ever re-sent, so
                         // the request body (up to 20 MiB of prompt and
                         // images) is not kept for the rest of the stream.
-                        self.body = Bytes::new();
+                        self.release_body();
                         // A half-open breaker's probe has its answer at the
                         // head: the provider is serving again. Waiting for
                         // the end of the probe's stream would refuse every
@@ -376,6 +379,13 @@ impl ProviderUpstream {
                 }
             }
         }
+    }
+
+    /// The request will not be sent again: free its bytes and its share of
+    /// the upload budget.
+    fn release_body(&mut self) {
+        self.body = Bytes::new();
+        self.reservation = None;
     }
 
     /// Move parsed content into the event queue.
@@ -544,7 +554,7 @@ impl ProviderUpstream {
             }),
             missing @ UsageReport::Missing { .. } => missing,
         };
-        self.body = Bytes::new();
+        self.release_body();
         // `usage` goes to the client only on a stream it belongs to: a
         // success, or a failure after output. A failure before any content
         // is a lone `error` (chat-api.md §3.1), so its usage — if a provider
@@ -651,6 +661,12 @@ impl Upstream for ProviderUpstream {
 
     fn outcome(&mut self) -> Option<ProviderOutcome> {
         self.outcome.clone()
+    }
+
+    fn keep_upload_reservation(&mut self, reservation: tokio::sync::OwnedSemaphorePermit) {
+        if !self.body.is_empty() {
+            self.reservation = Some(reservation);
+        }
     }
 }
 

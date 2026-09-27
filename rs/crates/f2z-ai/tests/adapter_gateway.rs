@@ -160,3 +160,48 @@ async fn the_idle_deadline_fires_under_the_call_tasks_ticks() {
     );
     mock.shutdown().await;
 }
+
+/// The request body's share of the upload budget follows the bytes: the
+/// adapter keeps the request until the provider's 2xx head (it may have to
+/// re-send it), so the reservation is held until then — not dropped when
+/// `start` returns, which would let retained requests escape the budget.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_retained_request_keeps_its_upload_reservation_until_the_head() {
+    let mock = MockProvider::start(Scenario::default().with_ttfb(Duration::from_millis(800)))
+        .await
+        .unwrap();
+    let config = config(&[
+        ("F2Z_AI_MAX_BODY_BYTES", "1000"),
+        ("F2Z_AI_MAX_BODY_BYTES_WITH_IMAGES", "1000"),
+        ("F2Z_AI_MAX_UPLOAD_BUFFER_BYTES", "1200"),
+    ]);
+    let running = start(
+        &config,
+        deps(
+            Arc::new(Fixed(catalog(10_000))),
+            Arc::new(backend(&mock.base_url(), tuning(0))),
+            RecordingSettler::default(),
+        ),
+    )
+    .await;
+    let padded = |n: usize| {
+        let mut body = chat_body(CHAT.id);
+        let base = body.to_string().len();
+        body["messages"][0]["content"][0]["text"] = json!("x".repeat(n - base + 5));
+        body
+    };
+    let first = padded(700);
+    assert!(first.to_string().len() >= 690 && first.to_string().len() <= 710);
+    let public = running.public;
+    let slow = tokio::spawn(async move { text(post_chat(public, &first).await).await });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // The first call is waiting for its head and still holds ~700 bytes.
+    let refused = post_chat(running.public, &padded(700)).await;
+    assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = slow.await.unwrap();
+    assert!(body.contains("event: delta"), "{body}");
+    // After the head the reservation is released.
+    let ok = post_chat(running.public, &padded(700)).await;
+    assert_eq!(ok.status(), StatusCode::OK);
+    mock.shutdown().await;
+}

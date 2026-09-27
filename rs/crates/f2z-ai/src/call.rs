@@ -101,6 +101,14 @@ pub trait Upstream: Send + 'static {
     fn outcome(&mut self) -> Option<crate::provider::ProviderOutcome> {
         None
     }
+
+    /// Take the request body's share of the gateway-wide upload budget. An
+    /// upstream that still holds the request's bytes after `start` keeps it
+    /// until it drops them, so request memory stays inside
+    /// `max_upload_buffer_bytes`. The default releases it at once.
+    fn keep_upload_reservation(&mut self, reservation: tokio::sync::OwnedSemaphorePermit) {
+        drop(reservation);
+    }
 }
 
 /// How often the watchers check the stall limit.
@@ -500,9 +508,14 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
             return;
         }
     };
-    drop(upload);
     let mut upstream = match started {
-        Ok(Ok(upstream)) => upstream,
+        Ok(Ok(mut upstream)) => {
+            // The request's share of the upload budget follows the request:
+            // an upstream that keeps the bytes (to send them, or to retry)
+            // holds the reservation until it lets them go.
+            upstream.keep_upload_reservation(upload);
+            upstream
+        }
         Ok(Err(failure)) => {
             // Refused before any stream: an HTTP error. The guard still
             // reports the call, as not started.
