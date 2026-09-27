@@ -13,7 +13,7 @@ use crate::amount::{Milli2z, Whole2z};
 use crate::chat::AssistantMessage;
 use crate::settlement::{self, Outcome, Settlement, SettlementError};
 
-/// Every error the gateway reports: the codes of `docs/sdk/spec/errors.md`
+/// Every error the gateway reports: the codes of `docs/free2z/sdk/spec/errors.md`
 /// §2–§4. `tests/spec_conformance.rs` parses those tables and fails if a code,
 /// its status or its retryability drifts from them.
 ///

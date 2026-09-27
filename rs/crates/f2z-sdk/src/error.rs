@@ -1,7 +1,7 @@
 //! The SDK's one error type.
 //!
 //! Every non-2xx from the account API (`free2z.cash/api/sdk/v1`) and the AI
-//! gateway (`ai.free2z.cash/v1`) is the envelope of `docs/sdk/spec/errors.md`
+//! gateway (`ai.free2z.cash/v1`) is the envelope of `docs/free2z/sdk/spec/errors.md`
 //! §1 and arrives as [`Error::Api`]. The identity provider's own RFC 6749
 //! errors arrive as [`Error::Authorization`] (the redirect) or
 //! [`Error::Token`] (the token endpoint). Switch on codes, never on messages:

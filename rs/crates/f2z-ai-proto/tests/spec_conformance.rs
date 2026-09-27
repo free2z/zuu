@@ -1,13 +1,13 @@
 //! The crate against the prose spec it implements, read from the repository.
 //!
-//! * `docs/sdk/spec/errors.md` §2–§4: every code's HTTP status and "Retry"
+//! * `docs/free2z/sdk/spec/errors.md` §2–§4: every code's HTTP status and "Retry"
 //!   column must be what [`ErrorCode::http_status`] and
 //!   [`ErrorCode::retryable`] answer, and the tables and
 //!   [`ErrorCode::ALL`] must list the same codes.
-//! * `docs/sdk/spec/chat-api.md`: every SSE frame in it decodes, and every
+//! * `docs/free2z/sdk/spec/chat-api.md`: every SSE frame in it decodes, and every
 //!   terminal one passes its settlement `check()`; the non-streamed response
 //!   (§4) and the estimate (§6) decode.
-//! * `docs/sdk/spec/purchase.md` §1.1: the balance decodes.
+//! * `docs/free2z/sdk/spec/purchase.md` §1.1: the balance decodes.
 //!
 //! These read files outside the crate, so they run in this repository and not
 //! from a packaged `.crate` — which is where the spec lives anyway.
@@ -29,7 +29,7 @@ use f2z_ai_proto::event::Event;
 
 fn spec(name: &str) -> String {
     let path = format!(
-        "{}/../../../docs/sdk/spec/{name}",
+        "{}/../../../docs/free2z/sdk/spec/{name}",
         env!("CARGO_MANIFEST_DIR")
     );
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"))

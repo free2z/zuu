@@ -8,7 +8,7 @@ edition.workspace = true
 # drift. Not inherited: that check reads this literal line.
 rust-version = "1.97"
 # **AGPL-3.0-only, and this is the licence boundary** (rs/README.md, ADR 0004
-# of docs/ai-gateway). This is a server binary: an operator who modifies it and
+# of docs/free2z/ai-gateway). This is a server binary: an operator who modifies it and
 # runs it for others must publish that change. The contract crate it links,
 # `f2z-ai-proto`, stays MIT so the SDKs and third-party clients can link the
 # same wire types and the same `price_2z`. `rs/deny.toml` names this crate in

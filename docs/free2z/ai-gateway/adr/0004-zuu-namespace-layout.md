@@ -1,9 +1,10 @@
 # ADR 0004 — The f2z-sdk namespace in this repository
 
-**Status:** Accepted (owner, 2026-09-26) · **Refs:**
+**Status:** Accepted 2026-09-26; namespace placement amended by owner audit 2026-09-27 · **Refs:**
 [#1047](https://github.com/free2z/zuu/issues/1047),
 [#1048](https://github.com/free2z/zuu/issues/1048),
-[CARGO-WORKSPACE](../../free2z/app-suite/build/CARGO-WORKSPACE.md)
+[#1083](https://github.com/free2z/zuu/issues/1083),
+[CARGO-WORKSPACE](../../app-suite/build/CARGO-WORKSPACE.md)
 
 ## Context
 
@@ -21,6 +22,19 @@ repository**, the public one. Secrets, store credentials, viewing keys,
 deployment manifests and the identity provider and ledger themselves stay
 in the platform's private backend.
 
+## Namespace amendment — 2026-09-27
+
+The repository hosts many independent projects. The initial generic SDK,
+gateway-documentation and hello-AI example placements are superseded by the
+product-qualified paths below. A language directory is a container, not an
+implicit declaration that Free2Z owns every project in that language. Public
+package names, service URLs and runtime identifiers do not change.
+
+Future Free2Z SDK/UI packages and examples must use their `free2z/` product
+namespace from the first commit; unrelated SDKs, gateways and examples can then
+coexist without ambiguous ownership. Rust crate and plugin directories already
+identify their product with `f2z-` names and remain where they are.
+
 ## Decision
 
 | Path | Package | Published | Licence |
@@ -32,10 +46,10 @@ in the platform's private backend.
 | `rs/crates/f2z-zec-scanner` | — | container image only | AGPL-3.0 |
 | `wallet/plugins/tauri-plugin-f2z` | `tauri-plugin-f2z` | crates.io | MIT |
 | `wallet/plugins/tauri-plugin-f2z/guest-js` | `@free2z/tauri-plugin-f2z-api` | npm | MIT |
-| `ts/sdk` | `@free2z/sdk` | npm | MIT |
-| `ts/sdk-ui` | `@free2z/sdk-ui` | npm (later) | MIT |
-| `wallet/examples/hello-ai` | — | no | — |
-| `docs/sdk/`, `docs/ai-gateway/` | — | rendered docs | — |
+| `ts/free2z/sdk` | `@free2z/sdk` | npm | MIT |
+| `ts/free2z/sdk-ui` | `@free2z/sdk-ui` | npm (later) | MIT |
+| `wallet/examples/free2z/hello-ai` | — | no | — |
+| `docs/free2z/sdk/`, `docs/free2z/ai-gateway/` | — | rendered docs | — |
 
 Rules that follow from the placement:
 
@@ -63,9 +77,9 @@ Rules that follow from the placement:
    the SDK's own CI. A third party tests against the platform's staging
    environment with a registered app, not against the testkit; publishing
    it is a later decision, and the licence is chosen so that it can be.
-6. **`docs/sdk/` is the developer product**; `docs/ai-gateway/` holds
+6. **`docs/free2z/sdk/` is the developer product**; `docs/free2z/ai-gateway/` holds
    the gateway's decisions. Guides (D2), generated reference (D3) and
-   security and operations notes (D4) are added under `docs/sdk/` as they
+   security and operations notes (D4) are added under `docs/free2z/sdk/` as they
    land, and each spec document links to the reference that supersedes
    its examples.
 7. **The plugin supports Tauri 2 from 2.5 up** (`tauri = "2"`, peer

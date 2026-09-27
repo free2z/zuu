@@ -16,7 +16,7 @@ workflow.
 | Free2Z app suite | [Architecture](docs/free2z/app-suite/architecture.md), [status](docs/free2z/app-suite/status.md), [development](docs/free2z/app-suite/development.md) for the ZUULI wallet authority, Free2Z content app, and E2E2Z messaging app |
 | ZUULI | [`wallet/zuuli/`](wallet/zuuli/README.md), [readiness](wallet/zuuli/STATUS.md), [build infrastructure](docs/zuuli/build/ZUULI-LINUX-BUILD-IMAGE.md) |
 | Zuuallet | [`wallet/zuuallet/`](wallet/zuuallet/README.md), a separate wallet application |
-| Free2Z developer SDK and metered AI | [SDK contract and integration](docs/sdk/README.md), [gateway architecture](docs/ai-gateway/README.md), [`f2z-sdk`](rs/crates/f2z-sdk/Cargo.toml) |
+| Free2Z developer SDK and metered AI | [SDK contract and integration](docs/free2z/sdk/README.md), [gateway architecture](docs/free2z/ai-gateway/README.md), [`f2z-sdk`](rs/crates/f2z-sdk/Cargo.toml) |
 | Free2Z messaging and key transparency | [Protocol documentation](docs/free2z/messaging/README.md), [Rust libraries](rs/README.md) |
 | Free2Z cross-app intent bridge | [Protocol and authority boundaries](docs/free2z/intent-bridge/PROTOCOL.md) |
 | Free2Z web clients | [React](ts/react/free2z/README.md), [Svelte](ts/svelte/free2z/README.md) |

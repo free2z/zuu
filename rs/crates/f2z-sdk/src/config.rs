@@ -6,9 +6,9 @@ use url::Url;
 
 use crate::error::Error;
 
-/// The production issuer, `docs/sdk/spec/oidc.md` §1.
+/// The production issuer, `docs/free2z/sdk/spec/oidc.md` §1.
 pub const DEFAULT_ISSUER: &str = "https://free2z.cash";
-/// The account API root, fixed by the contract (`docs/sdk/README.md`).
+/// The account API root, fixed by the contract (`docs/free2z/sdk/README.md`).
 pub const DEFAULT_API_BASE: &str = "https://free2z.cash/api/sdk/v1";
 /// The AI gateway root, fixed by the contract.
 pub const DEFAULT_AI_BASE: &str = "https://ai.free2z.cash/v1";

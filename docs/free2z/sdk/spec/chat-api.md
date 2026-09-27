@@ -534,7 +534,7 @@ without arithmetic. Requires `ai:invoke`.
 ```
 
 This is the **public projection** of the signed catalogue the gateway
-runs on ([`docs/ai-gateway`](../../ai-gateway/README.md#the-catalogue-contract)):
+runs on ([`docs/free2z/ai-gateway`](../../ai-gateway/README.md#the-catalogue-contract)):
 the same models, with provider prices replaced by marked-up 2Z rates, and
 only callable models listed. The catalogue's internal fields (provider
 model ids, API styles, safety factors) are not projected.

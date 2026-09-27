@@ -1,6 +1,6 @@
 //! The ledger contract the gateway meters against, and an in-memory fake.
 //!
-//! `docs/sdk/spec/metering.md` §3 (merged in zuu #1051) specifies five
+//! `docs/free2z/sdk/spec/metering.md` §3 (merged in zuu #1051) specifies five
 //! operations, and ADR 0002 makes them the only authority on whether 2Z can be
 //! reserved or charged:
 //!

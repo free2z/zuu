@@ -15,7 +15,7 @@ rust-version = "1.97"
 license = "MIT"
 repository.workspace = true
 # Intended for crates.io (zuu #1047's namespace table), but not published yet:
-# the first publish is a deliberate act once the prose spec (docs/sdk, #1048)
+# the first publish is a deliberate act once the prose spec (docs/free2z/sdk, #1048)
 # and this crate are reconciled. Until then it inherits `publish = false`, so a
 # stray `cargo publish` cannot freeze an unreviewed 0.1.0 forever.
 publish.workspace = true

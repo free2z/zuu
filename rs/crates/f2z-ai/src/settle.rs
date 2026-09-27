@@ -1,7 +1,7 @@
 //! The settler hook: where every started call ends up, exactly once, off the
 //! request's future — and the point at which the call stops counting.
 //!
-//! ADR 0001 of `docs/ai-gateway`: *settlement never runs on the request
+//! ADR 0001 of `docs/free2z/ai-gateway`: *settlement never runs on the request
 //! future. A guard hands the call to a detached settler task on completion,
 //! cancellation or error, so a client going away cannot prevent a settle, and
 //! a settle cannot delay the next request.* A call here is started by

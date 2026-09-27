@@ -1,5 +1,5 @@
 //! `GET https://free2z.cash/api/sdk/v1/balance` — the account's balance, as
-//! `docs/sdk/spec/purchase.md` §1.1 defines it.
+//! `docs/free2z/sdk/spec/purchase.md` §1.1 defines it.
 //!
 //! The endpoint belongs to the account API, not the gateway, but its numbers
 //! are the ones every `/v1/chat` hint (`balance_hint_milli_2z`) and refusal
