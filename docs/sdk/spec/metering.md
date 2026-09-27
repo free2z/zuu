@@ -76,12 +76,17 @@ never see them — `/v1/models` publishes the *marked-up* rates of §2.4.
 With `m` = the platform margin in bps and `b` = the app's markup in bps.
 Neither is a property of a request. `m` comes from the rate card the hold
 was taken under (**2000 bps, 20 %, at v1 launch**; a platform parameter
-that changes only with a new rate card). **`b` is the markup the user
-consented to** — recorded on the grant at consent ([oidc.md](./oidc.md)
-§5) — never the registration's current value: an app that raises its
-markup gets the new value only from users who have re-consented, and every
-hold snapshots the `(rate_card_version, b)` it was priced with, so a
-change during a stream cannot move that stream's settlement.
+that changes only with a new rate card). **`b` is the lesser of two
+numbers**, both read by the ledger inside the hold:
+`b = min(consented, effective)` — the markup the user **consented to**,
+recorded on the grant ([oidc.md](./oidc.md) §5), and the app's
+**current effective markup**, `min(markup_bps, approved_markup_bps)`
+([oidc.md](./oidc.md) §2). So an app that raises its markup gets the new
+value only from users who have re-consented *and* only once the platform
+has approved it; a withdrawn or lowered approval reaches every user on
+their next hold; and a user is never charged more than they consented
+to. Every hold snapshots the `(rate_card_version, b)` it was priced with,
+so a change during a stream cannot move that stream's settlement.
 
 ```
 p = cost × (1 + m/10000)                     the platform price
@@ -149,17 +154,28 @@ record says so.
 
 The developer's `developer_milli` is credited to the developer's own Free2Z
 account **as 2Z platform credits, and nothing else in v1**: there is no
-cash-out, and the credit is spendable exactly as any other 2Z. It is also
-reversible: when a purchase whose 2Z paid for the call is refunded or
-charged back, the developer credit is clawed back pro rata, and a
-developer account that cannot cover it carries debt on the same terms as
-a user's ([purchase.md](./purchase.md) §3.1). Anything beyond that is
-governed by the developer terms, not this contract.
+cash-out, and the credit is spendable exactly as any other 2Z. A markup
+above `0` is only ever applied for an app the platform has **manually
+approved** for markup, and never above the approved value: `b` is
+bounded by `approved_markup_bps` at every hold ([oidc.md](./oidc.md)
+§2, §2.2 above), so an unapproved app is priced as if `b = 0` and an
+app whose approval was withdrawn stops earning on the next hold.
+**v1 has no automatic reversal of markup**: when a
+user's purchase is refunded or charged back, the developer's credit is
+not touched by the ledger. Earnings are recorded **per (user,
+developer)**, so a manual, administrative clawback under the developer
+terms is possible, and the approval gate is what makes that tractable.
+Automatic reversal is a v2 item ([purchase.md](./purchase.md) §3.1).
+Anything beyond that is governed by the developer terms, not this
+contract.
 
 ### 2.4 What `/v1/models` publishes
 
 Every price in `/v1/models` ([chat-api.md](./chat-api.md) §5) is the
-provider price with margin and the calling app's markup already applied:
+provider price with margin and the calling grant's **effective** markup
+already applied — `b = min(consented, effective)` of §2.2, the same
+number a hold would use right now, never the registration's raw
+`markup_bps`:
 
 ```
 published_milli_2z_per_mtok = ceil(provider_usd_per_mtok × 100 × 1000 × (1 + m/10000) × (1 + b/10000))
@@ -204,7 +220,7 @@ The gateway never reads or writes a balance by any other path.
 | Operation | Effect | Answers |
 |---|---|---|
 | **inquire**(user, app) | Read-only: what a hold could reserve right now. Used to compute the output clamp (§4) and by `/v1/chat/estimate`. Not a reservation: the numbers can change before the hold | `available_milli_2z`, `cap_remaining_milli_2z` (`null` when uncapped), `debt_milli_2z`, `open_holds`, `frozen` |
-| **hold**(user, app, `amount_2z`, `hold_key`, `aep`, `agen`, `model_id`, `rate_card_version`, `catalog_version`, `markup_bps`, ttl) | Atomically: check the account is not frozen; the grant is live **and** the token's `aep` and `agen` equal the account's and the grant's current values; `available_milli_2z ≥ amount_2z × 1000`; and `cap_remaining_milli_2z ≥ amount_2z × 1000`; then reserve `amount_2z` and record the **pricing snapshot** the settlement will use: the rates and platform margin of `rate_card_version` (the rate card the ledger holds; the catalogue names it, and `catalog_version` is recorded on the call for reference), the `min_charge_2z` of `model_id` in it, and `markup_bps`. All or nothing, in one operation; there is no window in which the balance was checked but not yet reserved. `markup_bps` MUST equal the grant's consented markup | `held` (with `hold_id`, `available_milli_2z`, `cap_remaining_milli_2z`, `expires_at`), `replayed` (same `hold_key` → the same hold, whatever its state, with that state named), `in_debt` (checked before the balance, so debt is never reported as an ordinary shortage), `insufficient_balance`, `cap_exceeded`, `frozen`, `revoked` (epoch or generation stale), `markup_mismatch`, `unknown_rate_card`, `too_many_holds` (16 open holds is the limit; a seventeenth is refused) |
+| **hold**(user, app, `amount_2z`, `hold_key`, `aep`, `agen`, `model_id`, `rate_card_version`, `catalog_version`, `markup_bps`, ttl) | Atomically: check the account is not frozen; the grant is live **and** the token's `aep` and `agen` equal the account's and the grant's current values; `available_milli_2z ≥ amount_2z × 1000`; and `cap_remaining_milli_2z ≥ amount_2z × 1000`; then reserve `amount_2z` and record the **pricing snapshot** the settlement will use: the rates and platform margin of `rate_card_version` (the rate card the ledger holds; the catalogue names it, and `catalog_version` is recorded on the call for reference), the `min_charge_2z` of `model_id` in it, and the markup actually applied, `b = min(markup_bps, the app's current effective markup)` (§2.2). All or nothing, in one operation; there is no window in which the balance was checked but not yet reserved. The gateway passes `markup_bps` as the grant's **consented** markup and the ledger applies the `min` itself; `markup_mismatch` is answered only when the passed value does not match the grant, never because approval lowered the effective markup. The answer carries the `b` the snapshot was taken with (`applied_markup_bps`); the gateway priced `amount_2z` with the `b` it knew from the catalogue projection, and if the ledger's is **higher** (an approval landed between the two reads) the gateway re-prices the worst case with the ledger's `b` and `extend`s to it **before** the provider request is sent — an extension it cannot afford releases the hold and answers `402` / `403` as a first hold would — so a hold and its settlement are never priced with different markups | `held` (with `hold_id`, `applied_markup_bps`, `available_milli_2z`, `cap_remaining_milli_2z`, `expires_at`), `replayed` (same `hold_key` → the same hold, whatever its state, with that state named), `in_debt` (checked before the balance, so debt is never reported as an ordinary shortage), `insufficient_balance`, `cap_exceeded`, `frozen`, `revoked` (epoch or generation stale), `markup_mismatch`, `unknown_rate_card`, `too_many_holds` (16 open holds is the limit; a seventeenth is refused) |
 | **extend**(`hold_id`, `reserve_to_2z`, ttl) | Push the expiry out and, when `reserve_to_2z` exceeds the current reservation, reserve the difference. The target is **absolute** and **recomputed, never accumulated**: `reserve_to_2z = price(input_est at the dearest input rate, out_cap, images, observed_tool_calls + tool_budget)` — the §4 hold formula with the tool allowance re-based on the tool calls the stream has actually emitted — so a retried extension whose first response was lost reserves nothing twice, and two gateways computing it for the same stream state get the same number. The target is **recomputed from the current `observed_tool_calls` at every extend**, and an extend is issued at two moments only: every **60 s** of streaming, and immediately when a `tool_call` event arrives. So after one observed tool call the target is the price with `1 + 8` tool calls and the reservation rises at that event, not later; a stream with no tool calls extends every 60 s with an unchanged target (an expiry push). An extension that cannot be afforded (or exceeds the cap) leaves the reservation as it was and still pushes the expiry — the stream continues and may end in a write-off (§5.5) | `held` (with the reservation now in force), `insufficient_balance`, `cap_exceeded`, `not_open` (with `state` ∈ `settled`, `released`, `expired`) |
 | **settle**(`hold_id`, `cost_nusd`, usage) | Compute `charged_2z` by §2 from `cost_nusd` and the hold's pricing snapshot, charge it, release the rest of the hold, credit the splits, record the call. **Idempotent** per `hold_id`: a second settle returns the first result and moves nothing. **Never fails** for lack of balance (§5.5) | `settled` (`charged_2z`, `collected_milli_2z`, `shortfall_milli_2z`, `available_milli_2z`, `cap_remaining_milli_2z`, `receipt_id`), or `not_open` (with `state` ∈ `released`, `expired`) — nothing is charged then, and the provider's cost is the platform's (§5.6) |
 | **release**(`hold_id`) | Release the whole hold; nothing charged. Idempotent | `released` (whether by this call or an earlier one), `expired`, or `settled` when a settle won — the settlement stands |
@@ -334,7 +350,7 @@ marks the stop.
 | 5.3 | Client disconnects, stalls, or reads too slowly | The gateway does **not** abort the provider, and **the client's read rate never throttles the upstream read**: the provider is read at its own speed to completion — bounded by the `out_cap` already held and the 300 s hard limit — with undelivered output buffered per stream (256 KiB; [chat-api.md](./chat-api.md) §2.4), and the call settles on the usage the provider reports, exactly as if the client had read everything: `finish_reason: cancelled` on a disconnect, `price(usage)`. The provider bills for the generation whether or not anyone reads it, and only its usage frame carries the reasoning tokens a stream never shows; letting a slow reader stall the upstream into a timeout would trade that known charge for an estimate that cannot see them — the under-charge a slow mobile link would otherwise produce by accident. A disconnect **before `meta`** follows the same rule when the upstream request was already sent; when it was not yet sent, the hold is released and nothing is charged | `provider` | `settled` (`finish_reason: cancelled` on a disconnect) or `released` |
 | 5.4 | Provider reports **no usage** — the upstream stream ended, or failed, without a usage frame even after being read to completion | Estimated as a full usage vector: `input_tokens = input_est` (the hold's estimate, all in the uncached bucket; `cached_input_tokens` and `cache_write_tokens` are `0`), `output_tokens = ceil(tokenise(generated text + tool-call arguments) × 11000 / 10⁴)` over everything the provider produced, delivered or not, `images` = the request's image parts, `tool_calls` = the tool calls produced. Reasoning tokens are not streamed and **cannot be estimated**: a reasoning model whose usage frame was lost is under-charged, and that loss is the platform's. This is the one case where "never priced below cost" does not hold, because the cost is unknown; the record says `estimated` so it can be counted | `estimated` | as above |
 | 5.5 | Actual **exceeds** the hold | Settle does not fail. The excess is taken from what the user could have reserved under this hold — **the lesser of the available balance and the remaining cap of the hold's period** (§4) — so the cap the user consented to bounds the collection exactly as it bounds a hold. Whatever cannot be taken is recorded as `shortfall_milli_2z` and **written off** — the user is never taken below zero, never past the cap, and never put in debt by an AI call. The gateway alerts on every non-zero shortfall; the write-off is the platform's cost of a bad estimate, not the user's | `provider` | `settled`, `shortfall_milli_2z > 0` |
-| 5.6 | Gateway dies mid-stream (no settle) | The hold expires **300 s** after its last extension and is released by a sweeper. If the provider had generated output, the platform pays for it; the user is charged nothing, because nothing was recorded. A settle that arrives after the expiry answers `not_open` and charges nothing; a live gateway that gets that answer (its settler was delayed past expiry) ends the stream with `settlement: "released"` and `charged_2z: 0`. `GET /v1/calls/{id}` shows `released` with `error: {code: "unavailable", message: "hold expired unsettled"}`, written by the sweeper | — | `released` |
+| 5.6 | Gateway dies mid-stream (no settle) | The hold expires **300 s** after its last extension and is released by a sweeper. If the provider had generated output, the platform pays for it; the user is charged nothing, because nothing was recorded. A settle that arrives after the expiry answers `not_open` and charges nothing; a live gateway that gets that answer (its settler was delayed past expiry) ends the stream with `settlement: "released"` and `charged_2z: 0`. `GET /v1/calls/{id}` shows `released` with `error: {code: "unavailable", message: "hold expired unsettled"}`, written by the sweeper. Every late settle is a **platform write-off**, counted by an alerting metric (`f2z_ai_unbilled_late_settle_total`, with the unbilled price as a second series) so that it is seen and made rare rather than tolerated: the settler retries the ledger durably while the instance lives (a draining instance stops at the end of its grace period, §5.11), and `extend` pushes the expiry every 60 s while a stream is alive, so a hold expires under a settle only when a gateway instance died or the ledger was unreachable for the rest of the hold's TTL | — | `released` |
 | 5.7 | `fallback` used | `fallback` is an **ordered list**, tried in order. For each retry the previous attempt's hold is released and a new hold (the next attempt number) is taken at that model's price — its own `out_cap`, its own snapshot — before the request is sent; a hold that cannot be taken (`insufficient_balance`, `cap_exceeded`, `revoked`) ends the call with that code and nothing charged. `meta` carries the model that finally answered. One charge | `provider` | `settled` |
 | 5.8 | Idempotent replay of a finished call | **0** — the call record is returned ([chat-api.md](./chat-api.md) §2.5) | — | unchanged |
 | 5.9 | Cap or balance exhausted **during** a stream | Nothing stops the stream: `out_cap` was sized so the hold fits. (Only a bad estimate reaches §5.5.) | — | — |
