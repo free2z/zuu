@@ -441,3 +441,19 @@ async fn the_probe_closes_the_breaker_at_its_head() {
     assert_eq!(run.outcome.failure, None);
     mock.shutdown().await;
 }
+
+/// A 504 may come from an intermediary that already forwarded the request:
+/// the model may be generating (and billing) it. Not re-sent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_gateway_timeout_status_is_not_re_sent() {
+    let mock = MockProvider::start(Scenario::default().with_fault(Fault::Status { status: 504 }))
+        .await
+        .unwrap();
+    let backend = backend(&mock.base_url(), tuning(2));
+    let run = drive(&backend, &catalog(10_000), &request(RESPONSES.id)).await;
+    let f = run.outcome.failure.unwrap();
+    assert_eq!((f.code, f.retryable), (ErrorCode::ProviderTimeout, true));
+    assert_eq!(run.outcome.attempts, 1);
+    assert_eq!(mock.request_count(), 1);
+    mock.shutdown().await;
+}

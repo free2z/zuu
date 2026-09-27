@@ -33,8 +33,10 @@
 //! answer — a retry after acceptance is the same call paid for twice, and
 //! the client charged for one at most. So exactly two failures retry: a
 //! refused **connection** (nothing was sent), and a **non-2xx status** the
-//! provider answered with (it refused the request; `429`, `5xx`, `529`,
-//! `408`, `504`, per [`super::classify_status`]). A timeout waiting for the
+//! provider answered with (it refused the request; `429`, `5xx`, `529`, per
+//! [`super::classify_status`]) — except `504` and `408`, which an
+//! intermediary can answer after forwarding the request to a model that is
+//! still generating it. A timeout waiting for the
 //! head, a transport error after the request was written, and anything after
 //! a 2xx head — a cut stream, an error event, a first-byte or idle timeout —
 //! end the call with that attempt's own usage, if it reported any.
@@ -231,6 +233,10 @@ impl ProviderUpstream {
                         );
                     }
                     Ok(Ok(response)) if response.status().is_success() => {
+                        // Accepted: nothing after this is ever re-sent, so
+                        // the request body (up to 20 MiB of prompt and
+                        // images) is not kept for the rest of the stream.
+                        self.body = Bytes::new();
                         // A half-open breaker's probe has its answer at the
                         // head: the provider is serving again. Waiting for
                         // the end of the probe's stream would refuse every
@@ -374,13 +380,6 @@ impl ProviderUpstream {
 
     /// Move parsed content into the event queue.
     fn drain_content(&mut self) {
-        if !self.content.is_empty() && !self.body.is_empty() {
-            // Committed: no retry can happen now, so the request body (up to
-            // 20 MiB of prompt and images) is not kept for the rest of a
-            // stream that may run for minutes. The upload budget was released
-            // when `start` returned.
-            self.body = Bytes::new();
-        }
         for content in self.content.drain(..) {
             self.output_produced = true;
             self.queue.push_back(match content {
@@ -480,12 +479,20 @@ impl ProviderUpstream {
     fn attempt_failed(&mut self, failure: ProviderFailure) {
         let usage = UsageReport::Missing { partial: None };
         let verdict = breaker_verdict(&failure);
+        // A 504 or 408 is an intermediary (or the provider's front end)
+        // giving up on a request it may already have forwarded: the model
+        // may be generating it. Retryable for the client — a new call — but
+        // never re-sent here.
+        let forwarded = matches!(failure.status, Some(408 | 504));
         if let Some(permit) = self.permit.take() {
             permit.record(verdict);
         }
         let now = Instant::now();
         let retry = self.attempts;
-        let wait = (failure.retryable && !self.output_produced && retry <= self.retry.max_retries)
+        let wait = (failure.retryable
+            && !forwarded
+            && !self.output_produced
+            && retry <= self.retry.max_retries)
             .then(|| {
                 self.retry
                     .backoff(retry, failure.retry_after, jitter_seed(retry))

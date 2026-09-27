@@ -58,9 +58,9 @@ the usage **or `UsageReport::Missing`** (never a zero usage). No `meta`,
 
 | Rule | Where |
 |---|---|
-| Deadlines: connect 5 s, the model's `ttfb_timeout_ms` to the first body byte, 60 s idle, 300 s from admission. All absolute and kept on the upstream, because the call task drops `next()` futures every 250 ms | `provider/upstream.rs` |
-| Retry only before the first content event, ≤ 2 retries per call with jittered backoff (`retry-after` honoured up to 2 s), a per-provider budget (10 % of primary attempts, burst 20) and a per-provider circuit breaker (5 consecutive failures → open 10 s → one probe) | `provider/resilience.rs` |
-| Status → code: 401/403/402 `internal`; 400/404/413/422 `provider_error`, not retried; 408/504 `provider_timeout`; 429/409/5xx/529 `provider_error`, retried; connect `unavailable`; open breaker `unavailable` (`provider_circuit_open`) | `provider/mod.rs` |
+| Deadlines: connect 5 s, the model's `ttfb_timeout_ms` to the first body byte, the model's `idle_timeout_ms` (default 60 s) between chunks, 300 s from admission. All absolute and kept on the upstream, because the call task drops `next()` futures every 250 ms | `provider/upstream.rs` |
+| Retry **only before the provider can have accepted the request** — a refused connection or a non-2xx status; never after a 2xx head, a head timeout or a transport error after the write (the provider bills those) — ≤ 2 retries per call with jittered backoff (`retry-after` honoured up to 2 s), a per-provider budget (10 % of primary attempts, burst 20) and a per-provider circuit breaker (5 consecutive failures, 429s not counted → open 10 s → one probe, which closes it at its 2xx head) | `provider/resilience.rs` |
+| Status → code: 401/403/402 `internal`; 400/404/413/422 `provider_error`, not retried; 408/504 `provider_timeout`, not re-sent (an intermediary may have forwarded it); 429/409/other 5xx/529 `provider_error`, retried; connect `unavailable`; open breaker `unavailable` (`provider_circuit_open`) | `provider/mod.rs` |
 | Header allowlist (`authorization`, `x-api-key`, `anthropic-version`, `content-type`, `accept`), no redirects, no environment proxy, `https://` base URLs only (loopback `http://` for the mock), keys as `SecretString` exposed only into a sensitive header value | `provider/client.rs`, `config.rs` |
 
 Provider accounts are configured as `[providers.<name>]` (see
