@@ -1,4 +1,4 @@
-# Cargo workspace boundary
+# Free2Z app-suite Cargo workspace boundary
 
 Status: accepted on 2026-08-23. This records the decision for
 [issue #341](https://github.com/free2z/zuu/issues/341).
@@ -89,15 +89,16 @@ which versions can coexist and would centralize profiles and updates; it would
 not make the two applications one binary or remove the need to build each
 application on every shipped target.
 
-The `links = "sqlite3"` rule remains repository-wide policy even with separate
-locks. Both applications link `tauri-plugin-zcash`, so a crate that eventually
+The `links = "sqlite3"` restriction applies within each linked dependency
+graph even with separate locks. Both applications link `tauri-plugin-zcash`, so a crate that eventually
 joins either app must resolve the established `rusqlite` / `libsqlite3-sys`
 line. Independent locks are not permission to postpone that compatibility
-check.
+check. Unrelated projects with independent graphs do not inherit this
+wallet-specific SQLite version.
 
-## Adding Rust crates
+## Adding Rust crates to the app suite
 
-Before adding a manifest, prefer putting app-specific code in that app and
+Before adding an app-suite manifest, prefer putting app-specific code in that app and
 shared wallet code in `tauri-plugin-zcash`. A crate boundary should represent a
 real ownership or reuse boundary, not directory organization.
 
@@ -118,7 +119,8 @@ When a new crate is justified:
 5. Run the repository's manifest-discovering format, clippy, and cargo-deny
    checks. Add explicit locked build/test coverage for the new supported
    context; discovery alone does not decide which platforms it promises.
-6. Preserve the repository-wide Rust toolchain and SQLite singleton rules in
+6. Preserve the repository Rust toolchain policy and the linked wallet graph
+   SQLite compatibility rules in
    `AGENTS.md`.
 
 Do not create a repository-root workspace. Cargo automatically enrolls path

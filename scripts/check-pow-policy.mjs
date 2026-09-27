@@ -12,9 +12,9 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const paths = {
-  wire: "docs/e2ee/WIRE.md",
-  contract: "docs/e2ee/CLIENT-CONTRACT.md",
-  decision: "docs/e2ee/decisions/0011-first-contact-contact-queues.md",
+  wire: "docs/free2z/messaging/WIRE.md",
+  contract: "docs/free2z/messaging/CLIENT-CONTRACT.md",
+  decision: "docs/free2z/messaging/decisions/0011-first-contact-contact-queues.md",
   codec: "rs/crates/f2z-codec/src/pow.rs",
   proto: "rs/crates/f2z-relay-proto/src/capabilities.rs",
   config: "rs/crates/f2z-relay/src/config.rs",

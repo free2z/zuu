@@ -152,8 +152,10 @@ integrate, and move it forward alongside everything else.
   under `wallet/` reaches SQLite through `wallet/plugins/tauri-plugin-zcash`'s
   `rusqlite = { version = "0.37", features = ["bundled", "array"] }`, and
   `wallet/zuuli/src-tauri` links that plugin together with the rest of the app,
-  so **rusqlite 0.37 is a repo-wide singleton**: any new crate that needs SQLite
-  must resolve to it. All three lockfiles currently agree on `rusqlite 0.37.0` /
+  so **rusqlite 0.37 is a constraint on those linked graphs**: a new crate
+  entering a graph that links `tauri-plugin-zcash` must resolve compatibly. An
+  unrelated project with an independent graph does not inherit this version.
+  The relevant wallet lockfiles agree on `rusqlite 0.37.0` /
   `libsqlite3-sys 0.35.0`. Worked example, **and note how it ended**:
   `openmls_sqlite_storage` 0.2.0 required `rusqlite ^0.32` and was therefore
   unusable here, which is part of why `rs/crates/f2z-msg-store` exists; its
@@ -223,7 +225,7 @@ integrate, and move it forward alongside everything else.
   librustzcash `main` + refreshed crates, so upstream drift surfaces as an early
   warning **before** we bump the submodule in a PR.
 - **`scripts/check-rust-toolchain.sh`** proves every Rust toolchain pin still
-  agrees with `wallet/rust-toolchain.toml`, and — since #553 — that **every**
+  agrees with `rust-toolchain.toml`, and — since #553 — that **every**
   tracked `Cargo.toml` and `rust-toolchain.toml` outside `z/` is registered with
   it, so a crate cannot escape the MSRV check by never being registered. The
   `wallet/zuuli` gate runs it on every pull request, so a half-finished bump
@@ -268,7 +270,7 @@ integrate, and move it forward alongside everything else.
 
 ### One source of truth
 
-**`wallet/rust-toolchain.toml` decides the version. Nothing else does.**
+**`rust-toolchain.toml` decides the version. Nothing else does.**
 
 Everything else in the repo restates it, because the surrounding tools cannot
 read a TOML file at the moment they need the value:
@@ -278,15 +280,17 @@ read a TOML file at the moment they need the value:
 | `rust-version` in every registered `Cargo.toml` manifest | Cargo needs a literal, and it is the **two-component MSRV floor** (`X.Y`) of the three-component channel (`X.Y.Z`) — deliberately a different form, compared as such |
 | `ZUULI_RUST_VERSION` in `zuuli-packaging.yml` and `zuuli-release.yml` | A workflow-level `env:` cannot be computed from a file, and the release jobs verify the installed compiler with `rustc --version \| grep -F "rustc $ZUULI_RUST_VERSION "` |
 | `dtolnay/rust-toolchain@<sha> # <version>` in packaging/release and target-native Zuuallet jobs | The action's **version branches hardcode the compiler in `action.yml` and do not declare a `toolchain` input at all** — a commit-pinned ref *is* the version pin, and the trailing comment is its only readable record |
-| `dtolnay/rust-toolchain@<sha> # stable` in source-derived gate/Zuuallet jobs | `uses:` cannot contain an expression, so the generic action implementation is commit-pinned while its `toolchain:` input still reads the version from `wallet/rust-toolchain.toml`; the upstream canary deliberately omits that input so only its compiler selection follows `stable` |
+| `dtolnay/rust-toolchain@<sha> # stable` in source-derived gate/Zuuallet jobs | `uses:` cannot contain an expression, so the generic action implementation is commit-pinned while its `toolchain:` input still reads the version from `rust-toolchain.toml`; the upstream canary deliberately omits that input so only its compiler selection follows `stable` |
 | MSRV/`cargo +<version>` lines in the wallet READMEs, the plugin `CLAUDE.md`, and `wallet/zuuli/docs/releasing.md` | Prose |
 
-A second top-level Rust tree does not get a decision of its own either. It needs
-its own `rust-toolchain.toml`, because Cargo picks the toolchain from the
-directory it runs in, and its crates carry their own `rust-version` — both are
-restatements. Register them in `scripts/check-rust-toolchain.sh`'s
-`TOOLCHAIN_RESTATEMENTS` and `MANIFESTS` arrays and they are held to
-`wallet/rust-toolchain.toml` exactly like every row above. (`--toolchain-file`
+A second top-level Rust tree follows the repository compiler default. Rustup
+normally inherits the root toolchain from its parent directories. The pins in
+`wallet/` and `rs/` are checked restatements retained for isolated build
+contexts that copy or mount only those subtrees; they are not independent
+version decisions. Register required subtree pins and package `rust-version`
+restatements in `scripts/check-rust-toolchain.sh`'s `TOOLCHAIN_RESTATEMENTS`
+and `MANIFESTS` arrays. They are held to the root `rust-toolchain.toml` exactly
+like every row above. (`--toolchain-file`
 and `--manifest` still register a path ad hoc for a local run, but a flag in one
 workflow is **not** a registration: the bare invocation the required gate runs
 passes no flags.)
@@ -307,7 +311,7 @@ all**. Every remaining restatement is verified against the file by
 
 ### How to bump
 
-1. Change `channel` in `wallet/rust-toolchain.toml`. **That is the only decision.**
+1. Change `channel` in `rust-toolchain.toml`. **That is the only decision.**
 2. Run `scripts/check-rust-toolchain.sh`. It names every restatement that has
    not followed, with file and line.
 3. Update exactly what it names — including moving each commit-pinned
@@ -490,20 +494,30 @@ reports. Prune yours as soon as its review finishes rather than at the end of a
 batch; a long session otherwise accumulates several full `target/` trees at
 once.
 
+## Project scope and namespaces
+
+ZUU contains independent products, libraries, SDKs, experiments, and tooling.
+Read [the namespace policy and audit](docs/zuu/NAMESPACES.md) before adding a
+project or moving files. Project-specific code and documentation must name the
+owning project or subsystem. A shared tool is not a default product namespace.
+Do not describe one application's architecture, roadmap, status, dependency
+constraints, or quickstart as the whole repository's. Register documentation
+ownership in `scripts/project-namespaces.json`; the required namespace check
+allows additional owners and rejects retired ambiguous locations.
+
 ## Practical notes
 
-- **We ship three Tauri apps, not one.** `cash.free2z.zuuli` holds the seed and
+- **The Free2Z app suite has three Tauri apps.** `cash.free2z.zuuli` holds the seed and
   renders nothing untrusted; `cash.free2z.free2z` renders untrusted content and
   has no privileged capability; `cash.free2z.e2e2z` holds device keys only. The
   threat that forced it (#367), what enforces the boundary, and what is not yet
-  built are in [docs/architecture.md](docs/architecture.md) and
-  [docs/status.md](docs/status.md). Before adding a capability, a plugin, or an
+  built are in [docs/free2z/app-suite/architecture.md](docs/free2z/app-suite/architecture.md) and
+  [docs/free2z/app-suite/status.md](docs/free2z/app-suite/status.md). Before adding a capability, a plugin, or an
   `invoke_handler` entry to any of them, read the first.
-- The first-party Cargo roots and lockfiles are deliberately independent — six
-  of them under `wallet/` since the split. The release-train boundary,
+- The Free2Z app-suite Cargo roots and lockfiles are deliberately independent. The release-train boundary,
   new-crate rules, and explicit triggers for reconsidering a wallet-wide
   workspace are recorded in
-  [docs/architecture/CARGO-WORKSPACE.md](docs/architecture/CARGO-WORKSPACE.md).
+  [docs/free2z/app-suite/build/CARGO-WORKSPACE.md](docs/free2z/app-suite/build/CARGO-WORKSPACE.md).
 - Submodules live at `z/{github-org}/{repo}` and track a branch (see
   `.gitmodules`). Update to latest with `git submodule update --remote`.
 - A submodule pin must be **fetchable from its configured `url`**. Verify a

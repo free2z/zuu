@@ -10,7 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DOC = "docs/e2ee/KT.md";
+const DOC = "docs/free2z/messaging/KT.md";
 const RUNTIME = "rs/crates/f2z-kt-core/src/sth.rs";
 const CLIENT_TEST = "rs/crates/f2z-kt-client/tests/acceptance.rs";
 const WITNESS_TEST = "rs/crates/f2z-witness/tests/acceptance.rs";

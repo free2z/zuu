@@ -20,7 +20,7 @@ had it.
 | [0003](./adr/0003-unified-api-before-passthrough.md) | **A unified API ships before any provider passthrough** — every priceable thing is priced before it can be called; passthrough is a later, allowlisted addition |
 | [0004](./adr/0004-zuu-namespace-layout.md) | **The namespace** — where each crate and package lives in this repository, what is published, under which licence |
 
-ADRs follow the format of [`docs/e2ee/decisions`](../e2ee/decisions/0001-platform-priority.md):
+ADRs follow the format of [`docs/free2z/messaging/decisions`](../free2z/messaging/decisions/0001-platform-priority.md):
 context, decision, consequences, alternatives rejected. A decision is
 changed by a new ADR that supersedes it, never by editing the old one.
 

@@ -13,7 +13,7 @@
 //! **The set that matters is the union, not this array.** `WIRE.md` §1.3 now
 //! states prefix-freeness as a normative requirement over every label in every
 //! document that uses `H`, and `scripts/check-hash-domain-labels.mjs` enforces
-//! it across the whole repository — the specifications under `docs/e2ee/` as
+//! it across the whole repository — the specifications under `docs/free2z/messaging/` as
 //! well as these constants. [`LABELS`] and the test below cover this crate's
 //! own six, which is worth keeping and is not sufficient on its own: `KT.md`'s
 //! labels were internally prefix-free too, and collided anyway

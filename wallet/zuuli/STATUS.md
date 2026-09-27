@@ -389,7 +389,7 @@ a 300-second assertion validity. The key-transparency log serves a 314-byte
 signed tree head carrying that same `log_id` and the bundled VRF key — and a
 cosignature vector of length **zero**, which is the blocker recorded above. `assetlinks.json`, which returned 503 at the previous audit,
 now returns 200 and is **byte-identical** to the reviewed declaration in
-`docs/intent-bridge/association/assetlinks.json` (SHA-256
+`docs/free2z/intent-bridge/association/assetlinks.json` (SHA-256
 `286e6580e699fe8b3659eb138afca59456c3fa7e0bbc990f8957733e6d0564d5`). A served
 association file is a precondition for Android App Link verification, not proof
 of it: no signed build has been installed, so **no operating system has been

@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "documentation": [
+    {
+      "path": "docs/free2z",
+      "owner": "free2z",
+      "scope": "Free2Z app suite, messaging, intent bridge, SDK and metered AI"
+    },
+    {
+      "path": "docs/zuuli",
+      "owner": "zuuli",
+      "scope": "ZUULI wallet application and build infrastructure"
+    },
+    {
+      "path": "docs/zuu",
+      "owner": "zuu",
+      "scope": "Repository structure and shared policy"
+    },
+    {
+      "path": "docs/about-free2z",
+      "owner": "free2z",
+      "scope": "Named public documentation site and its build assets"
+    },
+    {
+      "path": "docs/ci",
+      "owner": "zuu",
+      "scope": "Shared CI policy observations"
+    },
+    {
+      "path": "docs/DEPENDENCIES.md",
+      "owner": "zuu",
+      "scope": "Repository dependency exception register"
+    },
+    {
+      "path": "docs/PARALLEL-AGENTS.md",
+      "owner": "zuu",
+      "scope": "Repository contribution workflow"
+    }
+  ],
+  "retired": [
+    "docs/sdk",
+    "docs/ai-gateway",
+    "docs/architecture.md",
+    "docs/status.md",
+    "docs/development.md",
+    "docs/release",
+    "docs/e2ee",
+    "docs/intent-bridge",
+    "docs/architecture",
+    "docs/ZUULI-LINUX-BUILD-IMAGE.md",
+    "docs/ZUULI-STORE-CAPTURE-IMAGE.md",
+    "ts/sdk",
+    "ts/sdk-ui",
+    "wallet/examples/hello-ai"
+  ]
+}

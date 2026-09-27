@@ -2,7 +2,7 @@
 //
 // Prove that the E2EE hash-domain labels are prefix-free across the whole tree.
 //
-// `docs/e2ee/WIRE.md` §1.3 defines the one hash the protocol uses as
+// `docs/free2z/messaging/WIRE.md` §1.3 defines the one hash the protocol uses as
 //
 //     H(label, x) = BLAKE2b-256(label || x)
 //
@@ -175,20 +175,20 @@ const NON_DECLARING_FILES = [
 /// registered documents must yield labels, and label-naming documents must be
 /// registered.
 const LABEL_BEARING_DOCUMENTS = [
-  "docs/e2ee/ARCHITECTURE.md",
-  "docs/e2ee/KT.md",
-  "docs/e2ee/README.md",
-  "docs/e2ee/THREAT-MODEL.md",
-  "docs/e2ee/WIRE.md",
-  "docs/e2ee/decisions/0009-queue-addressing-and-binding.md",
-  "docs/e2ee/decisions/0010-signing-transcript-and-ack-semantics.md",
-  "docs/e2ee/decisions/0017-internal-directory-activation.md",
+  "docs/free2z/messaging/ARCHITECTURE.md",
+  "docs/free2z/messaging/KT.md",
+  "docs/free2z/messaging/README.md",
+  "docs/free2z/messaging/THREAT-MODEL.md",
+  "docs/free2z/messaging/WIRE.md",
+  "docs/free2z/messaging/decisions/0009-queue-addressing-and-binding.md",
+  "docs/free2z/messaging/decisions/0010-signing-transcript-and-ack-semantics.md",
+  "docs/free2z/messaging/decisions/0017-internal-directory-activation.md",
   // The cross-app intent bridge (#905) mints `free2z/intent/v1/request` and
   // `free2z/intent/v1/confirmation`. It is a different protocol from the relay
   // and the log, and that is exactly why it is registered here: the labels do
   // not have to share a document to share `H`'s single, separator-free
   // namespace, which is the scoping mistake #602 was.
-  "docs/intent-bridge/PROTOCOL.md",
+  "docs/free2z/intent-bridge/PROTOCOL.md",
   // The AI gateway's signed model catalogue (#1048, #1049) is signed over
   // `free2z/ai-catalog/v1 || canonical_json(payload)`. The label is minted
   // in `rs/crates/f2z-ai-proto/src/catalog.rs` and quoted by this document;

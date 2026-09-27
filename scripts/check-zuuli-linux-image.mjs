@@ -25,7 +25,7 @@ const contextFiles = [
 ];
 const lockPath = `${contextDir}/image.lock`;
 const workflowPath = ".github/workflows/zuuli-linux-image.yml";
-const documentationPath = "docs/ZUULI-LINUX-BUILD-IMAGE.md";
+const documentationPath = "docs/zuuli/build/ZUULI-LINUX-BUILD-IMAGE.md";
 const consumerWorkflows = [
   ".github/workflows/zuuli.yml",
   ".github/workflows/zuuli-packaging.yml",
@@ -55,13 +55,13 @@ const phaseATriggerPaths = [
   ".github/containers/zuuli-linux",
   ".github/workflows/zuuli-linux-image.yml",
   ".github/workflows/zuuallet.yml",
-  "docs/ZUULI-LINUX-BUILD-IMAGE.md",
+  "docs/zuuli/build/ZUULI-LINUX-BUILD-IMAGE.md",
   "scripts/check-zuuli-linux-image.mjs",
 ];
 const phaseASamplePaths = [
   ".github/containers/zuuli-linux/Dockerfile",
   ".github/workflows/zuuli-linux-image.yml",
-  "docs/ZUULI-LINUX-BUILD-IMAGE.md",
+  "docs/zuuli/build/ZUULI-LINUX-BUILD-IMAGE.md",
   "scripts/check-zuuli-linux-image.mjs",
 ];
 const schemaGateSamplePaths = [

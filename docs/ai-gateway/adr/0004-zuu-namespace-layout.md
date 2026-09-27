@@ -3,7 +3,7 @@
 **Status:** Accepted (owner, 2026-09-26) · **Refs:**
 [#1047](https://github.com/free2z/zuu/issues/1047),
 [#1048](https://github.com/free2z/zuu/issues/1048),
-[CARGO-WORKSPACE](../../architecture/CARGO-WORKSPACE.md)
+[CARGO-WORKSPACE](../../free2z/app-suite/build/CARGO-WORKSPACE.md)
 
 ## Context
 

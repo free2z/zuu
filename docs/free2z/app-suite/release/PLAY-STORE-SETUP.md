@@ -4,7 +4,7 @@ Where each app stands in Google Play Console, what is blocking it, and what the
 next agent should pick up. Derived from the live console on **2026-09-07**.
 
 This page records **console state**, which no test in this repository can prove.
-Treat it the way [`docs/status.md`](../status.md) treats the tree: if another
+Treat it the way [`docs/free2z/app-suite/status.md`](../status.md) treats the tree: if another
 page disagrees, this one was checked against the console and the other is a bug.
 Re-derive it before relying on it, because a human can change the console at any
 time without touching the repository.
@@ -21,7 +21,7 @@ handoff; this public record identifies apps and responsibilities only.
 During this setup session, no Free2Z or E2E2Z bundle was uploaded, no release
 was created, and nothing was sent for review. Their changes below remained
 pending in Publishing overview. ZUULI's setup was not modified: its existing
-[build 20 store readback](../../wallet/zuuli/STATUS.md) predates the three-app
+[build 20 store readback](../../../../wallet/zuuli/STATUS.md) predates the three-app
 split and is separate from this session.
 
 ---

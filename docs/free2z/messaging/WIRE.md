@@ -2590,7 +2590,7 @@ one of each kind and they must not be read as the same rule applied twice.
   3. **Check the result against `/^[a-z0-9_]{1,30}$/`.**
 
   This is what ships:
-  [`wallet/plugins/tauri-plugin-f2zmsg/src/handle.rs`](../../wallet/plugins/tauri-plugin-f2zmsg/src/handle.rs)'s
+  [`wallet/plugins/tauri-plugin-f2zmsg/src/handle.rs`](../../../wallet/plugins/tauri-plugin-f2zmsg/src/handle.rs)'s
   `eligibility()` runs these three steps in this order, gates step 2 behind
   `username.is_ascii()`, and its `#[cfg(test)]` module fixes the Cyrillic-а case
   as a rejected `non-ascii`, not a folded ASCII string.
@@ -2609,7 +2609,7 @@ fifth. **Every restatement of this rule MUST return exactly that pair —
 `eligible: false`, `reason: punctuation` — for the empty string**, because
 nothing about that answer follows from the regex by itself; it has to be
 stated once, here, or two conforming restatements will disagree on it. They
-currently do: [`wallet/e2e2z/src/lib/messaging/mock.ts`](../../wallet/e2e2z/src/lib/messaging/mock.ts)'s
+currently do: [`wallet/e2e2z/src/lib/messaging/mock.ts`](../../../wallet/e2e2z/src/lib/messaging/mock.ts)'s
 `evaluateHandle` treats an empty string the same as no signed-in account
 (`reason: "not-signed-in"`), which this section now states is the wrong
 answer. [#838](https://github.com/free2z/zuu/issues/838) tracks the mock fix;
@@ -2638,7 +2638,7 @@ at minimum: `null`, the empty string, an ASCII-uppercase username, each of
 and lengths 30 and 31 — so that an edit to either implementation which drifts
 from the other, or from this table, fails a test rather than shipping unnoticed.
 **This did not exist when the paragraph above was written; it does now.**
-[`wallet/e2e2z/src/lib/messaging/handle-eligibility.fixtures.json`](../../wallet/e2e2z/src/lib/messaging/handle-eligibility.fixtures.json)
+[`wallet/e2e2z/src/lib/messaging/handle-eligibility.fixtures.json`](../../../wallet/e2e2z/src/lib/messaging/handle-eligibility.fixtures.json)
 is the shared table, at least the minimum set listed above — kept beside
 `mock.ts` rather than under `docs/` so `mock.ts`'s side of it is an ordinary
 same-project JSON import, not a reach outside its own module boundary, which is

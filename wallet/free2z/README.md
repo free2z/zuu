@@ -238,7 +238,7 @@ running app; `tests/profile-kyc.pw.ts` asserts the fourth.
    payer to ZUULI to look instead of reassuring them.
 
    What the correlation proves is that the responder saw the request.
-   `docs/intent-bridge/CALLER-AUTHENTICATION.md` §5 records what it does not:
+   `docs/free2z/intent-bridge/CALLER-AUTHENTICATION.md` §5 records what it does not:
    there is **no signature over responses**, so nothing in the bytes proves
    ZUULI wrote them. That is a property of the transport, which is #461.
 2. **Login with Zcash.** Password and linked accounts work. The Zcash method is

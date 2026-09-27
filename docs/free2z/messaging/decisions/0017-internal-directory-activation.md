@@ -100,7 +100,7 @@ are not acceptable for anyone else.
 ## 3. Decision 2 — how the configuration reaches devices
 
 **A checked-in file, compiled in, that fails closed:**
-[`wallet/plugins/tauri-plugin-f2zmsg/internal-directory.conf`](../../../wallet/plugins/tauri-plugin-f2zmsg/internal-directory.conf),
+[`wallet/plugins/tauri-plugin-f2zmsg/internal-directory.conf`](../../../../wallet/plugins/tauri-plugin-f2zmsg/internal-directory.conf),
 read with `include_str!` and parsed by
 `tauri_plugin_f2zmsg::internal_directory`. Both ZUULI and e2e2z link the plugin,
 so both apps get the same values from the same reviewed file.
@@ -668,7 +668,7 @@ precheck rule, before anything reaches the log.
 
 ### 5.4 Shared test vectors
 
-[`rs/crates/f2z-authority/tests/fixtures/handle-assertion-v1.vectors`](../../../rs/crates/f2z-authority/tests/fixtures/handle-assertion-v1.vectors),
+[`rs/crates/f2z-authority/tests/fixtures/handle-assertion-v1.vectors`](../../../../rs/crates/f2z-authority/tests/fixtures/handle-assertion-v1.vectors),
 kept in sync by `tests/contract_c_vectors.rs`. From `authority_seed`, `log_id`,
 `handle`, `identity_pk`, `intent`, `account_epoch`, `issued_ms`, `expires_ms` and
 `nonce`, an issuer must produce `tbs`, `signature` and `assertion` byte for byte.

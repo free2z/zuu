@@ -83,8 +83,8 @@ const RUST_ROOT_CONTRACTS = [
           "wallet/nested/future/source.rs",
           "wallet/Cargo.toml",
           "wallet/nested/future/Cargo.toml",
-          "docs/e2ee/CLIENT-CONTRACT.md",
-          "docs/e2ee/WIRE.md",
+          "docs/free2z/messaging/CLIENT-CONTRACT.md",
+          "docs/free2z/messaging/WIRE.md",
           // The markdown-only guard must exclude prose and nothing else: source
           // under the same two prefixes still selects the full gate.
           "wallet/free2z/src/App.tsx",
@@ -196,7 +196,7 @@ const RUST_ROOT_CONTRACTS = [
     ],
     excludedProbePaths: [
       "wallet/README.md",
-      "wallet/docs/architecture.md",
+      "wallet/docs/free2z/app-suite/architecture.md",
       "rs/crates/f2z-relay/src/lib.rs",
       // Markdown under wallet/zuuli/ is prose about the app, not an input to
       // any job the gate awaits, and `wallet/zuuli/*` would otherwise select
@@ -243,10 +243,10 @@ const RUST_ROOT_CONTRACTS = [
         name: "rs",
         probeRoot: "rs",
         additionalProbePaths: [
-          "docs/e2ee/KT.md",
-          "docs/e2ee/decisions/0013-key-transparency-log.md",
-          "docs/e2ee/evidence/akd-benchmark.json",
-          "docs/e2ee/evidence/akd-audit-scope.json",
+          "docs/free2z/messaging/KT.md",
+          "docs/free2z/messaging/decisions/0013-key-transparency-log.md",
+          "docs/free2z/messaging/evidence/akd-benchmark.json",
+          "docs/free2z/messaging/evidence/akd-audit-scope.json",
           "scripts/check-akd-doc-evidence.mjs",
           "scripts/check-kt-sth-repeat-agreement.mjs",
           "scripts/check-crypto-kat-locks.mjs",
@@ -2465,6 +2465,21 @@ function rustRootWorkflowFailures(relativeFile, lines, contract, embeddedInputs 
     failures,
     `${contract.root} root owner changes`,
   );
+  const namespaceSteps = changeSteps.filter((step) =>
+    step.properties.get("name")?.value === "Verify project namespace ownership");
+  const namespace = namespaceSteps[0];
+  const namespaceRun = namespace?.properties.get("run");
+  const namespaceCommands = namespaceRun ? blockScalarCommands(lines, namespaceRun, namespace.end) : [];
+  if (namespaceSteps.length !== 1 ||
+      !hasExactKeys(namespace?.properties ?? new Map(), ["name", "run"]) ||
+      namespaceRun?.value !== "|" ||
+      JSON.stringify(namespaceCommands) !== JSON.stringify([
+        "node scripts/check-project-namespaces.mjs --self-test",
+        "node scripts/check-project-namespaces.mjs",
+      ])) {
+    failures.push(`${relativeFile}:${changes.start + 1}: ${contract.root}/ owner must run one unconditional namespace self-test and live verdict`);
+  }
+
   const toolchainSteps = changeSteps.filter(
     (step) =>
       step.properties.get("name")?.value ===
@@ -3820,6 +3835,17 @@ function runRustRootWorkflowMutationTests(repoRoot) {
       (value) => value.replace("        scripts/check-rust-toolchain.sh\n", ""),
       `${ownerPrefix} must run one unconditional`,
     );
+    for (const [description, from, to] of [
+      ["missing", "      - name: Verify project namespace ownership", "      - name: Removed namespace check"],
+      ["conditional", "      - name: Verify project namespace ownership", "      - name: Verify project namespace ownership\n        if: false"],
+      ["soft-failing", "      - name: Verify project namespace ownership", "      - name: Verify project namespace ownership\n        continue-on-error: true"],
+      ["self-test-only", "          node scripts/check-project-namespaces.mjs\n", "          true\n"],
+    ]) {
+      assertWorkflowFailure(contract, source,
+        `${contract.root}/ rejects a ${description} namespace guard`,
+        (value) => value.replace(from, to),
+        `${ownerPrefix} must run one unconditional namespace self-test and live verdict`);
+    }
     assertWorkflowFailure(
       contract,
       source,
@@ -3982,8 +4008,8 @@ function runRustRootWorkflowMutationTests(repoRoot) {
             mutateJob(
               value,
               "changes",
-              probePath.startsWith("docs/e2ee/")
-                ? "docs/e2ee/*|"
+              probePath.startsWith("docs/free2z/messaging/")
+                ? "docs/free2z/messaging/*|"
                 : `${probePath}|`,
               "",
             ),
@@ -3998,8 +4024,8 @@ function runRustRootWorkflowMutationTests(repoRoot) {
           mutateJob(
             value,
             "changes",
-            "docs/e2ee/*|",
-            "docs/e2ee/KT.md|docs/e2ee/evidence/akd-benchmark.json|",
+            "docs/free2z/messaging/*|",
+            "docs/free2z/messaging/KT.md|docs/free2z/messaging/evidence/akd-benchmark.json|",
           ),
         `${ownerPrefix} selector must actively select`,
       );
@@ -4051,15 +4077,15 @@ function runRustRootWorkflowMutationTests(repoRoot) {
         ],
         [
           "messaging client-contract selector",
-          "docs/e2ee/CLIENT-CONTRACT.md|",
+          "docs/free2z/messaging/CLIENT-CONTRACT.md|",
           "",
-          'must actively select "docs/e2ee/CLIENT-CONTRACT.md"',
+          'must actively select "docs/free2z/messaging/CLIENT-CONTRACT.md"',
         ],
         [
           "messaging wire-contract selector",
-          "docs/e2ee/WIRE.md|",
+          "docs/free2z/messaging/WIRE.md|",
           "",
-          'must actively select "docs/e2ee/WIRE.md"',
+          'must actively select "docs/free2z/messaging/WIRE.md"',
         ],
       ];
       assertWorkflowFailure(contract, source,

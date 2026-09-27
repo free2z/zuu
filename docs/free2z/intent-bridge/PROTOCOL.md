@@ -34,7 +34,7 @@ A versioned request/response protocol carrying **authority delegation** from
 | `execute-payment` | recipient, amount, memo, fee | re-derives and shows its **own** payment review | txid or refusal |
 
 `issue-device-credential-v2` is
-[ADR 0017 §4.1](../e2ee/decisions/0017-internal-directory-activation.md)'s
+[ADR 0017 §4.1](../messaging/decisions/0017-internal-directory-activation.md)'s
 follow-up, and it is a **family code of its own** rather than a version field
 inside the payload: version 1's payload carries no tag, so the only selector
 that refuses instead of best-guessing is the one `payload` is already opaque
@@ -50,7 +50,7 @@ discipline:
 - **Device private keys never leave their app.**
   `issue-device-credential` carries `device_pk` and `device_kem_pk`; the private
   halves are generated from the OS CSPRNG in the calling app and stay there
-  (`docs/e2ee/ARCHITECTURE.md` §4.1).
+  (`docs/free2z/messaging/ARCHITECTURE.md` §4.1).
 
 And one that the *pipeline* enforces: **nothing here is a continuous grant.**
 Every intent is one-shot, expiring on two clocks, and bound to one approval of
@@ -84,7 +84,7 @@ The encoding is `tls_codec` — the TLS presentation language — reached throug
 `f2z-codec`. Not a new codec, and not JSON, for three reasons in decreasing
 order of importance:
 
-1. **Re-encode equality.** `docs/e2ee/WIRE.md` §3.3 requires every received
+1. **Re-encode equality.** `docs/free2z/messaging/WIRE.md` §3.3 requires every received
    structure to be decoded, re-encoded and byte-compared, and requires the
    *re-encoded* bytes to be what a hash covers. The confirmation binding of
    [§5](#5-binding-an-intent-to-its-confirmation) is a digest over the request,
@@ -192,7 +192,7 @@ definition here would be a second chance to disagree about the bytes the whole
 key-transparency directory is built on.
 
 > **`IssueDeviceCredentialResultV1` carries one field and
-> [ADR 0016](../e2ee/decisions/0016-enrollment-sealing-boundary.md) decides it
+> [ADR 0016](../messaging/decisions/0016-enrollment-sealing-boundary.md) decides it
 > keeps carrying one.** [#928](https://github.com/free2z/zuu/issues/928) opened
 > as a request to widen it — `identity_pk`, and the `BackupWrapKey` that
 > `install_identity` takes. The wrap key is seed-derived, so shipping it would
@@ -223,7 +223,7 @@ to the device that created the queue**. Only that device knows it. ZUULI
 therefore cannot build a publishable entry for another app's device from
 version 1's fields, which is exactly why version 1 publishes nothing.
 
-[ADR 0016](../e2ee/decisions/0016-enrollment-sealing-boundary.md) §4's "no new
+[ADR 0016](../messaging/decisions/0016-enrollment-sealing-boundary.md) §4's "no new
 fields" rule forbids an *unsigned copy of a value a signed structure already
 fixes*, because an unauthenticated responder would choose the copy and the copy
 would win. The endpoint copies nothing: the **requester** supplies it, and the
@@ -419,7 +419,7 @@ token_hash = H("free2z/intent/v1/confirmation", ConfirmationTranscriptV1)
 ```
 
 `H(label, x)` is `BLAKE2b-256(label || x)` with no separator —
-`docs/e2ee/WIRE.md` §1.3 — so the label set must be prefix-free across the whole
+`docs/free2z/messaging/WIRE.md` §1.3 — so the label set must be prefix-free across the whole
 repository, and `scripts/check-hash-domain-labels.mjs` holds it that way.
 
 `request_digest` covers **every** field, because it is taken over the re-encoded

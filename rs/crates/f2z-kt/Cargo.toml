@@ -1,7 +1,7 @@
 [package]
 name = "f2z-kt"
 version = "0.1.0"
-description = "The free2z key-transparency log server (docs/e2ee/KT.md v1): durable storage, the submission choke point, the epoch scheduler and the proof-serving API"
+description = "The free2z key-transparency log server (docs/free2z/messaging/KT.md v1): durable storage, the submission choke point, the epoch scheduler and the proof-serving API"
 edition.workspace = true
 # A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot

@@ -29,7 +29,7 @@
 //             frame confusion means a remote subframe there resolves as the
 //             trusted main window. It must find nothing privileged to call.
 //   e2e2z   — the messaging surface. NO `zcash:*` entry, ever: ongoing
-//             messaging never needs the seed (docs/e2ee/ARCHITECTURE.md §4.2).
+//             messaging never needs the seed (docs/free2z/messaging/ARCHITECTURE.md §4.2).
 //             Messaging grants are named commands only — never the blanket
 //             `f2zmsg:default` — and each must be in the reviewed allowlist
 //             `mobile-webview-authority.mjs` already holds ZUULI's mobile

@@ -7,7 +7,7 @@
 //! other test in this crate would pass unchanged if `tls_codec` silently
 //! altered a length prefix tomorrow. This file is the independent half — the
 //! expected bytes are laid out below field by field from
-//! `docs/intent-bridge/PROTOCOL.md` §3, not read out of the encoder — so a
+//! `docs/free2z/intent-bridge/PROTOCOL.md` §3, not read out of the encoder — so a
 //! wire-format break fails *here*, loudly, instead of shipping.
 //!
 //! # The same vector is pinned in TypeScript

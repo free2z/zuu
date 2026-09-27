@@ -45,7 +45,7 @@
 //! Keeping the enum member reserves the domain; it does not claim the schedule
 //! exists.
 //!
-//! [adr9]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0009-queue-addressing-and-binding.md
+//! [adr9]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0009-queue-addressing-and-binding.md
 
 /// A consumer entitled to exporter-derived key material, per §5.4.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

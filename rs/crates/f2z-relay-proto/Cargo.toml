@@ -1,7 +1,7 @@
 [package]
 name = "f2z-relay-proto"
 version = "0.1.0"
-description = "Signed commands, anti-replay, queue lifecycle and capability documents for the free2z relay protocol (docs/e2ee/WIRE.md v1)"
+description = "Signed commands, anti-replay, queue lifecycle and capability documents for the free2z relay protocol (docs/free2z/messaging/WIRE.md v1)"
 edition.workspace = true
 # A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot

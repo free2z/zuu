@@ -1,7 +1,7 @@
 /**
  * This device's public keys, read from the process that owns them.
  *
- * `docs/e2ee/ARCHITECTURE.md` §4.2: device keys come from the **OS CSPRNG**,
+ * `docs/free2z/messaging/ARCHITECTURE.md` §4.2: device keys come from the **OS CSPRNG**,
  * are **never seed-derived** and are **never exported**. All three clauses are
  * enforced by where the keys live, not by this file — the sampling happens in
  * `tauri_plugin_f2zmsg::engine::Engine::prepare_device`, the private halves
@@ -20,7 +20,7 @@
  * app-crate, so the response is not covered by the plugin's `ErrorCode`
  * contract or by any zod schema in `../messaging/types.ts`; it is parsed here,
  * to the exact shape `IssueDeviceCredentialRequestV2` needs
- * (`docs/intent-bridge/PROTOCOL.md` §3.3), and refused otherwise.
+ * (`docs/free2z/intent-bridge/PROTOCOL.md` §3.3), and refused otherwise.
  *
  * ## The endpoint comes back with the keys, and it has to
  *

@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const evidenceRoot = join(repoRoot, "docs/e2ee/evidence");
+const evidenceRoot = join(repoRoot, "docs/free2z/messaging/evidence");
 const benchmarkPath = join(evidenceRoot, "akd-benchmark.json");
 const auditPath = join(evidenceRoot, "akd-audit-scope.json");
 const apiPath = join(repoRoot, "rs/crates/f2z-kt/tests/akd_doc_api.rs");
@@ -114,19 +114,19 @@ const metricInventory = new Map([
 ]);
 
 const claimInventory = new Map([
-  ["audit_scope", "docs/e2ee/decisions/0013-key-transparency-log.md"],
-  ["history_proof_type", "docs/e2ee/KT.md"],
-  ["history_request_wire", "docs/e2ee/KT.md"],
-  ["enumeration_boundary_kt", "docs/e2ee/KT.md"],
-  ["enumeration_boundary_adr", "docs/e2ee/decisions/0013-key-transparency-log.md"],
+  ["audit_scope", "docs/free2z/messaging/decisions/0013-key-transparency-log.md"],
+  ["history_proof_type", "docs/free2z/messaging/KT.md"],
+  ["history_request_wire", "docs/free2z/messaging/KT.md"],
+  ["enumeration_boundary_kt", "docs/free2z/messaging/KT.md"],
+  ["enumeration_boundary_adr", "docs/free2z/messaging/decisions/0013-key-transparency-log.md"],
 ]);
 
 const requiredClaimInventory = new Map([
-  ["audit_scope", "docs/e2ee/decisions/0013-key-transparency-log.md"],
-  ["history_proof_type", "docs/e2ee/KT.md"],
-  ["history_request_wire", "docs/e2ee/KT.md"],
-  ["enumeration_boundary_kt", "docs/e2ee/KT.md"],
-  ["enumeration_boundary_adr", "docs/e2ee/decisions/0013-key-transparency-log.md"],
+  ["audit_scope", "docs/free2z/messaging/decisions/0013-key-transparency-log.md"],
+  ["history_proof_type", "docs/free2z/messaging/KT.md"],
+  ["history_request_wire", "docs/free2z/messaging/KT.md"],
+  ["enumeration_boundary_kt", "docs/free2z/messaging/KT.md"],
+  ["enumeration_boundary_adr", "docs/free2z/messaging/decisions/0013-key-transparency-log.md"],
 ]);
 
 const enumerationClaimContexts = new Map([
@@ -1616,8 +1616,8 @@ async function compileApiFixture(source, expectSuccess) {
 
 async function documentationFiles() {
   const paths = [
-    "docs/e2ee/KT.md",
-    "docs/e2ee/decisions/0013-key-transparency-log.md",
+    "docs/free2z/messaging/KT.md",
+    "docs/free2z/messaging/decisions/0013-key-transparency-log.md",
   ];
   return Promise.all(paths.map(async (relativePath) => [relativePath, await readFile(join(repoRoot, relativePath), "utf8")]));
 }

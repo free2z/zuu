@@ -11,15 +11,15 @@ transport remains in #905).
 
 Companion documents. This page deliberately does **not** restate them:
 
-- [`intent-bridge/PROTOCOL.md`](./intent-bridge/PROTOCOL.md) — the wire format
+- [`intent-bridge/PROTOCOL.md`](../intent-bridge/PROTOCOL.md) — the wire format
   and both implementations.
-- [`intent-bridge/AUTHORITY.md`](./intent-bridge/AUTHORITY.md) — what ZUULI does
+- [`intent-bridge/AUTHORITY.md`](../intent-bridge/AUTHORITY.md) — what ZUULI does
   with an admitted intent.
-- [`intent-bridge/CALLER-AUTHENTICATION.md`](./intent-bridge/CALLER-AUTHENTICATION.md)
+- [`intent-bridge/CALLER-AUTHENTICATION.md`](../intent-bridge/CALLER-AUTHENTICATION.md)
   — who is calling, per platform, and what cannot be established.
-- [`intent-bridge/CONFORMANCE.md`](./intent-bridge/CONFORMANCE.md) — every guard
+- [`intent-bridge/CONFORMANCE.md`](../intent-bridge/CONFORMANCE.md) — every guard
   and the mutation that proves its test is not inert.
-- [`e2ee/ARCHITECTURE.md`](./e2ee/ARCHITECTURE.md) — the account-key /
+- [`e2ee/ARCHITECTURE.md`](../messaging/ARCHITECTURE.md) — the account-key /
   device-key separation this split rests on.
 - [`status.md`](./status.md) — what is actually working today.
 
@@ -66,7 +66,7 @@ This was the preferred option and it does not hold where the threat is:
 scoped, revocable credentials — never the seed.**
 
 This was already our design.
-[`e2ee/ARCHITECTURE.md`](./e2ee/ARCHITECTURE.md) §4.2 separates **account keys**
+[`e2ee/ARCHITECTURE.md`](../messaging/ARCHITECTURE.md) §4.2 separates **account keys**
 (seed-derived, restorable: `CeremonySigningKey`, `DirectoryAuthKey`,
 `BackupWrapKey`) from **device keys** (OS CSPRNG, never seed-derived, never
 exported: `DeviceSignatureKey`, `DeviceInitKey`, `QueueKey_{q}`), bound by a
@@ -85,7 +85,7 @@ authority **nor** messaging keys.
 
 ## 3. The three surfaces
 
-| | [`cash.free2z.zuuli`](../wallet/zuuli/) | [`cash.free2z.free2z`](../wallet/free2z/) | [`cash.free2z.e2e2z`](../wallet/e2e2z/) |
+| | [`cash.free2z.zuuli`](../../../wallet/zuuli/) | [`cash.free2z.free2z`](../../../wallet/free2z/) | [`cash.free2z.e2e2z`](../../../wallet/e2e2z/) |
 | --- | --- | --- | --- |
 | Role | wallet authority | content | messaging |
 | Holds | master seed, spending keys, account-level messaging keys | Knox token, 2Z balance | device keys + device credential |
@@ -121,7 +121,7 @@ None accepts or derives account keys.
 ZUULI's three app-crate enrollment commands — `f2zmsg_enrollment_status`,
 `f2zmsg_enroll`, `f2zmsg_unenroll` — are deliberately absent here. In ZUULI they
 borrow the seed from `tauri-plugin-zcash`'s managed state in-process
-([`e2ee/CLIENT-CONTRACT.md`](./e2ee/CLIENT-CONTRACT.md) §2.2). There is no seed
+([`e2ee/CLIENT-CONTRACT.md`](../messaging/CLIENT-CONTRACT.md) §2.2). There is no seed
 here to borrow, so enrollment is a bridge call: on iPhone and Android e2e2z
 asks ZUULI for a credential over the App Link transport (#1019) and installs
 it (#1022). A build without that transport (desktop, a browser) still refuses
@@ -157,13 +157,13 @@ a declined or ignored request leaks nothing about the wallet.
 The split is worth nothing if it is a convention. "free2z has no wallet
 capability" is a property a one-line edit can quietly reverse, and the edit
 looks like every other capability edit. Three checks run inside the **required**
-`gate` in [`.github/workflows/zuuli.yml`](../.github/workflows/zuuli.yml), whose
+`gate` in [`.github/workflows/zuuli.yml`](../../../.github/workflows/zuuli.yml), whose
 change detector selects `wallet/free2z/**` and `wallet/e2e2z/**`:
 
 | Check | What it refuses |
 | --- | --- |
-| [`wallet/zuuli/scripts/surface-capability-authority.mjs`](../wallet/zuuli/scripts/surface-capability-authority.mjs) | any `zcash:*`/`f2zmsg:*` entry in free2z, any `zcash:*` entry or blanket `f2zmsg:default` in e2e2z, and linking a forbidden plugin. Capability files are enumerated off the filesystem, so a new one cannot escape by being added |
-| [`wallet/zuuli/scripts/project-boundary.mjs`](../wallet/zuuli/scripts/project-boundary.mjs) | an import crossing between wallet applications in either direction, and a second client-side implementation of the intent guards outside `wallet/shared/src/intent` |
+| [`wallet/zuuli/scripts/surface-capability-authority.mjs`](../../../wallet/zuuli/scripts/surface-capability-authority.mjs) | any `zcash:*`/`f2zmsg:*` entry in free2z, any `zcash:*` entry or blanket `f2zmsg:default` in e2e2z, and linking a forbidden plugin. Capability files are enumerated off the filesystem, so a new one cannot escape by being added |
+| [`wallet/zuuli/scripts/project-boundary.mjs`](../../../wallet/zuuli/scripts/project-boundary.mjs) | an import crossing between wallet applications in either direction, and a second client-side implementation of the intent guards outside `wallet/shared/src/intent` |
 | `rust_fmt` / `rust_clippy` / `rust_deny` | crate **discovery**, not a list — both new `src-tauri` crates were gated from their first commit |
 
 Each app's Rust crate also asserts its own manifest in a unit test, so the
@@ -173,13 +173,13 @@ Each surface's own suite — typecheck, vitest, ui-copy and Playwright, includin
 `wallet/e2e2z/tests/enrollment-gap.pw.ts` — runs in `zuuli.yml`'s `surfaces` job,
 which the required gate awaits (#915). Their Tauri backends are compiled and
 tested by
-[`.github/workflows/wallet-surfaces.yml`](../.github/workflows/wallet-surfaces.yml),
+[`.github/workflows/wallet-surfaces.yml`](../../../.github/workflows/wallet-surfaces.yml),
 which publishes no gate — deliberately. What keeps those surfaces unprivileged
 is the required gate above, not their own build.
 
 ## 5. How the surfaces talk
 
-Over the versioned [intent bridge](./intent-bridge/PROTOCOL.md). Four families
+Over the versioned [intent bridge](../intent-bridge/PROTOCOL.md). Four families
 are defined; **three are implemented on the authority side.**
 
 | Intent | The request carries | ZUULI does | Returns | Authority side |
@@ -214,7 +214,7 @@ Where the code lives:
 `execute-payment`, medium for `issue-device-credential`, weak for
 `sign-challenge` — a challenge is an opaque nonce that confirms nothing to the
 person approving it, so shipping it first because it "only signs" is backwards.
-[`AUTHORITY.md`](./intent-bridge/AUTHORITY.md) §3 has the full argument.
+[`AUTHORITY.md`](../intent-bridge/AUTHORITY.md) §3 has the full argument.
 
 ## 6. What is not built yet
 

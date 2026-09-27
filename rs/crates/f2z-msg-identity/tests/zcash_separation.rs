@@ -40,7 +40,7 @@
 //! that stops being true silently.
 //!
 //! [#311]: https://github.com/free2z/zuu/issues/311
-//! [ADR 0006]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0006-zcash-coupling.md
+//! [ADR 0006]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0006-zcash-coupling.md
 
 #![allow(
     clippy::unwrap_used,

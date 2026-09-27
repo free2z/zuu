@@ -23,7 +23,7 @@ const releasingPath = "wallet/zuuli/docs/releasing.md";
 const RELEASING_DOCUMENT_SHA256 =
   "eeaed2febad3e0a9a217dda0d5e64017f72d6f875568b0d753020f8d784781f8";
 const STATUS_DOCUMENT_SHA256 =
-  "74040e041adc03287ddf6fdd341cf8773a6254d8d98a91087fb0a0eea50a12a1";
+  "f235c7fff1e4cfddb31203fcca17672bb94e73951507a0e95100f0a01ff30ad5";
 const statusSourceMarkerPattern =
   /^Last re-derived from `origin\/main` at\n`[0-9a-f]{40}` on \d{4}-\d{2}-\d{2}\. Before a release,\nupdate the evidence and disposition for every non-ready row; do not carry this\ncommit or date forward mechanically\.$/gm;
 const canonicalStatusSourceMarker = "<STATUS_SOURCE_MARKER>";
@@ -691,7 +691,7 @@ const releaseImpactingPaths = new Set([
   ".github/workflows/zuuli-testflight-bootstrap.yml",
   ".github/workflows/zuuli-testflight-recovery.yml",
   ".github/workflows/cache-cleanup.yml",
-  "docs/ZUULI-LINUX-BUILD-IMAGE.md",
+  "docs/zuuli/build/ZUULI-LINUX-BUILD-IMAGE.md",
 ]);
 
 // release-bump.mjs owns exactly these generated identity surfaces. The source

@@ -1,7 +1,7 @@
-# Development
+# Free2Z app-suite development
 
-Getting the apps built and tested, and how CI decides whether a change may
-merge. This page orients; [AGENTS.md](../AGENTS.md) is the authority on
+Getting the Free2Z suite apps built and tested, and how CI decides whether a change may
+merge. This page orients; [AGENTS.md](../../../AGENTS.md) is the authority on
 doctrine, guardrails, and the traps that make a warm local build lie to you.
 
 ---
@@ -14,10 +14,10 @@ Install only what the project you picked needs.
 | --- | --- |
 | Anything | Git, and the GitHub CLI (`gh`) for the issue/PR workflow |
 | Any frontend | Node.js **24**, matching CI, and `npm` |
-| Any native build | `rustup`; [`wallet/rust-toolchain.toml`](../wallet/rust-toolchain.toml) selects the exact compiler for every wallet crate |
+| Any native build | `rustup`; [`rust-toolchain.toml`](../../../rust-toolchain.toml) selects the exact compiler for every wallet crate |
 | A Tauri bundle | Platform [system dependencies](https://v2.tauri.app/start/prerequisites/); iOS and Android also need Xcode or the Android SDK/NDK |
 
-[`.devcontainer/`](../.devcontainer/) is an optional general-purpose container.
+[`.devcontainer/`](../../../.devcontainer/) is an optional general-purpose container.
 Project READMEs and CI remain authoritative for current commands and versions.
 
 ## Submodules
@@ -45,7 +45,7 @@ cd wallet/e2e2z  && npm ci && npm run dev
 
 Mock mode is UI evidence, not an end-to-end wallet or a production proof. For
 the real staging API, native wallet, and mobile commands, continue with
-[`wallet/zuuli/README.md`](../wallet/zuuli/README.md).
+[`wallet/zuuli/README.md`](../../../wallet/zuuli/README.md).
 
 Native builds run through the app-local Tauri CLI, e.g.:
 
@@ -66,13 +66,13 @@ touching user-visible text, navigation, or component structure needs
 `npm run test:e2e` (or `npm run verify`) before push. #822 and #803 both learned
 this the expensive way.
 
-Repository-wide policy checks live in [`scripts/`](../scripts/) and each carries
+Repository-wide policy checks live in [`scripts/`](../../../scripts/) and each carries
 a `--self-test` that proves it still fails on the thing it exists to catch. Run
 the check *and* its self-test; a check that has quietly become vacuous reports
 green.
 
 **Documentation links are checked too.**
-[`check-markdown-links.mjs`](../scripts/check-markdown-links.mjs) resolves every
+[`check-markdown-links.mjs`](../../../scripts/check-markdown-links.mjs) resolves every
 relative link in tracked Markdown *and the heading anchor after it*, so renaming
 a heading in one file reddens the required `rs / gate` if another file links to
 it — which is the common rot, since headings get reworded constantly while
@@ -86,7 +86,7 @@ A warm local build reuses artifacts and resolves Cargo **features** and npm
 local build can be red in CI for reasons your machine will never show you.
 Development is macOS-heavy; CI is Linux.
 
-[AGENTS.md § *Verifying before you push*](../AGENTS.md#verifying-before-you-push)
+[AGENTS.md § *Verifying before you push*](../../../AGENTS.md#verifying-before-you-push)
 documents the specific traps we have actually been bitten by — feature
 unification masking, toolchain skew, platform-gated dependencies silently
 landing inside a `cfg(target_os = "macos")` table, and integer widths that
@@ -109,7 +109,7 @@ of them.
 | `wallet-surfaces.yml` | no | `cargo build --all-targets` and `cargo test` of the free2z and e2e2z backends. Their frontend suites moved into `zuuli.yml`'s gated `surfaces` job in #915 |
 | `zuuallet.yml` | no | Zuuallet frontend + backend, and the weekly `upstream-canary` against latest librustzcash `main` |
 
-The [rs policy runtime record](ci/RS-POLICY-RUNTIME.md) contains per-step
+The [rs policy runtime record](../../ci/RS-POLICY-RUNTIME.md) contains per-step
 measurements, the five-minute budget decision, and the read-only refresh command.
 
 Two consequences worth internalising:
@@ -117,7 +117,7 @@ Two consequences worth internalising:
 - **The delegated surfaces are gated by `zuuli.yml`, not by their own
   workflow.** Its change detector selects `wallet/free2z/**` and
   `wallet/e2e2z/**`, so the capability and boundary checks in
-  [`docs/architecture.md` §4](./architecture.md#4-what-enforces-the-boundary)
+  [`docs/free2z/app-suite/architecture.md` §4](./architecture.md#4-what-enforces-the-boundary)
   run on every pull request that touches either tree — and since #915 so do both
   surfaces' own suites, in the gated `surfaces` job. `wallet-surfaces.yml`
   publishes no gate and is registered in `check-workflow-gates.mjs`'s
@@ -133,7 +133,7 @@ Two consequences worth internalising:
   registered.
 
 A green gate is necessary and not sufficient — see
-[`docs/PARALLEL-AGENTS.md`](./PARALLEL-AGENTS.md) for the merge mechanics.
+[`docs/PARALLEL-AGENTS.md`](../../PARALLEL-AGENTS.md) for the merge mechanics.
 
 ## Merge-queue readiness
 
@@ -143,8 +143,8 @@ The read-only settings audit on 2026-09-09 found `strict: true`, required contex
 `gate` and `rs / gate` from GitHub Actions (app ID `15368`), and no queue for
 `main`. No settings changed as part of this audit.
 
-Both [zuuli.yml](../.github/workflows/zuuli.yml) and
-[rs.yml](../.github/workflows/rs.yml) already run on `merge_group` without path
+Both [zuuli.yml](../../../.github/workflows/zuuli.yml) and
+[rs.yml](../../../.github/workflows/rs.yml) already run on `merge_group` without path
 filters. Their change jobs fetch full history and diff the event's
 `merge_group.base_sha` against `GITHUB_SHA`; checkout uses that group commit,
 not a PR head. This includes changes from earlier entries in the group.
@@ -203,15 +203,15 @@ wallet/plugins/tauri-plugin-f2zmsg/   wallet/zuuallet/src-tauri/  wallet/e2e2z/s
 
 (`wallet/zuuli/wasm-spike/` and `wallet/zuuli/crypto-target-spike/` are
 investigation roots, not shipped.) Plus the protocol crates under
-[`rs/crates/`](../rs/README.md). The reasoning,
+[`rs/crates/`](../../../rs/README.md). The reasoning,
 and the conditions under which consolidating into a workspace would be
-revisited, is [`architecture/CARGO-WORKSPACE.md`](./architecture/CARGO-WORKSPACE.md).
+revisited, is [`architecture/CARGO-WORKSPACE.md`](build/CARGO-WORKSPACE.md).
 Read it before adding a crate.
 
 ## Contributing
 
 The full loop — issue, worktree, branch, PR, review, merge, cleanup — is
-[`docs/PARALLEL-AGENTS.md`](./PARALLEL-AGENTS.md). The rule that admits no
+[`docs/PARALLEL-AGENTS.md`](../../PARALLEL-AGENTS.md). The rule that admits no
 exception:
 
 > **Local `main` is read-only.** Branch from `origin/main` in an isolated

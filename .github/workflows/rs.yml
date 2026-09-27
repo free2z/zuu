@@ -56,6 +56,11 @@ jobs:
       # change under rs/ and would sail through a skip. Each self-test runs
       # first, so the verdict that follows comes from a check that has just been
       # watched fail.
+      - name: Verify project namespace ownership
+        run: |
+          node scripts/check-project-namespaces.mjs --self-test
+          node scripts/check-project-namespaces.mjs
+
       - name: Verify immutable actions and fail-closed required jobs
         run: |
           node scripts/check-github-actions-pins.mjs --self-test
@@ -67,7 +72,7 @@ jobs:
           node scripts/check-workflow-gates.mjs
 
       # Deliberately in this always-running job and not behind the rs/ filter.
-      # The labels it judges live in docs/e2ee/*.md as much as in rs/, and the
+      # The labels it judges live in docs/free2z/messaging/*.md as much as in rs/, and the
       # collision it exists to catch (#602) arrived in a docs-only pull request
       # — a diff for which `filter` below sets rs=false and every rs job skips.
       # A check that only runs when Rust changes would not have run on the
@@ -196,7 +201,7 @@ jobs:
           rs=false
           while IFS= read -r -d '' file; do
             case "$file" in
-              rs/*|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/e2ee/*|docs/sdk/spec/*|scripts/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
+              rs/*|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/free2z/messaging/*|docs/sdk/spec/*|scripts/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
                 rs=true
                 ;;
             esac

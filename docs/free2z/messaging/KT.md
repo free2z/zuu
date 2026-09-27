@@ -2665,7 +2665,7 @@ Both are limits of the **adopted library**, not of the construction: a sparse
 Patricia tree over VRF-derived labels can prove that a label is absent, and an
 append-only proof over zero insertions is a well-defined object. `akd` 0.13 has
 no API that asks for either. Per
-[`AGENTS.md`](../../AGENTS.md)'s prime directive, upstream is the preferred shape
+[`AGENTS.md`](../../../AGENTS.md)'s prime directive, upstream is the preferred shape
 for the second one in particular; it is materially larger than §11.3's one-line
 change, and nothing here should be read as a promise that it is in flight.
 

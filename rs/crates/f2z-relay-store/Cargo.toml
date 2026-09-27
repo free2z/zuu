@@ -1,7 +1,7 @@
 [package]
 name = "f2z-relay-store"
 version = "0.1.0"
-description = "Queue storage for the free2z relay: addresses and bytes, never wire frames (docs/e2ee/WIRE.md §7, §8)"
+description = "Queue storage for the free2z relay: addresses and bytes, never wire frames (docs/free2z/messaging/WIRE.md §7, §8)"
 edition.workspace = true
 # A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
@@ -9,7 +9,7 @@ edition.workspace = true
 rust-version = "1.97"
 # Permissive, deliberately and explicitly. The relay *binary* will be AGPL-3.0;
 # this is a library, and a third party writing its own relay against
-# docs/e2ee/WIRE.md should be able to link the storage layer that the reference
+# docs/free2z/messaging/WIRE.md should be able to link the storage layer that the reference
 # implementation's crash tests actually exercise. Stated literally rather than
 # inherited so it is visible to anyone opening the crate. rs/deny.toml enforces
 # it.

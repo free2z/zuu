@@ -5,7 +5,7 @@ TestFlight refresh in [#1010](https://github.com/free2z/zuu/issues/1010), and
 the messaging sections re-derived on **2026-09-17** for
 [#1022](https://github.com/free2z/zuu/issues/1022).
 The exact audited source and release evidence are recorded in
-[`wallet/zuuli/STATUS.md`](../wallet/zuuli/STATUS.md).
+[`wallet/zuuli/STATUS.md`](../../../wallet/zuuli/STATUS.md).
 
 **One bridge family now dispatches, and it has not been observed doing so.**
 e2e2z's enrollment transport sends `issue-device-credential-v2` over the
@@ -18,9 +18,9 @@ direction has run on a real device — building, signing or installing the apps
 together is not that observation.
 
 Per-app details:
-[`ZUULI readiness`](../wallet/zuuli/STATUS.md),
-[`Free2Z`](../wallet/free2z/README.md), and
-[`E2E2Z`](../wallet/e2e2z/README.md).
+[`ZUULI readiness`](../../../wallet/zuuli/STATUS.md),
+[`Free2Z`](../../../wallet/free2z/README.md), and
+[`E2E2Z`](../../../wallet/e2e2z/README.md).
 Store setup has its own evidence in
 [`release/PLAY-STORE-SETUP.md`](release/PLAY-STORE-SETUP.md); source declarations
 are not observations from a store or a physical device.
@@ -36,7 +36,7 @@ claim authenticated, money-moving, or signed-device product acceptance.
 | Free2Z | Articles, creator/profile, Live, AI, Search and revenue-share surfaces. Scoped native HTTP is registered; the bundle is active and uses its own deep-link scheme | No wallet or messaging plugin and no app `invoke_handler`. Packaged social OAuth is deliberately unavailable; password sign-in is present but this audit performs no authenticated operation |
 | E2E2Z | Messaging plugin, device public-key preparation, credential installation and seed-free unlock retry. Diagnostics viewing is present | No Zcash dependency or seed authority. Credential installation does not provide a transport or a credential issuer |
 | Boundaries | `project-boundary.mjs`, `surface-capability-authority.mjs`, the delegated suites and the required gate enforce application separation and registered plugin/permission contracts | A passed check proves its tested contract, not OS link verification or a completed user operation |
-| Intent wire format | Shared Rust/TypeScript vectors and [conformance tests](intent-bridge/CONFORMANCE.md) cover requests, responses and outcome uncertainty | Correlation does not authenticate the caller or response destination |
+| Intent wire format | Shared Rust/TypeScript vectors and [conformance tests](../intent-bridge/CONFORMANCE.md) cover requests, responses and outcome uncertainty | Correlation does not authenticate the caller or response destination |
 
 Free2Z's native layer landed in [#942](https://github.com/free2z/zuu/pull/942),
 closing [#918](https://github.com/free2z/zuu/issues/918). HTTP is scoped and
@@ -70,7 +70,7 @@ transport once the operating system has verified the association on an
 installed, signed build, and no such result is recorded here.
 
 On 2026-09-10, `free2z.com`'s AASA returned 200 and was byte-identical to
-[`association/apple-app-site-association.json`](intent-bridge/association/apple-app-site-association.json).
+[`association/apple-app-site-association.json`](../intent-bridge/association/apple-app-site-association.json).
 Its `assetlinks.json` endpoint returned 503. No signed-device link-verification
 result was recorded in this audit. Serving an association, OS verification and
 implementing a transport are separate requirements.
@@ -84,7 +84,7 @@ transport exists.
 
 ZUULI answers this family with `INTENT_UNKNOWN_INTENT`. Free2Z's Login with Zcash
 is absent. The security decision remains in
-[`intent-bridge/AUTHORITY.md`](intent-bridge/AUTHORITY.md): caller attestation
+[`intent-bridge/AUTHORITY.md`](../intent-bridge/AUTHORITY.md): caller attestation
 and a meaningful confirmation cannot be substituted with an opaque challenge.
 Profile and revenue-share were ported in [#927](https://github.com/free2z/zuu/pull/927);
 they are no longer missing app surfaces.
@@ -92,7 +92,7 @@ they are no longer missing app surfaces.
 ### 2.3 e2e2z shows no enrolled state
 
 [#1009](https://github.com/free2z/zuu/pull/1009) implements the install side of
-[ADR 0016](e2ee/decisions/0016-enrollment-sealing-boundary.md): the engine stores
+[ADR 0016](../messaging/decisions/0016-enrollment-sealing-boundary.md): the engine stores
 a device-local wrap key in the application's own custody namespace, installs a
 signed credential, and offers a seed-free unlock retry. A repeated install
 cannot overwrite an enrolled device's key; an already-unlocked retry preserves
@@ -106,7 +106,7 @@ belongs to, the device being added, and that the device will be PUBLISHED and
 will answer first — reads the seed, fetches Contract C's assertion, issues the
 credential, signs and submits the `DirectoryEntry`, and verifies the log's
 receipt
-([ADR 0017](e2ee/decisions/0017-internal-directory-activation.md) §4.1). e2e2z
+([ADR 0017](../messaging/decisions/0017-internal-directory-activation.md) §4.1). e2e2z
 installs the credential only if that succeeded, and reaches "Handle active"
 only from its **own** verified lookup. The configuration that used to stop it is
 gone: `internal-directory.conf` names the deployed relay, log, witness and
@@ -122,7 +122,7 @@ enrolled status on any path.
 
 ### 2.4 The directory is configured, and it is disposable
 
-[ADR 0017](e2ee/decisions/0017-internal-directory-activation.md) defines a
+[ADR 0017](../messaging/decisions/0017-internal-directory-activation.md) defines a
 **disposable internal** directory. free2z runs the log and its only witness,
 *t* = 1, and the witness is not counted as independent, so lookups resolve and
 `independentWitnesses` stays `0` with the "not independently witnessed" warning
@@ -221,7 +221,7 @@ Not yet available:
 
 | Work | Current disposition |
 | --- | --- |
-| Cross-app transport and caller authentication | Free2Z's seam is still unimplemented; #905 and [caller-authentication decisions](intent-bridge/CALLER-AUTHENTICATION.md). e2e2z's enrollment family dispatches over a verified App Link (#1019), and a verified App Link authenticates the *responder*, not the caller |
+| Cross-app transport and caller authentication | Free2Z's seam is still unimplemented; #905 and [caller-authentication decisions](../intent-bridge/CALLER-AUTHENTICATION.md). e2e2z's enrollment family dispatches over a verified App Link (#1019), and a verified App Link authenticates the *responder*, not the caller |
 | Credential issuance through the intent authority | Implemented for both credential families (#1019, ADR 0017 §4.1); `sign-challenge` is still `INTENT_UNKNOWN_INTENT`. Reachable in a shipping build now that the relay and log are configured, and never exercised on one |
 | Messaging KEM/directory deployment | **Deployed and configured** for the disposable internal log (ADR 0017, §2.4): `internal-directory.conf` carries the log, witness, relay and handle-authority values, each checked against the live service. ADR 0016 §6's `device_kem_pk` stays open until the first *public* user, and a public directory's witness policy remains undecided |
 | e2e2z directory publication | Implemented and now configured: `IssueDeviceCredentialRequestV2` carries the endpoint, `prepare_device_with_endpoint` opens the queue before install, and ZUULI signs, submits and verifies the receipt. Blocked only on **observation** — none of it has run against the deployed log, or on a device |
