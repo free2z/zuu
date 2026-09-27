@@ -6,15 +6,21 @@
 //! ```
 //!
 //! With no `--url` it starts a [`MockProvider`] in-process and drives it; with
-//! `--url http://gateway:port` it drives that instead (point the gateway's
-//! provider base URL at a mock), so the same run measures the gateway and the
-//! in-process run is the baseline that tells the two apart. This is the
-//! skeleton the 10k-concurrent-stream test of epic #1047 grows from.
+//! `--url http://host:port` it drives an **out-of-process provider-shaped**
+//! target instead — typically a mock on another host, so the driver and the
+//! target do not compete for one CPU. It speaks the provider routes
+//! (`/v1/chat/completions`, `/v1/responses`, `/v1/messages`), **not** the
+//! gateway's `/v1/chat`: driving the gateway needs its request shape,
+//! authentication and `done` event, and is a mode to add once `f2z-ai`
+//! exists. This is the skeleton the 10k-concurrent-stream test of epic #1047
+//! grows from.
 //!
 //! Options (all optional): `--streams N` (default 200), `--ramp R` new
 //! connections per second (default 100), `--tokens T` output tokens per
 //! stream (64), `--tps S` tokens per second per stream (50), `--ttfb-ms M`
-//! (150), `--style chat|responses|anthropic` (chat), `--url URL`.
+//! (150), `--style chat|responses|anthropic` (chat), `--url URL`,
+//! `--timeout-s S` per-stream deadline (120; a stream past it is a failure,
+//! so one stalled connection cannot hold back the report).
 //!
 //! **Ramp the connects.** A burst of thousands of simultaneous connects
 //! overflows the kernel's accept queue: the mock listens with a backlog of
@@ -47,6 +53,7 @@ struct Args {
     ttfb_ms: u64,
     style: ProviderStyle,
     url: Option<String>,
+    timeout_s: u64,
 }
 
 fn parse() -> Result<Args, String> {
@@ -58,6 +65,7 @@ fn parse() -> Result<Args, String> {
         ttfb_ms: 150,
         style: ProviderStyle::ChatCompletions,
         url: None,
+        timeout_s: 120,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -78,6 +86,7 @@ fn parse() -> Result<Args, String> {
                 }
             }
             "--url" => a.url = Some(v),
+            "--timeout-s" => a.timeout_s = num(&v)?.max(1),
             other => return Err(format!("unknown option {other}")),
         }
     }
@@ -176,6 +185,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // One connection per stream, as distinct gateway clients would have.
     let client = reqwest::Client::builder()
         .pool_max_idle_per_host(0)
+        .timeout(Duration::from_secs(args.timeout_s))
         .build()?;
 
     let started = Instant::now();
