@@ -156,6 +156,9 @@ async fn no_delivery_progress_for_the_stall_limit_aborts_delivery_only() {
         metric(running.admin, "f2z_ai_delivery_buffered_bytes ").await,
         "0"
     );
+    // Even if the socket deadline already closed delivery, the running
+    // upstream still owns its call slot until settlement completes.
+    assert_eq!(metric(running.admin, "f2z_ai_active_streams ").await, "1");
     push_fast(&upstream, 16, 1024).await;
     upstream.send(usage(7)).await.unwrap();
     drop(upstream);
@@ -165,9 +168,8 @@ async fn no_delivery_progress_for_the_stall_limit_aborts_delivery_only() {
     assert_eq!(records[0].delivery, Delivery::Stalled);
     assert_eq!(records[0].usage.unwrap().output_tokens, 7);
 
-    // The client never takes the abort frame either: after another stall
-    // period the connection is dropped, and only then is the slot free.
-    assert_eq!(metric(running.admin, "f2z_ai_active_streams ").await, "1");
+    // The socket deadline may already have closed this unread connection;
+    // either timer ordering must release the slot after settlement.
     assert_connection_closed(client).await;
     wait_metric(running.admin, "f2z_ai_active_streams ", "0").await;
 }
