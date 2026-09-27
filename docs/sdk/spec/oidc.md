@@ -18,7 +18,7 @@ cites the standard and only records the choices the standard leaves open.
 | Issuer (`iss`) | `https://free2z.cash` |
 | Discovery | `https://free2z.cash/.well-known/openid-configuration` ([OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)) |
 | Flow | Authorization Code ([RFC 6749](https://www.rfc-editor.org/rfc/rfc6749) §4.1) with PKCE ([RFC 7636](https://www.rfc-editor.org/rfc/rfc7636)); `response_type=code` only |
-| PKCE | `S256` is **required** for every native client. `plain` is rejected for every client |
+| PKCE | `S256` is **required for every client**, public and confidential ([RFC 9700](https://www.rfc-editor.org/rfc/rfc9700) §2.1.1). `plain` is rejected; an authorization request without `code_challenge` is `invalid_request` |
 | Native-app redirects | [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252): loopback on any port, claimed `https` URI, or reverse-DNS private scheme (§3) |
 | Scopes | `openid profile email offline_access balance:read purchase:create ai:invoke` (§4) |
 | Access token | JWT, `ES256`, `typ: at+jwt` ([RFC 9068](https://www.rfc-editor.org/rfc/rfc9068)), **5 minutes**, `aud`, `aep`, `agen` (§6) |
@@ -46,12 +46,12 @@ platform's own apps register the same way. Registration fixes:
 | `markup_bps` | The developer markup in basis points applied to every AI call made through this app, credited to the developer. `0` to the platform cap (v1: **5000**, i.e. 50 %). Shown to the user at consent; changing it re-prompts consent (§5) |
 | `default_spend_cap_2z`, `default_cap_period` | The cap pre-selected on the consent screen when `ai:invoke` is requested: a whole number of 2Z and a period (§5) |
 | `allow_zcash_assertion` | Whether the app may use the Zcash sign-in grant (§9.4). Off by default |
-| `rails` | Which purchase rails the app offers. `card` and `zcash` are on for every app; `apple_iap` and `google_iap` require the store identity below and a developer billing agreement ([purchase.md](./purchase.md) §4.0) |
-| Store identity | iOS bundle id, Android package name, and per-store verification credentials entered in the console and never returned by any API. Required for the IAP rails |
+| `rails` | Which purchase rails the app offers: `card` and `zcash`, both on for every app. The in-app-purchase rails exist only in Free2Z's own apps in v1 ([purchase.md](./purchase.md) §4) and are not a registration option |
 | Name, logo, privacy URL, terms URL | Shown at consent |
 
 A registration has a **developer account** — an ordinary Free2Z account —
-and that account is where markup is credited.
+and that account is where markup is credited, as 2Z platform credits
+([metering.md](./metering.md) §2.3).
 
 ## 3. Redirect URIs
 
@@ -68,8 +68,11 @@ one for a confidential client.
 
 Mobile guidance, both platforms equal:
 
-- **iOS:** `ASWebAuthenticationSession` with the claimed universal link as the
-  callback; the private-use scheme as fallback.
+- **iOS:** `ASWebAuthenticationSession` with the claimed universal link as
+  the callback — an `https` callback (`.https(host:path:)`) needs
+  **iOS 17.4 or later**; on earlier versions the session only accepts a
+  custom scheme, so the SDK selects the private-use scheme there and the
+  app registers both shapes.
 - **Android:** Custom Tabs with the App Link as the callback; the private-use
   scheme as fallback.
 - Neither platform embeds a web view for sign-in. An embedded web view is
@@ -122,8 +125,15 @@ an amount and a period.
 
 | Field | Values |
 |---|---|
-| `spend_cap_2z` | A whole number of 2Z, or `null` for no cap. The user chooses; the app's `default_spend_cap_2z` is only the pre-selection |
+| `spend_cap_2z` | A whole number of 2Z, or `null` for no cap. The user chooses. On a first consent the pre-selection is the app's `default_spend_cap_2z`, clamped to the **platform default** when the app asks for more — an app cannot pre-select "no cap", or any cap above the platform default, without the user moving the control there themselves. On a re-consent the pre-selection is the **existing** cap, and choosing a higher one is a raise (step-up, §10) |
 | `cap_period` | `day`, `week`, `month` or `total`. Periods are calendar-aligned in UTC (`day` resets at 00:00Z; `week` on Monday 00:00Z; `month` on the 1st). `total` never resets |
+
+For a **loopback or private-use-scheme client** (§3) the consent screen is
+never skipped when the grant would carry `ai:invoke`, `purchase:create` or
+`offline_access`: `prompt=none` answers `interaction_required` for those
+scopes, and an existing IdP session does not grant them silently. Such a
+client's redirect can be claimed by any process on the device, so the
+user's explicit act is the only proof that this app is the one they mean.
 
 The result is a **grant**: (user, app, scopes, cap, **consented markup**,
 **consented capture flag**, generation). One grant exists per (user, app).
@@ -139,7 +149,8 @@ revoke every grant at `https://free2z.cash/account/apps`:
 - **Lowering** a cap or **reducing** scopes takes effect immediately: the cap
   is enforced inside the ledger's hold ([metering.md](./metering.md) §3) and
   scope reduction increments the grant's **generation** (`agen`, §6.3).
-- **Raising** a cap requires a recent authentication (step-up, §10). It takes
+- **Raising** a cap — at `/account/apps` or by choosing a higher value on
+  a re-consent — requires a recent authentication (step-up, §10). It takes
   effect immediately and does not change `agen`.
 - **Revoking** increments `agen` and deletes every refresh token of the
   grant. The next request with any older access token fails with
@@ -163,7 +174,7 @@ signed with **ES256** (P-256), profiled by RFC 9068.
 header:  {"alg":"ES256","typ":"at+jwt","kid":"2026-09-a"}
 payload: {
   "iss":       "https://free2z.cash",
-  "sub":       "u_01J8ZK3Q9V6W0E4H7X2C5N8M1T",
+  "sub":       "3f0c9b7e-6a2d-4b1f-8e5c-2d9a7c4e1b60",
   "aud":       ["f2z-id", "f2z-ai", "f2z-api"],
   "client_id": "app_7f3c2e",
   "scope":     "openid profile balance:read ai:invoke",
@@ -181,7 +192,7 @@ payload: {
 | Claim | Meaning | Who checks it |
 |---|---|---|
 | `iss` | Always `https://free2z.cash` | Every resource server, exact string match |
-| `sub` | The user's stable, opaque account id. The same for every app (`subject_types_supported: ["public"]`). Never a username or email — those change | — |
+| `sub` | The user's stable, opaque **per-account UUID** — not a username or email (those change) and not the platform's sequential internal id (that would enumerate). It is the same for every app (`subject_types_supported: ["public"]`), which is the deliberate trade-off: two apps that both hold a user's `sub` can correlate that user, and in exchange a user's identity is one thing across the ecosystem. Pairwise subjects per app are a possible v2 and would be announced by `pairwise` appearing in discovery | — |
 | `aud` | **Always a JSON array.** `f2z-id` for the IdP's own `userinfo_endpoint`, `f2z-ai` for the gateway, `f2z-api` for the account API. Which appear depends on the granted scopes (§4); a token whose scopes need no audience carries `["f2z-id"]` so the array is never empty. A resource server MUST refuse a token whose `aud` does not contain its own identifier | Every resource server |
 | `client_id` | The app the token was issued to | Resource servers, for rate limits and markup |
 | `scope` | Space-separated granted scopes (RFC 9068 §2.2.3) | Resource servers, per endpoint |
@@ -337,7 +348,9 @@ Rules:
 - `code_verifier` MUST be 43–128 characters (RFC 7636 §4.1), generated fresh
   per request, and never leave the client until the token request.
 - Optional: `prompt` (`none`, `login`, `consent`), `max_age` (seconds),
-  `acr_values`, `login_hint`, `ui_locales`.
+  `acr_values`, `login_hint`, `ui_locales`. `prompt=none` cannot obtain
+  `ai:invoke`, `purchase:create` or `offline_access` for a loopback or
+  private-use-scheme client (§5).
 - The authorization code is single-use and expires after **60 seconds**.
 
 ### 9.3 Authorization response

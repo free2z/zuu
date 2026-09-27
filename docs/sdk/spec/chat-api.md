@@ -16,7 +16,10 @@ MUST agree with this text. Two rules from the crate hold everywhere:
 ignored — and **responses and events are tolerant** — a client MUST ignore
 fields and event names it does not know, so the gateway can add to them
 without breaking a deployed SDK. Where this document shows a response
-field the crate does not yet define, it is such an addition.
+field, enum value or error code the crate does not yet define, it is
+marked **crate v0.x follow-up: #1052**
+([free2z/zuu#1052](https://github.com/free2z/zuu/issues/1052)); a client
+built on the crate alone tolerates it as an unknown field or variant.
 
 ## 1. Common rules
 
@@ -29,7 +32,7 @@ field the crate does not yet define, it is such an addition.
 | Errors | Every non-2xx response is the envelope in [errors.md](./errors.md); whether a code is retryable, and which status it arrives with, are properties of the code (`f2z-ai-proto::ErrorCode`) |
 | Ids | `call_id` is a UUIDv7 assigned by the gateway and returned in the `X-F2Z-Call-Id` response header on every `/v1/chat` response, streamed or not, including errors after a call was created |
 | Idempotency | `Idempotency-Key` header, 1–128 ASCII characters, scoped to (app, user). Recommended on every `/v1/chat` (§2.5) |
-| Rate limits | Per (app, user): a token bucket on requests and a concurrency limit of **4 open streams per user**. Exceeding either is `429` with `Retry-After` (§7) |
+| Rate limits | Per (app, user): a token bucket on requests and a concurrency limit of **4 open streams per user**. Exceeding either is `429` with `Retry-After` (§8) |
 | Timeouts | The first-byte limit is per model and published in `/v1/models` (`ttfb_timeout_ms`); the provider connect timeout is a fixed 5 s; a stream that produces nothing for **60 s** ends with `error provider_timeout`; no call runs longer than **300 s** |
 
 ## 2. `POST /v1/chat`
@@ -38,7 +41,7 @@ field the crate does not yet define, it is such an addition.
 
 ```json
 {
-  "model": "gpt-5-mini",
+  "model": "example-model-small",
   "messages": [
     { "role": "system", "content": [ { "type": "text", "text": "You are a patient maths tutor." } ] },
     { "role": "user", "content": [
@@ -55,7 +58,7 @@ field the crate does not yet define, it is such an addition.
   ],
   "max_output_tokens": 800,
   "stream": true,
-  "fallback": ["gpt-5-nano"],
+  "fallback": ["example-model-tiny"],
   "metadata": { "lesson": "quadratics-3" }
 }
 ```
@@ -70,7 +73,7 @@ field the crate does not yet define, it is such an addition.
 | `tools` | array | Function tools, each `{name, description?, parameters}` with `parameters` a JSON Schema object. The gateway **never executes a tool**: it relays the model's call to the client and the client's result back on the next request. Provider-hosted tools (web search, code execution, file search) are not available on this endpoint in v1 ([ADR 0003](../../ai-gateway/adr/0003-unified-api-before-passthrough.md)) |
 | `max_output_tokens` | integer | 1 … the model's `max_output_tokens`, which is also the default when omitted. It bounds **total** generated tokens, reasoning included. The gateway may **clamp** it lower for affordability (§2.2) and never raises it; the effective value is reported in `meta` |
 | `stream` | boolean | Default `true`. `false` returns one JSON document (§4) |
-| `fallback` | array of model ids | Opt-in. If the *first* model fails with a provider-side error **before the gateway has committed to it** — that is, before its first content event, which is also when `meta` is sent (§3.2) — the gateway retries once on the next id, re-holding at that model's price. Never after `meta`. The model actually used is in `meta` |
+| `fallback` | array of model ids | Opt-in, **ordered**: tried in order, at most once each. If the current model fails with a provider-side error **before the gateway has committed to it** — that is, before its first content event, which is also when `meta` is sent (§3.2) — the gateway releases that attempt's hold, takes a new hold at the next model's price, and tries it; a hold it cannot take ends the call with that code ([metering.md](./metering.md) §5.7). Never after `meta`. The model actually used is in `meta` |
 | `metadata` | object | Up to 16 string keys, each key ≤ 64 and value ≤ 256 characters. Stored with the call record and returned by `GET /v1/calls/{id}`; never sent to a provider |
 
 Anything not listed is rejected with `400 invalid_request` naming the field;
@@ -104,7 +107,7 @@ received `meta` knows every step passed.
    `403 cap_exceeded`.
 6. **Hold.** The ledger reserves the worst-case price for `out_cap`. The
    ledger's own answer decides: `402`, `403 cap_exceeded`,
-   `403 account_frozen`, `409 too_many_holds`.
+   `403 account_frozen`, `403 account_in_debt`, `409 too_many_holds`.
 7. **Provider request.** A provider error here, on the primary and any
    `fallback`, releases the hold and ends the (already open) stream with
    a lone `error` event carrying `provider_error`, `unavailable` or
@@ -136,11 +139,18 @@ followed by the events of §3.
 ### 2.4 Cancellation
 
 The client cancels by **closing the connection** (an `AbortSignal` in the
-TypeScript SDK; dropping the cancel handle in Rust). The gateway drops the
-upstream request immediately, then settles the call for what was produced
-([metering.md](./metering.md) §5.3). There is no cancel endpoint: a closed
-connection is unambiguous and cannot be forged. `GET /v1/calls/{id}` shows
-the final state.
+TypeScript SDK; dropping the cancel handle in Rust). Cancelling stops
+**delivery**, not **generation**: once the gateway has sent the upstream
+request it reads the provider to completion — bounded by the `out_cap`
+already held and the 300 s hard limit — and settles on the usage the
+provider reports, with `finish_reason: cancelled`
+([metering.md](./metering.md) §5.3). The charge is therefore for the
+whole generation up to `out_cap`, not for the part the client read; an
+app that wants a cheap cancel sets a small `max_output_tokens`. A
+disconnect before the upstream request was sent releases the hold and
+charges nothing. There is no cancel endpoint: a closed connection is
+unambiguous and cannot be forged. `GET /v1/calls/{id}` shows the final
+state.
 
 ### 2.5 Idempotency
 
@@ -152,11 +162,13 @@ hours** returns the *same* call — the same `call_id`, and:
   with `409 idempotency_conflict` (`details.call_id` names it) — two
   consumers of one stream is not a thing the gateway does;
 - if the original finished — in `done` **or** `error` — the replay answers
-  `200` with the **call record** of §7 (`replayed: true`), regardless of
-  `stream`, and charges nothing. The record has no message content: the
-  gateway does not retain completions (§7), so idempotency protects the
-  charge, not the delivery. A client that lost the stream re-asks with a
-  new key, and that is a new call;
+  `200` with the **call record** of §7 (`replayed: true`) as
+  `application/json`, **even when the request said `stream: true`** — an
+  SDK branches on the response `Content-Type`, not on what it asked for —
+  and charges nothing. The record has no message content: the gateway
+  does not retain completions (§7), so idempotency protects the charge,
+  not the delivery. A client that lost the stream re-asks with a new key,
+  and that is a new call;
 - if the body differs from the original, `409 idempotency_conflict`.
 
 Without a key, every request is a new call. SDKs generate a key per logical
@@ -222,7 +234,7 @@ no `fallback` can occur.
 ```
 event: meta
 id: 1
-data: {"call_id":"019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c","model":"gpt-5-mini","requested_model":"gpt-5-mini","provider":"openai","hold_2z":2,"max_output_tokens":800,"input_tokens_estimate":1200,"created_at":"2026-09-26T21:04:11Z"}
+data: {"call_id":"019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c","model":"example-model-small","requested_model":"example-model-small","provider":"example-provider","hold_2z":2,"max_output_tokens":800,"input_tokens_estimate":1200,"created_at":"2026-09-26T21:04:11Z"}
 ```
 
 | Field | Meaning |
@@ -235,7 +247,7 @@ data: {"call_id":"019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c","model":"gpt-5-mini","re
 | `input_tokens_estimate` | What the hold was computed from |
 
 `call_id`, `model` and `hold_2z` are the crate's `Meta`; the rest are
-tolerated additions.
+crate v0.x follow-up: #1052.
 
 ### 3.3 `delta`
 
@@ -327,13 +339,14 @@ data: {"charged_2z":1,"receipt_id":"rcpt_019a2f1d-2b0e-7c4a-9f11-6d0e2a8b3c44","
 | `receipt_id` | The ledger's id for this settlement — what a statement line points at. Distinct from `call_id`; absent while `settlement` is `pending` |
 | `finish_reason` | `stop`, `length` (hit `max_output_tokens` — check `meta` for whether that was clamped), `tool_calls`, `content_filter`, `cancelled` |
 | `balance_hint_milli_2z` | The user's **available** balance after this settlement, as of settlement. A hint: other calls may have moved it. `GET /api/sdk/v1/balance` is authoritative |
-| `settlement` | `settled` (the default when absent); `pending` when the ledger had not confirmed the charge within 10 s of the provider finishing ([metering.md](./metering.md) §5.11) — every money field except `hold_2z` is then **absent** and the client reads `GET /v1/calls/{id}` until `status` leaves `settling`; or `released` when the settler found the hold already expired ([metering.md](./metering.md) §5.6) — `charged_2z` is `0` and no `receipt_id` exists |
+| `settlement` | `settled` (the default when absent); `pending` when the ledger had not confirmed the charge within 10 s of the provider finishing ([metering.md](./metering.md) §5.11) — every 2Z field except `hold_2z` is then **absent** and the client reads `GET /v1/calls/{id}` until `status` leaves `settling`; or `released` when the settler found the hold already expired ([metering.md](./metering.md) §5.6) — `charged_2z` is `0` and no `receipt_id` exists. The crate's `Done` has `charged_2z` and `receipt_id` as required fields; making them optional under `pending`/`released` is part of the follow-up |
 | `hold_2z`, `released_2z` | The **final** reservation (it can exceed `meta.hold_2z` after an extension) and what was given back. `charged + released = hold` except in the write-off case |
 | `collected_milli_2z`, `shortfall_milli_2z` | What was actually taken, and what could not be ([metering.md](./metering.md) §5.5). `collected = charged × 1000 − shortfall`; a receipt shows `collected` when `shortfall` is non-zero |
 | `cap_remaining_milli_2z` | Remaining spend under the grant's cap for the current period; `null` when the grant has no cap |
-| `usage_source` | As in `usage` |
+| `usage_source` | The `source` of the `usage` event, repeated here (one value set — `provider` / `estimated` — two field names: `source` inside the `usage` event, `usage_source` beside a `usage` object everywhere else, as the crate spells them) |
 
-The first four are the crate's `Done`; the rest are tolerated additions.
+The first four are the crate's `Done`; the rest are crate v0.x follow-up:
+#1052.
 
 ### 3.7 `error`
 
@@ -355,20 +368,21 @@ data: {"code":"provider_error","message":"The provider closed the stream before 
 | `charged_2z`, `receipt_id`, `collected_milli_2z`, `shortfall_milli_2z` | What this failed call still cost, as in `done`. `charged_2z: 0` and no `receipt_id` when the provider failed before producing anything ([metering.md](./metering.md) §5.2); absent when `settlement` is `pending` |
 | `partial` | `true` when the client received at least one `delta` or `tool_call` before the error |
 
-`code` and `message` are the crate's `ApiError`; the rest are tolerated
-additions.
+`code` and `message` are the crate's `ApiError`; the rest are crate v0.x
+follow-up: #1052.
 
 ### 3.8 A complete stream
 
 The example the rest of this document set refers to: 1,187 input tokens,
-342 output tokens, on a model priced (after margin) at 375,000 m2Z per
-million input tokens and 1,500,000 m2Z per million output tokens. The hold
-was computed for 800 output tokens; the settled charge is 1 2Z.
+342 output tokens, on a model priced (after the 20 % margin, no markup) at
+300,000 m2Z per million input tokens and 1,200,000 m2Z per million output
+tokens. The hold was computed for 800 output tokens; the settled charge is
+1 2Z.
 
 ```
 event: meta
 id: 1
-data: {"call_id":"019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c","model":"gpt-5-mini","requested_model":"gpt-5-mini","provider":"openai","hold_2z":2,"max_output_tokens":800,"input_tokens_estimate":1200,"created_at":"2026-09-26T21:04:11Z"}
+data: {"call_id":"019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c","model":"example-model-small","requested_model":"example-model-small","provider":"example-provider","hold_2z":2,"max_output_tokens":800,"input_tokens_estimate":1200,"created_at":"2026-09-26T21:04:11Z"}
 
 event: delta
 id: 2
@@ -403,7 +417,7 @@ maps them to one type:
 ```json
 {
   "call_id": "019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c",
-  "model": "gpt-5-mini",
+  "model": "example-model-small",
   "message": {
     "content": [ { "type": "text", "text": "Line 3 divides both sides by x, which is zero when x = 0." } ],
     "tool_calls": []
@@ -415,8 +429,8 @@ maps them to one type:
   "charged_2z": 1,
   "receipt_id": "rcpt_019a2f1d-2b0e-7c4a-9f11-6d0e2a8b3c44",
   "balance_hint_milli_2z": 41500,
-  "requested_model": "gpt-5-mini",
-  "provider": "openai",
+  "requested_model": "example-model-small",
+  "provider": "example-provider",
   "settlement": "settled",
   "hold_2z": 2,
   "released_2z": 1,
@@ -431,7 +445,7 @@ maps them to one type:
 `message.content` is an array of output parts (text in v1; a part type a
 client does not know is skipped, and dropped when the reply is sent back
 as history). The first nine fields are the crate's `ChatResponse`; the
-rest are tolerated additions.
+rest are crate v0.x follow-up: #1052.
 
 A failure **after output began** in non-streamed mode is an HTTP **`502`**
 whatever the stream-level code would have been — `provider_error`,
@@ -443,7 +457,7 @@ partial `message`. The client is charged for what was produced exactly as
 in a stream, and this is why streaming is the default. A content-filter
 stop is never a failure in this mode: it is `200` with
 `finish_reason: "content_filter"`. On a **successful** completion,
-`settlement: "pending"` or `"released"` is `200` with the money fields
+`settlement: "pending"` or `"released"` is `200` with the 2Z fields
 absent or zero, as in `done`; on a failure it stays inside the `502`'s
 `details`.
 
@@ -459,17 +473,17 @@ without arithmetic. Requires `ai:invoke`.
   "includes_markup_bps": 0,
   "models": [
     {
-      "id": "gpt-5-mini",
-      "provider": "openai",
-      "display_name": "GPT-5 mini",
+      "id": "example-model-small",
+      "provider": "example-provider",
+      "display_name": "Example model (small)",
       "context_window": 400000,
       "max_output_tokens": 128000,
       "capabilities": { "vision": true, "tools": true, "reasoning": true },
       "prices": {
-        "input_milli_2z_per_mtok": 375000,
-        "cached_input_milli_2z_per_mtok": 37500,
+        "input_milli_2z_per_mtok": 300000,
+        "cached_input_milli_2z_per_mtok": 30000,
         "cache_write_milli_2z_per_mtok": 0,
-        "output_milli_2z_per_mtok": 1500000,
+        "output_milli_2z_per_mtok": 1200000,
         "image_milli_2z": 0,
         "tool_call_milli_2z": 0
       },
@@ -507,7 +521,7 @@ The same request body as `/v1/chat` (`stream` ignored). Runs steps 1–5 of
 
 ```json
 {
-  "model": "gpt-5-mini",
+  "model": "example-model-small",
   "input_tokens": 1200,
   "max_output_tokens": 800,
   "hold_2z": 2,
@@ -521,7 +535,7 @@ The same request body as `/v1/chat` (`stream` ignored). Runs steps 1–5 of
 `model`, `input_tokens` (safety factor applied), `max_output_tokens` (the
 cap the call would run with, after clamping) and `hold_2z` (what
 `/v1/chat` would reserve *now*) are the crate's `EstimateResponse`; the
-rest are tolerated additions. Every step fails **exactly as `/v1/chat`
+rest are crate v0.x follow-up: #1052. Every step fails **exactly as `/v1/chat`
 would** — `401`, `403 insufficient_scope`, `429`, `404`,
 `400 context_length_exceeded`, and for an unaffordable request
 `402 insufficient_balance` or `403 cap_exceeded` with the same `details`
@@ -540,13 +554,13 @@ can read it. Requires `ai:invoke`.
 {
   "call_id": "019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c",
   "status": "settled",
-  "model": "gpt-5-mini",
-  "requested_model": "gpt-5-mini",
-  "provider": "openai",
+  "model": "example-model-small",
+  "requested_model": "example-model-small",
+  "provider": "example-provider",
   "finish_reason": "stop",
   "usage": { "input_tokens": 1187, "cached_input_tokens": 0, "cache_write_tokens": 0,
-             "output_tokens": 342, "reasoning_tokens": 0, "images": 0, "tool_calls": 0,
-             "source": "provider" },
+             "output_tokens": 342, "reasoning_tokens": 0, "images": 0, "tool_calls": 0 },
+  "usage_source": "provider",
   "hold_2z": 2,
   "charged_2z": 1,
   "receipt_id": "rcpt_019a2f1d-2b0e-7c4a-9f11-6d0e2a8b3c44",

@@ -11,9 +11,12 @@ carries the gateway's codes as `ErrorCode`, each with its `http_status()`
 and `retryable()`, plus an `Unknown` variant for a code newer than the
 crate; the SDKs map each code to user-facing copy so that app code
 switches on `code`, never on `message`. The codes in §2–§4 that the crate
-does not yet carry — `token_revoked`, `account_frozen`, `app_disabled`,
-`call_not_found`, `idempotency_conflict`, `too_many_holds` — are
-additions this contract requires of it.
+does not yet carry — `token_revoked`, `account_frozen`, `account_in_debt`,
+`app_disabled`, `call_not_found`, `idempotency_conflict`,
+`too_many_holds` — and the retryability of `internal` are **crate v0.x
+follow-up: [#1052](https://github.com/free2z/zuu/issues/1052)**; until it
+lands, a client built on the crate sees them as `Unknown` and applies its
+default branch.
 
 ## 1. The envelope
 
@@ -68,9 +71,10 @@ Inside an SSE stream, the terminal `error` event carries `code` and
 | 403 | `insufficient_scope` | no | The token lacks the scope this endpoint requires (RFC 6750) | Re-authorize requesting the scope in `details.scope` | `scope` |
 | 403 | `app_disabled` | no | The app's registration is suspended | Nothing the client can do; surface to the developer | — |
 | 403 | `account_frozen` | no | The user's account cannot spend (for example a payment dispute is open) | Tell the user to visit their account | — |
+| 403 | `account_in_debt` | no (until repaid) | A refund or chargeback took back 2Z already spent; the account owes the difference and cannot spend until future credits repay it ([purchase.md](./purchase.md) §3.1). Crate v0.x follow-up: #1052 | Show the debt from `GET /balance` and the buy surface | `debt_milli_2z` |
 | 503 | `unavailable` | yes | The server cannot serve the request right now and fails closed: it could not confirm the token's `aep`/`agen`, it is draining, or (gateway) the provider's circuit breaker is open | Retry with backoff; do **not** sign the user out | `reason` ∈ `revocation_check`, `draining`, `provider_circuit_open` |
 
-## 3. Requests, limits and money
+## 3. Requests, limits and balances
 
 | Status | `code` | Retry | Meaning | `details` |
 |---|---|---|---|---|
@@ -104,7 +108,7 @@ always `502` with the code preserved ([chat-api.md](./chat-api.md) §4).
 | 504 | `provider_timeout` | yes | The provider did not answer in time: no first byte within the model's `ttfb_timeout_ms` (nothing charged; `details.phase: "first_byte"`), or, in a stream, 60 s without output or the 300 s hard limit (charged for what was produced; `details.phase` ∈ `idle`, `hard_limit`) |
 | 503 | `unavailable` | yes | See §2: draining, revocation state unknown, or the provider's circuit breaker open. Nothing charged |
 | 503 | `catalog_unavailable` | yes | The gateway has no verified, unexpired price catalogue and refuses to price anything |
-| 500 | `internal` | yes | A gateway fault. Nothing charged if before `meta`; otherwise settled from what is known |
+| 500 | `internal` | yes | A gateway fault. Nothing charged if before `meta`; otherwise settled from what is known. (The crate's `retryable()` answers `no` for `internal` today; the contract wants `yes` — crate v0.x follow-up: #1052.) A ledger answer the gateway did not expect (`markup_mismatch`, `unknown_rate_card`, [metering.md](./metering.md) §3) surfaces as this code with `details.reason`; the ledger's `revoked` surfaces as `401 token_revoked` |
 | (SDK-local) | `stream_interrupted` | yes | **Not a gateway code** and not in `ErrorCode`: an SDK synthesises it when the connection closed without a terminal event, and it never appears in a call record — a call whose gateway died records `unavailable` ([metering.md](./metering.md) §5.6). Consult `GET /v1/calls/{id}` |
 
 A content-filter stop is **not an error** on any surface: it is
@@ -145,7 +149,7 @@ Codes specific to [purchase.md](./purchase.md); the envelope is §1.
 | Status | `code` | Retry | Meaning | `details` |
 |---|---|---|---|---|
 | 400 | `invalid_quantity` | no | Below the rail's minimum, above its maximum, not a whole 2Z, or not one of the rail's fixed packs | `min_2z`, `max_2z`, `packs` |
-| 400 | `rail_unavailable` | no | The rail is not offered to this app or on this platform (for example `apple_iap` from a non-iOS client) | `rail` |
+| 400 | `rail_unavailable` | no | The rail is not offered to this app or on this platform (`apple_iap` / `google_iap` from any third-party app in v1, or from the wrong platform) | `rail` |
 | 409 | `intent_not_pending` | no | The intent is `failed`; the operation does not apply. (A receipt resubmitted for an intent that is already `credited`, `expired` or in a reversal state is **not** an error: it answers `200` with the intent — [purchase.md](./purchase.md) §4.4) | `status` |
 | 409 | `receipt_already_used` | no | This store transaction already credited a **different** purchase intent | `purchase_id` |
 | 422 | `receipt_invalid` | no | The store receipt did not verify, names a different product or app, is not a production transaction, was revoked, or its account token does not match this intent | `reason` ∈ `signature`, `product`, `app`, `environment`, `revoked`, `account_token` |
@@ -160,9 +164,9 @@ Codes specific to [purchase.md](./purchase.md); the envelope is §1.
   output began**, which is always `502` whatever the code, so that the
   partial result and its settlement travel in one shape
   ([chat-api.md](./chat-api.md) §4).
-- **Money errors are never retryable by the client alone.** `402` and
-  `403 cap_exceeded` say what would have to change (`details`); an SDK shows
-  the buy or cap surface rather than retrying.
+- **Balance errors are never retryable by the client alone.** `402`,
+  `403 cap_exceeded` and `403 account_in_debt` say what would have to change
+  (`details`); an SDK shows the buy or cap surface rather than retrying.
 - **Nothing is charged for a refused request.** Every `4xx` before `meta`
   means no hold was taken or the hold was released.
 - **Re-sending with the same `Idempotency-Key` never does new work**: it

@@ -25,9 +25,10 @@ targets alongside desktop and web**; nothing in this contract is desktop-first.
    and Zcash to one account, and the app does not need to know which one they
    used. → [`spec/oidc.md`](./spec/oidc.md)
 2. **Show and sell 2Z.** An app can read the user's balance and start a
-   purchase by card, by Apple or Google in-app purchase, or by Zcash. The
-   purchase is completed and credited by Free2Z; the app only opens the right
-   surface and polls for the result. → [`spec/purchase.md`](./spec/purchase.md)
+   purchase by card or by Zcash. (Apple and Google in-app purchase exist
+   only in Free2Z's own apps in v1.) The purchase is completed and credited
+   by Free2Z; the app only opens the right surface and polls for the
+   result. → [`spec/purchase.md`](./spec/purchase.md)
 3. **Call AI.** A low-latency streaming gateway at `https://ai.free2z.cash`
    exposes one unified chat API over several providers, metered in 2Z with
    cost-plus pricing and rounded **up** to a whole 2Z per call. A registered
@@ -109,7 +110,7 @@ a row here is wrong even if every test passes.
 |---|---|---|---|
 | **The user** | Their Free2Z credentials, the devices they signed in on | — | Deciding which apps get which scopes and how much each may spend |
 | **The identity provider** (`free2z.cash`) | Credentials, linked identities, the signing keys for tokens, the record of every grant | Provider API keys (those are the gateway's) | Issuing tokens; the account epoch and grant generation that revoke them |
-| **The account ledger** (behind `free2z.cash`) | Every balance and every hold | — | **The only authority on whether a 2Z can be spent** — a token is never authoritative for money ([ADR 0002](../ai-gateway/adr/0002-hold-functions-single-balance-authority.md)) |
+| **The account ledger** (behind `free2z.cash`) | Every balance and every hold | — | **The only authority on whether a 2Z can be spent** — a token is never authoritative for a balance ([ADR 0002](../ai-gateway/adr/0002-hold-functions-single-balance-authority.md)) |
 | **The AI gateway** (`ai.free2z.cash`) | Provider API keys, a signed copy of the price catalogue, in-flight streams | Passwords, refresh tokens, balances (it asks the ledger, per call) | Metering a call honestly from provider-reported usage; never running tools, never fetching client-supplied URLs |
 | **A registered app** | Its `client_id`; on a confidential (server-side) client, a `client_secret`; per user, an access token and a refresh token | The user's password or any linked credential; provider keys; other users' tokens | Presenting prompts on the user's behalf within the granted scopes and cap. Not trusted for prices: the app's markup is applied by the platform from the registration, never from a request |
 | **The SDK on a device** | Tokens (in the Rust core, in the OS keychain where one exists; in memory on the web) | — | Keeping tokens out of the app's JavaScript (Tauri) and off disk (web) |
@@ -133,9 +134,13 @@ Consequences that follow directly:
   later.
 - **The platform never sees a card number or an Apple/Google account.**
   Cards are handled by the payment processor's hosted surfaces; in-app
-  purchases are verified against the store's signed receipt; Zcash payments
-  are observed with a viewing key, so the platform can *see* a payment but
-  holds no key that could *spend* one.
+  purchases (first-party apps only) are verified against the store's
+  signed receipt; Zcash payments are observed with a viewing key, so the
+  platform can *see* a payment but holds no key that could *spend* one.
+- **A balance can be negative only by a reversal, never by a call.** A
+  refund or chargeback that takes back 2Z already spent leaves a debt the
+  balance endpoint reports explicitly; the account cannot spend until
+  future credits repay it, and no AI call can create one.
 - **Prompts and completions are not logged** by the gateway. Per-app debug
   capture is opt-in by the developer, sampled, and applies only to users
   whose grant records that they consented to it — enabling it re-prompts
@@ -148,7 +153,7 @@ Consequences that follow directly:
 | [`spec/oidc.md`](./spec/oidc.md) | Everyone. Registration, redirect rules, PKCE, tokens and claims, refresh rotation, revocation, step-up |
 | [`spec/chat-api.md`](./spec/chat-api.md) | Anyone calling or implementing the gateway. `POST /v1/chat` and the full SSE grammar with examples |
 | [`spec/metering.md`](./spec/metering.md) | Anyone who needs to explain a charge. Hold → stream → settle, the formula, worked examples, the edge cases |
-| [`spec/purchase.md`](./spec/purchase.md) | Anyone selling 2Z in an app. Card, StoreKit 2, Play Billing, Zcash |
+| [`spec/purchase.md`](./spec/purchase.md) | Anyone selling 2Z in an app. Card and Zcash for every app; StoreKit 2 and Play Billing in Free2Z's own apps |
 | [`spec/errors.md`](./spec/errors.md) | Everyone. The error catalogue: every status, code, whether to retry |
 | [`../ai-gateway/`](../ai-gateway/README.md) | Gateway implementers. The ADRs and the operational contract |
 

@@ -11,6 +11,17 @@ Zcash payment URI), and polls the intent until it is `credited`. The
 platform does the verifying and the crediting; the app never sees a card
 number, a store account or a Zcash key.
 
+**Third-party apps sell 2Z by card and by Zcash in v1.** The in-app
+purchase rails (§4) exist only in Free2Z's own apps: a store pays the
+proceeds of an in-app product to the account that lists the app, so a
+third-party listing would put the payment and the credit in different
+hands, and the platform does not operate that arrangement in v1. A
+third-party app on iOS or Android opens the card or Zcash surface exactly
+as on desktop. **Before any third-party iOS submission, the app-store
+rules on digital goods bought outside in-app purchase must be revisited
+against that app's own category and jurisdiction**; this contract does not
+settle that question.
+
 2Z bought this way are platform credits ([README](../README.md)); a
 purchase buys usage, and the amount of 2Z a given price buys depends on
 the rail, because store fees are deducted before crediting.
@@ -33,13 +44,20 @@ the rail, because store fees are deducted before crediting.
   "available_milli_2z": 41500,
   "held_milli_2z": 2000,
   "balance_milli_2z": 43500,
+  "debt_milli_2z": 0,
   "as_of": "2026-09-26T21:04:14Z"
 }
 ```
 
 `available = balance − held`. `held` is the sum of open AI-call holds
 ([metering.md](./metering.md) §3) and is normally `0` when nothing is
-streaming. Apps show `available`. Requires `balance:read`.
+streaming. `debt_milli_2z` is what the account owes after a reversal took
+back 2Z that had already been spent (§3.1): while it is non-zero,
+`available_milli_2z` is `0`, every spend is refused with
+`403 account_in_debt`, and the next credit repays the debt before anything
+reaches the balance. It is always present, never negative, and never
+folded into `balance_milli_2z` — an app shows it as its own line. Apps
+show `available`. Requires `balance:read`.
 
 ### 1.2 The purchase intent
 
@@ -89,7 +107,7 @@ open or lost dispute; `0` once a dispute is won). The 2Z taken back from
 the user for a line is always recomputed as
 `floor(credited_milli_2z × min(amount_minor, refunded_minor + disputed_minor) / amount_minor)`
 — never more than the line credited, however the processor overlaps a
-refund and a dispute on the same money — and the ledger is moved by the
+refund and a dispute on the same payment — and the ledger is moved by the
 **difference** between that number and what was previously taken back,
 which may be negative (a re-credit). Two rules make "set, don't add"
 safe against ordering: every processor event is applied only if it is
@@ -134,7 +152,7 @@ The `hello-ai` reference app polls; a push channel is not part of v1.
 
 | Field | Rules |
 |---|---|
-| `rail` | `card`, `apple_iap`, `google_iap`, `zcash` |
+| `rail` | `card` or `zcash` for every app; `apple_iap` and `google_iap` only from Free2Z's own apps (§4), otherwise `400 rail_unavailable` |
 | `quantity_2z` | Whole 2Z. **Card:** any amount from **100** ($1.00) to **10,000**. **IAP:** must equal a pack in `GET /purchases/packs` (§4.1). **Zcash:** any amount from **100** to **1,000,000** |
 | `platform` | `desktop`, `ios`, `android`, `web`. Decides which surface the rail returns, and `apple_iap` / `google_iap` are refused off their platform with `400 rail_unavailable` |
 | `return_url` | Card only. Where the hosted checkout sends the browser afterwards. Must be one of the app's registered redirect URIs or a loopback URI; the platform appends `?purchase_id=…&status=…` |
@@ -188,52 +206,35 @@ Timeouts: a card intent expires **30 minutes** after creation.
 If the processor refunds a charge, the platform takes the corresponding 2Z
 back pro rata (`refunded` / `partially_refunded`). The reversal debits
 what is available; if that does not cover it, the account carries the
-difference as a debt that future credits repay first, and the account
-cannot spend until then. 2Z under an open AI-call hold are not taken by a
-reversal — the hold settles normally and any remainder is then subject to
-the debt. A chargeback (`disputed`) takes the 2Z back and freezes the
-account while the dispute is open; a dispute the platform wins
-re-credits. An app sees these as intent states and as `403 account_frozen`
-on spending.
+difference as **debt** — reported as `debt_milli_2z` by `GET /balance`
+(§1.1), repaid by the next credits before anything else, and refused with
+`403 account_in_debt` on every spend until then. 2Z under an open AI-call
+hold are not taken by a reversal — the hold settles normally and any
+remainder is then subject to the debt. A chargeback (`disputed`) takes the
+2Z back and freezes the account while the dispute is open; a dispute the
+platform wins re-credits. An app sees these as intent states and as
+`403 account_frozen` or `403 account_in_debt` on spending.
+
+**Developer markup is reversed with the purchase.** When reversed 2Z had
+been spent on AI calls, the developer credits those calls earned
+([metering.md](./metering.md) §2.3) are clawed back pro rata from the
+developer's account in the same operation; a developer account that
+cannot cover it carries the difference as debt on the same terms.
 
 ## 4. In-app purchase — StoreKit 2 and Play Billing, as equals
 
+**First-party only in v1.** These rails are used by Free2Z's own apps
+(the store product belongs to Free2Z's own listing, and the store pays
+Free2Z); a third-party app's `POST /purchases` with an IAP rail is
+`400 rail_unavailable`. They are specified here because the SDK
+implements them for those apps and because a third party reading this
+contract should know exactly what its users do *not* have.
+
 Both stores are supported on the same terms: the same intent, the same
 packs concept, the same receipt endpoint, the same test matrix. Neither
-lags the other.
-
-### 4.0 Who owns the store product
-
-A store sells an in-app product **on behalf of the app that lists it**,
-and pays the proceeds to that app's store account. For the platform's own
-apps that is the platform. For a third-party app it is the developer —
-so an IAP rail on a third-party app means the developer's store account
-receives the money and the platform credits the 2Z. That is only sound
-under a **developer billing agreement**, and the rail is therefore
-gated on registration rather than on by default:
-
-- The app's registration ([oidc.md](./oidc.md) §2) records its store
-  identity — the iOS bundle id and the Android package name — and, for
-  each store, the credential the platform needs to verify that app's
-  purchases and receive its server notifications (an App Store Server API
-  key scoped to the app; a Play service account with read access to the
-  app's purchases). Those credentials are entered in the developer
-  console and never appear in any API response.
-- The pack products must exist under **that** app's store listing with
-  the product ids the platform assigns in `GET /purchases/packs`, which
-  is per app for the IAP rails.
-- The receipt endpoint verifies a receipt against the store identity of
-  the app the token was issued to. A receipt from another app's listing
-  is `422 receipt_invalid` with `reason: "app"`.
-- Whether a given app has the IAP rails at all is a registration
-  property (`rails`), and `POST /purchases` answers `400 rail_unavailable`
-  for an app without them. Card and Zcash need no store identity and are
-  available to every app.
-
-The proceeds arrangement between a developer and the platform is
-commercial, outside this contract. The contract's promise is only that
-the mechanics above are identical for the platform's own apps and for a
-third party's, and that nothing in them requires a privileged path.
+lags the other. The receipt endpoint verifies every receipt against the
+platform's own store identity (its bundle id / package name); a receipt
+from any other listing is `422 receipt_invalid` with `reason: "app"`.
 
 ### 4.1 Packs
 
@@ -288,8 +289,8 @@ an existing one's 2Z.
    ```
 
    The platform verifies the JWS chain against Apple's root certificate
-   and then checks, in this order, that: the `bundleId` equals the app's
-   registered bundle id; the `environment` is `Production` (a `Sandbox`
+   and then checks, in this order, that: the `bundleId` equals the
+   platform's own bundle id; the `environment` is `Production` (a `Sandbox`
    transaction is accepted only for an intent created by a registered
    test account, and credits a sandbox-flagged balance that cannot be
    spent in production); the `productId` equals the intent's; the
@@ -309,7 +310,7 @@ an existing one's 2Z.
    transaction that credited a **different** intent. A **second, distinct**
    transaction carrying the same `appAccountToken` (an app that reused an
    intent id for two purchases) is credited as a second **line** on the
-   same intent — the store took the money, so refusing it would strand a
+   same intent — the store took the payment, so refusing it would strand a
    paid purchase — and each line reverses independently (§1.2). An app
    SHOULD create one intent per purchase regardless.
 4. Refunds and revocations arrive from Apple's server notifications and
@@ -335,8 +336,8 @@ an existing one's 2Z.
    { "store": "google", "purchase_token": "<Purchase.getPurchaseToken()>" }
    ```
 
-   The platform verifies the purchase with Google's API against the app's
-   registered package name and checks the product id and obfuscated
+   The platform verifies the purchase with Google's API against the
+   platform's own package name and checks the product id and obfuscated
    account id. A purchase Google marks as a **test** purchase
    (`purchaseType` = test, from a licence-tester account) is treated
    exactly as Apple's `Sandbox`: accepted only for an intent created by a
@@ -386,7 +387,7 @@ intent), `409 intent_not_pending` (the intent is `failed`),
 `503 store_unavailable` (retryable). An IAP
 intent expires **24 hours** after creation for the purpose of the app's
 UI; a verifying receipt for an expired intent is still credited, because
-the store already took the money.
+the store already took the payment.
 
 ## 5. Zcash
 
@@ -473,4 +474,5 @@ includes a spread; it is quoted, not negotiated, and the intent shows it.
   down.
 - **The app never sets a price** and never holds a payment credential.
 - **iOS and Android are symmetric.** Any behaviour available on one store
-  rail is available on the other; a difference is a defect.
+  rail is available on the other; a difference is a defect. For a
+  third-party app that symmetry is card and Zcash on both.

@@ -15,8 +15,8 @@ had it.
 
 | ADR | Decision |
 |---|---|
-| [0001](./adr/0001-rust-gateway.md) | **The gateway is Rust** — one async process holds tens of thousands of streams; the money path has no garbage collector and no interpreter between a token and a settlement |
-| [0002](./adr/0002-hold-functions-single-balance-authority.md) | **The ledger's hold functions are the single balance authority** — one atomic hold in the database, no cached balance anywhere, and a token is never authoritative for money |
+| [0001](./adr/0001-rust-gateway.md) | **The gateway is Rust** — one async process holds tens of thousands of streams; the metering path has no garbage collector and no interpreter between a token and a settlement |
+| [0002](./adr/0002-hold-functions-single-balance-authority.md) | **The ledger's hold functions are the single balance authority** — one atomic hold in the database, no cached balance anywhere, and a token is never authoritative for a balance |
 | [0003](./adr/0003-unified-api-before-passthrough.md) | **A unified API ships before any provider passthrough** — every priceable thing is priced before it can be called; passthrough is a later, allowlisted addition |
 | [0004](./adr/0004-zuu-namespace-layout.md) | **The namespace** — where each crate and package lives in this repository, what is published, under which licence |
 
@@ -70,6 +70,10 @@ teams rather than a file:
 - Never lets a request set a provider header (`anthropic-beta`,
   organisation headers and the like are not forwardable).
 - Never holds a balance of its own; every hold and settle is the ledger's.
-- Never trusts a JWT for money: the ledger re-checks epoch, grant and cap.
+- Never trusts a JWT for a balance: the ledger re-checks epoch, grant and cap.
+- Never aborts a provider request because the client went away: once the
+  upstream request is sent it is read to completion (within `out_cap` and
+  the hard limit) so that the usage the provider reports is what settles
+  ([metering.md](../sdk/spec/metering.md) §5.3).
 - Never re-counts tokens the provider already counted; settlement is from
   provider-reported usage, and an estimate is labelled as such.

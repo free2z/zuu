@@ -70,13 +70,13 @@ code.
 
 ## Consequences
 
-- **Money is safe even when the token is stale.** The JWT's `aep` and
+- **Balances are safe even when the token is stale.** The JWT's `aep` and
   `agen` give fast rejection at the edge; the hold re-checks both. A
   revocation that has not yet propagated to the gateway costs at most one
   hold attempt that the ledger refuses.
 - **The hot path has at most two database round trips** — a read-only
   inquire to size the output clamp, then the hold — and the budget for
-  them is the whole of the gateway's latency budget for money: hold p99
+  them is the whole of the gateway's latency budget for metering: hold p99
   ≤ 10 ms in the database, settle p99 ≤ 15 ms, and neither sits on the
   request's critical path after the first byte.
 - **Contention is per user, never global.** A hold contends only with

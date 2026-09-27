@@ -23,7 +23,7 @@ double-settling or losing one.
 The gateway is also the component with the least tolerance for the
 usual runtime hazards. It sits between a bearer token and a ledger
 operation that moves 2Z; a pause, an unbounded queue, or a type confusion
-between milli-2Z and whole 2Z in that path is a money bug, not a
+between milli-2Z and whole 2Z in that path is a balance bug, not a
 performance bug.
 
 ## Decision
@@ -54,19 +54,25 @@ of [metering.md](../../sdk/spec/metering.md) §5.6 holds.
   mock provider before every release.
 - **Backpressure is explicit.** Provider bytes flow to the client through
   a bounded channel; a slow client slows its own provider read rather than
-  buffering without limit. A client that disconnects drops the upstream
-  body, which aborts the provider call.
+  buffering without limit. A client that disconnects does **not** abort
+  the provider call: once the upstream request has been sent the gateway
+  keeps reading it to completion — bounded by the `out_cap` already held
+  and the hard deadline — so that the provider's reported usage, which
+  includes reasoning tokens no stream ever carried, is what settles
+  ([metering.md](../../sdk/spec/metering.md) §5.3). Aborting would leave
+  the charge to an estimate that cannot see reasoning, and the provider
+  bills for the abandoned generation regardless.
 - **Settlement never runs on the request future.** A guard hands the call
   to a detached settler task on completion, cancellation or error, so a
   client going away cannot prevent a settle, and a settle cannot delay the
   next request.
-- **The money types are types.** Milli-2Z and nano-USD are distinct
+- **The amount types are types.** Milli-2Z and nano-USD are distinct
   newtypes in `f2z-ai-proto`; the compiler refuses to add them. The
   integer formula of [metering.md](../../sdk/spec/metering.md) §2 has no
   floating-point path.
 - **Two stacks in the platform.** The identity provider, the ledger and
   the purchase rails stay in the platform's existing web stack; the
-  gateway is the one Rust service in the money path. The cost is two
+  gateway is the one Rust service in the metering path. The cost is two
   toolchains for anyone working across the boundary, and it is paid
   deliberately: the boundary is the ledger's operation contract and a
   signed JSON catalogue, both of which are contracts with fixtures rather
@@ -94,6 +100,6 @@ of [metering.md](../../sdk/spec/metering.md) §5.6 holds.
   of them knows what a 2Z is. Holding, clamping output to what is
   affordable, and settling from usage against a spend cap are the product;
   a proxy that cannot do them would still need this service behind it.
-- **Node.js.** Streams well, but the money path would live in a language
+- **Node.js.** Streams well, but the metering path would live in a language
   with one numeric type, and the platform has no existing Node service
   gate to inherit.

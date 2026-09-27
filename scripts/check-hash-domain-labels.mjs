@@ -189,6 +189,13 @@ const LABEL_BEARING_DOCUMENTS = [
   // not have to share a document to share `H`'s single, separator-free
   // namespace, which is the scoping mistake #602 was.
   "docs/intent-bridge/PROTOCOL.md",
+  // The AI gateway's signed model catalogue (#1048, #1049) is signed over
+  // `free2z/ai-catalog/v1 || canonical_json(payload)`. The label is minted
+  // in `rs/crates/f2z-ai-proto/src/catalog.rs` and quoted by this document;
+  // registering it here is the acknowledgement that a catalogue signature
+  // shares the one prefix-free namespace with the relay, the log and the
+  // intent bridge.
+  "docs/ai-gateway/README.md",
 ];
 
 /// Files under this prefix are subject to the registration half of the anchor.
