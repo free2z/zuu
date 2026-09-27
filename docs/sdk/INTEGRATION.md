@@ -4,9 +4,10 @@
 its native adapter boundary, and mock-driven flows now. Real end-to-end SDK
 integration is not ready yet. The API examples below target Rust core
 [PR #1071](https://github.com/free2z/zuu/pull/1071), revision
-[`f834de83`](https://github.com/free2z/zuu/commit/f834de832308eb656793bd1559fc5fa4e7b3016e),
-which is awaiting independent rereview and CI. This is a preview API, not a
-reviewed release. Update the revision after the core merges.
+[`27bed9be`](https://github.com/free2z/zuu/commit/27bed9be05902876182f8cdf030acee890499e13),
+which has independent approval and is awaiting the required CI gate and merge.
+Its 102 local all-target tests and strict lint checks pass; this is reviewed
+preview source, not a published release or live-platform acceptance result.
 
 ## What can run today
 
@@ -32,9 +33,9 @@ intended distribution names. On 2026-09-27, the official crates.io metadata
 endpoints for `f2z-sdk`, `f2z-ai-proto` and `tauri-plugin-f2z`, and the npm
 metadata endpoints for `@free2z/sdk` and `@free2z/tauri-plugin-f2z-api`, each
 returned HTTP 404. The Rust workspace currently disables publishing.
-The Tauri plugin and TypeScript facade above are not available implementation
-artifacts at this snapshot. Do not add an invented npm version or assume a
-plugin command exists. Supported third-party integration will use published
+The Tauri plugin and TypeScript facade are under implementation; their package
+interfaces are not released yet. Do not add an invented npm version or assume
+an in-progress plugin command is a supported release API. Supported third-party integration will use published
 packages when the release is announced. The intended commands below are
 **not available yet**; run them only after the platform announces and verifies
 an actual release:
@@ -53,7 +54,7 @@ preview by commit, without a private repository or a path into this workspace:
 
 ```toml
 [dependencies]
-f2z-sdk = { git = "https://github.com/free2z/zuu", rev = "f834de832308eb656793bd1559fc5fa4e7b3016e" }
+f2z-sdk = { git = "https://github.com/free2z/zuu", rev = "27bed9be05902876182f8cdf030acee890499e13" }
 ```
 
 This is not the supported published-package installation and does not establish
@@ -65,7 +66,7 @@ initializing them and run the SDK's own fake example:
 ```sh
 git clone --filter=blob:none https://github.com/free2z/zuu.git zuu-sdk-preview
 cd zuu-sdk-preview
-git checkout f834de832308eb656793bd1559fc5fa4e7b3016e
+git checkout 27bed9be05902876182f8cdf030acee890499e13
 cd rs
 cargo +1.97.1 run --locked -p f2z-sdk --example full_flow
 cargo +1.97.1 test --locked -p f2z-sdk --all-targets
@@ -94,7 +95,9 @@ The core validates state, issuer and tokens; the adapter must not synthesize a
 successful callback or use an embedded webview for login.
 
 Keep one long-lived `Client` in native app state. Its clones share one session
-and one refresh lock. Do not construct a client per command or two clients
+and one refresh lock. Keep that client on one living Tokio runtime; after
+shutting the runtime down, create a new client rather than moving pending work
+to another runtime. Do not construct a client per command or two clients
 against the same stored refresh-token family. Use an OS keychain `TokenStore`;
 `KeyringStore::new` accepts an explicitly constructed platform credential store.
 The core does not install a process-global keyring backend. The plugin must
@@ -116,14 +119,22 @@ not an existing plugin API.
 | `balance` | Call `Client::balance` | Available, held, total and debt milli-2Z plus `as_of` |
 | `buy2z` / `purchaseStatus` | Create intent, open validated hosted checkout, poll | Intent ID and status; refreshed balance once credited |
 | `models` / `estimate` | Call the corresponding AI methods when live support is ready | Capabilities and provisional hold estimate |
-| `startChat` / `cancelChat` | Own stream task and cancel handle, correlate by app operation ID | Text/tool events, call ID, receipt/settlement state and classified errors |
+| `startChat` / `nextChat` / `cancelChat` | Own stream task and cancel handle, correlate by app operation ID | Text/tool events, call ID, receipt/settlement state and classified errors |
 
-Use a bounded event channel and remove task/cancel-handle entries on completion,
-error, window close and sign-out. Associate each operation with the signed-in
-subject; discard late UI events from a replaced session. Before chat headers
-arrive the core has not returned a `CancelHandle`: the adapter must own the
-opening task too. Generate and retain an operation key before sending if the
-app needs recovery after opening-task cancellation or process restart.
+The native bridge under development uses **pull delivery**: `startChat` opens
+one operation, `nextChat(operationId)` returns one event (or `null` when exhausted),
+and `cancelChat(operationId)` stops delivery. Permit only one outstanding reader
+per operation. A replay returns the existing call record rather than new answer
+text. These are interface-design names while #1072/#1073 are in progress, not
+commands to invoke against an assumed installed package.
+
+Generate and retain both an operation ID and an idempotency key **before** the
+opening invoke. Cancellation can happen while opening or waiting for refresh,
+before the core returns a `CancelHandle`; the adapter must own that opening
+operation too. Bound native event buffering and remove operation entries on
+completion, error, window close and sign-out. Associate each operation with the
+signed-in subject and session generation; discard late UI events from a replaced
+session. Keep the exact request and key when restart recovery is required.
 
 ## Rust API examples
 
@@ -303,7 +314,15 @@ behavior so the app owns the retry decision.
 
 `sign_out().await` clears local state and returns whether server revocation was
 confirmed. `false` does not promise server revocation. Cancellation-independent
-cleanup tasks still require the native runtime to remain alive; orderly shutdown
+cleanup tasks still require the native runtime to remain alive. Keychain waits
+are bounded by `Config::request_timeout`, but an OS call can finish later:
+`Error::Storage` does not confirm persistence or deletion. Each client has one
+bounded read lane and one write lane, so logout can start its delete while a
+read is pending and repeated timeouts cannot create unlimited blocking tasks.
+The credential backend may itself serialize or block calls; a delete that times
+out remains unconfirmed. Pending
+writes coalesce to the newest operation; a later logout delete follows an active
+save. Re-read native session state after a storage error. Orderly shutdown
 should await sign-out when requested. Never expose the raw SDK error's debug
 output to the webview as a universal error DTO: map stable classifications and
 approved fields explicitly.
@@ -321,7 +340,7 @@ pending settlement, lost-response same-key recovery and account switching.
 Own no Free2Z passwords, client secrets or provider keys. Keep credentials in
 native code, keep untrusted content outside privileged Tauri capabilities, and
 keep the adapter replaceable by #1072/#1073. Real integration starts after the
-core review/CI, plugin and facade implementation, published-package instructions,
+core merge/CI, plugin and facade implementation, published-package instructions,
 and live registration/payment/metering readiness are confirmed. Acceptance then
 requires one real registered-user sign-in, authoritative balance read, approved
 test purchase through credited, and metered chat whose final receipt reconciles
