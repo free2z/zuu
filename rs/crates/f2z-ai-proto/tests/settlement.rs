@@ -290,23 +290,34 @@ fn the_write_off_example_checks() {
 }
 
 #[test]
-fn a_shortfall_inside_the_hold_is_allowed() {
-    // The ledger's rollout self-heal: the hold covered less than the price
-    // could be collected from — availability 60 against a price of 100.
-    let done = Done {
+fn a_shortfall_inside_the_hold_is_refused() {
+    // The hold was already reserved: a write-off is only ever of the part
+    // above it. Priced 100 on a hold of 100 with 40 written off would be the
+    // gateway under-collecting its own reservation.
+    let inside = Done {
         hold_2z: Some(Whole2z::new(100)),
         released_2z: Some(Whole2z::new(0)),
         collected_milli_2z: Some(Milli2z::new(60_000)),
         shortfall_milli_2z: Some(Milli2z::new(40_000)),
         ..Done::settled(Whole2z::new(100), "r", FinishReason::Stop)
     };
-    done.check().unwrap();
-    // collected = charged × 1000 − shortfall is still enforced.
-    let wrong = Done {
-        collected_milli_2z: Some(Milli2z::new(61_000)),
-        ..done
+    assert_eq!(inside.check(), Err(SettlementError::ShortfallWithinHold));
+    assert!(!inside.outcome().is_final());
+    // The boundary: priced 3 on a hold of 2, exactly the 1 above it written off.
+    let boundary = Done {
+        hold_2z: Some(Whole2z::new(2)),
+        released_2z: Some(Whole2z::new(0)),
+        collected_milli_2z: Some(Milli2z::new(2_000)),
+        shortfall_milli_2z: Some(Milli2z::new(1_000)),
+        ..Done::settled(Whole2z::new(3), "r", FinishReason::Stop)
     };
-    assert_eq!(wrong.check(), Err(SettlementError::CollectedMismatch));
+    boundary.check().unwrap();
+    let one_over = Done {
+        collected_milli_2z: Some(Milli2z::new(1_999)),
+        shortfall_milli_2z: Some(Milli2z::new(1_001)),
+        ..boundary
+    };
+    assert_eq!(one_over.check(), Err(SettlementError::ShortfallWithinHold));
 }
 
 // ---- error --------------------------------------------------------------
@@ -649,6 +660,33 @@ fn a_charged_502_has_a_typed_settlement_and_is_not_retried() {
     .unwrap();
     assert!(ran.error.failed_call().is_none());
     assert!(!ran.error.retryable());
+
+    // Any details member outside the documented pre-call set refuses.
+    let novel: ErrorBody = serde_json::from_str(
+        r#"{"error":{"code":"unavailable","message":"x","details":{"reason":"draining","attempt_id":"a"}}}"#,
+    )
+    .unwrap();
+    assert!(!novel.error.retryable());
+    let documented: ErrorBody = serde_json::from_str(
+        r#"{"error":{"code":"unavailable","message":"x","details":{"reason":"draining"}}}"#,
+    )
+    .unwrap();
+    assert!(documented.error.retryable());
+    let bare: ErrorBody =
+        serde_json::from_str(r#"{"error":{"code":"rate_limited","message":"x"}}"#).unwrap();
+    assert!(bare.error.retryable());
+
+    // A partial message implies partial, whatever the flag says.
+    let hidden: ErrorBody = serde_json::from_str(
+        r#"{"error":{"code":"provider_error","message":"x","details":{
+            "settlement":"settled","charged_2z":0,"partial":false,
+            "message":{"content":[{"type":"text","text":"half"}]}}}}"#,
+    )
+    .unwrap();
+    let call = hidden.error.failed_call().unwrap().unwrap();
+    assert!(call.partial_output());
+    assert_eq!(call.check(), Err(SettlementError::PartialZeroCharge));
+    assert!(!hidden.error.retryable());
 
     // Pending in a 502: not final, not retried.
     let pending: ErrorBody = serde_json::from_str(

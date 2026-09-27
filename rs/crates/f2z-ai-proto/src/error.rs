@@ -292,36 +292,73 @@ impl ApiError {
     }
 
     /// Whether an SDK may retry this request on its own (with a **new**
-    /// `Idempotency-Key`). The code must be retryable, and if the error
-    /// carries a settlement the failed call must have delivered nothing and
-    /// be known to have charged nothing — a charged `502 provider_error` is
-    /// **not** retried, because the retry would be a second charged call.
-    /// Settlement members that do not decode also refuse the retry.
+    /// `Idempotency-Key`). The code must be retryable, and:
     ///
-    /// Evidence that a call ran (`details.call_id` or a partial
-    /// `details.message`) without its settlement also refuses the retry: the
-    /// SDK reconciles by re-sending the old key or reading
-    /// `GET /v1/calls/{id}` (`chat-api.md` §2.5). An envelope with no such
-    /// evidence falls back to the code, because the spec requires a failure
-    /// that charged anything to carry its settlement (`chat-api.md` §4).
+    /// * if `details` carries a settlement, the failed call must have
+    ///   delivered nothing and be known to have charged nothing — a charged
+    ///   `502 provider_error` is **not** retried, because the retry would be
+    ///   a second charged call; settlement members that do not decode refuse
+    ///   too;
+    /// * otherwise every `details` member must be one a refusal **before**
+    ///   the call ran documents ([`PRE_CALL_DETAILS`]). Anything else — a
+    ///   `call_id`, a partial `message`, a key newer than this crate — is
+    ///   evidence the call may have run, and the SDK reconciles (re-send the
+    ///   old key, or read `GET /v1/calls/{id}`, `chat-api.md` §2.5) rather
+    ///   than retry.
+    ///
+    /// An envelope with no `details` is decided by the code: the spec
+    /// requires any failure that charged to carry its settlement
+    /// (`chat-api.md` §4).
     #[must_use]
     pub fn retryable(&self) -> bool {
-        let ran = self
-            .details
-            .as_ref()
-            .is_some_and(|d| d.contains_key("call_id") || d.contains_key("message"));
         match self.failed_call() {
-            None if ran => false,
-            None => self.code.retryable(),
+            None => {
+                self.code.retryable()
+                    && self
+                        .details
+                        .as_ref()
+                        .is_none_or(|d| d.keys().all(|k| PRE_CALL_DETAILS.contains(&k.as_str())))
+            }
             Some(Err(_)) => false,
             Some(Ok(call)) => crate::settlement::retry_allowed(
                 self.code.retryable(),
-                call.partial,
+                call.partial_output(),
                 &call.outcome(),
             ),
         }
     }
 }
+
+/// The `details` members `errors.md` documents for refusals that happen
+/// before a call runs (§2, §3, §4 before `meta`, §6). A `details` member
+/// outside this set makes [`ApiError::retryable`] refuse.
+pub const PRE_CALL_DETAILS: &[&str] = &[
+    "reason",
+    "max_age",
+    "acr_values",
+    "scope",
+    "debt_milli_2z",
+    "field",
+    "input_tokens_estimate",
+    "context_window",
+    "available_milli_2z",
+    "required_2z",
+    "min_charge_2z",
+    "cap_2z",
+    "cap_period",
+    "cap_remaining_milli_2z",
+    "resets_at",
+    "model",
+    "limit_bytes",
+    "limit",
+    "phase",
+    "min_2z",
+    "max_2z",
+    "packs",
+    "rail",
+    "status",
+    "purchase_id",
+];
 
 /// The settlement of a non-streamed call that failed: the typed form of a
 /// `502`'s `details` ([`ApiError::failed_call`]). The same rules as the
@@ -347,7 +384,8 @@ pub struct FailedCall {
     /// What could not be taken and was written off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shortfall_milli_2z: Option<Milli2z>,
-    /// Whether output reached the client before the failure.
+    /// Whether output reached the client before the failure. A non-empty
+    /// `message` implies it whatever this says ([`FailedCall::partial_output`]).
     #[serde(default)]
     pub partial: bool,
     /// The partial reply, as far as it got.
@@ -356,6 +394,19 @@ pub struct FailedCall {
 }
 
 impl FailedCall {
+    /// Whether output was produced: `partial`, or a partial `message` with
+    /// any content or tool call. A `partial: false` beside a non-empty
+    /// message is treated as partial — it is charged-for output, never a
+    /// free, retryable failure.
+    #[must_use]
+    pub fn partial_output(&self) -> bool {
+        self.partial
+            || self
+                .message
+                .as_ref()
+                .is_some_and(|m| !m.content.is_empty() || !m.tool_calls.is_empty())
+    }
+
     fn fields(&self) -> settlement::Fields<'_> {
         settlement::Fields {
             settlement: self.settlement,
@@ -367,7 +418,7 @@ impl FailedCall {
             released_2z: None,
             post_settlement: [("", false); 3],
             success: false,
-            partial: self.partial,
+            partial: self.partial_output(),
         }
     }
 

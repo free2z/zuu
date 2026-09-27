@@ -7,7 +7,7 @@
 //!
 //! | `settlement` | `charged_2z` | `receipt_id` | `collected` / `shortfall` | `released_2z` |
 //! |---|---|---|---|---|
-//! | `settled` | present; `≥ 1` on success or when `partial` | present iff `charged_2z > 0` | both or neither; `collected = charged × 1000 − shortfall` | `max(0, hold − charged)` |
+//! | `settled` | present; `≥ 1` on success or when `partial` | present iff `charged_2z > 0` | both or neither; `collected = charged × 1000 − shortfall`; `shortfall ≤ max(0, charged − hold) × 1000` | `max(0, hold − charged)` |
 //! | `pending` | absent | absent | absent | absent |
 //! | `released` | absent or `0` | absent | absent or `0` | `= hold` |
 //!
@@ -16,11 +16,13 @@
 //! settlement that has not happened — and a client reads `GET /v1/calls/{id}`
 //! until its `status` is terminal.
 //!
-//! A shortfall may be anywhere in the charge, not only above the hold: the
-//! ledger collects what the user's available balance and cap allow, and a
-//! hold taken while a reservation was being repaired (the ledger's rollout
-//! self-heal) can cover less than the price. `collected = charged × 1000 −
-//! shortfall` is the only relation checked.
+//! A shortfall is only ever of the part of the charge **above** the hold
+//! (`metering.md` §5.5, §6.7): the hold was reserved before the call ran, so
+//! whenever `hold_2z` is known, `shortfall ≤ max(0, charged − hold) × 1000`.
+//! A shortfall inside the hold means the gateway under-collected a
+//! reservation it already had, and `check()` refuses it
+//! ([`SettlementError::ShortfallWithinHold`]) so that such a bug is visible
+//! rather than indistinguishable from a legitimate write-off.
 //!
 //! Decoding is tolerant, as for every response type: a gateway that breaks
 //! these rules still decodes, so that a paid-for answer is never discarded
@@ -109,6 +111,10 @@ pub enum SettlementError {
     ZeroCharge,
     /// `collected_milli_2z ≠ charged_2z × 1000 − shortfall_milli_2z`.
     CollectedMismatch,
+    /// A shortfall inside the hold: the hold was already reserved, so a
+    /// write-off can only be of the part of the charge above it
+    /// (`shortfall ≤ max(0, charged − hold) × 1000`).
+    ShortfallWithinHold,
     /// `released_2z` is not what the hold and the charge leave:
     /// `max(0, hold − charged)` when settled, `hold` when released.
     ReleasedMismatch,
@@ -133,6 +139,9 @@ impl fmt::Display for SettlementError {
             Self::ZeroCharge => f.write_str("a settled successful call charges at least 1 2Z"),
             Self::CollectedMismatch => {
                 f.write_str("collected_milli_2z must equal charged_2z × 1000 − shortfall_milli_2z")
+            }
+            Self::ShortfallWithinHold => {
+                f.write_str("shortfall_milli_2z exceeds the part of the charge above the hold")
             }
             Self::ReleasedMismatch => {
                 f.write_str("released_2z does not match hold_2z and charged_2z")
@@ -244,6 +253,15 @@ fn check_settled(f: &Fields<'_>) -> Result<(), SettlementError> {
         (Some(collected), Some(shortfall)) => {
             if charged_milli.checked_sub(shortfall) != Some(collected) {
                 return Err(SettlementError::CollectedMismatch);
+            }
+            if let Some(hold) = f.hold_2z {
+                let above_hold = charged
+                    .saturating_sub(hold)
+                    .to_milli()
+                    .ok_or(SettlementError::Overflow)?;
+                if shortfall > above_hold {
+                    return Err(SettlementError::ShortfallWithinHold);
+                }
             }
         }
     }

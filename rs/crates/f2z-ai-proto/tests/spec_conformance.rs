@@ -238,3 +238,87 @@ fn the_balance_in_the_spec_decodes() {
     assert!(!parsed.in_debt());
     assert_eq!(serde_json::to_value(&parsed).unwrap(), balance);
 }
+
+/// The top-level `details` keys the errors.md tables with a `details` column
+/// document, per code.
+fn documented_details() -> Vec<(String, String)> {
+    let doc = spec("errors.md");
+    let mut out = Vec::new();
+    let mut in_table = false;
+    for line in doc.lines() {
+        if !line.starts_with('|') {
+            in_table = false;
+            continue;
+        }
+        let cells: Vec<&str> = line.split('|').map(str::trim).collect();
+        if cells.contains(&"`details`") {
+            in_table = true;
+            continue;
+        }
+        if !in_table || cells.len() < 4 {
+            continue;
+        }
+        let code = cells[2].trim_matches('`').to_owned();
+        // The last real cell: "| … | `a`, `b` (`null` for `total`) |".
+        let last = cells[cells.len() - 2];
+        // Drop parentheticals, then: "`k` ∈ `v1`, `v2`" names only `k`.
+        let mut cell = String::new();
+        let mut depth = 0u32;
+        for ch in last.chars() {
+            match ch {
+                '(' => depth += 1,
+                ')' => depth = depth.saturating_sub(1),
+                _ if depth == 0 => cell.push(ch),
+                _ => {}
+            }
+        }
+        let keys: Vec<&str> = if cell.contains('∈') {
+            // Every segment but the last ends with a key; the last is values.
+            let segments: Vec<&str> = cell.split('∈').collect();
+            segments[..segments.len() - 1]
+                .iter()
+                .filter_map(|before| before.trim_end().rsplit('`').nth(1))
+                .collect()
+        } else {
+            cell.split('`').skip(1).step_by(2).collect()
+        };
+        for key in keys {
+            out.push((code.clone(), key.to_owned()));
+        }
+    }
+    out
+}
+
+#[test]
+fn every_pre_call_details_key_is_allowed_to_retry() {
+    use f2z_ai_proto::error::PRE_CALL_DETAILS;
+    let documented = documented_details();
+    assert!(
+        documented.len() >= 15,
+        "parsed only {} details keys — the table format changed",
+        documented.len()
+    );
+    for (code, key) in &documented {
+        // `idempotency_conflict`'s `call_id` names a call that ran; it is
+        // deliberately not a pre-call key (and the code is not retryable).
+        if key == "call_id" {
+            assert_eq!(code, "idempotency_conflict");
+            continue;
+        }
+        assert!(
+            PRE_CALL_DETAILS.contains(&key.as_str()),
+            "errors.md documents details.{key} on `{code}`, missing from PRE_CALL_DETAILS"
+        );
+    }
+    // Negative control on the parser.
+    assert!(
+        documented
+            .iter()
+            .any(|(c, k)| c == "cap_exceeded" && k == "resets_at")
+    );
+    assert!(
+        !documented
+            .iter()
+            .any(|(_, k)| k == "total" || k == "missing")
+    );
+}
