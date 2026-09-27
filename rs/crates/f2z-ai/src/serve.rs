@@ -101,8 +101,8 @@ pub async fn serve(
     loop {
         tokio::select! {
             accepted = listener.accept() => {
-                let stream = match accepted {
-                    Ok((stream, _peer)) => stream,
+                let (stream, peer) = match accepted {
+                    Ok((stream, peer)) => (stream, peer),
                     Err(error) => {
                         // EMFILE and friends: back off rather than spin. The
                         // peer address is deliberately not logged.
@@ -128,6 +128,7 @@ pub async fn serve(
                         .map_request(move |request: hyper::Request<Incoming>| {
                             let mut request = request.map(axum::body::Body::new);
                             request.extensions_mut().insert(kill.clone());
+                            request.extensions_mut().insert(peer);
                             request
                         })
                         .map_err(|never: Infallible| match never {}),

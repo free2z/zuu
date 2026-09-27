@@ -220,6 +220,8 @@ impl Gateway {
             max_body_bytes_with_images: config.max_body_bytes_with_images,
             body_read_timeout: config.body_read_timeout,
             start_timeout: config.request_timeout,
+            upload_limits: Arc::default(),
+            max_pre_auth_uploads_per_peer: config.max_pre_auth_uploads_per_peer,
             upload_budget: Arc::new(tokio::sync::Semaphore::new(
                 config
                     .max_upload_buffer_bytes

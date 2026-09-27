@@ -225,17 +225,17 @@ async fn with_a_verified_catalogue_the_gateway_is_ready_and_reports_its_version(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn request_bodies_in_flight_are_bounded_gateway_wide() {
     let running = gateway(&[
-        ("F2Z_AI_MAX_BODY_BYTES", "1000"),
-        ("F2Z_AI_MAX_BODY_BYTES_WITH_IMAGES", "2000"),
-        ("F2Z_AI_MAX_UPLOAD_BUFFER_BYTES", "3000"),
+        ("F2Z_AI_MAX_BODY_BYTES", "10000"),
+        ("F2Z_AI_MAX_BODY_BYTES_WITH_IMAGES", "40000"),
+        ("F2Z_AI_MAX_UPLOAD_BUFFER_BYTES", "60000"),
         ("F2Z_AI_BODY_READ_TIMEOUT_SECS", "5"),
         ("F2Z_AI_RETRY_AFTER_SECS", "2"),
     ])
     .await;
-    // One upload declares 2000 bytes and sends none of them: it holds 2000
-    // of the 3000-byte budget while it waits.
+    // One upload declares 40000 bytes and sends none of them: it holds 40000
+    // of the 60000-byte budget while it waits.
     let slow = "POST /v1/chat HTTP/1.1\r\nHost: g\r\nContent-Type: application/json\r\n\
-                Content-Length: 2000\r\n\r\n";
+                Content-Length: 40000\r\n\r\n";
     let mut holder = tokio::net::TcpStream::connect(running.public)
         .await
         .unwrap();
@@ -244,7 +244,7 @@ async fn request_bodies_in_flight_are_bounded_gateway_wide() {
         .unwrap();
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // A second that would need 2000 more is refused before it is read.
+    // A second that would need 40000 more is refused before it is read.
     let refused = raw(running.public, slow.as_bytes(), Duration::from_secs(2)).await;
     assert!(refused.starts_with("HTTP/1.1 503"), "{refused}");
     assert!(

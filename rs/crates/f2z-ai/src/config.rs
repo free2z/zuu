@@ -277,6 +277,10 @@ pub struct Config {
     /// `Retry-After`. Without it, `max_concurrent_calls` × 20 MiB would be
     /// the memory bound.
     pub max_upload_buffer_bytes: usize,
+    /// Pending authentication checks sharing one accepted socket peer IP.
+    /// Size for ingress fan-in and authentication latency; forwarded headers
+    /// do not change peer attribution. Valid range: 1..=65,536.
+    pub max_pre_auth_uploads_per_peer: usize,
     /// How often the catalogue source is polled.
     pub catalog_poll: Duration,
     /// How far (seconds of `issued_at`) below the newest catalogue installed
@@ -322,6 +326,7 @@ impl Default for Config {
             max_body_bytes: DEFAULT_MAX_BODY_BYTES,
             max_body_bytes_with_images: DEFAULT_MAX_BODY_BYTES_WITH_IMAGES,
             max_upload_buffer_bytes: DEFAULT_MAX_UPLOAD_BUFFER_BYTES,
+            max_pre_auth_uploads_per_peer: 16,
             catalog_poll: Duration::from_secs(30),
             catalog_version_regression_bound: Duration::from_secs(
                 crate::catalog::DEFAULT_VERSION_REGRESSION_BOUND_SECS,
@@ -404,6 +409,7 @@ struct Raw {
     max_body_bytes: Option<u64>,
     max_body_bytes_with_images: Option<u64>,
     max_upload_buffer_bytes: Option<u64>,
+    max_pre_auth_uploads_per_peer: Option<u64>,
     catalog_poll_secs: Option<u64>,
     catalog_version_regression_bound_secs: Option<u64>,
     delivery_buffer_bytes: Option<u64>,
@@ -462,6 +468,7 @@ const KEYS: &[(&str, Kind)] = &[
     ("max_body_bytes", Kind::Integer),
     ("max_body_bytes_with_images", Kind::Integer),
     ("max_upload_buffer_bytes", Kind::Integer),
+    ("max_pre_auth_uploads_per_peer", Kind::Integer),
     ("catalog_poll_secs", Kind::Integer),
     ("catalog_version_regression_bound_secs", Kind::Integer),
     ("delivery_buffer_bytes", Kind::Integer),
@@ -684,6 +691,11 @@ impl Config {
                 raw.max_body_bytes_with_images,
                 defaults.max_body_bytes_with_images,
             )?,
+            max_pre_auth_uploads_per_peer: size(
+                "max_pre_auth_uploads_per_peer",
+                raw.max_pre_auth_uploads_per_peer,
+                defaults.max_pre_auth_uploads_per_peer,
+            )?,
             max_upload_buffer_bytes: size(
                 "max_upload_buffer_bytes",
                 raw.max_upload_buffer_bytes,
@@ -712,6 +724,11 @@ impl Config {
 
     /// The cross-field rules.
     fn validate(&self) -> Result<(), ConfigError> {
+        if !(1..=65_536).contains(&self.max_pre_auth_uploads_per_peer) {
+            return Err(err(
+                "`max_pre_auth_uploads_per_peer` must be between 1 and 65536",
+            ));
+        }
         for (name, value) in [
             ("max_connections", self.max_connections),
             ("max_admin_connections", self.max_admin_connections),
@@ -1273,6 +1290,19 @@ mod tests {
         for key in ["F2Z_AI_MAX_CONNECTIONS", "F2Z_AI_MAX_ADMIN_CONNECTIONS"] {
             assert!(Config::load(None, env(&[(key, "0")])).is_err());
             assert!(Config::load(None, env(&[(key, "18446744073709551615")])).is_err());
+        }
+    }
+    #[test]
+    fn pre_auth_peer_limit_is_configurable_and_bounded() {
+        let key = "F2Z_AI_MAX_PRE_AUTH_UPLOADS_PER_PEER";
+        assert_eq!(
+            Config::load(None, env(&[(key, "128")]))
+                .unwrap()
+                .max_pre_auth_uploads_per_peer,
+            128
+        );
+        for value in ["0", "65537", "18446744073709551615"] {
+            assert!(Config::load(None, env(&[(key, value)])).is_err());
         }
     }
 }

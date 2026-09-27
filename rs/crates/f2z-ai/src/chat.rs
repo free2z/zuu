@@ -71,6 +71,59 @@ pub const MAX_METADATA_VALUE_CHARS: usize = 256;
 /// `Idempotency-Key`: length limit.
 pub const MAX_IDEMPOTENCY_KEY: usize = 128;
 
+/// Upload-specific admission, separate from billable call concurrency.
+#[derive(Default)]
+pub struct UploadLimits(std::sync::Mutex<std::collections::HashMap<UploadKey, usize>>);
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum UploadKey {
+    Peer(std::net::IpAddr),
+    User(String),
+}
+
+struct UploadLease {
+    limits: Arc<UploadLimits>,
+    key: UploadKey,
+}
+
+impl UploadLimits {
+    fn acquire(self: &Arc<Self>, key: UploadKey, limit: usize) -> Result<UploadLease, ApiFailure> {
+        let mut counts = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let count = counts.entry(key.clone()).or_default();
+        if *count >= limit {
+            return Err(ApiFailure::new(
+                ErrorCode::Unavailable,
+                "too many uploads from this caller",
+            )
+            .retry_after(1));
+        }
+        *count = count.saturating_add(1);
+        Ok(UploadLease {
+            limits: Arc::clone(self),
+            key,
+        })
+    }
+}
+
+impl Drop for UploadLease {
+    fn drop(&mut self) {
+        let mut counts = self
+            .limits
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(count) = counts.get_mut(&self.key) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                counts.remove(&self.key);
+            }
+        }
+    }
+}
+
 /// What starts a valid, admitted call.
 ///
 /// The seam Wave 2's provider adapters implement: authenticate the provider
@@ -139,6 +192,10 @@ pub struct ChatState {
     pub metrics: Option<Arc<crate::metrics::Metrics>>,
     /// The gateway-wide budget, in bytes, for request bodies being read.
     pub upload_budget: Arc<Semaphore>,
+    /// Per-peer pre-authentication and per-user upload admission.
+    pub upload_limits: Arc<UploadLimits>,
+    /// Pending authentication checks allowed per transport peer IP.
+    pub max_pre_auth_uploads_per_peer: usize,
     /// `Retry-After` for a refusal on the upload budget.
     pub retry_after_secs: u32,
     /// How long a backend may take to start a call.
@@ -167,7 +224,19 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
             "request reached /v1/chat without admission",
         ));
     };
+    let peer = parts
+        .extensions
+        .get::<std::net::SocketAddr>()
+        .ok_or_else(|| ApiFailure::new(ErrorCode::Internal, "request has no transport peer"))?;
+    let preauth = state.upload_limits.acquire(
+        UploadKey::Peer(peer.ip()),
+        state.max_pre_auth_uploads_per_peer,
+    )?;
     let admitted = state.gate.admit(&parts.headers).await?;
+    drop(preauth);
+    let upload_lease = state
+        .upload_limits
+        .acquire(UploadKey::User(admitted.principal.sub.clone()), 2)?;
     if let Some(lease) = admitted.lease
         && !call.attach_lease(lease)
     {
@@ -178,9 +247,37 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
     }
     call.set_principal(admitted.principal);
     check_headers(&parts.headers)?;
-    let (bytes, upload) = read_body(state, &parts.headers, body).await?;
+    let (bytes, mut upload) = read_body(state, &parts.headers, body).await?;
+    let nodes = json_complexity(&bytes).map_err(|error| {
+        if bytes.len() > state.max_body_bytes {
+            too_large(state.max_body_bytes)
+        } else {
+            error
+        }
+    })?;
+    // Keep raw bytes plus conservative space for decoded strings, serde's
+    // scratch copies, and small collection nodes alive through backend start.
+    let extra = bytes
+        .len()
+        .saturating_mul(3)
+        .saturating_add(nodes.saturating_mul(512));
+    let extra = u32::try_from(extra).map_err(|_| too_large(state.max_body_bytes_with_images))?;
+    let decoded = Arc::clone(&state.upload_budget)
+        .try_acquire_many_owned(extra)
+        .map_err(|_| {
+            if let Some(metrics) = &state.metrics {
+                metrics.record_rejection(Rejection::UploadBudget);
+            }
+            ApiFailure::new(
+                ErrorCode::Unavailable,
+                "this gateway instance is at its decoded-request memory budget",
+            )
+            .retry_after(state.retry_after_secs)
+        })?;
+    upload.merge(decoded);
     let request = decode(&bytes, state.max_body_bytes)?;
     validate(&request)?;
+    drop(upload_lease);
     // The raw bytes are no longer needed, but the decoded request is about
     // as large and lives on into the backend's `start`: the reservation goes
     // with it and is released only once `start` has returned (`call::run`).
@@ -337,6 +434,11 @@ async fn read_body(
     match collected {
         Ok(Ok(bytes)) => Ok((bytes, upload)),
         Ok(Err(Collect::TooLarge)) => Err(too_large(hard)),
+        Ok(Err(Collect::FirstByteTimeout)) => Err(invalid(
+            "body",
+            "first_byte_timeout",
+            "the first body byte did not arrive in time",
+        )),
         Ok(Err(Collect::Failed)) => Err(invalid(
             "body",
             "read_failed",
@@ -353,6 +455,7 @@ async fn read_body(
 enum Collect {
     TooLarge,
     Failed,
+    FirstByteTimeout,
 }
 
 /// Read `body` into **one contiguous buffer** of at most `limit` bytes.
@@ -363,8 +466,27 @@ enum Collect {
 /// Here the memory is the payload, which is what the budget reserved.
 async fn collect(mut body: Body, limit: usize, initial: usize) -> Result<Bytes, Collect> {
     let mut buffer = bytes::BytesMut::with_capacity(initial);
-    while let Some(frame) = body.frame().await {
+    let first_byte = tokio::time::Instant::now()
+        .checked_add(Duration::from_secs(2))
+        .ok_or(Collect::Failed)?;
+    loop {
+        let frame = if buffer.is_empty() {
+            if tokio::time::Instant::now() >= first_byte {
+                return Err(Collect::FirstByteTimeout);
+            }
+            tokio::time::timeout_at(first_byte, body.frame())
+                .await
+                .map_err(|_| Collect::FirstByteTimeout)?
+        } else {
+            body.frame().await
+        };
+        let Some(frame) = frame else {
+            break;
+        };
         let frame = frame.map_err(|_| Collect::Failed)?;
+        if buffer.is_empty() {
+            tokio::task::yield_now().await;
+        }
         if let Ok(data) = frame.into_data() {
             if buffer.len().saturating_add(data.len()) > limit {
                 return Err(Collect::TooLarge);
@@ -375,9 +497,60 @@ async fn collect(mut body: Body, limit: usize, initial: usize) -> Result<Bytes, 
     Ok(buffer.freeze())
 }
 
+/// Allocation-free lexical ceiling before serde can build owned collections.
+/// This is deliberately not a JSON validator; serde still checks all syntax.
+/// Quotes and backslash escapes are tracked so prompt/image bytes are not
+/// mistaken for structure. Counts are conservative (keys and separators count).
+fn json_complexity(bytes: &[u8]) -> Result<usize, ApiFailure> {
+    let mut quoted = false;
+    let mut escaped = false;
+    let mut depth = 0usize;
+    let mut nodes = 0usize;
+    for &byte in bytes {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                quoted = false;
+            }
+            continue;
+        }
+        match byte {
+            b'"' => {
+                quoted = true;
+                nodes = nodes.saturating_add(1);
+            }
+            b'[' | b'{' => {
+                depth = depth.saturating_add(1);
+                nodes = nodes.saturating_add(1);
+            }
+            b']' | b'}' => depth = depth.saturating_sub(1),
+            b' ' | b'\r' | b'\n' | b'\t' => {}
+            _ => nodes = nodes.saturating_add(1),
+        }
+        if depth > 32 || nodes > 16_384 {
+            return Err(invalid(
+                "body",
+                "json_complexity",
+                "the request exceeds the JSON nesting or structural-token limit",
+            ));
+        }
+    }
+    Ok(nodes)
+}
+
 /// Decode `bytes`, applying the text-only limit once the presence of an
 /// image part is known.
 fn decode(bytes: &[u8], text_limit: usize) -> Result<ChatRequest, ApiFailure> {
+    json_complexity(bytes).map_err(|error| {
+        if bytes.len() > text_limit {
+            too_large(text_limit)
+        } else {
+            error
+        }
+    })?;
     let over_text_limit = bytes.len() > text_limit;
     let request = match serde_json::from_slice::<ChatRequest>(bytes) {
         Ok(request) => request,
@@ -679,5 +852,85 @@ mod tests {
 
         let failure = decode(b"{not json and long", 3).unwrap_err();
         assert_eq!(failure.code(), "payload_too_large");
+    }
+    #[test]
+    fn json_limits_ignore_escaped_prompt_delimiters_and_bound_structure() {
+        let prompt = "\"\\{}[],".repeat(20_000);
+        let body = serde_json::json!({"model":"m","messages":[{"role":"user","content":[{"type":"text","text":prompt}]}]}).to_string();
+        decode(body.as_bytes(), usize::MAX).unwrap();
+        let nested = format!("{}0{}", "[".repeat(33), "]".repeat(33));
+        assert!(json_complexity(nested.as_bytes()).is_err());
+        let tiny = format!("[{}0]", "{},".repeat(10_000));
+        assert!(json_complexity(tiny.as_bytes()).is_err());
+    }
+
+    // A separate process makes Linux's peak RSS attributable to this one
+    // decode, independent of other tests and allocator high-water marks.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn adversarial_decode_stays_below_eight_mib_extra_peak_memory() {
+        const CHILD: &str = "F2Z_JSON_MEMORY_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "chat::tests::adversarial_decode_stays_below_eight_mib_extra_peak_memory",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .status()
+                .unwrap();
+            assert!(result.success());
+            return;
+        }
+        fn peak_kib() -> usize {
+            let status = std::fs::read_to_string("/proc/self/status").unwrap();
+            status
+                .lines()
+                .find(|line| line.starts_with("VmHWM:"))
+                .unwrap()
+                .split_whitespace()
+                .nth(1)
+                .unwrap()
+                .parse()
+                .unwrap()
+        }
+        // Valid schema with millions of tiny strings would amplify the owned
+        // Vec<String> many times before any later semantic validation.
+        let mut body = String::with_capacity(20 * 1024 * 1024);
+        body.push_str(r#"{"model":"m","messages":[],"fallback":["#);
+        while body.len() < 20 * 1024 * 1024 - 16 {
+            body.push_str("\"x\",");
+        }
+        body.push_str("\"x\"]}");
+        let before = peak_kib();
+        let result = decode(body.as_bytes(), usize::MAX);
+        let after = peak_kib();
+        assert!(
+            after.saturating_sub(before) < 8 * 1024,
+            "decode allocated over 8MiB above input: {before} -> {after} KiB"
+        );
+        assert!(result.is_err());
+    }
+    #[tokio::test]
+    async fn empty_body_frames_do_not_extend_first_byte_deadline() {
+        struct EmptyFrames;
+        impl http_body::Body for EmptyFrames {
+            type Data = Bytes;
+            type Error = std::convert::Infallible;
+            fn poll_frame(
+                self: std::pin::Pin<&mut Self>,
+                _: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<Option<Result<http_body::Frame<Bytes>, Self::Error>>> {
+                std::task::Poll::Ready(Some(Ok(http_body::Frame::data(Bytes::new()))))
+            }
+        }
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            collect(Body::new(EmptyFrames), 1024, 0),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(result, Err(Collect::FirstByteTimeout)));
     }
 }

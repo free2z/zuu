@@ -141,7 +141,7 @@ variable is a startup error.
 | `header_read_timeout_secs` | `10` | The connection is closed |
 | `max_body_bytes` | `4194304` | Without image parts; `413 payload_too_large` |
 | `max_body_bytes_with_images` | `20971520` | With image parts; the hard cap on what is read |
-| `max_upload_buffer_bytes` | `268435456` | Request bodies being read at once, gateway-wide; a body reserves its `Content-Length` (the image cap if it has none). Without it the bound would be `max_concurrent_calls` × 20 MiB ≈ 195 GiB |
+| `max_upload_buffer_bytes` | `268435456` | Request and decode-memory budget, gateway-wide; a body initially reserves its `Content-Length` (the image cap if it has none), then reserves decoded-memory headroom before parsing. Without it the bound would be `max_concurrent_calls` × 20 MiB ≈ 195 GiB |
 | `catalog_poll_secs` | `30` | |
 | `catalog_version_regression_bound_secs` | `420` | A lower catalogue version installs if its `issued_at` is within this of the newest installed (tuzi's `VERSION_REGRESSION_BOUND_SECONDS`); beyond it, a replay, counted by `f2z_ai_catalog_replays_total` (zuu#1067) |
 | `delivery_buffer_bytes` | `262144` | Undelivered event bytes per stream before `delivery_aborted` |
@@ -205,6 +205,36 @@ budget is held until the backend's `start` has consumed the request — or,
 for an upstream that keeps the request's bytes to send them
 (`Upstream::keep_upload_reservation`; the provider adapters do, until the
 provider's 2xx head), until it lets them go.
+
+Before authentication `max_pre_auth_uploads_per_peer` (default 16, range
+1–65,536; environment `F2Z_AI_MAX_PRE_AUTH_UPLOADS_PER_PEER`) bounds pending
+`/v1/chat` checks per transport peer IP. The socket peer is authoritative; `Forwarded` and
+`X-Forwarded-For` cannot change this key. A reverse proxy therefore shares its
+peer allowance across its clients; trusted forwarded-address attribution would
+require a separate explicit trust configuration. Size this allowance for the
+peak new-request rate arriving through each ingress times the worst expected
+JWKS/Redis/epoch-check latency, with headroom for other users. For example,
+100 new calls/second through one peer at a one-second authentication latency
+requires more than 100 pending checks; the default 16 is too small there.
+The global connection and admitted-call limits still cap total work when this
+peer allowance is raised. The 10,000-stream capacity
+requires ramping admission as checks complete; it does not promise a simultaneous
+10,000-request authentication burst from one IP or one ingress. After authentication, at most
+two uploads per verified user may read/decode bodies concurrently, independently
+of their running AI calls. These limits refuse with `503 unavailable` and a
+one-second `Retry-After`; entries disappear when their last request exits.
+
+The first nonempty body byte must arrive within two seconds, including chunked
+uploads; empty data frames do not reset this deadline. The overall configured
+body timeout still applies. Before serde builds owned data, an allocation-free
+scan caps nesting at 32 and conservative structural tokens at 16,384, ignoring
+quoted/escaped delimiters. Excess complexity returns `400 invalid_request`
+with reason `json_complexity`. Decode reserves an additional three times the
+wire bytes plus 512 bytes per structural token for strings, temporary copies,
+and collection overhead; this reservation follows the request through backend
+retention. Small custom upload budgets may therefore admit raw bytes but refuse
+their decoded representation with `503`; allow space for both when sizing it.
+
 
 Settlement ownership starts **before** the backend's `start` runs: a call
 whose `start` fails, times out or is cancelled by a drain still reaches the
