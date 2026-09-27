@@ -15,16 +15,13 @@ MUST agree with this text. Two rules from the crate hold everywhere:
 **requests are strict** — an unknown field is `400 invalid_request`, never
 ignored — and **responses and events are tolerant** — a client MUST ignore
 fields and event names it does not know, so the gateway can add to them
-without breaking a deployed SDK. Where this document shows a response
-field, enum value or error code the crate does not yet define, it is
-marked **crate v0.x follow-up: #1052**
-([free2z/zuu#1052](https://github.com/free2z/zuu/issues/1052)). A client
-built on the crate alone tolerates *most* of them as an unknown field or
-variant — but not all: today's `Done` requires `charged_2z` and
-`receipt_id`, so a `done` with `settlement: "pending"` or `"released"`
-(§3.6), where those are absent, does not decode until #1052 lands. An
-SDK on the current crate treats that decode failure as
-`stream_interrupted` and reads `GET /v1/calls/{id}`.
+without breaking a deployed SDK. Every response field, enum value and
+error code shown here is defined by the crate
+([free2z/zuu#1052](https://github.com/free2z/zuu/issues/1052)); its test
+suite decodes every example in this document. Fields beyond each type's
+core are optional on decode, so a client never discards a stream over a
+missing informational field; the per-`settlement` rules of §3.6–§3.7 are
+checked by each terminal type's `check()`.
 
 ## 1. Common rules
 
@@ -170,7 +167,7 @@ as it drains. Two things end **delivery** early while the upstream read
 and the settlement continue unchanged — the buffer filling, and **30 s
 without any delivery progress** to a connected client — and both have
 the **same** outcome: the gateway makes a best-effort attempt to send
-`error` with `delivery_aborted` (crate v0.x follow-up: #1052) and
+`error` with `delivery_aborted` and
 `settlement: "pending"`, then closes the connection. A client that
 receives it knows the call is still running and billable; a client that
 does not (the socket was too stalled even for that) sees a close without
@@ -280,8 +277,8 @@ data: {"call_id":"019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c","model":"example-model-s
 | `max_output_tokens` | The effective output cap after clamping (§2.2 step 5). A client SHOULD show the user when this is lower than asked |
 | `input_tokens_estimate` | What the hold was computed from |
 
-`call_id`, `model` and `hold_2z` are the crate's `Meta`; the rest are
-crate v0.x follow-up: #1052.
+`call_id`, `model` and `hold_2z` are required in the crate's `Meta`; the
+rest are optional on decode.
 
 ### 3.3 `delta`
 
@@ -373,14 +370,14 @@ data: {"charged_2z":1,"receipt_id":"rcpt_019a2f1d-2b0e-7c4a-9f11-6d0e2a8b3c44","
 | `receipt_id` | The ledger's id for this settlement — what a statement line points at. Distinct from `call_id`; absent while `settlement` is `pending` |
 | `finish_reason` | `stop`, `length` (hit `max_output_tokens` — check `meta` for whether that was clamped), `tool_calls`, `content_filter`, `cancelled` |
 | `balance_hint_milli_2z` | The user's **available** balance after this settlement, as of settlement. A hint: other calls may have moved it. `GET /api/sdk/v1/balance` is authoritative |
-| `settlement` | `settled` (the default when absent); `pending` when the ledger had not confirmed the charge within 10 s of the provider finishing ([metering.md](./metering.md) §5.11) — every 2Z field except `hold_2z` is then **absent** and the client reads `GET /v1/calls/{id}` until `status` is terminal (`settled`, `settled_partial` or `released`) — not merely until it leaves `settling`, because after a `delivery_aborted` the record can still be `streaming` while the provider finishes; or `released` when the settler found the hold already expired ([metering.md](./metering.md) §5.6) — `charged_2z` is `0` and no `receipt_id` exists. The crate's `Done` has `charged_2z` and `receipt_id` as required fields; making them optional under `pending`/`released` is part of the follow-up |
+| `settlement` | `settled` (the default when absent); `pending` when the ledger had not confirmed the charge within 10 s of the provider finishing ([metering.md](./metering.md) §5.11) — every 2Z field except `hold_2z` is then **absent** and the client reads `GET /v1/calls/{id}` until `status` is terminal (`settled`, `settled_partial` or `released`) — not merely until it leaves `settling`, because after a `delivery_aborted` the record can still be `streaming` while the provider finishes; or `released` when the settler found the hold already expired ([metering.md](./metering.md) §5.6) — `charged_2z` is `0` and no `receipt_id` exists. In the crate `charged_2z` and `receipt_id` are optional, and `Done::check()` enforces which state requires which |
 | `hold_2z`, `released_2z` | The **final** reservation (it can exceed `meta.hold_2z` after an extension) and what was given back. `charged + released = hold` except in the write-off case |
 | `collected_milli_2z`, `shortfall_milli_2z` | What was actually taken, and what could not be ([metering.md](./metering.md) §5.5). `collected = charged × 1000 − shortfall`; a receipt shows `collected` when `shortfall` is non-zero |
 | `cap_remaining_milli_2z` | Remaining spend under the grant's cap **for the period the hold belongs to** ([metering.md](./metering.md) §4) — after a stream that crossed a period boundary this is the old period's remainder, which is what the settlement was bounded by; `null` when the grant has no cap |
 | `usage_source` | The `source` of the `usage` event, repeated here (one value set — `provider` / `estimated` — two field names: `source` inside the `usage` event, `usage_source` beside a `usage` object everywhere else, as the crate spells them) |
 
-The first four are the crate's `Done`; the rest are crate v0.x follow-up:
-#1052.
+All are the crate's `Done` (`Settlement` for `settlement`;
+`cap_remaining_milli_2z` keeps absent and `null` apart).
 
 ### 3.7 `error`
 
@@ -402,8 +399,14 @@ data: {"code":"provider_error","message":"The provider closed the stream before 
 | `charged_2z`, `receipt_id`, `collected_milli_2z`, `shortfall_milli_2z` | What this failed call still cost, as in `done`. `charged_2z: 0` and no `receipt_id` when the provider failed before producing anything ([metering.md](./metering.md) §5.2); absent when `settlement` is `pending` |
 | `partial` | `true` when the client received at least one `delta` or `tool_call` before the error |
 
-`code` and `message` are the crate's `ApiError`; the rest are crate v0.x
-follow-up: #1052.
+The payload is the crate's `ErrorEvent`; `ErrorEvent::check()` also
+enforces that `delivery_aborted` is `pending` and that a `partial` settled
+failure charged at least 1 2Z. The HTTP envelope's
+`{code, message, details}` is `ApiError`; the §4 `502`'s settlement
+`details` decode as `ApiError::failed_call()`. A consumer reads each
+payload's `outcome()` rather than `charged_2z`, and an SDK decides a retry
+with `ErrorEvent::retryable()` / `ApiError::retryable()`, which refuse to
+retry a charged, partial or not-yet-final failure.
 
 ### 3.8 A complete stream
 
@@ -478,8 +481,8 @@ maps them to one type:
 
 `message.content` is an array of output parts (text in v1; a part type a
 client does not know is skipped, and dropped when the reply is sent back
-as history). The first nine fields are the crate's `ChatResponse`; the
-rest are crate v0.x follow-up: #1052.
+as history). All are the crate's `ChatResponse`, with the same
+per-`settlement` rules as `done`.
 
 A failure **after output began** in non-streamed mode is an HTTP **`502`**
 whatever the stream-level code would have been — `provider_error`,
@@ -568,8 +571,8 @@ The same request body as `/v1/chat` (`stream` ignored). Runs steps 1–5 of
 
 `model`, `input_tokens` (safety factor applied), `max_output_tokens` (the
 cap the call would run with, after clamping) and `hold_2z` (what
-`/v1/chat` would reserve *now*) are the crate's `EstimateResponse`; the
-rest are crate v0.x follow-up: #1052. Every step fails **exactly as `/v1/chat`
+`/v1/chat` would reserve *now*) are required in the crate's
+`EstimateResponse`; the rest are optional on decode. Every step fails **exactly as `/v1/chat`
 would** — `401`, `403 insufficient_scope`, `429`, `404`,
 `400 context_length_exceeded`, and for an unaffordable request
 `402 insufficient_balance` or `403 cap_exceeded` with the same `details`

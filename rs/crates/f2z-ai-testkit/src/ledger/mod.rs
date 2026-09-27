@@ -348,7 +348,7 @@ impl RateCard {
                         m.id.clone(),
                         RateCardModel {
                             prices: m.prices,
-                            min_charge_2z: m.min_charge_2z,
+                            min_charge_2z: m.min_charge_2z.get(),
                         },
                     )
                 })

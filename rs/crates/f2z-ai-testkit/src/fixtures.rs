@@ -9,8 +9,8 @@
 
 use core::fmt;
 
-use f2z_ai_proto::Usage;
 use f2z_ai_proto::pricing::{Bps, Charge, ModelPrices};
+use f2z_ai_proto::{Milli2z, Usage};
 use serde::Deserialize;
 
 const WORKED_EXAMPLES: &str =
@@ -87,10 +87,10 @@ struct RawCharge {
 impl From<&RawCharge> for Charge {
     fn from(r: &RawCharge) -> Self {
         Self {
-            total_milli: r.total_milli,
-            provider_milli: r.provider_milli,
-            developer_milli: r.developer_milli,
-            platform_milli: r.platform_milli,
+            total_milli: Milli2z::new(r.total_milli),
+            provider_milli: Milli2z::new(r.provider_milli),
+            developer_milli: Milli2z::new(r.developer_milli),
+            platform_milli: Milli2z::new(r.platform_milli),
         }
     }
 }

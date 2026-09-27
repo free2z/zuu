@@ -18,6 +18,7 @@ use core::time::Duration;
 use std::collections::BTreeMap;
 
 use common::adapter_usage;
+use f2z_ai_proto::Whole2z;
 use f2z_ai_proto::chat::UsageSource;
 use f2z_ai_proto::pricing::{Bps, ModelPrices, metered_cost_nusd, price_2z};
 use f2z_ai_testkit::ledger::{
@@ -115,7 +116,7 @@ async fn hold_stream_meter_settle() {
         Some(usage),
         scenario.expected_usage(ProviderStyle::AnthropicMessages, true)
     );
-    let cost = metered_cost_nusd(&usage, &PRICES).unwrap();
+    let cost = metered_cost_nusd(&usage, &PRICES).unwrap().get();
     let SettleOutcome::Settled(s) = ledger
         .settle(SettleRequest {
             hold_id: held.hold_id,
@@ -129,12 +130,12 @@ async fn hold_stream_meter_settle() {
         panic!()
     };
     // The gateway's own estimate and the ledger's charge agree exactly.
-    let estimate = price_2z(&usage, &PRICES, Bps(5_000), Bps(2_000), 1).unwrap();
-    assert_eq!(s.charged_2z, estimate.total_2z());
-    assert_eq!(s.developer_milli_2z, estimate.developer_milli);
+    let estimate = price_2z(&usage, &PRICES, Bps(5_000), Bps(2_000), Whole2z::new(1)).unwrap();
+    assert_eq!(s.charged_2z, estimate.total_2z().get());
+    assert_eq!(s.developer_milli_2z, estimate.developer_milli.get());
     assert_eq!(
         ledger.balance_milli_2z("u"),
-        Some(1_000_000 - estimate.total_milli)
+        Some(1_000_000 - estimate.total_milli.get())
     );
     ledger.check_invariants().unwrap();
     mock.shutdown().await;

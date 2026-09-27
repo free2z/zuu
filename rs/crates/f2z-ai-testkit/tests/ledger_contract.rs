@@ -152,26 +152,37 @@ async fn every_cost_fixture_settles_to_its_expected_charge_and_splits() {
             c.min_charge_2z,
             None,
         );
-        let id = w.hold(c.expected.total_2z().max(1)).await;
+        let id = w.hold(c.expected.total_2z().get().max(1)).await;
         let s = settled(w.settle(id, c.cost_nusd).await);
-        assert_eq!(s.charged_2z, c.expected.total_2z(), "{}", c.name);
-        assert_eq!(s.collected_milli_2z, c.expected.total_milli, "{}", c.name);
-        assert_eq!(s.shortfall_milli_2z, 0);
-        assert_eq!(s.provider_milli_2z, c.expected.provider_milli, "{}", c.name);
+        assert_eq!(s.charged_2z, c.expected.total_2z().get(), "{}", c.name);
         assert_eq!(
-            s.developer_milli_2z, c.expected.developer_milli,
+            s.collected_milli_2z,
+            c.expected.total_milli.get(),
+            "{}",
+            c.name
+        );
+        assert_eq!(s.shortfall_milli_2z, 0);
+        assert_eq!(
+            s.provider_milli_2z,
+            c.expected.provider_milli.get(),
+            "{}",
+            c.name
+        );
+        assert_eq!(
+            s.developer_milli_2z,
+            c.expected.developer_milli.get(),
             "{}",
             c.name
         );
         assert_eq!(
             s.platform_milli_2z,
-            i64::try_from(c.expected.platform_milli).unwrap(),
+            i64::try_from(c.expected.platform_milli.get()).unwrap(),
             "{}",
             c.name
         );
         assert_eq!(
             w.ledger.balance_milli_2z("u"),
-            Some(u64::MAX / 4 - c.expected.total_milli)
+            Some(u64::MAX / 4 - c.expected.total_milli.get())
         );
         w.ledger.check_invariants().unwrap();
     }
@@ -180,7 +191,7 @@ async fn every_cost_fixture_settles_to_its_expected_charge_and_splits() {
 #[tokio::test]
 async fn every_usage_fixture_meters_and_settles_and_the_record_cross_checks() {
     for c in usage_cases().unwrap() {
-        let cost = metered_cost_nusd(&c.usage, &c.prices).unwrap();
+        let cost = metered_cost_nusd(&c.usage, &c.prices).unwrap().get();
         assert_eq!(cost, c.expected_cost_nusd, "{}", c.name);
         let w = World::with_prices(
             10_000_000_000,
@@ -190,7 +201,7 @@ async fn every_usage_fixture_meters_and_settles_and_the_record_cross_checks() {
             None,
             c.prices,
         );
-        let id = w.hold(c.expected.total_2z().max(1)).await;
+        let id = w.hold(c.expected.total_2z().get().max(1)).await;
         let s = settled(
             w.ledger
                 .settle(SettleRequest {
@@ -202,9 +213,10 @@ async fn every_usage_fixture_meters_and_settles_and_the_record_cross_checks() {
                 .await
                 .unwrap(),
         );
-        assert_eq!(s.charged_2z, c.expected.total_2z(), "{}", c.name);
+        assert_eq!(s.charged_2z, c.expected.total_2z().get(), "{}", c.name);
         assert_eq!(
-            s.developer_milli_2z, c.expected.developer_milli,
+            s.developer_milli_2z,
+            c.expected.developer_milli.get(),
             "{}",
             c.name
         );

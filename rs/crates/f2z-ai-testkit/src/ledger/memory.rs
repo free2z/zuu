@@ -31,7 +31,8 @@ use core::time::Duration;
 
 use f2z_ai_proto::Usage;
 use f2z_ai_proto::chat::UsageSource;
-use f2z_ai_proto::pricing::{Bps, MILLI_PER_2Z, metered_cost_nusd, price_nusd};
+use f2z_ai_proto::pricing::{Bps, MILLI_PER_2Z, ModelPrices, PricingError};
+use f2z_ai_proto::{Nusd, Whole2z};
 
 use super::{
     ExtendOutcome, HeldHold, HoldId, HoldKey, HoldOutcome, HoldRequest, HoldState, Inquiry,
@@ -146,7 +147,7 @@ struct Hold {
     margin: Bps,
     markup: Bps,
     min_charge_2z: u64,
-    prices: f2z_ai_proto::pricing::ModelPrices,
+    prices: ModelPrices,
 }
 
 #[derive(Debug, Default)]
@@ -174,6 +175,45 @@ struct State {
 #[derive(Debug, Default)]
 pub struct InMemoryLedger {
     state: Mutex<State>,
+}
+
+// ---- the proto boundary ------------------------------------------------------
+//
+// `f2z-ai-proto` carries amounts as unit newtypes (`Nusd`, `Milli2z`,
+// `Whole2z`). The fake keeps plain integers with the unit in the name, and
+// these two helpers are the only places it crosses into the proto's pricing,
+// so a change to those signatures is a change here and nowhere else.
+
+/// A priced call, in plain integers.
+struct Priced {
+    total_2z: u64,
+    total_milli: u64,
+    provider_milli: u64,
+    developer_milli: u64,
+}
+
+fn price(
+    cost_nusd: u64,
+    margin: Bps,
+    markup: Bps,
+    min_charge_2z: u64,
+) -> Result<Priced, PricingError> {
+    let c = f2z_ai_proto::price_nusd(
+        Nusd::new(cost_nusd),
+        margin,
+        markup,
+        Whole2z::new(min_charge_2z),
+    )?;
+    Ok(Priced {
+        total_2z: c.total_2z().get(),
+        total_milli: c.total_milli.get(),
+        provider_milli: c.provider_milli.get(),
+        developer_milli: c.developer_milli.get(),
+    })
+}
+
+fn metered(usage: &Usage, prices: &ModelPrices) -> Result<u64, PricingError> {
+    f2z_ai_proto::metered_cost_nusd(usage, prices).map(Nusd::get)
 }
 
 fn to_milli(amount_2z: u64) -> Option<u64> {
@@ -527,9 +567,9 @@ impl State {
         }
         let (user, app, period) = (hold.user.clone(), hold.app.clone(), hold.period);
         let reserved_milli = to_milli(hold.record.reserved_2z).unwrap_or(u64::MAX);
-        let charge = price_nusd(req.cost_nusd, hold.margin, hold.markup, hold.min_charge_2z)
+        let charge = price(req.cost_nusd, hold.margin, hold.markup, hold.min_charge_2z)
             .map_err(LedgerError::Pricing)?;
-        let metered = metered_cost_nusd(&req.usage, &hold.prices).ok();
+        let metered = metered(&req.usage, &hold.prices).ok();
 
         // §5.5: beyond the hold, take no more than the user could have
         // reserved under it — the lesser of the available balance and the
@@ -582,7 +622,7 @@ impl State {
         let settlement = Settlement {
             hold_id: req.hold_id,
             receipt_id,
-            charged_2z: charge.total_2z(),
+            charged_2z: charge.total_2z,
             collected_milli_2z: collected,
             shortfall_milli_2z: shortfall,
             provider_milli_2z: provider,

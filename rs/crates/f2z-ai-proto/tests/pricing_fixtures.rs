@@ -14,6 +14,7 @@
 )]
 
 use f2z_ai_proto::Usage;
+use f2z_ai_proto::amount::{Milli2z, Nusd, Whole2z};
 use f2z_ai_proto::pricing::{Bps, Charge, ModelPrices, metered_cost_nusd, price_2z, price_nusd};
 use serde_json::Value;
 
@@ -32,10 +33,10 @@ fn load(name: &str) -> Vec<Value> {
 
 fn charge(expected: &Value) -> Charge {
     Charge {
-        total_milli: expected["total_milli"].as_u64().unwrap(),
-        provider_milli: expected["provider_milli"].as_u64().unwrap(),
-        developer_milli: expected["developer_milli"].as_u64().unwrap(),
-        platform_milli: expected["platform_milli"].as_u64().unwrap(),
+        total_milli: Milli2z::new(expected["total_milli"].as_u64().unwrap()),
+        provider_milli: Milli2z::new(expected["provider_milli"].as_u64().unwrap()),
+        developer_milli: Milli2z::new(expected["developer_milli"].as_u64().unwrap()),
+        platform_milli: Milli2z::new(expected["platform_milli"].as_u64().unwrap()),
     }
 }
 
@@ -50,10 +51,10 @@ fn every_cost_fixture_prices_exactly() {
         let name = case["name"].as_str().unwrap();
         let input = &case["input"];
         let got = price_nusd(
-            input["cost_nusd"].as_u64().unwrap(),
+            Nusd::new(input["cost_nusd"].as_u64().unwrap()),
             bps(&input["platform_margin_bps"]),
             bps(&input["dev_markup_bps"]),
-            input["min_charge_2z"].as_u64().unwrap(),
+            Whole2z::new(input["min_charge_2z"].as_u64().unwrap()),
         )
         .unwrap();
         assert_eq!(got, charge(&case["expected"]), "fixture {name}");
@@ -89,7 +90,7 @@ fn every_usage_fixture_prices_exactly() {
         let metered = metered_cost_nusd(&usage, &prices).unwrap();
         assert_eq!(
             metered,
-            expected["cost_nusd"].as_u64().unwrap(),
+            Nusd::new(expected["cost_nusd"].as_u64().unwrap()),
             "fixture {name}: the metered cost settle receives"
         );
         let got = price_2z(
@@ -97,7 +98,7 @@ fn every_usage_fixture_prices_exactly() {
             &prices,
             bps(&input["platform_margin_bps"]),
             bps(&input["dev_markup_bps"]),
-            input["min_charge_2z"].as_u64().unwrap(),
+            Whole2z::new(input["min_charge_2z"].as_u64().unwrap()),
         )
         .unwrap();
         assert_eq!(got, charge(expected), "fixture {name}");
@@ -106,7 +107,7 @@ fn every_usage_fixture_prices_exactly() {
             metered,
             bps(&input["platform_margin_bps"]),
             bps(&input["dev_markup_bps"]),
-            input["min_charge_2z"].as_u64().unwrap(),
+            Whole2z::new(input["min_charge_2z"].as_u64().unwrap()),
         )
         .unwrap();
         assert_eq!(got, settled, "fixture {name}: estimate != settlement");
