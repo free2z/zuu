@@ -39,7 +39,8 @@ values; the specification cites them.
 | Hard limit per call | 300 s | `error provider_timeout` |
 | Hold TTL | 300 s from the last extension; extended every 60 s while streaming | [metering.md](../sdk/spec/metering.md) §5.6 |
 | Retries to the provider | Only before the gateway commits — before the provider's first content event, which is when `meta` is sent — within a small budget, behind a circuit breaker. Headers and `: ping` comments already sent to the client do not count as commitment | A client never sees a retry; `fallback` is the client-visible form of the same rule |
-| Concurrency | 4 open streams per user, counted from hold to settlement (a drained, disconnected call still counts) | `429 concurrency_limit` |
+| Concurrency | 4 open streams per user, counted from hold to settlement, release or expiry (a drained, disconnected call still counts; a dead gateway's call stops counting when its hold expires) | `429 concurrency_limit` |
+| Late settle | A settle after hold expiry charges nothing (`not_open`) and is a platform write-off, counted by `f2z_ai_unbilled_late_settle_total` (count, and the unbilled price) with an alert; durable settler retries and 60 s `extend`s are what keep it rare | [metering.md](../sdk/spec/metering.md) §5.6 |
 | Delivery buffer | 256 KiB of undelivered events per stream; the upstream is read at provider speed regardless of the client. Worst case at 10k streams: 2.5 GiB, budgeted in the load test | `error delivery_aborted`; [ADR 0001](./adr/0001-rust-gateway.md) |
 | Delivery stall | 30 s without delivery progress to a connected client is a disconnect — for delivery only; the upstream read is unaffected | [chat-api.md](../sdk/spec/chat-api.md) §2.4 |
 | Body limits | 4 MiB without images, 20 MiB with | `413 payload_too_large` |

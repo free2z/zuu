@@ -215,31 +215,49 @@ remainder is then subject to the debt. A chargeback (`disputed`) takes the
 platform wins re-credits. An app sees these as intent states and as
 `403 account_frozen` or `403 account_in_debt` on spending.
 
-**Developer markup is reversed with the purchase.** Credits are
-fungible, so the ledger keeps the attribution the rule needs: a user's
-2Z are consumed **oldest credit first** (FIFO by the time each purchase
-line was credited), and every settlement records which lines funded its
-`collected_milli_2z` and how much of its `developer_milli` each line's
-share carried. A reversal then targets, per line, the developer credit
-attributable to that line's spent portion, scaled by the same reversed
-share as the user's reversal:
+**Developer markup is not reversed automatically in v1.** A refund or
+chargeback moves the user's 2Z as above and leaves the developer's
+credit where it is: credits are fungible, and every automatic rule for
+attributing a reversal to past markup that was reviewed for v1 was
+either unsound or exploitable. What v1 does instead:
 
-```
-line.dev_clawback_target_milli = floor(line.dev_credit_milli × min(amount_minor, refunded_minor + disputed_minor) / amount_minor)
-```
+- **Markup is gated on manual approval of a value.** An app earns at most
+  `approved_markup_bps` ([oidc.md](./oidc.md) §2), whatever `markup_bps`
+  it asks for; an unapproved app is priced as if its markup were `0`,
+  and the platform can lower or withdraw the approval, which takes effect
+  on everyone's next hold ([metering.md](./metering.md) §2.2). The
+  approval is the platform's chance to know who it is crediting, and the
+  withdrawal is its first response to abuse.
+- **Earnings are recorded per (user, developer)** — how much markup each
+  developer earned from each user, and when — so that an administrative
+  clawback under the developer terms is possible when a pattern of
+  reversals shows abuse. It is a manual decision, not a ledger rule.
+- **Earnings are 2Z credits only** ([metering.md](./metering.md) §2.3),
+  which bounds the exposure: a clawed-back credit was never cash.
+- **An authorized clawback is an ordinary reversal on the developer's
+  account.** It debits what is available; whatever it cannot cover
+  becomes the developer's debt on the same terms as a user's (§1.1,
+  §3.1) — spending is refused with `403 account_in_debt` and the next
+  credits repay it first — and it never touches the developer's open
+  holds, which settle normally. Spending earnings early therefore does
+  not put them beyond reach.
 
-and the developer's account is moved by the **difference** between that
-target and what was previously clawed back for the line — negative on a
-won dispute, so the developer is restored when the user is. It is the
-same cumulative net-position rule as the user's (§1.2), applied to the
-same events, in the same operation, so a partial refund followed by a
-dispute never claws back the overlap twice. A settlement whose funding
-line has **already** been reversed computes the developer credit and
-claws it back in the same settle, so a hold opened before the reversal
-cannot deliver markup on reversed 2Z; the platform's asynchronous
-posting of developer totals runs after that check, never instead of it.
-A developer account that cannot cover a clawback carries the difference
-as debt on the same terms as a user's.
+Automatic reversal is a **v2** item. The review of the v1 candidates
+left the design constraints for it: the ratio's numerator and
+denominator must be measured at the **same scope** — either the user's
+**global** consumption (net of user-to-user transfers) against a global
+unrecovered amount, with the result then apportioned to developers by
+their share of that consumption, or both attributed to the one developer
+— never a per-developer denominator under a global numerator, which
+over-claws every developer the user spent little with; the denominator
+is **consumption**, not lifetime purchases, because unspent credits
+inflate purchases and nothing was earned on them; contributions must be
+computed **per reversal event** with a fixed split at that event, never
+re-derived from a running balance; the target must be **clamped to what
+was earned** and can never go negative or over-claw a won dispute; and a
+**developer credit earned from consumption the reversed purchase did
+not fund must not be clawed** — the attribution has to follow the
+credits, not the app.
 
 ## 4. In-app purchase — StoreKit 2 and Play Billing, as equals
 

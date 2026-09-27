@@ -176,7 +176,7 @@ to this table first.
 | Authorization code | 60 seconds, single use | [`spec/oidc.md`](./spec/oidc.md) §9.2 |
 | Hold TTL | 300 s from the last extension; extended every 60 s | [`spec/metering.md`](./spec/metering.md) §3 |
 | Open holds per account | 16 | [`spec/metering.md`](./spec/metering.md) §3 |
-| Concurrent streams per user | 4, counted from hold to settlement | [`spec/chat-api.md`](./spec/chat-api.md) §1 |
+| Concurrent streams per user | 4, counted from hold to settlement, release or expiry | [`spec/chat-api.md`](./spec/chat-api.md) §1 |
 | Per-stream delivery buffer | 256 KiB; the upstream read is never throttled by the client | [`spec/chat-api.md`](./spec/chat-api.md) §2.4 |
 | Delivery-stall threshold | 30 s without delivery progress = disconnect (delivery only) | [`spec/chat-api.md`](./spec/chat-api.md) §2.4 |
 | Idempotency window | 24 hours | [`spec/chat-api.md`](./spec/chat-api.md) §2.5 |
