@@ -1,5 +1,5 @@
 //! The `/v1/chat` SSE client against the fake gateway: the consumer rules of
-//! `docs/sdk/spec/chat-api.md` §3 and `errors.md` §7.
+//! `docs/free2z/sdk/spec/chat-api.md` §3 and `errors.md` §7.
 
 #![allow(
     missing_docs,

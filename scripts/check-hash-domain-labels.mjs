@@ -195,7 +195,7 @@ const LABEL_BEARING_DOCUMENTS = [
   // registering it here is the acknowledgement that a catalogue signature
   // shares the one prefix-free namespace with the relay, the log and the
   // intent bridge.
-  "docs/ai-gateway/README.md",
+  "docs/free2z/ai-gateway/README.md",
 ];
 
 /// Files under this prefix are subject to the registration half of the anchor.

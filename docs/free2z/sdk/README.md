@@ -83,7 +83,7 @@ contract.
 ## The namespace
 
 Everything below lives in this repository. Licences follow the existing rule
-in [`rs/README.md`](../../rs/README.md): shared crates are MIT, server
+in [`rs/README.md`](../../../rs/README.md): shared crates are MIT, server
 binaries are AGPL.
 
 | Path | Package | What it is | Licence |
@@ -94,11 +94,11 @@ binaries are AGPL.
 | `rs/crates/f2z-sdk` | `f2z-sdk` (crates.io) | Rust SDK core: `oauth`, `keychain`, `balance`, `purchase`, `ai`. No Tauri dependency | MIT |
 | `rs/crates/f2z-zec-scanner` | — (unpublished) | Receive-only (viewing-key) Zcash payment scanner | AGPL |
 | `wallet/plugins/tauri-plugin-f2z` | `tauri-plugin-f2z` (crates.io) + `@free2z/tauri-plugin-f2z-api` (npm) | Tauri 2 plugin (`tauri = "2"`, from 2.5 up; peer `@tauri-apps/api ^2.5`). Tokens stay in Rust; JavaScript never sees them | MIT |
-| `ts/sdk` | `@free2z/sdk` (npm) | Framework-agnostic TypeScript client. `FetchTransport` for the web, `TauriTransport` auto-detected inside a Tauri webview; same API on both | MIT |
-| `ts/sdk-ui` | `@free2z/sdk-ui` (npm, later) | Web components `<f2z-sign-in>`, `<f2z-balance>`, `<f2z-buy>` | MIT |
-| `wallet/examples/hello-ai` | — | The reference Tauri app: sign in, buy 2Z, stream a chat | — |
-| `docs/sdk/` | — | This contract (D1), later the guides (D2), reference (D3) and security/operations notes (D4) | — |
-| `docs/ai-gateway/` | — | The gateway's architecture decision records | — |
+| `ts/free2z/sdk` | `@free2z/sdk` (npm) | Framework-agnostic TypeScript client. `FetchTransport` for the web, `TauriTransport` auto-detected inside a Tauri webview; same API on both | MIT |
+| `ts/free2z/sdk-ui` | `@free2z/sdk-ui` (npm, later) | Web components `<f2z-sign-in>`, `<f2z-balance>`, `<f2z-buy>` | MIT |
+| `wallet/examples/free2z/hello-ai` | — | The reference Tauri app: sign in, buy 2Z, stream a chat | — |
+| `docs/free2z/sdk/` | — | This contract (D1), later the guides (D2), reference (D3) and security/operations notes (D4) | — |
+| `docs/free2z/ai-gateway/` | — | The gateway's architecture decision records | — |
 
 Third parties consume **published packages only** — crates.io and npm — never
 path dependencies into this repository. Pre-1.0 (`0.x`) releases follow a

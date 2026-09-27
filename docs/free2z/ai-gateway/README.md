@@ -7,7 +7,7 @@
 unified chat request from any app a user has authorized, reserves the
 worst-case price in 2Z, streams the provider's answer back, and settles the
 call from the provider's reported usage. Its public contract is in
-[`docs/sdk/spec`](../sdk/spec/chat-api.md); this directory records **why**
+[`docs/free2z/sdk/spec`](../sdk/spec/chat-api.md); this directory records **why**
 it is built the way it is, so that the reasoning survives the people who
 had it.
 
@@ -20,7 +20,7 @@ had it.
 | [0003](./adr/0003-unified-api-before-passthrough.md) | **A unified API ships before any provider passthrough** — every priceable thing is priced before it can be called; passthrough is a later, allowlisted addition |
 | [0004](./adr/0004-zuu-namespace-layout.md) | **The namespace** — where each crate and package lives in this repository, what is published, under which licence |
 
-ADRs follow the format of [`docs/e2ee/decisions`](../e2ee/decisions/0001-platform-priority.md):
+ADRs follow the format of [`docs/e2ee/decisions`](../../e2ee/decisions/0001-platform-priority.md):
 context, decision, consequences, alternatives rejected. A decision is
 changed by a new ADR that supersedes it, never by editing the old one.
 
@@ -48,7 +48,7 @@ values; the specification cites them.
 | Draining | A gateway instance that is shutting down stops accepting new calls and lets open streams finish for up to 300 s | A rolling deploy never cuts a stream; across it every call is settled at most once and released or settled exactly once |
 | Catalogue | Signed by the platform, polled every 30 s; the gateway **refuses to start** without a verified catalogue | `503 catalog_unavailable` |
 | Revocation | Account epoch and grant generation checked per call; **fails closed** when the state is unknown | `503 unavailable` |
-| Logs | Never prompts, never completions. Per-app debug capture is opt-in, sampled and disclosed at consent | The trust model in [`docs/sdk`](../sdk/README.md) |
+| Logs | Never prompts, never completions. Per-app debug capture is opt-in, sampled and disclosed at consent | The trust model in [`docs/free2z/sdk`](../sdk/README.md) |
 
 ## The catalogue contract
 

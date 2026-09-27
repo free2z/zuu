@@ -1,4 +1,4 @@
-//! `GET /v1/calls/{id}` (`docs/sdk/spec/chat-api.md` §7), the models list
+//! `GET /v1/calls/{id}` (`docs/free2z/sdk/spec/chat-api.md` §7), the models list
 //! (§5), and [`Charge`], the owned form of `f2z_ai_proto`'s `Outcome`.
 
 use f2z_ai_proto::chat::{FinishReason, Usage, UsageSource};

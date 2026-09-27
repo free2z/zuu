@@ -243,6 +243,7 @@ const RUST_ROOT_CONTRACTS = [
         name: "rs",
         probeRoot: "rs",
         additionalProbePaths: [
+          "docs/free2z/sdk/spec/chat-api.md",
           "docs/e2ee/KT.md",
           "docs/e2ee/decisions/0013-key-transparency-log.md",
           "docs/e2ee/evidence/akd-benchmark.json",
@@ -3984,7 +3985,9 @@ function runRustRootWorkflowMutationTests(repoRoot) {
               "changes",
               probePath.startsWith("docs/e2ee/")
                 ? "docs/e2ee/*|"
-                : `${probePath}|`,
+                : probePath.startsWith("docs/free2z/sdk/spec/")
+                  ? "docs/free2z/sdk/spec/*|"
+                  : `${probePath}|`,
               "",
             ),
           `${ownerPrefix} selector must actively select`,
