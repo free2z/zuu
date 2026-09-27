@@ -73,7 +73,7 @@ use crate::settle::{self, Settler};
 /// How much later than `request_timeout` the tower timeout fires.
 const TIMEOUT_BACKSTOP_MARGIN: Duration = Duration::from_secs(5);
 
-/// The pluggable parts. Production: [`Deps::skeleton`].
+/// The pluggable parts. The binary wires the metered backend; skeleton is a closed test seam.
 #[derive(Clone)]
 pub struct Deps {
     /// Authentication and limits in front of `/v1/chat`.
@@ -431,6 +431,9 @@ fn public_router(
         );
     Router::new()
         .route("/v1/chat", post(chat::handle))
+        .route("/v1/chat/estimate", post(chat::handle))
+        .route("/v1/models", get(chat::read_handle))
+        .route("/v1/calls/{id}", get(chat::read_handle))
         .fallback(not_found)
         .with_state(chat_state)
         .layer(stack)

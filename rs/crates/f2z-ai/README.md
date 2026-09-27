@@ -1,4 +1,4 @@
-# `f2z-ai` — the free2z AI gateway (skeleton)
+# `f2z-ai` — the free2z AI gateway
 
 The service behind `https://ai.free2z.cash`
 ([`docs/free2z/ai-gateway`](../../../docs/free2z/ai-gateway/README.md), the contract in
@@ -6,39 +6,75 @@ The service behind `https://ai.free2z.cash`
 [#1047](https://github.com/free2z/zuu/issues/1047)). **AGPL-3.0-only**, never
 published to crates.io, native only.
 
-This is the Wave 1 skeleton ([#1054](https://github.com/free2z/zuu/issues/1054))
-plus Wave 2's authentication and limits
-([#1068](https://github.com/free2z/zuu/issues/1068)): it verifies the
-caller's token and applies the rate and concurrency limits, then still calls
-no provider and moves no 2Z. It settles, and tests, the parts of the gateway
-an operator or a client can observe before those exist.
+The binary wires authenticated SDK routes to a verified signed catalogue,
+PostgreSQL ledger functions, and the existing provider adapters. This is a
+**metered preview**, tracked by [#1078](https://github.com/free2z/zuu/issues/1078),
+not a deployment or live acceptance result. The [SDK integration guide](../../../docs/free2z/sdk/INTEGRATION.md)
+remains the application entry point.
 
-| Behaviour | Where |
-|---|---|
-| Authentication and limits in front of `/v1/chat`, before the body is read — see [below](#authentication-and-limits-srcauth) | `src/auth` |
-| `POST /v1/chat` — body limits, strict decode with `f2z-ai-proto`, the spec's structural rules, then `501 not_implemented` | `src/chat.rs` |
-| `/healthz` (liveness, constant) and `/readyz` (200 only with a verified, unexpired catalogue and not draining) on a separate admin listener | `src/server.rs`, `src/catalog.rs` |
-| `/metrics`: request counts, `f2z_ai_active_streams`, the overhead histogram, rejections, settlements, readiness | `src/metrics.rs` |
-| Structured JSON logs that never carry a prompt or completion; OpenTelemetry over OTLP/HTTP, off unless configured | `src/telemetry.rs` |
-| Concurrent call limit → `503` + `Retry-After`, a call counted from admission **until its settle returns and its delivery has ended** (a disconnected call still counts) | `src/admission.rs`, `src/settle.rs`, `src/call.rs` |
-| A gateway-wide budget for request bodies being read (256 MiB): a body reserves its declared length before it is read, or `503` + `Retry-After` | `src/chat.rs` |
-| The upstream read at provider speed on a detached task; delivery through a bounded per-stream buffer (256 KiB) — full, or 30 s without progress, ends **delivery only** with `delivery_aborted` / `settlement: "pending"` | `src/call.rs` |
-| Request, body-read and header-read timeouts | `src/server.rs`, `src/chat.rs`, `src/serve.rs` |
-| Graceful drain on `SIGTERM` with a settler hook | `src/server.rs`, `src/settle.rs` |
+Supported: authenticated `/v1/models` (private, caller-markup-aware ETag),
+`/v1/chat/estimate`, streamed text-only `/v1/chat`, and account/app-scoped
+`/v1/calls/{id}`. A new durable claim and confirmed hold precede provider I/O.
+Identical completed-key retries return the receipt as JSON with
+`X-F2Z-Replayed: true`; pending/conflicting keys never start another provider call.
+Disconnects stop delivery while the detached owner finishes settlement.
+Only confirmed ledger amounts appear in terminal events; after ten seconds of
+uncertainty the stream says `pending`, and the detached settler retries through
+its bounded lifetime. Captured admission epochs allow completion after revocation.
 
-## What is stubbed, and where the real thing plugs in
+Limitations: non-streaming responses, model fallback, images, and tools are
+unsupported. Input reservation uses a conservative UTF-8 byte-token bound including
+serialized message framing; it can reserve more than a tokenizer. Final charges
+use provider-reported usage and signed prices. **Missing provider usage has no
+tokenizer-backed billing fallback in this release**: produced text is preserved,
+followed by an explicit error and confirmed released/no-charge receipt (or pending
+until release is confirmed). The platform absorbs that unknown cost; missing
+usage is never fabricated as zero or charged as bytes. Full contract work remains
+in #1078. These local tests do not establish production deployment, authenticated
+paid-call, load, or drain acceptance.
 
-| Seam | This build | Replaced by |
-|---|---|---|
-| `auth::Gatekeeper` | `Gate` when `auth_epoch_endpoint` + its token are configured; otherwise `Unconfigured`, which refuses every call `503 unavailable` (`reason: token_keys`) — never serves unauthenticated | — |
-| `catalog::CatalogSource` | `Unconfigured` — never yields a catalogue, so a deployed skeleton reports **not ready** and `/v1/chat` answers `503 catalog_unavailable` | fetch + `f2z_ai_proto::catalog::verify_catalog` against configured trusted keys |
-| `chat::ChatBackend` → `call::Upstream` | `NotImplemented` — `501 not_implemented`. The provider adapters exist (`provider::ProviderBackend`, [#1064](https://github.com/free2z/zuu/issues/1064), below) but are **not wired into the binary**: without authentication and metering in front of them they would be free AI for anyone who can reach the port | `ProviderBackend` behind authentication and the metering layer, which adds `meta` / `done` / `error` and the hold |
-| `settle::Settler` | `LogSettler` — logs the disposition | the ledger's `settle` / `release` (metering.md §3) |
+## Backend configuration
 
-`not_implemented` (`501`) and `not_found` (`404`, an unknown path) are
-**not** `f2z_ai_proto::ErrorCode`s and are not part of the contract; a client
-decodes them as `ErrorCode::Unknown`. Both go when the prose spec
-([#1048](https://github.com/free2z/zuu/issues/1048)) is reconciled.
+```toml
+catalog_url = "https://free2z.cash/api/ai/catalog/v1"
+catalog_keys_file = "/run/config/catalog-trusted-keys.json"
+ledger_url_file = "/run/secrets/gateway-ledger-url"
+ledger_max_connections = 4
+# Configure authentication and at least one provider as described below.
+```
+
+The trust file is a JSON object mapping key IDs to 64-character lower-case
+Ed25519 public-key hex strings. Trust never comes from the catalogue endpoint.
+The envelope is `{"catalog": {...}, "signature": {"key_id": "...",
+"signature_hex": "..."}}`; duplicate members, bad signatures, expired catalogues,
+redirects, and bodies above 1 MiB are refused. Fetch timeout is five seconds.
+A failed refresh retains only the previous verified, unexpired copy.
+
+The ledger URL comes only from the secret file or `F2Z_AI_LEDGER_URL`.
+Production connections require certificate and hostname verification; configure
+trusted roots in the PostgreSQL URL as needed. Plaintext exists only through an
+explicit literal-loopback integration-test constructor, never deployment config.
+The per-process pool defaults to four connections and accepts 1–20; operators
+must budget the **sum across replicas** within reserved database connections.
+Acquisition is bounded to one second. Each function uses a short transaction
+with local lock timeout 2 s, statement timeout 5 s, and overall client bound 7 s.
+Prepared statement caching is disabled for transaction poolers. No transaction
+crosses provider I/O. Startup validates all used signatures under a deadline.
+
+The ABI comprises `ledger.gateway_context`, `call_claim`, `call_complete`,
+`call_read`, `hold`, `extend`, `settle`, and `release`; this crate contains no
+ledger schema/DDL or deployment credentials. Holds take milli-2Z; settlement
+accepts provider nano-USD, never a caller-selected fixed charge. Holds expire
+after 300 seconds and live streams extend every 60 seconds. Ambiguous commits
+retry identical IDs and intent. Finalization records completion with captured
+identity, recovering a lost hold response from its attempt snapshot; it never
+reauthorizes or creates another hold. Confirmed terminal winners remain final,
+including expired holds whose late provider expense is recorded without charging
+the user. Durable expiry reconciliation must run independently of the gateway.
+
+Without backend configuration the diagnostic skeleton remains closed and unready.
+Setting any backend key requires complete configuration and a configured provider.
+`Deps::skeleton` and trait injection remain test seams, not billable service modes.
 
 ## Authentication and limits (`src/auth`)
 

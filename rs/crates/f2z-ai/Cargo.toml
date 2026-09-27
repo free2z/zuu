@@ -1,7 +1,7 @@
 [package]
 name = "f2z-ai"
 version = "0.1.0"
-description = "The free2z AI gateway (ai.free2z.cash): the /v1/chat service skeleton — config, health, readiness on a verified catalogue, metrics, OpenTelemetry, admission limits and graceful drain"
+description = "The free2z AI gateway (ai.free2z.cash): metered text streaming, signed catalogue, durable ledger receipts, bounded admission and graceful drain"
 edition.workspace = true
 # A restatement of rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered in `scripts/check-rust-toolchain.sh`'s `MANIFESTS` so it cannot
@@ -23,12 +23,16 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# Dynamic queries only; no compile-time database access or private schema source.
+sqlx-core = { version = "0.8.6", default-features = false, features = ["_rt-tokio", "_tls-rustls-ring-webpki"] }
+sqlx-postgres = { version = "0.8.6", default-features = false, features = ["json", "uuid"] }
+uuid = { version = "1", default-features = false, features = ["v7", "serde", "std"] }
 f2z-ai-proto = { path = "../f2z-ai-proto", version = "0.1.0" }
 
 # The HTTP stack. `axum` routes; the accept loop is `hyper` + `hyper-util`
 # driven by hand (src/serve.rs) because `axum::serve` sets no timer, so it can
 # express neither a header-read timeout nor a bounded graceful shutdown.
-axum = { workspace = true, features = ["http1", "tokio"] }
+axum = { workspace = true, features = ["http1", "tokio", "json"] }
 hyper = { version = "1", default-features = false, features = ["http1", "server"] }
 hyper-util = { version = "0.1.20", default-features = false, features = [
   "tokio",

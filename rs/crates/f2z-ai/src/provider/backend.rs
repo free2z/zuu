@@ -128,6 +128,11 @@ pub struct ProviderBackend {
 }
 
 impl ProviderBackend {
+    /// Provider accounts configured in this process.
+    pub fn configured_providers(&self) -> std::collections::BTreeSet<String> {
+        self.providers.keys().cloned().collect()
+    }
+
     /// A backend for `config.providers`, at the v1 tuning.
     ///
     /// # Errors
