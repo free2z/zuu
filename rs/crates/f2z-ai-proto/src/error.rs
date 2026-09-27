@@ -297,9 +297,21 @@ impl ApiError {
     /// be known to have charged nothing — a charged `502 provider_error` is
     /// **not** retried, because the retry would be a second charged call.
     /// Settlement members that do not decode also refuse the retry.
+    ///
+    /// Evidence that a call ran (`details.call_id` or a partial
+    /// `details.message`) without its settlement also refuses the retry: the
+    /// SDK reconciles by re-sending the old key or reading
+    /// `GET /v1/calls/{id}` (`chat-api.md` §2.5). An envelope with no such
+    /// evidence falls back to the code, because the spec requires a failure
+    /// that charged anything to carry its settlement (`chat-api.md` §4).
     #[must_use]
     pub fn retryable(&self) -> bool {
+        let ran = self
+            .details
+            .as_ref()
+            .is_some_and(|d| d.contains_key("call_id") || d.contains_key("message"));
         match self.failed_call() {
+            None if ran => false,
             None => self.code.retryable(),
             Some(Err(_)) => false,
             Some(Ok(call)) => crate::settlement::retry_allowed(

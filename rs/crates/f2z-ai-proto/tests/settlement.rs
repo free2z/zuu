@@ -642,6 +642,14 @@ fn a_charged_502_has_a_typed_settlement_and_is_not_retried() {
     assert!(matches!(garbled.error.failed_call(), Some(Err(_))));
     assert!(!garbled.error.retryable());
 
+    // Evidence the call ran, but no settlement: reconcile, don't retry.
+    let ran: ErrorBody = serde_json::from_str(
+        r#"{"error":{"code":"internal","message":"x","details":{"call_id":"c"}}}"#,
+    )
+    .unwrap();
+    assert!(ran.error.failed_call().is_none());
+    assert!(!ran.error.retryable());
+
     // Pending in a 502: not final, not retried.
     let pending: ErrorBody = serde_json::from_str(
         r#"{"error":{"code":"internal","message":"x","details":{"settlement":"pending","partial":true}}}"#,
