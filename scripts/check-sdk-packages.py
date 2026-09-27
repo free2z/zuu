@@ -40,7 +40,7 @@ def main() -> None:
             raise SystemExit("Native plugin is not present in this source revision.")
         paths.append(plugin)
         crates.append(("tauri-plugin-f2z", plugin))
-    output = root / "rs/target/sdk-package-preview"
+    output = root / "target/sdk-package-preview"
     output.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env["CARGO_TARGET_DIR"] = str(output / "build")
@@ -98,7 +98,7 @@ def main() -> None:
         (consumer / "src").mkdir(parents=True)
         dependencies = "\n".join(f"{name} = {{ path = {json.dumps(str(path))} }}" for name, path in unpacked.items())
         patches = "\n".join(f"{name} = {{ path = {json.dumps(str(path))} }}" for name, path in unpacked.items())
-        (consumer / "Cargo.toml").write_text(f'[package]\nname = "sdk-package-consumer"\nversion = "0.0.0"\nedition = "2024"\npublish = false\n[dependencies]\n{dependencies}\n[patch.crates-io]\n{patches}\n')
+        (consumer / "Cargo.toml").write_text(f'[package]\nname = "sdk-package-consumer"\nversion = "0.0.0"\nedition = "2024"\npublish = false\n[workspace]\n[dependencies]\n{dependencies}\n[patch.crates-io]\n{patches}\n')
         (consumer / "src/main.rs").write_text('''use std::sync::Arc;
 use f2z_sdk::{Client, Config, MemoryStore};
 use f2z_ai_proto::{Bps, Nusd, Whole2z, price_nusd};

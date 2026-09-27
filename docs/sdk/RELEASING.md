@@ -20,7 +20,7 @@ compiles/runs a fresh consumer using the **unpacked archives**. Add
 `--with-native` once the native plugin is in that checkout to audit its archive
 and compile it against the same unpacked core. `--source-root` permits running
 this checker against another clean public worktree; generated output remains
-inside that source worktree's `rs/target/sdk-package-preview` directory.
+inside that source worktree's `target/sdk-package-preview` directory.
 
 The snapshot avoids a reproduced Cargo 1.97.1 VCS-inspection failure in this
 synthetic monorepo's shared worktrees: `cargo package --list` can report
