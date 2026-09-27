@@ -115,7 +115,11 @@ fn serve(config: &Config) -> Result<ExitCode, String> {
                 }
             });
         };
-        let gateway = Gateway::bind(config, Deps::skeleton())
+        let deps = Deps {
+            gate: f2z_ai::auth::from_config(&config.auth)?,
+            ..Deps::skeleton()
+        };
+        let gateway = Gateway::bind(config, deps)
             .await
             .map_err(|e| format!("bind: {e}"))?;
         Ok::<_, String>(gateway.run_until(signal).await)

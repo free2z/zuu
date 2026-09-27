@@ -28,6 +28,7 @@ use axum::http::{Request, Response, StatusCode, header};
 use bytes::Bytes;
 use f2z_ai::ApiFailure;
 use f2z_ai::admission::CallHandle;
+use f2z_ai::auth::{Admitted, Gatekeeper, Principal};
 use f2z_ai::call::Upstream;
 use f2z_ai::catalog::{self, CatalogSource, VerifiedCatalog};
 use f2z_ai::chat::ChatBackend;
@@ -190,10 +191,38 @@ pub fn deps(
     settler: RecordingSettler,
 ) -> Deps {
     Deps {
+        gate: open_gate(),
         catalog,
         backend,
         settler: Arc::new(settler),
     }
+}
+
+/// A gatekeeper that admits every request as one fixed user, with no lease:
+/// for the tests of everything *behind* authentication. `tests/auth.rs`
+/// drives the real [`f2z_ai::auth::Gate`].
+pub struct OpenGate;
+
+#[async_trait]
+impl Gatekeeper for OpenGate {
+    async fn admit(&self, _headers: &axum::http::HeaderMap) -> Result<Admitted, ApiFailure> {
+        Ok(Admitted {
+            principal: Principal {
+                sub: "00000000-0000-4000-8000-000000000000".into(),
+                client_id: "app_test".into(),
+                scope: "ai:invoke".into(),
+                aep: 1,
+                agen: 1,
+                exp: u64::MAX,
+                jti: "test".into(),
+            },
+            lease: None,
+        })
+    }
+}
+
+pub fn open_gate() -> Arc<dyn Gatekeeper> {
+    Arc::new(OpenGate)
 }
 
 /// A started gateway and its addresses.

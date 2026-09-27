@@ -40,6 +40,25 @@
 //! must end up with exactly one key. An inline `api_key` is refused like
 //! every other secret. A base URL must be `https://` (plain `http://` only to
 //! loopback, for a mock provider).
+//!
+//! # Authentication and limits ([`crate::auth`])
+//!
+//! ```toml
+//! auth_issuer = "https://free2z.cash"                  # the default; `iss`, exact
+//! # auth_jwks_uri = "https://free2z.cash/api/oauth/jwks" # default: from discovery
+//! auth_epoch_endpoint = "http://web.tuzi.svc:8000/api/oauth/internal/epoch/"
+//! auth_epoch_token_file = "/var/run/secrets/oidc-internal"   # or F2Z_AI_AUTH_EPOCH_TOKEN
+//! redis_url_file = "/var/run/secrets/redis-url"              # or F2Z_AI_REDIS_URL
+//! redis_namespace = "free2z"   # the IdP's OIDC_EPOCH_REDIS_NAMESPACE (its DBNAME)
+//! ```
+//!
+//! Token verification is **on** when `auth_epoch_endpoint` and its token are
+//! configured, and then every `/v1/chat` needs a valid token. Without them
+//! the gateway refuses every call `503` — it never serves unauthenticated.
+//! Redis is optional: without it revocation always asks the endpoint and the
+//! limits are per pod. The epoch endpoint may be plain `http://` (an
+//! in-cluster Service); the issuer and `auth_jwks_uri` must be `https://`
+//! (`http://` only to loopback, for a test issuer).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -76,6 +95,106 @@ pub const ENV_OTLP_AUTHORIZATION: &str = "F2Z_AI_OTLP_AUTHORIZATION";
 pub const ENV_PROVIDER_PREFIX: &str = "F2Z_AI_PROVIDER_";
 /// The suffix of a provider key variable.
 pub const ENV_PROVIDER_KEY_SUFFIX: &str = "_API_KEY";
+/// The internal epoch endpoint's shared secret.
+pub const ENV_AUTH_EPOCH_TOKEN: &str = "F2Z_AI_AUTH_EPOCH_TOKEN";
+/// The Redis URL (it may carry a password).
+pub const ENV_REDIS_URL: &str = "F2Z_AI_REDIS_URL";
+
+/// Authentication, revocation and limits ([`crate::auth`]).
+#[derive(Clone)]
+pub struct AuthConfig {
+    /// `iss`, compared exactly.
+    pub issuer: String,
+    /// This gateway's identifier in `aud`.
+    pub audience: String,
+    /// The JWKS URL; `None` = from the issuer's discovery document.
+    pub jwks_uri: Option<String>,
+    /// The least time between two refetches on an unknown `kid`.
+    pub jwks_min_refetch: Duration,
+    /// The IdP's internal epoch endpoint, ending in `/`. `None` = auth off:
+    /// every call is refused.
+    pub epoch_endpoint: Option<String>,
+    /// Its shared secret.
+    pub epoch_token: Option<SecretString>,
+    /// Its per-call timeout.
+    pub epoch_timeout: Duration,
+    /// The shared Redis. `None` = revocation via the endpoint only, limits
+    /// per pod.
+    pub redis_url: Option<SecretString>,
+    /// The key namespace the IdP publishes under.
+    pub redis_namespace: String,
+    /// Per Redis call.
+    pub redis_timeout: Duration,
+    /// Per (app, user), sustained requests per minute.
+    pub rate_user_per_minute: u32,
+    /// Per (app, user), burst.
+    pub rate_user_burst: u32,
+    /// Per app, sustained requests per minute.
+    pub rate_app_per_minute: u32,
+    /// Per app, burst.
+    pub rate_app_burst: u32,
+    /// Open calls per user.
+    pub concurrency_per_user: u32,
+    /// How long a lease outlives a gateway that died holding it.
+    pub concurrency_lease: Duration,
+}
+
+impl AuthConfig {
+    /// Whether tokens are verified at all.
+    #[must_use]
+    pub const fn enabled(&self) -> bool {
+        self.epoch_endpoint.is_some()
+    }
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            issuer: "https://free2z.cash".to_owned(),
+            audience: "f2z-ai".to_owned(),
+            jwks_uri: None,
+            jwks_min_refetch: Duration::from_secs(60),
+            epoch_endpoint: None,
+            epoch_token: None,
+            epoch_timeout: Duration::from_millis(1000),
+            redis_url: None,
+            redis_namespace: "free2z".to_owned(),
+            redis_timeout: Duration::from_millis(250),
+            rate_user_per_minute: 60,
+            rate_user_burst: 20,
+            rate_app_per_minute: 6000,
+            rate_app_burst: 600,
+            concurrency_per_user: 4,
+            concurrency_lease: Duration::from_secs(360),
+        }
+    }
+}
+
+impl fmt::Debug for AuthConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthConfig")
+            .field("issuer", &self.issuer)
+            .field("audience", &self.audience)
+            .field("jwks_uri", &self.jwks_uri)
+            .field("jwks_min_refetch", &self.jwks_min_refetch)
+            .field("epoch_endpoint", &self.epoch_endpoint)
+            .field(
+                "epoch_token",
+                &self.epoch_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("epoch_timeout", &self.epoch_timeout)
+            .field("redis_url", &self.redis_url.as_ref().map(|_| "[REDACTED]"))
+            .field("redis_namespace", &self.redis_namespace)
+            .field("redis_timeout", &self.redis_timeout)
+            .field("rate_user_per_minute", &self.rate_user_per_minute)
+            .field("rate_user_burst", &self.rate_user_burst)
+            .field("rate_app_per_minute", &self.rate_app_per_minute)
+            .field("rate_app_burst", &self.rate_app_burst)
+            .field("concurrency_per_user", &self.concurrency_per_user)
+            .field("concurrency_lease", &self.concurrency_lease)
+            .finish()
+    }
+}
 
 /// The public API base URL of a provider this build knows by name.
 #[must_use]
@@ -172,6 +291,8 @@ pub struct Config {
     pub otlp_authorization: Option<SecretString>,
     /// Provider accounts, by the catalogue's `provider` name.
     pub providers: BTreeMap<String, ProviderConfig>,
+    /// Authentication, revocation and limits.
+    pub auth: AuthConfig,
 }
 
 impl Default for Config {
@@ -197,6 +318,7 @@ impl Default for Config {
             otlp_endpoint: None,
             otlp_authorization: None,
             providers: BTreeMap::new(),
+            auth: AuthConfig::default(),
         }
     }
 }
@@ -273,6 +395,22 @@ struct Raw {
     otlp_endpoint: Option<String>,
     otlp_authorization_file: Option<PathBuf>,
     providers: Option<BTreeMap<String, RawProvider>>,
+    auth_issuer: Option<String>,
+    auth_audience: Option<String>,
+    auth_jwks_uri: Option<String>,
+    auth_jwks_refetch_secs: Option<u64>,
+    auth_epoch_endpoint: Option<String>,
+    auth_epoch_token_file: Option<PathBuf>,
+    auth_epoch_timeout_ms: Option<u64>,
+    redis_url_file: Option<PathBuf>,
+    redis_namespace: Option<String>,
+    redis_timeout_ms: Option<u64>,
+    rate_user_per_minute: Option<u64>,
+    rate_user_burst: Option<u64>,
+    rate_app_per_minute: Option<u64>,
+    rate_app_burst: Option<u64>,
+    concurrency_per_user: Option<u64>,
+    concurrency_lease_secs: Option<u64>,
 }
 
 /// One `[providers.<name>]` table.
@@ -311,10 +449,26 @@ const KEYS: &[(&str, Kind)] = &[
     ("log_level", Kind::Text),
     ("otlp_endpoint", Kind::Text),
     ("otlp_authorization_file", Kind::Text),
+    ("auth_issuer", Kind::Text),
+    ("auth_audience", Kind::Text),
+    ("auth_jwks_uri", Kind::Text),
+    ("auth_jwks_refetch_secs", Kind::Integer),
+    ("auth_epoch_endpoint", Kind::Text),
+    ("auth_epoch_token_file", Kind::Text),
+    ("auth_epoch_timeout_ms", Kind::Integer),
+    ("redis_url_file", Kind::Text),
+    ("redis_namespace", Kind::Text),
+    ("redis_timeout_ms", Kind::Integer),
+    ("rate_user_per_minute", Kind::Integer),
+    ("rate_user_burst", Kind::Integer),
+    ("rate_app_per_minute", Kind::Integer),
+    ("rate_app_burst", Kind::Integer),
+    ("concurrency_per_user", Kind::Integer),
+    ("concurrency_lease_secs", Kind::Integer),
 ];
 
 /// Keys that hold a secret and therefore may not appear inline in the file.
-const INLINE_SECRETS: &[&str] = &["otlp_authorization"];
+const INLINE_SECRETS: &[&str] = &["otlp_authorization", "auth_epoch_token", "redis_url"];
 
 impl Config {
     /// Load `file` (if any), apply the `F2Z_AI_*` members of `env`, validate.
@@ -362,6 +516,7 @@ impl Config {
         }
 
         let mut env_secret = None;
+        let mut env_secrets = BTreeMap::new();
         let mut provider_keys = BTreeMap::new();
         let env: BTreeMap<String, String> = env
             .into_iter()
@@ -373,6 +528,10 @@ impl Config {
             }
             if name == ENV_OTLP_AUTHORIZATION {
                 env_secret = Some(SecretString::from(value));
+                continue;
+            }
+            if name == ENV_AUTH_EPOCH_TOKEN || name == ENV_REDIS_URL {
+                env_secrets.insert(name, SecretString::from(value));
                 continue;
             }
             if let Some(provider) = name
@@ -417,14 +576,16 @@ impl Config {
         let raw: Raw = table
             .try_into()
             .map_err(|e: toml::de::Error| err(e.to_string()))?;
-        Self::from_raw(raw, env_secret, provider_keys)
+        Self::from_raw(raw, env_secret, env_secrets, provider_keys)
     }
 
     fn from_raw(
-        raw: Raw,
+        mut raw: Raw,
         env_secret: Option<SecretString>,
+        mut env_secrets: BTreeMap<String, SecretString>,
         provider_keys: BTreeMap<String, SecretString>,
     ) -> Result<Self, ConfigError> {
+        let auth = auth(&mut raw, &mut env_secrets)?;
         let defaults = Self::default();
         let addr = |key: &str, value: Option<String>, default: SocketAddr| match value {
             Some(text) => text
@@ -446,7 +607,7 @@ impl Config {
             None => defaults.log_level,
         };
 
-        let otlp_authorization = match (env_secret, raw.otlp_authorization_file) {
+        let otlp_authorization = match (env_secret, raw.otlp_authorization_file.take()) {
             (Some(_), Some(_)) => {
                 return Err(err(format!(
                     "both {ENV_OTLP_AUTHORIZATION} and `otlp_authorization_file` are set; choose one"
@@ -463,7 +624,7 @@ impl Config {
             (None, None) => None,
         };
 
-        let providers = providers(raw.providers.unwrap_or_default(), provider_keys)?;
+        let providers = providers(raw.providers.take().unwrap_or_default(), provider_keys)?;
 
         let config = Self {
             listen: addr("listen", raw.listen, defaults.listen)?,
@@ -509,6 +670,7 @@ impl Config {
             otlp_endpoint: raw.otlp_endpoint.filter(|s| !s.is_empty()),
             otlp_authorization,
             providers,
+            auth,
         };
         config.validate()?;
         Ok(config)
@@ -563,6 +725,12 @@ impl Config {
                 return Err(err("`otlp_endpoint` must be an http:// URL"));
             }
         }
+        if self.auth.concurrency_lease < self.request_timeout {
+            return Err(err(
+                "`concurrency_lease_secs` must be at least `request_timeout_secs`: a lease that \
+                 expires while its call can still be starting stops counting a live call",
+            ));
+        }
         if self.otlp_authorization.is_some() && self.otlp_endpoint.is_none() {
             return Err(err(
                 "an OTLP authorization is set but `otlp_endpoint` is not; OpenTelemetry is off \
@@ -571,6 +739,152 @@ impl Config {
         }
         Ok(())
     }
+}
+
+/// A secret from its variable or its file, not both.
+fn secret(
+    variable: &str,
+    from_env: Option<SecretString>,
+    key: &str,
+    file: Option<PathBuf>,
+) -> Result<Option<SecretString>, ConfigError> {
+    match (from_env, file) {
+        (Some(_), Some(_)) => Err(err(format!(
+            "both {variable} and `{key}` are set; choose one"
+        ))),
+        (Some(secret), None) => Ok(Some(secret)),
+        (None, Some(path)) => {
+            let text = std::fs::read_to_string(&path)
+                .map_err(|e| err(format!("{}: {e}", path.display())))?;
+            Ok(Some(SecretString::from(
+                text.trim_end_matches(['\r', '\n']).to_owned(),
+            )))
+        }
+        (None, None) => Ok(None),
+    }
+}
+
+fn positive_u32(key: &str, value: Option<u64>, default: u32) -> Result<u32, ConfigError> {
+    let Some(value) = value else {
+        return Ok(default);
+    };
+    match u32::try_from(value) {
+        Ok(n) if n >= 1 => Ok(n),
+        _ => Err(err(format!("`{key}` must be between 1 and 4294967295"))),
+    }
+}
+
+/// The authentication keys.
+fn auth(
+    raw: &mut Raw,
+    env_secrets: &mut BTreeMap<String, SecretString>,
+) -> Result<AuthConfig, ConfigError> {
+    let defaults = AuthConfig::default();
+    let issuer = raw.auth_issuer.take().unwrap_or(defaults.issuer);
+    crate::auth::jwks::check_url(&issuer).map_err(|e| err(format!("auth_issuer: {e}")))?;
+    let jwks_uri = raw.auth_jwks_uri.take().filter(|s| !s.is_empty());
+    if let Some(uri) = &jwks_uri {
+        crate::auth::jwks::check_url(uri).map_err(|e| err(format!("auth_jwks_uri: {e}")))?;
+    }
+    let epoch_endpoint = raw.auth_epoch_endpoint.take().filter(|s| !s.is_empty());
+    if let Some(endpoint) = &epoch_endpoint {
+        let url =
+            reqwest::Url::parse(endpoint).map_err(|_| err("`auth_epoch_endpoint` is not a URL"))?;
+        if !matches!(url.scheme(), "http" | "https") || !endpoint.ends_with('/') {
+            return Err(err(
+                "`auth_epoch_endpoint` must be an http:// or https:// URL ending in `/` (the \
+                 subject is appended)",
+            ));
+        }
+    }
+    let epoch_token = secret(
+        ENV_AUTH_EPOCH_TOKEN,
+        env_secrets.remove(ENV_AUTH_EPOCH_TOKEN),
+        "auth_epoch_token_file",
+        raw.auth_epoch_token_file.take(),
+    )?;
+    if epoch_endpoint.is_some() != epoch_token.is_some() {
+        return Err(err(format!(
+            "`auth_epoch_endpoint` and its token ({ENV_AUTH_EPOCH_TOKEN} or \
+             `auth_epoch_token_file`) are configured together or not at all"
+        )));
+    }
+    let redis_url = secret(
+        ENV_REDIS_URL,
+        env_secrets.remove(ENV_REDIS_URL),
+        "redis_url_file",
+        raw.redis_url_file.take(),
+    )?;
+    let namespace = raw
+        .redis_namespace
+        .take()
+        .unwrap_or(defaults.redis_namespace);
+    if namespace.is_empty() || namespace.contains(':') {
+        return Err(err(
+            "`redis_namespace` must be non-empty and contain no `:`",
+        ));
+    }
+    let millis = |key: &str, value: Option<u64>, default: Duration| match value {
+        Some(0) => Err(err(format!("`{key}` must be at least 1"))),
+        Some(n) => Ok(Duration::from_millis(n)),
+        None => Ok(default),
+    };
+    let config = AuthConfig {
+        issuer,
+        audience: raw.auth_audience.take().unwrap_or(defaults.audience),
+        jwks_uri,
+        jwks_min_refetch: raw
+            .auth_jwks_refetch_secs
+            .map_or(defaults.jwks_min_refetch, Duration::from_secs),
+        epoch_endpoint,
+        epoch_token,
+        epoch_timeout: millis(
+            "auth_epoch_timeout_ms",
+            raw.auth_epoch_timeout_ms,
+            defaults.epoch_timeout,
+        )?,
+        redis_url,
+        redis_namespace: namespace,
+        redis_timeout: millis(
+            "redis_timeout_ms",
+            raw.redis_timeout_ms,
+            defaults.redis_timeout,
+        )?,
+        rate_user_per_minute: positive_u32(
+            "rate_user_per_minute",
+            raw.rate_user_per_minute,
+            defaults.rate_user_per_minute,
+        )?,
+        rate_user_burst: positive_u32(
+            "rate_user_burst",
+            raw.rate_user_burst,
+            defaults.rate_user_burst,
+        )?,
+        rate_app_per_minute: positive_u32(
+            "rate_app_per_minute",
+            raw.rate_app_per_minute,
+            defaults.rate_app_per_minute,
+        )?,
+        rate_app_burst: positive_u32(
+            "rate_app_burst",
+            raw.rate_app_burst,
+            defaults.rate_app_burst,
+        )?,
+        concurrency_per_user: positive_u32(
+            "concurrency_per_user",
+            raw.concurrency_per_user,
+            defaults.concurrency_per_user,
+        )?,
+        concurrency_lease: match raw.concurrency_lease_secs {
+            Some(0) => return Err(err("`concurrency_lease_secs` must be at least 1")),
+            Some(n) => Duration::from_secs(n),
+            None => defaults.concurrency_lease,
+        },
+    };
+    if config.audience.is_empty() {
+        return Err(err("`auth_audience` must not be empty"));
+    }
+    Ok(config)
 }
 
 /// Merge the `[providers.*]` tables with the key variables.
@@ -823,6 +1137,74 @@ mod tests {
             Config::load(None, env(&[("F2Z_AI_PROVIDER_MYSTERY_API_KEY", "k")])).is_err(),
             "an unknown provider needs a base_url"
         );
+    }
+
+    #[test]
+    fn auth_is_off_by_default_and_on_with_an_endpoint_and_its_token() {
+        let config = Config::load(None, env(&[])).unwrap();
+        assert!(!config.auth.enabled());
+        assert_eq!(config.auth.issuer, "https://free2z.cash");
+        assert_eq!(config.auth.audience, "f2z-ai");
+        assert_eq!(config.auth.concurrency_per_user, 4);
+
+        let config = Config::load(
+            None,
+            env(&[
+                (
+                    "F2Z_AI_AUTH_EPOCH_ENDPOINT",
+                    "http://web.tuzi:8000/api/oauth/internal/epoch/",
+                ),
+                ("F2Z_AI_AUTH_EPOCH_TOKEN", "epoch-canary"),
+                ("F2Z_AI_REDIS_URL", "redis://:redis-canary@redis:6379/0"),
+                ("F2Z_AI_REDIS_NAMESPACE", "free2z_prod"),
+                ("F2Z_AI_RATE_USER_BURST", "5"),
+            ]),
+        )
+        .unwrap();
+        assert!(config.auth.enabled());
+        assert_eq!(config.auth.redis_namespace, "free2z_prod");
+        assert_eq!(config.auth.rate_user_burst, 5);
+        let rendered = format!("{config:?}");
+        assert!(!rendered.contains("epoch-canary"), "{rendered}");
+        assert!(!rendered.contains("redis-canary"), "{rendered}");
+    }
+
+    #[test]
+    fn auth_misconfigurations_are_refused() {
+        let endpoint = (
+            "F2Z_AI_AUTH_EPOCH_ENDPOINT",
+            "http://idp/api/oauth/internal/epoch/",
+        );
+        let token = ("F2Z_AI_AUTH_EPOCH_TOKEN", "t");
+        for (case, pairs) in [
+            ("endpoint without token", vec![endpoint]),
+            ("token without endpoint", vec![token]),
+            (
+                "no trailing slash",
+                vec![("F2Z_AI_AUTH_EPOCH_ENDPOINT", "http://idp/epoch"), token],
+            ),
+            (
+                "plain-http issuer",
+                vec![("F2Z_AI_AUTH_ISSUER", "http://free2z.cash")],
+            ),
+            (
+                "namespace with a colon",
+                vec![("F2Z_AI_REDIS_NAMESPACE", "a:b")],
+            ),
+            ("zero burst", vec![("F2Z_AI_RATE_USER_BURST", "0")]),
+            (
+                "lease shorter than a call",
+                vec![("F2Z_AI_CONCURRENCY_LEASE_SECS", "60")],
+            ),
+        ] {
+            assert!(Config::load(None, env(&pairs)).is_err(), "{case}");
+        }
+        let f = file("redis_url = \"redis://:inline-canary@r\"\n");
+        let error = Config::load(Some(f.path()), env(&[]))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("not accepted inline"), "{error}");
+        assert!(!error.contains("inline-canary"), "{error}");
     }
 
     #[test]

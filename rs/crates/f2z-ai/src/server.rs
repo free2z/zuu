@@ -62,6 +62,7 @@ use tower::{Layer, Service, ServiceBuilder};
 use tracing::Instrument as _;
 
 use crate::admission::{AdmissionLayer, InFlight};
+use crate::auth::Gatekeeper;
 use crate::catalog::{self, CatalogSource};
 use crate::chat::{self, ChatBackend, ChatState};
 use crate::config::Config;
@@ -75,6 +76,8 @@ const TIMEOUT_BACKSTOP_MARGIN: Duration = Duration::from_secs(5);
 /// The pluggable parts. Production: [`Deps::skeleton`].
 #[derive(Clone)]
 pub struct Deps {
+    /// Authentication and limits in front of `/v1/chat`.
+    pub gate: Arc<dyn Gatekeeper>,
     /// Where verified catalogues come from.
     pub catalog: Arc<dyn CatalogSource>,
     /// What answers a valid call.
@@ -84,10 +87,13 @@ pub struct Deps {
 }
 
 impl Deps {
-    /// This build: no catalogue source, `501` backend, logging settler.
+    /// This build: no catalogue source, `501` backend, logging settler, and
+    /// no token verification — every `/v1/chat` is `503` until
+    /// [`Deps::gate`] is set (the binary does so from `[auth]` config).
     #[must_use]
     pub fn skeleton() -> Self {
         Self {
+            gate: Arc::new(crate::auth::Unconfigured),
             catalog: Arc::new(catalog::Unconfigured),
             backend: Arc::new(chat::NotImplemented),
             settler: Arc::new(settle::LogSettler),
@@ -205,6 +211,7 @@ impl Gateway {
         ));
 
         let chat_state = ChatState {
+            gate: deps.gate,
             backend: deps.backend,
             catalog: catalog_state,
             max_body_bytes: config.max_body_bytes,

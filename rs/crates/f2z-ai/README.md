@@ -6,13 +6,16 @@ The service behind `https://ai.free2z.cash`
 [#1047](https://github.com/free2z/zuu/issues/1047)). **AGPL-3.0-only**, never
 published to crates.io, native only.
 
-This is the Wave 1 skeleton ([#1054](https://github.com/free2z/zuu/issues/1054)):
-it calls no provider, verifies no token and moves no 2Z. It settles, and
-tests, the parts of the gateway an operator or a client can observe before
-those exist.
+This is the Wave 1 skeleton ([#1054](https://github.com/free2z/zuu/issues/1054))
+plus Wave 2's authentication and limits
+([#1068](https://github.com/free2z/zuu/issues/1068)): it verifies the
+caller's token and applies the rate and concurrency limits, then still calls
+no provider and moves no 2Z. It settles, and tests, the parts of the gateway
+an operator or a client can observe before those exist.
 
 | Behaviour | Where |
 |---|---|
+| Authentication and limits in front of `/v1/chat`, before the body is read — see [below](#authentication-and-limits-srcauth) | `src/auth` |
 | `POST /v1/chat` — body limits, strict decode with `f2z-ai-proto`, the spec's structural rules, then `501 not_implemented` | `src/chat.rs` |
 | `/healthz` (liveness, constant) and `/readyz` (200 only with a verified, unexpired catalogue and not draining) on a separate admin listener | `src/server.rs`, `src/catalog.rs` |
 | `/metrics`: request counts, `f2z_ai_active_streams`, the overhead histogram, rejections, settlements, readiness | `src/metrics.rs` |
@@ -27,6 +30,7 @@ those exist.
 
 | Seam | This build | Replaced by |
 |---|---|---|
+| `auth::Gatekeeper` | `Gate` when `auth_epoch_endpoint` + its token are configured; otherwise `Unconfigured`, which refuses every call `503 unavailable` (`reason: token_keys`) — never serves unauthenticated | — |
 | `catalog::CatalogSource` | `Unconfigured` — never yields a catalogue, so a deployed skeleton reports **not ready** and `/v1/chat` answers `503 catalog_unavailable` | fetch + `f2z_ai_proto::catalog::verify_catalog` against configured trusted keys |
 | `chat::ChatBackend` → `call::Upstream` | `NotImplemented` — `501 not_implemented`. The provider adapters exist (`provider::ProviderBackend`, [#1064](https://github.com/free2z/zuu/issues/1064), below) but are **not wired into the binary**: without authentication and metering in front of them they would be free AI for anyone who can reach the port | `ProviderBackend` behind authentication and the metering layer, which adds `meta` / `done` / `error` and the hold |
 | `settle::Settler` | `LogSettler` — logs the disposition | the ledger's `settle` / `release` (metering.md §3) |
@@ -35,6 +39,37 @@ those exist.
 **not** `f2z_ai_proto::ErrorCode`s and are not part of the contract; a client
 decodes them as `ErrorCode::Unknown`. Both go when the prose spec
 ([#1048](https://github.com/free2z/zuu/issues/1048)) is reconciled.
+
+## Authentication and limits (`src/auth`)
+
+chat-api.md §2.2 steps 1–2, against the IdP of tuzi #2238
+(`dj.apps.oidc`), in this order:
+
+| Check | Refusal |
+|---|---|
+| `Authorization: Bearer`; `alg` exactly `ES256` (so `none`, `HS*` keyed with the public key and every other algorithm are refused before a key is looked up); `typ` `at+jwt`; no `crit`; signature by `kid` against the issuer's JWKS (P-256 keys only — the RS256 ID-token keys in the same set are dropped) | `401 invalid_token`, `reason` `missing` / `malformed` / `signature` |
+| `iss` exact; `aud` an array containing `f2z-ai`; `exp` + 30 s; `iat` / `nbf` − 30 s | `401 invalid_token`, `issuer` / `audience` / `expired` |
+| The JWKS has never loaded (issuer unreachable since start) | `503 unavailable`, `token_keys` — not a `401` that would sign users out for an outage |
+| `aep` / `agen` against Redis (`<ns>:aep:<sub>`, `<ns>:agen:<client_id>:<sub>`, plain decimals, as `epoch_publish` writes them); on a miss or a Redis failure, the internal epoch endpoint (`GET …/internal/epoch/<sub>/`, shared-secret bearer): a `client_id` absent from its `agen` is revoked, `404` is revoked, `503` / timeout / anything else is unknown | `401 token_revoked`, `account_epoch` / `grant_generation`; unknown → `503 unavailable`, `revocation_check`. **Never allow on unknown** |
+| `scope` contains `ai:invoke` | `403 insufficient_scope`, `details.scope` |
+| 4 open calls per user: a local count, and a Redis sorted-set lease | `429 concurrency_limit`, `details.limit`, `Retry-After` |
+| Per (app, user) and per app: a local GCRA, and Redis token buckets (one Lua script, Redis's clock) | `429 rate_limited`, `Retry-After`, `X-F2Z-RateLimit-{Limit,Remaining,Reset}` |
+
+**The lease lives on the call's admission slot**, which is dropped only
+after the settler has returned for the call and its delivery has ended — so a
+drained call, a disconnected one whose upstream is still being read, and one
+whose task panicked all count until they are settled. Its Redis member
+expires after `concurrency_lease_secs` if a pod dies holding it.
+
+**If Redis is down** (every call is bounded by `redis_timeout_ms`, then it is
+skipped for 1 s), the limits fall back to their local copies — `N` pods then
+admit up to `N` times the shared rate — and revocation goes to the epoch
+endpoint (at most 64 calls in flight per pod; beyond that, `503`). Revocation
+never falls back to allowing.
+
+The JWKS comes from `auth_jwks_uri` or the issuer's discovery document, is
+warmed at start-up, refreshed in the background after an hour, and refetched
+on an unknown `kid` at most once per `auth_jwks_refetch_secs` (60).
 
 ## The provider adapters (`src/provider`)
 
@@ -106,6 +141,20 @@ variable is a startup error.
 | `log_level` | `info` | This crate only; dependencies are capped at `warn` |
 | `otlp_endpoint` | *(unset: off)* | `http://collector:4318`; spans go to `/v1/traces`. `https://` is refused: no TLS in this exporter build |
 | `otlp_authorization_file` | *(unset)* | Or `F2Z_AI_OTLP_AUTHORIZATION`. Never inline in the file |
+| `auth_issuer` | `https://free2z.cash` | `iss`, exact. `https://` (loopback `http://` for a test issuer) |
+| `auth_audience` | `f2z-ai` | Must be in `aud` |
+| `auth_jwks_uri` | *(from discovery)* | |
+| `auth_jwks_refetch_secs` | `60` | Least time between refetches on an unknown `kid` |
+| `auth_epoch_endpoint` | *(unset: auth off, every call `503`)* | `http://web…/api/oauth/internal/epoch/` — ends in `/` |
+| `auth_epoch_token_file` | *(unset)* | Or `F2Z_AI_AUTH_EPOCH_TOKEN`: the IdP's `OIDC_INTERNAL_API_TOKEN`. Required with the endpoint |
+| `auth_epoch_timeout_ms` | `1000` | |
+| `redis_url_file` | *(unset: no Redis)* | Or `F2Z_AI_REDIS_URL`. A single (non-Cluster) Redis — the admit script is multi-key |
+| `redis_namespace` | `free2z` | The IdP's `OIDC_EPOCH_REDIS_NAMESPACE` (its DBNAME) — **must match**, or every lookup misses and goes to the endpoint |
+| `redis_timeout_ms` | `250` | Per Redis call |
+| `rate_user_per_minute` / `rate_user_burst` | `60` / `20` | Per (app, user) |
+| `rate_app_per_minute` / `rate_app_burst` | `6000` / `600` | Per app |
+| `concurrency_per_user` | `4` | |
+| `concurrency_lease_secs` | `360` | At least `request_timeout_secs` |
 
 **The drain bound** is `drain_timeout_secs + 2 × abort_grace_secs +
 settle_grace_secs + 8` — **328 s** with the defaults. The phases, each
@@ -207,4 +256,5 @@ loopback ports and drive it with hyper's client over real sockets:
 | `tests/adapter_usage.rs` | every adapter × every `Ending` × usage present / omitted × reasoning, caching, Anthropic cumulative server-tool usage, an empty answer: the parsed usage **equals** the testkit's `Scenario::expected_usage`, a missing report is `Missing`, and the client's `usage` event agrees |
 | `tests/adapter_faults.rs` | every `Fault`: transient statuses retried before content and reported after; `retry-after`; refusals not retried; disconnects and error events retried before content, never after; first-byte, idle and hard-limit deadlines; a refused connection; the breaker opening and probing; the retry budget across calls |
 | `tests/adapter_requests.rs` | each adapter's translation of the unified request; only allowlisted headers on the wire (a raw socket reads the request head); `start`'s refusals before any I/O |
+| `tests/auth.rs` | against a fake issuer (discovery, JWKS, internal epoch endpoint over HTTP) and an in-memory store with fault injection: a valid token reaches the backend; missing / malformed; `none`, `HS256` keyed with the public point and with the JWK, a forged `ES256`, `RS256`/`ES384` headers genuinely signed by the issuer's key; wrong `aud`, `iss`, expired, future `iat`, the 30 s leeway; no `ai:invoke`; unknown-`kid` refetch rate limit and a rotation; stale `aep`/`agen` in Redis; a Redis miss → the endpoint's every answer (live, absent grant, stale, `404`, `503`, `500`, hang); Redis down + endpoint `503` → `503`, never allow; a wrong internal secret; the rate limit and its headers; the shared bucket across two gateways; the lease counting a disconnected call until settled; a panicking call releasing its lease. With `F2Z_AI_TEST_REDIS_URL` set, the Lua script and the whole gate against a real Redis (skipped, and says so, without) |
 | `tests/adapter_gateway.rs` | the adapters behind `/v1/chat`: the settler receives the provider's usage (or `Missing`) and the outcome; a pre-content failure is a stream, not an HTTP error; the idle deadline fires under the call task's 250 ms ticks |

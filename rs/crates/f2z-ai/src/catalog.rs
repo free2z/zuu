@@ -3,9 +3,28 @@
 //! `docs/ai-gateway/README.md`: *the gateway prices nothing it did not read
 //! from a signed catalogue … No verified, unexpired catalogue means the
 //! process does not report ready.* This module holds that rule and the two
-//! that come with it — a running gateway never replaces a catalogue with a
-//! lower `version`, and a catalogue is checked against the clock every time it
-//! is read, not only when it was fetched.
+//! that come with it — a running gateway does not replace a catalogue with a
+//! lower `version` (with one bounded exception, below), and a catalogue is
+//! checked against the clock every time it is read, not only when it was
+//! fetched.
+//!
+//! # A lower version, legitimately (zuu#1067)
+//!
+//! The platform derives `version` from timestamps (tuzi #2235), so it can go
+//! **down** for a minute or so — when the most recently updated model is
+//! deleted, or across publisher pods whose clocks straddle a boundary. A
+//! gateway that refused every lower version would stall on a stale copy. So
+//! a lower version **is** installed when its `issued_at` is newer than the
+//! held copy's and by no more than [`VERSION_REGRESSION_WINDOW_SECS`]. Every
+//! other lower version is a replay: the held copy stays, the refusal is
+//! logged and counted (`f2z_ai_catalog_replays_total`).
+//!
+//! Accepting a regression lowers the version the gateway holds, which would
+//! let a replay of the superseded higher version back in by the ordinary
+//! "higher wins" rule. It does not: a candidate whose version is not above
+//! the highest ever installed, **and** whose `issued_at` is older than the
+//! held copy's, is also a replay. Signature and expiry checks are unchanged
+//! and happen before any of this.
 //!
 //! **The fetch-and-verify step is stubbed.** [`CatalogSource`] is the seam:
 //! Wave 2 implements it by fetching the signed document and calling
@@ -98,6 +117,11 @@ pub fn now_unix() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
+/// How much newer (`issued_at`, seconds) a lower-versioned catalogue may be
+/// than the held one and still replace it (zuu#1067). The platform's own
+/// regressions last about 60 s, about 5 minutes with clock skew.
+pub const VERSION_REGRESSION_WINDOW_SECS: u64 = 600;
+
 /// What [`State::install`] did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Installed {
@@ -115,6 +139,8 @@ pub enum Installed {
 #[derive(Debug, Default)]
 pub struct State {
     current: RwLock<Option<Arc<VerifiedCatalog>>>,
+    /// The highest version ever installed. Only ever rises.
+    high_water: std::sync::atomic::AtomicU64,
 }
 
 impl State {
@@ -134,15 +160,35 @@ impl State {
             return Installed::Expired;
         }
         let mut guard = self.current.write().unwrap_or_else(|p| p.into_inner());
+        let high_water = self.high_water.load(std::sync::atomic::Ordering::SeqCst);
         if let Some(existing) = guard.as_ref() {
-            let (have, offered) = (existing.catalog().version, candidate.catalog().version);
-            if offered < have {
-                return Installed::Older;
-            }
-            if offered == have {
+            let (held, offered) = (existing.catalog(), candidate.catalog());
+            if offered.version == held.version {
                 return Installed::Unchanged;
             }
+            let newer_issue = offered.issued_at > held.issued_at;
+            if offered.version < held.version {
+                let within = offered.issued_at.saturating_sub(held.issued_at)
+                    <= VERSION_REGRESSION_WINDOW_SECS;
+                if !(newer_issue && within) {
+                    return Installed::Older;
+                }
+                tracing::warn!(
+                    held = held.version,
+                    offered = offered.version,
+                    "installing a lower catalogue version: its issued_at is newer and within the \
+                     regression window (zuu#1067)"
+                );
+            } else if offered.version <= high_water && offered.issued_at < held.issued_at {
+                // Higher than what is held only because a regression was
+                // accepted, and older than what is held: the superseded copy.
+                return Installed::Older;
+            }
         }
+        self.high_water.fetch_max(
+            candidate.catalog().version,
+            std::sync::atomic::Ordering::SeqCst,
+        );
         *guard = Some(Arc::new(candidate));
         Installed::Replaced
     }
@@ -174,10 +220,13 @@ pub(crate) async fn poll(
                         metrics.set_catalog_version(version);
                     }
                     Installed::Unchanged => {}
-                    Installed::Older => tracing::warn!(
-                        version,
-                        "refused a catalogue older than the one in use (replay?)"
-                    ),
+                    Installed::Older => {
+                        metrics.record_catalog_replay();
+                        tracing::warn!(
+                            version,
+                            "refused a catalogue older than the one in use (replay?)"
+                        );
+                    }
                     Installed::Expired => {
                         tracing::warn!(version, "refused an expired catalogue");
                     }
@@ -200,12 +249,73 @@ mod tests {
     use super::*;
 
     fn catalog(version: u64, expires_at: u64) -> VerifiedCatalog {
+        issued(version, 1, expires_at)
+    }
+
+    fn issued(version: u64, issued_at: u64, expires_at: u64) -> VerifiedCatalog {
         let text = include_str!("../../f2z-ai-proto/fixtures/catalog/catalog.json");
         let mut c: Catalog = serde_json::from_str(text).unwrap();
         c.version = version;
-        c.issued_at = 1;
+        c.issued_at = issued_at;
         c.expires_at = expires_at;
         VerifiedCatalog::from_verified(c).unwrap()
+    }
+
+    #[test]
+    fn a_lower_version_with_a_newer_issue_within_the_window_is_installed() {
+        let state = State::default();
+        let t = 1_000;
+        assert_eq!(
+            state.install(issued(50, t, t + 3600), t),
+            Installed::Replaced
+        );
+        // The platform's regression: lower version, issued 60 s later.
+        assert_eq!(
+            state.install(issued(49, t + 60, t + 3600), t + 60),
+            Installed::Replaced
+        );
+        assert_eq!(state.current(t + 60).unwrap().catalog().version, 49);
+        // The superseded higher version, replayed: refused, though it is
+        // "higher" than what is held now.
+        assert_eq!(
+            state.install(issued(50, t, t + 3600), t + 61),
+            Installed::Older
+        );
+        // A genuinely newer one is installed as usual.
+        assert_eq!(
+            state.install(issued(51, t + 120, t + 3600), t + 120),
+            Installed::Replaced
+        );
+    }
+
+    #[test]
+    fn a_lower_version_outside_the_window_or_not_newer_is_a_replay() {
+        let state = State::default();
+        let t = 1_000;
+        assert_eq!(
+            state.install(issued(50, t, t + 3600), t),
+            Installed::Replaced
+        );
+        // Older issue: a replay.
+        assert_eq!(
+            state.install(issued(49, t - 1, t + 3600), t),
+            Installed::Older
+        );
+        // Same issue instant: not newer.
+        assert_eq!(state.install(issued(49, t, t + 3600), t), Installed::Older);
+        // Newer, but beyond the window.
+        let late = t + VERSION_REGRESSION_WINDOW_SECS + 1;
+        assert_eq!(
+            state.install(issued(49, late, late + 3600), late),
+            Installed::Older
+        );
+        // The boundary itself is inside.
+        let edge = t + VERSION_REGRESSION_WINDOW_SECS;
+        assert_eq!(
+            state.install(issued(49, edge, edge + 3600), edge),
+            Installed::Replaced
+        );
+        assert_eq!(state.current(edge).unwrap().catalog().version, 49);
     }
 
     #[test]

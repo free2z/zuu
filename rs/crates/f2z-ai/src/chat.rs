@@ -2,6 +2,12 @@
 //!
 //! In order, each step failing as an HTTP error before any stream begins:
 //!
+//! 0. **Authentication and limits** ([`crate::auth`], chat-api.md §2.2 steps
+//!    1–2): the bearer token, revocation (fail closed), the `ai:invoke`
+//!    scope, then the per-user concurrency lease and the rate limits —
+//!    before a byte of the body is read, so an unauthenticated client cannot
+//!    make the gateway buffer 20 MiB. The lease is parked on the call's
+//!    admission slot and released with it, after the call is settled.
 //! 1. `Idempotency-Key`, if present, is 1–128 printable ASCII (chat-api.md §1).
 //! 2. `Content-Type` is `application/json`.
 //! 3. **Body limits** (chat-api.md §1): at most `max_body_bytes_with_images`
@@ -19,8 +25,8 @@
 //!    read at provider speed and delivered through a bounded buffer. This
 //!    build's backend is [`NotImplemented`].
 //!
-//! Authentication, rate limits and the hold (chat-api.md §2.2 steps 1, 2, 5,
-//! 6) are Wave 2 and slot in between 4 and 6.
+//! The output clamp and the hold (chat-api.md §2.2 steps 5, 6) are the
+//! metering layer's and slot in between 5 and 7.
 //!
 //! # Nothing here quotes the request
 //!
@@ -45,6 +51,7 @@ use http_body_util::BodyExt as _;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 
 use crate::admission::CallHandle;
+use crate::auth::Gatekeeper;
 use crate::call::{self, Upstream};
 use crate::catalog::{self, VerifiedCatalog};
 use crate::error::ApiFailure;
@@ -116,6 +123,8 @@ impl ChatBackend for NotImplemented {
 /// What the handler needs.
 #[derive(Clone)]
 pub struct ChatState {
+    /// Authentication and limits.
+    pub gate: Arc<dyn Gatekeeper>,
     /// The backend.
     pub backend: Arc<dyn ChatBackend>,
     /// The catalogue in use.
@@ -158,6 +167,16 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
             "request reached /v1/chat without admission",
         ));
     };
+    let admitted = state.gate.admit(&parts.headers).await?;
+    if let Some(lease) = admitted.lease
+        && !call.attach_lease(lease)
+    {
+        return Err(ApiFailure::new(
+            ErrorCode::Internal,
+            "the call's concurrency slot was already taken",
+        ));
+    }
+    call.set_principal(admitted.principal);
     check_headers(&parts.headers)?;
     let (bytes, upload) = read_body(state, &parts.headers, body).await?;
     let request = decode(&bytes, state.max_body_bytes)?;
