@@ -20,7 +20,7 @@ use f2z_kt::logging::{self, Level};
 use f2z_kt::{hexbytes, server};
 
 const USAGE: &str = "\
-f2z-kt — the free2z key-transparency log server (docs/e2ee/KT.md v1)
+f2z-kt — the free2z key-transparency log server (docs/free2z/messaging/KT.md v1)
 
 USAGE:
     f2z-kt serve --config FILE [--log-level LEVEL]

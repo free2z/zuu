@@ -7,7 +7,7 @@
 //
 // It used to be `scripts/check-zcash-permissions.mjs`, hard-coded to
 // `tauri-plugin-zcash` in its path, its `zcash:` namespace, its registry macro
-// and its consumer's schema directory. `docs/e2ee/CLIENT-CONTRACT.md` §12.3
+// and its consumer's schema directory. `docs/free2z/messaging/CLIENT-CONTRACT.md` §12.3
 // anticipated the second plugin and concluded it "has to be written, not
 // parameterized: nothing in the existing script generalizes past the hard-coded
 // plugin path, namespace and schema directory".

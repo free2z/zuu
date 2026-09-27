@@ -1,6 +1,6 @@
 //! Where the refresh token lives between runs.
 //!
-//! `docs/sdk/spec/oidc.md` §8: in the OS keychain where one exists — macOS
+//! `docs/free2z/sdk/spec/oidc.md` §8: in the OS keychain where one exists — macOS
 //! Keychain, Windows Credential Manager, the iOS Keychain, Android
 //! Keystore-backed storage, Secret Service on Linux — with an in-memory
 //! fallback that the SDK **reports** ([`TokenStore::persistence`],

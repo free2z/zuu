@@ -235,9 +235,9 @@ break a build.
 Two nuances that make "nothing else consumes `z/`" not strictly true, and one
 piece of housekeeping:
 
-* **`langchain/zcash/store.py` reads two submodules as document corpora.** It
-  loads `../../z/ZcashFoundation/zebra/` (`.rs`, `.toml`, `.yaml`, `.md`,
-  `.json`, `.proto`) and `../../z/zcash/zips/` (`.rst`) into a Chroma vector
+* **`py/experiments/zcash-rag/store.py` reads two submodules as document corpora.** It
+  loads `../../../z/ZcashFoundation/zebra/` (`.rs`, `.toml`, `.yaml`, `.md`,
+  `.json`, `.proto`) and `../../../z/zcash/zips/` (`.rst`) into a Chroma vector
   store. Not a build input, but a consumer: emptying or moving either path
   changes what the retriever indexes.
 * **`z/zcash/zcash` is archived upstream** (`archived: true`, last push

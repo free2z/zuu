@@ -1,6 +1,6 @@
 //! This device's public keys, for the `issue-device-credential` intent (#905).
 //!
-//! `docs/e2ee/ARCHITECTURE.md` §4.2 splits the messaging key material in two:
+//! `docs/free2z/messaging/ARCHITECTURE.md` §4.2 splits the messaging key material in two:
 //!
 //! - **Account keys** — `IdentitySigningKey`, `DirectoryAuthKey`,
 //!   `BackupWrapKey` — are *seed-derived*, so restoring the mnemonic restores
@@ -28,7 +28,7 @@
 //!    the system, whose output would then have to be smuggled *back* into the
 //!    engine for the credential to be worth anything, and
 //! 2. a private key in a garbage-collected JavaScript heap — the same exposure
-//!    `docs/e2ee/CLIENT-CONTRACT.md` §2.2 refuses for the wallet seed.
+//!    `docs/free2z/messaging/CLIENT-CONTRACT.md` §2.2 refuses for the wallet seed.
 //!
 //! So this command returns public halves and nothing else. There is no
 //! argument, no secret in the response, and no path from here to a private
@@ -38,7 +38,7 @@
 //!
 //! §2.2's rule: app-crate commands carry no `plugin:` prefix and need no
 //! capability entry, and `tauri-plugin-f2zmsg`'s command surface is the
-//! population `docs/e2ee/CLIENT-CONTRACT.md` §3 pins and
+//! population `docs/free2z/messaging/CLIENT-CONTRACT.md` §3 pins and
 //! `wallet/zuuli/scripts/messaging-contract.node-test.mjs` compares in both
 //! directions. This is not a messaging operation — it is enrollment's
 //! preparation, which is precisely the thing §2.2 keeps out of the plugin's

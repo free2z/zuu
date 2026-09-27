@@ -4,7 +4,7 @@
 // Each type is declared once as a runtime schema with the static type derived
 // from it, because `invoke<T>()` never checks the shape it asserts: a renamed
 // backend field ships as `undefined` and nothing fails until a user sees a
-// blank row. `docs/e2ee/CLIENT-CONTRACT.md` §4.1.
+// blank row. `docs/free2z/messaging/CLIENT-CONTRACT.md` §4.1.
 
 import { z } from "zod";
 

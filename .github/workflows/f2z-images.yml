@@ -22,7 +22,7 @@ on:
       - .github/workflows/f2z-images.yml
       - scripts/check-f2z-images.mjs
       - scripts/check-rust-toolchain.sh
-      - wallet/rust-toolchain.toml
+      - rust-toolchain.toml
   push:
     branches: [main]
     paths:
@@ -30,7 +30,7 @@ on:
       - .github/workflows/f2z-images.yml
       - scripts/check-f2z-images.mjs
       - scripts/check-rust-toolchain.sh
-      - wallet/rust-toolchain.toml
+      - rust-toolchain.toml
   # A weekly rebuild. The base images are digest-pinned, so this does not drift
   # them; what it does catch is a build that stopped working for a reason
   # nobody's pull request touched — a yanked crate, a registry that moved.
@@ -89,7 +89,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
-      # The compiler version is decided in wallet/rust-toolchain.toml and read
+      # The compiler version is decided in rust-toolchain.toml and read
       # from it here. An action input cannot read TOML, and a version restated
       # in this file would be one more thing to drift; rs/Dockerfile refuses to
       # build if what arrives disagrees with the workspace's toolchain file.

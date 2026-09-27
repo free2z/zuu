@@ -1,5 +1,5 @@
 //! The signed-in free2z session, held natively for the one caller that cannot
-//! be handed one — [ADR 0017](../../../../docs/e2ee/decisions/0017-internal-directory-activation.md)
+//! be handed one — [ADR 0017](../../../../docs/free2z/messaging/decisions/0017-internal-directory-activation.md)
 //! §4.1's follow-up, argued here on its own merits.
 //!
 //! # Why this exists at all
@@ -50,7 +50,7 @@
 //! a hostile embed.
 //!
 //! What bounds it is the publishing path rather than this module
-//! ([ADR 0017](../../../../docs/e2ee/decisions/0017-internal-directory-activation.md)
+//! ([ADR 0017](../../../../docs/free2z/messaging/decisions/0017-internal-directory-activation.md)
 //! §4.1), and the bound is the reason that path is ordered the way it is:
 //!
 //! - **Nothing about this wallet is disclosed before the confirmation.** The

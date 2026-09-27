@@ -1,4 +1,4 @@
-//! The AI gateway (`ai.free2z.cash/v1`, `docs/sdk/spec/chat-api.md`):
+//! The AI gateway (`ai.free2z.cash/v1`, `docs/free2z/sdk/spec/chat-api.md`):
 //! streamed chat, the models list, estimates and call records.
 //!
 //! Wire types are `f2z_ai_proto`'s; this module adds the transport and the

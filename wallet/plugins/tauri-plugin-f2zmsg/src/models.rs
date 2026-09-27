@@ -5,7 +5,7 @@
 //! frontend declares each shape once as a `zod` schema and parses the engine's
 //! answer against it, so a field renamed here fails loudly in the dev build and
 //! in `ALWAYS_PARSED` commands in every build
-//! (`docs/e2ee/CLIENT-CONTRACT.md` §4.1).
+//! (`docs/free2z/messaging/CLIENT-CONTRACT.md` §4.1).
 //!
 //! Three conventions, all of them load-bearing:
 //!

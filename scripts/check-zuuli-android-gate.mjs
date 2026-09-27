@@ -13,8 +13,8 @@ const toolchainEnvPath = "wallet/zuuli/scripts/android-toolchain-env.sh";
 const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
-// Re-derived for #1072 to include the native SDK/proto dependencies and mobile
-// check script. No existing selector arm was narrowed.
+// Re-derived after #1072 adds SDK/proto/mobile-check selectors.
+// Re-derived for #1084: root canonical toolchain added; wallet restatement remains.
 // Re-derived for #984's distinct Rust output. The broad selecting arm, native
 // configuration inputs, and existing prose/test exclusions are unchanged.
 // Only TS/TSX/CSS beneath the three app src/ trees can leave rust=false, with
@@ -26,13 +26,13 @@ const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 // changed. This digest remains the exact selector tripwire; changing it alone
 // cannot bypass the independent executable selector and required-job controls.
 const changeDetectorDigest =
-  "fb098ecd5681822888a627526cc01cb1d32dde07c824df015c0f65e9ad33005e";
+  "c5a293405ab6fae81f95ccea6a158519bf82bb12794545050788e2b72dd2c010";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
 const messagingContractInputs = [
-  "docs/e2ee/CLIENT-CONTRACT.md",
-  "docs/e2ee/WIRE.md",
+  "docs/free2z/messaging/CLIENT-CONTRACT.md",
+  "docs/free2z/messaging/WIRE.md",
 ];
 const requiredWalletBoundarySelectors = [
   "wallet/shared/*",

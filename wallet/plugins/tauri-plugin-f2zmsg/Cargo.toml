@@ -6,7 +6,7 @@ rust-version = "1.97"
 # Never goes to a registry: the wallet crates are consumed by path only. This is
 # also what lets wallet/deny.toml skip them under `licenses.private.ignore`.
 publish = false
-description = "Tauri plugin for free2z end-to-end encrypted messaging (docs/e2ee/CLIENT-CONTRACT.md §3)"
+description = "Tauri plugin for free2z end-to-end encrypted messaging (docs/free2z/messaging/CLIENT-CONTRACT.md §3)"
 # `tauri_plugin::Builder` requires it, and the value is the crate name. The
 # plugin's *identifier* — the `f2zmsg` in `plugin:f2zmsg|send_message` and in
 # `f2zmsg:allow-send-message` — is the crate name minus the `tauri-plugin-`

@@ -97,7 +97,7 @@ use crate::wire::{
 /// [`HEARTBEAT_VALUE_LABEL`], and `H(label, x) = BLAKE2b-256(label || x)` has no
 /// separator — so `H("…/heartbeat", "-value" || y)` would be bit-identical to
 /// `H("…/heartbeat-value", y)`. That is zuu#602's defect in miniature, and
-/// `scripts/check-hash-domain-labels.mjs` caught it here before it shipped.
+/// `scripts/free2z/check-hash-domain-labels.mjs` caught it here before it shipped.
 pub const HEARTBEAT_LABEL: &[u8] = b"free2z/kt/v1/heartbeat:";
 
 /// The domain-separation label for a heartbeat's value.

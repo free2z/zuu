@@ -103,10 +103,10 @@ test("the upload certificate in assetlinks.json is rejected", () => {
 
 test("every shipped package and bundle id appears in both documents", () => {
   const assetlinks = defaultReader().repo(
-    "docs/intent-bridge/association/assetlinks.json",
+    "docs/free2z/intent-bridge/association/assetlinks.json",
   );
   const aasa = defaultReader().repo(
-    "docs/intent-bridge/association/apple-app-site-association.json",
+    "docs/free2z/intent-bridge/association/apple-app-site-association.json",
   );
   for (const app of APPS) {
     assert.ok(
@@ -135,7 +135,7 @@ test("every shipped package and bundle id appears in both documents", () => {
 test("a package missing from a document is rejected", () => {
   const options = {
     read: readerWith({
-      "docs/intent-bridge/association/assetlinks.json": (contents) =>
+      "docs/free2z/intent-bridge/association/assetlinks.json": (contents) =>
         JSON.stringify(
           JSON.parse(contents).filter(
             (statement) => statement.target.package_name !== "cash.free2z.e2e2z",
@@ -164,7 +164,7 @@ test("an App ID missing from the Apple document is rejected", () => {
   assertRejects(
     {
       read: readerWith({
-        "docs/intent-bridge/association/apple-app-site-association.json": (
+        "docs/free2z/intent-bridge/association/apple-app-site-association.json": (
           contents,
         ) => contents.replace(`${APPLE_TEAM_ID}.cash.free2z.free2z`, "OTHERTEAM.cash.free2z.free2z"),
       }),

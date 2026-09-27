@@ -173,7 +173,7 @@ async fn a_retained_request_keeps_its_upload_reservation_until_the_head() {
     let config = config(&[
         ("F2Z_AI_MAX_BODY_BYTES", "1000"),
         ("F2Z_AI_MAX_BODY_BYTES_WITH_IMAGES", "1000"),
-        ("F2Z_AI_MAX_UPLOAD_BUFFER_BYTES", "1200"),
+        ("F2Z_AI_MAX_UPLOAD_BUFFER_BYTES", "25000"),
     ]);
     let running = start(
         &config,
@@ -195,7 +195,7 @@ async fn a_retained_request_keeps_its_upload_reservation_until_the_head() {
     let public = running.public;
     let slow = tokio::spawn(async move { text(post_chat(public, &first).await).await });
     tokio::time::sleep(Duration::from_millis(300)).await;
-    // The first call is waiting for its head and still holds ~700 bytes.
+    // The first call is waiting for its head and still holds its raw bytes plus decoded-memory reservation.
     let refused = post_chat(running.public, &padded(700)).await;
     assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
     let body = slow.await.unwrap();

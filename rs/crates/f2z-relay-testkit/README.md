@@ -3,7 +3,7 @@
 A spec-conforming free2z relay you can break on purpose, so a client can be
 built and tested **before `f2z-relay` exists**.
 
-It implements [`docs/e2ee/WIRE.md`](../../../docs/e2ee/WIRE.md) v1 §2 through
+It implements [`docs/free2z/messaging/WIRE.md`](../../../docs/free2z/messaging/WIRE.md) v1 §2 through
 §13 on top of `f2z-codec` (canonical encoding, framing, re-encode equality) and
 `f2z-relay-proto` (the signing transcript, anti-replay, queue and ACK rules, the
 capability document). Nothing in those two crates is reimplemented here — a

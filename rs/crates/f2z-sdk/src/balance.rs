@@ -1,4 +1,4 @@
-//! `GET /api/sdk/v1/balance` (`docs/sdk/spec/purchase.md` §1.1).
+//! `GET /api/sdk/v1/balance` (`docs/free2z/sdk/spec/purchase.md` §1.1).
 
 use f2z_ai_proto::balance::Balance;
 

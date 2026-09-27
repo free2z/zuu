@@ -56,8 +56,8 @@
 //! With an ordinary rowid table both would be an index probe per row into a
 //! heap ordered by insertion across every queue on the relay.
 //!
-//! [s64]: https://github.com/free2z/zuu/blob/main/docs/e2ee/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
-//! [s45]: https://github.com/free2z/zuu/blob/main/docs/e2ee/THREAT-MODEL.md#45-server-side-deletion-is-auditable-not-verifiable
+//! [s64]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
+//! [s45]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/THREAT-MODEL.md#45-server-side-deletion-is-auditable-not-verifiable
 
 use std::collections::HashMap;
 use std::path::Path;

@@ -2,7 +2,7 @@
 #
 # See rs/README.md for why this tree exists, why it is named `rs/`, and why a
 # fourth package root here sits inside the workspace boundary decided for #341
-# in docs/architecture/CARGO-WORKSPACE.md rather than cutting across it.
+# in docs/free2z/app-suite/build/CARGO-WORKSPACE.md rather than cutting across it.
 
 [workspace]
 resolver = "3"
