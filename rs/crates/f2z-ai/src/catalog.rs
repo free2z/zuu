@@ -31,7 +31,10 @@
 //! * a lower version is installed iff its `issued_at` is at or above the
 //!   floor — within the bound of the newest catalogue seen, not merely of the
 //!   one held, so two catalogues cannot trade places for longer than the
-//!   bound: once a newer one arrives the floor moves past the older;
+//!   bound: once a newer one arrives the floor moves past the older — **and**
+//!   within the bound of now, since a legitimate dip is always fresh, so a
+//!   stale source replaying a superseded catalogue hours later is refused
+//!   even if nothing newer was installed meanwhile;
 //! * anything below the floor is a **replay**: the held copy stays, and the
 //!   refusal is logged and counted (`f2z_ai_catalog_replays_total`), which is
 //!   the series to alert on. A legitimate regression never increments it.
@@ -205,6 +208,17 @@ impl State {
                 .load(std::sync::atomic::Ordering::SeqCst)
                 .saturating_sub(self.regression_bound);
             if offered.issued_at < floor {
+                return Installed::Older;
+            }
+            // A lower version is a *fresh* dip or nothing: the producer's
+            // versions are never older than its current window, so a
+            // legitimately lower one is issued within the bound of now.
+            // Without this, a stale cache replaying a superseded catalogue
+            // hours later would still clear a floor that only moves on
+            // installs (codex).
+            if offered.version < held.version
+                && offered.issued_at < now.saturating_sub(self.regression_bound)
+            {
                 return Installed::Older;
             }
             if offered.version < held.version {
@@ -444,6 +458,23 @@ mod tests {
             task.await.unwrap();
             assert_eq!(replays(&metrics), want);
         }
+    }
+
+    #[test]
+    fn a_stale_lower_version_is_a_replay_even_if_nothing_newer_arrived() {
+        let state = State::default();
+        assert_eq!(state.install(produced(T * US), T), Installed::Replaced);
+        assert_eq!(
+            state.install(produced((T + 60) * US), T + 60),
+            Installed::Replaced
+        );
+        // Three hours later a stale source offers the superseded one.
+        assert_eq!(
+            state.install(produced(T * US), T + 3 * 3600),
+            Installed::Older
+        );
+        // At the time of the dip it would have been accepted.
+        assert_eq!(state.install(produced(T * US), T + 60), Installed::Replaced);
     }
 
     #[test]

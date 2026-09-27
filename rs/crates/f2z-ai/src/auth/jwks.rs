@@ -105,7 +105,7 @@ pub struct KeyCache {
     source: Arc<dyn KeySource>,
     set: RwLock<Arc<KeySet>>,
     /// Serialises fetches, so a burst of unknown-`kid` tokens costs one.
-    fetching: tokio::sync::Mutex<()>,
+    fetching: Arc<tokio::sync::Mutex<()>>,
     /// Bounds the callers queued behind an in-flight fetch.
     waiters: tokio::sync::Semaphore,
     last_attempt: Mutex<Option<Instant>>,
@@ -171,7 +171,7 @@ impl KeyCache {
         Self {
             source,
             set: RwLock::new(Arc::new(KeySet::default())),
-            fetching: tokio::sync::Mutex::new(()),
+            fetching: Arc::new(tokio::sync::Mutex::new(())),
             waiters: tokio::sync::Semaphore::new(MAX_REFRESH_WAITERS),
             last_attempt: Mutex::new(None),
             last_ok: std::sync::atomic::AtomicBool::new(false),
@@ -242,8 +242,13 @@ impl KeyCache {
     /// ([`Refresh::Busy`]): during an issuer outage, tokens with unknown
     /// `kid`s are answered `503` at once rather than parked on admission
     /// slots behind a slow issuer.
-    pub async fn refresh(&self) -> Refresh {
-        let one = if let Ok(guard) = self.fetching.try_lock() {
+    ///
+    /// The fetch itself runs on its own task, holding the fetch lock: a
+    /// caller that is cancelled mid-fetch (its client hung up) cannot leave
+    /// the attempt stamped but its outcome unrecorded, which would keep the
+    /// cache "healthy" and answer a rotated key `401` for a minute (codex).
+    pub async fn refresh(self: &Arc<Self>) -> Refresh {
+        let one = if let Ok(guard) = Arc::clone(&self.fetching).try_lock_owned() {
             guard
         } else if self.healthy() {
             // A fetch is in flight. At most MAX_REFRESH_WAITERS callers wait
@@ -256,7 +261,7 @@ impl KeyCache {
             };
             match tokio::time::timeout(
                 FETCH_TIMEOUT.saturating_add(Duration::from_secs(1)),
-                self.fetching.lock(),
+                Arc::clone(&self.fetching).lock_owned(),
             )
             .await
             {
@@ -264,7 +269,7 @@ impl KeyCache {
                 Err(_) => return Refresh::Busy,
             }
         } else {
-            match self.fetching.try_lock() {
+            match Arc::clone(&self.fetching).try_lock_owned() {
                 Ok(guard) => guard,
                 Err(_) => return Refresh::Busy,
             }
@@ -272,6 +277,15 @@ impl KeyCache {
         if !self.claim_attempt() {
             return Refresh::Skipped;
         }
+        let this = Arc::clone(self);
+        let task = tokio::spawn(async move { this.fetch_holding(one).await });
+        // A task that panicked recorded nothing; report it as having run.
+        let _ = task.await;
+        Refresh::Ran
+    }
+
+    /// One fetch, recorded, with the fetch lock held throughout.
+    async fn fetch_holding(&self, one: tokio::sync::OwnedMutexGuard<()>) {
         self.fetches
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let fetched = tokio::time::timeout(FETCH_TIMEOUT, self.source.fetch())
@@ -309,7 +323,6 @@ impl KeyCache {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Instant::now());
         drop(one);
-        Refresh::Ran
     }
 
     /// The key for `kid`.
@@ -483,6 +496,8 @@ mod tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             let doc = self.doc.lock().unwrap().clone();
             if doc.is_empty() {
+                // Down, and slow to say so: a caller can be cancelled mid-fetch.
+                tokio::time::sleep(Duration::from_millis(100)).await;
                 Err("down".into())
             } else {
                 Ok(doc)
@@ -593,6 +608,30 @@ mod tests {
             "{:?}",
             started.elapsed()
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_cancelled_refresh_still_records_its_failure() {
+        let source = Arc::new(Counting {
+            calls: AtomicU32::new(0),
+            doc: Mutex::new(doc(&["a"])),
+        });
+        let cache = Arc::new(KeyCache::new(source.clone(), Duration::from_secs(60)));
+        assert!(matches!(cache.lookup("a").await, Lookup::Found(_)));
+        // The issuer goes down; the request that would refresh is cancelled
+        // almost at once (its client hung up).
+        source.doc.lock().unwrap().clear();
+        *cache.last_attempt.lock().unwrap() = None;
+        let refresh = Arc::clone(&cache);
+        let _ = tokio::time::timeout(
+            Duration::from_millis(1),
+            async move { refresh.refresh().await },
+        )
+        .await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        // The failure was recorded: an unknown kid is 503, not 401.
+        assert!(!cache.healthy());
+        assert_eq!(cache.lookup("b").await, Lookup::Unavailable);
     }
 
     #[tokio::test]
