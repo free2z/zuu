@@ -201,6 +201,11 @@ pub enum Fault {
     /// Send exactly `byte` bytes of the stream body — possibly ending in the
     /// middle of a frame — then drop the connection without terminating the
     /// chunked body. A `byte` beyond the stream's length never fires.
+    ///
+    /// The prefix is exact when the client reads as the bytes arrive. A client
+    /// that is not reading when the drop lands may receive fewer than `byte`
+    /// bytes, because the HTTP server can discard what it still buffers when
+    /// the body fails.
     DisconnectAtByte {
         /// How many body bytes to send before the drop.
         byte: u64,

@@ -345,10 +345,19 @@ async fn handle(
                     permit.send(item);
                 }
                 if steps.aborted() {
-                    // Let the body stream go idle first so hyper flushes the
-                    // bytes already written: an error on the very next poll
-                    // tears the connection down with them still buffered,
-                    // and the client would see fewer than `byte` bytes.
+                    // Let hyper take every frame, then let the body go idle
+                    // so it flushes them: an error on the very next poll
+                    // tears the connection down with bytes still buffered,
+                    // and the client would see fewer than `byte`. Exact only
+                    // while the reader keeps up — under backpressure hyper
+                    // may still hold part of the prefix when the error lands
+                    // (see `Fault::DisconnectAtByte`).
+                    while tx.capacity() < tx.max_capacity() {
+                        if tx.is_closed() {
+                            return;
+                        }
+                        tokio::time::sleep(core::time::Duration::from_millis(1)).await;
+                    }
                     tokio::time::sleep(ABORT_FLUSH_GRACE).await;
                     let _ = tx
                         .send(Err(io::Error::new(

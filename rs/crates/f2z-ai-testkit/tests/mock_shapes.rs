@@ -397,3 +397,12 @@ fn a_long_stream_is_generated_lazily_and_its_prefix_is_exact() {
     let prefix: Vec<u8> = first.iter().take(4).flat_map(|s| s.bytes.clone()).collect();
     assert_eq!(&full[..prefix.len()], &prefix[..], "same frames either way");
 }
+
+#[test]
+fn a_long_responses_stream_is_lazy_too() {
+    let long = Scenario::default().with_output_tokens(1_000_000);
+    let Plan::Stream(s) = plan(ProviderStyle::OpenAiResponses, &long, &ctx(true)) else {
+        panic!("expected a stream")
+    };
+    assert_eq!(s.steps().take(6).count(), 6);
+}

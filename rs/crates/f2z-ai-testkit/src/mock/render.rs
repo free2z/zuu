@@ -388,6 +388,11 @@ impl Out {
         }
     }
 
+    /// One frame, built only when it is written.
+    fn lazy(&mut self, make: Gen) {
+        self.run(1, Duration::ZERO, None, make);
+    }
+
     /// The number of frames so far — also the next Responses
     /// `sequence_number`, since every frame there is one event.
     fn len(&self) -> u64 {
@@ -411,14 +416,24 @@ fn word(i: u64) -> &'static str {
     WORDS.get(idx).copied().unwrap_or("x ")
 }
 
-fn visible_text(scenario: &Scenario) -> String {
+/// The visible text of `n` tokens.
+fn text_of(n: u64) -> String {
     let mut s = String::new();
     let mut i: u64 = 0;
-    while i < scenario.visible_tokens() {
+    while i < n {
         s.push_str(word(i));
         i = i.saturating_add(1);
     }
     s
+}
+
+fn output_text_part(visible: u64) -> Value {
+    json!({"type": "output_text", "text": text_of(visible), "annotations": []})
+}
+
+fn message_item(msg_id: &str, visible: u64) -> Value {
+    json!({"id": msg_id, "type": "message", "status": "completed",
+           "role": "assistant", "content": [output_text_part(visible)]})
 }
 
 // ---------------------------------------------------------------------------
@@ -430,7 +445,6 @@ fn responses(scenario: &Scenario, ctx: &RenderContext) -> Vec<Segment> {
     let msg_id = format!("msg_mock_{}", ctx.request_seq);
     let rs_id = format!("rs_mock_{}", ctx.request_seq);
     let reasoning = scenario.effective_reasoning_tokens();
-    let text = visible_text(scenario);
     let response = |status: &str, output: Value, usage: Value| {
         json!({
             "id": id, "object": "response", "created_at": CREATED,
@@ -450,7 +464,7 @@ fn responses(scenario: &Scenario, ctx: &RenderContext) -> Vec<Segment> {
         &json!({"type": "response.in_progress", "sequence_number": seq(&out), "response": empty}),
     );
 
-    let mut output = Vec::new();
+    let mut reasoning_item = None;
     let mut output_index: u64 = 0;
     if reasoning > 0 {
         let item = json!({"id": rs_id, "type": "reasoning", "summary": []});
@@ -465,7 +479,7 @@ fn responses(scenario: &Scenario, ctx: &RenderContext) -> Vec<Segment> {
             &json!({"type": "response.output_item.done", "sequence_number": seq(&out),
                     "output_index": output_index, "item": item}),
         );
-        output.push(item);
+        reasoning_item = Some(item);
         output_index = 1;
     }
 
@@ -497,27 +511,36 @@ fn responses(scenario: &Scenario, ctx: &RenderContext) -> Vec<Segment> {
             )
         }),
     );
-    out.named(
-        "response.output_text.done",
-        &json!({"type": "response.output_text.done", "sequence_number": seq(&out),
-                "item_id": msg_id, "output_index": output_index, "content_index": 0,
-                "text": text, "logprobs": []}),
-    );
-    let part = json!({"type": "output_text", "text": text, "annotations": []});
-    out.named(
-        "response.content_part.done",
-        &json!({"type": "response.content_part.done", "sequence_number": seq(&out),
-                "item_id": msg_id, "output_index": output_index, "content_index": 0,
-                "part": part}),
-    );
-    let message = json!({"id": msg_id, "type": "message", "status": "completed",
-                         "role": "assistant", "content": [part]});
-    out.named(
-        "response.output_item.done",
-        &json!({"type": "response.output_item.done", "sequence_number": seq(&out),
-                "output_index": output_index, "item": message}),
-    );
-    output.push(message);
+    // The closing frames each repeat the whole text, as the real API does.
+    // They are built when written, one at a time, so a long stream holds no
+    // copy of its text until its last few frames.
+    let visible = scenario.visible_tokens();
+    let (m, s0) = (msg_id.clone(), out.len());
+    out.lazy(Box::new(move |_| {
+        named_bytes(
+            "response.output_text.done",
+            &json!({"type": "response.output_text.done", "sequence_number": s0,
+                    "item_id": m, "output_index": output_index, "content_index": 0,
+                    "text": text_of(visible), "logprobs": []}),
+        )
+    }));
+    let (m, s1) = (msg_id.clone(), out.len());
+    out.lazy(Box::new(move |_| {
+        named_bytes(
+            "response.content_part.done",
+            &json!({"type": "response.content_part.done", "sequence_number": s1,
+                    "item_id": m, "output_index": output_index, "content_index": 0,
+                    "part": output_text_part(visible)}),
+        )
+    }));
+    let (m, s2) = (msg_id.clone(), out.len());
+    out.lazy(Box::new(move |_| {
+        named_bytes(
+            "response.output_item.done",
+            &json!({"type": "response.output_item.done", "sequence_number": s2,
+                    "output_index": output_index, "item": message_item(&m, visible)}),
+        )
+    }));
 
     let usage = if scenario.omit_usage {
         Value::Null
@@ -536,11 +559,18 @@ fn responses(scenario: &Scenario, ctx: &RenderContext) -> Vec<Segment> {
             "total_tokens": input.saturating_add(scenario.output_tokens),
         })
     };
-    out.named(
-        "response.completed",
-        &json!({"type": "response.completed", "sequence_number": seq(&out),
-                "response": response("completed", Value::Array(output), usage)}),
-    );
+    let (m, s3, rid, model) = (msg_id, out.len(), id.clone(), ctx.model.clone());
+    out.lazy(Box::new(move |_| {
+        let mut items: Vec<Value> = reasoning_item.iter().cloned().collect();
+        items.push(message_item(&m, visible));
+        named_bytes(
+            "response.completed",
+            &json!({"type": "response.completed", "sequence_number": s3,
+                    "response": {"id": rid, "object": "response", "created_at": CREATED,
+                                 "status": "completed", "model": model,
+                                 "output": items, "usage": usage}}),
+        )
+    }));
     out.segs
 }
 
