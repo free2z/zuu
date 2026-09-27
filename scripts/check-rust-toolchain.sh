@@ -95,6 +95,9 @@ MANIFESTS=(
   # The AI gateway service skeleton (#1054). AGPL server binary; same
   # restatement as the other rs/ services.
   rs/crates/f2z-ai/Cargo.toml
+  # The AI gateway's test harness (#1053): mock providers and the in-memory
+  # ledger contract. MIT, native-only, linked by test suites.
+  rs/crates/f2z-ai-testkit/Cargo.toml
 )
 
 # Other rust-toolchain.toml files. Cargo picks the toolchain from the directory
