@@ -1,8 +1,8 @@
 # A restatement, never a second decision.
 #
 # The rs/ Docker build context excludes the repository root, so this copy is
-# required for isolated server image builds. Normal repository builds inherit
-# the root pin; this restatement must agree with that same source of truth.
+# required for isolated server image builds. Normal repository builds select
+# this restatement, whose version must agree with the root source of truth.
 # `scripts/check-rust-toolchain.sh` checks that its channel matches the root pin.
 # Do not bump this independently; change the root rust-toolchain.toml first.
 [toolchain]
