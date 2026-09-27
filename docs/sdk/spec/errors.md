@@ -13,7 +13,7 @@ crate; the SDKs map each code to user-facing copy so that app code
 switches on `code`, never on `message`. The codes in §2–§4 that the crate
 does not yet carry — `token_revoked`, `account_frozen`, `account_in_debt`,
 `app_disabled`, `call_not_found`, `idempotency_conflict`,
-`too_many_holds` — and the retryability of `internal` are **crate v0.x
+`too_many_holds`, `delivery_aborted` — and the retryability of `internal` are **crate v0.x
 follow-up: [#1052](https://github.com/free2z/zuu/issues/1052)**; until it
 lands, a client built on the crate sees them as `Unknown` and applies its
 default branch.
@@ -109,6 +109,7 @@ always `502` with the code preserved ([chat-api.md](./chat-api.md) §4).
 | 503 | `unavailable` | yes | See §2: draining, revocation state unknown, or the provider's circuit breaker open. Nothing charged |
 | 503 | `catalog_unavailable` | yes | The gateway has no verified, unexpired price catalogue and refuses to price anything |
 | 500 | `internal` | yes | A gateway fault. Nothing charged if before `meta`; otherwise settled from what is known. (The crate's `retryable()` answers `no` for `internal` today; the contract wants `yes` — crate v0.x follow-up: #1052.) A ledger answer the gateway did not expect (`markup_mismatch`, `unknown_rate_card`, [metering.md](./metering.md) §3) surfaces as this code with `details.reason`; the ledger's `revoked` surfaces as `401 token_revoked` |
+| (stream) | `delivery_aborted` | no | The per-stream delivery buffer (256 KiB) filled because the client read too slowly; delivery ends but the upstream read and the settlement continue ([chat-api.md](./chat-api.md) §2.4). `settlement: "pending"`; read `GET /v1/calls/{id}`. Not retryable: the call is still running. Crate v0.x follow-up: #1052 |
 | (SDK-local) | `stream_interrupted` | yes | **Not a gateway code** and not in `ErrorCode`: an SDK synthesises it when the connection closed without a terminal event, and it never appears in a call record — a call whose gateway died records `unavailable` ([metering.md](./metering.md) §5.6). Consult `GET /v1/calls/{id}` |
 
 A content-filter stop is **not an error** on any surface: it is

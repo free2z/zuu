@@ -52,20 +52,27 @@ of [metering.md](../../sdk/spec/metering.md) §5.6 holds.
   worker; memory per idle stream is measured in tens of kilobytes, and the
   load harness in `f2z-ai-testkit` proves the 10k-stream point against a
   mock provider before every release.
-- **Backpressure is explicit.** Provider bytes flow to the client through
-  a bounded channel; a slow client slows its own provider read rather than
-  buffering without limit. A client that disconnects does **not** abort
-  the provider call: once the upstream request has been sent the gateway
-  keeps reading it to completion — bounded by the `out_cap` already held
-  and the hard deadline — so that the provider's reported usage, which
-  includes reasoning tokens no stream ever carried, is what settles
-  ([metering.md](../../sdk/spec/metering.md) §5.3). Aborting would leave
-  the charge to an estimate that cannot see reasoning, and the provider
-  bills for the abandoned generation regardless. The same holds for a
-  client that stays connected but stops reading: after 30 s without a
-  successful delivery it is treated as disconnected, so a full channel
-  can never stall the upstream read past the point where the usage frame
-  is lost.
+- **Client backpressure never reaches the provider.** The upstream is
+  read at provider speed, always: the gateway never lets a client's read
+  rate throttle its own read of the provider, because a throttled
+  upstream read runs into the idle timeout or the 300 s limit, the
+  provider stream is cut before its usage frame, and the call falls back
+  to an estimate that cannot see reasoning tokens — an under-charge that
+  a trickle-reading client, or simply a slow mobile link, would produce
+  by accident. Undelivered output is buffered **per stream**, bounded at
+  **256 KiB** of event payload (about 64k tokens of text — more than most
+  `out_cap`s, and the output is already paid for by the hold). If a
+  stream's buffer fills, **delivery** is terminated — an `error` event
+  with `delivery_aborted` if the client is still connected — but the
+  upstream read continues to the usage frame and the call settles on
+  provider usage ([metering.md](../../sdk/spec/metering.md) §5.3). A
+  client that disconnects is the same case with no delivery at all: the
+  provider call is never aborted once its request has been sent. The
+  memory implication is stated so it is budgeted rather than discovered:
+  at the 10k-stream design point the worst case is 10k × 256 KiB = 2.5 GiB
+  of buffered output, reached only if every client stalls at once; a
+  healthy stream's buffer is near empty, and the load test measures the
+  buffered total under a deliberately stalled client population.
 - **Settlement never runs on the request future.** A guard hands the call
   to a detached settler task on completion, cancellation or error, so a
   client going away cannot prevent a settle, and a settle cannot delay the

@@ -18,8 +18,13 @@ fields and event names it does not know, so the gateway can add to them
 without breaking a deployed SDK. Where this document shows a response
 field, enum value or error code the crate does not yet define, it is
 marked **crate v0.x follow-up: #1052**
-([free2z/zuu#1052](https://github.com/free2z/zuu/issues/1052)); a client
-built on the crate alone tolerates it as an unknown field or variant.
+([free2z/zuu#1052](https://github.com/free2z/zuu/issues/1052)). A client
+built on the crate alone tolerates *most* of them as an unknown field or
+variant — but not all: today's `Done` requires `charged_2z` and
+`receipt_id`, so a `done` with `settlement: "pending"` or `"released"`
+(§3.6), where those are absent, does not decode until #1052 lands. An
+SDK on the current crate treats that decode failure as
+`stream_interrupted` and reads `GET /v1/calls/{id}`.
 
 ## 1. Common rules
 
@@ -32,7 +37,7 @@ built on the crate alone tolerates it as an unknown field or variant.
 | Errors | Every non-2xx response is the envelope in [errors.md](./errors.md); whether a code is retryable, and which status it arrives with, are properties of the code (`f2z-ai-proto::ErrorCode`) |
 | Ids | `call_id` is a UUIDv7 assigned by the gateway and returned in the `X-F2Z-Call-Id` response header on every `/v1/chat` response, streamed or not, including errors after a call was created |
 | Idempotency | `Idempotency-Key` header, 1–128 ASCII characters, scoped to (app, user). Recommended on every `/v1/chat` (§2.5) |
-| Rate limits | Per (app, user): a token bucket on requests and a concurrency limit of **4 open streams per user**. Exceeding either is `429` with `Retry-After` (§8) |
+| Rate limits | Per (app, user): a token bucket on requests and a concurrency limit of **4 open streams per user**. A call counts as open from its hold until it is settled or released — a call whose client has disconnected but whose upstream is still being read (§2.4) **still counts**, because it is still consuming provider capacity; the 16-open-hold limit bounds it too. Exceeding either is `429` with `Retry-After` (§8) |
 | Timeouts | The first-byte limit is per model and published in `/v1/models` (`ttfb_timeout_ms`); the provider connect timeout is a fixed 5 s; a stream that produces nothing for **60 s** ends with `error provider_timeout`; no call runs longer than **300 s** |
 
 ## 2. `POST /v1/chat`
@@ -155,13 +160,21 @@ disconnect before the upstream request was sent releases the hold and
 charges nothing. Cancellation is a property of the **call**, not of one
 attempt: after a disconnect no new provider attempt is started — if the
 in-flight attempt fails before content, its hold is released and no
-`fallback` model is tried, because there is nobody to deliver to. A client
-that is connected but has **stopped reading** is treated as disconnected
-once the gateway has been unable to deliver to it for **30 s**: delivery
-stops, the upstream is still read to completion, and the call settles on
-provider usage. There is no cancel endpoint: a closed connection is
-unambiguous and cannot be forged. `GET /v1/calls/{id}` shows the final
-state.
+`fallback` model is tried, because there is nobody to deliver to.
+
+**A slow client never slows the provider.** The gateway reads the
+upstream at provider speed regardless of how fast the client reads, and
+buffers undelivered events per stream, up to **256 KiB** of payload. A
+client that is connected but reading slowly simply receives the buffer
+as it drains. Two things end **delivery** early while the upstream read
+and the settlement continue unchanged: the buffer filling (the gateway
+sends `error` with `delivery_aborted` — crate v0.x follow-up: #1052 —
+and `settlement: "pending"`, then closes the connection), and **30 s
+without any delivery progress** to a connected client, which is treated
+as a disconnect. In every case the call settles on the provider's usage,
+and `GET /v1/calls/{id}` has the outcome. A drained call still counts
+toward the 4-stream limit until it settles (§1). There is no cancel
+endpoint: a closed connection is unambiguous and cannot be forged.
 
 ### 2.5 Idempotency
 
@@ -373,7 +386,7 @@ data: {"code":"provider_error","message":"The provider closed the stream before 
 
 | Field | Meaning |
 |---|---|
-| `code` | From [errors.md](./errors.md). After `meta`: `provider_error`, `provider_timeout`, `internal`. Before `meta`: any pre-stream code (§3.1). Whether a retry can succeed is a property of the code, not a field |
+| `code` | From [errors.md](./errors.md). After `meta`: `provider_error`, `provider_timeout`, `internal`, or `delivery_aborted` (the per-stream buffer filled — the call goes on upstream and settles; `settlement` is `pending` and the record has the outcome; not retryable, since retrying would be a second call). Before `meta`: any pre-stream code (§3.1). Whether a retry can succeed is a property of the code, not a field |
 | `message` | For a log, not for the user; SDKs map `code` to user-facing copy. Never contains prompt or completion text |
 | `settlement` | As in `done`: `settled` (default), `pending`, or `released` (the settler found the hold expired — `charged_2z: 0`). An error after output is settled for what was produced, and the ledger can be unreachable or the hold expired then too |
 | `charged_2z`, `receipt_id`, `collected_milli_2z`, `shortfall_milli_2z` | What this failed call still cost, as in `done`. `charged_2z: 0` and no `receipt_id` when the provider failed before producing anything ([metering.md](./metering.md) §5.2); absent when `settlement` is `pending` |

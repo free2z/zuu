@@ -157,6 +157,33 @@ Consequences that follow directly:
 | [`spec/errors.md`](./spec/errors.md) | Everyone. The error catalogue: every status, code, whether to retry |
 | [`../ai-gateway/`](../ai-gateway/README.md) | Gateway implementers. The ADRs and the operational contract |
 
+## The v1 numbers
+
+Every number below is a **v1 default**: fixed for this contract's
+implementation, tunable by the platform later, and cited by the document
+that uses it. An implementer reads them here; a change to one is a change
+to this table first.
+
+| Number | v1 default | Where |
+|---|---|---|
+| Platform margin | 2000 bps (20 %) | [`spec/metering.md`](./spec/metering.md) §2.2 |
+| Developer markup cap | 5000 bps (50 %) | [`spec/oidc.md`](./spec/oidc.md) §2 |
+| Minimum charge per call | 1 2Z (never below) | [`spec/metering.md`](./spec/metering.md) §2.2 |
+| Card purchase | 100–10,000 2Z per intent | [`spec/purchase.md`](./spec/purchase.md) §2 |
+| Zcash purchase | 100–1,000,000 2Z per intent; 30-minute quote; 3 confirmations | [`spec/purchase.md`](./spec/purchase.md) §2, §5 |
+| Access token | 5 minutes | [`spec/oidc.md`](./spec/oidc.md) §6 |
+| Refresh token | 30 days, rotating; 60 s grace for a lost rotation | [`spec/oidc.md`](./spec/oidc.md) §8 |
+| Authorization code | 60 seconds, single use | [`spec/oidc.md`](./spec/oidc.md) §9.2 |
+| Hold TTL | 300 s from the last extension; extended every 60 s | [`spec/metering.md`](./spec/metering.md) §3 |
+| Open holds per account | 16 | [`spec/metering.md`](./spec/metering.md) §3 |
+| Concurrent streams per user | 4, counted from hold to settlement | [`spec/chat-api.md`](./spec/chat-api.md) §1 |
+| Per-stream delivery buffer | 256 KiB; the upstream read is never throttled by the client | [`spec/chat-api.md`](./spec/chat-api.md) §2.4 |
+| Delivery-stall threshold | 30 s without delivery progress = disconnect (delivery only) | [`spec/chat-api.md`](./spec/chat-api.md) §2.4 |
+| Idempotency window | 24 hours | [`spec/chat-api.md`](./spec/chat-api.md) §2.5 |
+| Call records readable | 90 days | [`spec/chat-api.md`](./spec/chat-api.md) §7 |
+| Catalogue validity | `expires_at = issued_at + 72 h`; re-signed every 24 h; alert under 48 h left | [`../ai-gateway/README.md`](../ai-gateway/README.md#the-catalogue-contract) |
+| Provider timeouts | connect 5 s; first byte per model; idle 60 s; hard limit 300 s | [`../ai-gateway/README.md`](../ai-gateway/README.md) |
+
 ## Conventions used in the specification
 
 - **MUST / SHOULD / MAY** are used as in RFC 2119.
