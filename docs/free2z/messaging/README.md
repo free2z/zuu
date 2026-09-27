@@ -137,7 +137,7 @@ label to `free2z/kt/v1/tree-head-hash`**, because the name it shipped with was a
 proper extension of `free2z/kt/v1/sth` and `H` has no separator, so the two
 domains were not separated at all. `WIRE.md` §1.3 now states prefix-freeness as a
 normative requirement on the **union** of every document's labels, and
-`scripts/check-hash-domain-labels.mjs` enforces it on every pull request
+`scripts/free2z/check-hash-domain-labels.mjs` enforces it on every pull request
 ([#602](https://github.com/free2z/zuu/issues/602)).
 
 Two further corrections landed on 2026-08-24, both against

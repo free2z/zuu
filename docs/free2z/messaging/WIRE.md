@@ -104,7 +104,7 @@ construction #544 selects.
   document's set separately: a set that is internally prefix-free says nothing
   about its neighbours, and that scoping mistake is how
   [#602](https://github.com/free2z/zuu/issues/602) put `free2z/kt/v1/sth` and a
-  label extending it into the same namespace. `scripts/check-hash-domain-labels.mjs`
+  label extending it into the same namespace. `scripts/free2z/check-hash-domain-labels.mjs`
   asserts the property mechanically over every label in the repository on every
   pull request, from the always-running `rs / changes` job, and its verdict is
   re-checked inside the required `rs / gate` context. **Adding a label means

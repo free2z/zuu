@@ -29,7 +29,7 @@
 //!    spelled out.
 //! 2. **Domain separation everywhere.** Every derivation is a keyed hash under
 //!    a distinct versioned label, and no key is used for two purposes. See
-//!    [`labels`], and note that `scripts/check-hash-domain-labels.mjs` holds
+//!    [`labels`], and note that `scripts/free2z/check-hash-domain-labels.mjs` holds
 //!    this crate's labels against every other `free2z/` label in the tree.
 //! 3. **Identity is restorable from the mnemonic; device keys are not.**
 //!    [`account::AccountKeys::from_seed`] exists; there is no

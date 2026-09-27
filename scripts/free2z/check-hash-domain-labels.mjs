@@ -109,8 +109,8 @@
 // The self-test proves the anchor fires on exactly that mutation.
 //
 // Usage:
-//   node scripts/check-hash-domain-labels.mjs             judge the tree
-//   node scripts/check-hash-domain-labels.mjs --self-test negative controls first
+//   node scripts/free2z/check-hash-domain-labels.mjs             judge the tree
+//   node scripts/free2z/check-hash-domain-labels.mjs --self-test negative controls first
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -120,7 +120,7 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "..",
+  "../..",
 );
 
 /// A domain-separation label: the `free2z/` namespace, a version segment, and an
@@ -164,7 +164,7 @@ const FIXTURE_TOKENS = [
 /// path, so the exclusion cannot outlive the file it excuses.
 const NON_DECLARING_FILES = [
   {
-    file: "scripts/check-hash-domain-labels.mjs",
+    file: "scripts/free2z/check-hash-domain-labels.mjs",
     reason:
       "the checker itself: it quotes labels other files mint and invents fixture labels in reserved namespaces",
   },
@@ -674,7 +674,7 @@ function selfTest() {
 
 const mode = process.argv[2];
 if (mode && mode !== "--self-test") {
-  console.error("usage: node scripts/check-hash-domain-labels.mjs [--self-test]");
+  console.error("usage: node scripts/free2z/check-hash-domain-labels.mjs [--self-test]");
   process.exit(2);
 }
 

@@ -1435,7 +1435,7 @@ O(entries added) (§10) and an empty epoch adds none.
 > is load-bearing rather than cosmetic: without it the label is a proper prefix of
 > the value label and `H` has no separator, which is
 > [#602](https://github.com/free2z/zuu/issues/602)'s defect in miniature
-> ([`WIRE.md` §1.3](./WIRE.md#13-conventions); `scripts/check-hash-domain-labels.mjs`
+> ([`WIRE.md` §1.3](./WIRE.md#13-conventions); `scripts/free2z/check-hash-domain-labels.mjs`
 > enforces prefix-freeness over the union of every document's labels).
 >
 > **What was given up, precisely.** The published proof for an epoch with no
@@ -1672,7 +1672,7 @@ proofs that still verify under the new key. A client or witness that observes a
 > implementer working from the first revision of this document must change it.
 > `WIRE.md` §1.3 now states prefix-freeness as a normative requirement on the
 > union of every document's labels rather than leaving it an unwritten
-> assumption, and `scripts/check-hash-domain-labels.mjs` enforces it on every
+> assumption, and `scripts/free2z/check-hash-domain-labels.mjs` enforces it on every
 > pull request. [#602](https://github.com/free2z/zuu/issues/602); predicted in
 > [#552](https://github.com/free2z/zuu/issues/552).
 
@@ -1720,7 +1720,7 @@ commits to (§4.5.1). They are held to
 with everything else in the namespace — note in particular that
 `free2z/kt/v1/handle-id`, `free2z/kt/v1/handle-assertion` and §3.3's
 `free2z/kt/v1/handle:` are mutually prefix-free, which is not an accident and is
-enforced by `scripts/check-hash-domain-labels.mjs` on every pull request
+enforced by `scripts/free2z/check-hash-domain-labels.mjs` on every pull request
 ([#602](https://github.com/free2z/zuu/issues/602)).
 
 The reason to be strict about it: the log's signing key signs tree heads,

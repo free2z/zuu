@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const evidenceRoot = join(repoRoot, "docs/free2z/messaging/evidence");
 const benchmarkPath = join(evidenceRoot, "akd-benchmark.json");
 const auditPath = join(evidenceRoot, "akd-audit-scope.json");
@@ -1121,7 +1121,7 @@ function expectedAuditClaim(audit) {
     `The complete \`partition()\` body is byte-for-byte identical between audited`,
     `[${audited.release}](${audit.upstream.repository}/tree/${audited.commit}) and selected`,
     `[${selected.release}](${audit.upstream.repository}/tree/${selected.commit}); the pinned source-object and body`,
-    `hashes are verified by \`scripts/check-akd-doc-evidence.mjs\`. Q3U's fix in`,
+    `hashes are verified by \`scripts/free2z/check-akd-doc-evidence.mjs\`. Q3U's fix in`,
     `[#400](${audit.fixes.q3u_publish_only.url}) rejected duplicate labels in \`publish()\`, but did not guard the`,
     `\`InsertMode::Auditor\` insertion used by append-only verification. That residual gap survived until`,
     `[#495](${audit.fixes.auditor_residual.url}) in 0.13.0. The lesson is therefore stronger and narrower: a paid review`,

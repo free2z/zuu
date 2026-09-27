@@ -10,7 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const paths = {
   wire: "docs/free2z/messaging/WIRE.md",
   contract: "docs/free2z/messaging/CLIENT-CONTRACT.md",
@@ -163,6 +163,6 @@ const mode = process.argv[2];
 if (mode === "--self-test") selfTest();
 else if (mode === undefined) checkLive();
 else {
-  console.error("usage: scripts/check-pow-policy.mjs [--self-test]");
+  console.error("usage: scripts/free2z/check-pow-policy.mjs [--self-test]");
   process.exitCode = 2;
 }

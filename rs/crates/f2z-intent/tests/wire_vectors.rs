@@ -72,7 +72,7 @@ const CANONICAL_REQUEST_HEX: &str = concat!(
 /// `H("free2z/intent/v1/request", CANONICAL_REQUEST_HEX)`, i.e.
 /// `BLAKE2b-256("free2z/intent/v1/request" || envelope)` with no separator —
 /// `WIRE.md` §1.3's construction, which is why
-/// `scripts/check-hash-domain-labels.mjs` has to hold the whole label set
+/// `scripts/free2z/check-hash-domain-labels.mjs` has to hold the whole label set
 /// prefix-free.
 const CANONICAL_REQUEST_DIGEST_HEX: &str =
     "2e23dfbdfa0ad8da3036bac0756e9191b29f8d7aac3e46b192934c7ddf09affb";
