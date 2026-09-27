@@ -12,12 +12,13 @@
     clippy::arithmetic_side_effects
 )]
 
+use f2z_ai_proto::amount::{Milli2z, Whole2z};
 use f2z_ai_proto::chat::{
     AssistantMessage, ChatRequest, ChatResponse, ContentPart, FinishReason, Message, OutputPart,
     Role, ToolCall, Usage, UsageSource,
 };
 use f2z_ai_proto::error::{ApiError, ErrorBody, ErrorCode};
-use f2z_ai_proto::event::{Delta, Done, Event, EventError, Meta, UsageEvent};
+use f2z_ai_proto::event::{Delta, Done, ErrorEvent, Event, EventError, Meta, UsageEvent};
 
 #[test]
 fn a_minimal_request_defaults_to_streaming() {
@@ -89,11 +90,7 @@ fn requests_are_strict() {
 fn every_event_has_a_pinned_sse_frame() {
     let cases = [
         (
-            Event::Meta(Meta {
-                call_id: "c_1".into(),
-                model: "m".into(),
-                hold_2z: 3,
-            }),
+            Event::Meta(Meta::new("c_1", "m", Whole2z::new(3))),
             "event: meta\ndata: {\"call_id\":\"c_1\",\"model\":\"m\",\"hold_2z\":3}\n\n",
         ),
         (
@@ -123,19 +120,17 @@ fn every_event_has_a_pinned_sse_frame() {
         ),
         (
             Event::Done(Done {
-                charged_2z: 3,
-                receipt_id: "r_1".into(),
-                finish_reason: FinishReason::Stop,
-                balance_hint_milli_2z: Some(97_000),
+                balance_hint_milli_2z: Some(Milli2z::new(97_000)),
+                ..Done::settled(Whole2z::new(3), "r_1", FinishReason::Stop)
             }),
-            "event: done\ndata: {\"charged_2z\":3,\"receipt_id\":\"r_1\",\"finish_reason\":\"stop\",\"balance_hint_milli_2z\":97000}\n\n",
+            "event: done\ndata: {\"charged_2z\":3,\"receipt_id\":\"r_1\",\"finish_reason\":\"stop\",\"balance_hint_milli_2z\":97000,\"settlement\":\"settled\",\"usage_source\":\"provider\"}\n\n",
         ),
         (
-            Event::Error(ApiError {
-                code: ErrorCode::InsufficientBalance,
-                message: "balance too low".into(),
-            }),
-            "event: error\ndata: {\"code\":\"insufficient_balance\",\"message\":\"balance too low\"}\n\n",
+            Event::Error(ErrorEvent::uncharged(
+                ErrorCode::InsufficientBalance,
+                "balance too low",
+            )),
+            "event: error\ndata: {\"code\":\"insufficient_balance\",\"message\":\"balance too low\",\"settlement\":\"settled\",\"charged_2z\":0,\"partial\":false}\n\n",
         ),
     ];
     for (event, frame) in cases {
@@ -152,11 +147,7 @@ fn every_event_has_a_pinned_sse_frame() {
 
 #[test]
 fn the_ipc_form_is_tagged() {
-    let event = Event::Meta(Meta {
-        call_id: "c".into(),
-        model: "m".into(),
-        hold_2z: 1,
-    });
+    let event = Event::Meta(Meta::new("c", "m", Whole2z::new(1)));
     assert_eq!(
         serde_json::to_string(&event).unwrap(),
         r#"{"type":"meta","call_id":"c","model":"m","hold_2z":1}"#
@@ -189,6 +180,8 @@ fn clients_tolerate_what_a_newer_gateway_adds() {
 
 #[test]
 fn error_codes_are_stable_strings_with_statuses() {
+    // The original seventeen, pinned by hand; `spec_conformance.rs` checks
+    // every code against errors.md.
     let all = [
         (ErrorCode::InvalidRequest, "invalid_request", 400),
         (ErrorCode::InvalidToken, "invalid_token", 401),
@@ -219,12 +212,13 @@ fn error_codes_are_stable_strings_with_statuses() {
     for (code, wire, status) in all {
         assert_eq!(serde_json::to_string(&code).unwrap(), format!("\"{wire}\""));
         assert_eq!(code.as_str(), wire);
-        assert_eq!(code.http_status(), status, "{wire}");
+        assert_eq!(code.http_status(), Some(status), "{wire}");
     }
     let body = ErrorBody {
         error: ApiError {
             code: ErrorCode::CapExceeded,
             message: "cap".into(),
+            details: None,
         },
     };
     assert_eq!(

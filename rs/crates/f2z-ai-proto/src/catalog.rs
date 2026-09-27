@@ -39,6 +39,7 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::amount::Whole2z;
 use crate::canonical::{CanonicalError, parse_strict, to_canonical_json};
 use crate::pricing::{Bps, ModelPrices};
 
@@ -106,7 +107,7 @@ pub struct CatalogModel {
     /// Prices. See [`ModelPrices`] for units.
     pub prices: ModelPrices,
     /// The minimum charge per call, in whole 2Z.
-    pub min_charge_2z: u64,
+    pub min_charge_2z: Whole2z,
     /// Tokenizer safety factor for input estimation, in basis points
     /// (`11_500` = ×1.15). Never below `10_000`.
     pub safety_factor_bps: Bps,
@@ -194,7 +195,7 @@ impl Catalog {
             if model.safety_factor_bps < Bps(crate::pricing::BPS_DENOMINATOR) {
                 return Err(CatalogError::Invalid("safety factor below 1.0"));
             }
-            if model.min_charge_2z == 0 {
+            if model.min_charge_2z == Whole2z::ZERO {
                 return Err(CatalogError::Invalid("min_charge_2z below 1"));
             }
             if model.max_output_tokens > model.context_window {
