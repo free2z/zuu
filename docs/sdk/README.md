@@ -16,6 +16,10 @@ The first integrator is a separate company building an AI tutor app with
 Tauri 2 for desktop, iOS and Android. **iOS and Android are equal, first-class
 targets alongside desktop and web**; nothing in this contract is desktop-first.
 
+For application work, start with the [integration handoff](./INTEGRATION.md).
+It separates the implemented Rust preview and mock flows from the pending
+Tauri/TypeScript packages and live-platform prerequisites.
+
 ## The three capabilities
 
 1. **Sign users in to Free2Z.** Free2Z is an OAuth 2.0 / OpenID Connect
