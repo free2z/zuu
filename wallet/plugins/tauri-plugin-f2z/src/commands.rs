@@ -245,6 +245,8 @@ pub async fn start_chat<R: Runtime>(
     operation: wire::ChatOperation,
 ) -> Result<Value> {
     authorized(&webview, &state)?;
+    wire::key(&operation.operation_id)?;
+    wire::key(&operation.idempotency_key)?;
     let request = wire::chat_request(request).map_err(|e| e.key(&operation.idempotency_key))?;
     state
         .engine

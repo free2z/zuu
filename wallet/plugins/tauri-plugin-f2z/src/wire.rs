@@ -10,8 +10,11 @@ use serde_json::{Value, json};
 
 pub type Result<T> = std::result::Result<T, NativeError>;
 #[derive(Clone, Debug, Serialize)]
+#[serde(transparent)]
+pub struct NativeError(Box<ErrorBody>);
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NativeError {
+pub struct ErrorBody {
     pub code: String,
     pub retryable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -27,9 +30,20 @@ pub struct NativeError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record: Option<Value>,
 }
+impl std::ops::Deref for NativeError {
+    type Target = ErrorBody;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for NativeError {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 impl NativeError {
     pub fn new(code: &str) -> Self {
-        Self {
+        Self(Box::new(ErrorBody {
             code: code.into(),
             retryable: false,
             status: None,
@@ -38,7 +52,7 @@ impl NativeError {
             idempotency_key: None,
             step_up: None,
             record: None,
-        }
+        }))
     }
     pub fn key(mut self, key: &str) -> Self {
         self.idempotency_key = Some(key.into());
@@ -262,6 +276,26 @@ impl PollOptions {
         Ok(std::time::Duration::from_millis(value))
     }
 }
+pub fn chat_request(mut input: Value) -> Result<f2z_sdk::proto::ChatRequest> {
+    if serde_json::to_vec(&input)
+        .map_err(|_| NativeError::new("invalid_request"))?
+        .len()
+        > 1_048_576
+    {
+        return Err(NativeError::new("request_too_large"));
+    }
+    if let Some(tokens) = input.get_mut("max_output_tokens")
+        && !tokens.is_null()
+    {
+        *tokens = json!(decimal(
+            tokens
+                .as_str()
+                .ok_or_else(|| NativeError::new("invalid_integer"))?
+        )?);
+    }
+    serde_json::from_value(input).map_err(|_| NativeError::new("invalid_request"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,24 +364,4 @@ mod tests {
             );
         }
     }
-}
-
-pub fn chat_request(mut input: Value) -> Result<f2z_sdk::proto::ChatRequest> {
-    if serde_json::to_vec(&input)
-        .map_err(|_| NativeError::new("invalid_request"))?
-        .len()
-        > 1_048_576
-    {
-        return Err(NativeError::new("request_too_large"));
-    }
-    if let Some(tokens) = input.get_mut("max_output_tokens") {
-        if !tokens.is_null() {
-            *tokens = json!(decimal(
-                tokens
-                    .as_str()
-                    .ok_or_else(|| NativeError::new("invalid_integer"))?
-            )?);
-        }
-    }
-    serde_json::from_value(input).map_err(|_| NativeError::new("invalid_request"))
 }

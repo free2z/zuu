@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/free2z/zuu"
 description = "Native Tauri 2 bridge for the Free2Z SDK: sign-in, balance, purchases and metered AI"
 links = "tauri-plugin-f2z"
-include = ["src/**", "build.rs", "command_registry.rs", "permissions/**", "android/**", "ios/**", "README.md", "CHANGELOG.md", "LICENSE", "Cargo.toml", "Cargo.lock"]
+include = ["src/**", "build.rs", "command_registry.rs", "permissions/**", "android/src/**", "android/build.gradle.kts", "android/consumer-rules.pro", "ios/Sources/**", "ios/Tests/**", "ios/Package.swift", "README.md", "CHANGELOG.md", "LICENSE", "Cargo.toml", "Cargo.lock"]
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }

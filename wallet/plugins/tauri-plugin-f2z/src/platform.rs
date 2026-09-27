@@ -14,7 +14,9 @@ pub struct MobileRedirects {
 #[cfg(not(mobile))]
 pub struct Platform;
 #[cfg(not(mobile))]
-struct DesktopSession(f2z_sdk::oauth::LoopbackSession<fn(&str) -> std::result::Result<(), String>>);
+type DesktopOpener = fn(&str) -> std::result::Result<(), String>;
+#[cfg(not(mobile))]
+struct DesktopSession(f2z_sdk::oauth::LoopbackSession<DesktopOpener>);
 #[cfg(not(mobile))]
 impl f2z_sdk::oauth::AuthSession for DesktopSession {
     fn redirect_uri(&self) -> &str {
