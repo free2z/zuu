@@ -105,6 +105,15 @@ fn spans_are_exported_to_the_configured_collector_without_prompt_content() {
         let response = post_chat(running.public, &valid_chat(CANARY)).await;
         assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
         let _ = text(response).await;
+        // An extension method is client-controlled text; the span must not
+        // carry it.
+        let _ = raw(
+            running.public,
+            format!("{CANARY} /v1/chat HTTP/1.1\r\nHost: g\r\nContent-Length: 0\r\n\r\n")
+                .as_bytes(),
+            Duration::from_secs(1),
+        )
+        .await;
         let _ = tokio::time::timeout(Duration::from_secs(10), running.gateway.run_until(async {}))
             .await
             .unwrap();
@@ -139,6 +148,6 @@ fn spans_are_exported_to_the_configured_collector_without_prompt_content() {
     assert!(contains(b"request"), "request span missing");
     assert!(
         !contains(CANARY.as_bytes()),
-        "the prompt reached an exported span"
+        "client text (prompt or method) reached an exported span"
     );
 }

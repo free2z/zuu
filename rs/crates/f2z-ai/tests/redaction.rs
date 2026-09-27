@@ -116,6 +116,16 @@ async fn no_prompt_reaches_a_log_line_or_an_error_body_at_trace() {
     }
     let (_, body) = get(public, &format!("/v1/{CANARY}")).await;
     bodies.push(body);
+    // An extension method is any token a client likes.
+    bodies.push(
+        raw(
+            public,
+            format!("{CANARY} /v1/chat HTTP/1.1\r\nHost: g\r\nContent-Length: 0\r\n\r\n")
+                .as_bytes(),
+            Duration::from_secs(1),
+        )
+        .await,
+    );
 
     // A drain that aborts the open stream, so the settler's warn line runs.
     let (signal, fired) = oneshot::channel::<()>();

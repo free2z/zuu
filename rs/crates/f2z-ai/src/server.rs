@@ -446,6 +446,23 @@ async fn metrics_handler(State(shared): State<Shared>) -> Response<Body> {
     response
 }
 
+/// The method as a label from a closed set. HTTP allows extension methods —
+/// any token a client likes — so the raw method is client-controlled text and
+/// never reaches a log line or a span.
+fn method_label(method: &axum::http::Method) -> &'static str {
+    use axum::http::Method;
+    match *method {
+        Method::GET => "GET",
+        Method::POST => "POST",
+        Method::HEAD => "HEAD",
+        Method::PUT => "PUT",
+        Method::DELETE => "DELETE",
+        Method::OPTIONS => "OPTIONS",
+        Method::PATCH => "PATCH",
+        _ => "other",
+    }
+}
+
 /// Span + log line + metrics sample per public request.
 #[derive(Clone)]
 struct ObserveLayer {
@@ -492,7 +509,7 @@ where
         let span = tracing::info_span!(
             "request",
             route = route_label,
-            method = %request.method(),
+            method = method_label(request.method()),
             status = tracing::field::Empty,
         );
         let started = Instant::now();

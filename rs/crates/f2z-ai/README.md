@@ -77,9 +77,12 @@ variable is a startup error.
 | `otlp_authorization_file` | *(unset)* | Or `F2Z_AI_OTLP_AUTHORIZATION`. Never inline in the file |
 
 **`terminationGracePeriodSeconds` must exceed `drain_timeout_secs +
-abort_grace_secs + settle_grace_secs`** (315 s with the defaults), or the
-kubelet's `SIGKILL` arrives before the drain has handed every call to the
-settler.
+2 × abort_grace_secs + settle_grace_secs + 8`** — 328 s with the defaults, so
+set at least 330 — or the kubelet's `SIGKILL` can arrive before the drain has
+handed every call to the settler. The phases, each bounded: the drain window;
+`abort_grace` for aborted calls to unwind; `abort_grace` + 1 s to close
+connections; `settle_grace` for the settler; ≤ 1 s each for the catalogue
+poller and the admin listener; ≤ 5 s to flush OpenTelemetry.
 
 ## A call: the upstream read and the delivery, kept apart
 
