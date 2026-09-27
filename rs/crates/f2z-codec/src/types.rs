@@ -14,7 +14,7 @@
 //! metadata claims of [ADR 0004] survive contact with an operator who turns
 //! logging up while debugging.
 //!
-//! [ADR 0004]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0004-metadata-ambition.md
+//! [ADR 0004]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0004-metadata-ambition.md
 
 use alloc::vec::Vec;
 use core::fmt;

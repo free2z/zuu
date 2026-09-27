@@ -1,6 +1,6 @@
 //! The free2z relay daemon — the server that runs in production.
 //!
-//! This crate implements [`docs/e2ee/WIRE.md`] v1 §2 through §13 on top of three
+//! This crate implements [`docs/free2z/messaging/WIRE.md`] v1 §2 through §13 on top of three
 //! crates that already own the parts a relay and a client must agree on
 //! exactly:
 //!
@@ -62,7 +62,7 @@
 //! # }
 //! ```
 //!
-//! [`docs/e2ee/WIRE.md`]: https://github.com/free2z/zuu/blob/main/docs/e2ee/WIRE.md
+//! [`docs/free2z/messaging/WIRE.md`]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/WIRE.md
 
 #![forbid(unsafe_code)]
 #![cfg_attr(

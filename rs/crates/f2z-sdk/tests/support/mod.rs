@@ -1,5 +1,5 @@
 //! Small axum fakes of the three servers the SDK talks to, shaped after the
-//! contract (`docs/sdk/spec/*`) and the real tuzi implementation:
+//! contract (`docs/free2z/sdk/spec/*`) and the account service implementation:
 //!
 //! * **the issuer** — discovery, an authorization endpoint that approves at
 //!   once and redirects with `code`, `state` and `iss` (RFC 9207), PKCE S256

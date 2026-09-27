@@ -1,6 +1,6 @@
 //! Where a device's `DeviceWrapKey` lives, on each platform this ships to.
 //!
-//! [ADR 0016](../../../../docs/e2ee/decisions/0016-enrollment-sealing-boundary.md)
+//! [ADR 0016](../../../../docs/free2z/messaging/decisions/0016-enrollment-sealing-boundary.md)
 //! §3 decides that the app which generated a device's secrets seals them under
 //! a `DeviceWrapKey` it samples from the OS CSPRNG and **holds in the OS secret
 //! store**. That decision needs a secret store to exist. This module is the one

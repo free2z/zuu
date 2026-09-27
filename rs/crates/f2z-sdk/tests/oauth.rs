@@ -1,5 +1,5 @@
 //! Sign-in, refresh, revocation and the negative controls of
-//! `docs/sdk/spec/oidc.md` §11, against the fake issuer over real HTTP.
+//! `docs/free2z/sdk/spec/oidc.md` §11, against the fake issuer over real HTTP.
 //!
 //! Every refusal test is paired with a success test on the same fake, so a
 //! refusal cannot pass because the flow was broken anyway.

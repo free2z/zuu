@@ -1,4 +1,4 @@
-//! The error envelope of `docs/sdk/spec/errors.md` §1, as an axum response.
+//! The error envelope of `docs/free2z/sdk/spec/errors.md` §1, as an axum response.
 //!
 //! ```json
 //! {"error": {"code": "payload_too_large", "message": "…", "details": {"limit_bytes": 4194304}}}

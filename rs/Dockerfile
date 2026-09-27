@@ -44,7 +44,7 @@ ARG BIN
 # and dies on the cluster.
 #
 # The image supplies rustup, not the compiler version. The version is decided in
-# wallet/rust-toolchain.toml, restated in rs/rust-toolchain.toml, and held equal
+# rust-toolchain.toml, restated in rs/rust-toolchain.toml, and held equal
 # by scripts/check-rust-toolchain.sh. It is NOT written anywhere in this file:
 # RUST_CHANNEL is passed in from `scripts/check-rust-toolchain.sh
 # --print-channel`, and the first RUN below refuses to build unless it matches
@@ -125,19 +125,19 @@ LABEL cash.free2z.image.role="e2ee-server"
 
 FROM runtime AS bin-f2z-relay
 LABEL org.opencontainers.image.title="f2z-relay"
-LABEL org.opencontainers.image.description="The free2z relay daemon (docs/e2ee/WIRE.md)"
+LABEL org.opencontainers.image.description="The free2z relay daemon (docs/free2z/messaging/WIRE.md)"
 COPY --from=build /out/f2z-relay /f2z-relay
 ENTRYPOINT ["/f2z-relay"]
 
 FROM runtime AS bin-f2z-kt
 LABEL org.opencontainers.image.title="f2z-kt"
-LABEL org.opencontainers.image.description="The free2z key-transparency log server (docs/e2ee/KT.md)"
+LABEL org.opencontainers.image.description="The free2z key-transparency log server (docs/free2z/messaging/KT.md)"
 COPY --from=build /out/f2z-kt /f2z-kt
 ENTRYPOINT ["/f2z-kt"]
 
 FROM runtime AS bin-f2z-witness
 LABEL org.opencontainers.image.title="f2z-witness"
-LABEL org.opencontainers.image.description="The free2z key-transparency cosigning daemon (docs/e2ee/KT.md)"
+LABEL org.opencontainers.image.description="The free2z key-transparency cosigning daemon (docs/free2z/messaging/KT.md)"
 COPY --from=build /out/f2z-witness /f2z-witness
 # `healthz` is reachable by overriding the arguments, never by overriding the
 # entrypoint: the probe is ["/f2z-witness", "healthz", "--state", FILE].

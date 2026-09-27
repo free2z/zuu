@@ -4,7 +4,7 @@
  *
  * This is deliberately tiny and deliberately hand-written. It is not a general
  * TLS-presentation-language codec; it is exactly the five primitives
- * `docs/intent-bridge/PROTOCOL.md` §3 uses — `uint8`, `uint16`, `uint64`, a
+ * `docs/free2z/intent-bridge/PROTOCOL.md` §3 uses — `uint8`, `uint16`, `uint64`, a
  * fixed-width opaque, and a length-prefixed opaque with an 8-bit or 24-bit
  * prefix — and nothing else. A general codec would be a second encoding
  * surface to audit, in a package that ships inside every client app.

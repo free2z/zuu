@@ -15,7 +15,7 @@ out of ZUULI, which no longer has a `/messages` route or a Messages nav entry.
 It holds device keys and a device credential. It never holds the Zcash seed.
 
 That is not a compromise, it is the existing design:
-`docs/e2ee/ARCHITECTURE.md` §4.2 already separates **account keys**
+`docs/free2z/messaging/ARCHITECTURE.md` §4.2 already separates **account keys**
 (seed-derived, restorable) from **device keys** (OS CSPRNG, never seed-derived,
 never exported), bound by a `DeviceCredential` that
 `rs/crates/f2z-msg-identity/src/credential.rs` already implements. **Ongoing
@@ -71,7 +71,7 @@ Proved in a real browser by `tests/enrollment-flow.pw.ts`,
 ZUULI registers three app-crate commands — `f2zmsg_enrollment_status`,
 `f2zmsg_enroll`, `f2zmsg_unenroll` — which borrow the wallet seed from
 `tauri-plugin-zcash`'s managed state *in-process* so the mnemonic never crosses
-IPC (`docs/e2ee/CLIENT-CONTRACT.md` §2.2). They are plugin-less app commands, so
+IPC (`docs/free2z/messaging/CLIENT-CONTRACT.md` §2.2). They are plugin-less app commands, so
 no capability entry grants them and none should try.
 
 Here there is no seed to borrow. Enrollment becomes a bridge call into the
@@ -129,7 +129,7 @@ case.
 back is installed by `e2e2z_install_device_credential`
 (`src/lib/enrollment/installDeviceCredential.ts`), an app-crate command that
 needs no capability and no `zcash:*` grant — possible only because
-[ADR 0016](../../docs/e2ee/decisions/0016-enrollment-sealing-boundary.md) moved
+[ADR 0016](../../docs/free2z/messaging/decisions/0016-enrollment-sealing-boundary.md) moved
 the seal at rest from the seed-derived `BackupWrapKey` to a per-device
 `DeviceWrapKey` the engine samples itself. Before that, installing needed a
 seed-derived key this app must never hold, so the round trip could not have
@@ -140,7 +140,7 @@ mnemonic. Two arguments cross into the install — the credential's bytes and th
 handle *this session asked for* — and a wrap key is not among them, which
 `src-tauri/src/device.rs` asserts rather than merely states. What that validation proves is that the responder saw the request; it does
 **not** prove the responder was ZUULI, because
-`docs/intent-bridge/CALLER-AUTHENTICATION.md` §5 records that there is no
+`docs/free2z/intent-bridge/CALLER-AUTHENTICATION.md` §5 records that there is no
 signature over responses. That is #461's job, not this code's.
 
 Proved by `src/lib/messaging/enrollment-gap.test.ts` (the bridge refuses, never
@@ -158,7 +158,7 @@ lazily imported chunk that never loads, and
 authority could arrive by **and** holds `setIntentTransport` to test files plus
 one named production module — `src/lib/enrollment/appLinkTransport.ts`, #461's
 reviewed App Link transport — so dispatch authority cannot be installed by one
-call from anywhere else in the renderer. `docs/intent-bridge/CONFORMANCE.md` records the
+call from anywhere else in the renderer. `docs/free2z/intent-bridge/CONFORMANCE.md` records the
 mutation matrix, including the two mutations that survive and why.
 
 ## Capabilities: named commands, never the blanket grant

@@ -2,7 +2,7 @@
 //! `KT.md` §4.4's `auth_signature` and §4.5's identity binding — and nothing
 //! else.
 //!
-//! [ADR 0017](../../../../docs/e2ee/decisions/0017-internal-directory-activation.md)
+//! [ADR 0017](../../../../docs/free2z/messaging/decisions/0017-internal-directory-activation.md)
 //! puts this here and not in the app that calls it, for the reason
 //! [`crate::account`]'s key table gives: the `DirectoryAuthKey` and the
 //! `IdentitySigningKey` expose no general `sign(&[u8])`, so every structure

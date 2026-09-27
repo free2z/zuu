@@ -9,13 +9,13 @@
 //!
 //! The normative prose lives in the repository at
 //!
-//! * `docs/sdk/spec/chat-api.md` — `/v1/chat`, the SSE event grammar and the
+//! * `docs/free2z/sdk/spec/chat-api.md` — `/v1/chat`, the SSE event grammar and the
 //!   settlement states ([`chat`], [`event`], [`settlement`]);
-//! * `docs/sdk/spec/errors.md` — the error codes, their statuses and
+//! * `docs/free2z/sdk/spec/errors.md` — the error codes, their statuses and
 //!   retryability ([`error`]; `tests/spec_conformance.rs` parses its tables);
-//! * `docs/sdk/spec/metering.md` — the catalogue, the pricing formula and the
+//! * `docs/free2z/sdk/spec/metering.md` — the catalogue, the pricing formula and the
 //!   rounding rule ([`catalog`], [`canonical`], [`pricing`], [`amount`]);
-//! * `docs/sdk/spec/purchase.md` §1.1 — the balance ([`balance`]).
+//! * `docs/free2z/sdk/spec/purchase.md` §1.1 — the balance ([`balance`]).
 //!
 //! The prose spec (zuu #1048) and this crate (zuu #1049, #1052) are
 //! reconciled; where the two disagree the disagreement is a bug in one of

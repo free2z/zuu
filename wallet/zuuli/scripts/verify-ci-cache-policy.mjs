@@ -81,6 +81,7 @@ const packagingLocalInputs = [
   "wallet/zuuli/syft-artifact.yaml",
   // Inputs outside wallet/zuuli/** that builds or contract checks consume.
   "wallet/plugins/tauri-plugin-zcash/Cargo.toml",
+  "rust-toolchain.toml",
   "wallet/rust-toolchain.toml",
   "scripts/check-rust-toolchain.sh",
   "z/zcash/librustzcash",

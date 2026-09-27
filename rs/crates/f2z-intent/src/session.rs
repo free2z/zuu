@@ -25,7 +25,7 @@
 //! has the identifier and can answer. That is precisely why [#461] (verified
 //! App Links / Universal Links) is a hard prerequisite for shipping any intent
 //! that carries authority, and it is why `sign-challenge` must not be trusted
-//! over a custom scheme. `docs/intent-bridge/CALLER-AUTHENTICATION.md` §4
+//! over a custom scheme. `docs/free2z/intent-bridge/CALLER-AUTHENTICATION.md` §4
 //! states the residual risk if that assumption fails.
 //!
 //! # One-use on this side too

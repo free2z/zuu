@@ -1,5 +1,5 @@
 //! Signing a user in to Free2Z: OAuth 2.0 authorization code with PKCE
-//! `S256`, as `docs/sdk/spec/oidc.md` profiles it.
+//! `S256`, as `docs/free2z/sdk/spec/oidc.md` profiles it.
 //!
 //! # The flow, and who does what
 //!

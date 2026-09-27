@@ -1,12 +1,7 @@
-# The single source of truth for the Rust toolchain this repository builds with.
-#
-# Every other pin — CI workflow inputs, the commit-pinned dtolnay/rust-toolchain
-# refs, ZUULI_RUST_VERSION, each crate's `rust-version`, and the documentation
-# that quotes them — restates the `channel` below and is verified against it by
-# `scripts/check-rust-toolchain.sh`, which runs on every pull request.
-#
-# Bumping: change `channel` here, then run `scripts/check-rust-toolchain.sh` and
-# fix everything it names. See "The Rust toolchain pin" in the root AGENTS.md.
+# A checked restatement of the repository-root rust-toolchain.toml.
+# The store-capture container mounts only wallet/, so its isolated WASM builds
+# need a pin within that context. This file never decides the compiler version.
+# Change the root pin first; scripts/check-rust-toolchain.sh enforces agreement.
 [toolchain]
 channel = "1.97.1"
 profile = "minimal"
