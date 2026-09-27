@@ -33,19 +33,33 @@ pub async fn sign_in<R: Runtime>(
 ) -> Result<Value> {
     authorized(&webview, &state)?;
     let options = options.into_core()?;
-    let _guard = state
-        .engine
-        .auth
-        .try_lock()
-        .map_err(|_| NativeError::new("authentication_busy"))?;
-    let (_owner, generation, cancel) = state.engine.begin_auth(webview.window().label())?;
-    let result = tokio::select! { biased;
-        () = cancel.cancelled() => Err(NativeError::new("cancelled")),
-        value = state.platform.sign_in(&state.engine.client, options) => value
-    };
-    state.engine.check(generation)?;
-    result?;
-    state.engine.session().await
+    let state = Arc::clone(state.inner());
+    // Keep the transition guard alive even if the invoking webview disappears.
+    tauri::async_runtime::spawn(async move {
+        let guard = state
+            .engine
+            .auth
+            .try_lock()
+            .map_err(|_| NativeError::new("authentication_busy"))?;
+        let (owner, generation, cancel) = state.engine.begin_auth(webview.window().label())?;
+        let result = tokio::select! { biased;
+            () = cancel.cancelled() => Err(NativeError::new("cancelled")),
+            value = state.platform.sign_in(&state.engine.client, options) => value
+        };
+        if cancel.is_cancelled() {
+            // Core installation may already be detached. Queue clearing behind
+            // it before allowing any new account-dependent operation.
+            let _ = state.engine.client.sign_out().await;
+        }
+        state.engine.check(generation)?;
+        state.engine.invalidate()?;
+        drop(owner);
+        drop(guard);
+        result?;
+        state.engine.session().await
+    })
+    .await
+    .map_err(|_| NativeError::new("internal_error"))?
 }
 #[tauri::command]
 pub async fn sign_out<R: Runtime>(
@@ -53,16 +67,21 @@ pub async fn sign_out<R: Runtime>(
     state: State<'_, Arc<PluginState<R>>>,
 ) -> Result<Value> {
     authorized(&webview, &state)?;
-    let (generation, _) = state.engine.invalidate()?;
-    let _guard = state.engine.auth.lock().await;
-    let revoked = state
-        .engine
-        .client
-        .sign_out()
-        .await
-        .map_err(NativeError::from)?;
-    state.engine.check(generation)?;
-    Ok(json!({"revoked":revoked,"generation":generation.to_string()}))
+    let state = Arc::clone(state.inner());
+    tauri::async_runtime::spawn(async move {
+        let (generation, _) = state.engine.invalidate()?;
+        let _guard = state.engine.auth.lock().await;
+        let revoked = state
+            .engine
+            .client
+            .sign_out()
+            .await
+            .map_err(NativeError::from)?;
+        state.engine.check(generation)?;
+        Ok(json!({"revoked":revoked,"generation":generation.to_string()}))
+    })
+    .await
+    .map_err(|_| NativeError::new("internal_error"))?
 }
 #[tauri::command]
 pub async fn balance<R: Runtime>(

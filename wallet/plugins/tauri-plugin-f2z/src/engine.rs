@@ -75,6 +75,10 @@ impl Engine {
             .map_err(|_| NativeError::new("internal_error"))
     }
     pub fn snapshot(&self) -> Result<(u64, CancellationToken)> {
+        let _transition = self
+            .auth
+            .try_lock()
+            .map_err(|_| NativeError::new("authentication_busy"))?;
         let state = self.state()?;
         Ok((state.generation, state.cancel.clone()))
     }
@@ -160,6 +164,10 @@ impl Engine {
     fn register(&self, owner: &str, spec: &wire::ChatOperation) -> Result<Arc<Operation>> {
         wire::key(&spec.operation_id)?;
         wire::key(&spec.idempotency_key)?;
+        let _transition = self
+            .auth
+            .try_lock()
+            .map_err(|_| NativeError::new("authentication_busy").key(&spec.idempotency_key))?;
         self.expire()?;
         let operation = {
             let mut state = self.state()?;
@@ -405,6 +413,34 @@ mod tests {
         engine.close_window("main").unwrap();
         assert!(cancel.is_cancelled());
         assert!(engine.check(generation).is_err());
+    }
+    #[tokio::test]
+    async fn account_commands_do_not_start_during_authentication() {
+        let engine = engine();
+        let guard = engine.auth.lock().await;
+        let (owner, _, _) = engine.begin_auth("main").unwrap();
+        assert_eq!(
+            engine.session().await.unwrap_err().code,
+            "authentication_busy"
+        );
+        assert_eq!(
+            engine
+                .read(async {
+                    panic!("old account request started");
+                    #[allow(unreachable_code)]
+                    Ok(())
+                })
+                .await
+                .unwrap_err()
+                .code,
+            "authentication_busy"
+        );
+        let error = engine.register("main", &spec("during")).err().unwrap();
+        assert_eq!(error.code, "authentication_busy");
+        assert_eq!(error.idempotency_key.as_deref(), Some("key-during"));
+        drop(owner);
+        drop(guard);
+        assert!(engine.register("main", &spec("after")).is_ok());
     }
     #[tokio::test]
     async fn only_one_reader_can_consume_an_operation() {

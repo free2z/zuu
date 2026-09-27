@@ -217,7 +217,7 @@ jobs:
               frontend_only=false
             fi
             case "$file" in
-              Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/package.json|wallet/package-lock.json|wallet/shared/*|wallet/zuuli/*|wallet/zuuallet/*|wallet/free2z/*|wallet/e2e2z/*|wallet/plugins/*|rs/crates/f2z-authority/*|rs/crates/f2z-codec/*|rs/crates/f2z-intent/*|rs/crates/f2z-kt-client/*|rs/crates/f2z-kt-core/*|rs/crates/f2z-msg-dag/*|rs/crates/f2z-msg-identity/*|rs/crates/f2z-msg-mls/*|rs/crates/f2z-msg-store/*|rs/crates/f2z-relay-proto/*|rs/crates/f2z-relay-testkit/*|rs/rust-toolchain.toml|wallet/zuuallet/package.json|wallet/zuuallet/package-lock.json|wallet/zuuallet/src/hooks/useWallet.ts|wallet/zuuallet/src/lib/mnemonic.ts|wallet/zuuallet/src/lib/sensitive-entry.ts|wallet/zuuallet/src/lib/sensitive-seed-session.ts|wallet/zuuallet/src/lib/sensitive-seed.ts|wallet/zuuallet/src/lib/tauri.ts|wallet/zuuallet/src/pages/CreateWallet.tsx|wallet/zuuallet/src/pages/RestoreWallet.tsx|wallet/zuuallet/src/pages/Settings.tsx|wallet/zuuallet/src/pages/Welcome.tsx|wallet/zuuallet/src/pages/sensitive-entry-routes.test.tsx|wallet/zuuallet/src/types/index.ts|wallet/rust-toolchain.toml|wallet/deny.toml|docs/e2ee/CLIENT-CONTRACT.md|docs/e2ee/WIRE.md|scripts/check-github-actions-pins.mjs|scripts/check-librustzcash-compat.mjs|scripts/check-rust-toolchain.sh|scripts/check-f2z-sdk-mobile.py|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|scripts/check-tauri-plugin-permissions.mjs|scripts/check-zuuli-linux-image.mjs|scripts/check-zuuli-store-capture-image.mjs|scripts/check-zuuli-android-gate.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/containers/zuuli-store-capture/*|.github/workflows/e2e2z-release.yml|.github/workflows/free2z-release.yml|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/workflows/zuuli-store-capture-image.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-store-audit.yml|.github/workflows/zuuli-store-publish.yml|.github/workflows/zuuli-testflight-bootstrap.yml|.github/workflows/zuuli-testflight-recovery.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*|docs/ZUULI-LINUX-BUILD-IMAGE.md|docs/ZUULI-STORE-CAPTURE-IMAGE.md)
+              Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/package.json|wallet/package-lock.json|wallet/shared/*|wallet/zuuli/*|wallet/zuuallet/*|wallet/free2z/*|wallet/e2e2z/*|wallet/plugins/*|rs/crates/f2z-sdk/*|rs/crates/f2z-ai-proto/*|rs/crates/f2z-authority/*|rs/crates/f2z-codec/*|rs/crates/f2z-intent/*|rs/crates/f2z-kt-client/*|rs/crates/f2z-kt-core/*|rs/crates/f2z-msg-dag/*|rs/crates/f2z-msg-identity/*|rs/crates/f2z-msg-mls/*|rs/crates/f2z-msg-store/*|rs/crates/f2z-relay-proto/*|rs/crates/f2z-relay-testkit/*|rs/rust-toolchain.toml|wallet/zuuallet/package.json|wallet/zuuallet/package-lock.json|wallet/zuuallet/src/hooks/useWallet.ts|wallet/zuuallet/src/lib/mnemonic.ts|wallet/zuuallet/src/lib/sensitive-entry.ts|wallet/zuuallet/src/lib/sensitive-seed-session.ts|wallet/zuuallet/src/lib/sensitive-seed.ts|wallet/zuuallet/src/lib/tauri.ts|wallet/zuuallet/src/pages/CreateWallet.tsx|wallet/zuuallet/src/pages/RestoreWallet.tsx|wallet/zuuallet/src/pages/Settings.tsx|wallet/zuuallet/src/pages/Welcome.tsx|wallet/zuuallet/src/pages/sensitive-entry-routes.test.tsx|wallet/zuuallet/src/types/index.ts|wallet/rust-toolchain.toml|wallet/deny.toml|docs/e2ee/CLIENT-CONTRACT.md|docs/e2ee/WIRE.md|scripts/check-github-actions-pins.mjs|scripts/check-librustzcash-compat.mjs|scripts/check-rust-toolchain.sh|scripts/check-f2z-sdk-mobile.py|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|scripts/check-tauri-plugin-permissions.mjs|scripts/check-zuuli-linux-image.mjs|scripts/check-zuuli-store-capture-image.mjs|scripts/check-zuuli-android-gate.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/containers/zuuli-store-capture/*|.github/workflows/e2e2z-release.yml|.github/workflows/free2z-release.yml|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/workflows/zuuli-store-capture-image.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-store-audit.yml|.github/workflows/zuuli-store-publish.yml|.github/workflows/zuuli-testflight-bootstrap.yml|.github/workflows/zuuli-testflight-recovery.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*|docs/ZUULI-LINUX-BUILD-IMAGE.md|docs/ZUULI-STORE-CAPTURE-IMAGE.md)
                 zuuli=true
                 [[ "$frontend_only" == true ]] || rust=true
                 ;;
@@ -1182,11 +1182,13 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - name: Resolve Rust toolchain
-        id: toolchain
-        run: echo "version=$(scripts/check-rust-toolchain.sh --print-channel)" >> "$GITHUB_OUTPUT"
+        id: rust_toolchain
+        run: |
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
-          toolchain: ${{ steps.toolchain.outputs.version }}
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: wallet/plugins/tauri-plugin-f2z
@@ -1223,11 +1225,13 @@ jobs:
         with:
           persist-credentials: false
       - name: Resolve Rust toolchain
-        id: toolchain
-        run: echo "version=$(scripts/check-rust-toolchain.sh --print-channel)" >> "$GITHUB_OUTPUT"
+        id: rust_toolchain
+        run: |
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
-          toolchain: ${{ steps.toolchain.outputs.version }}
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         if: matrix.platform == 'android'
         with:

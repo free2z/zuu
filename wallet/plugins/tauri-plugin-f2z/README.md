@@ -162,7 +162,10 @@ Never display a provisional `charged_2z` as a receipt.
 
 Native sign-in cancellation is handled by the system browser UI, its deadline,
 or `signOut`; there is no guest `AbortSignal` sign-in contract. Merely abandoning
-an IPC promise cannot undo a sign-in that already committed. A stream adapter
+an IPC promise cannot undo a sign-in that already committed. Account commands
+return `authentication_busy` throughout a transition. Closing the authenticating
+window cancels it and clears any installation already underway before account
+commands resume; this can also sign out the previous account. A stream adapter
 that sends `cancelChat` before `startChat` has registered must repeat cancellation
 when `startChat` resolves and discard its result.
 
