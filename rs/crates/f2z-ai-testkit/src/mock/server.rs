@@ -29,7 +29,12 @@ pub const SCENARIO_HEADER: &str = "x-f2z-mock-scenario";
 /// How many requests [`MockProvider::recorded_requests`] keeps. Bounded so a
 /// long load run cannot grow without limit; [`MockProvider::request_count`]
 /// counts every request.
-const RECORD_LIMIT: usize = 4_096;
+const RECORD_LIMIT: usize = 1_024;
+
+/// Bodies larger than this are recorded by length only, so a long-context
+/// load run cannot turn the request log into the thing that runs out of
+/// memory: at most `RECORD_LIMIT × RECORD_BODY_LIMIT` = 64 MiB of bodies.
+const RECORD_BODY_LIMIT: usize = 64 * 1024;
 
 /// How long a due write must wait on a full body buffer before it counts as
 /// the reader applying backpressure ([`MockProvider::backpressured_writes`]).
@@ -46,8 +51,11 @@ pub struct RecordedRequest {
     pub style: ProviderStyle,
     /// The value of [`SCENARIO_HEADER`], if sent.
     pub scenario: Option<String>,
-    /// The parsed JSON body (`Value::Null` if it did not parse).
+    /// The parsed JSON body; `Value::Null` if it did not parse or was over
+    /// 64 KiB (recorded by length only).
     pub body: Value,
+    /// The body's length in bytes.
+    pub body_len: usize,
 }
 
 struct Shared {
@@ -55,6 +63,7 @@ struct Shared {
     named: RwLock<HashMap<String, Scenario>>,
     seq: AtomicU64,
     backpressured: AtomicU64,
+    active: AtomicU64,
     log: Mutex<VecDeque<RecordedRequest>>,
 }
 
@@ -84,6 +93,7 @@ impl MockProvider {
             named: RwLock::new(HashMap::new()),
             seq: AtomicU64::new(0),
             backpressured: AtomicU64::new(0),
+            active: AtomicU64::new(0),
             log: Mutex::new(VecDeque::new()),
         });
         let app = Router::new()
@@ -159,6 +169,14 @@ impl MockProvider {
         self.shared.seq.load(Ordering::Relaxed)
     }
 
+    /// Streams whose producer is still running. It drops as each stream
+    /// finishes or its client goes away (including mid-stall), so a test can
+    /// assert that nothing outlives its client.
+    #[must_use]
+    pub fn active_streams(&self) -> u64 {
+        self.shared.active.load(Ordering::Relaxed)
+    }
+
     /// How many writes of a **paced** stream (one with
     /// [`Scenario::tokens_per_sec`]) found the reader not keeping up: the
     /// write was due but the response body's buffer stayed full for at least
@@ -177,7 +195,7 @@ impl MockProvider {
         self.shared.backpressured.load(Ordering::Relaxed)
     }
 
-    /// The most recent requests (at most 4 096), oldest first.
+    /// The most recent requests (at most 1 024), oldest first.
     #[must_use]
     pub fn recorded_requests(&self) -> Vec<RecordedRequest> {
         self.shared
@@ -228,7 +246,12 @@ async fn handle(
         log.push_back(RecordedRequest {
             style,
             scenario: name.clone(),
-            body: parsed.clone(),
+            body: if body.len() <= RECORD_BODY_LIMIT {
+                parsed.clone()
+            } else {
+                Value::Null
+            },
+            body_len: body.len(),
         });
     }
 
@@ -302,7 +325,9 @@ async fn handle(
             // Unpaced, the mock is always faster than its reader; only a paced
             // stream has a provider speed to fall behind.
             let paced = scenario.tokens_per_sec.is_some();
+            probe.active.fetch_add(1, Ordering::Relaxed);
             tokio::spawn(async move {
+                let _active = ActiveGuard(Arc::clone(&probe));
                 // Pace against an absolute schedule, not by sleeping each
                 // delay: timers are millisecond-coarse, so per-step sleeps
                 // would run a 5 000 tokens/s stream at under 1 000. Behind
@@ -313,7 +338,12 @@ async fn handle(
                 for step in steps.by_ref() {
                     if !step.delay.is_zero() {
                         due = due.checked_add(step.delay).unwrap_or(due);
-                        tokio::time::sleep_until(due).await;
+                        // A client that goes away mid-pause ends the stream
+                        // now, not when a long stall would have expired.
+                        tokio::select! {
+                            () = tokio::time::sleep_until(due) => {}
+                            () = tx.closed() => return,
+                        }
                     }
                     let item = Ok(Bytes::from(step.bytes));
                     let item = match tx.try_send(item) {
@@ -379,6 +409,15 @@ async fn handle(
             h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
             resp
         }
+    }
+}
+
+/// Decrements the active-stream gauge however the producer exits.
+struct ActiveGuard(Arc<Shared>);
+
+impl Drop for ActiveGuard {
+    fn drop(&mut self) {
+        self.0.active.fetch_sub(1, Ordering::Relaxed);
     }
 }
 

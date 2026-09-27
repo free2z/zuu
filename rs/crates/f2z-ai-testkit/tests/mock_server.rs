@@ -306,3 +306,39 @@ async fn a_reader_that_stops_reading_is_counted_as_backpressure() {
     drop(stalled);
     mock.shutdown().await;
 }
+
+#[tokio::test]
+async fn a_client_that_leaves_during_a_stall_ends_the_producer_and_big_bodies_are_not_kept() {
+    let mock = MockProvider::start(Scenario::default().with_stall(0, Duration::from_secs(300)))
+        .await
+        .unwrap();
+    let resp = post(
+        &mock,
+        ProviderStyle::AnthropicMessages,
+        &request_body(ProviderStyle::AnthropicMessages),
+    )
+    .await;
+    assert_eq!(mock.active_streams(), 1);
+    drop(resp);
+    // The producer is mid-way through a 300 s stall; it must notice at once.
+    let t0 = Instant::now();
+    while mock.active_streams() > 0 {
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "a stalled producer outlived its client"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    mock.shutdown().await;
+
+    let mock = MockProvider::start(Scenario::default()).await.unwrap();
+    let mut body = request_body(ProviderStyle::AnthropicMessages);
+    body["padding"] = Value::String("x".repeat(100_000));
+    read_all(post(&mock, ProviderStyle::AnthropicMessages, &body).await)
+        .await
+        .unwrap();
+    let rec = &mock.recorded_requests()[0];
+    assert!(rec.body.is_null());
+    assert!(rec.body_len > 100_000);
+    mock.shutdown().await;
+}
