@@ -114,8 +114,8 @@ pub struct HoldRequest {
     pub rate_card_version: u64,
     /// The catalogue version, recorded for reference only.
     pub catalog_version: u64,
-    /// The markup the gateway believes the user consented to. Must equal the
-    /// grant's.
+    /// The grant's **consented** markup. Must equal the grant's; the ledger
+    /// then applies `min(this, the app's effective markup)`.
     pub markup_bps: Bps,
     /// Time to expiry if never extended.
     pub ttl: Duration,
@@ -126,6 +126,11 @@ pub struct HoldRequest {
 pub struct HeldHold {
     /// The new hold.
     pub hold_id: HoldId,
+    /// The markup the hold's snapshot applies: `min(consented, the app's
+    /// effective markup)` (metering.md §2.2). When it is higher than the one
+    /// the gateway priced `amount_2z` with, the gateway re-prices and extends
+    /// before calling the provider.
+    pub applied_markup_bps: Bps,
     /// Balance minus open holds after this one, in milli-2Z.
     pub available_milli_2z: u64,
     /// Remaining cap after this hold, or `None` when uncapped.

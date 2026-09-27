@@ -12,7 +12,8 @@
 //! # What is modelled, and what is simplified
 //!
 //! * **Modelled:** frozen accounts, the account epoch (`aep`) and grant
-//!   generation (`agen`), consented markup, per-grant spend caps with
+//!   generation (`agen`), consented markup capped by the app's approved
+//!   effective markup (`b = min(consented, effective)`, #1055), per-grant spend caps with
 //!   per-period collection history that survives re-consent, account debt
 //!   from purchase reversals (purchase.md §3.1), the 16-open-hold
 //!   limit (per user), replay by `hold_key`, absolute extension targets,
@@ -70,6 +71,8 @@ pub struct CallRecord {
     pub expires_at_ms: u64,
     /// The rate card snapshotted at hold time.
     pub rate_card_version: u64,
+    /// The markup the snapshot prices with: `min(consented, effective)`.
+    pub applied_markup_bps: Bps,
     /// The catalogue version recorded for reference.
     pub catalog_version: u64,
     /// The model whose minimum charge was snapshotted.
@@ -156,6 +159,10 @@ struct State {
     accounts: HashMap<String, Account>,
     grants: HashMap<(String, String), Grant>,
     rate_cards: BTreeMap<u64, RateCard>,
+    /// Each app's current effective markup,
+    /// `min(markup_bps, approved_markup_bps)` (oidc.md §2). An app absent
+    /// here is uncapped — see [`InMemoryLedger::set_app_effective_markup`].
+    effective_markup: HashMap<String, Bps>,
     holds: BTreeMap<HoldId, Hold>,
     by_key: HashMap<HoldKey, HoldId>,
     /// Open holds per user. Every balance and cap computation reads only
@@ -437,6 +444,13 @@ impl State {
         self.next_hold = self.next_hold.saturating_add(1);
         let hold_id = HoldId(self.next_hold);
         let expires_at_ms = self.now_ms.saturating_add(millis(req.ttl));
+        // metering.md §2.2: b = min(consented, the app's effective markup),
+        // applied by the ledger inside the hold. `markup_mismatch` above was
+        // only about the consented value.
+        let applied = self
+            .effective_markup
+            .get(&req.app)
+            .map_or(req.markup_bps, |eff| req.markup_bps.min(*eff));
         self.by_key.insert(req.hold_key.clone(), hold_id);
         self.open_by_user
             .entry(req.user.clone())
@@ -454,6 +468,7 @@ impl State {
                     reserved_2z: req.amount_2z,
                     expires_at_ms,
                     rate_card_version: req.rate_card_version,
+                    applied_markup_bps: applied,
                     catalog_version: req.catalog_version,
                     model_id: req.model_id,
                     settlement: None,
@@ -468,13 +483,14 @@ impl State {
                 app: req.app.clone(),
                 period,
                 margin,
-                markup: req.markup_bps,
+                markup: applied,
                 min_charge_2z: model.min_charge_2z,
                 prices: model.prices,
             },
         );
         Ok(HoldOutcome::Held(HeldHold {
             hold_id,
+            applied_markup_bps: applied,
             available_milli_2z: self.available_milli(&req.user),
             cap_remaining_milli_2z: self.cap_remaining_milli(&req.user, &req.app, period),
             expires_at_ms,
@@ -799,6 +815,21 @@ impl InMemoryLedger {
         {
             g.period = g.period.saturating_add(1);
         }
+    }
+
+    /// Set `app`'s current effective markup — `min(markup_bps,
+    /// approved_markup_bps)` of oidc.md §2 — which every later hold caps the
+    /// consented markup with. Lowering or withdrawing it (`Bps(0)`) reaches
+    /// open grants on their next hold; open holds keep their snapshot.
+    ///
+    /// **Fake default:** an app never set here is treated as approved for
+    /// whatever its users consented to, so tests that do not exercise
+    /// approval need no setup. The platform's own default is `0` until the
+    /// first approval.
+    pub fn set_app_effective_markup(&self, app: &str, effective: Bps) {
+        self.lock()
+            .effective_markup
+            .insert(app.to_owned(), effective);
     }
 
     /// Install a rate card.

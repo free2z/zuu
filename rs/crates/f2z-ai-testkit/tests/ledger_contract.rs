@@ -901,3 +901,36 @@ impl World {
             .unwrap_err()
     }
 }
+
+#[tokio::test]
+async fn the_applied_markup_is_the_lesser_of_consented_and_effective() {
+    // Consented 50 %, approved only 20 %: priced at 20 %.
+    let w = World::new(100_000, Bps(0), Bps(5_000), 1, None);
+    w.ledger.set_app_effective_markup("app", Bps(2_000));
+    let HoldOutcome::Held(h) = w.ledger.hold(w.request(5)).await.unwrap() else {
+        panic!()
+    };
+    assert_eq!(h.applied_markup_bps, Bps(2_000));
+    // $0.021 at 0 % margin and 20 % markup: p = 2.1, d = 0.42 → 3 2Z, 420 dev.
+    let s = settled(w.settle(h.hold_id, 21_000_000).await);
+    assert_eq!((s.charged_2z, s.developer_milli_2z), (3, 420));
+    // The gateway still passes the CONSENTED value; passing the effective one
+    // is a mismatch, not a match.
+    let mut req = w.request(1);
+    req.markup_bps = Bps(2_000);
+    assert_eq!(
+        w.ledger.hold(req).await.unwrap(),
+        HoldOutcome::MarkupMismatch
+    );
+    // Withdrawn approval: b = 0 on the next hold; an open hold keeps its
+    // snapshot.
+    let open = w.hold(5).await;
+    w.ledger.set_app_effective_markup("app", Bps(0));
+    let HoldOutcome::Held(h) = w.ledger.hold(w.request(1)).await.unwrap() else {
+        panic!()
+    };
+    assert_eq!(h.applied_markup_bps, Bps(0));
+    assert_eq!(w.ledger.call(open).unwrap().applied_markup_bps, Bps(2_000));
+    let s = settled(w.settle(open, 21_000_000).await);
+    assert_eq!(s.developer_milli_2z, 420);
+}
