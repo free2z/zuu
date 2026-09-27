@@ -21,17 +21,27 @@
 //!
 //! | Deadline | From | Outcome |
 //! |---|---|---|
-//! | connect, 5 s | each attempt's connect | `unavailable` (`connect`), retryable |
-//! | first byte, the model's `ttfb_timeout_ms` | each attempt's send, until its first body byte | `provider_timeout` (`first_byte`), retryable |
-//! | idle, 60 s | each body chunk | `provider_timeout` (`idle`) |
-//! | hard limit, 300 s | **admission of the call** | `provider_timeout` (`hard_limit`), never retried |
+//! | connect, 5 s | each attempt's connect | `unavailable` (`connect`), retried |
+//! | first byte, the model's `ttfb_timeout_ms` | each attempt's send, until its first body byte | `provider_timeout` (`first_byte`), **not** retried: the request was written |
+//! | idle, the model's `idle_timeout_ms` (default 60 s) | each body chunk | `provider_timeout` (`idle`) |
+//! | hard limit, 300 s | **admission of the call** | `provider_timeout` (`hard_limit`) |
 //!
 //! # Retry
 //!
-//! Only while nothing has been produced — no `delta`, no `tool_call` — so a
-//! client can never see a retry, and within [`super::resilience`]'s per-call
-//! policy, per-provider budget and circuit breaker. After content, a failure
-//! ends the call ([`Phase::AfterContent`]) with whatever usage was reported.
+//! **Only before the provider can have accepted the request**, because a
+//! provider bills a request it accepted whether or not the gateway reads the
+//! answer — a retry after acceptance is the same call paid for twice, and
+//! the client charged for one at most. So exactly two failures retry: a
+//! refused **connection** (nothing was sent), and a **non-2xx status** the
+//! provider answered with (it refused the request; `429`, `5xx`, `529`,
+//! `408`, `504`, per [`super::classify_status`]). A timeout waiting for the
+//! head, a transport error after the request was written, and anything after
+//! a 2xx head — a cut stream, an error event, a first-byte or idle timeout —
+//! end the call with that attempt's own usage, if it reported any.
+//!
+//! Retries are also invisible to the client (nothing was produced) and are
+//! bounded by [`super::resilience`]'s per-call policy, per-provider budget
+//! and circuit breaker.
 
 use std::collections::VecDeque;
 use std::future::Future;
@@ -192,19 +202,44 @@ impl ProviderUpstream {
             State::Sending { send, deadline } => {
                 let deadline = *deadline;
                 match tokio::time::timeout_at(deadline, send.as_mut()).await {
+                    // The request was written and no head came back: the
+                    // provider may have accepted it and be generating (and
+                    // billing). Never re-sent — see "Retry" above.
                     Err(_) => {
                         let failure = self.deadline_failure(deadline, false);
-                        self.attempt_failed(failure, UsageReport::Missing { partial: None });
+                        self.finish(
+                            Some(failure),
+                            None,
+                            UsageReport::Missing { partial: None },
+                            0,
+                        );
                     }
-                    Ok(Err(error)) => {
-                        let failure = if error.is_connect() || error.is_timeout() {
-                            ProviderFailure::new(ErrorCode::Unavailable, "connect", true)
-                        } else {
-                            ProviderFailure::new(ErrorCode::ProviderError, "transport", true)
-                        };
-                        self.attempt_failed(failure, UsageReport::Missing { partial: None });
+                    // Nothing reached the provider: the one transport
+                    // failure that is safe to retry.
+                    Ok(Err(error)) if error.is_connect() => {
+                        let failure = ProviderFailure::new(ErrorCode::Unavailable, "connect", true);
+                        self.attempt_failed(failure);
+                    }
+                    Ok(Err(_)) => {
+                        let failure =
+                            ProviderFailure::new(ErrorCode::ProviderError, "transport", true);
+                        self.finish(
+                            Some(failure),
+                            None,
+                            UsageReport::Missing { partial: None },
+                            0,
+                        );
                     }
                     Ok(Ok(response)) if response.status().is_success() => {
+                        // A half-open breaker's probe has its answer at the
+                        // head: the provider is serving again. Waiting for
+                        // the end of the probe's stream would refuse every
+                        // other call for as long as it runs.
+                        if self.permit.as_ref().is_some_and(Permit::is_probe)
+                            && let Some(permit) = self.permit.take()
+                        {
+                            permit.record(Verdict::Success);
+                        }
                         self.state = State::Streaming {
                             response,
                             decoder: Decoder::new(),
@@ -218,8 +253,7 @@ impl ProviderUpstream {
                             .headers()
                             .get(reqwest::header::RETRY_AFTER)
                             .and_then(|v| v.to_str().ok())
-                            .and_then(|v| v.trim().parse::<u64>().ok())
-                            .map(Duration::from_secs);
+                            .and_then(parse_retry_after);
                         self.state = State::ErrorBody {
                             status: response.status().as_u16(),
                             response,
@@ -259,7 +293,7 @@ impl ProviderUpstream {
                         retryable = failure.retryable,
                         "provider answered with an error status"
                     );
-                    self.attempt_failed(failure, UsageReport::Missing { partial: None });
+                    self.attempt_failed(failure);
                 }
             }
             State::Streaming {
@@ -424,23 +458,28 @@ impl ProviderUpstream {
             cache_write_1h_tokens,
             failure: stream_failure,
         } = parser.end(terminal);
-        match failure.or(stream_failure) {
-            Some(failure) if !self.output_produced => self.attempt_failed(failure, usage),
-            failure => self.finish(failure, finish_reason, usage, cache_write_1h_tokens),
-        }
+        // A stream exists, so the provider answered 2xx: it accepted the
+        // request and bills for it whatever happens next. Never retried —
+        // the attempt's own usage (or its absence) is what the call has.
+        self.finish(
+            failure.or(stream_failure),
+            finish_reason,
+            usage,
+            cache_write_1h_tokens,
+        );
     }
 
-    /// An attempt failed before any content: retry if allowed, else finish.
-    fn attempt_failed(&mut self, failure: ProviderFailure, usage: UsageReport) {
-        let verdict = if failure.retryable
-            || matches!(
-                failure.code,
-                ErrorCode::ProviderTimeout | ErrorCode::Unavailable
-            ) {
-            Verdict::Failure
-        } else {
-            Verdict::Neutral
-        };
+    /// An attempt failed **before the provider accepted it** — a refused
+    /// connection, or a non-2xx head: retry if allowed, else finish.
+    ///
+    /// These are the only retries, because they are the only failures the
+    /// provider cannot have billed: a timeout waiting for the head, a
+    /// transport error after the request was written, and anything after a
+    /// 2xx head all end the call (`finish`). So a retried attempt never has
+    /// a usage of its own to keep — there is no cost trail to carry across.
+    fn attempt_failed(&mut self, failure: ProviderFailure) {
+        let usage = UsageReport::Missing { partial: None };
+        let verdict = breaker_verdict(&failure);
         if let Some(permit) = self.permit.take() {
             permit.record(verdict);
         }
@@ -485,8 +524,7 @@ impl ProviderUpstream {
         if let Some(permit) = self.permit.take() {
             permit.record(match &failure {
                 None => Verdict::Success,
-                Some(f) if f.code == ErrorCode::Internal => Verdict::Neutral,
-                Some(_) => Verdict::Failure,
+                Some(f) => breaker_verdict(f),
             });
         }
         // Every provider bills images inside its token counts and none
@@ -548,6 +586,40 @@ impl ProviderUpstream {
     }
 }
 
+/// What a failure says about the provider's health. A `429` is the
+/// provider throttling this account, not failing; a request it refused
+/// (4xx) or an `internal` (the gateway's own key) says nothing either.
+fn breaker_verdict(failure: &ProviderFailure) -> Verdict {
+    match failure.status {
+        Some(429) => Verdict::Neutral,
+        _ if failure.code == ErrorCode::Internal => Verdict::Neutral,
+        _ if failure.retryable
+            || matches!(
+                failure.code,
+                ErrorCode::ProviderTimeout | ErrorCode::Unavailable
+            ) =>
+        {
+            Verdict::Failure
+        }
+        _ => Verdict::Neutral,
+    }
+}
+
+/// `Retry-After`: delay-seconds, or an HTTP-date (RFC 9110 §10.2.3). A date
+/// in the past is "now".
+#[must_use]
+pub fn parse_retry_after(value: &str) -> Option<Duration> {
+    let value = value.trim();
+    if let Ok(secs) = value.parse::<u64>() {
+        return Some(Duration::from_secs(secs));
+    }
+    let at = httpdate::parse_http_date(value).ok()?;
+    Some(
+        at.duration_since(std::time::SystemTime::now())
+            .unwrap_or(Duration::ZERO),
+    )
+}
+
 /// A cheap per-retry jitter seed; not security-relevant.
 fn jitter_seed(retry: u32) -> u64 {
     let nanos = std::time::SystemTime::now()
@@ -572,5 +644,27 @@ impl Upstream for ProviderUpstream {
 
     fn outcome(&mut self) -> Option<ProviderOutcome> {
         self.outcome.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retry_after_is_seconds_or_an_http_date() {
+        assert_eq!(parse_retry_after(" 3 "), Some(Duration::from_secs(3)));
+        let soon = std::time::SystemTime::now() + Duration::from_secs(30);
+        let d = parse_retry_after(&httpdate::fmt_http_date(soon)).unwrap();
+        assert!(
+            d > Duration::from_secs(27) && d <= Duration::from_secs(30),
+            "{d:?}"
+        );
+        assert_eq!(
+            parse_retry_after("Wed, 21 Oct 2015 07:28:00 GMT"),
+            Some(Duration::ZERO),
+            "a past date is now"
+        );
+        assert_eq!(parse_retry_after("soon"), None);
     }
 }

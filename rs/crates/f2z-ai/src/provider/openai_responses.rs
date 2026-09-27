@@ -20,8 +20,8 @@
 //!   which is therefore the informational subset.
 //! * A `null` usage is [`UsageReport::Missing`], never zero.
 //!
-//! Server-side tool calls (`web_search_call`, `file_search_call`, …) are
-//! billed per call and are not in `usage`; they are counted from the
+//! Server-side tool calls billed per call (`web_search_call`,
+//! `file_search_call` — zuu#1066) are billed per call and are not in `usage`; they are counted from the
 //! response's output items into `usage.tool_calls`. v1 never enables one
 //! (chat-api.md §2.1), so this count is `0` unless a provider starts calling
 //! hosted tools unasked — in which case the call is billed, not hidden.
@@ -49,13 +49,12 @@ use crate::error::ApiFailure;
 
 /// Output item types that are provider-hosted tool invocations, billed per
 /// call. `function_call` (and `custom_tool_call`) are the client's own tools.
-const HOSTED_TOOL_ITEMS: [&str; 5] = [
-    "web_search_call",
-    "file_search_call",
-    "code_interpreter_call",
-    "image_generation_call",
-    "mcp_call",
-];
+///
+/// Only the tools OpenAI bills **per call** (zuu#1066): web search and file
+/// search. Code interpreter is billed per container session, image
+/// generation in tokens, and MCP calls not at all by OpenAI — none of them
+/// is a per-call `usage.tool_calls`.
+const HOSTED_TOOL_ITEMS: [&str; 2] = ["web_search_call", "file_search_call"];
 
 /// The OpenAI Responses adapter.
 #[derive(Clone, Copy, Debug, Default)]
@@ -195,6 +194,9 @@ impl Provider for OpenAiResponses {
 
 #[derive(Debug, Default)]
 struct Parser {
+    /// An `error` event arrived. OpenAI may still send `response.failed`
+    /// (with usage) after it, so the stream is read on to its end.
+    error: Option<ProviderFailure>,
     hosted_tool_calls: u64,
     function_calls: u64,
     terminal: Option<Terminal>,
@@ -356,17 +358,13 @@ impl StreamParser for Parser {
             }
             "error" => {
                 let code = data.get("code").and_then(Value::as_str).unwrap_or_default();
-                self.terminal = Some(Terminal {
-                    finish_reason: None,
-                    usage: None,
-                    hosted_tool_calls: None,
-                    failure: Some(ProviderFailure::new(
-                        ErrorCode::ProviderError,
-                        "stream_error",
-                        retryable_error_type(code),
-                    )),
-                });
-                return Ok(Step::Terminal);
+                self.error = Some(ProviderFailure::new(
+                    ErrorCode::ProviderError,
+                    "stream_error",
+                    retryable_error_type(code),
+                ));
+                // Not terminal: a `response.failed` carrying the usage may
+                // follow, and the body's end is the end.
             }
             _ => {}
         }
@@ -374,18 +372,22 @@ impl StreamParser for Parser {
     }
 
     fn end(&mut self, _terminal: bool) -> Ending {
-        let Some(terminal) = self.terminal.take() else {
+        let Some(mut terminal) = self.terminal.take() else {
             return Ending {
                 finish_reason: None,
                 usage: UsageReport::Missing { partial: None },
                 cache_write_1h_tokens: 0,
-                failure: Some(ProviderFailure::new(
-                    ErrorCode::ProviderError,
-                    "truncated",
-                    true,
-                )),
+                failure: Some(self.error.take().unwrap_or_else(|| {
+                    ProviderFailure::new(ErrorCode::ProviderError, "truncated", true)
+                })),
             };
         };
+        if terminal.failure.is_none()
+            && let Some(error) = self.error.take()
+        {
+            terminal.failure = Some(error);
+            terminal.finish_reason = None;
+        }
         let hosted = terminal.hosted_tool_calls.unwrap_or(self.hosted_tool_calls);
         Ending {
             finish_reason: terminal.finish_reason,
@@ -464,15 +466,43 @@ mod tests {
     }
 
     #[test]
+    fn an_error_event_does_not_end_the_read_and_a_later_failed_keeps_its_usage() {
+        let mut p = Parser::default();
+        let step = feed(
+            &mut p,
+            json!({"type":"error","code":"server_error","message":"x"}),
+        )
+        .unwrap();
+        assert_eq!(step, Step::Continue);
+        feed(
+            &mut p,
+            json!({"type":"response.failed","response":{"error":{"code":"server_error"},
+                   "usage":{"input_tokens":10,"output_tokens":4}}}),
+        )
+        .unwrap();
+        let end = p.end(true);
+        assert!(end.failure.is_some());
+        assert_eq!(end.usage.reported().map(|u| u.output_tokens), Some(4));
+
+        let mut p = Parser::default();
+        feed(&mut p, json!({"type":"error","code":"server_error"})).unwrap();
+        let end = p.end(false);
+        assert_eq!(end.failure.map(|f| f.reason), Some("stream_error"));
+        assert_eq!(end.usage, UsageReport::Missing { partial: None });
+    }
+
+    #[test]
     fn hosted_tool_items_are_billed_calls() {
         let mut p = Parser::default();
         feed(
             &mut p,
             json!({"type":"response.completed","response":{
-                "output":[{"type":"web_search_call"},{"type":"function_call"},{"type":"message"}],
+                "output":[{"type":"web_search_call"},{"type":"function_call"},{"type":"message"},
+                          {"type":"file_search_call"},{"type":"mcp_call"},{"type":"image_generation_call"},
+                          {"type":"code_interpreter_call"}],
                 "usage":{"input_tokens":1,"output_tokens":1}}}),
         )
         .unwrap();
-        assert_eq!(p.end(true).usage.reported().map(|u| u.tool_calls), Some(1));
+        assert_eq!(p.end(true).usage.reported().map(|u| u.tool_calls), Some(2));
     }
 }

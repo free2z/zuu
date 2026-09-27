@@ -226,7 +226,11 @@ impl ProviderBackend {
             headers,
             body: Bytes::from(body),
             ttfb: Duration::from_millis(model.ttfb_timeout_ms),
-            idle: self.tuning.timeouts.idle,
+            // Per model: a model that reasons silently needs longer than the
+            // default; the hard deadline bounds it regardless.
+            idle: model
+                .idle_timeout_ms
+                .map_or(self.tuning.timeouts.idle, Duration::from_millis),
             hard_deadline: admitted
                 .checked_add(self.tuning.timeouts.hard_limit)
                 .unwrap_or(admitted),

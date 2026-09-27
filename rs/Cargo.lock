@@ -789,6 +789,7 @@ dependencies = [
  "f2z-ai-testkit",
  "http-body",
  "http-body-util",
+ "httpdate",
  "hyper",
  "hyper-util",
  "opentelemetry",

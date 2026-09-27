@@ -68,8 +68,14 @@ pub const XAI_ON_CHAT: Model = Model {
 
 pub const MODELS: [Model; 5] = [RESPONSES, ANTHROPIC, CHAT, XAI, XAI_ON_CHAT];
 
-fn model_json(id: &str, provider: &str, style: &str, ttfb_ms: u64) -> serde_json::Value {
-    json!({
+fn model_json(
+    id: &str,
+    provider: &str,
+    style: &str,
+    ttfb_ms: u64,
+    idle_ms: Option<u64>,
+) -> serde_json::Value {
+    let mut m = json!({
         "id": id, "provider": provider, "provider_model_id": format!("{id}-upstream"),
         "api_style": style,
         "prices": {"input_nusd_per_mtok": 1000, "cached_input_nusd_per_mtok": 100,
@@ -77,22 +83,31 @@ fn model_json(id: &str, provider: &str, style: &str, ttfb_ms: u64) -> serde_json
                    "image_nusd": 0, "tool_call_nusd": 0},
         "min_charge_2z": 1, "safety_factor_bps": 10000, "context_window": 200000,
         "max_output_tokens": 8192, "ttfb_timeout_ms": ttfb_ms, "enabled": true,
-    })
+    });
+    if let Some(idle) = idle_ms {
+        m["idle_timeout_ms"] = json!(idle);
+    }
+    m
 }
 
 /// The adapter catalogue: every model with `ttfb_ms` as its first-byte
 /// deadline.
 pub fn catalog(ttfb_ms: u64) -> VerifiedCatalog {
+    catalog_with(ttfb_ms, None)
+}
+
+/// The adapter catalogue with a per-model idle timeout.
+pub fn catalog_with(ttfb_ms: u64, idle_ms: Option<u64>) -> VerifiedCatalog {
     let now = now_unix();
     let catalog: Catalog = serde_json::from_value(json!({
         "schema": 1, "version": 1, "issued_at": now - 60, "expires_at": now + 3600,
         "rate_card_version": 1, "platform_margin_bps": 2000,
         "models": [
-            model_json("m-responses", "openai", "openai_responses", ttfb_ms),
-            model_json("m-anthropic", "anthropic", "anthropic_messages", ttfb_ms),
-            model_json("m-chat", "chatco", "openai_chat", ttfb_ms),
-            model_json("m-xai", "xai", "openai_chat", ttfb_ms),
-            model_json("m-unconfigured", "nobody", "openai_chat", ttfb_ms),
+            model_json("m-responses", "openai", "openai_responses", ttfb_ms, idle_ms),
+            model_json("m-anthropic", "anthropic", "anthropic_messages", ttfb_ms, idle_ms),
+            model_json("m-chat", "chatco", "openai_chat", ttfb_ms, idle_ms),
+            model_json("m-xai", "xai", "openai_chat", ttfb_ms, idle_ms),
+            model_json("m-unconfigured", "nobody", "openai_chat", ttfb_ms, idle_ms),
         ],
     }))
     .unwrap();

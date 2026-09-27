@@ -118,6 +118,13 @@ pub struct CallRecord {
     pub delivery: Delivery,
     /// The usage the upstream reported in its `usage` event, if it did.
     /// `None` is metering.md §5.4's estimate case (Wave 2).
+    ///
+    /// **Metering settles from this field, not from `outcome.usage`.** They
+    /// can disagree: a provider that fails before any content may still
+    /// report usage (a Responses `response.failed` with `usage`). That usage
+    /// is kept in `outcome` for the record, but the call produced nothing,
+    /// no `usage` event was delivered, and metering.md §5.2 charges it `0`
+    /// — so it is not here.
     pub usage: Option<Usage>,
     /// How the provider call ended, from an upstream that knows
     /// ([`crate::call::Upstream::outcome`]): the finish reason, the failure

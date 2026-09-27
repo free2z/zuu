@@ -276,6 +276,12 @@ impl Default for CircuitBreaker {
 }
 
 impl Permit {
+    /// Whether this is the half-open breaker's single probe.
+    #[must_use]
+    pub const fn is_probe(&self) -> bool {
+        self.probe
+    }
+
     /// Report the attempt's result.
     pub fn record(mut self, verdict: Verdict) {
         self.done = true;

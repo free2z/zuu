@@ -94,12 +94,14 @@ async fn a_rate_limit_honours_retry_after_and_a_refusal_is_not_retried() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_disconnect_or_error_event_before_content_is_retried_after_content_is_not() {
+async fn nothing_after_a_2xx_head_is_ever_retried() {
     let mock = MockProvider::start(Scenario::default()).await.unwrap();
     let backend = backend(&mock.base_url(), tuning(2));
     let catalog = catalog(10_000);
     for model in [RESPONSES, ANTHROPIC, CHAT] {
-        // Before any content: byte 0 cut, and an overload event at byte 0.
+        // Before any content, but after the provider answered 2xx: it
+        // accepted the request and bills it, so a retry would bill it again.
+        // A cut at byte 0, a cut mid-frame, and an overload event.
         for fault in [
             Fault::DisconnectAtByte { byte: 0 },
             Fault::DisconnectAtByte { byte: 20 },
@@ -109,9 +111,15 @@ async fn a_disconnect_or_error_event_before_content_is_retried_after_content_is_
             },
         ] {
             mock.set_scenario(Scenario::default().with_fault(fault));
+            let before = mock.request_count();
             let run = drive(&backend, &catalog, &request(model.id)).await;
             let label = format!("{} {fault:?}", model.id);
-            assert_eq!(run.outcome.attempts, 3, "{label}: retried");
+            assert_eq!(run.outcome.attempts, 1, "{label}: not retried");
+            assert_eq!(
+                mock.request_count() - before,
+                1,
+                "{label}: one provider request"
+            );
             let f = run.outcome.failure.as_ref().unwrap();
             assert_eq!(f.code, ErrorCode::ProviderError, "{label}");
             assert_eq!(f.phase, Phase::BeforeContent, "{label}");
@@ -147,16 +155,19 @@ async fn a_disconnect_or_error_event_before_content_is_retried_after_content_is_
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_first_byte_deadline_is_the_models_and_is_retried() {
+async fn the_first_byte_deadline_is_the_models_and_is_not_retried() {
     let mock = MockProvider::start(Scenario::default().with_ttfb(Duration::from_millis(400)))
         .await
         .unwrap();
-    let backend = backend(&mock.base_url(), tuning(1));
+    // The request was written; the provider may be generating it. Waiting
+    // longer for the head is the timeout's job, sending it again is not.
+    let backend = backend(&mock.base_url(), tuning(2));
     let run = drive(&backend, &catalog(100), &request(CHAT.id)).await;
     let f = run.outcome.failure.unwrap();
     assert_eq!(f.code, ErrorCode::ProviderTimeout);
     assert_eq!(f.timeout_phase(), Some("first_byte"));
-    assert_eq!(run.outcome.attempts, 2);
+    assert_eq!(run.outcome.attempts, 1);
+    assert_eq!(mock.request_count(), 1);
     assert!(
         run.elapsed < Duration::from_millis(400),
         "{:?}",
@@ -320,5 +331,113 @@ async fn a_success_after_retries_is_one_clean_stream() {
         run.outcome.usage.reported(),
         Scenario::default().expected_usage(ProviderStyle::AnthropicMessages, true)
     );
+    mock.shutdown().await;
+}
+
+/// Regression for the review of #1065: a 2xx head, then silence before any
+/// content. The idle timeout fires — and the request is **not** re-sent,
+/// because the provider accepted it and bills it (three attempts were three
+/// bills for a call charged nothing).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_2xx_then_a_stall_before_content_is_exactly_one_provider_request() {
+    let mock = MockProvider::start(Scenario::default().with_stall(0, Duration::from_millis(1_500)))
+        .await
+        .unwrap();
+    let mut t = tuning(2);
+    t.timeouts.idle = Duration::from_millis(150);
+    let backend = backend(&mock.base_url(), t);
+    for (n, model) in [RESPONSES, ANTHROPIC, CHAT].into_iter().enumerate() {
+        let run = drive(&backend, &catalog(10_000), &request(model.id)).await;
+        let f = run.outcome.failure.clone().unwrap();
+        assert_eq!(f.timeout_phase(), Some("idle"), "{}", model.id);
+        assert_eq!(f.phase, Phase::BeforeContent, "{}", model.id);
+        assert_eq!(run.outcome.attempts, 1, "{}", model.id);
+        assert_eq!(
+            mock.request_count(),
+            n as u64 + 1,
+            "{}: one request",
+            model.id
+        );
+        assert!(run.events.is_empty(), "{}", model.id);
+    }
+    mock.shutdown().await;
+}
+
+/// A model that reasons silently gets its own idle limit from the
+/// catalogue; the gateway default would cut it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_idle_limit_is_per_model() {
+    let mock = MockProvider::start(Scenario::default().with_stall(0, Duration::from_millis(600)))
+        .await
+        .unwrap();
+    let mut t = tuning(0);
+    t.timeouts.idle = Duration::from_millis(200);
+    let backend = backend(&mock.base_url(), t);
+    let cut = drive(&backend, &catalog(10_000), &request(RESPONSES.id)).await;
+    assert_eq!(cut.outcome.failure.unwrap().timeout_phase(), Some("idle"));
+    let patient = drive(
+        &backend,
+        &catalog_with(10_000, Some(3_000)),
+        &request(RESPONSES.id),
+    )
+    .await;
+    assert_eq!(patient.outcome.failure, None);
+    assert_eq!(patient.text(), mock_text(16));
+    mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rate_limits_do_not_open_the_breaker() {
+    let mock = MockProvider::start(Scenario::default().with_fault(Fault::Status { status: 429 }))
+        .await
+        .unwrap();
+    let mut t = tuning(0);
+    t.breaker = BreakerPolicy {
+        failure_threshold: 2,
+        open_for: Duration::from_secs(10),
+    };
+    let backend = backend(&mock.base_url(), t);
+    for _ in 0..4 {
+        drive(&backend, &catalog(10_000), &request(CHAT.id)).await;
+    }
+    assert!(!backend.provider("chatco").unwrap().circuit_open());
+    mock.shutdown().await;
+}
+
+/// The half-open probe closes the breaker at its 2xx head, not at the end
+/// of its (possibly long) stream.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_probe_closes_the_breaker_at_its_head() {
+    let mock = MockProvider::start(Scenario::default().with_fault(Fault::Status { status: 503 }))
+        .await
+        .unwrap();
+    let mut t = tuning(0);
+    t.breaker = BreakerPolicy {
+        failure_threshold: 1,
+        open_for: Duration::from_millis(100),
+    };
+    let backend = backend(&mock.base_url(), t);
+    let catalog = catalog(10_000);
+    drive(&backend, &catalog, &request(CHAT.id)).await;
+    assert!(backend.provider("chatco").unwrap().circuit_open());
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    // A two-second stream.
+    mock.set_scenario(
+        Scenario::default()
+            .with_output_tokens(40)
+            .with_tokens_per_sec(20),
+    );
+    let req = request(CHAT.id);
+    let probe = drive(&backend, &catalog, &req);
+    let check = async {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        backend.provider("chatco").unwrap().circuit_open()
+    };
+    let (run, open_mid_stream) = tokio::join!(probe, check);
+    assert!(
+        !open_mid_stream,
+        "closed while the probe was still streaming"
+    );
+    assert_eq!(run.outcome.failure, None);
     mock.shutdown().await;
 }

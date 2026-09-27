@@ -210,6 +210,8 @@ struct PendingTool {
 struct Parser {
     convention: UsageConvention,
     tools: BTreeMap<u64, PendingTool>,
+    /// The index the previous fragment went to.
+    last_index: Option<u64>,
     finish_reason: Option<FinishReason>,
     usage: Option<Usage>,
     failure: Option<ProviderFailure>,
@@ -290,6 +292,29 @@ fn finish_reason(reason: &str) -> FinishReason {
 }
 
 impl Parser {
+    /// Where a tool-call fragment belongs. With an `index`, there. Without
+    /// one (some compatible providers omit it): a fragment carrying a new
+    /// `id` starts the next call, and one without an `id` continues the
+    /// previous call — never merged into call `0` by default.
+    fn fragment_index(&self, index: Option<u64>, id: Option<&str>) -> u64 {
+        if let Some(index) = index {
+            return index;
+        }
+        let Some(last) = self.last_index else {
+            return self
+                .tools
+                .keys()
+                .next_back()
+                .map_or(0, |k| k.saturating_add(1));
+        };
+        match (id, self.tools.get(&last)) {
+            (Some(id), Some(tool)) if !tool.id.is_empty() && tool.id != id => {
+                last.saturating_add(1)
+            }
+            _ => last,
+        }
+    }
+
     fn flush_tools(&mut self, out: &mut Vec<Content>) {
         for (_, tool) in std::mem::take(&mut self.tools) {
             out.push(Content::ToolCall(ToolCall {
@@ -341,16 +366,24 @@ impl StreamParser for Parser {
                     }
                     if let Some(calls) = delta.get("tool_calls").and_then(Value::as_array) {
                         for call in calls {
-                            let index = call.get("index").and_then(Value::as_u64).unwrap_or(0);
+                            let id = call.get("id").and_then(Value::as_str);
+                            let index =
+                                self.fragment_index(call.get("index").and_then(Value::as_u64), id);
+                            self.last_index = Some(index);
                             let tool = self.tools.entry(index).or_default();
-                            if let Some(id) = call.get("id").and_then(Value::as_str) {
+                            if let Some(id) = id {
                                 id.clone_into(&mut tool.id);
                             }
                             let function = call.get("function");
                             if let Some(name) =
                                 function.and_then(|f| f.get("name")).and_then(Value::as_str)
                             {
-                                tool.name.push_str(name);
+                                // OpenAI sends the name once; some compatible
+                                // providers repeat it whole on every fragment.
+                                // A repeat is not a second half.
+                                if tool.name != name {
+                                    tool.name.push_str(name);
+                                }
                             }
                             if let Some(args) = function
                                 .and_then(|f| f.get("arguments"))
@@ -427,6 +460,42 @@ mod tests {
                 .unwrap()
                 .output_tokens,
             13
+        );
+    }
+
+    #[test]
+    fn fragments_without_an_index_or_with_a_repeated_name_assemble_correctly() {
+        let mut p = Parser::default();
+        let mut out = Vec::new();
+        for chunk in [
+            json!({"choices":[{"index":0,"delta":{"tool_calls":[{"id":"a","function":{"name":"f","arguments":"{\"x\""}}]}}]}),
+            json!({"choices":[{"index":0,"delta":{"tool_calls":[{"function":{"name":"f","arguments":":1}"}}]}}]}),
+            json!({"choices":[{"index":0,"delta":{"tool_calls":[{"id":"b","function":{"name":"g","arguments":"{}"}}]}}]}),
+            json!({"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}),
+        ] {
+            p.feed(
+                &SseEvent {
+                    event: String::new(),
+                    data: chunk.to_string(),
+                },
+                &mut out,
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            out,
+            vec![
+                Content::ToolCall(ToolCall {
+                    id: "a".into(),
+                    name: "f".into(),
+                    arguments: "{\"x\":1}".into()
+                }),
+                Content::ToolCall(ToolCall {
+                    id: "b".into(),
+                    name: "g".into(),
+                    arguments: "{}".into()
+                }),
+            ]
         );
     }
 

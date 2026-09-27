@@ -20,8 +20,9 @@
 //! Anthropic's buckets are already disjoint (`input_tokens` excludes cache
 //! reads and writes), which is `f2z_ai_proto::Usage`'s convention. It reports
 //! no thinking subset of `output_tokens`, so `reasoning_tokens` is `0`.
-//! `server_tool_use.web_search_requests` (and `web_fetch_requests`) are the
-//! provider-billed per-call tool uses: they are `usage.tool_calls`.
+//! `server_tool_use.web_search_requests` is the provider-billed per-call tool
+//! use: it is `usage.tool_calls`. `web_fetch_requests` is not — web fetch is
+//! billed in tokens only (zuu#1066).
 //!
 //! # Content
 //!
@@ -130,6 +131,10 @@ impl Provider for AnthropicMessages {
             // Anthropic alternates roles: consecutive turns of one role (tool
             // results, or tool results then the user's next words) are one
             // turn with their blocks in order.
+            if blocks.is_empty() {
+                // Nothing Anthropic accepts is left of this turn.
+                continue;
+            }
             match turns.last_mut() {
                 Some((last, existing)) if *last == role => existing.extend(blocks),
                 _ => turns.push((role, blocks)),
@@ -192,6 +197,8 @@ fn text_of(content: &[ContentPart]) -> String {
 fn parts(content: &[ContentPart]) -> Vec<Value> {
     content
         .iter()
+        // Anthropic answers 400 to an empty text block.
+        .filter(|part| !matches!(part, ContentPart::Text { text } if text.is_empty()))
         .map(|part| match part {
             ContentPart::Text { text } => json!({"type": "text", "text": text}),
             ContentPart::Image { media_type, data } => json!({
@@ -237,10 +244,6 @@ impl Counts {
             server.and_then(|s| s.get("web_search_requests")),
             "usage.server_tool_use",
         )?;
-        let fetch = count(
-            server.and_then(|s| s.get("web_fetch_requests")),
-            "usage.server_tool_use",
-        )?;
         Ok(Self {
             input: count(usage.get("input_tokens"), "usage.input_tokens")?,
             cache_read: count(
@@ -250,10 +253,7 @@ impl Counts {
             cache_write,
             cache_write_1h: one_hour,
             output: count(usage.get("output_tokens"), "usage.output_tokens")?,
-            server_tools: match (search, fetch) {
-                (None, None) => None,
-                (a, b) => Some(a.unwrap_or(0).saturating_add(b.unwrap_or(0))),
-            },
+            server_tools: search,
         })
     }
 
@@ -596,6 +596,29 @@ mod tests {
                 arguments: "{\"a\": 1}".into()
             })]
         );
+    }
+
+    #[test]
+    fn web_fetch_is_not_a_per_call_tool_and_empty_text_is_not_sent() {
+        let mut p = Parser::default();
+        start(&mut p);
+        feed(
+            &mut p,
+            "message_delta",
+            json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},
+                   "usage":{"output_tokens": 5,
+                            "server_tool_use": {"web_search_requests": 2, "web_fetch_requests": 7}}}),
+        );
+        feed(&mut p, "message_stop", json!({"type":"message_stop"}));
+        assert_eq!(p.end(true).usage.reported().map(|u| u.tool_calls), Some(2));
+
+        let parts = parts(&[
+            ContentPart::Text {
+                text: String::new(),
+            },
+            ContentPart::Text { text: "x".into() },
+        ]);
+        assert_eq!(parts, vec![json!({"type": "text", "text": "x"})]);
     }
 
     #[test]
