@@ -63,7 +63,7 @@ variable is a startup error.
 | `drain_timeout_secs` | `300` | How long open streams get after `SIGTERM` |
 | `abort_grace_secs` | `5` | After the abort, before connections are dropped |
 | `settle_grace_secs` | `10` | For the settler to finish at shutdown |
-| `request_timeout_secs` | `310` | Request → response head; `500 internal` |
+| `request_timeout_secs` | `310` | Admission → the call started (owned by the call task, which then settles it `NotStarted`); `500 internal`. The tower timeout is a backstop 5 s later |
 | `body_read_timeout_secs` | `30` | `400 invalid_request`, `reason: timeout` |
 | `header_read_timeout_secs` | `10` | The connection is closed |
 | `max_body_bytes` | `4194304` | Without image parts; `413 payload_too_large` |
@@ -76,13 +76,23 @@ variable is a startup error.
 | `otlp_endpoint` | *(unset: off)* | `http://collector:4318`; spans go to `/v1/traces`. `https://` is refused: no TLS in this exporter build |
 | `otlp_authorization_file` | *(unset)* | Or `F2Z_AI_OTLP_AUTHORIZATION`. Never inline in the file |
 
-**`terminationGracePeriodSeconds` must exceed `drain_timeout_secs +
-2 × abort_grace_secs + settle_grace_secs + 8`** — 328 s with the defaults, so
-set at least 330 — or the kubelet's `SIGKILL` can arrive before the drain has
-handed every call to the settler. The phases, each bounded: the drain window;
-`abort_grace` for aborted calls to unwind; `abort_grace` + 1 s to close
-connections; `settle_grace` for the settler; ≤ 1 s each for the catalogue
-poller and the admin listener; ≤ 5 s to flush OpenTelemetry.
+**The drain bound** is `drain_timeout_secs + 2 × abort_grace_secs +
+settle_grace_secs + 8` — **328 s** with the defaults. The phases, each
+bounded: the drain window; `abort_grace` for aborted calls to unwind;
+`abort_grace` + 1 s to close connections; `settle_grace` for the settler;
+≤ 1 s each for the catalogue poller and the admin listener; ≤ 5 s to flush
+OpenTelemetry.
+
+**`terminationGracePeriodSeconds` ≥ drain bound + preStop + margin.** A
+`preStop` hook runs *inside* the grace period, before `SIGTERM` is sent, so
+it counts against the same budget: with a 15 s `preStop` sleep (for the load
+balancer to deregister the pod) and a small margin, set **≥ 345 s**.
+Otherwise the kubelet's `SIGKILL` can arrive before the drain has handed
+every call to the settler.
+
+A second `SIGTERM` or Ctrl-C during the drain exits immediately (exit 130),
+for a terminal; calls still open then are left to the ledger's hold expiry
+(metering.md §5.6).
 
 ## A call: the upstream read and the delivery, kept apart
 
@@ -107,9 +117,19 @@ budget is held until the backend's `start` has consumed the request.
 
 Settlement ownership starts **before** the backend's `start` runs: a call
 whose `start` fails, times out or is cancelled by a drain still reaches the
-settler, as `NotStarted`, so a hold taken inside `start` can always be
-released.
-(`delivery_aborted` is not yet an `f2z_ai_proto::ErrorCode`; zuu#1052.)
+settler, as `NotStarted`. **The settler is the single owner of releasing a
+hold**: a backend never releases a hold it took in `start` (that would be a
+double release); it leaves it for the settler.
+
+The deadline for `start` is the request's own (`request_timeout`, counted
+from admission), enforced only by the call's task — the tower timeout is a
+backstop 5 s later. So the path that tells the client "the call did not
+start" (`500`) is the same path that settles it as `NotStarted`; a client is
+never told `500` for a call that then started and was charged.
+
+A call whose task **panics** is settled as `Panicked` (and counted in
+`f2z_ai_calls_settled_total{upstream="panicked"}`, with an error log) — a
+bug, kept distinct from an operational `Drained`.
 
 ## The drain, precisely
 
@@ -129,7 +149,8 @@ On `SIGTERM`:
 5. The settler gets `settle_grace_secs` to finish its queue; exit `0`.
 
 Every call that reached the backend is handed to the settler exactly once,
-with how its upstream ended (`NotStarted`, `Finished`, `Drained`), where
+with how its upstream ended (`NotStarted`, `Finished`, `Drained`,
+`Panicked`), where
 delivery stood (`None`, `Open`, `Delivered`, `ClientGone`, `BufferFull`,
 `Stalled`, `Cut`) and the usage the
 upstream reported — from a detached task, never on the request's future

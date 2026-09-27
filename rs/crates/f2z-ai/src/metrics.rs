@@ -17,7 +17,7 @@
 //! | `f2z_ai_delivery_aborted_total{reason}` | counter | Delivery ended early while the upstream read continued: `buffer_full`, `stalled` |
 //! | `f2z_ai_overhead_seconds` | histogram | Request received → response head. With no provider behind it this is the gateway's whole cost; once adapters land it becomes request → first upstream byte (the README's p50 < 8 ms, p99 < 25 ms) |
 //! | `f2z_ai_rejected_total{reason}` | counter | Refused: `overloaded`, `draining` (at admission), `upload_budget` (before a body is read) |
-//! | `f2z_ai_calls_settled_total{upstream}` | counter | Calls handed to the settler, by how the upstream read ended: `finished`, `drained`, `not_started` |
+//! | `f2z_ai_calls_settled_total{upstream}` | counter | Calls handed to the settler, by how the upstream read ended: `finished`, `drained`, `not_started`, `panicked` (a bug, never operational) |
 //! | `f2z_ai_ready` / `f2z_ai_draining` | gauge | 1 or 0 |
 //! | `f2z_ai_catalog_version` | gauge | The verified catalogue in use; 0 when there is none |
 
@@ -99,7 +99,7 @@ pub struct Metrics {
     rejected_overloaded: AtomicU64,
     rejected_draining: AtomicU64,
     rejected_upload_budget: AtomicU64,
-    settled: [AtomicU64; 3],
+    settled: [AtomicU64; 4],
     delivery_aborted: [AtomicU64; 2],
     catalog_version: AtomicU64,
 }
@@ -146,6 +146,7 @@ const fn upstream_slot(end: UpstreamEnd) -> usize {
         UpstreamEnd::Finished => 0,
         UpstreamEnd::Drained => 1,
         UpstreamEnd::NotStarted => 2,
+        UpstreamEnd::Panicked => 3,
     }
 }
 
@@ -301,6 +302,7 @@ impl Metrics {
             UpstreamEnd::Finished,
             UpstreamEnd::Drained,
             UpstreamEnd::NotStarted,
+            UpstreamEnd::Panicked,
         ] {
             let value = self.settled.get(upstream_slot(end)).map_or(0, load);
             let _ = writeln!(

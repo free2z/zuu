@@ -18,7 +18,10 @@
 //! 2. **admission** ([`crate::admission`]) — draining → 503; full → 503 +
 //!    `Retry-After`; otherwise the request holds a slot — a started call
 //!    until its settle returns, anything else until its response body ends.
-//! 3. **timeout** — request → response head, `request_timeout`; `500 internal`.
+//! 3. **timeout** — a backstop at `request_timeout` + 5 s, `500 internal`. The
+//!    real deadline for a call's start is the call task's own (from
+//!    admission, `request_timeout`), so the task that gives up is the task
+//!    that settles the call as `NotStarted`.
 //! 4. the router.
 //!
 //! # The drain ([`Gateway::run_until`])
@@ -65,6 +68,9 @@ use crate::config::Config;
 use crate::error::ApiFailure;
 use crate::metrics::{Gauges, Metrics, Route};
 use crate::settle::{self, Settler};
+
+/// How much later than `request_timeout` the tower timeout fires.
+const TIMEOUT_BACKSTOP_MARGIN: Duration = Duration::from_secs(5);
 
 /// The pluggable parts. Production: [`Deps::skeleton`].
 #[derive(Clone)]
@@ -394,7 +400,14 @@ fn public_router(
                 "the gateway did not produce a response within its request timeout",
             )
         }))
-        .timeout(config.request_timeout);
+        // A backstop only, strictly later than the call task's own deadline
+        // (`call::run`), which is what answers a slow start. If this fired
+        // first, a client could get a `500` for a call that then started.
+        .timeout(
+            config
+                .request_timeout
+                .saturating_add(TIMEOUT_BACKSTOP_MARGIN),
+        );
     Router::new()
         .route("/v1/chat", post(chat::handle))
         .fallback(not_found)

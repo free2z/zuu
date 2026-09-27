@@ -45,6 +45,10 @@ pub enum UpstreamEnd {
     /// The drain window closed with the upstream still being read, and the
     /// gateway aborted it. Wave 2 settles from what is known or releases.
     Drained,
+    /// The call's task panicked — a bug in the gateway, a backend or an
+    /// upstream adapter, never an operational event. Distinct from
+    /// [`UpstreamEnd::Drained`] so a settler and `/metrics` can tell them apart.
+    Panicked,
 }
 
 impl UpstreamEnd {
@@ -55,6 +59,7 @@ impl UpstreamEnd {
             Self::NotStarted => "not_started",
             Self::Finished => "finished",
             Self::Drained => "drained",
+            Self::Panicked => "panicked",
         }
     }
 }
@@ -137,7 +142,7 @@ impl Settler for LogSettler {
     async fn settle(&self, record: CallRecord) {
         let elapsed_ms = u64::try_from(record.elapsed.as_millis()).unwrap_or(u64::MAX);
         match record.upstream {
-            UpstreamEnd::Drained => tracing::warn!(
+            UpstreamEnd::Drained | UpstreamEnd::Panicked => tracing::warn!(
                 call = record.id,
                 upstream = record.upstream.label(),
                 delivery = record.delivery.label(),

@@ -109,3 +109,125 @@ async fn a_handler_that_never_answers_is_a_500_at_the_request_timeout() {
     assert_eq!(records[0].upstream, UpstreamEnd::NotStarted);
     assert_eq!(records[0].delivery, Delivery::None);
 }
+
+/// A backend whose `start` takes `delay`, then streams nothing and ends.
+struct SlowStart(Duration);
+
+#[async_trait::async_trait]
+impl f2z_ai::chat::ChatBackend for SlowStart {
+    async fn start(
+        &self,
+        _request: f2z_ai_proto::chat::ChatRequest,
+        _catalog: Arc<f2z_ai::catalog::VerifiedCatalog>,
+        _call: &f2z_ai::admission::CallHandle,
+    ) -> Result<Box<dyn f2z_ai::call::Upstream>, f2z_ai::ApiFailure> {
+        tokio::time::sleep(self.0).await;
+        let (_tx, rx) = tokio::sync::mpsc::channel(1);
+        Ok(Box::new(ChannelUpstream(rx)))
+    }
+}
+
+/// Review of #1058: the client must never get a `500` ("nothing charged",
+/// retryable) for a call that then started and settled with usage — a retry
+/// would pay twice. Shape: request timeout 2 s, a 1 s slow upload, a
+/// backend start of 1.5 s. The start finishes 2.5 s after the request
+/// arrived: past the request's deadline, but inside a deadline counted from
+/// when the call task was spawned.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_client_is_never_told_500_for_a_call_that_then_started() {
+    let settler = RecordingSettler::default();
+    let config = config(&[("F2Z_AI_REQUEST_TIMEOUT_SECS", "2")]);
+    let running = start(
+        &config,
+        deps(
+            fixed_catalog(),
+            Arc::new(SlowStart(Duration::from_millis(1500))),
+            settler.clone(),
+        ),
+    )
+    .await;
+    wait_readyz(running.admin, StatusCode::OK).await;
+
+    let body = valid_chat("slow upload").to_string();
+    let head = format!(
+        "POST /v1/chat HTTP/1.1\r\nHost: g\r\nContent-Type: application/json\r\n\
+         Content-Length: {}\r\n\r\n",
+        body.len()
+    );
+    let mut stream = tokio::net::TcpStream::connect(running.public)
+        .await
+        .unwrap();
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    stream.write_all(head.as_bytes()).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    stream.write_all(body.as_bytes()).await.unwrap();
+    let mut out = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut out)).await;
+    let response = String::from_utf8_lossy(&out).into_owned();
+
+    let records = wait_records(&settler, 1).await;
+    let told_500 = response.starts_with("HTTP/1.1 500");
+    assert!(
+        !(told_500 && records[0].upstream == UpstreamEnd::Finished),
+        "the client was told 500 for a call that started and settled: {records:?}\n{response}"
+    );
+    // And the timeline above resolves the one consistent way: the call task
+    // gave up at the request's deadline, answered, and settled NotStarted.
+    assert!(told_500, "{response}");
+    assert_eq!(records[0].upstream, UpstreamEnd::NotStarted);
+}
+
+/// An upstream that panics on first read.
+struct PanickingUpstream;
+
+#[async_trait::async_trait]
+impl f2z_ai::call::Upstream for PanickingUpstream {
+    async fn next(&mut self) -> Option<f2z_ai_proto::Event> {
+        panic!("adapter bug");
+    }
+}
+
+struct PanickingBackend;
+
+#[async_trait::async_trait]
+impl f2z_ai::chat::ChatBackend for PanickingBackend {
+    async fn start(
+        &self,
+        _request: f2z_ai_proto::chat::ChatRequest,
+        _catalog: Arc<f2z_ai::catalog::VerifiedCatalog>,
+        _call: &f2z_ai::admission::CallHandle,
+    ) -> Result<Box<dyn f2z_ai::call::Upstream>, f2z_ai::ApiFailure> {
+        Ok(Box::new(PanickingUpstream))
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_panicking_call_is_settled_as_panicked_not_drained() {
+    let settler = RecordingSettler::default();
+    let config = config(&[]);
+    let running = start(
+        &config,
+        deps(fixed_catalog(), Arc::new(PanickingBackend), settler.clone()),
+    )
+    .await;
+    wait_readyz(running.admin, StatusCode::OK).await;
+    // The body is cut: the chunked response never gets its terminating chunk,
+    // so a client cannot mistake it for a complete answer.
+    let body = valid_chat("boom").to_string();
+    let request = format!(
+        "POST /v1/chat HTTP/1.1\r\nHost: g\r\nContent-Type: application/json\r\n\
+         Content-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    let seen = raw(running.public, request.as_bytes(), Duration::from_secs(2)).await;
+    assert!(!seen.ends_with("0\r\n\r\n"), "a complete response: {seen}");
+    let records = wait_records(&settler, 1).await;
+    assert_eq!(records[0].upstream, UpstreamEnd::Panicked);
+    wait_metric(
+        running.admin,
+        "f2z_ai_calls_settled_total{upstream=\"panicked\"} ",
+        "1",
+    )
+    .await;
+    wait_metric(running.admin, "f2z_ai_active_streams ", "0").await;
+}

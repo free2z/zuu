@@ -98,7 +98,23 @@ fn serve(config: &Config) -> Result<ExitCode, String> {
         .build()
         .map_err(|e| e.to_string())?;
     let stopped = runtime.block_on(async {
-        let signal = shutdown::terminate_signal().map_err(|e| format!("SIGTERM handler: {e}"))?;
+        let first = shutdown::terminate_signal().map_err(|e| format!("SIGTERM handler: {e}"))?;
+        // A second SIGTERM or Ctrl-C during the drain exits at once: the
+        // drain can last minutes, and someone pressing Ctrl-C twice at a
+        // terminal means it. Nothing is settled for calls still open then;
+        // the ledger's hold expiry releases them (metering.md §5.6).
+        let signal = async move {
+            first.await;
+            tokio::spawn(async {
+                if let Ok(second) = shutdown::terminate_signal() {
+                    second.await;
+                    eprintln!(
+                        "f2z-ai: second shutdown signal; exiting without finishing the drain"
+                    );
+                    std::process::exit(130);
+                }
+            });
+        };
         let gateway = Gateway::bind(config, Deps::skeleton())
             .await
             .map_err(|e| format!("bind: {e}"))?;

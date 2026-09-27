@@ -69,8 +69,15 @@ pub const MAX_IDEMPOTENCY_KEY: usize = 128;
 /// The seam Wave 2's provider adapters implement: authenticate the provider
 /// request, take the hold, send the request, and return the provider's stream
 /// as an [`Upstream`]. A refusal before any stream is an [`ApiFailure`] and
-/// becomes the HTTP response; nothing is settled for it, so a backend that
-/// took a hold and then fails before returning must release it itself.
+/// becomes the HTTP response.
+///
+/// **The settler is the single owner of releasing a hold.** Every call that
+/// reaches `start` is handed to the settler exactly once — a `start` that
+/// fails, times out or is cancelled by a drain as
+/// [`crate::settle::UpstreamEnd::NotStarted`] — so a backend must **not**
+/// release a hold it took itself; doing so would release it twice. A backend
+/// that took a hold must make it discoverable to the settler (Wave 2: the
+/// hold is keyed on the call's idempotency, metering.md §3).
 ///
 /// `start` runs on the call's own detached task, bounded by the request
 /// timeout and abortable by a drain — never on the request's future, so a

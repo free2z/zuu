@@ -50,7 +50,11 @@ impl ApiFailure {
     #[must_use]
     pub fn new(code: ErrorCode, message: impl Into<Cow<'static, str>>) -> Self {
         Self {
-            status: StatusCode::from_u16(code.http_status())
+            // `None` is a stream-only code (`delivery_aborted`), never an
+            // HTTP response; `internal` is the honest fallback.
+            status: code
+                .http_status()
+                .and_then(|s| StatusCode::from_u16(s).ok())
                 .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
             code: code.as_str(),
             message: message.into(),
@@ -169,7 +173,7 @@ mod tests {
             ErrorCode::Internal,
         ] {
             let failure = ApiFailure::new(code, "x");
-            assert_eq!(failure.status().as_u16(), code.http_status());
+            assert_eq!(Some(failure.status().as_u16()), code.http_status());
             assert_eq!(failure.code(), code.as_str());
         }
     }

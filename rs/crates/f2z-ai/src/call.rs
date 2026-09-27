@@ -4,7 +4,7 @@
 //! chat-api.md §2.4 and ADR 0001: **client backpressure never reaches the
 //! provider.** So a call is two things that only share a bounded buffer:
 //!
-//! * **The reader** — a detached task per call ([`run`]). It reads the
+//! * **The reader** — a detached task per call (`run`). It reads the
 //!   [`Upstream`] at provider speed, to its end, whatever the client is
 //!   doing, encodes each event as an SSE frame and pushes it into the call's
 //!   delivery buffer. When the upstream ends it hands the call to the settler
@@ -51,8 +51,8 @@
 //! that looks complete), and the call reaches the settler as
 //! [`UpstreamEnd::Drained`].
 //!
-//! `delivery_aborted` is not yet an `f2z_ai_proto::ErrorCode` (the crate's
-//! v0.x follow-up, zuu#1052), so that one frame is written here by hand.
+//! The `delivery_aborted` frame is `f2z_ai_proto`'s own
+//! [`ErrorCode::DeliveryAborted`] with `settlement: pending` and no amounts.
 
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -63,6 +63,8 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use bytes::Bytes;
 use f2z_ai_proto::chat::ChatRequest;
+use f2z_ai_proto::event::ErrorEvent;
+use f2z_ai_proto::settlement::Settlement;
 use f2z_ai_proto::{ErrorCode, Event};
 use http_body::Frame;
 use tokio::sync::oneshot;
@@ -72,7 +74,7 @@ use crate::catalog::VerifiedCatalog;
 use crate::chat::ChatBackend;
 use crate::error::ApiFailure;
 use crate::serve::ConnectionKill;
-use crate::settle::{CallRecord, Delivery, Settlement, UpstreamEnd};
+use crate::settle::{self, CallRecord, Delivery, UpstreamEnd};
 
 /// A started provider stream, as unified events.
 ///
@@ -127,6 +129,8 @@ struct Buffer {
     aborted_at: Option<Instant>,
     /// The connection was dropped because nothing took the abort frame.
     killed: bool,
+    /// A `delta` or `tool_call` was produced.
+    output_seen: bool,
     waker: Option<Waker>,
 }
 
@@ -163,7 +167,9 @@ impl Shared {
         self.clear(buffer);
         // Not counted in `bytes`: it is the one frame an aborted delivery
         // still owes, and it replaces everything that was.
-        buffer.frames.push_back(delivery_aborted_frame(reason));
+        buffer
+            .frames
+            .push_back(delivery_aborted_frame(reason, buffer.output_seen));
         buffer.state = State::Aborted(reason);
         buffer.aborted_at = Some(now);
         // No further request on this connection: it closes once this response
@@ -180,9 +186,12 @@ impl Shared {
     }
 
     /// The reader's push. Never blocks, never waits for the client.
-    fn push(&self, frame: Bytes, limit: usize, stall: Duration) {
+    fn push(&self, frame: Bytes, output: bool, limit: usize, stall: Duration) {
         let waker = {
             let mut buffer = self.lock();
+            // `partial` in a later `delivery_aborted` is conservative: output
+            // was produced, whether or not the client got all of it.
+            buffer.output_seen |= output;
             if buffer.state != State::Open {
                 // The client is gone or delivery ended: the event is read and
                 // dropped. The upstream read is unaffected.
@@ -274,19 +283,26 @@ impl Shared {
     }
 }
 
-fn delivery_aborted_frame(reason: Delivery) -> Bytes {
+fn delivery_aborted_frame(reason: Delivery, partial: bool) -> Bytes {
     let message = match reason {
         Delivery::Stalled => {
             "no delivery progress within the stall limit; the call continues upstream and settles"
         }
         _ => "the per-stream delivery buffer filled; the call continues upstream and settles",
     };
-    let data = serde_json::json!({
-        "code": "delivery_aborted",
-        "message": message,
-        "settlement": "pending",
+    // `pending`: the call is still running upstream, so every amount is
+    // absent (chat-api.md §2.4).
+    let event = Event::Error(ErrorEvent {
+        code: ErrorCode::DeliveryAborted,
+        message: message.to_owned(),
+        settlement: Settlement::Pending,
+        charged_2z: None,
+        receipt_id: None,
+        collected_milli_2z: None,
+        shortfall_milli_2z: None,
+        partial,
     });
-    Bytes::from(format!("event: error\ndata: {data}\n\n"))
+    Bytes::from(event.to_sse().unwrap_or_default())
 }
 
 /// Why a delivery body failed — deliberately, so the client sees a
@@ -422,6 +438,7 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
             last_progress: Instant::now(),
             aborted_at: None,
             killed: false,
+            output_seen: false,
             waker: None,
         }),
         inflight: Arc::clone(&inflight),
@@ -447,8 +464,16 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
     };
 
     let started = tokio::select! {
-        started = tokio::time::timeout(
-            limits.start_timeout,
+        // The deadline is the request's, counted from admission — the same
+        // instant the client's request timeout counts from — and this task is
+        // the only thing that enforces it. So the one path that answers "the
+        // call did not start in time" is also the path that settles it as
+        // `NotStarted`: a client never gets a `500` for a call that then
+        // started and was charged (a retry would pay twice).
+        started = tokio::time::timeout_at(
+            tokio::time::Instant::from_std(call.started())
+                .checked_add(limits.start_timeout)
+                .unwrap_or_else(tokio::time::Instant::now),
             backend.start(request, catalog, &call),
         ) => started,
         () = crate::shutdown::raised(&mut abort) => {
@@ -494,8 +519,9 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
                 if let Event::Usage(usage) = &event {
                     guard.record.usage = Some(usage.usage);
                 }
+                let output = matches!(event, Event::Delta(_) | Event::ToolCall(_));
                 if let Ok(frame) = event.to_sse() {
-                    shared.push(Bytes::from(frame), limits.buffer_bytes, limits.stall);
+                    shared.push(Bytes::from(frame), output, limits.buffer_bytes, limits.stall);
                 }
             }
             _ = tick.tick() => shared.tick(limits.stall),
@@ -548,6 +574,19 @@ struct SettleGuard {
 impl Drop for SettleGuard {
     fn drop(&mut self) {
         match self.state {
+            GuardState::Starting | GuardState::Reading if std::thread::panicking() => {
+                // A gateway (or backend/upstream) bug, not a drain: say so.
+                self.record.upstream = UpstreamEnd::Panicked;
+                self.record.delivery = if self.state == GuardState::Reading {
+                    self.shared.finish(true)
+                } else {
+                    Delivery::None
+                };
+                tracing::error!(
+                    call = self.record.id,
+                    "call task panicked; handed to the settler as panicked"
+                );
+            }
             GuardState::Starting => {
                 self.record.upstream = UpstreamEnd::NotStarted;
                 self.record.delivery = Delivery::None;
@@ -562,7 +601,7 @@ impl Drop for SettleGuard {
         }
         self.record.elapsed = self.started.elapsed();
         if let Some(slot) = self.slot.take() {
-            self.inflight.settle(Settlement {
+            self.inflight.settle(settle::Settlement {
                 record: self.record.clone(),
                 slot,
             });
