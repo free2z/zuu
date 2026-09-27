@@ -63,19 +63,13 @@ impl ChatRequest {
     /// `n`-th item, and its ledger `hold_key` is `(call_id, n)`, so a call
     /// has at most `1 + fallback.len()` holds.
     pub fn attempts(&self) -> impl Iterator<Item = &str> {
-        core::iter::once(self.model.as_str()).chain(
-            self.fallback
-                .iter()
-                .enumerate()
-                .filter(|&(i, id)| {
-                    *id != self.model
-                        && !self
-                            .fallback
-                            .get(..i)
-                            .is_some_and(|earlier| earlier.contains(id))
-                })
-                .map(|(_, id)| id.as_str()),
-        )
+        // A set, not a scan of the earlier entries: `fallback` is
+        // client-controlled and bounded only by the body limit, so a
+        // quadratic dedup would let one request monopolise a worker.
+        let mut seen = alloc::collections::BTreeSet::new();
+        core::iter::once(self.model.as_str())
+            .chain(self.fallback.iter().map(String::as_str))
+            .filter(move |id| seen.insert(*id))
     }
 }
 
