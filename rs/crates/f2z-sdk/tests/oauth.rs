@@ -935,3 +935,101 @@ async fn cancelled_account_switch_during_delete_finishes_before_queued_sign_out(
         "cancelled switch leaked the new grant"
     );
 }
+
+struct HangingStore {
+    inner: MemoryStore,
+    hang: std::sync::atomic::AtomicBool,
+    entered: std::sync::atomic::AtomicBool,
+    released: std::sync::Mutex<bool>,
+    wake: std::sync::Condvar,
+}
+impl TokenStore for HangingStore {
+    fn load(&self, account: &str) -> Result<Option<f2z_sdk::Secret>, f2z_sdk::StoreError> {
+        self.inner.load(account)
+    }
+    fn save(&self, account: &str, value: &f2z_sdk::Secret) -> Result<(), f2z_sdk::StoreError> {
+        if self.hang.load(Ordering::SeqCst) {
+            self.entered.store(true, Ordering::SeqCst);
+            let mut released = self.released.lock().unwrap();
+            while !*released {
+                released = self.wake.wait(released).unwrap();
+            }
+        }
+        self.inner.save(account, value)
+    }
+    fn delete(&self, account: &str) -> Result<(), f2z_sdk::StoreError> {
+        self.inner.delete(account)
+    }
+    fn persistence(&self) -> Persistence {
+        Persistence::Persistent
+    }
+}
+struct ReleaseStore(Arc<HangingStore>);
+impl Drop for ReleaseStore {
+    fn drop(&mut self) {
+        *self.0.released.lock().unwrap() = true;
+        self.0.wake.notify_all();
+    }
+}
+
+#[tokio::test]
+async fn a_hung_detached_refresh_save_does_not_prevent_sign_out_revocation() {
+    let fake = Fake::start().await;
+    let store = Arc::new(HangingStore {
+        inner: MemoryStore::new(),
+        hang: false.into(),
+        entered: false.into(),
+        released: std::sync::Mutex::new(false),
+        wake: std::sync::Condvar::new(),
+    });
+    let cleanup = ReleaseStore(store.clone());
+    let client = Client::new(
+        fake.config()
+            .with_request_timeout(Duration::from_millis(200)),
+        store.clone(),
+    )
+    .unwrap();
+    client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    store.hang.store(true, Ordering::SeqCst);
+    fake.expire_access_tokens();
+    let refresher = client.clone();
+    let request = tokio::spawn(async move { refresher.balance().await });
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !store.entered.load(Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
+    request.abort();
+    let _ = request.await;
+    let result = tokio::time::timeout(Duration::from_secs(2), client.sign_out())
+        .await
+        .expect("hung keychain retained session lock and prevented sign-out");
+    assert!(
+        matches!(result, Err(Error::Storage(_))),
+        "durable delete is still blocked"
+    );
+    assert_eq!(
+        fake.live_refresh_tokens(),
+        0,
+        "remote revocation must not wait for keychain"
+    );
+    assert!(!client.is_signed_in().await.unwrap());
+    // Only test cleanup releases the OS operation; late save then delete must
+    // retain their order and cannot restore the signed-out session.
+    drop(cleanup);
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while store.inner.load(&account(&fake)).unwrap().is_some() {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
+}

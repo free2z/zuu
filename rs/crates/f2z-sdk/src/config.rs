@@ -44,7 +44,11 @@ pub struct Config {
     pub api_base: String,
     /// The AI gateway root (`…/v1`).
     pub ai_base: String,
-    /// The limit on one non-streaming request.
+    /// The limit on one non-streaming request and on waiting for a token-store
+    /// operation. A store timeout is `Error::Storage`; its blocking operation
+    /// may finish later, with writes still sequenced. Refresh's first attempt
+    /// is additionally capped at 30 seconds to leave recovery time, and its
+    /// entire same-token recovery sequence is capped at 55 seconds.
     pub request_timeout: Duration,
     /// How long sign-in waits for the browser to come back to the redirect
     /// URI.

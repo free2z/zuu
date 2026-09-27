@@ -528,10 +528,9 @@ impl Client {
     async fn load(&self, s: &mut SessionState) -> Result<(), Error> {
         let store = Arc::clone(&self.inner.store);
         let account = self.inner.account.clone();
-        let blob = tokio::task::spawn_blocking(move || store.load(&account))
-            .await
-            .map_err(|e| Error::Storage(format!("token store task: {e}")))?
-            .map_err(|e| Error::Storage(e.to_string()))?;
+        let blob = self
+            .await_store(tokio::task::spawn_blocking(move || store.load(&account)))
+            .await?;
         s.loaded = true;
         if let Some(blob) = blob {
             match serde_json::from_str::<Stored>(blob.expose()) {
@@ -579,7 +578,7 @@ impl Client {
         let seq = self.inner.store_issued.fetch_add(1, Ordering::Relaxed);
         let store = Arc::clone(&self.inner.store);
         let account = self.inner.account.clone();
-        tokio::task::spawn_blocking(move || {
+        self.await_store(tokio::task::spawn_blocking(move || {
             let mut o = order
                 .lock()
                 .map_err(|_| crate::keychain::StoreError("store order lock poisoned".into()))?;
@@ -594,10 +593,25 @@ impl Client {
                 o.applied = seq;
             }
             result
-        })
+        }))
         .await
-        .map_err(|e| Error::Storage(format!("token store task: {e}")))?
-        .map_err(|e| Error::Storage(e.to_string()))
+    }
+
+    // A keychain can wait indefinitely for OS UI. Bound only the async wait:
+    // blocking operations cannot be killed safely and continue in issue order.
+    // Releasing the session guard on this error lets sign-out clear memory and
+    // start remote revocation even while a previous storage operation is stuck.
+    async fn await_store<T>(
+        &self,
+        task: tokio::task::JoinHandle<Result<T, crate::keychain::StoreError>>,
+    ) -> Result<T, Error> {
+        tokio::time::timeout(self.inner.config.request_timeout, task)
+            .await
+            .map_err(|_| {
+                Error::Storage("token store operation timed out; cleanup may complete later".into())
+            })?
+            .map_err(|e| Error::Storage(format!("token store task: {e}")))?
+            .map_err(|e| Error::Storage(e.to_string()))
     }
 
     /// Put a token response into the session and persist the refresh token.
