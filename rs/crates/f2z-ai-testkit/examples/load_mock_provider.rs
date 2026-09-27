@@ -93,12 +93,53 @@ fn parse() -> Result<Args, String> {
     Ok(a)
 }
 
-/// The marker a complete stream of `style` contains.
-fn complete_marker(style: ProviderStyle) -> &'static str {
+/// What the last frame of a complete stream of `style` starts with.
+fn terminal_prefix(style: ProviderStyle) -> &'static [u8] {
     match style {
-        ProviderStyle::ChatCompletions => "data: [DONE]\n\n",
-        ProviderStyle::OpenAiResponses => "event: response.completed\n",
-        ProviderStyle::AnthropicMessages => "event: message_stop\n",
+        ProviderStyle::ChatCompletions => b"data: [DONE]\n\n",
+        ProviderStyle::OpenAiResponses => b"event: response.completed\ndata: {",
+        ProviderStyle::AnthropicMessages => b"event: message_stop\ndata: {",
+    }
+}
+
+/// Bounded-memory completion check: remembers only the first bytes of the
+/// current and last complete SSE frame and the last three bytes seen, so a
+/// long stream costs a few hundred bytes however long it is.
+#[derive(Default)]
+struct Completion {
+    current: Vec<u8>,
+    last_frame: Vec<u8>,
+    tail: [u8; 3],
+    at_boundary: bool,
+    closed_json: bool,
+}
+
+impl Completion {
+    const PREFIX: usize = 64;
+
+    fn feed(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            if self.current.len() < Self::PREFIX {
+                self.current.push(b);
+            }
+            self.tail = [self.tail[1], self.tail[2], b];
+            self.at_boundary = self.tail[1] == b'\n' && b == b'\n';
+            if self.at_boundary {
+                self.closed_json = self.tail[0] == b'}';
+                self.last_frame = std::mem::take(&mut self.current);
+                // A following '\n' must not count as another boundary.
+                self.tail = [0, 0, 0];
+            }
+        }
+    }
+
+    /// The body ended exactly on a frame boundary, the last frame is the
+    /// style's terminal event, and (for JSON payloads) that frame's data
+    /// closed its object.
+    fn complete(&self, style: ProviderStyle) -> bool {
+        let prefix = terminal_prefix(style);
+        let json_closed = style == ProviderStyle::ChatCompletions || self.closed_json;
+        self.at_boundary && self.last_frame.starts_with(prefix) && json_closed
     }
 }
 
@@ -128,18 +169,18 @@ async fn one(client: reqwest::Client, url: String, body: String, style: Provider
         return fail(t0);
     }
     let mut ttfb = None;
-    let mut got = Vec::new();
+    let mut done = Completion::default();
     loop {
         match resp.chunk().await {
             Ok(Some(c)) => {
                 ttfb.get_or_insert_with(|| t0.elapsed());
-                got.extend_from_slice(&c);
+                done.feed(&c);
             }
             Ok(None) => break,
             Err(_) => return fail(t0),
         }
     }
-    let ok = String::from_utf8_lossy(&got).contains(complete_marker(style));
+    let ok = done.complete(style);
     Sample {
         ok,
         ttfb: ttfb.unwrap_or_else(|| t0.elapsed()),
