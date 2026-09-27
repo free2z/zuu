@@ -5,7 +5,7 @@ micro-metered AI. This package is **not yet published**. Registry names and
 commands below describe the intended release, not an available installation.
 Production integration also requires a registered public OAuth client, enabled
 service endpoints, and the native plugin for Tauri. See the
-[SDK integration guide](https://github.com/free2z/zuu/blob/main/docs/sdk/INTEGRATION.md).
+[SDK integration guide](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/INTEGRATION.md).
 
 ## Application API
 
@@ -134,7 +134,7 @@ unbounded push-event queue. Model catalogue caching honors ETag and max-age
 
 ## Contributor verification
 
-From `ts/sdk`: `npm ci`, `npm test`, `npm run test:package`.
+From `ts/free2z/sdk`: `npm ci`, `npm test`, `npm run test:package`.
 The latter installs the locally built tarball into a temporary isolated consumer
 and checks public imports/types. It is a packaging test, not a supported released
 installation. Tests use a signed mock issuer and fake transports; they do not

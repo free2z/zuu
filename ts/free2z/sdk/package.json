@@ -7,7 +7,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/free2z/zuu.git",
-    "directory": "ts/sdk"
+    "directory": "ts/free2z/sdk"
   },
   "exports": {
     ".": {
