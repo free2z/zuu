@@ -16,7 +16,9 @@
 //!
 //! A stream ends with exactly one `done` or `error`. `usage` precedes `done`
 //! and is omitted only when the stream ends in `error` before any usage is
-//! known. A client that sees an event name it does not know skips it
+//! known. Both terminal events say whether their charge is final
+//! ([`Settlement`]); their `check()` methods enforce the per-state rules of
+//! [`crate::settlement`]. A client that sees an event name it does not know skips it
 //! ([`EventError::UnknownEvent`]) — new event kinds are additive.
 //!
 //! [`Event`] also serializes as a tagged JSON object (`{"type":"meta",…}`),
@@ -26,8 +28,10 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
+use crate::amount::{Milli2z, Whole2z};
 use crate::chat::{FinishReason, ToolCall, Usage, UsageSource};
-use crate::error::ApiError;
+use crate::error::ErrorCode;
+use crate::settlement::{self, Settlement, SettlementError, double_option};
 
 /// Every event name this crate knows, in grammar order.
 pub const KNOWN_EVENTS: [&str; 6] = ["meta", "delta", "tool_call", "usage", "done", "error"];
@@ -48,18 +52,58 @@ pub enum Event {
     /// The call is settled. Last event.
     Done(Done),
     /// The call failed. Last event.
-    Error(ApiError),
+    Error(ErrorEvent),
 }
 
-/// The `meta` event.
+/// The `meta` event: the gateway has committed to a model, and the call is
+/// billable on it. No `fallback` happens after it.
+///
+/// The fields after `hold_2z` are informational and optional on decode, so a
+/// client never drops a stream over one of them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Meta {
-    /// The call's id; also `GET /v1/calls/{id}`.
+    /// The call's id; also `GET /v1/calls/{id}` and `X-F2Z-Call-Id`.
     pub call_id: String,
-    /// The catalogue model answering.
+    /// The catalogue model answering — differs from `requested_model` only
+    /// after a `fallback`.
     pub model: String,
-    /// What was held against the balance, in whole 2Z: the worst-case price.
-    pub hold_2z: u64,
+    /// The initial reservation, in whole 2Z: the worst-case price. An
+    /// extension can raise it; `done.hold_2z` is the final value.
+    pub hold_2z: Whole2z,
+    /// The model the request named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_model: Option<String>,
+    /// The provider serving `model`, e.g. `openai`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// The effective output cap after clamping for context and
+    /// affordability. A client should tell the user when it is lower than
+    /// asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u64>,
+    /// The input estimate the hold was computed from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens_estimate: Option<u64>,
+    /// When the call was created, RFC 3339 UTC.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+}
+
+impl Meta {
+    /// A `meta` with the required fields and no informational ones.
+    #[must_use]
+    pub fn new(call_id: impl Into<String>, model: impl Into<String>, hold_2z: Whole2z) -> Self {
+        Self {
+            call_id: call_id.into(),
+            model: model.into(),
+            hold_2z,
+            requested_model: None,
+            provider: None,
+            max_output_tokens: None,
+            input_tokens_estimate: None,
+            created_at: None,
+        }
+    }
 }
 
 /// The `delta` event.
@@ -79,19 +123,213 @@ pub struct UsageEvent {
     pub source: UsageSource,
 }
 
-/// The `done` event.
+/// The `done` event: the terminal event of a successful call.
+///
+/// Which amounts are present depends on [`Done::settlement`] — see
+/// [`crate::settlement`] and [`Done::check`]. Under `pending`, only
+/// `hold_2z` is; under `released`, nothing was charged.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Done {
-    /// What was charged, in whole 2Z. At most `meta.hold_2z` unless the
-    /// provider over-ran the cap, which the platform writes off.
-    pub charged_2z: u64,
-    /// The ledger receipt for the charge.
-    pub receipt_id: String,
+    /// The final charge, in whole 2Z. Absent while `settlement` is
+    /// `pending`; `0` (or absent) when `released`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub charged_2z: Option<Whole2z>,
+    /// The ledger's id for this settlement, distinct from the call id.
+    /// Present only when `settlement` is `settled`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_id: Option<String>,
     /// Why generation stopped.
     pub finish_reason: FinishReason,
-    /// The balance after the charge, in milli-2Z, if known. A hint only.
+    /// The available balance after the charge, in milli-2Z, as of
+    /// settlement. A hint only; absent while `pending`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub balance_hint_milli_2z: Option<u64>,
+    pub balance_hint_milli_2z: Option<Milli2z>,
+    /// Whether the amounts here are final. `settled` when absent.
+    #[serde(default)]
+    pub settlement: Settlement,
+    /// The final reservation: can exceed `meta.hold_2z` after an extension.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold_2z: Option<Whole2z>,
+    /// What was given back: `max(0, hold − charged)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub released_2z: Option<Whole2z>,
+    /// What was actually taken: `charged_2z × 1000 − shortfall_milli_2z`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collected_milli_2z: Option<Milli2z>,
+    /// What could not be taken and was written off (`metering.md` §5.5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shortfall_milli_2z: Option<Milli2z>,
+    /// Remaining spend under the grant's cap for the hold's period.
+    /// `None`: absent (settlement pending). `Some(None)`: `null`, the grant
+    /// has no cap. `Some(Some(n))`: `n` milli-2Z remain.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "double_option"
+    )]
+    pub cap_remaining_milli_2z: Option<Option<Milli2z>>,
+    /// Where the usage the charge was computed from came from.
+    #[serde(default)]
+    pub usage_source: UsageSource,
+}
+
+impl Done {
+    fn bare(settlement: Settlement, finish_reason: FinishReason) -> Self {
+        Self {
+            charged_2z: None,
+            receipt_id: None,
+            finish_reason,
+            balance_hint_milli_2z: None,
+            settlement,
+            hold_2z: None,
+            released_2z: None,
+            collected_milli_2z: None,
+            shortfall_milli_2z: None,
+            cap_remaining_milli_2z: None,
+            usage_source: UsageSource::Provider,
+        }
+    }
+
+    /// A settled `done` with the charge and its receipt; set the optional
+    /// amounts on the result, then [`Done::check`] it.
+    #[must_use]
+    pub fn settled(
+        charged_2z: Whole2z,
+        receipt_id: impl Into<String>,
+        finish_reason: FinishReason,
+    ) -> Self {
+        Self {
+            charged_2z: Some(charged_2z),
+            receipt_id: Some(receipt_id.into()),
+            ..Self::bare(Settlement::Settled, finish_reason)
+        }
+    }
+
+    /// A `done` whose settlement the ledger has not confirmed: no amounts
+    /// but the final hold.
+    #[must_use]
+    pub fn pending(hold_2z: Whole2z, finish_reason: FinishReason) -> Self {
+        Self {
+            hold_2z: Some(hold_2z),
+            ..Self::bare(Settlement::Pending, finish_reason)
+        }
+    }
+
+    /// A `done` whose hold had expired before it could be settled: nothing
+    /// charged, the whole hold released.
+    #[must_use]
+    pub fn released(hold_2z: Whole2z, finish_reason: FinishReason) -> Self {
+        Self {
+            charged_2z: Some(Whole2z::ZERO),
+            hold_2z: Some(hold_2z),
+            released_2z: Some(hold_2z),
+            ..Self::bare(Settlement::Released, finish_reason)
+        }
+    }
+
+    /// Check the amounts against the rules of [`Done::settlement`].
+    ///
+    /// # Errors
+    ///
+    /// The first rule broken, naming the field.
+    pub fn check(&self) -> Result<(), SettlementError> {
+        settlement::check(&settlement::Fields {
+            settlement: self.settlement,
+            charged_2z: self.charged_2z,
+            receipt_id: self.receipt_id.as_deref(),
+            collected_milli_2z: self.collected_milli_2z,
+            shortfall_milli_2z: self.shortfall_milli_2z,
+            hold_2z: self.hold_2z,
+            released_2z: self.released_2z,
+            post_settlement: &[
+                (
+                    "balance_hint_milli_2z",
+                    self.balance_hint_milli_2z.is_some(),
+                ),
+                (
+                    "cap_remaining_milli_2z",
+                    self.cap_remaining_milli_2z.is_some(),
+                ),
+            ],
+            success: true,
+        })
+    }
+}
+
+/// The `error` event: the terminal event of a failed call, and what the
+/// failure still cost.
+///
+/// A provider failure before `meta` is a lone `error` with `charged_2z: 0`
+/// and no receipt. After output began, the call is settled for what was
+/// produced. `delivery_aborted` always carries `settlement: "pending"`: the
+/// call is still running upstream.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ErrorEvent {
+    /// What went wrong, for a program. Whether a retry can succeed is
+    /// [`ErrorCode::retryable`].
+    pub code: ErrorCode,
+    /// What went wrong, for a log. Never prompt or completion text.
+    #[serde(default)]
+    pub message: String,
+    /// Whether the amounts here are final. `settled` when absent.
+    #[serde(default)]
+    pub settlement: Settlement,
+    /// What the failed call cost, in whole 2Z. `0` before any output;
+    /// absent while `pending`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub charged_2z: Option<Whole2z>,
+    /// The ledger's settlement id, when something was charged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_id: Option<String>,
+    /// What was actually taken.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collected_milli_2z: Option<Milli2z>,
+    /// What could not be taken and was written off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shortfall_milli_2z: Option<Milli2z>,
+    /// Whether the client received at least one `delta` or `tool_call`.
+    #[serde(default)]
+    pub partial: bool,
+}
+
+impl ErrorEvent {
+    /// An error before `meta`: nothing produced, nothing charged.
+    #[must_use]
+    pub fn uncharged(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            settlement: Settlement::Settled,
+            charged_2z: Some(Whole2z::ZERO),
+            receipt_id: None,
+            collected_milli_2z: None,
+            shortfall_milli_2z: None,
+            partial: false,
+        }
+    }
+
+    /// Check the amounts against the rules of [`ErrorEvent::settlement`],
+    /// and that `delivery_aborted` is `pending`.
+    ///
+    /// # Errors
+    ///
+    /// The first rule broken, naming the field.
+    pub fn check(&self) -> Result<(), SettlementError> {
+        if self.code == ErrorCode::DeliveryAborted && self.settlement != Settlement::Pending {
+            return Err(SettlementError::DeliveryAbortedNotPending);
+        }
+        settlement::check(&settlement::Fields {
+            settlement: self.settlement,
+            charged_2z: self.charged_2z,
+            receipt_id: self.receipt_id.as_deref(),
+            collected_milli_2z: self.collected_milli_2z,
+            shortfall_milli_2z: self.shortfall_milli_2z,
+            hold_2z: None,
+            released_2z: None,
+            post_settlement: &[],
+            success: false,
+        })
+    }
 }
 
 /// Why an SSE frame could not be turned into an [`Event`].

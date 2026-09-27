@@ -17,6 +17,9 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
+use crate::amount::{Milli2z, Whole2z};
+use crate::settlement::{self, Settlement, SettlementError, double_option};
+
 /// The body of `POST /v1/chat` and `POST /v1/chat/estimate`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -41,10 +44,39 @@ pub struct ChatRequest {
     /// to the model provider.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub metadata: BTreeMap<String, String>,
-    /// Opt-in ordered fallback models, tried only if `model` fails before its
-    /// first byte reaches the client. Empty means no fallback.
+    /// Opt-in, **ordered** fallback models. If the current model fails with
+    /// a provider-side error ([`crate::ErrorCode::falls_back`]) **before the
+    /// gateway commits to it** — before its first content event, which is
+    /// when `meta` is sent — the gateway releases that attempt's hold, takes
+    /// a new hold at the next model's price, and tries it. Never after
+    /// `meta`, never after the client disconnected, and each model at most
+    /// once: [`ChatRequest::attempts`] is the order. A hold that cannot be
+    /// taken for a fallback ends the call with that code. `meta.model` names
+    /// the model that answered. Empty means no fallback.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fallback: Vec<String>,
+}
+
+impl ChatRequest {
+    /// The models a call may try, in order, each at most once: `model`, then
+    /// each `fallback` entry not already listed. Attempt `n` (from 1) is the
+    /// `n`-th item, and its ledger `hold_key` is `(call_id, n)`, so a call
+    /// has at most `1 + fallback.len()` holds.
+    pub fn attempts(&self) -> impl Iterator<Item = &str> {
+        core::iter::once(self.model.as_str()).chain(
+            self.fallback
+                .iter()
+                .enumerate()
+                .filter(|&(i, id)| {
+                    *id != self.model
+                        && !self
+                            .fallback
+                            .get(..i)
+                            .is_some_and(|earlier| earlier.contains(id))
+                })
+                .map(|(_, id)| id.as_str()),
+        )
+    }
 }
 
 fn default_stream() -> bool {
@@ -285,7 +317,13 @@ impl AssistantMessage {
     }
 }
 
-/// The body of a `POST /v1/chat` answered with `"stream": false`.
+/// The body of a `POST /v1/chat` answered with `"stream": false` and `200`:
+/// the union of the stream's events.
+///
+/// Which amounts are present depends on [`ChatResponse::settlement`], as in
+/// [`crate::event::Done`]; [`ChatResponse::check`] enforces it. A failure
+/// after output began is not this type: it is a `502` whose `details` carry
+/// the `error` event's fields.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChatResponse {
     /// The call's id; also `GET /v1/calls/{id}`.
@@ -301,17 +339,87 @@ pub struct ChatResponse {
     /// Where `usage` came from.
     #[serde(default)]
     pub usage_source: UsageSource,
-    /// What was charged, in whole 2Z.
-    pub charged_2z: u64,
-    /// The ledger receipt for the charge.
-    pub receipt_id: String,
-    /// The caller's balance after the charge, in milli-2Z, if known. A hint:
-    /// the ledger is the authority.
+    /// The final charge, in whole 2Z. Absent while `settlement` is
+    /// `pending`; `0` (or absent) when `released`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub balance_hint_milli_2z: Option<u64>,
+    pub charged_2z: Option<Whole2z>,
+    /// The ledger's id for this settlement. Present only when `settled`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_id: Option<String>,
+    /// The available balance after the charge, in milli-2Z, if known. A
+    /// hint: the ledger is the authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub balance_hint_milli_2z: Option<Milli2z>,
+    /// The model the request named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_model: Option<String>,
+    /// The provider serving `model`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// Whether the amounts here are final. `settled` when absent.
+    #[serde(default)]
+    pub settlement: Settlement,
+    /// The final reservation, in whole 2Z.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold_2z: Option<Whole2z>,
+    /// What was given back: `max(0, hold − charged)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub released_2z: Option<Whole2z>,
+    /// What was actually taken: `charged_2z × 1000 − shortfall_milli_2z`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collected_milli_2z: Option<Milli2z>,
+    /// What could not be taken and was written off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shortfall_milli_2z: Option<Milli2z>,
+    /// Remaining spend under the grant's cap. `None`: absent. `Some(None)`:
+    /// `null`, no cap. `Some(Some(n))`: `n` milli-2Z remain.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "double_option"
+    )]
+    pub cap_remaining_milli_2z: Option<Option<Milli2z>>,
+    /// When the call was created, RFC 3339 UTC.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    /// When it was settled, RFC 3339 UTC. Absent while `pending`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settled_at: Option<String>,
 }
 
-/// The body of a `POST /v1/chat/estimate` answer.
+impl ChatResponse {
+    /// Check the amounts against the rules of [`ChatResponse::settlement`].
+    ///
+    /// # Errors
+    ///
+    /// The first rule broken, naming the field.
+    pub fn check(&self) -> Result<(), SettlementError> {
+        settlement::check(&settlement::Fields {
+            settlement: self.settlement,
+            charged_2z: self.charged_2z,
+            receipt_id: self.receipt_id.as_deref(),
+            collected_milli_2z: self.collected_milli_2z,
+            shortfall_milli_2z: self.shortfall_milli_2z,
+            hold_2z: self.hold_2z,
+            released_2z: self.released_2z,
+            post_settlement: &[
+                (
+                    "balance_hint_milli_2z",
+                    self.balance_hint_milli_2z.is_some(),
+                ),
+                (
+                    "cap_remaining_milli_2z",
+                    self.cap_remaining_milli_2z.is_some(),
+                ),
+                ("settled_at", self.settled_at.is_some()),
+            ],
+            success: true,
+        })
+    }
+}
+
+/// The body of a `POST /v1/chat/estimate` answer: steps 1–5 of a call, with
+/// no hold, no charge and no provider call.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EstimateResponse {
     /// The catalogue model priced.
@@ -320,6 +428,23 @@ pub struct EstimateResponse {
     pub input_tokens: u64,
     /// The output cap the call would run with, after clamping.
     pub max_output_tokens: u64,
-    /// What a call would hold, in whole 2Z: the price of the worst case.
-    pub hold_2z: u64,
+    /// What a call would hold now, in whole 2Z: the price of the worst case.
+    pub hold_2z: Whole2z,
+    /// The model's minimum charge, in whole 2Z.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_charge_2z: Option<Whole2z>,
+    /// The user's available balance, as read for the clamp.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available_milli_2z: Option<Milli2z>,
+    /// Remaining spend under the grant's cap. `None`: absent. `Some(None)`:
+    /// `null`, no cap. `Some(Some(n))`: `n` milli-2Z remain.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "double_option"
+    )]
+    pub cap_remaining_milli_2z: Option<Option<Milli2z>>,
+    /// The signed catalogue version the estimate was priced from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalog_version: Option<u64>,
 }

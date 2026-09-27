@@ -10,13 +10,10 @@ same request can succeed, and what a client should do. `f2z-ai-proto`
 carries the gateway's codes as `ErrorCode`, each with its `http_status()`
 and `retryable()`, plus an `Unknown` variant for a code newer than the
 crate; the SDKs map each code to user-facing copy so that app code
-switches on `code`, never on `message`. The codes in §2–§4 that the crate
-does not yet carry — `token_revoked`, `account_frozen`, `account_in_debt`,
-`app_disabled`, `call_not_found`, `idempotency_conflict`,
-`too_many_holds`, `delivery_aborted` — and the retryability of `internal` are **crate v0.x
-follow-up: [#1052](https://github.com/free2z/zuu/issues/1052)**; until it
-lands, a client built on the crate sees them as `Unknown` and applies its
-default branch.
+switches on `code`, never on `message`. The crate carries every code in
+§2–§4 (`ErrorCode::ALL`), and its test suite parses the tables below and
+fails if a code, its status or its retryability disagrees with them; a
+code without an HTTP status (`delivery_aborted`) answers `None`.
 
 ## 1. The envelope
 
@@ -71,7 +68,7 @@ Inside an SSE stream, the terminal `error` event carries `code` and
 | 403 | `insufficient_scope` | no | The token lacks the scope this endpoint requires (RFC 6750) | Re-authorize requesting the scope in `details.scope` | `scope` |
 | 403 | `app_disabled` | no | The app's registration is suspended | Nothing the client can do; surface to the developer | — |
 | 403 | `account_frozen` | no | The user's account cannot spend (for example a payment dispute is open) | Tell the user to visit their account | — |
-| 403 | `account_in_debt` | no (until repaid) | A refund or chargeback took back 2Z already spent; the account owes the difference and cannot spend until future credits repay it ([purchase.md](./purchase.md) §3.1). Crate v0.x follow-up: #1052 | Show the debt from `GET /balance` and the buy surface | `debt_milli_2z` |
+| 403 | `account_in_debt` | no (until repaid) | A refund or chargeback took back 2Z already spent; the account owes the difference and cannot spend until future credits repay it ([purchase.md](./purchase.md) §3.1) | Show the debt from `GET /balance` and the buy surface | `debt_milli_2z` |
 | 503 | `unavailable` | yes | The server cannot serve the request right now and fails closed: it could not confirm the token's `aep`/`agen`, it is draining, or (gateway) the provider's circuit breaker is open | Retry with backoff; do **not** sign the user out | `reason` ∈ `revocation_check`, `draining`, `provider_circuit_open` |
 
 ## 3. Requests, limits and balances
@@ -108,8 +105,8 @@ always `502` with the code preserved ([chat-api.md](./chat-api.md) §4).
 | 504 | `provider_timeout` | yes | The provider did not answer in time: no first byte within the model's `ttfb_timeout_ms` (nothing charged; `details.phase: "first_byte"`), or, in a stream, 60 s without output or the 300 s hard limit (charged for what was produced; `details.phase` ∈ `idle`, `hard_limit`) |
 | 503 | `unavailable` | yes | See §2: draining, revocation state unknown, or the provider's circuit breaker open. Nothing charged |
 | 503 | `catalog_unavailable` | yes | The gateway has no verified, unexpired price catalogue and refuses to price anything |
-| 500 | `internal` | yes | A gateway fault. Nothing charged if before `meta`; otherwise settled from what is known. (The crate's `retryable()` answers `no` for `internal` today; the contract wants `yes` — crate v0.x follow-up: #1052.) A ledger answer the gateway did not expect (`markup_mismatch`, `unknown_rate_card`, [metering.md](./metering.md) §3) surfaces as this code with `details.reason`; the ledger's `revoked` surfaces as `401 token_revoked` |
-| (stream) | `delivery_aborted` | no | Delivery to this client ended — the per-stream buffer (256 KiB) filled, or 30 s passed without delivery progress — while the upstream read and the settlement continue ([chat-api.md](./chat-api.md) §2.4). Sent best-effort; `settlement: "pending"`; read `GET /v1/calls/{id}` until its `status` is terminal. Not retryable: the call is still running and will be charged. Crate v0.x follow-up: #1052 |
+| 500 | `internal` | yes | A gateway fault. Nothing charged if before `meta`; otherwise settled from what is known. Retryable because a retry is a new `Idempotency-Key` and so a new call (§7). A ledger answer the gateway did not expect (`markup_mismatch`, `unknown_rate_card`, [metering.md](./metering.md) §3) surfaces as this code with `details.reason`; the ledger's `revoked` surfaces as `401 token_revoked` |
+| (stream) | `delivery_aborted` | no | Delivery to this client ended — the per-stream buffer (256 KiB) filled, or 30 s passed without delivery progress — while the upstream read and the settlement continue ([chat-api.md](./chat-api.md) §2.4). Sent best-effort; `settlement: "pending"`; read `GET /v1/calls/{id}` until its `status` is terminal. Not retryable: the call is still running and will be charged |
 | (SDK-local) | `stream_interrupted` | yes | **Not a gateway code** and not in `ErrorCode`: an SDK synthesises it when the connection closed without a terminal event, and it never appears in a call record — a call whose gateway died records `unavailable` ([metering.md](./metering.md) §5.6). Consult `GET /v1/calls/{id}` |
 
 A content-filter stop is **not an error** on any surface: it is

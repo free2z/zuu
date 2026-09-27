@@ -10,21 +10,27 @@
 //! The normative prose lives in the repository at
 //!
 //! * `docs/sdk/spec/chat-api.md` — `/v1/chat`, the SSE event grammar and the
-//!   error codes ([`chat`], [`event`], [`error`]);
+//!   settlement states ([`chat`], [`event`], [`settlement`]);
+//! * `docs/sdk/spec/errors.md` — the error codes, their statuses and
+//!   retryability ([`error`]; `tests/error_catalogue.rs` parses its tables);
 //! * `docs/sdk/spec/metering.md` — the catalogue, the pricing formula and the
-//!   rounding rule ([`catalog`], [`canonical`], [`pricing`]).
+//!   rounding rule ([`catalog`], [`canonical`], [`pricing`], [`amount`]);
+//! * `docs/sdk/spec/purchase.md` §1.1 — the balance ([`balance`]).
 //!
-//! The prose spec (zuu #1048) and this crate (zuu #1049) were written in
-//! parallel and are to be reconciled; until they are, where the two disagree
-//! the disagreement is a bug in one of them, not a choice.
+//! The prose spec (zuu #1048) and this crate (zuu #1049, #1052) are
+//! reconciled; where the two disagree the disagreement is a bug in one of
+//! them, not a choice.
 //!
 //! # What is here
 //!
 //! | Module | Contents |
 //! |---|---|
-//! | [`chat`] | `POST /v1/chat` request and non-streaming response, [`chat::Usage`] |
+//! | [`chat`] | `POST /v1/chat` request and non-streaming response, [`chat::Usage`], `/v1/chat/estimate` |
 //! | [`event`] | The SSE [`event::Event`] enum: `meta`, `delta`, `tool_call`, `usage`, `done`, `error` |
-//! | [`error`] | [`error::ErrorCode`] and its HTTP status mapping |
+//! | [`settlement`] | [`settlement::Settlement`] (`settled` / `pending` / `released`) and its per-state rules |
+//! | [`error`] | [`error::ErrorCode`], its HTTP status and retryability, the error envelope, the ledger-refusal mapping |
+//! | [`amount`] | [`amount::Nusd`], [`amount::Milli2z`], [`amount::Whole2z`]: one type per unit |
+//! | [`balance`] | [`balance::Balance`], the account balance including debt |
 //! | [`catalog`] | The signed model catalogue and [`catalog::verify_catalog`] |
 //! | [`canonical`] | The canonical JSON the catalogue signature covers |
 //! | [`pricing`] | [`pricing::price_2z`]: meter to nano-USD, price to milli-2Z, integers only, one rounding of the 2Z total |
@@ -38,14 +44,15 @@
 //! # Example: the worked pricing example
 //!
 //! ```
+//! use f2z_ai_proto::amount::{Milli2z, Nusd, Whole2z};
 //! use f2z_ai_proto::pricing::{Bps, price_nusd};
 //!
 //! // $0.021 (21 000 000 nano-USD) of provider cost at 0 % margin and no
 //! // developer markup is 2.1 2Z, rounded once, up, to 3 2Z.
-//! let charge = price_nusd(21_000_000, Bps(0), Bps(0), 1)?;
-//! assert_eq!(charge.total_2z(), 3);
-//! assert_eq!(charge.provider_milli, 2_100);
-//! assert_eq!(charge.platform_milli, 900);
+//! let charge = price_nusd(Nusd(21_000_000), Bps(0), Bps(0), Whole2z(1))?;
+//! assert_eq!(charge.total_2z(), Whole2z(3));
+//! assert_eq!(charge.provider_milli, Milli2z(2_100));
+//! assert_eq!(charge.platform_milli, Milli2z(900));
 //! # Ok::<(), f2z_ai_proto::pricing::PricingError>(())
 //! ```
 
@@ -64,14 +71,19 @@
 
 extern crate alloc;
 
+pub mod amount;
+pub mod balance;
 pub mod canonical;
 pub mod catalog;
 pub mod chat;
 pub mod error;
 pub mod event;
 pub mod pricing;
+pub mod settlement;
 
+pub use amount::{Milli2z, Nusd, Whole2z};
 pub use chat::{ChatRequest, ChatResponse, Usage};
 pub use error::ErrorCode;
 pub use event::Event;
 pub use pricing::{Bps, Charge, ModelPrices, metered_cost_nusd, price_2z, price_nusd};
+pub use settlement::Settlement;

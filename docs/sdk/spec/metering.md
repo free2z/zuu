@@ -223,8 +223,8 @@ each reaches a client is fixed in [errors.md](./errors.md):
 codes, `revoked` as `401 token_revoked`,
 and `markup_mismatch` / `unknown_rate_card` — which can only mean the
 gateway and the ledger disagree about configuration — as `500 internal`
-with `details.reason`. The codes the crate does not carry yet are crate
-v0.x follow-up: #1052.
+with `details.reason`. The crate writes this mapping down once, as
+`f2z-ai-proto::error::LedgerRefusal`.
 
 `hold_key` is `(call_id, attempt)`. The `call_id` is minted by the
 gateway per call (a UUIDv7, unique by construction), so a hold key can
