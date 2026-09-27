@@ -167,14 +167,19 @@ upstream at provider speed regardless of how fast the client reads, and
 buffers undelivered events per stream, up to **256 KiB** of payload. A
 client that is connected but reading slowly simply receives the buffer
 as it drains. Two things end **delivery** early while the upstream read
-and the settlement continue unchanged: the buffer filling (the gateway
-sends `error` with `delivery_aborted` — crate v0.x follow-up: #1052 —
-and `settlement: "pending"`, then closes the connection), and **30 s
-without any delivery progress** to a connected client, which is treated
-as a disconnect. In every case the call settles on the provider's usage,
-and `GET /v1/calls/{id}` has the outcome. A drained call still counts
-toward the 4-stream limit until it settles (§1). There is no cancel
-endpoint: a closed connection is unambiguous and cannot be forged.
+and the settlement continue unchanged — the buffer filling, and **30 s
+without any delivery progress** to a connected client — and both have
+the **same** outcome: the gateway makes a best-effort attempt to send
+`error` with `delivery_aborted` (crate v0.x follow-up: #1052) and
+`settlement: "pending"`, then closes the connection. A client that
+receives it knows the call is still running and billable; a client that
+does not (the socket was too stalled even for that) sees a close without
+a terminal event, treats it as `stream_interrupted`, and learns the same
+thing from `GET /v1/calls/{id}`. In every case the call settles on the
+provider's usage, and the record has the outcome once its `status` is
+terminal. A drained call still counts toward the 4-stream limit until it
+settles (§1). There is no cancel endpoint: a closed connection is
+unambiguous and cannot be forged.
 
 ### 2.5 Idempotency
 
@@ -182,10 +187,15 @@ A request that carries `Idempotency-Key` is replayed safely: a second
 `POST /v1/chat` with the same key from the same (app, user) within **24
 hours** returns the *same* call — the same `call_id`, and:
 
-- if the original is still streaming or settling, the replay is refused
-  with `409 idempotency_conflict` (`details.call_id` names it) — two
-  consumers of one stream is not a thing the gateway does;
-- if the original finished — in `done` **or** `error` — the replay answers
+- if the original's **call record** is not yet terminal (`status` is
+  `streaming` or `settling` — which includes a call whose delivery ended
+  with `delivery_aborted` or whose `done` said `settlement: "pending"`
+  while the provider or the ledger is still at work), the replay is
+  refused with `409 idempotency_conflict` (`details.call_id` names it) —
+  two consumers of one stream is not a thing the gateway does, and the
+  charge is not known yet;
+- if the original's record is terminal (`settled`, `settled_partial`,
+  `released`) — however its stream ended — the replay answers
   `200` with the **call record** of §7 (`replayed: true`) as
   `application/json`, **even when the request said `stream: true`** — an
   SDK branches on the response `Content-Type`, not on what it asked for —
@@ -363,7 +373,7 @@ data: {"charged_2z":1,"receipt_id":"rcpt_019a2f1d-2b0e-7c4a-9f11-6d0e2a8b3c44","
 | `receipt_id` | The ledger's id for this settlement — what a statement line points at. Distinct from `call_id`; absent while `settlement` is `pending` |
 | `finish_reason` | `stop`, `length` (hit `max_output_tokens` — check `meta` for whether that was clamped), `tool_calls`, `content_filter`, `cancelled` |
 | `balance_hint_milli_2z` | The user's **available** balance after this settlement, as of settlement. A hint: other calls may have moved it. `GET /api/sdk/v1/balance` is authoritative |
-| `settlement` | `settled` (the default when absent); `pending` when the ledger had not confirmed the charge within 10 s of the provider finishing ([metering.md](./metering.md) §5.11) — every 2Z field except `hold_2z` is then **absent** and the client reads `GET /v1/calls/{id}` until `status` leaves `settling`; or `released` when the settler found the hold already expired ([metering.md](./metering.md) §5.6) — `charged_2z` is `0` and no `receipt_id` exists. The crate's `Done` has `charged_2z` and `receipt_id` as required fields; making them optional under `pending`/`released` is part of the follow-up |
+| `settlement` | `settled` (the default when absent); `pending` when the ledger had not confirmed the charge within 10 s of the provider finishing ([metering.md](./metering.md) §5.11) — every 2Z field except `hold_2z` is then **absent** and the client reads `GET /v1/calls/{id}` until `status` is terminal (`settled`, `settled_partial` or `released`) — not merely until it leaves `settling`, because after a `delivery_aborted` the record can still be `streaming` while the provider finishes; or `released` when the settler found the hold already expired ([metering.md](./metering.md) §5.6) — `charged_2z` is `0` and no `receipt_id` exists. The crate's `Done` has `charged_2z` and `receipt_id` as required fields; making them optional under `pending`/`released` is part of the follow-up |
 | `hold_2z`, `released_2z` | The **final** reservation (it can exceed `meta.hold_2z` after an extension) and what was given back. `charged + released = hold` except in the write-off case |
 | `collected_milli_2z`, `shortfall_milli_2z` | What was actually taken, and what could not be ([metering.md](./metering.md) §5.5). `collected = charged × 1000 − shortfall`; a receipt shows `collected` when `shortfall` is non-zero |
 | `cap_remaining_milli_2z` | Remaining spend under the grant's cap **for the period the hold belongs to** ([metering.md](./metering.md) §4) — after a stream that crossed a period boundary this is the old period's remainder, which is what the settlement was bounded by; `null` when the grant has no cap |
