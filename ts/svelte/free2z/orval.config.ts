@@ -2,7 +2,7 @@ import { defineConfig } from 'orval';
 import { existsSync } from 'node:fs';
 
 const schemaTarget = [
-  '../../../py/dj/free2z/openapi/f2z.yaml',
+  '../../../py/free2z/dj/free2z/openapi/f2z.yaml',
   '../../../f2z.yaml'
 ].find((path) => existsSync(path));
 

@@ -28,7 +28,7 @@ fact rather than a memory:
   `websocketmanager.ts` (160) and `datachannelmanager.ts` (75). Grepping it for
   `encrypt|crypto|subtle|fingerprint|sodium|nacl` returns **nothing**. There is
   no application-layer cryptography in the p2pe2e client at all.
-- `py/dj/apps/efm/consumers.py` is a 210-line Django Channels
+- `py/free2z/dj/apps/efm/consumers.py` is a 210-line Django Channels
   `SignalingConsumer`. It authenticates a participant with an HS256 JWT signed
   by `settings.SECRET_KEY`, tracks presence in the Django cache, and in
   `handle_signaling_message` relays `offer` / `answer` / `ice_candidate`

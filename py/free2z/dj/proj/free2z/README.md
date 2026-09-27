@@ -13,12 +13,12 @@ Prerequisites:
 ## Historical setup (after dependencies are restored)
 
 Once the missing manifest and dependencies have been restored, start in the
-`py/` directory and create a virtual environment:
+`py/free2z/` directory and create a virtual environment:
 
 ```bash
 python -m venv env
 source env/bin/activate
-pip install -r requirements/main.txt
+pip install -r ../requirements/main.txt
 export PYTHONPATH=`pwd`
 ```
 
@@ -29,7 +29,7 @@ cd dj/proj/free2z
 ./manage.py runserver
 ```
 
-You can also run the frontend, see [ts/react/free2z](../../../../ts/react/free2z/README.md).
+You can also run the frontend, see [ts/react/free2z](../../../../../ts/react/free2z/README.md).
 Change the proxy in `ts/react/free2z/package.json` to `http://localhost:8000`.
 
 ## Features so far open-sourced

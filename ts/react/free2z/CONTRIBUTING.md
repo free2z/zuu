@@ -123,7 +123,7 @@ Describe the changes you have made and why they are necessary. The project maint
 2. Include a brief description:
 
     - After the type and scope, add a brief description of the changes made.
-    - Example: docs(py/dj/proj/free2z): add README for zuu backend
+    - Example: docs(py/free2z/dj/proj/free2z): add README for Free2Z backend
 3. Use present tense:
 
     - Write the commit message in the present tense.

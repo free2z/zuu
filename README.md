@@ -84,7 +84,7 @@ them.
 | [`wallet/zuuallet/`](wallet/zuuallet/) | Focused reference wallet over the shared plugin |
 | [`rs/crates/`](rs/README.md) | Protocol crates — `f2z-intent`, `f2z-codec`, messaging, key transparency |
 | [`ts/react/free2z/`](ts/react/free2z/README.md) · [`ts/svelte/free2z/`](ts/svelte/free2z/README.md) | Free2Z web frontends |
-| [`py/dj/proj/free2z/`](py/dj/proj/free2z/README.md) | Open-source Free2Z Django backend components |
+| [`py/free2z/dj/proj/free2z/`](py/free2z/dj/proj/free2z/README.md) | Open-source Free2Z Django backend components |
 | [`z/`](z/) | Upstream Zcash submodules — [`.gitmodules`](.gitmodules) is authoritative |
 | [`scripts/`](scripts/) | Repository-wide policy checks run by CI |
 
