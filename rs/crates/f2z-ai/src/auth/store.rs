@@ -100,7 +100,25 @@ pub trait Store: Send + Sync + 'static {
     async fn admit(&self, request: &AdmitRequest) -> Result<Admission, StoreError>;
     /// Drop `member` from the lease set.
     async fn release(&self, lease_key: &str, member: &str) -> Result<(), StoreError>;
+    /// Push `member`'s expiry to `ttl` from now — only if it is still in the
+    /// set, so renewing a released (or never-added) member adds nothing.
+    async fn renew(&self, lease_key: &str, member: &str, ttl: Duration) -> Result<(), StoreError>;
 }
+
+/// KEYS: lease set. ARGV: member, ttl ms.
+const RENEW_LUA: &str = r"
+local t = redis.call('TIME')
+local now = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+local ttl = tonumber(ARGV[2])
+if redis.call('ZSCORE', KEYS[1], ARGV[1]) then
+  redis.call('ZADD', KEYS[1], 'XX', now + ttl, ARGV[1])
+  if redis.call('PTTL', KEYS[1]) < ttl then
+    redis.call('PEXPIRE', KEYS[1], ttl)
+  end
+  return 1
+end
+return 0
+";
 
 /// KEYS: user bucket, app bucket, lease set.
 /// ARGV: user per_minute, user burst, app per_minute, app burst, lease limit,
@@ -154,7 +172,9 @@ redis.call('PEXPIRE', KEYS[1], math.ceil(ub * 60000 / upm) + 1000)
 redis.call('HSET', KEYS[2], 't', at, 'ts', now)
 redis.call('PEXPIRE', KEYS[2], math.ceil(ab * 60000 / apm) + 1000)
 redis.call('ZADD', KEYS[3], now + lease_ttl, ARGV[7])
-redis.call('PEXPIRE', KEYS[3], lease_ttl)
+if redis.call('PTTL', KEYS[3]) < lease_ttl then
+  redis.call('PEXPIRE', KEYS[3], lease_ttl)
+end
 return {0, 0, math.floor(ut / 1000)}
 ";
 
@@ -162,6 +182,7 @@ return {0, 0, math.floor(ut / 1000)}
 pub struct RedisStore {
     connection: ConnectionManager,
     admit: redis::Script,
+    renew: redis::Script,
     timeout: Duration,
     skip_until: Mutex<Option<Instant>>,
 }
@@ -194,6 +215,7 @@ impl RedisStore {
         Ok(Self {
             connection,
             admit: redis::Script::new(ADMIT_LUA),
+            renew: redis::Script::new(RENEW_LUA),
             timeout,
             skip_until: Mutex::new(None),
         })
@@ -295,6 +317,24 @@ impl Store for RedisStore {
             },
             _ => return Err(StoreError),
         })
+    }
+
+    async fn renew(&self, lease_key: &str, member: &str, ttl: Duration) -> Result<(), StoreError> {
+        let mut connection = self.connection.clone();
+        let mut invocation = self.renew.prepare_invoke();
+        invocation
+            .key(lease_key)
+            .arg(member)
+            .arg(u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX));
+        match tokio::time::timeout(
+            self.timeout,
+            invocation.invoke_async::<i64>(&mut connection),
+        )
+        .await
+        {
+            Ok(Ok(_)) => Ok(()),
+            _ => Err(StoreError),
+        }
     }
 
     async fn release(&self, lease_key: &str, member: &str) -> Result<(), StoreError> {

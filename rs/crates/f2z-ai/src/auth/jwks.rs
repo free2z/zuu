@@ -74,6 +74,17 @@ pub enum Lookup {
     Unavailable,
 }
 
+/// What [`KeyCache::refresh`] did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refresh {
+    /// A fetch ran (it may have failed).
+    Ran,
+    /// The refetch interval has not elapsed; nothing ran.
+    Skipped,
+    /// Another fetch is in flight and this caller did not wait for it.
+    Busy,
+}
+
 #[derive(Default)]
 struct KeySet {
     keys: HashMap<String, Arc<[u8]>>,
@@ -215,15 +226,43 @@ impl KeyCache {
         true
     }
 
-    /// Fetch now if the rate limit allows. Returns whether a fetch ran.
-    pub async fn refresh(&self) -> bool {
-        let _one = self.fetching.lock().await;
+    /// Fetch now if the rate limit allows.
+    ///
+    /// Fetches are coalesced, and a caller's wait is bounded independently of
+    /// its request's timeout. One fetch runs at a time and takes at most
+    /// [`FETCH_TIMEOUT`] in all; its attempt is stamped again when it
+    /// *finishes*, so callers queued behind it find the interval not yet
+    /// elapsed and share its result instead of each starting another. While
+    /// the last fetch failed, a caller does not queue at all
+    /// ([`Refresh::Busy`]): during an issuer outage, tokens with unknown
+    /// `kid`s are answered `503` at once rather than parked on admission
+    /// slots behind a slow issuer.
+    pub async fn refresh(&self) -> Refresh {
+        let one = if self.healthy() {
+            match tokio::time::timeout(
+                FETCH_TIMEOUT.saturating_add(Duration::from_secs(1)),
+                self.fetching.lock(),
+            )
+            .await
+            {
+                Ok(guard) => guard,
+                Err(_) => return Refresh::Busy,
+            }
+        } else {
+            match self.fetching.try_lock() {
+                Ok(guard) => guard,
+                Err(_) => return Refresh::Busy,
+            }
+        };
         if !self.claim_attempt() {
-            return false;
+            return Refresh::Skipped;
         }
         self.fetches
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        match self.source.fetch().await.and_then(|b| parse_jwks(&b)) {
+        let fetched = tokio::time::timeout(FETCH_TIMEOUT, self.source.fetch())
+            .await
+            .unwrap_or_else(|_| Err("timed out".to_owned()));
+        match fetched.and_then(|b| parse_jwks(&b)) {
             Ok(keys) => {
                 if keys.is_empty() {
                     // Authoritative: every previously trusted key is
@@ -250,7 +289,12 @@ impl KeyCache {
                 tracing::warn!(%error, "the issuer's JWKS could not be fetched");
             }
         }
-        true
+        *self
+            .last_attempt
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Instant::now());
+        drop(one);
+        Refresh::Ran
     }
 
     /// The key for `kid`.
@@ -267,13 +311,15 @@ impl KeyCache {
             }
             return Lookup::Found(Arc::clone(key));
         }
-        self.refresh().await;
+        let refreshed = self.refresh().await;
         let set = self.current();
         if !set.usable() {
             return Lookup::Unavailable;
         }
         match set.keys.get(kid) {
             Some(key) => Lookup::Found(Arc::clone(key)),
+            // A fetch is still in flight: its answer is not known yet.
+            None if refreshed == Refresh::Busy => Lookup::Unavailable,
             None if self.healthy() => Lookup::Unknown,
             None => Lookup::Unavailable,
         }
@@ -472,7 +518,7 @@ mod tests {
         assert!(matches!(cache.lookup("a").await, Lookup::Found(_)));
         // The issuer withdraws every ES256 key (a compromise response).
         *source.doc.lock().unwrap() = json!({"keys": []}).to_string().into_bytes();
-        assert!(cache.refresh().await);
+        assert_eq!(cache.refresh().await, Refresh::Ran);
         assert_eq!(cache.lookup("a").await, Lookup::Unknown);
     }
 
@@ -492,6 +538,46 @@ mod tests {
         // The issuer is back: "b" is found.
         *source.doc.lock().unwrap() = doc(&["a", "b"]);
         assert!(matches!(cache.lookup("b").await, Lookup::Found(_)));
+    }
+
+    struct Slow {
+        calls: AtomicU32,
+    }
+
+    #[async_trait]
+    impl KeySource for Slow {
+        async fn fetch(&self) -> Result<Vec<u8>, String> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            // Longer than the failure retry interval: what made each queued
+            // caller start a fetch of its own (codex round 2).
+            tokio::time::sleep(UNLOADED_RETRY + Duration::from_millis(500)).await;
+            Err("slow and down".into())
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_slow_failing_issuer_costs_one_fetch_not_one_per_request() {
+        let source = Arc::new(Slow {
+            calls: AtomicU32::new(0),
+        });
+        let cache = Arc::new(KeyCache::new(source.clone(), Duration::from_secs(60)));
+        let started = Instant::now();
+        let lookups: Vec<_> = (0..50)
+            .map(|i| {
+                let cache = Arc::clone(&cache);
+                tokio::spawn(async move { cache.lookup(&format!("k{i}")).await })
+            })
+            .collect();
+        for lookup in lookups {
+            assert_eq!(lookup.await.unwrap(), Lookup::Unavailable);
+        }
+        assert_eq!(source.calls.load(Ordering::SeqCst), 1);
+        // Nobody queued for more than about one fetch.
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
     }
 
     #[tokio::test]

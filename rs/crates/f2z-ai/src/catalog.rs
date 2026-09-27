@@ -19,12 +19,14 @@
 //! other lower version is a replay: the held copy stays, the refusal is
 //! logged and counted (`f2z_ai_catalog_replays_total`).
 //!
-//! Accepting a regression lowers the version the gateway holds, which would
-//! let a replay of the superseded higher version back in by the ordinary
-//! "higher wins" rule. It does not: a candidate whose version is not above
-//! the highest ever installed, **and** whose `issued_at` is older than the
-//! held copy's, is also a replay. Signature and expiry checks are unchanged
-//! and happen before any of this.
+//! Accepting a regression means version order no longer implies issue
+//! order, so a replay of any catalogue issued before the regressed one —
+//! seen by this pod or not, whatever its version — could come back in by the
+//! ordinary "higher wins" rule. It does not: accepting a regression raises an
+//! **issue floor** to that catalogue's `issued_at`, and from then on nothing
+//! issued before the floor is installed. Before any regression the floor is
+//! zero and the rules are exactly the version rules. Signature and expiry
+//! checks are unchanged and happen before any of this.
 //!
 //! **The fetch-and-verify step is stubbed.** [`CatalogSource`] is the seam:
 //! Wave 2 implements it by fetching the signed document and calling
@@ -139,8 +141,9 @@ pub enum Installed {
 #[derive(Debug, Default)]
 pub struct State {
     current: RwLock<Option<Arc<VerifiedCatalog>>>,
-    /// The highest version ever installed. Only ever rises.
-    high_water: std::sync::atomic::AtomicU64,
+    /// The `issued_at` of the last accepted version regression: nothing
+    /// issued before it is installed again. Zero until one is accepted.
+    issue_floor: std::sync::atomic::AtomicU64,
 }
 
 impl State {
@@ -160,7 +163,10 @@ impl State {
             return Installed::Expired;
         }
         let mut guard = self.current.write().unwrap_or_else(|p| p.into_inner());
-        let high_water = self.high_water.load(std::sync::atomic::Ordering::SeqCst);
+        let issue_floor = self.issue_floor.load(std::sync::atomic::Ordering::SeqCst);
+        if candidate.catalog().issued_at < issue_floor {
+            return Installed::Older;
+        }
         if let Some(existing) = guard.as_ref() {
             let (held, offered) = (existing.catalog(), candidate.catalog());
             if offered.version == held.version {
@@ -179,16 +185,10 @@ impl State {
                     "installing a lower catalogue version: its issued_at is newer and within the \
                      regression window (zuu#1067)"
                 );
-            } else if offered.version <= high_water && offered.issued_at < held.issued_at {
-                // Higher than what is held only because a regression was
-                // accepted, and older than what is held: the superseded copy.
-                return Installed::Older;
+                self.issue_floor
+                    .fetch_max(offered.issued_at, std::sync::atomic::Ordering::SeqCst);
             }
         }
-        self.high_water.fetch_max(
-            candidate.catalog().version,
-            std::sync::atomic::Ordering::SeqCst,
-        );
         *guard = Some(Arc::new(candidate));
         Installed::Replaced
     }
@@ -279,6 +279,13 @@ mod tests {
         // "higher" than what is held now.
         assert_eq!(
             state.install(issued(50, t, t + 3600), t + 61),
+            Installed::Older
+        );
+        // So is one this pod never saw, issued between the two (codex
+        // round 2): higher than anything installed, but issued before the
+        // regression that was accepted.
+        assert_eq!(
+            state.install(issued(52, t + 30, t + 3600), t + 61),
             Installed::Older
         );
         // A genuinely newer one is installed as usual.

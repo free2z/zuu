@@ -299,6 +299,19 @@ impl Store for MemoryStore {
         })
     }
 
+    async fn renew(&self, lease_key: &str, member: &str, ttl: Duration) -> Result<(), StoreError> {
+        if self.down.load(Ordering::SeqCst) {
+            return Err(StoreError);
+        }
+        if let Some(set) = self.leases.lock().unwrap().get_mut(lease_key)
+            && let Some(expiry) = set.get_mut(member)
+            && *expiry > Instant::now()
+        {
+            *expiry = Instant::now() + ttl;
+        }
+        Ok(())
+    }
+
     async fn release(&self, lease_key: &str, member: &str) -> Result<(), StoreError> {
         if self.down.load(Ordering::SeqCst) {
             return Err(StoreError);
@@ -1342,4 +1355,24 @@ async fn a_lease_whose_admit_reply_was_lost_is_still_released() {
     assert_eq!(h.store.open_leases(), 0, "orphaned lease members");
     // And the user is not locked out of the shared limit.
     assert_eq!(verdict(&gw, Some(&h.token())).await.0, 501);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_call_outliving_the_lease_ttl_still_counts_on_another_pod() {
+    let h = Harness::new().await;
+    let (backend, mut streams) = ControlledBackend::new();
+    let mut short = limits_config(100_000, 10_000, 1);
+    short.lease_ttl = Duration::from_millis(300);
+    let a = h.gateway(short, backend, RecordingSettler::default()).await;
+    let b = h
+        .gateway(short, not_implemented(), RecordingSettler::default())
+        .await;
+    let body = call(&a, Some(&h.token())).await;
+    assert_eq!(body.status(), StatusCode::OK);
+    let sender = streams.recv().await.unwrap();
+    // Four TTLs later the call is still open on pod a: pod b must still see it.
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    assert_eq!(verdict(&b, Some(&h.token())).await.1, "concurrency_limit");
+    drop(sender);
+    drop(body);
 }

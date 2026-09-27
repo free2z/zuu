@@ -24,7 +24,10 @@
 //! only after the settler has returned for the call **and** its delivery has
 //! ended — so a drained call, a call whose client disconnected while its
 //! upstream is still being read, and a call whose task panicked all keep
-//! counting until they are settled, and stop counting then. Dropping the
+//! counting until they are settled, and stop counting then. While it is held
+//! its Redis member is renewed every `lease_ttl / 3`, so a call that outlives
+//! `lease_ttl` (a settle that takes a long time) keeps counting on every pod
+//! too. Dropping the
 //! lease decrements the local count at once and removes the call from the
 //! Redis set in the background; if that removal is lost (a pod killed, Redis
 //! unreachable at that moment) the member expires after `lease_ttl`, the
@@ -120,6 +123,10 @@ pub struct Lease {
     counts: Counts,
     user: String,
     remote: Option<(Arc<dyn Store>, String, String)>,
+    /// Keeps the Redis member's expiry ahead of now while the lease is held,
+    /// so a call that outlives `lease_ttl` (a settle that takes long) still
+    /// counts on every pod. Aborted when the lease drops.
+    renewer: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl std::fmt::Debug for Lease {
@@ -132,6 +139,9 @@ impl std::fmt::Debug for Lease {
 
 impl Drop for Lease {
     fn drop(&mut self) {
+        if let Some(renewer) = self.renewer.take() {
+            renewer.abort();
+        }
         {
             let mut counts = self
                 .counts
@@ -286,6 +296,7 @@ impl Limits {
             counts: Arc::clone(&self.counts),
             user: claims.sub.clone(),
             remote: None,
+            renewer: None,
         };
 
         // 2. Local rates.
@@ -329,8 +340,31 @@ impl Limits {
             request.lease_key.clone(),
             request.member.clone(),
         ));
+        let renew = |lease: &mut Lease| {
+            let (store, key, member) = (
+                Arc::clone(store),
+                request.lease_key.clone(),
+                request.member.clone(),
+            );
+            let ttl = self.config.lease_ttl;
+            let every = ttl
+                .checked_div(3)
+                .unwrap_or(ttl)
+                .max(Duration::from_millis(10));
+            lease.renewer = Some(tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(every).await;
+                    if store.renew(&key, &member, ttl).await.is_err() {
+                        tracing::warn!("concurrency lease renewal failed; retrying");
+                    }
+                }
+            }));
+        };
         match store.admit(&request).await {
-            Ok(Admission::Admitted { .. }) => Ok(lease),
+            Ok(Admission::Admitted { .. }) => {
+                renew(&mut lease);
+                Ok(lease)
+            }
             Ok(Admission::Refused { by, retry_after_ms }) => {
                 // A definite refusal added nothing: no removal is owed.
                 lease.remote = None;
@@ -345,6 +379,7 @@ impl Limits {
                 // Limits only: the local layer above already applied. The
                 // remote member stays owned, in case the script did run.
                 tracing::warn!("shared rate limits unavailable; local limits only");
+                renew(&mut lease);
                 Ok(lease)
             }
         }
