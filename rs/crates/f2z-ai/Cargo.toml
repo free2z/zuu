@@ -83,11 +83,26 @@ opentelemetry-otlp = { version = "0.33", default-features = false, features = [
   "reqwest-blocking-client",
 ] }
 
+# The provider adapters' outbound client (src/provider): one pooled client per
+# provider, HTTP/2 over rustls when the provider negotiates it, Mozilla's roots
+# from `webpki-roots` so the distroless image needs no CA bundle. The same
+# 0.12 line the OTLP exporter and the testkit already bring, so the lock gains
+# TLS, not a second `reqwest`. No `json`, `gzip`, `cookies` or proxy support:
+# the adapters serialise their own bodies, read SSE byte for byte, and never
+# follow a redirect or an environment proxy (`provider::client`).
+reqwest = { version = "0.12.28", default-features = false, features = [
+  "http2",
+  "rustls-tls-webpki-roots",
+] }
+
 [dev-dependencies]
 # The integration tests drive the gateway over real sockets with hyper's own
 # client, so a streamed body is observed frame by frame as a client sees it.
 hyper = { version = "1", default-features = false, features = ["http1", "client"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "io-util"] }
+# The mock OpenAI / xAI / Anthropic providers and `Scenario::expected_usage`,
+# the oracle every adapter test asserts its parsed usage against.
+f2z-ai-testkit = { path = "../f2z-ai-testkit", version = "0.1.0" }
 
 [[bin]]
 name = "f2z-ai"

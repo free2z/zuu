@@ -28,13 +28,44 @@ those exist.
 | Seam | This build | Replaced by |
 |---|---|---|
 | `catalog::CatalogSource` | `Unconfigured` — never yields a catalogue, so a deployed skeleton reports **not ready** and `/v1/chat` answers `503 catalog_unavailable` | fetch + `f2z_ai_proto::catalog::verify_catalog` against configured trusted keys |
-| `chat::ChatBackend` → `call::Upstream` | `NotImplemented` — `501 not_implemented` | the provider adapters (OpenAI Responses, Anthropic Messages, xAI): `start` authenticates, holds and sends; the `Upstream` yields unified `f2z_ai_proto::Event`s |
+| `chat::ChatBackend` → `call::Upstream` | `NotImplemented` — `501 not_implemented`. The provider adapters exist (`provider::ProviderBackend`, [#1064](https://github.com/free2z/zuu/issues/1064), below) but are **not wired into the binary**: without authentication and metering in front of them they would be free AI for anyone who can reach the port | `ProviderBackend` behind authentication and the metering layer, which adds `meta` / `done` / `error` and the hold |
 | `settle::Settler` | `LogSettler` — logs the disposition | the ledger's `settle` / `release` (metering.md §3) |
 
 `not_implemented` (`501`) and `not_found` (`404`, an unknown path) are
 **not** `f2z_ai_proto::ErrorCode`s and are not part of the contract; a client
 decodes them as `ErrorCode::Unknown`. Both go when the prose spec
 ([#1048](https://github.com/free2z/zuu/issues/1048)) is reconciled.
+
+## The provider adapters (`src/provider`)
+
+One [`Provider`](src/provider/mod.rs) trait, selected by the catalogue
+model's `api_style`:
+
+| `api_style` | Adapter | Usage rule it gets right |
+|---|---|---|
+| `openai_responses` | `provider::openai_responses` | three terminal events (`response.completed`, **`response.incomplete`**, `response.failed`) all carry usage; `input_tokens` includes cached, `output_tokens` includes reasoning |
+| `anthropic_messages` | `provider::anthropic` | `message_delta` usage is **cumulative**: each count from the **last** delta that carries it, falling back to `message_start`; reported only once a delta carried `output_tokens`; the 5 m / 1 h cache-write split is carried in the outcome |
+| `openai_chat` | `provider::openai_chat` | `stream_options.include_usage` always sent; xAI's `completion_tokens` **excludes** reasoning — `total_tokens` decides the reading when it can, the provider's configured convention when it cannot |
+
+`ProviderBackend::start` does no I/O: the provider request goes out on the
+call's first read, so `start` cannot outlive the call task's deadline and a
+provider failure arrives inside the stream (chat-api.md §2.2 step 7). The
+upstream yields `delta`, complete `tool_call`s and — only when the provider
+reported it — `usage`; the settler gets a `ProviderOutcome` in
+`CallRecord::outcome` with the finish reason, the failure and its phase, and
+the usage **or `UsageReport::Missing`** (never a zero usage). No `meta`,
+`done` or `error` event and no hold: those are the metering layer's.
+
+| Rule | Where |
+|---|---|
+| Deadlines: connect 5 s, the model's `ttfb_timeout_ms` to the first body byte, 60 s idle, 300 s from admission. All absolute and kept on the upstream, because the call task drops `next()` futures every 250 ms | `provider/upstream.rs` |
+| Retry only before the first content event, ≤ 2 retries per call with jittered backoff (`retry-after` honoured up to 2 s), a per-provider budget (10 % of primary attempts, burst 20) and a per-provider circuit breaker (5 consecutive failures → open 10 s → one probe) | `provider/resilience.rs` |
+| Status → code: 401/403/402 `internal`; 400/404/413/422 `provider_error`, not retried; 408/504 `provider_timeout`; 429/409/5xx/529 `provider_error`, retried; connect `unavailable`; open breaker `unavailable` (`provider_circuit_open`) | `provider/mod.rs` |
+| Header allowlist (`authorization`, `x-api-key`, `anthropic-version`, `content-type`, `accept`), no redirects, no environment proxy, `https://` base URLs only (loopback `http://` for the mock), keys as `SecretString` exposed only into a sensitive header value | `provider/client.rs`, `config.rs` |
+
+Provider accounts are configured as `[providers.<name>]` (see
+`src/config.rs`); a key comes from `F2Z_AI_PROVIDER_<NAME>_API_KEY` or
+`api_key_file`, never inline.
 
 ## Running it
 
@@ -170,3 +201,7 @@ loopback ports and drive it with hyper's client over real sockets:
 | `tests/limits.rs` | 4 MiB / 20 MiB at their defaults, a declared oversize refused before the body, chunked bodies cut at the limit, the gateway-wide upload budget, the body-read timeout, strict decoding, readiness on the catalogue |
 | `tests/redaction.rs` | a canary in every client-controlled field never reaches a log line at `trace` or an error body |
 | `tests/otel.rs` | spans reach an OTLP collector with the configured `authorization`, and carry no prompt |
+| `tests/adapter_usage.rs` | every adapter × every `Ending` × usage present / omitted × reasoning, caching, Anthropic cumulative server-tool usage, an empty answer: the parsed usage **equals** the testkit's `Scenario::expected_usage`, a missing report is `Missing`, and the client's `usage` event agrees |
+| `tests/adapter_faults.rs` | every `Fault`: transient statuses retried before content and reported after; `retry-after`; refusals not retried; disconnects and error events retried before content, never after; first-byte, idle and hard-limit deadlines; a refused connection; the breaker opening and probing; the retry budget across calls |
+| `tests/adapter_requests.rs` | each adapter's translation of the unified request; only allowlisted headers on the wire (a raw socket reads the request head); `start`'s refusals before any I/O |
+| `tests/adapter_gateway.rs` | the adapters behind `/v1/chat`: the settler receives the provider's usage (or `Missing`) and the outcome; a pre-content failure is a stream, not an HTTP error; the idle deadline fires under the call task's 250 ms ticks |

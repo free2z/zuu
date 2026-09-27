@@ -83,10 +83,24 @@ use crate::settle::{self, CallRecord, Delivery, UpstreamEnd};
 /// `None` once the provider's stream has ended (after its usage frame, if it
 /// sends one). Dropping an `Upstream` must abort the provider request — the
 /// reader only drops one early when a drain aborts the call.
+///
+/// **`next` must be cancel-safe.** The reader polls it in a `select!` beside
+/// the stall tick and the drain signal, so a `next` future is dropped
+/// whenever one of those fires first — every 250 ms on a quiet stream. An
+/// implementation keeps its in-flight request and its deadlines on `self`,
+/// never in the future (`crate::provider::upstream`).
 #[async_trait]
 pub trait Upstream: Send + 'static {
     /// The next event, or `None` at the end of the stream.
     async fn next(&mut self) -> Option<Event>;
+
+    /// How the provider call ended — finish reason, failure, and the usage
+    /// or its explicit absence — once `next` has returned `None`. Handed to
+    /// the settler in [`crate::settle::CallRecord::outcome`]. `None` from an
+    /// upstream that does not know (or has not ended).
+    fn outcome(&mut self) -> Option<crate::provider::ProviderOutcome> {
+        None
+    }
 }
 
 /// How often the watchers check the stall limit.
@@ -454,6 +468,7 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
             upstream: UpstreamEnd::NotStarted,
             delivery: Delivery::None,
             usage: None,
+            outcome: None,
             elapsed: Duration::ZERO,
         },
         started: call.started(),
@@ -528,6 +543,7 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
             () = crate::shutdown::raised(&mut abort) => break true,
         }
     };
+    guard.record.outcome = upstream.outcome();
     // On a drain this drops the provider request (the `Upstream` contract).
     drop(upstream);
     guard.record.upstream = if drained {

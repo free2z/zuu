@@ -119,6 +119,12 @@ pub struct CallRecord {
     /// The usage the upstream reported in its `usage` event, if it did.
     /// `None` is metering.md §5.4's estimate case (Wave 2).
     pub usage: Option<Usage>,
+    /// How the provider call ended, from an upstream that knows
+    /// ([`crate::call::Upstream::outcome`]): the finish reason, the failure
+    /// and its phase, and the usage **or its explicit absence**
+    /// ([`crate::provider::UsageReport::Missing`]). `None` when the call did
+    /// not start, was drained mid-read, or its upstream cannot say.
+    pub outcome: Option<crate::provider::ProviderOutcome>,
     /// Admission to upstream end.
     pub elapsed: Duration,
 }

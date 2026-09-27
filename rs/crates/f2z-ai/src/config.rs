@@ -23,6 +23,23 @@
 //! environment (`F2Z_AI_OTLP_AUTHORIZATION`) or from a file the config names
 //! (`otlp_authorization_file`), never as an inline value in the config file,
 //! which ends up in a ConfigMap, a repository or a support ticket.
+//!
+//! # Providers
+//!
+//! ```toml
+//! [providers.anthropic]                       # the catalogue's `provider` name
+//! api_key_file = "/var/run/secrets/anthropic" # or F2Z_AI_PROVIDER_ANTHROPIC_API_KEY
+//! # base_url = "https://api.anthropic.com"    # the default for openai, anthropic, xai
+//!
+//! [providers.xai]
+//! # completion_tokens_include_reasoning = false   # the default for xai only
+//! ```
+//!
+//! A provider is configured by its table or by its key variable alone
+//! (`F2Z_AI_PROVIDER_<NAME>_API_KEY`, the name upper-cased); either way it
+//! must end up with exactly one key. An inline `api_key` is refused like
+//! every other secret. A base URL must be `https://` (plain `http://` only to
+//! loopback, for a mock provider).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -54,6 +71,48 @@ pub const ENV_CONFIG_FILE: &str = "F2Z_AI_CONFIG";
 
 /// The variable carrying the OTLP `authorization` header value.
 pub const ENV_OTLP_AUTHORIZATION: &str = "F2Z_AI_OTLP_AUTHORIZATION";
+
+/// `F2Z_AI_PROVIDER_<NAME>_API_KEY`: a provider's key.
+pub const ENV_PROVIDER_PREFIX: &str = "F2Z_AI_PROVIDER_";
+/// The suffix of a provider key variable.
+pub const ENV_PROVIDER_KEY_SUFFIX: &str = "_API_KEY";
+
+/// The public API base URL of a provider this build knows by name.
+#[must_use]
+pub fn default_base_url(provider: &str) -> Option<&'static str> {
+    match provider {
+        "openai" => Some("https://api.openai.com"),
+        "anthropic" => Some("https://api.anthropic.com"),
+        "xai" => Some("https://api.x.ai"),
+        _ => None,
+    }
+}
+
+/// One provider account the gateway calls.
+#[derive(Clone)]
+pub struct ProviderConfig {
+    /// `https://…` (or `http://` to loopback). Routes are appended to it.
+    pub base_url: String,
+    /// The provider key. Never rendered: `Debug` is redacted.
+    pub api_key: SecretString,
+    /// Chat Completions only: whether `completion_tokens` includes
+    /// `reasoning_tokens` when the usage chunk cannot say
+    /// (`provider::openai_chat`). `true` except for `xai`.
+    pub completion_tokens_include_reasoning: bool,
+}
+
+impl fmt::Debug for ProviderConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProviderConfig")
+            .field("base_url", &self.base_url)
+            .field("api_key", &"[REDACTED]")
+            .field(
+                "completion_tokens_include_reasoning",
+                &self.completion_tokens_include_reasoning,
+            )
+            .finish()
+    }
+}
 
 /// Everything the process runs on. Construct with [`Config::load`].
 #[derive(Clone, Debug)]
@@ -111,6 +170,8 @@ pub struct Config {
     pub otlp_endpoint: Option<String>,
     /// The `authorization` header sent to the collector.
     pub otlp_authorization: Option<SecretString>,
+    /// Provider accounts, by the catalogue's `provider` name.
+    pub providers: BTreeMap<String, ProviderConfig>,
 }
 
 impl Default for Config {
@@ -135,6 +196,7 @@ impl Default for Config {
             log_level: LogLevel::Info,
             otlp_endpoint: None,
             otlp_authorization: None,
+            providers: BTreeMap::new(),
         }
     }
 }
@@ -210,6 +272,16 @@ struct Raw {
     log_level: Option<String>,
     otlp_endpoint: Option<String>,
     otlp_authorization_file: Option<PathBuf>,
+    providers: Option<BTreeMap<String, RawProvider>>,
+}
+
+/// One `[providers.<name>]` table.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawProvider {
+    base_url: Option<String>,
+    api_key_file: Option<PathBuf>,
+    completion_tokens_include_reasoning: Option<bool>,
 }
 
 #[derive(Clone, Copy)]
@@ -267,6 +339,18 @@ impl Config {
             }
             None => toml::Table::new(),
         };
+        if let Some(toml::Value::Table(providers)) = table.get("providers") {
+            for (name, provider) in providers {
+                if provider.get("api_key").is_some() {
+                    return Err(err(format!(
+                        "`providers.{name}.api_key` is a secret and is not accepted inline in the \
+                         config file; set {ENV_PROVIDER_PREFIX}{}{ENV_PROVIDER_KEY_SUFFIX} or \
+                         `api_key_file`",
+                        name.to_ascii_uppercase()
+                    )));
+                }
+            }
+        }
         for key in INLINE_SECRETS {
             if table.contains_key(*key) {
                 return Err(err(format!(
@@ -278,6 +362,7 @@ impl Config {
         }
 
         let mut env_secret = None;
+        let mut provider_keys = BTreeMap::new();
         let env: BTreeMap<String, String> = env
             .into_iter()
             .filter(|(name, _)| name.starts_with(ENV_PREFIX))
@@ -288,6 +373,23 @@ impl Config {
             }
             if name == ENV_OTLP_AUTHORIZATION {
                 env_secret = Some(SecretString::from(value));
+                continue;
+            }
+            if let Some(provider) = name
+                .strip_prefix(ENV_PROVIDER_PREFIX)
+                .and_then(|rest| rest.strip_suffix(ENV_PROVIDER_KEY_SUFFIX))
+            {
+                if provider.is_empty()
+                    || !provider
+                        .bytes()
+                        .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+                {
+                    return Err(err(format!(
+                        "`{name}`: a provider name in a key variable is upper-case letters, \
+                         digits and underscores"
+                    )));
+                }
+                provider_keys.insert(provider.to_ascii_lowercase(), SecretString::from(value));
                 continue;
             }
             let key = name
@@ -315,10 +417,14 @@ impl Config {
         let raw: Raw = table
             .try_into()
             .map_err(|e: toml::de::Error| err(e.to_string()))?;
-        Self::from_raw(raw, env_secret)
+        Self::from_raw(raw, env_secret, provider_keys)
     }
 
-    fn from_raw(raw: Raw, env_secret: Option<SecretString>) -> Result<Self, ConfigError> {
+    fn from_raw(
+        raw: Raw,
+        env_secret: Option<SecretString>,
+        provider_keys: BTreeMap<String, SecretString>,
+    ) -> Result<Self, ConfigError> {
         let defaults = Self::default();
         let addr = |key: &str, value: Option<String>, default: SocketAddr| match value {
             Some(text) => text
@@ -356,6 +462,8 @@ impl Config {
             }
             (None, None) => None,
         };
+
+        let providers = providers(raw.providers.unwrap_or_default(), provider_keys)?;
 
         let config = Self {
             listen: addr("listen", raw.listen, defaults.listen)?,
@@ -400,6 +508,7 @@ impl Config {
             log_level,
             otlp_endpoint: raw.otlp_endpoint.filter(|s| !s.is_empty()),
             otlp_authorization,
+            providers,
         };
         config.validate()?;
         Ok(config)
@@ -462,6 +571,61 @@ impl Config {
         }
         Ok(())
     }
+}
+
+/// Merge the `[providers.*]` tables with the key variables.
+fn providers(
+    mut tables: BTreeMap<String, RawProvider>,
+    mut keys: BTreeMap<String, SecretString>,
+) -> Result<BTreeMap<String, ProviderConfig>, ConfigError> {
+    let mut names: Vec<String> = tables.keys().cloned().collect();
+    names.extend(keys.keys().filter(|k| !tables.contains_key(*k)).cloned());
+    let mut out = BTreeMap::new();
+    for name in names {
+        let raw = tables.remove(&name).unwrap_or_default();
+        let variable = format!(
+            "{ENV_PROVIDER_PREFIX}{}{ENV_PROVIDER_KEY_SUFFIX}",
+            name.to_ascii_uppercase()
+        );
+        let api_key = match (keys.remove(&name), raw.api_key_file) {
+            (Some(_), Some(_)) => {
+                return Err(err(format!(
+                    "provider `{name}` has both {variable} and `api_key_file`; choose one"
+                )));
+            }
+            (Some(key), None) => key,
+            (None, Some(path)) => {
+                let text = std::fs::read_to_string(&path)
+                    .map_err(|e| err(format!("{}: {e}", path.display())))?;
+                SecretString::from(text.trim_end_matches(['\r', '\n']).to_owned())
+            }
+            (None, None) => {
+                return Err(err(format!(
+                    "provider `{name}` has no key: set {variable} or `api_key_file`"
+                )));
+            }
+        };
+        let base_url = match raw.base_url {
+            Some(url) => url,
+            None => default_base_url(&name)
+                .ok_or_else(|| err(format!("provider `{name}` needs a `base_url`")))?
+                .to_owned(),
+        };
+        crate::provider::client::base_url(&base_url)
+            .map_err(|e| err(format!("providers.{name}.base_url: {e}")))?;
+        let include_reasoning = raw
+            .completion_tokens_include_reasoning
+            .unwrap_or(name != "xai");
+        out.insert(
+            name,
+            ProviderConfig {
+                base_url,
+                api_key,
+                completion_tokens_include_reasoning: include_reasoning,
+            },
+        );
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -608,6 +772,57 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(error.contains("max_body_bytes"), "{error}");
+    }
+
+    #[test]
+    fn a_provider_key_comes_from_the_environment_or_a_file_never_inline() {
+        let config = Config::load(
+            None,
+            env(&[("F2Z_AI_PROVIDER_ANTHROPIC_API_KEY", "sk-ant-canary")]),
+        )
+        .unwrap();
+        let anthropic = &config.providers["anthropic"];
+        assert_eq!(anthropic.base_url, "https://api.anthropic.com");
+        assert!(anthropic.completion_tokens_include_reasoning);
+        assert!(!format!("{config:?}").contains("sk-ant-canary"));
+
+        let f = file("[providers.openai]\napi_key = \"sk-inline-canary\"\n");
+        let error = Config::load(Some(f.path()), env(&[]))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("not accepted inline"), "{error}");
+        assert!(!error.contains("sk-inline-canary"), "{error}");
+
+        let key = file("xai-from-file\n");
+        let f = file(&format!(
+            "[providers.xai]\napi_key_file = {:?}\n",
+            key.path()
+        ));
+        let config = Config::load(Some(f.path()), env(&[])).unwrap();
+        use secrecy::ExposeSecret as _;
+        assert_eq!(
+            config.providers["xai"].api_key.expose_secret(),
+            "xai-from-file"
+        );
+        assert!(!config.providers["xai"].completion_tokens_include_reasoning);
+    }
+
+    #[test]
+    fn a_provider_without_a_key_or_with_a_plain_http_url_is_refused() {
+        let f = file("[providers.openai]\n");
+        assert!(Config::load(Some(f.path()), env(&[])).is_err());
+        let f = file("[providers.openai]\nbase_url = \"http://api.openai.com\"\n");
+        let error = Config::load(
+            Some(f.path()),
+            env(&[("F2Z_AI_PROVIDER_OPENAI_API_KEY", "k")]),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("https://"), "{error}");
+        assert!(
+            Config::load(None, env(&[("F2Z_AI_PROVIDER_MYSTERY_API_KEY", "k")])).is_err(),
+            "an unknown provider needs a base_url"
+        );
     }
 
     #[test]
