@@ -131,7 +131,9 @@ impl Completion {
     const PREFIX: usize = 64;
 
     fn feed(&mut self, bytes: &[u8]) {
-        for &b in bytes {
+        // `\r` is dropped, so CRLF-framed SSE (valid per the spec) completes
+        // exactly as LF-framed SSE does.
+        for &b in bytes.iter().filter(|b| **b != b'\r') {
             if self.current.len() < Self::PREFIX {
                 self.current.push(b);
             }
@@ -193,8 +195,10 @@ async fn one(
     style: ProviderStyle,
     gauge: Arc<Gauge>,
 ) -> Sample {
-    let _slot = InFlight::new(&gauge);
     let t0 = Instant::now();
+    // Counted as concurrent only once body bytes flow: a request queued
+    // before its headers, or waiting for them, is not a stream in progress.
+    let mut slot = None;
     let fail = |t0: Instant| Sample {
         ok: false,
         ttfb: t0.elapsed(),
@@ -218,6 +222,7 @@ async fn one(
         match resp.chunk().await {
             Ok(Some(c)) => {
                 ttfb.get_or_insert_with(|| t0.elapsed());
+                slot.get_or_insert_with(|| InFlight::new(&gauge));
                 done.feed(&c);
             }
             Ok(None) => break,
@@ -309,7 +314,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let peak = gauge.peak.load(Ordering::Relaxed);
     println!("wall          {wall:.2?} (ramp {} connects/s)", args.ramp);
-    println!("concurrency   peak {peak} streams in flight");
+    println!("concurrency   peak {peak} streams receiving body bytes at once");
     for (name, v) in [("ttfb", &ttfb), ("stream", &total)] {
         println!(
             "{name:<13} p50 {:>9.1?}  p90 {:>9.1?}  p99 {:>9.1?}  max {:>9.1?}",
