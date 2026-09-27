@@ -44,7 +44,7 @@ ARG BIN
 # and dies on the cluster.
 #
 # The image supplies rustup, not the compiler version. The version is decided in
-# wallet/rust-toolchain.toml, restated in rs/rust-toolchain.toml, and held equal
+# rust-toolchain.toml, restated in rs/rust-toolchain.toml, and held equal
 # by scripts/check-rust-toolchain.sh. It is NOT written anywhere in this file:
 # RUST_CHANNEL is passed in from `scripts/check-rust-toolchain.sh
 # --print-channel`, and the first RUN below refuses to build unless it matches

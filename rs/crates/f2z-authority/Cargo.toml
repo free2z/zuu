@@ -3,7 +3,7 @@ name = "f2z-authority"
 version = "0.1.0"
 description = "Handle-ownership assertions for the free2z key-transparency log: the one non-cryptographic trust root, isolated so it can be read in full"
 edition.workspace = true
-# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# A restatement of rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered in `scripts/check-rust-toolchain.sh`'s `MANIFESTS` auto-census so
 # it cannot drift. Not inherited: that check reads this literal line.
 rust-version = "1.97"

@@ -3,7 +3,7 @@ name = "f2z-msg-mls"
 version = "0.1.0"
 description = "The MLS (RFC 9420) engine for free2z messaging: X-Wing hybrid PQ, DeviceCredential-bound membership, and the §5.4 exporter labels (docs/e2ee/ARCHITECTURE.md §5)"
 edition.workspace = true
-# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# A restatement of rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
 # drift. Not inherited from the workspace: that check reads this literal line.
 rust-version = "1.97"

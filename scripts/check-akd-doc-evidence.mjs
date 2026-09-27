@@ -1553,7 +1553,7 @@ async function validateAuditEvidence(audit) {
 
 async function cargoCommand() {
   const pin = /channel\s*=\s*"([^"]+)"/.exec(
-    await readFile(join(repoRoot, "wallet/rust-toolchain.toml"), "utf8"),
+    await readFile(join(repoRoot, "rust-toolchain.toml"), "utf8"),
   )?.[1];
   assert(pin, "unable to read the repository Rust toolchain pin");
   return { command: "cargo", args: [`+${pin}`] };

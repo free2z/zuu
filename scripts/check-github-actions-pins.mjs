@@ -1971,6 +1971,7 @@ function requiredWasmSelectorFailures(repoRoot, relativeFile, lines, changes) {
   }
   const [zuuliPatterns] = zuuliPatternSets;
   for (const pattern of [
+    "rust-toolchain.toml",
     "wallet/rust-toolchain.toml",
     "scripts/check-rust-toolchain.sh",
     "scripts/check-github-actions-pins.mjs",

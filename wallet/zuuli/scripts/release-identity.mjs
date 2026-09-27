@@ -235,7 +235,7 @@ const pbxproj = read("src-tauri/gen/apple/zuuli.xcodeproj/project.pbxproj");
 const entitlements = read(
   "src-tauri/gen/apple/zuuli_iOS/zuuli_iOS.entitlements",
 );
-const rustToolchain = read("../rust-toolchain.toml");
+const rustToolchain = read("../../rust-toolchain.toml");
 const gradle = read("src-tauri/gen/android/app/build.gradle.kts");
 const gradleWrapper = read(
   "src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties",
