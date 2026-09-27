@@ -203,7 +203,7 @@ fn no_zcash_key_is_reachable_from_any_messaging_key_path() {
     let messaging = messaging_key_material();
 
     // Both sides must be non-trivial, or the disjointness below is vacuous.
-    // This is the shape of check `scripts/check-hash-domain-labels.mjs` calls a
+    // This is the shape of check `scripts/free2z/check-hash-domain-labels.mjs` calls a
     // coverage anchor, and it is here for the same reason: a scan that reaches
     // almost nothing passes forever.
     assert!(

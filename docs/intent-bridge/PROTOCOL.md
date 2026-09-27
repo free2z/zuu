@@ -420,7 +420,7 @@ token_hash = H("free2z/intent/v1/confirmation", ConfirmationTranscriptV1)
 
 `H(label, x)` is `BLAKE2b-256(label || x)` with no separator —
 `docs/e2ee/WIRE.md` §1.3 — so the label set must be prefix-free across the whole
-repository, and `scripts/check-hash-domain-labels.mjs` holds it that way.
+repository, and `scripts/free2z/check-hash-domain-labels.mjs` holds it that way.
 
 `request_digest` covers **every** field, because it is taken over the re-encoded
 envelope. `review_digest` is the wallet's own summary of what it rendered — for

@@ -12,7 +12,7 @@
 //!
 //! **The set that matters is the union, not this array.** `WIRE.md` §1.3 now
 //! states prefix-freeness as a normative requirement over every label in every
-//! document that uses `H`, and `scripts/check-hash-domain-labels.mjs` enforces
+//! document that uses `H`, and `scripts/free2z/check-hash-domain-labels.mjs` enforces
 //! it across the whole repository — the specifications under `docs/e2ee/` as
 //! well as these constants. [`LABELS`] and the test below cover this crate's
 //! own six, which is worth keeping and is not sufficient on its own: `KT.md`'s
@@ -122,7 +122,7 @@ mod tests {
         // ranges over this crate's `LABELS` and nothing else. The union with
         // `KT.md`'s and `ARCHITECTURE.md`'s labels — which is where the property
         // actually has to hold — is asserted by
-        // `scripts/check-hash-domain-labels.mjs`, from a CI job that runs on
+        // `scripts/free2z/check-hash-domain-labels.mjs`, from a CI job that runs on
         // every pull request including the docs-only ones this test never sees.
         for (i, a) in LABELS.iter().enumerate() {
             for (j, b) in LABELS.iter().enumerate() {

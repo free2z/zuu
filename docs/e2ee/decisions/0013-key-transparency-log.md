@@ -219,7 +219,7 @@ is [`../KT.md`](../KT.md).
   The complete `partition()` body is byte-for-byte identical between audited
   [v0.9.0](https://github.com/facebook/akd/tree/be1055ee8a2b5291d84206592d8f46b7f042bbe1) and selected
   [v0.13.0](https://github.com/facebook/akd/tree/43a60ccf7dfdd8f4b628186410e871192adaf65b); the pinned source-object and body
-  hashes are verified by `scripts/check-akd-doc-evidence.mjs`. Q3U's fix in
+  hashes are verified by `scripts/free2z/check-akd-doc-evidence.mjs`. Q3U's fix in
   [#400](https://github.com/facebook/akd/pull/400) rejected duplicate labels in `publish()`, but did not guard the
   `InsertMode::Auditor` insertion used by append-only verification. That residual gap survived until
   [#495](https://github.com/facebook/akd/pull/495) in 0.13.0. The lesson is therefore stronger and narrower: a paid review

@@ -77,8 +77,8 @@ jobs:
       # policy step stays a single reviewed unit.
       - name: Verify hash-domain labels are prefix-free across the tree
         run: |
-          node scripts/check-hash-domain-labels.mjs --self-test
-          node scripts/check-hash-domain-labels.mjs
+          node scripts/free2z/check-hash-domain-labels.mjs --self-test
+          node scripts/free2z/check-hash-domain-labels.mjs
 
       # Unconditional for the same reason as the step above, and it belongs in
       # this job for a third reason too.
@@ -196,7 +196,7 @@ jobs:
           rs=false
           while IFS= read -r -d '' file; do
             case "$file" in
-              rs/*|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/e2ee/*|docs/sdk/spec/*|scripts/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
+              rs/*|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/e2ee/*|docs/sdk/spec/*|scripts/free2z/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/free2z/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
                 rs=true
                 ;;
             esac
@@ -381,22 +381,22 @@ jobs:
       - name: Mutation-test AKD documentation evidence
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/check-akd-doc-evidence.mjs --self-test
+        run: node scripts/free2z/check-akd-doc-evidence.mjs --self-test
 
       - name: Verify AKD documentation against locked executable evidence
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/check-akd-doc-evidence.mjs
+        run: node scripts/free2z/check-akd-doc-evidence.mjs
 
       # KT.md §6.3 and LogView share one repeated-head rule: exact complete
       # equality is a no-op and every same-epoch alternative is a fork. This
       # check binds the normative branch, the structural runtime comparison,
       # every TBS field mutant, and the witness/client steady-state coverage.
       - name: Mutation-test repeated tree-head agreement
-        run: node scripts/check-kt-sth-repeat-agreement.mjs --self-test
+        run: node scripts/free2z/check-kt-sth-repeat-agreement.mjs --self-test
 
       - name: Verify repeated tree-head spec and runtime agreement
-        run: node scripts/check-kt-sth-repeat-agreement.mjs
+        run: node scripts/free2z/check-kt-sth-repeat-agreement.mjs
 
       # `crash-injection` is off by default because it compiles an `abort()`
       # into f2z-relay-store's commit path, so the default run above skips
@@ -643,8 +643,8 @@ jobs:
           node scripts/check-github-actions-pins.mjs
           node scripts/check-workflow-gates.mjs --self-test
           node scripts/check-workflow-gates.mjs
-          node scripts/check-hash-domain-labels.mjs --self-test
-          node scripts/check-hash-domain-labels.mjs
+          node scripts/free2z/check-hash-domain-labels.mjs --self-test
+          node scripts/free2z/check-hash-domain-labels.mjs
           node scripts/check-f2z-images.mjs --self-test
           node scripts/check-f2z-images.mjs
 

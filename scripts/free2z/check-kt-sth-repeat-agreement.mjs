@@ -163,10 +163,10 @@ function selfTest(root) {
   console.log(`self-test: ${cases.length} KT repeated-head agreement mutants killed`);
 }
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const args = process.argv.slice(2);
 if (args.length > 1 || (args.length === 1 && args[0] !== "--self-test")) {
-  console.error("usage: scripts/check-kt-sth-repeat-agreement.mjs [--self-test]");
+  console.error("usage: scripts/free2z/check-kt-sth-repeat-agreement.mjs [--self-test]");
   process.exit(2);
 }
 

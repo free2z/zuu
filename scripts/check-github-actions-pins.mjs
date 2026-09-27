@@ -33,8 +33,8 @@ const LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND =
 const LIBRUSTZCASH_POLICY_COMMAND =
   "node scripts/check-librustzcash-compat.mjs";
 const POW_POLICY_SELF_TEST_COMMAND =
-  "node scripts/check-pow-policy.mjs --self-test";
-const POW_POLICY_COMMAND = "node scripts/check-pow-policy.mjs";
+  "node scripts/free2z/check-pow-policy.mjs --self-test";
+const POW_POLICY_COMMAND = "node scripts/free2z/check-pow-policy.mjs";
 const REQUIRED_LIBRUSTZCASH_LOCKFILE_COUNT = 3;
 const REQUIRED_LIBRUSTZCASH_PACKAGE_COUNT = 11;
 const REQUIRED_LIBRUSTZCASH_SCOPE_DIGEST =
@@ -247,8 +247,8 @@ const RUST_ROOT_CONTRACTS = [
           "docs/e2ee/decisions/0013-key-transparency-log.md",
           "docs/e2ee/evidence/akd-benchmark.json",
           "docs/e2ee/evidence/akd-audit-scope.json",
-          "scripts/check-akd-doc-evidence.mjs",
-          "scripts/check-kt-sth-repeat-agreement.mjs",
+          "scripts/free2z/check-akd-doc-evidence.mjs",
+          "scripts/free2z/check-kt-sth-repeat-agreement.mjs",
           "scripts/check-crypto-kat-locks.mjs",
           "scripts/check-crypto-kats.sh",
           "wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml",
@@ -2724,10 +2724,10 @@ function rustRootWorkflowFailures(relativeFile, lines, contract, embeddedInputs 
       ? policyJobSteps(relativeFile, lines, job, failures, "rs AKD evidence owner")
       : [];
     for (const [stepName, command, needsToken] of [
-      ["Mutation-test AKD documentation evidence", "node scripts/check-akd-doc-evidence.mjs --self-test", true],
-      ["Verify AKD documentation against locked executable evidence", "node scripts/check-akd-doc-evidence.mjs", true],
-      ["Mutation-test repeated tree-head agreement", "node scripts/check-kt-sth-repeat-agreement.mjs --self-test", false],
-      ["Verify repeated tree-head spec and runtime agreement", "node scripts/check-kt-sth-repeat-agreement.mjs", false],
+      ["Mutation-test AKD documentation evidence", "node scripts/free2z/check-akd-doc-evidence.mjs --self-test", true],
+      ["Verify AKD documentation against locked executable evidence", "node scripts/free2z/check-akd-doc-evidence.mjs", true],
+      ["Mutation-test repeated tree-head agreement", "node scripts/free2z/check-kt-sth-repeat-agreement.mjs --self-test", false],
+      ["Verify repeated tree-head spec and runtime agreement", "node scripts/free2z/check-kt-sth-repeat-agreement.mjs", false],
     ]) {
       const matching = steps.filter((step) => step.properties.get("name")?.value === stepName);
       const step = matching[0];
@@ -4395,10 +4395,10 @@ function runRustRootWorkflowMutationTests(repoRoot) {
     }
     if (contract.root === "rs") {
       for (const [stepName, command, needsToken] of [
-        ["Mutation-test AKD documentation evidence", "node scripts/check-akd-doc-evidence.mjs --self-test", true],
-        ["Verify AKD documentation against locked executable evidence", "node scripts/check-akd-doc-evidence.mjs", true],
-        ["Mutation-test repeated tree-head agreement", "node scripts/check-kt-sth-repeat-agreement.mjs --self-test", false],
-        ["Verify repeated tree-head spec and runtime agreement", "node scripts/check-kt-sth-repeat-agreement.mjs", false],
+        ["Mutation-test AKD documentation evidence", "node scripts/free2z/check-akd-doc-evidence.mjs --self-test", true],
+        ["Verify AKD documentation against locked executable evidence", "node scripts/free2z/check-akd-doc-evidence.mjs", true],
+        ["Mutation-test repeated tree-head agreement", "node scripts/free2z/check-kt-sth-repeat-agreement.mjs --self-test", false],
+        ["Verify repeated tree-head spec and runtime agreement", "node scripts/free2z/check-kt-sth-repeat-agreement.mjs", false],
       ]) {
         const needle = "rs owner job rs_test must run exactly one unconditional";
         const stepWithToken = `      - name: ${stepName}\n        env:\n          GITHUB_TOKEN: \${{ github.token }}\n        run: ${command}`;

@@ -78,7 +78,7 @@ use crate::store::{
 /// Domain-separated derivation of a conversation's receive-side queue key.
 ///
 /// Prefix-free against every other `free2z/` label in the tree, which
-/// `scripts/check-hash-domain-labels.mjs` holds for the whole repository.
+/// `scripts/free2z/check-hash-domain-labels.mjs` holds for the whole repository.
 const LABEL_QUEUE_RECV: &[u8] = b"free2z/msg/v1/queue-recv";
 /// The same, for the send-side key this device binds on a peer's queue.
 const LABEL_QUEUE_SEND: &[u8] = b"free2z/msg/v1/queue-send";

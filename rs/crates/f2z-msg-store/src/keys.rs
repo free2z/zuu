@@ -23,7 +23,7 @@
 //!
 //! `docs/e2ee/WIRE.md` §1.3's labels are hash-domain separators fed to
 //! `H(label, x)` and are held prefix-free across the tree by
-//! `scripts/check-hash-domain-labels.mjs`. These are neither: they are map key
+//! `scripts/free2z/check-hash-domain-labels.mjs`. These are neither: they are map key
 //! prefixes in a private local store, they are OpenMLS's names rather than
 //! ours, and nothing hashes them. Renaming them into the `free2z/` namespace
 //! would put OpenMLS's storage layout under our specification's prefix-free
