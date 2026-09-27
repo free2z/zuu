@@ -152,8 +152,7 @@ pub enum HoldOutcome {
         /// Its current state.
         state: HoldState,
     },
-    /// The `hold_key` was used before for a **different** user, app or
-    /// amount. Not a spec status: a real replay repeats its own request, so
+    /// The `hold_key` was used before for a **different** user or app. Not a spec status: a real replay repeats its own request, so
     /// this is a gateway bug (a reused `call_id`) the fake refuses loudly
     /// rather than answering `replayed` for someone else's hold.
     KeyConflict {

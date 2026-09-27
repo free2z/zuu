@@ -848,14 +848,21 @@ async fn a_hold_key_reused_for_a_different_request_is_a_conflict() {
     let HoldOutcome::Held(first) = w.ledger.hold(req.clone()).await.unwrap() else {
         panic!()
     };
-    let mut other = req;
-    other.amount_2z = 3;
+    let mut other = req.clone();
+    other.app = "other-app".into();
     assert_eq!(
         w.ledger.hold(other).await.unwrap(),
         HoldOutcome::KeyConflict {
             hold_id: first.hold_id
         }
     );
+    // A retry with a different amount is still the same hold, replayed.
+    let mut retry = req;
+    retry.amount_2z = 3;
+    assert!(matches!(
+        w.ledger.hold(retry).await.unwrap(),
+        HoldOutcome::Replayed { .. }
+    ));
 }
 
 #[tokio::test]

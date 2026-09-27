@@ -381,7 +381,10 @@ impl State {
                 .get(id)
                 .map_or(HoldState::Released, |h| h.record.state);
             let same = self.holds.get(id).is_some_and(|h| {
-                h.user == req.user && h.app == req.app && h.record.initial_2z == req.amount_2z
+                // Not the amount: a real ledger replays by key whatever the
+                // retry asked for, and the gateway retries the identical
+                // request anyway.
+                h.user == req.user && h.app == req.app
             });
             if !same {
                 return Ok(HoldOutcome::KeyConflict { hold_id: *id });
