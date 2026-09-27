@@ -11,12 +11,24 @@
 //! | [`Milli2z`] | milli-2Z (10⁻³ 2Z) | `_milli_2z` |
 //! | [`Whole2z`] | whole 2Z | `_2z` |
 //!
-//! There is deliberately **no** `Add` / `Sub` / `Mul` implementation, and no
-//! conversion between units except the exact one ([`Whole2z::to_milli`]):
-//! the workspace denies unchecked arithmetic, and a conversion that rounds
-//! belongs in [`crate::pricing`], where the one rounding rule lives. Adding a
-//! nano-USD cost to a milli-2Z balance is now a type error rather than a
-//! review comment.
+//! What the compiler enforces:
+//!
+//! * The integer inside is **private**. An amount is made with `new(u64)`
+//!   (the call site names the unit) and read with `get()`; there is no
+//!   `From<u64>`, no `Deref`, and no tuple constructor outside this module.
+//! * Arithmetic exists only **within** a unit, and only checked
+//!   (`checked_add`, `checked_sub`, `saturating_sub`); there is no `Add` /
+//!   `Sub` / `Mul`, so `Nusd + Milli2z` or `Whole2z + Milli2z` does not
+//!   compile.
+//! * The only conversion between units is the exact one:
+//!   [`Whole2z::to_milli`] and [`Milli2z::to_whole_exact`]. A conversion that
+//!   rounds (nano-USD to 2Z) exists only inside [`crate::pricing`], where the
+//!   one rounding rule lives.
+//!
+//! What it does not enforce: `get()` returns a bare `u64`, and arithmetic on
+//! that is unchecked by the type system. The newtypes stop a unit mix-up at
+//! every API boundary; they cannot stop code that unwraps both sides on
+//! purpose.
 //!
 //! Per-million-token *rates* ([`crate::pricing::ModelPrices`]) stay plain
 //! `u64`: a rate is not an amount, it is only ever multiplied by a token
@@ -36,11 +48,18 @@ macro_rules! amount {
             Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
         )]
         #[serde(transparent)]
-        pub struct $name(pub u64);
+        pub struct $name(u64);
 
         impl $name {
             /// Zero.
             pub const ZERO: Self = Self(0);
+
+            /// An amount of this unit. The only way to make one from a bare
+            /// integer: the call site names the unit.
+            #[must_use]
+            pub const fn new(value: u64) -> Self {
+                Self(value)
+            }
 
             /// The raw integer, in this type's unit.
             #[must_use]
@@ -106,7 +125,7 @@ impl Whole2z {
     #[must_use]
     pub const fn to_milli(self) -> Option<Milli2z> {
         match self.0.checked_mul(MILLI_PER_2Z) {
-            Some(v) => Some(Milli2z(v)),
+            Some(v) => Some(Milli2z::new(v)),
             None => None,
         }
     }
@@ -121,7 +140,7 @@ impl Milli2z {
             self.0.checked_rem(MILLI_PER_2Z),
             self.0.checked_div(MILLI_PER_2Z),
         ) {
-            (Some(0), Some(q)) => Some(Whole2z(q)),
+            (Some(0), Some(q)) => Some(Whole2z::new(q)),
             _ => None,
         }
     }
@@ -133,26 +152,35 @@ mod tests {
 
     #[test]
     fn whole_to_milli_is_exact_and_checked() {
-        assert_eq!(Whole2z(3).to_milli(), Some(Milli2z(3_000)));
-        assert_eq!(Whole2z(u64::MAX).to_milli(), None);
-        assert_eq!(Milli2z(3_000).to_whole_exact(), Some(Whole2z(3)));
-        assert_eq!(Milli2z(3_001).to_whole_exact(), None);
+        assert_eq!(Whole2z::new(3).to_milli(), Some(Milli2z::new(3_000)));
+        assert_eq!(Whole2z::new(u64::MAX).to_milli(), None);
+        assert_eq!(Milli2z::new(3_000).to_whole_exact(), Some(Whole2z::new(3)));
+        assert_eq!(Milli2z::new(3_001).to_whole_exact(), None);
     }
 
     #[test]
     fn arithmetic_is_checked() {
-        assert_eq!(Milli2z(1).checked_sub(Milli2z(2)), None);
-        assert_eq!(Milli2z(1).saturating_sub(Milli2z(2)), Milli2z::ZERO);
-        assert_eq!(Nusd(u64::MAX).checked_add(Nusd(1)), None);
-        assert_eq!(Whole2z(2).checked_add(Whole2z(1)), Some(Whole2z(3)));
+        assert_eq!(Milli2z::new(1).checked_sub(Milli2z::new(2)), None);
+        assert_eq!(
+            Milli2z::new(1).saturating_sub(Milli2z::new(2)),
+            Milli2z::ZERO
+        );
+        assert_eq!(Nusd::new(u64::MAX).checked_add(Nusd::new(1)), None);
+        assert_eq!(
+            Whole2z::new(2).checked_add(Whole2z::new(1)),
+            Some(Whole2z::new(3))
+        );
     }
 
     #[test]
     fn the_wire_form_is_a_bare_integer() {
-        assert_eq!(serde_json::to_string(&Milli2z(41_500)).unwrap(), "41500");
+        assert_eq!(
+            serde_json::to_string(&Milli2z::new(41_500)).unwrap(),
+            "41500"
+        );
         assert_eq!(
             serde_json::from_str::<Whole2z>("2").unwrap(),
-            Whole2z(2),
+            Whole2z::new(2),
             "transparent"
         );
     }

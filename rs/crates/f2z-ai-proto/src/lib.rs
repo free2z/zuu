@@ -12,7 +12,7 @@
 //! * `docs/sdk/spec/chat-api.md` — `/v1/chat`, the SSE event grammar and the
 //!   settlement states ([`chat`], [`event`], [`settlement`]);
 //! * `docs/sdk/spec/errors.md` — the error codes, their statuses and
-//!   retryability ([`error`]; `tests/error_catalogue.rs` parses its tables);
+//!   retryability ([`error`]; `tests/spec_conformance.rs` parses its tables);
 //! * `docs/sdk/spec/metering.md` — the catalogue, the pricing formula and the
 //!   rounding rule ([`catalog`], [`canonical`], [`pricing`], [`amount`]);
 //! * `docs/sdk/spec/purchase.md` §1.1 — the balance ([`balance`]).
@@ -49,10 +49,10 @@
 //!
 //! // $0.021 (21 000 000 nano-USD) of provider cost at 0 % margin and no
 //! // developer markup is 2.1 2Z, rounded once, up, to 3 2Z.
-//! let charge = price_nusd(Nusd(21_000_000), Bps(0), Bps(0), Whole2z(1))?;
-//! assert_eq!(charge.total_2z(), Whole2z(3));
-//! assert_eq!(charge.provider_milli, Milli2z(2_100));
-//! assert_eq!(charge.platform_milli, Milli2z(900));
+//! let charge = price_nusd(Nusd::new(21_000_000), Bps(0), Bps(0), Whole2z::new(1))?;
+//! assert_eq!(charge.total_2z(), Whole2z::new(3));
+//! assert_eq!(charge.provider_milli, Milli2z::new(2_100));
+//! assert_eq!(charge.platform_milli, Milli2z::new(900));
 //! # Ok::<(), f2z_ai_proto::pricing::PricingError>(())
 //! ```
 

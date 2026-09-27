@@ -400,8 +400,13 @@ data: {"code":"provider_error","message":"The provider closed the stream before 
 | `partial` | `true` when the client received at least one `delta` or `tool_call` before the error |
 
 The payload is the crate's `ErrorEvent`; `ErrorEvent::check()` also
-enforces that `delivery_aborted` is `pending`. The HTTP envelope's
-`{code, message, details}` is `ApiError`.
+enforces that `delivery_aborted` is `pending` and that a `partial` settled
+failure charged at least 1 2Z. The HTTP envelope's
+`{code, message, details}` is `ApiError`; the §4 `502`'s settlement
+`details` decode as `ApiError::failed_call()`. A consumer reads each
+payload's `outcome()` rather than `charged_2z`, and an SDK decides a retry
+with `ErrorEvent::retryable()` / `ApiError::retryable()`, which refuse to
+retry a charged, partial or not-yet-final failure.
 
 ### 3.8 A complete stream
 

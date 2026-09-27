@@ -118,9 +118,9 @@ proptest! {
     fn the_total_is_one_ceil_of_the_exact_value(
         c in small_cost(), m in rate(), k in rate(), min in min_charge(),
     ) {
-        let charge = price_nusd(Nusd(c), m, k, Whole2z(min)).unwrap();
-        prop_assert_eq!(charge.total_milli.0 % 1_000, 0, "total must be whole 2Z");
-        let t = u128::from(charge.total_2z().0);
+        let charge = price_nusd(Nusd::new(c), m, k, Whole2z::new(min)).unwrap();
+        prop_assert_eq!(charge.total_milli.get() % 1_000, 0, "total must be whole 2Z");
+        let t = u128::from(charge.total_2z().get());
         // Exact p + d in 2Z is N / D.
         let n = u128::from(c) * (10_000 + u128::from(m.0)) * (10_000 + u128::from(k.0));
         let d = 100_000_000 * NUSD_PER_2Z;
@@ -138,36 +138,36 @@ proptest! {
     #[test]
     fn the_charge_covers_cost(u in usage(), p in prices(), m in rate(), k in rate(), min in min_charge()) {
         let exact = exact_micro_nusd(&u, &p);
-        let metered = metered_cost_nusd(&u, &p).unwrap().0;
+        let metered = metered_cost_nusd(&u, &p).unwrap().get();
         // Metering is ceil to whole nano-USD: ≥ exact, and less than 1 nUSD above.
         prop_assert!(u128::from(metered) * 1_000_000 >= exact);
         prop_assert!(metered == 0 || u128::from(metered - 1) * 1_000_000 < exact);
 
-        let charge = price_2z(&u, &p, m, k, Whole2z(min)).unwrap();
+        let charge = price_2z(&u, &p, m, k, Whole2z::new(min)).unwrap();
         let milli = 1_000_000 * NUSD_PER_MILLI;
-        prop_assert!(u128::from(charge.total_milli.0) * milli >= exact);
-        prop_assert!(u128::from(charge.provider_milli.0) * NUSD_PER_MILLI >= u128::from(metered));
+        prop_assert!(u128::from(charge.total_milli.get()) * milli >= exact);
+        prop_assert!(u128::from(charge.provider_milli.get()) * NUSD_PER_MILLI >= u128::from(metered));
         // provider is ceil, not ceil + 1.
         prop_assert!(
-            charge.provider_milli.0 == 0
-                || u128::from(charge.provider_milli.0 - 1) * NUSD_PER_MILLI < u128::from(metered)
+            charge.provider_milli.get() == 0
+                || u128::from(charge.provider_milli.get() - 1) * NUSD_PER_MILLI < u128::from(metered)
         );
-        prop_assert!(charge.total_2z().0 >= min);
+        prop_assert!(charge.total_2z().get() >= min);
     }
 
     #[test]
     fn the_splits_partition_the_total(u in usage(), p in prices(), m in rate(), k in rate(), min in min_charge()) {
-        let metered = metered_cost_nusd(&u, &p).unwrap().0;
-        let charge = price_2z(&u, &p, m, k, Whole2z(min)).unwrap();
+        let metered = metered_cost_nusd(&u, &p).unwrap().get();
+        let charge = price_2z(&u, &p, m, k, Whole2z::new(min)).unwrap();
         prop_assert_eq!(
-            charge.provider_milli.0 + charge.developer_milli.0 + charge.platform_milli.0,
-            charge.total_milli.0
+            charge.provider_milli.get() + charge.developer_milli.get() + charge.platform_milli.get(),
+            charge.total_milli.get()
         );
         // developer = floor(d): never above d, and within one milli of it.
         let d_scaled = u128::from(metered) * (10_000 + u128::from(m.0)) * u128::from(k.0);
         let unit = 100_000_000 * NUSD_PER_MILLI;
-        prop_assert!(u128::from(charge.developer_milli.0) * unit <= d_scaled);
-        prop_assert!(u128::from(charge.developer_milli.0 + 1) * unit > d_scaled);
+        prop_assert!(u128::from(charge.developer_milli.get()) * unit <= d_scaled);
+        prop_assert!(u128::from(charge.developer_milli.get() + 1) * unit > d_scaled);
     }
 
     #[test]
@@ -185,11 +185,11 @@ proptest! {
             _ => &mut more.tool_calls,
         };
         *slot += extra;
-        let before = price_2z(&u, &p, m, k, Whole2z(min)).unwrap();
-        let after = price_2z(&more, &p, m, k, Whole2z(min)).unwrap();
-        prop_assert!(after.total_milli.0 >= before.total_milli.0);
-        prop_assert!(after.provider_milli.0 >= before.provider_milli.0);
-        prop_assert!(after.developer_milli.0 >= before.developer_milli.0);
+        let before = price_2z(&u, &p, m, k, Whole2z::new(min)).unwrap();
+        let after = price_2z(&more, &p, m, k, Whole2z::new(min)).unwrap();
+        prop_assert!(after.total_milli.get() >= before.total_milli.get());
+        prop_assert!(after.provider_milli.get() >= before.provider_milli.get());
+        prop_assert!(after.developer_milli.get() >= before.developer_milli.get());
     }
 
     #[test]
@@ -197,17 +197,17 @@ proptest! {
         c in small_cost(), m in rate(), k in rate(), min in min_charge(),
         dm in 0..10_000u32, dk in 0..10_000u32,
     ) {
-        let base = price_nusd(Nusd(c), m, k, Whole2z(min)).unwrap();
-        let up = price_nusd(Nusd(c), Bps(m.0 + dm), Bps(k.0 + dk), Whole2z(min)).unwrap();
-        prop_assert!(up.total_milli.0 >= base.total_milli.0);
-        prop_assert_eq!(up.provider_milli.0, base.provider_milli.0);
+        let base = price_nusd(Nusd::new(c), m, k, Whole2z::new(min)).unwrap();
+        let up = price_nusd(Nusd::new(c), Bps(m.0 + dm), Bps(k.0 + dk), Whole2z::new(min)).unwrap();
+        prop_assert!(up.total_milli.get() >= base.total_milli.get());
+        prop_assert_eq!(up.provider_milli.get(), base.provider_milli.get());
     }
 
     #[test]
     fn an_estimate_is_the_settlement_of_its_metered_cost(
         u in usage(), p in prices(), m in rate(), k in rate(), min in min_charge(),
     ) {
-        let settled = price_nusd(metered_cost_nusd(&u, &p).unwrap(), m, k, Whole2z(min)).unwrap();
-        prop_assert_eq!(price_2z(&u, &p, m, k, Whole2z(min)).unwrap(), settled);
+        let settled = price_nusd(metered_cost_nusd(&u, &p).unwrap(), m, k, Whole2z::new(min)).unwrap();
+        prop_assert_eq!(price_2z(&u, &p, m, k, Whole2z::new(min)).unwrap(), settled);
     }
 }

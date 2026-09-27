@@ -7,7 +7,7 @@
 //!
 //! | `settlement` | `charged_2z` | `receipt_id` | `collected` / `shortfall` | `released_2z` |
 //! |---|---|---|---|---|
-//! | `settled` | present | present iff `charged_2z > 0` | both or neither; `collected = charged × 1000 − shortfall` | `max(0, hold − charged)` |
+//! | `settled` | present; `≥ 1` on success or when `partial` | present iff `charged_2z > 0` | both or neither; `collected = charged × 1000 − shortfall` | `max(0, hold − charged)` |
 //! | `pending` | absent | absent | absent | absent |
 //! | `released` | absent or `0` | absent | absent or `0` | `= hold` |
 //!
@@ -16,12 +16,24 @@
 //! settlement that has not happened — and a client reads `GET /v1/calls/{id}`
 //! until its `status` is terminal.
 //!
+//! A shortfall may be anywhere in the charge, not only above the hold: the
+//! ledger collects what the user's available balance and cap allow, and a
+//! hold taken while a reservation was being repaired (the ledger's rollout
+//! self-heal) can cover less than the price. `collected = charged × 1000 −
+//! shortfall` is the only relation checked.
+//!
 //! Decoding is tolerant, as for every response type: a gateway that breaks
 //! these rules still decodes, so that a paid-for answer is never discarded
 //! over a missing field. The rules are checked by the `check()` methods on
-//! [`crate::event::Done`], [`crate::event::ErrorEvent`] and
-//! [`crate::chat::ChatResponse`] — what a producer (the gateway, a test
-//! double) calls before it emits one, and what a conformance test asserts.
+//! [`crate::event::Done`], [`crate::event::ErrorEvent`],
+//! [`crate::chat::ChatResponse`] and [`crate::error::FailedCall`] — what a
+//! producer (the gateway, a test double) calls before it emits one.
+//!
+//! **A consumer reads [`Outcome`], never `charged_2z` directly.** A tolerant
+//! decode of `{"finish_reason":"stop"}` is `settled` with no charge; the
+//! `outcome()` methods fold `check()` in, so anything that breaks the rules
+//! comes back as [`Outcome::NotFinal`] — "read `GET /v1/calls/{id}`" — rather
+//! than as a settled call that cost nothing.
 
 use core::fmt;
 
@@ -46,8 +58,11 @@ pub enum Settlement {
     /// The settler found the hold already expired: nothing was charged and
     /// no receipt exists. The platform pays the provider.
     Released,
-    /// A value newer than this crate. Deserialization only. A client treats
-    /// it as not final and reads the call record.
+    /// A value newer than this crate. **Deserialization only**: a producer
+    /// (the gateway, a test double) must never emit it — every `check()`
+    /// refuses it with [`SettlementError::UnknownSettlement`], and it would
+    /// serialize as the literal `"unknown"`, which no gateway defines. A
+    /// client treats it as not final and reads the call record.
     #[serde(other)]
     Unknown,
 }
@@ -97,9 +112,9 @@ pub enum SettlementError {
     /// `released_2z` is not what the hold and the charge leave:
     /// `max(0, hold − charged)` when settled, `hold` when released.
     ReleasedMismatch,
-    /// A shortfall inside the hold: the hold was already reserved, so a
-    /// write-off can only be of the part of the charge above it.
-    ShortfallWithinHold,
+    /// A settled failure with `partial: true` charged `0`: output that
+    /// reached the client is always charged for.
+    PartialZeroCharge,
     /// `delivery_aborted` with a `settlement` other than `pending`: the call
     /// is still running upstream when delivery ends.
     DeliveryAbortedNotPending,
@@ -122,8 +137,8 @@ impl fmt::Display for SettlementError {
             Self::ReleasedMismatch => {
                 f.write_str("released_2z does not match hold_2z and charged_2z")
             }
-            Self::ShortfallWithinHold => {
-                f.write_str("shortfall_milli_2z exceeds the part of the charge above the hold")
+            Self::PartialZeroCharge => {
+                f.write_str("a settled failure after output (partial) charges at least 1 2Z")
             }
             Self::DeliveryAbortedNotPending => {
                 f.write_str("delivery_aborted must carry settlement \"pending\"")
@@ -148,11 +163,15 @@ pub(crate) struct Fields<'a> {
     /// Amounts that exist only once a settlement happened
     /// (`balance_hint_milli_2z`, `cap_remaining_milli_2z`), by wire name,
     /// with whether each is present.
-    pub post_settlement: &'a [(&'static str, bool)],
+    /// Unused slots are `("", false)`.
+    pub post_settlement: [(&'static str, bool); 3],
     /// A successful completion (`done`, a `200` response): a settled one
     /// charges at least the minimum, which is never below 1 2Z. An `error`
     /// before any output settles at `0`.
     pub success: bool,
+    /// The client received output before the failure (`partial`): a settled
+    /// one charged for it, so at least 1 2Z.
+    pub partial: bool,
 }
 
 pub(crate) fn check(f: &Fields<'_>) -> Result<(), SettlementError> {
@@ -172,7 +191,7 @@ fn check_pending(f: &Fields<'_>) -> Result<(), SettlementError> {
         ("shortfall_milli_2z", f.shortfall_milli_2z.is_some()),
         ("released_2z", f.released_2z.is_some()),
     ];
-    for (field, present) in forbidden.iter().chain(f.post_settlement) {
+    for (field, present) in forbidden.iter().chain(f.post_settlement.iter()) {
         if *present {
             return Err(SettlementError::Unexpected(field));
         }
@@ -203,8 +222,13 @@ fn check_released(f: &Fields<'_>) -> Result<(), SettlementError> {
 
 fn check_settled(f: &Fields<'_>) -> Result<(), SettlementError> {
     let charged = f.charged_2z.ok_or(SettlementError::Missing("charged_2z"))?;
-    if f.success && charged == Whole2z::ZERO {
-        return Err(SettlementError::ZeroCharge);
+    if charged == Whole2z::ZERO {
+        if f.success {
+            return Err(SettlementError::ZeroCharge);
+        }
+        if f.partial {
+            return Err(SettlementError::PartialZeroCharge);
+        }
     }
     match (charged == Whole2z::ZERO, f.receipt_id) {
         (false, None) => return Err(SettlementError::Missing("receipt_id")),
@@ -221,15 +245,6 @@ fn check_settled(f: &Fields<'_>) -> Result<(), SettlementError> {
             if charged_milli.checked_sub(shortfall) != Some(collected) {
                 return Err(SettlementError::CollectedMismatch);
             }
-            if let Some(hold) = f.hold_2z {
-                let above_hold = charged
-                    .saturating_sub(hold)
-                    .to_milli()
-                    .ok_or(SettlementError::Overflow)?;
-                if shortfall > above_hold {
-                    return Err(SettlementError::ShortfallWithinHold);
-                }
-            }
         }
     }
     if let (Some(hold), Some(released)) = (f.hold_2z, f.released_2z)
@@ -238,6 +253,94 @@ fn check_settled(f: &Fields<'_>) -> Result<(), SettlementError> {
         return Err(SettlementError::ReleasedMismatch);
     }
     Ok(())
+}
+
+/// What a consumer may conclude from a terminal payload. Built by the
+/// `outcome()` methods, which run `check()` first.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome<'a> {
+    /// Final: the call was charged. Show `charged_2z`; when `shortfall` is
+    /// non-zero, "priced at N, M taken" from `collected_milli_2z`.
+    Charged {
+        /// The final charge.
+        charged_2z: Whole2z,
+        /// The ledger's settlement id.
+        receipt_id: &'a str,
+        /// What was actually taken, when reported.
+        collected_milli_2z: Option<Milli2z>,
+        /// What was written off, when reported.
+        shortfall_milli_2z: Option<Milli2z>,
+    },
+    /// Final: nothing was charged — a failure before any output, or a hold
+    /// that expired unsettled (`released`).
+    NothingCharged,
+    /// **Not final.** Say "settling" and read `GET /v1/calls/{id}` until its
+    /// `status` is terminal; never invent a number.
+    NotFinal(NotFinal),
+}
+
+impl Outcome<'_> {
+    /// Whether the charge is known (`Charged` or `NothingCharged`).
+    #[must_use]
+    pub fn is_final(&self) -> bool {
+        !matches!(self, Self::NotFinal(_))
+    }
+
+    /// The final charge: `Some(0)` when nothing was charged, `None` when not
+    /// final.
+    #[must_use]
+    pub fn charged_2z(&self) -> Option<Whole2z> {
+        match self {
+            Self::Charged { charged_2z, .. } => Some(*charged_2z),
+            Self::NothingCharged => Some(Whole2z::ZERO),
+            Self::NotFinal(_) => None,
+        }
+    }
+}
+
+/// Why an [`Outcome`] is not final.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NotFinal {
+    /// `settlement: "pending"`: the ledger has not confirmed yet.
+    Pending,
+    /// A `settlement` value newer than this crate.
+    Unknown,
+    /// The payload breaks the settlement rules, so its amounts cannot be
+    /// trusted.
+    Invalid(SettlementError),
+}
+
+pub(crate) fn outcome<'a>(f: &Fields<'a>) -> Outcome<'a> {
+    match check(f) {
+        Err(SettlementError::UnknownSettlement) => Outcome::NotFinal(NotFinal::Unknown),
+        Err(e) => Outcome::NotFinal(NotFinal::Invalid(e)),
+        Ok(()) => match (f.settlement, f.charged_2z, f.receipt_id) {
+            (Settlement::Pending, _, _) => Outcome::NotFinal(NotFinal::Pending),
+            (Settlement::Settled, Some(charged_2z), Some(receipt_id))
+                if charged_2z != Whole2z::ZERO =>
+            {
+                Outcome::Charged {
+                    charged_2z,
+                    receipt_id,
+                    collected_milli_2z: f.collected_milli_2z,
+                    shortfall_milli_2z: f.shortfall_milli_2z,
+                }
+            }
+            (Settlement::Settled | Settlement::Released, _, _) => Outcome::NothingCharged,
+            (Settlement::Unknown, _, _) => Outcome::NotFinal(NotFinal::Unknown),
+        },
+    }
+}
+
+/// Whether a failed call may be retried automatically: the code says a
+/// retry can succeed **and** the failed call is known to have charged
+/// nothing and delivered nothing. A charged, partial or not-yet-final
+/// failure is never retried by an SDK on its own — the user already paid
+/// for (or may be paying for) that call, and a retry is a second one.
+pub(crate) fn retry_allowed(code_retryable: bool, partial: bool, outcome: &Outcome<'_>) -> bool {
+    code_retryable && !partial && *outcome == Outcome::NothingCharged
 }
 
 /// `Option<Option<T>>` that keeps "absent" (`None`) apart from `null`

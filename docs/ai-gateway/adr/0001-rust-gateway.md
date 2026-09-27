@@ -80,12 +80,16 @@ of [metering.md](../../sdk/spec/metering.md) §5.6 holds.
 - **The amount types are types.** The integer formula of
   [metering.md](../../sdk/spec/metering.md) §2 has no floating-point path
   in `f2z-ai-proto`, and every field carries its unit in its name. The
-  crate carries each unit as its own newtype — `Nusd`, `Milli2z`,
-  `Whole2z`, and `Bps` for basis points (`f2z-ai-proto::amount`) — with
-  checked arithmetic only and no conversion between units except the
-  exact whole-to-milli one, so the compiler refuses to add a nano-USD
-  cost to a milli-2Z balance; the unit-named fields and the parity
-  fixtures remain the guard across languages.
+  crate carries each amount unit as its own newtype — `Nusd`, `Milli2z`,
+  `Whole2z` (`f2z-ai-proto::amount`) — whose integer is private: an
+  amount is made with `new(u64)` and read with `get()`, arithmetic exists
+  only within a unit and only checked, and the only conversions between
+  units are the exact whole↔milli ones. So every API that takes or returns
+  an amount refuses the wrong unit at compile time, and `Nusd + Milli2z`
+  does not compile. What the compiler cannot stop is code that calls
+  `get()` on both sides and adds the bare integers; review and the parity
+  fixtures remain the guard there, and across languages. Basis points
+  (`Bps`) are a ratio, not an amount, and keep a public field.
 - **Two stacks in the platform.** The identity provider, the ledger and
   the purchase rails stay in the platform's existing web stack; the
   gateway is the one Rust service in the metering path. The cost is two

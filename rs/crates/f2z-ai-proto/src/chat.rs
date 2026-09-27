@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::amount::{Milli2z, Whole2z};
-use crate::settlement::{self, Settlement, SettlementError, double_option};
+use crate::settlement::{self, Outcome, Settlement, SettlementError, double_option};
 
 /// The body of `POST /v1/chat` and `POST /v1/chat/estimate`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -317,7 +317,7 @@ impl AssistantMessage {
 /// Which amounts are present depends on [`ChatResponse::settlement`], as in
 /// [`crate::event::Done`]; [`ChatResponse::check`] enforces it. A failure
 /// after output began is not this type: it is a `502` whose `details` carry
-/// the `error` event's fields.
+/// the `error` event's fields: [`crate::error::ApiError::failed_call`].
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChatResponse {
     /// The call's id; also `GET /v1/calls/{id}`.
@@ -334,7 +334,8 @@ pub struct ChatResponse {
     #[serde(default)]
     pub usage_source: UsageSource,
     /// The final charge, in whole 2Z. Absent while `settlement` is
-    /// `pending`; `0` (or absent) when `released`.
+    /// `pending`; `0` (or absent) when `released`. **Consumers must not read
+    /// this directly**; use [`ChatResponse::outcome`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub charged_2z: Option<Whole2z>,
     /// The ledger's id for this settlement. Present only when `settled`.
@@ -382,13 +383,8 @@ pub struct ChatResponse {
 }
 
 impl ChatResponse {
-    /// Check the amounts against the rules of [`ChatResponse::settlement`].
-    ///
-    /// # Errors
-    ///
-    /// The first rule broken, naming the field.
-    pub fn check(&self) -> Result<(), SettlementError> {
-        settlement::check(&settlement::Fields {
+    fn fields(&self) -> settlement::Fields<'_> {
+        settlement::Fields {
             settlement: self.settlement,
             charged_2z: self.charged_2z,
             receipt_id: self.receipt_id.as_deref(),
@@ -396,7 +392,7 @@ impl ChatResponse {
             shortfall_milli_2z: self.shortfall_milli_2z,
             hold_2z: self.hold_2z,
             released_2z: self.released_2z,
-            post_settlement: &[
+            post_settlement: [
                 (
                     "balance_hint_milli_2z",
                     self.balance_hint_milli_2z.is_some(),
@@ -408,7 +404,25 @@ impl ChatResponse {
                 ("settled_at", self.settled_at.is_some()),
             ],
             success: true,
-        })
+            partial: false,
+        }
+    }
+
+    /// Check the amounts against the rules of [`ChatResponse::settlement`].
+    /// For a producer.
+    ///
+    /// # Errors
+    ///
+    /// The first rule broken, naming the field.
+    pub fn check(&self) -> Result<(), SettlementError> {
+        settlement::check(&self.fields())
+    }
+
+    /// What a consumer may conclude about the charge. Read this, never
+    /// [`ChatResponse::charged_2z`] directly.
+    #[must_use]
+    pub fn outcome(&self) -> Outcome<'_> {
+        settlement::outcome(&self.fields())
     }
 }
 

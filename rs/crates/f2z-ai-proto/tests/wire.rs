@@ -90,7 +90,7 @@ fn requests_are_strict() {
 fn every_event_has_a_pinned_sse_frame() {
     let cases = [
         (
-            Event::Meta(Meta::new("c_1", "m", Whole2z(3))),
+            Event::Meta(Meta::new("c_1", "m", Whole2z::new(3))),
             "event: meta\ndata: {\"call_id\":\"c_1\",\"model\":\"m\",\"hold_2z\":3}\n\n",
         ),
         (
@@ -120,8 +120,8 @@ fn every_event_has_a_pinned_sse_frame() {
         ),
         (
             Event::Done(Done {
-                balance_hint_milli_2z: Some(Milli2z(97_000)),
-                ..Done::settled(Whole2z(3), "r_1", FinishReason::Stop)
+                balance_hint_milli_2z: Some(Milli2z::new(97_000)),
+                ..Done::settled(Whole2z::new(3), "r_1", FinishReason::Stop)
             }),
             "event: done\ndata: {\"charged_2z\":3,\"receipt_id\":\"r_1\",\"finish_reason\":\"stop\",\"balance_hint_milli_2z\":97000,\"settlement\":\"settled\",\"usage_source\":\"provider\"}\n\n",
         ),
@@ -147,7 +147,7 @@ fn every_event_has_a_pinned_sse_frame() {
 
 #[test]
 fn the_ipc_form_is_tagged() {
-    let event = Event::Meta(Meta::new("c", "m", Whole2z(1)));
+    let event = Event::Meta(Meta::new("c", "m", Whole2z::new(1)));
     assert_eq!(
         serde_json::to_string(&event).unwrap(),
         r#"{"type":"meta","call_id":"c","model":"m","hold_2z":1}"#
@@ -180,7 +180,7 @@ fn clients_tolerate_what_a_newer_gateway_adds() {
 
 #[test]
 fn error_codes_are_stable_strings_with_statuses() {
-    // The original seventeen, pinned by hand; `error_catalogue.rs` checks
+    // The original seventeen, pinned by hand; `spec_conformance.rs` checks
     // every code against errors.md.
     let all = [
         (ErrorCode::InvalidRequest, "invalid_request", 400),

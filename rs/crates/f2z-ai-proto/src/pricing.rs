@@ -156,7 +156,12 @@ impl Charge {
     /// The total in whole 2Z. Exact: `total_milli` is a multiple of 1 000.
     #[must_use]
     pub fn total_2z(&self) -> Whole2z {
-        Whole2z(self.total_milli.0.checked_div(MILLI_PER_2Z).unwrap_or(0))
+        Whole2z::new(
+            self.total_milli
+                .get()
+                .checked_div(MILLI_PER_2Z)
+                .unwrap_or(0),
+        )
     }
 }
 
@@ -214,7 +219,7 @@ pub fn metered_cost_nusd(usage: &Usage, prices: &ModelPrices) -> Result<Nusd, Pr
             .and_then(|t| micro_nusd.checked_add(t))
             .ok_or(PricingError::Overflow)?;
     }
-    to_u64(ceil_div(micro_nusd, u128::from(TOKENS_PER_PRICE_UNIT))?).map(Nusd)
+    to_u64(ceil_div(micro_nusd, u128::from(TOKENS_PER_PRICE_UNIT))?).map(Nusd::new)
 }
 
 /// Meter and price a call from its usage vector:
@@ -249,7 +254,7 @@ pub fn price_nusd(
     dev_markup: Bps,
     min_charge_2z: Whole2z,
 ) -> Result<Charge, PricingError> {
-    let c = u128::from(cost_nusd.0);
+    let c = u128::from(cost_nusd.get());
     let one_plus_m = BPS
         .checked_add(u128::from(platform_margin.0))
         .ok_or(PricingError::Overflow)?;
@@ -271,7 +276,7 @@ pub fn price_nusd(
             .checked_mul(per_2z)
             .ok_or(PricingError::Overflow)?,
     )?;
-    let total_2z = raw_2z.max(u128::from(min_charge_2z.0));
+    let total_2z = raw_2z.max(u128::from(min_charge_2z.get()));
     let total_milli = total_2z
         .checked_mul(u128::from(MILLI_PER_2Z))
         .ok_or(PricingError::Overflow)?;
@@ -298,10 +303,10 @@ pub fn price_nusd(
         .ok_or(PricingError::Overflow)?;
 
     Ok(Charge {
-        total_milli: Milli2z(to_u64(total_milli)?),
-        provider_milli: Milli2z(to_u64(provider_milli)?),
-        developer_milli: Milli2z(to_u64(developer_milli)?),
-        platform_milli: Milli2z(to_u64(platform_milli)?),
+        total_milli: Milli2z::new(to_u64(total_milli)?),
+        provider_milli: Milli2z::new(to_u64(provider_milli)?),
+        developer_milli: Milli2z::new(to_u64(developer_milli)?),
+        platform_milli: Milli2z::new(to_u64(platform_milli)?),
     })
 }
 
@@ -341,42 +346,50 @@ mod tests {
     #[test]
     fn the_worked_example_is_three_2z() {
         // $0.021 at 0 % margin: 2.1 2Z, rounded once, up, to 3.
-        let charge = price_nusd(Nusd(21_000_000), Bps::ZERO, Bps::ZERO, Whole2z(1)).unwrap();
+        let charge =
+            price_nusd(Nusd::new(21_000_000), Bps::ZERO, Bps::ZERO, Whole2z::new(1)).unwrap();
         assert_eq!(
             charge,
             Charge {
-                total_milli: Milli2z(3_000),
-                provider_milli: Milli2z(2_100),
-                developer_milli: Milli2z(0),
-                platform_milli: Milli2z(900),
+                total_milli: Milli2z::new(3_000),
+                provider_milli: Milli2z::new(2_100),
+                developer_milli: Milli2z::new(0),
+                platform_milli: Milli2z::new(900),
             }
         );
-        assert_eq!(charge.total_2z(), Whole2z(3));
+        assert_eq!(charge.total_2z(), Whole2z::new(3));
     }
 
     #[test]
     fn rounding_p_and_d_separately_would_overcharge() {
-        let charge = price_nusd(Nusd(21_000_000), Bps::ZERO, Bps(1_000), Whole2z(1)).unwrap();
+        let charge = price_nusd(
+            Nusd::new(21_000_000),
+            Bps::ZERO,
+            Bps(1_000),
+            Whole2z::new(1),
+        )
+        .unwrap();
         assert_eq!(
             charge.total_2z(),
-            Whole2z(3),
+            Whole2z::new(3),
             "ceil(2.1 + 0.21), not ceil(2.1) + ceil(0.21)"
         );
-        assert_eq!(charge.developer_milli, Milli2z(210));
+        assert_eq!(charge.developer_milli, Milli2z::new(210));
     }
 
     #[test]
     fn min_charge_applies_to_a_free_call() {
-        let charge = price_nusd(Nusd(0), Bps(5_000), Bps::ZERO, Whole2z(1)).unwrap();
-        assert_eq!(charge.total_milli, Milli2z(1_000));
-        assert_eq!(charge.platform_milli, Milli2z(1_000));
+        let charge = price_nusd(Nusd::new(0), Bps(5_000), Bps::ZERO, Whole2z::new(1)).unwrap();
+        assert_eq!(charge.total_milli, Milli2z::new(1_000));
+        assert_eq!(charge.platform_milli, Milli2z::new(1_000));
     }
 
     #[test]
     fn an_exact_whole_2z_is_not_rounded_up() {
-        let charge = price_nusd(Nusd(20_000_000), Bps::ZERO, Bps::ZERO, Whole2z(0)).unwrap();
-        assert_eq!(charge.total_milli, Milli2z(2_000));
-        assert_eq!(charge.platform_milli, Milli2z(0));
+        let charge =
+            price_nusd(Nusd::new(20_000_000), Bps::ZERO, Bps::ZERO, Whole2z::new(0)).unwrap();
+        assert_eq!(charge.total_milli, Milli2z::new(2_000));
+        assert_eq!(charge.platform_milli, Milli2z::new(0));
     }
 
     #[test]
@@ -391,10 +404,10 @@ mod tests {
             input_nusd_per_mtok: 1,
             ..ModelPrices::default()
         };
-        assert_eq!(metered_cost_nusd(&usage, &prices).unwrap(), Nusd(1));
-        let charge = price_2z(&usage, &prices, Bps::ZERO, Bps::ZERO, Whole2z(0)).unwrap();
-        assert_eq!(charge.total_milli, Milli2z(1_000));
-        assert_eq!(charge.provider_milli, Milli2z(1));
+        assert_eq!(metered_cost_nusd(&usage, &prices).unwrap(), Nusd::new(1));
+        let charge = price_2z(&usage, &prices, Bps::ZERO, Bps::ZERO, Whole2z::new(0)).unwrap();
+        assert_eq!(charge.total_milli, Milli2z::new(1_000));
+        assert_eq!(charge.provider_milli, Milli2z::new(1));
     }
 
     #[test]
@@ -411,11 +424,11 @@ mod tests {
             ..ModelPrices::default()
         };
         let metered = metered_cost_nusd(&usage, &prices).unwrap();
-        assert_eq!(metered, Nusd(6_666_667));
-        let settled = price_nusd(metered, Bps(5_000), Bps::ZERO, Whole2z(1)).unwrap();
-        let estimated = price_2z(&usage, &prices, Bps(5_000), Bps::ZERO, Whole2z(1)).unwrap();
+        assert_eq!(metered, Nusd::new(6_666_667));
+        let settled = price_nusd(metered, Bps(5_000), Bps::ZERO, Whole2z::new(1)).unwrap();
+        let estimated = price_2z(&usage, &prices, Bps(5_000), Bps::ZERO, Whole2z::new(1)).unwrap();
         assert_eq!(estimated, settled);
-        assert_eq!(estimated.total_2z(), Whole2z(2));
+        assert_eq!(estimated.total_2z(), Whole2z::new(2));
     }
 
     #[test]
@@ -436,11 +449,16 @@ mod tests {
             ..ModelPrices::default()
         };
         assert_eq!(
-            price_2z(&usage, &prices, Bps::ZERO, Bps::ZERO, Whole2z(0)),
+            price_2z(&usage, &prices, Bps::ZERO, Bps::ZERO, Whole2z::new(0)),
             Err(PricingError::Overflow)
         );
         assert_eq!(
-            price_nusd(Nusd(u64::MAX), Bps(u32::MAX), Bps(u32::MAX), Whole2z(0)),
+            price_nusd(
+                Nusd::new(u64::MAX),
+                Bps(u32::MAX),
+                Bps(u32::MAX),
+                Whole2z::new(0)
+            ),
             Err(PricingError::Overflow)
         );
     }

@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use crate::amount::{Milli2z, Whole2z};
 use crate::chat::{FinishReason, ToolCall, Usage, UsageSource};
 use crate::error::ErrorCode;
-use crate::settlement::{self, Settlement, SettlementError, double_option};
+use crate::settlement::{self, NotFinal, Outcome, Settlement, SettlementError, double_option};
 
 /// Every event name this crate knows, in grammar order.
 pub const KNOWN_EVENTS: [&str; 6] = ["meta", "delta", "tool_call", "usage", "done", "error"];
@@ -131,7 +131,9 @@ pub struct UsageEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Done {
     /// The final charge, in whole 2Z. Absent while `settlement` is
-    /// `pending`; `0` (or absent) when `released`.
+    /// `pending`; `0` (or absent) when `released`. **Consumers must not read
+    /// this directly** — a tolerant decode leaves it `None` under a default
+    /// `settled`; use [`Done::outcome`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub charged_2z: Option<Whole2z>,
     /// The ledger's id for this settlement, distinct from the call id.
@@ -227,13 +229,8 @@ impl Done {
         }
     }
 
-    /// Check the amounts against the rules of [`Done::settlement`].
-    ///
-    /// # Errors
-    ///
-    /// The first rule broken, naming the field.
-    pub fn check(&self) -> Result<(), SettlementError> {
-        settlement::check(&settlement::Fields {
+    fn fields(&self) -> settlement::Fields<'_> {
+        settlement::Fields {
             settlement: self.settlement,
             charged_2z: self.charged_2z,
             receipt_id: self.receipt_id.as_deref(),
@@ -241,7 +238,7 @@ impl Done {
             shortfall_milli_2z: self.shortfall_milli_2z,
             hold_2z: self.hold_2z,
             released_2z: self.released_2z,
-            post_settlement: &[
+            post_settlement: [
                 (
                     "balance_hint_milli_2z",
                     self.balance_hint_milli_2z.is_some(),
@@ -250,9 +247,29 @@ impl Done {
                     "cap_remaining_milli_2z",
                     self.cap_remaining_milli_2z.is_some(),
                 ),
+                ("", false),
             ],
             success: true,
-        })
+            partial: false,
+        }
+    }
+
+    /// Check the amounts against the rules of [`Done::settlement`]. For a
+    /// producer, before it emits the event.
+    ///
+    /// # Errors
+    ///
+    /// The first rule broken, naming the field.
+    pub fn check(&self) -> Result<(), SettlementError> {
+        settlement::check(&self.fields())
+    }
+
+    /// What a consumer may conclude: the charge if final, otherwise
+    /// [`Outcome::NotFinal`] — including when the event breaks the rules.
+    /// Read this, never [`Done::charged_2z`] directly.
+    #[must_use]
+    pub fn outcome(&self) -> Outcome<'_> {
+        settlement::outcome(&self.fields())
     }
 }
 
@@ -265,8 +282,9 @@ impl Done {
 /// call is still running upstream.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ErrorEvent {
-    /// What went wrong, for a program. Whether a retry can succeed is
-    /// [`ErrorCode::retryable`].
+    /// What went wrong, for a program. Whether to retry is
+    /// [`ErrorEvent::retryable`], which also accounts for what the failed
+    /// call cost.
     pub code: ErrorCode,
     /// What went wrong, for a log. Never prompt or completion text.
     #[serde(default)]
@@ -275,7 +293,8 @@ pub struct ErrorEvent {
     #[serde(default)]
     pub settlement: Settlement,
     /// What the failed call cost, in whole 2Z. `0` before any output;
-    /// absent while `pending`.
+    /// absent while `pending`. **Consumers must not read this directly**;
+    /// use [`ErrorEvent::outcome`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub charged_2z: Option<Whole2z>,
     /// The ledger's settlement id, when something was charged.
@@ -308,8 +327,24 @@ impl ErrorEvent {
         }
     }
 
+    fn fields(&self) -> settlement::Fields<'_> {
+        settlement::Fields {
+            settlement: self.settlement,
+            charged_2z: self.charged_2z,
+            receipt_id: self.receipt_id.as_deref(),
+            collected_milli_2z: self.collected_milli_2z,
+            shortfall_milli_2z: self.shortfall_milli_2z,
+            hold_2z: None,
+            released_2z: None,
+            post_settlement: [("", false); 3],
+            success: false,
+            partial: self.partial,
+        }
+    }
+
     /// Check the amounts against the rules of [`ErrorEvent::settlement`],
-    /// and that `delivery_aborted` is `pending`.
+    /// that a `partial` settled failure charged at least 1 2Z, and that
+    /// `delivery_aborted` is `pending`. For a producer.
     ///
     /// # Errors
     ///
@@ -318,17 +353,29 @@ impl ErrorEvent {
         if self.code == ErrorCode::DeliveryAborted && self.settlement != Settlement::Pending {
             return Err(SettlementError::DeliveryAbortedNotPending);
         }
-        settlement::check(&settlement::Fields {
-            settlement: self.settlement,
-            charged_2z: self.charged_2z,
-            receipt_id: self.receipt_id.as_deref(),
-            collected_milli_2z: self.collected_milli_2z,
-            shortfall_milli_2z: self.shortfall_milli_2z,
-            hold_2z: None,
-            released_2z: None,
-            post_settlement: &[],
-            success: false,
-        })
+        settlement::check(&self.fields())
+    }
+
+    /// What a consumer may conclude about the failed call's cost. Read this,
+    /// never [`ErrorEvent::charged_2z`] directly.
+    #[must_use]
+    pub fn outcome(&self) -> Outcome<'_> {
+        if self.code == ErrorCode::DeliveryAborted && self.settlement != Settlement::Pending {
+            return Outcome::NotFinal(NotFinal::Invalid(
+                SettlementError::DeliveryAbortedNotPending,
+            ));
+        }
+        settlement::outcome(&self.fields())
+    }
+
+    /// Whether an SDK may retry this call on its own (with a **new**
+    /// `Idempotency-Key`): the code is retryable **and** the failed call
+    /// delivered nothing and is known to have charged nothing. A charged,
+    /// partial or not-final failure is never retried automatically.
+    /// Prefer this to [`ErrorCode::retryable`], which knows only the code.
+    #[must_use]
+    pub fn retryable(&self) -> bool {
+        settlement::retry_allowed(self.code.retryable(), self.partial, &self.outcome())
     }
 }
 

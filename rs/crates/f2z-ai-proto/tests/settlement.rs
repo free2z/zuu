@@ -12,9 +12,10 @@
 use f2z_ai_proto::amount::{Milli2z, Whole2z};
 use f2z_ai_proto::balance::Balance;
 use f2z_ai_proto::chat::{ChatRequest, ChatResponse, EstimateResponse, FinishReason, UsageSource};
+use f2z_ai_proto::error::FailedCall;
 use f2z_ai_proto::error::{ApiError, ErrorBody, ErrorCode};
 use f2z_ai_proto::event::{Done, ErrorEvent, Event, Meta};
-use f2z_ai_proto::settlement::{Settlement, SettlementError};
+use f2z_ai_proto::settlement::{NotFinal, Outcome, Settlement, SettlementError};
 
 fn frame(event: &Event) -> String {
     event.to_sse().unwrap()
@@ -32,13 +33,13 @@ fn round_trip(event: &Event, expected_frame: &str) {
 
 fn full_settled_done() -> Done {
     Done {
-        balance_hint_milli_2z: Some(Milli2z(41_500)),
-        hold_2z: Some(Whole2z(2)),
-        released_2z: Some(Whole2z(1)),
-        collected_milli_2z: Some(Milli2z(1_000)),
-        shortfall_milli_2z: Some(Milli2z(0)),
-        cap_remaining_milli_2z: Some(Some(Milli2z(199_000))),
-        ..Done::settled(Whole2z(1), "rcpt_1", FinishReason::Stop)
+        balance_hint_milli_2z: Some(Milli2z::new(41_500)),
+        hold_2z: Some(Whole2z::new(2)),
+        released_2z: Some(Whole2z::new(1)),
+        collected_milli_2z: Some(Milli2z::new(1_000)),
+        shortfall_milli_2z: Some(Milli2z::new(0)),
+        cap_remaining_milli_2z: Some(Some(Milli2z::new(199_000))),
+        ..Done::settled(Whole2z::new(1), "rcpt_1", FinishReason::Stop)
     }
 }
 
@@ -56,7 +57,7 @@ fn a_settled_done_is_the_spec_frame() {
 
 #[test]
 fn a_pending_done_carries_only_the_hold() {
-    let done = Done::pending(Whole2z(2), FinishReason::Stop);
+    let done = Done::pending(Whole2z::new(2), FinishReason::Stop);
     done.check().unwrap();
     round_trip(
         &Event::Done(done),
@@ -83,7 +84,7 @@ fn a_pending_done_from_the_gateway_decodes() {
 
 #[test]
 fn a_released_done_charges_nothing() {
-    let done = Done::released(Whole2z(2), FinishReason::Cancelled);
+    let done = Done::released(Whole2z::new(2), FinishReason::Cancelled);
     done.check().unwrap();
     round_trip(
         &Event::Done(done),
@@ -191,14 +192,14 @@ fn the_done_rules_are_enforced() {
         ),
         (
             Done {
-                charged_2z: Some(Whole2z(0)),
+                charged_2z: Some(Whole2z::new(0)),
                 ..ok.clone()
             },
             SettlementError::ZeroCharge,
         ),
         (
             Done {
-                collected_milli_2z: Some(Milli2z(999)),
+                collected_milli_2z: Some(Milli2z::new(999)),
                 ..ok.clone()
             },
             SettlementError::CollectedMismatch,
@@ -212,7 +213,7 @@ fn the_done_rules_are_enforced() {
         ),
         (
             Done {
-                released_2z: Some(Whole2z(2)),
+                released_2z: Some(Whole2z::new(2)),
                 ..ok.clone()
             },
             SettlementError::ReleasedMismatch,
@@ -227,36 +228,36 @@ fn the_done_rules_are_enforced() {
         ),
         (
             Done {
-                balance_hint_milli_2z: Some(Milli2z(1)),
-                ..Done::pending(Whole2z(2), FinishReason::Stop)
+                balance_hint_milli_2z: Some(Milli2z::new(1)),
+                ..Done::pending(Whole2z::new(2), FinishReason::Stop)
             },
             SettlementError::Unexpected("balance_hint_milli_2z"),
         ),
         (
             Done {
                 cap_remaining_milli_2z: Some(None),
-                ..Done::pending(Whole2z(2), FinishReason::Stop)
+                ..Done::pending(Whole2z::new(2), FinishReason::Stop)
             },
             SettlementError::Unexpected("cap_remaining_milli_2z"),
         ),
         (
             Done {
                 receipt_id: Some("r".into()),
-                ..Done::released(Whole2z(2), FinishReason::Stop)
+                ..Done::released(Whole2z::new(2), FinishReason::Stop)
             },
             SettlementError::Unexpected("receipt_id"),
         ),
         (
             Done {
-                charged_2z: Some(Whole2z(1)),
-                ..Done::released(Whole2z(2), FinishReason::Stop)
+                charged_2z: Some(Whole2z::new(1)),
+                ..Done::released(Whole2z::new(2), FinishReason::Stop)
             },
             SettlementError::Unexpected("charged_2z"),
         ),
         (
             Done {
-                released_2z: Some(Whole2z(1)),
-                ..Done::released(Whole2z(2), FinishReason::Stop)
+                released_2z: Some(Whole2z::new(1)),
+                ..Done::released(Whole2z::new(2), FinishReason::Stop)
             },
             SettlementError::ReleasedMismatch,
         ),
@@ -270,20 +271,42 @@ fn the_done_rules_are_enforced() {
 fn the_write_off_example_checks() {
     // metering.md §6.7: hold 2, priced 3, 2.4 taken, 0.6 written off.
     let done = Done {
-        hold_2z: Some(Whole2z(2)),
-        released_2z: Some(Whole2z(0)),
-        collected_milli_2z: Some(Milli2z(2_400)),
-        shortfall_milli_2z: Some(Milli2z(600)),
-        ..Done::settled(Whole2z(3), "r", FinishReason::Stop)
+        hold_2z: Some(Whole2z::new(2)),
+        released_2z: Some(Whole2z::new(0)),
+        collected_milli_2z: Some(Milli2z::new(2_400)),
+        shortfall_milli_2z: Some(Milli2z::new(600)),
+        ..Done::settled(Whole2z::new(3), "r", FinishReason::Stop)
     };
     done.check().unwrap();
-    // The write-off is only ever of the part above the hold.
-    let inside = Done {
-        collected_milli_2z: Some(Milli2z(1_900)),
-        shortfall_milli_2z: Some(Milli2z(1_100)),
+    assert_eq!(
+        done.outcome(),
+        Outcome::Charged {
+            charged_2z: Whole2z::new(3),
+            receipt_id: "r",
+            collected_milli_2z: Some(Milli2z::new(2_400)),
+            shortfall_milli_2z: Some(Milli2z::new(600)),
+        }
+    );
+}
+
+#[test]
+fn a_shortfall_inside_the_hold_is_allowed() {
+    // The ledger's rollout self-heal: the hold covered less than the price
+    // could be collected from — availability 60 against a price of 100.
+    let done = Done {
+        hold_2z: Some(Whole2z::new(100)),
+        released_2z: Some(Whole2z::new(0)),
+        collected_milli_2z: Some(Milli2z::new(60_000)),
+        shortfall_milli_2z: Some(Milli2z::new(40_000)),
+        ..Done::settled(Whole2z::new(100), "r", FinishReason::Stop)
+    };
+    done.check().unwrap();
+    // collected = charged × 1000 − shortfall is still enforced.
+    let wrong = Done {
+        collected_milli_2z: Some(Milli2z::new(61_000)),
         ..done
     };
-    assert_eq!(inside.check(), Err(SettlementError::ShortfallWithinHold));
+    assert_eq!(wrong.check(), Err(SettlementError::CollectedMismatch));
 }
 
 // ---- error --------------------------------------------------------------
@@ -294,10 +317,10 @@ fn an_error_after_output_is_settled_for_what_was_produced() {
         code: ErrorCode::ProviderError,
         message: "closed early".into(),
         settlement: Settlement::Settled,
-        charged_2z: Some(Whole2z(1)),
+        charged_2z: Some(Whole2z::new(1)),
         receipt_id: Some("rcpt_1".into()),
-        collected_milli_2z: Some(Milli2z(1_000)),
-        shortfall_milli_2z: Some(Milli2z(0)),
+        collected_milli_2z: Some(Milli2z::new(1_000)),
+        shortfall_milli_2z: Some(Milli2z::new(0)),
         partial: true,
     };
     e.check().unwrap();
@@ -324,7 +347,7 @@ fn delivery_aborted_is_pending() {
     );
     let settled = ErrorEvent {
         settlement: Settlement::Settled,
-        charged_2z: Some(Whole2z(1)),
+        charged_2z: Some(Whole2z::new(1)),
         receipt_id: Some("r".into()),
         ..e
     };
@@ -446,7 +469,7 @@ fn meta_carries_the_informational_fields() {
         max_output_tokens: Some(800),
         input_tokens_estimate: Some(1_200),
         created_at: Some("2026-09-26T21:04:11Z".into()),
-        ..Meta::new("c", "small", Whole2z(2))
+        ..Meta::new("c", "small", Whole2z::new(2))
     };
     round_trip(
         &Event::Meta(meta),
@@ -471,7 +494,7 @@ fn a_balance_carries_its_debt() {
     let json = r#"{"available_milli_2z":0,"held_milli_2z":0,"balance_milli_2z":0,"debt_milli_2z":1500,"as_of":"2026-09-26T21:04:14Z"}"#;
     let b: Balance = serde_json::from_str(json).unwrap();
     assert!(b.in_debt());
-    assert_eq!(b.debt_milli_2z, Milli2z(1_500));
+    assert_eq!(b.debt_milli_2z, Milli2z::new(1_500));
     assert_eq!(serde_json::to_string(&b).unwrap(), json);
 }
 
@@ -500,4 +523,129 @@ fn fallback_tries_each_model_once_in_order() {
     ] {
         assert!(!code.falls_back(), "{code}");
     }
+}
+
+// ---- consumer outcome ---------------------------------------------------
+
+#[test]
+fn a_bare_done_is_not_final_for_a_consumer() {
+    // Decodes (tolerant), defaults to settled — but is not a free call.
+    let Event::Done(done) = Event::from_sse("done", r#"{"finish_reason":"stop"}"#).unwrap() else {
+        panic!()
+    };
+    assert_eq!(done.settlement, Settlement::Settled);
+    assert!(done.settlement.is_final(), "the raw field says final…");
+    let outcome = done.outcome();
+    assert!(!outcome.is_final(), "…the outcome does not");
+    assert_eq!(
+        outcome,
+        Outcome::NotFinal(NotFinal::Invalid(SettlementError::Missing("charged_2z")))
+    );
+    assert_eq!(outcome.charged_2z(), None);
+}
+
+#[test]
+fn outcomes_for_each_state() {
+    assert_eq!(
+        Done::pending(Whole2z::new(2), FinishReason::Stop).outcome(),
+        Outcome::NotFinal(NotFinal::Pending)
+    );
+    let released_done = Done::released(Whole2z::new(2), FinishReason::Stop);
+    let released = released_done.outcome();
+    assert_eq!(released, Outcome::NothingCharged);
+    assert_eq!(released.charged_2z(), Some(Whole2z::ZERO));
+    let unknown = Done {
+        settlement: Settlement::Unknown,
+        ..Done::pending(Whole2z::new(2), FinishReason::Stop)
+    };
+    assert_eq!(unknown.outcome(), Outcome::NotFinal(NotFinal::Unknown));
+    assert_eq!(unknown.check(), Err(SettlementError::UnknownSettlement));
+    assert_eq!(
+        ErrorEvent::uncharged(ErrorCode::ProviderError, "x").outcome(),
+        Outcome::NothingCharged
+    );
+}
+
+#[test]
+fn a_partial_settled_failure_charges_at_least_one() {
+    let e = ErrorEvent {
+        partial: true,
+        ..ErrorEvent::uncharged(ErrorCode::ProviderError, "cut")
+    };
+    assert_eq!(e.check(), Err(SettlementError::PartialZeroCharge));
+    assert!(!e.outcome().is_final());
+    // Released with partial output is fine: the hold expired, nothing charged.
+    let released = ErrorEvent {
+        settlement: Settlement::Released,
+        ..e
+    };
+    released.check().unwrap();
+}
+
+// ---- retry decisions ----------------------------------------------------
+
+#[test]
+fn a_charged_or_partial_failure_is_never_retried() {
+    let uncharged = ErrorEvent::uncharged(ErrorCode::ProviderError, "x");
+    assert!(uncharged.retryable());
+    let charged = ErrorEvent {
+        charged_2z: Some(Whole2z::new(1)),
+        receipt_id: Some("r".into()),
+        partial: true,
+        ..uncharged.clone()
+    };
+    assert!(
+        ErrorCode::ProviderError.retryable(),
+        "the code alone says yes"
+    );
+    assert!(!charged.retryable(), "the call was charged");
+    let pending = ErrorEvent {
+        settlement: Settlement::Pending,
+        charged_2z: None,
+        ..uncharged.clone()
+    };
+    assert!(!pending.retryable(), "not final");
+    let not_retryable = ErrorEvent::uncharged(ErrorCode::CapExceeded, "x");
+    assert!(!not_retryable.retryable());
+}
+
+#[test]
+fn a_charged_502_has_a_typed_settlement_and_is_not_retried() {
+    // chat-api.md §4: a non-streamed failure after output began.
+    let body: ErrorBody = serde_json::from_str(
+        r#"{"error":{"code":"provider_error","message":"cut","details":{
+            "call_id":"c","settlement":"settled","charged_2z":1,"receipt_id":"r",
+            "collected_milli_2z":1000,"shortfall_milli_2z":0,"partial":true,
+            "message":{"content":[{"type":"text","text":"half"}]}}}}"#,
+    )
+    .unwrap();
+    let call: FailedCall = body.error.failed_call().unwrap().unwrap();
+    call.check().unwrap();
+    assert_eq!(call.call_id.as_deref(), Some("c"));
+    assert_eq!(call.message.as_ref().unwrap().text(), "half");
+    assert_eq!(call.outcome().charged_2z(), Some(Whole2z::new(1)));
+    assert!(!body.error.retryable());
+
+    // Before any output: no settlement in details, the code decides.
+    let early: ErrorBody = serde_json::from_str(
+        r#"{"error":{"code":"provider_timeout","message":"t","details":{"phase":"first_byte"}}}"#,
+    )
+    .unwrap();
+    assert!(early.error.failed_call().is_none());
+    assert!(early.error.retryable());
+
+    // Settlement members that do not decode refuse the retry.
+    let garbled: ErrorBody = serde_json::from_str(
+        r#"{"error":{"code":"provider_error","message":"x","details":{"charged_2z":"one"}}}"#,
+    )
+    .unwrap();
+    assert!(matches!(garbled.error.failed_call(), Some(Err(_))));
+    assert!(!garbled.error.retryable());
+
+    // Pending in a 502: not final, not retried.
+    let pending: ErrorBody = serde_json::from_str(
+        r#"{"error":{"code":"internal","message":"x","details":{"settlement":"pending","partial":true}}}"#,
+    )
+    .unwrap();
+    assert!(!pending.error.retryable());
 }

@@ -9,8 +9,12 @@ use core::fmt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::amount::{Milli2z, Whole2z};
+use crate::chat::AssistantMessage;
+use crate::settlement::{self, Outcome, Settlement, SettlementError};
+
 /// Every error the gateway reports: the codes of `docs/sdk/spec/errors.md`
-/// §2–§4. `tests/error_catalogue.rs` parses those tables and fails if a code,
+/// §2–§4. `tests/spec_conformance.rs` parses those tables and fails if a code,
 /// its status or its retryability drifts from them.
 ///
 /// `#[non_exhaustive]`: new codes are additive, and a client must handle one
@@ -93,7 +97,7 @@ pub enum ErrorCode {
 impl ErrorCode {
     /// Every code the gateway can send, in `errors.md` order. Excludes
     /// [`ErrorCode::Unknown`].
-    pub const ALL: [Self; 26] = [
+    pub const ALL: &'static [Self] = &[
         Self::InvalidToken,
         Self::TokenRevoked,
         Self::InsufficientUserAuthentication,
@@ -157,7 +161,10 @@ impl ErrorCode {
     }
 
     /// Whether retrying the identical request later can succeed without the
-    /// caller changing anything (`errors.md`'s "Retry" column). `true` never
+    /// caller changing anything (`errors.md`'s "Retry" column). This knows
+    /// only the code; an SDK decides with [`ApiError::retryable`] or
+    /// [`crate::event::ErrorEvent::retryable`], which also refuse to retry a
+    /// failure that was charged. `true` never
     /// means "retry immediately": honour `Retry-After`, else back off.
     ///
     /// A retry the user wants attempted again uses a **new**
@@ -254,6 +261,121 @@ pub struct ApiError {
     pub details: Option<Map<String, Value>>,
 }
 
+/// The members of `details` that say what a failed call still cost: the
+/// `error` event's settlement fields. Their presence is what marks a
+/// failure as possibly charged.
+const SETTLEMENT_KEYS: [&str; 6] = [
+    "settlement",
+    "charged_2z",
+    "receipt_id",
+    "collected_milli_2z",
+    "shortfall_milli_2z",
+    "partial",
+];
+
+impl ApiError {
+    /// The failed call's settlement, when `details` carries one: a
+    /// non-streamed call that failed after output began is a `502` whose
+    /// `details` are the `error` event's fields plus `call_id` and the
+    /// partial `message` (`chat-api.md` §4).
+    ///
+    /// `None` when `details` has none of the settlement members — an error
+    /// before any hold or output, which charged nothing. `Some(Err(_))` when
+    /// it has them but they do not decode; treat that as not final.
+    #[must_use]
+    pub fn failed_call(&self) -> Option<Result<FailedCall, serde_json::Error>> {
+        let details = self.details.as_ref()?;
+        if !SETTLEMENT_KEYS.iter().any(|k| details.contains_key(*k)) {
+            return None;
+        }
+        Some(serde_json::from_value(Value::Object(details.clone())))
+    }
+
+    /// Whether an SDK may retry this request on its own (with a **new**
+    /// `Idempotency-Key`). The code must be retryable, and if the error
+    /// carries a settlement the failed call must have delivered nothing and
+    /// be known to have charged nothing — a charged `502 provider_error` is
+    /// **not** retried, because the retry would be a second charged call.
+    /// Settlement members that do not decode also refuse the retry.
+    #[must_use]
+    pub fn retryable(&self) -> bool {
+        match self.failed_call() {
+            None => self.code.retryable(),
+            Some(Err(_)) => false,
+            Some(Ok(call)) => crate::settlement::retry_allowed(
+                self.code.retryable(),
+                call.partial,
+                &call.outcome(),
+            ),
+        }
+    }
+}
+
+/// The settlement of a non-streamed call that failed: the typed form of a
+/// `502`'s `details` ([`ApiError::failed_call`]). The same rules as the
+/// `error` event ([`crate::event::ErrorEvent`]).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FailedCall {
+    /// The call; also `GET /v1/calls/{id}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
+    /// Whether the amounts here are final. `settled` when absent.
+    #[serde(default)]
+    pub settlement: Settlement,
+    /// What the failed call cost. **Consumers must not read this directly**;
+    /// use [`FailedCall::outcome`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub charged_2z: Option<Whole2z>,
+    /// The ledger's settlement id, when something was charged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_id: Option<String>,
+    /// What was actually taken.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collected_milli_2z: Option<Milli2z>,
+    /// What could not be taken and was written off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shortfall_milli_2z: Option<Milli2z>,
+    /// Whether output reached the client before the failure.
+    #[serde(default)]
+    pub partial: bool,
+    /// The partial reply, as far as it got.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<AssistantMessage>,
+}
+
+impl FailedCall {
+    fn fields(&self) -> settlement::Fields<'_> {
+        settlement::Fields {
+            settlement: self.settlement,
+            charged_2z: self.charged_2z,
+            receipt_id: self.receipt_id.as_deref(),
+            collected_milli_2z: self.collected_milli_2z,
+            shortfall_milli_2z: self.shortfall_milli_2z,
+            hold_2z: None,
+            released_2z: None,
+            post_settlement: [("", false); 3],
+            success: false,
+            partial: self.partial,
+        }
+    }
+
+    /// Check the amounts against the rules of [`FailedCall::settlement`].
+    /// For a producer.
+    ///
+    /// # Errors
+    ///
+    /// The first rule broken, naming the field.
+    pub fn check(&self) -> Result<(), SettlementError> {
+        settlement::check(&self.fields())
+    }
+
+    /// What a consumer may conclude about the failed call's cost.
+    #[must_use]
+    pub fn outcome(&self) -> Outcome<'_> {
+        settlement::outcome(&self.fields())
+    }
+}
+
 /// A non-streaming error response: `{"error": {"code": …, "message": …}}`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ErrorBody {
@@ -323,7 +445,7 @@ mod tests {
 
     #[test]
     fn all_is_every_variant_but_unknown() {
-        for code in ErrorCode::ALL {
+        for &code in ErrorCode::ALL {
             match code {
                 ErrorCode::InvalidRequest
                 | ErrorCode::InvalidToken
@@ -355,10 +477,10 @@ mod tests {
             }
         }
         // A variant added to the enum must be added to the match above (no
-        // wildcard), to `ALL`, and to `errors.md`; `tests/error_catalogue.rs`
+        // wildcard), to `ALL`, and to `errors.md`; `tests/spec_conformance.rs`
         // fails when `ALL` and the document's tables disagree.
         let mut seen = alloc::vec::Vec::new();
-        for code in ErrorCode::ALL {
+        for &code in ErrorCode::ALL {
             assert!(!seen.contains(&code), "{code} listed twice");
             seen.push(code);
         }
