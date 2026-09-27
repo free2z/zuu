@@ -97,6 +97,28 @@ reqwest = { version = "0.12.28", default-features = false, features = [
 # `Retry-After` as an HTTP-date (RFC 9110). Already in the lock beneath hyper.
 httpdate = { version = "1", default-features = false }
 
+# Access-token verification (src/auth). ES256 only, verified with `ring`'s
+# fixed-width P-256 ECDSA — the same `ring` the TLS stack above already links,
+# so the gateway gains no second crypto core and no `rsa` crate (the
+# `jsonwebtoken` crate's pure-Rust backend pulls `rsa`, which carries
+# RUSTSEC-2023-0071, for an algorithm this gateway must refuse anyway). The
+# JOSE framing — three base64url segments, a JSON header and payload — is
+# parsed by hand in `auth::jwt` so that `alg`, `typ` and `crit` are decided by
+# this crate and never by a library's defaults.
+ring = { version = "0.17.14", default-features = false }
+base64 = { version = "0.22", default-features = false, features = ["std"] }
+# The shared Redis: the epoch map `dj.apps.oidc.epoch_publish` writes
+# (`<ns>:aep:<sub>`, `<ns>:agen:<client_id>:<sub>`), the per-(app, user) and
+# per-app token buckets, and the per-user concurrency lease. `script` for the
+# Lua that makes each of those one atomic round trip; `connection-manager`
+# reconnects behind the scenes, so a Redis restart is a few failed calls
+# (which fall back, or fail closed) rather than a dead client.
+redis = { version = "1.7.1", default-features = false, features = [
+  "tokio-comp",
+  "script",
+  "connection-manager",
+] }
+
 [dev-dependencies]
 # The integration tests drive the gateway over real sockets with hyper's own
 # client, so a streamed body is observed frame by frame as a client sees it.
@@ -105,6 +127,9 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "tim
 # The mock OpenAI / xAI / Anthropic providers and `Scenario::expected_usage`,
 # the oracle every adapter test asserts its parsed usage against.
 f2z-ai-testkit = { path = "../f2z-ai-testkit", version = "0.1.0" }
+# Test-only: minting ES256 access tokens for the fake issuer uses `ring`'s
+# signing half, which needs its OS random source.
+ring = { version = "0.17.14", default-features = false, features = ["alloc"] }
 
 [[bin]]
 name = "f2z-ai"

@@ -236,6 +236,7 @@ async fn a_disconnected_call_counts_against_the_limit_until_its_settle_returns()
     let gateway = Gateway::bind(
         &config,
         Deps {
+            gate: support::open_gate(),
             catalog: fixed_catalog(),
             backend,
             settler: Arc::new(GatedSettler {

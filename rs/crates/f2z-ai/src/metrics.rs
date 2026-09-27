@@ -20,6 +20,7 @@
 //! | `f2z_ai_calls_settled_total{upstream}` | counter | Calls handed to the settler, by how the upstream read ended: `finished`, `drained`, `not_started`, `panicked` (a bug, never operational) |
 //! | `f2z_ai_ready` / `f2z_ai_draining` | gauge | 1 or 0 |
 //! | `f2z_ai_catalog_version` | gauge | The verified catalogue in use; 0 when there is none |
+//! | `f2z_ai_catalog_replays_total` | counter | Catalogues refused as a replay: `issued_at` more than `catalog_version_regression_bound_secs` (420, the producer's bound) below the newest catalogue installed (`catalog::State::install`). The platform's own version dips stay inside the bound and never count, so **alert on any increase** — it means a replay, or a producer that broke its bound |
 
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -102,6 +103,7 @@ pub struct Metrics {
     settled: [AtomicU64; 4],
     delivery_aborted: [AtomicU64; 2],
     catalog_version: AtomicU64,
+    catalog_replays: AtomicU64,
 }
 
 impl Default for Metrics {
@@ -117,6 +119,7 @@ impl Default for Metrics {
             settled: std::array::from_fn(|_| AtomicU64::new(0)),
             delivery_aborted: std::array::from_fn(|_| AtomicU64::new(0)),
             catalog_version: AtomicU64::new(0),
+            catalog_replays: AtomicU64::new(0),
         }
     }
 }
@@ -202,6 +205,11 @@ impl Metrics {
         {
             slot.fetch_add(1, Ordering::Relaxed);
         }
+    }
+
+    /// Count one catalogue refused as a replay (`catalog::Installed::Older`).
+    pub fn record_catalog_replay(&self) {
+        self.catalog_replays.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Record the catalogue version now in use (0: none).
@@ -324,6 +332,15 @@ impl Metrics {
             out,
             "f2z_ai_catalog_version {}",
             load(&self.catalog_version)
+        );
+        out.push_str(
+            "# HELP f2z_ai_catalog_replays_total Catalogues refused as a replay of an older one.\n",
+        );
+        out.push_str("# TYPE f2z_ai_catalog_replays_total counter\n");
+        let _ = writeln!(
+            out,
+            "f2z_ai_catalog_replays_total {}",
+            load(&self.catalog_replays)
         );
         out
     }

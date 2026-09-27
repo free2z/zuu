@@ -35,7 +35,7 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 use std::time::Instant;
 
@@ -48,6 +48,8 @@ use http_body::Frame;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 use tower::{Layer, Service};
 
+use crate::auth::Principal;
+use crate::auth::limits::Lease;
 use crate::error::ApiFailure;
 use crate::metrics::{Metrics, Rejection};
 use crate::settle::Settlement;
@@ -191,6 +193,7 @@ impl InFlight {
         Ok((
             id,
             Slot {
+                lease: None,
                 _permit: permit,
                 _ticket: ticket,
             },
@@ -208,9 +211,14 @@ impl Drop for Ticket {
     }
 }
 
-/// A concurrency permit and an in-flight count, released together on drop.
+/// A concurrency permit and an in-flight count, released together on drop —
+/// and, once the call is authenticated, the user's concurrency lease
+/// ([`crate::auth::limits`]), so that the lease lives exactly as long as the
+/// slot: until the call is settled and its delivery has ended. The lease is
+/// the first field so that it is released before the gateway-wide permit.
 #[derive(Debug)]
 pub struct Slot {
+    lease: Option<Lease>,
     _permit: OwnedSemaphorePermit,
     _ticket: Ticket,
 }
@@ -221,6 +229,7 @@ struct CallState {
     started: Instant,
     inflight: Arc<InFlight>,
     slot: Mutex<Option<Slot>>,
+    principal: OnceLock<Principal>,
 }
 
 /// The handler's view of an admitted request. Inserted into its extensions.
@@ -242,6 +251,34 @@ impl CallHandle {
 
     pub(crate) fn inflight(&self) -> &Arc<InFlight> {
         &self.0.inflight
+    }
+
+    /// The authenticated caller, once the gatekeeper has admitted the call.
+    #[must_use]
+    pub fn principal(&self) -> Option<&Principal> {
+        self.0.principal.get()
+    }
+
+    pub(crate) fn set_principal(&self, principal: Principal) {
+        let _ = self.0.principal.set(principal);
+    }
+
+    /// Park the user's concurrency lease on this call's slot, so that it is
+    /// released with the slot — after the call is settled. Returns `false`
+    /// (and drops the lease) if the slot has already been taken.
+    pub(crate) fn attach_lease(&self, lease: Lease) -> bool {
+        let mut slot = self
+            .0
+            .slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match slot.as_mut() {
+            Some(slot) => {
+                slot.lease = Some(lease);
+                true
+            }
+            None => false,
+        }
     }
 
     /// Take the slot: the caller now keeps the request counted until it
@@ -341,6 +378,7 @@ where
             started: Instant::now(),
             inflight: Arc::clone(&self.inflight),
             slot: Mutex::new(Some(slot)),
+            principal: OnceLock::new(),
         }));
         request.extensions_mut().insert(handle.clone());
         let future = self.inner.call(request);

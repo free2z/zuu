@@ -308,6 +308,20 @@ jobs:
     if: needs.changes.outputs.rs == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # A real Redis for f2z-ai's auth tests (zuu#1068): the Lua script that
+    # takes the rate-limit tokens and the concurrency lease, and the whole
+    # gate reading the IdP's epoch keys, run against Redis itself rather than
+    # the in-memory stand-in. Pinned by digest (redis:7-alpine).
+    services:
+      redis:
+        image: redis@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -332,6 +346,11 @@ jobs:
       # only happens on a developer's machine cannot change the verdict.
       - name: Run the rs/ test suite
         working-directory: rs
+        # F2Z_AI_REQUIRE_REDIS turns the real-Redis tests' skip into a failure,
+        # so losing the service cannot quietly turn them green.
+        env:
+          F2Z_AI_TEST_REDIS_URL: redis://127.0.0.1:6379
+          F2Z_AI_REQUIRE_REDIS: "1"
         run: cargo test --locked --all-targets
 
       - name: Run the rs/ doc tests

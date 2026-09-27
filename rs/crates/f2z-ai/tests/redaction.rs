@@ -68,6 +68,7 @@ async fn no_prompt_reaches_a_log_line_or_an_error_body_at_trace() {
         ("F2Z_AI_LOG_LEVEL", "trace"),
     ]);
     let deps = Deps {
+        gate: support::open_gate(),
         catalog: fixed_catalog(),
         backend,
         settler: Arc::new(LogSettler),

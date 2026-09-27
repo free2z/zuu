@@ -618,6 +618,31 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
             receiver: "key.key",
         },
     },
+    // ---- f2z-ai -------------------------------------------------------------
+    //
+    // The gateway's access-token check (zuu#1068). **Not Ed25519**: an ES256
+    // (P-256 ECDSA) JWS from the IdP, verified with `ring`'s fixed-width
+    // P-256 verifier, which has no small-order-point analogue of the dalek
+    // defect this scan exists for (ring rejects a public key that is not a
+    // point on the curve, and the identity is not an encodable SEC1 point).
+    // `jwt::Unverified::verify` is the one place the signature is checked;
+    // `Gate::verify` is the token pipeline that calls it.
+    VerifyFn {
+        file: "f2z-ai/src/auth/jwt.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::NotASignatureCheck {
+            via: "ring::signature::UnparsedPublicKey::new",
+        },
+    },
+    VerifyFn {
+        file: "f2z-ai/src/auth/mod.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::NotASignatureCheck {
+            via: "jwt::Unverified::verify",
+        },
+    },
 ];
 
 /// A flagged line: where it is, what it says, and which rule caught it.

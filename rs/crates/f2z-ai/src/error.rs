@@ -13,7 +13,7 @@
 
 use std::borrow::Cow;
 
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderName, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use f2z_ai_proto::ErrorCode;
 use serde_json::{Map, Value};
@@ -43,6 +43,7 @@ pub struct ApiFailure {
     details: Option<Map<String, Value>>,
     retry_after_secs: Option<u32>,
     close: bool,
+    headers: Vec<(HeaderName, HeaderValue)>,
 }
 
 impl ApiFailure {
@@ -61,6 +62,7 @@ impl ApiFailure {
             details: None,
             retry_after_secs: None,
             close: false,
+            headers: Vec::new(),
         }
     }
 
@@ -77,6 +79,7 @@ impl ApiFailure {
             details: None,
             retry_after_secs: None,
             close: false,
+            headers: Vec::new(),
         }
     }
 
@@ -90,6 +93,7 @@ impl ApiFailure {
             details: None,
             retry_after_secs: None,
             close: false,
+            headers: Vec::new(),
         }
     }
 
@@ -116,6 +120,23 @@ impl ApiFailure {
     pub const fn closing(mut self) -> Self {
         self.close = true;
         self
+    }
+
+    /// Send one more response header. A value that is not a valid header
+    /// value is dropped rather than sent malformed; every caller passes text
+    /// it built itself from a closed set.
+    #[must_use]
+    pub fn header(mut self, name: HeaderName, value: &str) -> Self {
+        if let Ok(value) = HeaderValue::from_str(value) {
+            self.headers.push((name, value));
+        }
+        self
+    }
+
+    /// The `details` member `key`, if set.
+    #[must_use]
+    pub fn detail_of(&self, key: &str) -> Option<&Value> {
+        self.details.as_ref().and_then(|d| d.get(key))
     }
 
     /// The HTTP status.
@@ -154,6 +175,9 @@ impl IntoResponse for ApiFailure {
         }
         if self.close {
             headers.insert(header::CONNECTION, HeaderValue::from_static("close"));
+        }
+        for (name, value) in self.headers {
+            headers.insert(name, value);
         }
         response
     }

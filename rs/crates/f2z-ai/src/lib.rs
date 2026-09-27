@@ -10,6 +10,7 @@
 //! |---|---|
 //! | [`config`] | Typed configuration: a TOML file plus `F2Z_AI_*` environment overrides, secrets as [`secrecy::SecretString`] and never inline |
 //! | [`server`] | Two listeners (public `/v1/*`, admin `/healthz` `/readyz` `/metrics`), the layer stack, and the drain sequence |
+//! | [`auth`] | Chat-api.md §2.2 steps 1–2: the ES256 access token against the issuer's JWKS, revocation by `aep`/`agen` (Redis, then the IdP's internal endpoint — **fails closed**), the `ai:invoke` scope, the per-user concurrency lease and the rate limits |
 //! | [`admission`] | The tower layer that refuses work while draining, bounds concurrent calls (503 + `Retry-After`), and holds each call's slot **until it is settled** |
 //! | [`call`] | A started call: the upstream read at provider speed on a detached task, and delivery through a bounded per-stream buffer — client backpressure never reaches the provider |
 //! | [`settle`] | The [`settle::Settler`] hook every started call is handed to exactly once, from a detached task; stubbed |
@@ -43,6 +44,7 @@
 )]
 
 pub mod admission;
+pub mod auth;
 pub mod call;
 pub mod catalog;
 pub mod chat;
