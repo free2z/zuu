@@ -3,7 +3,7 @@ name = "f2z-ai-testkit"
 version = "0.1.0"
 description = "Test harness for the free2z AI gateway: mock OpenAI / xAI / Anthropic streaming providers with fault injection, an in-memory fake of the ledger's hold/extend/settle/release contract, and a load harness"
 edition.workspace = true
-# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# A restatement of rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered in `scripts/check-rust-toolchain.sh`'s `MANIFESTS` so it cannot
 # drift. Not inherited: that check reads this literal line.
 rust-version = "1.97"

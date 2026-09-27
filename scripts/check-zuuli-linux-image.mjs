@@ -67,7 +67,7 @@ const phaseASamplePaths = [
 const schemaGateSamplePaths = [
   "wallet/zuuallet/src-tauri/Cargo.toml",
   "wallet/plugins/tauri-plugin-zcash/build.rs",
-  "wallet/rust-toolchain.toml",
+  "rust-toolchain.toml",
   "scripts/check-rust-toolchain.sh",
   "scripts/check-tauri-plugin-permissions.mjs",
   "scripts/check-zuuli-linux-image.mjs",

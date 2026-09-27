@@ -3,7 +3,7 @@ name = "f2z-intent"
 version = "0.1.0"
 description = "The cross-app intent bridge (docs/free2z/intent-bridge/PROTOCOL.md v1): a versioned request/response wire format carrying authority delegation from the ZUULI wallet to apps that hold no seed"
 edition.workspace = true
-# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# A restatement of rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
 # drift. Not inherited from the workspace: that check reads this literal line.
 rust-version = "1.97"

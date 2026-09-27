@@ -952,7 +952,7 @@ test("release-impacting selector retains the gate's boundary classes", () => {
   for (const path of [
     "wallet/zuuli/src/App.tsx",
     "wallet/plugins/example/src/lib.rs",
-    "wallet/rust-toolchain.toml",
+    "rust-toolchain.toml",
     ".github/workflows/zuuli.yml",
     ".github/actions/zuuli-rust-cache/action.yml",
     "docs/zuuli/build/ZUULI-LINUX-BUILD-IMAGE.md",

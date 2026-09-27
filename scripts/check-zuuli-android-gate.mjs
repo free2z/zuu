@@ -13,6 +13,7 @@ const toolchainEnvPath = "wallet/zuuli/scripts/android-toolchain-env.sh";
 const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
+// Re-derived for #1084: root canonical toolchain added; wallet restatement remains.
 // Re-derived for #984's distinct Rust output. The broad selecting arm, native
 // configuration inputs, and existing prose/test exclusions are unchanged.
 // Only TS/TSX/CSS beneath the three app src/ trees can leave rust=false, with

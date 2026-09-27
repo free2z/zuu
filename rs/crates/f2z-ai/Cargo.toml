@@ -3,7 +3,7 @@ name = "f2z-ai"
 version = "0.1.0"
 description = "The free2z AI gateway (ai.free2z.cash): the /v1/chat service skeleton — config, health, readiness on a verified catalogue, metrics, OpenTelemetry, admission limits and graceful drain"
 edition.workspace = true
-# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# A restatement of rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered in `scripts/check-rust-toolchain.sh`'s `MANIFESTS` so it cannot
 # drift. Not inherited: that check reads this literal line.
 rust-version = "1.97"

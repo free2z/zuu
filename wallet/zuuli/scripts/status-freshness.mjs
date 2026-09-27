@@ -672,7 +672,7 @@ const releaseImpactingPrefixes = [
   ".github/actions/zuuli-rust-cache/",
 ];
 const releaseImpactingPaths = new Set([
-  "wallet/rust-toolchain.toml",
+  "rust-toolchain.toml",
   "wallet/deny.toml",
   "scripts/check-github-actions-pins.mjs",
   "scripts/check-rust-fmt.sh",

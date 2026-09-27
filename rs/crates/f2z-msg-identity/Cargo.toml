@@ -3,7 +3,7 @@ name = "f2z-msg-identity"
 version = "0.1.0"
 description = "Seed-derived messaging key hierarchy for free2z (docs/free2z/messaging/ARCHITECTURE.md §4.2): the ZIP-32-idiom messaging tree, the four account leaves, per-device keys and DeviceCredential issuance"
 edition.workspace = true
-# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# A restatement of rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
 # drift. Not inherited from the workspace: that check reads this literal line.
 rust-version = "1.97"
