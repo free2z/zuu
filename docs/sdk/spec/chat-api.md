@@ -35,7 +35,7 @@ checked by each terminal type's `check()`.
 | Ids | `call_id` is a UUIDv7 assigned by the gateway and returned in the `X-F2Z-Call-Id` response header on every `/v1/chat` response, streamed or not, including errors after a call was created |
 | Idempotency | `Idempotency-Key` header, 1–128 ASCII characters, scoped to (app, user). Recommended on every `/v1/chat` (§2.5) |
 | Rate limits | Per (app, user): a token bucket on requests and a concurrency limit of **4 open streams per user**. A call counts as open from its hold until that hold is settled, released or expired — a call whose client has disconnected but whose upstream is still being read (§2.4) **still counts**, because it is still consuming provider capacity, and a call whose gateway died stops counting when its hold expires; the 16-open-hold limit bounds it too. Exceeding either is `429` with `Retry-After` (§8) |
-| Timeouts | The first-byte limit is per model and published in `/v1/models` (`ttfb_timeout_ms`); the provider connect timeout is a fixed 5 s; a stream that produces nothing for **60 s** ends with `error provider_timeout`; no call runs longer than **300 s** |
+| Timeouts | The first-byte limit is per model and published in `/v1/models` (`ttfb_timeout_ms`); the provider connect timeout is a fixed 5 s; a stream that produces nothing for the model's idle limit — **60 s** unless the catalogue's `idle_timeout_ms` sets another (longer for models that reason without sending anything) — ends with `error provider_timeout`; no call runs longer than **300 s** |
 
 ## 2. `POST /v1/chat`
 

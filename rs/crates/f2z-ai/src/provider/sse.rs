@@ -15,8 +15,9 @@
 /// The largest event (and line) accepted: 16 MiB.
 pub const MAX_EVENT_BYTES: usize = 16 * 1024 * 1024;
 
-/// One dispatched event.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// One dispatched event. `Debug` reports the data by length: it is model
+/// output, which never reaches a log line.
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct SseEvent {
     /// The `event:` field; empty when the stream sent none.
     pub event: String,
@@ -33,8 +34,19 @@ pub enum SseError {
     NotUtf8,
 }
 
-/// The incremental decoder.
-#[derive(Debug, Default)]
+impl std::fmt::Debug for SseEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SseEvent")
+            .field("event", &self.event)
+            .field("data_len", &self.data.len())
+            .finish()
+    }
+}
+
+/// The incremental decoder. `Debug` reports its buffers by length, per the
+/// workspace rule against derived byte dumps
+/// (`f2z-codec/tests/workspace_debug_scan.rs`).
+#[derive(Default)]
 pub struct Decoder {
     line: Vec<u8>,
     /// The previous chunk ended in `\r`: a leading `\n` in the next one is
@@ -43,6 +55,18 @@ pub struct Decoder {
     event: String,
     data: String,
     has_data: bool,
+}
+
+impl std::fmt::Debug for Decoder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Decoder")
+            .field("line_len", &self.line.len())
+            .field("after_cr", &self.after_cr)
+            .field("event", &self.event)
+            .field("data_len", &self.data.len())
+            .field("has_data", &self.has_data)
+            .finish()
+    }
 }
 
 impl Decoder {

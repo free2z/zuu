@@ -102,7 +102,7 @@ always `502` with the code preserved ([chat-api.md](./chat-api.md) §4).
 | Status | `code` | Retry | Meaning |
 |---|---|---|---|
 | 502 | `provider_error` | yes | The provider answered with an error or a malformed stream. Before `meta`: nothing charged, `fallback` tried if given. After: charged for what was produced |
-| 504 | `provider_timeout` | yes | The provider did not answer in time: no first byte within the model's `ttfb_timeout_ms` (nothing charged; `details.phase: "first_byte"`), or, in a stream, 60 s without output or the 300 s hard limit (charged for what was produced; `details.phase` ∈ `idle`, `hard_limit`) |
+| 504 | `provider_timeout` | yes | The provider did not answer in time: no first byte within the model's `ttfb_timeout_ms` (nothing charged; `details.phase: "first_byte"`), or, in a stream, the model's idle limit without output (the catalogue's `idle_timeout_ms`, default 60 s) or the 300 s hard limit (charged for what was produced; `details.phase` ∈ `idle`, `hard_limit`) |
 | 503 | `unavailable` | yes | See §2: draining, revocation state unknown, or the provider's circuit breaker open. Nothing charged |
 | 503 | `catalog_unavailable` | yes | The gateway has no verified, unexpired price catalogue and refuses to price anything |
 | 500 | `internal` | yes | A gateway fault. Nothing charged if before `meta`; otherwise settled from what is known. Retryable because a retry is a new `Idempotency-Key` and so a new call (§7). A ledger answer the gateway did not expect (`markup_mismatch`, `unknown_rate_card`, [metering.md](./metering.md) §3) surfaces as this code with `details.reason`; the ledger's `revoked` surfaces as `401 token_revoked` |
