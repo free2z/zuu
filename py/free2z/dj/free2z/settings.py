@@ -4,10 +4,10 @@ from pathlib import Path
 from django.core.management.utils import get_random_secret_key
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
-# py/dj/free2z
+# py/free2z/dj/free2z
 BASE_DIR = Path(__file__).resolve().parent
 
-# py/dj/free2z/static
+# py/free2z/dj/free2z/static
 STATIC_ROOT = f"{BASE_DIR}/static"
 
 # Quick-start development settings - unsuitable for production

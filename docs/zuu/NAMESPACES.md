@@ -76,7 +76,7 @@ an implicit Free2Z application.
 | `LICENSE` | Retain: root license; individual projects and upstreams retain their licenses |
 | `docs/` | Retain: named owners/subsystems plus explicit shared-policy exceptions, as mapped above |
 | `langchain/` | Moved its sole `zcash/` experiment to `py/experiments/zcash-rag/`; avoid presenting the third-party LangChain dependency as our project owner |
-| `py/` | Retain language collection; `py/dj/proj/zuu/` moved to `py/dj/proj/free2z/` with its Python module references updated to name the actual Free2Z scaffold |
+| `py/` | Retain language collection; the public Free2Z Django components now live under `py/free2z/dj/`, including the named `proj/free2z/` scaffold. The `dj.*` import namespace is preserved through `PYTHONPATH=py/free2z` |
 | `rs/` | Retain: explicit Rust workspace with named protocol/service/SDK crates; independent from app-local Cargo roots |
 | `scripts/` | Retain shared enforcement/tooling; the Free2Z AKD, hash-domain, KT-agreement and PoW policies now live under `scripts/free2z/`, with their consumers migrated |
 | `ts/` | Retain language collection with named framework/project roots; Free2Z SDK/reference UI work uses `ts/free2z/`, not generic `ts/sdk/` or `ts/sdk-ui/` |

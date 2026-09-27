@@ -20,7 +20,7 @@ workflow.
 | Free2Z messaging and key transparency | [Protocol documentation](docs/free2z/messaging/README.md), [Rust libraries](rs/README.md) |
 | Free2Z cross-app intent bridge | [Protocol and authority boundaries](docs/free2z/intent-bridge/PROTOCOL.md) |
 | Free2Z web clients | [React](ts/react/free2z/README.md), [Svelte](ts/svelte/free2z/README.md) |
-| Free2Z backend scaffold | [`py/dj/proj/free2z/`](py/dj/proj/free2z/README.md) |
+| Free2Z backend scaffold | [`py/free2z/dj/proj/free2z/`](py/free2z/dj/proj/free2z/README.md) |
 | Free2Z public documentation site | [`docs/about-free2z/`](docs/about-free2z/README.md) |
 | Reusable Tauri plugins | [`wallet/plugins/`](wallet/plugins/): named packages with independent consumers and lockfiles |
 | Rust libraries and services | [`rs/`](rs/README.md): named `f2z-*` crates and their own workspace |

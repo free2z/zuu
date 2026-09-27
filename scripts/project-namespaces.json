@@ -57,6 +57,7 @@
     "scripts/check-akd-doc-evidence.mjs",
     "scripts/check-hash-domain-labels.mjs",
     "scripts/check-kt-sth-repeat-agreement.mjs",
-    "scripts/check-pow-policy.mjs"
+    "scripts/check-pow-policy.mjs",
+    "py/dj"
   ]
 }
