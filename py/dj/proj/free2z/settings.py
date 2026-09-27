@@ -16,7 +16,7 @@ INTERNAL_IPS = [
     '127.0.0.1',
 ]
 
-ASGI_APPLICATION = 'dj.proj.zuu.asgi.application'
+ASGI_APPLICATION = 'dj.proj.free2z.asgi.application'
 
 INSTALLED_APPS = [
     'daphne',
@@ -54,7 +54,7 @@ CHANNEL_LAYERS = {
     }
 }
 
-ROOT_URLCONF = 'dj.proj.zuu.urls'
+ROOT_URLCONF = 'dj.proj.free2z.urls'
 
 TEMPLATES = [
     {
@@ -72,7 +72,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'dj.proj.zuu.wsgi.application'
+WSGI_APPLICATION = 'dj.proj.free2z.wsgi.application'
 
 DATABASES = {
     'default': {

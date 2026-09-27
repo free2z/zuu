@@ -20,11 +20,11 @@ workflow.
 | Free2Z messaging and key transparency | [Protocol documentation](docs/free2z/messaging/README.md), [Rust libraries](rs/README.md) |
 | Free2Z cross-app intent bridge | [Protocol and authority boundaries](docs/free2z/intent-bridge/PROTOCOL.md) |
 | Free2Z web clients | [React](ts/react/free2z/README.md), [Svelte](ts/svelte/free2z/README.md) |
-| Free2Z backend scaffold | [`py/dj/proj/zuu/`](py/dj/proj/zuu/README.md) |
+| Free2Z backend scaffold | [`py/dj/proj/free2z/`](py/dj/proj/free2z/README.md) |
 | Free2Z public documentation site | [`docs/about-free2z/`](docs/about-free2z/README.md) |
 | Reusable Tauri plugins | [`wallet/plugins/`](wallet/plugins/): named packages with independent consumers and lockfiles |
 | Rust libraries and services | [`rs/`](rs/README.md): named `f2z-*` crates and their own workspace |
-| Zcash retrieval experiment | [`langchain/zcash/`](langchain/zcash/): experimental Python code, independent of the shipping apps |
+| Zcash retrieval experiment | [`py/experiments/zcash-rag/`](py/experiments/zcash-rag/): experimental Python code, independent of the shipping apps |
 | Upstream projects | [`z/`](z/); [`.gitmodules`](.gitmodules) records repository ownership and tracking branches |
 
 The app-suite architecture applies to those named applications. It does not
