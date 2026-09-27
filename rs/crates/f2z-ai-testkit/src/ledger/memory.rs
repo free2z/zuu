@@ -165,6 +165,8 @@ struct State {
     next_hold: u64,
     next_receipt: u64,
     fail_next: u32,
+    lose_next: u32,
+    lenient_cost: bool,
     totals: LedgerTotals,
 }
 
@@ -183,6 +185,15 @@ fn millis(d: Duration) -> u64 {
 }
 
 impl State {
+    /// Hand an answer back, unless a lost response was injected.
+    fn deliver<T>(&mut self, answer: Result<T, LedgerError>) -> Result<T, LedgerError> {
+        if answer.is_ok() && self.lose_next > 0 {
+            self.lose_next = self.lose_next.saturating_sub(1);
+            return Err(LedgerError::Unavailable);
+        }
+        answer
+    }
+
     fn gate(&mut self) -> Result<(), LedgerError> {
         if self.fail_next > 0 {
             self.fail_next = self.fail_next.saturating_sub(1);
@@ -322,6 +333,12 @@ impl State {
                 .holds
                 .get(id)
                 .map_or(HoldState::Released, |h| h.record.state);
+            let same = self.holds.get(id).is_some_and(|h| {
+                h.user == req.user && h.app == req.app && h.record.initial_2z == req.amount_2z
+            });
+            if !same {
+                return Ok(HoldOutcome::KeyConflict { hold_id: *id });
+            }
             return Ok(HoldOutcome::Replayed {
                 hold_id: *id,
                 state,
@@ -445,7 +462,12 @@ impl State {
             hold.period,
             hold.record.reserved_2z,
         );
-        let expires_at_ms = self.now_ms.saturating_add(millis(ttl));
+        // Never earlier than the expiry already in force: a delayed or
+        // retried extend with a shorter ttl must not shorten the hold.
+        let expires_at_ms = self
+            .now_ms
+            .saturating_add(millis(ttl))
+            .max(hold.record.expires_at_ms);
         let mut outcome_reserved = reserved;
         let mut refusal = None;
         if reserve_to_2z > reserved {
@@ -771,6 +793,24 @@ impl InMemoryLedger {
         self.lock().fail_next = n;
     }
 
+    /// Make the next `n` contract operations **take effect** and then answer
+    /// [`LedgerError::Unavailable`] — the response was lost on the way back.
+    /// This is the case retries exist for: a re-sent `hold` must come back
+    /// `replayed`, a re-sent `settle` must return the first settlement, and a
+    /// re-sent `extend` must reserve nothing twice.
+    pub fn lose_next_responses(&self, n: u32) {
+        self.lock().lose_next = n;
+    }
+
+    /// Stop [`InMemoryLedger::check_invariants`] from requiring every settled
+    /// `cost_nusd` to equal the cost metered from its usage at the hold's
+    /// prices. Only for tests that settle a bare cost with no usage vector;
+    /// the check is on by default because a gateway that meters differently
+    /// from the contract is the bug this harness most needs to catch.
+    pub fn allow_unmetered_costs(&self) {
+        self.lock().lenient_cost = true;
+    }
+
     // ---- inspection ------------------------------------------------------------
 
     /// The record of one hold.
@@ -803,7 +843,10 @@ impl InMemoryLedger {
     /// * no user has more than [`MAX_OPEN_HOLDS`] open holds;
     /// * every settlement's collection plus shortfall is its price, and its
     ///   parts sum to its collection;
-    /// * the totals' parts sum to the total collected.
+    /// * the totals' parts sum to the total collected;
+    /// * every settled `cost_nusd` equals `metered_cost_nusd(usage)` at the
+    ///   hold's snapshot prices (unless
+    ///   [`InMemoryLedger::allow_unmetered_costs`]).
     ///
     /// # Errors
     ///
@@ -836,6 +879,12 @@ impl InMemoryLedger {
             let Some(st) = &h.record.settlement else {
                 continue;
             };
+            if !s.lenient_cost && h.record.metered_from_usage != h.record.cost_nusd {
+                return Err(format!(
+                    "{}: settled cost_nusd {:?} but its usage meters to {:?}",
+                    h.record.hold_id, h.record.cost_nusd, h.record.metered_from_usage
+                ));
+            }
             let priced = to_milli(st.charged_2z);
             if st.collected_milli_2z.checked_add(st.shortfall_milli_2z) != priced {
                 return Err(format!(
@@ -870,11 +919,15 @@ impl InMemoryLedger {
 
 impl LedgerContract for InMemoryLedger {
     async fn inquire(&self, user: &str, app: &str) -> Result<Inquiry, LedgerError> {
-        self.lock().inquire(user, app)
+        let mut s = self.lock();
+        let answer = s.inquire(user, app);
+        s.deliver(answer)
     }
 
     async fn hold(&self, request: HoldRequest) -> Result<HoldOutcome, LedgerError> {
-        self.lock().hold(request)
+        let mut s = self.lock();
+        let answer = s.hold(request);
+        s.deliver(answer)
     }
 
     async fn extend(
@@ -883,14 +936,20 @@ impl LedgerContract for InMemoryLedger {
         reserve_to_2z: u64,
         ttl: Duration,
     ) -> Result<ExtendOutcome, LedgerError> {
-        self.lock().extend(hold_id, reserve_to_2z, ttl)
+        let mut s = self.lock();
+        let answer = s.extend(hold_id, reserve_to_2z, ttl);
+        s.deliver(answer)
     }
 
     async fn settle(&self, request: SettleRequest) -> Result<SettleOutcome, LedgerError> {
-        self.lock().settle(request)
+        let mut s = self.lock();
+        let answer = s.settle(request);
+        s.deliver(answer)
     }
 
     async fn release(&self, hold_id: HoldId) -> Result<ReleaseOutcome, LedgerError> {
-        self.lock().release(hold_id)
+        let mut s = self.lock();
+        let answer = s.release(hold_id);
+        s.deliver(answer)
     }
 }

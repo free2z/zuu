@@ -9,7 +9,7 @@ use core::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::{ChatFlavor, Fault, ProviderStyle, Scenario, Stall};
+use super::{ChatFlavor, Ending, Fault, ProviderStyle, Scenario, Stall};
 
 /// Fixed `created` / `created_at` timestamp. The mock has no clock; a stable
 /// value keeps every rendering reproducible.
@@ -431,8 +431,8 @@ fn output_text_part(visible: u64) -> Value {
     json!({"type": "output_text", "text": text_of(visible), "annotations": []})
 }
 
-fn message_item(msg_id: &str, visible: u64) -> Value {
-    json!({"id": msg_id, "type": "message", "status": "completed",
+fn message_item(msg_id: &str, visible: u64, status: &str) -> Value {
+    json!({"id": msg_id, "type": "message", "status": status,
            "role": "assistant", "content": [output_text_part(visible)]})
 }
 
@@ -441,6 +441,11 @@ fn message_item(msg_id: &str, visible: u64) -> Value {
 // ---------------------------------------------------------------------------
 
 fn responses(scenario: &Scenario, ctx: &RenderContext) -> Vec<Segment> {
+    let (terminal, status, item_status) = match scenario.ending {
+        Ending::Complete => ("response.completed", "completed", "completed"),
+        Ending::MaxOutputTokens => ("response.incomplete", "incomplete", "incomplete"),
+        Ending::Failed => ("response.failed", "failed", "incomplete"),
+    };
     let id = format!("resp_mock_{}", ctx.request_seq);
     let msg_id = format!("msg_mock_{}", ctx.request_seq);
     let rs_id = format!("rs_mock_{}", ctx.request_seq);
@@ -538,7 +543,7 @@ fn responses(scenario: &Scenario, ctx: &RenderContext) -> Vec<Segment> {
         named_bytes(
             "response.output_item.done",
             &json!({"type": "response.output_item.done", "sequence_number": s2,
-                    "output_index": output_index, "item": message_item(&m, visible)}),
+                    "output_index": output_index, "item": message_item(&m, visible, item_status)}),
         )
     }));
 
@@ -562,13 +567,31 @@ fn responses(scenario: &Scenario, ctx: &RenderContext) -> Vec<Segment> {
     let (m, s3, rid, model) = (msg_id, out.len(), id.clone(), ctx.model.clone());
     out.lazy(Box::new(move |_| {
         let mut items: Vec<Value> = reasoning_item.iter().cloned().collect();
-        items.push(message_item(&m, visible));
+        items.push(message_item(&m, visible, item_status));
+        let mut response = json!({"id": rid, "object": "response", "created_at": CREATED,
+                                  "status": status, "model": model,
+                                  "output": items, "usage": usage});
+        if let Some(obj) = response.as_object_mut() {
+            match terminal {
+                "response.incomplete" => {
+                    obj.insert(
+                        "incomplete_details".into(),
+                        json!({"reason": "max_output_tokens"}),
+                    );
+                }
+                "response.failed" => {
+                    obj.insert(
+                        "error".into(),
+                        json!({"code": "server_error",
+                               "message": "The model failed to complete (mock)."}),
+                    );
+                }
+                _ => {}
+            }
+        }
         named_bytes(
-            "response.completed",
-            &json!({"type": "response.completed", "sequence_number": s3,
-                    "response": {"id": rid, "object": "response", "created_at": CREATED,
-                                 "status": "completed", "model": model,
-                                 "output": items, "usage": usage}}),
+            terminal,
+            &json!({"type": terminal, "sequence_number": s3, "response": response}),
         )
     }));
     out.segs
@@ -606,7 +629,15 @@ fn chat(scenario: &Scenario, ctx: &RenderContext) -> Vec<Segment> {
             ))
         }),
     );
-    out.data(&chunk(chat_choice(json!({}), json!("stop")), None));
+    let finish = match scenario.ending {
+        Ending::Complete => "stop",
+        Ending::MaxOutputTokens => "length",
+        Ending::Failed => {
+            out.push(stream_error_frame(ProviderStyle::ChatCompletions, 500, 0));
+            return out.segs;
+        }
+    };
+    out.data(&chunk(chat_choice(json!({}), json!(finish)), None));
     if ctx.include_usage && !scenario.omit_usage {
         out.data(&chunk(json!([]), Some(chat_usage(scenario))));
     }
@@ -682,6 +713,7 @@ fn anthropic(scenario: &Scenario, ctx: &RenderContext) -> Vec<Segment> {
                 "input_tokens": scenario.input_tokens,
                 "cache_creation_input_tokens": scenario.cache_write_tokens,
                 "cache_read_input_tokens": scenario.cached_input_tokens,
+                "cache_creation": cache_creation(scenario),
                 "output_tokens": 1,
             },
         }}),
@@ -736,19 +768,78 @@ fn anthropic(scenario: &Scenario, ctx: &RenderContext) -> Vec<Segment> {
         "content_block_stop",
         &json!({"type": "content_block_stop", "index": index}),
     );
-    let mut delta = json!({"type": "message_delta",
-                           "delta": {"stop_reason": "end_turn", "stop_sequence": Value::Null}});
-    if !scenario.omit_usage
-        && let Some(obj) = delta.as_object_mut()
-    {
-        obj.insert(
-            "usage".into(),
-            json!({"output_tokens": scenario.output_tokens}),
-        );
+    let stop_reason = match scenario.ending {
+        Ending::Complete => "end_turn",
+        Ending::MaxOutputTokens => "max_tokens",
+        Ending::Failed => {
+            out.push(stream_error_frame(ProviderStyle::AnthropicMessages, 500, 0));
+            return out.segs;
+        }
+    };
+    match scenario.anthropic_cumulative {
+        None => {
+            let mut delta = json!({"type": "message_delta",
+                                   "delta": {"stop_reason": stop_reason, "stop_sequence": Value::Null}});
+            if !scenario.omit_usage
+                && let Some(obj) = delta.as_object_mut()
+            {
+                obj.insert(
+                    "usage".into(),
+                    json!({"output_tokens": scenario.output_tokens}),
+                );
+            }
+            out.named("message_delta", &delta);
+        }
+        Some(c) => {
+            let k = u64::from(c.message_deltas.max(1));
+            let mut j: u64 = 1;
+            while j <= k {
+                let part = |total: u64| {
+                    let v = u128::from(total)
+                        .saturating_mul(u128::from(j))
+                        .checked_div(u128::from(k))
+                        .unwrap_or(0);
+                    u64::try_from(v).unwrap_or(u64::MAX)
+                };
+                let last = j == k;
+                let mut delta = json!({"type": "message_delta", "delta": {
+                    "stop_reason": if last { json!(stop_reason) } else { Value::Null },
+                    "stop_sequence": Value::Null}});
+                if !scenario.omit_usage
+                    && let Some(obj) = delta.as_object_mut()
+                {
+                    // Running totals, input and cache counts included.
+                    obj.insert(
+                        "usage".into(),
+                        json!({
+                            "input_tokens": scenario.input_tokens
+                                .saturating_add(part(c.server_tool_input_tokens)),
+                            "cache_creation_input_tokens": scenario.cache_write_tokens,
+                            "cache_read_input_tokens": scenario.cached_input_tokens,
+                            "cache_creation": cache_creation(scenario),
+                            "output_tokens": part(scenario.output_tokens),
+                            "server_tool_use": {"web_search_requests": part(c.server_tool_uses)},
+                        }),
+                    );
+                }
+                out.named("message_delta", &delta);
+                j = j.saturating_add(1);
+            }
+        }
     }
-    out.named("message_delta", &delta);
     out.named("message_stop", &json!({"type": "message_stop"}));
     out.segs
+}
+
+/// Anthropic's split of cache writes by TTL.
+fn cache_creation(scenario: &Scenario) -> Value {
+    let one_hour = scenario
+        .cache_write_1h_tokens
+        .min(scenario.cache_write_tokens);
+    json!({
+        "ephemeral_5m_input_tokens": scenario.cache_write_tokens.saturating_sub(one_hour),
+        "ephemeral_1h_input_tokens": one_hour,
+    })
 }
 
 // ---------------------------------------------------------------------------

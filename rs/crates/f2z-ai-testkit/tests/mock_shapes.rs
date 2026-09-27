@@ -15,7 +15,8 @@ use core::time::Duration;
 
 use common::{adapter_usage, frames, visible_text};
 use f2z_ai_testkit::mock::{
-    ChatFlavor, Fault, Plan, ProviderStyle, RenderContext, Scenario, Step, plan,
+    AnthropicCumulative, ChatFlavor, Ending, Fault, Plan, ProviderStyle, RenderContext, Scenario,
+    Step, plan,
 };
 use serde_json::Value;
 
@@ -48,6 +49,21 @@ fn scenarios() -> Vec<Scenario> {
             .with_cache(5_000, 800)
             .with_output_tokens(350)
             .with_reasoning_tokens(100),
+        Scenario::default()
+            .with_output_tokens(40)
+            .with_ending(Ending::MaxOutputTokens),
+        Scenario::default()
+            .with_output_tokens(9)
+            .with_ending(Ending::Failed),
+        Scenario::default()
+            .with_input_tokens(2_679)
+            .with_cache(100, 50)
+            .with_output_tokens(510)
+            .with_anthropic_cumulative(AnthropicCumulative {
+                server_tool_input_tokens: 8_003,
+                server_tool_uses: 1,
+                message_deltas: 3,
+            }),
         // Reasoning above output is clamped, never negative visible output.
         Scenario::default()
             .with_output_tokens(5)
@@ -405,4 +421,118 @@ fn a_long_responses_stream_is_lazy_too() {
         panic!("expected a stream")
     };
     assert_eq!(s.steps().take(6).count(), 6);
+}
+
+#[test]
+fn anthropic_cumulative_usage_repeats_and_only_the_last_delta_is_authoritative() {
+    let s = Scenario::default()
+        .with_input_tokens(2_679)
+        .with_output_tokens(510)
+        .with_anthropic_cumulative(AnthropicCumulative {
+            server_tool_input_tokens: 8_003,
+            server_tool_uses: 1,
+            message_deltas: 3,
+        });
+    let fs = frames(&body(ProviderStyle::AnthropicMessages, &s, true));
+    let start = fs[0].json();
+    assert_eq!(start["message"]["usage"]["input_tokens"], 2_679);
+    let deltas: Vec<Value> = fs
+        .iter()
+        .filter(|f| f.event.as_deref() == Some("message_delta"))
+        .map(|f| f.json())
+        .collect();
+    assert_eq!(deltas.len(), 3);
+    assert!(deltas[0]["delta"]["stop_reason"].is_null());
+    let last = &deltas[2];
+    assert_eq!(last["delta"]["stop_reason"], "end_turn");
+    assert_eq!(
+        last["usage"]["input_tokens"], 10_682,
+        "the docs' 2679 -> 10682"
+    );
+    assert_eq!(last["usage"]["output_tokens"], 510);
+    assert_eq!(last["usage"]["server_tool_use"]["web_search_requests"], 1);
+    // Earlier deltas are smaller running totals; an adapter reading the first
+    // one, or message_start's input, under-counts.
+    assert!(deltas[0]["usage"]["input_tokens"].as_u64().unwrap() < 10_682);
+    let u = s
+        .expected_usage(ProviderStyle::AnthropicMessages, true)
+        .unwrap();
+    assert_eq!(
+        (u.input_tokens, u.output_tokens, u.tool_calls),
+        (10_682, 510, 1)
+    );
+}
+
+#[test]
+fn anthropic_cache_writes_are_split_by_ttl_and_summed_in_expected_usage() {
+    let mut s = Scenario::default().with_cache(0, 900);
+    s.cache_write_1h_tokens = 300;
+    let fs = frames(&body(ProviderStyle::AnthropicMessages, &s, true));
+    let cc = &fs[0].json()["message"]["usage"]["cache_creation"];
+    assert_eq!(cc["ephemeral_5m_input_tokens"], 600);
+    assert_eq!(cc["ephemeral_1h_input_tokens"], 300);
+    assert_eq!(
+        s.expected_usage(ProviderStyle::AnthropicMessages, true)
+            .unwrap()
+            .cache_write_tokens,
+        900
+    );
+}
+
+#[test]
+fn an_output_limit_ending_is_marked_and_still_reports_usage() {
+    let s = Scenario::default()
+        .with_output_tokens(40)
+        .with_ending(Ending::MaxOutputTokens);
+    let fs = frames(&body(ProviderStyle::OpenAiResponses, &s, true));
+    let last = fs.last().unwrap();
+    assert_eq!(last.event.as_deref(), Some("response.incomplete"));
+    let r = &last.json()["response"];
+    assert_eq!(r["status"], "incomplete");
+    assert_eq!(r["incomplete_details"]["reason"], "max_output_tokens");
+    assert_eq!(r["usage"]["output_tokens"], 40);
+
+    let fs = frames(&body(ProviderStyle::ChatCompletions, &s, true));
+    let finish = fs[fs.len() - 3].json();
+    assert_eq!(finish["choices"][0]["finish_reason"], "length");
+    assert_eq!(fs[fs.len() - 2].json()["usage"]["completion_tokens"], 40);
+
+    let fs = frames(&body(ProviderStyle::AnthropicMessages, &s, true));
+    let delta = fs[fs.len() - 2].json();
+    assert_eq!(delta["delta"]["stop_reason"], "max_tokens");
+    assert_eq!(delta["usage"]["output_tokens"], 40);
+}
+
+#[test]
+fn a_failed_ending_is_response_failed_with_usage_or_an_error_event() {
+    let s = Scenario::default()
+        .with_output_tokens(9)
+        .with_ending(Ending::Failed);
+    let fs = frames(&body(ProviderStyle::OpenAiResponses, &s, true));
+    let last = fs.last().unwrap();
+    assert_eq!(last.event.as_deref(), Some("response.failed"));
+    let r = &last.json()["response"];
+    assert_eq!(r["status"], "failed");
+    assert_eq!(r["error"]["code"], "server_error");
+    assert_eq!(r["usage"]["output_tokens"], 9);
+    let fs = frames(&body(ProviderStyle::ChatCompletions, &s, true));
+    assert!(fs.last().unwrap().json().get("error").is_some());
+    assert!(fs.iter().all(|f| f.data != "[DONE]"));
+    let fs = frames(&body(ProviderStyle::AnthropicMessages, &s, true));
+    assert_eq!(fs.last().unwrap().event.as_deref(), Some("error"));
+}
+
+#[test]
+fn openai_flavor_total_tokens_counts_reasoning_once() {
+    let s = Scenario::default()
+        .with_input_tokens(32)
+        .with_output_tokens(103)
+        .with_reasoning_tokens(94);
+    let fs = frames(&body(ProviderStyle::ChatCompletions, &s, true));
+    let usage = fs[fs.len() - 2].json()["usage"].clone();
+    assert_eq!(usage["completion_tokens"], 103, "includes reasoning");
+    assert_eq!(
+        usage["total_tokens"], 135,
+        "prompt + completion, not + reasoning again"
+    );
 }

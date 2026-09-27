@@ -147,6 +147,14 @@ pub enum HoldOutcome {
         /// Its current state.
         state: HoldState,
     },
+    /// The `hold_key` was used before for a **different** user, app or
+    /// amount. Not a spec status: a real replay repeats its own request, so
+    /// this is a gateway bug (a reused `call_id`) the fake refuses loudly
+    /// rather than answering `replayed` for someone else's hold.
+    KeyConflict {
+        /// The hold the key already names.
+        hold_id: HoldId,
+    },
     /// The account carries debt. Checked before the balance, so debt is never
     /// reported as an ordinary shortage (`403 account_in_debt`).
     InDebt,
@@ -281,7 +289,9 @@ pub enum ReleaseOutcome {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LedgerError {
     /// The ledger could not be reached (injected by
-    /// [`InMemoryLedger::fail_next`]). The operation did not happen.
+    /// [`InMemoryLedger::fail_next`], in which case the operation did not
+    /// happen, or by [`InMemoryLedger::lose_next_responses`], in which case it
+    /// **did** and only its answer was lost).
     Unavailable,
     /// The user has no account.
     UnknownAccount,

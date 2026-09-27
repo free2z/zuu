@@ -41,14 +41,18 @@ impl World {
         min_charge: u64,
         cap: Option<u64>,
     ) -> Self {
-        Self::with_prices(
+        let w = Self::with_prices(
             balance_milli,
             margin,
             markup,
             min_charge,
             cap,
             ModelPrices::default(),
-        )
+        );
+        // These tests settle bare costs with no usage vector. The fixture
+        // tests below keep the strict cost check on.
+        w.ledger.allow_unmetered_costs();
+        w
     }
 
     fn with_prices(
@@ -206,6 +210,7 @@ async fn every_usage_fixture_meters_and_settles_and_the_record_cross_checks() {
         );
         let rec = w.ledger.call(id).unwrap();
         assert_eq!(rec.metered_from_usage, Some(cost), "{}", c.name);
+        w.ledger.check_invariants().unwrap();
         assert_eq!(rec.usage, Some(c.usage));
     }
 }
@@ -740,4 +745,147 @@ async fn an_extension_moves_the_expiry_the_sweeper_uses() {
     w.ledger.advance(Duration::from_secs(100));
     assert_eq!(w.ledger.expire_due(), 1);
     assert_eq!(w.ledger.inquire("u", "app").await.unwrap().open_holds, 0);
+}
+
+#[tokio::test]
+async fn a_settled_cost_that_disagrees_with_its_usage_fails_the_invariants() {
+    let prices = ModelPrices {
+        output_nusd_per_mtok: 10_000_000_000,
+        ..ModelPrices::default()
+    };
+    let w = World::with_prices(1_000_000, Bps(0), Bps(0), 1, None, prices);
+    let id = w.hold(5).await;
+    let usage = Usage {
+        output_tokens: 1_000,
+        ..Usage::default()
+    };
+    // 1 000 tokens at $10/M is 10 000 000 nUSD; the "gateway" says 9 000 000.
+    settled(
+        w.ledger
+            .settle(SettleRequest {
+                hold_id: id,
+                cost_nusd: 9_000_000,
+                usage,
+                source: UsageSource::Provider,
+            })
+            .await
+            .unwrap(),
+    );
+    let err = w.ledger.check_invariants().unwrap_err();
+    assert!(err.contains("meters to"), "{err}");
+}
+
+#[tokio::test]
+async fn a_lost_response_took_effect_and_a_retry_is_answered_idempotently() {
+    let w = World::new(10_000, Bps(0), Bps(0), 1, None);
+    // hold: effect happened, answer lost; the retry is `replayed`.
+    let req = w.request(2);
+    w.ledger.lose_next_responses(1);
+    assert_eq!(
+        w.ledger.hold(req.clone()).await.unwrap_err(),
+        LedgerError::Unavailable
+    );
+    let HoldOutcome::Replayed { hold_id: id, state } = w.ledger.hold(req).await.unwrap() else {
+        panic!("a retried hold must replay")
+    };
+    assert_eq!(state, HoldState::Open);
+    assert_eq!(
+        w.ledger
+            .inquire("u", "app")
+            .await
+            .unwrap()
+            .available_milli_2z,
+        8_000,
+        "reserved once"
+    );
+    // extend: the raise happened; the retry reserves nothing twice.
+    w.ledger.lose_next_responses(1);
+    assert!(w.ledger.extend(id, 4, TTL).await.is_err());
+    assert!(matches!(
+        w.ledger.extend(id, 4, TTL).await.unwrap(),
+        ExtendOutcome::Held { reserved_2z: 4, .. }
+    ));
+    assert_eq!(
+        w.ledger
+            .inquire("u", "app")
+            .await
+            .unwrap()
+            .available_milli_2z,
+        6_000
+    );
+    // settle: the charge happened; the retry returns the same settlement.
+    w.ledger.lose_next_responses(1);
+    assert_eq!(
+        w.settle_err_cost(id, 30_000_000).await,
+        LedgerError::Unavailable
+    );
+    assert_eq!(w.ledger.balance_milli_2z("u"), Some(7_000), "charged once");
+    let s = settled(w.settle(id, 30_000_000).await);
+    assert_eq!(s.charged_2z, 3);
+    assert_eq!(w.ledger.balance_milli_2z("u"), Some(7_000));
+    w.ledger.check_invariants().unwrap();
+}
+
+#[tokio::test]
+async fn a_hold_key_reused_for_a_different_request_is_a_conflict() {
+    let w = World::new(10_000, Bps(0), Bps(0), 1, None);
+    let req = w.request(2);
+    let HoldOutcome::Held(first) = w.ledger.hold(req.clone()).await.unwrap() else {
+        panic!()
+    };
+    let mut other = req;
+    other.amount_2z = 3;
+    assert_eq!(
+        w.ledger.hold(other).await.unwrap(),
+        HoldOutcome::KeyConflict {
+            hold_id: first.hold_id
+        }
+    );
+}
+
+#[tokio::test]
+async fn extend_never_pulls_the_expiry_earlier() {
+    let w = World::new(10_000, Bps(0), Bps(0), 1, None);
+    let id = w.hold(1).await;
+    assert!(matches!(
+        w.ledger
+            .extend(id, 1, Duration::from_secs(10))
+            .await
+            .unwrap(),
+        ExtendOutcome::Held {
+            expires_at_ms: 300_000,
+            ..
+        }
+    ));
+    w.ledger.advance(Duration::from_secs(100));
+    assert_eq!(w.ledger.expire_due(), 0);
+}
+
+#[tokio::test]
+async fn a_refused_extension_still_keeps_the_hold_alive() {
+    let w = World::new(2_000, Bps(0), Bps(0), 1, None);
+    let id = w.hold(2).await;
+    w.ledger.advance(Duration::from_secs(200));
+    assert!(matches!(
+        w.ledger.extend(id, 50, TTL).await.unwrap(),
+        ExtendOutcome::InsufficientBalance { reserved_2z: 2, .. }
+    ));
+    // Past the ORIGINAL expiry (300 s), inside the pushed one (500 s).
+    w.ledger.advance(Duration::from_secs(150));
+    assert_eq!(w.ledger.expire_due(), 0);
+    assert_eq!(w.ledger.call(id).unwrap().state, HoldState::Open);
+}
+
+impl World {
+    async fn settle_err_cost(&self, hold_id: HoldId, cost_nusd: u64) -> LedgerError {
+        self.ledger
+            .settle(SettleRequest {
+                hold_id,
+                cost_nusd,
+                usage: Usage::default(),
+                source: UsageSource::Provider,
+            })
+            .await
+            .unwrap_err()
+    }
 }

@@ -107,7 +107,18 @@
 //!    visible token, `content_block_stop`.
 //! 4. `message_delta` with `delta: {"stop_reason":"end_turn",…}` and
 //!    `usage: {"output_tokens": N}` — the **cumulative** output count,
-//!    thinking included — then `message_stop`.
+//!    thinking included — then `message_stop`. With
+//!    [`Scenario::anthropic_cumulative`], one or more `message_delta`s carry
+//!    the full running totals instead — `input_tokens` (larger than
+//!    `message_start`'s after server-tool results), both cache counts,
+//!    `output_tokens` and `server_tool_use` — and only the **last** is
+//!    authoritative.
+//!
+//! `message_start` (and cumulative deltas) also carry
+//! `cache_creation: {ephemeral_5m_input_tokens, ephemeral_1h_input_tokens}`,
+//! Anthropic's split of cache writes by TTL, which it prices differently.
+//! `f2z-ai-proto` has a single cache-write price, so the split is summed in
+//! [`Scenario::expected_usage`] (a follow-up, not something the mock hides).
 //!
 //! Anthropic's buckets are **disjoint**: `input_tokens` excludes both cache
 //! reads and cache writes — the same convention as `f2z_ai_proto::Usage`.
@@ -116,6 +127,15 @@
 //!
 //! Mid-stream error: `event: error` with
 //! `{"type":"error","error":{"type","message"}}`.
+//!
+//! # Endings
+//!
+//! [`Ending`] selects a normal finish, the output limit (Responses
+//! `response.incomplete` with `incomplete_details.reason:
+//! "max_output_tokens"`, Chat `finish_reason: "length"`, Anthropic
+//! `stop_reason: "max_tokens"` — all with usage), or a provider failure
+//! (Responses `response.failed` with usage; the others' error event, no
+//! usage).
 //!
 //! # Faults
 //!
@@ -133,7 +153,15 @@
 //! tokens per second. The v1 spec requires the gateway to read upstream at
 //! provider speed however slowly its own client reads (chat-api.md, the drain
 //! rule); [`MockProvider::backpressured_writes`] counts the writes of paced
-//! streams that the reader held up, so a test can assert it stayed `0`.
+//! streams that the reader held up, so a test can assert it stayed `0` —
+//! on an unloaded host (see its documentation).
+//!
+//! # Many connections
+//!
+//! The mock listens with a backlog of 4 096, but the kernel caps it (macOS
+//! `kern.ipc.somaxconn` is 128 by default). A load test must **ramp** its
+//! connects rather than open thousands at once; `examples/load_mock_provider.rs`
+//! does.
 
 mod render;
 mod server;
@@ -142,7 +170,7 @@ use core::time::Duration;
 
 use f2z_ai_proto::Usage;
 
-pub use render::{Plan, RenderContext, Step, plan};
+pub use render::{Plan, RenderContext, Step, Steps, StreamPlan, plan};
 pub use server::{MockProvider, RecordedRequest, SCENARIO_HEADER};
 
 /// The upstream API shape a request is served in.
@@ -222,6 +250,46 @@ pub enum Fault {
     },
 }
 
+/// How a stream ends.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Ending {
+    /// The model finished its turn: Responses `response.completed`, Chat
+    /// `finish_reason: "stop"`, Anthropic `stop_reason: "end_turn"`.
+    #[default]
+    Complete,
+    /// The output limit was reached — the common case, since the gateway
+    /// always sends `out_cap`. Usage is reported as usual. Responses
+    /// `response.incomplete` (`status: "incomplete"`,
+    /// `incomplete_details.reason: "max_output_tokens"`), Chat
+    /// `finish_reason: "length"`, Anthropic `stop_reason: "max_tokens"`.
+    MaxOutputTokens,
+    /// The provider failed after producing all the output. Responses sends
+    /// `response.failed` (`status: "failed"`, an `error` object) **with**
+    /// usage. Chat Completions and Anthropic have no terminal failure event
+    /// carrying usage, so they send their mid-stream error event instead of
+    /// the closing events, and no usage.
+    Failed,
+}
+
+/// Anthropic's cumulative `message_delta` usage, as sent in server-tool
+/// flows: every `message_delta` repeats the **running totals** — input and
+/// cache counts included — and the final input can far exceed
+/// `message_start`'s, because the server tool's results were fed back in
+/// (Anthropic's documented example goes from 2 679 to 10 682). An adapter
+/// must take every count from the **last** `message_delta`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct AnthropicCumulative {
+    /// Input tokens added after `message_start` (the tool results).
+    pub server_tool_input_tokens: u64,
+    /// Server tool invocations, reported as
+    /// `usage.server_tool_use.web_search_requests`; normalized to
+    /// `Usage::tool_calls`.
+    pub server_tool_uses: u64,
+    /// How many `message_delta` events to send (at least 1), each with
+    /// larger running totals; only the last carries the `stop_reason`.
+    pub message_deltas: u32,
+}
+
 /// A mid-stream pause.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Stall {
@@ -267,6 +335,19 @@ pub struct Scenario {
     pub chat_flavor: ChatFlavor,
     /// The `model` echoed in the stream. `None` echoes the request's `model`.
     pub model: Option<String>,
+    /// How the stream ends.
+    pub ending: Ending,
+    /// Anthropic only: send full cumulative usage in one or more
+    /// `message_delta` events. `None` sends the single classic
+    /// `message_delta` with `usage: {"output_tokens"}` only.
+    pub anthropic_cumulative: Option<AnthropicCumulative>,
+    /// Anthropic only: the part of `cache_write_tokens` written with the 1-hour
+    /// TTL. Anthropic splits cache writes into
+    /// `cache_creation.ephemeral_5m_input_tokens` and
+    /// `ephemeral_1h_input_tokens`, priced differently; `f2z-ai-proto` has one
+    /// cache-write price today, so [`Scenario::expected_usage`] reports the
+    /// sum. Clamped to `cache_write_tokens`.
+    pub cache_write_1h_tokens: u64,
 }
 
 impl Default for Scenario {
@@ -284,6 +365,9 @@ impl Default for Scenario {
             stall: None,
             chat_flavor: ChatFlavor::OpenAi,
             model: None,
+            ending: Ending::Complete,
+            anthropic_cumulative: None,
+            cache_write_1h_tokens: 0,
         }
     }
 }
@@ -356,6 +440,21 @@ impl Scenario {
         self
     }
 
+    /// End the stream with `ending`.
+    #[must_use]
+    pub fn with_ending(mut self, ending: Ending) -> Self {
+        self.ending = ending;
+        self
+    }
+
+    /// Anthropic: send cumulative usage in `message_delta` (see
+    /// [`AnthropicCumulative`]).
+    #[must_use]
+    pub fn with_anthropic_cumulative(mut self, c: AnthropicCumulative) -> Self {
+        self.anthropic_cumulative = Some(c);
+        self
+    }
+
     /// Use `flavor`'s Chat Completions usage conventions.
     #[must_use]
     pub fn with_chat_flavor(mut self, flavor: ChatFlavor) -> Self {
@@ -378,12 +477,16 @@ impl Scenario {
 
     /// The normalized usage a correct adapter derives from a **complete**
     /// stream of this scenario in `style`, or `None` when the stream carries no
-    /// final usage report (usage omitted, or Chat Completions without
-    /// `include_usage`). Faults are not considered: a faulted stream's usage
-    /// is whatever reached the adapter before the fault.
+    /// final usage report (usage omitted, Chat Completions without
+    /// `include_usage`, or an [`Ending::Failed`] outside Responses). Faults
+    /// are not considered: a faulted stream's usage is whatever reached the
+    /// adapter before the fault.
     #[must_use]
     pub fn expected_usage(&self, style: ProviderStyle, include_usage: bool) -> Option<Usage> {
         if self.omit_usage {
+            return None;
+        }
+        if self.ending == Ending::Failed && style != ProviderStyle::OpenAiResponses {
             return None;
         }
         let reasoning = self.effective_reasoning_tokens();
@@ -401,14 +504,18 @@ impl Scenario {
                 tool_calls: 0,
             }),
             ProviderStyle::AnthropicMessages => Some(Usage {
-                input_tokens: self.input_tokens,
+                // From the LAST message_delta when usage is cumulative.
+                input_tokens: self.input_tokens.saturating_add(
+                    self.anthropic_cumulative
+                        .map_or(0, |c| c.server_tool_input_tokens),
+                ),
                 cached_input_tokens: self.cached_input_tokens,
                 cache_write_tokens: self.cache_write_tokens,
                 output_tokens: self.output_tokens,
                 // Anthropic does not break thinking out of output_tokens.
                 reasoning_tokens: 0,
                 images: 0,
-                tool_calls: 0,
+                tool_calls: self.anthropic_cumulative.map_or(0, |c| c.server_tool_uses),
             }),
         }
     }

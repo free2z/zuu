@@ -9,8 +9,8 @@
 //! | [`ledger`] | The **ledger contract** — inquire / hold / extend / settle / release — as a trait, and [`ledger::InMemoryLedger`], a fake that implements it in memory and prices with [`f2z_ai_proto::pricing`] |
 //! | [`fixtures`] | Typed loaders for `f2z-ai-proto`'s shared pricing fixtures, so the gateway's own tests are driven by the same numbers the ledger is |
 //!
-//! A `goose` load-scenario skeleton that runs against the mock lives in
-//! `examples/goose_mock_provider.rs`.
+//! A small load harness (plain tokio + reqwest) that runs against the mock
+//! lives in `examples/load_mock_provider.rs`.
 //!
 //! # Example
 //!

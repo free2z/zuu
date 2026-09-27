@@ -13,7 +13,7 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use serde_json::Value;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpSocket};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
@@ -35,6 +35,9 @@ const RECORD_LIMIT: usize = 1_024;
 /// load run cannot turn the request log into the thing that runs out of
 /// memory: at most `RECORD_LIMIT × RECORD_BODY_LIMIT` = 64 MiB of bodies.
 const RECORD_BODY_LIMIT: usize = 64 * 1024;
+
+/// The listen backlog requested; the kernel may cap it lower.
+const LISTEN_BACKLOG: u32 = 4_096;
 
 /// How long a due write must wait on a full body buffer before it counts as
 /// the reader applying backpressure ([`MockProvider::backpressured_writes`]).
@@ -86,7 +89,13 @@ impl MockProvider {
     ///
     /// The bind failed.
     pub async fn start(default: Scenario) -> io::Result<Self> {
-        let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
+        // A deep accept queue: a load test opens thousands of connections,
+        // and the default backlog would refuse most of a burst. The kernel
+        // still caps it (macOS `kern.ipc.somaxconn`, 128 by default; Linux
+        // `net.core.somaxconn`), so a load test must also ramp its connects.
+        let socket = TcpSocket::new_v4()?;
+        socket.bind(SocketAddr::from(([127, 0, 0, 1], 0)))?;
+        let listener: TcpListener = socket.listen(LISTEN_BACKLOG)?;
         let addr = listener.local_addr()?;
         let shared = Arc::new(Shared {
             default: RwLock::new(default),
@@ -190,6 +199,11 @@ impl MockProvider {
     /// forwards its client's backpressure upstream does — once its socket and
     /// this mock's small body buffer (8 frames) are full, so give the probe a
     /// stream long enough to fill them, and a client that stops reading.
+    ///
+    /// **Unreliable on a CPU-saturated host.** A reader starved of CPU falls
+    /// behind without applying any backpressure of its own, and is counted
+    /// all the same. Run a heavy load from a separate host, or compare against
+    /// a tolerance measured on an idle run, never against a hard `0`.
     #[must_use]
     pub fn backpressured_writes(&self) -> u64 {
         self.shared.backpressured.load(Ordering::Relaxed)

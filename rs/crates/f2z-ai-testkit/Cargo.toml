@@ -1,7 +1,7 @@
 [package]
 name = "f2z-ai-testkit"
 version = "0.1.0"
-description = "Test harness for the free2z AI gateway: mock OpenAI / xAI / Anthropic streaming providers with fault injection, an in-memory fake of the ledger's hold/extend/settle/release contract, and a goose load-scenario skeleton"
+description = "Test harness for the free2z AI gateway: mock OpenAI / xAI / Anthropic streaming providers with fault injection, an in-memory fake of the ledger's hold/extend/settle/release contract, and a load harness"
 edition.workspace = true
 # A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered in `scripts/check-rust-toolchain.sh`'s `MANIFESTS` so it cannot
@@ -56,14 +56,7 @@ futures-util = { version = "0.3", default-features = false }
 # `io-util` for the raw-socket reader in tests/mock_server.rs, declared rather
 # than inherited through another crate's feature unification.
 tokio = { workspace = true, features = ["io-util"] }
-# An HTTP client for the tests to read the mock's bytes over a real socket.
-# No TLS feature: the mock binds plain-HTTP loopback only.
+# An HTTP client for the tests, and for the load harness
+# (`examples/load_mock_provider.rs`), to read the mock's bytes over a real
+# socket. No TLS feature: the mock binds plain-HTTP loopback only.
 reqwest = { version = "0.12", default-features = false }
-# The load-scenario skeleton (`examples/goose_mock_provider.rs`) — a
-# dev-dependency so that `cargo test --all-targets` builds the example and it
-# cannot rot, while nothing that links the library pulls goose in. goose does
-# not compile without a TLS backend, so `rustls-tls` replaces its default
-# `native-tls` (OpenSSL): the same rustls/ring/webpki-roots graph `f2z-relay`
-# and `ureq` already carry, and no system library. It only ever targets the
-# plain-HTTP loopback mock.
-goose = { version = "0.18", default-features = false, features = ["rustls-tls"] }

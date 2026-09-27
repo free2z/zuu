@@ -66,9 +66,13 @@ pub fn adapter_usage(style: ProviderStyle, flavor: ChatFlavor, body: &[u8]) -> O
     let fs = frames(body);
     match style {
         ProviderStyle::OpenAiResponses => {
-            let done = fs
-                .iter()
-                .find(|f| f.event.as_deref() == Some("response.completed"))?;
+            // Usage rides on whichever terminal event ended the response.
+            let done = fs.iter().find(|f| {
+                matches!(
+                    f.event.as_deref(),
+                    Some("response.completed" | "response.incomplete" | "response.failed")
+                )
+            })?;
             let usage = done.json().pointer("/response/usage")?.clone();
             if usage.is_null() {
                 return None;
@@ -110,16 +114,27 @@ pub fn adapter_usage(style: ProviderStyle, flavor: ChatFlavor, body: &[u8]) -> O
                 .iter()
                 .find(|f| f.event.as_deref() == Some("message_start"))?
                 .json();
-            let delta = fs
+            // message_delta usage is cumulative and may repeat: the LAST one
+            // is authoritative for every count it carries, input included.
+            let last = fs
                 .iter()
+                .rev()
                 .find(|f| f.event.as_deref() == Some("message_delta"))?
                 .json();
-            let out = delta.pointer("/usage/output_tokens")?.as_u64()?;
+            let usage = last.get("usage")?;
+            let out = usage.get("output_tokens")?.as_u64()?;
+            let pick = |key: &str| {
+                usage
+                    .get(key)
+                    .and_then(Value::as_u64)
+                    .unwrap_or_else(|| u(&start, &format!("/message/usage/{key}")))
+            };
             Some(Usage {
-                input_tokens: u(&start, "/message/usage/input_tokens"),
-                cached_input_tokens: u(&start, "/message/usage/cache_read_input_tokens"),
-                cache_write_tokens: u(&start, "/message/usage/cache_creation_input_tokens"),
+                input_tokens: pick("input_tokens"),
+                cached_input_tokens: pick("cache_read_input_tokens"),
+                cache_write_tokens: pick("cache_creation_input_tokens"),
                 output_tokens: out,
+                tool_calls: u(usage, "/server_tool_use/web_search_requests"),
                 ..Usage::default()
             })
         }
