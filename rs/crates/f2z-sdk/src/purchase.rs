@@ -1,4 +1,4 @@
-//! Buying 2Z (`docs/sdk/spec/purchase.md`): create a purchase intent, open
+//! Buying 2Z (`docs/free2z/sdk/spec/purchase.md`): create a purchase intent, open
 //! the surface its rail returns, poll until it settles.
 //!
 //! The app never handles a payment. For a card, it opens the intent's

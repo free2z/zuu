@@ -1,7 +1,7 @@
 # CLAUDE.md — `tauri-plugin-f2zmsg`
 
 Read [`README.md`](./README.md) for what this crate is and
-[`docs/e2ee/CLIENT-CONTRACT.md`](../../../docs/e2ee/CLIENT-CONTRACT.md) for the
+[`docs/free2z/messaging/CLIENT-CONTRACT.md`](../../../docs/free2z/messaging/CLIENT-CONTRACT.md) for the
 contract it implements. This file is the short list of things that will bite you.
 
 Rust edition 2024, MSRV 1.97.

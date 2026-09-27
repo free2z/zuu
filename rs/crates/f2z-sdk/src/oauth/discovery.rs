@@ -1,4 +1,4 @@
-//! OpenID Connect Discovery (`docs/sdk/spec/oidc.md` §9.1).
+//! OpenID Connect Discovery (`docs/free2z/sdk/spec/oidc.md` §9.1).
 
 use serde::Deserialize;
 use url::Url;

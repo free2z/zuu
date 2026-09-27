@@ -1,6 +1,6 @@
 //! Readiness is a verified, unexpired catalogue. The source is a trait.
 //!
-//! `docs/ai-gateway/README.md`: *the gateway prices nothing it did not read
+//! `docs/free2z/ai-gateway/README.md`: *the gateway prices nothing it did not read
 //! from a signed catalogue … No verified, unexpired catalogue means the
 //! process does not report ready.* This module holds that rule and the two
 //! that come with it — a running gateway does not replace a catalogue with a

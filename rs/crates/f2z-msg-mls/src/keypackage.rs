@@ -62,8 +62,8 @@
 //! not out of the relay's `last_resort` response byte. The relay's byte is
 //! advisory and unauthenticated; this one the device signed.
 //!
-//! [tm33]: https://github.com/free2z/zuu/blob/main/docs/e2ee/THREAT-MODEL.md#33-compromised-relay-operator-third-party-or-ours
-//! [tm412]: https://github.com/free2z/zuu/blob/main/docs/e2ee/THREAT-MODEL.md
+//! [tm33]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/THREAT-MODEL.md#33-compromised-relay-operator-third-party-or-ours
+//! [tm412]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/THREAT-MODEL.md
 //! [i133]: https://github.com/free2z/zuu/issues/133
 //! [i903]: https://github.com/free2z/zuu/issues/903
 //! [`MlsEngine::add_member`]: crate::MlsEngine::add_member

@@ -19,7 +19,7 @@ custom-protocol = ["tauri/custom-protocol"]
 tauri-build = { version = "2", features = [] }
 
 # `tauri-plugin-zcash` is deliberately absent and must stay absent: ongoing
-# messaging never needs the seed (docs/e2ee/ARCHITECTURE.md §4.2 — device keys
+# messaging never needs the seed (docs/free2z/messaging/ARCHITECTURE.md §4.2 — device keys
 # come from the OS CSPRNG and are never seed-derived). Only *enrollment* needs
 # it, and under #904 that becomes a bridge call into the wallet authority
 # rather than an in-process one, so the app-crate enrollment trio

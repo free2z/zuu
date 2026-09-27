@@ -1,4 +1,4 @@
-//! ID token verification (`docs/sdk/spec/oidc.md` §7, §11): an `RS256` JWS
+//! ID token verification (`docs/free2z/sdk/spec/oidc.md` §7, §11): an `RS256` JWS
 //! keyed by `kid` from `jwks_uri`, then `iss`, `aud`, `exp` and `nonce`.
 //!
 //! Only `RS256` is accepted. The header's `alg` must say so **and** the key

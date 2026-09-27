@@ -357,7 +357,7 @@ const ROOT_AUTHORITY_SHA256 = new Map([
   ["on", "c58b4535da1019427311bdfdc1bcc62d083a9458e4d9746f1e8ee0e841b23ebe"],
   ["permissions", "248e857abefa9bcd48e29bf205c0ba2260ad4c167937fe37b5506afec6569d6c"],
   ["concurrency", "9e63d742d3a1d8bf26f2f8d8b77427f2bac2d28142d17eecaa75fafc7f95f4f5"],
-  ["env", "d905f9175e5d70ba3b4459bae14bc895f75b97bfb48b91ff764c2d9c382386ca"],
+  ["env", "8356de9be57728ac1655d75308af5a2b42346259ee28781c88726fbc7878d181"],
 ]);
 
 function requireText(failures, label, source, needle) {

@@ -30,7 +30,7 @@
  *
  * ## The three things this file will not do
  *
- * 1. **Invent a transport.** `docs/intent-bridge/PROTOCOL.md` §7 gates every
+ * 1. **Invent a transport.** `docs/free2z/intent-bridge/PROTOCOL.md` §7 gates every
  *    authority-carrying dispatch on #461, so the request goes to
  *    `installedIntentTransport`, which refuses. See `./intent-transport`.
  * 2. **Re-implement the protocol.** It declares none of the five
@@ -46,7 +46,7 @@
  *
  * `request_id` is 32 CSPRNG bytes that appear in exactly one outbound message,
  * so a bystander who never saw the request cannot forge an answer to it. That
- * is the whole of it. `docs/intent-bridge/CALLER-AUTHENTICATION.md` §5 records
+ * is the whole of it. `docs/free2z/intent-bridge/CALLER-AUTHENTICATION.md` §5 records
  * that **there is no signature over responses**: an app that *received* the
  * request holds the identifier and could answer, and nothing in these bytes
  * proves ZUULI wrote them. Response authenticity is a property of the

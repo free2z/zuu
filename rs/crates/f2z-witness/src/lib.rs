@@ -1,4 +1,4 @@
-//! **The free2z key-transparency cosigning daemon** — `docs/e2ee/KT.md` §7.
+//! **The free2z key-transparency cosigning daemon** — `docs/free2z/messaging/KT.md` §7.
 //!
 //! # What a witness is for
 //!
@@ -59,7 +59,7 @@
 //! wasm-bound may ever depend on it.
 //!
 //! [facebook/akd#495]: https://github.com/facebook/akd/pull/495
-//! [`THREAT-MODEL.md` §3.9]: https://github.com/free2z/zuu/blob/main/docs/e2ee/THREAT-MODEL.md
+//! [`THREAT-MODEL.md` §3.9]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/THREAT-MODEL.md
 
 #![forbid(unsafe_code)]
 // Unit tests are host code read by a person looking at a failure. The workspace

@@ -1,6 +1,6 @@
 // The seam, tested as the thing it is: a refusal that cannot be argued out of.
 //
-// `docs/intent-bridge/PROTOCOL.md` §7 forbids dispatching any authority-bearing
+// `docs/free2z/intent-bridge/PROTOCOL.md` §7 forbids dispatching any authority-bearing
 // intent until #461 lands. The failure mode that matters is not "it errors" —
 // it is a transport that quietly starts answering, because everything upstream
 // of it is finished and would believe the answer.

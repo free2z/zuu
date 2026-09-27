@@ -1,14 +1,10 @@
 # A restatement, never a second decision.
 #
-# Cargo selects a toolchain from the directory it runs in, so a second
-# top-level Rust tree needs its own copy of this file for rustup to pick the
-# pinned channel when `scripts/check-rust-*.sh --root rs` runs cargo from here.
-# The one place the version is decided is `wallet/rust-toolchain.toml`;
-# `scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml`
-# fails the pull request the moment this file stops repeating it.
-#
-# Do not bump this on its own. Bump wallet/rust-toolchain.toml and run
-# `scripts/check-rust-toolchain.sh`, which names every restatement to update.
+# The rs/ Docker build context excludes the repository root, so this copy is
+# required for isolated server image builds. Normal repository builds select
+# this restatement, whose version must agree with the root source of truth.
+# `scripts/check-rust-toolchain.sh` checks that its channel matches the root pin.
+# Do not bump this independently; change the root rust-toolchain.toml first.
 [toolchain]
 channel = "1.97.1"
 profile = "minimal"

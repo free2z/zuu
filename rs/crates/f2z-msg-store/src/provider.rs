@@ -54,7 +54,7 @@
 //! or a signature-key write — and it is still atomic per call, which is all a
 //! single-call operation needs.
 //!
-//! [s64]: https://github.com/free2z/zuu/blob/main/docs/e2ee/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
+//! [s64]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
 //! [`StorageBackend`]: crate::StorageBackend
 //! [`StoreError::TransactionAlreadyOpen`]: crate::StoreError
 

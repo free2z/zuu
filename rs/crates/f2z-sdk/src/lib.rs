@@ -14,7 +14,7 @@
 //! # The contract
 //!
 //! This crate implements the published v1 contract in the repository's
-//! `docs/sdk/` — `spec/oidc.md`, `spec/chat-api.md`, `spec/metering.md`,
+//! `docs/free2z/sdk/` — `spec/oidc.md`, `spec/chat-api.md`, `spec/metering.md`,
 //! `spec/purchase.md` and `spec/errors.md` — and speaks the gateway's wire
 //! types from [`f2z_ai_proto`] (re-exported as [`proto`]).
 //!

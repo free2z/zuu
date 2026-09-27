@@ -45,7 +45,7 @@ pub fn run() {
         // uses (librustzcash path dependency). This is what makes ZUULI a real
         // Zcash wallet on the desktop.
         .plugin(tauri_plugin_zcash::init())
-        // End-to-end encrypted messaging (docs/e2ee/CLIENT-CONTRACT.md §3).
+        // End-to-end encrypted messaging (docs/free2z/messaging/CLIENT-CONTRACT.md §3).
         //
         // #916: no capability grants a single `f2zmsg:` permission any more.
         // ZUULI has no messaging frontend after #904, so the plugin's 43
