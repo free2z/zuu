@@ -5,6 +5,9 @@
 //! whole check-and-reserve is the in-memory equivalent of the ledger's single
 //! conditional update. A burst of parallel holds therefore races exactly as
 //! the spec says it may not: never two holds both seeing enough balance.
+//! It also means an operation takes effect when it is **called**; the
+//! returned future is already complete. A test that wants a ledger call to
+//! race something else should spawn it.
 //!
 //! # What is modelled, and what is simplified
 //!
