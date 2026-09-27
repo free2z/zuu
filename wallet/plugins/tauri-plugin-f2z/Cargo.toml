@@ -1,0 +1,52 @@
+[package]
+name = "tauri-plugin-f2z"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "MIT"
+repository = "https://github.com/free2z/zuu"
+description = "Native Tauri 2 bridge for the Free2Z SDK: sign-in, balance, purchases and metered AI"
+links = "tauri-plugin-f2z"
+include = ["src/**", "build.rs", "command_registry.rs", "permissions/**", "android/**", "ios/**", "README.md", "CHANGELOG.md", "LICENSE", "Cargo.toml", "Cargo.lock"]
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+f2z-sdk = { version = "0.1.0", path = "../../../rs/crates/f2z-sdk" }
+tauri = { version = "2.5", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+url = "2.5"
+keyring-core = "1.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
+[target.'cfg(target_os = "ios")'.dependencies]
+tauri = { version = "2.5", default-features = false, features = ["wry"] }
+apple-native-keyring-store = { version = "1.0.2", features = ["protected"] }
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store = "1.1"
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus-secret-service-keyring-store = { version = "1.0.1", features = ["rt-tokio-crypto-rust"] }
+[target.'cfg(target_os = "android")'.dependencies]
+android-native-keyring-store = "1.0"
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+open = "5"
+
+[dev-dependencies]
+axum = "0.8"
+tauri = { version = "2.5", default-features = false, features = ["test"] }
+tokio = { version = "1", features = ["rt-multi-thread", "test-util"] }
+
+[profile.dev]
+opt-level = 0
+[profile.dev.package."*"]
+opt-level = 3
+[profile.dev.build-override]
+opt-level = 3
+[profile.release]
+lto = "thin"
+codegen-units = 1

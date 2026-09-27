@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-session"
+description = "Enables the session command without any pre-configured scope."
+commands.allow = ["session"]
+
+[[permission]]
+identifier = "deny-session"
+description = "Denies the session command without any pre-configured scope."
+commands.deny = ["session"]
