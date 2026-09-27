@@ -99,6 +99,9 @@ MANIFESTS=(
   # The AI gateway's test harness (#1053): mock providers and the in-memory
   # ledger contract. MIT, native-only, linked by test suites.
   rs/crates/f2z-ai-testkit/Cargo.toml
+  # The Rust SDK core (#1070): OAuth, token store, balance, purchases and the
+  # /v1/chat client. MIT, linked by the Tauri plugin and third-party apps.
+  rs/crates/f2z-sdk/Cargo.toml
 )
 
 # Other rust-toolchain.toml files. Cargo picks the toolchain from the directory

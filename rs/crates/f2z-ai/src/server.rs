@@ -6,7 +6,7 @@
 //! | Listener | Routes | Admission |
 //! |---|---|---|
 //! | `listen` (public) | `POST /v1/chat`; anything else is `404` | yes |
-//! | `admin_listen` | `GET /healthz`, `/readyz`, `/metrics` | **no** — a probe is never refused for load, and never queued behind it |
+//! | `admin_listen` | `GET /healthz`, `/readyz`, `/metrics` | **no call admission** — an independent connection budget keeps probes out of the public queue |
 //!
 //! Aggregate metrics are not public, so `/metrics` is on the admin listener,
 //! which the deployment does not route through the public Service.
@@ -238,14 +238,24 @@ impl Gateway {
         let public_task = tokio::spawn(crate::serve::serve(
             public,
             public_router,
-            config.header_read_timeout,
+            crate::serve::Limits {
+                connections: config.max_connections,
+                header_read: config.header_read_timeout,
+                write_stall: config.delivery_stall,
+            },
+            Some((Arc::clone(&metrics), crate::metrics::Listener::Public)),
             public_rx,
             config.abort_grace,
         ));
         let admin_task = tokio::spawn(crate::serve::serve(
             admin,
             admin_router,
-            config.header_read_timeout,
+            crate::serve::Limits {
+                connections: config.max_admin_connections,
+                header_read: config.header_read_timeout,
+                write_stall: config.delivery_stall,
+            },
+            Some((Arc::clone(&metrics), crate::metrics::Listener::Admin)),
             admin_rx,
             Duration::from_secs(1),
         ));
