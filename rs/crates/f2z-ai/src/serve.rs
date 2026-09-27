@@ -89,6 +89,7 @@ pub async fn serve(
     listener: TcpListener,
     router: Router,
     limits: Limits,
+    metrics: Option<(Arc<crate::metrics::Metrics>, crate::metrics::Listener)>,
     mut stop: watch::Receiver<bool>,
     grace: Duration,
 ) {
@@ -112,9 +113,11 @@ pub async fn serve(
                 };
                 // Refuse immediately: never queue tasks waiting for capacity.
                 let Ok(permit) = Arc::clone(&permits).try_acquire_owned() else {
+                    if let Some((metrics, listener)) = &metrics { metrics.connection_rejected(*listener); }
                     drop(stream);
                     continue;
                 };
+                let active = metrics.as_ref().map(|(metrics, listener)| metrics.connection_opened(*listener));
                 let _ = stream.set_nodelay(true);
                 let (kill_tx, control) = watch::channel(0u8);
                 let kill = ConnectionKill(kill_tx, Arc::new(AtomicBool::new(false)));
@@ -132,6 +135,7 @@ pub async fn serve(
                 let mut closing = closing_rx.clone();
                 connections.spawn(async move {
                     let _permit = permit;
+                    let _active = active;
                     let mut builder = http1::Builder::new();
                     builder
                         .timer(TokioTimer::new())

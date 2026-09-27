@@ -243,6 +243,7 @@ impl Gateway {
                 header_read: config.header_read_timeout,
                 write_stall: config.delivery_stall,
             },
+            Some((Arc::clone(&metrics), crate::metrics::Listener::Public)),
             public_rx,
             config.abort_grace,
         ));
@@ -254,6 +255,7 @@ impl Gateway {
                 header_read: config.header_read_timeout,
                 write_stall: config.delivery_stall,
             },
+            Some((Arc::clone(&metrics), crate::metrics::Listener::Admin)),
             admin_rx,
             Duration::from_secs(1),
         ));

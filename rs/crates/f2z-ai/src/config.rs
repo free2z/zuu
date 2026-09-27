@@ -310,7 +310,7 @@ impl Default for Config {
             listen: SocketAddr::from(([127, 0, 0, 1], 8080)),
             admin_listen: SocketAddr::from(([127, 0, 0, 1], 9090)),
             max_concurrent_calls: 10_000,
-            max_connections: 1024,
+            max_connections: 10_240,
             max_admin_connections: 32,
             retry_after_secs: 1,
             drain_timeout: Duration::from_secs(300),
@@ -1258,6 +1258,8 @@ mod tests {
     }
     #[test]
     fn connection_budgets_are_configurable_and_nonzero() {
+        let defaults = Config::default();
+        assert!(defaults.max_connections >= defaults.max_concurrent_calls + 240);
         let config = Config::load(
             None,
             env(&[

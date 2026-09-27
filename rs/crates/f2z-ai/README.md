@@ -269,7 +269,7 @@ loopback ports and drive it with hyper's client over real sockets:
 
 ### Connection resource limits
 
-`max_connections` (default 1024) bounds public sockets before HTTP headers are
+`max_connections` (default 10240) bounds public sockets before HTTP headers are
 parsed, including idle keep-alive connections. Excess sockets are closed
 immediately rather than allocating waiting tasks. `max_admin_connections`
 (default 32) is an independent reservation that public traffic cannot consume.
@@ -281,3 +281,12 @@ Every socket write, final flush and shutdown has an inactivity deadline of
 `delivery_stall_secs` (default 30). A client that stops reading cannot retain a
 connection task indefinitely after the response body ends. Progress resets the
 deadline; response-stream delivery and settlement keep their existing limits.
+
+The public connection default (10,240) leaves 240 sockets beyond the default
+10,000 concurrent calls for admission responses and idle connections. Effective
+call capacity cannot exceed the lower of `max_connections` and
+`max_concurrent_calls`; reduce either consciously when overriding defaults.
+Provision descriptor limits above both listener budgets plus upstream sockets,
+Redis, logs, and other files. Before HTTP parsing, refusals are counted by
+`f2z_ai_connections_rejected_total{listener="public"|"admin"}` and active sockets
+by `f2z_ai_connections_active` with the same two labels; no per-refusal logs.

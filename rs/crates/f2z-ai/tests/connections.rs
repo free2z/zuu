@@ -48,8 +48,32 @@ async fn incomplete_header_flood_is_refused_while_admin_remains_available() {
         );
         assert_eq!(get(running.admin, "/healthz").await.0, StatusCode::OK);
     }
+    assert_eq!(
+        metric(
+            running.admin,
+            "f2z_ai_connections_active{listener=\"public\"} "
+        )
+        .await,
+        "2"
+    );
+    assert_eq!(
+        metric(
+            running.admin,
+            "f2z_ai_connections_rejected_total{listener=\"public\"} "
+        )
+        .await,
+        "32"
+    );
     drop(held);
     tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        metric(
+            running.admin,
+            "f2z_ai_connections_active{listener=\"public\"} "
+        )
+        .await,
+        "0"
+    );
     assert_eq!(
         get(running.public, "/unknown").await.0,
         StatusCode::NOT_FOUND
@@ -75,6 +99,7 @@ async fn socket_write_stall_releases_the_connection_permit() {
             header_read: Duration::from_secs(5),
             write_stall: Duration::from_millis(50),
         },
+        None,
         stopped,
         Duration::from_millis(100),
     ));

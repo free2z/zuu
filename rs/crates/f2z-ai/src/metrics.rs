@@ -23,10 +23,47 @@
 //! | `f2z_ai_catalog_replays_total` | counter | Catalogues refused as a replay: `issued_at` more than `catalog_version_regression_bound_secs` (420, the producer's bound) below the newest catalogue installed (`catalog::State::install`). The platform's own version dips stay inside the bound and never count, so **alert on any increase** — it means a replay, or a producer that broke its bound |
 
 use std::fmt::Write as _;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use crate::settle::{Delivery, UpstreamEnd};
+
+/// The bounded set of accepted-socket metric labels.
+#[derive(Clone, Copy, Debug)]
+pub enum Listener {
+    /// Public HTTP traffic.
+    Public,
+    /// Administrative health and metrics traffic.
+    Admin,
+}
+impl Listener {
+    fn counter(self, values: &[AtomicU64; 2]) -> &AtomicU64 {
+        let [public, admin] = values;
+        match self {
+            Self::Public => public,
+            Self::Admin => admin,
+        }
+    }
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Public => "public",
+            Self::Admin => "admin",
+        }
+    }
+}
+
+pub(crate) struct ConnectionGauge {
+    metrics: Arc<Metrics>,
+    listener: Listener,
+}
+impl Drop for ConnectionGauge {
+    fn drop(&mut self) {
+        self.listener
+            .counter(&self.metrics.connections)
+            .fetch_sub(1, Ordering::Relaxed);
+    }
+}
 
 /// The public route a request matched. A closed set: the raw path is never a
 /// label, because a scanner requesting ten thousand distinct paths would
@@ -93,6 +130,8 @@ const BUCKETS_US: [u64; 12] = [
 /// Every counter the gateway keeps.
 #[derive(Debug)]
 pub struct Metrics {
+    connections: [AtomicU64; 2],
+    connection_rejections: [AtomicU64; 2],
     requests: [[AtomicU64; STATUS_SLOTS]; 2],
     overhead_buckets: [AtomicU64; BUCKETS_US.len()],
     overhead_count: AtomicU64,
@@ -109,6 +148,8 @@ pub struct Metrics {
 impl Default for Metrics {
     fn default() -> Self {
         Self {
+            connections: std::array::from_fn(|_| AtomicU64::new(0)),
+            connection_rejections: std::array::from_fn(|_| AtomicU64::new(0)),
             requests: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
             overhead_buckets: std::array::from_fn(|_| AtomicU64::new(0)),
             overhead_count: AtomicU64::new(0),
@@ -156,6 +197,21 @@ const fn upstream_slot(end: UpstreamEnd) -> usize {
 const ABORT_REASONS: [Delivery; 2] = [Delivery::BufferFull, Delivery::Stalled];
 
 impl Metrics {
+    pub(crate) fn connection_opened(self: &Arc<Self>, listener: Listener) -> ConnectionGauge {
+        listener
+            .counter(&self.connections)
+            .fetch_add(1, Ordering::Relaxed);
+        ConnectionGauge {
+            metrics: Arc::clone(self),
+            listener,
+        }
+    }
+    pub(crate) fn connection_rejected(&self, listener: Listener) {
+        listener
+            .counter(&self.connection_rejections)
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
     /// Count one finished request (response head sent) and its overhead.
     pub fn record_request(&self, route: Route, status: u16, overhead: Duration) {
         if let Some(slot) = self
@@ -242,6 +298,23 @@ impl Metrics {
             }
         }
 
+        out.push_str("# TYPE f2z_ai_connections_active gauge\n# TYPE f2z_ai_connections_rejected_total counter\n");
+        for listener in [Listener::Public, Listener::Admin] {
+            let _ = writeln!(
+                out,
+                "f2z_ai_connections_active{{listener=\"{}\"}} {}",
+                listener.label(),
+                listener.counter(&self.connections).load(Ordering::Relaxed)
+            );
+            let _ = writeln!(
+                out,
+                "f2z_ai_connections_rejected_total{{listener=\"{}\"}} {}",
+                listener.label(),
+                listener
+                    .counter(&self.connection_rejections)
+                    .load(Ordering::Relaxed)
+            );
+        }
         out.push_str("# HELP f2z_ai_active_streams Calls whose response body has not ended.\n");
         out.push_str("# TYPE f2z_ai_active_streams gauge\n");
         let _ = writeln!(out, "f2z_ai_active_streams {}", gauges.active_streams);
