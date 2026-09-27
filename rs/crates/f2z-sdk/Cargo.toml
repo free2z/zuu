@@ -81,7 +81,7 @@ keyring-core = { version = "1.0.0", default-features = false, optional = true }
 
 [dev-dependencies]
 axum = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "io-util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "io-util", "test-util"] }
 # `alloc` for `RsaKeyPair`: the fake issuer signs RS256 ID tokens with a
 # test-only key.
 ring = { version = "0.17.14", default-features = false, features = ["alloc"] }

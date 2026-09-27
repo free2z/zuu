@@ -900,3 +900,38 @@ async fn slow_refresh_success_within_configured_timeout_is_not_retried() {
     client.balance().await.unwrap();
     assert_eq!(fake.refresh_calls.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn cancelled_account_switch_during_delete_finishes_before_queued_sign_out() {
+    let fake = Fake::start().await;
+    let store = Arc::new(BlockingStore::new());
+    let client = Client::new(fake.config(), store.clone()).unwrap();
+    client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    store.block_delete.store(true, Ordering::SeqCst);
+    let signer = client.clone();
+    let signin = tokio::spawn(async move {
+        signer
+            .sign_in(
+                &ScriptedBrowser::new(MOBILE_REDIRECT),
+                SignInOptions::default(),
+            )
+            .await
+    });
+    store.wait_entered().await;
+    signin.abort();
+    let _ = signin.await;
+    client.sign_out().await.unwrap();
+    assert!(!client.is_signed_in().await.unwrap());
+    assert!(store.inner.load(&account(&fake)).unwrap().is_none());
+    assert_eq!(
+        fake.live_refresh_tokens(),
+        0,
+        "cancelled switch leaked the new grant"
+    );
+}

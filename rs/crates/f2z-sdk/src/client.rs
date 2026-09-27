@@ -332,51 +332,64 @@ impl Client {
         let subject = id_token.as_ref().map(|c| c.sub.clone());
         let refreshable = tokens.refresh_token.is_some();
 
-        let revoked = {
-            let mut s = self.inner.session.lock().await;
-            if s.generation != started_under {
-                // A sign-out (or another sign-in) finished while this one
-                // waited on the browser. Installing now would undo it.
-                drop(s);
-                if let Some(rt) = tokens.refresh_token {
-                    let _ = self.revoke(&discovery, &Secret::new(rt)).await;
+        // Once validated, replacing a session is one cancellation-independent
+        // transition: durable delete, installation, save and prior revocation.
+        // Sign-out queues behind its owned guard and clears the installed state.
+        let client = self.clone();
+        let transition_subject = subject.clone();
+        let transition_granted = granted.clone();
+        tokio::spawn(async move {
+            let revoked = {
+                let mut s = Arc::clone(&client.inner.session).lock_owned().await;
+                if s.generation != started_under {
+                    // A sign-out (or another sign-in) finished while this one
+                    // waited on the browser. Installing now would undo it.
+                    drop(s);
+                    if let Some(rt) = tokens.refresh_token {
+                        let _ = client.revoke(&discovery, &Secret::new(rt)).await;
+                    }
+                    return Err(Error::SignedOut(SignedOutReason::SessionChanged));
                 }
-                return Err(Error::SignedOut(SignedOutReason::SessionChanged));
-            }
-            // Remove prior durable authority before activating a different
-            // session. A failed replacement save must not restore the old
-            // account on restart, even when remote revocation is unavailable.
-            if let Err(error) = self.store_delete().await {
-                if let Some(rt) = tokens.refresh_token {
-                    let client = self.clone();
+                // Remove prior durable authority before activating a different
+                // session. A failed replacement save must not restore the old
+                // account on restart, even when remote revocation is unavailable.
+                if let Err(error) = client.store_delete().await {
+                    if let Some(rt) = tokens.refresh_token {
+                        let client = client.clone();
+                        let discovery = discovery.clone();
+                        tokio::spawn(
+                            async move { client.revoke(&discovery, &Secret::new(rt)).await },
+                        );
+                    }
+                    return Err(error);
+                }
+                s.loaded = true;
+                s.generation = s.generation.wrapping_add(1);
+                // The previous account must never survive a failed or cancelled
+                // account switch in durable storage. Start revocation before the
+                // first persistence await and let it finish independently.
+                let revoked = s.refresh.take().map(|old| {
+                    let client = client.clone();
                     let discovery = discovery.clone();
-                    tokio::spawn(async move { client.revoke(&discovery, &Secret::new(rt)).await });
+                    tokio::spawn(async move { client.revoke(&discovery, &old).await })
+                });
+                s.subject = transition_subject;
+                let persisted = client.install(&mut s, tokens, &transition_granted).await;
+                if !refreshable {
+                    // No refresh token: nothing to keep across runs, and nothing
+                    // stale may stay behind in the store either.
+                    client.store_delete().await?;
                 }
-                return Err(error);
+                persisted?;
+                revoked
+            };
+            if let Some(revoked) = revoked {
+                let _ = revoked.await;
             }
-            s.loaded = true;
-            s.generation = s.generation.wrapping_add(1);
-            // The previous account must never survive a failed or cancelled
-            // account switch in durable storage. Start revocation before the
-            // first persistence await and let it finish independently.
-            let revoked = s.refresh.take().map(|old| {
-                let client = self.clone();
-                let discovery = discovery.clone();
-                tokio::spawn(async move { client.revoke(&discovery, &old).await })
-            });
-            s.subject = subject.clone();
-            let persisted = self.install(&mut s, tokens, &granted).await;
-            if !refreshable {
-                // No refresh token: nothing to keep across runs, and nothing
-                // stale may stay behind in the store either.
-                self.store_delete().await?;
-            }
-            persisted?;
-            revoked
-        };
-        if let Some(revoked) = revoked {
-            let _ = revoked.await;
-        }
+            Ok::<(), Error>(())
+        })
+        .await
+        .map_err(|e| Error::Internal(format!("sign-in transition task: {e}")))??;
         Ok(SignedIn {
             subject,
             scopes: granted
@@ -626,39 +639,7 @@ impl Client {
             ("refresh_token", refresh.expose()),
             ("client_id", &self.inner.config.client_id),
         ]);
-        // A reset may happen after the issuer rotated this token. Recover
-        // using the same predecessor promptly, inside its 60-second grace.
-        // Each attempt respects the configured request timeout, while the
-        // whole sequence has one deadline shorter than the grace window.
-        // This entire loop owns the session lock in the detached refresh task.
-        let now = tokio::time::Instant::now();
-        let recovery_deadline = now.checked_add(Duration::from_secs(55)).unwrap_or(now);
-        let mut attempt = 0u32;
-        let tokens = loop {
-            let now = tokio::time::Instant::now();
-            if now >= recovery_deadline {
-                break Err(Error::Transport(TransportError::timeout(
-                    "refresh recovery window",
-                )));
-            }
-            let result = tokio::time::timeout_at(
-                recovery_deadline,
-                self.post_token(&token_endpoint, body.clone()),
-            )
-            .await
-            .unwrap_or_else(|_| {
-                Err(Error::Transport(TransportError::timeout(
-                    "refresh response",
-                )))
-            });
-            match result {
-                Err(Error::Transport(_)) if attempt < 2 => {
-                    attempt = attempt.saturating_add(1);
-                    tokio::time::sleep(Duration::from_millis(200).saturating_mul(attempt)).await;
-                }
-                other => break other,
-            }
-        };
+        let tokens = recover_refresh(|| self.post_token(&token_endpoint, body.clone())).await;
         match tokens {
             Ok(tokens) => {
                 let granted = tokens
@@ -821,5 +802,89 @@ impl Client {
                 _ => return Err(Error::Api(Box::new(error))),
             }
         }
+    }
+}
+
+// A lost response may have rotated the token. The first attempt gets up to
+// 30 seconds (the normal request default), leaving a recovery opportunity
+// inside the single 55-second deadline. post_token still applies any shorter
+// configured timeout. Every retry presents the same predecessor.
+async fn recover_refresh<T, F, Fut>(mut send: F) -> Result<T, Error>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, Error>>,
+{
+    let started = tokio::time::Instant::now();
+    let deadline = started
+        .checked_add(Duration::from_secs(55))
+        .unwrap_or(started);
+    let mut attempt = 0u32;
+    loop {
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            return Err(Error::Transport(TransportError::timeout(
+                "refresh recovery window",
+            )));
+        }
+        let attempt_deadline = if attempt == 0 {
+            now.checked_add(Duration::from_secs(30))
+                .unwrap_or(now)
+                .min(deadline)
+        } else {
+            deadline
+        };
+        let result = tokio::time::timeout_at(attempt_deadline, send())
+            .await
+            .unwrap_or_else(|_| {
+                Err(Error::Transport(TransportError::timeout(
+                    "refresh response",
+                )))
+            });
+        match result {
+            Err(Error::Transport(_)) if attempt < 2 => {
+                attempt = attempt.saturating_add(1);
+                tokio::time::sleep(Duration::from_millis(200).saturating_mul(attempt)).await;
+            }
+            other => return other,
+        }
+    }
+}
+
+#[cfg(test)]
+mod refresh_tests {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_first_attempt_leaves_time_to_recover_rotation() {
+        let started = tokio::time::Instant::now();
+        let mut attempts = 0u32;
+        let result = recover_refresh(|| {
+            attempts = attempts.saturating_add(1);
+            let attempt = attempts;
+            async move {
+                if attempt == 1 {
+                    std::future::pending::<()>().await;
+                }
+                Ok(())
+            }
+        })
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(attempts, 2);
+        assert!(started.elapsed() < Duration::from_secs(55));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn stalled_refresh_recovery_never_crosses_the_grace_window() {
+        let started = tokio::time::Instant::now();
+        let mut attempts = 0u32;
+        let result = recover_refresh(|| {
+            attempts = attempts.saturating_add(1);
+            std::future::pending::<Result<(), Error>>()
+        })
+        .await;
+        assert!(matches!(result, Err(Error::Transport(_))));
+        assert_eq!(attempts, 2);
+        assert!(started.elapsed() < Duration::from_secs(60));
     }
 }
