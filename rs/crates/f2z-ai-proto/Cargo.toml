@@ -14,6 +14,10 @@ rust-version = "1.97"
 # would force a second implementation. rs/deny.toml enforces the licence.
 license = "MIT"
 repository.workspace = true
+readme = "README.md"
+# Publish only the reusable library. Repository-only fake examples and prose
+# conformance tests depend on files outside a packaged crate.
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
 # Intended for crates.io (zuu #1047's namespace table), but not published yet:
 # the first publish is a deliberate act once the prose spec (docs/free2z/sdk, #1048)
 # and this crate are reconciled. Until then it inherits `publish = false`, so a
