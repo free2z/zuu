@@ -62,6 +62,7 @@ MANIFESTS=(
   wallet/e2e2z/src-tauri/Cargo.toml
   wallet/plugins/tauri-plugin-zcash/Cargo.toml
   wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml
+  wallet/plugins/tauri-plugin-f2z/Cargo.toml
   rs/crates/f2z-codec/Cargo.toml
   rs/crates/f2z-relay-proto/Cargo.toml
   rs/crates/f2z-authority/Cargo.toml

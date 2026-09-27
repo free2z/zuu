@@ -243,7 +243,20 @@ pub(crate) async fn poll(
     state: Arc<State>,
     metrics: Arc<Metrics>,
     interval: Duration,
+    stop: watch::Receiver<bool>,
+) {
+    poll_with_clock(source, state, metrics, interval, stop, now_unix).await;
+}
+
+// Keep the production clock unchanged while making exact age-boundary tests
+// independent of a wall-clock tick between fetching and installing an offer.
+async fn poll_with_clock(
+    source: Arc<dyn CatalogSource>,
+    state: Arc<State>,
+    metrics: Arc<Metrics>,
+    interval: Duration,
     mut stop: watch::Receiver<bool>,
+    now: impl Fn() -> u64,
 ) {
     loop {
         // A fetch is bounded by the poll interval and interrupted by shutdown:
@@ -257,7 +270,7 @@ pub(crate) async fn poll(
         match fetched {
             Ok(candidate) => {
                 let version = candidate.catalog().version;
-                match state.install(candidate, now_unix()) {
+                match state.install(candidate, now()) {
                     Installed::Replaced => {
                         tracing::info!(version, "verified catalogue installed");
                         metrics.set_catalog_version(version);
@@ -277,7 +290,7 @@ pub(crate) async fn poll(
             }
             Err(reason) => tracing::warn!(%reason, "catalogue fetch failed"),
         }
-        if state.current(now_unix()).is_none() {
+        if state.current(now()).is_none() {
             metrics.set_catalog_version(0);
         }
         tokio::select! {
@@ -406,16 +419,22 @@ mod tests {
         );
     }
 
-    struct Sequence(std::sync::Mutex<Vec<VerifiedCatalog>>);
+    struct Sequence {
+        offers: std::sync::Mutex<Vec<VerifiedCatalog>>,
+        exhausted: tokio::sync::Notify,
+    }
 
     #[async_trait]
     impl CatalogSource for Sequence {
         async fn fetch(&self) -> Result<VerifiedCatalog, String> {
-            let mut left = self.0.lock().unwrap();
-            if left.len() > 1 {
-                Ok(left.remove(0))
+            let mut left = self.offers.lock().unwrap();
+            if left.is_empty() {
+                // This fetch starts only after the previous candidate has been
+                // installed and counted. Never stop before the last offer.
+                self.exhausted.notify_one();
+                Err("sequence exhausted".to_owned())
             } else {
-                left.first().cloned().ok_or_else(|| "empty".to_owned())
+                Ok(left.remove(0))
             }
         }
     }
@@ -437,8 +456,7 @@ mod tests {
     /// dip never touches the replay counter; a beyond-bound one does.
     #[tokio::test]
     async fn only_a_beyond_bound_offer_increments_the_replay_counter() {
-        let now = now_unix();
-        let at = |secs_ago: u64| produced((now - secs_ago) * US);
+        let at = |secs_ago: u64| produced((T - secs_ago) * US);
         for (sequence, want) in [
             (vec![at(0), at(60), at(420), at(0)], "0"),
             (vec![at(0), at(421), at(0)], "1"),
@@ -446,14 +464,21 @@ mod tests {
             let metrics = Arc::new(Metrics::default());
             let state = Arc::new(State::default());
             let (stop_tx, stop) = watch::channel(false);
-            let task = tokio::spawn(poll(
-                Arc::new(Sequence(std::sync::Mutex::new(sequence))),
+            let source = Arc::new(Sequence {
+                offers: std::sync::Mutex::new(sequence),
+                exhausted: tokio::sync::Notify::new(),
+            });
+            let task = tokio::spawn(poll_with_clock(
+                source.clone(),
                 Arc::clone(&state),
                 Arc::clone(&metrics),
                 Duration::from_millis(5),
                 stop,
+                || T,
             ));
-            tokio::time::sleep(Duration::from_millis(150)).await;
+            tokio::time::timeout(Duration::from_secs(5), source.exhausted.notified())
+                .await
+                .expect("poller must process every offered catalogue");
             stop_tx.send_replace(true);
             task.await.unwrap();
             assert_eq!(replays(&metrics), want);
