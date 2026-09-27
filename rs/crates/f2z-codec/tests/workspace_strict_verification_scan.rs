@@ -627,6 +627,16 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
     // point on the curve, and the identity is not an encodable SEC1 point).
     // `jwt::Unverified::verify` is the one place the signature is checked;
     // `Gate::verify` is the token pipeline that calls it.
+    // The Rust SDK's OpenID Connect ID-token check (#1070): an RS256 JWS
+    // from the issuer's JWKS, not an Ed25519 signature.
+    VerifyFn {
+        file: "f2z-sdk/src/oauth/id_token.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::NotASignatureCheck {
+            via: "check_rs256_signature",
+        },
+    },
     VerifyFn {
         file: "f2z-ai/src/auth/jwt.rs",
         name: "verify",
