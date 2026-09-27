@@ -245,6 +245,11 @@ pub struct Config {
     /// Calls in flight at once, gateway-wide, counted until the response body
     /// ends. Beyond it: `503 unavailable` with `Retry-After`.
     pub max_concurrent_calls: usize,
+    /// Public sockets, including incomplete headers and idle keep-alives.
+    /// Size below the process descriptor limit with room for upstream sockets.
+    pub max_connections: usize,
+    /// Separately reserved admin sockets; public traffic cannot borrow them.
+    pub max_admin_connections: usize,
     /// The `Retry-After` sent with an overload or draining `503`, in seconds.
     pub retry_after_secs: u32,
     /// How long a drain waits for in-flight calls before aborting them.
@@ -305,6 +310,8 @@ impl Default for Config {
             listen: SocketAddr::from(([127, 0, 0, 1], 8080)),
             admin_listen: SocketAddr::from(([127, 0, 0, 1], 9090)),
             max_concurrent_calls: 10_000,
+            max_connections: 10_240,
+            max_admin_connections: 32,
             retry_after_secs: 1,
             drain_timeout: Duration::from_secs(300),
             abort_grace: Duration::from_secs(5),
@@ -385,6 +392,8 @@ struct Raw {
     listen: Option<String>,
     admin_listen: Option<String>,
     max_concurrent_calls: Option<u64>,
+    max_connections: Option<u64>,
+    max_admin_connections: Option<u64>,
     retry_after_secs: Option<u64>,
     drain_timeout_secs: Option<u64>,
     abort_grace_secs: Option<u64>,
@@ -441,6 +450,8 @@ const KEYS: &[(&str, Kind)] = &[
     ("listen", Kind::Text),
     ("admin_listen", Kind::Text),
     ("max_concurrent_calls", Kind::Integer),
+    ("max_connections", Kind::Integer),
+    ("max_admin_connections", Kind::Integer),
     ("retry_after_secs", Kind::Integer),
     ("drain_timeout_secs", Kind::Integer),
     ("abort_grace_secs", Kind::Integer),
@@ -643,6 +654,16 @@ impl Config {
                 raw.max_concurrent_calls,
                 defaults.max_concurrent_calls,
             )?,
+            max_connections: size(
+                "max_connections",
+                raw.max_connections,
+                defaults.max_connections,
+            )?,
+            max_admin_connections: size(
+                "max_admin_connections",
+                raw.max_admin_connections,
+                defaults.max_admin_connections,
+            )?,
             retry_after_secs: match raw.retry_after_secs {
                 Some(n) => u32::try_from(n).map_err(|_| err("`retry_after_secs` is too large"))?,
                 None => defaults.retry_after_secs,
@@ -691,6 +712,16 @@ impl Config {
 
     /// The cross-field rules.
     fn validate(&self) -> Result<(), ConfigError> {
+        for (name, value) in [
+            ("max_connections", self.max_connections),
+            ("max_admin_connections", self.max_admin_connections),
+        ] {
+            if value == 0 || value > tokio::sync::Semaphore::MAX_PERMITS {
+                return Err(err(format!(
+                    "`{name}` must be between 1 and the semaphore limit"
+                )));
+            }
+        }
         if self.max_concurrent_calls == 0 {
             return Err(err("`max_concurrent_calls` must be at least 1"));
         }
@@ -1224,5 +1255,24 @@ mod tests {
     fn zero_concurrency_is_refused() {
         assert!(Config::load(None, env(&[("F2Z_AI_MAX_CONCURRENT_CALLS", "0")])).is_err());
         assert!(Config::load(None, env(&[("F2Z_AI_MAX_CONCURRENT_CALLS", "-1")])).is_err());
+    }
+    #[test]
+    fn connection_budgets_are_configurable_and_nonzero() {
+        let defaults = Config::default();
+        assert!(defaults.max_connections >= defaults.max_concurrent_calls + 240);
+        let config = Config::load(
+            None,
+            env(&[
+                ("F2Z_AI_MAX_CONNECTIONS", "17"),
+                ("F2Z_AI_MAX_ADMIN_CONNECTIONS", "3"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(config.max_connections, 17);
+        assert_eq!(config.max_admin_connections, 3);
+        for key in ["F2Z_AI_MAX_CONNECTIONS", "F2Z_AI_MAX_ADMIN_CONNECTIONS"] {
+            assert!(Config::load(None, env(&[(key, "0")])).is_err());
+            assert!(Config::load(None, env(&[(key, "18446744073709551615")])).is_err());
+        }
     }
 }

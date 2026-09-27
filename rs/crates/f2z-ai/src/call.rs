@@ -404,6 +404,21 @@ impl Drop for DeliveryBody {
     fn drop(&mut self) {
         let mut buffer = self.shared.lock();
         match buffer.state {
+            State::Open
+                if self
+                    .shared
+                    .kill
+                    .as_ref()
+                    .is_some_and(ConnectionKill::write_stalled) =>
+            {
+                // The socket deadline may beat the delivery task's periodic
+                // stall check. Keep its outcome/metric, rather than reporting
+                // an ordinary client disconnect just because that timer won.
+                self.shared
+                    .abort_delivery(&mut buffer, Delivery::Stalled, Instant::now());
+                buffer.frames.clear();
+                buffer.killed = true;
+            }
             State::Open if buffer.upstream_done && buffer.frames.is_empty() => {
                 buffer.state = State::Delivered;
             }
