@@ -133,3 +133,44 @@ async fn chunked_upload_without_first_data_times_out_early() {
         Duration::from_secs(3)).await;
     assert!(response.contains("first_byte_timeout"), "{response}");
 }
+
+#[tokio::test]
+async fn shared_ingress_can_size_pending_slow_auth_above_default() {
+    let gate = gate();
+    let mut dependencies = deps(
+        fixed_catalog(),
+        Arc::new(NotImplemented),
+        RecordingSettler::default(),
+    );
+    dependencies.gate = gate.clone();
+    let running = start(
+        &config(&[("F2Z_AI_MAX_PRE_AUTH_UPLOADS_PER_PEER", "32")]),
+        dependencies,
+    )
+    .await;
+    wait_readyz(running.admin, StatusCode::OK).await;
+    let mut held = Vec::new();
+    for _ in 0..20 {
+        let mut socket = TcpStream::connect(running.public).await.unwrap();
+        socket.write_all(b"POST /v1/chat HTTP/1.1\r\nHost: g\r\nContent-Type: application/json\r\nContent-Length: 0\r\nX-Hold-Auth: yes\r\n\r\n").await.unwrap();
+        held.push(socket);
+    }
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while gate.held.load(Ordering::SeqCst) < 20 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("configured ingress allowance did not admit slow checks beyond the default16");
+    assert_eq!(
+        post_chat(
+            running.public,
+            &valid_chat("same ingress, unrelated caller")
+        )
+        .await
+        .status(),
+        StatusCode::NOT_IMPLEMENTED
+    );
+    gate.release.notify_waiters();
+    drop(held);
+}

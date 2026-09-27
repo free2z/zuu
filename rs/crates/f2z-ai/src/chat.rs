@@ -194,6 +194,8 @@ pub struct ChatState {
     pub upload_budget: Arc<Semaphore>,
     /// Per-peer pre-authentication and per-user upload admission.
     pub upload_limits: Arc<UploadLimits>,
+    /// Pending authentication checks allowed per transport peer IP.
+    pub max_pre_auth_uploads_per_peer: usize,
     /// `Retry-After` for a refusal on the upload budget.
     pub retry_after_secs: u32,
     /// How long a backend may take to start a call.
@@ -226,9 +228,10 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
         .extensions
         .get::<std::net::SocketAddr>()
         .ok_or_else(|| ApiFailure::new(ErrorCode::Internal, "request has no transport peer"))?;
-    let preauth = state
-        .upload_limits
-        .acquire(UploadKey::Peer(peer.ip()), 16)?;
+    let preauth = state.upload_limits.acquire(
+        UploadKey::Peer(peer.ip()),
+        state.max_pre_auth_uploads_per_peer,
+    )?;
     let admitted = state.gate.admit(&parts.headers).await?;
     drop(preauth);
     let upload_lease = state

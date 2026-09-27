@@ -206,11 +206,18 @@ for an upstream that keeps the request's bytes to send them
 (`Upstream::keep_upload_reservation`; the provider adapters do, until the
 provider's 2xx head), until it lets them go.
 
-Before authentication there may be at most 16 pending `/v1/chat` checks per
-transport peer IP. The socket peer is authoritative; `Forwarded` and
+Before authentication `max_pre_auth_uploads_per_peer` (default 16, range
+1–65,536; environment `F2Z_AI_MAX_PRE_AUTH_UPLOADS_PER_PEER`) bounds pending
+`/v1/chat` checks per transport peer IP. The socket peer is authoritative; `Forwarded` and
 `X-Forwarded-For` cannot change this key. A reverse proxy therefore shares its
 peer allowance across its clients; trusted forwarded-address attribution would
-require a separate explicit trust configuration. The 10,000-stream capacity
+require a separate explicit trust configuration. Size this allowance for the
+peak new-request rate arriving through each ingress times the worst expected
+JWKS/Redis/epoch-check latency, with headroom for other users. For example,
+100 new calls/second through one peer at a one-second authentication latency
+requires more than 100 pending checks; the default 16 is too small there.
+The global connection and admitted-call limits still cap total work when this
+peer allowance is raised. The 10,000-stream capacity
 requires ramping admission as checks complete; it does not promise a simultaneous
 10,000-request authentication burst from one IP or one ingress. After authentication, at most
 two uploads per verified user may read/decode bodies concurrently, independently
