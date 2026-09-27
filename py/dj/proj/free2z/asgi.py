@@ -6,7 +6,7 @@ from channels.auth import AuthMiddlewareStack
 
 from dj.apps.efm import routing as efm_routing
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dj.proj.zuu.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dj.proj.free2z.settings')
 
 application = ProtocolTypeRouter({
     "http": get_asgi_application(),

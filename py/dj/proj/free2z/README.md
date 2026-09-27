@@ -1,16 +1,19 @@
-# dj.proj.zuu
+# dj.proj.free2z
 
 Parts of the Free2Z backend are open-sourced here.
 
 Prerequisites:
 
-- Tested against Python >= 3.12
-- [Requirements](../../../requirements/main.txt)
+- Historical Python baseline: >= 3.12; this move does not revalidate runtime support.
+- The historical `py/requirements/main.txt` dependency manifest is absent from
+  this public scaffold. Dependency restoration and runtime validation are still
+  required; the commands below describe the expected layout, not a currently
+  supported standalone installation.
 
-## Quickstart
+## Historical setup (after dependencies are restored)
 
-Assuming you are in the `py/` directory with a recent version of Python
-installed, you can create a virtual environment and install the requirements:
+Once the missing manifest and dependencies have been restored, start in the
+`py/` directory and create a virtual environment:
 
 ```bash
 python -m venv env
@@ -19,10 +22,10 @@ pip install -r requirements/main.txt
 export PYTHONPATH=`pwd`
 ```
 
-Then you can run the Django development server:
+The scaffold's development-server entrypoint is:
 
 ```bash
-cd dj/proj/zuu
+cd dj/proj/free2z
 ./manage.py runserver
 ```
 

@@ -135,21 +135,7 @@ const ROUTER_RESOLVED_TARGETS = [];
 ///
 /// An entry that has been fixed fails, so this cannot become a place where
 /// breakage accumulates: the registration dies with the defect.
-const KNOWN_BROKEN_LINKS = [
-  {
-    file: "py/dj/proj/zuu/README.md",
-    target: "../../../requirements/main.txt",
-    reason:
-      "The link is correct about where the file would be — `py/requirements/main.txt`, which " +
-      "is exactly what the same README's own quickstart tells you to `pip install -r` — and " +
-      "the file is absent because only *parts* of the Free2Z backend are open-sourced into " +
-      "this public repository; the requirements manifest stays in the private backend repo. " +
-      "So there is no correct edit available from here: publishing the manifest is a decision " +
-      "about what to open-source, and deleting the link would hide that the quickstart names " +
-      "a file the reader cannot get. Registered rather than guessed at, and this entry fails " +
-      "the moment somebody resolves it either way.",
-  },
-];
+const KNOWN_BROKEN_LINKS = [];
 
 /// Floors. Deliberately floors and not exact counts — adding a document should
 /// not require editing this file — but losing most of the population, or losing
