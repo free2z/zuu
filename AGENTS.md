@@ -146,12 +146,12 @@ integrate, and move it forward alongside everything else.
   could never reproduce the build.)
 - ❌ Rely on transitive/implicit behavior (e.g. a Cargo feature enabled only by
   another crate's unification). Declare what we use.
-- ❌ Add a crate that brings a second `rusqlite`. `libsqlite3-sys` declares
-  `links = "sqlite3"`, and Cargo refuses outright to build a graph containing
-  two versions of a `links` package — a hard error, not a warning. Everything
-  under `wallet/` reaches SQLite through `wallet/plugins/tauri-plugin-zcash`'s
-  `rusqlite = { version = "0.37", features = ["bundled", "array"] }`, and
-  `wallet/zuuli/src-tauri` links that plugin together with the rest of the app,
+- ❌ Add an incompatible second `rusqlite` to a graph that links
+  `tauri-plugin-zcash`. `libsqlite3-sys` declares `links = "sqlite3"`, and
+  Cargo refuses to build a single graph containing two versions of that
+  `links` package. The Zcash plugin uses
+  `rusqlite = { version = "0.37", features = ["bundled", "array"] }`;
+  `wallet/zuuli/src-tauri` links that plugin together with the rest of its app,
   so **rusqlite 0.37 is a constraint on those linked graphs**: a new crate
   entering a graph that links `tauri-plugin-zcash` must resolve compatibly. An
   unrelated project with an independent graph does not inherit this version.
@@ -280,7 +280,7 @@ read a TOML file at the moment they need the value:
 | `rust-version` in every registered `Cargo.toml` manifest | Cargo needs a literal, and it is the **two-component MSRV floor** (`X.Y`) of the three-component channel (`X.Y.Z`) — deliberately a different form, compared as such |
 | `ZUULI_RUST_VERSION` in `zuuli-packaging.yml` and `zuuli-release.yml` | A workflow-level `env:` cannot be computed from a file, and the release jobs verify the installed compiler with `rustc --version \| grep -F "rustc $ZUULI_RUST_VERSION "` |
 | `dtolnay/rust-toolchain@<sha> # <version>` in packaging/release and target-native Zuuallet jobs | The action's **version branches hardcode the compiler in `action.yml` and do not declare a `toolchain` input at all** — a commit-pinned ref *is* the version pin, and the trailing comment is its only readable record |
-| `dtolnay/rust-toolchain@<sha> # stable` in source-derived gate/Zuuallet jobs | `uses:` cannot contain an expression, so the generic action implementation is commit-pinned while its `toolchain:` input still reads the version from `rust-toolchain.toml`; the upstream canary deliberately omits that input so only its compiler selection follows `stable` |
+| `dtolnay/rust-toolchain@<sha> # stable` in source-derived gate/Zuuallet jobs | `uses:` cannot contain an expression, so the generic action implementation is commit-pinned while its `toolchain:` input still reads the version from `rust-toolchain.toml`; the upstream canary omits that input and explicitly sets `RUSTUP_TOOLCHAIN=stable`, so the inherited root pin does not override its installed stable compiler |
 | MSRV/`cargo +<version>` lines in the wallet READMEs, the plugin `CLAUDE.md`, and `wallet/zuuli/docs/releasing.md` | Prose |
 
 A second top-level Rust tree follows the repository compiler default. Rustup
