@@ -49,7 +49,7 @@ first column are historical locations or retained paths.
 | `docs/ZUULI-*.md` | `docs/zuuli/build/` | ZUULI image/capture infrastructure |
 | `docs/e2ee/` | `docs/free2z/messaging/` | Free2Z messaging, enrollment and key-transparency contract |
 | `docs/intent-bridge/` | `docs/free2z/intent-bridge/` | Named app-suite protocol shared by several applications |
-| `docs/sdk/`, `docs/ai-gateway/` | `docs/free2z/sdk/`, `docs/free2z/ai-gateway/` (coordinated namespace change) | The Free2Z developer product; compiled spec tests and CI selectors consume these paths |
+| `docs/sdk/`, `docs/ai-gateway/` | `docs/free2z/sdk/`, `docs/free2z/ai-gateway/` | The Free2Z developer product; compiled spec tests and CI selectors consume these paths |
 | `docs/about-free2z/` | Retain | Named public documentation site, with its own build and assets |
 | `docs/DEPENDENCIES.md` | Retain, owned by ZUU | Enforced repository dependency exception/exit-condition register |
 | `docs/PARALLEL-AGENTS.md` | Retain, owned by ZUU | Repository contribution workflow |
@@ -75,17 +75,17 @@ an implicit Free2Z application.
 | `README.md` | Retain: neutral project index and per-package license guidance |
 | `LICENSE` | Retain: root license; individual projects and upstreams retain their licenses |
 | `docs/` | Retain: named owners/subsystems plus explicit shared-policy exceptions, as mapped above |
-| `langchain/` | Follow-up move: its sole `zcash/` experiment belongs at `py/experiments/zcash-rag/`; avoid presenting the third-party LangChain dependency as our project owner |
-| `py/` | Retain language collection; follow-up `py/dj/proj/zuu/` → `py/dj/proj/free2z/` reflects the actual Free2Z scaffold and requires updating its Python module references |
+| `langchain/` | Moved its sole `zcash/` experiment to `py/experiments/zcash-rag/`; avoid presenting the third-party LangChain dependency as our project owner |
+| `py/` | Retain language collection; `py/dj/proj/zuu/` moved to `py/dj/proj/free2z/` with its Python module references updated to name the actual Free2Z scaffold |
 | `rs/` | Retain: explicit Rust workspace with named protocol/service/SDK crates; independent from app-local Cargo roots |
-| `scripts/` | Retain shared enforcement/tooling; product-only checks should use named subdirectories such as `scripts/free2z/`, with consumers migrated in a coordinated follow-up |
+| `scripts/` | Retain shared enforcement/tooling; the Free2Z AKD, hash-domain, KT-agreement and PoW policies now live under `scripts/free2z/`, with their consumers migrated |
 | `ts/` | Retain language collection with named framework/project roots; Free2Z SDK/reference UI work uses `ts/free2z/`, not generic `ts/sdk/` or `ts/sdk-ui/` |
 | `update_submodules.sh` | Retain: repository-wide upstream maintenance helper |
 | `wallet/` | Retain named wallet/app-suite collection. `shared/` is an explicit package; `plugins/` contains independently reusable, specifically named Tauri packages. Neither forces unrelated SDKs to link a wallet |
 | `z/` | Retain: upstream `organization/repository` namespaces; do not rename vendored projects or apply first-party ownership rules to their contents |
 
-The root `rust-toolchain.toml` is added by the coordinated build-policy change
-as the shared compiler authority, without a version bump. `wallet/` and `rs/`
+The root `rust-toolchain.toml` is the shared compiler authority, without a
+version bump in this namespace refactor. `wallet/` and `rs/`
 retain checked restatements only because isolated build contexts copy or mount
 those subtrees. All these moves preserve APIs and runtime identifiers unless a
 separately reviewed follow-up explicitly addresses module compatibility.

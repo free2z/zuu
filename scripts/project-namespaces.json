@@ -51,6 +51,12 @@
     "docs/ZUULI-STORE-CAPTURE-IMAGE.md",
     "ts/sdk",
     "ts/sdk-ui",
-    "wallet/examples/hello-ai"
+    "wallet/examples/hello-ai",
+    "py/dj/proj/zuu",
+    "langchain/zcash",
+    "scripts/check-akd-doc-evidence.mjs",
+    "scripts/check-hash-domain-labels.mjs",
+    "scripts/check-kt-sth-repeat-agreement.mjs",
+    "scripts/check-pow-policy.mjs"
   ]
 }

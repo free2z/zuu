@@ -25,7 +25,7 @@ const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 // changed. This digest remains the exact selector tripwire; changing it alone
 // cannot bypass the independent executable selector and required-job controls.
 const changeDetectorDigest =
-  "d759fe5d667c85b7bfcdab6a457f55cd196efcde4f0b8084e2a57ce5104feda0";
+  "a74cc78b46a286eeedf747d77a6f64522273d0e81746ca6457c5654d9b1f2bf7";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
