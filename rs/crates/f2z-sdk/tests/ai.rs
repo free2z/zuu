@@ -602,3 +602,36 @@ async fn broken_chat_replay_body_keeps_the_recovery_key() {
     ));
     assert_eq!(keys_for(&fake, "settled").len(), 1);
 }
+
+#[tokio::test]
+async fn cancelling_a_new_key_retry_during_refresh_sends_no_new_call() {
+    let fake = Fake::start().await;
+    let client = signed_in(&fake).await;
+    let mut stream = client
+        .ai()
+        .chat_with(chat_request("error-before-meta"), fast())
+        .await
+        .unwrap();
+    let cancel = stream.cancel_handle();
+    // Retry sends its first attempt with an expired token, then blocks on
+    // the internal 401 refresh. Stop must prevent the post-refresh send.
+    fake.expire_access_tokens();
+    *fake.refresh_body_delay.lock().unwrap() = Duration::from_millis(300);
+    let next = tokio::spawn(async move { stream.next().await });
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while fake.refresh_calls.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
+    cancel.cancel();
+    assert!(matches!(next.await.unwrap(), Err(Error::Cancelled)));
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(
+        keys_for(&fake, "error-before-meta").len(),
+        1,
+        "Stop started a billable retry"
+    );
+    client.balance().await.unwrap();
+}

@@ -138,6 +138,7 @@ pub struct Fake {
     /// Delay added to every refresh answer, to widen a race window.
     pub refresh_delay: Mutex<Duration>,
     pub refresh_body_delay: Mutex<Duration>,
+    pub break_refresh_response_once: AtomicBool,
     pub broken_purchase_bodies: AtomicU32,
     pub broken_chat_replay: AtomicBool,
     /// Scopes the "user" declines at consent.
@@ -240,6 +241,7 @@ impl Fake {
             grace: Mutex::new(Duration::from_secs(60)),
             refresh_delay: Mutex::new(Duration::ZERO),
             refresh_body_delay: Mutex::new(Duration::ZERO),
+            break_refresh_response_once: AtomicBool::new(false),
             broken_purchase_bodies: AtomicU32::new(0),
             broken_chat_replay: AtomicBool::new(false),
             declined_scopes: Mutex::default(),
@@ -609,6 +611,9 @@ async fn token(State(f): State<Arc<Fake>>, body: Bytes) -> Response<Body> {
                             ..entry.clone()
                         },
                     );
+                    if f.break_refresh_response_once.swap(false, Ordering::SeqCst) {
+                        return broken_json(StatusCode::OK);
+                    }
                     delayed_json(
                         json!({"token_type": "Bearer", "access_token": access, "expires_in": 300,
                                "refresh_token": refresh, "scope": entry.scope}),

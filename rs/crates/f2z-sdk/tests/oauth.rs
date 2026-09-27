@@ -617,6 +617,7 @@ struct BlockingStore {
     inner: MemoryStore,
     block_save: std::sync::atomic::AtomicBool,
     block_delete: std::sync::atomic::AtomicBool,
+    fail_save: std::sync::atomic::AtomicBool,
     entered: std::sync::atomic::AtomicBool,
 }
 impl BlockingStore {
@@ -625,6 +626,7 @@ impl BlockingStore {
             inner: MemoryStore::new(),
             block_save: false.into(),
             block_delete: false.into(),
+            fail_save: false.into(),
             entered: false.into(),
         }
     }
@@ -651,6 +653,9 @@ impl TokenStore for BlockingStore {
     fn save(&self, account: &str, value: &f2z_sdk::Secret) -> Result<(), f2z_sdk::StoreError> {
         if self.block_save.load(Ordering::SeqCst) {
             self.block();
+        }
+        if self.fail_save.load(Ordering::SeqCst) {
+            return Err(f2z_sdk::StoreError("injected keychain failure".into()));
         }
         self.inner.save(account, value)
     }
@@ -719,4 +724,93 @@ async fn cancelled_sign_out_during_keychain_delete_still_revokes() {
     );
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert!(store.inner.load(&account(&fake)).unwrap().is_none());
+}
+
+#[tokio::test]
+async fn failed_account_switch_persistence_revokes_the_previous_family() {
+    let fake = Fake::start().await;
+    let store = Arc::new(BlockingStore::new());
+    let client = Client::new(fake.config(), store.clone()).unwrap();
+    client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    store.fail_save.store(true, Ordering::SeqCst);
+    assert!(matches!(
+        client
+            .sign_in(
+                &ScriptedBrowser::new(MOBILE_REDIRECT),
+                SignInOptions::default()
+            )
+            .await,
+        Err(Error::Storage(_))
+    ));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(fake.revoke_calls.load(Ordering::SeqCst), 1);
+    // The old keychain blob remains after the failure, but has no authority.
+    let restored = Client::new(fake.config(), store).unwrap();
+    assert!(matches!(
+        restored.balance().await,
+        Err(Error::SignedOut(SignedOutReason::RefreshRejected))
+    ));
+    client.balance().await.unwrap();
+}
+
+#[tokio::test]
+async fn cancelled_account_switch_persistence_revokes_the_previous_family() {
+    let fake = Fake::start().await;
+    let store = Arc::new(BlockingStore::new());
+    let client = Client::new(fake.config(), store.clone()).unwrap();
+    client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    let old_blob = store.inner.load(&account(&fake)).unwrap().unwrap();
+    store.block_save.store(true, Ordering::SeqCst);
+    let signin = tokio::spawn(async move {
+        client
+            .sign_in(
+                &ScriptedBrowser::new(MOBILE_REDIRECT),
+                SignInOptions::default(),
+            )
+            .await
+    });
+    store.wait_entered().await;
+    signin.abort();
+    let _ = signin.await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let snapshot = Arc::new(MemoryStore::new());
+    snapshot.save(&account(&fake), &old_blob).unwrap();
+    let restored = Client::new(fake.config(), snapshot).unwrap();
+    assert!(matches!(
+        restored.balance().await,
+        Err(Error::SignedOut(SignedOutReason::RefreshRejected))
+    ));
+}
+
+#[tokio::test]
+async fn lost_refresh_response_is_recovered_with_the_same_predecessor() {
+    let fake = Fake::start().await;
+    let (client, store) = signed_in(&fake).await;
+    let before = stored_refresh_token(&store, &fake).unwrap();
+    fake.break_refresh_response_once
+        .store(true, Ordering::SeqCst);
+    fake.expire_access_tokens();
+    client.balance().await.unwrap();
+    assert_eq!(fake.refresh_calls.load(Ordering::SeqCst), 2);
+    assert_ne!(stored_refresh_token(&store, &fake).unwrap(), before);
+    assert_eq!(fake.live_refresh_tokens(), 1);
+    // Expire grace: only the persisted successor can now work.
+    *fake.grace.lock().unwrap() = Duration::ZERO;
+    Client::new(fake.config(), store)
+        .unwrap()
+        .balance()
+        .await
+        .unwrap();
 }

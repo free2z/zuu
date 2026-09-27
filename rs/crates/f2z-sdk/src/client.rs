@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, OnceCell};
 
 use crate::config::{Config, Validated};
-use crate::error::{Error, OAuthError, SignedOutReason};
+use crate::error::{Error, OAuthError, SignedOutReason, TransportError};
 use crate::http;
 use crate::keychain::{Persistence, TokenStore};
 use crate::oauth::{
@@ -330,7 +330,7 @@ impl Client {
         let subject = id_token.as_ref().map(|c| c.sub.clone());
         let refreshable = tokens.refresh_token.is_some();
 
-        let replaced = {
+        let revoked = {
             let mut s = self.inner.session.lock().await;
             if s.generation != started_under {
                 // A sign-out (or another sign-in) finished while this one
@@ -343,7 +343,14 @@ impl Client {
             }
             s.loaded = true;
             s.generation = s.generation.wrapping_add(1);
-            let old = s.refresh.take();
+            // The previous account must never survive a failed or cancelled
+            // account switch in durable storage. Start revocation before the
+            // first persistence await and let it finish independently.
+            let revoked = s.refresh.take().map(|old| {
+                let client = self.clone();
+                let discovery = discovery.clone();
+                tokio::spawn(async move { client.revoke(&discovery, &old).await })
+            });
             s.subject = subject.clone();
             let persisted = self.install(&mut s, tokens, &granted).await;
             if !refreshable {
@@ -352,11 +359,10 @@ impl Client {
                 self.store_delete().await?;
             }
             persisted?;
-            old
+            revoked
         };
-        if let Some(old) = replaced {
-            // A new family replaces the old one; do not leave it valid.
-            let _ = self.revoke(&discovery, &old).await;
+        if let Some(revoked) = revoked {
+            let _ = revoked.await;
         }
         Ok(SignedIn {
             subject,
@@ -607,7 +613,42 @@ impl Client {
             ("refresh_token", refresh.expose()),
             ("client_id", &self.inner.config.client_id),
         ]);
-        match self.post_token(&token_endpoint, body).await {
+        // A reset may happen after the issuer rotated this token. Recover
+        // using the same predecessor promptly, inside its 60-second grace.
+        // Three attempts of at most 15 seconds plus 600 ms backoff stay below
+        // that window, even when the configured request timeout is longer.
+        // This entire loop owns the session lock in the detached refresh task.
+        let now = tokio::time::Instant::now();
+        let recovery_deadline = now.checked_add(Duration::from_secs(55)).unwrap_or(now);
+        let mut attempt = 0u32;
+        let tokens = loop {
+            let now = tokio::time::Instant::now();
+            if now >= recovery_deadline {
+                break Err(Error::Transport(TransportError::timeout(
+                    "refresh recovery window",
+                )));
+            }
+            let result = tokio::time::timeout_at(
+                now.checked_add(Duration::from_secs(15))
+                    .unwrap_or(now)
+                    .min(recovery_deadline),
+                self.post_token(&token_endpoint, body.clone()),
+            )
+            .await
+            .unwrap_or_else(|_| {
+                Err(Error::Transport(TransportError::timeout(
+                    "refresh response",
+                )))
+            });
+            match result {
+                Err(Error::Transport(_)) if attempt < 2 => {
+                    attempt = attempt.saturating_add(1);
+                    tokio::time::sleep(Duration::from_millis(200).saturating_mul(attempt)).await;
+                }
+                other => break other,
+            }
+        };
+        match tokens {
             Ok(tokens) => {
                 let granted = tokens
                     .scope

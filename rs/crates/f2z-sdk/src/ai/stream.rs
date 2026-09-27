@@ -44,6 +44,22 @@ impl CancelHandle {
         self.0.notify.notify_waiters();
     }
 
+    // Covers the whole authenticated send, including waiting for the session
+    // lock, refresh, a 401 body and the internal authentication retry.
+    async fn run<T>(&self, future: impl Future<Output = T>) -> Result<T, Error> {
+        let notified = self.0.notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if self.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        tokio::select! {
+            biased;
+            () = &mut notified => Err(Error::Cancelled),
+            result = future => Ok(result),
+        }
+    }
+
     /// Whether [`CancelHandle::cancel`] was called.
     #[must_use]
     pub fn is_cancelled(&self) -> bool {
@@ -210,24 +226,26 @@ impl ChatStream {
             }
             let key = self.key.clone();
             let body = self.body.clone();
-            let sent = tokio::time::timeout(
-                header_timeout,
-                self.client
-                    .send_authorized_in(&mut self.session, |http, token| {
-                        http.post(&url)
-                            .bearer_auth(token)
-                            .header("Idempotency-Key", &key)
-                            .header(reqwest::header::ACCEPT, "text/event-stream")
-                            .header(reqwest::header::CONTENT_TYPE, "application/json")
-                            .body(body.clone())
-                    }),
-            )
-            .await
-            .unwrap_or_else(|_| {
-                Err(Error::Transport(TransportError::timeout(
-                    "no response headers from the gateway",
-                )))
-            });
+            let sent = self
+                .cancel
+                .run(tokio::time::timeout(
+                    header_timeout,
+                    self.client
+                        .send_authorized_in(&mut self.session, |http, token| {
+                            http.post(&url)
+                                .bearer_auth(token)
+                                .header("Idempotency-Key", &key)
+                                .header(reqwest::header::ACCEPT, "text/event-stream")
+                                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                                .body(body.clone())
+                        }),
+                ))
+                .await?
+                .unwrap_or_else(|_| {
+                    Err(Error::Transport(TransportError::timeout(
+                        "no response headers from the gateway",
+                    )))
+                });
             let response = match sent {
                 Err(Error::Transport(_)) if transport_left > 0 => {
                     transport_left = transport_left.saturating_sub(1);
