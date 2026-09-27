@@ -43,7 +43,9 @@ platform's own apps register the same way. Registration fixes:
 | `client_type` | `public` (native or browser app; **no secret is issued**) or `confidential` (server-side; a `client_secret` is issued and MUST be sent with `client_secret_basic`, or `client_secret_post` if the client cannot set headers) |
 | `redirect_uris` | The exact set of allowed redirect URIs (§3). Matching is exact, except the port of a loopback URI |
 | `allowed_scopes` | The subset of §4 the app may request. Requesting a scope outside it fails with `invalid_scope` |
-| `markup_bps` | The developer markup in basis points applied to every AI call made through this app, credited to the developer. `0` to the platform cap (v1: **5000**, i.e. 50 %). Shown to the user at consent; changing it re-prompts consent (§5) |
+| `markup_bps` | The developer markup in basis points the developer *asks* for on every AI call made through this app. `0` to the platform cap (v1: **5000**, i.e. 50 %). What is actually applied is the **effective markup** below; changing it re-prompts consent when the effective markup rises (§5) |
+| `approved_markup_bps` | Set by the platform, manually: the largest markup it has approved for this app (`0` until any approval). **Effective markup = `min(markup_bps, approved_markup_bps)`.** Raising `markup_bps` above the approved value changes nothing until re-approval — the excess is `pending` — and the platform can lower or withdraw the approval at any time, which takes effect on the next hold for every user ([metering.md](./metering.md) §2.2). Approval is what makes markup earnings — 2Z credits recorded per (user, developer) — administrable ([purchase.md](./purchase.md) §3.1) |
+| `markup_approval` | Derived, for the console and the consent screen: `none` (`markup_bps = 0`), `pending` (`markup_bps > approved_markup_bps`, so some or all of the requested markup is not yet in effect) or `approved` (`markup_bps ≤ approved_markup_bps`). The consent screen shows the *effective* markup, and no line at all when it is `0` |
 | `default_spend_cap_2z`, `default_cap_period` | The cap pre-selected on the consent screen when `ai:invoke` is requested: a whole number of 2Z and a period (§5) |
 | `allow_zcash_assertion` | Whether the app may use the Zcash sign-in grant (§9.4). Off by default |
 | `rails` | Which purchase rails the app offers: `card` and `zcash`, both on for every app. The in-app-purchase rails exist only in Free2Z's own apps in v1 ([purchase.md](./purchase.md) §4) and are not a registration option |
@@ -139,9 +141,12 @@ The result is a **grant**: (user, app, scopes, cap, **consented markup**,
 **consented capture flag**, generation). One grant exists per (user, app).
 Re-authorizing replaces its scopes, cap, markup and capture flag in place
 and never resets its spending history ([metering.md](./metering.md) §4).
-The consented markup — not the registration's current `markup_bps` — is
-what the ledger prices this user's calls with, so raising the markup earns
-nothing from a user until they re-consent. The same applies to debug
+The consented markup is the **ceiling** on what the ledger prices this
+user's calls with — the applied markup is
+`min(consented, the app's current effective markup)`
+([metering.md](./metering.md) §2.2) — so raising the markup earns nothing
+from a user until they re-consent, and a withdrawn approval lowers it for
+everyone without any re-consent. The same applies to debug
 capture: the gateway captures a user's prompts only under a grant whose
 capture flag the user saw and accepted. The user can inspect, edit or
 revoke every grant at `https://free2z.cash/account/apps`:
@@ -161,11 +166,23 @@ revoke every grant at `https://free2z.cash/account/apps`:
   grant. The next request with any older access token fails with
   `401 token_revoked`.
 
-The IdP re-prompts consent (`prompt=consent` behaviour, even when the client
-did not ask for it) when the app's `markup_bps` has increased since the grant
-was made, when the app has since enabled debug capture, or when requested
-scopes are not all already granted. Until the user re-consents, the
-existing grant continues on its old terms; nothing about a registration
+The markup a grant records is the app's **effective** markup at consent:
+`min(markup_bps, approved_markup_bps)` (§2). A user who consented while
+the requested markup was not yet approved therefore holds a grant with
+the then-effective (possibly `0`) markup, and **approval changes nothing
+for existing grants**: they stay where they are until the user
+re-consents and sees the new markup line. The consented markup is a
+**ceiling**, not the price: what a call is actually priced with is
+`min(consented, the app's effective markup at hold time)`
+([metering.md](./metering.md) §2.2), so a withdrawn or lowered approval
+reaches every user on their next call, and a user is never charged more
+than they consented to. The IdP re-prompts consent (`prompt=consent`
+behaviour, even when the client did not ask for it) when the app's
+*effective* markup has risen above the grant's consented markup — which
+includes approval being granted — when the app has since enabled debug
+capture, or when requested scopes are not all already granted. Until the
+user re-consents, the existing grant continues on its old terms; nothing
+about a registration
 change invalidates tokens.
 
 ## 6. Access tokens

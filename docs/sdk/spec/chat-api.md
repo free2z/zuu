@@ -34,7 +34,7 @@ checked by each terminal type's `check()`.
 | Errors | Every non-2xx response is the envelope in [errors.md](./errors.md); whether a code is retryable, and which status it arrives with, are properties of the code (`f2z-ai-proto::ErrorCode`) |
 | Ids | `call_id` is a UUIDv7 assigned by the gateway and returned in the `X-F2Z-Call-Id` response header on every `/v1/chat` response, streamed or not, including errors after a call was created |
 | Idempotency | `Idempotency-Key` header, 1–128 ASCII characters, scoped to (app, user). Recommended on every `/v1/chat` (§2.5) |
-| Rate limits | Per (app, user): a token bucket on requests and a concurrency limit of **4 open streams per user**. A call counts as open from its hold until it is settled or released — a call whose client has disconnected but whose upstream is still being read (§2.4) **still counts**, because it is still consuming provider capacity; the 16-open-hold limit bounds it too. Exceeding either is `429` with `Retry-After` (§8) |
+| Rate limits | Per (app, user): a token bucket on requests and a concurrency limit of **4 open streams per user**. A call counts as open from its hold until that hold is settled, released or expired — a call whose client has disconnected but whose upstream is still being read (§2.4) **still counts**, because it is still consuming provider capacity, and a call whose gateway died stops counting when its hold expires; the 16-open-hold limit bounds it too. Exceeding either is `429` with `Retry-After` (§8) |
 | Timeouts | The first-byte limit is per model and published in `/v1/models` (`ttfb_timeout_ms`); the provider connect timeout is a fixed 5 s; a stream that produces nothing for **60 s** ends with `error provider_timeout`; no call runs longer than **300 s** |
 
 ## 2. `POST /v1/chat`
@@ -174,8 +174,10 @@ does not (the socket was too stalled even for that) sees a close without
 a terminal event, treats it as `stream_interrupted`, and learns the same
 thing from `GET /v1/calls/{id}`. In every case the call settles on the
 provider's usage, and the record has the outcome once its `status` is
-terminal. A drained call still counts toward the 4-stream limit until it
-settles (§1). There is no cancel endpoint: a closed connection is
+terminal. A drained call still counts toward the 4-stream limit until its
+hold is settled, released or expired (§1) — one removal per counted
+call, so a call that expires into `released` leaves the count too. There
+is no cancel endpoint: a closed connection is
 unambiguous and cannot be forged.
 
 ### 2.5 Idempotency
@@ -366,8 +368,8 @@ data: {"charged_2z":1,"receipt_id":"rcpt_019a2f1d-2b0e-7c4a-9f11-6d0e2a8b3c44","
 
 | Field | Meaning |
 |---|---|
-| `charged_2z` | The final charge, in whole 2Z |
-| `receipt_id` | The ledger's id for this settlement — what a statement line points at. Distinct from `call_id`; absent while `settlement` is `pending` |
+| `charged_2z` | The final charge, in whole 2Z. **`settlement` means final**: once it is `settled` or `released`, this number never changes — nothing settles a call twice, and a settle that arrives after the hold expired charges nothing ([metering.md](./metering.md) §5.6) |
+| `receipt_id` | The ledger's id for this settlement — what a statement line points at. Distinct from `call_id`; absent while `settlement` is `pending` and when nothing was charged |
 | `finish_reason` | `stop`, `length` (hit `max_output_tokens` — check `meta` for whether that was clamped), `tool_calls`, `content_filter`, `cancelled` |
 | `balance_hint_milli_2z` | The user's **available** balance after this settlement, as of settlement. A hint: other calls may have moved it. `GET /api/sdk/v1/balance` is authoritative |
 | `settlement` | `settled` (the default when absent); `pending` when the ledger had not confirmed the charge within 10 s of the provider finishing ([metering.md](./metering.md) §5.11) — every 2Z field except `hold_2z` is then **absent** and the client reads `GET /v1/calls/{id}` until `status` is terminal (`settled`, `settled_partial` or `released`) — not merely until it leaves `settling`, because after a `delivery_aborted` the record can still be `streaming` while the provider finishes; or `released` when the settler found the hold already expired ([metering.md](./metering.md) §5.6) — `charged_2z` is `0` and no `receipt_id` exists. In the crate `charged_2z` and `receipt_id` are optional, and `Done::check()` enforces which state requires which |
@@ -395,7 +397,7 @@ data: {"code":"provider_error","message":"The provider closed the stream before 
 |---|---|
 | `code` | From [errors.md](./errors.md). After `meta`: `provider_error`, `provider_timeout`, `internal`, or `delivery_aborted` (the per-stream buffer filled — the call goes on upstream and settles; `settlement` is `pending` and the record has the outcome; not retryable, since retrying would be a second call). Before `meta`: any pre-stream code (§3.1). Whether a retry can succeed is a property of the code, not a field |
 | `message` | For a log, not for the user; SDKs map `code` to user-facing copy. Never contains prompt or completion text |
-| `settlement` | As in `done`: `settled` (default), `pending`, or `released` (the settler found the hold expired — `charged_2z: 0`). An error after output is settled for what was produced, and the ledger can be unreachable or the hold expired then too |
+| `settlement` | As in `done`, and **`settlement` means final**: `settled` (default) or `released` is the ledger's last word on this call, and only `pending` leaves anything to read from the record. `settled` with `charged_2z: 0` and no `receipt_id` is an **uncharged** call — the provider failed before producing anything ([metering.md](./metering.md) §5.2) — not a pending one. `released` is the settler finding the hold expired ([metering.md](./metering.md) §5.6): `charged_2z: 0`, a platform write-off. An error after output is settled for what was produced, and the ledger can be unreachable or the hold expired then too |
 | `charged_2z`, `receipt_id`, `collected_milli_2z`, `shortfall_milli_2z` | What this failed call still cost, as in `done`. `charged_2z: 0` and no `receipt_id` when the provider failed before producing anything ([metering.md](./metering.md) §5.2); absent when `settlement` is `pending` |
 | `partial` | `true` when the client received at least one `delta` or `tool_call` before the error |
 
@@ -540,7 +542,7 @@ model ids, API styles, safety factors) are not projected.
 | Field | Meaning |
 |---|---|
 | `catalog_version` | The signed catalogue's `version`: an integer that only increases. A `meta` event does not carry it; `GET /v1/calls/{id}` does |
-| `includes_markup_bps` | The markup the calling user consented to for this app, already inside every price below. `0` for an app without markup |
+| `includes_markup_bps` | The markup a hold would apply right now for the calling grant — `min(consented, the app's effective markup)` ([metering.md](./metering.md) §2.2) — already inside every price below. `0` for an app without an approved markup |
 | `prices.*_milli_2z_per_mtok` | Milli-2Z per **million** tokens (`mtok`), rounded **up** to an integer from the exact rate ([metering.md](./metering.md) §2.4) — a client's own estimate from these is within one 2Z of the ledger's charge, not a bound. `0` means the model has no such price (no cache pricing; no per-image price, so images are billed as tokens) |
 | `image_milli_2z`, `tool_call_milli_2z` | Per-unit prices where the provider bills per unit; `0` otherwise |
 | `min_charge_2z` | The floor for a call on this model, in whole 2Z. Never below `1`: the catalogue refuses a model priced at zero minimum |
