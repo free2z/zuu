@@ -110,6 +110,19 @@ fn b64(segment: &str, what: &str) -> Result<Vec<u8>, Error> {
         .map_err(|_| bad(format!("{what} is not base64url")))
 }
 
+/// RSASSA-PKCS1-v1_5 with SHA-256 over `message`, by the public key
+/// `(n, e)`; `ring` refuses moduli under 2048 bits.
+fn check_rs256_signature(
+    n: &[u8],
+    e: &[u8],
+    message: &[u8],
+    signature: &[u8],
+) -> Result<(), Error> {
+    RsaPublicKeyComponents { n, e }
+        .verify(&RSA_PKCS1_2048_8192_SHA256, message, signature)
+        .map_err(|_| bad("signature does not verify"))
+}
+
 /// What the token must say, besides its signature.
 pub(crate) struct Expected<'a> {
     pub issuer: &'a str,
@@ -154,13 +167,7 @@ pub(crate) fn verify(
     let signing_input = token
         .get(..signing_input_len)
         .ok_or_else(|| bad("malformed token"))?;
-    RsaPublicKeyComponents { n: &n, e: &e }
-        .verify(
-            &RSA_PKCS1_2048_8192_SHA256,
-            signing_input.as_bytes(),
-            &signature,
-        )
-        .map_err(|_| bad("signature does not verify"))?;
+    check_rs256_signature(&n, &e, signing_input.as_bytes(), &signature)?;
 
     let claims: RawClaims =
         serde_json::from_slice(&b64(p, "payload")?).map_err(|e| bad(format!("claims: {e}")))?;
