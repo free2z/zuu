@@ -571,3 +571,34 @@ async fn an_unanswered_call_reports_its_key_for_recovery() {
         "never charged twice"
     );
 }
+
+#[tokio::test]
+async fn broken_chat_replay_body_keeps_the_recovery_key() {
+    let fake = Fake::start().await;
+    let client = signed_in(&fake).await;
+    let options = fast().with_idempotency_key("body-recovery");
+    let mut first = client
+        .ai()
+        .chat_with(chat_request("settled"), options.clone())
+        .await
+        .unwrap();
+    while first.next().await.unwrap().is_some() {}
+    fake.broken_chat_replay.store(true, Ordering::SeqCst);
+    let err = client
+        .ai()
+        .chat_with(chat_request("settled"), options.clone())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, Error::Unconfirmed { idempotency_key, .. } if idempotency_key == "body-recovery")
+    );
+    fake.broken_chat_replay.store(false, Ordering::SeqCst);
+    assert!(matches!(
+        client
+            .ai()
+            .chat_with(chat_request("settled"), options)
+            .await,
+        Err(Error::Replayed(_))
+    ));
+    assert_eq!(keys_for(&fake, "settled").len(), 1);
+}

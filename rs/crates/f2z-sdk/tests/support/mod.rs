@@ -137,6 +137,9 @@ pub struct Fake {
     pub grace: Mutex<Duration>,
     /// Delay added to every refresh answer, to widen a race window.
     pub refresh_delay: Mutex<Duration>,
+    pub refresh_body_delay: Mutex<Duration>,
+    pub broken_purchase_bodies: AtomicU32,
+    pub broken_chat_replay: AtomicBool,
     /// Scopes the "user" declines at consent.
     pub declined_scopes: Mutex<Vec<String>>,
     /// Sign ID tokens with this nonce instead of the request's.
@@ -236,6 +239,9 @@ impl Fake {
             gateway: Mutex::default(),
             grace: Mutex::new(Duration::from_secs(60)),
             refresh_delay: Mutex::new(Duration::ZERO),
+            refresh_body_delay: Mutex::new(Duration::ZERO),
+            broken_purchase_bodies: AtomicU32::new(0),
+            broken_chat_replay: AtomicBool::new(false),
             declined_scopes: Mutex::default(),
             id_token_nonce_override: Mutex::default(),
             require_step_up: AtomicBool::new(false),
@@ -603,10 +609,10 @@ async fn token(State(f): State<Arc<Fake>>, body: Bytes) -> Response<Body> {
                             ..entry.clone()
                         },
                     );
-                    json_response(
-                        StatusCode::OK,
+                    delayed_json(
                         json!({"token_type": "Bearer", "access_token": access, "expires_in": 300,
                                "refresh_token": refresh, "scope": entry.scope}),
+                        *f.refresh_body_delay.lock().unwrap(),
                     )
                 }
                 RState::Rotated {
@@ -759,6 +765,9 @@ async fn create_purchase(
             );
         }
         let intent = f.purchases.lock().unwrap().intents[&id].clone();
+        if f.broken_purchase_bodies.load(Ordering::SeqCst) == 2 {
+            return broken_json(StatusCode::CREATED);
+        }
         return json_response(StatusCode::CREATED, intent);
     }
     let req: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
@@ -799,6 +808,9 @@ async fn create_purchase(
     };
     if !delay.is_zero() {
         tokio::time::sleep(delay).await;
+    }
+    if f.broken_purchase_bodies.load(Ordering::SeqCst) > 0 {
+        return broken_json(StatusCode::CREATED);
     }
     json_response(StatusCode::CREATED, intent)
 }
@@ -908,6 +920,9 @@ async fn chat(State(f): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) -> Re
         if let Some(rec) = g.records_by_key.get(&key).cloned() {
             let mut rec = rec;
             rec["replayed"] = json!(true);
+            if f.broken_chat_replay.load(Ordering::SeqCst) {
+                return broken_json(StatusCode::OK);
+            }
             return json_response(StatusCode::OK, rec);
         }
         g.calls.push((model.clone(), key.clone()));
@@ -1270,4 +1285,34 @@ pub fn chat_request(model: &str) -> f2z_sdk::proto::ChatRequest {
         "max_output_tokens": 800
     }))
     .unwrap()
+}
+
+// Flush headers and a partial body before resetting the connection.
+fn broken_json(status: StatusCode) -> Response<Body> {
+    let stream = futures_util::stream::unfold(0, |step| async move {
+        match step {
+            0 => Some((Ok::<_, std::io::Error>(Bytes::from_static(b"{")), 1)),
+            1 => {
+                tokio::time::sleep(Duration::from_millis(30)).await;
+                Some((Err(std::io::Error::other("injected body reset")), 2))
+            }
+            _ => None,
+        }
+    });
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from_stream(stream))
+        .unwrap()
+}
+
+fn delayed_json(value: Value, delay: Duration) -> Response<Body> {
+    let stream = futures_util::stream::once(async move {
+        tokio::time::sleep(delay).await;
+        Ok::<_, Infallible>(Bytes::from(serde_json::to_vec(&value).unwrap()))
+    });
+    Response::builder()
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from_stream(stream))
+        .unwrap()
 }

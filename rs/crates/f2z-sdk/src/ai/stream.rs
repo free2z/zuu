@@ -255,7 +255,8 @@ impl ChatStream {
                     // was asked for.
                     let record: CallRecord = bounded(header_timeout, http::read_json(response))
                         .await
-                        .map_err(|e| unconfirmed(e, &self.key))??;
+                        .and_then(std::convert::identity)
+                        .map_err(|e| unconfirmed(e, &self.key))?;
                     return Err(Error::Replayed(Box::new(record)));
                 }
                 return Err(Error::Protocol(format!(

@@ -590,3 +590,133 @@ async fn a_late_token_revoked_does_not_clear_a_newer_session() {
     assert!(client.is_signed_in().await.unwrap());
     assert!(stored_refresh_token(&store, &fake).is_some());
 }
+
+#[tokio::test]
+async fn cancelled_refresh_persists_the_rotated_token_after_response_headers() {
+    let fake = Fake::start().await;
+    let (client, store) = signed_in(&fake).await;
+    let before = stored_refresh_token(&store, &fake).unwrap();
+    *fake.grace.lock().unwrap() = Duration::ZERO;
+    *fake.refresh_body_delay.lock().unwrap() = Duration::from_millis(200);
+    fake.expire_access_tokens();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(80), client.balance())
+            .await
+            .is_err()
+    );
+    assert_eq!(fake.refresh_calls.load(Ordering::SeqCst), 1);
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    assert_ne!(stored_refresh_token(&store, &fake).unwrap(), before);
+    // A new process can use the persisted successor with zero grace.
+    let restored = Client::new(fake.config(), store).unwrap();
+    restored.balance().await.unwrap();
+    assert_eq!(fake.live_refresh_tokens(), 1);
+}
+
+struct BlockingStore {
+    inner: MemoryStore,
+    block_save: std::sync::atomic::AtomicBool,
+    block_delete: std::sync::atomic::AtomicBool,
+    entered: std::sync::atomic::AtomicBool,
+}
+impl BlockingStore {
+    fn new() -> Self {
+        Self {
+            inner: MemoryStore::new(),
+            block_save: false.into(),
+            block_delete: false.into(),
+            entered: false.into(),
+        }
+    }
+    fn block(&self) {
+        self.entered.store(true, Ordering::SeqCst);
+        // Bounded OS-thread watchdog makes the negative control fail instead
+        // of deadlocking the single-thread Tokio test runtime forever.
+        std::thread::sleep(Duration::from_millis(600));
+    }
+    async fn wait_entered(&self) {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !self.entered.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+}
+impl TokenStore for BlockingStore {
+    fn load(&self, account: &str) -> Result<Option<f2z_sdk::Secret>, f2z_sdk::StoreError> {
+        self.inner.load(account)
+    }
+    fn save(&self, account: &str, value: &f2z_sdk::Secret) -> Result<(), f2z_sdk::StoreError> {
+        if self.block_save.load(Ordering::SeqCst) {
+            self.block();
+        }
+        self.inner.save(account, value)
+    }
+    fn delete(&self, account: &str) -> Result<(), f2z_sdk::StoreError> {
+        if self.block_delete.load(Ordering::SeqCst) {
+            self.block();
+        }
+        self.inner.delete(account)
+    }
+    fn persistence(&self) -> Persistence {
+        Persistence::Persistent
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn cancelled_keychain_save_does_not_block_the_runtime_on_sign_out() {
+    let fake = Fake::start().await;
+    let store = Arc::new(BlockingStore::new());
+    store.block_save.store(true, Ordering::SeqCst);
+    let client = Client::new(fake.config(), store.clone()).unwrap();
+    let signer = client.clone();
+    let signin = tokio::spawn(async move {
+        signer
+            .sign_in(
+                &ScriptedBrowser::new(MOBILE_REDIRECT),
+                SignInOptions::default(),
+            )
+            .await
+    });
+    store.wait_entered().await;
+    signin.abort();
+    let _ = signin.await;
+    let logout = tokio::spawn(async move { client.sign_out().await });
+    let start = std::time::Instant::now();
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    assert!(
+        start.elapsed() < Duration::from_millis(250),
+        "runtime was blocked by keychain I/O"
+    );
+    logout.await.unwrap().unwrap();
+    assert!(store.inner.load(&account(&fake)).unwrap().is_none());
+}
+
+#[tokio::test]
+async fn cancelled_sign_out_during_keychain_delete_still_revokes() {
+    let fake = Fake::start().await;
+    let store = Arc::new(BlockingStore::new());
+    let client = Client::new(fake.config(), store.clone()).unwrap();
+    client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    store.block_delete.store(true, Ordering::SeqCst);
+    let logout = tokio::spawn(async move { client.sign_out().await });
+    store.wait_entered().await;
+    logout.abort();
+    let _ = logout.await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        fake.live_refresh_tokens(),
+        0,
+        "revocation must not wait for local I/O"
+    );
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(store.inner.load(&account(&fake)).unwrap().is_none());
+}

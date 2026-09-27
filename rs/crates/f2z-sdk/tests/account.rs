@@ -170,3 +170,41 @@ async fn purchase_refusals_carry_their_details_and_are_not_retried() {
         Err(Error::Api(e)) if e.code == "purchase_not_found"
     ));
 }
+
+#[tokio::test]
+async fn broken_purchase_body_retries_the_same_intent() {
+    let fake = Fake::start().await;
+    let client = signed_in(fake.config()).await;
+    fake.broken_purchase_bodies.store(1, Ordering::SeqCst);
+    let intent = client
+        .create_purchase(&PurchaseRequest::card(
+            Whole2z::new(100),
+            Platform::Web,
+            "http://127.0.0.1:1/r",
+        ))
+        .await
+        .unwrap();
+    assert!(intent.id.ends_with("000000000000"));
+    assert_eq!(fake.create_calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn exhausted_purchase_body_retries_return_the_generated_recovery_key() {
+    let fake = Fake::start().await;
+    let client = signed_in(fake.config()).await;
+    fake.broken_purchase_bodies.store(2, Ordering::SeqCst);
+    let request = PurchaseRequest::card(Whole2z::new(100), Platform::Web, "http://127.0.0.1:1/r");
+    let err = client.create_purchase(&request).await.unwrap_err();
+    let Error::Unconfirmed {
+        idempotency_key, ..
+    } = err
+    else {
+        panic!("lost purchase recovery key: {err:?}")
+    };
+    fake.broken_purchase_bodies.store(0, Ordering::SeqCst);
+    let recovered = client
+        .create_purchase(&request.with_idempotency_key(idempotency_key))
+        .await
+        .unwrap();
+    assert!(recovered.id.ends_with("000000000000"));
+}

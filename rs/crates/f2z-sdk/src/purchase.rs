@@ -302,9 +302,18 @@ impl Client {
                         .body(body.clone())
                 })
                 .await;
-            let response = match sent {
-                // No response at all: the request may or may not have
-                // reached the server, so re-send it with the SAME key.
+            // Success headers do not confirm an intent: its complete body is
+            // needed too. Both transport failure boundaries use the same key.
+            let received = match sent {
+                Ok(response) if response.status().is_success() => {
+                    http::read_json(response).await.map(Ok)
+                }
+                Ok(response) => Ok(Err(response)),
+                Err(error) => Err(error),
+            };
+            let response = match received {
+                Ok(Ok(intent)) => return Ok(intent),
+                Ok(Err(response)) => response,
                 Err(Error::Transport(_)) if transport_left > 0 => {
                     transport_left = transport_left.saturating_sub(1);
                     tokio::time::sleep(delay).await;
@@ -312,17 +321,13 @@ impl Client {
                     continue;
                 }
                 Err(Error::Transport(cause)) => {
-                    // Every re-send went unanswered: the intent may exist.
                     return Err(Error::Unconfirmed {
                         idempotency_key: key,
                         cause,
                     });
                 }
-                other => other?,
+                Err(error) => return Err(error),
             };
-            if response.status().is_success() {
-                return http::read_json(response).await;
-            }
             let error = http::read_error(response).await;
             let in_flight = error.code == "idempotency_conflict"
                 && error

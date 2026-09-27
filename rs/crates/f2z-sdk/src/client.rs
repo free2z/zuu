@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use reqwest::StatusCode;
@@ -55,16 +56,16 @@ pub(crate) struct Inner {
     /// a slow save whose caller was cancelled can never land after a later
     /// delete or a later session's save.
     store_order: Arc<std::sync::Mutex<StoreOrder>>,
+    store_issued: AtomicU64,
     account: String,
     discovery: OnceCell<Discovery>,
-    session: Mutex<SessionState>,
+    session: Arc<Mutex<SessionState>>,
     pub(crate) models_cache: std::sync::Mutex<Option<(String, crate::ai::Models)>>,
 }
 
-/// Issued and last-applied sequence numbers of store writes.
+/// Last-applied sequence number of store writes.
 #[derive(Debug, Default)]
 struct StoreOrder {
-    issued: u64,
     applied: u64,
 }
 
@@ -177,9 +178,10 @@ impl Client {
                 config,
                 store,
                 store_order: Arc::default(),
+                store_issued: AtomicU64::new(0),
                 account,
                 discovery: OnceCell::new(),
-                session: Mutex::new(SessionState::default()),
+                session: Arc::new(Mutex::new(SessionState::default())),
                 models_cache: std::sync::Mutex::new(None),
             }),
         })
@@ -389,30 +391,21 @@ impl Client {
         }
         let refresh = s.refresh.take();
         s.reset();
-        // Local state first: the store delete is issued before anything that
-        // can stall, and its blocking task completes even if this future is
-        // dropped — a cancelled sign-out never leaves the session restorable.
+        // Start remote cleanup before awaiting the independently ordered local
+        // delete. Neither operation depends on the caller staying alive.
+        let client = self.clone();
+        let revoked = tokio::spawn(async move {
+            match refresh {
+                Some(rt) => match client.discovery().await {
+                    Ok(d) => client.revoke(&d.clone(), &rt).await,
+                    Err(_) => false,
+                },
+                None => false,
+            }
+        });
         let deleted = self.store_delete().await;
         drop(s);
-        // The revocation runs on its own task for the same reason: the only
-        // copy of the refresh token is in it now.
-        let revoked = match refresh {
-            Some(rt) => {
-                let client = self.clone();
-                tokio::spawn(async move {
-                    match client.discovery().await {
-                        Ok(d) => {
-                            let d = d.clone();
-                            client.revoke(&d, &rt).await
-                        }
-                        Err(_) => false,
-                    }
-                })
-                .await
-                .unwrap_or(false)
-            }
-            None => false,
-        };
+        let revoked = revoked.await.unwrap_or(false);
         deleted?;
         Ok(revoked)
     }
@@ -470,7 +463,7 @@ impl Client {
         &self,
         generation: &mut Option<u64>,
     ) -> Result<Secret, Error> {
-        let mut s = self.inner.session.lock().await;
+        let mut s = Arc::clone(&self.inner.session).lock_owned().await;
         self.ensure_loaded(&mut s).await?;
         match *generation {
             Some(g) if g != s.generation => {
@@ -481,7 +474,12 @@ impl Client {
         if let Some(access) = s.access.as_ref().filter(|a| a.fresh()) {
             return Ok(access.token.clone());
         }
-        self.refresh_locked(&mut s).await
+        // Move the guard into the task: rotation and durable persistence remain
+        // single-flight and complete even when the initiating request is dropped.
+        let client = self.clone();
+        tokio::spawn(async move { client.refresh_locked(&mut s).await })
+            .await
+            .map_err(|e| Error::Internal(format!("refresh task: {e}")))?
     }
 
     // ------------------------------------------------------------------
@@ -545,13 +543,8 @@ impl Client {
     /// write that a later one has already overtaken is skipped.
     async fn store_write(&self, write: StoreWrite) -> Result<(), Error> {
         let order = Arc::clone(&self.inner.store_order);
-        let seq = {
-            let mut o = order
-                .lock()
-                .map_err(|_| Error::Storage("store order lock poisoned".into()))?;
-            o.issued = o.issued.wrapping_add(1);
-            o.issued
-        };
+        // Never acquire the blocking I/O mutex on a runtime thread.
+        let seq = self.inner.store_issued.fetch_add(1, Ordering::Relaxed);
         let store = Arc::clone(&self.inner.store);
         let account = self.inner.account.clone();
         tokio::task::spawn_blocking(move || {
