@@ -162,6 +162,9 @@ pub fn charge(input: Charge) -> Value {
 }
 pub fn call_record(record: &CallRecord) -> Result<Value> {
     let mut result = value(record)?;
+    // Caller metadata is opaque JSON, not a monetary DTO. Preserve its types.
+    result["metadata"] =
+        serde_json::to_value(&record.metadata).map_err(|_| NativeError::new("protocol_error"))?;
     result["charge"] = charge(record.charge());
     if let Some(error) = result.get_mut("error").and_then(Value::as_object_mut) {
         error.remove("message");
@@ -306,6 +309,22 @@ mod tests {
             assert!(decimal(bad).is_err());
         }
         assert_eq!(decimal("18446744073709551615").unwrap(), u64::MAX);
+    }
+    #[test]
+    fn record_metadata_is_opaque_while_receipt_integers_are_exact() {
+        let metadata = json!({"attempt":1,"charged_2z":3,"nested":[0,-1,1.5,{"input_tokens":4}],"string":"5","flag":true});
+        let record: CallRecord = serde_json::from_value(json!({
+            "call_id":"c", "status":"settled", "charged_2z":u64::MAX,
+            "receipt_id":"receipt", "usage":{"input_tokens":2,"output_tokens":3},
+            "metadata":metadata
+        }))
+        .unwrap();
+        let result = call_record(&record).unwrap();
+        assert_eq!(result["metadata"], metadata);
+        assert_eq!(result["charged_2z"], u64::MAX.to_string());
+        assert_eq!(result["usage"]["input_tokens"], "2");
+        let replay = NativeError::from(Error::Replayed(Box::new(record)));
+        assert_eq!(replay.record.as_ref().unwrap()["metadata"], metadata);
     }
     #[test]
     fn provisional_charge_never_becomes_a_receipt() {
