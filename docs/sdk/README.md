@@ -17,6 +17,7 @@ Tauri 2 for desktop, iOS and Android. **iOS and Android are equal, first-class
 targets alongside desktop and web**; nothing in this contract is desktop-first.
 
 For application work, start with the [integration handoff](./INTEGRATION.md).
+Package maintainers can use the [release verification guide](./RELEASING.md).
 It separates the implemented Rust preview and mock flows from the pending
 Tauri/TypeScript packages and live-platform prerequisites.
 

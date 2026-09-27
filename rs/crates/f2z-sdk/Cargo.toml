@@ -12,6 +12,10 @@ rust-version = "1.97"
 # not impose a licence on them. rs/deny.toml enforces the licence.
 license = "MIT"
 repository.workspace = true
+readme = "README.md"
+# Publish only the reusable library. Repository-only fake examples and prose
+# conformance tests depend on files outside a packaged crate.
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
 # Intended for crates.io (zuu #1047's namespace table), but not published
 # until v1: the public surface is frozen at 1.0, and a stray `cargo publish`
 # must not freeze an unreviewed 0.1.0 forever.

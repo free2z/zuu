@@ -4,8 +4,8 @@
 its native adapter boundary, and mock-driven flows now. Real end-to-end SDK
 integration is not ready yet. The API examples below target Rust core
 [PR #1071](https://github.com/free2z/zuu/pull/1071), revision
-[`27bed9be`](https://github.com/free2z/zuu/commit/27bed9be05902876182f8cdf030acee890499e13),
-which has independent approval and is awaiting the required CI gate and merge.
+[`69b4c25f`](https://github.com/free2z/zuu/commit/69b4c25fd7b33c827e54997f979d7d971da8fa20),
+which merged after independent approval and both required CI gates passed.
 Its 102 local all-target tests and strict lint checks pass; this is reviewed
 preview source, not a published release or live-platform acceptance result.
 
@@ -13,9 +13,9 @@ preview source, not a published release or live-platform acceptance result.
 
 | Surface | Verified implementation status | App work that can proceed |
 |---|---|---|
-| Rust core | Pending #1071; login, balance, card purchase and AI tests use local HTTP fakes | Build against the preview API in an isolated experiment; use the fake full-flow example |
-| Desktop, iOS and Android Tauri integration | Plugin work tracked in [#1072](https://github.com/free2z/zuu/issues/1072) | Define commands, safe DTOs and event/cancellation ownership; implement a mock adapter |
-| TypeScript facade and reference app | Tracked in [#1073](https://github.com/free2z/zuu/issues/1073) | Keep the tutor UI behind an app-owned interface that can later use the facade |
+| Rust core | Merged #1071; login, balance, card purchase and AI tests use local HTTP fakes | Build against the preview API in an isolated experiment; use the fake full-flow example |
+| Desktop, iOS and Android Tauri integration | Plugin preview [#1081](https://github.com/free2z/zuu/pull/1081), tracked in [#1072](https://github.com/free2z/zuu/issues/1072) | Define commands, safe DTOs and event/cancellation ownership; implement a mock adapter |
+| TypeScript facade and reference app | Facade preview [#1080](https://github.com/free2z/zuu/pull/1080), reference app tracked in [#1073](https://github.com/free2z/zuu/issues/1073) | Keep the tutor UI behind an app-owned interface that can later use the facade |
 | Live metered AI | Deployment and ledger integration are still prerequisites in [#1047](https://github.com/free2z/zuu/issues/1047) | Model streams, failures and settlement in mocks; do not promise live charges or receipts |
 
 The gateway source currently routes `POST /v1/chat`, but its metering/ledger
@@ -54,7 +54,7 @@ preview by commit, without a private repository or a path into this workspace:
 
 ```toml
 [dependencies]
-f2z-sdk = { git = "https://github.com/free2z/zuu", rev = "27bed9be05902876182f8cdf030acee890499e13" }
+f2z-sdk = { git = "https://github.com/free2z/zuu", rev = "69b4c25fd7b33c827e54997f979d7d971da8fa20" }
 ```
 
 This is not the supported published-package installation and does not establish
@@ -66,7 +66,7 @@ initializing them and run the SDK's own fake example:
 ```sh
 git clone --filter=blob:none https://github.com/free2z/zuu.git zuu-sdk-preview
 cd zuu-sdk-preview
-git checkout 27bed9be05902876182f8cdf030acee890499e13
+git checkout 69b4c25fd7b33c827e54997f979d7d971da8fa20
 cd rs
 cargo +1.97.1 run --locked -p f2z-sdk --example full_flow
 cargo +1.97.1 test --locked -p f2z-sdk --all-targets
