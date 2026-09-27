@@ -424,7 +424,7 @@ const NARRATIVE_TOKENS = [
   "openmls/openmls#2188",
   "rs/deny.toml",
   // 5. z/ submodule policy.
-  "langchain/zcash/store.py",
+  "py/experiments/zcash-rag/store.py",
   "z/zcash/zcash",
   "z/hhanh00/warp",
   "z/hhanh00/zwallet",
@@ -1713,8 +1713,8 @@ function runSelfTest() {
     ],
     [
       "the register drops the langchain consumer of z/",
-      withRegister(baseline.register.replaceAll("langchain/zcash/store.py", "a script")),
-      "does not mention `langchain/zcash/store.py`",
+      withRegister(baseline.register.replaceAll("py/experiments/zcash-rag/store.py", "a script")),
+      "does not mention `py/experiments/zcash-rag/store.py`",
     ],
   ];
 

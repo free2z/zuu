@@ -18,7 +18,7 @@ def get_retriever(persist_directory="./chroma/openai", k=20):
 
         # Load your documents using the GenericLoader
         loader = GenericLoader.from_filesystem(
-            "../../z/ZcashFoundation/zebra/",
+            "../../../z/ZcashFoundation/zebra/",
             glob="**/*",
             suffixes=[".rs", ".toml", ".yaml", ".md", ".json", ".proto"],
             parser=LanguageParser(),
@@ -26,7 +26,7 @@ def get_retriever(persist_directory="./chroma/openai", k=20):
         zebra_docs = loader.load()
 
         zips_loader = GenericLoader.from_filesystem(
-            "../../z/zcash/zips/",
+            "../../../z/zcash/zips/",
             glob="**/*",
             suffixes=[".rst"],
             parser=LanguageParser(),
