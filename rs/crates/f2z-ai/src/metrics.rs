@@ -20,7 +20,7 @@
 //! | `f2z_ai_calls_settled_total{upstream}` | counter | Calls handed to the settler, by how the upstream read ended: `finished`, `drained`, `not_started`, `panicked` (a bug, never operational) |
 //! | `f2z_ai_ready` / `f2z_ai_draining` | gauge | 1 or 0 |
 //! | `f2z_ai_catalog_version` | gauge | The verified catalogue in use; 0 when there is none |
-//! | `f2z_ai_catalog_replays_total` | counter | Catalogues refused as a replay: a lower version outside the tolerance window of `catalog::State::install`. Alert on any increase |
+//! | `f2z_ai_catalog_replays_total` | counter | Catalogues refused as a replay: `issued_at` more than `catalog_version_regression_bound_secs` (420, the producer's bound) below the newest catalogue installed (`catalog::State::install`). The platform's own version dips stay inside the bound and never count, so **alert on any increase** — it means a replay, or a producer that broke its bound |
 
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicU64, Ordering};

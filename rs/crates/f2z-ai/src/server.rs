@@ -188,7 +188,9 @@ impl Gateway {
             settle_tx,
             Arc::clone(&metrics),
         ));
-        let catalog_state = Arc::new(catalog::State::default());
+        let catalog_state = Arc::new(catalog::State::new(
+            config.catalog_version_regression_bound.as_secs(),
+        ));
         let shared = Shared {
             inflight: Arc::clone(&inflight),
             catalog: Arc::clone(&catalog_state),

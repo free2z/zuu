@@ -10,24 +10,35 @@
 //!
 //! # A lower version, legitimately (zuu#1067)
 //!
-//! The platform derives `version` from timestamps (tuzi #2235), so it can go
-//! **down** for a minute or so — when the most recently updated model is
-//! deleted, or across publisher pods whose clocks straddle a boundary. A
-//! gateway that refused every lower version would stall on a stale copy. So
-//! a lower version **is** installed when its `issued_at` is newer than the
-//! held copy's and by no more than [`VERSION_REGRESSION_WINDOW_SECS`]. Every
-//! other lower version is a replay: the held copy stays, the refusal is
-//! logged and counted (`f2z_ai_catalog_replays_total`).
+//! The platform derives `version` from timestamps (tuzi #2235,
+//! `dj.apps.pricing.catalog`): `version` is Unix **microseconds** — the later
+//! of the current one-minute re-issue window and the newest content
+//! revision — and `issued_at = version / 1_000_000`. So `issued_at` always
+//! moves **with** `version`: a lower version always has an equal-or-older
+//! `issued_at`. And `version` is not strictly monotone: deleting the model
+//! with the newest `updated_at`, two publisher pods straddling a minute, or a
+//! writer's clock up to 5 minutes ahead each make a later catalogue carry a
+//! lower version. The producer bounds that dip at
+//! `VERSION_REGRESSION_BOUND_SECONDS` = 2 × 60 s + 300 s = **420 s**, and
+//! [`DEFAULT_VERSION_REGRESSION_BOUND_SECS`] restates it (configurable as
+//! `catalog_version_regression_bound_secs`).
 //!
-//! Accepting a regression means version order no longer implies issue
-//! order, so a replay of any catalogue issued before the regressed one —
-//! seen by this pod or not, whatever its version — could come back in by the
-//! ordinary "higher wins" rule. It does not: accepting a regression starts an
-//! **issue floor** at that catalogue's `issued_at`, the floor follows every
-//! catalogue installed after it, and nothing issued before the floor is
-//! installed. Before any regression the floor is
-//! zero and the rules are exactly the version rules. Signature and expiry
-//! checks are unchanged and happen before any of this.
+//! The rule, over **issue floor** = the newest `issued_at` this process has
+//! installed, minus the bound:
+//!
+//! * a higher version is installed (as before);
+//! * the same version is `Unchanged`;
+//! * a lower version is installed iff its `issued_at` is at or above the
+//!   floor — within the bound of the newest catalogue seen, not merely of the
+//!   one held, so two catalogues cannot trade places for longer than the
+//!   bound: once a newer one arrives the floor moves past the older;
+//! * anything below the floor is a **replay**: the held copy stays, and the
+//!   refusal is logged and counted (`f2z_ai_catalog_replays_total`), which is
+//!   the series to alert on. A legitimate regression never increments it.
+//!
+//! What this gives up is bounded by the same 420 s: a replay of a catalogue
+//! issued within the bound of the newest one can be installed. Signature and
+//! expiry checks are unchanged and happen before any of this.
 //!
 //! **The fetch-and-verify step is stubbed.** [`CatalogSource`] is the seam:
 //! Wave 2 implements it by fetching the signed document and calling
@@ -120,10 +131,11 @@ pub fn now_unix() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
-/// How much newer (`issued_at`, seconds) a lower-versioned catalogue may be
-/// than the held one and still replace it (zuu#1067). The platform's own
-/// regressions last about 60 s, about 5 minutes with clock skew.
-pub const VERSION_REGRESSION_WINDOW_SECS: u64 = 600;
+/// How far (seconds of `issued_at`) below the newest catalogue installed a
+/// lower version may be and still be installed (zuu#1067): tuzi's
+/// `dj.apps.pricing.catalog.VERSION_REGRESSION_BOUND_SECONDS`
+/// (`2 * REISSUE_SECONDS + FUTURE_REVISION_TOLERANCE_SECONDS`).
+pub const DEFAULT_VERSION_REGRESSION_BOUND_SECS: u64 = 420;
 
 /// What [`State::install`] did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -139,15 +151,33 @@ pub enum Installed {
 }
 
 /// The catalogue in use.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct State {
     current: RwLock<Option<Arc<VerifiedCatalog>>>,
-    /// The `issued_at` of the last accepted version regression: nothing
-    /// issued before it is installed again. Zero until one is accepted.
-    issue_floor: std::sync::atomic::AtomicU64,
+    /// The newest `issued_at` ever installed. Only rises.
+    newest_issued: std::sync::atomic::AtomicU64,
+    /// [`DEFAULT_VERSION_REGRESSION_BOUND_SECS`] unless configured.
+    regression_bound: u64,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self::new(DEFAULT_VERSION_REGRESSION_BOUND_SECS)
+    }
 }
 
 impl State {
+    /// A state accepting version regressions within `regression_bound`
+    /// seconds of `issued_at` (see the module docs).
+    #[must_use]
+    pub const fn new(regression_bound: u64) -> Self {
+        Self {
+            current: RwLock::new(None),
+            newest_issued: std::sync::atomic::AtomicU64::new(0),
+            regression_bound,
+        }
+    }
+
     /// The catalogue to price with at `now`, if one is loaded and unexpired.
     #[must_use]
     pub fn current(&self, now: u64) -> Option<Arc<VerifiedCatalog>> {
@@ -164,45 +194,30 @@ impl State {
             return Installed::Expired;
         }
         let mut guard = self.current.write().unwrap_or_else(|p| p.into_inner());
-        let issue_floor = self.issue_floor.load(std::sync::atomic::Ordering::SeqCst);
-        if candidate.catalog().issued_at < issue_floor {
-            return Installed::Older;
-        }
+        let offered = candidate.catalog();
         if let Some(existing) = guard.as_ref() {
-            let (held, offered) = (existing.catalog(), candidate.catalog());
+            let held = existing.catalog();
             if offered.version == held.version {
                 return Installed::Unchanged;
             }
-            let newer_issue = offered.issued_at > held.issued_at;
+            let floor = self
+                .newest_issued
+                .load(std::sync::atomic::Ordering::SeqCst)
+                .saturating_sub(self.regression_bound);
+            if offered.issued_at < floor {
+                return Installed::Older;
+            }
             if offered.version < held.version {
-                let within = offered.issued_at.saturating_sub(held.issued_at)
-                    <= VERSION_REGRESSION_WINDOW_SECS;
-                if !(newer_issue && within) {
-                    return Installed::Older;
-                }
-                tracing::warn!(
+                tracing::info!(
                     held = held.version,
                     offered = offered.version,
-                    "installing a lower catalogue version: its issued_at is newer and within the \
-                     regression window (zuu#1067)"
+                    "installing a lower catalogue version within the platform's regression bound \
+                     (zuu#1067)"
                 );
             }
         }
-        // Once a regression has been accepted, version order no longer implies
-        // issue order, so issue order is what every later install must keep:
-        // the floor follows each catalogue installed from then on (codex
-        // round 3 — a floor frozen at the regression let a superseded
-        // `(52, 1070)` in after `(51, 1120)`).
-        let regressed = issue_floor > 0
-            || guard
-                .as_ref()
-                .is_some_and(|held| candidate.catalog().version < held.catalog().version);
-        if regressed {
-            self.issue_floor.fetch_max(
-                candidate.catalog().issued_at,
-                std::sync::atomic::Ordering::SeqCst,
-            );
-        }
+        self.newest_issued
+            .fetch_max(offered.issued_at, std::sync::atomic::Ordering::SeqCst);
         *guard = Some(Arc::new(candidate));
         Installed::Replaced
     }
@@ -262,98 +277,179 @@ pub(crate) async fn poll(
 mod tests {
     use super::*;
 
-    fn catalog(version: u64, expires_at: u64) -> VerifiedCatalog {
-        issued(version, 1, expires_at)
-    }
+    const US: u64 = 1_000_000;
 
-    fn issued(version: u64, issued_at: u64, expires_at: u64) -> VerifiedCatalog {
+    /// A catalogue shaped as tuzi's producer mints it: `version` in
+    /// microseconds, `issued_at = version / 1_000_000`, 72 h validity.
+    fn produced(version: u64) -> VerifiedCatalog {
         let text = include_str!("../../f2z-ai-proto/fixtures/catalog/catalog.json");
         let mut c: Catalog = serde_json::from_str(text).unwrap();
         c.version = version;
-        c.issued_at = issued_at;
+        c.issued_at = version / US;
+        c.expires_at = c.issued_at + 72 * 3600;
+        VerifiedCatalog::from_verified(c).unwrap()
+    }
+
+    fn catalog(version: u64, expires_at: u64) -> VerifiedCatalog {
+        let mut c = produced(version).catalog().clone();
+        c.issued_at = 1;
         c.expires_at = expires_at;
         VerifiedCatalog::from_verified(c).unwrap()
     }
 
+    /// A minute-window start, in producer units.
+    const T: u64 = 1_790_000_040;
+
     #[test]
-    fn a_lower_version_with_a_newer_issue_within_the_window_is_installed() {
+    fn higher_wins_equal_is_unchanged() {
         let state = State::default();
-        let t = 1_000;
+        assert_eq!(state.install(produced(T * US), T), Installed::Replaced);
+        assert_eq!(state.install(produced(T * US), T), Installed::Unchanged);
         assert_eq!(
-            state.install(issued(50, t, t + 3600), t),
-            Installed::Replaced
-        );
-        // The platform's regression: lower version, issued 60 s later.
-        assert_eq!(
-            state.install(issued(49, t + 60, t + 3600), t + 60),
-            Installed::Replaced
-        );
-        assert_eq!(state.current(t + 60).unwrap().catalog().version, 49);
-        // The superseded higher version, replayed: refused, though it is
-        // "higher" than what is held now.
-        assert_eq!(
-            state.install(issued(50, t, t + 3600), t + 61),
-            Installed::Older
-        );
-        // So is one this pod never saw, issued between the two (codex
-        // round 2): higher than anything installed, but issued before the
-        // regression that was accepted.
-        assert_eq!(
-            state.install(issued(52, t + 30, t + 3600), t + 61),
-            Installed::Older
-        );
-        // The floor keeps following (codex round 3): after (51, t+120) is
-        // installed below, a superseded (53, t+70) stays out.
-        // A genuinely newer one is installed as usual.
-        assert_eq!(
-            state.install(issued(51, t + 120, t + 3600), t + 120),
+            state.install(produced((T + 60) * US), T + 60),
             Installed::Replaced
         );
         assert_eq!(
-            state.install(issued(53, t + 70, t + 3600), t + 121),
-            Installed::Older
+            state.current(T + 60).unwrap().catalog().version,
+            (T + 60) * US
         );
     }
 
     #[test]
-    fn a_lower_version_outside_the_window_or_not_newer_is_a_replay() {
+    fn the_three_documented_regressions_are_installed_and_not_counted() {
+        // (a) The newest model is deleted: the revision drops back to the
+        //     window start (the held copy carried a revision 37.5 s into it).
         let state = State::default();
-        let t = 1_000;
         assert_eq!(
-            state.install(issued(50, t, t + 3600), t),
+            state.install(produced(T * US + 37_500_000), T + 38),
             Installed::Replaced
         );
-        // Older issue: a replay.
+        assert_eq!(state.install(produced(T * US), T + 39), Installed::Replaced);
+        assert_eq!(state.current(T + 39).unwrap().catalog().version, T * US);
+
+        // (b) Two pods straddling a minute: the next window, then this one.
+        let state = State::default();
         assert_eq!(
-            state.install(issued(49, t - 1, t + 3600), t),
-            Installed::Older
-        );
-        // Same issue instant: not newer.
-        assert_eq!(state.install(issued(49, t, t + 3600), t), Installed::Older);
-        // Newer, but beyond the window.
-        let late = t + VERSION_REGRESSION_WINDOW_SECS + 1;
-        assert_eq!(
-            state.install(issued(49, late, late + 3600), late),
-            Installed::Older
-        );
-        // The boundary itself is inside.
-        let edge = t + VERSION_REGRESSION_WINDOW_SECS;
-        assert_eq!(
-            state.install(issued(49, edge, edge + 3600), edge),
+            state.install(produced((T + 60) * US), T + 60),
             Installed::Replaced
         );
-        assert_eq!(state.current(edge).unwrap().catalog().version, 49);
+        assert_eq!(state.install(produced(T * US), T + 60), Installed::Replaced);
+
+        // (c) A writer clock 5 min ahead stamped a revision; then the model
+        //     is deleted, or a pod refuses that revision: back to the window.
+        //     The dip is the full bound (300 s tolerance + 2 windows).
+        let state = State::default();
+        assert_eq!(
+            state.install(produced((T + 420) * US), T + 1),
+            Installed::Replaced
+        );
+        assert_eq!(state.install(produced(T * US), T + 1), Installed::Replaced);
     }
 
     #[test]
-    fn a_lower_version_never_replaces_a_higher_one() {
+    fn beyond_the_bound_is_a_replay_and_counted() {
         let state = State::default();
-        assert_eq!(state.install(catalog(5, 100), 10), Installed::Replaced);
-        assert_eq!(state.install(catalog(4, 200), 10), Installed::Older);
-        assert_eq!(state.install(catalog(5, 200), 10), Installed::Unchanged);
-        assert_eq!(state.current(10).unwrap().catalog().version, 5);
-        assert_eq!(state.install(catalog(6, 200), 10), Installed::Replaced);
-        assert_eq!(state.current(10).unwrap().catalog().version, 6);
+        assert_eq!(
+            state.install(produced((T + 421) * US), T + 421),
+            Installed::Replaced
+        );
+        assert_eq!(state.install(produced(T * US), T + 421), Installed::Older);
+        assert_eq!(
+            state.current(T + 421).unwrap().catalog().version,
+            (T + 421) * US
+        );
+        // A configured bound is honoured.
+        let state = State::new(60);
+        assert_eq!(
+            state.install(produced((T + 61) * US), T + 61),
+            Installed::Replaced
+        );
+        assert_eq!(state.install(produced(T * US), T + 61), Installed::Older);
+    }
+
+    #[test]
+    fn two_catalogues_cannot_trade_places_past_the_bound() {
+        let state = State::default();
+        let (a, b) = ((T + 60) * US, T * US);
+        // Within the bound they may alternate (the producer's own flap)…
+        assert_eq!(state.install(produced(a), T + 60), Installed::Replaced);
+        assert_eq!(state.install(produced(b), T + 60), Installed::Replaced);
+        assert_eq!(state.install(produced(a), T + 60), Installed::Replaced);
+        // …but once a catalogue past the bound of `b` has been installed, the
+        // floor has moved and neither old one comes back.
+        let later = (T + 500) * US;
+        assert_eq!(state.install(produced(later), T + 500), Installed::Replaced);
+        assert_eq!(state.install(produced(b), T + 500), Installed::Older);
+        // And the floor does not follow a regression down: installing a lower
+        // version leaves it where the newest catalogue put it.
+        assert_eq!(
+            state.install(produced((T + 440) * US), T + 500),
+            Installed::Replaced
+        );
+        assert_eq!(
+            state.install(produced((T + 79) * US), T + 500),
+            Installed::Older
+        );
+    }
+
+    struct Sequence(std::sync::Mutex<Vec<VerifiedCatalog>>);
+
+    #[async_trait]
+    impl CatalogSource for Sequence {
+        async fn fetch(&self) -> Result<VerifiedCatalog, String> {
+            let mut left = self.0.lock().unwrap();
+            if left.len() > 1 {
+                Ok(left.remove(0))
+            } else {
+                left.first().cloned().ok_or_else(|| "empty".to_owned())
+            }
+        }
+    }
+
+    fn replays(metrics: &Metrics) -> String {
+        let text = metrics.render(crate::metrics::Gauges {
+            active_streams: 0,
+            buffered_bytes: 0,
+            ready: true,
+            draining: false,
+        });
+        text.lines()
+            .find_map(|l| l.strip_prefix("f2z_ai_catalog_replays_total "))
+            .unwrap()
+            .to_owned()
+    }
+
+    /// The poller, with producer-shaped catalogues valid now: a legitimate
+    /// dip never touches the replay counter; a beyond-bound one does.
+    #[tokio::test]
+    async fn only_a_beyond_bound_offer_increments_the_replay_counter() {
+        let now = now_unix();
+        let at = |secs_ago: u64| produced((now - secs_ago) * US);
+        for (sequence, want) in [
+            (vec![at(0), at(60), at(420), at(0)], "0"),
+            (vec![at(0), at(421), at(0)], "1"),
+        ] {
+            let metrics = Arc::new(Metrics::default());
+            let state = Arc::new(State::default());
+            let (stop_tx, stop) = watch::channel(false);
+            let task = tokio::spawn(poll(
+                Arc::new(Sequence(std::sync::Mutex::new(sequence))),
+                Arc::clone(&state),
+                Arc::clone(&metrics),
+                Duration::from_millis(5),
+                stop,
+            ));
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            stop_tx.send_replace(true);
+            task.await.unwrap();
+            assert_eq!(replays(&metrics), want);
+        }
+    }
+
+    #[test]
+    fn with_nothing_held_any_unexpired_catalogue_installs() {
+        let state = State::default();
+        assert_eq!(state.install(produced(T * US), T), Installed::Replaced);
     }
 
     #[test]

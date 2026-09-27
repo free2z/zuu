@@ -274,6 +274,10 @@ pub struct Config {
     pub max_upload_buffer_bytes: usize,
     /// How often the catalogue source is polled.
     pub catalog_poll: Duration,
+    /// How far (seconds of `issued_at`) below the newest catalogue installed
+    /// a lower version may be and still install (zuu#1067). The default is
+    /// the producer's `VERSION_REGRESSION_BOUND_SECONDS`, 420.
+    pub catalog_version_regression_bound: Duration,
     /// Undelivered event bytes one stream may buffer before delivery ends
     /// with `delivery_aborted` (chat-api.md §2.4). The upstream read never
     /// waits on it.
@@ -312,6 +316,9 @@ impl Default for Config {
             max_body_bytes_with_images: DEFAULT_MAX_BODY_BYTES_WITH_IMAGES,
             max_upload_buffer_bytes: DEFAULT_MAX_UPLOAD_BUFFER_BYTES,
             catalog_poll: Duration::from_secs(30),
+            catalog_version_regression_bound: Duration::from_secs(
+                crate::catalog::DEFAULT_VERSION_REGRESSION_BOUND_SECS,
+            ),
             delivery_buffer_bytes: DEFAULT_DELIVERY_BUFFER_BYTES,
             delivery_stall: Duration::from_secs(30),
             log_level: LogLevel::Info,
@@ -389,6 +396,7 @@ struct Raw {
     max_body_bytes_with_images: Option<u64>,
     max_upload_buffer_bytes: Option<u64>,
     catalog_poll_secs: Option<u64>,
+    catalog_version_regression_bound_secs: Option<u64>,
     delivery_buffer_bytes: Option<u64>,
     delivery_stall_secs: Option<u64>,
     log_level: Option<String>,
@@ -444,6 +452,7 @@ const KEYS: &[(&str, Kind)] = &[
     ("max_body_bytes_with_images", Kind::Integer),
     ("max_upload_buffer_bytes", Kind::Integer),
     ("catalog_poll_secs", Kind::Integer),
+    ("catalog_version_regression_bound_secs", Kind::Integer),
     ("delivery_buffer_bytes", Kind::Integer),
     ("delivery_stall_secs", Kind::Integer),
     ("log_level", Kind::Text),
@@ -660,6 +669,10 @@ impl Config {
                 defaults.max_upload_buffer_bytes,
             )?,
             catalog_poll: secs(raw.catalog_poll_secs, defaults.catalog_poll),
+            catalog_version_regression_bound: secs(
+                raw.catalog_version_regression_bound_secs,
+                defaults.catalog_version_regression_bound,
+            ),
             delivery_buffer_bytes: size(
                 "delivery_buffer_bytes",
                 raw.delivery_buffer_bytes,

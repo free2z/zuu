@@ -143,6 +143,7 @@ variable is a startup error.
 | `max_body_bytes_with_images` | `20971520` | With image parts; the hard cap on what is read |
 | `max_upload_buffer_bytes` | `268435456` | Request bodies being read at once, gateway-wide; a body reserves its `Content-Length` (the image cap if it has none). Without it the bound would be `max_concurrent_calls` × 20 MiB ≈ 195 GiB |
 | `catalog_poll_secs` | `30` | |
+| `catalog_version_regression_bound_secs` | `420` | A lower catalogue version installs if its `issued_at` is within this of the newest installed (tuzi's `VERSION_REGRESSION_BOUND_SECONDS`); beyond it, a replay, counted by `f2z_ai_catalog_replays_total` (zuu#1067) |
 | `delivery_buffer_bytes` | `262144` | Undelivered event bytes per stream before `delivery_aborted` |
 | `delivery_stall_secs` | `30` | Frames waiting and none delivered for this long → `delivery_aborted` |
 | `log_level` | `info` | This crate only; dependencies are capped at `warn` |
