@@ -94,6 +94,9 @@ impl Provider for OpenAiResponses {
         model: &CatalogModel,
         max_output_tokens: u64,
     ) -> Result<Value, ApiFailure> {
+        // `function_call_output` is text here, and an assistant turn carries
+        // no image.
+        super::images_only_on(request, &[Role::User, Role::System])?;
         let mut input = Vec::new();
         for message in &request.messages {
             match message.role {

@@ -104,6 +104,9 @@ impl Provider for OpenAiChat {
         model: &CatalogModel,
         max_output_tokens: u64,
     ) -> Result<Value, ApiFailure> {
+        // A system or tool message is text here, and an assistant turn
+        // carries no image.
+        super::images_only_on(request, &[Role::User])?;
         let messages: Vec<Value> = request
             .messages
             .iter()

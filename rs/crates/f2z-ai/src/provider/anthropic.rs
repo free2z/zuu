@@ -83,6 +83,9 @@ impl Provider for AnthropicMessages {
         model: &CatalogModel,
         max_output_tokens: u64,
     ) -> Result<Value, ApiFailure> {
+        // `system` is text, and an assistant turn carries no image; a
+        // `tool_result` does.
+        super::images_only_on(request, &[Role::User, Role::Tool])?;
         let mut system = None;
         let mut turns: Vec<(&'static str, Vec<Value>)> = Vec::new();
         for (index, message) in request.messages.iter().enumerate() {

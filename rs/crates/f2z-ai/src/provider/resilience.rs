@@ -238,7 +238,14 @@ impl CircuitBreaker {
     fn report(&self, probe: bool, verdict: Verdict, now: Instant) {
         let mut state = self.lock();
         *state = match (verdict, *state) {
-            (Verdict::Success, _) => BreakerState::Closed { failures: 0 },
+            // Only the probe closes a tripped breaker. A success from an
+            // attempt that started before it tripped is stale: it says
+            // nothing about the provider now, and letting it close the
+            // breaker would skip the cooldown while the outage is live.
+            (Verdict::Success, BreakerState::Closed { .. }) => BreakerState::Closed { failures: 0 },
+            (Verdict::Success, BreakerState::HalfOpen) if probe => {
+                BreakerState::Closed { failures: 0 }
+            }
             (Verdict::Failure, BreakerState::Closed { failures }) => {
                 let failures = failures.saturating_add(1);
                 if failures >= self.policy.failure_threshold {
@@ -328,6 +335,28 @@ mod tests {
             .expect("an abandoned probe frees the slot");
         probe.record(Verdict::Success);
         assert!(!breaker.is_open(later));
+    }
+
+    #[test]
+    fn a_stale_success_does_not_close_a_tripped_breaker() {
+        let breaker = Arc::new(CircuitBreaker::new(BreakerPolicy {
+            failure_threshold: 1,
+            open_for: Duration::from_secs(10),
+        }));
+        let t0 = Instant::now();
+        let slow = breaker.try_acquire(t0).unwrap();
+        breaker.try_acquire(t0).unwrap().record(Verdict::Failure);
+        slow.record(Verdict::Success);
+        assert!(
+            breaker.is_open(t0),
+            "an old success must not skip the cooldown"
+        );
+
+        let later = t0 + Duration::from_secs(11);
+        let probe = breaker.try_acquire(later).unwrap();
+        assert!(breaker.is_open(later));
+        probe.record(Verdict::Success);
+        assert!(!breaker.is_open(later), "the probe's success closes it");
     }
 
     #[test]

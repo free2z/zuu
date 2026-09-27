@@ -162,6 +162,34 @@ async fn start_refuses_before_any_io() {
     bad.messages[2].tool_calls[0].arguments = "not json".into();
     let e = refuse(bad);
     assert_eq!((e.status().as_u16(), e.code()), (400, "invalid_request"));
+    // An image the provider cannot carry is refused, never dropped: a tool
+    // result is text on Chat Completions and Responses, and `system` is
+    // text on Anthropic.
+    for model in [CHAT, RESPONSES] {
+        let mut req = rich(model.id);
+        req.messages[3].content.push(
+            serde_json::from_value(
+                json!({"type": "image", "media_type": "image/png", "data": "iVBORw0KGgo="}),
+            )
+            .unwrap(),
+        );
+        let e = refuse(req);
+        assert_eq!(
+            (e.status().as_u16(), e.code()),
+            (400, "invalid_request"),
+            "{}",
+            model.id
+        );
+    }
+    let mut req = rich(ANTHROPIC.id);
+    req.messages[0].content.push(
+        serde_json::from_value(
+            json!({"type": "image", "media_type": "image/png", "data": "iVBORw0KGgo="}),
+        )
+        .unwrap(),
+    );
+    let e = refuse(req);
+    assert_eq!((e.status().as_u16(), e.code()), (400, "invalid_request"));
 }
 
 /// A one-shot raw HTTP server: records the request head, answers 400.

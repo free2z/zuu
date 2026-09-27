@@ -280,6 +280,9 @@ impl ProviderUpstream {
                     Ok(Ok(None)) => self.stream_over(false, None),
                     Ok(Ok(Some(chunk))) => {
                         *got_bytes = true;
+                        // The idle allowance runs from this chunk's arrival,
+                        // not from when this poll began.
+                        let now = Instant::now();
                         *deadline = now
                             .checked_add(self.idle)
                             .unwrap_or(now)

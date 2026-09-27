@@ -387,6 +387,36 @@ pub fn output_cap(request: &ChatRequest, model: &CatalogModel) -> u64 {
         .max(1)
 }
 
+/// Refuse an image part on a message whose role this provider cannot carry
+/// an image on — rather than drop it and bill an answer made without it.
+///
+/// # Errors
+///
+/// `400 invalid_request` naming the part.
+pub fn images_only_on(
+    request: &ChatRequest,
+    roles: &[f2z_ai_proto::chat::Role],
+) -> Result<(), ApiFailure> {
+    for (index, message) in request.messages.iter().enumerate() {
+        if roles.contains(&message.role) {
+            continue;
+        }
+        if let Some(part) = message
+            .content
+            .iter()
+            .position(|p| matches!(p, f2z_ai_proto::chat::ContentPart::Image { .. }))
+        {
+            return Err(ApiFailure::new(
+                ErrorCode::InvalidRequest,
+                "this model cannot take an image part on a message of this role",
+            )
+            .detail("field", format!("messages[{index}].content[{part}]"))
+            .detail("reason", "image_not_supported_for_role"));
+        }
+    }
+    Ok(())
+}
+
 /// `data:` URL for an inline image. Built from the client's own bytes; it is
 /// not a location anything fetches.
 #[must_use]
