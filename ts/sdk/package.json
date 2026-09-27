@@ -1,0 +1,51 @@
+{
+  "name": "@free2z/sdk",
+  "version": "0.1.0",
+  "description": "Free2Z sign-in, platform-credit balances, purchases and micro-metered AI for web and Tauri apps",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/free2z/zuu.git",
+    "directory": "ts/sdk"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build",
+    "test:package": "node scripts/test-package.mjs",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/*.mjs\" \"scripts/*.mjs\" package.json tsconfig.json"
+  },
+  "dependencies": {
+    "oauth4webapi": "3.8.8"
+  },
+  "peerDependencies": {
+    "@free2z/tauri-plugin-f2z-api": "^0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@free2z/tauri-plugin-f2z-api": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "prettier": "3.9.9",
+    "typescript": "5.9.3"
+  }
+}
