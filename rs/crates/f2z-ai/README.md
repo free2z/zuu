@@ -289,3 +289,27 @@ loopback ports and drive it with hyper's client over real sockets:
 | `tests/adapter_requests.rs` | each adapter's translation of the unified request; only allowlisted headers on the wire (a raw socket reads the request head); `start`'s refusals before any I/O |
 | `tests/auth.rs` | against a fake issuer (discovery, JWKS, internal epoch endpoint over HTTP) and an in-memory store with fault injection: a valid token reaches the backend; missing / malformed; `none`, `HS256` keyed with the public point and with the JWK, a forged `ES256`, `RS256`/`ES384` headers genuinely signed by the issuer's key; wrong `aud`, `iss`, expired, future `iat`, the 30 s leeway; no `ai:invoke`; unknown-`kid` refetch rate limit and a rotation; stale `aep`/`agen` in Redis; a Redis miss → the endpoint's every answer (live, absent grant, stale, `404`, `503`, `500`, hang); Redis down + endpoint `503` → `503`, never allow; a wrong internal secret; the rate limit and its headers; the shared bucket across two gateways; the lease counting a disconnected call until settled; a panicking call releasing its lease. With `F2Z_AI_TEST_REDIS_URL` set, the Lua script and the whole gate against a real Redis (skipped, and says so, without) |
 | `tests/adapter_gateway.rs` | the adapters behind `/v1/chat`: the settler receives the provider's usage (or `Missing`) and the outcome; a pre-content failure is a stream, not an HTTP error; the idle deadline fires under the call task's 250 ms ticks |
+
+### Connection resource limits
+
+`max_connections` (default 10240) bounds public sockets before HTTP headers are
+parsed, including idle keep-alive connections. Excess sockets are closed
+immediately rather than allocating waiting tasks. `max_admin_connections`
+(default 32) is an independent reservation that public traffic cannot consume.
+Set both below the process file-descriptor limit, with additional headroom for
+outbound provider/Redis connections and files; these budgets do not raise the
+operating system limit or protect against descriptor use by other components.
+
+Every socket write, final flush and shutdown has an inactivity deadline of
+`delivery_stall_secs` (default 30). A client that stops reading cannot retain a
+connection task indefinitely after the response body ends. Progress resets the
+deadline; response-stream delivery and settlement keep their existing limits.
+
+The public connection default (10,240) leaves 240 sockets beyond the default
+10,000 concurrent calls for admission responses and idle connections. Effective
+call capacity cannot exceed the lower of `max_connections` and
+`max_concurrent_calls`; reduce either consciously when overriding defaults.
+Provision descriptor limits above both listener budgets plus upstream sockets,
+Redis, logs, and other files. Before HTTP parsing, refusals are counted by
+`f2z_ai_connections_rejected_total{listener="public"|"admin"}` and active sockets
+by `f2z_ai_connections_active` with the same two labels; no per-refusal logs.
