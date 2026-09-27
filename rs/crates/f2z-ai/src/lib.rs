@@ -15,6 +15,7 @@
 //! | [`settle`] | The [`settle::Settler`] hook every started call is handed to exactly once, from a detached task; stubbed |
 //! | [`catalog`] | Readiness gated on a verified, unexpired catalogue; the source is a trait, stubbed |
 //! | [`chat`] | `POST /v1/chat`: body limits, strict decoding with `f2z-ai-proto`, the spec's structural rules, then the [`chat::ChatBackend`] — which answers `501 not_implemented` in this build |
+//! | [`provider`] | The provider adapters (OpenAI Responses, Anthropic Messages, Chat Completions for xAI): request translation, stream and usage parsing, provider deadlines, retries and the circuit breaker. Not wired into the binary until authentication and metering are |
 //! | [`metrics`] | Prometheus text exposition, hand-rolled, bounded labels only |
 //! | [`telemetry`] | Structured JSON logs and OpenTelemetry tracing (OTLP, off unless configured) |
 //! | [`serve`] | The hyper accept loop: header-read timeout and a bounded graceful close |
@@ -48,6 +49,7 @@ pub mod chat;
 pub mod config;
 pub mod error;
 pub mod metrics;
+pub mod provider;
 pub mod serve;
 pub mod server;
 pub mod settle;

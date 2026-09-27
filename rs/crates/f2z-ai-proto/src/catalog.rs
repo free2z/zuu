@@ -117,6 +117,15 @@ pub struct CatalogModel {
     pub max_output_tokens: u64,
     /// Time-to-first-byte timeout, in milliseconds.
     pub ttfb_timeout_ms: u64,
+    /// Stream idle timeout, in milliseconds: the longest the gateway waits
+    /// between two chunks of this model's stream before ending it with
+    /// `provider_timeout` (`idle`). Absent means the gateway default (60 s).
+    /// A model that reasons silently — OpenAI Responses sends no keepalive
+    /// while it thinks — needs a longer one; the call's 300 s hard limit
+    /// bounds it either way. Optional so a catalogue without it still
+    /// deserialises; when present it must be at least 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_timeout_ms: Option<u64>,
     /// Whether the model is callable.
     pub enabled: bool,
 }
@@ -202,6 +211,9 @@ impl Catalog {
                 return Err(CatalogError::Invalid(
                     "max_output_tokens exceeds context_window",
                 ));
+            }
+            if model.idle_timeout_ms == Some(0) {
+                return Err(CatalogError::Invalid("idle_timeout_ms of 0"));
             }
             if model.prices == ModelPrices::default() {
                 return Err(CatalogError::Invalid("all prices are zero"));
