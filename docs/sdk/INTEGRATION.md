@@ -317,8 +317,10 @@ confirmed. `false` does not promise server revocation. Cancellation-independent
 cleanup tasks still require the native runtime to remain alive. Keychain waits
 are bounded by `Config::request_timeout`, but an OS call can finish later:
 `Error::Storage` does not confirm persistence or deletion. Each client has one
-bounded read lane and one write lane, so a stuck read cannot block logout's
-write and repeated timeouts cannot create unlimited blocking tasks. Pending
+bounded read lane and one write lane, so logout can start its delete while a
+read is pending and repeated timeouts cannot create unlimited blocking tasks.
+The credential backend may itself serialize or block calls; a delete that times
+out remains unconfirmed. Pending
 writes coalesce to the newest operation; a later logout delete follows an active
 save. Re-read native session state after a storage error. Orderly shutdown
 should await sign-out when requested. Never expose the raw SDK error's debug
