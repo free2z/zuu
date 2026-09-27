@@ -289,9 +289,11 @@ impl Client {
         let (mut transport_left, mut in_flight_left) =
             (CREATE_TRANSPORT_RETRIES, CREATE_IN_FLIGHT_RETRIES);
         let mut delay = Duration::from_secs(1);
+        // Every re-send acts as the user the purchase was started for.
+        let mut session = None;
         loop {
             let sent = self
-                .send_authorized(|http, token| {
+                .send_authorized_in(&mut session, |http, token| {
                     http.post(&url)
                         .bearer_auth(token)
                         .header("Idempotency-Key", &key)

@@ -2,6 +2,7 @@
 //! `f2z_ai_proto` [`Event`]s.
 
 use std::collections::VecDeque;
+use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -84,6 +85,9 @@ pub struct ChatStream {
     finished: bool,
     cancel: CancelHandle,
     idle: Duration,
+    /// The session generation this call belongs to: every re-send acts as
+    /// the user who started it, or stops.
+    session: Option<u64>,
 }
 
 impl std::fmt::Debug for ChatStream {
@@ -94,6 +98,15 @@ impl std::fmt::Debug for ChatStream {
             .field("finished", &self.finished)
             .finish_non_exhaustive()
     }
+}
+
+/// `future`, or a transport timeout after `limit`.
+async fn bounded<T>(limit: Duration, future: impl Future<Output = T>) -> Result<T, Error> {
+    tokio::time::timeout(limit, future).await.map_err(|_| {
+        Error::Transport(TransportError::timeout(
+            "the gateway sent headers but no body",
+        ))
+    })
 }
 
 fn backoff(base: Duration, attempt: u32) -> Duration {
@@ -127,6 +140,7 @@ impl ChatStream {
             finished: false,
             cancel: CancelHandle(Arc::new(CancelState::default())),
             idle,
+            session: None,
         };
         stream.connect().await?;
         Ok(stream)
@@ -152,6 +166,23 @@ impl ChatStream {
         self.cancel.clone()
     }
 
+    /// Sleep for `delay` unless cancelled first. Cancellation is checked
+    /// before every send, so a Stop pressed during a backoff never starts
+    /// a new — billable — call.
+    async fn pause(&self, delay: Duration) -> Result<(), Error> {
+        let notified = self.cancel.0.notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if self.cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        tokio::select! {
+            biased;
+            () = &mut notified => Err(Error::Cancelled),
+            () = tokio::time::sleep(delay) => Ok(()),
+        }
+    }
+
     /// Send the request, retrying only what may be retried:
     ///
     /// * no response at all → the **same** key again (the gateway replays
@@ -162,18 +193,22 @@ impl ChatStream {
         let header_timeout = self.client.inner.config.request_timeout;
         let mut transport_left = self.options.transport_retries;
         loop {
+            if self.cancel.is_cancelled() {
+                return Err(Error::Cancelled);
+            }
             let key = self.key.clone();
             let body = self.body.clone();
             let sent = tokio::time::timeout(
                 header_timeout,
-                self.client.send_authorized(|http, token| {
-                    http.post(&url)
-                        .bearer_auth(token)
-                        .header("Idempotency-Key", &key)
-                        .header(reqwest::header::ACCEPT, "text/event-stream")
-                        .header(reqwest::header::CONTENT_TYPE, "application/json")
-                        .body(body.clone())
-                }),
+                self.client
+                    .send_authorized_in(&mut self.session, |http, token| {
+                        http.post(&url)
+                            .bearer_auth(token)
+                            .header("Idempotency-Key", &key)
+                            .header(reqwest::header::ACCEPT, "text/event-stream")
+                            .header(reqwest::header::CONTENT_TYPE, "application/json")
+                            .body(body.clone())
+                    }),
             )
             .await
             .unwrap_or_else(|_| {
@@ -184,7 +219,8 @@ impl ChatStream {
             let response = match sent {
                 Err(Error::Transport(_)) if transport_left > 0 => {
                     transport_left = transport_left.saturating_sub(1);
-                    tokio::time::sleep(backoff(self.options.retry_base_delay, self.attempt)).await;
+                    self.pause(backoff(self.options.retry_base_delay, self.attempt))
+                        .await?;
                     self.attempt = self.attempt.saturating_add(1);
                     continue;
                 }
@@ -205,21 +241,24 @@ impl ChatStream {
                     // An idempotent replay of a finished call: its record,
                     // no content (§2.5). Branch on Content-Type, not on what
                     // was asked for.
-                    let record: CallRecord = http::read_json(response).await?;
+                    let record: CallRecord =
+                        bounded(header_timeout, http::read_json(response)).await??;
                     return Err(Error::Replayed(Box::new(record)));
                 }
                 return Err(Error::Protocol(format!(
                     "unexpected content type {content_type:?}"
                 )));
             }
-            let error = http::read_error(response).await;
+            // The body of a refusal is bounded too: headers followed by a
+            // stalled body must not hang a call nobody can cancel yet.
+            let error = bounded(header_timeout, http::read_error(response)).await?;
             if error.retryable() && self.retries_left > 0 {
                 self.retries_left = self.retries_left.saturating_sub(1);
                 let wait = error
                     .retry_after
                     .unwrap_or_else(|| backoff(self.options.retry_base_delay, self.attempt));
                 self.attempt = self.attempt.saturating_add(1);
-                tokio::time::sleep(wait).await;
+                self.pause(wait).await?;
                 // A retry of a failed call is a NEW call: a new key.
                 self.key = random::uuid_v4()?;
                 self.call_id = None;
@@ -289,7 +328,11 @@ impl ChatStream {
                     self.response = None;
                     self.parser = Parser::default();
                     self.queue.clear();
-                    tokio::time::sleep(backoff(self.options.retry_base_delay, self.attempt)).await;
+                    let delay = backoff(self.options.retry_base_delay, self.attempt);
+                    if let Err(e) = self.pause(delay).await {
+                        self.finish();
+                        return Err(e);
+                    }
                     self.attempt = self.attempt.saturating_add(1);
                     self.key = random::uuid_v4()?;
                     self.call_id = None;

@@ -18,7 +18,7 @@ pub(crate) struct Frame {
     pub data: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub(crate) struct Parser {
     line: Vec<u8>,
     event: String,
@@ -29,6 +29,16 @@ pub(crate) struct Parser {
     after_cr: bool,
     /// Whether the first line has been seen (a leading BOM is dropped).
     started: bool,
+}
+
+impl std::fmt::Debug for Parser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Buffered bytes may be completion text: report their length only.
+        f.debug_struct("Parser")
+            .field("buffered_line_len", &self.line.len())
+            .field("data_len", &self.data.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Parser {

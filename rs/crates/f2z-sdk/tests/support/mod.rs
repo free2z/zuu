@@ -1040,6 +1040,22 @@ async fn chat(State(f): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) -> Re
             remember("settled", Some(1));
             happy(false)
         }
+        "stall-503" => {
+            // Headers, then a body that never finishes.
+            let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, Infallible>>(1);
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                drop(tx);
+            });
+            let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+                rx.recv().await.map(|item| (item, rx))
+            });
+            return Response::builder()
+                .status(StatusCode::SERVICE_UNAVAILABLE)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from_stream(stream))
+                .unwrap();
+        }
         "insufficient" => {
             return envelope(
                 StatusCode::PAYMENT_REQUIRED,

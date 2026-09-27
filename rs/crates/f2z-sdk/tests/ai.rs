@@ -390,3 +390,94 @@ async fn models_and_estimate() {
     assert_eq!(estimate.hold_2z, Whole2z::new(2));
     assert_eq!(estimate.cap_remaining_milli_2z, Some(None), "null = no cap");
 }
+
+/// A Stop pressed during a retry's backoff must not start the retry: the
+/// gateway would bill a call begun after the user cancelled.
+#[tokio::test]
+async fn cancelling_during_a_retry_backoff_starts_no_new_call() {
+    let fake = Fake::start().await;
+    let ai = signed_in(&fake).await.ai();
+    let mut stream = ai
+        .chat_with(
+            chat_request("error-before-meta"),
+            ChatOptions::default().with_retry_base_delay(Duration::from_millis(500)),
+        )
+        .await
+        .unwrap();
+    let handle = stream.cancel_handle();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        handle.cancel();
+    });
+    assert!(matches!(stream.next().await, Err(Error::Cancelled)));
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(
+        keys_for(&fake, "error-before-meta").len(),
+        1,
+        "no retry sent"
+    );
+}
+
+/// A retry never continues under a different session: if someone else
+/// signs in on this client while a call is backing off, the retry stops
+/// rather than spending as them.
+#[tokio::test]
+async fn a_retry_never_runs_under_another_session() {
+    let fake = Fake::start().await;
+    let client = signed_in(&fake).await;
+    let mut stream = client
+        .ai()
+        .chat_with(
+            chat_request("error-before-meta"),
+            ChatOptions::default().with_retry_base_delay(Duration::from_millis(400)),
+        )
+        .await
+        .unwrap();
+    let other = client.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        other
+            .sign_in(
+                &ScriptedBrowser::new("com.example.tutor:/oauth/callback"),
+                SignInOptions::default(),
+            )
+            .await
+            .unwrap();
+    });
+    assert!(matches!(
+        stream.next().await,
+        Err(Error::SignedOut(f2z_sdk::SignedOutReason::SessionChanged))
+    ));
+    assert_eq!(keys_for(&fake, "error-before-meta").len(), 1);
+}
+
+#[tokio::test]
+async fn a_refusal_whose_body_stalls_does_not_hang() {
+    let fake = Fake::start().await;
+    let client = Client::new(
+        fake.config()
+            .with_request_timeout(Duration::from_millis(300)),
+        Arc::new(MemoryStore::new()),
+    )
+    .unwrap();
+    client
+        .sign_in(
+            &ScriptedBrowser::new("com.example.tutor:/oauth/callback"),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    let err = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.ai().chat_with(chat_request("stall-503"), fast()),
+    )
+    .await
+    .expect("chat() hung on a stalled body")
+    .unwrap_err();
+    assert!(
+        matches!(err, Error::Transport(ref t) if t.is_timeout()),
+        "{err:?}"
+    );
+    assert!(started.elapsed() < Duration::from_secs(3));
+}

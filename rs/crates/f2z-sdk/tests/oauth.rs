@@ -470,3 +470,30 @@ async fn an_unregistered_redirect_times_out_as_a_registration_mistake() {
         Err(Error::Timeout(_))
     ));
 }
+
+/// A sign-out that completes while a sign-in waits on the browser wins: the
+/// late sign-in installs nothing and revokes what it was issued.
+#[tokio::test]
+async fn a_sign_out_during_a_pending_sign_in_is_not_undone() {
+    let fake = Fake::start().await;
+    let (client, store) = signed_in(&fake).await;
+    let during = client.clone();
+    let browser = ScriptedBrowser::new(MOBILE_REDIRECT).with_tamper(move |_, callback| {
+        let c = during.clone();
+        async move {
+            c.sign_out().await.unwrap();
+            callback
+        }
+    });
+    assert!(matches!(
+        client.sign_in(&browser, SignInOptions::default()).await,
+        Err(Error::SignedOut(SignedOutReason::SessionChanged))
+    ));
+    assert!(!client.is_signed_in().await.unwrap());
+    assert!(stored_refresh_token(&store, &fake).is_none());
+    assert_eq!(
+        fake.live_refresh_tokens(),
+        0,
+        "the late tokens were revoked"
+    );
+}

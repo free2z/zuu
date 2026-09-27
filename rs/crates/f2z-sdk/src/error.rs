@@ -229,6 +229,10 @@ pub enum SignedOutReason {
     TokenRevoked,
     /// [`crate::Client::sign_out`] was called.
     SignedOut,
+    /// The session changed (a sign-out, or a sign-in as someone else) while
+    /// this operation was in flight. It was stopped rather than continued
+    /// under the new session.
+    SessionChanged,
 }
 
 impl fmt::Display for SignedOutReason {
@@ -238,6 +242,7 @@ impl fmt::Display for SignedOutReason {
             Self::RefreshRejected => "the refresh token was refused",
             Self::TokenRevoked => "the grant or the account was revoked",
             Self::SignedOut => "signed out",
+            Self::SessionChanged => "the session changed during the operation",
         })
     }
 }

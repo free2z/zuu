@@ -64,6 +64,23 @@ struct SessionState {
     refresh: Option<Secret>,
     scope: Option<String>,
     subject: Option<String>,
+    /// Which session this is. Moves on every sign-in, sign-out and forced
+    /// sign-out — never on a refresh, which keeps the same user and grant.
+    /// An operation that started under one generation never continues under
+    /// another: its retries would act, and spend, as someone else.
+    generation: u64,
+}
+
+impl SessionState {
+    /// Forget the session and start a new generation.
+    fn reset(&mut self) {
+        let generation = self.generation.wrapping_add(1);
+        *self = Self {
+            loaded: true,
+            generation,
+            ..Self::default()
+        };
+    }
 }
 
 struct Access {
@@ -217,6 +234,11 @@ impl Client {
         options: SignInOptions,
     ) -> Result<SignedIn, Error> {
         let config = &self.inner.config;
+        let started_under = {
+            let mut s = self.inner.session.lock().await;
+            self.ensure_loaded(&mut s).await?;
+            s.generation
+        };
         let discovery = self.discovery().await?.clone();
         let redirect_uri = session.redirect_uri().to_owned();
         let redirect = oauth::check_redirect_uri(&redirect_uri)?;
@@ -290,7 +312,17 @@ impl Client {
 
         let replaced = {
             let mut s = self.inner.session.lock().await;
+            if s.generation != started_under {
+                // A sign-out (or another sign-in) finished while this one
+                // waited on the browser. Installing now would undo it.
+                drop(s);
+                if let Some(rt) = tokens.refresh_token {
+                    let _ = self.revoke(&discovery, &Secret::new(rt)).await;
+                }
+                return Err(Error::SignedOut(SignedOutReason::SessionChanged));
+            }
             s.loaded = true;
+            s.generation = s.generation.wrapping_add(1);
             let old = s.refresh.take();
             s.subject = subject.clone();
             let persisted = self.install(&mut s, tokens, &granted).await;
@@ -338,10 +370,7 @@ impl Client {
             let _ = self.load(&mut s).await;
         }
         let refresh = s.refresh.take();
-        *s = SessionState {
-            loaded: true,
-            ..SessionState::default()
-        };
+        s.reset();
         let revoked = match (&refresh, self.discovery().await) {
             (Some(rt), Ok(d)) => {
                 let d = d.clone();
@@ -395,8 +424,25 @@ impl Client {
     /// refresh token (`invalid_grant`, which also clears the store);
     /// transport and 5xx errors leave the session intact for a retry.
     pub async fn access_token(&self) -> Result<Secret, Error> {
+        self.access_token_in(&mut None).await
+    }
+
+    /// [`Client::access_token`] for one operation: the first call records
+    /// the session generation in `generation`, and every later call refuses
+    /// with [`SignedOutReason::SessionChanged`] if the session is no longer
+    /// that one.
+    pub(crate) async fn access_token_in(
+        &self,
+        generation: &mut Option<u64>,
+    ) -> Result<Secret, Error> {
         let mut s = self.inner.session.lock().await;
         self.ensure_loaded(&mut s).await?;
+        match *generation {
+            Some(g) if g != s.generation => {
+                return Err(Error::SignedOut(SignedOutReason::SessionChanged));
+            }
+            _ => *generation = Some(s.generation),
+        }
         if let Some(access) = s.access.as_ref().filter(|a| a.fresh()) {
             return Ok(access.token.clone());
         }
@@ -532,10 +578,7 @@ impl Client {
     }
 
     async fn clear_locked(&self, s: &mut SessionState) -> Result<(), Error> {
-        *s = SessionState {
-            loaded: true,
-            ..SessionState::default()
-        };
+        s.reset();
         self.store_delete().await
     }
 
@@ -627,9 +670,24 @@ impl Client {
     where
         F: Fn(&reqwest::Client, &str) -> reqwest::RequestBuilder,
     {
+        self.send_authorized_in(&mut None, build).await
+    }
+
+    /// [`Client::send_authorized`] bound to one session generation (see
+    /// [`Client::access_token_in`]): an operation that re-sends — a refresh
+    /// after `401`, a transport retry, a chat retry — keeps acting as the
+    /// user it started as, or stops.
+    pub(crate) async fn send_authorized_in<F>(
+        &self,
+        generation: &mut Option<u64>,
+        build: F,
+    ) -> Result<reqwest::Response, Error>
+    where
+        F: Fn(&reqwest::Client, &str) -> reqwest::RequestBuilder,
+    {
         let mut retried = false;
         loop {
-            let token = self.access_token().await?;
+            let token = self.access_token_in(generation).await?;
             let response = build(&self.inner.http, token.expose()).send().await?;
             if response.status() != StatusCode::UNAUTHORIZED {
                 return Ok(response);
