@@ -161,7 +161,7 @@ struct State {
     rate_cards: BTreeMap<u64, RateCard>,
     /// Each app's current effective markup,
     /// `min(markup_bps, approved_markup_bps)` (oidc.md §2). An app absent
-    /// here is uncapped — see [`InMemoryLedger::set_app_effective_markup`].
+    /// here has no approval and prices at `0`, as on the platform.
     effective_markup: HashMap<String, Bps>,
     holds: BTreeMap<HoldId, Hold>,
     by_key: HashMap<HoldKey, HoldId>,
@@ -450,7 +450,7 @@ impl State {
         let applied = self
             .effective_markup
             .get(&req.app)
-            .map_or(req.markup_bps, |eff| req.markup_bps.min(*eff));
+            .map_or(Bps(0), |eff| req.markup_bps.min(*eff));
         self.by_key.insert(req.hold_key.clone(), hold_id);
         self.open_by_user
             .entry(req.user.clone())
@@ -822,10 +822,9 @@ impl InMemoryLedger {
     /// consented markup with. Lowering or withdrawing it (`Bps(0)`) reaches
     /// open grants on their next hold; open holds keep their snapshot.
     ///
-    /// **Fake default:** an app never set here is treated as approved for
-    /// whatever its users consented to, so tests that do not exercise
-    /// approval need no setup. The platform's own default is `0` until the
-    /// first approval.
+    /// As on the platform, an app never set here has **no** approval: its
+    /// holds apply `b = 0` whatever the user consented to, and its developer
+    /// earns nothing. Approve it here before testing markup.
     pub fn set_app_effective_markup(&self, app: &str, effective: Bps) {
         self.lock()
             .effective_markup

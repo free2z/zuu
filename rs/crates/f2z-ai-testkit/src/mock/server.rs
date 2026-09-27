@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use axum::Router;
 use axum::body::{Body, Bytes};
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
@@ -35,6 +35,9 @@ const RECORD_LIMIT: usize = 1_024;
 /// load run cannot turn the request log into the thing that runs out of
 /// memory: at most `RECORD_LIMIT × RECORD_BODY_LIMIT` = 64 MiB of bodies.
 const RECORD_BODY_LIMIT: usize = 64 * 1024;
+
+/// The largest request body the mock accepts: 32 MiB.
+const MAX_REQUEST_BODY: usize = 32 * 1024 * 1024;
 
 /// The listen backlog requested; the kernel may cap it lower.
 const LISTEN_BACKLOG: u32 = 4_096;
@@ -124,6 +127,11 @@ impl MockProvider {
                     handle(ProviderStyle::AnthropicMessages, s, h, b)
                 }),
             )
+            // axum's default 2 MiB body limit would answer 413 before the
+            // scenario runs; the gateway contract allows 4 MiB of text and
+            // 20 MiB with images, and a translated provider request can be
+            // larger still.
+            .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY))
             .with_state(Arc::clone(&shared));
         let (stop, stopped) = oneshot::channel::<()>();
         let task = tokio::spawn(async move {

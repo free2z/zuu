@@ -73,6 +73,9 @@ impl World {
                 spend_cap_2z: cap,
             },
         );
+        // Approve the app for the markup the user consented to; the approval
+        // tests below override this.
+        ledger.set_app_effective_markup("app", markup);
         ledger.add_rate_card(RateCard {
             version: 1,
             platform_margin_bps: margin,
@@ -933,4 +936,65 @@ async fn the_applied_markup_is_the_lesser_of_consented_and_effective() {
     assert_eq!(w.ledger.call(open).unwrap().applied_markup_bps, Bps(2_000));
     let s = settled(w.settle(open, 21_000_000).await);
     assert_eq!(s.developer_milli_2z, 420);
+}
+
+#[tokio::test]
+async fn an_app_with_no_approval_earns_nothing() {
+    let ledger = InMemoryLedger::new();
+    ledger.open_account("u", 100_000);
+    let agen = ledger.grant(
+        "u",
+        "unapproved",
+        GrantConfig {
+            markup_bps: Bps(5_000),
+            spend_cap_2z: None,
+        },
+    );
+    ledger.add_rate_card(RateCard {
+        version: 1,
+        platform_margin_bps: Bps(0),
+        models: BTreeMap::from([(
+            MODEL.to_owned(),
+            RateCardModel {
+                prices: ModelPrices::default(),
+                min_charge_2z: 1,
+            },
+        )]),
+    });
+    let HoldOutcome::Held(h) = ledger
+        .hold(HoldRequest {
+            user: "u".into(),
+            app: "unapproved".into(),
+            amount_2z: 5,
+            hold_key: HoldKey {
+                call_id: "c".into(),
+                attempt: 1,
+            },
+            aep: 1,
+            agen,
+            model_id: MODEL.into(),
+            rate_card_version: 1,
+            catalog_version: 1,
+            markup_bps: Bps(5_000),
+            ttl: TTL,
+        })
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(h.applied_markup_bps, Bps(0));
+    ledger.allow_unmetered_costs();
+    let s = settled(
+        ledger
+            .settle(SettleRequest {
+                hold_id: h.hold_id,
+                cost_nusd: 21_000_000,
+                usage: Usage::default(),
+                source: UsageSource::Provider,
+            })
+            .await
+            .unwrap(),
+    );
+    assert_eq!((s.charged_2z, s.developer_milli_2z), (3, 0));
 }

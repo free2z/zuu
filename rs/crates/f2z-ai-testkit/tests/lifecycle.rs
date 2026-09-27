@@ -48,6 +48,7 @@ fn ledger() -> (InMemoryLedger, u64) {
             spend_cap_2z: None,
         },
     );
+    l.set_app_effective_markup("app", Bps(2_000));
     l.add_rate_card(RateCard {
         version: 3,
         platform_margin_bps: Bps(5_000),

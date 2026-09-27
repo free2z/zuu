@@ -342,3 +342,14 @@ async fn a_client_that_leaves_during_a_stall_ends_the_producer_and_big_bodies_ar
     assert!(rec.body_len > 100_000);
     mock.shutdown().await;
 }
+
+#[tokio::test]
+async fn a_request_body_above_axums_default_limit_is_served() {
+    let mock = MockProvider::start(Scenario::default()).await.unwrap();
+    let mut body = request_body(ProviderStyle::OpenAiResponses);
+    body["input"] = Value::String("x".repeat(6 * 1024 * 1024));
+    let resp = post(&mock, ProviderStyle::OpenAiResponses, &body).await;
+    assert_eq!(resp.status(), 200);
+    read_all(resp).await.unwrap();
+    mock.shutdown().await;
+}

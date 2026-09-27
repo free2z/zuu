@@ -2,8 +2,14 @@
 //!
 //! ```text
 //! cargo run --release -p f2z-ai-testkit --example load_mock_provider -- \
-//!     --streams 2000 --ramp 200 --tokens 64 --tps 50 --style chat
+//!     --streams 2000 --ramp 500 --tokens 1000 --tps 50 --min-concurrency 1500
 //! ```
+//!
+//! **Concurrency is reached only if streams outlast the ramp.** A stream
+//! lasts about `ttfb + tokens / tps`; `--streams N` at `--ramp R` connects/s
+//! holds at most `R × stream length` open at once. The report prints the
+//! peak actually reached, and `--min-concurrency C` fails the run when it
+//! falls short, so a run cannot pass as "N concurrent" without being so.
 //!
 //! With no `--url` it starts a [`MockProvider`] in-process and drives it; with
 //! `--url http://host:port` it drives an **out-of-process provider-shaped**
@@ -19,6 +25,7 @@
 //! connections per second (default 100), `--tokens T` output tokens per
 //! stream (64), `--tps S` tokens per second per stream (50), `--ttfb-ms M`
 //! (150), `--style chat|responses|anthropic` (chat), `--url URL`,
+//! `--min-concurrency C` (0, i.e. not enforced),
 //! `--timeout-s S` per-stream deadline (120; a stream past it is a failure,
 //! so one stalled connection cannot hold back the report).
 //!
@@ -40,6 +47,7 @@
 
 use core::time::Duration;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use f2z_ai_testkit::mock::{MockProvider, ProviderStyle, Scenario};
@@ -54,6 +62,7 @@ struct Args {
     style: ProviderStyle,
     url: Option<String>,
     timeout_s: u64,
+    min_concurrency: usize,
 }
 
 fn parse() -> Result<Args, String> {
@@ -66,6 +75,7 @@ fn parse() -> Result<Args, String> {
         style: ProviderStyle::ChatCompletions,
         url: None,
         timeout_s: 120,
+        min_concurrency: 0,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -87,6 +97,9 @@ fn parse() -> Result<Args, String> {
             }
             "--url" => a.url = Some(v),
             "--timeout-s" => a.timeout_s = num(&v)?.max(1),
+            "--min-concurrency" => {
+                a.min_concurrency = usize::try_from(num(&v)?).map_err(|e| e.to_string())?
+            }
             other => return Err(format!("unknown option {other}")),
         }
     }
@@ -149,7 +162,38 @@ struct Sample {
     total: Duration,
 }
 
-async fn one(client: reqwest::Client, url: String, body: String, style: ProviderStyle) -> Sample {
+/// In-flight streams, and the most seen at once.
+#[derive(Default)]
+struct Gauge {
+    now: AtomicUsize,
+    peak: AtomicUsize,
+}
+
+/// Holds one slot of the gauge for the life of a stream.
+struct InFlight(Arc<Gauge>);
+
+impl InFlight {
+    fn new(g: &Arc<Gauge>) -> Self {
+        let n = g.now.fetch_add(1, Ordering::Relaxed) + 1;
+        g.peak.fetch_max(n, Ordering::Relaxed);
+        Self(Arc::clone(g))
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        self.0.now.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+async fn one(
+    client: reqwest::Client,
+    url: String,
+    body: String,
+    style: ProviderStyle,
+    gauge: Arc<Gauge>,
+) -> Sample {
+    let _slot = InFlight::new(&gauge);
     let t0 = Instant::now();
     let fail = |t0: Instant| Sample {
         ok: false,
@@ -231,6 +275,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let started = Instant::now();
     let gap = Duration::from_secs(1) / args.ramp;
+    let gauge = Arc::new(Gauge::default());
     let mut tasks = Vec::with_capacity(args.streams);
     for i in 0..args.streams {
         let due = started + gap * u32::try_from(i).unwrap_or(u32::MAX);
@@ -240,6 +285,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             url.clone(),
             body.clone(),
             args.style,
+            Arc::clone(&gauge),
         )));
     }
     let mut samples = Vec::with_capacity(tasks.len());
@@ -261,7 +307,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.streams,
         args.streams - ok
     );
+    let peak = gauge.peak.load(Ordering::Relaxed);
     println!("wall          {wall:.2?} (ramp {} connects/s)", args.ramp);
+    println!("concurrency   peak {peak} streams in flight");
     for (name, v) in [("ttfb", &ttfb), ("stream", &total)] {
         println!(
             "{name:<13} p50 {:>9.1?}  p90 {:>9.1?}  p99 {:>9.1?}  max {:>9.1?}",
@@ -277,6 +325,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             m.request_count(),
             m.backpressured_writes()
         );
+    }
+    if peak < args.min_concurrency {
+        return Err(format!(
+            "peak concurrency {peak} < --min-concurrency {}: raise --ramp or lengthen streams",
+            args.min_concurrency
+        )
+        .into());
     }
     if ok != args.streams {
         return Err(format!("{} of {} streams failed", args.streams - ok, args.streams).into());
