@@ -386,3 +386,24 @@ Provision descriptor limits above both listener budgets plus upstream sockets,
 Redis, logs, and other files. Before HTTP parsing, refusals are counted by
 `f2z_ai_connections_rejected_total{listener="public"|"admin"}` and active sockets
 by `f2z_ai_connections_active` with the same two labels; no per-refusal logs.
+
+### Restricting models during pricing verification
+
+Set `allowed_models = ["gpt-4o"]` in gateway TOML (or
+`F2Z_AI_ALLOWED_MODELS='["gpt-4o"]'`) to expose only model IDs whose provider
+usage and prices have been verified for this deployment. Omit the setting to
+retain the full configured-provider catalogue; `[]` allows no new calls.
+This is a model availability policy, independent of users' balance and optional
+app budgets. It does not alter another service's model selection.
+
+The policy filters `/v1/models` and refuses excluded estimates and new calls
+with `model_disabled`. A refused new call has a terminal, zero-charge record;
+retrying its same key recovers that result. Existing calls and receipts remain
+recoverable even after their model is removed from the allowlist. Apply the same
+policy to every serving replica before advertising a restricted rollout.
+
+An initial text deployment can start with verified GPT-4o pricing. Additional
+models need correct cache-write and context-tier billing before being enabled;
+a provider's model-list response alone does not prove billing compatibility.
+Applications should use `/v1/models` rather than assuming every signed-catalogue
+entry is available on their gateway.

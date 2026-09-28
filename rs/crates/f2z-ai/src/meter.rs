@@ -275,6 +275,7 @@ pub struct Metered {
     provider: Arc<dyn ChatBackend>,
     active: Mutex<BTreeMap<u64, Arc<Active>>>,
     configured: Option<std::collections::BTreeSet<String>>,
+    allowed_models: Option<std::collections::BTreeSet<String>>,
 }
 impl Metered {
     /// Share this same instance between gateway backend and detached settler.
@@ -291,7 +292,32 @@ impl Metered {
             provider,
             active: Mutex::new(BTreeMap::new()),
             configured: None,
+            allowed_models: None,
         }
+    }
+    /// Restrict new paid work to reviewed model IDs while preserving old receipts.
+    #[must_use]
+    pub fn with_allowed_models(
+        mut self,
+        models: Option<std::collections::BTreeSet<String>>,
+    ) -> Self {
+        self.allowed_models = models;
+        self
+    }
+    fn model_allowed(&self, model: &str) -> bool {
+        self.allowed_models
+            .as_ref()
+            .is_none_or(|models| models.contains(model))
+    }
+    fn require_model(&self, model: &str) -> Result<(), ApiFailure> {
+        if self.model_allowed(model) {
+            return Ok(());
+        }
+        Err(ApiFailure::new(
+            ErrorCode::ModelDisabled,
+            "model is not enabled for new calls",
+        )
+        .detail("model", model))
     }
     async fn context(&self, p: &Principal) -> Result<(Identity, Context), ApiFailure> {
         let identity = Identity::try_from(p).map_err(|_| invalid())?;
@@ -311,7 +337,7 @@ impl ChatBackend for Metered {
     ) -> Result<Value, ApiFailure> {
         let (_, c) = self.context(principal).await?;
         let cat = catalog.catalog();
-        let models=cat.models.iter().filter(|m| cat.callable_model(&m.id).is_some() && self.configured.as_ref().is_none_or(|providers|providers.contains(&m.provider))).map(|m| {
+        let models=cat.models.iter().filter(|m| self.model_allowed(&m.id) && cat.callable_model(&m.id).is_some() && self.configured.as_ref().is_none_or(|providers|providers.contains(&m.provider))).map(|m| {
             let mut prices=serde_json::Map::new();
             for (name, rate) in [("input_milli_2z_per_mtok",m.prices.input_nusd_per_mtok),("cached_input_milli_2z_per_mtok",m.prices.cached_input_nusd_per_mtok),("cache_write_milli_2z_per_mtok",m.prices.cache_write_nusd_per_mtok),("output_milli_2z_per_mtok",m.prices.output_nusd_per_mtok),("image_milli_2z",m.prices.image_nusd),("tool_call_milli_2z",m.prices.tool_call_nusd)] {
                 let numerator=u128::from(rate).checked_mul(u128::from(cat.platform_margin_bps.0)+10_000).and_then(|n| n.checked_mul(u128::from(c.markup().0)+10_000)).ok_or_else(invalid)?;
@@ -330,6 +356,7 @@ impl ChatBackend for Metered {
         catalog: Arc<VerifiedCatalog>,
         principal: &Principal,
     ) -> Result<Value, ApiFailure> {
+        self.require_model(&request.model)?;
         let (_, c) = self.context(principal).await?;
         serde_json::to_value(plan(&request, &catalog, &c)?.estimate(&c, catalog.catalog().version))
             .map_err(|_| invalid())
@@ -422,6 +449,19 @@ impl ChatBackend for Metered {
         }
         // Replay precedes spendability: a completed call remains readable even
         // after its charge exhausted the current balance/cap.
+        if let Err(refusal) = self.require_model(&request.model) {
+            // Persist a terminal zero-charge refusal before returning. Otherwise
+            // a disabled model would burn its key as an unfinished claim. Replay
+            // above remains available even when deployment policy changes.
+            *lock(&active.completion) = Some(json!({
+                "model": request.model, "provider": provider, "finish_reason": "stop",
+                "partial": false, "error": {"code": "model_disabled", "message": "model is not enabled for new calls"}
+            }));
+            finalize(self.ledger.as_ref(), &active)
+                .await
+                .map_err(|_| unavailable().detail("call_id", id.to_string()))?;
+            return Err(refusal);
+        }
         let admitted_context = Context::parse(row.get("context").ok_or_else(invalid)?.clone())?;
         let p = plan(&request, &catalog, &admitted_context)?;
         *lock(&active.plan) = Some(p.clone());

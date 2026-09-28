@@ -179,7 +179,8 @@ async fn a_delivery_that_stalls_after_the_upstream_ended_is_still_bounded() {
     let (backend, mut streams) = ControlledBackend::new();
     let settler = RecordingSettler::default();
     let config = config(&[
-        ("F2Z_AI_DELIVERY_STALL_SECS", "1"),
+        // Sending 16 MiB can take over a second on a shared CI runner.
+        ("F2Z_AI_DELIVERY_STALL_SECS", "5"),
         ("F2Z_AI_DELIVERY_BUFFER_BYTES", "268435456"),
     ]);
     let running = start(&config, deps(fixed_catalog(), backend, settler.clone())).await;
@@ -201,12 +202,22 @@ async fn a_delivery_that_stalls_after_the_upstream_ended_is_still_bounded() {
         "0"
     );
     // ...until the stall rule, still running after the upstream ended, ends it.
-    wait_metric(
-        running.admin,
-        "f2z_ai_delivery_aborted_total{reason=\"stalled\"} ",
-        "1",
-    )
-    .await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if metric(
+                running.admin,
+                "f2z_ai_delivery_aborted_total{reason=\"stalled\"} ",
+            )
+            .await
+                == "1"
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("post-upstream delivery did not reach its five-second stall deadline");
     assert_eq!(
         metric(running.admin, "f2z_ai_delivery_buffered_bytes ").await,
         "0"

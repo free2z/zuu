@@ -60,7 +60,7 @@
 //! in-cluster Service); the issuer and `auth_jwks_uri` must be `https://`
 //! (`http://` only to loopback, for a test issuer).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -316,6 +316,8 @@ pub struct Config {
     pub ledger_url: Option<SecretString>,
     /// Per-process ledger pool cap; deployment must budget the sum across replicas.
     pub ledger_max_connections: u32,
+    /// Optional exact model IDs approved for new paid work; an empty set denies all.
+    pub allowed_models: Option<BTreeSet<String>>,
 }
 
 impl Default for Config {
@@ -352,6 +354,7 @@ impl Default for Config {
             catalog_keys_file: None,
             ledger_url: None,
             ledger_max_connections: 4,
+            allowed_models: None,
         }
     }
 }
@@ -412,6 +415,7 @@ struct Raw {
     catalog_keys_file: Option<PathBuf>,
     ledger_url_file: Option<PathBuf>,
     ledger_max_connections: Option<u64>,
+    allowed_models: Option<BTreeSet<String>>,
     listen: Option<String>,
     admin_listen: Option<String>,
     max_concurrent_calls: Option<u64>,
@@ -466,11 +470,13 @@ struct RawProvider {
 #[derive(Clone, Copy)]
 enum Kind {
     Text,
+    TextArray,
     Integer,
 }
 
 /// Every key, and how an environment value for it is read.
 const KEYS: &[(&str, Kind)] = &[
+    ("allowed_models", Kind::TextArray),
     ("catalog_url", Kind::Text),
     ("catalog_keys_file", Kind::Text),
     ("ledger_url_file", Kind::Text),
@@ -617,6 +623,9 @@ impl Config {
             };
             let parsed = match kind {
                 Kind::Text => toml::Value::String(value),
+                Kind::TextArray => value
+                    .parse::<toml::Value>()
+                    .map_err(|_| err(format!("`{name}` must be a TOML array of model IDs")))?,
                 Kind::Integer => toml::Value::Integer(
                     value
                         .trim()
@@ -750,6 +759,7 @@ impl Config {
             otlp_authorization,
             providers,
             auth,
+            allowed_models: raw.allowed_models,
             catalog_url: raw.catalog_url,
             catalog_keys_file: raw.catalog_keys_file,
             ledger_url,
@@ -765,6 +775,17 @@ impl Config {
 
     /// The cross-field rules.
     fn validate(&self) -> Result<(), ConfigError> {
+        if self.allowed_models.as_ref().is_some_and(|models| {
+            models.iter().any(|id| {
+                id.is_empty()
+                    || id.len() > 200
+                    || id.chars().any(|c| c.is_whitespace() || c.is_control())
+            })
+        }) {
+            return Err(err(
+                "allowed_models must contain nonempty model IDs without whitespace",
+            ));
+        }
         if self.ledger_max_connections > 20 {
             return Err(err(
                 "ledger_max_connections must be 1..=20; budget all replicas together",
@@ -1063,6 +1084,19 @@ fn providers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_model_policy_is_parsed_and_bad_ids_are_refused() {
+        let path = file("allowed_models = ['gpt-4o']");
+        let config = Config::load(Some(path.path()), env(&[])).unwrap();
+        assert_eq!(config.allowed_models, Some(["gpt-4o".to_owned()].into()));
+        let disabled =
+            Config::load(Some(path.path()), env(&[("F2Z_AI_ALLOWED_MODELS", "[]")])).unwrap();
+        assert_eq!(disabled.allowed_models, Some(BTreeSet::new()));
+        for invalid in ["['']", "[' gpt-4o']", "[1]", "gpt-4o"] {
+            assert!(Config::load(None, env(&[("F2Z_AI_ALLOWED_MODELS", invalid)])).is_err());
+        }
+    }
 
     fn env(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         pairs
