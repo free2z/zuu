@@ -217,6 +217,16 @@ async fn grant_proof_is_fresh_typed_and_bound_to_the_account_and_client() {
     assert_eq!(grant.spend_cap_2z, Some(Whole2z::new(500)));
     assert_eq!(grant.cap_period, f2z_sdk::proto::grant::CapPeriod::Total);
     assert!(grant.enforced);
+    let original = fake.grant_body.lock().unwrap().clone();
+    for (field, value) in [
+        ("grant_generation", serde_json::json!(0)),
+        ("scopes", serde_json::json!([])),
+        ("as_of", serde_json::json!("2026-02-30T00:00:00Z")),
+    ] {
+        fake.grant_body.lock().unwrap()[field] = value;
+        assert!(matches!(client.grant().await, Err(Error::Protocol(_))));
+        *fake.grant_body.lock().unwrap() = original.clone();
+    }
     fake.expire_access_tokens();
     fake.grant_body.lock().unwrap()["enforced"] = serde_json::json!(false);
     assert!(!client.grant().await.unwrap().enforced);

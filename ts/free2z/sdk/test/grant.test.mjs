@@ -35,6 +35,11 @@ test("grant proof is fresh, scoped and rejects missing enforcement or unknown pe
   }
   for (const invalid of [
     { cap_period: "forever" },
+    { grant_generation: 0 },
+    { scopes: [] },
+    { as_of: "" },
+    { as_of: "2026-02-30T00:00:00Z" },
+    { as_of: "2026-09-28T00:00:00+01:00" },
     { client_id: "other" },
     { sub: "bob" },
   ]) {

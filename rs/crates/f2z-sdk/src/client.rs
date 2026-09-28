@@ -487,6 +487,9 @@ impl Client {
             .await?;
         let response = crate::http::expect_success(response).await?;
         let grant: f2z_ai_proto::grant::Grant = crate::http::read_json(response).await?;
+        grant
+            .check()
+            .map_err(|reason| Error::Protocol(reason.into()))?;
         let session = self.inner.session.lock().await;
         if generation != Some(session.generation) {
             return Err(Error::SignedOut(SignedOutReason::SessionChanged));
