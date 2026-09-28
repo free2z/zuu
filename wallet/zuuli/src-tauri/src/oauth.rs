@@ -1079,7 +1079,7 @@ mod tests {
     /// are opposite and both matter. A custom-scheme route that quietly became
     /// an app link would claim a domain; an app link that quietly became
     /// `appLink: false` would register an unverified web link any app may also
-    /// claim, which is what `docs/intent-bridge/CALLER-AUTHENTICATION.md` §4
+    /// claim, which is what `docs/free2z/intent-bridge/CALLER-AUTHENTICATION.md` §4
     /// refuses to carry authority over. The same four values are asserted across
     /// all three apps by `wallet/zuuli/scripts/app-link-association.mjs`.
     #[test]

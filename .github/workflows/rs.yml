@@ -56,6 +56,11 @@ jobs:
       # change under rs/ and would sail through a skip. Each self-test runs
       # first, so the verdict that follows comes from a check that has just been
       # watched fail.
+      - name: Verify project namespace ownership
+        run: |
+          node scripts/check-project-namespaces.mjs --self-test
+          node scripts/check-project-namespaces.mjs
+
       - name: Verify immutable actions and fail-closed required jobs
         run: |
           node scripts/check-github-actions-pins.mjs --self-test
@@ -67,7 +72,7 @@ jobs:
           node scripts/check-workflow-gates.mjs
 
       # Deliberately in this always-running job and not behind the rs/ filter.
-      # The labels it judges live in docs/e2ee/*.md as much as in rs/, and the
+      # The labels it judges live in docs/free2z/messaging/*.md as much as in rs/, and the
       # collision it exists to catch (#602) arrived in a docs-only pull request
       # — a diff for which `filter` below sets rs=false and every rs job skips.
       # A check that only runs when Rust changes would not have run on the
@@ -77,8 +82,8 @@ jobs:
       # policy step stays a single reviewed unit.
       - name: Verify hash-domain labels are prefix-free across the tree
         run: |
-          node scripts/check-hash-domain-labels.mjs --self-test
-          node scripts/check-hash-domain-labels.mjs
+          node scripts/free2z/check-hash-domain-labels.mjs --self-test
+          node scripts/free2z/check-hash-domain-labels.mjs
 
       # Unconditional for the same reason as the step above, and it belongs in
       # this job for a third reason too.
@@ -137,7 +142,7 @@ jobs:
           node --test scripts/verify-signing-identity.node-test.mjs
 
       # rs/rust-toolchain.toml and rs/crates/*/Cargo.toml restate
-      # wallet/rust-toolchain.toml, and are registered in the script's own
+      # rust-toolchain.toml, and are registered in the script's own
       # TOOLCHAIN_RESTATEMENTS/MANIFESTS arrays rather than by flags here. A
       # flag in one workflow is not a registration: the bare invocation the
       # required zuuli gate runs passes no flags, so anything registered only
@@ -178,21 +183,23 @@ jobs:
           # `case` patterns are not pathname globs: `rs/*` matches every path
           # under rs/, at any depth.
           #
-          # wallet/rust-toolchain.toml is deliberately absent. A toolchain bump
-          # that is correct also edits rs/rust-toolchain.toml and
+          # The root authority and isolated rs/ restatement both select tests.
+          # A toolchain bump that is correct also edits rs/rust-toolchain.toml and
           # rs/crates/*/Cargo.toml, which select rs; a bump that is not correct
           # fails scripts/check-rust-toolchain.sh in this always-running job.
-          # Listing it would make every wallet pin bump run the rs suite twice
-          # over for no additional coverage.
           #
           # The two wallet manifests and lockfiles are independent shipping
           # consumers/resolutions of the same OpenMLS/libcrux graph. A direct
           # dependency or feature change must run the rs KAT just like resolved
           # package drift; its first check then rejects lock identity skew.
+          #
+          # docs/free2z/sdk/spec/* is read by f2z-ai-proto's spec_conformance test
+          # (the error catalogue's statuses and retryability, and every wire
+          # example), so a spec-only edit must run it or the two drift apart.
           rs=false
           while IFS= read -r -d '' file; do
             case "$file" in
-              rs/*|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/e2ee/*|scripts/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
+              rust-toolchain.toml|rs/*|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/free2z/messaging/*|docs/free2z/sdk/spec/*|scripts/free2z/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/free2z/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
                 rs=true
                 ;;
             esac
@@ -209,7 +216,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The version is read out of wallet/rust-toolchain.toml rather than
+      # The version is read out of rust-toolchain.toml rather than
       # restated in YAML, because an action input cannot read TOML and a
       # restatement here would be one more thing to drift.
       - name: Resolve the pinned Rust toolchain
@@ -304,6 +311,20 @@ jobs:
     if: needs.changes.outputs.rs == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # A real Redis for f2z-ai's auth tests (zuu#1068): the Lua script that
+    # takes the rate-limit tokens and the concurrency lease, and the whole
+    # gate reading the IdP's epoch keys, run against Redis itself rather than
+    # the in-memory stand-in. Pinned by digest (redis:7-alpine).
+    services:
+      redis:
+        image: redis@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -328,6 +349,11 @@ jobs:
       # only happens on a developer's machine cannot change the verdict.
       - name: Run the rs/ test suite
         working-directory: rs
+        # F2Z_AI_REQUIRE_REDIS turns the real-Redis tests' skip into a failure,
+        # so losing the service cannot quietly turn them green.
+        env:
+          F2Z_AI_TEST_REDIS_URL: redis://127.0.0.1:6379
+          F2Z_AI_REQUIRE_REDIS: "1"
         run: cargo test --locked --all-targets
 
       - name: Run the rs/ doc tests
@@ -358,22 +384,22 @@ jobs:
       - name: Mutation-test AKD documentation evidence
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/check-akd-doc-evidence.mjs --self-test
+        run: node scripts/free2z/check-akd-doc-evidence.mjs --self-test
 
       - name: Verify AKD documentation against locked executable evidence
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/check-akd-doc-evidence.mjs
+        run: node scripts/free2z/check-akd-doc-evidence.mjs
 
       # KT.md §6.3 and LogView share one repeated-head rule: exact complete
       # equality is a no-op and every same-epoch alternative is a fork. This
       # check binds the normative branch, the structural runtime comparison,
       # every TBS field mutant, and the witness/client steady-state coverage.
       - name: Mutation-test repeated tree-head agreement
-        run: node scripts/check-kt-sth-repeat-agreement.mjs --self-test
+        run: node scripts/free2z/check-kt-sth-repeat-agreement.mjs --self-test
 
       - name: Verify repeated tree-head spec and runtime agreement
-        run: node scripts/check-kt-sth-repeat-agreement.mjs
+        run: node scripts/free2z/check-kt-sth-repeat-agreement.mjs
 
       # `crash-injection` is off by default because it compiles an `abort()`
       # into f2z-relay-store's commit path, so the default run above skips
@@ -620,8 +646,8 @@ jobs:
           node scripts/check-github-actions-pins.mjs
           node scripts/check-workflow-gates.mjs --self-test
           node scripts/check-workflow-gates.mjs
-          node scripts/check-hash-domain-labels.mjs --self-test
-          node scripts/check-hash-domain-labels.mjs
+          node scripts/free2z/check-hash-domain-labels.mjs --self-test
+          node scripts/free2z/check-hash-domain-labels.mjs
           node scripts/check-f2z-images.mjs --self-test
           node scripts/check-f2z-images.mjs
 

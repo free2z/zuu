@@ -1,0 +1,4 @@
+# No command is granted implicitly. The host must list the operations its trusted window needs.
+[default]
+description = "No Free2Z authority by default; grant individual commands to trusted app windows."
+permissions = []

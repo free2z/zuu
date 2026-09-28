@@ -42,8 +42,8 @@
 //! shape entirely.
 //!
 //! [`apply`]: StorageBackend::apply
-//! [s64]: https://github.com/free2z/zuu/blob/main/docs/e2ee/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
-//! [adr1]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0001-platform-priority.md
+//! [s64]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
+//! [adr1]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0001-platform-priority.md
 
 use crate::error::Result;
 

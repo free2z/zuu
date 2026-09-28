@@ -245,6 +245,20 @@ exceptions = [
   # is worthless in a way nobody can see from outside (§7.4), which is precisely
   # the case for requiring the source of a running modification.
   { name = "f2z-witness", allow = ["AGPL-3.0-only"] },
+  # The AI gateway (docs/free2z/ai-gateway ADR 0001/0004, zuu#1054). The server that
+  # holds and settles 2Z for third-party apps: an operator running a modified
+  # copy for others owes its users that modification. Its contract crate,
+  # `f2z-ai-proto`, stays MIT and is not named here.
+  { name = "f2z-ai", allow = ["AGPL-3.0-only"] },
+  # BSL-1.0, arriving with the gateway's Redis client, and only there:
+  # `redis` 1.x depends on `xxhash-rust` unconditionally (its xxh3 hashes
+  # cache keys; there is no feature that drops it). The Boost Software
+  # Licence is permissive — OSI-approved, FSF Free/Libre, no copyleft, and it
+  # waives the notice requirement for binary distributions — so it sits on
+  # the permissive side of this section's boundary. It is an exception for
+  # this one crate rather than an `allow` entry so that a second BSL crate is
+  # a decision, not an accident (zuu#1068).
+  { name = "xxhash-rust", allow = ["BSL-1.0"] },
 ]
 
 # =============================================================================
@@ -263,7 +277,7 @@ wildcards = "deny"
 # akd < 0.13.0 contains an auditor append-only bypass, facebook/akd#495, merged
 # 2026-08-12 and released in 0.13.0 on 2026-08-13: a malicious log can rewrite an
 # existing label's value while still producing a VALID append-only proof, which
-# defeats the witness role entirely (see docs/e2ee/KT.md §7).
+# defeats the witness role entirely (see docs/free2z/messaging/KT.md §7).
 # There is no RustSec/OSV advisory — an OSV query for `akd` returns {} — so
 # `cargo audit` and `cargo deny advisories` will NOT catch a downgrade. This entry
 # is the floor. Do not remove it, and do not assume tooling is holding it.

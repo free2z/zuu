@@ -49,7 +49,7 @@ pub struct Invocation {
 
 /// The `--help` text.
 pub const HELP: &str = "\
-f2z-relay — the free2z relay daemon (docs/e2ee/WIRE.md v1)
+f2z-relay — the free2z relay daemon (docs/free2z/messaging/WIRE.md v1)
 
 USAGE:
     f2z-relay [OPTIONS]

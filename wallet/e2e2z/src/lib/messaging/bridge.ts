@@ -9,7 +9,7 @@
 // here rather than invoked, because e2e2z holds no wallet seed — see
 // `EnrollmentUnavailableError` below.
 //
-// `docs/e2ee/CLIENT-CONTRACT.md` §4.
+// `docs/free2z/messaging/CLIENT-CONTRACT.md` §4.
 
 import { useMock } from "../platform";
 import { intentTransport } from "../enrollment/transport";
@@ -655,7 +655,7 @@ export const messaging = {
  * They stay named here rather than being deleted because `WIRE_COMMANDS`,
  * `RESULTS` and `BridgeMethod` are one population that `parity.test.ts` and
  * `wallet/zuuli/scripts/messaging-contract.node-test.mjs` hold to §3 of
- * `docs/e2ee/CLIENT-CONTRACT.md`. Deleting them would silently shrink the
+ * `docs/free2z/messaging/CLIENT-CONTRACT.md`. Deleting them would silently shrink the
  * contract instead of recording that this app cannot serve them.
  *
  * `getEnrollmentStatus` is no longer refused (#1022): it is a read of this
@@ -690,7 +690,7 @@ export const enrollment = {
    * with.
    *
    * **It still rejects in every shipping build, for one reason: there is no
-   * transport** (`docs/intent-bridge/PROTOCOL.md` §7, #461). What #928 changed
+   * transport** (`docs/free2z/intent-bridge/PROTOCOL.md` §7, #461). What #928 changed
    * is that the step after the transport now exists — before ADR 0016 the
    * install needed the seed-derived `BackupWrapKey` this app must never hold.
    *

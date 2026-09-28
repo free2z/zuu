@@ -1,5 +1,5 @@
 //! The **INTERNAL-DISPOSABLE** directory this build is compiled against —
-//! [ADR 0017](../../../../docs/e2ee/decisions/0017-internal-directory-activation.md).
+//! [ADR 0017](../../../../docs/free2z/messaging/decisions/0017-internal-directory-activation.md).
 //!
 //! # Why a checked-in file, and why it fails closed
 //!

@@ -54,12 +54,12 @@ const mediaPreviewSource = await readFile(
   ),
   "utf8",
 );
-// `py/dj/apps/` in this repo is a trimmed subset and does not vendor the
+// `py/free2z/dj/apps/` in this repo is a trimmed subset and does not vendor the
 // `uploads` app, so this read throws and takes the whole file down with it.
 // Skip the backend-source assertions when the app is absent rather than fail
 // on a file that was never here.
 const uploadsViewSource = await readFile(
-  new URL("../../../../py/dj/apps/uploads/views.py", import.meta.url),
+  new URL("../../../../py/free2z/dj/apps/uploads/views.py", import.meta.url),
   "utf8",
 ).catch(() => null);
 

@@ -11,7 +11,7 @@
 # on a network anyone else can reach.
 
 # The compiler is pinned by rs/rust-toolchain.toml, which restates
-# wallet/rust-toolchain.toml and is held to it by
+# rust-toolchain.toml and is held to it by
 # scripts/check-rust-toolchain.sh. `rust:1-slim` ships rustup, which reads that
 # file and fetches the pinned channel — so the version lives in one place here
 # too, rather than being restated in a FROM line nothing checks.

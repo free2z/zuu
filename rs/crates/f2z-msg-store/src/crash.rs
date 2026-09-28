@@ -36,7 +36,7 @@
 //! on. **Nothing in the library arms itself.**
 //!
 //! [sibling]: https://github.com/free2z/zuu/blob/main/rs/crates/f2z-relay-store/src/crash.rs
-//! [s64]: https://github.com/free2z/zuu/blob/main/docs/e2ee/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
+//! [s64]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
 
 use core::sync::atomic::{AtomicU8, Ordering};
 

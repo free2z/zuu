@@ -33,8 +33,8 @@ const LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND =
 const LIBRUSTZCASH_POLICY_COMMAND =
   "node scripts/check-librustzcash-compat.mjs";
 const POW_POLICY_SELF_TEST_COMMAND =
-  "node scripts/check-pow-policy.mjs --self-test";
-const POW_POLICY_COMMAND = "node scripts/check-pow-policy.mjs";
+  "node scripts/free2z/check-pow-policy.mjs --self-test";
+const POW_POLICY_COMMAND = "node scripts/free2z/check-pow-policy.mjs";
 const REQUIRED_LIBRUSTZCASH_LOCKFILE_COUNT = 3;
 const REQUIRED_LIBRUSTZCASH_PACKAGE_COUNT = 11;
 const REQUIRED_LIBRUSTZCASH_SCOPE_DIGEST =
@@ -49,6 +49,9 @@ const RUST_REQUIRED_JOB_IDS = new Set([
   "rust_fmt", "rust_deny", "rust_clippy", "rust_native_clippy", "rust_native_tests",
   "rust_plugin", "rust_msg_plugin", "rust_android_32", "rust_app", "rust_crypto_targets",
 ]);
+// This package job intentionally runs on every PR, independently of the wallet
+// selectors. Its success must never be mistaken for an illegitimate selected skip.
+const ALWAYS_REQUIRED_JOB_IDS = new Set(["free2z_sdk_typescript"]);
 const POLICED_RUST_ROOTS = ["wallet", "rs"];
 const RUST_ROOT_CONTRACTS = [
   {
@@ -83,8 +86,8 @@ const RUST_ROOT_CONTRACTS = [
           "wallet/nested/future/source.rs",
           "wallet/Cargo.toml",
           "wallet/nested/future/Cargo.toml",
-          "docs/e2ee/CLIENT-CONTRACT.md",
-          "docs/e2ee/WIRE.md",
+          "docs/free2z/messaging/CLIENT-CONTRACT.md",
+          "docs/free2z/messaging/WIRE.md",
           // The markdown-only guard must exclude prose and nothing else: source
           // under the same two prefixes still selects the full gate.
           "wallet/free2z/src/App.tsx",
@@ -196,7 +199,7 @@ const RUST_ROOT_CONTRACTS = [
     ],
     excludedProbePaths: [
       "wallet/README.md",
-      "wallet/docs/architecture.md",
+      "wallet/docs/free2z/app-suite/architecture.md",
       "rs/crates/f2z-relay/src/lib.rs",
       // Markdown under wallet/zuuli/ is prose about the app, not an input to
       // any job the gate awaits, and `wallet/zuuli/*` would otherwise select
@@ -243,12 +246,13 @@ const RUST_ROOT_CONTRACTS = [
         name: "rs",
         probeRoot: "rs",
         additionalProbePaths: [
-          "docs/e2ee/KT.md",
-          "docs/e2ee/decisions/0013-key-transparency-log.md",
-          "docs/e2ee/evidence/akd-benchmark.json",
-          "docs/e2ee/evidence/akd-audit-scope.json",
-          "scripts/check-akd-doc-evidence.mjs",
-          "scripts/check-kt-sth-repeat-agreement.mjs",
+          "docs/free2z/sdk/spec/chat-api.md",
+          "docs/free2z/messaging/KT.md",
+          "docs/free2z/messaging/decisions/0013-key-transparency-log.md",
+          "docs/free2z/messaging/evidence/akd-benchmark.json",
+          "docs/free2z/messaging/evidence/akd-audit-scope.json",
+          "scripts/free2z/check-akd-doc-evidence.mjs",
+          "scripts/free2z/check-kt-sth-repeat-agreement.mjs",
           "scripts/check-crypto-kat-locks.mjs",
           "scripts/check-crypto-kats.sh",
           "wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml",
@@ -1971,6 +1975,7 @@ function requiredWasmSelectorFailures(repoRoot, relativeFile, lines, changes) {
   }
   const [zuuliPatterns] = zuuliPatternSets;
   for (const pattern of [
+    "rust-toolchain.toml",
     "wallet/rust-toolchain.toml",
     "scripts/check-rust-toolchain.sh",
     "scripts/check-github-actions-pins.mjs",
@@ -2465,6 +2470,21 @@ function rustRootWorkflowFailures(relativeFile, lines, contract, embeddedInputs 
     failures,
     `${contract.root} root owner changes`,
   );
+  const namespaceSteps = changeSteps.filter((step) =>
+    step.properties.get("name")?.value === "Verify project namespace ownership");
+  const namespace = namespaceSteps[0];
+  const namespaceRun = namespace?.properties.get("run");
+  const namespaceCommands = namespaceRun ? blockScalarCommands(lines, namespaceRun, namespace.end) : [];
+  if (namespaceSteps.length !== 1 ||
+      !hasExactKeys(namespace?.properties ?? new Map(), ["name", "run"]) ||
+      namespaceRun?.value !== "|" ||
+      JSON.stringify(namespaceCommands) !== JSON.stringify([
+        "node scripts/check-project-namespaces.mjs --self-test",
+        "node scripts/check-project-namespaces.mjs",
+      ])) {
+    failures.push(`${relativeFile}:${changes.start + 1}: ${contract.root}/ owner must run one unconditional namespace self-test and live verdict`);
+  }
+
   const toolchainSteps = changeSteps.filter(
     (step) =>
       step.properties.get("name")?.value ===
@@ -2724,10 +2744,10 @@ function rustRootWorkflowFailures(relativeFile, lines, contract, embeddedInputs 
       ? policyJobSteps(relativeFile, lines, job, failures, "rs AKD evidence owner")
       : [];
     for (const [stepName, command, needsToken] of [
-      ["Mutation-test AKD documentation evidence", "node scripts/check-akd-doc-evidence.mjs --self-test", true],
-      ["Verify AKD documentation against locked executable evidence", "node scripts/check-akd-doc-evidence.mjs", true],
-      ["Mutation-test repeated tree-head agreement", "node scripts/check-kt-sth-repeat-agreement.mjs --self-test", false],
-      ["Verify repeated tree-head spec and runtime agreement", "node scripts/check-kt-sth-repeat-agreement.mjs", false],
+      ["Mutation-test AKD documentation evidence", "node scripts/free2z/check-akd-doc-evidence.mjs --self-test", true],
+      ["Verify AKD documentation against locked executable evidence", "node scripts/free2z/check-akd-doc-evidence.mjs", true],
+      ["Mutation-test repeated tree-head agreement", "node scripts/free2z/check-kt-sth-repeat-agreement.mjs --self-test", false],
+      ["Verify repeated tree-head spec and runtime agreement", "node scripts/free2z/check-kt-sth-repeat-agreement.mjs", false],
     ]) {
       const matching = steps.filter((step) => step.properties.get("name")?.value === stepName);
       const step = matching[0];
@@ -3358,6 +3378,11 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
       throw new Error(`selected Rust job ${job} is missing from required jobs context`);
     }
   }
+  for (const job of ALWAYS_REQUIRED_JOB_IDS) {
+    if (!Object.hasOwn(needs, job)) {
+      throw new Error(`always-required job ${job} is missing from required jobs context`);
+    }
+  }
   const verdicts = [];
   for (const [job, state] of entries) {
     if (
@@ -3368,7 +3393,7 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
       throw new Error(`required job ${job} has no result`);
     }
     const expected =
-      job === "changes"
+      job === "changes" || ALWAYS_REQUIRED_JOB_IDS.has(job)
         ? "success"
         : job === "zuuallet_schema"
           ? schemaExpected
@@ -3820,6 +3845,17 @@ function runRustRootWorkflowMutationTests(repoRoot) {
       (value) => value.replace("        scripts/check-rust-toolchain.sh\n", ""),
       `${ownerPrefix} must run one unconditional`,
     );
+    for (const [description, from, to] of [
+      ["missing", "      - name: Verify project namespace ownership", "      - name: Removed namespace check"],
+      ["conditional", "      - name: Verify project namespace ownership", "      - name: Verify project namespace ownership\n        if: false"],
+      ["soft-failing", "      - name: Verify project namespace ownership", "      - name: Verify project namespace ownership\n        continue-on-error: true"],
+      ["self-test-only", "          node scripts/check-project-namespaces.mjs\n", "          true\n"],
+    ]) {
+      assertWorkflowFailure(contract, source,
+        `${contract.root}/ rejects a ${description} namespace guard`,
+        (value) => value.replace(from, to),
+        `${ownerPrefix} must run one unconditional namespace self-test and live verdict`);
+    }
     assertWorkflowFailure(
       contract,
       source,
@@ -3982,9 +4018,11 @@ function runRustRootWorkflowMutationTests(repoRoot) {
             mutateJob(
               value,
               "changes",
-              probePath.startsWith("docs/e2ee/")
-                ? "docs/e2ee/*|"
-                : `${probePath}|`,
+              probePath.startsWith("docs/free2z/messaging/")
+                ? "docs/free2z/messaging/*|"
+                : probePath.startsWith("docs/free2z/sdk/spec/")
+                  ? "docs/free2z/sdk/spec/*|"
+                  : `${probePath}|`,
               "",
             ),
           `${ownerPrefix} selector must actively select`,
@@ -3998,8 +4036,8 @@ function runRustRootWorkflowMutationTests(repoRoot) {
           mutateJob(
             value,
             "changes",
-            "docs/e2ee/*|",
-            "docs/e2ee/KT.md|docs/e2ee/evidence/akd-benchmark.json|",
+            "docs/free2z/messaging/*|",
+            "docs/free2z/messaging/KT.md|docs/free2z/messaging/evidence/akd-benchmark.json|",
           ),
         `${ownerPrefix} selector must actively select`,
       );
@@ -4051,15 +4089,15 @@ function runRustRootWorkflowMutationTests(repoRoot) {
         ],
         [
           "messaging client-contract selector",
-          "docs/e2ee/CLIENT-CONTRACT.md|",
+          "docs/free2z/messaging/CLIENT-CONTRACT.md|",
           "",
-          'must actively select "docs/e2ee/CLIENT-CONTRACT.md"',
+          'must actively select "docs/free2z/messaging/CLIENT-CONTRACT.md"',
         ],
         [
           "messaging wire-contract selector",
-          "docs/e2ee/WIRE.md|",
+          "docs/free2z/messaging/WIRE.md|",
           "",
-          'must actively select "docs/e2ee/WIRE.md"',
+          'must actively select "docs/free2z/messaging/WIRE.md"',
         ],
       ];
       assertWorkflowFailure(contract, source,
@@ -4395,10 +4433,10 @@ function runRustRootWorkflowMutationTests(repoRoot) {
     }
     if (contract.root === "rs") {
       for (const [stepName, command, needsToken] of [
-        ["Mutation-test AKD documentation evidence", "node scripts/check-akd-doc-evidence.mjs --self-test", true],
-        ["Verify AKD documentation against locked executable evidence", "node scripts/check-akd-doc-evidence.mjs", true],
-        ["Mutation-test repeated tree-head agreement", "node scripts/check-kt-sth-repeat-agreement.mjs --self-test", false],
-        ["Verify repeated tree-head spec and runtime agreement", "node scripts/check-kt-sth-repeat-agreement.mjs", false],
+        ["Mutation-test AKD documentation evidence", "node scripts/free2z/check-akd-doc-evidence.mjs --self-test", true],
+        ["Verify AKD documentation against locked executable evidence", "node scripts/free2z/check-akd-doc-evidence.mjs", true],
+        ["Mutation-test repeated tree-head agreement", "node scripts/free2z/check-kt-sth-repeat-agreement.mjs --self-test", false],
+        ["Verify repeated tree-head spec and runtime agreement", "node scripts/free2z/check-kt-sth-repeat-agreement.mjs", false],
       ]) {
         const needle = "rs owner job rs_test must run exactly one unconditional";
         const stepWithToken = `      - name: ${stepName}\n        env:\n          GITHUB_TOKEN: \${{ github.token }}\n        run: ${command}`;
@@ -6983,6 +7021,33 @@ function runSelfTest(repoRoot) {
 
   const gateResultCases = [
     {
+      name: "unconditional Free2Z SDK succeeds when wallet selectors are false",
+      policyOutcome: "success",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
+        free2z_sdk_typescript: { result: "success" } },
+    },
+    {
+      name: "unconditional Free2Z SDK cannot disappear",
+      policyOutcome: "success",
+      omitJob: "free2z_sdk_typescript",
+      needle: "always-required job free2z_sdk_typescript is missing",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } } },
+    },
+    {
+      name: "unconditional Free2Z SDK cannot be skipped",
+      policyOutcome: "success",
+      needle: "required job free2z_sdk_typescript must be success, got skipped",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
+        free2z_sdk_typescript: { result: "skipped" } },
+    },
+    {
+      name: "unconditional Free2Z SDK failure blocks every change",
+      policyOutcome: "success",
+      needle: "required job free2z_sdk_typescript must be success, got failure",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
+        free2z_sdk_typescript: { result: "failure" } },
+    },
+    {
       name: "frontend source succeeds with native jobs skipped",
       policyOutcome: "success",
       needs: { changes: { result: "success", outputs: { zuuli: "true", rust: "false", zuuallet_schema: "false", surfaces: "true" } },
@@ -7234,6 +7299,9 @@ function runSelfTest(repoRoot) {
     for (const job of RUST_REQUIRED_JOB_IDS) {
       const native = job === "rust_native_clippy" || job === "rust_native_tests";
       testCase.needs[job] ??= { result: outputs.rust === "true" || (native && outputs.zuuallet_schema === "true") ? "success" : "skipped" };
+    }
+    for (const job of ALWAYS_REQUIRED_JOB_IDS) {
+      testCase.needs[job] ??= { result: "success" };
     }
     if (testCase.omitJob) delete testCase.needs[testCase.omitJob];
     let error = null;

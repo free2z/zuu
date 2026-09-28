@@ -7,7 +7,7 @@ on:
     paths:
       - .github/containers/zuuli-linux/**
       - .github/workflows/zuuli-linux-image.yml
-      - docs/ZUULI-LINUX-BUILD-IMAGE.md
+      - docs/zuuli/build/ZUULI-LINUX-BUILD-IMAGE.md
       - scripts/check-zuuli-linux-image.mjs
       - .github/workflows/zuuallet.yml
   push:
@@ -15,7 +15,7 @@ on:
     paths:
       - .github/containers/zuuli-linux/**
       - .github/workflows/zuuli-linux-image.yml
-      - docs/ZUULI-LINUX-BUILD-IMAGE.md
+      - docs/zuuli/build/ZUULI-LINUX-BUILD-IMAGE.md
       - scripts/check-zuuli-linux-image.mjs
       - .github/workflows/zuuallet.yml
   schedule:

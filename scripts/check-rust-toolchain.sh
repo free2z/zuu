@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prove every Rust toolchain pin in this repository still agrees with the one
-# place the version is actually decided: wallet/rust-toolchain.toml.
+# place the version is actually decided: rust-toolchain.toml.
 #
 # Everything else — workflow inputs, the commit-pinned dtolnay/rust-toolchain
 # refs, ZUULI_RUST_VERSION, each crate's `rust-version`, and the prose that
@@ -19,10 +19,9 @@
 #   scripts/check-rust-toolchain.sh --print-targets  print the canonical WASM target
 #   scripts/check-rust-toolchain.sh --self-test      prove the check still fails on drift
 #
-# A second top-level Rust tree needs its own rust-toolchain.toml so rustup
-# selects the pin when cargo runs from it, and its crates carry their own
-# rust-version. Neither is a second decision: register them as restatements and
-# they are held to the one below, exactly like every other restatement.
+# Subtree pins exist only for isolated build contexts that exclude this root.
+# They and each crate's rust-version are checked restatements, never separate
+# toolchain decisions.
 #
 #   scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml \
 #                                   --manifest rs/relay/Cargo.toml
@@ -40,7 +39,7 @@ set -euo pipefail
 REPO_ROOT=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 
 # The single source of truth.
-TOOLCHAIN_FILE=wallet/rust-toolchain.toml
+TOOLCHAIN_FILE=rust-toolchain.toml
 
 # Crate manifests. These carry the two-component MSRV form (1.88) of the
 # three-component channel (1.88.0) — Cargo's `rust-version` is a floor, not an
@@ -58,11 +57,12 @@ MANIFESTS=(
   wallet/zuuli/src-tauri/Cargo.toml
   wallet/zuuallet/src-tauri/Cargo.toml
   # The two delegated surfaces of the three-app split (#904/#906). Neither is
-  # a second toolchain decision: both restate wallet/rust-toolchain.toml.
+  # a second toolchain decision: both restate rust-toolchain.toml.
   wallet/free2z/src-tauri/Cargo.toml
   wallet/e2e2z/src-tauri/Cargo.toml
   wallet/plugins/tauri-plugin-zcash/Cargo.toml
   wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml
+  wallet/plugins/tauri-plugin-f2z/Cargo.toml
   rs/crates/f2z-codec/Cargo.toml
   rs/crates/f2z-relay-proto/Cargo.toml
   rs/crates/f2z-authority/Cargo.toml
@@ -89,14 +89,27 @@ MANIFESTS=(
   # The cross-app intent bridge (#905). Linked by the ZUULI wallet, so it takes
   # the same channel restatement as every other client-linked crate under rs/.
   rs/crates/f2z-intent/Cargo.toml
+  # The AI gateway's wire contract and pricing formula (#1049). MIT, linked by
+  # the gateway and by every SDK, so it restates the same channel.
+  rs/crates/f2z-ai-proto/Cargo.toml
+  # The AI gateway service skeleton (#1054). AGPL server binary; same
+  # restatement as the other rs/ services.
+  rs/crates/f2z-ai/Cargo.toml
+  # The AI gateway's test harness (#1053): mock providers and the in-memory
+  # ledger contract. MIT, native-only, linked by test suites.
+  rs/crates/f2z-ai-testkit/Cargo.toml
+  # The Rust SDK core (#1070): OAuth, token store, balance, purchases and the
+  # /v1/chat client. MIT, linked by the Tauri plugin and third-party apps.
+  rs/crates/f2z-sdk/Cargo.toml
 )
 
-# Other rust-toolchain.toml files. Cargo picks the toolchain from the directory
-# it runs in, so a second Rust tree needs its own copy — but a copy is a
-# restatement, never a second source of truth, and every entry here must repeat
-# TOOLCHAIN_FILE's channel exactly. Extend with --toolchain-file. check_census
+# Subtree rust-toolchain.toml files for isolated Docker build contexts. Normal
+# Cargo invocations inherit the root pin; each copy here is only a restatement
+# and must repeat TOOLCHAIN_FILE's channel exactly. Extend with --toolchain-file.
+# check_census
 # holds this array to the tracked tree the same way it holds MANIFESTS.
 TOOLCHAIN_RESTATEMENTS=(
+  wallet/rust-toolchain.toml
   rs/rust-toolchain.toml
 )
 
@@ -704,8 +717,9 @@ SELF_TEST_MUTATIONS=(
   $'the required gate stops reading the source of truth\t.github/workflows/zuuli.yml\ts|steps.rust_toolchain.outputs.version|steps.somewhere_else.outputs.version|'
   $'a crate manifest MSRV drifts\twallet/zuuli/src-tauri/Cargo.toml\ts|rust-version = "%MSRV%"|rust-version = "%BOGUS_MSRV%"|'
   $'documentation still names the old version\twallet/plugins/tauri-plugin-zcash/README.md\ts|MSRV\\*\\*: %MSRV%|MSRV**: %BOGUS_MSRV%|'
-  $'only the source of truth is bumped and nothing follows\twallet/rust-toolchain.toml\ts|channel = "%CHANNEL%"|channel = "%BOGUS%"|'
-  $'the canonical WASM target disappears from the source of truth\twallet/rust-toolchain.toml\ts|targets = \["wasm32-unknown-unknown"\]|targets = ["wasm32-wasip1"]|'
+  $'only the source of truth is bumped and nothing follows\trust-toolchain.toml\ts|channel = "%CHANNEL%"|channel = "%BOGUS%"|'
+  $'the isolated wallet toolchain copy drifts\twallet/rust-toolchain.toml\ts|channel = "%CHANNEL%"|channel = "%BOGUS%"|'
+  $'the canonical WASM target disappears from the source of truth\trust-toolchain.toml\ts|targets = \["wasm32-unknown-unknown"\]|targets = ["wasm32-wasip1"]|'
   $'the frontend compiler target drifts from the source of truth\t.github/workflows/zuuli.yml\ts|targets: wasm32-unknown-unknown|targets: wasm32-wasip1|'
 )
 

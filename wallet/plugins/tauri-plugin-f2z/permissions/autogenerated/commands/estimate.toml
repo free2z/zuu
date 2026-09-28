@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-estimate"
+description = "Enables the estimate command without any pre-configured scope."
+commands.allow = ["estimate"]
+
+[[permission]]
+identifier = "deny-estimate"
+description = "Denies the estimate command without any pre-configured scope."
+commands.deny = ["estimate"]

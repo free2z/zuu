@@ -137,7 +137,7 @@ fi`,
     ".github/containers/zuuli-store-capture/**",
     ".github/workflows/zuuli-store-capture-image.yml",
     ".github/workflows/zuuli.yml",
-    "docs/ZUULI-STORE-CAPTURE-IMAGE.md",
+    "docs/zuuli/build/ZUULI-STORE-CAPTURE-IMAGE.md",
     "scripts/check-zuuli-store-capture-image.mjs",
   ]) {
     requireExactly(failures, workflow, `      - ${path}`, 2, `image workflow must trigger on ${path}`);
@@ -264,7 +264,7 @@ fi`,
     "|scripts/check-zuuli-store-capture-image.mjs|",
     "|.github/containers/zuuli-store-capture/*|",
     "|.github/workflows/zuuli-store-capture-image.yml|",
-    "|docs/ZUULI-STORE-CAPTURE-IMAGE.md)",
+    "|docs/zuuli/build/ZUULI-STORE-CAPTURE-IMAGE.md)",
   ]) {
     const actual = gate
       .split("\n")

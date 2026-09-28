@@ -6,7 +6,7 @@
 //! costs an fsync**, and a cheap VPS's disk does on the order of 50-200 of those
 //! a second. One transaction per `APPEND` therefore caps the whole relay at
 //! roughly one append per fsync — a ceiling low enough that
-//! [ADR 0005](https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0005-federation.md)'s
+//! [ADR 0005](https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0005-federation.md)'s
 //! "$5/month VPS" economics do not work. Batching N appends arriving within a
 //! few milliseconds into **one** transaction costs one fsync for all N, and the
 //! ceiling becomes N times higher for the same disk.

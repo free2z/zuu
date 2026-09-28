@@ -1,4 +1,4 @@
-//! The free2z messaging key hierarchy — [`docs/e2ee/ARCHITECTURE.md`] §4.1,
+//! The free2z messaging key hierarchy — [`docs/free2z/messaging/ARCHITECTURE.md`] §4.1,
 //! §4.2 and §4.3, and nothing else.
 //!
 //! One BIP-39 seed in; a restorable messaging identity, a set of per-device
@@ -29,7 +29,7 @@
 //!    spelled out.
 //! 2. **Domain separation everywhere.** Every derivation is a keyed hash under
 //!    a distinct versioned label, and no key is used for two purposes. See
-//!    [`labels`], and note that `scripts/check-hash-domain-labels.mjs` holds
+//!    [`labels`], and note that `scripts/free2z/check-hash-domain-labels.mjs` holds
 //!    this crate's labels against every other `free2z/` label in the tree.
 //! 3. **Identity is restorable from the mnemonic; device keys are not.**
 //!    [`account::AccountKeys::from_seed`] exists; there is no
@@ -127,9 +127,9 @@
 //! # }
 //! ```
 //!
-//! [`docs/e2ee/ARCHITECTURE.md`]: https://github.com/free2z/zuu/blob/main/docs/e2ee/ARCHITECTURE.md
-//! [ADR 0002]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0002-multi-device.md
-//! [ADR 0006]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0006-zcash-coupling.md
+//! [`docs/free2z/messaging/ARCHITECTURE.md`]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/ARCHITECTURE.md
+//! [ADR 0002]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0002-multi-device.md
+//! [ADR 0006]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0006-zcash-coupling.md
 
 #![no_std]
 #![forbid(unsafe_code)]

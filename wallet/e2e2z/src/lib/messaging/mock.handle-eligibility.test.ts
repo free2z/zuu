@@ -28,7 +28,7 @@ describe("handle eligibility uses raw ASCII before case mapping", () => {
   });
 });
 
-// `docs/e2ee/WIRE.md` §14.1: "A conforming implementation of this section MUST
+// `docs/free2z/messaging/WIRE.md` §14.1: "A conforming implementation of this section MUST
 // maintain a mutation-sensitive test that checks the Rust and TypeScript
 // implementations against one shared table of (input → expected
 // HandleEligibility) fixtures ... so that an edit to either implementation

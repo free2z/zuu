@@ -2,7 +2,7 @@
  * The ONE seam between this app's intent requests and the channel that carries
  * them to ZUULI.
  *
- * `docs/intent-bridge/PROTOCOL.md` §7 forbids dispatching an intent that
+ * `docs/free2z/intent-bridge/PROTOCOL.md` §7 forbids dispatching an intent that
  * carries authority over anything but a **verified** App Link or Universal
  * Link: a custom scheme is not an authenticated channel — any app can register
  * `zuuli://` — so shipping on one would recreate #367's confused deputy at the
@@ -95,7 +95,7 @@ export class IntentTransportUnavailableError extends Error {
  *
  * There is **no signature over responses** to fall back on, and that is a
  * deliberate design decision rather than an omission —
- * `docs/intent-bridge/CALLER-AUTHENTICATION.md` §5: adding one would mint a
+ * `docs/free2z/intent-bridge/CALLER-AUTHENTICATION.md` §5: adding one would mint a
  * second wallet identity alongside the seed hierarchy to paper over a transport
  * gap. The transport is the right layer, which means **the security of this
  * whole path rests on the implementation that replaces

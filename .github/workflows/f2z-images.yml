@@ -1,7 +1,7 @@
 name: f2z servers / images
 
-# The container supply chain for the three AGPL-3.0 E2EE server binaries:
-# `f2z-relay`, `f2z-kt` and `f2z-witness`.
+# The container supply chain for the AGPL-3.0 messaging and AI server binaries:
+# `f2z-relay`, `f2z-kt`, `f2z-witness` and `f2z-ai`.
 #
 # TWO PHASES, AND THE SPLIT IS THE POINT — the same shape
 # `.github/workflows/zuuli-linux-image.yml` uses. Publishing here changes what
@@ -22,7 +22,7 @@ on:
       - .github/workflows/f2z-images.yml
       - scripts/check-f2z-images.mjs
       - scripts/check-rust-toolchain.sh
-      - wallet/rust-toolchain.toml
+      - rust-toolchain.toml
   push:
     branches: [main]
     paths:
@@ -30,7 +30,7 @@ on:
       - .github/workflows/f2z-images.yml
       - scripts/check-f2z-images.mjs
       - scripts/check-rust-toolchain.sh
-      - wallet/rust-toolchain.toml
+      - rust-toolchain.toml
   # A weekly rebuild. The base images are digest-pinned, so this does not drift
   # them; what it does catch is a build that stopped working for a reason
   # nobody's pull request touched — a yanked crate, a registry that moved.
@@ -46,7 +46,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # The three image repositories are `${IMAGE_NAMESPACE}/<binary name>`. The
+  # The image repositories are `${IMAGE_NAMESPACE}/<binary name>`. The
   # binary name *is* the image name, deliberately: an operator reading a
   # `livenessProbe` argv and an operator reading an image reference should not
   # have to learn two vocabularies.
@@ -81,7 +81,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        bin: [f2z-relay, f2z-kt, f2z-witness]
+        bin: [f2z-relay, f2z-kt, f2z-witness, f2z-ai]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -89,7 +89,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
-      # The compiler version is decided in wallet/rust-toolchain.toml and read
+      # The compiler version is decided in rust-toolchain.toml and read
       # from it here. An action input cannot read TOML, and a version restated
       # in this file would be one more thing to drift; rs/Dockerfile refuses to
       # build if what arrives disagrees with the workspace's toolchain file.
@@ -151,6 +151,13 @@ jobs:
           IMAGE: ${{ matrix.bin }}:pr-${{ github.event.pull_request.number }}
         run: node scripts/check-f2z-images.mjs --probe-relay "$IMAGE"
 
+      - name: Verify gateway health separation and read-only graceful shutdown
+        if: matrix.bin == 'f2z-ai'
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.bin }}:pr-${{ github.event.pull_request.number }}
+        run: node scripts/check-f2z-images.mjs --probe-ai "$IMAGE"
+
   f2z_image_publish:
     name: f2z servers / publish ${{ matrix.bin }}
     if: >-
@@ -170,7 +177,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        bin: [f2z-relay, f2z-kt, f2z-witness]
+        bin: [f2z-relay, f2z-kt, f2z-witness, f2z-ai]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -243,6 +250,9 @@ jobs:
           node scripts/check-f2z-images.mjs --inspect "$IMAGE_REPOSITORY@$IMAGE_DIGEST" "$BIN"
           if [[ "$BIN" == f2z-witness ]]; then
             node scripts/check-f2z-images.mjs --probe "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
+          fi
+          if [[ "$BIN" == f2z-ai ]]; then
+            node scripts/check-f2z-images.mjs --probe-ai "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
           fi
           if [[ "$BIN" == f2z-relay ]]; then
             node scripts/check-f2z-images.mjs --probe-relay "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
