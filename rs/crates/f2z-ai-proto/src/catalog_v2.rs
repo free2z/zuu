@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::amount::Nusd;
 use crate::catalog::{
-    Catalog, CatalogError, CatalogModel, DetachedSignature, TrustedKey, verified_catalog_tree,
+    Catalog, CatalogError, CatalogModel, DetachedSignature, TrustedKey, verify_catalog_tree,
 };
 use crate::chat::Usage;
 use crate::pricing::{Bps, ModelPrices, PricingError, metered_cost_nusd};
@@ -189,7 +189,7 @@ pub fn verify_catalog_v2(
     trusted: &[TrustedKey],
     now_unix: u64,
 ) -> Result<CatalogV2, CatalogError> {
-    let tree = verified_catalog_tree(payload, signature, trusted)?;
+    let tree = verify_catalog_tree(payload, signature, trusted)?;
     let catalog: CatalogV2 = serde_json::from_value(tree).map_err(CatalogError::Json)?;
     catalog.validate()?;
     if now_unix >= catalog.expires_at {

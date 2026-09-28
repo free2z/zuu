@@ -224,3 +224,31 @@ fn reservation_covers_cache_write_premium_and_output_tier() {
         f2z_ai_proto::metered_cost_nusd(&usage, &flat.base.prices).unwrap()
     );
 }
+
+#[test]
+fn v2_rejects_a_forgery_that_non_strict_verification_accepts() {
+    use ed25519_dalek::Verifier as _;
+    let mut identity = [0u8; 32];
+    identity[0] = 1;
+    let mut forged_bytes = [0u8; 64];
+    forged_bytes[0] = 1;
+    let weak = ed25519_dalek::VerifyingKey::from_bytes(&identity).unwrap();
+    let forged = ed25519_dalek::Signature::from_bytes(&forged_bytes);
+    let v = payload();
+    assert!(
+        weak.verify(&catalog_signing_message(&v).unwrap(), &forged)
+            .is_ok()
+    );
+    let key = TrustedKey {
+        key_id: "weak-test".into(),
+        key: weak,
+    };
+    let sig = DetachedSignature {
+        key_id: "weak-test".into(),
+        signature: forged,
+    };
+    assert!(matches!(
+        verify_catalog_v2(&serde_json::to_vec(&v).unwrap(), &sig, &[key], 0),
+        Err(CatalogError::BadSignature)
+    ));
+}

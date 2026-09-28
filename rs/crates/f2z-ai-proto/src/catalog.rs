@@ -377,7 +377,7 @@ pub fn verify_catalog(
     trusted: &[TrustedKey],
     now_unix: u64,
 ) -> Result<Catalog, CatalogError> {
-    let tree = verified_catalog_tree(payload, signature, trusted)?;
+    let tree = verify_catalog_tree(payload, signature, trusted)?;
     // Inspect the signed tree before an older typed reader can discard a new
     // money field. Explicit null is presence too, not a schema-1 extension.
     if tree
@@ -402,7 +402,7 @@ pub fn verify_catalog(
 }
 
 /// Shared signature boundary; version-specific readers use this same tree.
-pub(crate) fn verified_catalog_tree(
+pub(crate) fn verify_catalog_tree(
     payload: &[u8],
     signature: &DetachedSignature,
     trusted: &[TrustedKey],
