@@ -251,7 +251,7 @@ const UNGATED_WORKFLOWS = new Map([
   ],
   [
     ".github/workflows/f2z-images.yml",
-    "Builds and publishes the three AGPL-3.0 E2EE server images (f2z-relay, f2z-kt, f2z-witness): " +
+    "Builds and publishes the AGPL-3.0 server images (f2z-relay, f2z-kt, f2z-witness, f2z-ai): " +
       "its pull-request leg is path-filtered to rs/** and its publish leg only runs on main. The " +
       "property that must hold for a merge — that the Dockerfile, the action pins and that paths " +
       "filter are all still correct — is enforced from inside the rs gate by " +
