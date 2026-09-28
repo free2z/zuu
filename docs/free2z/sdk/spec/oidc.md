@@ -46,7 +46,7 @@ platform's own apps register the same way. Registration fixes:
 | `markup_bps` | The developer markup in basis points the developer *asks* for on every AI call made through this app. `0` to the platform cap (v1: **5000**, i.e. 50 %). What is actually applied is the **effective markup** below; changing it re-prompts consent when the effective markup rises (§5) |
 | `approved_markup_bps` | Set by the platform, manually: the largest markup it has approved for this app (`0` until any approval). **Effective markup = `min(markup_bps, approved_markup_bps)`.** Raising `markup_bps` above the approved value changes nothing until re-approval — the excess is `pending` — and the platform can lower or withdraw the approval at any time, which takes effect on the next hold for every user ([metering.md](./metering.md) §2.2). Approval is what makes markup earnings — 2Z credits recorded per (user, developer) — administrable ([purchase.md](./purchase.md) §3.1) |
 | `markup_approval` | Derived, for the console and the consent screen: `none` (`markup_bps = 0`), `pending` (`markup_bps > approved_markup_bps`, so some or all of the requested markup is not yet in effect) or `approved` (`markup_bps ≤ approved_markup_bps`). The consent screen shows the *effective* markup, and no line at all when it is `0` |
-| `default_spend_cap_2z`, `default_cap_period` | The cap pre-selected on the consent screen when `ai:invoke` is requested: a whole number of 2Z and a period (§5) |
+| `default_spend_cap_2z`, `default_cap_period` | An optional per-user suggestion for AI consent: a nullable whole number of 2Z and a period (§5). This is not a shared application quota |
 | `allow_zcash_assertion` | Whether the app may use the Zcash sign-in grant (§9.4). Off by default |
 | `rails` | Which purchase rails the app offers: `card` and `zcash`, both on for every app. The in-app-purchase rails exist only in Free2Z's own apps in v1 ([purchase.md](./purchase.md) §4) and are not a registration option |
 | Name, logo, privacy URL, terms URL | Shown at consent |
@@ -127,8 +127,15 @@ an amount and a period.
 
 | Field | Values |
 |---|---|
-| `spend_cap_2z` | A whole number of 2Z, or `null` for no cap. The user chooses. On a first consent the pre-selection is the app's `default_spend_cap_2z`, clamped to the **platform default** when the app asks for more — an app cannot pre-select "no cap", or any cap above the platform default, without the user moving the control there themselves. On a re-consent the pre-selection is the **existing** cap, and choosing a higher one is a raise (step-up, §10) |
-| `cap_period` | `day`, `week`, `month` or `total`. Periods are calendar-aligned in UTC (`day` resets at 00:00Z; `week` on Monday 00:00Z; `month` on the 1st). `total` never resets |
+| `spend_cap_2z` | A whole number of 2Z, or `null` for no extra application budget. The user chooses. A new grant starts with the developer's optional `default_spend_cap_2z` suggestion, without a forced platform amount or clamp; an unset suggestion means prepaid balance with no extra application budget (`null`, period `month`). The user may change or remove the suggestion. For any existing grant, including an identity-only grant upgraded to AI, the pre-selection preserves its **existing** amount and period; raising or removing a limit requires step-up (§10) |
+| `cap_period` | `day`, `week`, `month` or `total`. Periods are calendar-aligned in UTC (`day` resets at 00:00Z; `week` on Monday 00:00Z; `month` on the 1st). `total` is non-resetting for the current grant policy |
+
+A first authorization of `ai:invoke` requires an explicit integer-or-null
+spending decision, including an upgrade of an identity-only grant or a new
+authorization after revocation. Omitting that decision must not silently grant
+uncapped AI access. `null` does not waive prepaid balance, debt checks, holds,
+settlement or service capacity limits. Developer suggestions are per user;
+changing a suggestion never rewrites existing grants.
 
 For a **loopback or private-use-scheme client** (§3) the consent screen is
 never skipped when the grant would carry `ai:invoke`, `purchase:create` or
@@ -216,7 +223,7 @@ payload: {
 |---|---|---|
 | `iss` | Always `https://free2z.cash` | Every resource server, exact string match |
 | `sub` | The user's stable, opaque **per-account UUID** — not a username or email (those change) and not the platform's sequential internal id (that would enumerate). It is the same for every app (`subject_types_supported: ["public"]`), which is the deliberate trade-off: two apps that both hold a user's `sub` can correlate that user, and in exchange a user's identity is one thing across the ecosystem. Pairwise subjects per app are a possible v2 and would be announced by `pairwise` appearing in discovery | — |
-| `aud` | **Always a JSON array, and `f2z-id` is always in it.** `f2z-id` is the IdP's own `userinfo_endpoint`; `f2z-ai` (the gateway) is added when `ai:invoke` was granted and `f2z-api` (the account API) when `balance:read` or `purchase:create` was (§4). A resource server MUST refuse a token whose `aud` does not contain its own identifier | Every resource server |
+| `aud` | **Always a JSON array, and `f2z-id` is always in it.** `f2z-id` is the IdP's own `userinfo_endpoint`; `f2z-ai` (the gateway) is added when `ai:invoke` was granted and `f2z-api` (the account API) when `balance:read`, `purchase:create` or `ai:invoke` was (§4). A resource server MUST refuse a token whose `aud` does not contain its own identifier | Every resource server |
 | `client_id` | The opaque OAuth client identifier; never parsed as a UUID | Resource servers, for revocation and rate limits |
 | `app_id` | The stable application UUID assigned by the issuer, distinct from `client_id` | The AI gateway, for ledger admission |
 | `scope` | Space-separated granted scopes (RFC 9068 §2.2.3) | Resource servers, per endpoint |

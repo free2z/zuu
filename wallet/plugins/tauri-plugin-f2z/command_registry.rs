@@ -5,6 +5,7 @@ macro_rules! with_commands {
             sign_in,
             sign_out,
             balance,
+            grant,
             models,
             estimate,
             create_purchase,

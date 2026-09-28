@@ -19,7 +19,7 @@
 //!    the way down — then the spec's structural rules ([`validate`]).
 //!    `400 invalid_request` with `details.field` and `details.reason`.
 //! 5. **Catalogue**: none verified and unexpired → `503 catalog_unavailable`.
-//! 6. `stream: false` → `501` (assembling a non-streamed response is Wave 2).
+//! 6. `stream: false` reserves bounded aggregation memory before provider I/O.
 //! 7. The call's own detached task ([`crate::call`]) asks the [`ChatBackend`]
 //!    to start it; a refusal becomes the HTTP response, a started stream is
 //!    read at provider speed and delivered through a bounded buffer. This
@@ -403,10 +403,14 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
         );
     }
 
-    if !request.stream {
-        // Assembling a non-streamed response from the event stream is Wave 2.
-        return Err(ApiFailure::not_implemented());
-    }
+    let aggregation = if request.stream {
+        None
+    } else {
+        Some(crate::nonstream::Reservation::acquire(
+            &state.upload_budget,
+            state.delivery_buffer_bytes,
+        )?)
+    };
     tracing::debug!(
         call = call.id(),
         messages = request.messages.len(),
@@ -420,6 +424,9 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
             "the call's concurrency slot was already taken",
         ));
     };
+    let response_deadline = tokio::time::Instant::from_std(call.started())
+        .checked_add(state.start_timeout)
+        .unwrap_or_else(tokio::time::Instant::now);
     let (head, body) = oneshot::channel();
     tokio::spawn(call::run(
         call::Start {
@@ -449,6 +456,9 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
                     .headers_mut()
                     .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
                 return Ok(response);
+            }
+            if let Some(reservation) = aggregation {
+                return Ok(crate::nonstream::collect(body, reservation, response_deadline).await);
             }
             let call_id = body.call_id.clone();
             let mut response = Body::new(body).into_response();

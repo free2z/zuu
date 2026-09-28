@@ -144,6 +144,32 @@ Denies the estimate command without any pre-configured scope.
 <tr>
 <td>
 
+`f2z:allow-grant`
+
+</td>
+<td>
+
+Enables the grant command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`f2z:deny-grant`
+
+</td>
+<td>
+
+Denies the grant command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `f2z:allow-models`
 
 </td>
