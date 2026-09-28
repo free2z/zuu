@@ -135,7 +135,7 @@ spending decision, including an upgrade of an identity-only grant or a new
 authorization after revocation. Omitting that decision must not silently grant
 uncapped AI access. `null` does not waive prepaid balance, debt checks, holds,
 settlement or service capacity limits. Developer suggestions are per user;
-changing a suggestion never rewrites existing grants or app registrations.
+changing a suggestion never rewrites existing grants.
 
 For a **loopback or private-use-scheme client** (§3) the consent screen is
 never skipped when the grant would carry `ai:invoke`, `purchase:create` or
