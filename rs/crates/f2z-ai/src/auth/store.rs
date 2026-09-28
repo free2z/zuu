@@ -11,8 +11,8 @@
 //! [`RedisStore`] is the implementation. Every call is bounded by a short
 //! timeout, and after a failure the store is skipped for [`BACKOFF`] so that
 //! a Redis outage costs each request nothing rather than a timeout: the
-//! callers then fall back — the limits to their local copies, revocation to
-//! the IdP's internal epoch endpoint, **never** to "allow".
+//! limits refuse new admission with `503`; revocation independently falls back
+//! to the authoritative epoch endpoint, **never** to "allow".
 //!
 //! The admit script is multi-key, so it needs a single Redis (not Cluster),
 //! which is what the platform runs.
@@ -54,8 +54,8 @@ pub struct AdmitRequest {
     pub member: String,
     /// The per-(app, user) rate.
     pub user_rate: Rate,
-    /// The per-app rate.
-    pub app_rate: Rate,
+    /// Optional aggregate app rate; None skips its bucket entirely.
+    pub app_rate: Option<Rate>,
     /// Open leases allowed per user.
     pub lease_limit: u32,
     /// How long a lease lives in Redis if nobody releases it.
@@ -76,7 +76,7 @@ pub enum Refusal {
 /// The answer to an [`AdmitRequest`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Admission {
-    /// Admitted: a token was taken from both buckets and the lease is held.
+    /// Admitted: a token was taken from each enabled bucket and the lease is held.
     /// `remaining` is what is left in the per-(app, user) bucket.
     Admitted {
         /// Whole tokens left in the per-(app, user) bucket.
@@ -96,13 +96,13 @@ pub enum Admission {
 pub trait Store: Send + Sync + 'static {
     /// `MGET` of two counters: each a decimal string, or `None` when absent.
     async fn counters(&self, keys: [&str; 2]) -> Result<[Option<String>; 2], StoreError>;
-    /// Take a token from both buckets and a lease, atomically, or none.
+    /// Take a token from each enabled bucket and a lease, atomically, or none.
     async fn admit(&self, request: &AdmitRequest) -> Result<Admission, StoreError>;
     /// Drop `member` from the lease set.
     async fn release(&self, lease_key: &str, member: &str) -> Result<(), StoreError>;
     /// Set `member`'s expiry to `ttl` from now, **adding it if it is
     /// missing**: the caller holds a live lease, and a member Redis lost (an
-    /// outage at admission, an eviction, a flush) must count again. Only the
+    /// eviction or flush) must count again. Only the
     /// lease's own renewer calls it, and it releases after its last renew.
     async fn renew(&self, lease_key: &str, member: &str, ttl: Duration) -> Result<(), StoreError>;
 }
@@ -157,19 +157,21 @@ end
 local upm, ub = tonumber(ARGV[1]), tonumber(ARGV[2])
 local apm, ab = tonumber(ARGV[3]), tonumber(ARGV[4])
 local ut = level(KEYS[1], upm, ub)
-local at = level(KEYS[2], apm, ab)
+local at = nil
+if apm > 0 then at = level(KEYS[2], apm, ab) end
 if ut < 1000 then
   return {1, math.ceil((1000 - ut) * 60 / upm), 0}
 end
-if at < 1000 then
+if at ~= nil and at < 1000 then
   return {2, math.ceil((1000 - at) * 60 / apm), 0}
 end
 ut = ut - 1000
-at = at - 1000
 redis.call('HSET', KEYS[1], 't', ut, 'ts', now)
 redis.call('PEXPIRE', KEYS[1], math.ceil(ub * 60000 / upm) + 1000)
-redis.call('HSET', KEYS[2], 't', at, 'ts', now)
-redis.call('PEXPIRE', KEYS[2], math.ceil(ab * 60000 / apm) + 1000)
+if at ~= nil then
+  redis.call('HSET', KEYS[2], 't', at - 1000, 'ts', now)
+  redis.call('PEXPIRE', KEYS[2], math.ceil(ab * 60000 / apm) + 1000)
+end
 redis.call('ZADD', KEYS[3], now + lease_ttl, ARGV[7])
 if redis.call('PTTL', KEYS[3]) < lease_ttl then
   redis.call('PEXPIRE', KEYS[3], lease_ttl)
@@ -196,7 +198,7 @@ impl std::fmt::Debug for RedisStore {
 
 impl RedisStore {
     /// A store on `url` (`redis://…`). Connects lazily: a Redis that is down
-    /// at start-up is a fallback, not a failed start.
+    /// at start-up refuses admission until it recovers, without blocking startup.
     ///
     /// # Errors
     ///
@@ -288,8 +290,8 @@ impl Store for RedisStore {
             .key(&request.lease_key)
             .arg(request.user_rate.per_minute)
             .arg(request.user_rate.burst)
-            .arg(request.app_rate.per_minute)
-            .arg(request.app_rate.burst)
+            .arg(request.app_rate.map_or(0, |rate| rate.per_minute))
+            .arg(request.app_rate.map_or(0, |rate| rate.burst))
             .arg(request.lease_limit)
             .arg(ttl_ms)
             .arg(&request.member);

@@ -274,10 +274,10 @@ pub fn from_config(config: &crate::config::AuthConfig) -> Result<Arc<dyn Gatekee
                 per_minute: config.rate_user_per_minute,
                 burst: config.rate_user_burst,
             },
-            app: store::Rate {
+            app: (config.rate_app_per_minute > 0).then_some(store::Rate {
                 per_minute: config.rate_app_per_minute,
                 burst: config.rate_app_burst,
-            },
+            }),
             concurrency: config.concurrency_per_user,
             lease_ttl: config.concurrency_lease,
         },

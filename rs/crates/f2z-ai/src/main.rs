@@ -126,6 +126,9 @@ fn serve(config: &Config) -> Result<ExitCode, String> {
                 ..Deps::skeleton()
             }
         } else {
+            if config.auth.redis_url.is_none() {
+                return Err("configure shared Redis admission for metered service".to_owned());
+            }
             if config.providers.is_empty() {
                 return Err("configure at least one provider for metered service".to_owned());
             }

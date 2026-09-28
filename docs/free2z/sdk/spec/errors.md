@@ -69,7 +69,7 @@ Inside an SSE stream, the terminal `error` event carries `code` and
 | 403 | `app_disabled` | no | The app's registration is suspended | Nothing the client can do; surface to the developer | — |
 | 403 | `account_frozen` | no | The user's account cannot spend (for example a payment dispute is open) | Tell the user to visit their account | — |
 | 403 | `account_in_debt` | no (until repaid) | A refund or chargeback took back 2Z already spent; the account owes the difference and cannot spend until future credits repay it ([purchase.md](./purchase.md) §3.1) | Show the debt from `GET /balance` and the buy surface | `debt_milli_2z` |
-| 503 | `unavailable` | yes | The server cannot serve the request right now and fails closed: it could not confirm the token's `aep`/`agen`, it has no signing keys to verify the token with (the issuer's JWKS has not loaded, or verification is not configured), it is draining, or (gateway) the provider's circuit breaker is open | Retry with backoff; do **not** sign the user out | `reason` ∈ `revocation_check`, `token_keys`, `draining`, `provider_circuit_open` |
+| 503 | `unavailable` | yes | The server cannot serve the request right now and fails closed: it could not confirm the token's `aep`/`agen`, it has no signing keys to verify the token with (the issuer's JWKS has not loaded, or verification is not configured), shared admission cannot be confirmed, it is draining, or (gateway) the provider's circuit breaker is open | Retry with backoff; do **not** sign the user out | `reason` ∈ `revocation_check`, `token_keys`, `shared_admission`, `draining`, `provider_circuit_open` |
 
 ## 3. Requests, limits and balances
 
@@ -86,7 +86,7 @@ Inside an SSE stream, the terminal `error` event carries `code` and
 | 409 | `idempotency_conflict` | no | The `Idempotency-Key` was used with a different body, or names a call that is still streaming | `call_id` |
 | 409 | `too_many_holds` | yes | The account already has 16 open holds (the limit); this would be the seventeenth | — |
 | 413 | `payload_too_large` | no | Over the 4 MiB / 20 MiB body limit | `limit_bytes` |
-| 429 | `rate_limited` | yes, after `Retry-After` | Requests per minute for this (app, user) exceeded | — |
+| 429 | `rate_limited` | yes, after `Retry-After` | Requests per minute for this (app, user), or an explicitly configured aggregate application admission limit, exceeded | — |
 | 429 | `concurrency_limit` | yes, after `Retry-After` | A fifth simultaneous stream for this user | `limit` |
 
 ## 4. Providers and the stream
@@ -103,7 +103,7 @@ always `502` with the code preserved ([chat-api.md](./chat-api.md) §4).
 |---|---|---|---|
 | 502 | `provider_error` | yes | The provider answered with an error or a malformed stream. Before `meta`: nothing charged, `fallback` tried if given. After: charged for what was produced |
 | 504 | `provider_timeout` | yes | The provider did not answer in time: no first byte within the model's `ttfb_timeout_ms` (nothing charged; `details.phase: "first_byte"`), or, in a stream, the model's idle limit without output (the catalogue's `idle_timeout_ms`, default 60 s) or the 300 s hard limit (charged for what was produced; `details.phase` ∈ `idle`, `hard_limit`) |
-| 503 | `unavailable` | yes | See §2: draining, revocation state unknown, or the provider's circuit breaker open. Nothing charged |
+| 503 | `unavailable` | yes | See §2: draining, revocation or shared admission state unknown, or the provider's circuit breaker open. Nothing charged |
 | 503 | `catalog_unavailable` | yes | The gateway has no verified, unexpired price catalogue and refuses to price anything |
 | 500 | `internal` | yes | A gateway fault. Nothing charged if before `meta`; otherwise settled from what is known. Retryable because a retry is a new `Idempotency-Key` and so a new call (§7). A ledger answer the gateway did not expect (`markup_mismatch`, `unknown_rate_card`, [metering.md](./metering.md) §3) surfaces as this code with `details.reason`; the ledger's `revoked` surfaces as `401 token_revoked` |
 | (stream) | `delivery_aborted` | no | Delivery to this client ended — the per-stream buffer (256 KiB) filled, or 30 s passed without delivery progress — while the upstream read and the settlement continue ([chat-api.md](./chat-api.md) §2.4). Sent best-effort; `settlement: "pending"`; read `GET /v1/calls/{id}` until its `status` is terminal. Not retryable: the call is still running and will be charged |

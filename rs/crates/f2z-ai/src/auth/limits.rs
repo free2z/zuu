@@ -11,11 +11,11 @@
 //!    atomically, or refuses without taking anything
 //!    ([`super::store::Store::admit`]).
 //!
-//! **If Redis is down, the local layer is the whole limit** — `N` pods then
-//! admit up to `N` times the shared rate, and a user's streams are bounded
-//! per pod rather than globally. That is the documented degradation for
-//! *limits only*. Revocation never falls back to "allow"
-//! ([`super::revocation`]).
+//! **Configured Redis admission fails closed.** An outage or ambiguous reply
+//! returns retryable `503 unavailable`, never extra per-pod capacity. Explicit
+//! no-store diagnostic mode has local limits only; the metered executable
+//! requires shared Redis. Revocation independently falls back to the
+//! authoritative epoch endpoint, never to "allow" ([`super::revocation`]).
 //!
 //! # The lease counts until the call is settled
 //!
@@ -27,7 +27,7 @@
 //! counting until they are settled, and stop counting then. While it is held
 //! its Redis member is renewed every `lease_ttl / 3` — re-added if Redis lost
 //! it — so a call that outlives `lease_ttl` (a settle that takes a long
-//! time), or was admitted locally during a Redis outage, counts on every pod
+//! time), still counts on every pod
 //! once Redis can say so. Dropping the
 //! lease decrements the local count at once and removes the call from the
 //! Redis set in the background; if that removal is lost (a pod killed, Redis
@@ -57,8 +57,8 @@ pub const MAX_LOCAL_KEYS: usize = 100_000;
 pub struct LimitsConfig {
     /// Per (app, user).
     pub user: Rate,
-    /// Per app, across its users.
-    pub app: Rate,
+    /// Optional aggregate app limit, across its users. None imposes no app bucket.
+    pub app: Option<Rate>,
     /// Open calls per user (chat-api.md §1: 4).
     pub concurrency: u32,
     /// How long a lease survives in Redis without a release.
@@ -127,7 +127,7 @@ pub struct Lease {
     /// The renewer task, which keeps the Redis member's expiry ahead of now
     /// while the lease is held — so a call that outlives `lease_ttl` (a
     /// settle that takes long) still counts on every pod — and re-adds the
-    /// member if Redis lost it (an outage at admission, a flush), so a live
+    /// member if Redis lost it (an eviction or flush), so a live
     /// call is counted again once Redis is back. Dropping this sender stops
     /// it, and **the task then releases the member itself**, after any renew
     /// it has in flight: one task, one connection order, so a release can
@@ -175,7 +175,7 @@ impl Drop for Lease {
 pub struct Limits {
     config: LimitsConfig,
     user: Gcra,
-    app: Gcra,
+    app: Option<Gcra>,
     counts: Counts,
     store: Option<Arc<dyn Store>>,
     namespace: String,
@@ -190,6 +190,12 @@ impl std::fmt::Debug for Limits {
             .field("store", &self.store.is_some())
             .finish_non_exhaustive()
     }
+}
+
+fn shared_unavailable() -> ApiFailure {
+    ApiFailure::new(ErrorCode::Unavailable, "shared admission is unavailable")
+        .detail("reason", "shared_admission")
+        .retry_after(1)
 }
 
 fn retry_secs(wait: Duration) -> u32 {
@@ -227,7 +233,7 @@ impl Limits {
             };
         Self {
             user: Gcra::new(config.user),
-            app: Gcra::new(config.app),
+            app: config.app.map(Gcra::new),
             config,
             counts: Arc::new(Mutex::new(HashMap::new())),
             store,
@@ -282,7 +288,8 @@ impl Limits {
     ///
     /// # Errors
     ///
-    /// `429 concurrency_limit` or `429 rate_limited`, with `Retry-After`.
+    /// `429 concurrency_limit`, `429 rate_limited`, or `503 unavailable` when
+    /// shared admission cannot be confirmed, with `Retry-After`.
     pub async fn admit(&self, claims: &Claims) -> Result<Lease, ApiFailure> {
         // 1. Local concurrency: take the lease locally first, so that two
         //    racing calls on one pod cannot both see three.
@@ -310,8 +317,10 @@ impl Limits {
         if let Local::Refused(wait) = self.user.check(&pair, now) {
             return Err(self.rate_limited(self.config.user, 0, wait));
         }
-        if let Local::Refused(wait) = self.app.check(&claims.client_id, now) {
-            return Err(self.rate_limited(self.config.app, 0, wait));
+        if let (Some(app), Some(rate)) = (&self.app, self.config.app)
+            && let Local::Refused(wait) = app.check(&claims.client_id, now)
+        {
+            return Err(self.rate_limited(rate, 0, wait));
         }
 
         // 3. Shared.
@@ -383,16 +392,17 @@ impl Limits {
                 let wait = Duration::from_millis(retry_after_ms);
                 Err(match by {
                     Refusal::User => self.rate_limited(self.config.user, 0, wait),
-                    Refusal::App => self.rate_limited(self.config.app, 0, wait),
+                    Refusal::App => self
+                        .config
+                        .app
+                        .map_or_else(shared_unavailable, |rate| self.rate_limited(rate, 0, wait)),
                     Refusal::Concurrency => self.concurrency_limited(wait),
                 })
             }
             Err(_) => {
-                // Limits only: the local layer above already applied. The
-                // remote member stays owned, in case the script did run.
-                tracing::warn!("shared rate limits unavailable; local limits only");
-                renew(&mut lease);
-                Ok(lease)
+                // Dropping the lease releases local capacity and best-effort
+                // removes a remote member if the script committed but lost its reply.
+                Err(shared_unavailable())
             }
         }
     }
