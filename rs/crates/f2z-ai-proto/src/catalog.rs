@@ -46,12 +46,12 @@ use crate::pricing::{Bps, ModelPrices};
 /// Domain-separation prefix of the catalogue signing message.
 pub const CATALOG_SIGNING_LABEL: &[u8] = b"free2z/ai-catalog/v1";
 
-/// The only catalogue schema this crate understands.
+/// The schema understood by the original reader and the active gateway.
 ///
-/// Bump it for any change an old consumer must not silently misread — in
-/// particular **a new price dimension**: [`ModelPrices`] refuses unknown
-/// members, so an old consumer refuses such a catalogue anyway, and the bump
-/// makes that refusal say why.
+/// Changes an old consumer must not silently misread require a new schema
+/// and an explicitly versioned reader (see [`crate::catalog_v2`]). In
+/// particular, [`ModelPrices`] refuses unknown price dimensions so older
+/// consumers cannot silently price a new dimension at zero.
 pub const CATALOG_SCHEMA: u32 = 1;
 
 /// The largest platform margin [`Catalog::validate`] accepts: 1 000 %.
@@ -377,6 +377,36 @@ pub fn verify_catalog(
     trusted: &[TrustedKey],
     now_unix: u64,
 ) -> Result<Catalog, CatalogError> {
+    let tree = verify_catalog_tree(payload, signature, trusted)?;
+    // Inspect the signed tree before an older typed reader can discard a new
+    // money field. Explicit null is presence too, not a schema-1 extension.
+    if tree
+        .get("models")
+        .and_then(Value::as_array)
+        .is_some_and(|models| {
+            models
+                .iter()
+                .any(|model| model.get("long_context_pricing").is_some())
+        })
+    {
+        return Err(CatalogError::Invalid(
+            "context pricing requires catalogue schema 2",
+        ));
+    }
+    let catalog: Catalog = serde_json::from_value(tree).map_err(CatalogError::Json)?;
+    catalog.validate()?;
+    if now_unix >= catalog.expires_at {
+        return Err(CatalogError::Expired);
+    }
+    Ok(catalog)
+}
+
+/// Shared signature boundary; version-specific readers use this same tree.
+pub(crate) fn verify_catalog_tree(
+    payload: &[u8],
+    signature: &DetachedSignature,
+    trusted: &[TrustedKey],
+) -> Result<Value, CatalogError> {
     let key = trusted
         .iter()
         .find(|k| k.key_id == signature.key_id)
@@ -386,12 +416,7 @@ pub fn verify_catalog(
     key.key
         .verify_strict(&message, &signature.signature)
         .map_err(|_| CatalogError::BadSignature)?;
-    let catalog: Catalog = serde_json::from_value(tree).map_err(CatalogError::Json)?;
-    catalog.validate()?;
-    if now_unix >= catalog.expires_at {
-        return Err(CatalogError::Expired);
-    }
-    Ok(catalog)
+    Ok(tree)
 }
 
 /// Decode exactly `N` bytes of lowercase hex. Uppercase is refused so that a
