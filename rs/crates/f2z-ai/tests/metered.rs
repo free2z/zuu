@@ -66,6 +66,7 @@ struct Memory {
     lose_hold_replies: usize,
     lose_settle_reply: bool,
     available: u64,
+    slow_completion: bool,
 }
 impl Memory {
     fn context(&self) -> Value {
@@ -106,6 +107,9 @@ impl Database {
 #[async_trait]
 impl Ledger for Database {
     async fn execute(&self, op: &Operation) -> Result<Value, Failure> {
+        if matches!(op, Operation::Complete { .. }) && self.0.lock().unwrap().slow_completion {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
         let mut m = self.0.lock().unwrap();
         match op {
             Operation::Context(_) => Ok(if m.revoked {
@@ -227,11 +231,21 @@ impl Ledger for Database {
     }
 }
 async fn launch(db: Arc<Database>, scenario: Scenario) -> (support::Running, MockProvider) {
+    launch_policy(db, scenario, None).await
+}
+async fn launch_policy(
+    db: Arc<Database>,
+    scenario: Scenario,
+    allowed: Option<Vec<&str>>,
+) -> (support::Running, MockProvider) {
     let mock = MockProvider::start(scenario).await.unwrap();
-    let meter = Arc::new(Metered::new(
-        db,
-        adapter_support::backend(&mock.base_url(), adapter_support::tuning(0)),
-    ));
+    let meter = Arc::new(
+        Metered::new(
+            db,
+            adapter_support::backend(&mock.base_url(), adapter_support::tuning(0)),
+        )
+        .with_allowed_models(allowed.map(|ids| ids.into_iter().map(str::to_owned).collect())),
+    );
     let running = support::start(
         &support::config(&[]),
         Deps {
@@ -621,4 +635,72 @@ async fn nonstream_missing_usage_keeps_partial_text_and_confirmed_release() {
     );
     assert_eq!(db.0.lock().unwrap().charges, 0);
     mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn model_policy_hides_denies_and_terminalizes_without_paid_work() {
+    let db = Arc::new(Database::new());
+    // Model a slow durable completion: detached settlement cannot make an
+    // early HTTP refusal look correct by winning the immediate replay race.
+    db.0.lock().unwrap().slow_completion = true;
+    let (r, mock) = launch_policy(db.clone(), Scenario::default(), Some(vec![])).await;
+    let models = axum::http::Request::get("/v1/models")
+        .header("host", "gateway")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let listed: Value =
+        serde_json::from_str(&support::text(support::send(r.public, models).await).await).unwrap();
+    assert_eq!(listed["models"], json!([]));
+    let estimate = axum::http::Request::post("/v1/chat/estimate")
+        .header("host", "gateway")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(request().to_string()))
+        .unwrap();
+    assert_eq!(
+        support::send(r.public, estimate).await.status(),
+        StatusCode::FORBIDDEN
+    );
+    assert!(db.0.lock().unwrap().call.is_none());
+    let denied = send(&r).await;
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    assert!(support::text(denied).await.contains("model_disabled"));
+    // No sleep/poll: the first refusal must already have made the claim terminal.
+    let replay = send(&r).await;
+    assert_eq!(replay.status(), StatusCode::OK);
+    assert_eq!(replay.headers()["x-f2z-replayed"], "true");
+    let record: Value = serde_json::from_str(&support::text(replay).await).unwrap();
+    assert_eq!(record["status"], "released");
+    assert_eq!(record["charged_2z"], 0);
+    assert_eq!(record["error"]["code"], "model_disabled");
+    {
+        let state = db.0.lock().unwrap();
+        assert!(state.hold.is_none());
+        assert_eq!(state.charges, 0);
+    }
+    assert!(mock.recorded_requests().is_empty());
+    mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn disabling_a_model_preserves_completed_same_key_recovery() {
+    let db = Arc::new(Database::new());
+    let (allowed, first_provider) =
+        launch_policy(db.clone(), Scenario::default(), Some(vec!["m-responses"])).await;
+    let response = send(&allowed).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(support::text(response).await.contains("event: done"));
+    final_state(&db).await;
+    let (denied, second_provider) =
+        launch_policy(db.clone(), Scenario::default(), Some(vec![])).await;
+    let response = send(&denied).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["x-f2z-replayed"], "true");
+    let receipt: Value = serde_json::from_str(&support::text(response).await).unwrap();
+    assert_eq!(receipt["status"], "settled");
+    assert_eq!(receipt["charged_2z"], 1);
+    assert_eq!(db.0.lock().unwrap().charges, 1);
+    assert_eq!(first_provider.recorded_requests().len(), 1);
+    assert!(second_provider.recorded_requests().is_empty());
+    first_provider.shutdown().await;
+    second_provider.shutdown().await;
 }
