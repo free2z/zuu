@@ -13,7 +13,7 @@ not a deployment or live acceptance result. The [SDK integration guide](../../..
 remains the application entry point.
 
 Supported: authenticated `/v1/models` (private, caller-markup-aware ETag),
-`/v1/chat/estimate`, streamed text-only `/v1/chat`, and account/app-scoped
+`/v1/chat/estimate`, streamed and nonstreamed text-only `/v1/chat`, and account/app-scoped
 `/v1/calls/{id}`. A new durable claim and confirmed hold precede provider I/O.
 Identical completed-key retries return the receipt as JSON with
 `X-F2Z-Replayed: true`; pending/conflicting keys never start another provider call.
@@ -22,7 +22,15 @@ Only confirmed ledger amounts appear in terminal events; after ten seconds of
 uncertainty the stream says `pending`, and the detached settler retries through
 its bounded lifetime. Captured admission epochs allow completion after revocation.
 
-Limitations: non-streaming responses, model fallback, images, and tools are
+Nonstreaming delivery aggregates the same event pipeline. Before provider I/O it
+reserves 64 times its event-byte limit from the shared upload memory pool; the
+reservation follows the serialized HTTP body until delivery drops it. The limit
+is the smaller of `delivery_buffer_bytes` and 1 MiB (256 KiB by default).
+Exhaustion before starting is `503`; overflow or interrupted delivery is `502`
+with a pending charge and a call ID for receipt reconciliation. Provider reading
+and settlement continue after delivery ends.
+
+Limitations: model fallback, images, and tools are
 unsupported. Input reservation uses a conservative UTF-8 byte-token bound including
 serialized message framing; it can reserve more than a tokenizer. Final charges
 use provider-reported usage and signed prices. **Missing provider usage has no

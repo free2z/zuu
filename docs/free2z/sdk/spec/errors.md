@@ -69,7 +69,7 @@ Inside an SSE stream, the terminal `error` event carries `code` and
 | 403 | `app_disabled` | no | The app's registration is suspended | Nothing the client can do; surface to the developer | — |
 | 403 | `account_frozen` | no | The user's account cannot spend (for example a payment dispute is open) | Tell the user to visit their account | — |
 | 403 | `account_in_debt` | no (until repaid) | A refund or chargeback took back 2Z already spent; the account owes the difference and cannot spend until future credits repay it ([purchase.md](./purchase.md) §3.1) | Show the debt from `GET /balance` and the buy surface | `debt_milli_2z` |
-| 503 | `unavailable` | yes | The server cannot serve the request right now and fails closed: it could not confirm the token's `aep`/`agen`, it has no signing keys to verify the token with (the issuer's JWKS has not loaded, or verification is not configured), it is draining, or (gateway) the provider's circuit breaker is open | Retry with backoff; do **not** sign the user out | `reason` ∈ `revocation_check`, `token_keys`, `draining`, `provider_circuit_open` |
+| 503 | `unavailable` | yes | The server cannot serve the request right now and fails closed: it could not confirm the token's `aep`/`agen`, it has no signing keys to verify the token with (the issuer's JWKS has not loaded, or verification is not configured), it is draining, or (gateway) the provider's circuit breaker is open or nonstreaming response memory cannot be reserved before a call | Retry with backoff; do **not** sign the user out | `reason` ∈ `revocation_check`, `token_keys`, `draining`, `provider_circuit_open`, `response_budget` |
 
 ## 3. Requests, limits and balances
 

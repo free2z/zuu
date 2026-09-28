@@ -500,6 +500,22 @@ stop is never a failure in this mode: it is `200` with
 absent or zero, as in `done`; on a failure it stays inside the `502`'s
 `details`.
 
+The gateway bounds nonstreaming aggregation to the smaller of its configured
+per-call delivery buffer and 1 MiB of cumulative event bytes (256 KiB by
+default). It reserves aggregation and serialization memory before starting the
+provider. If shared memory is unavailable, it refuses with `503 unavailable`
+and `details.reason: "response_budget"` before creating a billable call. If
+output exceeds the bound or delivery is interrupted, it returns `502` with
+`internal`, `details.reason: "response_limit"` or `"delivery_interrupted"`,
+any retained partial message, and `settlement: "pending"`;
+it continues reading and settling the provider independently. A nonstreamed
+response deadline also uses `delivery_interrupted`, before the outer HTTP
+timeout can discard the call ID. The stream-only `delivery_aborted` event is
+translated to this nonstreaming error. Reconcile using
+the call ID or the original idempotency key. A completed identical-key replay
+is always the JSON call receipt with `X-F2Z-Replayed: true`, including when the
+original request selected nonstreaming.
+
 ## 5. `GET /v1/models`
 
 The catalogue as the calling app's users will pay for it. Prices **include**

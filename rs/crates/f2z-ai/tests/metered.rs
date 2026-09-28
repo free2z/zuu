@@ -414,3 +414,60 @@ async fn expired_hold_records_late_provider_cost_without_changing_terminal_winne
     }
     mock.shutdown().await;
 }
+
+async fn send_nonstream(r: &support::Running) -> axum::http::Response<hyper::body::Incoming> {
+    let mut value = request();
+    value["stream"] = json!(false);
+    let mut req = support::chat_request(value.to_string());
+    req.headers_mut()
+        .insert("idempotency-key", "lesson-1".parse().unwrap());
+    support::send(r.public, req).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nonstream_uses_confirmed_settlement_and_replays_receipt_json() {
+    let db = Arc::new(Database::new());
+    db.0.lock().unwrap().lose_settle_reply = true;
+    let (r, mock) = launch(db.clone(), Scenario::default()).await;
+    let response = send_nonstream(&r).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "application/json");
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let call_id = response.headers()["x-f2z-call-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let text = support::text(response).await;
+    let reply: f2z_ai_proto::chat::ChatResponse = serde_json::from_str(&text).unwrap();
+    reply.check().unwrap();
+    assert_eq!(reply.call_id, call_id);
+    assert!(!reply.message.text().is_empty());
+    assert_eq!(reply.charged_2z, Some(f2z_ai_proto::Whole2z::new(1)));
+    assert_eq!(db.0.lock().unwrap().charges, 1);
+    let replay = send_nonstream(&r).await;
+    assert_eq!(replay.status(), StatusCode::OK);
+    assert_eq!(replay.headers()["x-f2z-replayed"], "true");
+    let receipt: Value = serde_json::from_str(&support::text(replay).await).unwrap();
+    assert_eq!(receipt["call_id"], call_id);
+    assert_eq!(db.0.lock().unwrap().charges, 1);
+    mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nonstream_missing_usage_keeps_partial_text_and_confirmed_release() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch(db.clone(), Scenario::default().without_usage()).await;
+    let response = send_nonstream(&r).await;
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let value: Value = serde_json::from_str(&support::text(response).await).unwrap();
+    assert_eq!(value["error"]["details"]["settlement"], "released");
+    assert_eq!(value["error"]["details"]["partial"], true);
+    assert!(
+        !value["error"]["details"]["message"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(db.0.lock().unwrap().charges, 0);
+    mock.shutdown().await;
+}
