@@ -416,6 +416,7 @@ impl Harness {
             "sub": SUB,
             "aud": ["f2z-id", "f2z-ai", "f2z-api"],
             "client_id": CLIENT,
+            "app_id": "22222222-2222-4222-8222-222222222222",
             "scope": "openid profile ai:invoke",
             "iat": now,
             "exp": now + 300,
@@ -495,6 +496,38 @@ async fn a_valid_token_reaches_the_backend() {
     // The key set came through discovery and was fetched once.
     assert_eq!(h.idp.jwks_fetches.load(Ordering::SeqCst), 1);
     assert_eq!(h.idp.epoch_calls.load(Ordering::SeqCst), 0, "Redis hit");
+}
+
+#[tokio::test]
+async fn application_identity_is_required_and_signed_separately_from_opaque_client() {
+    let h = Harness::new().await;
+    let gw = h
+        .gateway(
+            open_limits(),
+            not_implemented(),
+            RecordingSettler::default(),
+        )
+        .await;
+    assert_eq!(verdict(&gw, Some(&h.token())).await.0, 501);
+    for value in [
+        json!(null),
+        json!(CLIENT),
+        json!(42),
+        json!("AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"),
+    ] {
+        let (status, code, _) = verdict(&gw, Some(&h.token_with("app_id", value))).await;
+        assert_eq!((status, code.as_str()), (401, "invalid_token"));
+    }
+    let mut claims = h.claims();
+    claims.as_object_mut().unwrap().remove("app_id");
+    let missing = h.key.sign(&h.header(), &claims);
+    assert_eq!(verdict(&gw, Some(&missing)).await.0, 401);
+    // A well-formed app UUID cannot be substituted without the issuer signature.
+    let token = h.token();
+    let mut parts: Vec<_> = token.split('.').map(str::to_owned).collect();
+    claims["app_id"] = json!("33333333-3333-4333-8333-333333333333");
+    parts[1] = b64(claims.to_string());
+    assert_eq!(verdict(&gw, Some(&parts.join("."))).await.0, 401);
 }
 
 #[tokio::test]

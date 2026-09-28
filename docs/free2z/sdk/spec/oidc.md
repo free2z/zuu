@@ -199,6 +199,7 @@ payload: {
   "sub":       "3f0c9b7e-6a2d-4b1f-8e5c-2d9a7c4e1b60",
   "aud":       ["f2z-id", "f2z-ai", "f2z-api"],
   "client_id": "app_7f3c2e",
+  "app_id":    "22222222-2222-4222-8222-222222222222",
   "scope":     "openid profile balance:read ai:invoke",
   "iat":       1790000000,
   "exp":       1790000300,
@@ -216,13 +217,19 @@ payload: {
 | `iss` | Always `https://free2z.cash` | Every resource server, exact string match |
 | `sub` | The user's stable, opaque **per-account UUID** — not a username or email (those change) and not the platform's sequential internal id (that would enumerate). It is the same for every app (`subject_types_supported: ["public"]`), which is the deliberate trade-off: two apps that both hold a user's `sub` can correlate that user, and in exchange a user's identity is one thing across the ecosystem. Pairwise subjects per app are a possible v2 and would be announced by `pairwise` appearing in discovery | — |
 | `aud` | **Always a JSON array, and `f2z-id` is always in it.** `f2z-id` is the IdP's own `userinfo_endpoint`; `f2z-ai` (the gateway) is added when `ai:invoke` was granted and `f2z-api` (the account API) when `balance:read` or `purchase:create` was (§4). A resource server MUST refuse a token whose `aud` does not contain its own identifier | Every resource server |
-| `client_id` | The app the token was issued to | Resource servers, for rate limits and markup |
+| `client_id` | The opaque OAuth client identifier; never parsed as a UUID | Resource servers, for revocation and rate limits |
+| `app_id` | The stable application UUID assigned by the issuer, distinct from `client_id` | The AI gateway, for ledger admission |
 | `scope` | Space-separated granted scopes (RFC 9068 §2.2.3) | Resource servers, per endpoint |
 | `exp` | `iat + 300`. **Five minutes**, not configurable per app | Every resource server, with at most 30 s of leeway |
 | `jti` | Unique per token | Optional replay detection |
 | `aep` | **Account epoch** (§6.2) | Every resource server |
 | `agen` | **Grant generation** (§6.3) | Every resource server |
 | `auth_time`, `acr`, `amr` | When and how the user last authenticated (§10) | Endpoints that require recent or strong authentication |
+
+The gateway requires a canonical lowercase UUID `app_id` in the verified access
+token. It never derives an application UUID from `client_id` or a request header.
+Tokens issued before this claim was added must be refreshed; a missing or malformed
+claim is `401 invalid_token`, with no provider call or ledger admission.
 
 Resource servers fetch keys from `jwks_uri` and select by `kid`. Keys are
 rotated: the JWKS carries the current key and its predecessor for at least 24
