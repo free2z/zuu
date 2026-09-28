@@ -89,22 +89,39 @@ chat-api.md §2.2 steps 1–2, against the IdP of tuzi #2238
 | `aep` / `agen` against Redis (`<ns>:aep:<sub>`, `<ns>:agen:<client_id>:<sub>`, plain decimals, as `epoch_publish` writes them); on a miss or a Redis failure, the internal epoch endpoint (`GET …/internal/epoch/<sub>/`, shared-secret bearer): a `client_id` absent from its `agen` is revoked, `404` is revoked, `503` / timeout / anything else is unknown | `401 token_revoked`, `account_epoch` / `grant_generation`; unknown → `503 unavailable`, `revocation_check`. **Never allow on unknown** |
 | `scope` contains `ai:invoke` | `403 insufficient_scope`, `details.scope` |
 | 4 open calls per user: a local count, and a Redis sorted-set lease | `429 concurrency_limit`, `details.limit`, `Retry-After` |
-| Per (app, user) and per app: a local GCRA, and Redis token buckets (one Lua script, Redis's clock) | `429 rate_limited`, `Retry-After`, `X-F2Z-RateLimit-{Limit,Remaining,Reset}` |
+| Per (app, user), plus an optional aggregate app limit: a local GCRA, and Redis token buckets (one Lua script, Redis's clock) | `429 rate_limited`, `Retry-After`, `X-F2Z-RateLimit-{Limit,Remaining,Reset}` |
 
 **The lease lives on the call's admission slot**, which is dropped only
 after the settler has returned for the call and its delivery has ended — so a
 drained call, a disconnected one whose upstream is still being read, and one
 whose task panicked all count until they are settled. While held, its Redis
 member is renewed every `concurrency_lease_secs / 3` (and re-added if Redis
-lost it, e.g. a call admitted during an outage); the renewer task releases it
+lost it, e.g. an eviction); the renewer task releases it
 when the lease drops. It expires after `concurrency_lease_secs` only if a pod
 dies holding it.
 
 **If Redis is down** (every call is bounded by `redis_timeout_ms`, then it is
-skipped for 1 s), the limits fall back to their local copies — `N` pods then
-admit up to `N` times the shared rate — and revocation goes to the epoch
-endpoint (at most 64 calls in flight per pod; beyond that, `503`). Revocation
-never falls back to allowing.
+skipped for 1 s), new shared admission fails closed with retryable
+`503 unavailable` (`details.reason: shared_admission`). An ambiguous successful
+script reply is also refused and its lease is cleaned up. Revocation separately
+goes to the authoritative epoch endpoint (at most 64 calls in flight per pod;
+beyond that, `503`), never to allowing. This preserves shared limits at the cost
+of refusing new calls during an admission-store outage. Already admitted calls
+continue settling; lease renewal resumes when Redis returns.
+
+The metered executable requires Redis. Library/test integrations may explicitly
+omit it for local-only diagnostics; that mode promises no cross-pod limits.
+
+There is **no default aggregate application request bucket**: adding users to
+one OAuth client does not consume a fixed shared 6,000/min allowance. Operators
+may enable `rate_app_per_minute` and `rate_app_burst` together as a measured
+service admission policy. This is not a shared application spending cap. Each
+user's prepaid balance and consent remain independently enforced by the ledger.
+Per-user rate/concurrency limits, socket/upload/decode budgets and the pod's
+admission capacity still apply. Size replicas, aggregate database pools, Redis
+throughput and provider quotas together; an optional app bucket does not replace
+those service bounds. Defaults alone establish no million-user capacity claim;
+load evidence must cover the chosen fleet and actual provider limits.
 
 The JWKS comes from `auth_jwks_uri` or the issuer's discovery document, is
 warmed at start-up, refreshed in the background after an hour, and refetched
@@ -196,7 +213,7 @@ variable is a startup error.
 | `redis_namespace` | `free2z` | The IdP's `OIDC_EPOCH_REDIS_NAMESPACE` (its DBNAME) — **must match**, or every lookup misses and goes to the endpoint |
 | `redis_timeout_ms` | `250` | Per Redis call |
 | `rate_user_per_minute` / `rate_user_burst` | `60` / `20` | Per (app, user) |
-| `rate_app_per_minute` / `rate_app_burst` | `6000` / `600` | Per app |
+| `rate_app_per_minute` / `rate_app_burst` | `0` / `0` | Optional aggregate app bucket; both zero disables, both positive enables |
 | `concurrency_per_user` | `4` | |
 | `concurrency_lease_secs` | `360` | At least `request_timeout_secs` |
 

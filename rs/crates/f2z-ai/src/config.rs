@@ -131,9 +131,9 @@ pub struct AuthConfig {
     pub rate_user_per_minute: u32,
     /// Per (app, user), burst.
     pub rate_user_burst: u32,
-    /// Per app, sustained requests per minute.
+    /// Optional app-wide requests per minute; zero disables with a zero burst.
     pub rate_app_per_minute: u32,
-    /// Per app, burst.
+    /// Optional app-wide burst; zero disables with a zero rate.
     pub rate_app_burst: u32,
     /// Open calls per user.
     pub concurrency_per_user: u32,
@@ -164,8 +164,8 @@ impl Default for AuthConfig {
             redis_timeout: Duration::from_millis(250),
             rate_user_per_minute: 60,
             rate_user_burst: 20,
-            rate_app_per_minute: 6000,
-            rate_app_burst: 600,
+            rate_app_per_minute: 0,
+            rate_app_burst: 0,
             concurrency_per_user: 4,
             concurrency_lease: Duration::from_secs(360),
         }
@@ -871,6 +871,12 @@ fn secret(
     }
 }
 
+fn nonnegative_u32(key: &str, value: Option<u64>, default: u32) -> Result<u32, ConfigError> {
+    value.map_or(Ok(default), |n| {
+        u32::try_from(n).map_err(|_| err(format!("`{key}` exceeds u32")))
+    })
+}
+
 fn positive_u32(key: &str, value: Option<u64>, default: u32) -> Result<u32, ConfigError> {
     let Some(value) = value else {
         return Ok(default);
@@ -967,12 +973,12 @@ fn auth(
             raw.rate_user_burst,
             defaults.rate_user_burst,
         )?,
-        rate_app_per_minute: positive_u32(
+        rate_app_per_minute: nonnegative_u32(
             "rate_app_per_minute",
             raw.rate_app_per_minute,
             defaults.rate_app_per_minute,
         )?,
-        rate_app_burst: positive_u32(
+        rate_app_burst: nonnegative_u32(
             "rate_app_burst",
             raw.rate_app_burst,
             defaults.rate_app_burst,
@@ -988,6 +994,11 @@ fn auth(
             None => defaults.concurrency_lease,
         },
     };
+    if (config.rate_app_per_minute == 0) != (config.rate_app_burst == 0) {
+        return Err(err(
+            "`rate_app_per_minute` and `rate_app_burst` must both be positive or both zero (disabled)",
+        ));
+    }
     if config.audience.is_empty() {
         return Err(err("`auth_audience` must not be empty"));
     }
@@ -1274,6 +1285,40 @@ mod tests {
         let rendered = format!("{config:?}");
         assert!(!rendered.contains("epoch-canary"), "{rendered}");
         assert!(!rendered.contains("redis-canary"), "{rendered}");
+    }
+
+    #[test]
+    fn aggregate_app_limits_are_optional_and_require_a_complete_pair() {
+        let default = Config::load(None, env(&[])).unwrap();
+        assert_eq!(
+            (
+                default.auth.rate_app_per_minute,
+                default.auth.rate_app_burst
+            ),
+            (0, 0)
+        );
+        let configured = Config::load(
+            None,
+            env(&[
+                ("F2Z_AI_RATE_APP_PER_MINUTE", "12000"),
+                ("F2Z_AI_RATE_APP_BURST", "2000"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                configured.auth.rate_app_per_minute,
+                configured.auth.rate_app_burst
+            ),
+            (12000, 2000)
+        );
+        for pairs in [
+            vec![("F2Z_AI_RATE_APP_PER_MINUTE", "1")],
+            vec![("F2Z_AI_RATE_APP_BURST", "1")],
+            vec![("F2Z_AI_RATE_APP_PER_MINUTE", "4294967296")],
+        ] {
+            assert!(Config::load(None, env(&pairs)).is_err());
+        }
     }
 
     #[test]
