@@ -49,6 +49,9 @@ const RUST_REQUIRED_JOB_IDS = new Set([
   "rust_fmt", "rust_deny", "rust_clippy", "rust_native_clippy", "rust_native_tests",
   "rust_plugin", "rust_msg_plugin", "rust_android_32", "rust_app", "rust_crypto_targets",
 ]);
+// This package job intentionally runs on every PR, independently of the wallet
+// selectors. Its success must never be mistaken for an illegitimate selected skip.
+const ALWAYS_REQUIRED_JOB_IDS = new Set(["free2z_sdk_typescript"]);
 const POLICED_RUST_ROOTS = ["wallet", "rs"];
 const RUST_ROOT_CONTRACTS = [
   {
@@ -3375,6 +3378,11 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
       throw new Error(`selected Rust job ${job} is missing from required jobs context`);
     }
   }
+  for (const job of ALWAYS_REQUIRED_JOB_IDS) {
+    if (!Object.hasOwn(needs, job)) {
+      throw new Error(`always-required job ${job} is missing from required jobs context`);
+    }
+  }
   const verdicts = [];
   for (const [job, state] of entries) {
     if (
@@ -3385,7 +3393,7 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
       throw new Error(`required job ${job} has no result`);
     }
     const expected =
-      job === "changes"
+      job === "changes" || ALWAYS_REQUIRED_JOB_IDS.has(job)
         ? "success"
         : job === "zuuallet_schema"
           ? schemaExpected
@@ -7013,6 +7021,33 @@ function runSelfTest(repoRoot) {
 
   const gateResultCases = [
     {
+      name: "unconditional Free2Z SDK succeeds when wallet selectors are false",
+      policyOutcome: "success",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
+        free2z_sdk_typescript: { result: "success" } },
+    },
+    {
+      name: "unconditional Free2Z SDK cannot disappear",
+      policyOutcome: "success",
+      omitJob: "free2z_sdk_typescript",
+      needle: "always-required job free2z_sdk_typescript is missing",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } } },
+    },
+    {
+      name: "unconditional Free2Z SDK cannot be skipped",
+      policyOutcome: "success",
+      needle: "required job free2z_sdk_typescript must be success, got skipped",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
+        free2z_sdk_typescript: { result: "skipped" } },
+    },
+    {
+      name: "unconditional Free2Z SDK failure blocks every change",
+      policyOutcome: "success",
+      needle: "required job free2z_sdk_typescript must be success, got failure",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
+        free2z_sdk_typescript: { result: "failure" } },
+    },
+    {
       name: "frontend source succeeds with native jobs skipped",
       policyOutcome: "success",
       needs: { changes: { result: "success", outputs: { zuuli: "true", rust: "false", zuuallet_schema: "false", surfaces: "true" } },
@@ -7264,6 +7299,9 @@ function runSelfTest(repoRoot) {
     for (const job of RUST_REQUIRED_JOB_IDS) {
       const native = job === "rust_native_clippy" || job === "rust_native_tests";
       testCase.needs[job] ??= { result: outputs.rust === "true" || (native && outputs.zuuallet_schema === "true") ? "success" : "skipped" };
+    }
+    for (const job of ALWAYS_REQUIRED_JOB_IDS) {
+      testCase.needs[job] ??= { result: "success" };
     }
     if (testCase.omitJob) delete testCase.needs[testCase.omitJob];
     let error = null;

@@ -14,7 +14,7 @@ use f2z_ai::config::{Config, ENV_CONFIG_FILE};
 use f2z_ai::{Deps, Gateway, Stopped, shutdown, telemetry};
 
 const USAGE: &str = "\
-f2z-ai — the free2z AI gateway (ai.free2z.cash), skeleton build
+f2z-ai — the free2z AI gateway (ai.free2z.cash), metered preview
 
 USAGE:
     f2z-ai serve [--config FILE]
@@ -34,9 +34,11 @@ CONFIGURATION:
     variable is an error.
 
 THIS BUILD:
-    No catalogue source and no provider adapters: /readyz reports not ready and
-    a valid /v1/chat is answered 503 catalog_unavailable (501 once a catalogue
-    source is wired). zuu#1047.
+    Metered text-streaming preview. Configure signed catalogue trust, ledger,
+    authentication and provider credentials before serving paid calls. Without
+    backend configuration the diagnostic service stays closed and unready.
+    Non-streaming, fallback, images, tools and estimated-usage billing are not
+    implemented in this preview. See the crate README and zuu#1078.
 ";
 
 fn main() -> ExitCode {
@@ -115,9 +117,47 @@ fn serve(config: &Config) -> Result<ExitCode, String> {
                 }
             });
         };
-        let deps = Deps {
-            gate: f2z_ai::auth::from_config(&config.auth)?,
-            ..Deps::skeleton()
+        let deps = if config.catalog_url.is_none()
+            && config.catalog_keys_file.is_none()
+            && config.ledger_url.is_none()
+        {
+            Deps {
+                gate: f2z_ai::auth::from_config(&config.auth)?,
+                ..Deps::skeleton()
+            }
+        } else {
+            if config.providers.is_empty() {
+                return Err("configure at least one provider for metered service".to_owned());
+            }
+            let url = config
+                .catalog_url
+                .as_deref()
+                .ok_or("catalog_url is required")?;
+            let keys_path = config
+                .catalog_keys_file
+                .as_ref()
+                .ok_or("catalog_keys_file is required")?;
+            let keys: std::collections::BTreeMap<String, String> = serde_json::from_slice(
+                &std::fs::read(keys_path).map_err(|_| "catalogue keys file unreadable")?,
+            )
+            .map_err(|_| "invalid catalogue keys file")?;
+            let source = f2z_ai::catalog::HttpSource::new(url, &keys)?;
+            let ledger = std::sync::Arc::new(
+                f2z_ai::ledger::Postgres::connect(
+                    config.ledger_url.as_ref().ok_or("ledger_url is required")?,
+                    config.ledger_max_connections,
+                )
+                .await
+                .map_err(|e| e.to_string())?,
+            );
+            let provider = f2z_ai::provider::ProviderBackend::from_config(config)?;
+            let backend = std::sync::Arc::new(f2z_ai::meter::Metered::new(ledger, provider));
+            Deps {
+                gate: f2z_ai::auth::from_config(&config.auth)?,
+                catalog: std::sync::Arc::new(source),
+                backend: backend.clone(),
+                settler: backend,
+            }
         };
         let gateway = Gateway::bind(config, deps)
             .await

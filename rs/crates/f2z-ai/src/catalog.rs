@@ -43,12 +43,9 @@
 //! issued within the bound of the newest one can be installed. Signature and
 //! expiry checks are unchanged and happen before any of this.
 //!
-//! **The fetch-and-verify step is stubbed.** [`CatalogSource`] is the seam:
-//! Wave 2 implements it by fetching the signed document and calling
-//! `f2z_ai_proto::catalog::verify_catalog` against the trusted keys in the
-//! config. The binary ships [`Unconfigured`], which never yields a catalogue,
-//! so a deployed skeleton honestly reports **not ready** and `/v1/chat`
-//! answers `503 catalog_unavailable`.
+//! [`HttpSource`] fetches and verifies a bounded signed envelope against
+//! startup trust anchors. [`Unconfigured`] keeps diagnostic/test deployments
+//! closed until configured; production wiring lives in the binary.
 
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -107,7 +104,107 @@ pub struct Unconfigured;
 #[async_trait]
 impl CatalogSource for Unconfigured {
     async fn fetch(&self) -> Result<VerifiedCatalog, String> {
-        Err("no catalogue source is configured in this build (zuu#1047 Wave 2)".to_owned())
+        Err("no catalogue source is configured".to_owned())
+    }
+}
+
+/// HTTPS catalogue source. Trust anchors come exclusively from startup configuration.
+pub struct HttpSource {
+    client: reqwest::Client,
+    url: reqwest::Url,
+    keys: Vec<f2z_ai_proto::catalog::TrustedKey>,
+}
+
+impl HttpSource {
+    /// Construct a bounded, redirect-free source without ambient proxy credentials.
+    pub fn new(
+        url: &str,
+        keys: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Self, String> {
+        let url = reqwest::Url::parse(url).map_err(|_| "invalid catalogue URL")?;
+        let loopback = url.host_str().is_some_and(|h| {
+            h == "localhost"
+                || h.parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        });
+        if !(url.scheme() == "https" || (url.scheme() == "http" && loopback))
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.fragment().is_some()
+        {
+            return Err("catalogue URL must be HTTPS without credentials or fragment".into());
+        }
+        if keys.is_empty() || keys.len() > 16 {
+            return Err("configure 1..=16 catalogue trust anchors".into());
+        }
+        let keys = keys
+            .iter()
+            .map(|(id, hex)| {
+                f2z_ai_proto::catalog::TrustedKey::from_hex(id, hex)
+                    .map_err(|_| "invalid catalogue trust anchor".to_owned())
+            })
+            .collect::<Result<_, _>>()?;
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(5))
+            .build()
+            .map_err(|_| "catalogue HTTP client")?;
+        Ok(Self { client, url, keys })
+    }
+
+    fn verify(&self, bytes: &[u8]) -> Result<VerifiedCatalog, String> {
+        // Strictly parse the WHOLE envelope before extracting the payload: ordinary
+        // Value deserialization would silently discard duplicate catalogue members.
+        let envelope = f2z_ai_proto::canonical::parse_strict(bytes)
+            .map_err(|_| "invalid catalogue envelope")?;
+        let payload = envelope.get("catalog").ok_or("missing catalogue")?;
+        let signature = envelope
+            .get("signature")
+            .ok_or("missing catalogue signature")?;
+        let id = signature
+            .get("key_id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or("missing signature key")?;
+        let hex = signature
+            .get("signature_hex")
+            .and_then(serde_json::Value::as_str)
+            .ok_or("missing signature bytes")?;
+        let signature = f2z_ai_proto::catalog::DetachedSignature::from_hex(id, hex)
+            .map_err(|_| "invalid signature encoding")?;
+        let payload = serde_json::to_vec(payload).map_err(|_| "invalid catalogue payload")?;
+        let catalog =
+            f2z_ai_proto::catalog::verify_catalog(&payload, &signature, &self.keys, now_unix())
+                .map_err(|_| "catalogue verification refused")?;
+        VerifiedCatalog::from_verified(catalog)
+    }
+}
+
+#[async_trait]
+impl CatalogSource for HttpSource {
+    async fn fetch(&self) -> Result<VerifiedCatalog, String> {
+        let mut response = self
+            .client
+            .get(self.url.clone())
+            .send()
+            .await
+            .map_err(|_| "catalogue fetch failed")?;
+        if response.status() != reqwest::StatusCode::OK {
+            return Err("catalogue endpoint refused".into());
+        }
+        const MAX: usize = 1024 * 1024;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| "catalogue body failed")?
+        {
+            if bytes.len().saturating_add(chunk.len()) > MAX {
+                return Err("catalogue exceeds byte limit".into());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        self.verify(&bytes)
     }
 }
 
@@ -125,7 +222,7 @@ impl CatalogSource for Fixed {
 
 /// Unix seconds now. A clock that reads before 1970 reads as 0 — a broken
 /// host clock, which the platform's node time sync is responsible for; the
-/// verifying source (Wave 2) additionally refuses by `verify_catalog`'s own
+/// verifying source additionally refuses by `verify_catalog`'s own
 /// expiry check.
 #[must_use]
 pub fn now_unix() -> u64 {
@@ -529,5 +626,57 @@ mod tests {
         let mut c: Catalog = serde_json::from_str(text).unwrap();
         c.expires_at = c.issued_at;
         assert!(VerifiedCatalog::from_verified(c).is_err());
+    }
+}
+
+#[cfg(test)]
+mod http_source_tests {
+    use super::*;
+    use ring::signature::KeyPair as _;
+    fn signed() -> (HttpSource, Vec<u8>) {
+        let key = ring::signature::Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
+        let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let mut catalog: serde_json::Value = serde_json::from_str(include_str!(
+            "../../f2z-ai-proto/fixtures/catalog/catalog.json"
+        ))
+        .unwrap();
+        catalog["issued_at"] = serde_json::json!(now_unix());
+        catalog["expires_at"] = serde_json::json!(now_unix() + 3600);
+        let message = f2z_ai_proto::catalog::catalog_signing_message(&catalog).unwrap();
+        let body=serde_json::to_vec(&serde_json::json!({"catalog":catalog,"signature":{"key_id":"test","signature_hex":hex(key.sign(&message).as_ref())}})).unwrap();
+        let source = HttpSource::new(
+            "http://127.0.0.1:1/catalog",
+            &std::collections::BTreeMap::from([("test".into(), hex(key.public_key().as_ref()))]),
+        )
+        .unwrap();
+        (source, body)
+    }
+    #[test]
+    fn verified_envelope_accepts_only_signed_payload() {
+        let (source, body) = signed();
+        assert!(source.verify(&body).is_ok());
+        let mut changed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        changed["catalog"]["platform_margin_bps"] = serde_json::json!(0);
+        assert!(
+            source
+                .verify(&serde_json::to_vec(&changed).unwrap())
+                .is_err()
+        );
+    }
+    #[test]
+    fn duplicate_member_cannot_be_hidden_by_envelope_extraction() {
+        let (source, body) = signed();
+        let body = String::from_utf8(body).unwrap().replacen(
+            "\"schema\":1",
+            "\"schema\":2,\"schema\":1",
+            1,
+        );
+        assert!(source.verify(body.as_bytes()).is_err());
+    }
+    #[test]
+    fn catalogue_transport_refuses_plain_remote_or_embedded_credentials() {
+        let keys = std::collections::BTreeMap::from([("test".into(), "00".repeat(32))]);
+        assert!(HttpSource::new("http://example.com/catalog", &keys).is_err());
+        assert!(HttpSource::new("https://user:password@example.com/catalog", &keys).is_err());
     }
 }

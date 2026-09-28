@@ -99,6 +99,8 @@ pub const ENV_PROVIDER_KEY_SUFFIX: &str = "_API_KEY";
 pub const ENV_AUTH_EPOCH_TOKEN: &str = "F2Z_AI_AUTH_EPOCH_TOKEN";
 /// The Redis URL (it may carry a password).
 pub const ENV_REDIS_URL: &str = "F2Z_AI_REDIS_URL";
+/// Ledger connection URL; accepted only as a secret.
+pub const ENV_LEDGER_URL: &str = "F2Z_AI_LEDGER_URL";
 
 /// Authentication, revocation and limits ([`crate::auth`]).
 #[derive(Clone)]
@@ -306,6 +308,14 @@ pub struct Config {
     pub providers: BTreeMap<String, ProviderConfig>,
     /// Authentication, revocation and limits.
     pub auth: AuthConfig,
+    /// Signed catalogue endpoint, HTTPS except loopback tests.
+    pub catalog_url: Option<String>,
+    /// Startup trust anchors: JSON object mapping key IDs to Ed25519 hex keys.
+    pub catalog_keys_file: Option<PathBuf>,
+    /// PostgreSQL connection string; never logged or accepted inline.
+    pub ledger_url: Option<SecretString>,
+    /// Per-process ledger pool cap; deployment must budget the sum across replicas.
+    pub ledger_max_connections: u32,
 }
 
 impl Default for Config {
@@ -338,6 +348,10 @@ impl Default for Config {
             otlp_authorization: None,
             providers: BTreeMap::new(),
             auth: AuthConfig::default(),
+            catalog_url: None,
+            catalog_keys_file: None,
+            ledger_url: None,
+            ledger_max_connections: 4,
         }
     }
 }
@@ -394,6 +408,10 @@ fn err(message: impl Into<String>) -> ConfigError {
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Raw {
+    catalog_url: Option<String>,
+    catalog_keys_file: Option<PathBuf>,
+    ledger_url_file: Option<PathBuf>,
+    ledger_max_connections: Option<u64>,
     listen: Option<String>,
     admin_listen: Option<String>,
     max_concurrent_calls: Option<u64>,
@@ -453,6 +471,10 @@ enum Kind {
 
 /// Every key, and how an environment value for it is read.
 const KEYS: &[(&str, Kind)] = &[
+    ("catalog_url", Kind::Text),
+    ("catalog_keys_file", Kind::Text),
+    ("ledger_url_file", Kind::Text),
+    ("ledger_max_connections", Kind::Integer),
     ("listen", Kind::Text),
     ("admin_listen", Kind::Text),
     ("max_concurrent_calls", Kind::Integer),
@@ -495,7 +517,12 @@ const KEYS: &[(&str, Kind)] = &[
 ];
 
 /// Keys that hold a secret and therefore may not appear inline in the file.
-const INLINE_SECRETS: &[&str] = &["otlp_authorization", "auth_epoch_token", "redis_url"];
+const INLINE_SECRETS: &[&str] = &[
+    "otlp_authorization",
+    "auth_epoch_token",
+    "redis_url",
+    "ledger_url",
+];
 
 impl Config {
     /// Load `file` (if any), apply the `F2Z_AI_*` members of `env`, validate.
@@ -557,7 +584,7 @@ impl Config {
                 env_secret = Some(SecretString::from(value));
                 continue;
             }
-            if name == ENV_AUTH_EPOCH_TOKEN || name == ENV_REDIS_URL {
+            if name == ENV_AUTH_EPOCH_TOKEN || name == ENV_REDIS_URL || name == ENV_LEDGER_URL {
                 env_secrets.insert(name, SecretString::from(value));
                 continue;
             }
@@ -613,6 +640,12 @@ impl Config {
         provider_keys: BTreeMap<String, SecretString>,
     ) -> Result<Self, ConfigError> {
         let auth = auth(&mut raw, &mut env_secrets)?;
+        let ledger_url = secret(
+            ENV_LEDGER_URL,
+            env_secrets.remove(ENV_LEDGER_URL),
+            "ledger_url_file",
+            raw.ledger_url_file.take(),
+        )?;
         let defaults = Self::default();
         let addr = |key: &str, value: Option<String>, default: SocketAddr| match value {
             Some(text) => text
@@ -717,6 +750,14 @@ impl Config {
             otlp_authorization,
             providers,
             auth,
+            catalog_url: raw.catalog_url,
+            catalog_keys_file: raw.catalog_keys_file,
+            ledger_url,
+            ledger_max_connections: positive_u32(
+                "ledger_max_connections",
+                raw.ledger_max_connections,
+                4,
+            )?,
         };
         config.validate()?;
         Ok(config)
@@ -724,6 +765,11 @@ impl Config {
 
     /// The cross-field rules.
     fn validate(&self) -> Result<(), ConfigError> {
+        if self.ledger_max_connections > 20 {
+            return Err(err(
+                "ledger_max_connections must be 1..=20; budget all replicas together",
+            ));
+        }
         if !(1..=65_536).contains(&self.max_pre_auth_uploads_per_peer) {
             return Err(err(
                 "`max_pre_auth_uploads_per_peer` must be between 1 and 65536",

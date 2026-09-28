@@ -35,10 +35,8 @@
 //! It emits no `meta`, `done` or `error` event: those carry the hold and the
 //! settlement, and belong to the metering layer that wraps this one. It takes
 //! no hold and releases none — the settler is the single owner of a call's
-//! outcome ([`crate::chat::ChatBackend`]). And it is not wired into the
-//! binary: `main.rs` still serves [`crate::chat::NotImplemented`], because an
-//! adapter without authentication and metering in front of it would be free
-//! AI for anyone who can reach the port.
+//! outcome ([`crate::chat::ChatBackend`]). The binary wraps this adapter in
+//! [`crate::meter::Metered`]; direct adapter injection is a test seam.
 
 pub mod anthropic;
 pub mod backend;

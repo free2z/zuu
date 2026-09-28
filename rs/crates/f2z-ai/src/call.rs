@@ -91,6 +91,14 @@ use crate::settle::{self, CallRecord, Delivery, UpstreamEnd};
 /// never in the future (`crate::provider::upstream`).
 #[async_trait]
 pub trait Upstream: Send + 'static {
+    /// An idempotent replay is a JSON receipt, with no provider stream.
+    fn replay_record(&self) -> Option<serde_json::Value> {
+        None
+    }
+    /// Durable call ID for the response header.
+    fn call_id(&self) -> Option<String> {
+        None
+    }
     /// The next event, or `None` at the end of the stream.
     async fn next(&mut self) -> Option<Event>;
 
@@ -348,6 +356,8 @@ impl std::error::Error for DeliveryEnded {}
 /// The HTTP response body of a streamed call: delivery only.
 #[derive(Debug)]
 pub struct DeliveryBody {
+    pub(crate) replay: Option<serde_json::Value>,
+    pub(crate) call_id: Option<String>,
     shared: Arc<Shared>,
 }
 
@@ -550,6 +560,8 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
     // If the handler is gone the body comes back in the error and is dropped
     // at once, which is exactly "the client went away".
     drop(head.send(Ok(DeliveryBody {
+        replay: upstream.replay_record(),
+        call_id: upstream.call_id(),
         shared: Arc::clone(&shared),
     })));
 

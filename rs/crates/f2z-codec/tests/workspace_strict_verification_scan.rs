@@ -619,6 +619,17 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
         },
     },
     // ---- f2z-ai -------------------------------------------------------------
+    // The HTTP envelope parser rejects duplicates before delegating the signed
+    // catalogue payload to the registered strict Ed25519 verifier above.
+    VerifyFn {
+        file: "f2z-ai/src/catalog.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::DelegatesToFn {
+            target: "f2z-ai-proto/src/catalog.rs::verify_catalog",
+            call: "f2z_ai_proto::catalog::verify_catalog",
+        },
+    },
     //
     // The gateway's access-token check (zuu#1068). **Not Ed25519**: an ES256
     // (P-256 ECDSA) JWS from the IdP, verified with `ring`'s fixed-width

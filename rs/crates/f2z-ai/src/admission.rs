@@ -230,6 +230,7 @@ struct CallState {
     inflight: Arc<InFlight>,
     slot: Mutex<Option<Slot>>,
     principal: OnceLock<Principal>,
+    idempotency_key: OnceLock<String>,
 }
 
 /// The handler's view of an admitted request. Inserted into its extensions.
@@ -261,6 +262,13 @@ impl CallHandle {
 
     pub(crate) fn set_principal(&self, principal: Principal) {
         let _ = self.0.principal.set(principal);
+    }
+
+    pub(crate) fn set_idempotency_key(&self, key: String) {
+        let _ = self.0.idempotency_key.set(key);
+    }
+    pub(crate) fn idempotency_key(&self) -> Option<&str> {
+        self.0.idempotency_key.get().map(String::as_str)
     }
 
     /// Park the user's concurrency lease on this call's slot, so that it is
@@ -379,6 +387,7 @@ where
             inflight: Arc::clone(&self.inflight),
             slot: Mutex::new(Some(slot)),
             principal: OnceLock::new(),
+            idempotency_key: OnceLock::new(),
         }));
         request.extensions_mut().insert(handle.clone());
         let future = self.inner.call(request);

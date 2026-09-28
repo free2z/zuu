@@ -144,6 +144,32 @@ impl Drop for UploadLease {
 /// client hanging up mid-start does not cancel it half way.
 #[async_trait]
 pub trait ChatBackend: Send + Sync + 'static {
+    /// Authenticated, markup-aware catalogue projection.
+    async fn models(
+        &self,
+        _catalog: Arc<VerifiedCatalog>,
+        _principal: &crate::auth::Principal,
+    ) -> Result<serde_json::Value, ApiFailure> {
+        Err(ApiFailure::not_implemented())
+    }
+    /// Same admission and clamp as chat, without creating a call or hold.
+    async fn estimate(
+        &self,
+        _request: ChatRequest,
+        _catalog: Arc<VerifiedCatalog>,
+        _principal: &crate::auth::Principal,
+    ) -> Result<serde_json::Value, ApiFailure> {
+        Err(ApiFailure::not_implemented())
+    }
+    /// Account/app-scoped durable receipt lookup.
+    async fn receipt(
+        &self,
+        _id: &str,
+        _principal: &crate::auth::Principal,
+    ) -> Result<serde_json::Value, ApiFailure> {
+        Err(ApiFailure::not_implemented())
+    }
+
     /// Start `request`, priced against `catalog`.
     ///
     /// # Errors
@@ -214,7 +240,77 @@ pub async fn handle(State(state): State<ChatState>, request: Request) -> Respons
     }
 }
 
+/// Small authenticated GET routes use the same peer admission bound as chat.
+pub async fn read_handle(State(state): State<ChatState>, request: Request) -> Response {
+    async fn read(state: &ChatState, request: Request) -> Result<Response, ApiFailure> {
+        let peer = request
+            .extensions()
+            .get::<std::net::SocketAddr>()
+            .ok_or_else(|| ApiFailure::new(ErrorCode::Internal, "missing transport peer"))?;
+        let permit = state.upload_limits.acquire(
+            UploadKey::Peer(peer.ip()),
+            state.max_pre_auth_uploads_per_peer,
+        )?;
+        let admitted = state.gate.admit(request.headers()).await?;
+        drop(permit);
+        let value = if request.uri().path() == "/v1/models" {
+            let catalog = state.catalog.current(catalog::now_unix()).ok_or_else(|| {
+                ApiFailure::new(ErrorCode::CatalogUnavailable, "no verified catalogue")
+            })?;
+            state.backend.models(catalog, &admitted.principal).await?
+        } else {
+            let id = request
+                .uri()
+                .path()
+                .strip_prefix("/v1/calls/")
+                .ok_or_else(ApiFailure::not_found)?;
+            state.backend.receipt(id, &admitted.principal).await?
+        };
+        if request.uri().path() == "/v1/models" {
+            let bytes = serde_json::to_vec(&value)
+                .map_err(|_| ApiFailure::new(ErrorCode::Internal, "catalogue projection failed"))?;
+            let hash = ring::digest::digest(&ring::digest::SHA256, &bytes)
+                .as_ref()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>();
+            let etag = format!("\"{hash}\"");
+            let mut response = if request
+                .headers()
+                .get(header::IF_NONE_MATCH)
+                .and_then(|v| v.to_str().ok())
+                == Some(etag.as_str())
+            {
+                axum::http::StatusCode::NOT_MODIFIED.into_response()
+            } else {
+                axum::Json(value).into_response()
+            };
+            if let Ok(value) = HeaderValue::from_str(&etag) {
+                response.headers_mut().insert(header::ETAG, value);
+            }
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("private, max-age=60"),
+            );
+            response
+                .headers_mut()
+                .insert(header::VARY, HeaderValue::from_static("Authorization"));
+            return Ok(response);
+        }
+        let mut response = axum::Json(value).into_response();
+        response.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-store"),
+        );
+        Ok(response)
+    }
+    read(&state, request)
+        .await
+        .unwrap_or_else(IntoResponse::into_response)
+}
+
 async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailure> {
+    let estimating = request.uri().path() == "/v1/chat/estimate";
     let (parts, body) = request.into_parts();
     let Some(call) = parts.extensions.get::<CallHandle>().cloned() else {
         // Only reachable if the router is assembled without admission, which
@@ -247,6 +343,13 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
     }
     call.set_principal(admitted.principal);
     check_headers(&parts.headers)?;
+    if let Some(key) = parts
+        .headers
+        .get("idempotency-key")
+        .and_then(|v| v.to_str().ok())
+    {
+        call.set_idempotency_key(key.to_owned());
+    }
     let (bytes, mut upload) = read_body(state, &parts.headers, body).await?;
     let nodes = json_complexity(&bytes).map_err(|error| {
         if bytes.len() > state.max_body_bytes {
@@ -291,6 +394,15 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
         ));
     };
 
+    if estimating {
+        let principal = call
+            .principal()
+            .ok_or_else(|| ApiFailure::new(ErrorCode::Internal, "missing principal"))?;
+        return Ok(
+            axum::Json(state.backend.estimate(request, catalog, principal).await?).into_response(),
+        );
+    }
+
     if !request.stream {
         // Assembling a non-streamed response from the event stream is Wave 2.
         return Err(ApiFailure::not_implemented());
@@ -327,9 +439,23 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
         head,
     ));
     match body.await {
-        Ok(Ok(body)) => {
+        Ok(Ok(mut body)) => {
+            if let Some(record) = body.replay.take() {
+                let mut response = axum::Json(record).into_response();
+                response
+                    .headers_mut()
+                    .insert("x-f2z-replayed", HeaderValue::from_static("true"));
+                response
+                    .headers_mut()
+                    .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+                return Ok(response);
+            }
+            let call_id = body.call_id.clone();
             let mut response = Body::new(body).into_response();
             let headers = response.headers_mut();
+            if let Some(id) = call_id.and_then(|id| HeaderValue::from_str(&id).ok()) {
+                headers.insert("x-f2z-call-id", id);
+            }
             headers.insert(
                 header::CONTENT_TYPE,
                 HeaderValue::from_static("text/event-stream"),

@@ -18,13 +18,8 @@ use axum::response::{IntoResponse, Response};
 use f2z_ai_proto::ErrorCode;
 use serde_json::{Map, Value};
 
-/// The code a valid `/v1/chat` request receives from this skeleton.
-///
-/// **Not an [`ErrorCode`], deliberately.** It exists only until the provider
-/// adapters land (zuu#1047 Wave 2) and must not become part of the contract a
-/// client is written against. A client built on `f2z-ai-proto` decodes it as
-/// [`ErrorCode::Unknown`], which is the documented behaviour for a code it does
-/// not know.
+/// The requested mode is unsupported in this metered preview. Deliberately
+/// outside `ErrorCode`: this is not a permanent part of the v1 contract.
 pub const NOT_IMPLEMENTED: &str = "not_implemented";
 
 /// The code for a path the public listener does not serve. Outside the
@@ -74,7 +69,7 @@ impl ApiFailure {
             status: StatusCode::NOT_IMPLEMENTED,
             code: NOT_IMPLEMENTED,
             message: Cow::Borrowed(
-                "the request is valid; this gateway build has no provider adapters yet",
+                "the requested response mode is not implemented in this gateway preview",
             ),
             details: None,
             retry_after_secs: None,
