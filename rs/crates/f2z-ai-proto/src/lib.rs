@@ -75,6 +75,7 @@ pub mod amount;
 pub mod balance;
 pub mod canonical;
 pub mod catalog;
+pub mod catalog_v2;
 pub mod chat;
 pub mod error;
 pub mod event;
