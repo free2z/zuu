@@ -13,16 +13,16 @@ following public revisions are independently reviewed previews:
 
 | Component | Exact source revision | Tracking |
 |---|---|---|
-| Rust core | `69b4c25fd7b33c827e54997f979d7d971da8fa20` (merged) | [#1071](https://github.com/free2z/zuu/pull/1071) |
-| Native plugin and its JavaScript bridge | `39ec2720c3aff5384c46f6f53fe655657c79c40e` | [#1081](https://github.com/free2z/zuu/pull/1081) |
-| TypeScript facade | `550c3ff29705620d53da25a1ae5da8f889778789` | [#1080](https://github.com/free2z/zuu/pull/1080) |
+| Rust core, including `grant()` | `534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860` | [#1106](https://github.com/free2z/zuu/pull/1106) |
+| Native plugin and its JavaScript bridge | `534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860` | [#1106](https://github.com/free2z/zuu/pull/1106) |
+| TypeScript facade | `534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860` | [#1106](https://github.com/free2z/zuu/pull/1106) |
 
 The plugin's revision already includes the merged core. Do not add a second
 independent core client to the app. In `src-tauri/Cargo.toml`:
 
 ```toml
 [dependencies]
-tauri-plugin-f2z = { git = "https://github.com/free2z/zuu", rev = "39ec2720c3aff5384c46f6f53fe655657c79c40e" }
+tauri-plugin-f2z = { git = "https://github.com/free2z/zuu", rev = "534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860" }
 ```
 
 Cargo also fetches this synthetic repository's upstream submodules when
@@ -38,10 +38,10 @@ mkdir free2z-sdk-preview-build
 cd free2z-sdk-preview-build
 SDK_BUILD="$PWD"
 git clone --filter=blob:none --no-checkout https://github.com/free2z/zuu.git repository
-git -C repository fetch origin 39ec2720c3aff5384c46f6f53fe655657c79c40e
-git -C repository worktree add --detach "$SDK_BUILD/native" 39ec2720c3aff5384c46f6f53fe655657c79c40e
-git -C repository fetch origin 550c3ff29705620d53da25a1ae5da8f889778789
-git -C repository worktree add --detach "$SDK_BUILD/typescript" 550c3ff29705620d53da25a1ae5da8f889778789
+git -C repository fetch origin 534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860
+git -C repository worktree add --detach "$SDK_BUILD/native" 534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860
+git -C repository fetch origin 534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860
+git -C repository worktree add --detach "$SDK_BUILD/typescript" 534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860
 mkdir artifacts
 cd "$SDK_BUILD/native/wallet/plugins/tauri-plugin-f2z"
 npm ci
@@ -52,15 +52,19 @@ npm pack --pack-destination "$SDK_BUILD/artifacts"
 ```
 
 Do not initialize submodules for these JavaScript builds. Copy both generated
-`.tgz` files into your application's `vendor/` directory, then run from the app
-root:
+`.tgz` files into your application's
+`vendor/free2z/sdk/534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860/` directory,
+then run from the app root:
 
 ```sh
-npm install ./vendor/free2z-tauri-plugin-f2z-api-0.1.0.tgz ./vendor/free2z-sdk-0.1.0.tgz
+npm install ./vendor/free2z/sdk/534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860/free2z-tauri-plugin-f2z-api-0.1.0.tgz ./vendor/free2z/sdk/534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860/free2z-sdk-0.1.0.tgz
 ```
 
 Keep the tarballs, their exact source revisions and the application lockfile
-with your build inputs. The native bridge also requires `@tauri-apps/api` 2.5+
+with your build inputs. Preview upgrades may retain package version `0.1.0`;
+put each new revision in a new directory and run `npm install` with those new
+paths. Commit the resulting dependency paths and lockfile integrity values;
+do not overwrite an older revision's tarballs or rely on the version alone. The native bridge also requires `@tauri-apps/api` 2.5+
 within major version 2, normally already present in a Tauri app. Set the app's
 TypeScript target to ES2022 or newer for `bigint`. The checked adapter uses
 TypeScript 5.9 with `lib: ["ES2022", "DOM", "DOM.Iterable", "ESNext.Disposable"]`
@@ -116,7 +120,7 @@ include `free2z-tutor` there. Keep existing application capabilities as needed.
   "windows": ["main"],
   "permissions": [
     "f2z:allow-session", "f2z:allow-sign-in", "f2z:allow-sign-out",
-    "f2z:allow-balance", "f2z:allow-models", "f2z:allow-estimate",
+    "f2z:allow-balance", "f2z:allow-grant", "f2z:allow-models", "f2z:allow-estimate",
     "f2z:allow-create-purchase", "f2z:allow-purchase", "f2z:allow-open-checkout",
     "f2z:allow-start-chat", "f2z:allow-next-chat", "f2z:allow-cancel-chat",
     "f2z:allow-call"
@@ -134,7 +138,7 @@ This helper is sufficient for the desktop callback profile: register
 `http://127.0.0.1:<ephemeral-port>/callback` according to the public client
 contract. Mobile sign-in additionally requires `Builder::mobile_redirects`,
 registered HTTPS/private-scheme callbacks and OS app-link configuration. Follow
-[the pinned plugin's platform registration instructions](https://github.com/free2z/zuu/blob/39ec2720c3aff5384c46f6f53fe655657c79c40e/wallet/plugins/tauri-plugin-f2z/README.md#platform-registration)
+[the pinned plugin's platform registration instructions](https://github.com/free2z/zuu/blob/534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860/wallet/plugins/tauri-plugin-f2z/README.md#platform-registration)
 for iOS and Android; desktop success does not establish mobile acceptance.
 
 ## Typed application adapter
@@ -162,6 +166,18 @@ export async function readBalance() {
     availableMilli2z: balance.available_milli_2z.toString(),
     heldMilli2z: balance.held_milli_2z.toString(),
     debtMilli2z: balance.debt_milli_2z.toString(),
+  };
+}
+
+export async function readGrantForUi() {
+  const grant = await free2z.grant();
+  return {
+    subject: grant.sub,
+    clientId: grant.client_id,
+    originalLimit2z: grant.spend_cap_2z?.toString() ?? null,
+    period: grant.cap_period,
+    enforced: grant.enforced,
+    asOf: grant.as_of,
   };
 }
 
@@ -239,3 +255,37 @@ registered-client login, purchase or metered call. Track acceptance in
 [#1047](https://github.com/free2z/zuu/issues/1047). Until then, connect the real SDK
 where the platform has confirmed readiness and keep unavailable flows behind
 the app's mock adapter.
+
+## User-owned budgets and recovery
+
+The optional per-app budget is the user's authorization inside Free2Z, not a
+budget the tutor or developer may raise. Developer defaults are suggestions for
+new grants. A null limit means prepaid account balance without an extra app
+budget; existing consent still governs. `grant()` reports original policy and
+explicit enforcement, not remaining funds. Server epoch/generation values are
+revocation stamps, not policy versions. Refresh grant and balance after the user
+returns from account management; a previous proof does not freeze consent.
+
+Handle `SdkError.code` (and terminal stream error codes) distinctly:
+
+- `insufficient_balance`: offer the SDK purchase flow above, or the Billing link
+  on [Free2Z connected apps](https://free2z.cash/account/apps). Credit only after
+  a purchase is authoritatively `credited`; opening checkout is not a top-up.
+- `cap_exceeded`: explain that this app's user-authorized budget is exhausted.
+  Direct the user to [manage the budget in Free2Z](https://free2z.cash/account/apps),
+  or wait for its applicable period. Buying more account credits does not raise
+  the app budget. Raising/removing it requires the user's action and may require
+  recent authentication; do not silently reauthorize a larger amount.
+- `account_in_debt`: show the debt separately and direct the user to account
+  management. Do not represent held or newly purchased funds as spendable before
+  re-reading the authoritative balance.
+- `rate_limited`, `concurrency_limit`, or `unavailable`: explain temporary service
+  capacity/availability and honor `Retry-After`. These do not request a top-up or
+  a larger spending budget. Recover an uncertain operation with its existing key
+  before considering a new billable request.
+
+The SDK does not expose a generic webview-to-native URL opener. The app's trusted
+host may open the fixed account-management URL in the system browser; do not pass
+arbitrary model-output URLs to a privileged command. The signed-in account page
+provides its correct Billing link. Never construct that route from an OAuth
+subject, which is not a username.

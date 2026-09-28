@@ -1,29 +1,31 @@
 # Integrating a tutor app with Free2Z
 
-**Implementation snapshot: 2026-09-27.** The reviewed Rust core is merged, and
+**Implementation snapshot: 2026-09-28 UTC.** The reviewed Rust core is merged, and
 reviewed native/TypeScript source previews can be used for real SDK integration.
 Start with [the pinned source-preview installation and Tauri adapter guide](./SOURCE-PREVIEW.md).
 Registry publication and live end-to-end acceptance are still pending; building
 the real SDK does not establish availability of every service or payment rail.
 
 The Rust examples below target merged core
-[`69b4c25f`](https://github.com/free2z/zuu/commit/69b4c25fd7b33c827e54997f979d7d971da8fa20),
-which passed independent review and both required gates. Its 102 local
-all-target tests exercise fake-service regression scenarios.
+[`534d2a58`](https://github.com/free2z/zuu/commit/534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860),
+which includes the reviewed grant API alongside login, balance, purchase and
+AI operations. Local fake-service regressions and native builds are not live
+service acceptance evidence.
 
 ## What can run today
 
 | Surface | Verified implementation status | App work that can proceed |
 |---|---|---|
-| Rust core | Merged #1071; login, balance, card purchase and AI tests use local HTTP fakes | Build against the preview API in an isolated experiment; use the fake full-flow example |
+| Rust core | Merged core and grant API; account and AI regression tests use local HTTP fakes | Build against the preview API in an isolated experiment; use the fake full-flow example |
 | Desktop, iOS and Android Tauri integration | Reviewed source preview [#1081](https://github.com/free2z/zuu/pull/1081) | Register the real native plugin and local capabilities using the source-preview guide |
-| TypeScript facade and reference app | Reviewed facade preview [#1080](https://github.com/free2z/zuu/pull/1080); reference app remains under #1073 | Use Client + NativeTransport through an app-owned adapter; retain mocks for unavailable services |
+| TypeScript facade and reference app | Merged facade plus reviewed grant API [#1106](https://github.com/free2z/zuu/pull/1106); reference app remains under #1073 | Use Client + NativeTransport through an app-owned adapter; retain mocks for unavailable services |
 | Live metered AI | Deployment and ledger integration are still prerequisites in [#1047](https://github.com/free2z/zuu/issues/1047) | Model streams, failures and settlement in mocks; do not promise live charges or receipts |
 
-The gateway source currently routes `POST /v1/chat`, but its metering/ledger
-integration is unfinished. The SDK's models, estimate and call-record APIs
-are covered by fakes; this does not prove those routes are wired in a deployed
-gateway. This guide does not certify availability of the public issuer,
+The gateway source implements authenticated models/estimate, durable streamed and nonstreamed
+paid text chat and scoped receipts with the PostgreSQL function adapter. Restricted
+PostgreSQL tests cover settlement recovery and revocation after admission. This
+is implementation evidence, not proof that a particular deployment, provider
+configuration or registered application has passed live acceptance. This guide does not certify availability of the public issuer,
 balance, checkout or AI endpoints. Before a live acceptance test, obtain the
 platform's readiness confirmation, an app registration and approved test
 accounts. Do not substitute production credentials for missing mocks.
@@ -56,7 +58,7 @@ preview by commit, without a private repository or a path into this workspace:
 
 ```toml
 [dependencies]
-f2z-sdk = { git = "https://github.com/free2z/zuu", rev = "69b4c25fd7b33c827e54997f979d7d971da8fa20" }
+f2z-sdk = { git = "https://github.com/free2z/zuu", rev = "534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860" }
 ```
 
 This is not the supported published-package installation and does not establish
@@ -68,7 +70,7 @@ initializing them and run the SDK's own fake example:
 ```sh
 git clone --filter=blob:none https://github.com/free2z/zuu.git zuu-sdk-preview
 cd zuu-sdk-preview
-git checkout 69b4c25fd7b33c827e54997f979d7d971da8fa20
+git checkout 534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860
 cd rs
 cargo +1.97.1 run --locked -p f2z-sdk --example full_flow
 cargo +1.97.1 test --locked -p f2z-sdk --all-targets
@@ -294,13 +296,22 @@ from `collected_milli_2z` actually taken.
 |---|---|
 | `Error::SignedOut` | Clear signed-in UI and request login; do not continue spending |
 | `Error::StepUpRequired(challenge)` | Sign in with `SignInOptions::step_up(&challenge)` and retry the intended operation once, bound to the same account |
-| `insufficient_balance`, `account_in_debt`, `cap_exceeded` | Show top-up/debt/cap action; never automatically retry the charge |
+| `insufficient_balance` | Offer a purchase or the Billing link on [Free2Z connected apps](https://free2z.cash/account/apps); re-read balance after confirmed credit |
+| `cap_exceeded` | Direct the user to [manage this app's budget in Free2Z](https://free2z.cash/account/apps), or wait for its reset period. Topping up account balance does not raise this budget |
+| `account_in_debt` | Show debt separately and direct the user to Free2Z account management; do not automatically retry a charge |
+| `rate_limited`, `concurrency_limit`, `unavailable` | Honor `Retry-After` and explain temporary capacity/availability, not a need to buy credits or raise a budget |
 | `Error::Unconfirmed { idempotency_key, .. }` | Retain the exact request and key; recover with the same key under the same user |
 | `Error::Replayed(record)` | Display the existing call's receipt; no new completion or charge was produced |
 | `Error::StreamInterrupted` / `Cancelled` | Preserve partial answer; look up settlement by call ID, or recover the same-key receipt if the ID was not obtained |
 | `Event::Error` | Process both failure and `error.outcome()`; a failed answer may still cost credits |
 | `Error::Storage` | Re-read native session state and report persistence trouble: failed prior deletion keeps the old session; failed replacement save can leave the new session memory-only. Never claim durable success |
 | `Api` / unknown code or event | Switch on stable codes, preserve unknowns conservatively; never parse human messages |
+
+Optional app budgets belong to the Free2Z user. The developer may suggest a
+budget for a new grant but cannot raise the user's consent. Use `client.grant()`
+(or Rust `Client::grant`) for the original limit/period and explicit enforcement;
+remaining balance or an estimate cannot prove that policy. Re-read grant and
+balance after account management. See [the concrete budget recovery flow](./SOURCE-PREVIEW.md#user-owned-budgets-and-recovery).
 
 Same-key recovery must use the identical request body, same app and same user.
 For purchases this includes the original return URL: allocating a new loopback
