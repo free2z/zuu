@@ -8,6 +8,18 @@ export type Json =
   | Json[]
   | { [key: string]: Json | undefined };
 export type ObjectData = { [key: string]: Json | undefined };
+/** Fresh authoritative grant snapshot; generation is not a cap policy version. */
+export interface Grant {
+  sub: string;
+  client_id: string;
+  account_epoch: bigint;
+  grant_generation: bigint;
+  scopes: string[];
+  spend_cap_2z: bigint | null;
+  cap_period: "day" | "week" | "month" | "total";
+  enforced: boolean;
+  as_of: string;
+}
 export interface Balance {
   available_milli_2z: bigint;
   held_milli_2z: bigint;
@@ -149,6 +161,7 @@ export interface Transport {
   signIn(options?: SignInOptions): Promise<Session>;
   signOut(): Promise<{ revoked: boolean; generation: string }>;
   balance(signal?: AbortSignal): Promise<Balance>;
+  grant(signal?: AbortSignal): Promise<Grant>;
   models(signal?: AbortSignal): Promise<Models>;
   estimate(request: ChatRequest, signal?: AbortSignal): Promise<Estimate>;
   createPurchase(

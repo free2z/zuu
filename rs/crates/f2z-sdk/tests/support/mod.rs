@@ -154,6 +154,9 @@ pub struct Fake {
     pub refuse_revocation: AtomicBool,
     /// Delay before the balance endpoint looks at the token.
     pub balance_delay: Mutex<Duration>,
+    pub grant_delay: Mutex<Duration>,
+    pub grant_body: Mutex<Value>,
+    pub grant_calls: AtomicU32,
     /// A purchase is credited after this many polls.
     pub credit_after_polls: AtomicU32,
     /// `error-before-meta` fails this many calls before succeeding.
@@ -252,6 +255,12 @@ impl Fake {
             revoke_delay: Mutex::new(Duration::ZERO),
             refuse_revocation: AtomicBool::new(false),
             balance_delay: Mutex::new(Duration::ZERO),
+            grant_delay: Mutex::new(Duration::ZERO),
+            grant_calls: AtomicU32::new(0),
+            grant_body: Mutex::new(json!({"sub": SUBJECT, "client_id": CLIENT_ID,
+                "account_epoch": 4, "grant_generation": 2, "scopes":["ai:invoke"],
+                "spend_cap_2z": 500, "cap_period":"total", "enforced":true,
+                "as_of":"2026-09-28T00:00:00Z"})),
             credit_after_polls: AtomicU32::new(1),
             fail_first: AtomicU32::new(1),
             auth_code_calls: AtomicU32::new(0),
@@ -283,6 +292,7 @@ impl Fake {
             .route("/api/oauth/jwks", get(jwks))
             .route("/api/oauth/revoke", post(revoke))
             .route("/api/sdk/v1/balance", get(balance))
+            .route("/api/sdk/v1/grant", get(grant))
             .route("/api/sdk/v1/purchases", post(create_purchase))
             .route("/api/sdk/v1/purchases/{id}", get(get_purchase))
             .with_state(Arc::clone(&fake));
@@ -692,6 +702,25 @@ async fn revoke(State(f): State<Arc<Fake>>, body: Bytes) -> Response<Body> {
 
 fn has_scope(scope: &str, want: &str) -> bool {
     scope.split(' ').any(|s| s == want)
+}
+
+async fn grant(State(f): State<Arc<Fake>>, headers: HeaderMap) -> Response<Body> {
+    let scope = match f.check_bearer(&headers) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    if !has_scope(&scope, "ai:invoke") {
+        return envelope(
+            StatusCode::FORBIDDEN,
+            "insufficient_scope",
+            Some(json!({"scope":"ai:invoke"})),
+        );
+    }
+    f.grant_calls.fetch_add(1, Ordering::SeqCst);
+    let body = f.grant_body.lock().unwrap().clone();
+    let delay = *f.grant_delay.lock().unwrap();
+    tokio::time::sleep(delay).await;
+    json_response(StatusCode::OK, body)
 }
 
 async fn balance(State(f): State<Arc<Fake>>, headers: HeaderMap) -> Response<Body> {

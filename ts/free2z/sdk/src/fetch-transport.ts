@@ -167,6 +167,20 @@ export class FetchTransport implements Transport {
       bound.close();
     }
   }
+  async grant(signal?: AbortSignal) {
+    const generation = this.#auth.generation;
+    const result = decode.grant(
+      await this.#json(`${this.#api}/grant`, "ai:invoke", signal),
+    );
+    const session = this.#auth.snapshot();
+    if (generation !== this.#auth.generation) failure("signed_out");
+    if (
+      result.client_id !== this.#auth.config.clientId ||
+      result.sub !== session.subject
+    )
+      failure("invalid_response");
+    return result;
+  }
   async balance(signal?: AbortSignal): Promise<Balance> {
     return decode.balance(
       await this.#json(`${this.#api}/balance`, "balance:read", signal),

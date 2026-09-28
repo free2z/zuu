@@ -42,6 +42,7 @@ export interface NativeBridge {
   }): Promise<unknown>;
   signOut(): Promise<{ revoked: boolean; generation: string }>;
   balance(): Promise<unknown>;
+  grant?(): Promise<unknown>;
   models(): Promise<unknown>;
   estimate(request: NativeChatRequest): Promise<unknown>;
   createPurchase(request: {
@@ -185,6 +186,25 @@ export class NativeTransport implements Transport {
   async signOut() {
     this.#invalidateStreams();
     return invoke(() => this.bridge.signOut());
+  }
+  async grant(signal?: AbortSignal) {
+    cancelled(signal);
+    if (!this.bridge.grant) failure("unsupported_operation");
+    const before = await this.session(),
+      epoch = this.#epoch;
+    const result = decode.grant(
+      decode.nativeData(await invoke(() => this.bridge.grant!(), signal)),
+    );
+    const after = await this.session();
+    if (
+      epoch !== this.#epoch ||
+      before.generation !== after.generation ||
+      !after.signedIn
+    )
+      failure("signed_out");
+    if (result.sub !== after.subject) failure("invalid_response");
+    cancelled(signal);
+    return result;
   }
   async balance(signal?: AbortSignal) {
     return decode.balance(

@@ -215,7 +215,7 @@ payload: {
 |---|---|---|
 | `iss` | Always `https://free2z.cash` | Every resource server, exact string match |
 | `sub` | The user's stable, opaque **per-account UUID** — not a username or email (those change) and not the platform's sequential internal id (that would enumerate). It is the same for every app (`subject_types_supported: ["public"]`), which is the deliberate trade-off: two apps that both hold a user's `sub` can correlate that user, and in exchange a user's identity is one thing across the ecosystem. Pairwise subjects per app are a possible v2 and would be announced by `pairwise` appearing in discovery | — |
-| `aud` | **Always a JSON array, and `f2z-id` is always in it.** `f2z-id` is the IdP's own `userinfo_endpoint`; `f2z-ai` (the gateway) is added when `ai:invoke` was granted and `f2z-api` (the account API) when `balance:read` or `purchase:create` was (§4). A resource server MUST refuse a token whose `aud` does not contain its own identifier | Every resource server |
+| `aud` | **Always a JSON array, and `f2z-id` is always in it.** `f2z-id` is the IdP's own `userinfo_endpoint`; `f2z-ai` (the gateway) is added when `ai:invoke` was granted and `f2z-api` (the account API) when `balance:read`, `purchase:create` or `ai:invoke` was (§4). A resource server MUST refuse a token whose `aud` does not contain its own identifier | Every resource server |
 | `client_id` | The app the token was issued to | Resource servers, for rate limits and markup |
 | `scope` | Space-separated granted scopes (RFC 9068 §2.2.3) | Resource servers, per endpoint |
 | `exp` | `iat + 300`. **Five minutes**, not configurable per app | Every resource server, with at most 30 s of leeway |

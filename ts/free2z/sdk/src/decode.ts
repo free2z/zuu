@@ -2,6 +2,7 @@ import { failure } from "./error.js";
 import { object, string, uint } from "./json.js";
 import type {
   Balance,
+  Grant,
   CallRecord,
   Charge,
   ChatEvent,
@@ -15,6 +16,8 @@ import type {
 
 const integerKeys = new Set([
   "catalog_version",
+  "account_epoch",
+  "grant_generation",
   "includes_markup_bps",
   "markup_bps",
   "context_window",
@@ -189,6 +192,29 @@ function validated(value: unknown): ObjectData {
   }
   check(d, []);
   return d;
+}
+export function grant(value: unknown): Grant {
+  const d = validated(value);
+  if (
+    typeof d.enforced !== "boolean" ||
+    !Array.isArray(d.scopes) ||
+    !["day", "week", "month", "total"].includes(String(d.cap_period))
+  )
+    failure("invalid_response");
+  const sub = string(d.sub),
+    client = string(d.client_id);
+  if (!sub || !client) failure("invalid_response");
+  return {
+    sub,
+    client_id: client,
+    account_epoch: uint(d.account_epoch),
+    grant_generation: uint(d.grant_generation),
+    scopes: d.scopes.map(string),
+    spend_cap_2z: d.spend_cap_2z === null ? null : uint(d.spend_cap_2z),
+    cap_period: d.cap_period as Grant["cap_period"],
+    enforced: d.enforced,
+    as_of: string(d.as_of),
+  };
 }
 export function balance(value: unknown): Balance {
   const d = validated(value);

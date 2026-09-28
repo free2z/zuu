@@ -48,7 +48,7 @@ capability with **local content only**:
   "windows": ["main"],
   "permissions": [
     "f2z:allow-session", "f2z:allow-sign-in", "f2z:allow-sign-out",
-    "f2z:allow-balance", "f2z:allow-models", "f2z:allow-estimate",
+    "f2z:allow-balance", "f2z:allow-grant", "f2z:allow-models", "f2z:allow-estimate",
     "f2z:allow-create-purchase", "f2z:allow-purchase",
     "f2z:allow-wait-for-purchase", "f2z:allow-open-checkout",
     "f2z:allow-start-chat", "f2z:allow-next-chat", "f2z:allow-cancel-chat",
@@ -187,3 +187,9 @@ with the consumer app's actual client registration before release.
 
 Publish `f2z-ai-proto` and `f2z-sdk` first, then this Cargo crate and its matching JS package; keep
 the Rust and guest versions aligned. No publication is performed by this build.
+
+`nativeBridge.grant()` reads the current bearer-bound grant snapshot. It needs
+`f2z:allow-grant` and `ai:invoke`. Its original `spend_cap_2z`, `account_epoch`
+and `grant_generation` are decimal strings, and `enforced` must be checked
+explicitly. Server grant generation is not local session generation or a cap
+version. See [the grant contract](../../../docs/free2z/sdk/spec/grant.md).
