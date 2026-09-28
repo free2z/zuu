@@ -67,6 +67,30 @@ async fn sent_body(mock: &MockProvider, model: Model) -> Value {
     last.body.clone()
 }
 
+#[test]
+fn openai_standard_processing_cannot_be_overridden_by_caller_metadata() {
+    use f2z_ai::provider::{for_style, openai_chat::UsageConvention};
+    use f2z_ai_proto::catalog::ApiStyle;
+
+    let catalog = catalog(10_000);
+    let mut model = catalog.catalog().callable_model(CHAT.id).unwrap().clone();
+    let mut request = rich(CHAT.id);
+    request
+        .metadata
+        .insert("service_tier".into(), "priority".into());
+    for style in [ApiStyle::OpenaiChat, ApiStyle::OpenaiResponses] {
+        let adapter = for_style(style, UsageConvention::CompletionIncludesReasoning).unwrap();
+        model.provider = "openai".into();
+        let body = adapter.body(&request, &model, 16).unwrap();
+        assert_eq!(body["service_tier"], "default");
+        for provider in ["xai", "chatco"] {
+            model.provider = provider.into();
+            let body = adapter.body(&request, &model, 16).unwrap();
+            assert!(body.get("service_tier").is_none());
+        }
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn each_adapter_translates_the_unified_request() {
     let mock = MockProvider::start(Scenario::default()).await.unwrap();
@@ -85,6 +109,10 @@ async fn each_adapter_translates_the_unified_request() {
     let chat = sent_body(&mock, CHAT).await;
     assert_eq!(chat["model"], "m-chat-upstream");
     assert_eq!(chat["stream"], true);
+    assert!(
+        chat.get("service_tier").is_none(),
+        "compatible providers keep their own contract"
+    );
     assert_eq!(chat["stream_options"]["include_usage"], true);
     assert_eq!(
         chat["max_completion_tokens"], 8192,
@@ -124,6 +152,7 @@ async fn each_adapter_translates_the_unified_request() {
 
     let responses = sent_body(&mock, RESPONSES).await;
     assert_eq!(responses["store"], false);
+    assert_eq!(responses["service_tier"], "default");
     assert_eq!(responses["max_output_tokens"], 8192);
     let input = responses["input"].as_array().unwrap();
     let kinds: Vec<String> = input
