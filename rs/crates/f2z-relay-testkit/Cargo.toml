@@ -1,9 +1,9 @@
 [package]
 name = "f2z-relay-testkit"
 version = "0.1.0"
-description = "FakeRelay: a spec-conforming, fault-injecting free2z relay for client development (docs/e2ee/WIRE.md v1)"
+description = "FakeRelay: a spec-conforming, fault-injecting free2z relay for client development (docs/free2z/messaging/WIRE.md v1)"
 edition.workspace = true
-# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# A restatement of rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
 # drift. Not inherited from the workspace: that check reads this literal line.
 rust-version = "1.97"

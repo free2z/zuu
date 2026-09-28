@@ -10,7 +10,7 @@
 // It used to prove `enroll` refuses even then, because nothing here could
 // install a credential. ADR 0016 §5 changed that, so the property under test is
 // the one that was always the point: **the only `EnrollmentStatus` this app can
-// return is one the engine produced.** `docs/e2ee/CLIENT-CONTRACT.md` §2.4 is
+// return is one the engine produced.** `docs/free2z/messaging/CLIENT-CONTRACT.md` §2.4 is
 // the rule — a rule that held only because the happy path was unreachable would
 // have broken the day it opened.
 //

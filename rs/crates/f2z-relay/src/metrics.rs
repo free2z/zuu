@@ -27,7 +27,7 @@
 //! history — and a load balancer's health-check log is not a place anyone
 //! reviews for metadata.
 //!
-//! [ADR 0004]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0004-metadata-ambition.md
+//! [ADR 0004]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0004-metadata-ambition.md
 
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicU64, Ordering};

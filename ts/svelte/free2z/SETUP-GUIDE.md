@@ -1,6 +1,15 @@
 # Free2z local setup 
 
-This guide quickly takes you through setting up the project locally (backend + frontend).
+This is a historical full-backend setup guide. The public repository contains
+only selected Free2Z Django sources under `py/free2z/dj`; it does not include the
+complete backend, its dependency manifest, migrations or database seed. These
+backend steps require a separately provisioned complete backend checkout and
+are not a runnable public-repository quickstart.
+
+For the public messaging scaffold, see
+[its prerequisites and conditional setup](../../../py/free2z/dj/proj/free2z/README.md).
+Its Python import root is `py/free2z` (`PYTHONPATH`), while module names remain
+`dj.*`. The frontend can use a separately configured backend.
 
 > If you only want the frontend or backend running, follow the relevant section below.
 
@@ -78,7 +87,9 @@ docker exec -i postgres-free2z bash -c "psql -U dbuser -d testdb -f /tmp/free2z_
 
 ## 3) Configure Django settings & environment 🌍
 
-Update the Django `settings.py`  (py/dj/free2z) to point to the local DB. Example connection parameters:
+In the complete backend checkout, update its Django settings to point to the
+local DB. The public settings excerpt is `py/free2z/dj/free2z/settings.py`; it
+does not supply the missing backend apps. Example connection parameters:
 
 ```python
 # ALLOWED_HOSTS
@@ -160,7 +171,10 @@ Recommended settings changes while developing:
 - Configure allowed hosts and CORS if needed for the UI dev server
 ---
 
-## 4) Install Python dependencies and run backend 🐍
+## 4) Historical full-backend startup 🐍
+
+The following paths belong to the separately provisioned complete backend
+checkout. They are not present as a runnable application in this repository.
 
 ```zsh
 cd py

@@ -28,7 +28,7 @@
 //!
 //! Run with `cargo test -p f2z-relay-store --features crash-injection`.
 //!
-//! [s64]: https://github.com/free2z/zuu/blob/main/docs/e2ee/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
+//! [s64]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
 //! [`Committed`]: f2z_relay_store::Committed
 
 // Only compiled when the injection point exists. Without the feature there is

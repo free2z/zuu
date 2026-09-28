@@ -35,7 +35,7 @@ export async function uploadPublicFile(
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
 
-// Mirrors py/dj/apps/uploads/views.py::upload_limit, which nginx enforces via
+// Mirrors backend dj.apps.uploads.views::upload_limit, which nginx enforces via
 // auth_request in production — this client-side check is advisory only.
 export function maxUploadBytesFor(tuzis: number): number {
   if (tuzis >= 5000) {

@@ -22,7 +22,7 @@
 //!
 //! # On prefix-freeness
 //!
-//! These four are swept up by `scripts/check-hash-domain-labels.mjs` along with
+//! These four are swept up by `scripts/free2z/check-hash-domain-labels.mjs` along with
 //! every other `free2z/` label in the tree, and they are prefix-free within the
 //! set. They are **not** arguments to `WIRE.md` §1.3's `H(label, x)` — MLS's
 //! exporter frames its own label, so the property is not load-bearing for these
@@ -45,7 +45,7 @@
 //! Keeping the enum member reserves the domain; it does not claim the schedule
 //! exists.
 //!
-//! [adr9]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0009-queue-addressing-and-binding.md
+//! [adr9]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0009-queue-addressing-and-binding.md
 
 /// A consumer entitled to exporter-derived key material, per §5.4.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

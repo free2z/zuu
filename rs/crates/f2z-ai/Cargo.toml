@@ -1,0 +1,140 @@
+[package]
+name = "f2z-ai"
+version = "0.1.0"
+description = "The free2z AI gateway (ai.free2z.cash): metered text streaming, signed catalogue, durable ledger receipts, bounded admission and graceful drain"
+edition.workspace = true
+# A restatement of rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered in `scripts/check-rust-toolchain.sh`'s `MANIFESTS` so it cannot
+# drift. Not inherited: that check reads this literal line.
+rust-version = "1.97"
+# **AGPL-3.0-only, and this is the licence boundary** (rs/README.md, ADR 0004
+# of docs/free2z/ai-gateway). This is a server binary: an operator who modifies it and
+# runs it for others must publish that change. The contract crate it links,
+# `f2z-ai-proto`, stays MIT so the SDKs and third-party clients can link the
+# same wire types and the same `price_2z`. `rs/deny.toml` names this crate in
+# `[licenses] exceptions`, and nowhere else.
+license = "AGPL-3.0-only"
+repository.workspace = true
+# Never published to crates.io: the gateway ships as a container image only
+# (ADR 0004). Inherits the workspace's `publish = false`.
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Dynamic queries only; no compile-time database access or private schema source.
+sqlx-core = { version = "0.8.6", default-features = false, features = ["_rt-tokio", "_tls-rustls-ring-webpki"] }
+sqlx-postgres = { version = "0.8.6", default-features = false, features = ["json", "uuid"] }
+uuid = { version = "1", default-features = false, features = ["v7", "serde", "std"] }
+f2z-ai-proto = { path = "../f2z-ai-proto", version = "0.1.0" }
+
+# The HTTP stack. `axum` routes; the accept loop is `hyper` + `hyper-util`
+# driven by hand (src/serve.rs) because `axum::serve` sets no timer, so it can
+# express neither a header-read timeout nor a bounded graceful shutdown.
+axum = { workspace = true, features = ["http1", "tokio", "json"] }
+hyper = { version = "1", default-features = false, features = ["http1", "server"] }
+hyper-util = { version = "0.1.20", default-features = false, features = [
+  "tokio",
+  "server",
+  "server-graceful",
+  "service",
+] }
+http-body = { version = "1", default-features = false }
+http-body-util = { version = "0.1", default-features = false }
+bytes = { version = "1", default-features = false, features = ["std"] }
+tower = { version = "0.5.3", default-features = false, features = ["timeout", "util"] }
+tokio = { workspace = true, features = [
+  "rt-multi-thread",
+  "macros",
+  "net",
+  "signal",
+  "sync",
+  "time",
+] }
+async-trait = { workspace = true }
+
+# Configuration: a TOML file plus `F2Z_AI_*` environment overrides. Secrets are
+# `secrecy::SecretString`, whose `Debug` is redacted, and are accepted only from
+# the environment or from a file named in the config — never inline.
+serde = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, features = ["std"] }
+toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
+secrecy = { version = "0.10", default-features = false }
+
+# Structured JSON logs and OpenTelemetry tracing. The OTLP exporter is compiled
+# in and OFF unless `otlp_endpoint` is configured: an untested feature flag is
+# a code path no CI job builds (rs/deny.toml and the clippy gate both run
+# without `--all-features`).
+tracing = { version = "0.1", default-features = false, features = ["std", "attributes"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = [
+  "std",
+  "fmt",
+  "json",
+  "registry",
+] }
+tracing-opentelemetry = { version = "0.34", default-features = false }
+opentelemetry = { version = "0.33", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"] }
+# `http-proto` over `reqwest`'s blocking client: the SDK's batch processor runs
+# on its own thread and exports with a blocking call, which is the pairing the
+# upstream crate documents. Plain HTTP only — no TLS feature — so the collector
+# is an in-cluster agent; `config.rs` refuses an `https://` endpoint rather than
+# failing on the first export.
+opentelemetry-otlp = { version = "0.33", default-features = false, features = [
+  "trace",
+  "http-proto",
+  "reqwest-blocking-client",
+] }
+
+# The provider adapters' outbound client (src/provider): one pooled client per
+# provider, HTTP/2 over rustls when the provider negotiates it, Mozilla's roots
+# from `webpki-roots` so the distroless image needs no CA bundle. The same
+# 0.12 line the OTLP exporter and the testkit already bring, so the lock gains
+# TLS, not a second `reqwest`. No `json`, `gzip`, `cookies` or proxy support:
+# the adapters serialise their own bodies, read SSE byte for byte, and never
+# follow a redirect or an environment proxy (`provider::client`).
+reqwest = { version = "0.12.28", default-features = false, features = [
+  "http2",
+  "rustls-tls-webpki-roots",
+] }
+# `Retry-After` as an HTTP-date (RFC 9110). Already in the lock beneath hyper.
+httpdate = { version = "1", default-features = false }
+
+# Access-token verification (src/auth). ES256 only, verified with `ring`'s
+# fixed-width P-256 ECDSA — the same `ring` the TLS stack above already links,
+# so the gateway gains no second crypto core and no `rsa` crate (the
+# `jsonwebtoken` crate's pure-Rust backend pulls `rsa`, which carries
+# RUSTSEC-2023-0071, for an algorithm this gateway must refuse anyway). The
+# JOSE framing — three base64url segments, a JSON header and payload — is
+# parsed by hand in `auth::jwt` so that `alg`, `typ` and `crit` are decided by
+# this crate and never by a library's defaults.
+ring = { version = "0.17.14", default-features = false }
+base64 = { version = "0.22", default-features = false, features = ["std"] }
+# The shared Redis: the epoch map `dj.apps.oidc.epoch_publish` writes
+# (`<ns>:aep:<sub>`, `<ns>:agen:<client_id>:<sub>`), the per-(app, user) and
+# per-app token buckets, and the per-user concurrency lease. `script` for the
+# Lua that makes each of those one atomic round trip; `connection-manager`
+# reconnects behind the scenes, so a Redis restart is a few failed calls
+# (which fall back, or fail closed) rather than a dead client.
+redis = { version = "1.7.1", default-features = false, features = [
+  "tokio-comp",
+  "script",
+  "connection-manager",
+] }
+
+[dev-dependencies]
+# The integration tests drive the gateway over real sockets with hyper's own
+# client, so a streamed body is observed frame by frame as a client sees it.
+hyper = { version = "1", default-features = false, features = ["http1", "client"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "io-util"] }
+# The mock OpenAI / xAI / Anthropic providers and `Scenario::expected_usage`,
+# the oracle every adapter test asserts its parsed usage against.
+f2z-ai-testkit = { path = "../f2z-ai-testkit", version = "0.1.0" }
+# Test-only: minting ES256 access tokens for the fake issuer uses `ring`'s
+# signing half, which needs its OS random source.
+ring = { version = "0.17.14", default-features = false, features = ["alloc"] }
+
+[[bin]]
+name = "f2z-ai"
+path = "src/main.rs"

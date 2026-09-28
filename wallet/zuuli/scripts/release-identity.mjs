@@ -235,7 +235,7 @@ const pbxproj = read("src-tauri/gen/apple/zuuli.xcodeproj/project.pbxproj");
 const entitlements = read(
   "src-tauri/gen/apple/zuuli_iOS/zuuli_iOS.entitlements",
 );
-const rustToolchain = read("../rust-toolchain.toml");
+const rustToolchain = read("../../rust-toolchain.toml");
 const gradle = read("src-tauri/gen/android/app/build.gradle.kts");
 const gradleWrapper = read(
   "src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties",
@@ -569,7 +569,7 @@ for (const callbackElement of [
 // The App Link half (#461). `android:autoVerify="true"` is what asks Android to
 // fetch `https://free2z.com/.well-known/assetlinks.json` and bind this package to
 // the host; without it the filter is an ordinary link filter any app can also
-// claim, which is exactly what `docs/intent-bridge/CALLER-AUTHENTICATION.md` §4
+// claim, which is exactly what `docs/free2z/intent-bridge/CALLER-AUTHENTICATION.md` §4
 // refuses to carry authority over. `android:pathPrefix` is the real per-app
 // boundary on every Android version -- the assetlinks relation itself is
 // host-wide -- so a missing or widened prefix is an intent request that can be

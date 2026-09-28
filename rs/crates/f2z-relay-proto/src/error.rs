@@ -12,7 +12,7 @@
 //!   type is what stops one of them from being reported to a peer as though it
 //!   were a protocol error.
 //!
-//! [s10]: https://github.com/free2z/zuu/blob/main/docs/e2ee/WIRE.md
+//! [s10]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/WIRE.md
 
 use core::fmt;
 

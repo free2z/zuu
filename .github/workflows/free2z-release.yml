@@ -133,7 +133,7 @@ concurrency:
 env:
   CI: true
   FREE2Z_NODE_VERSION: "24.18.0"
-  # Restates wallet/rust-toolchain.toml because GitHub cannot compute a
+  # Restates rust-toolchain.toml because GitHub cannot compute a
   # workflow-level `env:` from a file. scripts/check-rust-toolchain.sh fails the
   # pull request if this ever stops matching the source of truth, and
   # wallet/free2z/scripts/release-identity.mjs checks it again at release time.

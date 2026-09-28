@@ -25,7 +25,7 @@
 //     engine stays `locked`; that is correct, and it is why `locked` must have
 //     a retry rather than an automatic re-enrollment.
 //
-//   * `ThisDeviceOnly` — `docs/e2ee/ARCHITECTURE.md` §4.2 says device keys are
+//   * `ThisDeviceOnly` — `docs/free2z/messaging/ARCHITECTURE.md` §4.2 says device keys are
 //     "never exported". Without this suffix the item joins iCloud Keychain and
 //     an encrypted device backup, so restoring onto new hardware would hand a
 //     second machine the first machine's device identity while the directory

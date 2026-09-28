@@ -687,7 +687,7 @@ const releaseImpactingPrefixes = [
   ".github/actions/zuuli-rust-cache/",
 ];
 const releaseImpactingPaths = new Set([
-  "wallet/rust-toolchain.toml",
+  "rust-toolchain.toml",
   "wallet/deny.toml",
   "scripts/check-github-actions-pins.mjs",
   "scripts/check-rust-fmt.sh",
@@ -706,7 +706,7 @@ const releaseImpactingPaths = new Set([
   ".github/workflows/zuuli-testflight-bootstrap.yml",
   ".github/workflows/zuuli-testflight-recovery.yml",
   ".github/workflows/cache-cleanup.yml",
-  "docs/ZUULI-LINUX-BUILD-IMAGE.md",
+  "docs/zuuli/build/ZUULI-LINUX-BUILD-IMAGE.md",
 ]);
 
 // release-bump.mjs owns exactly these generated identity surfaces. The source

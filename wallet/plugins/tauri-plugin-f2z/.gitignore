@@ -1,0 +1,8 @@
+/target/
+/node_modules/
+/dist/
+/.tauri/
+/android/.tauri/
+/android/build/
+/ios/.build/
+/ios/Package.resolved
