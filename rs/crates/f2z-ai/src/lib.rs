@@ -37,6 +37,7 @@ pub mod error;
 pub mod ledger;
 pub mod meter;
 pub mod metrics;
+mod nonstream;
 pub mod provider;
 pub mod serve;
 pub mod server;
