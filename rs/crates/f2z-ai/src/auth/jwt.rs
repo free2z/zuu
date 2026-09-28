@@ -226,8 +226,10 @@ impl Unverified<'_> {
 pub struct Claims {
     /// The user's stable per-account UUID, canonical lower case.
     pub sub: String,
-    /// The app.
+    /// The opaque OAuth client identifier, used for revocation and rate limits.
     pub client_id: String,
+    /// Issuer-signed application UUID, used for ledger admission.
+    pub app_id: String,
     /// Space-separated granted scopes.
     pub scope: String,
     /// The account epoch at issue.
@@ -254,6 +256,7 @@ struct RawClaims {
     sub: Option<Value>,
     aud: Option<Value>,
     client_id: Option<Value>,
+    app_id: Option<Value>,
     scope: Option<Value>,
     exp: Option<Value>,
     iat: Option<Value>,
@@ -339,12 +342,14 @@ pub fn check_claims(
     }
     let sub = string(raw.sub)?;
     let client_id = string(raw.client_id)?;
-    if !is_canonical_uuid(&sub) || !is_safe_client_id(&client_id) {
+    let app_id = string(raw.app_id)?;
+    if !is_canonical_uuid(&sub) || !is_safe_client_id(&client_id) || !is_canonical_uuid(&app_id) {
         return Err(TokenError::Malformed);
     }
     Ok(Claims {
         sub,
         client_id,
+        app_id,
         scope: string(raw.scope)?,
         aep: integer(raw.aep)?,
         agen: integer(raw.agen)?,
@@ -439,6 +444,7 @@ mod tests {
             "sub": "3f0c9b7e-6a2d-4b1f-8e5c-2d9a7c4e1b60",
             "aud": ["f2z-id", "f2z-ai"],
             "client_id": "app_7f3c2e",
+            "app_id": "22222222-2222-4222-8222-222222222222",
             "scope": "openid ai:invoke",
             "iat": 1000, "exp": 1300, "jti": "j", "aep": 4, "agen": 2,
         })
@@ -492,11 +498,20 @@ mod tests {
             (with("sub", json!("../../x")), TokenError::Malformed),
             (with("client_id", json!("app:evil")), TokenError::Malformed),
             (with("client_id", json!("")), TokenError::Malformed),
+            (with("app_id", json!("app_7f3c2e")), TokenError::Malformed),
+            (with("app_id", json!(null)), TokenError::Malformed),
+            (
+                with("app_id", json!("AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA")),
+                TokenError::Malformed,
+            ),
             (with("nbf", json!(2000)), TokenError::Expired),
         ];
         for (value, want) in cases {
             assert_eq!(check(&value, 1100).unwrap_err(), want, "{value}");
         }
+        let mut missing = claims();
+        missing.as_object_mut().unwrap().remove("app_id");
+        assert_eq!(check(&missing, 1100).unwrap_err(), TokenError::Malformed);
         let mut missing = claims();
         missing.as_object_mut().unwrap().remove("agen");
         assert_eq!(check(&missing, 1100).unwrap_err(), TokenError::Malformed);

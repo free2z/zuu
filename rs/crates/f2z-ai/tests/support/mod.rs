@@ -210,6 +210,7 @@ impl Gatekeeper for OpenGate {
             principal: Principal {
                 sub: "00000000-0000-4000-8000-000000000000".into(),
                 client_id: "app_test".into(),
+                app_id: "22222222-2222-4222-8222-222222222222".into(),
                 scope: "ai:invoke".into(),
                 aep: 1,
                 agen: 1,
