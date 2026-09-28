@@ -17,5 +17,10 @@ test('pull and cancel address only their caller-owned operation', async () => {
   assert.deepEqual(sent.at(-1)[1], { operationId: 'op' });
 });
 test('guest exports no token, raw request or URL callback method', () => {
-  assert.deepEqual(Object.keys(nativeBridge).sort(), ['balance','call','cancelChat','createPurchase','estimate','models','nextChat','openCheckout','purchase','session','signIn','signOut','startChat','waitForCall','waitForPurchase'].sort());
+  assert.deepEqual(Object.keys(nativeBridge).sort(), ['balance','call','cancelChat','createPurchase','estimate','grant','models','nextChat','openCheckout','purchase','session','signIn','signOut','startChat','waitForCall','waitForPurchase'].sort());
+});
+
+test('grant proof invokes only the bearer-bound native command', async () => {
+  await nativeBridge.grant();
+  assert.deepEqual(sent.pop(), ['plugin:f2z|grant', {}, undefined]);
 });
