@@ -82,3 +82,10 @@ The full-flow example uses only local fakes and does not make a real purchase.
 Repository-only fake examples/tests are excluded from the library tarball;
 public rustdoc and this README accompany it. Packaging/consumer verification is
 specified in the [release guide](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASING.md).
+
+`client.grant().await?` reads the current bearer-bound original spending limit,
+period, enforcement status and server revocation stamps. It requires `ai:invoke`
+and returns `proto::grant::Grant`. This is a fresh snapshot, not a frozen budget:
+cap changes need not increment server grant generation. Reject unenforced or
+inappropriate policy before relying on it; never infer consent from an estimate's
+remaining allowance. See [the grant contract](../../../docs/free2z/sdk/spec/grant.md).

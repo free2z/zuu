@@ -468,6 +468,46 @@ impl Client {
         self.inner.session.lock().await.subject.clone()
     }
 
+    /// Read this account/app's current grant policy. Requires `ai:invoke`.
+    ///
+    /// A fresh snapshot, not an immutable budget authorization: cap changes
+    /// need not bump server generation. Unknown fields never establish enforcement.
+    ///
+    /// # Errors
+    /// [`Error::Api`] for resource refusal; [`Error::Protocol`] for inconsistent
+    /// identity; [`Error::SignedOut`] if the session changes during the read.
+    pub async fn grant(&self) -> Result<f2z_ai_proto::grant::Grant, Error> {
+        let url = format!("{}/grant", self.inner.config.api_base);
+        let timeout = self.inner.config.request_timeout;
+        let mut generation = None;
+        let response = self
+            .send_authorized_in(&mut generation, |http, token| {
+                http.get(&url).bearer_auth(token).timeout(timeout)
+            })
+            .await?;
+        let response = crate::http::expect_success(response).await?;
+        let grant: f2z_ai_proto::grant::Grant = crate::http::read_json(response).await?;
+        grant
+            .check()
+            .map_err(|reason| Error::Protocol(reason.into()))?;
+        let session = self.inner.session.lock().await;
+        if generation != Some(session.generation) {
+            return Err(Error::SignedOut(SignedOutReason::SessionChanged));
+        }
+        if grant.client_id != self.inner.config.client_id
+            || grant.sub.is_empty()
+            || session
+                .subject
+                .as_ref()
+                .is_some_and(|sub| sub != &grant.sub)
+        {
+            return Err(Error::Protocol(
+                "grant identity does not match session".into(),
+            ));
+        }
+        Ok(grant)
+    }
+
     /// The scopes granted to the current session.
     pub async fn granted_scopes(&self) -> Vec<String> {
         let s = self.inner.session.lock().await;

@@ -23,6 +23,9 @@ export class Client {
   signOut() {
     return this.transport.signOut();
   }
+  grant(signal?: AbortSignal) {
+    return this.transport.grant(signal);
+  }
   balance(signal?: AbortSignal) {
     return this.transport.balance(signal);
   }

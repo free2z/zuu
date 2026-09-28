@@ -104,6 +104,26 @@ pub async fn balance<R: Runtime>(
         .await
 }
 #[tauri::command]
+pub async fn grant<R: Runtime>(
+    webview: Webview<R>,
+    state: State<'_, Arc<PluginState<R>>>,
+) -> Result<Value> {
+    authorized(&webview, &state)?;
+    state
+        .engine
+        .read(async {
+            wire::value(
+                &state
+                    .engine
+                    .client
+                    .grant()
+                    .await
+                    .map_err(NativeError::from)?,
+            )
+        })
+        .await
+}
+#[tauri::command]
 pub async fn models<R: Runtime>(
     webview: Webview<R>,
     state: State<'_, Arc<PluginState<R>>>,

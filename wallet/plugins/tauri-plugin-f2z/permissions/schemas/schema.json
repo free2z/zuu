@@ -355,6 +355,18 @@
           "markdownDescription": "Denies the estimate command without any pre-configured scope."
         },
         {
+          "description": "Enables the grant command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-grant",
+          "markdownDescription": "Enables the grant command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the grant command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-grant",
+          "markdownDescription": "Denies the grant command without any pre-configured scope."
+        },
+        {
           "description": "Enables the models command without any pre-configured scope.",
           "type": "string",
           "const": "allow-models",

@@ -2,6 +2,7 @@ import { failure } from "./error.js";
 import { object, string, uint } from "./json.js";
 import type {
   Balance,
+  Grant,
   CallRecord,
   Charge,
   ChatEvent,
@@ -15,6 +16,8 @@ import type {
 
 const integerKeys = new Set([
   "catalog_version",
+  "account_epoch",
+  "grant_generation",
   "includes_markup_bps",
   "markup_bps",
   "context_window",
@@ -189,6 +192,60 @@ function validated(value: unknown): ObjectData {
   }
   check(d, []);
   return d;
+}
+function utcTimestamp(value: string): boolean {
+  const m =
+    /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|\+00:00)$/.exec(
+      value,
+    );
+  if (!m) return false;
+  const year = Number(m[1]),
+    month = Number(m[2]),
+    day = Number(m[3]);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days =
+    month === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].includes(month) ? 30 : 31;
+  return (
+    month >= 1 &&
+    month <= 12 &&
+    day >= 1 &&
+    day <= days &&
+    Number(m[4]) < 24 &&
+    Number(m[5]) < 60 &&
+    Number(m[6]) <= 60
+  );
+}
+export function grant(value: unknown): Grant {
+  const d = validated(value);
+  if (
+    typeof d.enforced !== "boolean" ||
+    !Array.isArray(d.scopes) ||
+    !["day", "week", "month", "total"].includes(String(d.cap_period))
+  )
+    failure("invalid_response");
+  const sub = string(d.sub),
+    client = string(d.client_id);
+  const generation = uint(d.grant_generation),
+    asOf = string(d.as_of);
+  if (
+    !sub ||
+    !client ||
+    generation === 0n ||
+    !d.scopes.includes("ai:invoke") ||
+    !utcTimestamp(asOf)
+  )
+    failure("invalid_response");
+  return {
+    sub,
+    client_id: client,
+    account_epoch: uint(d.account_epoch),
+    grant_generation: generation,
+    scopes: d.scopes.map(string),
+    spend_cap_2z: d.spend_cap_2z === null ? null : uint(d.spend_cap_2z),
+    cap_period: d.cap_period as Grant["cap_period"],
+    enforced: d.enforced,
+    as_of: asOf,
+  };
 }
 export function balance(value: unknown): Balance {
   const d = validated(value);

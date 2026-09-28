@@ -144,3 +144,13 @@ Application types are handwritten normalized types (`bigint` and `Charge`),
 not generated Rust wire aliases. Protocol conformance and native guest type
 compatibility are release gates; publication and live end-to-end validation are
 tracked separately from these mock tests.
+
+`await client.grant()` returns the current authenticated account/app's original
+consented cap and period, scopes, server revocation stamps, `enforced`, and
+snapshot time. Integers are `bigint`; `spend_cap_2z === null` means uncapped.
+Require explicit enforcement and check identity, period and limit against the
+user's authorization. Neither a small estimate remainder nor grant generation
+proves a total budget: cap changes need not increment that generation. Re-read
+before relying on the policy; this snapshot does not freeze future consent.
+See [the grant contract](../../../docs/free2z/sdk/spec/grant.md). Older native
+bridges without the command return `unsupported_operation` instead of guessing.

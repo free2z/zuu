@@ -208,3 +208,48 @@ async fn exhausted_purchase_body_retries_return_the_generated_recovery_key() {
         .unwrap();
     assert!(recovered.id.ends_with("000000000000"));
 }
+
+#[tokio::test]
+async fn grant_proof_is_fresh_typed_and_bound_to_the_account_and_client() {
+    let fake = Fake::start().await;
+    let client = signed_in(fake.config()).await;
+    let grant = client.grant().await.unwrap();
+    assert_eq!(grant.spend_cap_2z, Some(Whole2z::new(500)));
+    assert_eq!(grant.cap_period, f2z_sdk::proto::grant::CapPeriod::Total);
+    assert!(grant.enforced);
+    let original = fake.grant_body.lock().unwrap().clone();
+    for (field, value) in [
+        ("grant_generation", serde_json::json!(0)),
+        ("scopes", serde_json::json!([])),
+        ("as_of", serde_json::json!("2026-02-30T00:00:00Z")),
+    ] {
+        fake.grant_body.lock().unwrap()[field] = value;
+        assert!(matches!(client.grant().await, Err(Error::Protocol(_))));
+        *fake.grant_body.lock().unwrap() = original.clone();
+    }
+    fake.expire_access_tokens();
+    fake.grant_body.lock().unwrap()["enforced"] = serde_json::json!(false);
+    assert!(!client.grant().await.unwrap().enforced);
+    assert_eq!(fake.refresh_calls.load(Ordering::SeqCst), 1);
+    fake.grant_body.lock().unwrap()["client_id"] = serde_json::json!("another-app");
+    assert!(matches!(client.grant().await, Err(Error::Protocol(_))));
+    fake.grant_body.lock().unwrap()["client_id"] = serde_json::json!(support::CLIENT_ID);
+    fake.grant_body.lock().unwrap()["sub"] = serde_json::json!("another-user");
+    assert!(matches!(client.grant().await, Err(Error::Protocol(_))));
+}
+
+#[tokio::test]
+async fn grant_reply_cannot_survive_sign_out() {
+    let fake = Fake::start().await;
+    let client = signed_in(fake.config()).await;
+    *fake.grant_delay.lock().unwrap() = Duration::from_millis(100);
+    let task = {
+        let c = client.clone();
+        tokio::spawn(async move { c.grant().await })
+    };
+    while fake.grant_calls.load(Ordering::SeqCst) == 0 {
+        tokio::task::yield_now().await;
+    }
+    client.sign_out().await.unwrap();
+    assert!(matches!(task.await.unwrap(), Err(Error::SignedOut(_))));
+}

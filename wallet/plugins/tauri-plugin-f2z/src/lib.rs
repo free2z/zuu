@@ -181,7 +181,8 @@ mod tests {
     }
     #[test]
     fn command_registry_has_no_credential_or_arbitrary_network_escape() {
-        assert_eq!(COMMANDS.len(), 15);
+        assert_eq!(COMMANDS.len(), 16);
+        assert!(COMMANDS.contains(&"grant"));
         for forbidden in [
             "token",
             "access_token",

@@ -71,7 +71,7 @@ SDKs format for display, the wire never does.
 
 | Host | Role | Specified in |
 |---|---|---|
-| `https://free2z.cash` | The identity provider (issuer), the account API (balance, purchases, app grants), the developer console | [`spec/oidc.md`](./spec/oidc.md), [`spec/purchase.md`](./spec/purchase.md) |
+| `https://free2z.cash` | The identity provider (issuer), the account API (balance, purchases, app grants), the developer console | [`spec/oidc.md`](./spec/oidc.md), [`spec/purchase.md`](./spec/purchase.md), [`spec/grant.md`](./spec/grant.md) |
 | `https://ai.free2z.cash` | The AI gateway | [`spec/chat-api.md`](./spec/chat-api.md), [`spec/metering.md`](./spec/metering.md) |
 
 The OIDC discovery document at
@@ -159,6 +159,7 @@ Consequences that follow directly:
 | [`spec/oidc.md`](./spec/oidc.md) | Everyone. Registration, redirect rules, PKCE, tokens and claims, refresh rotation, revocation, step-up |
 | [`spec/chat-api.md`](./spec/chat-api.md) | Anyone calling or implementing the gateway. `POST /v1/chat` and the full SSE grammar with examples |
 | [`spec/metering.md`](./spec/metering.md) | Anyone who needs to explain a charge. Hold → stream → settle, the formula, worked examples, the edge cases |
+| [`spec/grant.md`](./spec/grant.md) | Apps verifying the current original consented limit, period and enforcement status |
 | [`spec/purchase.md`](./spec/purchase.md) | Anyone selling 2Z in an app. Card and Zcash for every app; StoreKit 2 and Play Billing in Free2Z's own apps |
 | [`spec/errors.md`](./spec/errors.md) | Everyone. The error catalogue: every status, code, whether to retry |
 | [`../ai-gateway/`](../ai-gateway/README.md) | Gateway implementers. The ADRs and the operational contract |

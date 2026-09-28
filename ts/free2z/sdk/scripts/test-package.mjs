@@ -40,7 +40,7 @@ try {
   run(process.execPath, ["consumer.mjs"]);
   writeFileSync(
     join(temp, "consumer.ts"),
-    `import { Client, NativeTransport, type NativeBridge, type ChatRequest } from '@free2z/sdk';\ndeclare const bridge: NativeBridge;\nconst client = new Client(new NativeTransport(bridge));\nconst request: ChatRequest = { model: 'test', messages: [], max_output_tokens: 256n };\nconst stream = await client.chat(request, { operationId: 'operation', idempotencyKey: 'key' });\nfor await (const event of stream) if (event.type === 'done' && event.charge.state === 'charged') { const amount: bigint = event.charge.charged2z; console.log(amount); }\n`,
+    `import { Client, NativeTransport, type NativeBridge, type ChatRequest } from '@free2z/sdk';\ndeclare const bridge: NativeBridge;\nconst client = new Client(new NativeTransport(bridge));\nconst grant = await client.grant();\nconst limit: bigint | null = grant.spend_cap_2z;\nconst enforced: boolean = grant.enforced;\nconst request: ChatRequest = { model: 'test', messages: [], max_output_tokens: 256n };\nconst stream = await client.chat(request, { operationId: 'operation', idempotencyKey: 'key' });\nfor await (const event of stream) if (event.type === 'done' && event.charge.state === 'charged') { const amount: bigint = event.charge.charged2z; console.log(amount); }\n`,
   );
   run(process.execPath, [
     join(root, "node_modules/typescript/bin/tsc"),

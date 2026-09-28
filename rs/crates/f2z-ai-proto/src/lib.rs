@@ -78,6 +78,7 @@ pub mod catalog;
 pub mod chat;
 pub mod error;
 pub mod event;
+pub mod grant;
 pub mod pricing;
 pub mod settlement;
 

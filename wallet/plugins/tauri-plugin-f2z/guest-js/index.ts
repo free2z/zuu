@@ -92,11 +92,24 @@ export interface NativeError {
   callId?: string; idempotencyKey?: string;
   stepUp?: { maxAge?: Decimal | null; acrValues?: string | null }; record?: CallRecord;
 }
+/** Fresh server policy snapshot, not an immutable cap version. */
+export interface Grant {
+  sub: string;
+  client_id: string;
+  account_epoch: Decimal;
+  grant_generation: Decimal;
+  scopes: string[];
+  spend_cap_2z: Decimal | null;
+  cap_period: 'day' | 'week' | 'month' | 'total';
+  enforced: boolean;
+  as_of: string;
+}
 export interface NativeBridge {
   session(): Promise<Session>;
   signIn(options?: SignInOptions): Promise<Session>;
   signOut(): Promise<{ revoked: boolean; generation: string }>;
   balance(): Promise<Balance>;
+  grant(): Promise<Grant>;
   models(): Promise<ModelCatalog>;
   estimate(request: ChatRequest): Promise<Estimate>;
   createPurchase(request: PurchaseRequest): Promise<Purchase>;
@@ -118,6 +131,7 @@ export const nativeBridge: NativeBridge = {
   signIn: (options = {}) => command('sign_in', { options }),
   signOut: () => command('sign_out'),
   balance: () => command('balance'),
+  grant: () => command('grant'),
   models: () => command('models'),
   estimate: (request) => command('estimate', { request }),
   createPurchase: (request) => command('create_purchase', { request }),
