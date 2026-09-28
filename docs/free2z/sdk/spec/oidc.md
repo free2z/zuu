@@ -127,7 +127,7 @@ an amount and a period.
 
 | Field | Values |
 |---|---|
-| `spend_cap_2z` | A whole number of 2Z, or `null` for no extra application budget. The user chooses. First AI consent starts with the developer's optional `default_spend_cap_2z` suggestion, without a forced platform amount or clamp; an unset suggestion means prepaid balance with no extra application budget (`null`, period `month`). The user may change or remove the suggestion. Ordinary AI re-consent preserves the **existing** amount and period; raising or removing a limit requires step-up (§10) |
+| `spend_cap_2z` | A whole number of 2Z, or `null` for no extra application budget. The user chooses. A new grant starts with the developer's optional `default_spend_cap_2z` suggestion, without a forced platform amount or clamp; an unset suggestion means prepaid balance with no extra application budget (`null`, period `month`). The user may change or remove the suggestion. For any existing grant, including an identity-only grant upgraded to AI, the pre-selection preserves its **existing** amount and period; raising or removing a limit requires step-up (§10) |
 | `cap_period` | `day`, `week`, `month` or `total`. Periods are calendar-aligned in UTC (`day` resets at 00:00Z; `week` on Monday 00:00Z; `month` on the 1st). `total` is non-resetting for the current grant policy |
 
 A first authorization of `ai:invoke` requires an explicit integer-or-null
