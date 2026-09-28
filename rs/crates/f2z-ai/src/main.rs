@@ -37,7 +37,7 @@ THIS BUILD:
     Metered text-streaming preview. Configure signed catalogue trust, ledger,
     authentication and provider credentials before serving paid calls. Without
     backend configuration the diagnostic service stays closed and unready.
-    Non-streaming, fallback, images, tools and estimated-usage billing are not
+    Non-streaming, fallback, images and estimated-usage billing are not
     implemented in this preview. See the crate README and zuu#1078.
 ";
 

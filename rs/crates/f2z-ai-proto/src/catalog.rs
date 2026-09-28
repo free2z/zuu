@@ -93,6 +93,25 @@ pub struct Catalog {
     pub models: Vec<CatalogModel>,
 }
 
+/// Audited provider features carried inside the signed catalogue.
+/// Old catalogues and absent members conservatively advertise no support.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelCapabilities {
+    /// Image input is supported by this model.
+    pub vision: bool,
+    /// Client function tools and their result messages are supported.
+    pub tools: bool,
+    /// The model can produce reasoning output.
+    pub reasoning: bool,
+}
+
+impl ModelCapabilities {
+    fn is_empty(&self) -> bool {
+        !self.vision && !self.tools && !self.reasoning
+    }
+}
+
 /// One model in the [`Catalog`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CatalogModel {
@@ -104,6 +123,10 @@ pub struct CatalogModel {
     pub provider_model_id: String,
     /// Which upstream API shape the gateway speaks to this model.
     pub api_style: ApiStyle,
+    /// Audited features, never inferred from the provider/model name.
+    /// The gateway exposes only the intersection with features it implements.
+    #[serde(default, skip_serializing_if = "ModelCapabilities::is_empty")]
+    pub capabilities: ModelCapabilities,
     /// Prices. See [`ModelPrices`] for units.
     pub prices: ModelPrices,
     /// The minimum charge per call, in whole 2Z.
@@ -397,6 +420,28 @@ fn nibble(c: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capabilities_default_closed_and_require_boolean_assertions() {
+        assert_eq!(
+            serde_json::from_str::<ModelCapabilities>("{}").ok(),
+            Some(ModelCapabilities::default())
+        );
+        assert_eq!(
+            serde_json::from_str::<ModelCapabilities>(r#"{"tools":true}"#).ok(),
+            Some(ModelCapabilities {
+                tools: true,
+                ..ModelCapabilities::default()
+            })
+        );
+        for invalid in [
+            r#"{"tools":"true"}"#,
+            r#"{"vision":null}"#,
+            r#"{"reasoning":1}"#,
+        ] {
+            assert!(serde_json::from_str::<ModelCapabilities>(invalid).is_err());
+        }
+    }
 
     #[test]
     fn hex_is_lowercase_and_exact_length() {
