@@ -17,7 +17,7 @@ use uuid::Uuid;
 pub struct Identity {
     /// Authenticated account UUID.
     pub subject: Uuid,
-    /// OAuth client UUID.
+    /// Issuer-signed application UUID; never the opaque OAuth client identifier.
     pub app: Uuid,
     /// Exact account revocation epoch.
     pub account_epoch: i32,
@@ -29,7 +29,7 @@ impl TryFrom<&Principal> for Identity {
     fn try_from(p: &Principal) -> Result<Self, Failure> {
         Ok(Self {
             subject: p.sub.parse().map_err(|_| Failure)?,
-            app: p.client_id.parse().map_err(|_| Failure)?,
+            app: p.app_id.parse().map_err(|_| Failure)?,
             account_epoch: i32::try_from(p.aep).map_err(|_| Failure)?,
             grant_generation: i32::try_from(p.agen).map_err(|_| Failure)?,
         })
