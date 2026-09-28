@@ -161,18 +161,15 @@ impl Plan {
 }
 fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result<Plan, ApiFailure> {
     if !request.fallback.is_empty()
-        || !request.tools.is_empty()
         || request.messages.iter().any(|m| {
-            !m.tool_calls.is_empty()
-                || m.tool_call_id.is_some()
-                || m.content
-                    .iter()
-                    .any(|p| !matches!(p, ContentPart::Text { .. }))
+            m.content
+                .iter()
+                .any(|p| !matches!(p, ContentPart::Text { .. }))
         })
     {
         return Err(ApiFailure::new(
             ErrorCode::InvalidRequest,
-            "this gateway release supports text-only, single-model calls",
+            "this gateway release supports text input and a single model",
         ));
     }
     let catalog = catalog.catalog();
@@ -180,9 +177,22 @@ fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result
         .callable_model(&request.model)
         .ok_or_else(|| ApiFailure::new(ErrorCode::ModelNotFound, "model is not callable"))?
         .clone();
-    // Conservative byte-token estimator, including serialized roles/message framing.
-    // It holds more than a tokenizer would for ordinary text; metadata is excluded.
-    let bytes = serde_json::to_vec(&request.messages)
+    if !model.capabilities.tools
+        && (!request.tools.is_empty()
+            || request
+                .messages
+                .iter()
+                .any(|m| !m.tool_calls.is_empty() || m.tool_call_id.is_some()))
+    {
+        return Err(ApiFailure::new(
+            ErrorCode::InvalidRequest,
+            "this model does not support function tools",
+        ));
+    }
+    // Conservative byte-token reservation, including roles, message framing,
+    // tool definitions and prior tool arguments/results. Metadata is excluded.
+    // Final billing uses provider usage, never this byte bound.
+    let bytes = serde_json::to_vec(&(&request.messages, &request.tools))
         .map_err(|_| invalid())?
         .len();
     let input = apply_safety_factor(
@@ -308,7 +318,7 @@ impl ChatBackend for Metered {
                 let n=u64::try_from(numerator.div_ceil(1_000_000_000_000)).map_err(|_| invalid())?;
                 if n > SAFE_INTEGER { return Err(invalid()); } prices.insert(name.into(),json!(n));
             }
-            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":false},"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
+            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":m.capabilities.tools,"reasoning":m.capabilities.reasoning},"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
         }).collect::<Result<Vec<_>, ApiFailure>>()?;
         Ok(
             json!({"catalog_version":cat.version,"includes_markup_bps":c.markup().0,"models":models}),

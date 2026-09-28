@@ -13,7 +13,7 @@ not a deployment or live acceptance result. The [SDK integration guide](../../..
 remains the application entry point.
 
 Supported: authenticated `/v1/models` (private, caller-markup-aware ETag),
-`/v1/chat/estimate`, streamed and nonstreamed text-only `/v1/chat`, and account/app-scoped
+`/v1/chat/estimate`, streamed and nonstreamed text and function-tool `/v1/chat`, and account/app-scoped
 `/v1/calls/{id}`. A new durable claim and confirmed hold precede provider I/O.
 Identical completed-key retries return the receipt as JSON with
 `X-F2Z-Replayed: true`; pending/conflicting keys never start another provider call.
@@ -21,6 +21,11 @@ Disconnects stop delivery while the detached owner finishes settlement.
 Only confirmed ledger amounts appear in terminal events; after ten seconds of
 uncertainty the stream says `pending`, and the detached settler retries through
 its bounded lifetime. Captured admission epochs allow completion after revocation.
+
+Function tools and tool-result history require `capabilities.tools` in the
+signed model catalogue. Missing capability metadata conservatively disables
+tools; model names never imply support. The gateway relays calls but never runs
+a client tool. Tool definitions, arguments and results enter the input hold.
 
 Nonstreaming delivery aggregates the same event pipeline. Before provider I/O it
 reserves 64 times its event-byte limit from the shared upload memory pool; the
@@ -30,9 +35,9 @@ Exhaustion before starting is `503`; overflow or interrupted delivery is `502`
 with a pending charge and a call ID for receipt reconciliation. Provider reading
 and settlement continue after delivery ends.
 
-Limitations: model fallback, images, and tools are
-unsupported. Input reservation uses a conservative UTF-8 byte-token bound including
-serialized message framing; it can reserve more than a tokenizer. Final charges
+Limitations: model fallback and images are unsupported. Input reservation uses
+a conservative UTF-8 byte-token bound including serialized message and
+tool-definition framing; it can reserve more than a tokenizer. Final charges
 use provider-reported usage and signed prices. **Missing provider usage has no
 tokenizer-backed billing fallback in this release**: produced text is preserved,
 followed by an explicit error and confirmed released/no-charge receipt (or pending
