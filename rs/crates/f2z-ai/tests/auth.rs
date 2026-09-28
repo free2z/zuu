@@ -269,22 +269,28 @@ impl Store for MemoryStore {
             }
         }
         let user = self.level(&r.user_bucket, r.user_rate, now);
-        let app = self.level(&r.app_bucket, r.app_rate, now);
+        let app = r
+            .app_rate
+            .map(|rate| (self.level(&r.app_bucket, rate, now), rate));
         if user < 1000 {
             return Ok(Admission::Refused {
                 by: Refusal::User,
                 retry_after_ms: (1000 - user) * 60 / u64::from(r.user_rate.per_minute),
             });
         }
-        if app < 1000 {
+        if let Some((tokens, rate)) = app
+            && tokens < 1000
+        {
             return Ok(Admission::Refused {
                 by: Refusal::App,
-                retry_after_ms: (1000 - app) * 60 / u64::from(r.app_rate.per_minute),
+                retry_after_ms: (1000 - tokens) * 60 / u64::from(rate.per_minute),
             });
         }
         let mut buckets = self.buckets.lock().unwrap();
         buckets.insert(r.user_bucket.clone(), (user - 1000, now));
-        buckets.insert(r.app_bucket.clone(), (app - 1000, now));
+        if let Some((tokens, _)) = app {
+            buckets.insert(r.app_bucket.clone(), (tokens - 1000, now));
+        }
         self.leases
             .lock()
             .unwrap()
@@ -337,10 +343,10 @@ struct Harness {
 fn limits_config(per_minute: u32, burst: u32, concurrency: u32) -> LimitsConfig {
     LimitsConfig {
         user: Rate { per_minute, burst },
-        app: Rate {
+        app: Some(Rate {
             per_minute: 100_000,
             burst: 10_000,
-        },
+        }),
         concurrency,
         lease_ttl: Duration::from_secs(360),
     }
@@ -896,12 +902,15 @@ async fn redis_down_never_falls_open_for_revocation() {
     assert_eq!(error["code"], "unavailable");
     assert_eq!(error["details"]["reason"], "revocation_check");
 
-    // Redis down + endpoint answers: served (limits locally).
+    // The epoch fallback still verifies identity, but shared admission refuses.
     h.idp.set_epoch(EpochMode::Answer {
         aep: 4,
         agen: json!({CLIENT: 2}),
     });
-    assert_eq!(verdict(&gw, Some(&h.token())).await.0, 501);
+    let (status, code, reason) = verdict(&gw, Some(&h.token())).await;
+    assert_eq!(status, 503);
+    assert_eq!(code, "unavailable");
+    assert_eq!(reason.as_str(), Some("shared_admission"));
     // …and a revocation the endpoint knows still lands.
     h.idp.set_epoch(EpochMode::Answer {
         aep: 5,
@@ -945,6 +954,47 @@ async fn a_wrong_internal_secret_is_unknown_not_allowed() {
 // ---------------------------------------------------------------------------
 // Limits.
 // ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn independent_users_have_no_implicit_app_bucket_but_opt_in_is_shared() {
+    let h = Harness::new().await;
+    let mut config = limits_config(60, 2, 4);
+    config.app = None;
+    let a = Limits::new(config, Some(h.store.clone()), NS.into());
+    let b = Limits::new(config, Some(h.store.clone()), NS.into());
+    let mut claims: f2z_ai::auth::jwt::Claims = f2z_ai::auth::jwt::check_claims(
+        &serde_json::to_vec(&h.claims()).unwrap(),
+        &h.idp.issuer,
+        "f2z-ai",
+        now(),
+    )
+    .unwrap();
+    // More than the retired default burst; every account gets its own bucket.
+    for i in 0..700 {
+        claims.sub = format!("user-{i}");
+        drop(a.admit(&claims).await.unwrap());
+    }
+    assert!(
+        !h.store
+            .buckets
+            .lock()
+            .unwrap()
+            .contains_key(&format!("{NS}:ai:rl:a:{CLIENT}"))
+    );
+    claims.sub = "user-0".into();
+    drop(b.admit(&claims).await.unwrap());
+    assert_eq!(b.admit(&claims).await.unwrap_err().code(), "rate_limited");
+
+    config.app = Some(Rate {
+        per_minute: 1,
+        burst: 1,
+    });
+    let c = Limits::new(config, Some(h.store.clone()), "optin".into());
+    let d = Limits::new(config, Some(h.store.clone()), "optin".into());
+    drop(c.admit(&claims).await.unwrap());
+    claims.sub = "different-user".into();
+    assert_eq!(d.admit(&claims).await.unwrap_err().code(), "rate_limited");
+}
 
 #[tokio::test]
 async fn the_rate_limit_is_429_with_retry_after_and_the_rate_headers() {
@@ -999,10 +1049,9 @@ async fn the_shared_bucket_limits_across_pods() {
     assert_eq!(verdict(&a, Some(&h.token())).await.0, 501);
     // Pod b's local bucket is full; the shared one is not.
     assert_eq!(verdict(&b, Some(&h.token())).await.1, "rate_limited");
-    // The control: with the store down, pod b falls back to local only and
-    // admits — the documented degradation, for limits only.
+    // Shared failure cannot multiply capacity by the number of pods.
     h.store.down.store(true, Ordering::SeqCst);
-    assert_eq!(verdict(&b, Some(&h.token())).await.0, 501);
+    assert_eq!(verdict(&b, Some(&h.token())).await.0, 503);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1178,10 +1227,10 @@ async fn the_redis_store_against_a_real_redis() {
             per_minute: 60,
             burst: 3,
         },
-        app_rate: Rate {
+        app_rate: Some(Rate {
             per_minute: 6000,
             burst: 100,
-        },
+        }),
         lease_limit: 2,
         lease_ttl: Duration::from_secs(30),
     };
@@ -1387,11 +1436,10 @@ async fn a_lease_whose_admit_reply_was_lost_is_still_released() {
         )
         .await;
     // Redis runs the script (the member is added) but the reply never
-    // arrives: the gateway falls back to local limits and must still own the
-    // member's removal.
+    // arrives: admission fails closed and still owns the member's removal.
     h.store.lose_admit_replies.store(true, Ordering::SeqCst);
     for _ in 0..6 {
-        assert_eq!(verdict(&gw, Some(&h.token())).await.0, 501);
+        assert_eq!(verdict(&gw, Some(&h.token())).await.0, 503);
     }
     h.store.lose_admit_replies.store(false, Ordering::SeqCst);
     for _ in 0..100 {
@@ -1426,7 +1474,7 @@ async fn a_call_outliving_the_lease_ttl_still_counts_on_another_pod() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_call_admitted_during_a_redis_outage_counts_again_once_redis_is_back() {
+async fn an_existing_call_counts_again_after_redis_loses_its_state() {
     let h = Harness::new().await;
     let (backend, mut streams) = ControlledBackend::new();
     let mut short = limits_config(100_000, 10_000, 1);
@@ -1437,15 +1485,17 @@ async fn a_call_admitted_during_a_redis_outage_counts_again_once_redis_is_back()
     let b = h
         .gateway(short, not_implemented(), RecordingSettler::default())
         .await;
-    // Pod a admits a call while Redis is down: no member is written.
+    let body = call(&a, Some(&h.token())).await;
+    assert_eq!(body.status(), StatusCode::OK);
+    let sender = streams.recv().await.unwrap();
+    assert_eq!(h.store.open_leases(), 1);
     h.store.down.store(true, Ordering::SeqCst);
+    h.store.leases.lock().unwrap().clear();
     h.idp.set_epoch(EpochMode::Answer {
         aep: 4,
         agen: json!({CLIENT: 2}),
     });
-    let body = call(&a, Some(&h.token())).await;
-    assert_eq!(body.status(), StatusCode::OK);
-    let sender = streams.recv().await.unwrap();
+    assert_eq!(verdict(&b, Some(&h.token())).await.0, 503);
     assert_eq!(h.store.open_leases(), 0);
     // Redis comes back; within a renewal period the live call is counted
     // again, so pod b refuses the user's second call.
@@ -1463,4 +1513,120 @@ async fn a_call_admitted_during_a_redis_outage_counts_again_once_redis_is_back()
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert_eq!(h.store.open_leases(), 0);
+}
+
+/// Cut only this client's proxy connections; other CI Redis tests remain isolated.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn real_redis_outage_refuses_admission_and_recovers_without_app_bucket() {
+    let Ok(url) = std::env::var("F2Z_AI_TEST_REDIS_URL") else {
+        skip_without_redis("SKIPPED: no Redis for admission outage/recovery");
+        return;
+    };
+    let mut proxy_url = reqwest::Url::parse(&url).unwrap();
+    assert_eq!(
+        proxy_url.scheme(),
+        "redis",
+        "test proxy requires plaintext test Redis"
+    );
+    let upstream = format!(
+        "{}:{}",
+        proxy_url.host_str().unwrap(),
+        proxy_url.port().unwrap_or(6379)
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    proxy_url.set_host(Some("127.0.0.1")).unwrap();
+    proxy_url
+        .set_port(Some(listener.local_addr().unwrap().port()))
+        .unwrap();
+    let (outage, state) = tokio::sync::watch::channel(false);
+    let proxy = tokio::spawn(async move {
+        while let Ok((mut downstream, _)) = listener.accept().await {
+            let mut state = state.clone();
+            if *state.borrow_and_update() {
+                continue;
+            }
+            let upstream = upstream.clone();
+            tokio::spawn(async move {
+                let Ok(mut upstream) = tokio::net::TcpStream::connect(upstream).await else {
+                    return;
+                };
+                tokio::select! {
+                    _ = state.changed() => {},
+                    _ = tokio::io::copy_bidirectional(&mut downstream, &mut upstream) => {},
+                }
+            });
+        }
+    });
+    let store = Arc::new(
+        f2z_ai::auth::store::RedisStore::new(
+            &SecretString::from(proxy_url.to_string()),
+            Duration::from_millis(150),
+        )
+        .unwrap(),
+    );
+    let h = Harness::new().await;
+    let mut config = open_limits();
+    config.app = None;
+    let ns = format!("f2zoutage{}", std::process::id());
+    let limits = Limits::new(config, Some(store.clone()), ns.clone());
+    let mut claims: f2z_ai::auth::jwt::Claims = f2z_ai::auth::jwt::check_claims(
+        &serde_json::to_vec(&h.claims()).unwrap(),
+        &h.idp.issuer,
+        "f2z-ai",
+        now(),
+    )
+    .unwrap();
+    let first = limits.admit(&claims).await.unwrap();
+    drop(first);
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    outage.send(true).unwrap();
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    for _ in 0..3 {
+        let failure = limits.admit(&claims).await.unwrap_err();
+        assert_eq!(failure.code(), "unavailable");
+        assert_eq!(
+            failure.detail_of("reason"),
+            Some(&json!("shared_admission"))
+        );
+        assert_eq!(limits.open_calls(&claims.sub), 0);
+    }
+    outage.send(false).unwrap();
+    let mut recovered = false;
+    for _ in 0..40 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        if let Ok(lease) = limits.admit(&claims).await {
+            drop(lease);
+            recovered = true;
+            break;
+        }
+    }
+    assert!(recovered, "shared admission did not recover");
+    // Exercise disabled app behavior in the actual Lua script, beyond the old burst.
+    for i in 0..650 {
+        claims.sub = format!("independent-{i}");
+        drop(limits.admit(&claims).await.unwrap());
+    }
+    let mut raw = redis::Client::open(url)
+        .unwrap()
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap();
+    let exists: bool = redis::cmd("EXISTS")
+        .arg(format!("{ns}:ai:rl:a:{CLIENT}"))
+        .query_async(&mut raw)
+        .await
+        .unwrap();
+    assert!(!exists, "disabled aggregate app bucket was materialized");
+    config.app = Some(Rate {
+        per_minute: 1,
+        burst: 1,
+    });
+    let a = Limits::new(config, Some(store.clone()), format!("{ns}optional"));
+    let b = Limits::new(config, Some(store), format!("{ns}optional"));
+    drop(a.admit(&claims).await.unwrap());
+    claims.sub = "another-independent-user".into();
+    assert_eq!(b.admit(&claims).await.unwrap_err().code(), "rate_limited");
+    // Unique keys expire naturally; avoid wildcard deletion of another test's data.
+    drop(outage);
+    proxy.abort();
 }
