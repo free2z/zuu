@@ -247,13 +247,14 @@ reasons, and each is enforced by a test rather than by intent:
 
 ## The server images
 
-The three AGPL binaries above ship as three container images, built from one
+The AGPL messaging and AI binaries ship as container images, built from one
 `rs/Dockerfile` and published by `.github/workflows/f2z-images.yml`:
 
 | Image | Entrypoint | Built with |
 |---|---|---|
 | `ghcr.io/free2z/f2z-relay` | `/f2z-relay` | `--build-arg BIN=f2z-relay` |
 | `ghcr.io/free2z/f2z-kt` | `/f2z-kt` | `--build-arg BIN=f2z-kt` |
+| `ghcr.io/free2z/f2z-ai` | `/f2z-ai serve` | `--build-arg BIN=f2z-ai` |
 | `ghcr.io/free2z/f2z-witness` | `/f2z-witness` | `--build-arg BIN=f2z-witness` |
 
 ```bash
@@ -263,11 +264,11 @@ docker build -f rs/Dockerfile rs \
   -t f2z-witness:local
 ```
 
-One Dockerfile rather than three, because what must not drift between them is
+One shared Dockerfile, because what must not drift between them is
 exactly the shared part: the pinned compiler, the pinned base images, the uid,
 and the absence of a shell. The runtime is
 `gcr.io/distroless/cc-debian12:nonroot`, digest-pinned, running as uid 65532 —
-`cc` and not `static` because `rusqlite` bundles SQLite and all three link libc.
+`cc` and not `static` because `rusqlite` bundles SQLite and all link libc.
 The builder is `rust:1-slim-bookworm`, also digest-pinned, and **bookworm is
 load-bearing**: a builder on a newer Debian links a newer glibc and produces a
 binary that starts on the build host and dies on the cluster.
@@ -461,3 +462,19 @@ not by a path exclusion list that could later be widened to excuse a real crate.
 reason is specific to what this tree is: the relay is a public, unauthenticated
 network listener, and a panic in its parser is a remote denial of service.
 Integration tests relax them, with a note saying why.
+
+### AI gateway runtime
+
+The gateway image runs as uid 65532 with a read-only root filesystem and no
+writable volume required. Mount configuration and secret files read-only and
+configure public `listen` and private `admin_listen` explicitly (container
+ports 8080 and 9090). Only the public listener belongs behind public ingress;
+`/healthz`, `/readyz` and `/metrics` belong on the admin listener. Outbound TLS
+uses compiled trust roots; no runtime package installation is needed.
+
+`SIGTERM` flips readiness and drains admitted calls for the configured timeout;
+allow at least that timeout plus shutdown overhead before forced termination.
+The image probe checks both listener boundaries, closed readiness without
+backend configuration, and a clean SIGTERM exit with a read-only filesystem.
+It does not claim provider/ledger live acceptance. See
+[the gateway configuration](crates/f2z-ai/README.md) for required dependencies.
