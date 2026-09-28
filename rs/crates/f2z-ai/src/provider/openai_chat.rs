@@ -9,9 +9,11 @@
 //! sets it. A stream that ends without that chunk is
 //! [`UsageReport::Missing`].
 //!
-//! `prompt_tokens` **includes** `prompt_tokens_details.cached_tokens`, and
-//! there is no cache-write count. What `completion_tokens` means differs by
-//! provider, and getting it wrong under-charges every reasoning call:
+//! `prompt_tokens` includes disjoint `prompt_tokens_details.cached_tokens`
+//! and `cache_write_tokens` subsets. Missing cache fields on legacy responses
+//! mean zero. See the [official usage schema](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create).
+//! What `completion_tokens` means differs by provider, and getting it wrong
+//! under-charges every reasoning call:
 //!
 //! * OpenAI: `completion_tokens` **includes** `reasoning_tokens`;
 //!   `total_tokens = prompt + completion`.
@@ -163,6 +165,11 @@ impl Provider for OpenAiChat {
             .collect();
         let mut body = Map::new();
         body.insert("model".into(), json!(model.provider_model_id));
+        // Signed prices describe standard processing; omission would select
+        // the OpenAI project's mutable default (including premium tiers).
+        if model.provider == "openai" {
+            body.insert("service_tier".into(), json!("default"));
+        }
         body.insert("messages".into(), Value::Array(messages));
         body.insert("max_completion_tokens".into(), json!(max_output_tokens));
         body.insert("stream".into(), json!(true));
@@ -234,6 +241,19 @@ fn usage_of(usage: &Value, convention: UsageConvention) -> Result<Usage, Malform
         "usage.prompt_tokens_details.cached_tokens",
     )?
     .unwrap_or(0);
+    let written = count(
+        usage
+            .get("prompt_tokens_details")
+            .and_then(|d| d.get("cache_write_tokens")),
+        "usage.prompt_tokens_details.cache_write_tokens",
+    )?
+    .unwrap_or(0);
+    // Both cache counts are disjoint subsets of the provider's total input.
+    // Chained subtraction also rejects a sum that would overflow u64.
+    let ordinary = prompt
+        .checked_sub(cached)
+        .and_then(|rest| rest.checked_sub(written))
+        .ok_or(Malformed("cache token subsets exceed input total"))?;
     let reasoning = count(
         usage
             .get("completion_tokens_details")
@@ -274,9 +294,9 @@ fn usage_of(usage: &Value, convention: UsageConvention) -> Result<Usage, Malform
             .ok_or(Malformed("output overflows"))?,
     };
     Ok(Usage {
-        input_tokens: prompt.saturating_sub(cached),
+        input_tokens: ordinary,
         cached_input_tokens: cached,
-        cache_write_tokens: 0,
+        cache_write_tokens: written,
         output_tokens: output,
         reasoning_tokens: reasoning,
         images: 0,
@@ -457,6 +477,54 @@ impl StreamParser for Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cache_writes_are_exclusive_and_charge_at_the_write_rate() {
+        // Official wire fields; input is ordinary + cache reads + cache writes.
+        let wire = json!({"prompt_tokens":100,"completion_tokens":4,
+            "prompt_tokens_details":{"cached_tokens":20,"cache_write_tokens":30}});
+        let usage = usage_of(&wire, UsageConvention::CompletionIncludesReasoning).unwrap();
+        assert_eq!(
+            (
+                usage.input_tokens,
+                usage.cached_input_tokens,
+                usage.cache_write_tokens
+            ),
+            (50, 20, 30)
+        );
+        let prices = f2z_ai_proto::pricing::ModelPrices {
+            input_nusd_per_mtok: 2_000_000_000,
+            cached_input_nusd_per_mtok: 200_000_000,
+            cache_write_nusd_per_mtok: 2_500_000_000,
+            output_nusd_per_mtok: 10_000_000_000,
+            ..Default::default()
+        };
+        assert_eq!(
+            f2z_ai_proto::pricing::metered_cost_nusd(&usage, &prices)
+                .unwrap()
+                .get(),
+            219_000
+        );
+    }
+
+    #[test]
+    fn impossible_or_malformed_cache_writes_are_rejected() {
+        for (input, cached, written) in [
+            (100_u64, 20_u64, json!(81)),
+            (100, 0, json!(101)),
+            (u64::MAX, u64::MAX, json!(1)),
+            (100, 0, json!(-1)),
+            (100, 0, json!(1.5)),
+            (100, 0, json!("30")),
+        ] {
+            let wire = json!({"prompt_tokens":input,"completion_tokens":4,
+                "prompt_tokens_details":{"cached_tokens":cached,"cache_write_tokens":written}});
+            assert!(
+                usage_of(&wire, UsageConvention::CompletionIncludesReasoning).is_err(),
+                "accepted invalid cache usage: {wire}"
+            );
+        }
+    }
 
     #[test]
     fn total_tokens_decides_the_reasoning_convention() {

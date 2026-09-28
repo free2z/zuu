@@ -13,9 +13,9 @@
 //! OpenAI's conventions, normalised to `f2z_ai_proto::Usage`'s disjoint
 //! buckets:
 //!
-//! * `input_tokens` **includes** `input_tokens_details.cached_tokens`, so
-//!   uncached input is the difference. There is no cache-write count: writes
-//!   are ordinary input here.
+//! * `input_tokens` includes disjoint `input_tokens_details.cached_tokens`
+//!   and `cache_write_tokens` subsets; ordinary input excludes both. Missing
+//!   cache fields on legacy responses mean zero. See [prompt caching usage](https://developers.openai.com/api/docs/guides/prompt-caching#monitor-cache-performance).
 //! * `output_tokens` **includes** `output_tokens_details.reasoning_tokens`,
 //!   which is therefore the informational subset.
 //! * A `null` usage is [`UsageReport::Missing`], never zero.
@@ -157,6 +157,11 @@ impl Provider for OpenAiResponses {
         }
         let mut body = Map::new();
         body.insert("model".into(), json!(model.provider_model_id));
+        // Signed prices describe standard processing; omission would select
+        // the OpenAI project's mutable default (including premium tiers).
+        if model.provider == "openai" {
+            body.insert("service_tier".into(), json!("default"));
+        }
         body.insert("input".into(), Value::Array(input));
         body.insert("max_output_tokens".into(), json!(max_output_tokens));
         body.insert("stream".into(), json!(true));
@@ -231,6 +236,19 @@ fn usage_of(response: &Value) -> Result<Option<Usage>, Malformed> {
         "usage.input_tokens_details.cached_tokens",
     )?
     .unwrap_or(0);
+    let written = count(
+        usage
+            .get("input_tokens_details")
+            .and_then(|d| d.get("cache_write_tokens")),
+        "usage.input_tokens_details.cache_write_tokens",
+    )?
+    .unwrap_or(0);
+    // Both cache counts are disjoint subsets of the provider's total input.
+    // Chained subtraction also rejects a sum that would overflow u64.
+    let ordinary = input
+        .checked_sub(cached)
+        .and_then(|rest| rest.checked_sub(written))
+        .ok_or(Malformed("cache token subsets exceed input total"))?;
     let reasoning = count(
         usage
             .get("output_tokens_details")
@@ -244,9 +262,9 @@ fn usage_of(response: &Value) -> Result<Option<Usage>, Malformed> {
         return Err(Malformed("usage subset exceeds its total"));
     }
     Ok(Some(Usage {
-        input_tokens: input.saturating_sub(cached),
+        input_tokens: ordinary,
         cached_input_tokens: cached,
-        cache_write_tokens: 0,
+        cache_write_tokens: written,
         output_tokens: output,
         reasoning_tokens: reasoning,
         images: 0,
@@ -423,6 +441,54 @@ mod tests {
             },
             &mut out,
         )
+    }
+
+    #[test]
+    fn cache_writes_are_exclusive_and_charge_at_the_write_rate() {
+        // Official wire fields; input is ordinary + cache reads + cache writes.
+        let wire = json!({"input_tokens":100,"output_tokens":4,
+            "input_tokens_details":{"cached_tokens":20,"cache_write_tokens":30}});
+        let usage = usage_of(&json!({"usage": wire})).unwrap().unwrap();
+        assert_eq!(
+            (
+                usage.input_tokens,
+                usage.cached_input_tokens,
+                usage.cache_write_tokens
+            ),
+            (50, 20, 30)
+        );
+        let prices = f2z_ai_proto::pricing::ModelPrices {
+            input_nusd_per_mtok: 2_000_000_000,
+            cached_input_nusd_per_mtok: 200_000_000,
+            cache_write_nusd_per_mtok: 2_500_000_000,
+            output_nusd_per_mtok: 10_000_000_000,
+            ..Default::default()
+        };
+        assert_eq!(
+            f2z_ai_proto::pricing::metered_cost_nusd(&usage, &prices)
+                .unwrap()
+                .get(),
+            219_000
+        );
+    }
+
+    #[test]
+    fn impossible_or_malformed_cache_writes_are_rejected() {
+        for (input, cached, written) in [
+            (100_u64, 20_u64, json!(81)),
+            (100, 0, json!(101)),
+            (u64::MAX, u64::MAX, json!(1)),
+            (100, 0, json!(-1)),
+            (100, 0, json!(1.5)),
+            (100, 0, json!("30")),
+        ] {
+            let wire = json!({"input_tokens":input,"output_tokens":4,
+                "input_tokens_details":{"cached_tokens":cached,"cache_write_tokens":written}});
+            assert!(
+                usage_of(&json!({"usage": wire})).is_err(),
+                "accepted invalid cache usage: {wire}"
+            );
+        }
     }
 
     #[test]
