@@ -8,6 +8,17 @@ export type Json =
   | Json[]
   | { [key: string]: Json | undefined };
 export type ObjectData = { [key: string]: Json | undefined };
+/**
+ * Coarse, non-sensitive reason for `Grant.enforced`.
+ * Diagnostic only; `enforced` stays authoritative. A code newer than this SDK
+ * decodes as `"unknown"` and is never enforced.
+ */
+export type EnforcementReason =
+  | "ok"
+  | "platform_disabled"
+  | "ledger_cutover_pending"
+  | "ledger_cap_pending"
+  | "unknown";
 /** Fresh authoritative grant snapshot; generation is not a cap policy version. */
 export interface Grant {
   sub: string;
@@ -18,6 +29,8 @@ export interface Grant {
   spend_cap_2z: bigint | null;
   cap_period: "day" | "week" | "month" | "total";
   enforced: boolean;
+  /** Why `enforced` has its value; absent from servers predating it. */
+  enforcement_reason?: EnforcementReason;
   as_of: string;
 }
 export interface Balance {

@@ -191,5 +191,5 @@ the Rust and guest versions aligned. No publication is performed by this build.
 `nativeBridge.grant()` reads the current bearer-bound grant snapshot. It needs
 `f2z:allow-grant` and `ai:invoke`. Its original `spend_cap_2z`, `account_epoch`
 and `grant_generation` are decimal strings, and `enforced` must be checked
-explicitly. Server grant generation is not local session generation or a cap
+explicitly; the optional `enforcement_reason` only explains it. Server grant generation is not local session generation or a cap
 version. See [the grant contract](../../../docs/free2z/sdk/spec/grant.md).
