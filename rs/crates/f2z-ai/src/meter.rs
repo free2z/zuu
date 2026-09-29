@@ -267,7 +267,11 @@ fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result
         // metering.md §3 `hold`). Judging at the effective markup alone would
         // let an approval landing between the context read and the hold raise
         // the price after the hold exists, and the post-hold `extend` would
-        // then refuse a call that had already reserved money.
+        // then refuse a call that had already reserved money. The hold is
+        // taken at that same bound, so no extension is ever needed — not even
+        // when a concurrent call drains the balance between hold and extend.
+        // The excess over the applied-markup worst case is released at
+        // settlement like any other unused hold.
         let mut bound = p.clone();
         bound.markup = consented;
         let required = bound.worst(asked)?;
@@ -284,7 +288,7 @@ fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result
             return Err(failure);
         }
         p.output = asked;
-        p.hold = p.worst(asked)?;
+        p.hold = required;
         return Ok(p);
     }
     if p.worst(1)?.get() > available {
@@ -1255,8 +1259,8 @@ mod tests {
         .unwrap();
         strict_refusal(&e, ErrorCode::InsufficientBalance);
         assert_eq!(e.detail_of("required_2z"), Some(&json!(at_consented.get())));
-        // Enough for the consented worst case: admitted, held at the
-        // effective markup, full limit.
+        // Enough for the consented worst case: admitted at the full limit and
+        // held at that bound, so a raised applied markup needs no extension.
         let enough = at_consented.to_milli().unwrap().get();
         let p = plan(
             &ask(1800, true),
@@ -1264,7 +1268,10 @@ mod tests {
             &ctx_markup(enough, None, 5000, 0),
         )
         .unwrap();
-        assert_eq!((p.output, p.hold), (1800, at_effective));
+        assert_eq!((p.output, p.hold), (1800, at_consented));
+        let mut applied = p.clone();
+        applied.markup = Bps(5000);
+        assert!(applied.worst(1800).unwrap() <= p.hold);
     }
 
     #[test]

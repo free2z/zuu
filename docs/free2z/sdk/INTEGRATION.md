@@ -305,8 +305,10 @@ Affordability for a strict call is judged at the markup the user consented
 to, the most the ledger can apply when it takes the hold, so an approval
 landing mid-admission cannot turn an admitted strict call into a refusal after
 money was reserved. When the app's effective markup is below the consented one,
-a strict call can therefore be refused slightly earlier than an estimate
-suggests; the hold itself is still priced at the markup actually applied.
+a strict call is refused slightly earlier, and held at that consented-markup
+worst case (the excess is released at settlement; the charge is priced at the
+markup actually applied). The hold therefore never needs an extension, even if
+another call spends the balance concurrently.
 
 A strict call can still end with `length` if the model itself uses every
 token you allowed — that is your limit, not the gateway's, and is charged
