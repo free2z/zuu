@@ -238,6 +238,14 @@ async fn launch_policy(
     scenario: Scenario,
     allowed: Option<Vec<&str>>,
 ) -> (support::Running, MockProvider) {
+    launch_catalog(db, scenario, allowed, adapter_support::catalog(10_000)).await
+}
+async fn launch_catalog(
+    db: Arc<Database>,
+    scenario: Scenario,
+    allowed: Option<Vec<&str>>,
+    catalog: f2z_ai::catalog::VerifiedCatalog,
+) -> (support::Running, MockProvider) {
     let mock = MockProvider::start(scenario).await.unwrap();
     let meter = Arc::new(
         Metered::new(
@@ -250,7 +258,7 @@ async fn launch_policy(
         &support::config(&[]),
         Deps {
             gate: Arc::new(Gate),
-            catalog: Arc::new(Fixed(adapter_support::catalog(10_000))),
+            catalog: Arc::new(Fixed(catalog)),
             backend: meter.clone(),
             settler: meter,
         },
@@ -703,4 +711,114 @@ async fn disabling_a_model_preserves_completed_same_key_recovery() {
     assert!(second_provider.recorded_requests().is_empty());
     first_provider.shutdown().await;
     second_provider.shutdown().await;
+}
+
+/// ~100 output tokens per whole 2Z, so a few 2Z of balance clamps a 1800-token
+/// request (free2z/zuu#1122).
+fn priced_catalog() -> f2z_ai::catalog::VerifiedCatalog {
+    let mut catalog = adapter_support::catalog(10_000).catalog().clone();
+    for model in &mut catalog.models {
+        model.prices.output_nusd_per_mtok = 100_000_000_000;
+    }
+    f2z_ai::catalog::VerifiedCatalog::from_verified(catalog).unwrap()
+}
+fn aha_request(strict: bool) -> Value {
+    json!({"model":"m-responses","max_output_tokens":1800,"max_output_tokens_strict":strict,
+        "messages":[{"role":"user","content":[{"type":"text","text":"teach me fractions"}]}]})
+}
+async fn post(r: &support::Running, path: &str, body: &Value) -> (StatusCode, Value) {
+    let mut req = axum::http::Request::post(path)
+        .header("host", "gateway")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(body.to_string()))
+        .unwrap();
+    req.headers_mut()
+        .insert("idempotency-key", "aha-lesson-1".parse().unwrap());
+    let response = support::send(r.public, req).await;
+    let status = response.status();
+    let text = support::text(response).await;
+    (
+        status,
+        serde_json::from_str(&text).unwrap_or(Value::String(text)),
+    )
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn strict_output_limit_is_refused_before_any_hold_charge_or_provider_request() {
+    let db = Arc::new(Database::new());
+    db.0.lock().unwrap().available = 5_000;
+    let (r, mock) = launch_catalog(db.clone(), Scenario::default(), None, priced_catalog()).await;
+
+    // The pre-check: the estimate reports the post-clamp limit.
+    let (status, estimate) = post(&r, "/v1/chat/estimate", &aha_request(false)).await;
+    assert_eq!(status, StatusCode::OK, "{estimate}");
+    let effective = estimate["max_output_tokens"].as_u64().unwrap();
+    assert!(effective < 1800, "{estimate}");
+    // A strict estimate answers with the refusal the call would get.
+    let (status, refused) = post(&r, "/v1/chat/estimate", &aha_request(true)).await;
+    assert_eq!(status, StatusCode::PAYMENT_REQUIRED, "{refused}");
+    assert_eq!(refused["error"]["code"], "insufficient_balance");
+    assert_eq!(
+        refused["error"]["details"]["reason"],
+        "max_output_tokens_strict"
+    );
+    assert!(
+        db.0.lock().unwrap().call.is_none(),
+        "an estimate creates no call"
+    );
+
+    let (status, refused) = post(&r, "/v1/chat", &aha_request(true)).await;
+    assert_eq!(status, StatusCode::PAYMENT_REQUIRED, "{refused}");
+    assert_eq!(refused["error"]["code"], "insufficient_balance");
+    assert_eq!(refused["error"]["details"]["max_output_tokens"], 1800);
+    assert!(refused["error"]["details"]["required_2z"].as_u64().unwrap() > 5);
+    final_state(&db).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert!(state.hold.is_none(), "no hold was taken");
+        assert_eq!(state.charges, 0);
+        assert_eq!(state.terminal, Some("released"));
+    }
+    assert_eq!(mock.request_count(), 0, "the provider was never called");
+    mock.shutdown().await;
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn without_strict_the_same_request_is_clamped_held_and_charged() {
+    // Negative control for the test above: identical balance and request,
+    // flag off — the #1122 behaviour, which stays the default.
+    let db = Arc::new(Database::new());
+    db.0.lock().unwrap().available = 5_000;
+    let (r, mock) = launch_catalog(db.clone(), Scenario::default(), None, priced_catalog()).await;
+    let (status, body) = post(&r, "/v1/chat", &aha_request(false)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let text = body.as_str().unwrap().to_owned();
+    let meta = text
+        .lines()
+        .skip_while(|l| *l != "event: meta")
+        .nth(1)
+        .and_then(|l| l.strip_prefix("data: "))
+        .unwrap();
+    let meta: Value = serde_json::from_str(meta).unwrap();
+    assert!(meta["max_output_tokens"].as_u64().unwrap() < 1800, "{meta}");
+    final_state(&db).await;
+    assert!(db.0.lock().unwrap().hold.is_some());
+    assert_eq!(db.0.lock().unwrap().charges, 1);
+    assert_eq!(mock.request_count(), 1);
+    mock.shutdown().await;
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn strict_output_limit_that_fits_runs_at_the_full_limit() {
+    let db = Arc::new(Database::new());
+    db.0.lock().unwrap().available = 1_000_000;
+    let (r, mock) = launch_catalog(db.clone(), Scenario::default(), None, priced_catalog()).await;
+    let (status, body) = post(&r, "/v1/chat", &aha_request(true)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        body.as_str()
+            .unwrap()
+            .contains("\"max_output_tokens\":1800"),
+        "{body}"
+    );
+    final_state(&db).await;
+    assert_eq!(db.0.lock().unwrap().charges, 1);
+    mock.shutdown().await;
 }

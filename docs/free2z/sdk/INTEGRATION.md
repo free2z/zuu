@@ -207,6 +207,8 @@ pub fn tutor_request(model: &str, prompt: &str) -> ChatRequest {
         }],
         tools: vec![],
         max_output_tokens: Some(400),
+        // true: refuse up front instead of running a shorter call (below).
+        max_output_tokens_strict: true,
         stream: true,
         metadata: Default::default(),
         fallback: vec![],
@@ -247,6 +249,61 @@ is a provisional hold, not a maximum charge. The gateway may extend holds; the
 user's account balance and consented cap are the spending bounds. Treat model
 output as untrusted text and validate any proposed tool invocation in the tutor.
 The gateway does not execute tools on the app's behalf.
+
+### Output that must not be truncated: `max_output_tokens_strict`
+
+By default `max_output_tokens` is a ceiling the gateway may **lower**: to the
+model's own `max_output_tokens`, to the context window left after the input,
+and — the one that surprises apps — to what the user's balance and this app's
+remaining budget can afford. A lowered call runs, ends with
+`finish_reason: "length"`, and **is charged**. If your app throws a
+length-truncated answer away (a lesson that must be whole, a JSON document that
+must parse), the user paid for nothing.
+
+Set `max_output_tokens_strict: true` (Rust `ChatRequest`, TS `ChatRequest`,
+Tauri guest `ChatRequest`) together with `max_output_tokens`. The gateway then
+either runs the call with exactly that output limit or refuses it **before any
+hold, charge or provider request**, with the code you already handle:
+
+| Would have been lowered by | Strict refusal | `details` |
+|---|---|---|
+| balance | `402 insufficient_balance` | `reason: "max_output_tokens_strict"`, `max_output_tokens`, `required_2z` (the hold the full output needs), `available_milli_2z`, `min_charge_2z` |
+| this app's budget (cap) | `403 cap_exceeded` | as above, plus `cap_remaining_milli_2z` |
+| context window | `400 context_length_exceeded` | `reason`, `max_output_tokens`, `input_tokens_estimate`, `context_window` |
+| model ceiling | `400 invalid_request` | `field: "max_output_tokens"`, `reason`, `model_max_output_tokens` |
+
+`max_output_tokens_strict` without `max_output_tokens` is
+`400 invalid_request` (`field: "max_output_tokens"`, `reason: "required"`).
+The default (`false`) is never sent on the wire, so a request that does not set
+it is byte-identical to one made before the field existed, and its
+idempotency fingerprint is unchanged. A gateway older than the field refuses it
+as an unknown field (`400 invalid_request`) rather than silently clamping.
+
+To tell the user *before* they press Generate, call `estimate` with the same
+request **without** the flag: `max_output_tokens` in the answer is the
+post-clamp limit the call would run with right now. If it is lower than you ask
+for, show "top up or raise this app's budget" instead of starting the call.
+An estimate is a snapshot — balance and budget can change before the call — so
+keep the flag on the call itself; the estimate is for the UI, the flag is the
+guarantee. (An estimate **with** the flag answers with the same refusal the
+call would.)
+
+```ts
+const request: ChatRequest = { model, messages, max_output_tokens: 1800n };
+const estimate = await client.estimate(request);
+if (estimate.max_output_tokens < request.max_output_tokens!) {
+  // Would be truncated: offer a purchase / budget change instead of calling.
+}
+const stream = await client.chat(
+  { ...request, max_output_tokens_strict: true },
+  { idempotencyKey, operationId },
+);
+// insufficient_balance / cap_exceeded here cost nothing and ran nothing.
+```
+
+A strict call can still end with `length` if the model itself uses every
+token you allowed — that is your limit, not the gateway's, and is charged
+like any other completed call.
 
 ### Balance precision and purchase completion
 

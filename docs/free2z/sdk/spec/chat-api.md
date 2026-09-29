@@ -74,6 +74,7 @@ checked by each terminal type's `check()`.
 | `messages[].tool_call_id` | string | Required on a `tool` message |
 | `tools` | array | Function tools, each `{name, description?, parameters}` with `parameters` a JSON Schema object. Tools or tool-result history on a model without `capabilities.tools` → `400 invalid_request`. The gateway **never executes a tool**: it relays the model's call to the client and the client's result back on the next request. Provider-hosted tools (web search, code execution, file search) are not available on this endpoint in v1 ([ADR 0003](../../ai-gateway/adr/0003-unified-api-before-passthrough.md)) |
 | `max_output_tokens` | integer | 1 … the model's `max_output_tokens`, which is also the default when omitted. It bounds **total** generated tokens, reasoning included. The gateway may **clamp** it lower for affordability (§2.2) and never raises it; the effective value is reported in `meta` |
+| `max_output_tokens_strict` | boolean | Default `false` (and omitted). `true` makes `max_output_tokens` a requirement: wherever §2.2 would lower it — the model's ceiling, the context window, the balance or the grant's cap — the request is refused before any hold, charge or provider request (`400 invalid_request`, `400 context_length_exceeded`, `402 insufficient_balance`, `403 cap_exceeded`, each with `details.reason: "max_output_tokens_strict"`). Requires `max_output_tokens` (`400 invalid_request`, `reason: "required"`). For an app that discards a length-truncated answer ([INTEGRATION.md](../INTEGRATION.md)) |
 | `stream` | boolean | Default `true`. `false` returns one JSON document (§4) |
 | `fallback` | array of model ids | Opt-in, **ordered**: tried in order, at most once each. If the current model fails with a provider-side error **before the gateway has committed to it** — that is, before its first content event, which is also when `meta` is sent (§3.2) — the gateway releases that attempt's hold, takes a new hold at the next model's price, and tries it; a hold it cannot take ends the call with that code ([metering.md](./metering.md) §5.7). Never after `meta`. The model actually used is in `meta` |
 | `metadata` | object | Up to 16 string keys, each key ≤ 64 and value ≤ 256 characters. Stored with the call record and returned by `GET /v1/calls/{id}`; never sent to a provider |
@@ -110,7 +111,10 @@ received `meta` knows every step passed.
    worst-case price fits the user's available balance *and* the grant's
    remaining cap ([metering.md](./metering.md) §4). If even the model's
    minimum charge is unaffordable → `402 insufficient_balance` or
-   `403 cap_exceeded`.
+   `403 cap_exceeded`. With `max_output_tokens_strict`, there is no clamp:
+   `out_cap` must equal `max_output_tokens`, or the request is refused here
+   with the code of whichever bound was short (§2.1) and
+   `details.reason: "max_output_tokens_strict"`.
 6. **Hold.** The ledger reserves the worst-case price for `out_cap`. The
    ledger's own answer decides: `402`, `403 cap_exceeded`,
    `403 account_frozen`, `403 account_in_debt`, `409 too_many_holds`.
@@ -596,7 +600,10 @@ would** — `401`, `403 insufficient_scope`, `429`, `404`,
 `402 insufficient_balance` or `403 cap_exceeded` with the same `details`
 (`available_milli_2z`, `required_2z`, `cap_remaining_milli_2z`, …) — so an
 app that handles `/v1/chat`'s errors handles the estimate's with the same
-code, and can show "you need N more 2Z" from `details`. An estimate is not
+code, and can show "you need N more 2Z" from `details`. An app that must not
+run a shortened call compares the answer's `max_output_tokens` with the one it
+asked for, and sends the call itself with `max_output_tokens_strict` so that a
+balance change between the two cannot shorten it either. An estimate is not
 a quotation: the price is the catalogue's at call time.
 
 ## 7. `GET /v1/calls/{id}`

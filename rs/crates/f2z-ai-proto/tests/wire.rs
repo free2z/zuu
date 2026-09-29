@@ -70,6 +70,34 @@ fn a_full_request_parses() {
 }
 
 #[test]
+fn strict_output_tokens_is_opt_in_and_pinned() {
+    // Absent and `false` are the same request, and neither puts the flag on
+    // the wire: a pre-#1122 request keeps its bytes, and so its idempotency
+    // fingerprint.
+    let base = r#"{"model":"m","messages":[],"max_output_tokens":1800,"stream":true}"#;
+    let absent: ChatRequest = serde_json::from_str(base).unwrap();
+    assert!(!absent.max_output_tokens_strict);
+    assert_eq!(serde_json::to_string(&absent).unwrap(), base);
+    let off: ChatRequest = serde_json::from_str(
+        r#"{"model":"m","messages":[],"max_output_tokens":1800,"max_output_tokens_strict":false}"#,
+    )
+    .unwrap();
+    assert_eq!(off, absent);
+
+    let strict = r#"{"model":"m","messages":[],"max_output_tokens":1800,"max_output_tokens_strict":true,"stream":true}"#;
+    let on: ChatRequest = serde_json::from_str(strict).unwrap();
+    assert!(on.max_output_tokens_strict);
+    assert_eq!(serde_json::to_string(&on).unwrap(), strict);
+    // A string or number is refused, not coerced.
+    for bad in [
+        r#"{"model":"m","messages":[],"max_output_tokens_strict":"true"}"#,
+        r#"{"model":"m","messages":[],"max_output_tokens_strict":1}"#,
+    ] {
+        assert!(serde_json::from_str::<ChatRequest>(bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
 fn requests_are_strict() {
     for bad in [
         // misspelt cap: must not be silently ignored

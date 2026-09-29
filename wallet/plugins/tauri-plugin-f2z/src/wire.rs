@@ -303,6 +303,25 @@ pub fn chat_request(mut input: Value) -> Result<f2z_sdk::proto::ChatRequest> {
 mod tests {
     use super::*;
     #[test]
+    fn strict_output_flag_passes_through_as_a_boolean_only() {
+        let base = json!({"model":"m","messages":[],"max_output_tokens":"1800"});
+        let plain = chat_request(base.clone()).unwrap();
+        assert!(!plain.max_output_tokens_strict);
+        assert!(
+            !serde_json::to_string(&plain)
+                .unwrap()
+                .contains("max_output_tokens_strict")
+        );
+        let mut strict = base.clone();
+        strict["max_output_tokens_strict"] = json!(true);
+        let strict = chat_request(strict).unwrap();
+        assert!(strict.max_output_tokens_strict);
+        assert_eq!(strict.max_output_tokens, Some(1800));
+        let mut bad = base;
+        bad["max_output_tokens_strict"] = json!("true");
+        assert!(chat_request(bad).is_err());
+    }
+    #[test]
     fn integers_are_lossless_and_strict() {
         assert_eq!(value(&u64::MAX).unwrap(), json!("18446744073709551615"));
         for bad in ["01", "-1", "1.0", "", "18446744073709551616"] {

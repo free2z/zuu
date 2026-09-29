@@ -843,6 +843,13 @@ pub fn validate(request: &ChatRequest) -> Result<(), ApiFailure> {
             "max_output_tokens must be at least 1",
         ));
     }
+    if request.max_output_tokens_strict && request.max_output_tokens.is_none() {
+        return Err(invalid(
+            "max_output_tokens",
+            "required",
+            "max_output_tokens_strict requires max_output_tokens",
+        ));
+    }
     if request.fallback.iter().any(String::is_empty) {
         return Err(invalid("fallback", "empty", "a fallback model id is empty"));
     }
@@ -927,6 +934,10 @@ mod tests {
             (
                 json!({"model": "m", "tools": [{"name": "f", "parameters": []}], "messages": [{"role": "user", "content": []}]}),
                 "tools[0].parameters",
+            ),
+            (
+                json!({"model": "m", "max_output_tokens_strict": true, "messages": [{"role": "user", "content": []}]}),
+                "max_output_tokens",
             ),
         ];
         for (value, field) in cases {

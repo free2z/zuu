@@ -27,7 +27,7 @@ use secrecy::SecretString;
 use super::openai_chat::UsageConvention;
 use super::resilience::{BreakerPolicy, CircuitBreaker, RetryBudget, RetryPolicy};
 use super::upstream::{Prepared, ProviderUpstream};
-use super::{client, for_style, output_cap};
+use super::{client, for_style, output_cap, strict_model_ceiling};
 use crate::admission::CallHandle;
 use crate::call::Upstream;
 use crate::catalog::VerifiedCatalog;
@@ -214,6 +214,7 @@ impl ProviderBackend {
         };
         let handle = self.providers.get(&model.provider).ok_or_else(disabled)?;
         let adapter = for_style(model.api_style, handle.chat_usage).ok_or_else(disabled)?;
+        strict_model_ceiling(request, model)?;
         let body = adapter.body(request, model, output_cap(request, model))?;
         let body = serde_json::to_vec(&body).map_err(|_| {
             ApiFailure::new(

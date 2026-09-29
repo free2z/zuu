@@ -7,7 +7,7 @@ import {
   type ErrorContext,
 } from "./error.js";
 import { identifier, key, withOperation } from "./http.js";
-import { object, string, uint } from "./json.js";
+import { object, strictOutput, string, uint } from "./json.js";
 import type {
   ChatOptions,
   ChatRequest,
@@ -89,7 +89,7 @@ function parameters(value: unknown, depth = 0): NativeJson {
   return result;
 }
 function request(value: ChatRequest): NativeChatRequest {
-  const { max_output_tokens, tools, ...rest } = value;
+  const { max_output_tokens, tools, ...rest } = strictOutput(value);
   const result: NativeChatRequest = { ...rest };
   if (max_output_tokens !== undefined)
     result.max_output_tokens = uint(max_output_tokens).toString();
@@ -261,6 +261,9 @@ export class NativeTransport implements Transport {
     key(options.idempotencyKey);
     identifier(options.operationId);
     cancelled(options.signal);
+    // Convert (and so validate) before any bridge call: a request refused
+    // locally never reaches native, so there is no operation to cancel.
+    const wire = request(value);
     const bridge = this.bridge,
       owner = this,
       epoch = this.#epoch;
@@ -289,7 +292,7 @@ export class NativeTransport implements Transport {
       // Keep observing start after caller cancellation so the registered stream
       // is also closed if cancellation reached native before registration did.
       const pending = invoke(() =>
-        bridge.startChat(request(value), {
+        bridge.startChat(wire, {
           operationId: options.operationId,
           idempotencyKey: options.idempotencyKey,
         }),

@@ -358,6 +358,9 @@ pub const PRE_CALL_DETAILS: &[&str] = &[
     "rail",
     "status",
     "purchase_id",
+    // `max_output_tokens_strict` refusals (free2z/zuu#1122).
+    "max_output_tokens",
+    "model_max_output_tokens",
 ];
 
 /// The settlement of a non-streamed call that failed: the typed form of a
