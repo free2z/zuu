@@ -860,10 +860,10 @@ function TipButton({
 
   // ZUULI hands this to `/wallet/send/creator-tip`. This surface has no wallet
   // route and no signer, so it builds the `execute-payment` intent (#790, #905)
-  // and hands it to the ONE transport seam — which refuses, because #461
-  // (verified App Links / Universal Links) has not landed and a custom scheme
-  // is not an authenticated channel. Three outcomes, three different things
-  // said, and a txid only ever from `kind === "sent"`: this surface must never
+  // and hands it to the ONE transport seam — the verified App Link to ZUULI in
+  // the iOS and Android apps, and a refusal on desktop and in a browser, where
+  // no association exists. Every outcome maps to its own copy in `tip-copy.ts`,
+  // and a txid only ever comes from `kind === "sent"`: this surface must never
   // claim a payment it cannot show a correlated response for.
   async function continueWithZec() {
     if (!canSendZec || zatoshis === null) return;

@@ -219,9 +219,10 @@ person approving it, so shipping it first because it "only signs" is backwards.
 ## 6. What is not built yet
 
 Read [`status.md`](./status.md) rather than inferring from this page. In short:
-there is **no transport** ([#905](https://github.com/free2z/zuu/issues/905));
-#461 closed after client association declarations landed, without implementing
-the channel.
+the transport is a verified App Link on iOS and Android only — e2e2z carries
+the credential families over it and free2z the creator ZEC tip — and it has not
+yet been observed on a signed device
+([#905](https://github.com/free2z/zuu/issues/905)).
 `sign-challenge` has neither a caller nor an authority-side implementation.
 Both credential families now have both halves — e2e2z asks over the App Link
 transport and ZUULI answers, and version 2 also publishes the device in the

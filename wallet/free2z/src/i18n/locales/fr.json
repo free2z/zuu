@@ -102,7 +102,7 @@
     },
     "zecTip": {
       "blocked": {
-        "body": "free2z a préparé une demande de {amount} pour {creator} et ne détient aucune clé pour la signer. Le lien vérifié vers ZUULI n'existe pas encore, donc rien n'a été envoyé.",
+        "body": "free2z a préparé une demande de {amount} pour {creator} et ne détient aucune clé pour la signer. Le lien vérifié vers ZUULI n'existe que dans les apps iOS et Android, donc rien n'a été envoyé depuis ici.",
         "title": "Les pourboires en ZEC se signent dans ZUULI"
       },
       "declined": {

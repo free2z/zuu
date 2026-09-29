@@ -47,11 +47,11 @@ is obsolete.
 
 ## 2. What fails closed, by design
 
-### 2.1 One transport dispatches; Free2Z's still refuses
+### 2.1 Both transports dispatch in a native mobile runtime, and refuse elsewhere
 
 | Caller | Shipping seam | Behavior |
 | --- | --- | --- |
-| Free2Z | `wallet/free2z/src/lib/bridge/intent-transport.ts` → `installedIntentTransport` | Rejects with `IntentTransportUnavailableError`; no intent is sent |
+| Free2Z | `wallet/free2z/src/lib/bridge/intent-transport.ts` → `installedIntentTransport()` → `appLinkTransport.ts` on iOS/Android | **Dispatches** `execute-payment` (the creator ZEC tip) over a verified App Link. On desktop and in a browser it rejects with `IntentTransportUnavailableError` and no intent is sent |
 | E2E2Z | `wallet/e2e2z/src/lib/enrollment/transport.ts` → `appLinkTransport.ts` in a native runtime | **Dispatches** `issue-device-credential-v2` over a verified App Link. In a browser nothing is installed and the default refuses |
 
 Client App Link/Universal Link declarations landed in
@@ -60,9 +60,11 @@ Client App Link/Universal Link declarations landed in
 them: one module installs it, `scripts/authority-boundary.node-test.mjs` allows
 exactly one, and the two independent guards (`available`, checked before device
 keys are sampled, and an unconditional refusal in `dispatch`) still stand for
-every runtime that gets no transport. Free2Z's seam is unchanged and its
-refusal still names [#461](https://github.com/free2z/zuu/issues/461)
-historically. Remaining bridge work is tracked by
+every runtime that gets no transport. Free2Z's transport follows the same
+shape for [#790](https://github.com/free2z/zuu/issues/790), opening the link
+through `tauri-plugin-opener` because free2z registers no `invoke_handler`, and
+reports any failure after the link opens as an unknown outcome rather than as
+"nothing was sent". Remaining bridge work is tracked by
 [#905](https://github.com/free2z/zuu/issues/905).
 
 **No dispatch has been observed on a device.** A verified App Link is only a
