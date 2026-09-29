@@ -114,7 +114,9 @@ received `meta` knows every step passed.
    `403 cap_exceeded`. With `max_output_tokens_strict`, there is no clamp:
    `out_cap` must equal `max_output_tokens`, or the request is refused here
    with the code of whichever bound was short (§2.1) and
-   `details.reason: "max_output_tokens_strict"`.
+   `details.reason: "max_output_tokens_strict"`. Affordability is judged
+   at the grant's consented markup — the most step 6 can apply — so the
+   hold never needs an extension the balance cannot cover.
 6. **Hold.** The ledger reserves the worst-case price for `out_cap`. The
    ledger's own answer decides: `402`, `403 cap_exceeded`,
    `403 account_frozen`, `403 account_in_debt`, `409 too_many_holds`.

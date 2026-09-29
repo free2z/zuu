@@ -267,7 +267,7 @@ hold, charge or provider request**, with the code you already handle:
 
 | Would have been lowered by | Strict refusal | `details` |
 |---|---|---|
-| balance | `402 insufficient_balance` | `reason: "max_output_tokens_strict"`, `max_output_tokens`, `required_2z` (the hold the full output needs), `available_milli_2z`, `min_charge_2z` |
+| balance | `402 insufficient_balance` | `reason: "max_output_tokens_strict"`, `max_output_tokens`, `required_2z` (the worst case of the full output at the grant's consented markup), `available_milli_2z`, `min_charge_2z` |
 | this app's budget (cap) | `403 cap_exceeded` | as above, plus `cap_remaining_milli_2z` |
 | context window | `400 context_length_exceeded` | `reason`, `max_output_tokens`, `input_tokens_estimate`, `context_window` |
 | model ceiling | `400 invalid_request` | `field: "max_output_tokens"`, `reason`, `model_max_output_tokens` |
@@ -300,6 +300,13 @@ const stream = await client.chat(
 );
 // insufficient_balance / cap_exceeded here cost nothing and ran nothing.
 ```
+
+Affordability for a strict call is judged at the markup the user consented
+to, the most the ledger can apply when it takes the hold, so an approval
+landing mid-admission cannot turn an admitted strict call into a refusal after
+money was reserved. When the app's effective markup is below the consented one,
+a strict call can therefore be refused slightly earlier than an estimate
+suggests; the hold itself is still priced at the markup actually applied.
 
 A strict call can still end with `length` if the model itself uses every
 token you allowed — that is your limit, not the gateway's, and is charged
