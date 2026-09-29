@@ -390,7 +390,12 @@ from `collected_milli_2z` actually taken.
 Optional app budgets belong to the Free2Z user. The developer may suggest a
 budget for a new grant but cannot raise the user's consent. Use `client.grant()`
 (or Rust `Client::grant`) for the original limit/period and explicit enforcement;
-remaining balance or an estimate cannot prove that policy. Re-read grant and
+remaining balance or an estimate cannot prove that policy. When `enforced` is
+false, `enforcement_reason` (optional; absent from older servers) says why:
+`platform_disabled` or `ledger_cutover_pending` are Free2Z-side rollout states
+the user cannot fix, while `ledger_cap_pending` is specific to this grant; see
+[the grant contract](./spec/grant.md). Gate paid work on `enforced` alone and
+use the reason only for messaging. Re-read grant and
 balance after account management. See [the concrete budget recovery flow](./SOURCE-PREVIEW.md#user-owned-budgets-and-recovery).
 
 Same-key recovery must use the identical request body, same app and same user.
