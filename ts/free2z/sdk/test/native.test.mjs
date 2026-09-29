@@ -339,3 +339,32 @@ test("native adapter forwards max_output_tokens_strict only when true", async ()
   );
   assert.equal(seen.length, before);
 });
+test("native sign-in forwards a spend-cap hint as decimal strings, only when given", async () => {
+  const sent = [];
+  const client = new NativeTransport(
+    bridge({
+      signIn: async (options) => {
+        sent.push(options);
+        return {
+          signedIn: true,
+          subject: "alice",
+          grantedScopes: [],
+          persistence: "persistent",
+          generation: "2",
+        };
+      },
+    }),
+  );
+  await client.signIn();
+  await client.signIn({ spendCap: { cap2z: 500n, period: "total" } });
+  await client.signIn({ prompt: "consent", spendCap: { cap2z: 9n } });
+  assert.deepEqual(sent, [
+    {},
+    { spendCap: "500", spendPeriod: "total" },
+    { prompt: "consent", spendCap: "9" },
+  ]);
+  await assert.rejects(client.signIn({ spendCap: { cap2z: -1n } }), {
+    code: "invalid_request",
+  });
+  assert.equal(sent.length, 3);
+});

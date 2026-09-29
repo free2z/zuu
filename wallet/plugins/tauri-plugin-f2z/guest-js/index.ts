@@ -37,6 +37,15 @@ export interface SignInOptions {
   acrValues?: string;
   loginHint?: string;
   uiLocales?: string;
+  /**
+   * A SUGGESTED spend cap for `ai:invoke`, whole 2Z as a decimal string.
+   * The consent screen may pre-select it after clamping it
+   * to the registration's default and the user's existing grant; nothing is
+   * granted unless the user confirms. Read the result from `grant()`.
+   */
+  spendCap?: Decimal;
+  /** The period of `spendCap`; absent keeps the screen's own. */
+  spendPeriod?: 'day' | 'week' | 'month' | 'total';
 }
 export interface Balance {
   available_milli_2z: Decimal;

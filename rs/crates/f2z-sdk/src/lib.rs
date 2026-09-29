@@ -84,7 +84,7 @@ pub use error::{ApiError, Error, OAuthError, SignedOutReason, StepUp, TransportE
 #[cfg(feature = "keyring")]
 pub use keychain::KeyringStore;
 pub use keychain::{MemoryStore, Persistence, StoreError, TokenStore};
-pub use oauth::{SignInOptions, SignedIn};
+pub use oauth::{CapPeriod, SignInOptions, SignedIn, SpendCapHint};
 pub use secret::Secret;
 
 /// The gateway's wire types, re-exported so an app depends on one crate.

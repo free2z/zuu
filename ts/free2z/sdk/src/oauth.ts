@@ -8,6 +8,7 @@ import {
   waitWithSignal,
 } from "./error.js";
 import { deadline, readBytes, secureUrl } from "./http.js";
+import { spendCapParams } from "./spend-cap.js";
 import type { Session, SignInOptions } from "./types.js";
 
 export const DEFAULT_SCOPES = [
@@ -270,6 +271,9 @@ export class WebSession {
           failure("invalid_request");
         url.searchParams.set("max_age", String(options.maxAge));
       }
+      if (options.spendCap !== undefined)
+        for (const [k, v] of Object.entries(spendCapParams(options.spendCap)))
+          url.searchParams.set(k, v);
       const callback = new URL(
         await attempt.authorize(url.href, this.redirect.href, options.signal),
       );

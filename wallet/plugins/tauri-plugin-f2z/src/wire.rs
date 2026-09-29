@@ -234,6 +234,10 @@ pub struct SignInOptions {
     pub acr_values: Option<String>,
     pub login_hint: Option<String>,
     pub ui_locales: Option<String>,
+    /// Whole 2Z as a decimal string.
+    pub spend_cap: Option<String>,
+    /// `day` | `week` | `month` | `total`; only with `spend_cap`.
+    pub spend_period: Option<String>,
 }
 impl SignInOptions {
     pub fn into_core(self) -> Result<f2z_sdk::SignInOptions> {
@@ -249,6 +253,25 @@ impl SignInOptions {
         out.acr_values = self.acr_values;
         out.login_hint = self.login_hint;
         out.ui_locales = self.ui_locales;
+        out.spend_cap = match (self.spend_cap.as_deref(), self.spend_period.as_deref()) {
+            (None, None) => None,
+            (None, Some(_)) => return Err(NativeError::new("invalid_request")),
+            (Some(cap), period) => {
+                let cap = decimal(cap)?;
+                if cap == 0 || cap > f2z_sdk::oauth::MAX_SPEND_CAP_HINT_2Z {
+                    return Err(NativeError::new("invalid_request"));
+                }
+                let hint = f2z_sdk::SpendCapHint::new(cap);
+                match period {
+                    None => Some(hint),
+                    Some("day") => Some(hint.with_period(f2z_sdk::CapPeriod::Day)),
+                    Some("week") => Some(hint.with_period(f2z_sdk::CapPeriod::Week)),
+                    Some("month") => Some(hint.with_period(f2z_sdk::CapPeriod::Month)),
+                    Some("total") => Some(hint.with_period(f2z_sdk::CapPeriod::Total)),
+                    Some(_) => return Err(NativeError::new("invalid_request")),
+                }
+            }
+        };
         Ok(out)
     }
 }
@@ -387,6 +410,30 @@ mod tests {
         let value = purchase(&zcash).unwrap();
         assert_eq!(value["rail_data"]["amount_zat"], "18446744073709551615");
         assert!(!value.to_string().contains("SECRET"));
+    }
+    #[test]
+    fn sign_in_spend_cap_hint_is_optional_and_strict() {
+        let parse = |v: Value| {
+            serde_json::from_value::<SignInOptions>(v)
+                .unwrap()
+                .into_core()
+        };
+        assert_eq!(parse(json!({})).unwrap().spend_cap, None);
+        let total = parse(json!({"spendCap":"500","spendPeriod":"total"})).unwrap();
+        assert_eq!(total.spend_cap, Some(f2z_sdk::SpendCapHint::total(500)));
+        let bare = parse(json!({"spendCap":"7"})).unwrap();
+        assert_eq!(bare.spend_cap, Some(f2z_sdk::SpendCapHint::new(7)));
+        for bad in [
+            json!({"spendCap":"0"}),
+            json!({"spendCap":"2147483648"}),
+            json!({"spendCap":"01"}),
+            json!({"spendCap":"5","spendPeriod":"year"}),
+            json!({"spendPeriod":"total"}),
+        ] {
+            assert!(parse(bad).is_err());
+        }
+        // An older guest that knows nothing of the hint is unaffected.
+        assert!(parse(json!({"prompt":"consent","maxAge":"0"})).is_ok());
     }
     #[test]
     fn raw_errors_never_cross_ipc() {
