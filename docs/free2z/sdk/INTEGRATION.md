@@ -89,6 +89,54 @@ Request `openid profile offline_access balance:read purchase:create ai:invoke`
 decline permissions. Do not enable purchase or AI actions merely because the
 app asked for them. `client_id` is public configuration.
 
+### A per-user spending budget
+
+An app that should only spend within a budget sets one on its registration
+(`default_spend_cap_2z` plus `default_cap_period`, which may be `total`: never
+resets). The consent screen pre-selects it for each user, per user and not as
+a shared quota; the user may change, lower or remove it. A sign-in may also
+**suggest** a cap:
+
+```ts
+// TypeScript (@free2z/sdk, web or Tauri)
+await client.signIn({ spendCap: { cap2z: 500n, period: "total" } });
+const grant = await client.grant(); // the policy the user actually chose
+```
+
+```rust
+// Rust (f2z-sdk)
+use f2z_sdk::{SignInOptions, SpendCapHint};
+client.sign_in(&browser, SignInOptions::default().with_spend_cap(SpendCapHint::total(500))).await?;
+```
+
+The Tauri guest API takes `spendCap: "500", spendPeriod: "total"` (decimal
+strings). The hint is sent as `f2z_spend_cap` / `f2z_spend_period` and is only
+a pre-selection. Only its amount is ever lowered, to fit the registration's
+default and the user's existing grant. When either is capped, the hint must
+use that period or it is ignored, so a hint for `total` against a `month`
+default, or against a user's `month` grant, does nothing. Nothing is granted
+unless the user confirms it, and a sign-in that shows no consent screen
+ignores it. See
+[§5.1 of the OIDC spec](./spec/oidc.md#51-a-sign-ins-suggested-cap-f2z_spend_cap).
+If the app requires a policy (for example, an enforced `total` cap no higher
+than some amount), register that default, optionally suggest it at sign-in,
+and **verify it from `grant()`** before spending — the user may have chosen
+otherwise, and an existing grant keeps its own period. Direct users whose
+grant does not qualify to [manage this app's budget](https://free2z.cash/account/apps)
+or sign in again with `prompt: "consent"`.
+
+**Version requirement.** The spend-cap hint is newer than the preview commit
+pinned above (`534d2a58`), which does not have `spendCap`, `with_spend_cap` or
+the plugin's `spendCap` / `spendPeriod`. Using it means moving the pin to a
+commit that includes it, and a Tauri app must move **all three together**: the
+TypeScript SDK (`@free2z/sdk`), the plugin's guest API
+(`@free2z/tauri-plugin-f2z-api`) and the Rust plugin crate
+(`tauri-plugin-f2z`, which brings `f2z-sdk`). A newer TypeScript SDK or guest
+API talking to an older Rust plugin is refused as an unknown sign-in option,
+not silently ignored. Apps that do not pass the hint are unaffected on either
+pin: the options are additive and optional, and a sign-in without them sends
+exactly the parameters it did before.
+
 Desktop uses a registered `http://127.0.0.1:<port>/callback` redirect, with a
 random listener port and the registration's exact path. `localhost` is not the
 loopback profile. For iOS and Android, use the native plugin's platform authentication browser

@@ -47,10 +47,26 @@ export interface Session {
   persistence: "persistent" | "memory_only";
   generation: string;
 }
+export type CapPeriod = "day" | "week" | "month" | "total";
+/**
+ * A spend cap the app SUGGESTS for `ai:invoke` (`f2z_spend_cap` /
+ * `f2z_spend_period`). The consent screen may pre-select
+ * it after clamping it to the app registration's default and to the user's
+ * existing grant (and never changes a capped grant's period). Nothing is
+ * granted unless the user confirms it; read the result from `grant()`.
+ */
+export interface SpendCapHint {
+  /** Whole 2Z, 1..2147483647. */
+  cap2z: bigint;
+  /** Absent: the period the screen would have pre-selected. */
+  period?: CapPeriod;
+}
 export interface SignInOptions {
   prompt?: "login" | "consent" | "none";
   maxAge?: number;
   acrValues?: string;
+  /** Optional, additive: see {@link SpendCapHint}. */
+  spendCap?: SpendCapHint;
   signal?: AbortSignal;
 }
 export interface ToolCall {

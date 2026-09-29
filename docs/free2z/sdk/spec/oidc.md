@@ -127,7 +127,7 @@ an amount and a period.
 
 | Field | Values |
 |---|---|
-| `spend_cap_2z` | A whole number of 2Z, or `null` for no extra application budget. The user chooses. A new grant starts with the developer's optional `default_spend_cap_2z` suggestion, without a forced platform amount or clamp; an unset suggestion means prepaid balance with no extra application budget (`null`, period `month`). The user may change or remove the suggestion. For any existing grant, including an identity-only grant upgraded to AI, the pre-selection preserves its **existing** amount and period; raising or removing a limit requires step-up (§10) |
+| `spend_cap_2z` | A whole number of 2Z, or `null` for no extra application budget. The user chooses. A new grant starts with the developer's optional `default_spend_cap_2z` suggestion, without a forced platform amount or clamp; an unset suggestion means prepaid balance with no extra application budget (`null`, period `month`). The user may change or remove the suggestion. When the user has a previous grant for the app, **live or revoked** (revoking does not reset the ledger's spend window), and it made an AI spending decision (it carries `ai:invoke` or a cap), the pre-selection is that grant's amount and period. A grant that never did (identity-only, no cap) is not a baseline, and the app's default is pre-selected instead. A request's `f2z_spend_cap` hint (§5.1) may replace the pre-selection only by a **lower amount at the same period** as a capped registration default and a capped baseline grant; otherwise it is ignored. Changing the pre-selected cap in a way that is a raise over the baseline grant (below) requires step-up (§10) |
 | `cap_period` | `day`, `week`, `month` or `total`. Periods are calendar-aligned in UTC (`day` resets at 00:00Z; `week` on Monday 00:00Z; `month` on the 1st). `total` is non-resetting for the current grant policy |
 
 A first authorization of `ai:invoke` requires an explicit integer-or-null
@@ -136,6 +136,36 @@ authorization after revocation. Omitting that decision must not silently grant
 uncapped AI access. `null` does not waive prepaid balance, debt checks, holds,
 settlement or service capacity limits. Developer suggestions are per user;
 changing a suggestion never rewrites existing grants.
+
+### 5.1 A sign-in's suggested cap (`f2z_spend_cap`)
+
+An authorization request may carry `f2z_spend_cap` / `f2z_spend_period`
+(§9.2). It only changes what the consent screen **pre-selects**, and only
+its **amount** is ever clamped. Two ceilings apply:
+
+1. The registration's `default_spend_cap_2z` / `default_cap_period`. A
+   capped default fixes the period and bounds the amount. No registered
+   default (`null`) bounds nothing, since any cap is lower.
+2. The user's last grant for the app, live or revoked, when it made an AI
+   spending decision (it carries `ai:invoke` or a cap). A capped grant fixes
+   the period and bounds the amount; an uncapped one bounds nothing.
+
+A hint whose period differs from a capped ceiling's is **ignored**, never
+rewritten: any period change on a capped grant is a raise (§10), because a
+new period starts a new spend window in the ledger, so "100 a month" → "100
+in total" would refill an allowance already spent this month. An applied hint
+is therefore never a raise over the grant, never needs step-up, and never
+exceeds or re-periods the registration's default.
+Absent a period, the hint keeps the period the screen would otherwise have
+pre-selected. Nothing is recorded from the URL: the grant is what the user
+confirms in the consent POST, and the user may change or remove it. A silent
+authorization (no consent screen) ignores the hint; send `prompt=consent` to
+ask again. Loopback and private-use-scheme clients requesting `ai:invoke`
+always see the screen. The consent step reports `spend_cap_source`
+(`grant`, `app`, `platform` or `request`) and `current_spend_cap`, and
+offers the user's current budget beside an applied suggestion. An app
+that requires a particular policy must read it back from the grant endpoint,
+never assume the hint was applied.
 
 For a **loopback or private-use-scheme client** (§3) the consent screen is
 never skipped when the grant would carry `ai:invoke`, `purchase:create` or
@@ -161,14 +191,24 @@ revoke every grant at `https://free2z.cash/account/apps`:
 - **Lowering** a cap or **reducing** scopes takes effect immediately: the cap
   is enforced inside the ledger's hold ([metering.md](./metering.md) §3) and
   scope reduction increments the grant's **generation** (`agen`, §6.3).
-- **Raising** a cap — at `/account/apps` or on a re-consent — requires a
+- **Raising** a cap — at `/account/apps` or on a re-consent, judged
+  against the user's last grant for the app, live or revoked — requires a
   recent authentication (step-up, §10). A change is a raise whenever it
-  can increase what the app may spend in *any* future window: a higher
-  amount, a **shorter** period at the same amount (100 2Z per day is more
-  than 100 2Z per month), or removing the cap. Only a change that lowers
-  the amount **and** does not shorten the period (`total` counts as the
-  longest) is a lowering. A raise takes effect immediately and does not
-  change `agen`.
+  can increase what the app may spend in *any* window, the current one
+  included. The ledger counts spend per period window, and a new period
+  starts an empty one. So on a capped grant:
+  - **any period change is a raise**, whichever way the periods rank and
+    even when the amount goes down (100 2Z per month → 50 2Z in total makes
+    50 spendable at once, even if this month's 100 is already spent);
+  - the same period with a higher amount is a raise, and so is removing
+    the cap;
+  - the same period with an equal or lower amount is a lowering;
+  - a cap of `0` is never a raise, since it admits no spend in any window.
+    Going from `0` to any positive amount is a raise.
+
+  From an **uncapped** grant, adding any cap, at any period, is a lowering:
+  there is no window to reset. A raise takes effect immediately and does
+  not change `agen`.
 - **Revoking** increments `agen` and deletes every refresh token of the
   grant. The next request with any older access token fails with
   `401 token_revoked`.
@@ -387,6 +427,11 @@ Rules:
   `acr_values`, `login_hint`, `ui_locales`. `prompt=none` cannot obtain
   `ai:invoke`, `purchase:create` or `offline_access` for a loopback or
   private-use-scheme client (§5).
+- Optional, Free2Z-specific: `f2z_spend_cap` (a whole number of 2Z, 1 to
+  2147483647) and `f2z_spend_period` (`day`, `week`, `month` or `total`; only
+  with `f2z_spend_cap`) — a **suggested** spend cap for the consent screen
+  (§5.1). An unusable value is ignored as if it had not been sent, never an
+  error.
 - The authorization code is single-use and expires after **60 seconds**.
 
 ### 9.3 Authorization response

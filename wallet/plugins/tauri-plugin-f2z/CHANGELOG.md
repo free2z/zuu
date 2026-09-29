@@ -9,3 +9,5 @@
 - `ChatRequest.max_output_tokens_strict` passes through to the gateway
   (free2z/zuu#1122): refuse before any hold or charge instead of lowering
   `max_output_tokens`.
+- `signIn({ spendCap, spendPeriod })`: an optional, additive suggested spend
+  cap for the consent screen.

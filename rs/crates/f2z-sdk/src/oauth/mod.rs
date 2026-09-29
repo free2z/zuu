@@ -135,6 +135,80 @@ impl Prompt {
     }
 }
 
+/// The period a spend cap counts over (spec §5): calendar-aligned in UTC;
+/// [`CapPeriod::Total`] never resets.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CapPeriod {
+    /// Per UTC day.
+    Day,
+    /// Per UTC week.
+    Week,
+    /// Per UTC calendar month.
+    Month,
+    /// In total, for the life of the grant.
+    Total,
+}
+
+impl CapPeriod {
+    /// The wire spelling.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Day => "day",
+            Self::Week => "week",
+            Self::Month => "month",
+            Self::Total => "total",
+        }
+    }
+}
+
+/// The largest cap the IdP accepts, in whole 2Z (a Postgres `integer`).
+pub const MAX_SPEND_CAP_HINT_2Z: u64 = 2_147_483_647;
+
+/// A spend cap the app SUGGESTS for `ai:invoke` (`f2z_spend_cap` /
+/// `f2z_spend_period`).
+///
+/// Only a suggestion: the consent screen may pre-select it after clamping it
+/// to the app registration's default budget and to the user's existing
+/// grant, so it can never pre-select more than the screen would have offered
+/// anyway. Nothing is granted unless the user confirms it, and the user may
+/// change or remove it. A silent authorization (no consent screen) ignores
+/// it — combine with [`Prompt::Consent`] to ask again. Always read the
+/// resulting policy back from the grant endpoint; never assume the hint.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpendCapHint {
+    /// Whole 2Z, from 1 to [`MAX_SPEND_CAP_HINT_2Z`].
+    pub cap_2z: u64,
+    /// `None` keeps the period the screen would have pre-selected.
+    pub period: Option<CapPeriod>,
+}
+
+impl SpendCapHint {
+    /// `cap_2z` over the screen's own period.
+    #[must_use]
+    pub fn new(cap_2z: u64) -> Self {
+        Self {
+            cap_2z,
+            period: None,
+        }
+    }
+
+    /// `cap_2z` in total: never resets.
+    #[must_use]
+    pub fn total(cap_2z: u64) -> Self {
+        Self::new(cap_2z).with_period(CapPeriod::Total)
+    }
+
+    /// With `period`.
+    #[must_use]
+    pub fn with_period(mut self, period: CapPeriod) -> Self {
+        self.period = Some(period);
+        self
+    }
+}
+
 /// Optional parameters of one sign-in.
 #[non_exhaustive]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -149,6 +223,8 @@ pub struct SignInOptions {
     pub login_hint: Option<String>,
     /// `ui_locales`, space-separated BCP 47 tags.
     pub ui_locales: Option<String>,
+    /// A suggested spend cap for the consent screen (see [`SpendCapHint`]).
+    pub spend_cap: Option<SpendCapHint>,
 }
 
 impl SignInOptions {
@@ -175,6 +251,13 @@ impl SignInOptions {
     #[must_use]
     pub fn with_login_hint(mut self, hint: impl Into<String>) -> Self {
         self.login_hint = Some(hint.into());
+        self
+    }
+
+    /// With a suggested spend cap (see [`SpendCapHint`]).
+    #[must_use]
+    pub fn with_spend_cap(mut self, hint: SpendCapHint) -> Self {
+        self.spend_cap = Some(hint);
         self
     }
 }
@@ -268,6 +351,15 @@ pub(crate) struct AuthorizeParams<'a> {
 }
 
 pub(crate) fn authorization_url(p: &AuthorizeParams<'_>) -> Result<String, Error> {
+    if let Some(hint) = p.options.spend_cap {
+        // The IdP ignores an unusable hint; refusing it here tells the
+        // developer instead of silently suggesting nothing.
+        if hint.cap_2z == 0 || hint.cap_2z > MAX_SPEND_CAP_HINT_2Z {
+            return Err(Error::Config(format!(
+                "spend cap hint must be 1..={MAX_SPEND_CAP_HINT_2Z} whole 2Z"
+            )));
+        }
+    }
     let mut url = Url::parse(p.endpoint)
         .map_err(|e| Error::Discovery(format!("authorization_endpoint: {e}")))?;
     {
@@ -296,6 +388,12 @@ pub(crate) fn authorization_url(p: &AuthorizeParams<'_>) -> Result<String, Error
         }
         if let Some(locales) = &p.options.ui_locales {
             q.append_pair("ui_locales", locales);
+        }
+        if let Some(hint) = p.options.spend_cap {
+            q.append_pair("f2z_spend_cap", &hint.cap_2z.to_string());
+            if let Some(period) = hint.period {
+                q.append_pair("f2z_spend_period", period.as_str());
+            }
         }
     }
     Ok(url.into())
@@ -438,6 +536,57 @@ mod tests {
         assert!(check_redirect_uri("http://localhost:5000/callback").is_err());
         assert!(check_redirect_uri("http://127.0.0.1:5000/callback?x=1").is_err());
         assert!(check_redirect_uri("tutor:/oauth/callback").is_err());
+    }
+
+    fn url_with(options: &SignInOptions) -> Result<String, Error> {
+        authorization_url(&AuthorizeParams {
+            endpoint: "https://free2z.cash/oauth/authorize",
+            client_id: "c",
+            redirect_uri: "http://127.0.0.1:49152/callback",
+            scope: "openid ai:invoke",
+            state: "s",
+            nonce: None,
+            challenge: "x",
+            options,
+        })
+    }
+
+    fn param(url: &str, name: &str) -> Option<String> {
+        Url::parse(url)
+            .unwrap()
+            .query_pairs()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.into_owned())
+    }
+
+    #[test]
+    fn the_spend_cap_hint_is_sent_only_when_asked_for() {
+        let none = url_with(&SignInOptions::default()).unwrap();
+        assert_eq!(param(&none, "f2z_spend_cap"), None);
+        assert_eq!(param(&none, "f2z_spend_period"), None);
+
+        let total =
+            url_with(&SignInOptions::default().with_spend_cap(SpendCapHint::total(500))).unwrap();
+        assert_eq!(param(&total, "f2z_spend_cap").as_deref(), Some("500"));
+        assert_eq!(param(&total, "f2z_spend_period").as_deref(), Some("total"));
+
+        let bare =
+            url_with(&SignInOptions::default().with_spend_cap(SpendCapHint::new(7))).unwrap();
+        assert_eq!(param(&bare, "f2z_spend_cap").as_deref(), Some("7"));
+        assert_eq!(param(&bare, "f2z_spend_period"), None);
+
+        for bad in [0, MAX_SPEND_CAP_HINT_2Z + 1] {
+            assert!(matches!(
+                url_with(&SignInOptions::default().with_spend_cap(SpendCapHint::new(bad))),
+                Err(Error::Config(_))
+            ));
+        }
+        assert!(
+            url_with(
+                &SignInOptions::default().with_spend_cap(SpendCapHint::new(MAX_SPEND_CAP_HINT_2Z))
+            )
+            .is_ok()
+        );
     }
 
     #[test]

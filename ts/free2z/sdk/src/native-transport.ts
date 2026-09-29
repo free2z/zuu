@@ -7,6 +7,7 @@ import {
   type ErrorContext,
 } from "./error.js";
 import { identifier, key, withOperation } from "./http.js";
+import { spendCapParams } from "./spend-cap.js";
 import { object, strictOutput, string, uint } from "./json.js";
 import type {
   ChatOptions,
@@ -39,6 +40,9 @@ export interface NativeBridge {
     prompt?: "none" | "login" | "consent";
     maxAge?: string;
     acrValues?: string;
+    /** Needs a plugin with spend-cap support; an older one refuses unknown keys. */
+    spendCap?: string;
+    spendPeriod?: string;
   }): Promise<unknown>;
   signOut(): Promise<{ revoked: boolean; generation: string }>;
   balance(): Promise<unknown>;
@@ -176,6 +180,12 @@ export class NativeTransport implements Transport {
       if (!Number.isSafeInteger(options.maxAge) || options.maxAge < 0)
         failure("invalid_request");
       native.maxAge = String(options.maxAge);
+    }
+    if (options.spendCap !== undefined) {
+      const hint = spendCapParams(options.spendCap);
+      native.spendCap = hint.f2z_spend_cap;
+      if (hint.f2z_spend_period !== undefined)
+        native.spendPeriod = hint.f2z_spend_period;
     }
     const session = decode.session(
       await invoke(() => this.bridge.signIn(native)),

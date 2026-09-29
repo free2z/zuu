@@ -394,3 +394,36 @@ test("max_output_tokens_strict reaches the gateway only when true, and never wit
   }
   assert.equal(bodies.length, sent, "a refused request is never sent");
 });
+test("a spend-cap hint is sent only when asked for, and validated", async () => {
+  const mock = issuer(),
+    seen = [];
+  mock.authorize = (url) => {
+    seen.push(url);
+    const callback = new URL("https://app.example/callback");
+    callback.searchParams.set("code", "code");
+    callback.searchParams.set("state", url.searchParams.get("state"));
+    callback.searchParams.set("iss", url.origin);
+    return callback.href;
+  };
+  await new WebSession(mock.config).signIn();
+  assert.equal(seen[0].searchParams.has("f2z_spend_cap"), false);
+  assert.equal(seen[0].searchParams.has("f2z_spend_period"), false);
+  await new WebSession(mock.config).signIn({
+    spendCap: { cap2z: 500n, period: "total" },
+  });
+  assert.equal(seen[1].searchParams.get("f2z_spend_cap"), "500");
+  assert.equal(seen[1].searchParams.get("f2z_spend_period"), "total");
+  await new WebSession(mock.config).signIn({ spendCap: { cap2z: 7n } });
+  assert.equal(seen[2].searchParams.get("f2z_spend_cap"), "7");
+  assert.equal(seen[2].searchParams.has("f2z_spend_period"), false);
+  for (const spendCap of [
+    { cap2z: 0n },
+    { cap2z: 2_147_483_648n },
+    { cap2z: 500 },
+    { cap2z: 500n, period: "year" },
+  ])
+    await assert.rejects(new WebSession(mock.config).signIn({ spendCap }), {
+      code: "invalid_request",
+    });
+  assert.equal(seen.length, 3, "a refused hint never reaches the browser");
+});
