@@ -279,27 +279,41 @@ it is byte-identical to one made before the field existed, and its
 idempotency fingerprint is unchanged. A gateway older than the field refuses it
 as an unknown field (`400 invalid_request`) rather than silently clamping.
 
-To tell the user *before* they press Generate, call `estimate` with the same
-request **without** the flag: `max_output_tokens` in the answer is the
-post-clamp limit the call would run with right now. If it is lower than you ask
-for, show "top up or raise this app's budget" instead of starting the call.
+To tell the user *before* they press Generate, call `estimate` with the **same
+request, flag included**. A strict estimate runs exactly the admission the call
+would — same bounds, same consented-markup affordability — without a hold or a
+charge: it answers `200` if the call would run at the full limit, or the same
+`402 insufficient_balance` / `403 cap_exceeded` / `400` refusal (with the same
+`details`) the call would get. Show "top up or raise this app's budget" from
+that refusal instead of starting the call. Do **not** pre-check with a
+non-strict estimate: it prices at the app's current effective markup, while a
+strict call is judged at the consented markup (below), so the two can disagree.
 An estimate is a snapshot — balance and budget can change before the call — so
 keep the flag on the call itself; the estimate is for the UI, the flag is the
-guarantee. (An estimate **with** the flag answers with the same refusal the
-call would.)
+guarantee.
 
 ```ts
-const request: ChatRequest = { model, messages, max_output_tokens: 1800n };
-const estimate = await client.estimate(request);
-if (estimate.max_output_tokens < request.max_output_tokens!) {
-  // Would be truncated: offer a purchase / budget change instead of calling.
+const request: ChatRequest = {
+  model,
+  messages,
+  max_output_tokens: 1800n,
+  max_output_tokens_strict: true,
+};
+try {
+  await client.estimate(request); // 200: the call would run at 1800 tokens
+} catch (e) {
+  // insufficient_balance / cap_exceeded (details.reason ===
+  // "max_output_tokens_strict"): offer a purchase or budget change instead.
 }
-const stream = await client.chat(
-  { ...request, max_output_tokens_strict: true },
-  { idempotencyKey, operationId },
-);
-// insufficient_balance / cap_exceeded here cost nothing and ran nothing.
+const stream = await client.chat(request, { idempotencyKey, operationId });
+// A refusal here still cost nothing and ran nothing.
 ```
+
+A strict refusal of `/v1/chat` terminates its `Idempotency-Key` as a released,
+zero-charge call. Replaying that key — for example to recover after a top-up —
+returns that record (`charged_2z: 0`) with the refusal's `error.code` and
+`error.message`; `details` are not stored with the call. It never runs the call
+late. To try again after a top-up, send the request with a **new** key.
 
 Affordability for a strict call is judged at the markup the user consented
 to, the most the ledger can apply when it takes the hold, so an approval

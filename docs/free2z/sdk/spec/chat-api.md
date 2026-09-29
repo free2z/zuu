@@ -604,9 +604,11 @@ would** — `401`, `403 insufficient_scope`, `429`, `404`,
 (`available_milli_2z`, `required_2z`, `cap_remaining_milli_2z`, …) — so an
 app that handles `/v1/chat`'s errors handles the estimate's with the same
 code, and can show "you need N more 2Z" from `details`. An app that must not
-run a shortened call compares the answer's `max_output_tokens` with the one it
-asked for, and sends the call itself with `max_output_tokens_strict` so that a
-balance change between the two cannot shorten it either. An estimate is not
+run a shortened call sends the estimate **with** `max_output_tokens_strict`:
+it then answers exactly as the strict call would (same bounds, and
+affordability at the consented markup), whereas a non-strict estimate prices at
+the current effective markup and can disagree. It sends the call itself with the
+flag too, so that a balance change between the two cannot shorten it either. An estimate is not
 a quotation: the price is the catalogue's at call time.
 
 ## 7. `GET /v1/calls/{id}`

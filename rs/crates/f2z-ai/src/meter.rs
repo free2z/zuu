@@ -276,7 +276,18 @@ fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result
         bound.markup = consented;
         let required = bound.worst(asked)?;
         if required.get() > available {
-            let mut failure = refusal(short())
+            let (code, message) = if short() == "cap_exceeded" {
+                (
+                    ErrorCode::CapExceeded,
+                    "the app's remaining budget cannot cover max_output_tokens, and max_output_tokens_strict forbids lowering it",
+                )
+            } else {
+                (
+                    ErrorCode::InsufficientBalance,
+                    "the balance cannot cover max_output_tokens, and max_output_tokens_strict forbids lowering it",
+                )
+            };
+            let mut failure = ApiFailure::new(code, message)
                 .detail("reason", crate::provider::STRICT_OUTPUT_REASON)
                 .detail("max_output_tokens", asked)
                 .detail("required_2z", required.get())
@@ -518,7 +529,27 @@ impl ChatBackend for Metered {
             return Err(refusal);
         }
         let admitted_context = Context::parse(row.get("context").ok_or_else(invalid)?.clone())?;
-        let p = plan(&request, &catalog, &admitted_context)?;
+        let p = match plan(&request, &catalog, &admitted_context) {
+            Ok(p) => p,
+            Err(refused) if is_strict_refusal(&refused) => {
+                // The key is already claimed. Persist the strict refusal as the
+                // call's terminal zero-charge completion (as for model_disabled
+                // above), so replaying the key — e.g. after a top-up — answers
+                // with this refusal's code, not an abandoned-claim
+                // `unavailable`. The ledger stores only `code` and `message`
+                // (each 1–256 characters); `details` are not persisted.
+                *lock(&active.completion) = Some(json!({
+                    "model": request.model, "provider": provider, "finish_reason": "stop",
+                    "partial": false,
+                    "error": {"code": refused.code(), "message": bounded(refused.message())}
+                }));
+                finalize(self.ledger.as_ref(), &active)
+                    .await
+                    .map_err(|_| unavailable().detail("call_id", id.to_string()))?;
+                return Err(refused);
+            }
+            Err(refused) => return Err(refused),
+        };
         *lock(&active.plan) = Some(p.clone());
         let hold = Operation::Hold {
             identity,
@@ -658,6 +689,22 @@ impl ChatBackend for Metered {
             heartbeat: Box::pin(tokio::time::sleep(Duration::from_secs(60))),
             extending: None,
         }))
+    }
+}
+
+/// A refusal made because `max_output_tokens_strict` forbade a clamp.
+fn is_strict_refusal(failure: &ApiFailure) -> bool {
+    failure.detail_of("reason").and_then(Value::as_str)
+        == Some(crate::provider::STRICT_OUTPUT_REASON)
+}
+
+/// A persisted error message: the ledger accepts 1–256 characters.
+fn bounded(message: &str) -> String {
+    let text: String = message.chars().take(256).collect();
+    if text.is_empty() {
+        "refused".into()
+    } else {
+        text
     }
 }
 

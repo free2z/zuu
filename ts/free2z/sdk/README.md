@@ -86,8 +86,8 @@ for await (const event of stream) {
 Add `max_output_tokens_strict: true` when a length-truncated answer is useless
 to you: the gateway then refuses (`insufficient_balance`, `cap_exceeded`, …)
 before any hold or charge instead of lowering `max_output_tokens` to what the
-user can afford. `estimate()` reports the post-clamp `max_output_tokens` for a
-pre-check. See `docs/free2z/sdk/INTEGRATION.md`.
+user can afford. Pre-check with `estimate()` on the same request, flag included:
+it answers exactly as the strict call would, without a hold or charge. See `docs/free2z/sdk/INTEGRATION.md`.
 
 Only one `next()` may be outstanding. `cancel()`, breaking iteration, or an
 AbortSignal stops delivery; none proves that generation or charging stopped.

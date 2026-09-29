@@ -178,6 +178,21 @@ impl Ledger for Database {
             } => {
                 assert_eq!(Some(*call), m.call);
                 assert_eq!(identity.grant_generation, 1);
+                // The production ledger's `gateway_metadata_valid` accepts an
+                // error of exactly `code` and `message`, strings of 1–256
+                // characters, and raises on anything else.
+                if let Some(error) = completion.get("error").filter(|e| !e.is_null()) {
+                    let error = error.as_object().expect("error is an object");
+                    assert!(error.contains_key("code") && error.contains_key("message"));
+                    for (key, value) in error {
+                        assert!(
+                            key == "code" || key == "message",
+                            "ledger refuses error.{key}"
+                        );
+                        let n = value.as_str().expect("string").chars().count();
+                        assert!((1..=256).contains(&n), "error.{key} is {n} characters");
+                    }
+                }
                 if m.completion.is_null() {
                     m.completion = completion.clone();
                 } else {
@@ -779,6 +794,26 @@ async fn strict_output_limit_is_refused_before_any_hold_charge_or_provider_reque
         assert_eq!(state.terminal, Some("released"));
     }
     assert_eq!(mock.request_count(), 0, "the provider was never called");
+
+    // AHA's recover(): after a top-up, the same key is replayed. It must name
+    // the original strict refusal — not an abandoned-claim `unavailable` — and
+    // must not run the call now that it would be affordable.
+    db.0.lock().unwrap().available = 1_000_000;
+    let (status, record) = post(&r, "/v1/chat", &aha_request(true)).await;
+    assert_eq!(status, StatusCode::OK, "{record}");
+    assert_eq!(record["replayed"], true, "{record}");
+    assert_eq!(record["status"], "released");
+    assert_eq!(record["charged_2z"], 0);
+    assert_eq!(record["error"]["code"], "insufficient_balance", "{record}");
+    assert!(
+        record["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("max_output_tokens_strict"),
+        "{record}"
+    );
+    assert_eq!(db.0.lock().unwrap().charges, 0);
+    assert_eq!(mock.request_count(), 0);
     mock.shutdown().await;
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
