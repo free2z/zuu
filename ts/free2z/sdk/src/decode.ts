@@ -2,6 +2,7 @@ import { failure } from "./error.js";
 import { object, string, uint } from "./json.js";
 import type {
   Balance,
+  EnforcementReason,
   Grant,
   CallRecord,
   Charge,
@@ -215,6 +216,24 @@ function utcTimestamp(value: string): boolean {
     Number(m[6]) <= 60
   );
 }
+const enforcementReasons: readonly string[] = [
+  "ok",
+  "platform_disabled",
+  "ledger_cutover_pending",
+  "ledger_cap_pending",
+];
+function enforcementReason(
+  value: unknown,
+  enforced: boolean,
+): EnforcementReason | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") failure("invalid_response");
+  const reason = (
+    enforcementReasons.includes(value) ? value : "unknown"
+  ) as EnforcementReason;
+  if ((reason === "ok") !== enforced) failure("invalid_response");
+  return reason;
+}
 export function grant(value: unknown): Grant {
   const d = validated(value);
   if (
@@ -235,6 +254,7 @@ export function grant(value: unknown): Grant {
     !utcTimestamp(asOf)
   )
     failure("invalid_response");
+  const reason = enforcementReason(d.enforcement_reason, d.enforced);
   return {
     sub,
     client_id: client,
@@ -244,6 +264,7 @@ export function grant(value: unknown): Grant {
     spend_cap_2z: d.spend_cap_2z === null ? null : uint(d.spend_cap_2z),
     cap_period: d.cap_period as Grant["cap_period"],
     enforced: d.enforced,
+    ...(reason === undefined ? {} : { enforcement_reason: reason }),
     as_of: asOf,
   };
 }

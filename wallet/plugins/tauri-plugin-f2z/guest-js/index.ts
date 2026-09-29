@@ -102,6 +102,10 @@ export interface Grant {
   spend_cap_2z: Decimal | null;
   cap_period: 'day' | 'week' | 'month' | 'total';
   enforced: boolean;
+  /** Coarse reason for `enforced`; absent from older servers. A
+   * code newer than the native core arrives as `'unknown'`. Never enforced
+   * unless `enforced` is true. */
+  enforcement_reason?: 'ok' | 'platform_disabled' | 'ledger_cutover_pending' | 'ledger_cap_pending' | 'unknown';
   as_of: string;
 }
 export interface NativeBridge {
