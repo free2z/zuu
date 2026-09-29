@@ -17,6 +17,8 @@ export interface ChatRequest {
   messages: Message[];
   tools?: { name: string; description?: string; parameters: Json }[];
   max_output_tokens?: Decimal;
+  /** `true`: refuse up front rather than lower `max_output_tokens` (requires it). */
+  max_output_tokens_strict?: boolean;
   metadata?: Record<string, string>;
   fallback?: string[];
   stream?: true;

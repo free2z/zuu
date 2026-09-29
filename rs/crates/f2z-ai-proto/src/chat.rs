@@ -36,6 +36,21 @@ pub struct ChatRequest {
     /// model's window and to what the caller can afford; it never raises it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u64>,
+    /// Opt-in: `max_output_tokens` is a **requirement**, not a ceiling the
+    /// gateway may lower. When `true`, a call the gateway would otherwise
+    /// clamp — to the model's `max_output_tokens`, to the context window
+    /// left after the input, or to what the balance and the grant's cap can
+    /// afford — is refused before any hold, charge or provider request
+    /// (`400 invalid_request`, `400 context_length_exceeded`,
+    /// `402 insufficient_balance` or `403 cap_exceeded`, each with
+    /// `details.reason = "max_output_tokens_strict"` where a reason is
+    /// carried). Requires `max_output_tokens`. `false` (the default) is
+    /// omitted on the wire, so a request that does not set it serializes
+    /// exactly as before this field existed — and a gateway older than it
+    /// refuses the field (`deny_unknown_fields`) rather than silently
+    /// clamping.
+    #[serde(default, skip_serializing_if = "core::ops::Not::not")]
+    pub max_output_tokens_strict: bool,
     /// `true` (the default) answers with an SSE stream of
     /// [`crate::event::Event`]s; `false` answers with one [`ChatResponse`].
     #[serde(default = "default_stream")]

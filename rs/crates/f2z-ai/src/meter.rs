@@ -202,23 +202,43 @@ fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result
         model.safety_factor_bps,
     )
     .map_err(|_| invalid())?;
-    let ceiling = model
+    crate::provider::strict_model_ceiling(request, &model)?;
+    // `strict`: the output the caller asked for, which nothing below may
+    // lower. `chat::validate` guarantees `max_output_tokens` is present.
+    let strict = request
+        .max_output_tokens
+        .filter(|_| request.max_output_tokens_strict);
+    // With `strict`, every window refusal says why and with what numbers.
+    let window_refusal = |message: &'static str| {
+        let failure = ApiFailure::new(ErrorCode::ContextLengthExceeded, message);
+        match strict {
+            Some(asked) => failure
+                .detail("reason", crate::provider::STRICT_OUTPUT_REASON)
+                .detail("input_tokens_estimate", input)
+                .detail("context_window", model.context_window)
+                .detail("max_output_tokens", asked),
+            None => failure,
+        }
+    };
+    let window = model
         .context_window
         .checked_sub(input)
-        .ok_or_else(|| {
-            ApiFailure::new(
-                ErrorCode::ContextLengthExceeded,
-                "input exceeds context window",
-            )
-        })?
+        .ok_or_else(|| window_refusal("input exceeds context window"))?;
+    let ceiling = window
         .min(model.max_output_tokens)
         .min(request.max_output_tokens.unwrap_or(model.max_output_tokens));
     if ceiling == 0 {
-        return Err(ApiFailure::new(
-            ErrorCode::ContextLengthExceeded,
-            "no output fits context window",
+        return Err(window_refusal("no output fits context window"));
+    }
+    if let Some(asked) = strict
+        && ceiling < asked
+    {
+        // The model ceiling was refused above, so only the window is left.
+        return Err(window_refusal(
+            "the input leaves less than max_output_tokens of the context window, and max_output_tokens_strict forbids lowering it",
         ));
     }
+    let consented = Bps(c.consented_markup_bps);
     let mut p = Plan {
         model,
         input,
@@ -228,16 +248,62 @@ fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result
         margin: catalog.platform_margin_bps,
     };
     let available = c.spendable()? / 1000;
-    if p.worst(1)?.get() > available {
-        return Err(refusal(
-            if c.cap_remaining_milli_2z
-                .is_some_and(|cap| cap < c.available_milli_2z)
-            {
-                "cap_exceeded"
+    let short = || {
+        if c.cap_remaining_milli_2z
+            .is_some_and(|cap| cap < c.available_milli_2z)
+        {
+            "cap_exceeded"
+        } else {
+            "insufficient_balance"
+        }
+    };
+    if let Some(asked) = strict {
+        // No clamp: the worst case of the full requested output must fit, or
+        // the call is refused here — before the hold, so nothing is reserved,
+        // charged or sent to a provider.
+        //
+        // Affordability is judged at the grant's **consented** markup, the
+        // most the ledger can apply (`b = min(consented, effective)`,
+        // metering.md §3 `hold`). Judging at the effective markup alone would
+        // let an approval landing between the context read and the hold raise
+        // the price after the hold exists, and the post-hold `extend` would
+        // then refuse a call that had already reserved money. The hold is
+        // taken at that same bound, so no extension is ever needed — not even
+        // when a concurrent call drains the balance between hold and extend.
+        // The excess over the applied-markup worst case is released at
+        // settlement like any other unused hold.
+        let mut bound = p.clone();
+        bound.markup = consented;
+        let required = bound.worst(asked)?;
+        if required.get() > available {
+            let (code, message) = if short() == "cap_exceeded" {
+                (
+                    ErrorCode::CapExceeded,
+                    "the app's remaining budget cannot cover max_output_tokens, and max_output_tokens_strict forbids lowering it",
+                )
             } else {
-                "insufficient_balance"
-            },
-        ));
+                (
+                    ErrorCode::InsufficientBalance,
+                    "the balance cannot cover max_output_tokens, and max_output_tokens_strict forbids lowering it",
+                )
+            };
+            let mut failure = ApiFailure::new(code, message)
+                .detail("reason", crate::provider::STRICT_OUTPUT_REASON)
+                .detail("max_output_tokens", asked)
+                .detail("required_2z", required.get())
+                .detail("available_milli_2z", c.available_milli_2z)
+                .detail("min_charge_2z", p.model.min_charge_2z.get());
+            if let Some(cap) = c.cap_remaining_milli_2z {
+                failure = failure.detail("cap_remaining_milli_2z", cap);
+            }
+            return Err(failure);
+        }
+        p.output = asked;
+        p.hold = required;
+        return Ok(p);
+    }
+    if p.worst(1)?.get() > available {
+        return Err(refusal(short()));
     }
     let (mut low, mut high) = (1, ceiling);
     while low < high {
@@ -463,7 +529,27 @@ impl ChatBackend for Metered {
             return Err(refusal);
         }
         let admitted_context = Context::parse(row.get("context").ok_or_else(invalid)?.clone())?;
-        let p = plan(&request, &catalog, &admitted_context)?;
+        let p = match plan(&request, &catalog, &admitted_context) {
+            Ok(p) => p,
+            Err(refused) if is_strict_refusal(&refused) => {
+                // The key is already claimed. Persist the strict refusal as the
+                // call's terminal zero-charge completion (as for model_disabled
+                // above), so replaying the key — e.g. after a top-up — answers
+                // with this refusal's code, not an abandoned-claim
+                // `unavailable`. The ledger stores only `code` and `message`
+                // (each 1–256 characters); `details` are not persisted.
+                *lock(&active.completion) = Some(json!({
+                    "model": request.model, "provider": provider, "finish_reason": "stop",
+                    "partial": false,
+                    "error": {"code": refused.code(), "message": bounded(refused.message())}
+                }));
+                finalize(self.ledger.as_ref(), &active)
+                    .await
+                    .map_err(|_| unavailable().detail("call_id", id.to_string()))?;
+                return Err(refused);
+            }
+            Err(refused) => return Err(refused),
+        };
         *lock(&active.plan) = Some(p.clone());
         let hold = Operation::Hold {
             identity,
@@ -603,6 +689,22 @@ impl ChatBackend for Metered {
             heartbeat: Box::pin(tokio::time::sleep(Duration::from_secs(60))),
             extending: None,
         }))
+    }
+}
+
+/// A refusal made because `max_output_tokens_strict` forbade a clamp.
+fn is_strict_refusal(failure: &ApiFailure) -> bool {
+    failure.detail_of("reason").and_then(Value::as_str)
+        == Some(crate::provider::STRICT_OUTPUT_REASON)
+}
+
+/// A persisted error message: the ledger accepts 1–256 characters.
+fn bounded(message: &str) -> String {
+    let text: String = message.chars().take(256).collect();
+    if text.is_empty() {
+        "refused".into()
+    } else {
+        text
     }
 }
 
@@ -1076,5 +1178,206 @@ mod tests {
         record["settlement"]["collected_milli_2z"] = json!(900);
         record["settlement"]["shortfall_milli_2z"] = json!(100);
         assert!(project(&record, false).is_err());
+    }
+
+    // free2z/zuu#1122: `max_output_tokens_strict` refuses instead of clamping.
+    // ~100 output tokens per whole 2Z before margin, so a few 2Z of balance
+    // is clamped well below the 1800 tokens AHA asks for.
+    fn priced(context_window: u64) -> VerifiedCatalog {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        VerifiedCatalog::from_verified(
+            serde_json::from_value(json!({
+                "schema": 1, "version": 1, "issued_at": now - 60, "expires_at": now + 3600,
+                "rate_card_version": 1, "platform_margin_bps": 2000,
+                "models": [{
+                    "id": "m", "provider": "p", "provider_model_id": "m-up",
+                    "api_style": "openai_responses",
+                    "prices": {"input_nusd_per_mtok": 1000, "cached_input_nusd_per_mtok": 100,
+                               "cache_write_nusd_per_mtok": 1250,
+                               "output_nusd_per_mtok": 100_000_000_000_u64,
+                               "image_nusd": 0, "tool_call_nusd": 0},
+                    "min_charge_2z": 1, "safety_factor_bps": 10000,
+                    "context_window": context_window, "max_output_tokens": 8192,
+                    "ttfb_timeout_ms": 10000, "enabled": true
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap()
+    }
+    fn ctx(available: u64, cap: Option<u64>) -> Context {
+        ctx_markup(available, cap, 0, 0)
+    }
+    fn ctx_markup(available: u64, cap: Option<u64>, consented: u32, effective: u32) -> Context {
+        Context::parse(json!({"status":"ok","available_milli_2z":available,
+            "cap_remaining_milli_2z":cap,"debt_milli_2z":0,"open_holds":0,"frozen":false,
+            "consented_markup_bps":consented,"effective_markup_bps":effective}))
+        .unwrap()
+    }
+    fn ask(tokens: u64, strict: bool) -> ChatRequest {
+        serde_json::from_value(json!({"model":"m","max_output_tokens":tokens,
+            "max_output_tokens_strict":strict,
+            "messages":[{"role":"user","content":[{"type":"text","text":"teach me"}]}]}))
+        .unwrap()
+    }
+    fn strict_refusal(e: &ApiFailure, code: ErrorCode) {
+        assert_eq!(e.code(), code.as_str(), "{e:?}");
+        assert_eq!(
+            e.detail_of("reason"),
+            Some(&json!(crate::provider::STRICT_OUTPUT_REASON))
+        );
+    }
+
+    #[test]
+    fn strict_refuses_the_balance_clamp_that_the_default_applies() {
+        let catalog = priced(200_000);
+        let low = ctx(5_000, None);
+        // Premise (the #1122 bug): by default the call is admitted, shorter.
+        let clamped = plan(&ask(1800, false), &catalog, &low).unwrap();
+        assert!(clamped.output < 1800, "{}", clamped.output);
+        assert!(clamped.output > 0);
+        // Strict: refused, with what it would have cost.
+        let e = plan(&ask(1800, true), &catalog, &low).err().unwrap();
+        strict_refusal(&e, ErrorCode::InsufficientBalance);
+        assert_eq!(e.status().as_u16(), 402);
+        let full = plan(&ask(1800, false), &catalog, &ctx(u64::from(u32::MAX), None)).unwrap();
+        assert_eq!(e.detail_of("required_2z"), Some(&json!(full.hold.get())));
+        assert_eq!(e.detail_of("max_output_tokens"), Some(&json!(1800)));
+        assert_eq!(e.detail_of("available_milli_2z"), Some(&json!(5_000)));
+        assert!(e.detail_of("cap_remaining_milli_2z").is_none());
+    }
+
+    #[test]
+    fn strict_refuses_the_cap_clamp_as_cap_exceeded() {
+        let e = plan(
+            &ask(1800, true),
+            &priced(200_000),
+            &ctx(10_000_000, Some(5_000)),
+        )
+        .err()
+        .unwrap();
+        strict_refusal(&e, ErrorCode::CapExceeded);
+        assert_eq!(e.detail_of("cap_remaining_milli_2z"), Some(&json!(5_000)));
+    }
+
+    #[test]
+    fn strict_admits_exactly_the_affordable_boundary_at_the_full_limit() {
+        let catalog = priced(200_000);
+        let full = plan(&ask(1800, false), &catalog, &ctx(10_000_000, None)).unwrap();
+        let exact = full.hold.to_milli().unwrap().get();
+        let p = plan(&ask(1800, true), &catalog, &ctx(exact, None)).unwrap();
+        assert_eq!((p.output, p.hold), (1800, full.hold));
+        // One whole 2Z less and the same request no longer fits.
+        let e = plan(&ask(1800, true), &catalog, &ctx(exact - 1000, None))
+            .err()
+            .unwrap();
+        strict_refusal(&e, ErrorCode::InsufficientBalance);
+    }
+
+    #[test]
+    fn strict_affordability_is_judged_at_the_consented_markup() {
+        // The ledger applies min(consented, effective) at hold time, so an
+        // approval between the context read and the hold can raise the price
+        // up to the consented markup. A strict call that only fits at the
+        // lower effective markup must be refused *before* the hold, never
+        // held and then refused by the post-hold extension.
+        let catalog = priced(200_000);
+        let at_effective = plan(&ask(1800, false), &catalog, &ctx(u64::from(u32::MAX), None))
+            .unwrap()
+            .hold;
+        let at_consented = plan(
+            &ask(1800, false),
+            &catalog,
+            &ctx_markup(u64::from(u32::MAX), None, 5000, 5000),
+        )
+        .unwrap()
+        .hold;
+        assert!(at_consented > at_effective);
+        let between = at_effective.to_milli().unwrap().get();
+        let e = plan(
+            &ask(1800, true),
+            &catalog,
+            &ctx_markup(between, None, 5000, 0),
+        )
+        .err()
+        .unwrap();
+        strict_refusal(&e, ErrorCode::InsufficientBalance);
+        assert_eq!(e.detail_of("required_2z"), Some(&json!(at_consented.get())));
+        // Enough for the consented worst case: admitted at the full limit and
+        // held at that bound, so a raised applied markup needs no extension.
+        let enough = at_consented.to_milli().unwrap().get();
+        let p = plan(
+            &ask(1800, true),
+            &catalog,
+            &ctx_markup(enough, None, 5000, 0),
+        )
+        .unwrap();
+        assert_eq!((p.output, p.hold), (1800, at_consented));
+        let mut applied = p.clone();
+        applied.markup = Bps(5000);
+        assert!(applied.worst(1800).unwrap() <= p.hold);
+    }
+
+    #[test]
+    fn strict_refusals_carry_their_details_at_every_boundary() {
+        // Not even one output token affordable.
+        let e = plan(&ask(1800, true), &priced(200_000), &ctx(500, None))
+            .err()
+            .unwrap();
+        strict_refusal(&e, ErrorCode::InsufficientBalance);
+        assert!(e.detail_of("required_2z").is_some());
+        // Input alone exceeds the window.
+        let mut huge = ask(10, true);
+        huge.messages[0].content = vec![ContentPart::Text {
+            text: "x".repeat(9000),
+        }];
+        let e = plan(&huge, &priced(8192), &ctx(u64::from(u32::MAX), None))
+            .err()
+            .unwrap();
+        strict_refusal(&e, ErrorCode::ContextLengthExceeded);
+        assert_eq!(e.detail_of("max_output_tokens"), Some(&json!(10)));
+        // Without strict, the same refusals keep their pre-#1122 shape.
+        huge.max_output_tokens_strict = false;
+        let e = plan(&huge, &priced(8192), &ctx(u64::from(u32::MAX), None))
+            .err()
+            .unwrap();
+        assert!(e.detail_of("reason").is_none());
+    }
+
+    #[test]
+    fn strict_refuses_the_model_and_window_clamps() {
+        let catalog = priced(200_000);
+        let rich = ctx(u64::from(u32::MAX), None);
+        assert_eq!(
+            plan(&ask(9000, false), &catalog, &rich).unwrap().output,
+            8192
+        );
+        let e = plan(&ask(9000, true), &catalog, &rich).err().unwrap();
+        strict_refusal(&e, ErrorCode::InvalidRequest);
+        assert_eq!(e.detail_of("field"), Some(&json!("max_output_tokens")));
+        assert_eq!(e.detail_of("model_max_output_tokens"), Some(&json!(8192)));
+
+        // A long input leaves less than 1800 tokens of an 8192-token window.
+        let narrow = priced(8192);
+        let long = |tokens, strict| {
+            let mut r = ask(tokens, strict);
+            r.messages[0].content = vec![ContentPart::Text {
+                text: "x".repeat(7000),
+            }];
+            r
+        };
+        let clamped = plan(&long(1800, false), &narrow, &rich).unwrap().output;
+        assert!(clamped < 1800, "{clamped}");
+        let e = plan(&long(1800, true), &narrow, &rich).err().unwrap();
+        strict_refusal(&e, ErrorCode::ContextLengthExceeded);
+        assert_eq!(e.detail_of("context_window"), Some(&json!(8192)));
+        // The window it does leave is still usable strictly.
+        assert_eq!(
+            plan(&long(clamped, true), &narrow, &rich).unwrap().output,
+            clamped
+        );
     }
 }

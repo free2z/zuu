@@ -137,3 +137,19 @@ export function uint(value: unknown): bigint {
     failure("invalid_response");
   return value;
 }
+
+/**
+ * The request as sent: `max_output_tokens_strict` is checked to be a boolean
+ * and dropped unless `true`, so a request that does not opt in is
+ * byte-identical to one made before the field existed (and an older gateway,
+ * which refuses unknown fields, still accepts it).
+ */
+export function strictOutput<
+  T extends { max_output_tokens_strict?: boolean; max_output_tokens?: unknown },
+>(request: T): T {
+  const { max_output_tokens_strict: strict, ...rest } = request;
+  if (strict === undefined || strict === false) return rest as T;
+  if (strict !== true || rest.max_output_tokens === undefined)
+    failure("invalid_request");
+  return { ...rest, max_output_tokens_strict: true } as T;
+}

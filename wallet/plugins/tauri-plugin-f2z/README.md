@@ -133,7 +133,10 @@ if (opened.replay) {
 All unsigned integers in native response DTOs are canonical decimal strings,
 including prices, balances, usage counts and nested purchase quantities. Never
 convert money through `Number`. `max_output_tokens`, purchase `quantity2z` and
-sign-in `maxAge` also use canonical strings. Tool parameters remain ordinary
+sign-in `maxAge` also use canonical strings. `max_output_tokens_strict: true`
+(a plain boolean) makes the gateway refuse before any hold or charge instead of
+lowering `max_output_tokens` when the balance or app budget is short; see
+`docs/free2z/sdk/INTEGRATION.md`. Tool parameters remain ordinary
 JSON, not a special integer codec. Opaque tool-call arguments remain JSON text.
 
 Persist purchase idempotency keys before `createPurchase` as well. Re-send the

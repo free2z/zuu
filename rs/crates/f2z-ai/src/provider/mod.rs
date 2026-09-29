@@ -385,6 +385,33 @@ pub fn output_cap(request: &ChatRequest, model: &CatalogModel) -> u64 {
         .max(1)
 }
 
+/// `details.reason` on every refusal made because a request set
+/// `max_output_tokens_strict` and the gateway would otherwise have lowered
+/// its `max_output_tokens` (free2z/zuu#1122).
+pub const STRICT_OUTPUT_REASON: &str = "max_output_tokens_strict";
+
+/// With `max_output_tokens_strict`, a `max_output_tokens` above the model's
+/// own ceiling is refused instead of clamped by [`output_cap`].
+///
+/// # Errors
+///
+/// `400 invalid_request` naming `max_output_tokens`, with the model's ceiling.
+pub fn strict_model_ceiling(request: &ChatRequest, model: &CatalogModel) -> Result<(), ApiFailure> {
+    match request.max_output_tokens {
+        Some(asked) if request.max_output_tokens_strict && asked > model.max_output_tokens => {
+            Err(ApiFailure::new(
+                ErrorCode::InvalidRequest,
+                "max_output_tokens exceeds the model's max_output_tokens and max_output_tokens_strict forbids lowering it",
+            )
+            .detail("field", "max_output_tokens")
+            .detail("reason", STRICT_OUTPUT_REASON)
+            .detail("max_output_tokens", asked)
+            .detail("model_max_output_tokens", model.max_output_tokens))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Refuse an image part on a message whose role this provider cannot carry
 /// an image on — rather than drop it and bill an answer made without it.
 ///

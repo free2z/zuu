@@ -338,7 +338,10 @@ cap and settle up to their reservation; the lowered cap only makes
 
 A clamped `out_cap` is reported in `meta.max_output_tokens` so the app can
 tell the user why a long answer stopped early, and `finish_reason: length`
-marks the stop.
+marks the stop. A request with `max_output_tokens_strict` is never clamped:
+if the hold for its full `max_output_tokens` does not fit, it is refused
+before the hold ([chat-api.md](./chat-api.md) §2.2 step 5), so nothing is
+reserved or charged.
 
 ## 5. Every edge case, and what is charged
 

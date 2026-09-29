@@ -207,6 +207,8 @@ pub fn tutor_request(model: &str, prompt: &str) -> ChatRequest {
         }],
         tools: vec![],
         max_output_tokens: Some(400),
+        // true: refuse up front instead of running a shorter call (below).
+        max_output_tokens_strict: true,
         stream: true,
         metadata: Default::default(),
         fallback: vec![],
@@ -247,6 +249,84 @@ is a provisional hold, not a maximum charge. The gateway may extend holds; the
 user's account balance and consented cap are the spending bounds. Treat model
 output as untrusted text and validate any proposed tool invocation in the tutor.
 The gateway does not execute tools on the app's behalf.
+
+### Output that must not be truncated: `max_output_tokens_strict`
+
+By default `max_output_tokens` is a ceiling the gateway may **lower**: to the
+model's own `max_output_tokens`, to the context window left after the input,
+and — the one that surprises apps — to what the user's balance and this app's
+remaining budget can afford. A lowered call runs, ends with
+`finish_reason: "length"`, and **is charged**. If your app throws a
+length-truncated answer away (a lesson that must be whole, a JSON document that
+must parse), the user paid for nothing.
+
+Set `max_output_tokens_strict: true` (Rust `ChatRequest`, TS `ChatRequest`,
+Tauri guest `ChatRequest`) together with `max_output_tokens`. The gateway then
+either runs the call with exactly that output limit or refuses it **before any
+hold, charge or provider request**, with the code you already handle:
+
+| Would have been lowered by | Strict refusal | `details` |
+|---|---|---|
+| balance | `402 insufficient_balance` | `reason: "max_output_tokens_strict"`, `max_output_tokens`, `required_2z` (the worst case of the full output at the grant's consented markup), `available_milli_2z`, `min_charge_2z` |
+| this app's budget (cap) | `403 cap_exceeded` | as above, plus `cap_remaining_milli_2z` |
+| context window | `400 context_length_exceeded` | `reason`, `max_output_tokens`, `input_tokens_estimate`, `context_window` |
+| model ceiling | `400 invalid_request` | `field: "max_output_tokens"`, `reason`, `model_max_output_tokens` |
+
+`max_output_tokens_strict` without `max_output_tokens` is
+`400 invalid_request` (`field: "max_output_tokens"`, `reason: "required"`).
+The default (`false`) is never sent on the wire, so a request that does not set
+it is byte-identical to one made before the field existed, and its
+idempotency fingerprint is unchanged. A gateway older than the field refuses it
+as an unknown field (`400 invalid_request`) rather than silently clamping.
+
+To tell the user *before* they press Generate, call `estimate` with the **same
+request, flag included**. A strict estimate runs exactly the admission the call
+would — same bounds, same consented-markup affordability — without a hold or a
+charge: it answers `200` if the call would run at the full limit, or the same
+`402 insufficient_balance` / `403 cap_exceeded` / `400` refusal (with the same
+`details`) the call would get. Show "top up or raise this app's budget" from
+that refusal instead of starting the call. Do **not** pre-check with a
+non-strict estimate: it prices at the app's current effective markup, while a
+strict call is judged at the consented markup (below), so the two can disagree.
+An estimate is a snapshot — balance and budget can change before the call — so
+keep the flag on the call itself; the estimate is for the UI, the flag is the
+guarantee.
+
+```ts
+const request: ChatRequest = {
+  model,
+  messages,
+  max_output_tokens: 1800n,
+  max_output_tokens_strict: true,
+};
+try {
+  await client.estimate(request); // 200: the call would run at 1800 tokens
+} catch (e) {
+  // insufficient_balance / cap_exceeded (details.reason ===
+  // "max_output_tokens_strict"): offer a purchase or budget change instead.
+}
+const stream = await client.chat(request, { idempotencyKey, operationId });
+// A refusal here still cost nothing and ran nothing.
+```
+
+A strict refusal of `/v1/chat` terminates its `Idempotency-Key` as a released,
+zero-charge call. Replaying that key — for example to recover after a top-up —
+returns that record (`charged_2z: 0`) with the refusal's `error.code` and
+`error.message`; `details` are not stored with the call. It never runs the call
+late. To try again after a top-up, send the request with a **new** key.
+
+Affordability for a strict call is judged at the markup the user consented
+to, the most the ledger can apply when it takes the hold, so an approval
+landing mid-admission cannot turn an admitted strict call into a refusal after
+money was reserved. When the app's effective markup is below the consented one,
+a strict call is refused slightly earlier, and held at that consented-markup
+worst case (the excess is released at settlement; the charge is priced at the
+markup actually applied). The hold therefore never needs an extension, even if
+another call spends the balance concurrently.
+
+A strict call can still end with `length` if the model itself uses every
+token you allowed — that is your limit, not the gateway's, and is charged
+like any other completed call.
 
 ### Balance precision and purchase completion
 

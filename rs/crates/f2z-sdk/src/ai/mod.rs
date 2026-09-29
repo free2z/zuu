@@ -29,6 +29,7 @@
 //!     }],
 //!     tools: vec![],
 //!     max_output_tokens: Some(200),
+//!     max_output_tokens_strict: false,
 //!     stream: true,
 //!     metadata: Default::default(),
 //!     fallback: vec![],

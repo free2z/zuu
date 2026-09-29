@@ -72,6 +72,14 @@ export interface ChatRequest {
   messages: Message[];
   tools?: { name: string; description?: string; parameters: Json }[];
   max_output_tokens?: bigint;
+  /**
+   * `true`: `max_output_tokens` is required, not a ceiling. The gateway
+   * refuses (`insufficient_balance`, `cap_exceeded`,
+   * `context_length_exceeded`, `invalid_request`) before any hold or charge
+   * instead of lowering it and charging for a truncated answer. Requires
+   * `max_output_tokens`. `false`/absent is the default and is never sent.
+   */
+  max_output_tokens_strict?: boolean;
   metadata?: Record<string, string>;
   fallback?: string[];
 }

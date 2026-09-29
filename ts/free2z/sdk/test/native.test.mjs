@@ -306,3 +306,36 @@ test("native opening failure preserves the server call ID when no stream was ret
       e.idempotencyKey === options.idempotencyKey,
   );
 });
+test("native adapter forwards max_output_tokens_strict only when true", async () => {
+  const seen = [];
+  const b = bridge({
+    estimate: async (r) => {
+      seen.push(r);
+      return {
+        model: "test",
+        input_tokens: "1",
+        max_output_tokens: "1800",
+        hold_2z: "1",
+      };
+    },
+    startChat: async (r, o) => {
+      seen.push(r);
+      return { operationId: o.operationId };
+    },
+  });
+  const transport = new NativeTransport(b);
+  const limited = { ...request, max_output_tokens: 1800n };
+  await transport.estimate({ ...limited, max_output_tokens_strict: true });
+  assert.equal(seen.at(-1).max_output_tokens_strict, true);
+  await transport.chat({ ...limited, max_output_tokens_strict: true }, options);
+  assert.equal(seen.at(-1).max_output_tokens_strict, true);
+  assert.equal(seen.at(-1).max_output_tokens, "1800");
+  await transport.estimate({ ...limited, max_output_tokens_strict: false });
+  assert.equal("max_output_tokens_strict" in seen.at(-1), false);
+  const before = seen.length;
+  await assert.rejects(
+    transport.chat({ ...request, max_output_tokens_strict: true }, options),
+    (e) => e.code === "invalid_request",
+  );
+  assert.equal(seen.length, before);
+});

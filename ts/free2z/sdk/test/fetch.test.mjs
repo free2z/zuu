@@ -355,3 +355,42 @@ test("late purchase responses cannot restore an old checkout after sign-out", as
       );
     }
 });
+test("max_output_tokens_strict reaches the gateway only when true, and never without a limit", async () => {
+  const mock = issuer(),
+    transport = new FetchTransport(mock.config);
+  await transport.signIn();
+  const bodies = [];
+  mock.api = (path, init) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(
+      '{"model":"test","input_tokens":1,"max_output_tokens":1800,"hold_2z":1}',
+      { headers: { "content-type": "application/json" } },
+    );
+  };
+  const limited = { ...request, max_output_tokens: 1800n };
+  await transport.estimate({ ...limited, max_output_tokens_strict: true });
+  assert.equal(bodies.at(-1).max_output_tokens_strict, true);
+  assert.equal(bodies.at(-1).max_output_tokens, 1800);
+  // false is the default: dropped, so the body is the pre-flag body.
+  await transport.estimate({ ...limited, max_output_tokens_strict: false });
+  assert.deepEqual(Object.keys(bodies.at(-1)).sort(), [
+    "max_output_tokens",
+    "messages",
+    "model",
+  ]);
+  const sent = bodies.length;
+  for (const bad of [
+    { ...request, max_output_tokens_strict: true },
+    { ...limited, max_output_tokens_strict: "true" },
+  ]) {
+    await assert.rejects(
+      transport.estimate(bad),
+      (e) => e.code === "invalid_request",
+    );
+    await assert.rejects(
+      transport.chat(bad, options),
+      (e) => e.code === "invalid_request",
+    );
+  }
+  assert.equal(bodies.length, sent, "a refused request is never sent");
+});
