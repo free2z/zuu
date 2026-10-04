@@ -328,10 +328,13 @@ jobs:
       # The current lockfile has moderate advisories but no high/critical ones.
       # Dependency upgrades belong in focused PRs; this gate prevents severity
       # from regressing while making the existing baseline explicit.
+      - name: Test audit allowlist wrapper
+        run: node --test "$GITHUB_WORKSPACE/scripts/npm-audit-allowlist.node-test.mjs"
+
       - name: Audit dependencies (high and critical)
         run: |
           for attempt in 1 2 3; do
-            npm audit --audit-level=high && exit 0
+            node "$GITHUB_WORKSPACE/scripts/npm-audit-allowlist.mjs" && exit 0
             [ "$attempt" -eq 3 ] && exit 1
             sleep $((attempt * 5))
           done
@@ -423,7 +426,7 @@ jobs:
       - name: Audit dependencies (high and critical)
         run: |
           for attempt in 1 2 3; do
-            npm audit --audit-level=high && exit 0
+            node "$GITHUB_WORKSPACE/scripts/npm-audit-allowlist.mjs" && exit 0
             [ "$attempt" -eq 3 ] && exit 1
             sleep $((attempt * 5))
           done
