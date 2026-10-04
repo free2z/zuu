@@ -364,9 +364,11 @@ mod tests {
             serde_json::to_value(&with).unwrap()["response_format"],
             format
         );
-        let mut bad = base;
-        bad["response_format"] = json!({"type":"text"});
-        assert!(chat_request(bad).is_err());
+        for format in [json!({"type":"text"}), serde_json::Value::Null] {
+            let mut bad = base.clone();
+            bad["response_format"] = format;
+            assert!(chat_request(bad).is_err());
+        }
     }
     #[test]
     fn integers_are_lossless_and_strict() {

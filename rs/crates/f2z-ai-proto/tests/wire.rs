@@ -153,6 +153,8 @@ fn response_format_is_opt_in_and_pinned() {
         r#"{"type":"json_schema","json_schema":{"name":"n","schema":{},"strict":"true"}}"#,
         r#"{"type":"json_schema","json_schema":{"name":"n","schema":{},"strict":null}}"#,
         r#""json_object""#,
+        // A present null is a constraint the caller asked for, not absence.
+        "null",
     ] {
         let body = format!(r#"{{"model":"m","messages":[],"response_format":{bad}}}"#);
         assert!(

@@ -474,6 +474,7 @@ test("response_format reaches the gateway exactly, only when set, and is checked
     json_schema: { name: "n", schema: { type: "object" }, ...json_schema },
   });
   for (const bad of [
+    null,
     { type: "text" },
     { type: "json_object", schema: {} },
     { type: "json_schema" },

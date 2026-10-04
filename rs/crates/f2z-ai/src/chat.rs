@@ -726,7 +726,14 @@ fn decode(bytes: &[u8], text_limit: usize) -> Result<ChatRequest, ApiFailure> {
 /// [`json_complexity`] and the size limits. Never quotes the request.
 fn response_format_refusal(bytes: &[u8]) -> Option<ApiFailure> {
     let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
-    let format = value.get("response_format").filter(|f| !f.is_null())?;
+    let format = value.get("response_format")?;
+    if format.is_null() {
+        return Some(invalid(
+            "response_format",
+            "null",
+            "response_format must be an object; omit it for an unconstrained reply",
+        ));
+    }
     match format.get("type").and_then(serde_json::Value::as_str) {
         Some("json_schema" | "json_object") => None,
         _ => Some(invalid(
@@ -1001,6 +1008,12 @@ mod tests {
                 "{format}: {rendered}"
             );
         }
+        // A present null is refused by name, never read as absent.
+        let mut body = minimal();
+        body["response_format"] = serde_json::Value::Null;
+        let failure = decode(body.to_string().as_bytes(), 1 << 20).unwrap_err();
+        assert_eq!(failure.detail_of("field"), Some(&json!("response_format")));
+        assert_eq!(failure.detail_of("reason"), Some(&json!("null")));
         // A known type with a bad member keeps the generic schema refusal
         // (and still never quotes the request).
         let mut body = minimal();

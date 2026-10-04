@@ -83,7 +83,15 @@ pub struct ChatRequest {
     /// schema is input the provider reads, so it enters the input reservation
     /// as tool definitions do, and the charge is the provider-reported usage.
     /// [`ResponseFormat::check`] holds the structural limits.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ///
+    /// A present `null` is refused, not read as absent: a caller whose
+    /// schema lookup came back empty asked for a constraint, and must not be
+    /// billed for an unconstrained answer.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_response_format"
+    )]
     pub response_format: Option<ResponseFormat>,
 }
 
@@ -144,6 +152,12 @@ pub struct JsonSchemaFormat {
         deserialize_with = "present_bool"
     )]
     pub strict: Option<bool>,
+}
+
+fn present_response_format<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<ResponseFormat>, D::Error> {
+    ResponseFormat::deserialize(d).map(Some)
 }
 
 fn present_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
