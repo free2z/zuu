@@ -429,9 +429,14 @@ pub const RESPONSE_FORMAT_UNSUPPORTED: &str = "response_format_unsupported";
 ///   even an OpenAI model. When absent (every catalogue the platform signs
 ///   today: its signer allowlists only `vision`/`tools`/`reasoning`), the
 ///   interim rule is `provider == "openai"`. That is a statement about the
-///   provider's API, not a guess from a model name: every OpenAI Chat
-///   Completions model the catalogue carries takes `response_format`. A
-///   compatible provider (xAI, Kimi) must be declared explicitly.
+///   provider's API, not a guess from a model name: OpenAI's Chat
+///   Completions endpoint takes `response_format` for the models the
+///   platform seeds as callable (gpt-4o, gpt-5.x). An older model that takes
+///   `json_object` but not `json_schema` is refused *by OpenAI* with a 400
+///   before any output — a `provider_error` with the hold released, still
+///   never an unconstrained answer; declare `structured_output: false` for
+///   such a model to refuse it here instead. A compatible provider (xAI,
+///   Kimi) must be declared explicitly.
 #[must_use]
 pub fn structured_output_supported(model: &CatalogModel) -> bool {
     model.api_style == ApiStyle::OpenaiChat
