@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // `npm audit --audit-level=high` with a SINGLE-ADVISORY, time-boxed exception list.
-// Run from a package directory (the one holding package-lock.json).
+// Run from a package directory (the one holding package-lock.json), or pass that directory as argv[2].
 // Exit 0 = nothing high/critical outside the live allowlist; 1 = finding or expired entry;
 // 2 = audit could not be run/parsed (callers may retry; never a pass).
 import { spawnSync } from "node:child_process";
@@ -53,7 +53,7 @@ export function evaluate(report, allowlist = ALLOWLIST, now = new Date()) {
 }
 
 function main() {
-  const r = spawnSync("npm", ["audit", "--json"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const r = spawnSync("npm", ["audit", "--json"], { cwd: process.argv[2] || process.cwd(), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   let report;
   try {
     report = JSON.parse(r.stdout);
