@@ -333,7 +333,9 @@ const request: ChatRequest = {
   `provider_error` before any output, with the hold released). `json_object`
   only promises *some* JSON object, and OpenAI refuses it unless the word
   "JSON" appears in your messages.
-- The SDKs check these limits before sending (`invalid_request`, nothing sent).
+- The SDKs check these limits before sending, so a refused request never
+  costs a rate-limit slot: TS `invalid_request`, Tauri `invalid_request`,
+  Rust `Error::Config` (or call `ResponseFormat::check` yourself).
 - A model that cannot honour it — `capabilities.structured_output: false` in
   `/v1/models` — refuses the call **before any hold, charge or provider
   request**: `400 invalid_request`, `details.reason:

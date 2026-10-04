@@ -220,6 +220,7 @@ impl Ai {
                 "an Idempotency-Key is 1-128 characters".into(),
             ));
         }
+        local_limits(&request)?;
         let body = serde_json::to_vec(&request).map_err(|e| Error::Internal(e.to_string()))?;
         ChatStream::open(self.client.clone(), body, options).await
     }
@@ -284,6 +285,7 @@ impl Ai {
     pub async fn estimate(&self, request: &ChatRequest) -> Result<EstimateResponse, Error> {
         let url = self.url("/chat/estimate");
         let timeout = self.client.inner.config.request_timeout;
+        local_limits(request)?;
         let body = serde_json::to_vec(request).map_err(|e| Error::Internal(e.to_string()))?;
         let response = self
             .client
@@ -350,5 +352,39 @@ impl Ai {
             }
             delay = delay.saturating_mul(2).min(Duration::from_secs(10));
         }
+    }
+}
+
+/// The gateway's structural limits that need no catalogue, checked before
+/// anything is sent: a request the gateway would refuse never spends a
+/// request against the user's or the app's rate allowance.
+fn local_limits(request: &ChatRequest) -> Result<(), Error> {
+    match &request.response_format {
+        Some(format) => format.check().map_err(|e| Error::Config(e.to_string())),
+        None => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod local_limit_tests {
+    use super::*;
+
+    #[test]
+    fn a_response_format_outside_the_limits_is_refused_before_sending() {
+        let mut request: ChatRequest =
+            serde_json::from_value(serde_json::json!({"model": "m", "messages": []})).unwrap();
+        local_limits(&request).unwrap();
+        request.response_format = Some(
+            serde_json::from_value(serde_json::json!({"type": "json_schema",
+                "json_schema": {"name": "activity_spec", "schema": {"type": "object"}}}))
+            .unwrap(),
+        );
+        local_limits(&request).unwrap();
+        request.response_format = Some(
+            serde_json::from_value(serde_json::json!({"type": "json_schema",
+                "json_schema": {"name": "has space", "schema": {"type": "object"}}}))
+            .unwrap(),
+        );
+        assert!(matches!(local_limits(&request), Err(Error::Config(m)) if m.contains("name")));
     }
 }
