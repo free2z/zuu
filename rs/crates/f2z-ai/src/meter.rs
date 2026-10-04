@@ -541,8 +541,9 @@ impl ChatBackend for Metered {
         let admitted_context = Context::parse(row.get("context").ok_or_else(invalid)?.clone())?;
         let p = match plan(&request, &catalog, &admitted_context) {
             Ok(p) => p,
-            Err(refused) if is_strict_refusal(&refused) => {
-                // The key is already claimed. Persist the strict refusal as the
+            Err(refused) if is_terminal_refusal(&refused) => {
+                // The key is already claimed. Persist the strict (or
+                // unsupported response_format) refusal as the
                 // call's terminal zero-charge completion (as for model_disabled
                 // above), so replaying the key — e.g. after a top-up — answers
                 // with this refusal's code, not an abandoned-claim
@@ -702,10 +703,16 @@ impl ChatBackend for Metered {
     }
 }
 
-/// A refusal made because `max_output_tokens_strict` forbade a clamp.
-fn is_strict_refusal(failure: &ApiFailure) -> bool {
-    failure.detail_of("reason").and_then(Value::as_str)
-        == Some(crate::provider::STRICT_OUTPUT_REASON)
+/// A refusal `plan` makes after the idempotency claim that must be
+/// persisted as the key's terminal answer: `max_output_tokens_strict`
+/// forbade a clamp, or the model cannot honour `response_format`. Either way
+/// a same-key replay must name it, not an abandoned-claim `unavailable`.
+fn is_terminal_refusal(failure: &ApiFailure) -> bool {
+    matches!(
+        failure.detail_of("reason").and_then(Value::as_str),
+        Some(reason) if reason == crate::provider::STRICT_OUTPUT_REASON
+            || reason == crate::provider::RESPONSE_FORMAT_UNSUPPORTED
+    )
 }
 
 /// A persisted error message: the ledger accepts 1–256 characters.

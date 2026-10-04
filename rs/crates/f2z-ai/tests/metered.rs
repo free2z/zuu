@@ -937,3 +937,35 @@ async fn unsupported_structured_output_is_refused_before_hold_or_provider_io() {
     assert_eq!(mock.recorded_requests().len(), 0);
     mock.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unsupported_structured_output_refusal_is_what_its_key_replays() {
+    let db = Arc::new(Database::new());
+    let (r, mock) =
+        launch_catalog(db.clone(), Scenario::default(), None, structured_catalog()).await;
+    let request = structured_request("m-responses");
+    let (status, refused) = post(&r, "/v1/chat", &request).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
+    assert_eq!(
+        refused["error"]["details"]["reason"],
+        "response_format_unsupported"
+    );
+    final_state(&db).await;
+    assert_eq!(db.0.lock().unwrap().terminal, Some("released"));
+    // The same key answers with the original refusal, never `unavailable`.
+    let (status, record) = post(&r, "/v1/chat", &request).await;
+    assert_eq!(status, StatusCode::OK, "{record}");
+    assert_eq!(record["replayed"], true, "{record}");
+    assert_eq!(record["charged_2z"], 0);
+    assert_eq!(record["error"]["code"], "invalid_request", "{record}");
+    assert!(
+        record["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("response_format"),
+        "{record}"
+    );
+    assert!(db.0.lock().unwrap().hold.is_none());
+    assert_eq!(mock.request_count(), 0);
+    mock.shutdown().await;
+}
