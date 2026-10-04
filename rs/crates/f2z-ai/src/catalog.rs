@@ -108,6 +108,15 @@ impl CatalogSource for Unconfigured {
     }
 }
 
+/// The `User-Agent` the catalogue poller sends: `f2z-ai/<crate version>`.
+///
+/// The platform's catalogue endpoint attributes each fetch to a client by the
+/// first whitespace-separated token of this header (tuzi's `ai_catalog_served`
+/// log line, `client="f2z-ai"`), and its alerting keys on that attribution.
+/// The token is matched exactly and case-sensitively, so do not prefix,
+/// rename or re-case it (zuu#1126). Same shape as `f2z-sdk`'s `USER_AGENT`.
+pub const USER_AGENT: &str = concat!("f2z-ai/", env!("CARGO_PKG_VERSION"));
+
 /// HTTPS catalogue source. Trust anchors come exclusively from startup configuration.
 pub struct HttpSource {
     client: reqwest::Client,
@@ -145,6 +154,7 @@ impl HttpSource {
             })
             .collect::<Result<_, _>>()?;
         let client = reqwest::Client::builder()
+            .user_agent(USER_AGENT)
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(5))
@@ -672,6 +682,55 @@ mod http_source_tests {
             1,
         );
         assert!(source.verify(body.as_bytes()).is_err());
+    }
+    /// zuu#1126: the poller must identify itself on the wire. The expected
+    /// value is spelled out here rather than read from [`USER_AGENT`], so a
+    /// change to the constant cannot make this test agree with itself.
+    #[tokio::test]
+    async fn catalogue_fetch_sends_the_f2z_ai_user_agent() {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut head = Vec::new();
+            let mut buf = [0u8; 1024];
+            while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                let n = socket.read(&mut buf).await.unwrap();
+                assert!(n > 0, "connection closed before the request head ended");
+                head.extend_from_slice(&buf[..n]);
+                assert!(head.len() < 16 * 1024, "request head too large");
+            }
+            socket
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            String::from_utf8(head).unwrap()
+        });
+
+        let keys = std::collections::BTreeMap::from([("test".into(), "00".repeat(32))]);
+        let source = HttpSource::new(&format!("http://127.0.0.1:{port}/catalog"), &keys).unwrap();
+        // The 404 makes the fetch fail; only the request it sent matters here.
+        assert!(source.fetch().await.is_err());
+        let head = tokio::time::timeout(Duration::from_secs(5), server)
+            .await
+            .expect("the listener saw no request")
+            .unwrap();
+
+        let agents: Vec<&str> = head
+            .split("\r\n")
+            .skip(1)
+            .filter_map(|line| line.split_once(':'))
+            .filter(|(name, _)| name.trim().eq_ignore_ascii_case("user-agent"))
+            .map(|(_, value)| value.trim())
+            .collect();
+        assert_eq!(agents.len(), 1, "exactly one User-Agent header: {head:?}");
+        let first = agents[0].split_whitespace().next().unwrap_or_default();
+        assert_eq!(first, format!("f2z-ai/{}", env!("CARGO_PKG_VERSION")));
+        assert!(first.starts_with("f2z-ai/"), "case-sensitive product token");
     }
     #[test]
     fn catalogue_transport_refuses_plain_remote_or_embedded_credentials() {
