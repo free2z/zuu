@@ -201,7 +201,9 @@ impl Provider for OpenAiChat {
         if let Some(format) = &request.response_format {
             // The unified shape IS Chat Completions' shape; it is rebuilt
             // member by member anyway, so nothing the proto type does not
-            // name can reach the provider.
+            // name can reach the provider. Values, not bytes: schema
+            // object members arrive sorted by name (see
+            // `JsonSchemaFormat::schema`), not in the caller's order.
             let wire = match format {
                 ResponseFormat::JsonObject {} => json!({"type": "json_object"}),
                 ResponseFormat::JsonSchema { json_schema } => {

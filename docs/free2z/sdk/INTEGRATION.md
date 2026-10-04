@@ -345,6 +345,12 @@ const request: ChatRequest = {
   yourself and still validate it — the model's output is untrusted, and a
   provider refusal also arrives as text. `finish_reason: "length"` means the
   JSON is truncated; pair `response_format` with `max_output_tokens_strict`.
+- **Key order is not preserved yet.** The gateway forwards the schema as a
+  parsed JSON value whose object members are sorted by name, and OpenAI
+  emits the reply's keys in schema order — so the reply arrives with keys
+  alphabetical, not in the order you declared. Parse by key, never by
+  position; and a schema that relies on order to make the model think first
+  (`reasoning` before `answer`) does not get that effect today.
 - Pricing does not change. The schema is input the model reads, so it is part
   of the input hold and of the provider-reported usage you are charged for,
   like a tool definition. Keep it small.

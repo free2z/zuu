@@ -143,6 +143,13 @@ pub struct JsonSchemaFormat {
     /// `additionalProperties: false` and every property `required`) is the
     /// provider's, and a schema it refuses is a `provider_error` before any
     /// output, with the hold released.
+    ///
+    /// **Object member order is not preserved.** `serde_json::Value` (built
+    /// without `preserve_order`) sorts members by name, so the provider
+    /// receives `properties` alphabetically, and OpenAI emits the reply's
+    /// keys in schema order. The JSON and its validity are unchanged; a
+    /// schema that relies on order (e.g. `reasoning` before `answer`) does
+    /// not get it yet.
     pub schema: serde_json::Value,
     /// Ask the provider to enforce the schema exactly. Absent: the provider's
     /// default (OpenAI: `false`). A `null` is refused, not read as absent.
