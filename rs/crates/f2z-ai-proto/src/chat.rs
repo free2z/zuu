@@ -70,6 +70,162 @@ pub struct ChatRequest {
     /// the model that answered. Empty means no fallback.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fallback: Vec<String>,
+    /// Opt-in structured output: constrain the reply to JSON, or to JSON
+    /// matching a schema. Absent (the default) is omitted on the wire, so a
+    /// request that does not set it serializes exactly as before this field
+    /// existed — and a gateway older than it refuses the field
+    /// (`deny_unknown_fields`) rather than silently answering in prose.
+    ///
+    /// A model that cannot honour it is refused before any hold, charge or
+    /// provider request (`400 invalid_request`, `details.reason =
+    /// "response_format_unsupported"`): the gateway never drops it and bills
+    /// an unconstrained answer. It does not change the pricing formula; the
+    /// schema is input the provider reads, so it enters the input reservation
+    /// as tool definitions do, and the charge is the provider-reported usage.
+    /// [`ResponseFormat::check`] holds the structural limits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<ResponseFormat>,
+}
+
+/// The most bytes [`JsonSchemaFormat::schema`] may take, serialized compactly:
+/// 32 KiB. A schema is prompt the caller pays for on every call, and the
+/// bound keeps one request from making it the bulk of a body.
+pub const MAX_RESPONSE_SCHEMA_BYTES: usize = 32 * 1024;
+
+/// The longest [`JsonSchemaFormat::name`], in characters (OpenAI's own limit).
+pub const MAX_RESPONSE_SCHEMA_NAME_CHARS: usize = 64;
+
+/// [`ChatRequest::response_format`]: what shape the reply must take.
+///
+/// ```json
+/// {"type": "json_schema", "json_schema": {"name": "activity_spec", "schema": {"type": "object"}, "strict": true}}
+/// {"type": "json_object"}
+/// ```
+///
+/// Any other `type` — including OpenAI's `text`, which is simply the default
+/// and so is expressed by omitting the field — is refused.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ResponseFormat {
+    /// Any syntactically valid JSON object. Some providers (OpenAI) also
+    /// require the word "JSON" to appear in the messages, and refuse the call
+    /// otherwise; prefer [`ResponseFormat::JsonSchema`].
+    ///
+    /// An empty *struct* variant, not a unit one, on purpose: serde ignores
+    /// extra members beside the tag of an internally tagged unit variant even
+    /// under `deny_unknown_fields`, and `{"type":"json_object","schema":…}`
+    /// must be refused, not read as a schema-less request.
+    JsonObject {},
+    /// JSON matching [`JsonSchemaFormat::schema`].
+    JsonSchema {
+        /// The schema and its name.
+        json_schema: JsonSchemaFormat,
+    },
+}
+
+/// The schema of a [`ResponseFormat::JsonSchema`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JsonSchemaFormat {
+    /// `1..=64` characters of `a-z`, `A-Z`, `0-9`, `_` and `-`.
+    pub name: String,
+    /// A JSON Schema **object**, at most [`MAX_RESPONSE_SCHEMA_BYTES`]
+    /// serialized. Passed to the provider as given; what subset of JSON
+    /// Schema it enforces (and, under `strict`, requires — OpenAI wants
+    /// `additionalProperties: false` and every property `required`) is the
+    /// provider's, and a schema it refuses is a `provider_error` before any
+    /// output, with the hold released.
+    pub schema: serde_json::Value,
+    /// Ask the provider to enforce the schema exactly. Absent: the provider's
+    /// default (OpenAI: `false`). A `null` is refused, not read as absent.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_bool"
+    )]
+    pub strict: Option<bool>,
+}
+
+fn present_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
+    bool::deserialize(d).map(Some)
+}
+
+/// A [`ResponseFormat`] outside the limits [`ResponseFormat::check`] holds.
+/// The three strings are the gateway's `400 invalid_request` details.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResponseFormatError {
+    /// The offending field, as a path from the request root.
+    pub field: &'static str,
+    /// A fixed, content-free label: `empty`, `too_long`, `invalid_characters`,
+    /// `not_object` or `too_large`.
+    pub reason: &'static str,
+    /// A human-readable sentence that quotes nothing from the request.
+    pub message: &'static str,
+}
+
+impl core::fmt::Display for ResponseFormatError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}: {}", self.field, self.message)
+    }
+}
+
+impl ResponseFormat {
+    /// The structural limits: a well-formed name, an object schema, and at
+    /// most [`MAX_RESPONSE_SCHEMA_BYTES`] of it. The same check runs in the
+    /// gateway and may run in a client before it sends.
+    ///
+    /// # Errors
+    ///
+    /// The first limit broken, naming the field.
+    pub fn check(&self) -> Result<(), ResponseFormatError> {
+        let Self::JsonSchema { json_schema } = self else {
+            return Ok(());
+        };
+        const NAME: &str = "response_format.json_schema.name";
+        const SCHEMA: &str = "response_format.json_schema.schema";
+        if json_schema.name.is_empty() {
+            return Err(ResponseFormatError {
+                field: NAME,
+                reason: "empty",
+                message: "response_format.json_schema.name is required",
+            });
+        }
+        if json_schema.name.chars().count() > MAX_RESPONSE_SCHEMA_NAME_CHARS {
+            return Err(ResponseFormatError {
+                field: NAME,
+                reason: "too_long",
+                message: "response_format.json_schema.name is at most 64 characters",
+            });
+        }
+        if !json_schema
+            .name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        {
+            return Err(ResponseFormatError {
+                field: NAME,
+                reason: "invalid_characters",
+                message: "response_format.json_schema.name may contain only a-z, A-Z, 0-9, _ and -",
+            });
+        }
+        if !json_schema.schema.is_object() {
+            return Err(ResponseFormatError {
+                field: SCHEMA,
+                reason: "not_object",
+                message: "response_format.json_schema.schema must be a JSON Schema object",
+            });
+        }
+        let too_large = ResponseFormatError {
+            field: SCHEMA,
+            reason: "too_large",
+            message: "response_format.json_schema.schema is at most 32768 bytes serialized",
+        };
+        let bytes = serde_json::to_vec(&json_schema.schema).map_err(|_| too_large)?;
+        if bytes.len() > MAX_RESPONSE_SCHEMA_BYTES {
+            return Err(too_large);
+        }
+        Ok(())
+    }
 }
 
 impl ChatRequest {

@@ -39,7 +39,9 @@ use std::collections::BTreeMap;
 
 use f2z_ai_proto::ErrorCode;
 use f2z_ai_proto::catalog::{ApiStyle, CatalogModel};
-use f2z_ai_proto::chat::{ChatRequest, ContentPart, FinishReason, Role, ToolCall, Usage};
+use f2z_ai_proto::chat::{
+    ChatRequest, ContentPart, FinishReason, ResponseFormat, Role, ToolCall, Usage,
+};
 use reqwest::header::HeaderMap;
 use secrecy::SecretString;
 use serde_json::{Map, Value, json};
@@ -109,6 +111,7 @@ impl Provider for OpenAiChat {
         // A system or tool message is text here, and an assistant turn
         // carries no image.
         super::images_only_on(request, &[Role::User])?;
+        super::check_response_format(request, model)?;
         let messages: Vec<Value> = request
             .messages
             .iter()
@@ -194,6 +197,24 @@ impl Provider for OpenAiChat {
                         .collect(),
                 ),
             );
+        }
+        if let Some(format) = &request.response_format {
+            // The unified shape IS Chat Completions' shape; it is rebuilt
+            // member by member anyway, so nothing the proto type does not
+            // name can reach the provider.
+            let wire = match format {
+                ResponseFormat::JsonObject {} => json!({"type": "json_object"}),
+                ResponseFormat::JsonSchema { json_schema } => {
+                    let mut schema = Map::new();
+                    schema.insert("name".into(), json!(json_schema.name));
+                    schema.insert("schema".into(), json_schema.schema.clone());
+                    if let Some(strict) = json_schema.strict {
+                        schema.insert("strict".into(), json!(strict));
+                    }
+                    json!({"type": "json_schema", "json_schema": Value::Object(schema)})
+                }
+            };
+            body.insert("response_format".into(), wire);
         }
         Ok(Value::Object(body))
     }

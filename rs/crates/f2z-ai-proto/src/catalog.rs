@@ -104,11 +104,27 @@ pub struct ModelCapabilities {
     pub tools: bool,
     /// The model can produce reasoning output.
     pub reasoning: bool,
+    /// `ChatRequest::response_format` (JSON / JSON-schema output) is
+    /// supported. **Tri-state**, unlike the members above: `Some(true)` and
+    /// `Some(false)` are an audited declaration; `None` (absent) means the
+    /// catalogue does not say, and the gateway applies its documented interim
+    /// rule (the `f2z-ai` crate's `provider::structured_output_supported`)
+    /// instead of reading absence as `false`. A present `null` is refused.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "declared_bool"
+    )]
+    pub structured_output: Option<bool>,
+}
+
+fn declared_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
+    bool::deserialize(d).map(Some)
 }
 
 impl ModelCapabilities {
     fn is_empty(&self) -> bool {
-        !self.vision && !self.tools && !self.reasoning
+        !self.vision && !self.tools && !self.reasoning && self.structured_output.is_none()
     }
 }
 
@@ -463,8 +479,28 @@ mod tests {
             r#"{"tools":"true"}"#,
             r#"{"vision":null}"#,
             r#"{"reasoning":1}"#,
+            r#"{"structured_output":null}"#,
+            r#"{"structured_output":"true"}"#,
         ] {
             assert!(serde_json::from_str::<ModelCapabilities>(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn structured_output_is_tri_state_and_absent_is_not_serialized() {
+        let absent: ModelCapabilities = serde_json::from_str(r#"{"tools":true}"#).unwrap();
+        assert_eq!(absent.structured_output, None);
+        assert_eq!(
+            serde_json::to_string(&absent).unwrap(),
+            r#"{"vision":false,"tools":true,"reasoning":false}"#
+        );
+        for (wire, declared) in [
+            (r#"{"structured_output":true}"#, Some(true)),
+            (r#"{"structured_output":false}"#, Some(false)),
+        ] {
+            let caps: ModelCapabilities = serde_json::from_str(wire).unwrap();
+            assert_eq!(caps.structured_output, declared, "{wire}");
+            assert!(!caps.is_empty(), "a declaration is never dropped: {wire}");
         }
     }
 

@@ -345,6 +345,30 @@ mod tests {
         assert!(chat_request(bad).is_err());
     }
     #[test]
+    fn response_format_passes_through_as_plain_json_only_when_set() {
+        let base = json!({"model":"m","messages":[]});
+        let plain = chat_request(base.clone()).unwrap();
+        assert_eq!(plain.response_format, None);
+        assert!(
+            !serde_json::to_string(&plain)
+                .unwrap()
+                .contains("response_format")
+        );
+        let format = json!({"type":"json_schema","json_schema":{"name":"activity_spec",
+            "schema":{"type":"object","properties":{"n":{"maximum":9}}},"strict":true}});
+        let mut with = base.clone();
+        with["response_format"] = format.clone();
+        let with = chat_request(with).unwrap();
+        // Unlike max_output_tokens, schema numbers are ordinary JSON.
+        assert_eq!(
+            serde_json::to_value(&with).unwrap()["response_format"],
+            format
+        );
+        let mut bad = base;
+        bad["response_format"] = json!({"type":"text"});
+        assert!(chat_request(bad).is_err());
+    }
+    #[test]
     fn integers_are_lossless_and_strict() {
         assert_eq!(value(&u64::MAX).unwrap(), json!("18446744073709551615"));
         for bad in ["01", "-1", "1.0", "", "18446744073709551616"] {

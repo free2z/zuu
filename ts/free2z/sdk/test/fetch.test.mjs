@@ -427,3 +427,74 @@ test("a spend-cap hint is sent only when asked for, and validated", async () => 
     });
   assert.equal(seen.length, 3, "a refused hint never reaches the browser");
 });
+test("response_format reaches the gateway exactly, only when set, and is checked first", async () => {
+  const mock = issuer(),
+    transport = new FetchTransport(mock.config);
+  await transport.signIn();
+  const bodies = [];
+  mock.api = (path, init) => {
+    bodies.push(init.body);
+    return new Response(
+      '{"model":"test","input_tokens":1,"max_output_tokens":1800,"hold_2z":1}',
+      { headers: { "content-type": "application/json" } },
+    );
+  };
+  const activity = {
+    type: "json_schema",
+    json_schema: {
+      name: "activity_spec",
+      schema: {
+        type: "object",
+        properties: { steps: { type: "array", maxItems: 12n } },
+        required: ["steps"],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+  };
+  // Round trip: bigint in the schema is a JSON integer, members are exact.
+  await transport.estimate({ ...request, response_format: activity });
+  assert.equal(
+    JSON.stringify(JSON.parse(bodies.at(-1)).response_format),
+    '{"type":"json_schema","json_schema":{"name":"activity_spec","schema":{"type":"object","properties":{"steps":{"type":"array","maxItems":12}},"required":["steps"],"additionalProperties":false},"strict":true}}',
+  );
+  await transport.estimate({
+    ...request,
+    response_format: { type: "json_object" },
+  });
+  assert.deepEqual(JSON.parse(bodies.at(-1)).response_format, {
+    type: "json_object",
+  });
+  // Absent (or explicitly undefined) is not on the wire.
+  await transport.estimate({ ...request, response_format: undefined });
+  assert.equal("response_format" in JSON.parse(bodies.at(-1)), false);
+  const sent = bodies.length;
+  const schema = (json_schema) => ({
+    type: "json_schema",
+    json_schema: { name: "n", schema: { type: "object" }, ...json_schema },
+  });
+  for (const bad of [
+    { type: "text" },
+    { type: "json_object", schema: {} },
+    { type: "json_schema" },
+    schema({ name: "" }),
+    schema({ name: "has space" }),
+    schema({ name: "n".repeat(65) }),
+    schema({ schema: [] }),
+    schema({ schema: "{}" }),
+    schema({ strict: "true" }),
+    schema({ description: "not a member" }),
+    schema({ schema: { d: "x".repeat(32 * 1024) } }),
+  ]) {
+    await assert.rejects(
+      transport.estimate({ ...request, response_format: bad }),
+      (e) => e.code === "invalid_request",
+      JSON.stringify(bad).slice(0, 80),
+    );
+    await assert.rejects(
+      transport.chat({ ...request, response_format: bad }, options),
+      (e) => e.code === "invalid_request",
+    );
+  }
+  assert.equal(bodies.length, sent, "a refused request is never sent");
+});

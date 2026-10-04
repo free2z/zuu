@@ -87,6 +87,9 @@ impl Provider for AnthropicMessages {
         // `system` is text, and an assistant turn carries no image; a
         // `tool_result` does.
         super::images_only_on(request, &[Role::User, Role::Tool])?;
+        // No `response_format` translation for this API yet: refused, never
+        // dropped (an unconstrained answer billed as a structured one).
+        super::no_response_format(request)?;
         let mut system = None;
         let mut turns: Vec<(&'static str, Vec<Value>)> = Vec::new();
         for (index, message) in request.messages.iter().enumerate() {

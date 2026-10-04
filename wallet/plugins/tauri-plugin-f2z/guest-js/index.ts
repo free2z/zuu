@@ -12,6 +12,19 @@ export interface Message {
   tool_calls?: ToolCall[];
   tool_call_id?: string;
 }
+/**
+ * Structured output: `json_schema` (prefer it) or `json_object`. The reply is
+ * ordinary text to parse; `finish_reason: 'length'` means truncated JSON.
+ * A model without `capabilities.structured_output` refuses the call up front
+ * (`invalid_request`, reason `response_format_unsupported`).
+ */
+export type ResponseFormat =
+  | { type: 'json_object' }
+  | {
+      type: 'json_schema';
+      /** `name`: 1-64 of `A-Z a-z 0-9 _ -`; `schema`: a JSON Schema object, at most 32 KiB. */
+      json_schema: { name: string; schema: Json; strict?: boolean };
+    };
 export interface ChatRequest {
   model: string;
   messages: Message[];
@@ -21,6 +34,8 @@ export interface ChatRequest {
   max_output_tokens_strict?: boolean;
   metadata?: Record<string, string>;
   fallback?: string[];
+  /** Opt-in structured output; omit for prose. Plain JSON, not decimal strings. */
+  response_format?: ResponseFormat;
   stream?: true;
 }
 export interface Session {

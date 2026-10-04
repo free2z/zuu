@@ -96,6 +96,9 @@ impl Provider for OpenAiResponses {
         // `function_call_output` is text here, and an assistant turn carries
         // no image.
         super::images_only_on(request, &[Role::User, Role::System])?;
+        // No `response_format` translation for this API yet: refused, never
+        // dropped (an unconstrained answer billed as a structured one).
+        super::no_response_format(request)?;
         let mut input = Vec::new();
         for message in &request.messages {
             match message.role {

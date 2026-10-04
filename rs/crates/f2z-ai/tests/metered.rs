@@ -857,3 +857,83 @@ async fn strict_output_limit_that_fits_runs_at_the_full_limit() {
     assert_eq!(db.0.lock().unwrap().charges, 1);
     mock.shutdown().await;
 }
+
+// Structured output through the whole metered path: admitted for an OpenAI
+// Chat Completions model with no catalogue declaration (gpt-4o tonight),
+// passed to the provider, charged as any call; refused before hold and
+// provider I/O where it cannot be honoured.
+fn structured_catalog() -> f2z_ai::catalog::VerifiedCatalog {
+    let mut catalog = adapter_support::catalog(10_000).catalog().clone();
+    for model in &mut catalog.models {
+        if model.id == "m-chat" {
+            model.provider = "openai".into();
+        }
+    }
+    f2z_ai::catalog::VerifiedCatalog::from_verified(catalog).unwrap()
+}
+fn structured_request(model: &str) -> Value {
+    let mut request = request();
+    request["model"] = json!(model);
+    request["stream"] = json!(false);
+    request["response_format"] = json!({"type":"json_schema","json_schema":{
+        "name":"activity_spec","strict":true,
+        "schema":{"type":"object","additionalProperties":false,
+                  "properties":{"title":{"type":"string"}},"required":["title"]}}});
+    request
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn structured_output_is_relayed_and_charged_like_any_call() {
+    let db = Arc::new(Database::new());
+    let (r, mock) =
+        launch_catalog(db.clone(), Scenario::default(), None, structured_catalog()).await;
+    let models = axum::http::Request::get("/v1/models")
+        .header("host", "gateway")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let models: Value =
+        serde_json::from_str(&support::text(support::send(r.public, models).await).await).unwrap();
+    for model in models["models"].as_array().unwrap() {
+        assert_eq!(
+            model["capabilities"]["structured_output"],
+            model["id"] == "m-chat",
+            "{model}"
+        );
+    }
+    let request = structured_request("m-chat");
+    let response = support::send(r.public, support::chat_request(request.to_string())).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let reply: f2z_ai_proto::chat::ChatResponse =
+        serde_json::from_str(&support::text(response).await).unwrap();
+    reply.check().unwrap();
+    assert_eq!(reply.charged_2z, Some(f2z_ai_proto::Whole2z::new(1)));
+    assert_eq!(db.0.lock().unwrap().charges, 1);
+    let sent = mock.recorded_requests();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].body["response_format"], request["response_format"]);
+    assert!(
+        !sent[0].body.to_string().contains("essay"),
+        "metadata sent to provider"
+    );
+    mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unsupported_structured_output_is_refused_before_hold_or_provider_io() {
+    let db = Arc::new(Database::new());
+    let (r, mock) =
+        launch_catalog(db.clone(), Scenario::default(), None, structured_catalog()).await;
+    let response = support::send(
+        r.public,
+        support::chat_request(structured_request("m-responses").to_string()),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let error = support::error_of(response).await;
+    assert_eq!(error["code"], "invalid_request");
+    assert_eq!(error["details"]["reason"], "response_format_unsupported");
+    assert_eq!(error["details"]["field"], "response_format");
+    assert!(db.0.lock().unwrap().hold.is_none());
+    assert_eq!(mock.recorded_requests().len(), 0);
+    mock.shutdown().await;
+}

@@ -8,7 +8,7 @@ import {
 } from "./error.js";
 import { identifier, key, withOperation } from "./http.js";
 import { spendCapParams } from "./spend-cap.js";
-import { object, strictOutput, string, uint } from "./json.js";
+import { object, responseFormat, strictOutput, string, uint } from "./json.js";
 import type {
   ChatOptions,
   ChatRequest,
@@ -28,10 +28,16 @@ type NativeJson =
   | { [key: string]: NativeJson };
 export type NativeChatRequest = Omit<
   ChatRequest,
-  "max_output_tokens" | "tools"
+  "max_output_tokens" | "tools" | "response_format"
 > & {
   max_output_tokens?: string;
   tools?: { name: string; description?: string; parameters: NativeJson }[];
+  response_format?:
+    | { type: "json_object" }
+    | {
+        type: "json_schema";
+        json_schema: { name: string; schema: NativeJson; strict?: boolean };
+      };
 };
 /** Structural subset of the plugin guest API; importing this SDK never loads Tauri. */
 export interface NativeBridge {
@@ -93,8 +99,24 @@ function parameters(value: unknown, depth = 0): NativeJson {
   return result;
 }
 function request(value: ChatRequest): NativeChatRequest {
-  const { max_output_tokens, tools, ...rest } = strictOutput(value);
+  const {
+    max_output_tokens,
+    tools,
+    response_format: format,
+    ...rest
+  } = responseFormat(strictOutput(value));
   const result: NativeChatRequest = { ...rest };
+  if (format?.type === "json_object") result.response_format = format;
+  else if (format !== undefined)
+    // The schema is ordinary JSON, like tool parameters: bigint becomes a
+    // safe number, never a decimal string.
+    result.response_format = {
+      type: "json_schema",
+      json_schema: {
+        ...format.json_schema,
+        schema: parameters(format.json_schema.schema),
+      },
+    };
   if (max_output_tokens !== undefined)
     result.max_output_tokens = uint(max_output_tokens).toString();
   if (tools !== undefined)

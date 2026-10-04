@@ -694,6 +694,9 @@ fn decode(bytes: &[u8], text_limit: usize) -> Result<ChatRequest, ApiFailure> {
         // have earned the image allowance.
         Err(_) if over_text_limit => return Err(too_large(text_limit)),
         Err(error) => {
+            if let Some(refusal) = response_format_refusal(bytes) {
+                return Err(refusal);
+            }
             let reason = match error.classify() {
                 serde_json::error::Category::Syntax => "syntax",
                 serde_json::error::Category::Eof => "eof",
@@ -714,6 +717,24 @@ fn decode(bytes: &[u8], text_limit: usize) -> Result<ChatRequest, ApiFailure> {
         return Err(too_large(text_limit));
     }
     Ok(request)
+}
+
+/// A body that failed to decode because of an unknown `response_format.type`
+/// gets a refusal that names the field, not just a line and column: it is
+/// the one mistake an integrator porting an OpenAI call (`"type": "text"`)
+/// is likely to make. Error path only; the body already passed
+/// [`json_complexity`] and the size limits. Never quotes the request.
+fn response_format_refusal(bytes: &[u8]) -> Option<ApiFailure> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let format = value.get("response_format").filter(|f| !f.is_null())?;
+    match format.get("type").and_then(serde_json::Value::as_str) {
+        Some("json_schema" | "json_object") => None,
+        _ => Some(invalid(
+            "response_format.type",
+            "unsupported",
+            "response_format.type must be \"json_schema\" or \"json_object\"",
+        )),
+    }
 }
 
 fn image_count(request: &ChatRequest) -> usize {
@@ -850,6 +871,11 @@ pub fn validate(request: &ChatRequest) -> Result<(), ApiFailure> {
             "max_output_tokens_strict requires max_output_tokens",
         ));
     }
+    if let Some(format) = &request.response_format {
+        format
+            .check()
+            .map_err(|e| invalid(e.field, e.reason, e.message))?;
+    }
     if request.fallback.iter().any(String::is_empty) {
         return Err(invalid("fallback", "empty", "a fallback model id is empty"));
     }
@@ -939,6 +965,14 @@ mod tests {
                 json!({"model": "m", "max_output_tokens_strict": true, "messages": [{"role": "user", "content": []}]}),
                 "max_output_tokens",
             ),
+            (
+                json!({"model": "m", "response_format": {"type": "json_schema", "json_schema": {"name": "bad name", "schema": {}}}, "messages": [{"role": "user", "content": []}]}),
+                "response_format.json_schema.name",
+            ),
+            (
+                json!({"model": "m", "response_format": {"type": "json_schema", "json_schema": {"name": "n", "schema": "{}"}}, "messages": [{"role": "user", "content": []}]}),
+                "response_format.json_schema.schema",
+            ),
         ];
         for (value, field) in cases {
             let failure = validate(&request(value)).unwrap_err();
@@ -947,6 +981,43 @@ mod tests {
                 rendered.contains(&format!("\"{field}\"")),
                 "{field}: {rendered}"
             );
+        }
+    }
+
+    #[test]
+    fn an_unknown_response_format_type_is_named_not_located() {
+        for format in [
+            json!({"type": "text"}),
+            json!({"type": "xml", "json_schema": {}}),
+            json!({"json_schema": {"name": "n", "schema": {}}}),
+            json!("json_object"),
+        ] {
+            let mut body = minimal();
+            body["response_format"] = format.clone();
+            let failure = decode(body.to_string().as_bytes(), 1 << 20).unwrap_err();
+            let rendered = reason(&failure);
+            assert!(
+                rendered.contains("\"response_format.type\"") && rendered.contains("unsupported"),
+                "{format}: {rendered}"
+            );
+        }
+        // A known type with a bad member keeps the generic schema refusal
+        // (and still never quotes the request).
+        let mut body = minimal();
+        body["response_format"] = json!({"type": "json_schema", "json_schema": {"name": "n", "schema": {}, "x": "CANARY"}});
+        let rendered = reason(&decode(body.to_string().as_bytes(), 1 << 20).unwrap_err());
+        assert!(
+            rendered.contains("schema") && !rendered.contains("CANARY"),
+            "{rendered}"
+        );
+        // And both known types decode and validate.
+        for format in [
+            json!({"type": "json_object"}),
+            json!({"type": "json_schema", "json_schema": {"name": "activity_spec", "schema": {"type": "object"}, "strict": true}}),
+        ] {
+            let mut body = minimal();
+            body["response_format"] = format;
+            validate(&decode(body.to_string().as_bytes(), 1 << 20).unwrap()).unwrap();
         }
     }
 

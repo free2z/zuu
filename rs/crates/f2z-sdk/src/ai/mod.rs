@@ -33,6 +33,7 @@
 //!     stream: true,
 //!     metadata: Default::default(),
 //!     fallback: vec![],
+//!     response_format: None,
 //! };
 //! let mut stream = client.ai().chat(request).await?;
 //! while let Some(event) = stream.next().await? {
@@ -47,6 +48,30 @@
 //!     }
 //! }
 //! # Ok(()) }
+//! ```
+//!
+//! Structured output: set `response_format` and parse the reply text as
+//! JSON. A model whose `capabilities.structured_output` is `false` refuses
+//! the call up front (`400 invalid_request`,
+//! `reason: "response_format_unsupported"`); a reply that stopped at
+//! `length` is truncated JSON, so check `finish_reason` before parsing.
+//!
+//! ```
+//! use f2z_sdk::proto::chat::{JsonSchemaFormat, ResponseFormat};
+//!
+//! let format = ResponseFormat::JsonSchema {
+//!     json_schema: JsonSchemaFormat {
+//!         name: "activity_spec".into(),
+//!         schema: serde_json::json!({
+//!             "type": "object",
+//!             "properties": {"title": {"type": "string"}},
+//!             "required": ["title"],
+//!             "additionalProperties": false
+//!         }),
+//!         strict: Some(true),
+//!     },
+//! };
+//! format.check().expect("within the gateway's limits");
 //! ```
 
 mod record;

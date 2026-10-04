@@ -189,12 +189,22 @@ fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result
             "this model does not support function tools",
         ));
     }
+    // Refused before any hold: a model or adapter that cannot honour a
+    // response_format never receives the call without it.
+    crate::provider::check_response_format(request, &model)?;
     // Conservative byte-token reservation, including roles, message framing,
     // tool definitions and prior tool arguments/results. Metadata is excluded.
     // Final billing uses provider usage, never this byte bound.
-    let bytes = serde_json::to_vec(&(&request.messages, &request.tools))
+    let mut bytes = serde_json::to_vec(&(&request.messages, &request.tools))
         .map_err(|_| invalid())?
         .len();
+    // A response_format schema is input the provider reads (and bills), so it
+    // is reserved like a tool definition. Only when present: a request without
+    // one reserves exactly what it did before the field existed. The pricing
+    // formula is untouched; this only sizes the hold.
+    if let Some(format) = &request.response_format {
+        bytes = bytes.saturating_add(serde_json::to_vec(format).map_err(|_| invalid())?.len());
+    }
     let input = apply_safety_factor(
         u64::try_from(bytes)
             .map_err(|_| invalid())?
@@ -410,7 +420,7 @@ impl ChatBackend for Metered {
                 let n=u64::try_from(numerator.div_ceil(1_000_000_000_000)).map_err(|_| invalid())?;
                 if n > SAFE_INTEGER { return Err(invalid()); } prices.insert(name.into(),json!(n));
             }
-            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":m.capabilities.tools,"reasoning":m.capabilities.reasoning},"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
+            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":m.capabilities.tools,"reasoning":m.capabilities.reasoning,"structured_output":crate::provider::structured_output_supported(m)},"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
         }).collect::<Result<Vec<_>, ApiFailure>>()?;
         Ok(
             json!({"catalog_version":cat.version,"includes_markup_bps":c.markup().0,"models":models}),
@@ -1379,5 +1389,97 @@ mod tests {
             plan(&long(clamped, true), &narrow, &rich).unwrap().output,
             clamped
         );
+    }
+
+    // Structured output (response_format): gated on the adapter and the
+    // catalogue before any hold; the pricing formula does not move.
+    fn styled(provider: &str, style: &str, structured: Option<bool>) -> VerifiedCatalog {
+        let mut catalog = serde_json::to_value(priced(200_000).catalog()).unwrap();
+        let model = &mut catalog["models"][0];
+        model["provider"] = json!(provider);
+        model["api_style"] = json!(style);
+        if let Some(declared) = structured {
+            model["capabilities"] = json!({"structured_output": declared});
+        }
+        VerifiedCatalog::from_verified(serde_json::from_value(catalog).unwrap()).unwrap()
+    }
+    fn formatted(format: Option<serde_json::Value>) -> ChatRequest {
+        let mut request = json!({"model":"m","max_output_tokens":100,
+            "messages":[{"role":"user","content":[{"type":"text","text":"make an activity"}]}]});
+        if let Some(format) = format {
+            request["response_format"] = format;
+        }
+        serde_json::from_value(request).unwrap()
+    }
+    fn activity_spec() -> serde_json::Value {
+        json!({"type":"json_schema","json_schema":{"name":"activity_spec","strict":true,
+            "schema":{"type":"object","properties":{"title":{"type":"string"}},
+                      "required":["title"],"additionalProperties":false}}})
+    }
+
+    #[test]
+    fn response_format_is_admitted_only_where_the_adapter_and_catalogue_allow() {
+        let rich = ctx(u64::from(u32::MAX), None);
+        for format in [activity_spec(), json!({"type":"json_object"})] {
+            let request = formatted(Some(format.clone()));
+            // gpt-4o tonight: an OpenAI Chat Completions model in a catalogue
+            // that does not yet declare the capability.
+            for (provider, style, declared, admitted) in [
+                ("openai", "openai_chat", None, true),
+                ("openai", "openai_chat", Some(true), true),
+                ("openai", "openai_chat", Some(false), false),
+                ("xai", "openai_chat", None, false),
+                ("xai", "openai_chat", Some(true), true),
+                ("openai", "openai_responses", Some(true), false),
+                ("anthropic", "anthropic_messages", Some(true), false),
+            ] {
+                let catalog = styled(provider, style, declared);
+                let result = plan(&request, &catalog, &rich);
+                assert_eq!(
+                    result.is_ok(),
+                    admitted,
+                    "{provider}/{style}/{declared:?}: {format}"
+                );
+                if let Err(e) = result {
+                    assert_eq!(e.code(), ErrorCode::InvalidRequest.as_str());
+                    assert_eq!(e.status().as_u16(), 400);
+                    assert_eq!(
+                        e.detail_of("reason"),
+                        Some(&json!(crate::provider::RESPONSE_FORMAT_UNSUPPORTED))
+                    );
+                    assert_eq!(e.detail_of("field"), Some(&json!("response_format")));
+                }
+                // Negative control: the same model takes the same call
+                // without a response_format, so the refusal is the field's.
+                plan(&formatted(None), &catalog, &rich).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn response_format_only_adds_its_own_bytes_to_the_input_reservation() {
+        let catalog = styled("openai", "openai_chat", None);
+        let rich = ctx(u64::from(u32::MAX), None);
+        let plain_request = formatted(None);
+        let plain = plan(&plain_request, &catalog, &rich).unwrap();
+        // Unchanged for a request without the field: the pre-existing bound.
+        let framed = serde_json::to_vec(&(&plain_request.messages, &plain_request.tools))
+            .unwrap()
+            .len() as u64;
+        assert_eq!(plain.input, framed + 64);
+        let request = formatted(Some(activity_spec()));
+        let with = plan(&request, &catalog, &rich).unwrap();
+        let schema_bytes = serde_json::to_vec(request.response_format.as_ref().unwrap())
+            .unwrap()
+            .len() as u64;
+        // The safety factor is 1.0 here, so the delta is exactly the bytes.
+        assert_eq!(with.input, plain.input + schema_bytes);
+        assert_eq!(
+            (with.output, with.markup, with.margin),
+            (plain.output, plain.markup, plain.margin)
+        );
+        // Same price function: holding the larger input costs at least as
+        // much, and the charge is still provider usage x signed prices.
+        assert!(with.hold >= plain.hold);
     }
 }

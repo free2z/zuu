@@ -271,6 +271,10 @@ pub struct Capabilities {
     /// Reasons before answering (billed as output).
     #[serde(default)]
     pub reasoning: bool,
+    /// Accepts `response_format` (JSON / JSON-schema output). `false` from a
+    /// gateway that predates the field.
+    #[serde(default)]
+    pub structured_output: bool,
 }
 
 #[cfg(test)]
@@ -319,5 +323,10 @@ mod tests {
         }))
         .unwrap();
         assert!(m.models[0].capabilities.vision);
+        // Absent (an older gateway) reads as unsupported.
+        assert!(!m.models[0].capabilities.structured_output);
+        let caps: Capabilities =
+            serde_json::from_value(serde_json::json!({"structured_output": true})).unwrap();
+        assert!(caps.structured_output);
     }
 }
