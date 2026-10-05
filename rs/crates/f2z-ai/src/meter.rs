@@ -208,10 +208,15 @@ fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result
     if let Some(format) = &request.response_format {
         bytes = bytes.saturating_add(serde_json::to_vec(format).map_err(|_| invalid())?.len());
     }
+    // Input the provider adds that the bytes do not show (Anthropic's
+    // tool-use system prompt). Zero for every other request, which keeps its
+    // pre-existing reservation exactly.
+    let overhead = crate::provider::reserved_overhead_tokens(request, &model);
     let input = apply_safety_factor(
         u64::try_from(bytes)
             .map_err(|_| invalid())?
-            .saturating_add(64),
+            .saturating_add(64)
+            .saturating_add(overhead),
         model.safety_factor_bps,
     )
     .map_err(|_| invalid())?;
@@ -1533,6 +1538,29 @@ mod tests {
             Some(&json!(crate::provider::RESPONSE_FORMAT_UNSUPPORTED))
         );
         assert!(is_terminal_refusal(&e));
+    }
+
+    #[test]
+    fn anthropic_tool_use_overhead_is_reserved_and_nothing_else_moves() {
+        let rich = ctx(u64::from(u32::MAX), None);
+        let anthropic = styled("anthropic", "anthropic_messages", Some(true));
+        let chat = styled("openai", "openai_chat", Some(true));
+        let format = formatted(Some(json!({"type":"json_object"})));
+        // The same bytes: Anthropic's reservation is the overhead larger.
+        let on_anthropic = plan(&format, &anthropic, &rich).unwrap();
+        let on_chat = plan(&format, &chat, &rich).unwrap();
+        assert_eq!(
+            on_anthropic.input,
+            on_chat.input + crate::provider::anthropic::TOOL_USE_OVERHEAD_TOKENS
+        );
+        assert!(on_anthropic.hold >= on_chat.hold);
+        // Negative control: a request that sends no tools reserves exactly
+        // what it did before, on Anthropic too.
+        let plain = formatted(None);
+        assert_eq!(
+            plan(&plain, &anthropic, &rich).unwrap().input,
+            plan(&plain, &chat, &rich).unwrap().input
+        );
     }
 
     #[test]

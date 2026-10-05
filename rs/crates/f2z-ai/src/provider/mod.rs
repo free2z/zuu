@@ -475,6 +475,22 @@ pub fn check_response_format(
     Err(response_format_unsupported())
 }
 
+/// Input tokens the provider adds to `request` that its bytes do not show,
+/// for the metering layer's input reservation only (the charge is always the
+/// provider-reported usage): Anthropic's tool-use system prompt, on a request
+/// that sends tools — its own or the forced `response_format` tool.
+#[must_use]
+pub fn reserved_overhead_tokens(request: &ChatRequest, model: &CatalogModel) -> u64 {
+    match model.api_style {
+        ApiStyle::AnthropicMessages
+            if !request.tools.is_empty() || request.response_format.is_some() =>
+        {
+            anthropic::TOOL_USE_OVERHEAD_TOKENS
+        }
+        _ => 0,
+    }
+}
+
 /// For an adapter with no `response_format` translation: refuse any request
 /// that carries one, whatever the catalogue says, rather than send it
 /// without the constraint.

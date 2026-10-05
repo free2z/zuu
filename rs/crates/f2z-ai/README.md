@@ -34,7 +34,9 @@ carry that member, whose provider is `openai`. The Anthropic Messages adapter
 translates it into a forced single tool whose `input_schema` is the schema and
 unwraps the tool's input back into the reply's text (`finish_reason: stop`),
 for a model whose catalogue entry declares `structured_output: true`; it
-refuses a `response_format` beside `tools`. Everything else is refused with
+refuses a `response_format` beside `tools`. Any Anthropic request that sends
+tools also reserves `TOOL_USE_OVERHEAD_TOKENS` of input for Anthropic's
+tool-use system prompt, which the request bytes do not show (hold only). Everything else is refused with
 `400 invalid_request` (`reason: "response_format_unsupported"`) before any hold
 or provider I/O; the gateway never drops the constraint. The schema enters the
 input hold like a tool definition; the pricing formula is unchanged.

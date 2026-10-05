@@ -59,8 +59,18 @@
 //! unwraps it: each `input_json_delta` fragment is re-emitted as a text
 //! `delta`, the reply's `content` is the JSON text, and the `tool_use` stop
 //! reason reads as `stop` — the client asked for content, not for a call.
-//! `max_tokens` still reads as `length`. Text blocks outside the forced tool
-//! (a forced call has none) are not part of the answer and are not emitted.
+//! `max_tokens` still reads as `length`. A forced call carries no text of its
+//! own; text that does arrive — a refusal instead of the tool call — is
+//! emitted as text, never deleted, so a client is not charged for a reply it
+//! cannot see (and `refusal` reads as `content_filter`).
+//!
+//! # The hold
+//!
+//! Anthropic adds a tool-use system prompt to any request that carries tools
+//! — a few hundred input tokens, more for a forced choice — that the
+//! request's own bytes do not show. [`TOOL_USE_OVERHEAD_TOKENS`] is reserved
+//! for it ([`super::reserved_overhead_tokens`]); the charge is still the
+//! provider-reported usage.
 //!
 //! A `response_format` beside `tools` (or `tool_choice`) is refused before
 //! any hold ([`check`]): the forced tool would make the caller's own tools
@@ -96,6 +106,13 @@ pub struct AnthropicMessages {
     /// forced `tool_use` block is the reply's text ([`Provider::bind`]).
     structured: bool,
 }
+
+/// Input tokens reserved for Anthropic's tool-use system prompt and the
+/// forced format tool's definition, on any request that sends tools. Anthropic
+/// documents the system prompt per model and per `tool_choice` in the
+/// hundreds of tokens (largest ~600 for a forced choice); this is that with
+/// margin. It sizes the hold only — the charge is provider usage.
+pub const TOOL_USE_OVERHEAD_TOKENS: u64 = 1024;
 
 /// The forced tool's name for a `json_object` request (a `json_schema`
 /// request's tool is named after its schema).
@@ -581,9 +598,9 @@ impl StreamParser for Parser {
                             .get("text")
                             .and_then(Value::as_str)
                             .ok_or(Malformed("text_delta"))?;
-                        // With a response_format, the answer is the forced
-                        // tool's input; text beside it is not the answer.
-                        if !text.is_empty() && !self.structured {
+                        // A forced call carries no text; text that arrives
+                        // anyway (a refusal) is delivered, never deleted.
+                        if !text.is_empty() {
                             out.push(Content::Text(text.to_owned()));
                         }
                     }
