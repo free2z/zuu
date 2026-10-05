@@ -83,6 +83,25 @@ export interface Message {
   tool_calls?: ToolCall[];
   tool_call_id?: string;
 }
+/**
+ * Structured output. `json_schema` constrains the reply to JSON matching
+ * `schema` (prefer it); `json_object` to any JSON object (OpenAI also requires
+ * the word "JSON" in the messages). The reply arrives as ordinary text: parse
+ * it yourself, and treat `finish_reason: "length"` as truncated JSON.
+ */
+export type ResponseFormat =
+  | { type: "json_object" }
+  | {
+      type: "json_schema";
+      json_schema: {
+        /** 1–64 characters of `A-Z a-z 0-9 _ -`. */
+        name: string;
+        /** A JSON Schema object, at most 32 KiB serialized. */
+        schema: Json;
+        /** Ask the provider to enforce the schema exactly. Absent: its default. */
+        strict?: boolean;
+      };
+    };
 export interface ChatRequest {
   model: string;
   messages: Message[];
@@ -98,6 +117,13 @@ export interface ChatRequest {
   max_output_tokens_strict?: boolean;
   metadata?: Record<string, string>;
   fallback?: string[];
+  /**
+   * Opt-in structured output; absent is never sent. A model whose
+   * `capabilities.structured_output` is false refuses the call before any
+   * hold or charge (`invalid_request`, `reason: "response_format_unsupported"`);
+   * it is never silently answered in prose.
+   */
+  response_format?: ResponseFormat;
 }
 export interface OperationOptions {
   /** Create and persist this before calling; reuse only to reconcile this operation. */

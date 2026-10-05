@@ -11,3 +11,5 @@
   `max_output_tokens`.
 - `signIn({ spendCap, spendPeriod })`: an optional, additive suggested spend
   cap for the consent screen.
+- `ChatRequest.response_format` passes through to the gateway: opt-in
+  structured output (`json_schema` / `json_object`), plain JSON over IPC.

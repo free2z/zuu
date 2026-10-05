@@ -98,6 +98,121 @@ fn strict_output_tokens_is_opt_in_and_pinned() {
 }
 
 #[test]
+fn response_format_is_opt_in_and_pinned() {
+    use f2z_ai_proto::chat::{JsonSchemaFormat, MAX_RESPONSE_SCHEMA_BYTES, ResponseFormat};
+
+    // Absent: not on the wire, so a pre-existing request keeps its bytes —
+    // and its idempotency fingerprint.
+    let base = r#"{"model":"m","messages":[],"stream":true}"#;
+    let absent: ChatRequest = serde_json::from_str(base).unwrap();
+    assert_eq!(absent.response_format, None);
+    assert_eq!(serde_json::to_string(&absent).unwrap(), base);
+
+    // The two shapes, pinned as literal text in both directions.
+    let schema = r#"{"model":"m","messages":[],"stream":true,"response_format":{"type":"json_schema","json_schema":{"name":"activity_spec","schema":{"properties":{"title":{"type":"string"}},"required":["title"],"type":"object"},"strict":true}}}"#;
+    let on: ChatRequest = serde_json::from_str(schema).unwrap();
+    assert_eq!(
+        on.response_format,
+        Some(ResponseFormat::JsonSchema {
+            json_schema: JsonSchemaFormat {
+                name: "activity_spec".into(),
+                schema: serde_json::json!({"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}),
+                strict: Some(true),
+            }
+        })
+    );
+    assert_eq!(serde_json::to_string(&on).unwrap(), schema);
+    on.response_format.as_ref().unwrap().check().unwrap();
+
+    let object =
+        r#"{"model":"m","messages":[],"stream":true,"response_format":{"type":"json_object"}}"#;
+    let on: ChatRequest = serde_json::from_str(object).unwrap();
+    assert_eq!(on.response_format, Some(ResponseFormat::JsonObject {}));
+    assert_eq!(serde_json::to_string(&on).unwrap(), object);
+
+    // `strict` absent stays absent (the provider's default), never `false`.
+    let lax: ResponseFormat = serde_json::from_str(
+        r#"{"type":"json_schema","json_schema":{"name":"n","schema":{"type":"object"}}}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_string(&lax).unwrap(),
+        r#"{"type":"json_schema","json_schema":{"name":"n","schema":{"type":"object"}}}"#
+    );
+
+    // Refused at decode: unknown types (including `text`, the default),
+    // a missing type, unknown members at either level, coerced booleans.
+    for bad in [
+        r#"{"type":"text"}"#,
+        r#"{"type":"xml"}"#,
+        r#"{"json_schema":{"name":"n","schema":{}}}"#,
+        r#"{"type":"json_object","schema":{}}"#,
+        r#"{"type":"json_schema"}"#,
+        r#"{"type":"json_schema","json_schema":{"name":"n"}}"#,
+        r#"{"type":"json_schema","json_schema":{"name":"n","schema":{},"description":"x"}}"#,
+        r#"{"type":"json_schema","json_schema":{"name":"n","schema":{},"strict":"true"}}"#,
+        r#"{"type":"json_schema","json_schema":{"name":"n","schema":{},"strict":null}}"#,
+        r#""json_object""#,
+        // A present null is a constraint the caller asked for, not absence.
+        "null",
+    ] {
+        let body = format!(r#"{{"model":"m","messages":[],"response_format":{bad}}}"#);
+        assert!(
+            serde_json::from_str::<ChatRequest>(&body).is_err(),
+            "accepted {bad}"
+        );
+    }
+
+    // Decodes, but outside the limits `check` holds.
+    let format = |name: &str, schema: serde_json::Value| ResponseFormat::JsonSchema {
+        json_schema: JsonSchemaFormat {
+            name: name.into(),
+            schema,
+            strict: None,
+        },
+    };
+    let object = serde_json::json!({"type": "object"});
+    for (format, field, reason) in [
+        (
+            format("", object.clone()),
+            "response_format.json_schema.name",
+            "empty",
+        ),
+        (
+            format(&"n".repeat(65), object.clone()),
+            "response_format.json_schema.name",
+            "too_long",
+        ),
+        (
+            format("has space", object.clone()),
+            "response_format.json_schema.name",
+            "invalid_characters",
+        ),
+        (
+            format("n", serde_json::json!([])),
+            "response_format.json_schema.schema",
+            "not_object",
+        ),
+        (
+            format("n", serde_json::json!(true)),
+            "response_format.json_schema.schema",
+            "not_object",
+        ),
+    ] {
+        let error = format.check().unwrap_err();
+        assert_eq!((error.field, error.reason), (field, reason));
+    }
+    format(&"n".repeat(64), object).check().unwrap();
+
+    // The size bound is exact: a schema of exactly the limit passes, one byte
+    // more does not. `{"d":"…"}` is 8 bytes of framing around the string.
+    let sized = |bytes: usize| format("n", serde_json::json!({"d": "x".repeat(bytes - 8)}));
+    sized(MAX_RESPONSE_SCHEMA_BYTES).check().unwrap();
+    let error = sized(MAX_RESPONSE_SCHEMA_BYTES + 1).check().unwrap_err();
+    assert_eq!(error.reason, "too_large");
+}
+
+#[test]
 fn requests_are_strict() {
     for bad in [
         // misspelt cap: must not be silently ignored

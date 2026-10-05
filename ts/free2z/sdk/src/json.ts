@@ -1,5 +1,5 @@
 import { failure } from "./error.js";
-import type { Json, ObjectData } from "./types.js";
+import type { Json, ObjectData, ResponseFormat } from "./types.js";
 
 /** Parse integer lexemes directly to bigint, before Number can round them. */
 export function parseJson(text: string): Json {
@@ -152,4 +152,54 @@ export function strictOutput<
   if (strict !== true || rest.max_output_tokens === undefined)
     failure("invalid_request");
   return { ...rest, max_output_tokens_strict: true } as T;
+}
+
+/** The gateway's bound on `response_format.json_schema.schema`, serialized. */
+export const MAX_RESPONSE_SCHEMA_BYTES = 32 * 1024;
+/**
+ * The request as sent: `response_format` is checked against the gateway's
+ * limits and rebuilt from the members it names, so a request the gateway
+ * would refuse is refused here, before any network or bridge call, and an
+ * absent format is not on the wire at all (an older gateway refuses the
+ * field). The gateway re-checks; this is not the authority.
+ */
+export function responseFormat<T extends { response_format?: ResponseFormat }>(
+  request: T,
+): T {
+  const { response_format: format, ...rest } = request;
+  if (format === undefined) return rest as T;
+  if (!format || typeof format !== "object" || Array.isArray(format))
+    failure("invalid_request");
+  const members = Object.keys(format);
+  if (format.type === "json_object") {
+    if (members.length !== 1) failure("invalid_request");
+    return { ...rest, response_format: { type: "json_object" } } as T;
+  }
+  if (format.type !== "json_schema" || members.length !== 2)
+    failure("invalid_request");
+  const spec: unknown = format.json_schema;
+  if (!spec || typeof spec !== "object" || Array.isArray(spec))
+    failure("invalid_request");
+  const { name, schema, strict, ...extra } = spec as Record<string, unknown>;
+  if (
+    Object.keys(extra).length > 0 ||
+    typeof name !== "string" ||
+    !/^[A-Za-z0-9_-]{1,64}$/.test(name) ||
+    !schema ||
+    typeof schema !== "object" ||
+    Array.isArray(schema) ||
+    (strict !== undefined && typeof strict !== "boolean") ||
+    new TextEncoder().encode(stringifyJson(schema)).length >
+      MAX_RESPONSE_SCHEMA_BYTES
+  )
+    failure("invalid_request");
+  const json_schema: { name: string; schema: Json; strict?: boolean } = {
+    name,
+    schema: schema as Json,
+  };
+  if (strict !== undefined) json_schema.strict = strict;
+  return {
+    ...rest,
+    response_format: { type: "json_schema", json_schema },
+  } as T;
 }

@@ -9,7 +9,13 @@ import {
   secureUrl,
   withOperation,
 } from "./http.js";
-import { parseJson, strictOutput, stringifyJson, uint } from "./json.js";
+import {
+  parseJson,
+  responseFormat,
+  strictOutput,
+  stringifyJson,
+  uint,
+} from "./json.js";
 import { WebSession, type FetchConfig } from "./oauth.js";
 import { frames } from "./sse.js";
 import type {
@@ -233,7 +239,7 @@ export class FetchTransport implements Transport {
   ): Promise<Estimate> {
     if (request.max_output_tokens !== undefined)
       uint(request.max_output_tokens);
-    request = strictOutput(request);
+    request = responseFormat(strictOutput(request));
     return decode.estimate(
       await this.#json(
         `${this.#ai}/chat/estimate`,
@@ -321,7 +327,7 @@ export class FetchTransport implements Transport {
     cancelled(options.signal);
     if (request.max_output_tokens !== undefined)
       uint(request.max_output_tokens);
-    request = strictOutput(request);
+    request = responseFormat(strictOutput(request));
     const generation = this.#auth.generation,
       control = new AbortController();
     const abort = () => control.abort();

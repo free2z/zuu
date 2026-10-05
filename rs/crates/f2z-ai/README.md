@@ -27,6 +27,14 @@ signed model catalogue. Missing capability metadata conservatively disables
 tools; model names never imply support. The gateway relays calls but never runs
 a client tool. Tool definitions, arguments and results enter the input hold.
 
+Structured output (`response_format`: `json_schema` or `json_object`) is passed
+through only by the Chat Completions adapter, and only to a model whose signed
+`capabilities.structured_output` is `true` — or, while the catalogue does not
+carry that member, whose provider is `openai`. Everything else is refused with
+`400 invalid_request` (`reason: "response_format_unsupported"`) before any hold
+or provider I/O; the gateway never drops the constraint. The schema enters the
+input hold like a tool definition; the pricing formula is unchanged.
+
 Nonstreaming delivery aggregates the same event pipeline. Before provider I/O it
 reserves 64 times its event-byte limit from the shared upload memory pool; the
 reservation follows the serialized HTTP body until delivery drops it. The limit

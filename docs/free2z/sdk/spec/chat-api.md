@@ -78,11 +78,12 @@ checked by each terminal type's `check()`.
 | `stream` | boolean | Default `true`. `false` returns one JSON document (§4) |
 | `fallback` | array of model ids | Opt-in, **ordered**: tried in order, at most once each. If the current model fails with a provider-side error **before the gateway has committed to it** — that is, before its first content event, which is also when `meta` is sent (§3.2) — the gateway releases that attempt's hold, takes a new hold at the next model's price, and tries it; a hold it cannot take ends the call with that code ([metering.md](./metering.md) §5.7). Never after `meta`. The model actually used is in `meta` |
 | `metadata` | object | Up to 16 string keys, each key ≤ 64 and value ≤ 256 characters. Stored with the call record and returned by `GET /v1/calls/{id}`; never sent to a provider |
+| `response_format` | object | Optional, opt-in structured output; omitted when absent. `{"type":"json_schema","json_schema":{"name":…,"schema":{…},"strict":true}}` constrains the reply to JSON matching `schema`; `{"type":"json_object"}` to any JSON object (OpenAI also requires the word "JSON" in the messages). `name`: 1–64 characters of `A-Z a-z 0-9 _ -`; `schema`: a JSON Schema **object** of at most 32 768 bytes serialized; `strict`: optional boolean (absent = the provider's default; `null` refused); no other members. The schema's object members reach the provider sorted by name, not in the order sent, so a provider that emits keys in schema order (OpenAI) replies with them alphabetically. A present `"response_format": null` is refused (`field: "response_format"`, `reason: "null"`), never read as absent. Any other `type` (including `text`, the default — omit the field instead) → `400 invalid_request`, `field: "response_format.type"`, `reason: "unsupported"`; a limit broken → `400 invalid_request` naming the field. On a model without `capabilities.structured_output` → `400 invalid_request`, `field: "response_format"`, `reason: "response_format_unsupported"`, before any hold, charge or provider request — never sent without the constraint. The reply is ordinary `delta` text (a provider refusal arrives as text too); `finish_reason: "length"` means truncated JSON. Pricing is unchanged: the schema is input the provider reads, so it enters the input reservation like a tool definition, and the charge is provider-reported usage |
 
 Anything not listed is rejected with `400 invalid_request` naming the field;
 the gateway does not pass unknown fields through. **Not in v1**, and
 therefore refused rather than ignored: `temperature` and other sampling
-controls, `tool_choice`, response-format modes, audio and file parts.
+controls, `tool_choice`, audio and file parts.
 Each arrives, if it does, as a priced, documented addition.
 
 ### 2.2 What happens before the first byte
@@ -540,7 +541,7 @@ without arithmetic. Requires `ai:invoke`.
       "display_name": "Example model (small)",
       "context_window": 400000,
       "max_output_tokens": 128000,
-      "capabilities": { "vision": true, "tools": true, "reasoning": true },
+      "capabilities": { "vision": true, "tools": true, "reasoning": true, "structured_output": true },
       "prices": {
         "input_milli_2z_per_mtok": 300000,
         "cached_input_milli_2z_per_mtok": 30000,
@@ -570,7 +571,7 @@ model ids, API styles, safety factors) are not projected.
 | `image_milli_2z`, `tool_call_milli_2z` | Per-unit prices where the provider bills per unit; `0` otherwise |
 | `min_charge_2z` | The floor for a call on this model, in whole 2Z. Never below `1`: the catalogue refuses a model priced at zero minimum |
 | `ttfb_timeout_ms` | How long the gateway waits for the provider's first byte before `504 provider_timeout` |
-| `capabilities` | A projection field, not in the signed catalogue's v1 schema: derived by the gateway from the model's API style and provider until the catalogue carries it |
+| `capabilities` | What the gateway will accept for this model. `tools` and `reasoning` come from the signed catalogue's `capabilities`. `structured_output` (`response_format`) requires an adapter that can express it (Chat Completions today) and the catalogue's `capabilities.structured_output`; while the catalogue does not carry that member, the gateway treats an OpenAI Chat Completions model as supporting it and every other model as not. Absent in an older gateway's answer: read as `false` |
 
 Responses carry `ETag`; `If-None-Match` → `304`. Clients SHOULD cache for
 the `Cache-Control: max-age` given (60 s).

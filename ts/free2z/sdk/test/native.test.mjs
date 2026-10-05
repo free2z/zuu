@@ -368,3 +368,57 @@ test("native sign-in forwards a spend-cap hint as decimal strings, only when giv
   });
   assert.equal(sent.length, 3);
 });
+test("native adapter forwards response_format as plain JSON, only when set", async () => {
+  const seen = [];
+  const b = bridge({
+    estimate: async (r) => {
+      seen.push(r);
+      return {
+        model: "test",
+        input_tokens: "1",
+        max_output_tokens: "1800",
+        hold_2z: "1",
+      };
+    },
+    startChat: async (r, o) => {
+      seen.push(r);
+      return { operationId: o.operationId };
+    },
+  });
+  const transport = new NativeTransport(b);
+  const format = {
+    type: "json_schema",
+    json_schema: {
+      name: "activity_spec",
+      schema: { type: "object", properties: { n: { maximum: 9n } } },
+      strict: true,
+    },
+  };
+  await transport.chat({ ...request, response_format: format }, options);
+  // The schema is ordinary JSON over IPC: bigint becomes a number, never
+  // the decimal-string quantity codec. (Converted objects are null-prototype.)
+  assert.deepEqual(JSON.parse(JSON.stringify(seen.at(-1).response_format)), {
+    type: "json_schema",
+    json_schema: {
+      name: "activity_spec",
+      schema: { type: "object", properties: { n: { maximum: 9 } } },
+      strict: true,
+    },
+  });
+  await transport.estimate({
+    ...request,
+    response_format: { type: "json_object" },
+  });
+  assert.deepEqual(seen.at(-1).response_format, { type: "json_object" });
+  await transport.estimate(request);
+  assert.equal("response_format" in seen.at(-1), false);
+  const before = seen.length;
+  await assert.rejects(
+    transport.chat(
+      { ...request, response_format: { type: "text" } },
+      { ...options, operationId: "operation-2" },
+    ),
+    (e) => e.code === "invalid_request",
+  );
+  assert.equal(seen.length, before);
+});

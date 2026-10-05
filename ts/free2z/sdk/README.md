@@ -89,6 +89,12 @@ before any hold or charge instead of lowering `max_output_tokens` to what the
 user can afford. Pre-check with `estimate()` on the same request, flag included:
 it answers exactly as the strict call would, without a hold or charge. See `docs/free2z/sdk/INTEGRATION.md`.
 
+For a JSON reply, set `response_format: { type: "json_schema", json_schema: {
+name, schema, strict: true } }` (or `{ type: "json_object" }`) and parse the
+reply text yourself. The SDK checks the gateway's limits before sending; a
+model without `capabilities.structured_output` refuses the call before any
+hold or charge (`invalid_request`, `reason: "response_format_unsupported"`).
+
 Only one `next()` may be outstanding. `cancel()`, breaking iteration, or an
 AbortSignal stops delivery; none proves that generation or charging stopped.
 Persist `stream.callId` when available. A broken response carries the original

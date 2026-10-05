@@ -298,6 +298,66 @@ user's account balance and consented cap are the spending bounds. Treat model
 output as untrusted text and validate any proposed tool invocation in the tutor.
 The gateway does not execute tools on the app's behalf.
 
+### Structured output: `response_format`
+
+To get a JSON document back (a lesson plan, an activity spec) instead of
+prose, set `response_format` (Rust `ChatRequest::response_format`, TS and
+Tauri guest `ChatRequest.response_format`):
+
+```ts
+const request: ChatRequest = {
+  model, // one whose /v1/models capabilities.structured_output is true
+  messages,
+  max_output_tokens: 1800n,
+  max_output_tokens_strict: true, // a truncated JSON document is worthless
+  response_format: {
+    type: "json_schema",
+    json_schema: {
+      name: "activity_spec",
+      strict: true,
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: { title: { type: "string" }, steps: { type: "array", items: { type: "string" } } },
+        required: ["title", "steps"],
+      },
+    },
+  },
+};
+```
+
+- `json_schema` is the one to use: `name` is 1–64 of `A-Z a-z 0-9 _ -`,
+  `schema` a JSON Schema object of at most 32 KiB, and `strict: true` asks the
+  provider to enforce it exactly (OpenAI then requires `additionalProperties:
+  false` and every property listed in `required`; a schema it refuses is a
+  `provider_error` before any output, with the hold released). `json_object`
+  only promises *some* JSON object, and OpenAI refuses it unless the word
+  "JSON" appears in your messages.
+- The SDKs check these limits before sending, so a refused request never
+  costs a rate-limit slot: TS `invalid_request`, Tauri `invalid_request`,
+  Rust `Error::Config` (or call `ResponseFormat::check` yourself).
+- A model that cannot honour it — `capabilities.structured_output: false` in
+  `/v1/models` — refuses the call **before any hold, charge or provider
+  request**: `400 invalid_request`, `details.reason:
+  "response_format_unsupported"`. It is never answered in prose instead.
+  Today that is every model except OpenAI's Chat Completions models.
+- The reply is ordinary text (`delta` events / `message.content`): parse it
+  yourself and still validate it — the model's output is untrusted, and a
+  provider refusal also arrives as text. `finish_reason: "length"` means the
+  JSON is truncated; pair `response_format` with `max_output_tokens_strict`.
+- **Key order is not preserved yet.** The gateway forwards the schema as a
+  parsed JSON value whose object members are sorted by name, and OpenAI
+  emits the reply's keys in schema order — so the reply arrives with keys
+  alphabetical, not in the order you declared. Parse by key, never by
+  position; and a schema that relies on order to make the model think first
+  (`reasoning` before `answer`) does not get that effect today.
+- Pricing does not change. The schema is input the model reads, so it is part
+  of the input hold and of the provider-reported usage you are charged for,
+  like a tool definition. Keep it small.
+- Absent, the field is not sent, so existing requests and their idempotency
+  fingerprints are unchanged; a gateway older than the field refuses it as an
+  unknown field rather than silently ignoring it.
+
 ### Output that must not be truncated: `max_output_tokens_strict`
 
 By default `max_output_tokens` is a ceiling the gateway may **lower**: to the

@@ -310,3 +310,112 @@ async fn only_allowlisted_headers_reach_the_wire() {
         }
     }
 }
+
+/// The adapter catalogue with `m-chat` moved to `provider` and given
+/// `structured` as its declared `capabilities.structured_output`.
+fn with_chat_model(provider: &str, structured: Option<bool>) -> f2z_ai::catalog::VerifiedCatalog {
+    let mut value = serde_json::to_value(catalog(10_000).catalog()).unwrap();
+    for model in value["models"].as_array_mut().unwrap() {
+        if model["id"] == CHAT.id {
+            model["provider"] = json!(provider);
+            if let Some(declared) = structured {
+                model["capabilities"] = json!({"structured_output": declared});
+            }
+        }
+    }
+    f2z_ai::catalog::VerifiedCatalog::from_verified(serde_json::from_value(value).unwrap()).unwrap()
+}
+
+fn with_format(model: &str, format: &Value) -> ChatRequest {
+    let mut value = serde_json::to_value(request(model)).unwrap();
+    value["response_format"] = format.clone();
+    serde_json::from_value(value).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn response_format_reaches_chat_completions_exactly_as_sent() {
+    let mock = MockProvider::start(Scenario::default()).await.unwrap();
+    let backend = backend(&mock.base_url(), tuning(0));
+    // gpt-4o's shape tonight: OpenAI, Chat Completions, no declaration.
+    let catalog = with_chat_model("openai", None);
+    // Wire round trip: client JSON text -> proto -> gateway -> provider body.
+    let activity = json!({"type": "json_schema", "json_schema": {
+        "name": "activity_spec", "strict": true,
+        "schema": {"type": "object", "additionalProperties": false,
+                   "properties": {"title": {"type": "string"}, "steps": {"type": "array", "items": {"type": "string"}}},
+                   "required": ["title", "steps"]}}});
+    for format in [activity, json!({"type": "json_object"})] {
+        let text = format!(
+            r#"{{"model":"{}","messages":[{{"role":"user","content":[{{"type":"text","text":"Reply in JSON."}}]}}],"response_format":{format}}}"#,
+            CHAT.id
+        );
+        let request: ChatRequest = serde_json::from_str(&text).unwrap();
+        let run = drive(&backend, &catalog, &request).await;
+        assert_eq!(run.outcome.failure, None);
+        let sent = mock.recorded_requests().last().unwrap().body.clone();
+        assert_eq!(sent["response_format"], format, "sent unchanged");
+        assert_eq!(sent["service_tier"], "default");
+    }
+    // Absent stays absent: nothing is invented for an ordinary call.
+    drive(&backend, &catalog, &request(CHAT.id)).await;
+    assert!(
+        mock.recorded_requests()
+            .last()
+            .unwrap()
+            .body
+            .get("response_format")
+            .is_none()
+    );
+    mock.shutdown().await;
+}
+
+#[tokio::test]
+async fn response_format_is_refused_before_any_io_where_it_cannot_be_honoured() {
+    // Port 9 (discard): a request that got as far as I/O would fail with a
+    // connection error, not this refusal.
+    let backend = backend("http://127.0.0.1:9", tuning(0));
+    let format = json!({"type": "json_object"});
+    let cases = [
+        // No translation for these APIs, whatever the catalogue says.
+        (RESPONSES.id, with_chat_model("openai", None)),
+        (ANTHROPIC.id, with_chat_model("openai", None)),
+        // A compatible provider must be declared; absence is not support.
+        (CHAT.id, with_chat_model("chatco", None)),
+        // A declared `false` wins over the OpenAI default.
+        (CHAT.id, with_chat_model("openai", Some(false))),
+    ];
+    for (model, catalog) in &cases {
+        let e = backend
+            .open(&with_format(model, &format), catalog, Instant::now())
+            .map(|_| ())
+            .unwrap_err();
+        assert_eq!(
+            (e.status().as_u16(), e.code()),
+            (400, "invalid_request"),
+            "{model}"
+        );
+        assert_eq!(
+            e.detail_of("reason"),
+            Some(&json!("response_format_unsupported")),
+            "{model}"
+        );
+        // Negative control: without the field, the same model and catalogue
+        // pass every pre-I/O check.
+        assert!(
+            backend
+                .open(&request(model), catalog, Instant::now())
+                .is_ok(),
+            "{model}"
+        );
+    }
+    // And a declaration admits a compatible provider.
+    assert!(
+        backend
+            .open(
+                &with_format(CHAT.id, &format),
+                &with_chat_model("chatco", Some(true)),
+                Instant::now()
+            )
+            .is_ok()
+    );
+}

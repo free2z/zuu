@@ -412,6 +412,80 @@ pub fn strict_model_ceiling(request: &ChatRequest, model: &CatalogModel) -> Resu
     }
 }
 
+/// `details.reason` on every refusal of a `response_format` the model (or
+/// its adapter) cannot honour.
+pub const RESPONSE_FORMAT_UNSUPPORTED: &str = "response_format_unsupported";
+
+/// Whether the gateway may send `model` a [`ChatRequest::response_format`].
+///
+/// Two conditions, both required:
+///
+/// * **The adapter can express it.** Only [`ApiStyle::OpenaiChat`] (Chat
+///   Completions' own `response_format`) does in this build. The Responses
+///   and Anthropic Messages adapters have no translation, so a request for
+///   either is refused rather than sent without the constraint.
+/// * **The model honours it.** The signed catalogue's
+///   `capabilities.structured_output` decides when present — `false` refuses
+///   even an OpenAI model. When absent (every catalogue the platform signs
+///   today: its signer allowlists only `vision`/`tools`/`reasoning`), the
+///   interim rule is `provider == "openai"`. That is a statement about the
+///   provider's API, not a guess from a model name: OpenAI's Chat
+///   Completions endpoint takes `response_format` for the models the
+///   platform seeds as callable (gpt-4o, gpt-5.x). An older model that takes
+///   `json_object` but not `json_schema` is refused *by OpenAI* with a 400
+///   before any output — a `provider_error` with the hold released, still
+///   never an unconstrained answer; declare `structured_output: false` for
+///   such a model to refuse it here instead. A compatible provider (xAI,
+///   Kimi) must be declared explicitly.
+#[must_use]
+pub fn structured_output_supported(model: &CatalogModel) -> bool {
+    model.api_style == ApiStyle::OpenaiChat
+        && model
+            .capabilities
+            .structured_output
+            .unwrap_or(model.provider == "openai")
+}
+
+/// Refuse a `response_format` [`structured_output_supported`] says no to —
+/// before any hold, charge or provider request, and never by dropping it.
+///
+/// # Errors
+///
+/// `400 invalid_request`, `details.field = "response_format"`,
+/// `details.reason = "response_format_unsupported"`.
+pub fn check_response_format(
+    request: &ChatRequest,
+    model: &CatalogModel,
+) -> Result<(), ApiFailure> {
+    if request.response_format.is_none() || structured_output_supported(model) {
+        return Ok(());
+    }
+    Err(response_format_unsupported())
+}
+
+/// For an adapter with no `response_format` translation: refuse any request
+/// that carries one, whatever the catalogue says, rather than send it
+/// without the constraint.
+///
+/// # Errors
+///
+/// As [`check_response_format`].
+pub fn no_response_format(request: &ChatRequest) -> Result<(), ApiFailure> {
+    match request.response_format {
+        None => Ok(()),
+        Some(_) => Err(response_format_unsupported()),
+    }
+}
+
+fn response_format_unsupported() -> ApiFailure {
+    ApiFailure::new(
+        ErrorCode::InvalidRequest,
+        "this model does not support response_format",
+    )
+    .detail("field", "response_format")
+    .detail("reason", RESPONSE_FORMAT_UNSUPPORTED)
+}
+
 /// Refuse an image part on a message whose role this provider cannot carry
 /// an image on — rather than drop it and bill an answer made without it.
 ///

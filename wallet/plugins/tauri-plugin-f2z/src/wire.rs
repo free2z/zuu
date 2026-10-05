@@ -319,7 +319,15 @@ pub fn chat_request(mut input: Value) -> Result<f2z_sdk::proto::ChatRequest> {
                 .ok_or_else(|| NativeError::new("invalid_integer"))?
         )?);
     }
-    serde_json::from_value(input).map_err(|_| NativeError::new("invalid_request"))
+    let request: f2z_sdk::proto::ChatRequest =
+        serde_json::from_value(input).map_err(|_| NativeError::new("invalid_request"))?;
+    // The gateway's limits, before the call is registered or sent.
+    if let Some(format) = &request.response_format {
+        format
+            .check()
+            .map_err(|_| NativeError::new("invalid_request"))?;
+    }
+    Ok(request)
 }
 
 #[cfg(test)]
@@ -343,6 +351,41 @@ mod tests {
         let mut bad = base;
         bad["max_output_tokens_strict"] = json!("true");
         assert!(chat_request(bad).is_err());
+    }
+    #[test]
+    fn response_format_passes_through_as_plain_json_only_when_set() {
+        let base = json!({"model":"m","messages":[]});
+        let plain = chat_request(base.clone()).unwrap();
+        assert_eq!(plain.response_format, None);
+        assert!(
+            !serde_json::to_string(&plain)
+                .unwrap()
+                .contains("response_format")
+        );
+        let format = json!({"type":"json_schema","json_schema":{"name":"activity_spec",
+            "schema":{"type":"object","properties":{"n":{"maximum":9}}},"strict":true}});
+        let mut with = base.clone();
+        with["response_format"] = format.clone();
+        let with = chat_request(with).unwrap();
+        // Unlike max_output_tokens, schema numbers are ordinary JSON.
+        assert_eq!(
+            serde_json::to_value(&with).unwrap()["response_format"],
+            format
+        );
+        let too_big = json!({"type":"json_schema","json_schema":{"name":"n",
+            "schema":{"d":"x".repeat(32 * 1024)}}});
+        let bad_name = json!({"type":"json_schema","json_schema":{"name":"has space",
+            "schema":{"type":"object"}}});
+        for format in [
+            json!({"type":"text"}),
+            serde_json::Value::Null,
+            too_big,
+            bad_name,
+        ] {
+            let mut bad = base.clone();
+            bad["response_format"] = format;
+            assert!(chat_request(bad).is_err());
+        }
     }
     #[test]
     fn integers_are_lossless_and_strict() {
