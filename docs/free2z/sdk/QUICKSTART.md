@@ -30,7 +30,7 @@ The Rust version of this app is compiled and run by CI against local fakes:
 | **Two limits** | A call needs both enough **balance** (the user's 2Z) and enough **budget** (what the user lets *this app* spend per period). Buying 2Z does not raise a budget. |
 | **Charges** | A call is priced from the provider's reported usage, rounded **up** to a whole 2Z, minimum 1 2Z per call. An estimate is what a call would *hold* now — not a quote and not a maximum. |
 | **Strict output** | Without `max_output_tokens_strict`, the gateway may *lower* `max_output_tokens` to what the user can afford, and a truncated answer is still charged. For anything that must be whole (JSON, a lesson), set the flag: the call then runs in full or is refused before any charge. |
-| **Keys** | Every chat call carries an `idempotencyKey` you create and persist **before** sending. Re-sending the same key never runs or charges twice; it returns the original call's receipt. A new attempt is a new key. |
+| **Keys** | Every chat call carries an `idempotencyKey` you create and persist **before** sending. Within **24 hours**, re-sending the same key never runs or charges twice; it returns the original call's receipt. After 24 hours the key is forgotten and a re-send is a **new, billable call** — persist when you sent it, and never auto-resend an expired key. A new attempt is a new key. |
 
 ## 2. Register your app
 
@@ -66,7 +66,9 @@ export async function firstApp(): Promise<void> {
 
   // 2. Budget and balance. `enforced` is the only proof a budget is enforced.
   const grant = await client.grant();
-  if (grant.spend_cap_2z !== null && !grant.enforced) noteBudgetNotYetEnforced(grant);
+  // A capped grant whose cap is not enforced yet is an unproven budget:
+  // do no paid work against it (`enforcement_reason` is for the message only).
+  if (grant.spend_cap_2z !== null && !grant.enforced) return explainBudgetNotEnforced(grant);
   const balance = await client.balance();
   showBalance(`${formatMilli2z(balance.available_milli_2z)} 2Z`);
   if (balance.debt_milli_2z > 0n) showDebt(balance.debt_milli_2z);

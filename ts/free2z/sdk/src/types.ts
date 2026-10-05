@@ -219,7 +219,8 @@ export interface CallRecord extends ObjectData {
   markup_bps?: bigint;
   metadata?: { [key: string]: string };
   /** `null`, or the failure that ended the call. */
-  error?: { code: string; message: string } | null;
+  /** `message` is for logs and absent on native (the plugin drops it). */
+  error?: { code: string; message?: string } | null;
   /** `true` when an idempotent replay returned this record. */
   replayed?: boolean;
   created_at?: string;

@@ -49,7 +49,18 @@ async fn main() -> Result<(), Error> {
         return Ok(());
     }
 
-    // 2. Balance: integers in milli-2Z; format only for display.
+    // 2. The budget the user actually chose. A capped grant whose cap is not
+    //    enforced yet is an unproven budget: do no paid work against it.
+    let grant = client.grant().await?;
+    if grant.spend_cap_2z.is_some() && !grant.enforced {
+        println!(
+            "budget not enforced yet ({:?}); paid AI disabled",
+            grant.enforcement_reason
+        );
+        return Ok(());
+    }
+
+    //    Balance: integers in milli-2Z; format only for display.
     let balance = client.balance().await?;
     println!(
         "balance: {} 2Z available",
@@ -109,8 +120,9 @@ async fn main() -> Result<(), Error> {
         );
     }
 
-    // 6. Stream it. Persist the key BEFORE sending if you want to recover the
-    //    receipt after a crash; `with_max_retries(0)` keeps one key = one
+    // 6. Stream it. Persist the key (and when you sent it) BEFORE sending if
+    //    you want to recover the receipt after a crash — for 24 hours; after
+    //    that a re-send is a NEW billable call; `with_max_retries(0)` keeps one key = one
     //    billable attempt (same-key network recovery stays on).
     let key = "persist-me-before-sending-3f9c";
     let options = ChatOptions::default()
