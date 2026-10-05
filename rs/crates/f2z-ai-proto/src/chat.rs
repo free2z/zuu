@@ -392,6 +392,118 @@ impl ChatRequest {
     }
 }
 
+/// Constructors, so an app does not spell every optional field — and does
+/// not stop compiling each time the contract gains an additive one.
+///
+/// ```
+/// use f2z_ai_proto::chat::{ChatRequest, Message};
+///
+/// let request = ChatRequest::new(
+///     "MODEL_ID_FROM_V1_MODELS",
+///     vec![Message::system("You are a patient tutor."), Message::user("Explain fractions.")],
+/// )
+/// .with_max_output_tokens(400)
+/// .strict(); // refuse up front instead of running a shorter, charged call
+/// assert!(request.max_output_tokens_strict);
+///
+/// // Nothing unset reaches the wire, so the idempotency fingerprint is the
+/// // one a hand-written body with the same fields would have.
+/// let minimal = ChatRequest::new("m", vec![Message::user("hi")]);
+/// assert_eq!(
+///     serde_json::to_value(&minimal).unwrap(),
+///     serde_json::json!({
+///         "model": "m",
+///         "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
+///         "stream": true
+///     })
+/// );
+/// ```
+impl ChatRequest {
+    /// A streamed request for `model` with every optional field at its wire
+    /// default (absent): no tools, no output limit, not strict, no metadata,
+    /// no fallback, no `response_format`, no `tool_choice`, no
+    /// `parallel_tool_calls`.
+    #[must_use]
+    pub fn new(model: impl Into<String>, messages: Vec<Message>) -> Self {
+        Self {
+            model: model.into(),
+            messages,
+            tools: Vec::new(),
+            max_output_tokens: None,
+            max_output_tokens_strict: false,
+            stream: true,
+            metadata: BTreeMap::new(),
+            fallback: Vec::new(),
+            response_format: None,
+            tool_choice: None,
+            parallel_tool_calls: None,
+        }
+    }
+
+    /// Sets `max_output_tokens`, the output ceiling (or, with
+    /// [`ChatRequest::strict`], the exact requirement).
+    #[must_use]
+    pub fn with_max_output_tokens(mut self, max_output_tokens: u64) -> Self {
+        self.max_output_tokens = Some(max_output_tokens);
+        self
+    }
+
+    /// Sets `max_output_tokens_strict`: the gateway runs the call with exactly
+    /// `max_output_tokens` or refuses it before any hold, charge or provider
+    /// request. Requires [`ChatRequest::with_max_output_tokens`].
+    #[must_use]
+    pub fn strict(mut self) -> Self {
+        self.max_output_tokens_strict = true;
+        self
+    }
+
+    /// Sets `response_format` (structured output). Check
+    /// `capabilities.structured_output` in `/v1/models` first.
+    #[must_use]
+    pub fn with_response_format(mut self, response_format: ResponseFormat) -> Self {
+        self.response_format = Some(response_format);
+        self
+    }
+
+    /// Adds one caller-defined `metadata` pair, echoed into the call record.
+    #[must_use]
+    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.metadata.insert(key.into(), value.into());
+        self
+    }
+}
+
+impl Message {
+    /// A turn with `role` and one text part.
+    #[must_use]
+    pub fn text(role: Role, text: impl Into<String>) -> Self {
+        Self {
+            role,
+            content: alloc::vec![ContentPart::Text { text: text.into() }],
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        }
+    }
+
+    /// A `system` turn: the app's instructions.
+    #[must_use]
+    pub fn system(text: impl Into<String>) -> Self {
+        Self::text(Role::System, text)
+    }
+
+    /// A `user` turn: what the end user said.
+    #[must_use]
+    pub fn user(text: impl Into<String>) -> Self {
+        Self::text(Role::User, text)
+    }
+
+    /// An `assistant` turn: an earlier answer, replayed as context.
+    #[must_use]
+    pub fn assistant(text: impl Into<String>) -> Self {
+        Self::text(Role::Assistant, text)
+    }
+}
+
 fn default_stream() -> bool {
     true
 }

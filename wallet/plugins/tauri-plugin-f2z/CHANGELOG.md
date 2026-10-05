@@ -2,6 +2,9 @@
 
 ## 0.1.0 (unreleased)
 
+- Errors carry the server's documented refusal `details` (`required_2z`,
+  `available_milli_2z`, `cap_remaining_milli_2z`, `resets_at`, `reason`,
+  `field`, …; integers as decimal strings). Undocumented members are dropped.
 - `ChatRequest.tool_choice` / `parallel_tool_calls` pass through to the
   gateway (free2z/zuu#1128).
 - Native Free2Z sign-in/session, exact balance, card/Zcash purchase and AI APIs.

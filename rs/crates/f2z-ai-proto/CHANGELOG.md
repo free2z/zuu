@@ -5,6 +5,11 @@
 Initial reviewed SDK contract implementation. Publication is disabled pending
 release acceptance; see the repository SDK release guide.
 
+- `ChatRequest::new(model, messages)` and builders (`with_max_output_tokens`,
+  `strict`, `with_response_format`, `with_metadata`); `Message::{system,
+  user, assistant, text}`. A request built this way keeps compiling as the
+  contract gains additive fields.
+- `Milli2z::display_2z()` (`Display2z`): exact `41.500` display text.
 - `ChatRequest::tool_choice` (`ToolChoice`: `"auto"`, `"none"`, `"required"`,
   `{"type":"function","function":{"name":…}}`) and
   `ChatRequest::parallel_tool_calls` (free2z/zuu#1128): OpenAI's shapes,

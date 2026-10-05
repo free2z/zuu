@@ -156,6 +156,18 @@ function nativeError(error: unknown): SdkError {
     if (typeof step.acrValues === "string")
       context.stepUp.acrValues = step.acrValues;
   }
+  if (
+    data.details &&
+    typeof data.details === "object" &&
+    !Array.isArray(data.details)
+  ) {
+    try {
+      // Same shape as FetchTransport: documented integers become bigint.
+      context.details = decode.nativeData(data.details);
+    } catch {
+      /* malformed optional details remain unknown */
+    }
+  }
   if (data.record !== undefined) {
     try {
       context.record = decode.callRecord(decode.nativeData(data.record));
