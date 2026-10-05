@@ -318,6 +318,14 @@ pub struct Config {
     pub ledger_max_connections: u32,
     /// Optional exact model IDs approved for new paid work; an empty set denies all.
     pub allowed_models: Option<BTreeSet<String>>,
+    /// Send the content-free `features` object ([`crate::features`]) in the
+    /// ledger call claim. **Off by default**: a ledger older than tuzi
+    /// migration `ledger.0006_call_features` refuses any metadata key it does
+    /// not name (`invalid gateway call claim`), which would fail every paid
+    /// call. Turn it on (`F2Z_AI_LEDGER_FEATURES_META=true`) only once that
+    /// migration is live. The `response` log line carries the features
+    /// either way.
+    pub ledger_features_meta: bool,
 }
 
 impl Default for Config {
@@ -355,6 +363,7 @@ impl Default for Config {
             ledger_url: None,
             ledger_max_connections: 4,
             allowed_models: None,
+            ledger_features_meta: false,
         }
     }
 }
@@ -415,6 +424,7 @@ struct Raw {
     catalog_keys_file: Option<PathBuf>,
     ledger_url_file: Option<PathBuf>,
     ledger_max_connections: Option<u64>,
+    ledger_features_meta: Option<bool>,
     allowed_models: Option<BTreeSet<String>>,
     listen: Option<String>,
     admin_listen: Option<String>,
@@ -472,6 +482,7 @@ enum Kind {
     Text,
     TextArray,
     Integer,
+    Boolean,
 }
 
 /// Every key, and how an environment value for it is read.
@@ -481,6 +492,7 @@ const KEYS: &[(&str, Kind)] = &[
     ("catalog_keys_file", Kind::Text),
     ("ledger_url_file", Kind::Text),
     ("ledger_max_connections", Kind::Integer),
+    ("ledger_features_meta", Kind::Boolean),
     ("listen", Kind::Text),
     ("admin_listen", Kind::Text),
     ("max_concurrent_calls", Kind::Integer),
@@ -632,6 +644,11 @@ impl Config {
                         .parse::<i64>()
                         .map_err(|_| err(format!("`{name}` must be an integer")))?,
                 ),
+                Kind::Boolean => toml::Value::Boolean(match value.trim() {
+                    "true" => true,
+                    "false" => false,
+                    _ => return Err(err(format!("`{name}` must be `true` or `false`"))),
+                }),
             };
             table.insert(key, parsed);
         }
@@ -760,6 +777,7 @@ impl Config {
             providers,
             auth,
             allowed_models: raw.allowed_models,
+            ledger_features_meta: raw.ledger_features_meta.unwrap_or(false),
             catalog_url: raw.catalog_url,
             catalog_keys_file: raw.catalog_keys_file,
             ledger_url,
@@ -1095,6 +1113,28 @@ mod tests {
         assert_eq!(disabled.allowed_models, Some(BTreeSet::new()));
         for invalid in ["['']", "[' gpt-4o']", "[1]", "gpt-4o"] {
             assert!(Config::load(None, env(&[("F2Z_AI_ALLOWED_MODELS", invalid)])).is_err());
+        }
+    }
+
+    #[test]
+    fn ledger_features_meta_is_off_unless_set_to_exactly_true() {
+        assert!(!Config::default().ledger_features_meta);
+        assert!(!Config::load(None, env(&[])).unwrap().ledger_features_meta);
+        let on = env(&[("F2Z_AI_LEDGER_FEATURES_META", "true")]);
+        assert!(Config::load(None, on).unwrap().ledger_features_meta);
+        let off = env(&[("F2Z_AI_LEDGER_FEATURES_META", "false")]);
+        assert!(!Config::load(None, off).unwrap().ledger_features_meta);
+        let path = file("ledger_features_meta = true");
+        assert!(
+            Config::load(Some(path.path()), env(&[]))
+                .unwrap()
+                .ledger_features_meta
+        );
+        for invalid in ["1", "yes", "TRUE", ""] {
+            assert!(
+                Config::load(None, env(&[("F2Z_AI_LEDGER_FEATURES_META", invalid)])).is_err(),
+                "{invalid}"
+            );
         }
     }
 

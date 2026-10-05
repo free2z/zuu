@@ -61,8 +61,22 @@ catalog_url = "https://free2z.cash/api/ai/catalog/v1"
 catalog_keys_file = "/run/config/catalog-trusted-keys.json"
 ledger_url_file = "/run/secrets/gateway-ledger-url"
 ledger_max_connections = 4
+# ledger_features_meta = false   # see "Request features" below
 # Configure authentication and at least one provider as described below.
 ```
+
+**Request features.** Every `POST /v1/chat` and `/v1/chat/estimate` `response`
+log line carries a content-free description of what the request asked for:
+`response_format` (`json_schema`/`json_object`, absent when none),
+`response_format_strict`, `response_format_schema_name`,
+`response_format_schema_bytes`, `tools` and `fallback` (counts),
+`max_output_tokens_strict`, `stream`, and `call_id` once one is known. Never a
+schema body, a prompt or a tool definition (`src/features.rs`). With
+`ledger_features_meta = true` (`F2Z_AI_LEDGER_FEATURES_META=true`) the same
+object is stored on the ledger call claim as `features` and returned on
+`GET /v1/calls/{id}`. It is **off by default**: a ledger without tuzi migration
+`ledger.0006_call_features` refuses the unknown key and would fail every paid
+call, so the flag is flipped only after that migration is live.
 
 The trust file is a JSON object mapping key IDs to 64-character lower-case
 Ed25519 public-key hex strings. Trust never comes from the catalogue endpoint.
