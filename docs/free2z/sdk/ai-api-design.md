@@ -955,7 +955,7 @@ anthropic}.rs` or `meter.rs` are serialised in the order above.
 
 | Slice | Issue |
 |---|---|
-| S10a | zuu#ISSUE_S10A |
+| S10a | [#1147](https://github.com/free2z/zuu/issues/1147) |
 | S1 | zuu#ISSUE_S1 |
 | S2 | zuu#ISSUE_S2 |
 | S6 | zuu#ISSUE_S6 |
@@ -964,13 +964,13 @@ anthropic}.rs` or `meter.rs` are serialised in the order above.
 | S8 | zuu#ISSUE_S8 |
 | S4 | zuu#ISSUE_S4 |
 | S5 | zuu#ISSUE_S5 |
-| S12 | zuu#ISSUE_S12 |
+| S12 | [#1156](https://github.com/free2z/zuu/issues/1156) |
 | S9 | zuu#ISSUE_S9 |
-| S-hosted | zuu#ISSUE_SHOSTED |
-| S11 | zuu#ISSUE_S11 |
-| S10b | zuu#ISSUE_S10B |
-| S16 | zuu#ISSUE_S16 |
-| S13 | zuu#ISSUE_S13 |
+| S-hosted | [#1158](https://github.com/free2z/zuu/issues/1158) |
+| S11 | [#1159](https://github.com/free2z/zuu/issues/1159) |
+| S10b | [#1160](https://github.com/free2z/zuu/issues/1160) |
+| S16 | [#1161](https://github.com/free2z/zuu/issues/1161) |
+| S13 | [#1162](https://github.com/free2z/zuu/issues/1162) |
 
 Deferred, not filed (need a contract decision or the schema-3 price table
 coordinated with rate card v3): 1 h cache writes (#1059), audio in/out,
