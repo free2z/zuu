@@ -360,6 +360,17 @@ jobs:
         working-directory: rs
         run: cargo test --locked --doc
 
+      # `f2z_ai_proto::OrderedJson` decodes numbers through `deserialize_any`,
+      # and serde_json's `arbitrary_precision` — off here, but Cargo unifies it
+      # in from any crate a consumer links — changes how numbers arrive (a
+      # private one-member map). Without this run a fractional `minimum` in a
+      # schema could be forwarded as an object and nothing here would notice
+      # (zuu#1132). The json tests compare against `serde_json::Value` under
+      # whichever mode is compiled.
+      - name: Run the ordered-JSON tests under serde_json arbitrary_precision
+        working-directory: rs
+        run: cargo test --locked -p f2z-ai-proto --lib --features serde_json/arbitrary_precision json::
+
       # A KAT that only demonstrates the green path can silently stop reading
       # its vector file. Corrupt a committed X-Wing combiner output first and
       # require the same suite to fail for that exact mismatch; then run all

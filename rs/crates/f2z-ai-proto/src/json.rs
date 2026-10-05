@@ -317,12 +317,41 @@ impl<'de> Visitor<'de> for NodeVisitor {
     }
 
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Node, A::Error> {
-        let mut members = Vec::new();
+        let Some(first) = map.next_key::<String>()? else {
+            return Ok(Node::Object(Vec::new()));
+        };
+        // serde_json's `arbitrary_precision` feature — off in this workspace,
+        // but Cargo unifies it in from any crate a consumer links — hands a
+        // number to `deserialize_any` as a one-member map under a private
+        // key. `Value` decodes that map as the number; so must this, or
+        // `"minimum":0.5` would be forwarded as an object. Without the
+        // feature the key is an ordinary member name, as it is for `Value`.
+        if first == NUMBER_TOKEN && arbitrary_precision() {
+            let text: String = map.next_value()?;
+            return text
+                .parse::<Number>()
+                .map(Node::Number)
+                .map_err(de::Error::custom);
+        }
+        let mut members = alloc::vec![(first, map.next_value::<Node>()?)];
         while let Some(entry) = map.next_entry::<String, Node>()? {
             members.push(entry);
         }
         Ok(Node::object(members))
     }
+}
+
+/// serde_json's private map key for an `arbitrary_precision` number
+/// (`serde_json::number::TOKEN`, not exported).
+const NUMBER_TOKEN: &str = "$serde_json::private::Number";
+
+/// Whether the serde_json this binary links has `arbitrary_precision`: under
+/// it a `Value` keeps a number's text (`1e2` re-serializes as `1e+2`),
+/// without it the `f64` (`100.0`).
+/// Asked only when [`NUMBER_TOKEN`] arrives as a key, so never in practice.
+fn arbitrary_precision() -> bool {
+    serde_json::from_str::<Value>("1e2")
+        .is_ok_and(|v| serde_json::to_string(&v).is_ok_and(|text| text != "100.0"))
 }
 
 #[cfg(test)]
@@ -395,6 +424,29 @@ mod tests {
         let Tagged::S { s } =
             serde_json::from_str(&alloc::format!(r#"{{"type":"S","s":{SCHEMA}}}"#)).unwrap();
         assert_eq!(s.to_string(), SCHEMA);
+    }
+
+    /// serde_json's `arbitrary_precision` map form: decoded exactly as
+    /// `Value` decodes it. Without the feature (CI) the private key is an
+    /// ordinary member; with it (`cargo test -p f2z-ai-proto --features
+    /// serde_json/arbitrary_precision`) fractional numbers stay numbers.
+    #[test]
+    fn numbers_decode_as_value_does_with_or_without_arbitrary_precision() {
+        for text in [
+            r#"{"type":"number","minimum":0.5,"enum":[1.25e3,-0.0,7]}"#,
+            r#"{"$serde_json::private::Number":"0.5"}"#,
+        ] {
+            let ordered: OrderedJson = text.parse().unwrap();
+            let value: Value = serde_json::from_str(text).unwrap();
+            assert_eq!(ordered.to_value(), value, "{text}");
+            assert_eq!(
+                serde_json::to_vec(&ordered.with_sorted_keys()).unwrap(),
+                serde_json::to_vec(&value).unwrap(),
+                "{text}"
+            );
+        }
+        let schema: OrderedJson = r#"{"minimum":0.5}"#.parse().unwrap();
+        assert_eq!(schema.to_string(), r#"{"minimum":0.5}"#);
     }
 
     #[test]
