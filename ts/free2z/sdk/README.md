@@ -88,6 +88,7 @@ to you: the gateway then refuses (`insufficient_balance`, `cap_exceeded`, …)
 before any hold or charge instead of lowering `max_output_tokens` to what the
 user can afford. Pre-check with `estimate()` on the same request, flag included:
 it answers exactly as the strict call would, without a hold or charge. See `docs/free2z/sdk/INTEGRATION.md`.
+The estimate also carries typed budget fields — `available_milli_2z`, `cap_remaining_milli_2z` (`null` = uncapped; absent = not reported, never uncapped), `min_charge_2z`, `catalog_version` — a snapshot for gating UI, not an authorization: the paid call re-checks.
 
 For a JSON reply, set `response_format: { type: "json_schema", json_schema: {
 name, schema, strict: true } }` (or `{ type: "json_object" }`) and parse the
