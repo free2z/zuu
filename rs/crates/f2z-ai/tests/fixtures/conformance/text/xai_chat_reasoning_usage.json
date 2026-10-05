@@ -1,0 +1,117 @@
+{
+  "name": "xai_chat_reasoning_usage",
+  "feature": "text",
+  "source": "xAI chat completions streaming (docs.x.ai, 'Streaming' and 'Reasoning'): OpenAI-compatible chunks; completion_tokens EXCLUDE reasoning_tokens and total_tokens = prompt + completion + reasoning. Synthetic, documented shape.",
+  "api_style": "openai_chat",
+  "provider": "xai",
+  "catalog_model": {
+    "capabilities": {}
+  },
+  "request": {
+    "model": "m-xai",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Half of a pie?"
+          }
+        ]
+      }
+    ],
+    "max_output_tokens": 128
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "model": "m-xai-upstream",
+      "service_tier": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Half of a pie?"
+            }
+          ]
+        }
+      ],
+      "max_completion_tokens": 128,
+      "stream": true,
+      "stream_options": {
+        "include_usage": true
+      }
+    },
+    "provider_stream": [
+      {
+        "id": "fx-xai",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "grok-4",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant",
+              "content": "1/2"
+            },
+            "finish_reason": null
+          }
+        ],
+        "system_fingerprint": "fp_fixture"
+      },
+      {
+        "id": "fx-xai",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "grok-4",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+          }
+        ],
+        "system_fingerprint": "fp_fixture"
+      },
+      {
+        "id": "fx-xai",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "grok-4",
+        "choices": [],
+        "system_fingerprint": "fp_fixture",
+        "usage": {
+          "prompt_tokens": 40,
+          "completion_tokens": 3,
+          "total_tokens": 73,
+          "prompt_tokens_details": {
+            "cached_tokens": 8
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 30
+          }
+        }
+      },
+      "[DONE]"
+    ],
+    "events": [
+      {
+        "type": "delta",
+        "text": "1/2"
+      }
+    ],
+    "finish_reason": "stop",
+    "usage": {
+      "input_tokens": 32,
+      "cached_input_tokens": 8,
+      "output_tokens": 33,
+      "reasoning_tokens": 30,
+      "tool_calls": 0
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}

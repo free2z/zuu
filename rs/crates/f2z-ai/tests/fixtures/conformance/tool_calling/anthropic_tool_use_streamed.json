@@ -1,0 +1,74 @@
+{
+  "name": "anthropic_tool_use_streamed",
+  "feature": "tool_calling",
+  "source": "Migrated from tests/fixtures/anthropic/streams.json + tool_use.sse (#1140): Anthropic Messages streaming documentation (docs.anthropic.com, 'Streaming Messages' — the streaming tool-use example). Text then one tool_use streamed as input_json_delta; the id is the provider's, unchanged.",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true
+    }
+  },
+  "request": {
+    "model": "m-anthropic",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Weather in SF?"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "get_weather",
+        "parameters": {
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "tools": [
+        {
+          "name": "get_weather",
+          "input_schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "tool_choice": null,
+      "parallel_tool_calls": null
+    },
+    "provider_stream": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_014p7gG3wDgGV9EUtLvnow3U\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":472,\"output_tokens\":2},\"content\":[],\"stop_reason\":null}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: ping\ndata: {\"type\": \"ping\"}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Okay\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\", let's check the weather for San Francisco, CA:\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01T1x1fJ34qAmk2tNTrN7Up6\",\"name\":\"get_weather\",\"input\":{}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"location\\\":\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" \\\"San\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" Francisc\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"o,\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" CA\\\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\", \"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"unit\\\": \\\"fah\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"renheit\\\"}\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":89}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    "events": [
+      {
+        "type": "delta",
+        "text": "Okay"
+      },
+      {
+        "type": "delta",
+        "text": ", let's check the weather for San Francisco, CA:"
+      },
+      {
+        "type": "tool_call",
+        "id": "toolu_01T1x1fJ34qAmk2tNTrN7Up6",
+        "name": "get_weather",
+        "arguments": "{\"location\": \"San Francisco, CA\", \"unit\": \"fahrenheit\"}"
+      }
+    ],
+    "finish_reason": "tool_calls",
+    "usage": {
+      "input_tokens": 472,
+      "output_tokens": 89,
+      "tool_calls": 0
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}

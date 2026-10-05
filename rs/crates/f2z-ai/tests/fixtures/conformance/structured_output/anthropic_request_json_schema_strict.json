@@ -1,0 +1,79 @@
+{
+  "name": "anthropic_request_json_schema_strict",
+  "feature": "structured_output",
+  "source": "Migrated from tests/fixtures/anthropic/requests.json (#1140), case 'response_format json_schema strict: one forced tool carrying the schema and strict'. Request translation only: no provider_stream, so the mock renders its own Anthropic text stream.",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true,
+      "structured_output": true
+    }
+  },
+  "request": {
+    "model": "m-anthropic",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Go."
+          }
+        ]
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "activity_spec",
+        "strict": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "title"
+          ],
+          "properties": {
+            "title": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "tools": [
+        {
+          "name": "activity_spec",
+          "description": "Respond by calling this tool. Its input is your complete answer, as JSON matching the input schema.",
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "title"
+            ],
+            "properties": {
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          "strict": true
+        }
+      ],
+      "tool_choice": {
+        "type": "tool",
+        "name": "activity_spec",
+        "disable_parallel_tool_use": true
+      },
+      "response_format": null,
+      "parallel_tool_calls": null
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}

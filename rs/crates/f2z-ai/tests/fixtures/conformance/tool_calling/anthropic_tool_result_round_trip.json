@@ -1,0 +1,122 @@
+{
+  "name": "anthropic_tool_result_round_trip",
+  "feature": "tool_calling",
+  "source": "Migrated from anthropic_conformance.rs a_tool_round_trip_keeps_the_providers_ids (#1140): the id Anthropic gave a tool_use comes back on the client's tool message and goes out as the tool_result's tool_use_id, unchanged. Request translation only.",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true
+    }
+  },
+  "request": {
+    "model": "m-anthropic",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Weather in SF?"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Checking."
+          }
+        ],
+        "tool_calls": [
+          {
+            "id": "toolu_01T1x1fJ34qAmk2tNTrN7Up6",
+            "name": "get_weather",
+            "arguments": "{\"location\": \"San Francisco, CA\"}"
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "toolu_01T1x1fJ34qAmk2tNTrN7Up6",
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"f\": 61}"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "get_weather",
+        "parameters": {
+          "type": "object"
+        }
+      }
+    ],
+    "tool_choice": "auto"
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Weather in SF?"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "Checking."
+            },
+            {
+              "type": "tool_use",
+              "id": "toolu_01T1x1fJ34qAmk2tNTrN7Up6",
+              "name": "get_weather",
+              "input": {
+                "location": "San Francisco, CA"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "toolu_01T1x1fJ34qAmk2tNTrN7Up6",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"f\": 61}"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "get_weather",
+          "input_schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "tool_choice": {
+        "type": "auto"
+      }
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}

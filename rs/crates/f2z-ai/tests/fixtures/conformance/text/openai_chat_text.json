@@ -1,0 +1,165 @@
+{
+  "name": "openai_chat_text",
+  "feature": "text",
+  "source": "OpenAI Chat Completions streaming reference (platform.openai.com/docs/api-reference/chat-streaming): role chunk, content chunks, a finish chunk, then — with stream_options.include_usage — a usage chunk with empty choices, then [DONE]. Synthetic, documented shape.",
+  "api_style": "openai_chat",
+  "provider": "openai",
+  "catalog_model": {
+    "capabilities": {}
+  },
+  "request": {
+    "model": "m-openai-chat",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Be brief."
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "What is half of a pie?"
+          }
+        ]
+      }
+    ],
+    "max_output_tokens": 64
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "model": "m-openai-chat-upstream",
+      "service_tier": "default",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Be brief."
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "What is half of a pie?"
+            }
+          ]
+        }
+      ],
+      "max_completion_tokens": 64,
+      "stream": true,
+      "stream_options": {
+        "include_usage": true
+      }
+    },
+    "provider_stream": [
+      {
+        "id": "chatcmpl-fx1",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant",
+              "content": ""
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx1",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "Half of"
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx1",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": " a pie is 1/2."
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx1",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx1",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [],
+        "usage": {
+          "prompt_tokens": 31,
+          "completion_tokens": 9,
+          "total_tokens": 40,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        }
+      },
+      "[DONE]"
+    ],
+    "events": [
+      {
+        "type": "delta",
+        "text": "Half of"
+      },
+      {
+        "type": "delta",
+        "text": " a pie is 1/2."
+      }
+    ],
+    "finish_reason": "stop",
+    "usage": {
+      "input_tokens": 31,
+      "cached_input_tokens": 0,
+      "output_tokens": 9,
+      "reasoning_tokens": 0,
+      "tool_calls": 0
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}
