@@ -12,9 +12,13 @@
 //! **Content-free by construction.** Every member is a closed enum, a
 //! boolean, a count, or the schema's *name*, re-checked here against the same
 //! `[A-Za-z0-9_-]{1,64}` rule `ResponseFormat::check` enforces (anything else
-//! is recorded as absent). No schema body, no prompt, no tool definition, no
-//! free text. The ledger (`ledger.gateway_metadata_valid`, tuzi migration
+//! is recorded as absent). No schema body, no prompt, no tool definition. The
+//! ledger (`ledger.gateway_metadata_valid`, tuzi migration
 //! `0006_call_features`) refuses any other shape.
+//!
+//! The name is client-chosen text, in the same class as `metadata`: it is
+//! stored only on the user's own call record and returned to the same app,
+//! and — like `metadata` — it is **never logged** (`crate::server`).
 
 use f2z_ai_proto::chat::{ChatRequest, MAX_RESPONSE_SCHEMA_NAME_CHARS, ResponseFormat};
 use serde::{Deserialize, Serialize};

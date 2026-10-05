@@ -543,6 +543,7 @@ impl ChatBackend for Metered {
         if existing != Some(id.to_string().as_str()) {
             return Err(invalid());
         }
+        call.set_durable_call_id(id);
         // Replay precedes spendability: a completed call remains readable even
         // after its charge exhausted the current balance/cap.
         if let Err(refusal) = self.require_model(&request.model) {

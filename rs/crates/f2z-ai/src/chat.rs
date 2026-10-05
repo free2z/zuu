@@ -241,6 +241,7 @@ pub struct ChatState {
 /// (`crate::server`'s observe layer). It never reaches the client.
 pub async fn handle(State(state): State<ChatState>, request: Request) -> Response {
     let mut logged = None;
+    let handle = request.extensions().get::<CallHandle>().cloned();
     let (mut response, failed_call) = match serve(&state, request, &mut logged).await {
         Ok(response) => (response, None),
         Err(failure) => {
@@ -259,6 +260,11 @@ pub async fn handle(State(state): State<ChatState>, request: Request) -> Respons
                 .and_then(|v| v.to_str().ok())
                 .and_then(|id| id.parse().ok())
         });
+        // A refusal after the claim (e.g. response_format_unsupported) may
+        // carry no call id in its body; the backend recorded it here.
+        logged.call_id = logged
+            .call_id
+            .or_else(|| handle.as_ref().and_then(CallHandle::durable_call_id));
         response.extensions_mut().insert(logged);
     }
     response

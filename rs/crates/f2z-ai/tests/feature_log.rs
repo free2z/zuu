@@ -39,6 +39,7 @@ use tracing_subscriber::layer::SubscriberExt as _;
 
 const CANARY: &str = "CANARY7b2ddonotlog";
 const CALL_ID: &str = "0199b5a0-0000-7000-8000-00000000c0de";
+const REFUSED_ID: &str = "0199b5a0-0000-7000-8000-0000000bad00";
 
 #[derive(Clone, Default)]
 struct Buffer(Arc<Mutex<Vec<u8>>>);
@@ -71,10 +72,19 @@ struct Backend;
 impl ChatBackend for Backend {
     async fn start(
         &self,
-        _request: ChatRequest,
+        request: ChatRequest,
         _catalog: Arc<VerifiedCatalog>,
-        _call: &CallHandle,
+        call: &CallHandle,
     ) -> Result<Box<dyn Upstream>, ApiFailure> {
+        if request.response_format.is_some() && request.tools.is_empty() {
+            // A refusal after the durable claim whose body names no call id
+            // (as `Metered`'s response_format_unsupported refusal does).
+            call.set_durable_call_id(REFUSED_ID.parse().unwrap());
+            return Err(ApiFailure::new(
+                f2z_ai_proto::ErrorCode::InvalidRequest,
+                "refused after claim",
+            ));
+        }
         Ok(Box::new(Finished))
     }
 }
@@ -112,7 +122,7 @@ async fn response_log_lines_carry_request_features_and_call_id_never_content() {
         "model": "example-large",
         "messages": [{"role": "user", "content": [{"type": "text", "text": CANARY}]}],
         "response_format": {"type": "json_schema", "json_schema":
-            {"name": "activity_spec", "strict": true, "schema": schema}},
+            {"name": CANARY, "strict": true, "schema": schema}},
         "tools": [{"name": "f", "description": CANARY, "parameters": {"type": "object"}}],
         "fallback": ["example-small"],
         "max_output_tokens": 100, "max_output_tokens_strict": true,
@@ -138,10 +148,18 @@ async fn response_log_lines_carry_request_features_and_call_id_never_content() {
     assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
     let _ = text(bad).await;
 
+    // Refused after the claim, with no call id in the body: still joinable.
+    let object = json!({"model": "example-large",
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "JSON"}]}],
+        "response_format": {"type": "json_object"}});
+    let refused_after_claim = post_chat(running.public, &object).await;
+    assert_eq!(refused_after_claim.status(), StatusCode::BAD_REQUEST);
+    let _ = text(refused_after_claim).await;
+
     let log = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
     assert!(!log.contains(CANARY), "content reached the log:\n{log}");
     let lines = response_lines(&log);
-    assert_eq!(lines.len(), 3, "{log}");
+    assert_eq!(lines.len(), 4, "{log}");
 
     let chat = &lines[0];
     assert_eq!(chat["route"], "chat");
@@ -149,7 +167,8 @@ async fn response_log_lines_carry_request_features_and_call_id_never_content() {
     assert_eq!(chat["call_id"], CALL_ID);
     assert_eq!(chat["response_format"], "json_schema");
     assert_eq!(chat["response_format_strict"], true);
-    assert_eq!(chat["response_format_schema_name"], "activity_spec");
+    // Client-chosen text, like metadata: never logged (the CANARY check above).
+    assert!(chat.get("response_format_schema_name").is_none(), "{chat}");
     assert_eq!(
         chat["response_format_schema_bytes"],
         serde_json::to_vec(&schema).unwrap().len()
@@ -178,4 +197,9 @@ async fn response_log_lines_carry_request_features_and_call_id_never_content() {
     assert_eq!(refused["route"], "chat");
     assert_eq!(refused["status"], 400);
     assert!(refused.get("stream").is_none(), "{refused}");
+
+    let after_claim = &lines[3];
+    assert_eq!(after_claim["status"], 400);
+    assert_eq!(after_claim["call_id"], REFUSED_ID);
+    assert_eq!(after_claim["response_format"], "json_object");
 }

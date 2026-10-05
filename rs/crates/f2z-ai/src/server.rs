@@ -564,8 +564,11 @@ where
                 metrics.record_request(route, status, elapsed);
                 tracing::Span::current().record("status", status);
                 let elapsed_us = u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX);
-                // Content-free by construction (crate::features): enums,
-                // booleans, counts, a validated schema name and a UUID.
+                // Content-free (crate::features): enums, booleans, counts and
+                // a UUID. The schema NAME is deliberately not logged: it is
+                // client-chosen text, like `metadata`, which never reaches a
+                // log line either. It is stored only on the user's own call
+                // record (ledger_features_meta), returned to the same app.
                 if let Some(logged) = response.extensions().get::<crate::features::Logged>() {
                     let f = &logged.features;
                     tracing::info!(
@@ -575,7 +578,6 @@ where
                         call_id = logged.call_id.map(tracing::field::display),
                         response_format = f.response_format.map(|k| k.as_str()),
                         response_format_strict = f.response_format_strict,
-                        response_format_schema_name = f.response_format_schema_name.as_deref(),
                         response_format_schema_bytes = f.response_format_schema_bytes,
                         tools = f.tools,
                         max_output_tokens_strict = f.max_output_tokens_strict,
