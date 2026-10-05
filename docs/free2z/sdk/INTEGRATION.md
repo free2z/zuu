@@ -371,18 +371,23 @@ const request: ChatRequest = {
   fingerprints are unchanged; a gateway older than the field refuses it as an
   unknown field rather than silently ignoring it.
 
-### Tool controls: `tool_choice`, `parallel_tool_calls`
+### Tool calling: `tools`, `tool_choice`, `parallel_tool_calls`, `strict`
 
-Both are OpenAI's shapes and both require `tools`. `tool_choice` is `"auto"`
-(the default), `"none"`, `"required"` or `{type: "function", function: {name}}`
-naming one of your tools; `parallel_tool_calls: false` asks for at most one
-call per turn. Tool calls come back as complete `tool_call` events
-(`message.tool_calls` without streaming) carrying the provider's own `id`;
-send each result back as a `tool` message with that `tool_call_id`. A model
-whose adapter cannot express a control refuses the call up front
-(`reason: "tools_unsupported"`, `field` naming the control) rather than
-ignoring it — today Anthropic models translate both, and OpenAI-style models
-do not yet.
+A tutor that grades answers with a function of its own (`check_answer`), or
+looks things up, uses `tools`, `tool_choice`, `parallel_tool_calls` and a
+tool's `strict` — OpenAI's shapes, translated per provider — and runs the
+round trip with Rust `Ai::run_tools` or TS `runTools`. Every round is its own
+paid call. `tool_choice` is `"auto"` (the default), `"none"`, `"required"` or
+`{type: "function", function: {name}}` naming one of your tools;
+`parallel_tool_calls: false` asks for at most one call per turn. Tool calls
+come back as complete `tool_call` events (`message.tool_calls` without
+streaming) carrying the provider's own `id`; send each result back as a
+`tool` message with that `tool_call_id`. A model whose adapter cannot express
+a control refuses the call up front (`reason: "tools_unsupported"`, `field`
+naming the control) rather than ignoring it — today Chat Completions models
+(OpenAI, xAI) and Anthropic models translate both; `strict: true` is
+OpenAI-only. The full guide, with the tutor example in both SDKs, is
+[TOOLS.md](TOOLS.md).
 
 ### Output that must not be truncated: `max_output_tokens_strict`
 

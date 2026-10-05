@@ -1,5 +1,11 @@
 import { failure } from "./error.js";
-import type { Json, ObjectData, ResponseFormat } from "./types.js";
+import type {
+  Json,
+  ObjectData,
+  ResponseFormat,
+  Tool,
+  ToolChoice,
+} from "./types.js";
 
 /** Parse integer lexemes directly to bigint, before Number can round them. */
 export function parseJson(text: string): Json {
@@ -202,4 +208,94 @@ export function responseFormat<T extends { response_format?: ResponseFormat }>(
     ...rest,
     response_format: { type: "json_schema", json_schema },
   } as T;
+}
+
+/** The gateway's limits on `tools` (`ChatRequest::check_tools`). */
+export const MAX_TOOLS = 128;
+export const MAX_TOOL_SCHEMA_BYTES = 32 * 1024;
+const TOOL_NAME = /^[A-Za-z0-9_-]{1,64}$/;
+/**
+ * The request as sent: `tools`, `tool_choice` and `parallel_tool_calls` are
+ * checked against the gateway's structural limits and rebuilt from the
+ * members they name, so a request the gateway would refuse is refused here,
+ * before any network or bridge call, and an absent member is not on the
+ * wire. Whether the MODEL supports them is the gateway's (catalogue) call.
+ */
+export function toolOptions<
+  T extends {
+    tools?: Tool[];
+    tool_choice?: ToolChoice;
+    parallel_tool_calls?: boolean;
+  },
+>(request: T): T {
+  const {
+    tools,
+    tool_choice: choice,
+    parallel_tool_calls: parallel,
+    ...rest
+  } = request;
+  const result = rest as T;
+  const names = new Set<string>();
+  if (tools !== undefined) {
+    if (!Array.isArray(tools) || tools.length > MAX_TOOLS)
+      failure("invalid_request");
+    result.tools = tools.map((tool: unknown) => {
+      if (!tool || typeof tool !== "object" || Array.isArray(tool))
+        failure("invalid_request");
+      const { name, description, parameters, strict, ...extra } =
+        tool as Record<string, unknown>;
+      if (
+        Object.keys(extra).length > 0 ||
+        typeof name !== "string" ||
+        !TOOL_NAME.test(name) ||
+        names.has(name) ||
+        (description !== undefined && typeof description !== "string") ||
+        !parameters ||
+        typeof parameters !== "object" ||
+        Array.isArray(parameters) ||
+        (strict !== undefined && typeof strict !== "boolean") ||
+        new TextEncoder().encode(stringifyJson(parameters)).length >
+          MAX_TOOL_SCHEMA_BYTES
+      )
+        failure("invalid_request");
+      names.add(name);
+      const out: Tool = { name, parameters: parameters as Json };
+      if (description !== undefined) out.description = description;
+      if (strict !== undefined) out.strict = strict;
+      return out;
+    });
+  }
+  const anyTools = names.size > 0;
+  if (choice !== undefined) {
+    if (!anyTools) failure("invalid_request");
+    if (choice === "auto" || choice === "none" || choice === "required")
+      result.tool_choice = choice;
+    else {
+      const named = choice as unknown;
+      if (!named || typeof named !== "object" || Array.isArray(named))
+        failure("invalid_request");
+      const { type, function: fn, ...extra } = named as Record<string, unknown>;
+      if (
+        type !== "function" ||
+        Object.keys(extra).length > 0 ||
+        !fn ||
+        typeof fn !== "object" ||
+        Array.isArray(fn)
+      )
+        failure("invalid_request");
+      const { name, ...fnExtra } = fn as Record<string, unknown>;
+      if (
+        Object.keys(fnExtra).length > 0 ||
+        typeof name !== "string" ||
+        !names.has(name)
+      )
+        failure("invalid_request");
+      result.tool_choice = { type: "function", function: { name } };
+    }
+  }
+  if (parallel !== undefined) {
+    if (typeof parallel !== "boolean" || !anyTools) failure("invalid_request");
+    result.parallel_tool_calls = parallel;
+  }
+  return result;
 }

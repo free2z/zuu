@@ -145,7 +145,9 @@ enum State {
 
 #[derive(Debug)]
 struct Buffer {
-    frames: VecDeque<Bytes>,
+    /// Each frame, and whether it is optional (a `tool_call_delta`, which
+    /// may be evicted to make room for a frame that is not).
+    frames: VecDeque<(Bytes, bool)>,
     bytes: usize,
     state: State,
     upstream_done: bool,
@@ -199,7 +201,7 @@ impl Shared {
         // still owes, and it replaces everything that was.
         buffer
             .frames
-            .push_back(delivery_aborted_frame(reason, buffer.output_seen));
+            .push_back((delivery_aborted_frame(reason, buffer.output_seen), false));
         buffer.state = State::Aborted(reason);
         buffer.aborted_at = Some(now);
         // No further request on this connection: it closes once this response
@@ -216,7 +218,13 @@ impl Shared {
     }
 
     /// The reader's push. Never blocks, never waits for the client.
-    fn push(&self, frame: Bytes, output: bool, limit: usize, stall: Duration) {
+    ///
+    /// An `optional` frame (a `tool_call_delta`: informational, its content
+    /// repeated by the `tool_call` that follows) never costs the client a
+    /// frame that is not: it is dropped rather than buffered once the buffer
+    /// is half full, and buffered optional frames are evicted to make room
+    /// before a mandatory frame is refused for space.
+    fn push(&self, frame: Bytes, output: bool, optional: bool, limit: usize, stall: Duration) {
         let waker = {
             let mut buffer = self.lock();
             // `partial` in a later `delivery_aborted` is conservative: output
@@ -231,12 +239,27 @@ impl Shared {
             if buffer.frames.is_empty() {
                 buffer.last_progress = now;
             }
-            if buffer.bytes.saturating_add(frame.len()) > limit {
+            if !optional && buffer.bytes.saturating_add(frame.len()) > limit {
+                let evicted: usize = buffer
+                    .frames
+                    .iter()
+                    .filter(|(_, optional)| *optional)
+                    .map(|(f, _)| f.len())
+                    .sum();
+                if evicted > 0 {
+                    buffer.frames.retain(|(_, optional)| !*optional);
+                    self.inflight.sub_buffered(evicted);
+                    buffer.bytes = buffer.bytes.saturating_sub(evicted);
+                }
+            }
+            if optional && buffer.bytes.saturating_add(frame.len()) > limit / 2 {
+                // Dropped, not an abort: the complete call still follows.
+            } else if buffer.bytes.saturating_add(frame.len()) > limit {
                 self.abort_delivery(&mut buffer, Delivery::BufferFull, now);
             } else {
                 self.inflight.add_buffered(frame.len());
                 buffer.bytes = buffer.bytes.saturating_add(frame.len());
-                buffer.frames.push_back(frame);
+                buffer.frames.push_back((frame, optional));
                 self.check(&mut buffer, now, stall);
             }
             buffer.waker.take()
@@ -378,7 +401,7 @@ impl http_body::Body for DeliveryBody {
             buffer.error_reported = true;
             return Poll::Ready(Some(Err(DeliveryEnded::Cut)));
         }
-        if let Some(frame) = buffer.frames.pop_front() {
+        if let Some((frame, _)) = buffer.frames.pop_front() {
             if !matches!(buffer.state, State::Aborted(_)) {
                 shared.inflight.sub_buffered(frame.len());
                 buffer.bytes = buffer.bytes.saturating_sub(frame.len());
@@ -574,9 +597,19 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
                 if let Event::Usage(usage) = &event {
                     guard.record.usage = Some(usage.usage);
                 }
-                let output = matches!(event, Event::Delta(_) | Event::ToolCall(_));
+                let output = matches!(
+                    event,
+                    Event::Delta(_) | Event::ToolCallDelta(_) | Event::ToolCall(_)
+                );
                 if let Ok(frame) = event.to_sse() {
-                    shared.push(Bytes::from(frame), output, limits.buffer_bytes, limits.stall);
+                    let optional = matches!(event, Event::ToolCallDelta(_));
+                    shared.push(
+                        Bytes::from(frame),
+                        output,
+                        optional,
+                        limits.buffer_bytes,
+                        limits.stall,
+                    );
                 }
             }
             _ = tick.tick() => shared.tick(limits.stall),

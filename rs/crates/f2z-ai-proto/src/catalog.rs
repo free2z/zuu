@@ -116,6 +116,17 @@ pub struct ModelCapabilities {
         deserialize_with = "declared_bool"
     )]
     pub structured_output: Option<bool>,
+    /// `Tool::strict: true` (provider-enforced argument schemas) is
+    /// supported. Tri-state like `structured_output`: absent means the
+    /// catalogue does not say, and the gateway applies its documented
+    /// interim rule (the `f2z-ai` crate's `provider::strict_tools_supported`).
+    /// A present `null` is refused.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "declared_bool"
+    )]
+    pub strict_tools: Option<bool>,
 }
 
 fn declared_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
@@ -124,7 +135,11 @@ fn declared_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>,
 
 impl ModelCapabilities {
     fn is_empty(&self) -> bool {
-        !self.vision && !self.tools && !self.reasoning && self.structured_output.is_none()
+        !self.vision
+            && !self.tools
+            && !self.reasoning
+            && self.structured_output.is_none()
+            && self.strict_tools.is_none()
     }
 }
 

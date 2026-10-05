@@ -8,7 +8,14 @@ import {
 } from "./error.js";
 import { identifier, key, withOperation } from "./http.js";
 import { spendCapParams } from "./spend-cap.js";
-import { object, responseFormat, strictOutput, string, uint } from "./json.js";
+import {
+  object,
+  responseFormat,
+  strictOutput,
+  string,
+  toolOptions,
+  uint,
+} from "./json.js";
 import type {
   ChatOptions,
   ChatRequest,
@@ -31,7 +38,12 @@ export type NativeChatRequest = Omit<
   "max_output_tokens" | "tools" | "response_format"
 > & {
   max_output_tokens?: string;
-  tools?: { name: string; description?: string; parameters: NativeJson }[];
+  tools?: {
+    name: string;
+    description?: string;
+    parameters: NativeJson;
+    strict?: boolean;
+  }[];
   response_format?:
     | { type: "json_object" }
     | {
@@ -64,7 +76,12 @@ export interface NativeBridge {
   openCheckout(id: string): Promise<void>;
   startChat(
     request: NativeChatRequest,
-    operation: { operationId: string; idempotencyKey: string },
+    operation: {
+      operationId: string;
+      idempotencyKey: string;
+      /** Needs a plugin that pins registration; an older one refuses unknown keys. */
+      sessionGeneration?: string;
+    },
   ): Promise<{ operationId: string; callId?: string; replay?: unknown }>;
   nextChat(operationId: string): Promise<unknown | null>;
   cancelChat(operationId: string): Promise<void>;
@@ -104,7 +121,7 @@ function request(value: ChatRequest): NativeChatRequest {
     tools,
     response_format: format,
     ...rest
-  } = responseFormat(strictOutput(value));
+  } = toolOptions(responseFormat(strictOutput(value)));
   const result: NativeChatRequest = { ...rest };
   if (format?.type === "json_object") result.response_format = format;
   else if (format !== undefined)
@@ -321,12 +338,22 @@ export class NativeTransport implements Transport {
         await invoke(() => bridge.session(), options.signal),
       );
       current();
+      if (
+        options.sessionGeneration !== undefined &&
+        (!initial.signedIn || initial.generation !== options.sessionGeneration)
+      )
+        failure("signed_out");
       // Keep observing start after caller cancellation so the registered stream
       // is also closed if cancellation reached native before registration did.
       const pending = invoke(() =>
         bridge.startChat(wire, {
           operationId: options.operationId,
           idempotencyKey: options.idempotencyKey,
+          // Native registration re-checks it under its own lock: the
+          // snapshot above can be stale by the time the call registers.
+          ...(options.sessionGeneration === undefined
+            ? {}
+            : { sessionGeneration: options.sessionGeneration }),
         }),
       );
       void pending

@@ -75,10 +75,49 @@
 //! };
 //! format.check().expect("within the gateway's limits");
 //! ```
+//!
+//! Tool calling: set `tools` (and optionally `tool_choice`,
+//! `parallel_tool_calls`, a tool's `strict`). The model's calls arrive as
+//! `tool_call` events (and, while streaming, `tool_call_delta` fragments for
+//! display — [`tools::ToolCallAssembler`]); `finish_reason` is
+//! `tool_calls`. Run each, answer with [`tools::tool_result`], and call
+//! again with the history — or let [`Ai::run_tools`] do the loop. A model
+//! whose `capabilities.tools` (or, for `strict`, `strict_tools`) is `false`
+//! refuses the call up front (`400 invalid_request`,
+//! `reason: "tools_unsupported"`, `field` naming the feature). See
+//! `docs/free2z/sdk/TOOLS.md`.
+//!
+//! ```no_run
+//! # async fn run(client: f2z_sdk::Client, mut request: f2z_sdk::proto::ChatRequest) -> Result<(), f2z_sdk::Error> {
+//! use f2z_sdk::ai::tools::function_tool;
+//!
+//! request.tools = vec![function_tool(
+//!     "check_answer",
+//!     "Grade a student's answer to one question.",
+//!     serde_json::json!({"type": "object",
+//!         "properties": {"question_id": {"type": "string"}, "answer": {"type": "string"}},
+//!         "required": ["question_id", "answer"], "additionalProperties": false}),
+//! )];
+//! let run = client
+//!     .ai()
+//!     .run_tools(request, 3, |call| async move {
+//!         // Run the tool; reply with what the model should read.
+//!         format!("{{\"correct\":true,\"call\":{:?}}}", call.name)
+//!     })
+//!     .await;
+//! if let Some(error) = run.error {
+//!     return Err(error); // run.rounds / run.messages still hold the paid rounds
+//! }
+//! for round in &run.rounds {
+//!     println!("{:?}", round.charge);
+//! }
+//! # Ok(()) }
+//! ```
 
 mod record;
 mod sse;
 mod stream;
+pub mod tools;
 
 use std::time::{Duration, Instant};
 
@@ -90,6 +129,7 @@ use url::Url;
 
 pub use record::{CallError, CallRecord, CallStatus, Capabilities, Charge, ModelInfo, Models};
 pub use stream::{CancelHandle, ChatStream, Completion};
+pub use tools::ToolRun;
 
 use crate::client::Client;
 use crate::error::Error;
@@ -112,6 +152,9 @@ pub struct ChatOptions {
     /// The first backoff; it doubles per attempt, capped at 30 s. A
     /// `Retry-After` from the server takes precedence.
     pub retry_base_delay: Duration,
+    /// Pin the call to this session generation (the tool loop's): it
+    /// refuses rather than act as a different user.
+    pub(crate) session: Option<u64>,
 }
 
 impl Default for ChatOptions {
@@ -121,6 +164,7 @@ impl Default for ChatOptions {
             max_retries: 2,
             transport_retries: 2,
             retry_base_delay: Duration::from_secs(1),
+            session: None,
         }
     }
 }
@@ -361,6 +405,9 @@ impl Ai {
 /// anything is sent: a request the gateway would refuse never spends a
 /// request against the user's or the app's rate allowance.
 fn local_limits(request: &ChatRequest) -> Result<(), Error> {
+    request
+        .check_tools()
+        .map_err(|e| Error::Config(e.to_string()))?;
     match &request.response_format {
         Some(format) => format.check().map_err(|e| Error::Config(e.to_string())),
         None => Ok(()),
@@ -388,5 +435,17 @@ mod local_limit_tests {
             .unwrap(),
         );
         assert!(matches!(local_limits(&request), Err(Error::Config(m)) if m.contains("name")));
+    }
+
+    #[test]
+    fn tool_limits_are_refused_before_sending() {
+        let ok: ChatRequest = serde_json::from_value(serde_json::json!({"model": "m",
+            "messages": [], "tools": [{"name": "check_answer", "parameters": {}}],
+            "tool_choice": "required"}))
+        .unwrap();
+        local_limits(&ok).unwrap();
+        let mut bad = ok;
+        bad.tools.clear();
+        assert!(matches!(local_limits(&bad), Err(Error::Config(m)) if m.contains("tool_choice")));
     }
 }

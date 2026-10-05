@@ -248,6 +248,7 @@ impl ProviderBackend {
                 .flat_map(|m| &m.content)
                 .filter(|p| matches!(p, f2z_ai_proto::chat::ContentPart::Image { .. }))
                 .fold(0u64, |n, _| n.saturating_add(1)),
+            tool_deltas: request.stream,
         }))
     }
 }

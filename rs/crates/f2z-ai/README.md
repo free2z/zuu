@@ -26,6 +26,13 @@ Function tools and tool-result history require `capabilities.tools` in the
 signed model catalogue. Missing capability metadata conservatively disables
 tools; model names never imply support. The gateway relays calls but never runs
 a client tool. Tool definitions, arguments and results enter the input hold.
+`tool_choice` and `parallel_tool_calls` are passed through by the Chat
+Completions adapter (OpenAI, xAI) and refused elsewhere; a tool's `strict: true`
+needs `capabilities.strict_tools` (absent: provider `openai` only — xAI does
+not document it). Streamed Chat Completions calls relay each argument fragment
+as a `tool_call_delta` before the complete `tool_call`. Refusals carry
+`reason: "tools_unsupported"` and happen before any hold
+([docs/free2z/sdk/TOOLS.md](../../../docs/free2z/sdk/TOOLS.md)).
 
 Structured output (`response_format`: `json_schema` or `json_object`) is passed
 through by the Chat Completions adapter, to a model whose signed

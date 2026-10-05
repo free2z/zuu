@@ -281,3 +281,53 @@ async fn a_disconnected_call_counts_against_the_limit_until_its_settle_returns()
     assert_eq!(admitted.status(), StatusCode::OK);
     drop(gateway);
 }
+
+// zuu#1128: `tool_call_delta` fragments are informational and repeat what the
+// complete `tool_call` carries, so they must never be what fills the buffer:
+// under backpressure they are dropped, and the authoritative call still fits.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn tool_call_fragments_never_fill_the_buffer_the_call_needs() {
+    let (backend, mut streams) = ControlledBackend::new();
+    let settler = RecordingSettler::default();
+    let config = config(&[("F2Z_AI_DELIVERY_BUFFER_BYTES", "65536")]);
+    let running = start(&config, deps(fixed_catalog(), backend, settler.clone())).await;
+    wait_readyz(running.admin, StatusCode::OK).await;
+
+    let _client = stalled_client(running.public).await;
+    let upstream = streams.recv().await.unwrap();
+    // 16 MiB of fragments — what fills every socket buffer and then some.
+    let piece = "x".repeat(16 * 1024);
+    for _ in 0..1024 {
+        let fragment = f2z_ai_proto::Event::ToolCallDelta(f2z_ai_proto::event::ToolCallDelta {
+            index: 0,
+            id: None,
+            name: None,
+            arguments: piece.clone(),
+        });
+        tokio::time::timeout(Duration::from_secs(2), upstream.send(fragment))
+            .await
+            .expect("the upstream read was throttled by the client")
+            .unwrap();
+    }
+    // The complete call is larger than the half of the buffer fragments may
+    // use, so it fits only if the waiting fragments make way for it.
+    let call = f2z_ai_proto::Event::ToolCall(f2z_ai_proto::chat::ToolCall {
+        id: "call_1".into(),
+        name: "check_answer".into(),
+        arguments: "y".repeat(48 * 1024),
+    });
+    upstream.send(call).await.unwrap();
+    upstream.send(usage(99)).await.unwrap();
+    drop(upstream);
+
+    let records = wait_records(&settler, 1).await;
+    assert_ne!(records[0].delivery, Delivery::BufferFull);
+    assert_eq!(
+        metric(
+            running.admin,
+            "f2z_ai_delivery_aborted_total{reason=\"buffer_full\"} "
+        )
+        .await,
+        "0"
+    );
+}

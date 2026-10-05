@@ -7,6 +7,18 @@ export {
 } from "./native-transport.js";
 export { SdkError, type ErrorContext } from "./error.js";
 export {
+  ToolCallAccumulator,
+  assistantMessage,
+  collectChat,
+  runTools,
+  toolResult,
+  type PartialToolCall,
+  type RunToolsOptions,
+  type ToolContext,
+  type ToolRound,
+  type ToolRun,
+} from "./tools.js";
+export {
   PopupAuthSession,
   completeBrowserSignIn,
   type BrowserAuthSession,

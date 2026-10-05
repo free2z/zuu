@@ -1,0 +1,204 @@
+{
+  "source": "Requests the gateway must refuse before any hold or provider request (400 invalid_request, details.reason tools_unsupported). `model` is the conformance catalogue's id.",
+  "cases": [
+    {
+      "name": "xai_strict",
+      "model": "xai",
+      "request": {
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "type": "text",
+                "text": "You are a patient algebra tutor. Grade answers with check_answer."
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Q1: solve 2x + 3 = 11. My answer: x = 4"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "check_answer",
+            "description": "Grade a student's answer to one question.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "question_id": {
+                  "type": "string"
+                },
+                "answer": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "question_id",
+                "answer"
+              ],
+              "additionalProperties": false
+            },
+            "strict": true
+          }
+        ]
+      },
+      "field": "tools[0].strict"
+    },
+    {
+      "name": "responses_tool_choice",
+      "model": "responses",
+      "request": {
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "type": "text",
+                "text": "You are a patient algebra tutor. Grade answers with check_answer."
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Q1: solve 2x + 3 = 11. My answer: x = 4"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "check_answer",
+            "description": "Grade a student's answer to one question.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "question_id": {
+                  "type": "string"
+                },
+                "answer": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "question_id",
+                "answer"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ],
+        "tool_choice": "required"
+      },
+      "field": "tool_choice"
+    },
+    {
+      "name": "no_tools_capability",
+      "model": "no_tools",
+      "request": {
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "type": "text",
+                "text": "You are a patient algebra tutor. Grade answers with check_answer."
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Q1: solve 2x + 3 = 11. My answer: x = 4"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "check_answer",
+            "description": "Grade a student's answer to one question.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "question_id": {
+                  "type": "string"
+                },
+                "answer": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "question_id",
+                "answer"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ]
+      },
+      "field": "tools"
+    },
+    {
+      "name": "openai_strict_declared_false",
+      "model": "openai_strict_off",
+      "request": {
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "type": "text",
+                "text": "You are a patient algebra tutor. Grade answers with check_answer."
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Q1: solve 2x + 3 = 11. My answer: x = 4"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "check_answer",
+            "description": "Grade a student's answer to one question.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "question_id": {
+                  "type": "string"
+                },
+                "answer": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "question_id",
+                "answer"
+              ],
+              "additionalProperties": false
+            },
+            "strict": true
+          }
+        ]
+      },
+      "field": "tools[0].strict"
+    }
+  ]
+}

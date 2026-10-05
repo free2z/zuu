@@ -15,6 +15,18 @@ lossless integer decoding, purchase polling, and structured settlement recovery.
 - `Estimate` types the budget fields the gateway sends: optional `available_milli_2z`,
   `cap_remaining_milli_2z` (`null` = uncapped), `min_charge_2z`, `catalog_version`
   as `bigint`. Additive; unknown response fields still pass through.
+
+- Tool calling (free2z/zuu#1128): `Tool` (with `strict?`), `ToolChoice`,
+  `ChatRequest.tool_choice` / `parallel_tool_calls`, and the
+  `tool_call_delta` event (`ToolCallDelta`, `index` a number). Checked
+  locally against the gateway's limits and rebuilt before sending; absent is
+  never sent. Helpers: `toolResult`, `assistantMessage`, `collectChat`,
+  `ToolCallAccumulator`, and `runTools` (caller-supplied keys per round,
+  each round pinned to the starting session; failures returned in `error`
+  with completed rounds kept, a charged failed round included; each handler
+  gets a `ToolContext`). `ChatOptions.sessionGeneration`: a chat
+  refused with `signed_out` unless the session is still that one.
+
 - `NativeSignInErrorCode` (free2z/zuu#1128): a native sign-in that ends at
   the browser rejects with `user_cancelled`, `browser_unavailable`, `timeout`
   or the `browser_error` fallback, passed through unchanged.
