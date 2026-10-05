@@ -156,7 +156,8 @@ fn serve(config: &Config) -> Result<ExitCode, String> {
             let provider = f2z_ai::provider::ProviderBackend::from_config(config)?;
             let backend = std::sync::Arc::new(
                 f2z_ai::meter::Metered::new(ledger, provider)
-                    .with_allowed_models(config.allowed_models.clone()),
+                    .with_allowed_models(config.allowed_models.clone())
+                    .with_features_meta(config.ledger_features_meta),
             );
             Deps {
                 gate: f2z_ai::auth::from_config(&config.auth)?,

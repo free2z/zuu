@@ -8,6 +8,10 @@ lossless integer decoding, purchase polling, and structured settlement recovery.
 - `ChatRequest.tool_choice` (`ToolChoice`) and `ChatRequest.parallel_tool_calls`
   (free2z/zuu#1128): OpenAI-shaped tool controls, passed through as sent;
   absent is never sent.
+- `Models` types the catalogue (`Model`, `ModelCapabilities`, `ModelPrices`):
+  `capabilities.{vision,tools,reasoning,structured_output}` as `boolean`
+  (absent = unsupported; a non-boolean is `invalid_response`), prices and
+  limits as `bigint`, `includes_markup_bps`. Additive; unknown members pass through.
 - `Estimate` types the budget fields the gateway sends: optional `available_milli_2z`,
   `cap_remaining_milli_2z` (`null` = uncapped), `min_charge_2z`, `catalog_version`
   as `bigint`. Additive; unknown response fields still pass through.

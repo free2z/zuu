@@ -102,9 +102,29 @@ export type StreamEvent =
   | { type: 'usage'; usage: Usage; source?: string }
   | { type: 'done'; charge: Charge; finish_reason: string; [key: string]: unknown }
   | { type: 'error'; charge: Charge; code: string; [key: string]: unknown };
+/**
+ * What the gateway accepts for a model. Absent, `null` or `false`: unsupported;
+ * compare with `=== true`. `structured_output === true` is the precondition for
+ * `ChatRequest.response_format`, `tools === true` for `tools` — otherwise the
+ * gateway refuses (`invalid_request`) before any hold or charge.
+ */
+export interface ModelCapabilities {
+  vision?: boolean; tools?: boolean; reasoning?: boolean; structured_output?: boolean;
+  [key: string]: unknown;
+}
+/** One catalogue model; `null` optional members were not reported. */
+export interface CatalogModel {
+  id: string; provider?: string | null; display_name?: string | null;
+  context_window?: Decimal | null; max_output_tokens?: Decimal | null;
+  capabilities?: ModelCapabilities;
+  /** Milli-2Z per million tokens (`*_milli_2z_per_mtok`) or per unit, markup included. */
+  prices: Record<string, Decimal>;
+  min_charge_2z?: Decimal | null; ttfb_timeout_ms?: Decimal | null;
+  [key: string]: unknown;
+}
 export interface ModelCatalog {
   catalog_version: Decimal; includes_markup_bps: Decimal;
-  models: { id: string; min_charge_2z?: Decimal | null; prices: Record<string, Decimal>; [key: string]: unknown }[];
+  models: CatalogModel[];
 }
 export interface Estimate {
   model: string; input_tokens: Decimal; max_output_tokens: Decimal; hold_2z: Decimal;

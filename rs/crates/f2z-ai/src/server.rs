@@ -539,8 +539,12 @@ where
 
     fn call(&mut self, request: Request<Body>) -> Self::Future {
         let route = Route::of(request.uri().path());
+        // The log/span label. Metrics keep their closed two-value `route`;
+        // the log line also names the estimate route, whose requests carry
+        // the same request features as a chat.
         let route_label = match route {
             Route::Chat => "chat",
+            Route::Other if request.uri().path() == "/v1/chat/estimate" => "estimate",
             Route::Other => "other",
         };
         let span = tracing::info_span!(
@@ -559,12 +563,31 @@ where
                 let elapsed = started.elapsed();
                 metrics.record_request(route, status, elapsed);
                 tracing::Span::current().record("status", status);
-                tracing::info!(
-                    route = route_label,
-                    status,
-                    elapsed_us = u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX),
-                    "response"
-                );
+                let elapsed_us = u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX);
+                // Content-free (crate::features): enums, booleans, counts and
+                // a UUID. The schema NAME is deliberately not logged: it is
+                // client-chosen text, like `metadata`, which never reaches a
+                // log line either. It is stored only on the user's own call
+                // record (ledger_features_meta), returned to the same app.
+                if let Some(logged) = response.extensions().get::<crate::features::Logged>() {
+                    let f = &logged.features;
+                    tracing::info!(
+                        route = route_label,
+                        status,
+                        elapsed_us,
+                        call_id = logged.call_id.map(tracing::field::display),
+                        response_format = f.response_format.map(|k| k.as_str()),
+                        response_format_strict = f.response_format_strict,
+                        response_format_schema_bytes = f.response_format_schema_bytes,
+                        tools = f.tools,
+                        max_output_tokens_strict = f.max_output_tokens_strict,
+                        stream = f.stream,
+                        fallback = f.fallback,
+                        "response"
+                    );
+                } else {
+                    tracing::info!(route = route_label, status, elapsed_us, "response");
+                }
                 Ok(response)
             }
             .instrument(span),
