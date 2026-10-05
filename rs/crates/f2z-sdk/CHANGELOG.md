@@ -5,6 +5,10 @@
 Initial reviewed SDK contract implementation. Publication is disabled pending
 release acceptance; see the repository SDK release guide.
 
+- Tool `parameters` and the `response_format` schema are
+  `f2z_ai_proto::OrderedJson` (free2z/zuu#1132): sent in the order written.
+  `serde_json::json!(…).into()` still compiles but is already sorted; parse
+  the schema text to keep its order.
 - `ChatRequest::response_format` (via `f2z_ai_proto`): opt-in structured
   output, `ResponseFormat::JsonSchema { json_schema: JsonSchemaFormat { name,
   schema, strict } }` or `ResponseFormat::JsonObject {}`; `ResponseFormat::check`

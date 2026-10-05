@@ -81,11 +81,11 @@ fn openai_standard_processing_cannot_be_overridden_by_caller_metadata() {
     for style in [ApiStyle::OpenaiChat, ApiStyle::OpenaiResponses] {
         let adapter = for_style(style, UsageConvention::CompletionIncludesReasoning).unwrap();
         model.provider = "openai".into();
-        let body = adapter.body(&request, &model, 16).unwrap();
+        let body = adapter.body(&request, &model, 16).unwrap().to_value();
         assert_eq!(body["service_tier"], "default");
         for provider in ["xai", "chatco"] {
             model.provider = provider.into();
-            let body = adapter.body(&request, &model, 16).unwrap();
+            let body = adapter.body(&request, &model, 16).unwrap().to_value();
             assert!(body.get("service_tier").is_none());
         }
     }
@@ -366,6 +366,90 @@ async fn response_format_reaches_chat_completions_exactly_as_sent() {
             .get("response_format")
             .is_none()
     );
+    mock.shutdown().await;
+}
+
+/// zuu#1132: the caller's schema member order reaches the provider's wire
+/// bytes — `response_format` on Chat Completions, tool `parameters` on all
+/// three adapters. Read from the raw body text: the parsed `body` is a
+/// `serde_json::Value`, which sorts members and so cannot see the bug.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn schema_member_order_reaches_the_provider_as_sent() {
+    // Unsorted at every level: `reasoning` before `answer`, `type` last,
+    // `zeta` before `alpha`, nested `properties` unsorted too.
+    const SCHEMA: &str = r#"{"properties":{"reasoning":{"type":"string"},"answer":{"type":"object","properties":{"value":{"type":"number"},"unit":{"type":"string"}}}},"required":["reasoning","answer"],"additionalProperties":false,"type":"object"}"#;
+    const PARAMETERS: &str = r#"{"type":"object","properties":{"zeta":{"type":"string"},"alpha":{"type":"integer"}},"required":["zeta","alpha"]}"#;
+    let mock = MockProvider::start(Scenario::default()).await.unwrap();
+    let backend = backend(&mock.base_url(), tuning(0));
+    let catalog = with_chat_model("openai", None);
+    let text = |model: &str, format: bool| {
+        let format = if format {
+            format!(
+                r#","response_format":{{"type":"json_schema","json_schema":{{"name":"activity_spec","schema":{SCHEMA},"strict":true}}}}"#
+            )
+        } else {
+            String::new()
+        };
+        format!(
+            r#"{{"model":"{model}","messages":[{{"role":"user","content":[{{"type":"text","text":"Reply in JSON."}}]}}],"tools":[{{"name":"lookup","parameters":{PARAMETERS}}}]{format}}}"#
+        )
+    };
+    let sent_text = |request: ChatRequest| {
+        let backend = &backend;
+        let catalog = &catalog;
+        let mock = &mock;
+        async move {
+            let run = drive(backend, catalog, &request).await;
+            assert_eq!(run.outcome.failure, None, "{}", request.model);
+            mock.recorded_requests()
+                .last()
+                .unwrap()
+                .body_text
+                .clone()
+                .unwrap()
+        }
+    };
+    for (model, format) in [(CHAT, true), (RESPONSES, false), (ANTHROPIC, false)] {
+        // Client JSON text -> proto -> gateway -> provider bytes.
+        let request: ChatRequest = serde_json::from_str(&text(model.id, format)).unwrap();
+        let sent = sent_text(request).await;
+        let schema_key = if model.style == ProviderStyle::AnthropicMessages {
+            "input_schema"
+        } else {
+            "parameters"
+        };
+        assert!(
+            sent.contains(&format!(r#""{schema_key}":{PARAMETERS}"#)),
+            "{}: tool parameters reordered: {sent}",
+            model.id
+        );
+        if format {
+            assert!(
+                sent.contains(&format!(
+                    r#""json_schema":{{"name":"activity_spec","schema":{SCHEMA},"strict":true}}"#
+                )),
+                "{}: response_format schema reordered: {sent}",
+                model.id
+            );
+        }
+
+        // Negative control: the same request, its schemas round-tripped
+        // through `serde_json::Value` as the gateway did before #1132,
+        // reaches the provider sorted — so the assertions above can fail.
+        let via_value: ChatRequest =
+            serde_json::from_value(serde_json::from_str(&text(model.id, format)).unwrap()).unwrap();
+        let sorted = sent_text(via_value).await;
+        assert!(
+            !sorted.contains(PARAMETERS),
+            "{}: control did not reorder: {sorted}",
+            model.id
+        );
+        assert!(sorted.contains(r#""properties":{"alpha""#), "{sorted}");
+        if format {
+            assert!(!sorted.contains(SCHEMA), "{sorted}");
+            assert!(sorted.contains(r#""properties":{"answer""#), "{sorted}");
+        }
+    }
     mock.shutdown().await;
 }
 

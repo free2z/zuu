@@ -345,12 +345,16 @@ const request: ChatRequest = {
   yourself and still validate it — the model's output is untrusted, and a
   provider refusal also arrives as text. `finish_reason: "length"` means the
   JSON is truncated; pair `response_format` with `max_output_tokens_strict`.
-- **Key order is not preserved yet.** The gateway forwards the schema as a
-  parsed JSON value whose object members are sorted by name, and OpenAI
-  emits the reply's keys in schema order — so the reply arrives with keys
-  alphabetical, not in the order you declared. Parse by key, never by
-  position; and a schema that relies on order to make the model think first
-  (`reasoning` before `answer`) does not get that effect today.
+- **Key order is preserved.** The schema (and every tool's `parameters`)
+  reaches the provider with its members in the order you wrote them, and
+  OpenAI emits the reply's keys in schema order — so a schema that declares
+  `reasoning` before `answer` gets the model to write its reasoning first.
+  Still parse by key, never by position: the reply is model output. The
+  Tauri plugin keeps the order by enabling serde_json's `preserve_order`
+  (a Tauri command's arguments arrive as a `serde_json::Value`); Cargo
+  unifies features, so the host app's own `Value`s keep insertion order too.
+  In Rust, build a schema with `"…".parse::<OrderedJson>()`, not `json!`:
+  a `serde_json::Value` without `preserve_order` has already sorted it.
 - Pricing does not change. The schema is input the model reads, so it is part
   of the input hold and of the provider-reported usage you are charged for,
   like a tool definition. Keep it small.

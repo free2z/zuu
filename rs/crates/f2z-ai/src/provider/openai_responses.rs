@@ -33,9 +33,9 @@
 //! `response.output_item.done`, whose item carries the complete arguments.
 //! Reasoning is not streamed.
 
-use f2z_ai_proto::ErrorCode;
 use f2z_ai_proto::catalog::{ApiStyle, CatalogModel};
 use f2z_ai_proto::chat::{ChatRequest, ContentPart, FinishReason, Role, ToolCall, Usage};
+use f2z_ai_proto::{ErrorCode, OrderedJson};
 use reqwest::header::{HeaderMap, HeaderValue};
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::{Map, Value, json};
@@ -92,7 +92,7 @@ impl Provider for OpenAiResponses {
         request: &ChatRequest,
         model: &CatalogModel,
         max_output_tokens: u64,
-    ) -> Result<Value, ApiFailure> {
+    ) -> Result<OrderedJson, ApiFailure> {
         // `function_call_output` is text here, and an assistant turn carries
         // no image.
         super::images_only_on(request, &[Role::User, Role::System])?;
@@ -171,34 +171,23 @@ impl Provider for OpenAiResponses {
         // The gateway keeps no completions (chat-api.md §7); neither should
         // the provider on its behalf.
         body.insert("store".into(), json!(false));
+        let mut caller = Vec::new();
         if !request.tools.is_empty() {
-            body.insert(
-                "tools".into(),
-                Value::Array(
-                    request
-                        .tools
-                        .iter()
-                        .map(|tool| {
-                            let mut t = Map::new();
-                            t.insert("type".into(), json!("function"));
-                            t.insert("name".into(), json!(tool.name));
-                            if let Some(d) = &tool.description {
-                                t.insert("description".into(), json!(d));
-                            }
-                            t.insert("parameters".into(), tool.parameters.clone());
-                            // Responses normalises schemas to strict mode
-                            // unless told not to; Chat Completions and
-                            // Anthropic do not. The unified API has no strict
-                            // option, so the schema means the same thing on
-                            // every provider.
-                            t.insert("strict".into(), json!(false));
-                            Value::Object(t)
-                        })
-                        .collect(),
-                ),
-            );
+            caller.push((
+                "tools",
+                OrderedJson::array(request.tools.iter().map(|tool| {
+                    let mut t = vec![("type", OrderedJson::from("function"))];
+                    t.extend(super::tool_members(tool, "parameters"));
+                    // Responses normalises schemas to strict mode unless told
+                    // not to; Chat Completions and Anthropic do not. The
+                    // unified API has no strict option, so the schema means
+                    // the same thing on every provider.
+                    t.push(("strict", OrderedJson::from(false)));
+                    OrderedJson::object(t)
+                })),
+            ));
         }
-        Ok(Value::Object(body))
+        Ok(super::ordered_body(body, caller))
     }
 
     fn parser(&self) -> Box<dyn StreamParser> {

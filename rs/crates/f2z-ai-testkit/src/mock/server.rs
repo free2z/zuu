@@ -60,6 +60,11 @@ pub struct RecordedRequest {
     /// The parsed JSON body; `Value::Null` if it did not parse or was over
     /// 64 KiB (recorded by length only).
     pub body: Value,
+    /// The body exactly as it arrived, as text (`None` under the same
+    /// conditions `body` is `Null`, or if it was not UTF-8). `body` sorts
+    /// object members, so a test of what ORDER the gateway sent members in
+    /// must read this (zuu#1132).
+    pub body_text: Option<String>,
     /// The body's length in bytes.
     pub body_len: usize,
 }
@@ -273,6 +278,9 @@ async fn handle(
             } else {
                 Value::Null
             },
+            body_text: (body.len() <= RECORD_BODY_LIMIT && !parsed.is_null())
+                .then(|| String::from_utf8(body.to_vec()).ok())
+                .flatten(),
             body_len: body.len(),
         });
     }

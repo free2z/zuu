@@ -33,9 +33,9 @@
 
 use std::collections::BTreeMap;
 
-use f2z_ai_proto::ErrorCode;
 use f2z_ai_proto::catalog::{ApiStyle, CatalogModel};
 use f2z_ai_proto::chat::{ChatRequest, ContentPart, FinishReason, Role, ToolCall, Usage};
+use f2z_ai_proto::{ErrorCode, OrderedJson};
 use reqwest::header::{HeaderMap, HeaderValue};
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::{Map, Value, json};
@@ -83,7 +83,7 @@ impl Provider for AnthropicMessages {
         request: &ChatRequest,
         model: &CatalogModel,
         max_output_tokens: u64,
-    ) -> Result<Value, ApiFailure> {
+    ) -> Result<OrderedJson, ApiFailure> {
         // `system` is text, and an assistant turn carries no image; a
         // `tool_result` does.
         super::images_only_on(request, &[Role::User, Role::Tool])?;
@@ -159,27 +159,19 @@ impl Provider for AnthropicMessages {
                     .collect(),
             ),
         );
+        let mut caller = Vec::new();
         if !request.tools.is_empty() {
-            body.insert(
-                "tools".into(),
-                Value::Array(
+            caller.push((
+                "tools",
+                OrderedJson::array(
                     request
                         .tools
                         .iter()
-                        .map(|tool| {
-                            let mut t = Map::new();
-                            t.insert("name".into(), json!(tool.name));
-                            if let Some(d) = &tool.description {
-                                t.insert("description".into(), json!(d));
-                            }
-                            t.insert("input_schema".into(), tool.parameters.clone());
-                            Value::Object(t)
-                        })
-                        .collect(),
+                        .map(|tool| OrderedJson::object(super::tool_members(tool, "input_schema"))),
                 ),
-            );
+            ));
         }
-        Ok(Value::Object(body))
+        Ok(super::ordered_body(body, caller))
     }
 
     fn parser(&self) -> Box<dyn StreamParser> {

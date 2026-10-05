@@ -39,6 +39,39 @@ fn unavailable() -> ApiFailure {
     )
     .retry_after(1)
 }
+/// The idempotency fingerprint: SHA-256, lowercase hex, of the request
+/// serialized with every caller-supplied JSON object's members **sorted by
+/// name**. The ledger compares it when a key is reused (`Operation::Claim`).
+///
+/// Sorted, not as sent, on purpose (zuu#1132). Before #1132 tool `parameters`
+/// and the `response_format` schema were `serde_json::Value`s, which sort
+/// their members, so these were the bytes hashed; hashing the caller's order
+/// instead would change the fingerprint of every request whose schema was not
+/// already sorted, and a same-key retry that spanned the deploy would then be
+/// refused as `idempotency_conflict`. Sorting keeps every fingerprint
+/// byte-identical to the previous gateway's (pinned in this module's tests),
+/// so nothing needs versioning. The cost: two requests that differ ONLY in a
+/// schema's member order share a fingerprint, so a retry that reordered its
+/// schema replays the first call rather than conflicting. JSON object member
+/// order is not data (RFC 8259 §4); the replay is the call the key named.
+fn request_fingerprint(request: &ChatRequest) -> Result<String, ApiFailure> {
+    let mut canonical = request.clone();
+    for tool in &mut canonical.tools {
+        tool.parameters = tool.parameters.with_sorted_keys();
+    }
+    if let Some(f2z_ai_proto::ResponseFormat::JsonSchema { json_schema }) =
+        &mut canonical.response_format
+    {
+        json_schema.schema = json_schema.schema.with_sorted_keys();
+    }
+    let body = serde_json::to_vec(&canonical).map_err(|_| invalid())?;
+    Ok(ring::digest::digest(&ring::digest::SHA256, &body)
+        .as_ref()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
+}
+
 fn invalid() -> ApiFailure {
     ApiFailure::new(ErrorCode::Internal, "ledger or pricing contract refused")
 }
@@ -470,12 +503,7 @@ impl ChatBackend for Metered {
     ) -> Result<Box<dyn Upstream>, ApiFailure> {
         let principal = call.principal().ok_or_else(invalid)?;
         let identity = Identity::try_from(principal).map_err(|_| invalid())?;
-        let body = serde_json::to_vec(&request).map_err(|_| invalid())?;
-        let fingerprint = ring::digest::digest(&ring::digest::SHA256, &body)
-            .as_ref()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>();
+        let fingerprint = request_fingerprint(&request)?;
         let id = Uuid::now_v7();
         let provider = catalog
             .catalog()
@@ -1214,6 +1242,66 @@ impl Upstream for Replay {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// zuu#1132: the idempotency fingerprint is byte-identical to the
+    /// pre-#1132 gateway's for the same request bytes, so a same-key retry
+    /// spanning the deploy still matches. The hex digests below were computed
+    /// by the gateway at 42acc57f (before #1132, when these fields were
+    /// `serde_json::Value`s), as `sha256(serde_json::to_vec(&request))`.
+    const PRE_1132_FINGERPRINTS: [(&str, &str); 4] = [
+        (
+            "27da765094dc01f3ce5ead06c8e368fdafc2c2151dcdc1dc331e3cd77f8aed6c",
+            r#"{"model":"gpt-4.1-mini","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"max_output_tokens":64,"metadata":{"b":"2","a":"1"}}"#,
+        ),
+        (
+            "5651c210b1ecc9febf3fbb8c7326dbcb35f32f8b4eb81119b732379c1fb20cf4",
+            r#"{"model":"gpt-4.1-mini","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"tools":[{"name":"lookup","description":"d","parameters":{"type":"object","properties":{"zeta":{"type":"string","description":"z\u00e9 \"q\""},"alpha":{"type":"integer","minimum":-3,"maximum":18446744073709551615}},"required":["zeta","alpha"],"additionalProperties":false}}]}"#,
+        ),
+        (
+            "985cc558408ea99d65536a56a1168f40f699d33c6816a2181b3c7967c54222e9",
+            r#"{"model":"gpt-4.1-mini","stream":false,"messages":[{"role":"user","content":[{"type":"text","text":"JSON please"}]}],"response_format":{"type":"json_schema","json_schema":{"name":"activity_spec","strict":true,"schema":{"type":"object","properties":{"reasoning":{"type":"string"},"answer":{"type":"number","multipleOf":0.5},"Émoji🙂":{"enum":[null,true,1.25e3]}},"required":["reasoning","answer"],"additionalProperties":false,"x":1,"x":2}}}}"#,
+        ),
+        (
+            "57d9dbeb5eb02691887dfc3de3b8d962b328982e12f61af3435fdd1b210c89ce",
+            r#"{"model":"gpt-4.1-mini","messages":[{"role":"user","content":[{"type":"text","text":"JSON"}]}],"tools":[{"name":"b","parameters":{"type":"object","properties":{"q":{},"p":{"type":"array","items":{"z":1,"a":[{"y":0,"b":0}]}}}}},{"name":"a","parameters":{}}],"response_format":{"type":"json_object"}}"#,
+        ),
+    ];
+
+    #[test]
+    fn idempotency_fingerprints_are_unchanged_by_1132() {
+        for (expected, body) in PRE_1132_FINGERPRINTS {
+            let request: ChatRequest = serde_json::from_str(body).unwrap();
+            assert_eq!(request_fingerprint(&request).unwrap(), expected, "{body}");
+        }
+        // Negative control: hashing the request as it is now serialized —
+        // the caller's member order — changes every fingerprint whose
+        // schemas were not already sorted, which is the deploy-spanning
+        // `idempotency_conflict` the sort exists to prevent.
+        for (index, (expected, body)) in PRE_1132_FINGERPRINTS.into_iter().enumerate() {
+            let request: ChatRequest = serde_json::from_str(body).unwrap();
+            let as_sent = serde_json::to_vec(&request).unwrap();
+            let hex: String = ring::digest::digest(&ring::digest::SHA256, &as_sent)
+                .as_ref()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            // Only the first body carries no schema to reorder.
+            assert_eq!(hex == expected, index == 0, "{body}");
+        }
+        // And a reordered schema is the same call for idempotency.
+        let a: ChatRequest = serde_json::from_str(PRE_1132_FINGERPRINTS[2].1).unwrap();
+        let mut b = a.clone();
+        if let Some(f2z_ai_proto::ResponseFormat::JsonSchema { json_schema }) =
+            &mut b.response_format
+        {
+            json_schema.schema = json_schema.schema.with_sorted_keys();
+        }
+        assert_ne!(a, b);
+        assert_eq!(
+            request_fingerprint(&a).unwrap(),
+            request_fingerprint(&b).unwrap()
+        );
+    }
     #[test]
     fn malformed_final_amounts_never_become_a_public_charge() {
         let mut record = json!({"call_id":Uuid::now_v7(),"status":"settled","request":{"model":"m","requested_model":"m","provider":"p","catalog_version":1,"metadata":{}},"created_at":"2026-09-27T00:00:00Z","settled_at":"2026-09-27T00:00:01Z","settlement":{"hold_id":Uuid::now_v7(),"outcome":"settled","hold_milli_2z":1000,"priced_milli_2z":1000,"collected_milli_2z":1000,"shortfall_milli_2z":0,"applied_markup_bps":0}});
