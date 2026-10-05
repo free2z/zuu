@@ -628,8 +628,14 @@ catalogue row). Events: a `server_tool` event (`{type, status, input?}`,
 content-free beyond the query the model wrote) and `annotation` events for
 citations; the compat renderers emit the provider's own citation shapes.
 Hold: `tool_budget = min(max_uses, catalogue limits.hosted_tool_calls_max)`
-in the existing extend formula. Code execution, file search, MCP and
-computer use stay refused (§2.2).
+in the existing extend formula — **and** the search *content* the provider
+injects into the context, which is billed as input tokens (OpenAI bills
+non-preview search content at a fixed 8,000 input tokens per call on
+`gpt-4.1-mini`-class models; Anthropic bills the fetched results as
+ordinary input): `input_est += tool_budget × limits.hosted_search_content_tokens`,
+a signed per-model number. A model declaring `hosted_web_search` without
+that limit is not callable with the tool. Code execution, file search, MCP
+and computer use stay refused (§2.2).
 
 ### 3.2 Layer B — Free2Z-native extensions that official SDKs tolerate
 
@@ -705,13 +711,13 @@ from a model name, never a gateway constant).
       "tool_choice": ["auto", "none", "required", "named"], "effort_levels": [], "effort_budgets": {},
       "image_media_types": ["image/png", "image/jpeg", "image/webp", "image/gif"], "image_detail": ["auto", "low", "high"],
       "system_role": "system", "structured_output_mode": "native", "hosted_tools": [],
-      "image_tokenizer": "openai_tiles"
+      "image_tokenizer": { "kind": "openai_tiles", "base_tokens": 85, "tile_tokens": 170, "low_detail_tokens": 85 }
     },
     "limits": {
       "tools_max": 128, "tool_schema_bytes_max": 32768, "response_schema_bytes_max": 32768,
       "images_max": 20, "image_tokens_max": 1445, "documents_max": 5, "pdf_pages_max": 100,
       "document_bytes_max": 33554432, "pdf_page_image_tokens": 1445,
-      "stop_sequences_max": 4, "cache_breakpoints_max": 0, "hosted_tool_calls_max": 0, "temperature_max": 2
+      "stop_sequences_max": 4, "cache_breakpoints_max": 0, "hosted_tool_calls_max": 0, "hosted_search_content_tokens": 0, "temperature_max": 2
     },
     "encodings": ["native", "chat_completions", "responses", "messages"],
     "prices": { "input_milli_2z_per_mtok": 300000, "…": "…" }
@@ -824,11 +830,19 @@ released and written off, never guessed, as for tokens.
   image whose dimensions it cannot read is refused, `reason:
   "image_unreadable"`, never estimated) and applies the provider's
   **documented sizing formula**, selected by the signed
-  `controls.image_tokenizer`: `openai_tiles` (fit within 2048², shortest
-  side to 768, `85 + 170 × ⌈w/512⌉ × ⌈h/512⌉`; `detail: low` → 85; the
-  worst case over all aspect ratios is a 2048×768 image, 8 tiles, **1,445**
-  tokens), `anthropic_area` (`⌈w × h / 750⌉` after the 1568 px long-side
-  resize, ≤ ~1,600), `xai_tiles` (per docs.x.ai). `limits.image_tokens_max`
+  `controls.image_tokenizer`, an object whose **parameters are signed**,
+  not a bare name — the same algorithm has very different constants per
+  model (`gpt-4o`: 85 base + 170 per tile; `gpt-4o-mini`: 2,833 base +
+  5,667 per tile; a name alone would under-reserve 33× on the mini):
+  `{"kind": "openai_tiles", "base_tokens": 85, "tile_tokens": 170,
+  "low_detail_tokens": 85}` (fit within 2048², shortest side to 768,
+  `base + tile × ⌈w/512⌉ × ⌈h/512⌉`; the worst case over all aspect ratios
+  is a 2048×768 image, 8 tiles — **1,445** tokens on `gpt-4o`),
+  `{"kind": "anthropic_area", "pixels_per_token": 750}` (after the 1568 px
+  long-side resize, ≤ ~1,600), `{"kind": "patches", …}` for patch-based
+  models (GPT-4.1-mini/nano, o-series), `{"kind": "xai_tiles", …}` (per
+  docs.x.ai). An unknown `kind` or a missing parameter makes the model
+  refuse image parts. `limits.image_tokens_max`
   is the signed ceiling the formula's result may not exceed (a formula
   drift is a refusal, not an under-reservation). Per-image-priced providers
   keep `image_nusd × images`. The formula parameters and ceilings are
@@ -845,9 +859,13 @@ released and written off, never guessed, as for tokens.
   reserves `text_bytes + pages × page_image_tokens` where
   `page_image_tokens` is the image formula above at the provider's page
   render size (signed as `limits.pdf_page_image_tokens`). Where the provider
-  offers a free, exact count (Anthropic `count_tokens`), the gateway uses
-  it in place of the byte bound when it answers within 5 s, and falls back
-  to the byte bound, never to a guess. The over-reservation of a byte bound
+  offers a free count (Anthropic `count_tokens`), the gateway may use it in
+  place of the byte bound when it answers within 5 s — **as an estimate,
+  not an exact bound**: Anthropic documents it as one, so the model's
+  `safety_factor_bps` is applied to it exactly as to the gateway's own
+  tokeniser-less estimates (metering.md §4), and the context-window
+  admission check uses the factored value. It falls back to the byte
+  bound, never to a guess. The over-reservation of a byte bound
   (≈ 3–4× for English prose) is released at settlement; it is the price of
   a hold that is actually a hold.
 - **Cached reads** settle at `cached_input_nusd_per_mtok` (already); the
