@@ -396,6 +396,37 @@ mod tests {
         assert_eq!(decimal("18446744073709551615").unwrap(), u64::MAX);
     }
     #[test]
+    fn model_capabilities_stay_booleans_while_limits_and_prices_become_decimals() {
+        // The live gpt-4o entry of GET /v1/models (2026-10-05), plus an
+        // unknown capability and an older entry with no capabilities at all.
+        let models: f2z_sdk::ai::Models = serde_json::from_value(json!({
+            "catalog_version": 1_791_205_020_000_000u64, "includes_markup_bps": 0,
+            "models": [{"id":"gpt-4o","provider":"openai","display_name":"gpt-4o",
+                "context_window":128000,"max_output_tokens":16384,
+                "capabilities":{"vision":false,"tools":false,"reasoning":false,
+                    "structured_output":true,"audio":true},
+                "prices":{"input_milli_2z_per_mtok":300000,"image_milli_2z":0},
+                "min_charge_2z":1,"ttfb_timeout_ms":60000},
+                {"id":"old"}]
+        }))
+        .unwrap();
+        let v = value(&models).unwrap();
+        assert_eq!(v["catalog_version"], "1791205020000000");
+        let m = &v["models"][0];
+        assert_eq!(m["capabilities"]["structured_output"], true);
+        assert_eq!(m["capabilities"]["tools"], false);
+        assert_eq!(m["context_window"], "128000");
+        assert_eq!(m["prices"]["input_milli_2z_per_mtok"], "300000");
+        assert_eq!(m["min_charge_2z"], "1");
+        assert_eq!(m["ttfb_timeout_ms"], "60000");
+        // The typed Rust catalogue carries only the declared capabilities.
+        assert!(m["capabilities"].get("audio").is_none());
+        // Absent upstream: explicit `false` and `null` across IPC.
+        let old = &v["models"][1];
+        assert_eq!(old["capabilities"]["structured_output"], false);
+        assert!(old["provider"].is_null() && old["min_charge_2z"].is_null());
+    }
+    #[test]
     fn record_metadata_is_opaque_while_receipt_integers_are_exact() {
         let metadata = json!({"attempt":1,"charged_2z":3,"nested":[0,-1,1.5,{"input_tokens":4}],"string":"5","flag":true});
         let record: CallRecord = serde_json::from_value(json!({
