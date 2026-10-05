@@ -144,6 +144,28 @@ impl Milli2z {
             _ => None,
         }
     }
+
+    /// For **display only**: this amount in 2Z with exactly three decimals,
+    /// never rounded — `Milli2z::new(41_500).display_2z()` formats as
+    /// `41.500`. Append the unit yourself (`"{} 2Z"`). Never parse it back,
+    /// never store it, and never put it on the wire: amounts travel as
+    /// integers with their unit in the field name.
+    #[must_use]
+    pub const fn display_2z(self) -> Display2z {
+        Display2z(self.0)
+    }
+}
+
+/// [`Milli2z::display_2z`]: `whole.thousandths`, exact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Display2z(u64);
+
+impl fmt::Display for Display2z {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let whole = self.0.checked_div(MILLI_PER_2Z).unwrap_or(0);
+        let milli = self.0.checked_rem(MILLI_PER_2Z).unwrap_or(0);
+        write!(f, "{whole}.{milli:03}")
+    }
 }
 
 #[cfg(test)]
@@ -156,6 +178,18 @@ mod tests {
         assert_eq!(Whole2z::new(u64::MAX).to_milli(), None);
         assert_eq!(Milli2z::new(3_000).to_whole_exact(), Some(Whole2z::new(3)));
         assert_eq!(Milli2z::new(3_001).to_whole_exact(), None);
+    }
+
+    #[test]
+    fn display_2z_is_exact_with_three_decimals() {
+        use alloc::format;
+        assert_eq!(format!("{}", Milli2z::new(41_500).display_2z()), "41.500");
+        assert_eq!(format!("{}", Milli2z::new(7).display_2z()), "0.007");
+        assert_eq!(format!("{}", Milli2z::ZERO.display_2z()), "0.000");
+        assert_eq!(
+            format!("{}", Milli2z::new(u64::MAX).display_2z()),
+            "18446744073709551.615"
+        );
     }
 
     #[test]

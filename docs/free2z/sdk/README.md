@@ -16,7 +16,8 @@ The first integrator is a separate company building an AI tutor app with
 Tauri 2 for desktop, iOS and Android. **iOS and Android are equal, first-class
 targets alongside desktop and web**; nothing in this contract is desktop-first.
 
-For application work, start with the [integration handoff](./INTEGRATION.md).
+New here? Build the [15-minute quickstart](./QUICKSTART.md) first. For
+application work, continue with the [integration handoff](./INTEGRATION.md).
 Package maintainers can use the [release verification guide](./RELEASING.md).
 It separates the implemented Rust preview and mock flows from the pending
 Tauri/TypeScript packages and live-platform prerequisites.
@@ -156,6 +157,7 @@ Consequences that follow directly:
 
 | Document | Who needs it |
 |---|---|
+| [`QUICKSTART.md`](./QUICKSTART.md) | Everyone, first. A complete first app (TS and Rust), the recovery UX for balance and budget refusals, sessions and multiple accounts |
 | [`spec/oidc.md`](./spec/oidc.md) | Everyone. Registration, redirect rules, PKCE, tokens and claims, refresh rotation, revocation, step-up |
 | [`spec/chat-api.md`](./spec/chat-api.md) | Anyone calling or implementing the gateway. `POST /v1/chat` and the full SSE grammar with examples |
 | [`spec/metering.md`](./spec/metering.md) | Anyone who needs to explain a charge. Hold → stream → settle, the formula, worked examples, the edge cases |

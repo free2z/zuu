@@ -391,6 +391,55 @@ async fn models_and_estimate() {
     assert_eq!(estimate.cap_remaining_milli_2z, Some(None), "null = no cap");
 }
 
+#[tokio::test]
+async fn preflight_maps_strict_refusals_to_the_recovery_to_offer() {
+    use f2z_sdk::ai::Preflight;
+    use f2z_sdk::proto::Milli2z;
+    let fake = Fake::start().await;
+    let ai = signed_in(&fake).await.ai();
+    let strict = |model: &str| chat_request(model).with_max_output_tokens(1800).strict();
+
+    // Not strict: refused locally, before any request.
+    let err = ai.preflight(&chat_request("settled")).await.unwrap_err();
+    assert!(
+        matches!(err, Error::Config(ref m) if m.contains("strict")),
+        "{err:?}"
+    );
+
+    assert!(
+        matches!(ai.preflight(&strict("settled")).await.unwrap(), Preflight::Ready(e) if e.hold_2z == Whole2z::new(2))
+    );
+    let Preflight::NeedsTopUp {
+        required_2z,
+        available_milli_2z,
+        error,
+    } = ai.preflight(&strict("needs-top-up")).await.unwrap()
+    else {
+        panic!("not NeedsTopUp")
+    };
+    assert_eq!(required_2z, Some(Whole2z::new(12)));
+    assert_eq!(available_milli_2z, Some(Milli2z::new(500)));
+    assert_eq!(error.detail_str("reason"), Some("max_output_tokens_strict"));
+    let Preflight::NeedsBudget {
+        cap_remaining_milli_2z,
+        resets_at,
+        ..
+    } = ai.preflight(&strict("needs-budget")).await.unwrap()
+    else {
+        panic!("not NeedsBudget")
+    };
+    assert_eq!(cap_remaining_milli_2z, Some(Milli2z::ZERO));
+    assert_eq!(resets_at.as_deref(), Some("2026-10-12T00:00:00Z"));
+    assert!(matches!(
+        ai.preflight(&strict("too-large")).await.unwrap(),
+        Preflight::TooLarge(_)
+    ));
+    assert!(
+        fake.chat_calls().is_empty(),
+        "a preflight never starts a call"
+    );
+}
+
 /// A Stop pressed during a retry's backoff must not start the retry: the
 /// gateway would bill a call begun after the user cancelled.
 #[tokio::test]

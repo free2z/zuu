@@ -2,6 +2,10 @@
 
 ## 0.1.0 (unreleased)
 
+- Errors carry the server's documented refusal `details` (`required_2z`,
+  `available_milli_2z`, `cap_remaining_milli_2z`, `resets_at`, `reason`,
+  `field`, …; integers as decimal strings). Undocumented members are dropped.
+
 - Native Free2Z sign-in/session, exact balance, card/Zcash purchase and AI APIs.
 - OS credential storage and system browser adapters for desktop, iOS and Android.
 - Explicit command permissions and bounded, window/account-scoped pull streams.

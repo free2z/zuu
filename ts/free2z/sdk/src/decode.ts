@@ -39,6 +39,10 @@ const integerKeys = new Set([
   "confirmations",
   "required_confirmations",
   "quote_ttl_s",
+  // error `details` (errors.md §3); `required_2z` & co. match by suffix
+  "model_max_output_tokens",
+  "limit_bytes",
+  "limit",
   "charged2z",
   "collectedMilli2z",
   "shortfallMilli2z",
@@ -331,8 +335,7 @@ export function models(value: unknown): Models {
     catalog_version: uint(d.catalog_version),
     models: d.models.map((v) => {
       const model = object(v);
-      string(model.id);
-      return model;
+      return { ...model, id: string(model.id) };
     }),
   };
 }
