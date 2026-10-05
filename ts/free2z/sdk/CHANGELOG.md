@@ -34,7 +34,8 @@ lossless integer decoding, purchase polling, and structured settlement recovery.
   `tool_call_delta` event (`ToolCallDelta`, `index` a number). Checked
   locally against the gateway's limits and rebuilt before sending; absent is
   never sent. Helpers: `toolResult`, `assistantMessage`, `collectChat`,
-  `ToolCallAccumulator`, and `runTools` (caller-supplied keys per round,
+  `ToolCallAccumulator`, and `runTools` (`maxRounds` at most
+  `MAX_TOOL_ROUNDS`, 32; caller-supplied keys per round,
   each round pinned to the starting session; failures returned in `error`
   with completed rounds kept, a charged failed round included; each handler
   gets a `ToolContext`). `ChatOptions.sessionGeneration`: a chat

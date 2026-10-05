@@ -156,6 +156,12 @@ fn runs_tools(reason: FinishReason) -> bool {
     matches!(reason, FinishReason::ToolCalls | FinishReason::Stop)
 }
 
+/// The most rounds one [`Ai::run_tools`] run may make: every round is a
+/// separate paid call, so a model that keeps asking for tools can cost at
+/// most this many calls. A `max_rounds` of `0` or above it is refused
+/// ([`Error::Config`] in [`ToolRun::error`]) before any call.
+pub const MAX_TOOL_ROUNDS: u32 = 32;
+
 /// The request for round `round` (from 0): a forcing `tool_choice` applies
 /// to the first round only.
 fn next_round(request: &mut ChatRequest, round: u32) {
@@ -172,7 +178,8 @@ fn next_round(request: &mut ChatRequest, round: u32) {
 impl Ai {
     /// The tool-call round trip: call the model; while it asks for tools,
     /// run each with `handler`, append its result as a `tool` message, and
-    /// call again — at most `max_rounds` calls in all.
+    /// call again — at most `max_rounds` calls in all (`1..=`
+    /// [`MAX_TOOL_ROUNDS`]; anything else is refused before any call).
     ///
     /// * Every round is a separate paid call ([`Ai::complete`]) with a fresh
     ///   `Idempotency-Key`; [`ToolRun::rounds`] carries each charge.
@@ -239,6 +246,16 @@ impl Ai {
     {
         let mut rounds = Vec::new();
         let mut keys = Vec::new();
+        if max_rounds == 0 || max_rounds > MAX_TOOL_ROUNDS {
+            return ToolRun {
+                rounds,
+                messages: request.messages,
+                keys,
+                error: Some(Error::Config(format!(
+                    "max_rounds must be 1..={MAX_TOOL_ROUNDS}"
+                ))),
+            };
+        }
         let session = match self.client.session_generation().await {
             Ok(generation) => generation,
             Err(error) => {

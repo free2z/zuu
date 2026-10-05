@@ -782,3 +782,34 @@ async fn a_tool_loop_never_continues_as_another_session() {
     );
     assert_eq!(fake.chat_calls().len(), 1, "a call was sent after sign-out");
 }
+
+/// The loop's round bound is a hard ceiling: `0`, or more than
+/// `MAX_TOOL_ROUNDS`, is refused before any paid call is sent.
+#[tokio::test]
+async fn a_tool_loop_round_bound_outside_the_ceiling_sends_nothing() {
+    use f2z_sdk::ai::tools::MAX_TOOL_ROUNDS;
+    let fake = Fake::start().await;
+    let client = signed_in(&fake).await;
+    let mut request = chat_request("tool-turn");
+    request.tools = vec![f2z_sdk::ai::tools::function_tool(
+        "check_answer",
+        "Grade an answer.",
+        serde_json::json!({"type": "object"}),
+    )];
+    for bad in [0, MAX_TOOL_ROUNDS + 1, u32::MAX] {
+        let run = client
+            .ai()
+            .run_tools(request.clone(), bad, |_call| async { "{}".to_owned() })
+            .await;
+        assert!(matches!(&run.error, Some(Error::Config(_))), "{bad}");
+        assert!(run.rounds.is_empty() && run.keys.is_empty(), "{bad}");
+    }
+    assert!(fake.chat_calls().is_empty(), "a refused bound sent a call");
+    // Negative control: the ceiling itself is accepted and calls.
+    let run = client
+        .ai()
+        .run_tools(request, MAX_TOOL_ROUNDS, |_call| async { "{}".to_owned() })
+        .await;
+    assert!(!run.rounds.is_empty());
+    assert!(!fake.chat_calls().is_empty());
+}

@@ -23,7 +23,8 @@ is a separate paid call with its own hold, charge and receipt.
 |---|---|---|---|---|---|
 | OpenAI (Chat Completions) | when signed | yes | yes | yes | piece by piece |
 | xAI (Chat Completions) | when signed | yes ([docs.x.ai](https://docs.x.ai/docs/guides/function-calling): `auto`, `required`, `none`, a named function) | yes | **no** — not documented by xAI, refused | one fragment per call (xAI sends each call whole) |
-| Anthropic, OpenAI Responses | when signed | refused (adapter work in progress) | refused | refused | none (complete calls only) |
+| Anthropic (Messages) | when signed | yes (translated: `required`→`any`, a named function→`tool`) | yes (`false`→`disable_parallel_tool_use`) | refused | none (complete calls only) |
+| OpenAI Responses | when signed | refused (no translation yet) | refused | refused | none (complete calls only) |
 
 Whatever a model cannot honour is refused **before any hold, charge or
 provider request**: `400 invalid_request`, `details.reason:
@@ -68,6 +69,11 @@ refusal.
   then wants `additionalProperties: false` and every property in `required`.
   OpenAI does not guarantee strict schemas on parallel calls: pair `strict`
   with `parallel_tool_calls: false` when that matters.
+- `response_format` beside `tools`: on Chat Completions (OpenAI, xAI) both
+  are sent — the model may call tools, and its final text follows the
+  format. Anthropic refuses the combination up front
+  (`reason: "response_format_unsupported"`, `details.conflict`), since its
+  forced format tool would leave your tools uncallable.
 - Definitions are input the model reads on **every** round: they are in the
   hold and in the provider-reported usage you pay for. Keep them small.
 
@@ -131,7 +137,9 @@ be repeated on the follow-up call, or the model must call a tool again.
 ## The tutor, end to end
 
 Both SDKs carry the loop: call, run each requested tool, answer, call again,
-up to a round limit. Each round's charge is reported separately.
+up to a round limit — yours, and never more than 32 rounds (`MAX_TOOL_ROUNDS`
+in both SDKs; a larger or zero limit is refused before any call). Each
+round's charge is reported separately.
 
 ### Rust (`f2z-sdk`)
 

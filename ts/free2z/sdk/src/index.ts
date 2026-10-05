@@ -15,6 +15,7 @@ export {
 } from "./error.js";
 export { formatMilli2z } from "./format.js";
 export {
+  MAX_TOOL_ROUNDS,
   ToolCallAccumulator,
   assistantMessage,
   collectChat,

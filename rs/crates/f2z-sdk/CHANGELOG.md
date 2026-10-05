@@ -19,7 +19,7 @@ release acceptance; see the repository SDK release guide.
 - Tool calling (zuu#1128): `ai::tools` — `function_tool`, `tool_result`,
   `Completion::assistant_message`, `ToolCallAssembler` for `tool_call_delta`
   fragments, and `Ai::run_tools` / `run_tools_with` (the round trip, at most
-  `max_rounds` paid calls, a forcing `tool_choice` on the first round only,
+  `max_rounds` paid calls, itself at most `MAX_TOOL_ROUNDS` (32), a forcing `tool_choice` on the first round only,
   calls run only from a normally finished turn; a failed round is returned
   in `ToolRun::error` with the earlier rounds, results and keys kept). `chat`/`estimate`
   refuse an out-of-limit `tools`/`tool_choice`/`parallel_tool_calls` locally

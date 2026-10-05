@@ -754,3 +754,46 @@ test("native sign-in rejection codes reach the app unchanged and are never retry
     );
   }
 });
+test("a release failure after the terminal event never loses the charged round", async () => {
+  let reads = 0,
+    cancels = 0;
+  const b = bridge({
+    startChat: async (r, o) => ({ operationId: o.operationId }),
+    nextChat: async () =>
+      [
+        { type: "meta", call_id: "call-1", model: "test", hold_2z: "1" },
+        { type: "delta", text: "Correct!" },
+        {
+          type: "done",
+          finish_reason: "stop",
+          charge: { state: "charged", charged2z: "1", receiptId: "r" },
+        },
+      ][reads++] ?? null,
+    // A sign-out cleared the native operation after `done` was delivered.
+    cancelChat: async () => {
+      cancels++;
+      throw Object.assign(new Error("gone"), { code: "operation_not_found" });
+    },
+  });
+  const client = new Client(new NativeTransport(b));
+  const run = await runTools(
+    client,
+    {
+      ...request,
+      tools: [{ name: "check_answer", parameters: { type: "object" } }],
+    },
+    () => "{}",
+    {
+      operation: (round) => ({
+        operationId: `rel-${round}`,
+        idempotencyKey: `rel-${round}`,
+      }),
+    },
+  );
+  assert.equal(cancels, 1, "the stream was still released");
+  assert.equal(run.error, undefined, String(run.error?.code));
+  assert.equal(run.rounds.length, 1, "the charged round was lost");
+  assert.equal(run.rounds[0].text, "Correct!");
+  assert.equal(run.rounds[0].charge.state, "charged");
+  assert.equal(run.finished, true);
+});

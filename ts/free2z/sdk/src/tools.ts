@@ -94,7 +94,23 @@ export interface ToolContext {
 export async function collectChat(stream: ChatStream): Promise<ToolRound> {
   let text = "";
   const toolCalls: ToolCall[] = [];
-  for await (const event of stream) {
+  // Not `for await`: returning from one awaits the stream's `return()`, and
+  // a rejection there (native `cancelChat` after a sign-out cleared the
+  // operation) would REPLACE the terminal result — losing a charged round
+  // from the caller's accounting. After `done`/`error` the call is settled;
+  // releasing the stream is best effort and can never undo that.
+  const events = stream[Symbol.asyncIterator]();
+  const release = async (): Promise<void> => {
+    try {
+      await events.return?.();
+    } catch {
+      // The terminal result (or the replay) is what the caller needs.
+    }
+  };
+  for (;;) {
+    const next = await events.next();
+    if (next.done) failure("stream_interrupted");
+    const event = next.value;
     switch (event.type) {
       case "delta":
         text += event.text;
@@ -107,6 +123,7 @@ export async function collectChat(stream: ChatStream): Promise<ToolRound> {
         });
         break;
       case "done":
+        await release();
         return {
           callId: stream.callId,
           text,
@@ -115,6 +132,7 @@ export async function collectChat(stream: ChatStream): Promise<ToolRound> {
           charge: event.charge,
         };
       case "error":
+        await release();
         return {
           callId: stream.callId,
           text,
@@ -124,16 +142,23 @@ export async function collectChat(stream: ChatStream): Promise<ToolRound> {
           error: event.code,
         };
       case "replay":
+        await release();
         throw new SdkError("replayed", { record: event.record });
       default:
         break;
     }
   }
-  failure("stream_interrupted");
 }
 
+/**
+ * The most rounds one {@link runTools} run may make: every round is a
+ * separate paid call, so a model that keeps asking for tools can cost at
+ * most this many calls. A `maxRounds` above it throws `invalid_request`.
+ */
+export const MAX_TOOL_ROUNDS = 32;
+
 export interface RunToolsOptions {
-  /** At most this many calls in all (default 4). Each is paid for. */
+  /** At most this many calls in all: 1 to {@link MAX_TOOL_ROUNDS} (default 4). Each is paid for. */
   maxRounds?: number;
   /**
    * The keys of round `round` (from 0). Create and PERSIST them before
@@ -200,7 +225,11 @@ export async function runTools(
   options: RunToolsOptions,
 ): Promise<ToolRun> {
   const maxRounds = options.maxRounds ?? 4;
-  if (!Number.isSafeInteger(maxRounds) || maxRounds < 1)
+  if (
+    !Number.isSafeInteger(maxRounds) ||
+    maxRounds < 1 ||
+    maxRounds > MAX_TOOL_ROUNDS
+  )
     failure("invalid_request");
   const messages = [...request.messages];
   const rounds: ToolRound[] = [];

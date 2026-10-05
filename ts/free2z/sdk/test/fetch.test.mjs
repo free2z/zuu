@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   Client,
   FetchTransport,
+  MAX_TOOL_ROUNDS,
   ToolCallAccumulator,
   runTools,
 } from "../dist/index.js";
@@ -931,6 +932,34 @@ test("runTools runs each call, answers it, relaxes a forced choice, and needs ca
   assert.equal(capped.finished, false);
   assert.equal(capped.rounds.length, 1);
   assert.equal(graded.length, 0);
+  // The round bound is a hard ceiling: 0 or above MAX_TOOL_ROUNDS throws
+  // before any paid call; the ceiling itself is accepted (control above).
+  bodies.length = 0;
+  for (const maxRounds of [0, MAX_TOOL_ROUNDS + 1, Number.MAX_SAFE_INTEGER])
+    await assert.rejects(
+      runTools(client, { ...request, tools: [checkAnswer] }, () => "{}", {
+        maxRounds,
+        operation: (round) => ({
+          operationId: `over-${round}`,
+          idempotencyKey: `over-${round}`,
+        }),
+      }),
+      (error) => error.code === "invalid_request",
+    );
+  assert.equal(bodies.length, 0, "a refused bound sent a call");
+  const ceiling = await runTools(
+    client,
+    { ...request, tools: [checkAnswer] },
+    () => "{}",
+    {
+      maxRounds: MAX_TOOL_ROUNDS,
+      operation: (round) => ({
+        operationId: `ceil-${round}`,
+        idempotencyKey: `ceil-${round}`,
+      }),
+    },
+  );
+  assert.equal(ceiling.rounds.length, 1);
 });
 test("models types capabilities, prices and limits, and tolerates additive fields", async () => {
   const mock = issuer(),
