@@ -573,3 +573,110 @@ test("estimate decodes the budget fields a paid-call gate reads, and tolerates a
     );
   }
 });
+test("models types capabilities, prices and limits, and tolerates additive fields", async () => {
+  const mock = issuer(),
+    transport = new FetchTransport(mock.config);
+  await transport.signIn();
+  // Live prod model, 2026-10-05.
+  const gpt4o =
+    '{"id":"gpt-4o","provider":"openai","display_name":"gpt-4o","context_window":128000,"max_output_tokens":16384,"capabilities":{"vision":false,"tools":false,"reasoning":false,"structured_output":true},"prices":{"cache_write_milli_2z_per_mtok":300000,"cached_input_milli_2z_per_mtok":150000,"image_milli_2z":0,"input_milli_2z_per_mtok":300000,"output_milli_2z_per_mtok":1200000,"tool_call_milli_2z":0},"min_charge_2z":1,"ttfb_timeout_ms":60000}';
+  const catalog = (model) =>
+    `{"catalog_version":1791205020000000,"includes_markup_bps":0,"models":[${model}]}`;
+  let body = catalog(gpt4o);
+  mock.api = () =>
+    new Response(body, { headers: { "content-type": "application/json" } });
+  const live = await transport.models();
+  assert.equal(live.catalog_version, 1791205020000000n);
+  assert.equal(live.includes_markup_bps, 0n);
+  const [m] = live.models;
+  assert.deepEqual(
+    {
+      id: m.id,
+      provider: m.provider,
+      display_name: m.display_name,
+      context_window: m.context_window,
+      max_output_tokens: m.max_output_tokens,
+      min_charge_2z: m.min_charge_2z,
+      ttfb_timeout_ms: m.ttfb_timeout_ms,
+    },
+    {
+      id: "gpt-4o",
+      provider: "openai",
+      display_name: "gpt-4o",
+      context_window: 128000n,
+      max_output_tokens: 16384n,
+      min_charge_2z: 1n,
+      ttfb_timeout_ms: 60000n,
+    },
+  );
+  assert.equal(m.capabilities.structured_output, true);
+  assert.equal(m.capabilities.tools, false);
+  assert.equal(m.prices.input_milli_2z_per_mtok, 300000n);
+  assert.equal(m.prices.output_milli_2z_per_mtok, 1200000n);
+  assert.equal(m.prices.image_milli_2z, 0n);
+  // An older gateway: no capabilities, no prices → {} (nothing supported).
+  body = catalog('{"id":"old"}');
+  const old = (await transport.models()).models[0];
+  assert.deepEqual({ ...old.capabilities }, {});
+  assert.deepEqual({ ...old.prices }, {});
+  assert.notEqual(old.capabilities.structured_output, true);
+  for (const key of ["provider", "context_window", "min_charge_2z"])
+    assert.equal(key in old, false, key);
+  assert.equal(
+    "includes_markup_bps" in
+      (await (async () => {
+        body = '{"catalog_version":1,"models":[]}';
+        return transport.models();
+      })()),
+    false,
+  );
+  // null reads as absent, as the Rust SDK reads it.
+  body = catalog(
+    '{"id":"n","provider":null,"context_window":null,"capabilities":null,"prices":{"input_milli_2z_per_mtok":null}}',
+  );
+  const nulls = (await transport.models()).models[0];
+  assert.equal("provider" in nulls, false);
+  assert.equal("context_window" in nulls, false);
+  assert.deepEqual({ ...nulls.capabilities }, {});
+  assert.deepEqual({ ...nulls.prices }, {});
+  // Forward compatibility: unknown capabilities, rates and model keys pass.
+  body = catalog(
+    gpt4o
+      .replace('"vision":false', '"audio":true,"vision":false')
+      .replace(
+        '"image_milli_2z":0',
+        '"audio_milli_2z_per_mtok":7,"image_milli_2z":0,"tier":"std"',
+      )
+      .replace("{", '{"future_field":{"x":1},'),
+  );
+  const next = (await transport.models()).models[0];
+  assert.equal(next.capabilities.audio, true);
+  assert.equal(next.capabilities.structured_output, true);
+  assert.equal(next.prices.audio_milli_2z_per_mtok, 7n);
+  assert.equal(next.prices.tier, "std");
+  assert.deepEqual({ ...next.future_field }, { x: 1n });
+  for (const bad of [
+    gpt4o.replace('"structured_output":true', '"structured_output":"true"'),
+    gpt4o.replace('"tools":false', '"tools":0'),
+    gpt4o.replace(
+      '"capabilities":{"vision":false,"tools":false,"reasoning":false,"structured_output":true}',
+      '"capabilities":["structured_output"]',
+    ),
+    gpt4o.replace('"id":"gpt-4o"', '"id":""'),
+    gpt4o.replace('"id":"gpt-4o"', '"id":7'),
+    gpt4o.replace('"provider":"openai"', '"provider":1'),
+    gpt4o.replace('"context_window":128000', '"context_window":-1'),
+    gpt4o.replace(
+      '"input_milli_2z_per_mtok":300000',
+      '"input_milli_2z_per_mtok":"300000"',
+    ),
+    gpt4o.replace('"min_charge_2z":1', '"min_charge_2z":1.5'),
+  ]) {
+    body = catalog(bad);
+    await assert.rejects(
+      transport.models(),
+      (e) => e.code === "invalid_response",
+      bad,
+    );
+  }
+});

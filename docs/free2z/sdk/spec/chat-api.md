@@ -571,7 +571,7 @@ model ids, API styles, safety factors) are not projected.
 | `image_milli_2z`, `tool_call_milli_2z` | Per-unit prices where the provider bills per unit; `0` otherwise |
 | `min_charge_2z` | The floor for a call on this model, in whole 2Z. Never below `1`: the catalogue refuses a model priced at zero minimum |
 | `ttfb_timeout_ms` | How long the gateway waits for the provider's first byte before `504 provider_timeout` |
-| `capabilities` | What the gateway will accept for this model. `tools` and `reasoning` come from the signed catalogue's `capabilities`. `structured_output` (`response_format`) requires an adapter that can express it (Chat Completions today) and the catalogue's `capabilities.structured_output`; while the catalogue does not carry that member, the gateway treats an OpenAI Chat Completions model as supporting it and every other model as not. Absent in an older gateway's answer: read as `false` |
+| `capabilities` | What the gateway will accept for this model. `tools` and `reasoning` come from the signed catalogue's `capabilities`. `structured_output` (`response_format`) requires an adapter that can express it (Chat Completions today) and the catalogue's `capabilities.structured_output`; while the catalogue does not carry that member, the gateway treats an OpenAI Chat Completions model as supporting it and every other model as not. Absent in an older gateway's answer: read as `false`. Each member is a JSON boolean (the SDKs refuse another type as an invalid response); a member a client does not know is ignored, never an error |
 
 Responses carry `ETag`; `If-None-Match` → `304`. Clients SHOULD cache for
 the `Cache-Control: max-age` given (60 s).

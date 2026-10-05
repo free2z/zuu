@@ -13,3 +13,6 @@
   cap for the consent screen.
 - `ChatRequest.response_format` passes through to the gateway: opt-in
   structured output (`json_schema` / `json_object`), plain JSON over IPC.
+- `ModelCatalog.models` is typed (`CatalogModel`, `ModelCapabilities`):
+  `capabilities.structured_output`/`tools`/`vision`/`reasoning` are booleans;
+  limits are decimal strings. Types only; the IPC value is unchanged.

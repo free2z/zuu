@@ -24,3 +24,19 @@ test('grant proof invokes only the bearer-bound native command', async () => {
   await nativeBridge.grant();
   assert.deepEqual(sent.pop(), ['plugin:f2z|grant', {}, undefined]);
 });
+
+test('models returns the native catalogue unchanged: booleans stay booleans, amounts stay decimals', async () => {
+  const catalogue = { catalog_version: '7', includes_markup_bps: '0', models: [{
+    id: 'gpt-4o', provider: 'openai', display_name: null, context_window: '128000', max_output_tokens: '16384',
+    capabilities: { vision: false, tools: false, reasoning: false, structured_output: true },
+    prices: { input_milli_2z_per_mtok: '300000' }, min_charge_2z: '1', ttfb_timeout_ms: '60000',
+  }] };
+  const internals = globalThis.window.__TAURI_INTERNALS__, original = internals.invoke;
+  internals.invoke = async (...args) => { sent.push(args); return catalogue; };
+  try {
+    const result = await nativeBridge.models();
+    assert.deepEqual(sent.pop(), ['plugin:f2z|models', {}, undefined]);
+    assert.equal(result.models[0].capabilities.structured_output, true);
+    assert.equal(result.models[0].prices.input_milli_2z_per_mtok, '300000');
+  } finally { internals.invoke = original; }
+});
