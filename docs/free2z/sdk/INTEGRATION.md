@@ -146,6 +146,15 @@ reverse-DNS scheme as the fallback. See [redirect rules](./spec/oidc.md#3-redire
 The core validates state, issuer and tokens; the adapter must not synthesize a
 successful callback or use an embedded webview for login.
 
+A sign-in that ends at the browser says why
+([errors.md §5.1](./spec/errors.md#51-sign-in-that-ends-at-the-browser-sdk-local)):
+`user_cancelled` (the user dismissed the iOS sheet or Android Custom Tab — not
+an error, so show no failure), `browser_unavailable`, `timeout`, or the
+`browser_error` fallback, which an older plugin reports for all of them. In
+Rust these are `Error::UserCancelled`, `Error::BrowserUnavailable`,
+`Error::Timeout` and `Error::Browser`; a custom `oauth::AuthSession` should
+return the most specific one it can.
+
 Keep one long-lived `Client` in native app state. Its clones share one session
 and one refresh lock. Keep that client on one living Tokio runtime; after
 shutting the runtime down, create a new client rather than moving pending work

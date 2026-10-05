@@ -33,10 +33,10 @@ class F2zPlugin(private val activity: Activity): Plugin(activity) {
     override fun onResume() {
         val current = pending
         if (current != null && leftApplication) {
-            handler.postDelayed({ finish(current.id, null) }, 300)
+            handler.postDelayed({ finish(current.id, null, AuthRejection.Ending.DISMISSED) }, 300)
         }
     }
-    override fun onDestroy() { pending?.let { finish(it.id, null) } }
+    override fun onDestroy() { pending?.let { finish(it.id, null, AuthRejection.Ending.ABANDONED) } }
     private fun redirectUri(value: String): Uri? {
         val uri = Uri.parse(value)
         if (uri.query != null || uri.fragment != null || uri.userInfo != null || uri.path.isNullOrEmpty()) return null
@@ -69,21 +69,23 @@ class F2zPlugin(private val activity: Activity): Plugin(activity) {
                 if (pending != null || uri.scheme != "https" || redirect == null || state.isNullOrEmpty() || args.timeoutMs !in 1..300000) {
                     invoke.reject("authentication unavailable"); return@runOnUiThread
                 }
-                val expiry = Runnable { finish(args.attemptId, null) }
+                val expiry = Runnable { finish(args.attemptId, null, AuthRejection.Ending.TIMED_OUT) }
                 leftApplication = false
                 pending = Pending(invoke, args.attemptId, redirect, state, expiry)
                 handler.postDelayed(expiry, args.timeoutMs)
                 CustomTabsIntent.Builder().build().launchUrl(activity, uri)
             } catch (_: Exception) {
                 val current = pending
-                if (current?.invoke === invoke) finish(current.id, null) else invoke.reject("browser unavailable")
+                if (current?.invoke === invoke) finish(current.id, null, AuthRejection.Ending.LAUNCH_FAILED)
+                else invoke.reject("invalid authentication request")
             }
         }
     }
-    private fun finish(id: String, uri: Uri?) {
+    /** [ending] says why, when no callback [uri] arrived. */
+    private fun finish(id: String, uri: Uri?, ending: AuthRejection.Ending = AuthRejection.Ending.ABANDONED) {
         val current = pending?.takeIf { it.id == id } ?: return
         pending = null; handler.removeCallbacks(current.expiry)
-        if (uri == null) current.invoke.reject("authentication cancelled")
+        if (uri == null) current.invoke.reject("authentication did not complete", AuthRejection.code(ending))
         else current.invoke.resolve(JSObject().put("url", uri.toString()))
     }
     override fun onNewIntent(intent: Intent) {
@@ -100,7 +102,7 @@ class F2zPlugin(private val activity: Activity): Plugin(activity) {
     @Command fun cancelAuth(invoke: Invoke) {
         try {
             val args = invoke.parseArgs(CancelArgs::class.java)
-            activity.runOnUiThread { finish(args.attemptId, null); invoke.resolve() }
+            activity.runOnUiThread { finish(args.attemptId, null, AuthRejection.Ending.ABANDONED); invoke.resolve() }
         } catch (_: Exception) { invoke.reject("invalid cancellation") }
     }
     @Command fun openBrowser(invoke: Invoke) {

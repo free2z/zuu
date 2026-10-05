@@ -165,7 +165,13 @@ it does **not** imply server generation or billing stopped. Reconcile with
 Never display a provisional `charged_2z` as a receipt.
 
 Native sign-in cancellation is handled by the system browser UI, its deadline,
-or `signOut`; there is no guest `AbortSignal` sign-in contract. Merely abandoning
+or `signOut`; there is no guest `AbortSignal` sign-in contract. When the browser
+step ends without a callback, `signIn` rejects with a code that says why
+(`SignInErrorCode`): `user_cancelled` (the iOS sheet's cancel, or returning from
+the Android Custom Tab — not an error), `browser_unavailable` (nothing could be
+shown), `timeout` (300 s on mobile; desktop cannot see a closed tab, so a desktop
+cancel is this too), or the `browser_error` fallback for anything else. Codes
+are additive: keep handling `browser_error` and keep a default branch. Merely abandoning
 an IPC promise cannot undo a sign-in that already committed. Account commands
 return `authentication_busy` throughout a transition. Closing the authenticating
 window cancels it and clears any installation already underway before account
