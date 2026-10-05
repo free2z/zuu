@@ -5,6 +5,10 @@
 Initial TypeScript facade, browser OAuth/Fetch transport, native pull bridge,
 lossless integer decoding, purchase polling, and structured settlement recovery.
 
+- `Models` types the catalogue (`Model`, `ModelCapabilities`, `ModelPrices`):
+  `capabilities.{vision,tools,reasoning,structured_output}` as `boolean`
+  (absent = unsupported; a non-boolean is `invalid_response`), prices and
+  limits as `bigint`, `includes_markup_bps`. Additive; unknown members pass through.
 - `Estimate` types the budget fields the gateway sends: optional `available_milli_2z`,
   `cap_remaining_milli_2z` (`null` = uncapped), `min_charge_2z`, `catalog_version`
   as `bigint`. Additive; unknown response fields still pass through.

@@ -571,7 +571,7 @@ model ids, API styles, safety factors) are not projected.
 | `image_milli_2z`, `tool_call_milli_2z` | Per-unit prices where the provider bills per unit; `0` otherwise |
 | `min_charge_2z` | The floor for a call on this model, in whole 2Z. Never below `1`: the catalogue refuses a model priced at zero minimum |
 | `ttfb_timeout_ms` | How long the gateway waits for the provider's first byte before `504 provider_timeout` |
-| `capabilities` | What the gateway will accept for this model. `tools` and `reasoning` come from the signed catalogue's `capabilities`. `structured_output` (`response_format`) requires an adapter that can express it (Chat Completions today) and the catalogue's `capabilities.structured_output`; while the catalogue does not carry that member, the gateway treats an OpenAI Chat Completions model as supporting it and every other model as not. Absent in an older gateway's answer: read as `false` |
+| `capabilities` | What the gateway will accept for this model. `tools` and `reasoning` come from the signed catalogue's `capabilities`. `structured_output` (`response_format`) requires an adapter that can express it (Chat Completions today) and the catalogue's `capabilities.structured_output`; while the catalogue does not carry that member, the gateway treats an OpenAI Chat Completions model as supporting it and every other model as not. Absent in an older gateway's answer: read as `false`. Each member is a JSON boolean (the SDKs refuse another type as an invalid response); a member a client does not know is ignored, never an error |
 
 Responses carry `ETag`; `If-None-Match` → `304`. Clients SHOULD cache for
 the `Cache-Control: max-age` given (60 s).
@@ -663,6 +663,39 @@ Records are readable for 90 days. Prompts and completions are **not** in
 the record. The gateway keeps no copy of either except under a grant whose
 user consented to debug capture ([oidc.md](./oidc.md) §5), and that copy
 is never served by this endpoint.
+
+**`features`** (optional, additive). A record may carry a content-free
+description of which request features the call asked for — never what they
+contained:
+
+```json
+"features": {
+  "response_format": "json_schema",
+  "response_format_strict": true,
+  "response_format_schema_name": "activity_spec",
+  "response_format_schema_bytes": 1834,
+  "tools": 0,
+  "max_output_tokens_strict": true,
+  "stream": false,
+  "fallback": 0
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `response_format` | `"json_schema"`, `"json_object"`, or `null` when the request sent none |
+| `response_format_strict` | `json_schema.strict` as sent; `null` when absent |
+| `response_format_schema_name` | `json_schema.name` (`[A-Za-z0-9_-]{1,64}`); `null` when absent |
+| `response_format_schema_bytes` | compact serialized size of `json_schema.schema`; `0` when absent |
+| `tools`, `fallback` | how many tool definitions and fallback models the request named |
+| `max_output_tokens_strict`, `stream` | as sent |
+
+It exists so that "did my request ask for structured output?" has an answer
+after the fact. It holds no schema body, prompt or tool definition. It is
+**absent** on records of calls made before a gateway recorded it, or while a
+deployment has it switched off — a client must treat absence as "not
+recorded", never as "not requested", and must ignore members it does not
+know.
 
 `404 call_not_found` for an id that does not exist or belongs to another
 (user, app).

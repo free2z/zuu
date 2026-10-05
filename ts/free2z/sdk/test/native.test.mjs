@@ -477,6 +477,80 @@ test("native estimate decodes the budget fields from decimal strings", async () 
     );
   }
 });
+test("native models decodes the plugin's decimal-string catalogue", async () => {
+  let answer;
+  const transport = new NativeTransport(bridge({ models: async () => answer }));
+  // What tauri-plugin-f2z's wire::value makes of the Rust SDK's `Models`:
+  // every u64 a decimal string, booleans as-is, absent options as null.
+  const gpt4o = {
+    id: "gpt-4o",
+    provider: "openai",
+    display_name: "gpt-4o",
+    context_window: "128000",
+    max_output_tokens: "16384",
+    capabilities: {
+      vision: false,
+      tools: false,
+      reasoning: false,
+      structured_output: true,
+    },
+    prices: {
+      input_milli_2z_per_mtok: "300000",
+      output_milli_2z_per_mtok: "1200000",
+      image_milli_2z: "0",
+    },
+    min_charge_2z: "1",
+    ttfb_timeout_ms: "60000",
+  };
+  const base = {
+    catalog_version: "1791205020000000",
+    includes_markup_bps: "0",
+    models: [gpt4o],
+  };
+  answer = base;
+  const live = await transport.models();
+  assert.equal(live.catalog_version, 1791205020000000n);
+  assert.equal(live.includes_markup_bps, 0n);
+  const [m] = live.models;
+  assert.equal(m.capabilities.structured_output, true);
+  assert.equal(m.capabilities.vision, false);
+  assert.equal(m.prices.input_milli_2z_per_mtok, 300000n);
+  assert.equal(m.context_window, 128000n);
+  assert.equal(m.max_output_tokens, 16384n);
+  assert.equal(m.min_charge_2z, 1n);
+  assert.equal(m.ttfb_timeout_ms, 60000n);
+  answer = {
+    ...base,
+    models: [
+      {
+        ...gpt4o,
+        provider: null,
+        display_name: null,
+        context_window: null,
+        min_charge_2z: null,
+      },
+    ],
+  };
+  const nulls = (await transport.models()).models[0];
+  for (const key of [
+    "provider",
+    "display_name",
+    "context_window",
+    "min_charge_2z",
+  ])
+    assert.equal(key in nulls, false, key);
+  for (const bad of [
+    { ...gpt4o, capabilities: { structured_output: "true" } },
+    { ...gpt4o, prices: { input_milli_2z_per_mtok: "-1" } },
+    { ...gpt4o, context_window: "01" },
+  ]) {
+    answer = { ...base, models: [bad] };
+    await assert.rejects(
+      transport.models(),
+      (e) => e.code === "invalid_response",
+    );
+  }
+});
 
 test("native sign-in rejection codes reach the app unchanged and are never retryable", async () => {
   for (const code of [

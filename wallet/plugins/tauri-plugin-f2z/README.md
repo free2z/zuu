@@ -138,7 +138,8 @@ sign-in `maxAge` also use canonical strings. `max_output_tokens_strict: true`
 lowering `max_output_tokens` when the balance or app budget is short; see
 `docs/free2z/sdk/INTEGRATION.md`. Tool parameters and a `response_format`
 schema remain ordinary JSON, not a special integer codec. Opaque tool-call
-arguments remain JSON text.
+arguments remain JSON text. `models()` capabilities are plain booleans: send
+`response_format` only when `capabilities.structured_output === true`.
 
 Persist purchase idempotency keys before `createPurchase` as well. Re-send the
 same request/key after an ambiguous outcome; do not create a new key merely
