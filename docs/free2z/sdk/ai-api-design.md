@@ -45,7 +45,7 @@ extension members and `X-F2Z-*` headers that those SDKs tolerate.
    budget, summaries, or thinking-block round-trip (Anthropic needs it for
    tool loops). (§2.5)
 4. **Tool calling is landing but only for Chat Completions models** (#1142,
-   #1140 in flight); hosted tools (web search) are not modelled even though
+   #1140 merged); hosted tools (web search) are not modelled even though
    `tool_call_nusd` already prices them. (§2.2)
 5. **Capabilities are four booleans**; a developer cannot ask "which effort
    levels, which media types, how many tools" and a declared capability has
@@ -89,9 +89,9 @@ dependency map and the parallel waves.
 | Work | What it lands | This design assumes |
 |---|---|---|
 | [#1142](https://github.com/free2z/zuu/pull/1142) `feat/ai-tools-openai` | `tool_choice`, `parallel_tool_calls`, `Tool.strict`, **`tool_call_delta` event**, `check_tools` limits (128 tools, 32 KiB params), `capabilities.strict_tools`, `TOOLS.md`, `tests/fixtures/tool_calling/*` + `tool_conformance.rs` | the unified tool wire is OpenAI-shaped; the fixture format in §3.4 extends this one |
-| [#1140](https://github.com/free2z/zuu/pull/1140) Anthropic tools + structured output | `tool_choice` → `auto/any/tool/none`, `disable_parallel_tool_use`, `response_format` as a forced tool, Anthropic fixtures | Anthropic structured output is the forced-tool mode, declared in the catalogue |
+| [#1140](https://github.com/free2z/zuu/pull/1140) Anthropic tools + structured output (**merged** 4527e8fa) | `tool_choice` → `auto/any/tool/none`, `disable_parallel_tool_use`, `response_format` as a forced tool, Anthropic fixtures | Anthropic structured output is the forced-tool mode, declared in the catalogue |
 | [#1143](https://github.com/free2z/zuu/pull/1143) (#1132) | `OrderedJson` for schemas; fingerprints unchanged | compat encodings decode schemas into `OrderedJson` too |
-| [#1138](https://github.com/free2z/zuu/pull/1138), [#1136](https://github.com/free2z/zuu/pull/1136) | sign-in codes; DX (preflight, typed errors, quickstart) | out of scope here |
+| [#1138](https://github.com/free2z/zuu/pull/1138) (**merged**), [#1136](https://github.com/free2z/zuu/pull/1136) | sign-in codes; DX (preflight, typed errors, quickstart) | out of scope here |
 | tuzi #2482 + zuu #1141 | per-call `features` | new features extend the record (§3.2.4) |
 | **Catalogue as the single source of model truth** (orchestrator, 2026-10-05, in progress by another agent) | provider model discovery with the existing keys; rate card v3 with audited prices and a long-context cap; catalogue = discovered ∩ priced ∩ enabled, **signed with capabilities**; the gateway admits exactly the signed catalogue (no static allow-list), with an emergency override | **every capability claim in this document is a signed catalogue member read by the gateway, never a name-based or hard-coded rule.** §3.3 defines *which* members and what the gateway and SDKs do with them; it does not define discovery, pricing or admission, which are that work's |
 
@@ -904,7 +904,7 @@ transparency, token-rate limits, an API-key credential type.
 
 Each slice is one zuu issue with acceptance criteria and the fixtures it
 must add; the issue numbers are in the §4.3 table. **Nothing here starts
-until #1142, #1140 and #1143 merge**: every slice that touches
+until #1142 and #1143 merge** (#1140 has): every slice that touches
 `ChatRequest` or an adapter `body()` would conflict with them.
 
 ### 4.1 Slices
@@ -930,7 +930,7 @@ until #1142, #1140 and #1143 merge**: every slice that touches
 
 ### 4.2 Waves — what runs in parallel without conflicts
 
-- **Wave 0 (now, after #1142/#1140/#1143 merge):** S10a (new test files
+- **Wave 0 (now, after #1142/#1143 merge):** S10a (new test files
   only) ∥ S1 (proto + adapters) ∥ S6's *scaffold* (new `compat/` module,
   routes, envelope, headers, CORS, ADR, `compatFetch`) — S6 maps sampling
   fields through S1's `Sampling` type, so it rebases on S1 before merge;
