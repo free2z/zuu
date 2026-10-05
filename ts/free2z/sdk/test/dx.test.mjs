@@ -167,6 +167,30 @@ test("native refusal details arrive with bigint amounts, like the web transport"
   assert.equal(result.error.details.limit, 4n);
 });
 
+test("native purchase-pack details are bigint, so a pack can be re-sent as quantity2z", async () => {
+  const client = new Client(
+    new NativeTransport({
+      createPurchase: async () =>
+        Promise.reject({
+          code: "invalid_quantity",
+          retryable: false,
+          status: 400,
+          details: { min_2z: "100", max_2z: "10000", packs: ["100", "500"] },
+        }),
+    }),
+  );
+  await assert.rejects(
+    client.createPurchase(
+      { rail: "card", quantity2z: 7n },
+      { idempotencyKey: "k-1" },
+    ),
+    (e) =>
+      e.code === "invalid_quantity" &&
+      e.details.packs[1] === 500n &&
+      e.details.min_2z === 100n,
+  );
+});
+
 test("formatMilli2z is exact display text", () => {
   assert.equal(formatMilli2z(41_500n), "41.500");
   assert.equal(formatMilli2z(7n), "0.007");

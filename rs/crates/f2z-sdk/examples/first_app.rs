@@ -123,13 +123,15 @@ async fn main() -> Result<(), Error> {
             return Ok(());
         }
     };
+    // Read to the end WITHOUT `?`: a broken stream is exactly when the call
+    // may still settle and charge, so the receipt step below must still run.
     let mut text = String::new();
-    let mut truncated = false;
-    while let Some(event) = stream.next().await? {
-        match event {
-            Event::Delta(d) => text.push_str(&d.text),
-            Event::Done(done) => {
-                truncated = done.finish_reason == FinishReason::Length;
+    let mut finished = None; // Some(finish_reason) only on a `done` event
+    loop {
+        match stream.next().await {
+            Ok(Some(Event::Delta(d))) => text.push_str(&d.text),
+            Ok(Some(Event::Done(done))) => {
+                finished = Some(done.finish_reason);
                 match Charge::from(done.outcome()) {
                     Charge::Charged { charged_2z, .. } => println!("charged {charged_2z}"),
                     Charge::NothingCharged => println!("nothing charged"),
@@ -137,27 +139,41 @@ async fn main() -> Result<(), Error> {
                 }
             }
             // A failed call may still have cost something: read its outcome.
-            Event::Error(e) => println!("failed: {} ({:?})", e.code, Charge::from(e.outcome())),
-            _ => {} // skip events this app does not know
+            Ok(Some(Event::Error(e))) => {
+                println!("failed: {} ({:?})", e.code, Charge::from(e.outcome()));
+            }
+            Ok(Some(_)) => {} // skip events this app does not know
+            Ok(None) => break,
+            Err(e) => {
+                println!("{}", error_copy(&e)); // keep the partial text
+                break;
+            }
         }
     }
 
-    // 7. Parse — and still validate: model output is untrusted text.
-    if truncated {
-        println!("truncated JSON; do not parse");
-    } else {
-        let activity: serde_json::Value =
-            serde_json::from_str(&text).map_err(|e| Error::Protocol(e.to_string()))?;
-        println!("activity: {}", activity["title"]);
+    // 7. Parse only a completed answer — and still validate it: model output
+    //    is untrusted text. `length` is truncated JSON.
+    match finished {
+        Some(FinishReason::Stop) => match serde_json::from_str::<serde_json::Value>(&text) {
+            Ok(activity) => println!("activity: {}", activity["title"]),
+            Err(e) => println!("not the JSON we asked for ({e}); show an error, not a crash"),
+        },
+        Some(other) => println!("finished with {other:?}; do not parse"),
+        None => println!("no answer; partial text kept: {} bytes", text.len()),
     }
 
-    // 8. The receipt (and the way to settle a cancelled or broken stream).
-    if let Some(call_id) = stream.call_id() {
-        let record = client
-            .ai()
-            .wait_for_call(call_id, Duration::from_secs(30))
-            .await?;
-        println!("receipt: {:?}", record.charge());
+    // 8. The receipt — always, whatever happened above: a cancelled, broken
+    //    or failed call can still settle and charge. A `None` call id here
+    //    means re-send the same request with the same key to recover it.
+    match stream.call_id() {
+        Some(call_id) => {
+            let record = client
+                .ai()
+                .wait_for_call(call_id, Duration::from_secs(30))
+                .await?;
+            println!("receipt: {:?}", record.charge());
+        }
+        None => println!("no call id: recover the receipt by re-sending with key {key}"),
     }
 
     // 9. Sign out: clears the store; `true` if the IdP confirmed revocation.

@@ -2,8 +2,15 @@
 
 **Part of:** [f2z-sdk v1](./README.md) · **Audience:** an app developer with
 no other context · **Status:** pre-release (2026-10-05) — the packages are not
-on npm or crates.io yet; build against the
-[pinned source preview](./SOURCE-PREVIEW.md) and test against mocks.
+on npm or crates.io yet; build from source and test against mocks.
+
+> **Version requirement.** This guide uses `preflight`, `formatMilli2z`,
+> typed error codes, `ChatRequest::new` and `Milli2z::display_2z`, which are
+> newer than the revision pinned in the
+> [source-preview guide](./SOURCE-PREVIEW.md) (`534d2a58`). Follow that guide
+> but pin a `main` commit that contains them, and move all three Tauri
+> pieces — `@free2z/sdk`, `@free2z/tauri-plugin-f2z-api` and
+> `tauri-plugin-f2z` — to the same commit together.
 
 You will build the loop every paid-AI app needs: **sign in → check the
 budget and balance → pick a model → preflight a strict request → stream it →
@@ -104,32 +111,39 @@ export async function firstApp(): Promise<void> {
       return linkToBudget("https://free2z.cash/account/apps", check.resetsAt);
     case "too_large": // can never run as asked
       return askToShorten();
-}
+  }
 
-// 6. Stream it. Create AND persist both ids before sending.
-const operationId = crypto.randomUUID();
-const idempotencyKey = crypto.randomUUID();
-await journal.save({ operationId, idempotencyKey, subject: session.subject, request });
-let text = "";
-let finish: string | undefined;
-const stream = await client.chat(request, { operationId, idempotencyKey });
-for await (const event of stream) {
-  if (event.type === "delta") text += event.text;
-  if (event.type === "done") finish = event.finish_reason;
-  if (event.type === "error") showFailure(event.code, event.charge); // may still have cost 2Z
-}
+  // 6. Stream it. Create AND persist both ids before sending.
+  const operationId = crypto.randomUUID();
+  const idempotencyKey = crypto.randomUUID();
+  await journal.save({ operationId, idempotencyKey, subject: session.subject, request });
+  let text = "";
+  let finish: string | undefined;
+  const stream = await client.chat(request, { operationId, idempotencyKey });
+  try {
+    for await (const event of stream) {
+      if (event.type === "delta") text += event.text;
+      if (event.type === "done") finish = event.finish_reason;
+      if (event.type === "error") showFailure(event.code, event.charge); // may still have cost 2Z
+    }
+  } catch (error) {
+    // A broken stream is exactly when the call may still settle and charge:
+    // keep the partial text and fall through to the receipt.
+    showStreamError(error);
+  }
 
-// 7. Parse — and still validate: model output is untrusted text.
-if (finish === "stop") renderActivity(validateActivity(JSON.parse(text)));
+  // 7. Parse only a completed answer — and still validate it: model output
+  //    is untrusted text, and `length` means truncated JSON.
+  if (finish === "stop") renderActivity(parseActivity(text)); // try/catch JSON.parse inside
 
-// 8. The receipt. `pending` is "settling", never zero.
-if (stream.callId) {
-  const record = await client.waitForCall(stream.callId);
-  if (record.charge.state === "charged") showCharge(record.charge.charged2z);
-}
+  // 8. The receipt — always. `pending` is "settling", never zero.
+  if (stream.callId) {
+    const record = await client.waitForCall(stream.callId);
+    if (record.charge.state === "charged") showCharge(record.charge.charged2z);
+  } // no callId: re-send the same request with the same key to recover it
 
-// 9. Sign out. `revoked: false` means the server did not confirm revocation.
-await client.signOut();
+  // 9. Sign out. `revoked: false` means the server did not confirm revocation.
+  await client.signOut();
 }
 ```
 

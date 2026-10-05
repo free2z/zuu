@@ -78,6 +78,8 @@ function unsignedLocation(path: readonly string[]): boolean {
       amountKey(key)
     );
   }
+  // error `details.packs` (`invalid_quantity`): whole-2Z pack sizes
+  if (path.length === 2 && path[0] === "packs" && path[1] === "*") return true;
   return path.length === 2 && path[0] === "milli_2z_per_minor_unit";
 }
 /** Native IPC numbers are decimal strings; content and identifiers remain strings. */
