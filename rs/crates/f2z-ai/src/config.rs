@@ -81,6 +81,13 @@ pub const DEFAULT_MAX_UPLOAD_BUFFER_BYTES: usize = 256 * 1024 * 1024;
 /// 256 KiB: the per-stream delivery buffer (chat-api.md §2.4, ADR 0001).
 pub const DEFAULT_DELIVERY_BUFFER_BYTES: usize = 256 * 1024;
 
+/// 15 s: the `: ping` interval chat-api.md §3 specifies.
+pub const DEFAULT_STREAM_KEEPALIVE: Duration = Duration::from_secs(15);
+
+/// The longest configurable keep-alive interval: well inside the TypeScript
+/// SDK's 45 s idle watchdog (the Rust SDK's is 90 s), with room for one ping lost to a slow write.
+const MAX_STREAM_KEEPALIVE_SECS: u64 = 30;
+
 /// The environment variable prefix.
 pub const ENV_PREFIX: &str = "F2Z_AI_";
 
@@ -296,6 +303,14 @@ pub struct Config {
     /// Time with frames waiting and none delivered before delivery ends with
     /// `delivery_aborted` (chat-api.md §2.4).
     pub delivery_stall: Duration,
+    /// Upstream silence after which a streamed call writes a `: ping`
+    /// comment (chat-api.md §3), from the headers until the terminal event.
+    /// `stream_keepalive_secs`, 1..=30, default 15: the TypeScript SDK treats
+    /// 45 s without a byte as a dead connection (the Rust SDK, 90 s), so a longer interval would drop
+    /// the clients of every slow-thinking model (zuu#1163). `None` sends no
+    /// pings; no configuration produces it — it exists for tests that prove
+    /// what the pings are for.
+    pub stream_keepalive: Option<Duration>,
     /// The level for this crate's own log lines. Dependencies are capped at
     /// `warn` whatever this says (see [`crate::telemetry`]).
     pub log_level: LogLevel,
@@ -353,6 +368,7 @@ impl Default for Config {
             ),
             delivery_buffer_bytes: DEFAULT_DELIVERY_BUFFER_BYTES,
             delivery_stall: Duration::from_secs(30),
+            stream_keepalive: Some(DEFAULT_STREAM_KEEPALIVE),
             log_level: LogLevel::Info,
             otlp_endpoint: None,
             otlp_authorization: None,
@@ -446,6 +462,7 @@ struct Raw {
     catalog_version_regression_bound_secs: Option<u64>,
     delivery_buffer_bytes: Option<u64>,
     delivery_stall_secs: Option<u64>,
+    stream_keepalive_secs: Option<u64>,
     log_level: Option<String>,
     otlp_endpoint: Option<String>,
     otlp_authorization_file: Option<PathBuf>,
@@ -513,6 +530,7 @@ const KEYS: &[(&str, Kind)] = &[
     ("catalog_version_regression_bound_secs", Kind::Integer),
     ("delivery_buffer_bytes", Kind::Integer),
     ("delivery_stall_secs", Kind::Integer),
+    ("stream_keepalive_secs", Kind::Integer),
     ("log_level", Kind::Text),
     ("otlp_endpoint", Kind::Text),
     ("otlp_authorization_file", Kind::Text),
@@ -771,6 +789,7 @@ impl Config {
                 defaults.delivery_buffer_bytes,
             )?,
             delivery_stall: secs(raw.delivery_stall_secs, defaults.delivery_stall),
+            stream_keepalive: Some(secs(raw.stream_keepalive_secs, DEFAULT_STREAM_KEEPALIVE)),
             log_level,
             otlp_endpoint: raw.otlp_endpoint.filter(|s| !s.is_empty()),
             otlp_authorization,
@@ -858,6 +877,15 @@ impl Config {
             if value.is_zero() {
                 return Err(err(format!("`{key}` must be at least 1")));
             }
+        }
+        if self
+            .stream_keepalive
+            .is_some_and(|every| !(1..=MAX_STREAM_KEEPALIVE_SECS).contains(&every.as_secs()))
+        {
+            return Err(err(format!(
+                "`stream_keepalive_secs` must be between 1 and {MAX_STREAM_KEEPALIVE_SECS}: the \
+                 TypeScript SDK drops a stream after 45 s without a byte (chat-api.md §3)"
+            )));
         }
         if let Some(endpoint) = &self.otlp_endpoint {
             if endpoint.starts_with("https://") {
@@ -1189,6 +1217,7 @@ mod tests {
         assert_eq!(config.catalog_poll, Duration::from_secs(30));
         assert_eq!(config.delivery_buffer_bytes, 256 * 1024);
         assert_eq!(config.delivery_stall, Duration::from_secs(30));
+        assert_eq!(config.stream_keepalive, Some(Duration::from_secs(15)));
         assert!(config.otlp_endpoint.is_none());
         assert!(config.otlp_authorization.is_none());
     }
@@ -1468,6 +1497,26 @@ mod tests {
         );
         for value in ["0", "65537", "18446744073709551615"] {
             assert!(Config::load(None, env(&[(key, value)])).is_err());
+        }
+    }
+    #[test]
+    fn the_keepalive_is_configurable_but_always_inside_the_sdk_watchdog() {
+        let key = "F2Z_AI_STREAM_KEEPALIVE_SECS";
+        for (value, secs) in [("1", 1), ("30", 30)] {
+            assert_eq!(
+                Config::load(None, env(&[(key, value)]))
+                    .unwrap()
+                    .stream_keepalive,
+                Some(Duration::from_secs(secs))
+            );
+        }
+        // Zero cannot mean "off", and nothing at or past the TypeScript SDK's 45 s
+        // watchdog is accepted.
+        for value in ["0", "31", "45", "86400"] {
+            let error = Config::load(None, env(&[(key, value)]))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("stream_keepalive_secs"), "{value}: {error}");
         }
     }
 }

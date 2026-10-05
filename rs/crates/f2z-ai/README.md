@@ -255,6 +255,7 @@ variable is a startup error.
 | `catalog_version_regression_bound_secs` | `420` | A lower catalogue version installs if its `issued_at` is within this of the newest installed (tuzi's `VERSION_REGRESSION_BOUND_SECONDS`); beyond it, a replay, counted by `f2z_ai_catalog_replays_total` (zuu#1067) |
 | `delivery_buffer_bytes` | `262144` | Undelivered event bytes per stream before `delivery_aborted` |
 | `delivery_stall_secs` | `30` | Frames waiting and none delivered for this long → `delivery_aborted` |
+| `stream_keepalive_secs` | `15` | Upstream silence after which a streamed call sends a `: ping` comment (chat-api.md §3), from the headers to the terminal event; 1..=30, because the TypeScript SDK drops a stream after 45 s without a byte (the Rust SDK after 90 s; zuu#1163) |
 | `log_level` | `info` | This crate only; dependencies are capped at `warn` |
 | `otlp_endpoint` | *(unset: off)* | `http://collector:4318`; spans go to `/v1/traces`. `https://` is refused: no TLS in this exporter build |
 | `otlp_authorization_file` | *(unset)* | Or `F2Z_AI_OTLP_AUTHORIZATION`. Never inline in the file |
@@ -307,7 +308,11 @@ and counts against the concurrency limit until that settle has returned
 ends; an aborted response is the last on its connection (it closes once
 the abort frame is flushed, so it is never reused), and one stall period
 after an abort the connection is dropped outright, so a client that never
-reads cannot hold a socket or a buffer past its slot. Request bodies are read
+reads cannot hold a socket or a buffer past its slot. While the upstream is
+silent the task queues a `: ping` comment every `stream_keepalive_secs` — but
+only into an empty buffer, so a ping is never behind undelivered data and
+cannot keep a client that is not reading data alive; non-streamed calls get
+none. Request bodies are read
 into one contiguous buffer, so a body sent in one-byte chunks costs its
 payload and not a descriptor per chunk, and a body's share of the upload
 budget is held until the backend's `start` has consumed the request — or,

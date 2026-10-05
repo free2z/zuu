@@ -367,6 +367,186 @@ async fn paid_stream_lost_settle_response_replay_and_account_scoped_receipt() {
     );
     mock.shutdown().await;
 }
+// zuu#1163 — the `: ping` keep-alive (chat-api.md §3). A reasoning model can
+// be silent for longer than the TypeScript SDK's 45 s idle watchdog before its first
+// content event; without pings the client drops the stream while the call
+// reads to completion and settles, so the user pays for an answer they never
+// received. These run on a paused clock: the silences are real 50 s waits in
+// virtual time, against the real adapter and the testkit mock.
+
+/// Drive the paused clock by hand, 50 ms of virtual time per ~0.5 ms of real
+/// time. Tokio's own auto-advance is unusable here: it jumps the clock
+/// whenever the runtime is idle, including while the kernel is still
+/// delivering a loopback write, so provider deadlines fire spuriously. This
+/// task is always runnable, so the runtime never idles and the clock moves
+/// only here; the real sleep gives the kernel its turn.
+fn drive_clock() -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async {
+        loop {
+            std::thread::sleep(Duration::from_micros(500));
+            tokio::time::advance(Duration::from_millis(50)).await;
+        }
+    })
+}
+
+/// The SDKs' idle watchdog (`ts/free2z/sdk` `streamIdleTimeoutMs` default).
+const SDK_IDLE: Duration = Duration::from_secs(45);
+/// Longer than [`SDK_IDLE`].
+const SILENCE: Duration = Duration::from_secs(50);
+
+/// A gateway whose provider may be silent for minutes, with `keepalive` as
+/// its ping interval (`None`: no pings — the negative control).
+async fn launch_keepalive(
+    db: Arc<Database>,
+    scenario: Scenario,
+    keepalive: Option<Duration>,
+) -> (support::Running, MockProvider) {
+    let mock = MockProvider::start(scenario).await.unwrap();
+    let mut tuning = adapter_support::tuning(0);
+    tuning.timeouts.idle = Duration::from_secs(120);
+    tuning.timeouts.hard_limit = Duration::from_secs(300);
+    let meter = Arc::new(Metered::new(
+        db,
+        adapter_support::backend(&mock.base_url(), tuning),
+    ));
+    let mut config = support::config(&[]);
+    config.stream_keepalive = keepalive;
+    let running = support::start(
+        &config,
+        Deps {
+            gate: Arc::new(Gate),
+            catalog: Arc::new(Fixed(adapter_support::catalog_with(120_000, Some(120_000)))),
+            backend: meter.clone(),
+            settler: meter,
+        },
+    )
+    .await;
+    support::wait_readyz(running.admin, StatusCode::OK).await;
+    (running, mock)
+}
+
+/// Read a streamed body the way both SDKs do: any byte — a comment included
+/// — resets a [`SDK_IDLE`] watchdog. `Err` carries what had arrived when the
+/// watchdog fired.
+async fn read_like_the_sdk(
+    response: axum::http::Response<hyper::body::Incoming>,
+) -> Result<String, String> {
+    let mut body = response.into_body();
+    let mut text = String::new();
+    loop {
+        match tokio::time::timeout(SDK_IDLE, support::next_frame(&mut body)).await {
+            Err(_) => return Err(text),
+            Ok(Ok(Some(bytes))) => text.push_str(std::str::from_utf8(&bytes).unwrap()),
+            Ok(Ok(None)) => return Ok(text),
+            Ok(Err(e)) => panic!("the stream failed: {e}; after {text}"),
+        }
+    }
+}
+
+/// Wait (in virtual time) for the call to reach a terminal ledger state.
+async fn settled(db: &Database) -> &'static str {
+    tokio::time::timeout(Duration::from_secs(300), async {
+        loop {
+            if let Some(terminal) = db.0.lock().unwrap().terminal {
+                return terminal;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .unwrap()
+}
+
+#[tokio::test(start_paused = true)]
+async fn pings_keep_the_client_through_a_silent_provider_and_stop_at_the_terminal_event() {
+    let clock = drive_clock();
+    let db = Arc::new(Database::new());
+    // Silent for 50 s before the first byte, and again for 50 s before the
+    // second visible delta — after `meta`.
+    let scenario = Scenario::default()
+        .with_ttfb(SILENCE)
+        .with_stall(1, SILENCE);
+    let (r, mock) = launch_keepalive(db.clone(), scenario, Some(Duration::from_secs(15))).await;
+    let response = send(&r).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = read_like_the_sdk(response)
+        .await
+        .unwrap_or_else(|partial| panic!("the watchdog fired despite the pings: {partial}"));
+
+    let meta = text.find("event: meta").expect("no meta");
+    let done = text.rfind("event: done").expect("no done");
+    let deltas: Vec<usize> = text.match_indices("event: delta").map(|(i, _)| i).collect();
+    assert!(deltas.len() >= 2, "{text}");
+    // 15, 30 and 45 s into the 50 s wait for the first byte: before `meta`.
+    assert_eq!(text[..meta].matches(": ping\n\n").count(), 3, "{text}");
+    assert!(text.starts_with(": ping\n\n"), "{text}");
+    // And again during the stall between the first two deltas, after `meta`.
+    assert_eq!(
+        text[deltas[0]..deltas[1]].matches(": ping\n\n").count(),
+        3,
+        "{text}"
+    );
+    // Never after the terminal event; the stream ends with it.
+    assert!(!text[done..].contains(": ping"), "{text}");
+    // Events are delivered intact around the comments.
+    for block in text
+        .split("\n\n")
+        .filter(|b| !b.is_empty() && !b.starts_with(':'))
+    {
+        assert!(block.starts_with("event: "), "{block:?} in {text}");
+    }
+    assert!(text.contains("\"charged_2z\":1"), "{text}");
+    assert_eq!(settled(&db).await, "settled");
+    mock.shutdown().await;
+    clock.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn without_pings_the_client_drops_a_silent_stream_that_is_still_charged() {
+    // The negative control: the same 50 s pre-`meta` silence with the
+    // emitter off. The SDK's watchdog fires with nothing received after the
+    // headers, while the gateway reads the provider to completion and
+    // settles — zuu#1163's defect, as it was.
+    let clock = drive_clock();
+    let db = Arc::new(Database::new());
+    let (r, mock) =
+        launch_keepalive(db.clone(), Scenario::default().with_ttfb(SILENCE), None).await;
+    let response = send(&r).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let partial = read_like_the_sdk(response)
+        .await
+        .expect_err("the watchdog should have fired: nothing was sent for 50 s");
+    assert_eq!(
+        partial, "",
+        "nothing should have arrived before the watchdog"
+    );
+    assert_eq!(settled(&db).await, "settled");
+    assert_eq!(db.0.lock().unwrap().charges, 1);
+    mock.shutdown().await;
+    clock.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_non_streamed_call_gets_no_pings() {
+    let clock = drive_clock();
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch_keepalive(
+        db.clone(),
+        Scenario::default().with_ttfb(SILENCE),
+        Some(Duration::from_secs(15)),
+    )
+    .await;
+    let response = send_nonstream(&r).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "application/json");
+    let text = support::text(response).await;
+    assert!(!text.contains("ping"), "{text}");
+    let reply: f2z_ai_proto::chat::ChatResponse = serde_json::from_str(&text).unwrap();
+    reply.check().unwrap();
+    assert_eq!(reply.charged_2z, Some(f2z_ai_proto::Whole2z::new(1)));
+    mock.shutdown().await;
+    clock.abort();
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn lost_hold_reply_is_recovered_without_provider_charge() {
     let db = Arc::new(Database::new());

@@ -127,7 +127,9 @@ redis = { version = "1.7.1", default-features = false, features = [
 # The integration tests drive the gateway over real sockets with hyper's own
 # client, so a streamed body is observed frame by frame as a client sees it.
 hyper = { version = "1", default-features = false, features = ["http1", "client"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "io-util"] }
+# `test-util`: a paused clock, so a 50 s provider silence (zuu#1163's
+# keep-alive tests) costs no wall time.
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "io-util", "test-util"] }
 # The mock OpenAI / xAI / Anthropic providers and `Scenario::expected_usage`,
 # the oracle every adapter test asserts its parsed usage against.
 f2z-ai-testkit = { path = "../f2z-ai-testkit", version = "0.1.0" }
