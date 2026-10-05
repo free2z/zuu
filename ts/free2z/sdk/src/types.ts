@@ -128,6 +128,11 @@ export type ToolChoice =
   | "none"
   | "required"
   | { type: "function"; function: { name: string } };
+/**
+ * OpenAI's `reasoning_effort` values, exactly. `"minimal"` is GPT-5-family
+ * only; check `Model.controls.effort_levels` where a model lists them.
+ */
+export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
 export interface ChatRequest {
   model: string;
   messages: Message[];
@@ -162,6 +167,16 @@ export interface ChatRequest {
    * it is never silently answered in prose.
    */
   response_format?: ResponseFormat;
+  /**
+   * Opt-in: how hard a reasoning model thinks; absent is never sent (the
+   * provider's default). Check `Model.capabilities.reasoning_effort === true`
+   * (and `Model.controls.effort_levels`, when listed) first: any other model
+   * refuses the call before any hold or charge (`invalid_request`,
+   * `reason: "reasoning_effort_unsupported"`); it is never sent without it.
+   * Reasoning is billed as output and, on OpenAI, counts inside
+   * `max_output_tokens`: leave room for it.
+   */
+  reasoning_effort?: ReasoningEffort;
 }
 export interface OperationOptions {
   /** Create and persist this before calling; reuse only to reconcile this operation. */
@@ -287,7 +302,21 @@ export interface ModelCapabilities {
    * Absent (an older gateway): unsupported.
    */
   structured_output?: boolean;
+  /**
+   * `true` is the precondition for `ChatRequest.reasoning_effort` (at a level
+   * in `Model.controls.effort_levels`, when listed): otherwise the gateway
+   * refuses the call (`invalid_request`,
+   * `reason: "reasoning_effort_unsupported"`) before any hold or charge. Not
+   * implied by `reasoning`. Absent (an older gateway): unsupported.
+   */
+  reasoning_effort?: boolean;
   /** Capabilities newer than this SDK pass through undeclared. */
+  [key: string]: Json | undefined;
+}
+/** A model's signed `controls`. Members newer than this SDK pass through. */
+export interface ModelControls {
+  /** The `reasoning_effort` levels the model takes, as wire strings. */
+  effort_levels?: string[];
   [key: string]: Json | undefined;
 }
 /**
@@ -326,6 +355,12 @@ export interface Model extends ObjectData {
   max_output_tokens?: bigint;
   /** Always present: `{}` when the gateway sent none (nothing supported). */
   capabilities: ModelCapabilities;
+  /**
+   * Signed narrowing of what a capability admits. `effort_levels`: the
+   * `reasoning_effort` levels the model takes; absent means not narrowed.
+   * Always present: `{}` when the gateway sent none.
+   */
+  controls: ModelControls;
   /** Always present: `{}` when the gateway sent none. */
   prices: ModelPrices;
   /** The floor for one call, whole 2Z. */

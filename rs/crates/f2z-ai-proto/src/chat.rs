@@ -123,6 +123,88 @@ pub struct ChatRequest {
         deserialize_with = "present_bool"
     )]
     pub parallel_tool_calls: Option<bool>,
+    /// Opt-in: how hard a reasoning model thinks before it answers —
+    /// OpenAI's `reasoning_effort`: `"minimal"`, `"low"`, `"medium"` or
+    /// `"high"`. Absent (the default) is the provider's own default and is
+    /// omitted on the wire, so a request that does not set it serializes
+    /// exactly as before this field existed — and a gateway older than it
+    /// refuses the field (`deny_unknown_fields`) rather than silently
+    /// ignoring it.
+    ///
+    /// Gated by the signed catalogue's `capabilities.reasoning_effort`, and
+    /// narrowed by `controls.effort_levels` where the catalogue lists them: a
+    /// model (or adapter) that cannot honour the level is refused before any
+    /// hold, charge or provider request (`400 invalid_request`,
+    /// `details.field = "reasoning_effort"`, `details.reason =
+    /// "reasoning_effort_unsupported"`). It is never dropped.
+    ///
+    /// Reasoning tokens are billed as output. The hold already reserves the
+    /// worst case of the whole output cap, so effort changes no bound; but
+    /// on OpenAI reasoning tokens count *inside* `max_output_tokens`, so a
+    /// small cap can be spent on thinking before any text is written
+    /// (`finish_reason: "length"` with little or no text). A present `null`
+    /// is refused, not read as absent.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_reasoning_effort"
+    )]
+    pub reasoning_effort: Option<ReasoningEffort>,
+}
+
+/// [`ChatRequest::reasoning_effort`]: OpenAI's `reasoning_effort` values,
+/// exactly. Any other string (`"none"`, `"xhigh"`, a different case) is
+/// refused rather than mapped to a neighbour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReasoningEffort {
+    /// The least reasoning the model can do (OpenAI GPT-5 family only).
+    Minimal,
+    /// Some reasoning; fastest of the reasoning levels most models take.
+    Low,
+    /// The usual provider default.
+    Medium,
+    /// The most reasoning, and the most output tokens billed.
+    High,
+}
+
+impl ReasoningEffort {
+    /// Every value, in increasing effort.
+    pub const ALL: [Self; 4] = [Self::Minimal, Self::Low, Self::Medium, Self::High];
+
+    /// The wire string, as OpenAI and xAI spell it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ReasoningEffort {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
+        // By hand: the derived error quotes the caller's value
+        // (`unknown variant "…"`), and a decode error must not.
+        let refused =
+            || D::Error::custom("reasoning_effort must be \"minimal\", \"low\", \"medium\" or \"high\"");
+        match serde_json::Value::deserialize(d)? {
+            serde_json::Value::String(level) => Self::ALL
+                .into_iter()
+                .find(|effort| effort.as_str() == level)
+                .ok_or_else(refused),
+            _ => Err(refused()),
+        }
+    }
+}
+
+fn present_reasoning_effort<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<ReasoningEffort>, D::Error> {
+    ReasoningEffort::deserialize(d).map(Some)
 }
 
 /// [`ChatRequest::tool_choice`]: OpenAI's `tool_choice`, exactly.
@@ -420,7 +502,7 @@ impl ChatRequest {
     /// A streamed request for `model` with every optional field at its wire
     /// default (absent): no tools, no output limit, not strict, no metadata,
     /// no fallback, no `response_format`, no `tool_choice`, no
-    /// `parallel_tool_calls`.
+    /// `parallel_tool_calls`, no `reasoning_effort`.
     #[must_use]
     pub fn new(model: impl Into<String>, messages: Vec<Message>) -> Self {
         Self {
@@ -435,6 +517,7 @@ impl ChatRequest {
             response_format: None,
             tool_choice: None,
             parallel_tool_calls: None,
+            reasoning_effort: None,
         }
     }
 
@@ -460,6 +543,15 @@ impl ChatRequest {
     #[must_use]
     pub fn with_response_format(mut self, response_format: ResponseFormat) -> Self {
         self.response_format = Some(response_format);
+        self
+    }
+
+    /// Sets `reasoning_effort`. Check `capabilities.reasoning_effort` (and
+    /// `controls.effort_levels`, where listed) in `/v1/models` first; a model
+    /// without it refuses the call before any hold.
+    #[must_use]
+    pub fn with_reasoning_effort(mut self, effort: ReasoningEffort) -> Self {
+        self.reasoning_effort = Some(effort);
         self
     }
 

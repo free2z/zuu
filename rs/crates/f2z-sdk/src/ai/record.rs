@@ -247,6 +247,10 @@ pub struct ModelInfo {
     /// What it can do.
     #[serde(default)]
     pub capabilities: Capabilities,
+    /// Signed narrowing of what a capability admits. Empty from a gateway
+    /// that predates it, or where nothing is narrowed.
+    #[serde(default)]
+    pub controls: Controls,
     /// Published rates, milli-2Z per million tokens or per unit.
     #[serde(default)]
     pub prices: Map<String, Value>,
@@ -275,6 +279,23 @@ pub struct Capabilities {
     /// gateway that predates the field.
     #[serde(default)]
     pub structured_output: bool,
+    /// Accepts `reasoning_effort` (at the levels in
+    /// [`Controls::effort_levels`], when listed). `false` from a gateway that
+    /// predates the field. Not implied by [`Capabilities::reasoning`]: a
+    /// model may reason without taking an effort control.
+    #[serde(default)]
+    pub reasoning_effort: bool,
+}
+
+/// A model's signed `controls`: how a capability is narrowed.
+#[non_exhaustive]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Controls {
+    /// The `reasoning_effort` levels the model takes, as wire strings.
+    /// `None`: not narrowed — any level may be sent, and one the provider
+    /// rejects fails before any output, uncharged.
+    #[serde(default)]
+    pub effort_levels: Option<Vec<String>>,
 }
 
 #[cfg(test)]
@@ -328,5 +349,18 @@ mod tests {
         let caps: Capabilities =
             serde_json::from_value(serde_json::json!({"structured_output": true})).unwrap();
         assert!(caps.structured_output);
+        // reasoning_effort: absent (an older gateway) reads as unsupported.
+        assert!(!m.models[0].capabilities.reasoning_effort);
+        assert_eq!(m.models[0].controls, Controls::default());
+        let caps: Capabilities =
+            serde_json::from_value(serde_json::json!({"reasoning_effort": true})).unwrap();
+        assert!(caps.reasoning_effort);
+        let controls: Controls =
+            serde_json::from_value(serde_json::json!({"effort_levels": ["low", "high"]}))
+                .unwrap();
+        assert_eq!(
+            controls.effort_levels.as_deref(),
+            Some(&["low".to_owned(), "high".to_owned()][..])
+        );
     }
 }

@@ -25,6 +25,8 @@ export type ResponseFormat =
       /** `name`: 1-64 of `A-Z a-z 0-9 _ -`; `schema`: a JSON Schema object, at most 32 KiB. */
       json_schema: { name: string; schema: Json; strict?: boolean };
     };
+/** OpenAI's `reasoning_effort`; `'minimal'` is GPT-5-family only. */
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high';
 /** OpenAI's `tool_choice`; requires `tools`. */
 export type ToolChoice =
   | 'auto'
@@ -46,6 +48,13 @@ export interface ChatRequest {
   fallback?: string[];
   /** Opt-in structured output; omit for prose. Plain JSON, not decimal strings. */
   response_format?: ResponseFormat;
+  /**
+   * Opt-in reasoning effort; omit for the provider's default. A model without
+   * `capabilities.reasoning_effort` (or whose `controls.effort_levels` omit the
+   * level) refuses the call up front (`invalid_request`, reason
+   * `reasoning_effort_unsupported`).
+   */
+  reasoning_effort?: ReasoningEffort;
   stream?: true;
 }
 export interface Session {
@@ -105,11 +114,20 @@ export type StreamEvent =
 /**
  * What the gateway accepts for a model. Absent, `null` or `false`: unsupported;
  * compare with `=== true`. `structured_output === true` is the precondition for
- * `ChatRequest.response_format`, `tools === true` for `tools` — otherwise the
+ * `ChatRequest.response_format`, `reasoning_effort === true` for
+ * `ChatRequest.reasoning_effort`, `tools === true` for `tools` — otherwise the
  * gateway refuses (`invalid_request`) before any hold or charge.
  */
 export interface ModelCapabilities {
   vision?: boolean; tools?: boolean; reasoning?: boolean; structured_output?: boolean;
+  /** Precondition for `ChatRequest.reasoning_effort`; not implied by `reasoning`. */
+  reasoning_effort?: boolean;
+  [key: string]: unknown;
+}
+/** Signed narrowing of a capability; absent members are not narrowed. */
+export interface ModelControls {
+  /** The `reasoning_effort` levels the model takes. */
+  effort_levels?: string[];
   [key: string]: unknown;
 }
 /** One catalogue model; `null` optional members were not reported. */
@@ -117,6 +135,7 @@ export interface CatalogModel {
   id: string; provider?: string | null; display_name?: string | null;
   context_window?: Decimal | null; max_output_tokens?: Decimal | null;
   capabilities?: ModelCapabilities;
+  controls?: ModelControls;
   /** Milli-2Z per million tokens (`*_milli_2z_per_mtok`) or per unit, markup included. */
   prices: Record<string, Decimal>;
   min_charge_2z?: Decimal | null; ttfb_timeout_ms?: Decimal | null;

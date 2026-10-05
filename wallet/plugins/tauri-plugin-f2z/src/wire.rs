@@ -454,6 +454,31 @@ mod tests {
         assert_eq!(api_details(None), None);
     }
     #[test]
+    fn reasoning_effort_passes_through_only_when_set_and_only_known_levels() {
+        let base = json!({"model":"m","messages":[]});
+        let plain = chat_request(base.clone()).unwrap();
+        assert_eq!(plain.reasoning_effort, None);
+        assert!(
+            !serde_json::to_string(&plain)
+                .unwrap()
+                .contains("reasoning_effort")
+        );
+        for level in ["minimal", "low", "medium", "high"] {
+            let mut with = base.clone();
+            with["reasoning_effort"] = json!(level);
+            let with = chat_request(with).unwrap();
+            assert_eq!(
+                serde_json::to_value(&with).unwrap()["reasoning_effort"],
+                json!(level)
+            );
+        }
+        for bad in [json!("xhigh"), json!("none"), json!("High"), json!(1), Value::Null] {
+            let mut with = base.clone();
+            with["reasoning_effort"] = bad;
+            assert!(chat_request(with).is_err());
+        }
+    }
+    #[test]
     fn integers_are_lossless_and_strict() {
         assert_eq!(value(&u64::MAX).unwrap(), json!("18446744073709551615"));
         for bad in ["01", "-1", "1.0", "", "18446744073709551616"] {

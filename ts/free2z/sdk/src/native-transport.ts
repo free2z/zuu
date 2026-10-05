@@ -8,7 +8,14 @@ import {
 } from "./error.js";
 import { identifier, key, withOperation } from "./http.js";
 import { spendCapParams } from "./spend-cap.js";
-import { object, responseFormat, strictOutput, string, uint } from "./json.js";
+import {
+  object,
+  reasoningEffort,
+  responseFormat,
+  strictOutput,
+  string,
+  uint,
+} from "./json.js";
 import type {
   ChatOptions,
   ChatRequest,
@@ -104,7 +111,7 @@ function request(value: ChatRequest): NativeChatRequest {
     tools,
     response_format: format,
     ...rest
-  } = responseFormat(strictOutput(value));
+  } = reasoningEffort(responseFormat(strictOutput(value)));
   const result: NativeChatRequest = { ...rest };
   if (format?.type === "json_object") result.response_format = format;
   else if (format !== undefined)

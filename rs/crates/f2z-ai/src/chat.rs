@@ -744,6 +744,9 @@ fn decode(bytes: &[u8], text_limit: usize) -> Result<ChatRequest, ApiFailure> {
             if let Some(refusal) = tool_control_refusal(bytes) {
                 return Err(refusal);
             }
+            if let Some(refusal) = reasoning_effort_refusal(bytes) {
+                return Err(refusal);
+            }
             let reason = match error.classify() {
                 serde_json::error::Category::Syntax => "syntax",
                 serde_json::error::Category::Eof => "eof",
@@ -826,6 +829,30 @@ fn tool_control_refusal(bytes: &[u8]) -> Option<ApiFailure> {
             "parallel_tool_calls must be a boolean",
         )),
     }
+}
+
+/// As [`response_format_refusal`], for `reasoning_effort`: a value OpenAI
+/// or xAI take that the unified wire does not (`"none"`, `"xhigh"`), or a
+/// present `null`, is named by field. Error path only; never quotes the
+/// request.
+fn reasoning_effort_refusal(bytes: &[u8]) -> Option<ApiFailure> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let effort = value.get("reasoning_effort")?;
+    if effort.is_null() {
+        return Some(invalid(
+            "reasoning_effort",
+            "null",
+            "reasoning_effort must be a string; omit it for the provider's default",
+        ));
+    }
+    if serde_json::from_value::<f2z_ai_proto::chat::ReasoningEffort>(effort.clone()).is_ok() {
+        return None;
+    }
+    Some(invalid(
+        "reasoning_effort",
+        "unsupported",
+        "reasoning_effort must be \"minimal\", \"low\", \"medium\" or \"high\"",
+    ))
 }
 
 fn image_count(request: &ChatRequest) -> usize {
@@ -1167,6 +1194,35 @@ mod tests {
 
     fn reason_of(failure: &ApiFailure) -> String {
         format!("{failure:?}")
+    }
+
+    #[test]
+    fn a_reasoning_effort_outside_the_wire_values_is_named_not_located() {
+        for (effort, why) in [
+            (json!("xhigh"), "unsupported"),
+            (json!("none"), "unsupported"),
+            (json!("High"), "unsupported"),
+            (json!(2), "unsupported"),
+            (serde_json::Value::Null, "null"),
+        ] {
+            let mut body = minimal();
+            body["reasoning_effort"] = effort.clone();
+            let failure = decode(body.to_string().as_bytes(), 1 << 20).unwrap_err();
+            assert_eq!(
+                failure.detail_of("field"),
+                Some(&json!("reasoning_effort")),
+                "{effort}"
+            );
+            assert_eq!(failure.detail_of("reason"), Some(&json!(why)), "{effort}");
+            // Never quotes the request.
+            assert!(!reason(&failure).contains("xhigh"));
+        }
+        // Negative control: every wire value decodes and validates.
+        for effort in ["minimal", "low", "medium", "high"] {
+            let mut body = minimal();
+            body["reasoning_effort"] = json!(effort);
+            validate(&decode(body.to_string().as_bytes(), 1 << 20).unwrap()).unwrap();
+        }
     }
 
     #[test]

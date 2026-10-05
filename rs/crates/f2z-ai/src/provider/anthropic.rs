@@ -265,6 +265,9 @@ impl Provider for AnthropicMessages {
         // dropped (an unconstrained answer billed as a structured one).
         super::check_response_format(request, model)?;
         super::check_tool_translation(request, model)?;
+        // No effort control on Messages (`thinking` takes a budget): refused
+        // whatever the catalogue says, never dropped.
+        super::check_reasoning_effort(request, model)?;
         let mut system = None;
         let mut turns: Vec<(&'static str, Vec<Value>)> = Vec::new();
         for (index, message) in request.messages.iter().enumerate() {

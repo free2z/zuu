@@ -1,5 +1,10 @@
 import { failure } from "./error.js";
-import type { Json, ObjectData, ResponseFormat } from "./types.js";
+import type {
+  Json,
+  ObjectData,
+  ReasoningEffort,
+  ResponseFormat,
+} from "./types.js";
 
 /** Parse integer lexemes directly to bigint, before Number can round them. */
 export function parseJson(text: string): Json {
@@ -202,4 +207,22 @@ export function responseFormat<T extends { response_format?: ResponseFormat }>(
     ...rest,
     response_format: { type: "json_schema", json_schema },
   } as T;
+}
+
+const REASONING_EFFORTS: readonly string[] = ["minimal", "low", "medium", "high"];
+/**
+ * The request as sent: `reasoning_effort` must be one of the four wire
+ * values (anything else — `"none"`, `"xhigh"`, `null` — is refused here,
+ * before any network or bridge call) and is dropped when absent, so a request
+ * that does not set it is byte-identical to one made before the field
+ * existed. The gateway re-checks, and alone decides whether the model takes it.
+ */
+export function reasoningEffort<
+  T extends { reasoning_effort?: ReasoningEffort },
+>(request: T): T {
+  const { reasoning_effort: effort, ...rest } = request;
+  if (effort === undefined) return rest as T;
+  if (typeof effort !== "string" || !REASONING_EFFORTS.includes(effort))
+    failure("invalid_request");
+  return { ...rest, reasoning_effort: effort } as T;
 }

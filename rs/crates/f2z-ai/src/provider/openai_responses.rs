@@ -102,6 +102,7 @@ impl Provider for OpenAiResponses {
         // No tool_choice / parallel_tool_calls translation here yet: refused,
         // never dropped.
         super::check_tool_translation(request, model)?;
+        super::check_reasoning_effort(request, model)?;
         let mut input = Vec::new();
         for message in &request.messages {
             match message.role {
@@ -174,6 +175,12 @@ impl Provider for OpenAiResponses {
         // The gateway keeps no completions (chat-api.md §7); neither should
         // the provider on its behalf.
         body.insert("store".into(), json!(false));
+        // Responses nests it: `reasoning: {"effort": …}`. Nothing else under
+        // `reasoning` (no `summary`) — this build has no reasoning output part
+        // to put one in. Only when set.
+        if let Some(effort) = request.reasoning_effort {
+            body.insert("reasoning".into(), json!({"effort": effort.as_str()}));
+        }
         let mut caller = Vec::new();
         if !request.tools.is_empty() {
             caller.push((

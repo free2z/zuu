@@ -518,6 +518,69 @@ fn response_format_unsupported() -> ApiFailure {
     .detail("reason", RESPONSE_FORMAT_UNSUPPORTED)
 }
 
+/// `details.reason` on every refusal of a `reasoning_effort` the model (or
+/// its adapter) cannot honour.
+pub const REASONING_EFFORT_UNSUPPORTED: &str = "reasoning_effort_unsupported";
+
+/// The adapters that translate [`ChatRequest::reasoning_effort`]: Chat
+/// Completions sends it as `reasoning_effort` (OpenAI and xAI both take that
+/// member), Responses as `reasoning.effort`. Anthropic Messages has no effort
+/// control — its `thinking` takes a token budget, and the effort→budget table
+/// is a future signed `controls.effort_budgets` (design §2.5), never a
+/// gateway constant — so it refuses, whatever the catalogue says.
+pub const REASONING_EFFORT_STYLES: [ApiStyle; 2] = [ApiStyle::OpenaiChat, ApiStyle::OpenaiResponses];
+
+/// Refuse a `reasoning_effort` the model cannot honour — before any hold,
+/// charge or provider request (the metering layer calls it beside
+/// [`check_response_format`]; each adapter's `body` calls it again), and
+/// never by dropping it. Three conditions, all required:
+///
+/// * the adapter can express it ([`REASONING_EFFORT_STYLES`]);
+/// * the signed catalogue declares `capabilities.reasoning_effort` (absent
+///   is `false`: never inferred from a model name);
+/// * where the catalogue lists `controls.effort_levels`, the level is one of
+///   them. Absent, every level is forwarded (see
+///   [`f2z_ai_proto::catalog::ModelControls::effort_levels`]).
+///
+/// # Errors
+///
+/// `400 invalid_request`, `details.field = "reasoning_effort"`,
+/// `details.reason = "reasoning_effort_unsupported"`; for a level outside
+/// the list, `details.effort_levels` names the ones the model takes.
+pub fn check_reasoning_effort(
+    request: &ChatRequest,
+    model: &CatalogModel,
+) -> Result<(), ApiFailure> {
+    let Some(effort) = request.reasoning_effort else {
+        return Ok(());
+    };
+    if !REASONING_EFFORT_STYLES.contains(&model.api_style) || !model.capabilities.reasoning_effort {
+        return Err(reasoning_effort_unsupported(
+            "this model does not support reasoning_effort",
+        ));
+    }
+    match &model.controls.effort_levels {
+        Some(levels) if !levels.iter().any(|level| level == effort.as_str()) => Err(
+            reasoning_effort_unsupported("this model does not support this reasoning_effort level")
+                .detail("effort_levels", levels.clone()),
+        ),
+        _ => Ok(()),
+    }
+}
+
+/// Whether `/v1/models` may advertise `reasoning_effort` for `model`: the
+/// signed capability, on an adapter that translates it.
+#[must_use]
+pub fn reasoning_effort_supported(model: &CatalogModel) -> bool {
+    model.capabilities.reasoning_effort && REASONING_EFFORT_STYLES.contains(&model.api_style)
+}
+
+fn reasoning_effort_unsupported(message: &'static str) -> ApiFailure {
+    ApiFailure::new(ErrorCode::InvalidRequest, message)
+        .detail("field", "reasoning_effort")
+        .detail("reason", REASONING_EFFORT_UNSUPPORTED)
+}
+
 /// `details.reason` on every refusal of a tool control the model's adapter
 /// cannot express (`tool_choice`, `parallel_tool_calls`); `details.field`
 /// names which.

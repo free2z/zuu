@@ -116,6 +116,15 @@ pub struct ModelCapabilities {
         deserialize_with = "declared_bool"
     )]
     pub structured_output: Option<bool>,
+    /// `ChatRequest::reasoning_effort` is supported: the model takes the
+    /// provider's own effort control (OpenAI/xAI `reasoning_effort`). Not the
+    /// same claim as [`ModelCapabilities::reasoning`], which says the model
+    /// *reasons*: a reasoning model may still take no effort control (xAI's
+    /// `grok-4`, Anthropic's budget-only `thinking`). Absent reads as `false`
+    /// and is omitted when serialized, so a catalogue without it re-encodes
+    /// exactly as before. Which levels: [`ModelControls::effort_levels`].
+    #[serde(skip_serializing_if = "core::ops::Not::not")]
+    pub reasoning_effort: bool,
 }
 
 fn declared_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
@@ -124,7 +133,37 @@ fn declared_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>,
 
 impl ModelCapabilities {
     fn is_empty(&self) -> bool {
-        !self.vision && !self.tools && !self.reasoning && self.structured_output.is_none()
+        !self.vision
+            && !self.tools
+            && !self.reasoning
+            && self.structured_output.is_none()
+            && !self.reasoning_effort
+    }
+}
+
+/// Signed, per-model narrowing of what a capability admits — the
+/// catalogue's `controls` object. Every member is optional and absent means
+/// "not narrowed": the capability alone decides.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelControls {
+    /// The `reasoning_effort` levels this model accepts, as wire strings
+    /// (`"low"`, `"high"`, …). Only read when
+    /// [`ModelCapabilities::reasoning_effort`] is `true`. Present: a level not
+    /// listed is refused before any hold. Absent: every level the request
+    /// wire can express is forwarded, and a level the provider rejects comes
+    /// back as its own `400` before any output (`provider_error`, hold
+    /// released, nothing charged) — so the signer should list them. A
+    /// string this crate does not know (`"xhigh"`, `"none"`) is kept and
+    /// simply unreachable: one newer level must not make an older gateway
+    /// refuse the whole signed catalogue.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort_levels: Option<Vec<String>>,
+}
+
+impl ModelControls {
+    fn is_empty(&self) -> bool {
+        self.effort_levels.is_none()
     }
 }
 
@@ -143,6 +182,10 @@ pub struct CatalogModel {
     /// The gateway exposes only the intersection with features it implements.
     #[serde(default, skip_serializing_if = "ModelCapabilities::is_empty")]
     pub capabilities: ModelCapabilities,
+    /// Per-model narrowing of capabilities; see [`ModelControls`]. Absent
+    /// (every catalogue signed before it) is omitted when serialized.
+    #[serde(default, skip_serializing_if = "ModelControls::is_empty")]
+    pub controls: ModelControls,
     /// Prices. See [`ModelPrices`] for units.
     pub prices: ModelPrices,
     /// The minimum charge per call, in whole 2Z.
