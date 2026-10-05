@@ -126,9 +126,10 @@ async fn main() -> Result<(), Error> {
     //    you want to recover the receipt after a crash — for 24 hours; after
     //    that a re-send is a NEW billable call; `with_max_retries(0)` keeps one key = one
     //    billable attempt (same-key network recovery stays on).
-    let key = "persist-me-before-sending-3f9c";
+    //    A FRESH key per new operation; reuse one only to recover that call.
+    let key = new_idempotency_key();
     let options = ChatOptions::default()
-        .with_idempotency_key(key)
+        .with_idempotency_key(key.clone())
         .with_max_retries(0);
     let mut stream = match client.ai().chat_with(request, options).await {
         Ok(stream) => stream,
@@ -244,4 +245,15 @@ fn error_copy(error: &Error) -> String {
         } => format!("unknown outcome: re-send with key {idempotency_key}"),
         other => other.to_string(),
     }
+}
+
+/// 128 random bits, hex: one per new operation. Persist it with the request
+/// before sending; re-send it only to recover that same call.
+fn new_idempotency_key() -> String {
+    use ring::rand::SecureRandom;
+    let mut bytes = [0_u8; 16];
+    ring::rand::SystemRandom::new()
+        .fill(&mut bytes)
+        .expect("system randomness");
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
