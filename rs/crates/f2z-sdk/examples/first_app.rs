@@ -90,7 +90,11 @@ async fn main() -> Result<(), Error> {
     .with_response_format(ResponseFormat::JsonSchema {
         json_schema: JsonSchemaFormat {
             name: "activity".into(),
-            schema: serde_json::json!({
+            // Parsed from text, not `json!`: an `OrderedJson` keeps the
+            // members in the order written, and the model writes the reply's
+            // keys in schema order (`title` before `steps`). A `json!` value
+            // has already sorted them.
+            schema: r#"{
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
@@ -98,7 +102,9 @@ async fn main() -> Result<(), Error> {
                     "steps": {"type": "array", "items": {"type": "string"}}
                 },
                 "required": ["title", "steps"]
-            }),
+            }"#
+            .parse()
+            .expect("a valid JSON schema"),
             strict: Some(true),
         },
     });
