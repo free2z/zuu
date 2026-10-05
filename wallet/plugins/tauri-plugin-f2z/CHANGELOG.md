@@ -5,7 +5,8 @@
 - Errors carry the server's documented refusal `details` (`required_2z`,
   `available_milli_2z`, `cap_remaining_milli_2z`, `resets_at`, `reason`,
   `field`, …; integers as decimal strings). Undocumented members are dropped.
-
+- `ChatRequest.tool_choice` / `parallel_tool_calls` pass through to the
+  gateway (free2z/zuu#1128).
 - Native Free2Z sign-in/session, exact balance, card/Zcash purchase and AI APIs.
 - OS credential storage and system browser adapters for desktop, iOS and Android.
 - Explicit command permissions and bounded, window/account-scoped pull streams.
@@ -20,3 +21,7 @@
 - `ModelCatalog.models` is typed (`CatalogModel`, `ModelCapabilities`):
   `capabilities.structured_output`/`tools`/`vision`/`reasoning` are booleans;
   limits are decimal strings. Types only; the IPC value is unchanged.
+- Sign-in rejections say why the browser step ended (free2z/zuu#1128):
+  `user_cancelled` (iOS `ASWebAuthenticationSession` cancel, Android Custom Tab
+  dismissal), `browser_unavailable`, `timeout`. `browser_error` stays the
+  fallback for anything else; the guest API exports `SignInErrorCode`.

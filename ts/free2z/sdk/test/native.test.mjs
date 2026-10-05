@@ -551,3 +551,26 @@ test("native models decodes the plugin's decimal-string catalogue", async () => 
     );
   }
 });
+
+test("native sign-in rejection codes reach the app unchanged and are never retryable", async () => {
+  for (const code of [
+    "user_cancelled",
+    "browser_unavailable",
+    "timeout",
+    "browser_error",
+  ]) {
+    const client = new Client(
+      new NativeTransport(
+        bridge({
+          signIn: async () => {
+            throw { code, retryable: false };
+          },
+        }),
+      ),
+    );
+    await assert.rejects(
+      client.signIn(),
+      (e) => e.name === "SdkError" && e.code === code && e.retryable === false,
+    );
+  }
+});

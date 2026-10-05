@@ -608,6 +608,9 @@ suite exercises the same list from the other side.
   the user out.
 - Opens the system browser or the platform's authentication session for
   sign-in; never an embedded web view.
+- Reports why a sign-in ended without a callback — the user cancelled, no
+  browser could be shown, or the deadline passed — distinctly from any other
+  browser failure ([errors.md](./errors.md) §5.1).
 
 ## 12. What the IdP guarantees to a resource server
 

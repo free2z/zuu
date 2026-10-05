@@ -75,7 +75,7 @@ Inside an SSE stream, the terminal `error` event carries `code` and
 
 | Status | `code` | Retry | Meaning | `details` |
 |---|---|---|---|---|
-| 400 | `invalid_request` | no | A field is missing, malformed or out of range; an unknown field was sent; an image part on a model without vision; a `response_format` the model cannot honour (`reason: "response_format_unsupported"`) or of an unknown `type` (`field: "response_format.type"`, `reason: "unsupported"`); with `max_output_tokens_strict`, a `max_output_tokens` above the model's | `field`, `reason`, `max_output_tokens`, `model_max_output_tokens` (strict only) |
+| 400 | `invalid_request` | no | A field is missing, malformed or out of range; an unknown field was sent; an image part on a model without vision; a `response_format` the model cannot honour (`reason: "response_format_unsupported"`), a `tool_choice` / `parallel_tool_calls` it cannot express (`reason: "tools_unsupported"`, `field` naming it) or of an unknown `type` (`field: "response_format.type"`, `reason: "unsupported"`); with `max_output_tokens_strict`, a `max_output_tokens` above the model's | `field`, `reason`, `max_output_tokens`, `model_max_output_tokens` (strict only) |
 | 400 | `context_length_exceeded` | no | The input does not fit the model's context window with at least one output token — or, with `max_output_tokens_strict`, with `max_output_tokens` of them | `input_tokens_estimate`, `context_window`, `reason`, `max_output_tokens` (strict only) |
 | 402 | `insufficient_balance` | no (until topped up) | The user's available 2Z cannot cover the model's minimum charge for this request — or, with `max_output_tokens_strict`, the worst case of the full `max_output_tokens` | `available_milli_2z`, `required_2z` (the minimum hold for one output token; with strict, the hold for `max_output_tokens`), `min_charge_2z`, `reason`, `max_output_tokens` (strict only) |
 | 403 | `cap_exceeded` | no (until the period resets or the user raises the cap) | The grant's spend cap for the current period cannot cover the minimum charge — or, with `max_output_tokens_strict`, the worst case of the full `max_output_tokens` | `cap_2z`, `cap_period`, `cap_remaining_milli_2z`, `resets_at` (`null` for `total`), `reason`, `required_2z`, `max_output_tokens` (strict only) |
@@ -139,6 +139,27 @@ missing or not registered, the IdP MUST NOT redirect (RFC 6749 §4.1.2.1)
 — it shows an error page and the client's callback is never invoked. An
 SDK therefore treats "no callback within its timeout" as a failed sign-in
 that is almost always a registration mistake.
+
+### 5.1 Sign-in that ends at the browser (SDK-local)
+
+Not IdP codes and never on the wire: an SDK reports them when the browser
+step ends **without any callback**, so an app can tell a deliberate cancel
+from a failure. The native Tauri plugin (`tauri-plugin-f2z`) and the
+TypeScript `NativeTransport` report:
+
+| `code` | Retry | Meaning | Client action |
+|---|---|---|---|
+| `user_cancelled` | no | The user dismissed the sign-in sheet: iOS `ASWebAuthenticationSession` cancel, or returning to the Android app from the Custom Tab without a callback (Android cannot tell that apart from a browser that closed itself) | Not an error. Leave the sign-in button available; do not show a failure |
+| `browser_unavailable` | no | No browser or authentication session could be shown: no default browser, no window to present from, or the session refused to start. Nothing was shown | Explain that sign-in needs a browser |
+| `timeout` | no | No callback before the deadline (300 s on iOS/Android; `callback_timeout` on desktop). Desktop cannot observe a closed browser tab, so a desktop cancel arrives as this. Also the §5 registration mistake | Offer sign-in again; if it persists, check the registration |
+| `browser_error` | no | Any other browser or session failure, and **every** one from a plugin older than these codes | The fallback. Always handle it |
+
+These are additive: `browser_error` remains, and an app that handled only it
+keeps working. Switch on the code and keep a default branch. The IdP's own
+refusal (`access_denied`, …) is unchanged — it arrives as a callback.
+The Rust SDK's equivalents are `Error::UserCancelled`,
+`Error::BrowserUnavailable`, `Error::Timeout` and `Error::Browser`; an
+`AuthSession` implementation returns the most specific one it can.
 
 ## 6. Purchases
 

@@ -471,6 +471,81 @@ async fn an_unregistered_redirect_times_out_as_a_registration_mistake() {
     ));
 }
 
+#[tokio::test]
+async fn a_browser_that_cannot_open_is_browser_unavailable_not_a_timeout() {
+    let fake = Fake::start().await;
+    let config = fake.config().with_callback_timeout(Duration::from_secs(5));
+    let store = Arc::new(MemoryStore::new());
+    let client = Client::new(config, store.clone()).unwrap();
+    let session =
+        LoopbackSession::bind(|_: &str| -> Result<(), String> { Err("no default browser".into()) })
+            .await
+            .unwrap();
+    let started = std::time::Instant::now();
+    assert!(matches!(
+        client.sign_in(&session, SignInOptions::default()).await,
+        Err(Error::BrowserUnavailable(_))
+    ));
+    // It failed at once, not by waiting out the callback timeout.
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(store.load(&account(&fake)).unwrap().is_none());
+}
+
+/// How to make a rejection, and how to recognise it again.
+type Reason = (fn() -> Error, fn(&Error) -> bool);
+
+/// An `AuthSession` that ends without a callback, for a stated reason.
+struct Rejecting(fn() -> Error);
+
+impl f2z_sdk::oauth::AuthSession for Rejecting {
+    fn redirect_uri(&self) -> &str {
+        MOBILE_REDIRECT
+    }
+    fn authorize<'a>(
+        &'a self,
+        _: &'a f2z_sdk::oauth::AuthorizationRequest,
+    ) -> f2z_sdk::oauth::BoxFuture<'a, Result<String, Error>> {
+        let error = (self.0)();
+        Box::pin(async move { Err(error) })
+    }
+}
+
+/// The reason a platform session gives for ending reaches the caller as that
+/// reason: a cancel is not folded into a failure, nor a failure into a cancel.
+#[tokio::test]
+async fn a_sessions_rejection_reason_reaches_the_caller_unchanged() {
+    let fake = Fake::start().await;
+    let store = Arc::new(MemoryStore::new());
+    let client = Client::new(fake.config(), store.clone()).unwrap();
+    let reasons: [Reason; 4] = [
+        (
+            || Error::UserCancelled,
+            |e| matches!(e, Error::UserCancelled),
+        ),
+        (
+            || Error::BrowserUnavailable("no window".into()),
+            |e| matches!(e, Error::BrowserUnavailable(_)),
+        ),
+        (
+            || Error::Timeout("the sign-in redirect"),
+            |e| matches!(e, Error::Timeout(_)),
+        ),
+        (
+            || Error::Browser("ended".into()),
+            |e| matches!(e, Error::Browser(_)),
+        ),
+    ];
+    for (make, expected) in reasons {
+        let error = client
+            .sign_in(&Rejecting(make), SignInOptions::default())
+            .await
+            .unwrap_err();
+        assert!(expected(&error), "{error:?}");
+        assert!(!error.is_signed_out());
+    }
+    assert!(store.load(&account(&fake)).unwrap().is_none());
+}
+
 /// A sign-out that completes while a sign-in waits on the browser wins: the
 /// late sign-in installs nothing and revokes what it was issued.
 #[tokio::test]

@@ -1,0 +1,255 @@
+{
+  "about": "Recorded / documented Anthropic Messages SSE streams (tool_use.sse is the streaming tool-use example from Anthropic's Messages streaming documentation; the others follow the same documented event grammar) and what the gateway must make of each. `request` is the /v1/chat request the adapter is bound to. No real provider call is ever made.",
+  "cases": [
+    {
+      "name": "client tool call: text then one tool_use, streamed as input_json_delta",
+      "fixture": "tool_use.sse",
+      "request": {
+        "model": "m-anthropic",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Weather in SF?"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "get_weather",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "text": "Okay, let's check the weather for San Francisco, CA:",
+        "tool_calls": [
+          {
+            "id": "toolu_01T1x1fJ34qAmk2tNTrN7Up6",
+            "name": "get_weather",
+            "arguments": "{\"location\": \"San Francisco, CA\", \"unit\": \"fahrenheit\"}"
+          }
+        ],
+        "finish_reason": "tool_calls",
+        "usage": {
+          "input_tokens": 472,
+          "output_tokens": 89
+        }
+      }
+    },
+    {
+      "name": "parallel tool calls: two tool_use blocks, in order, ids unchanged",
+      "fixture": "parallel_tool_use.sse",
+      "request": {
+        "model": "m-anthropic",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Weather and time in Paris?"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "get_weather",
+            "parameters": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "get_time",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "text": "",
+        "tool_calls": [
+          {
+            "id": "toolu_01A",
+            "name": "get_weather",
+            "arguments": "{\"location\": \"Paris\"}"
+          },
+          {
+            "id": "toolu_01B",
+            "name": "get_time",
+            "arguments": "{\"timezone\": \"Europe/Paris\"}"
+          }
+        ],
+        "finish_reason": "tool_calls",
+        "usage": {
+          "input_tokens": 610,
+          "output_tokens": 71
+        }
+      }
+    },
+    {
+      "name": "response_format json_schema: the forced tool's input is the reply's text, streamed fragment by fragment",
+      "fixture": "response_format.sse",
+      "request": {
+        "model": "m-anthropic",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "An activity about fractions."
+              }
+            ]
+          }
+        ],
+        "response_format": {
+          "type": "json_schema",
+          "json_schema": {
+            "name": "activity_spec",
+            "strict": true,
+            "schema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "title",
+                "steps"
+              ],
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "steps": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "text": "{\"title\": \"Fractions\", \"steps\": [\"Cut the pie\", \"Count the slices\"]}",
+        "text_deltas": 3,
+        "tool_calls": [],
+        "finish_reason": "stop",
+        "usage": {
+          "input_tokens": 388,
+          "output_tokens": 42
+        }
+      }
+    },
+    {
+      "name": "response_format json_object cut off by max_tokens: the partial JSON, finish length",
+      "fixture": "response_format_max_tokens.sse",
+      "request": {
+        "model": "m-anthropic",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "List two letters as JSON."
+              }
+            ]
+          }
+        ],
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "expect": {
+        "text": "{\"items\": [\"a\", \"b",
+        "text_deltas": 1,
+        "tool_calls": [],
+        "finish_reason": "length",
+        "usage": {
+          "input_tokens": 120,
+          "output_tokens": 16
+        }
+      }
+    },
+    {
+      "name": "response_format refused by the model as text: the text is delivered (never deleted while charged), finish content_filter",
+      "fixture": "response_format_refusal.sse",
+      "request": {
+        "model": "m-anthropic",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Something it declines."
+              }
+            ]
+          }
+        ],
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "expect": {
+        "text": "I can't help with that request.",
+        "text_deltas": 1,
+        "tool_calls": [],
+        "finish_reason": "content_filter",
+        "usage": {
+          "input_tokens": 402,
+          "output_tokens": 9
+        }
+      }
+    },
+    {
+      "name": "negative control: the same forced-tool stream bound to a request WITHOUT response_format is a tool call",
+      "fixture": "response_format.sse",
+      "request": {
+        "model": "m-anthropic",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "An activity about fractions."
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "activity_spec",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "text": "",
+        "tool_calls": [
+          {
+            "id": "toolu_01Fmt",
+            "name": "activity_spec",
+            "arguments": "{\"title\": \"Fractions\", \"steps\": [\"Cut the pie\", \"Count the slices\"]}"
+          }
+        ],
+        "finish_reason": "tool_calls",
+        "usage": {
+          "input_tokens": 388,
+          "output_tokens": 42
+        }
+      }
+    }
+  ]
+}
