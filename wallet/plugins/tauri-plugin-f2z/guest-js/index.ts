@@ -142,9 +142,23 @@ export interface PurchaseRequest { rail: 'card' | 'zcash'; quantity2z: Decimal; 
 export interface ChatOperation { operationId: string; idempotencyKey: string }
 export interface ChatOpened { operationId: string; callId?: string; replay?: CallRecord }
 export interface PollOptions { timeoutMs?: number }
+/**
+ * Why `signIn` ended without signing in, when the platform can tell:
+ * - `user_cancelled`: the user dismissed the sign-in sheet or Custom Tab
+ *   (iOS/Android). A choice, not a failure: offer sign-in again quietly.
+ * - `browser_unavailable`: no browser or authentication session could be shown.
+ * - `timeout`: no callback before the deadline (desktop cannot see a closed
+ *   browser tab, so its cancel arrives as this).
+ * - `browser_error`: any other browser or session failure, and every sign-in
+ *   failure from a native core older than these codes. Always handle it.
+ * Sign-in can also reject with IdP codes (`access_denied`, …) and others;
+ * keep a default branch.
+ */
+export type SignInErrorCode = 'user_cancelled' | 'browser_unavailable' | 'timeout' | 'browser_error';
 /** Native errors deliberately omit raw provider, transport and storage messages. */
 export interface NativeError {
-  code: string; retryable: boolean; status?: number; retryAfterSeconds?: Decimal;
+  /** Switch on this. A code newer than your app arrives unchanged; keep a default branch. */
+  code: SignInErrorCode | (string & {}); retryable: boolean; status?: number; retryAfterSeconds?: Decimal;
   callId?: string; idempotencyKey?: string;
   stepUp?: { maxAge?: Decimal | null; acrValues?: string | null }; record?: CallRecord;
 }
@@ -166,6 +180,7 @@ export interface Grant {
 }
 export interface NativeBridge {
   session(): Promise<Session>;
+  /** Rejects with a `NativeError`; see `SignInErrorCode` for why the browser step ended. */
   signIn(options?: SignInOptions): Promise<Session>;
   signOut(): Promise<{ revoked: boolean; generation: string }>;
   balance(): Promise<Balance>;

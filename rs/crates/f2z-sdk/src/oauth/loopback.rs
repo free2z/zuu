@@ -196,7 +196,9 @@ impl<O: UrlOpener> AuthSession for LoopbackSession<O> {
         request: &'a AuthorizationRequest,
     ) -> BoxFuture<'a, Result<String, Error>> {
         Box::pin(async move {
-            self.opener.open(&request.url).map_err(Error::Browser)?;
+            self.opener
+                .open(&request.url)
+                .map_err(Error::BrowserUnavailable)?;
             self.listener
                 .next_callback(
                     "Signed in to Free2Z. You can close this window and return to the app.",

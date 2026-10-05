@@ -69,6 +69,23 @@ export interface SignInOptions {
   spendCap?: SpendCapHint;
   signal?: AbortSignal;
 }
+/**
+ * `SdkError.code` when a `NativeTransport` sign-in ends at the browser
+ * step without signing in:
+ * - `user_cancelled`: the user dismissed the iOS sign-in sheet or the Android
+ *   Custom Tab. A choice, not a failure: offer sign-in again quietly.
+ * - `browser_unavailable`: no browser or authentication session could be shown.
+ * - `timeout`: no callback before the deadline. Desktop cannot see a closed
+ *   browser tab, so a desktop cancel arrives as this.
+ * - `browser_error`: any other browser or session failure, and every one from
+ *   a native plugin older than these codes. Always handle it.
+ *
+ * Sign-in also rejects with other codes (`access_denied`, …); keep a default
+ * branch. The web `PopupAuthSession` reports its own codes (`cancelled`,
+ * `popup_blocked`, `auth_timeout`, `browser_unavailable`).
+ */
+export type NativeSignInErrorCode =
+  "user_cancelled" | "browser_unavailable" | "timeout" | "browser_error";
 export interface ToolCall {
   id: string;
   name: string;
