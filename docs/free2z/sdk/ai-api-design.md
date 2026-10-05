@@ -50,8 +50,8 @@ extension members and `X-F2Z-*` headers that those SDKs tolerate.
 5. **Capabilities are four booleans**; a developer cannot ask "which effort
    levels, which media types, how many tools" and a declared capability has
    no executable proof. (§2.19, §3.3)
-6. **Multimodal is images only**, base64 only, no PDFs; the hold has no
-   per-image token bound beyond the byte estimate. (§2.4)
+6. **Multimodal is not metered at all**: image parts are specified but the
+   metered gateway refuses them (no image term in the hold); no PDFs. (§2.4)
 7. Prompt caching is reported but not controllable; Anthropic cache-write
    TTLs are mis-priced (#1059). (§2.6)
 8. Non-chat modalities (embeddings, image generation, TTS/STT, moderation,
@@ -72,7 +72,7 @@ dependency map and the parallel waves.
 | Surface | Today |
 |---|---|
 | Routes | `POST /v1/chat`, `POST /v1/chat/estimate`, `GET /v1/models`, `GET /v1/calls/{id}` (gateway `server.rs`); admin `/healthz`, `/readyz`, `/metrics` |
-| Request (`f2z-ai-proto::ChatRequest`, `deny_unknown_fields`) | `model`, `messages[]` (`system`/`user`/`assistant`/`tool`; parts `text`, `image` base64), `tools[]` (`name`, `description`, `parameters`), `max_output_tokens`, `max_output_tokens_strict`, `stream`, `metadata`, `fallback[]`, `response_format` (`json_schema` / `json_object`, #1129) |
+| Request (`f2z-ai-proto::ChatRequest`, `deny_unknown_fields`) | `model`, `messages[]` (`system`/`user`/`assistant`/`tool`; parts `text`, `image` base64), `tools[]` (`name`, `description`, `parameters`), `max_output_tokens`, `max_output_tokens_strict`, `stream`, `metadata`, `fallback[]`, `response_format` (`json_schema` / `json_object`, #1129). **Specified and typed but refused by the metered gateway today:** `image` parts and a non-empty `fallback` — `meter::plan` answers `400 invalid_request` ("this gateway release supports text input and a single model"), and finalisation supports one attempt. Both are gaps below (§2.4, §2.23), not features |
 | Events | `meta`, `delta` (text only), `tool_call` (complete), `usage`, `done`, `error`; `: ping` every 15 s; no `Last-Event-ID` |
 | Usage | `input_tokens`, `cached_input_tokens`, `cache_write_tokens`, `output_tokens` (incl. reasoning), `reasoning_tokens`, `images`, `tool_calls` (server-side only, #1066) |
 | Adapters | `openai_responses`, `openai_chat` (OpenAI + xAI), `anthropic_messages`; usage normalisation per provider; retries only before a 2xx head; circuit breaker; header allowlist; no URL fetch |
@@ -173,20 +173,22 @@ JSON pointer of the offending keyword, per `api_style`. Billing unchanged.
 
 | Input | OpenAI CC | Responses | Anthropic | xAI | We have / gap |
 |---|---|---|---|---|---|
-| Image (base64) | `image_url` data URL, `detail` | `input_image` | `image` `base64` | as CC | have (`image` part, 4 media types, 20/request); no `detail` |
+| Image (base64) | `image_url` data URL, `detail` | `input_image` | `image` `base64` | as CC | **wire only**: the `image` part (4 media types, 20/request) is specified, decoded and sent by the adapters, but `meter::plan` refuses it because the hold has no image term; no `detail` |
 | Image (URL) | ✓ | ✓ | ✓ | ✓ | **refuse by design** (no URL fetch); compat decodes only `data:` URLs → `reason: "url_fetch_unsupported"` |
 | PDF / document | `file` with `file_data` (base64) | `input_file` | `document` (base64 PDF, text) | — | **gap**; priced as tokens (text + page images) by both providers |
 | Audio in | `input_audio` (gpt-4o-audio, per audio token) | ✓ | — | — | **gap**; needs an audio token price dimension → deferred |
 | Video | — | — | — | — (Grok vision = images) | n/a |
 
 **Hold bound:** images on token-billed providers (`openai`, `anthropic`,
-tuzi `TOKEN_BILLED_IMAGE_PROVIDERS`) enter `input_tokens`; today the
-estimate is the byte-based bound (f2z-ai README). A PDF page is 1,500–3,000
-tokens on Anthropic. §3.5.3 adds signed per-model bounds
-(`limits.image_tokens_max`, `limits.pdf_tokens_per_page_max`,
-`limits.pdf_pages_max`) so the hold is computed from a declared number and
-`413`/`400` refusals name the limit. A model without `capabilities.pdf_input`
-refuses the part before any hold.
+tuzi `TOKEN_BILLED_IMAGE_PROVIDERS`) enter `input_tokens`, and today the
+plan has no term for them, which is why it refuses the part. §3.5.3 gives
+the hold a real bound per input kind — the provider's documented sizing
+formula applied to the image's actual dimensions, and a byte bound for
+documents — with the formula's parameters and ceilings signed per model
+(`controls.image_tokenizer`, `limits.image_tokens_max`,
+`limits.pdf_pages_max`, `limits.document_bytes_max`), never a gateway
+constant. A model without `capabilities.pdf_input` refuses the part before
+any hold.
 
 ### 2.5 Reasoning controls
 
@@ -408,6 +410,19 @@ accepted where the catalogue says so, else refused.
 | 8 | `cache_control`, 1 h writes | long-system-prompt apps | S4 |
 | 9 | Extensions on compat (strict budget, estimate, caps, receipts) | every compat user who wants Free2Z's guarantees | S11 |
 | 10 | Embeddings | RAG apps | S13 |
+| 11 | `fallback` refused by the metered path | apps that want outage resilience the spec promises | S12 |
+
+### 2.23 Fallback
+
+chat-api.md §2.1 and metering.md §5.7 specify ordered `fallback` with one
+hold per attempt and `meta.requested_model`; `ChatRequest::attempts()` and
+`ErrorCode::falls_back()` exist. **The metered gateway refuses any non-empty
+`fallback` (`meter::plan`) and its finalisation records one attempt.** No
+provider has an equivalent (it is a Free2Z feature), so the only gap is
+ours: S12 implements the lifecycle the spec already has — release the
+failed attempt's hold, take the next at the next model's price, each model
+once, never after `meta`, never after a disconnect — and only then do the
+compat carriers of §3.2 expose it.
 
 ## 3. Design
 
@@ -518,18 +533,31 @@ Pinned by fixtures (§3.4), including the official SDKs' parsers.
 | `tool_call` (complete) | nothing new (the deltas were authoritative-enough; a client that only reads complete calls sees the same text) — the renderer emits a delta per call when no fragments were streamed | `function_call_arguments.done` + `output_item.done` | `content_block_stop` |
 | `usage` | last chunk `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`, `prompt_tokens_details.cached_tokens`, `completion_tokens_details.reasoning_tokens`) | on `response.completed` | `message_delta.usage` (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`) |
 | `done` | last chunk `finish_reason`, `f2z` with settlement; then `data: [DONE]` | `response.completed` (or `response.incomplete` for `length`) with `response.f2z` | `message_delta` (`stop_reason`, `f2z`) + `message_stop` |
-| `error` before `meta` | HTTP status with the superset envelope (the stream has not started: compat endpoints send headers at `meta`, not at the hold — see below) | same | same |
-| `error` after `meta` | a chunk `{"error": {…superset…}}` then close — `openai-python`/`openai-node` raise `APIError` on an `error` member in a chunk | `response.failed` with `response.error` + `f2z` | `event: error` with the Anthropic error shape + `f2z` |
+| `error` before the HTTP response (steps 1–6) | HTTP status with the superset envelope | same | same |
+| `error` inside the stream (step 7 onwards, before or after `meta`) | a chunk `{"error": {…superset…}}` then close — `openai-python`/`openai-node` raise `APIError` on an `error` member in a chunk and **do not retry** (retries are decided on the HTTP status) | `response.failed` with `response.error` + `f2z` | `event: error` with the Anthropic error shape + `f2z` |
 
-**Headers at `meta`, not at the hold.** The native route sends `200` as soon
-as the hold exists so that `: ping` can flow and a pre-`meta` failure can
-still be an `error` event. The official SDKs want HTTP errors as HTTP
-status codes. The compat renderers therefore hold the response until `meta`
-(bounded by the model's `ttfb_timeout_ms` — the same bound the native route
-has for a lone pre-`meta` error) and send a real status for every pre-`meta`
-failure, including `fallback` exhaustion; `: ping` begins after `meta`.
-Nothing about the call's lifecycle changes; only when the first bytes go to
-the socket.
+**Headers at the hold, exactly as the native route.** A streamed compat
+call sends `200` and its headers when the hold exists (chat-api.md §2.2),
+`: ping` comments flow every 15 s while the provider is contacted (the
+Stainless SSE decoders skip comment lines), and every failure from step 7
+on — including one the provider may already have accepted and billed —
+arrives as an in-stream error chunk, which the official SDKs surface as an
+error and never retry at the HTTP level. That matters: the gateway itself
+never re-sends a request after the provider could have accepted it
+(`provider/upstream.rs`), and a compat design that turned those failures
+into `5xx` statuses would hand that retry to an SDK that retries `5xx`
+by default — a second paid upstream request. For the same reason the
+compat quickstart tells developers to keep the SDK's default `stream: true`
+where they can. **Non-streamed** compat calls have the native route's
+exposure (chat-api.md §4: a failure after acceptance is a `502` carrying
+`f2z.settlement`): the guard is the `Idempotency-Key` — a retry carrying the
+same key meets the running or terminal record (§3.1.5) and starts no
+provider call. Whether a given official SDK attaches a key on its automatic
+retries is **observed by the conformance job (§3.4 rule 4), not assumed**;
+for an SDK that does not, the quickstart sets `maxRetries: 0` for
+non-streamed calls and the renderer adds `Retry-After` only to the
+retryable pre-acceptance statuses (`429`, `503`), never to a `502` whose
+provider attempt was accepted.
 
 **xAI through the Chat Completions encoding** is the native shape with one
 difference the renderer preserves: `completion_tokens` excludes reasoning
@@ -618,8 +646,8 @@ Two equivalent carriers; **both present and different → `400`
 | Extension | Body `f2z.…` | Header | Native field | Semantics |
 |---|---|---|---|---|
 | Strict budget | `max_output_tokens_strict: true` | `X-F2Z-Max-Output-Tokens-Strict: true` | exists | refuse instead of clamp (chat-api.md §2.1) |
-| Per-call cap (new) | `max_charge_2z: 5` | `X-F2Z-Max-Charge-2z: 5` | `max_charge_2z` (S11) | the hold may not exceed it: `out_cap` is clamped to what it affords; with strict, refused (`403 cap_exceeded`, `reason: "max_charge_2z"`) |
-| Fallback | `fallback: ["m2"]` | `X-F2Z-Fallback: m2,m3` | exists | ordered; renderers hide the switch except in `f2z.model` |
+| Per-call cap (new) | `max_charge_2z: 5` | `X-F2Z-Max-Charge-2z: 5` | `max_charge_2z` (S11) | a **ceiling on collection, not only on the hold**: `out_cap` is clamped to what the ceiling affords (with strict, refused: `403 cap_exceeded`, `reason: "max_charge_2z"`), the ceiling is persisted on the hold (`hold(… max_collect_milli_2z)`, S11's tuzi half), `extend` may not raise the reservation past it, and `settle` collects at most the ceiling — a charge above it is `shortfall_milli_2z`, written off like metering.md §5.5, never taken from the user. Without the ledger half the field is refused, not accepted as a hint |
+| Fallback | `fallback: ["m2"]` | `X-F2Z-Fallback: m2,m3` | spec'd; refused by the metered path today (§2.23) | ordered; renderers hide the switch except in `f2z.model`. **Requires S12**; until it lands the compat carriers refuse it exactly as the native field is refused |
 | Estimate (dry run) | `estimate: true` | `X-F2Z-Estimate: true` | `/v1/chat/estimate` | answers `200` with the native `EstimateResponse` (not a completion) — the compat endpoint *is* the estimate endpoint with this flag; errors exactly as the call would |
 | Metadata | OpenAI/Responses native `metadata`; Messages `f2z.metadata` | — | exists | 16 keys |
 | Receipts | — | — | `GET /v1/calls/{id}` | the response-side `f2z` object (below) carries the settlement |
@@ -676,11 +704,13 @@ from a model name, never a gateway constant).
     "controls": {
       "tool_choice": ["auto", "none", "required", "named"], "effort_levels": [], "effort_budgets": {},
       "image_media_types": ["image/png", "image/jpeg", "image/webp", "image/gif"], "image_detail": ["auto", "low", "high"],
-      "system_role": "system", "structured_output_mode": "native", "hosted_tools": []
+      "system_role": "system", "structured_output_mode": "native", "hosted_tools": [],
+      "image_tokenizer": "openai_tiles"
     },
     "limits": {
       "tools_max": 128, "tool_schema_bytes_max": 32768, "response_schema_bytes_max": 32768,
-      "images_max": 20, "image_tokens_max": 1105, "documents_max": 5, "pdf_pages_max": 100, "pdf_tokens_per_page_max": 3000,
+      "images_max": 20, "image_tokens_max": 1445, "documents_max": 5, "pdf_pages_max": 100,
+      "document_bytes_max": 33554432, "pdf_page_image_tokens": 1445,
       "stop_sequences_max": 4, "cache_breakpoints_max": 0, "hosted_tool_calls_max": 0, "temperature_max": 2
     },
     "encodings": ["native", "chat_completions", "responses", "messages"],
@@ -773,9 +803,9 @@ balances in milli-2Z, provider cost in nano-USD.
 Identical: hold at the dearest input rate for `out_cap`, extend every 60 s
 and on each `tool_call`, settle from provider usage. The renderer buffers
 nothing beyond the native 256 KiB delivery buffer; `delivery_aborted` maps
-to the encoding's error shape with `settlement: pending` in `f2z`. Holding
-headers until `meta` (§3.1.2) does not move the hold: it is still taken at
-step 6 and extended on schedule.
+to the encoding's error shape with `settlement: pending` in `f2z`. Headers
+go out at the hold (§3.1.2), so the hold is taken at step 6 and extended on
+schedule exactly as for a native stream.
 
 #### 3.5.2 Tool-call deltas, hosted tools
 
@@ -789,16 +819,37 @@ released and written off, never guessed, as for tokens.
 
 #### 3.5.3 Multimodal and cached tokens
 
-- **Images** on token-billed providers: `input_est += images ×
-  limits.image_tokens_max` (signed per model; OpenAI high-detail ≤ 1,105
-  tokens for ≤ 2048 px, Anthropic ≤ ~1,600; `detail: low` → 85 on OpenAI).
-  Per-image-priced providers keep `image_nusd × images`. Both bounds live in
-  the catalogue, never in code.
-- **PDFs**: `input_est += pages × limits.pdf_tokens_per_page_max`, with
-  `pages` read from the PDF's page tree by the gateway (a bounded parse,
-  refused above `limits.pdf_pages_max` or 32 MiB); a document the gateway
-  cannot page-count is refused (`reason: "document_unreadable"`), not
-  estimated.
+- **Images** on token-billed providers: the gateway reads the width and
+  height from the image header (PNG, JPEG, WebP, GIF — a few bytes; an
+  image whose dimensions it cannot read is refused, `reason:
+  "image_unreadable"`, never estimated) and applies the provider's
+  **documented sizing formula**, selected by the signed
+  `controls.image_tokenizer`: `openai_tiles` (fit within 2048², shortest
+  side to 768, `85 + 170 × ⌈w/512⌉ × ⌈h/512⌉`; `detail: low` → 85; the
+  worst case over all aspect ratios is a 2048×768 image, 8 tiles, **1,445**
+  tokens), `anthropic_area` (`⌈w × h / 750⌉` after the 1568 px long-side
+  resize, ≤ ~1,600), `xai_tiles` (per docs.x.ai). `limits.image_tokens_max`
+  is the signed ceiling the formula's result may not exceed (a formula
+  drift is a refusal, not an under-reservation). Per-image-priced providers
+  keep `image_nusd × images`. The formula parameters and ceilings are
+  signed; the gateway holds the arithmetic and its fixtures.
+- **PDFs**: a page count is **not** a bound — Anthropic's 1,500–3,000
+  tokens per page is typical text usage, and each page is additionally
+  sent as an image. The bound the hold uses is one that holds by
+  construction: every BPE token encodes at least one byte, so the UTF-8
+  size of the document's text is an upper bound on its text tokens. The
+  gateway parses the PDF with a bounded reader (refuses above
+  `limits.document_bytes_max` compressed and 8× that inflated, above
+  `limits.pdf_pages_max` pages, or anything it cannot parse —
+  `reason: "document_unreadable"`), inflates its content streams, and
+  reserves `text_bytes + pages × page_image_tokens` where
+  `page_image_tokens` is the image formula above at the provider's page
+  render size (signed as `limits.pdf_page_image_tokens`). Where the provider
+  offers a free, exact count (Anthropic `count_tokens`), the gateway uses
+  it in place of the byte bound when it answers within 5 s, and falls back
+  to the byte bound, never to a guess. The over-reservation of a byte bound
+  (≈ 3–4× for English prose) is released at settlement; it is the price of
+  a hold that is actually a hold.
 - **Cached reads** settle at `cached_input_nusd_per_mtok` (already); the
   hold stays at the dearest input rate (metering.md §4), so caching only
   ever lowers the charge below the hold.
@@ -868,10 +919,11 @@ until #1142, #1140 and #1143 merge**: every slice that touches
 | **S7** `/v1/messages` + `count_tokens` + Anthropic envelope + `x-api-key` | new `compat/anthropic_messages.rs`; shares S6's compat infrastructure | S6, S3 (thinking blocks) |
 | **S8** `/v1/responses` (stateless subset; `text.format`; `reasoning`; refusals for state/hosted) + Responses adapter tool controls (the refusal #1142 leaves) | new `compat/openai_responses.rs`; `provider/openai_responses.rs` tool_choice/parallel/strict | S6, S3 |
 | **S4** Prompt caching (`cache_control`, `prompt_cache_key`), 1 h refusal, cache usage in every encoding | proto parts, Anthropic adapter, OpenAI adapters, catalogue bools, spec | S3 |
-| **S5** Multimodal: `image.detail`, `document` (PDF) part, data-URL decoding in compat, signed token bounds in the hold, page counting | proto `ContentPart::Document`, `meter` estimate, adapters, catalogue `limits`, spec | S4 |
+| **S5** Multimodal: **images admitted by the metered path** (dimension read + signed sizing formula in the hold), `image.detail`, `document` (PDF) part with the byte bound, data-URL decoding in compat | proto `ContentPart::Document`, `meter` estimate, adapters, catalogue `controls`/`limits`, spec | S4 |
+| **S12** Fallback lifecycle: one hold per attempt, release-and-retake before `meta`, `meta.requested_model`, finalisation of the attempt that answered | `meter.rs` (`plan` admits `fallback`), `call.rs` attempts, `settle.rs`, `metered.rs` fixtures | S1 (same `plan` function); independent of the compat work |
 | **S9** Capability matrix projection + executable matrix test + `controls`/`limits` reader | proto `catalog.rs` (`controls`, `limits`), gateway `/v1/models` projection, `tests/capability_matrix.rs`, TS/Rust SDK types | S1–S5 define the members; signer emission is the in-flight catalogue work |
 | **S-hosted** Hosted web search | proto `Tool::WebSearch`, `server_tool`/`annotation` events, Responses/Anthropic/xAI adapters, hold term, spec, fixtures | S8, S9 |
-| **S11** Extensions: `max_charge_2z`, `X-F2Z-Estimate` on compat, `fallback` header, `features` v2 (zuu half; tuzi validator versioning as its tuzi half) | proto, `meter`, compat decoders, `call.rs` features | S6 |
+| **S11** Extensions: `max_charge_2z` as a collection ceiling (ledger half in tuzi: `hold`/`extend`/`settle` honour `max_collect_milli_2z`), `X-F2Z-Estimate` on compat, `features` v2 (tuzi validator versioning as its tuzi half); the `fallback` carrier only once S12 has landed | proto, `meter`, compat decoders, `call.rs` features; tuzi ledger functions | S6; S12 for the fallback carrier |
 | **S10b** Official-SDK conformance job | `ts/free2z/sdk-compat-conformance/`, `rs.yml` or a new workflow | S6, S7, S8 |
 | **S16** SDK parity + docs: builders for sampling/reasoning/documents/caching in `f2z-sdk` and `@free2z/sdk`, guest-js/plugin wire, `COMPAT.md` quickstarts (openai-node, openai-python, anthropic, Vercel AI SDK, LangChain) | SDKs, docs | each feature slice (lands per slice or as a sweep) |
 | **S13** `/v1/embeddings` | new `api_style`, new route, hold with zero output, OpenAI shape | S6 infra; owner note on min charge |
@@ -888,7 +940,8 @@ until #1142, #1140 and #1143 merge**: every slice that touches
   can run here: it adds members, touches no adapter.
 - **Wave 2:** S7 ∥ S8 (each a new `compat/*.rs`; both need S3 for
   reasoning blocks); S4 after S3 (adapters).
-- **Wave 3:** S5 (adapters + meter) ∥ S11 (meter + decoders; coordinate
+- **Wave 3:** S5 (adapters + meter) → S12 (meter `plan` + call/settle;
+  serial with S5 on `meter.rs`) ∥ S11 (meter + decoders; coordinate
   `meter.rs` with S5 — S11 touches the plan's budget, S5 the estimate) ∥
   S10b (new job) ∥ S16 sweep.
 - **Wave 4:** S-hosted, S13, S9's matrix test (needs the corpus complete
@@ -911,6 +964,7 @@ anthropic}.rs` or `meter.rs` are serialised in the order above.
 | S8 | zuu#ISSUE_S8 |
 | S4 | zuu#ISSUE_S4 |
 | S5 | zuu#ISSUE_S5 |
+| S12 | zuu#ISSUE_S12 |
 | S9 | zuu#ISSUE_S9 |
 | S-hosted | zuu#ISSUE_SHOSTED |
 | S11 | zuu#ISSUE_S11 |
