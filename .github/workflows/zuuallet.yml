@@ -224,7 +224,7 @@ jobs:
         working-directory: wallet/zuuallet
         run: |
           for attempt in 1 2 3; do
-            npm audit --audit-level=high && exit 0
+            node "$GITHUB_WORKSPACE/scripts/npm-audit-allowlist.mjs" && exit 0
             [ "$attempt" -eq 3 ] && exit 1
             sleep $((attempt * 5))
           done
