@@ -336,15 +336,32 @@ export function models(value: unknown): Models {
     }),
   };
 }
+/** The budget fields are optional on decode (chat-api.md §6). `null` reads as
+ * absent, as the Rust proto reads it, except for `cap_remaining_milli_2z`,
+ * where `null` is "uncapped" and stays apart from absent. */
 export function estimate(value: unknown): Estimate {
   const d = validated(value);
-  return {
-    ...d,
+  const {
+    available_milli_2z: available,
+    cap_remaining_milli_2z: capRemaining,
+    min_charge_2z: minCharge,
+    catalog_version: catalogVersion,
+    ...rest
+  } = d;
+  const result: Estimate = {
+    ...rest,
     model: string(d.model),
     input_tokens: uint(d.input_tokens),
     max_output_tokens: uint(d.max_output_tokens),
     hold_2z: uint(d.hold_2z),
   };
+  if (available != null) result.available_milli_2z = uint(available);
+  if (capRemaining !== undefined)
+    result.cap_remaining_milli_2z =
+      capRemaining === null ? null : uint(capRemaining);
+  if (minCharge != null) result.min_charge_2z = uint(minCharge);
+  if (catalogVersion != null) result.catalog_version = uint(catalogVersion);
+  return result;
 }
 export function event(type: string, value: unknown): ChatEvent | undefined {
   if (!["meta", "delta", "tool_call", "usage", "done", "error"].includes(type))

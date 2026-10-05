@@ -499,3 +499,77 @@ test("response_format reaches the gateway exactly, only when set, and is checked
   }
   assert.equal(bodies.length, sent, "a refused request is never sent");
 });
+test("estimate decodes the budget fields a paid-call gate reads, and tolerates additive fields", async () => {
+  const mock = issuer(),
+    transport = new FetchTransport(mock.config);
+  await transport.signIn();
+  // Live prod answer, 2026-10-05.
+  const live =
+    '{"available_milli_2z":4000,"cap_remaining_milli_2z":4000,"catalog_version":1791205020000000,"hold_2z":1,"input_tokens":180,"max_output_tokens":16,"min_charge_2z":1,"model":"gpt-4o"}';
+  let body = live;
+  mock.api = () =>
+    new Response(body, { headers: { "content-type": "application/json" } });
+  const estimate = await transport.estimate(request);
+  assert.deepEqual(
+    {
+      available: estimate.available_milli_2z,
+      cap: estimate.cap_remaining_milli_2z,
+      min: estimate.min_charge_2z,
+      version: estimate.catalog_version,
+      hold: estimate.hold_2z,
+    },
+    {
+      available: 4000n,
+      cap: 4000n,
+      min: 1n,
+      version: 1791205020000000n,
+      hold: 1n,
+    },
+  );
+  // null is "uncapped", and stays apart from absent.
+  body = live.replace(
+    '"cap_remaining_milli_2z":4000',
+    '"cap_remaining_milli_2z":null',
+  );
+  const uncapped = await transport.estimate(request);
+  assert.equal(uncapped.cap_remaining_milli_2z, null);
+  assert.ok("cap_remaining_milli_2z" in uncapped);
+  // Optional on decode (chat-api.md §6): absent stays absent, never "uncapped".
+  body = '{"model":"m","input_tokens":1,"max_output_tokens":1,"hold_2z":1}';
+  const bare = await transport.estimate(request);
+  for (const key of [
+    "available_milli_2z",
+    "cap_remaining_milli_2z",
+    "min_charge_2z",
+    "catalog_version",
+  ])
+    assert.equal(key in bare, false, key);
+  // A null amount reads as absent, as the Rust proto reads it.
+  body = live.replace('"available_milli_2z":4000', '"available_milli_2z":null');
+  assert.equal(
+    "available_milli_2z" in (await transport.estimate(request)),
+    false,
+  );
+  // Forward compatibility: an unknown field never fails the decode.
+  body = live.replace("{", '{"future_field":{"x":1},');
+  assert.deepEqual(
+    { ...(await transport.estimate(request)).future_field },
+    { x: 1n },
+  );
+  for (const bad of [
+    live.replace('"available_milli_2z":4000', '"available_milli_2z":-1'),
+    live.replace(
+      '"cap_remaining_milli_2z":4000',
+      '"cap_remaining_milli_2z":-1',
+    ),
+    live.replace('"min_charge_2z":1', '"min_charge_2z":"1"'),
+    live.replace('"catalog_version":1791205020000000', '"catalog_version":1.5'),
+  ]) {
+    body = bad;
+    await assert.rejects(
+      transport.estimate(request),
+      (e) => e.code === "invalid_response",
+      bad,
+    );
+  }
+});

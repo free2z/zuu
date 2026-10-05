@@ -422,3 +422,58 @@ test("native adapter forwards response_format as plain JSON, only when set", asy
   );
   assert.equal(seen.length, before);
 });
+test("native estimate decodes the budget fields from decimal strings", async () => {
+  let answer;
+  const transport = new NativeTransport(
+    bridge({ estimate: async () => answer }),
+  );
+  const base = {
+    model: "gpt-4o",
+    input_tokens: "180",
+    max_output_tokens: "16",
+    hold_2z: "1",
+    min_charge_2z: "1",
+    available_milli_2z: "4000",
+    cap_remaining_milli_2z: "4000",
+    catalog_version: "1791205020000000",
+  };
+  answer = base;
+  const estimate = await transport.estimate(request);
+  assert.equal(estimate.available_milli_2z, 4000n);
+  assert.equal(estimate.cap_remaining_milli_2z, 4000n);
+  assert.equal(estimate.min_charge_2z, 1n);
+  assert.equal(estimate.catalog_version, 1791205020000000n);
+  answer = { ...base, cap_remaining_milli_2z: null };
+  assert.equal(
+    (await transport.estimate(request)).cap_remaining_milli_2z,
+    null,
+  );
+  answer = { ...base, future_field: { x: "1" } };
+  assert.deepEqual(
+    { ...(await transport.estimate(request)).future_field },
+    {
+      x: "1",
+    },
+  );
+  const {
+    available_milli_2z,
+    cap_remaining_milli_2z,
+    min_charge_2z,
+    catalog_version,
+    ...older
+  } = base;
+  answer = older;
+  const bare = await transport.estimate(request);
+  assert.equal("cap_remaining_milli_2z" in bare, false);
+  assert.equal("available_milli_2z" in bare, false);
+  for (const bad of [
+    { ...base, available_milli_2z: "-1" },
+    { ...base, cap_remaining_milli_2z: "01" },
+  ]) {
+    answer = bad;
+    await assert.rejects(
+      transport.estimate(request),
+      (e) => e.code === "invalid_response",
+    );
+  }
+});

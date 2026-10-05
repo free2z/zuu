@@ -181,11 +181,32 @@ export interface Models extends ObjectData {
   models: ObjectData[];
   catalog_version: bigint;
 }
+/**
+ * A `POST /v1/chat/estimate` answer. The budget fields are a read-only
+ * snapshot taken for the clamp, not a reservation and not an authorization to
+ * spend: the gateway re-checks balance and cap on the paid call itself.
+ *
+ * Every gateway that has shipped the endpoint sends all four budget fields,
+ * but the protocol (`docs/free2z/sdk/spec/chat-api.md` §6) makes them optional
+ * on decode, so they are optional here. Absent means "not reported" — in
+ * particular an absent `cap_remaining_milli_2z` is NOT "uncapped".
+ */
 export interface Estimate extends ObjectData {
   model: string;
   input_tokens: bigint;
   max_output_tokens: bigint;
   hold_2z: bigint;
+  /** Spendable balance net of open holds (`0` while in debt), in milli-2Z. */
+  available_milli_2z?: bigint;
+  /**
+   * Remaining spend under this app's grant cap for the current period, in
+   * milli-2Z; `null` when the grant is uncapped. Absent: not reported.
+   */
+  cap_remaining_milli_2z?: bigint | null;
+  /** The model's minimum charge for a call, in whole 2Z. */
+  min_charge_2z?: bigint;
+  /** The signed catalogue version the estimate was priced from. */
+  catalog_version?: bigint;
 }
 export interface SettlementFields extends ObjectData {
   settlement: string;
