@@ -333,6 +333,15 @@ impl<'de> Visitor<'de> for NodeVisitor {
                 .map(Node::Number)
                 .map_err(de::Error::custom);
         }
+        // Likewise `raw_value` (on in the gateway, via sqlx): `Value` reads a
+        // member named by its private token as a string of JSON text and
+        // decodes that text in the object's place. Nobody writes that on
+        // purpose, but a schema that did decoded so before zuu#1132, and
+        // decoding it the same way keeps its idempotency fingerprint.
+        if first == RAW_TOKEN && raw_value() {
+            let text: String = map.next_value()?;
+            return serde_json::from_str::<Node>(&text).map_err(de::Error::custom);
+        }
         let mut members = alloc::vec![(first, map.next_value::<Node>()?)];
         while let Some(entry) = map.next_entry::<String, Node>()? {
             members.push(entry);
@@ -352,6 +361,18 @@ const NUMBER_TOKEN: &str = "$serde_json::private::Number";
 fn arbitrary_precision() -> bool {
     serde_json::from_str::<Value>("1e2")
         .is_ok_and(|v| serde_json::to_string(&v).is_ok_and(|text| text != "100.0"))
+}
+
+/// serde_json's private map key for a `RawValue` (`serde_json::raw::TOKEN`,
+/// not exported).
+const RAW_TOKEN: &str = "$serde_json::private::RawValue";
+
+/// Whether the serde_json this binary links has `raw_value`: under it a
+/// `Value` decodes [`RAW_TOKEN`]'s string as JSON. Asked only when that key
+/// arrives.
+fn raw_value() -> bool {
+    serde_json::from_str::<Value>(r#"{"$serde_json::private::RawValue":"1"}"#)
+        .is_ok_and(|v| v.is_number())
 }
 
 #[cfg(test)]
@@ -426,15 +447,17 @@ mod tests {
         assert_eq!(s.to_string(), SCHEMA);
     }
 
-    /// serde_json's `arbitrary_precision` map form: decoded exactly as
-    /// `Value` decodes it. Without the feature (CI) the private key is an
-    /// ordinary member; with it (`cargo test -p f2z-ai-proto --features
-    /// serde_json/arbitrary_precision`) fractional numbers stay numbers.
+    /// serde_json's `arbitrary_precision` and `raw_value` map forms: decoded
+    /// exactly as `Value` decodes them. Without the features the private keys
+    /// are ordinary members; with them (CI runs these tests with each:
+    /// `--features serde_json/arbitrary_precision`, `serde_json/raw_value`)
+    /// fractional numbers stay numbers and a raw member decodes its text.
     #[test]
-    fn numbers_decode_as_value_does_with_or_without_arbitrary_precision() {
+    fn private_serde_json_forms_decode_as_value_does() {
         for text in [
             r#"{"type":"number","minimum":0.5,"enum":[1.25e3,-0.0,7]}"#,
             r#"{"$serde_json::private::Number":"0.5"}"#,
+            r#"{"default":{"$serde_json::private::RawValue":"{\"b\":1,\"a\":[2]}"},"x":1}"#,
         ] {
             let ordered: OrderedJson = text.parse().unwrap();
             let value: Value = serde_json::from_str(text).unwrap();

@@ -1302,6 +1302,26 @@ mod tests {
             request_fingerprint(&b).unwrap()
         );
     }
+
+    /// The gateway links serde_json with `raw_value` (sqlx), under which a
+    /// `Value` decodes serde_json's private raw-value member as the JSON text
+    /// it holds. A schema carrying one must keep its pre-#1132 bytes, and so
+    /// its fingerprint, too.
+    #[test]
+    fn a_raw_value_member_keeps_its_pre_1132_bytes() {
+        let schema = r#"{"type":"object","default":{"$serde_json::private::RawValue":"{\"b\":1,\"a\":[2]}"}}"#;
+        let ordered: f2z_ai_proto::OrderedJson = schema.parse().unwrap();
+        let value: Value = serde_json::from_str(schema).unwrap();
+        assert_eq!(
+            value["default"],
+            json!({"a": [2], "b": 1}),
+            "raw_value is on"
+        );
+        assert_eq!(
+            serde_json::to_vec(&ordered.with_sorted_keys()).unwrap(),
+            serde_json::to_vec(&value).unwrap()
+        );
+    }
     #[test]
     fn malformed_final_amounts_never_become_a_public_charge() {
         let mut record = json!({"call_id":Uuid::now_v7(),"status":"settled","request":{"model":"m","requested_model":"m","provider":"p","catalog_version":1,"metadata":{}},"created_at":"2026-09-27T00:00:00Z","settled_at":"2026-09-27T00:00:01Z","settlement":{"hold_id":Uuid::now_v7(),"outcome":"settled","hold_milli_2z":1000,"priced_milli_2z":1000,"collected_milli_2z":1000,"shortfall_milli_2z":0,"applied_markup_bps":0}});

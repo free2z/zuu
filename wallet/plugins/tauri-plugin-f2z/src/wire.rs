@@ -398,7 +398,10 @@ mod tests {
         .unwrap();
         let mut sorted = input.clone();
         let sent = serde_json::to_string(&chat_request(input).unwrap()).unwrap();
-        assert!(sent.contains(&format!(r#""parameters":{schema}"#)), "{sent}");
+        assert!(
+            sent.contains(&format!(r#""parameters":{schema}"#)),
+            "{sent}"
+        );
         assert!(sent.contains(&format!(r#""schema":{schema}"#)), "{sent}");
         // Negative control: the sorted `Value` a build without
         // `preserve_order` hands the command does not survive, so the

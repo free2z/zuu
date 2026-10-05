@@ -363,13 +363,17 @@ jobs:
       # `f2z_ai_proto::OrderedJson` decodes numbers through `deserialize_any`,
       # and serde_json's `arbitrary_precision` — off here, but Cargo unifies it
       # in from any crate a consumer links — changes how numbers arrive (a
-      # private one-member map). Without this run a fractional `minimum` in a
-      # schema could be forwarded as an object and nothing here would notice
-      # (zuu#1132). The json tests compare against `serde_json::Value` under
-      # whichever mode is compiled.
-      - name: Run the ordered-JSON tests under serde_json arbitrary_precision
+      # private one-member map), and `raw_value` (on in the gateway via sqlx)
+      # gives another private member a meaning. Without these runs a
+      # fractional `minimum` could be forwarded as an object, or a
+      # fingerprint drift, and nothing here would notice (zuu#1132). The json
+      # tests compare against `serde_json::Value` under whichever mode is
+      # compiled.
+      - name: Run the ordered-JSON tests under serde_json arbitrary_precision and raw_value
         working-directory: rs
-        run: cargo test --locked -p f2z-ai-proto --lib --features serde_json/arbitrary_precision json::
+        run: |
+          cargo test --locked -p f2z-ai-proto --lib --features serde_json/arbitrary_precision json::
+          cargo test --locked -p f2z-ai-proto --lib --features serde_json/raw_value json::
 
       # A KAT that only demonstrates the green path can silently stop reading
       # its vector file. Corrupt a committed X-Wing combiner output first and
