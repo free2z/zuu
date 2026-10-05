@@ -146,6 +146,15 @@ reverse-DNS scheme as the fallback. See [redirect rules](./spec/oidc.md#3-redire
 The core validates state, issuer and tokens; the adapter must not synthesize a
 successful callback or use an embedded webview for login.
 
+A sign-in that ends at the browser says why
+([errors.md §5.1](./spec/errors.md#51-sign-in-that-ends-at-the-browser-sdk-local)):
+`user_cancelled` (the user dismissed the iOS sheet or Android Custom Tab — not
+an error, so show no failure), `browser_unavailable`, `timeout`, or the
+`browser_error` fallback, which an older plugin reports for all of them. In
+Rust these are `Error::UserCancelled`, `Error::BrowserUnavailable`,
+`Error::Timeout` and `Error::Browser`; a custom `oauth::AuthSession` should
+return the most specific one it can.
+
 Keep one long-lived `Client` in native app state. Its clones share one session
 and one refresh lock. Keep that client on one living Tokio runtime; after
 shutting the runtime down, create a new client rather than moving pending work
@@ -340,7 +349,11 @@ const request: ChatRequest = {
   `/v1/models` — refuses the call **before any hold, charge or provider
   request**: `400 invalid_request`, `details.reason:
   "response_format_unsupported"`. It is never answered in prose instead.
-  Today that is every model except OpenAI's Chat Completions models.
+  Today the supporting models are OpenAI's Chat Completions models and the
+  Anthropic models the catalogue declares. On Anthropic the format travels
+  as a forced tool the gateway unwraps for you — the reply is still text and
+  `finish_reason` is still `stop` — and it cannot be combined with `tools`
+  in the same request.
 - The reply is ordinary text (`delta` events / `message.content`): parse it
   yourself and still validate it — the model's output is untrusted, and a
   provider refusal also arrives as text. `finish_reason: "length"` means the
@@ -361,6 +374,19 @@ const request: ChatRequest = {
 - Absent, the field is not sent, so existing requests and their idempotency
   fingerprints are unchanged; a gateway older than the field refuses it as an
   unknown field rather than silently ignoring it.
+
+### Tool controls: `tool_choice`, `parallel_tool_calls`
+
+Both are OpenAI's shapes and both require `tools`. `tool_choice` is `"auto"`
+(the default), `"none"`, `"required"` or `{type: "function", function: {name}}`
+naming one of your tools; `parallel_tool_calls: false` asks for at most one
+call per turn. Tool calls come back as complete `tool_call` events
+(`message.tool_calls` without streaming) carrying the provider's own `id`;
+send each result back as a `tool` message with that `tool_call_id`. A model
+whose adapter cannot express a control refuses the call up front
+(`reason: "tools_unsupported"`, `field` naming the control) rather than
+ignoring it — today Anthropic models translate both, and OpenAI-style models
+do not yet.
 
 ### Output that must not be truncated: `max_output_tokens_strict`
 

@@ -450,6 +450,41 @@ async fn schema_member_order_reaches_the_provider_as_sent() {
             assert!(sorted.contains(r#""properties":{"answer""#), "{sorted}");
         }
     }
+
+    // Anthropic carries `response_format` as a forced tool whose
+    // `input_schema` is the caller's schema (#1140): that too goes as sent.
+    let anthropic = {
+        let mut value = serde_json::to_value(catalog.catalog()).unwrap();
+        for model in value["models"].as_array_mut().unwrap() {
+            if model["id"] == ANTHROPIC.id {
+                model["capabilities"] = json!({"structured_output": true});
+            }
+        }
+        f2z_ai::catalog::VerifiedCatalog::from_verified(serde_json::from_value(value).unwrap())
+            .unwrap()
+    };
+    let formatted = format!(
+        r#"{{"model":"{}","messages":[{{"role":"user","content":[{{"type":"text","text":"Reply in JSON."}}]}}],"response_format":{{"type":"json_schema","json_schema":{{"name":"activity_spec","schema":{SCHEMA},"strict":true}}}}}}"#,
+        ANTHROPIC.id
+    );
+    for (request, kept) in [
+        (serde_json::from_str::<ChatRequest>(&formatted).unwrap(), true),
+        // Negative control: the same request through a `Value` arrives sorted.
+        (
+            serde_json::from_value(serde_json::from_str(&formatted).unwrap()).unwrap(),
+            false,
+        ),
+    ] {
+        let run = drive(&backend, &anthropic, &request).await;
+        assert_eq!(run.outcome.failure, None);
+        let sent = mock.recorded_requests().last().unwrap().body_text.clone().unwrap();
+        assert_eq!(
+            sent.contains(&format!(r#""input_schema":{SCHEMA}"#)),
+            kept,
+            "anthropic forced-tool input_schema: {sent}"
+        );
+        assert_eq!(sent.contains(r#""properties":{"answer""#), !kept, "{sent}");
+    }
     mock.shutdown().await;
 }
 

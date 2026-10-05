@@ -268,6 +268,14 @@ returns from account management; a previous proof does not freeze consent.
 
 Handle `SdkError.code` (and terminal stream error codes) distinctly:
 
+- `user_cancelled` from `signIn()`: the user dismissed the iOS sign-in sheet or
+  the Android Custom Tab. Not an error; leave sign-in available without a
+  failure message. `browser_unavailable` (nothing could be shown) and `timeout`
+  (no callback in time; also how a desktop cancel arrives) are failures, and
+  `browser_error` is the fallback for anything else — an older plugin reports
+  every one of these as `browser_error`, so always handle it
+  ([errors.md §5.1](./spec/errors.md#51-sign-in-that-ends-at-the-browser-sdk-local)).
+
 - `insufficient_balance`: offer the SDK purchase flow above, or the Billing link
   on [Free2Z connected apps](https://free2z.cash/account/apps). Credit only after
   a purchase is authoritatively `credited`; opening checkout is not a top-up.

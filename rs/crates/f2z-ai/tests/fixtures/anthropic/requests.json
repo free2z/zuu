@@ -1,0 +1,81 @@
+{
+  "about": "/v1/chat requests (OpenAI-shaped tool controls and response_format) and the Anthropic Messages members the adapter must send for each. An absent member is `null` here and must be absent on the wire.",
+  "cases": [
+    {
+      "name": "tools with no tool controls: Anthropic's default, nothing invented",
+      "request": {"tools": [{"name": "lookup", "description": "Find a formula", "parameters": {"type": "object"}}]},
+      "expect": {"tools": [{"name": "lookup", "description": "Find a formula", "input_schema": {"type": "object"}}],
+                 "tool_choice": null}
+    },
+    {
+      "name": "tool_choice auto",
+      "request": {"tools": [{"name": "lookup", "parameters": {"type": "object"}}], "tool_choice": "auto"},
+      "expect": {"tools": [{"name": "lookup", "input_schema": {"type": "object"}}], "tool_choice": {"type": "auto"}}
+    },
+    {
+      "name": "tool_choice none keeps the tools defined",
+      "request": {"tools": [{"name": "lookup", "parameters": {"type": "object"}}], "tool_choice": "none"},
+      "expect": {"tools": [{"name": "lookup", "input_schema": {"type": "object"}}], "tool_choice": {"type": "none"}}
+    },
+    {
+      "name": "tool_choice required is any",
+      "request": {"tools": [{"name": "lookup", "parameters": {"type": "object"}}], "tool_choice": "required"},
+      "expect": {"tools": [{"name": "lookup", "input_schema": {"type": "object"}}], "tool_choice": {"type": "any"}}
+    },
+    {
+      "name": "a named function is tool{name}",
+      "request": {"tools": [{"name": "lookup", "parameters": {"type": "object"}}, {"name": "other", "parameters": {"type": "object"}}],
+                  "tool_choice": {"type": "function", "function": {"name": "other"}}},
+      "expect": {"tools": [{"name": "lookup", "input_schema": {"type": "object"}}, {"name": "other", "input_schema": {"type": "object"}}],
+                 "tool_choice": {"type": "tool", "name": "other"}}
+    },
+    {
+      "name": "parallel_tool_calls false alone is auto with parallel use disabled",
+      "request": {"tools": [{"name": "lookup", "parameters": {"type": "object"}}], "parallel_tool_calls": false},
+      "expect": {"tools": [{"name": "lookup", "input_schema": {"type": "object"}}],
+                 "tool_choice": {"type": "auto", "disable_parallel_tool_use": true}}
+    },
+    {
+      "name": "parallel_tool_calls false with required",
+      "request": {"tools": [{"name": "lookup", "parameters": {"type": "object"}}], "tool_choice": "required", "parallel_tool_calls": false},
+      "expect": {"tools": [{"name": "lookup", "input_schema": {"type": "object"}}],
+                 "tool_choice": {"type": "any", "disable_parallel_tool_use": true}}
+    },
+    {
+      "name": "parallel_tool_calls false with none: nothing to serialise",
+      "request": {"tools": [{"name": "lookup", "parameters": {"type": "object"}}], "tool_choice": "none", "parallel_tool_calls": false},
+      "expect": {"tools": [{"name": "lookup", "input_schema": {"type": "object"}}], "tool_choice": {"type": "none"}}
+    },
+    {
+      "name": "parallel_tool_calls true is the default",
+      "request": {"tools": [{"name": "lookup", "parameters": {"type": "object"}}], "parallel_tool_calls": true},
+      "expect": {"tools": [{"name": "lookup", "input_schema": {"type": "object"}}], "tool_choice": null}
+    },
+    {
+      "name": "response_format json_schema strict: one forced tool carrying the schema and strict",
+      "request": {"response_format": {"type": "json_schema", "json_schema": {"name": "activity_spec", "strict": true,
+                    "schema": {"type": "object", "additionalProperties": false, "required": ["title"], "properties": {"title": {"type": "string"}}}}}},
+      "expect": {"tools": [{"name": "activity_spec",
+                            "description": "Respond by calling this tool. Its input is your complete answer, as JSON matching the input schema.",
+                            "input_schema": {"type": "object", "additionalProperties": false, "required": ["title"], "properties": {"title": {"type": "string"}}},
+                            "strict": true}],
+                 "tool_choice": {"type": "tool", "name": "activity_spec", "disable_parallel_tool_use": true}}
+    },
+    {
+      "name": "response_format json_schema without strict: strict not sent",
+      "request": {"response_format": {"type": "json_schema", "json_schema": {"name": "n", "strict": false, "schema": {"type": "object"}}}},
+      "expect": {"tools": [{"name": "n",
+                            "description": "Respond by calling this tool. Its input is your complete answer, as JSON matching the input schema.",
+                            "input_schema": {"type": "object"}}],
+                 "tool_choice": {"type": "tool", "name": "n", "disable_parallel_tool_use": true}}
+    },
+    {
+      "name": "response_format json_object: any object",
+      "request": {"response_format": {"type": "json_object"}},
+      "expect": {"tools": [{"name": "json_object",
+                            "description": "Respond by calling this tool. Its input is your complete answer, as JSON matching the input schema.",
+                            "input_schema": {"type": "object"}}],
+                 "tool_choice": {"type": "tool", "name": "json_object", "disable_parallel_tool_use": true}}
+    }
+  ]
+}

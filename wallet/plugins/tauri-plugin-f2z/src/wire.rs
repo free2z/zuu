@@ -120,6 +120,8 @@ impl From<Error> for NativeError {
             Error::Transport(_) => result.code = "transport_error".into(),
             Error::Timeout(_) => result.code = "timeout".into(),
             Error::Authorization(e) | Error::Token(e) => result.code = safe_code(&e.error),
+            Error::UserCancelled => result.code = "user_cancelled".into(),
+            Error::BrowserUnavailable(_) => result.code = "browser_unavailable".into(),
             Error::Browser(_) => result.code = "browser_error".into(),
             Error::StateMismatch | Error::IssuerMismatch { .. } | Error::IdToken(_) => {
                 result.code = "invalid_authentication_response".into()
@@ -538,6 +540,7 @@ mod tests {
             Error::Storage("SECRET".into()),
             Error::Protocol("SECRET".into()),
             Error::Browser("SECRET".into()),
+            Error::BrowserUnavailable("SECRET".into()),
         ] {
             assert!(
                 !serde_json::to_string(&NativeError::from(e))

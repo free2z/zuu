@@ -94,6 +94,133 @@ pub struct ChatRequest {
         deserialize_with = "present_response_format"
     )]
     pub response_format: Option<ResponseFormat>,
+    /// Opt-in: which of [`ChatRequest::tools`] the model may or must call —
+    /// OpenAI's `tool_choice`: `"auto"`, `"none"`, `"required"`, or
+    /// `{"type":"function","function":{"name":…}}`. Absent (the default) is
+    /// the provider's default (`auto`) and is omitted on the wire, so a
+    /// request that does not set it serializes exactly as before this field
+    /// existed. Requires `tools`; a named function must be one of them.
+    ///
+    /// An adapter that cannot express it refuses the call before any hold,
+    /// charge or provider request (`400 invalid_request`, `details.reason =
+    /// "tools_unsupported"`, `details.field = "tool_choice"`); it is never
+    /// dropped. A present `null` is refused, not read as absent.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_tool_choice"
+    )]
+    pub tool_choice: Option<ToolChoice>,
+    /// Opt-in: whether the model may make several tool calls in one turn —
+    /// OpenAI's `parallel_tool_calls`. Absent is the provider's default
+    /// (parallel calls allowed) and is omitted on the wire. `false` asks for
+    /// at most one call per turn. Requires `tools`. As with `tool_choice`, an
+    /// adapter that cannot express it refuses the call (`details.reason =
+    /// "tools_unsupported"`), and a present `null` is refused.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_bool"
+    )]
+    pub parallel_tool_calls: Option<bool>,
+}
+
+/// [`ChatRequest::tool_choice`]: OpenAI's `tool_choice`, exactly.
+///
+/// ```json
+/// "auto"
+/// "none"
+/// "required"
+/// {"type": "function", "function": {"name": "lookup"}}
+/// ```
+///
+/// Any other string, any other `type`, and any extra member are refused.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ToolChoice {
+    /// The model decides whether to call a tool (the default).
+    Auto,
+    /// The model must not call a tool; it answers in text.
+    None,
+    /// The model must call at least one tool.
+    Required,
+    /// The model must call this tool.
+    Function {
+        /// The [`Tool::name`] the model must call.
+        name: String,
+    },
+}
+
+/// `{"type":"function","function":{"name":…}}`, refusing any other member.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NamedToolChoice {
+    #[serde(rename = "type")]
+    kind: FunctionTag,
+    function: NamedFunction,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum FunctionTag {
+    Function,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NamedFunction {
+    name: String,
+}
+
+impl Serialize for ToolChoice {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Auto => s.serialize_str("auto"),
+            Self::None => s.serialize_str("none"),
+            Self::Required => s.serialize_str("required"),
+            Self::Function { name } => NamedToolChoice {
+                kind: FunctionTag::Function,
+                function: NamedFunction { name: name.clone() },
+            }
+            .serialize(s),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolChoice {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
+        // Through a `Value`: the two shapes are a string and an object, and
+        // the error must not quote the request (no `invalid value: "…"`).
+        match serde_json::Value::deserialize(d)? {
+            serde_json::Value::String(mode) => match mode.as_str() {
+                "auto" => Ok(Self::Auto),
+                "none" => Ok(Self::None),
+                "required" => Ok(Self::Required),
+                _ => Err(D::Error::custom(
+                    "tool_choice must be \"auto\", \"none\", \"required\" or a named function",
+                )),
+            },
+            object @ serde_json::Value::Object(_) => {
+                let named: NamedToolChoice = serde_json::from_value(object).map_err(|_| {
+                    D::Error::custom(
+                        "a named tool_choice is {\"type\":\"function\",\"function\":{\"name\":…}}",
+                    )
+                })?;
+                Ok(Self::Function {
+                    name: named.function.name,
+                })
+            }
+            _ => Err(D::Error::custom(
+                "tool_choice must be a string or a named function object",
+            )),
+        }
+    }
+}
+
+fn present_tool_choice<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<ToolChoice>, D::Error> {
+    ToolChoice::deserialize(d).map(Some)
 }
 
 /// The most bytes [`JsonSchemaFormat::schema`] may take, serialized compactly:

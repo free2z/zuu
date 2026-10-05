@@ -5,6 +5,11 @@
 Initial reviewed SDK contract implementation. Publication is disabled pending
 release acceptance; see the repository SDK release guide.
 
+- `ChatRequest::tool_choice` (`ToolChoice`: `"auto"`, `"none"`, `"required"`,
+  `{"type":"function","function":{"name":…}}`) and
+  `ChatRequest::parallel_tool_calls` (free2z/zuu#1128): OpenAI's shapes,
+  opt-in, omitted on the wire when absent; a present `null`, another string,
+  another `type` or an extra member is refused at decode.
 - `json::OrderedJson` (re-exported at the root): caller JSON that keeps its
   object member order. `Tool::parameters` and `JsonSchemaFormat::schema` are
   now `OrderedJson`, not `serde_json::Value`, so a schema reaches the provider

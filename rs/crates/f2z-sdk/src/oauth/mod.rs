@@ -61,7 +61,7 @@ pub trait UrlOpener: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Why it could not be opened, for [`Error::Browser`].
+    /// Why it could not be opened, for [`Error::BrowserUnavailable`].
     fn open(&self, url: &str) -> Result<(), String>;
 }
 
@@ -103,9 +103,15 @@ pub trait AuthSession: Send + Sync {
     /// browser was redirected to (`<redirect_uri>?code=…&state=…&iss=…`).
     /// Do not interpret it; the SDK verifies it.
     ///
-    /// The SDK bounds the whole call with [`crate::Config::callback_timeout`];
-    /// an implementation should resolve with [`Error::Browser`] when the user
-    /// dismisses the sheet.
+    /// The SDK bounds the whole call with [`crate::Config::callback_timeout`].
+    /// When it ends without a callback, say why, so an app can tell a
+    /// deliberate cancel from a failure:
+    ///
+    /// - [`Error::UserCancelled`] when the user dismissed the sheet;
+    /// - [`Error::BrowserUnavailable`] when nothing could be shown;
+    /// - [`Error::Timeout`] when the session's own deadline passed;
+    /// - [`Error::Browser`] for anything else, or when the platform cannot
+    ///   tell.
     fn authorize<'a>(
         &'a self,
         request: &'a AuthorizationRequest,

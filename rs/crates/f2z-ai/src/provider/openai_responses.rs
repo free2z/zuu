@@ -99,6 +99,9 @@ impl Provider for OpenAiResponses {
         // No `response_format` translation for this API yet: refused, never
         // dropped (an unconstrained answer billed as a structured one).
         super::no_response_format(request)?;
+        // No tool_choice / parallel_tool_calls translation here yet: refused,
+        // never dropped.
+        super::check_tool_translation(request, model)?;
         let mut input = Vec::new();
         for message in &request.messages {
             match message.role {

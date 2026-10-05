@@ -236,6 +236,76 @@ fn schema_member_order_survives_the_wire() {
 }
 
 #[test]
+fn tool_choice_and_parallel_tool_calls_are_opt_in_and_pinned() {
+    use f2z_ai_proto::chat::ToolChoice;
+
+    // Absent: not on the wire, so a pre-existing request keeps its bytes.
+    let base = r#"{"model":"m","messages":[],"stream":true}"#;
+    let absent: ChatRequest = serde_json::from_str(base).unwrap();
+    assert_eq!(
+        (absent.tool_choice.clone(), absent.parallel_tool_calls),
+        (None, None)
+    );
+    assert_eq!(serde_json::to_string(&absent).unwrap(), base);
+
+    // OpenAI's four shapes, pinned as literal text in both directions.
+    for (text, choice) in [
+        (r#""auto""#, ToolChoice::Auto),
+        (r#""none""#, ToolChoice::None),
+        (r#""required""#, ToolChoice::Required),
+        (
+            r#"{"type":"function","function":{"name":"lookup"}}"#,
+            ToolChoice::Function {
+                name: "lookup".into(),
+            },
+        ),
+    ] {
+        let body = format!(
+            r#"{{"model":"m","messages":[],"stream":true,"tool_choice":{text},"parallel_tool_calls":false}}"#
+        );
+        let on: ChatRequest = serde_json::from_str(&body).unwrap();
+        assert_eq!(on.tool_choice, Some(choice), "{text}");
+        assert_eq!(on.parallel_tool_calls, Some(false));
+        assert_eq!(serde_json::to_string(&on).unwrap(), body);
+    }
+
+    // Refused at decode, never read as absent or as a default: an unknown
+    // mode, another `type`, extra members at either level, a null.
+    for bad in [
+        r#""any""#,
+        r#""Auto""#,
+        r#"{"type":"tool","name":"lookup"}"#,
+        r#"{"type":"function"}"#,
+        r#"{"type":"function","function":{}}"#,
+        r#"{"type":"function","function":{"name":"lookup","strict":true}}"#,
+        r#"{"type":"function","function":{"name":"lookup"},"extra":1}"#,
+        r#"{"function":{"name":"lookup"}}"#,
+        r#"true"#,
+        "null",
+    ] {
+        let body = format!(r#"{{"model":"m","messages":[],"tool_choice":{bad}}}"#);
+        assert!(
+            serde_json::from_str::<ChatRequest>(&body).is_err(),
+            "accepted tool_choice {bad}"
+        );
+    }
+    for bad in ["null", r#""false""#, "0"] {
+        let body = format!(r#"{{"model":"m","messages":[],"parallel_tool_calls":{bad}}}"#);
+        assert!(
+            serde_json::from_str::<ChatRequest>(&body).is_err(),
+            "accepted parallel_tool_calls {bad}"
+        );
+    }
+    // The decode error names the shape, never the caller's value.
+    let error = serde_json::from_str::<ChatRequest>(
+        r#"{"model":"m","messages":[],"tool_choice":"CANARY-VALUE"}"#,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(!error.contains("CANARY"), "{error}");
+}
+
+#[test]
 fn requests_are_strict() {
     for bad in [
         // misspelt cap: must not be silently ignored

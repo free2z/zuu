@@ -112,6 +112,9 @@ impl Provider for OpenAiChat {
         // carries no image.
         super::images_only_on(request, &[Role::User])?;
         super::check_response_format(request, model)?;
+        // No tool_choice / parallel_tool_calls translation here yet: refused,
+        // never dropped.
+        super::check_tool_translation(request, model)?;
         let messages: Vec<Value> = request
             .messages
             .iter()
