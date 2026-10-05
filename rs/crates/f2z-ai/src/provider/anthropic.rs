@@ -80,11 +80,11 @@
 
 use std::collections::BTreeMap;
 
-use f2z_ai_proto::ErrorCode;
 use f2z_ai_proto::catalog::{ApiStyle, CatalogModel};
 use f2z_ai_proto::chat::{
     ChatRequest, ContentPart, FinishReason, ResponseFormat, Role, ToolCall, ToolChoice, Usage,
 };
+use f2z_ai_proto::{ErrorCode, OrderedJson};
 use reqwest::header::{HeaderMap, HeaderValue};
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::{Map, Value, json};
@@ -195,27 +195,34 @@ fn tool_choice(request: &ChatRequest) -> Option<Value> {
 }
 
 /// The forced tool that carries a `response_format`, and the `tool_choice`
-/// that forces it.
-fn format_tool(format: &ResponseFormat) -> (Value, Value) {
+/// that forces it. The tool is an [`OrderedJson`]: its `input_schema` is the
+/// caller's schema, which reaches Anthropic in the caller's member order
+/// (zuu#1132) and so must never pass through a `Value`.
+fn format_tool(format: &ResponseFormat) -> (OrderedJson, Value) {
     let (name, schema, strict) = match format {
-        ResponseFormat::JsonObject {} => (JSON_OBJECT_TOOL, json!({"type": "object"}), None),
+        ResponseFormat::JsonObject {} => (
+            JSON_OBJECT_TOOL,
+            OrderedJson::object([("type", OrderedJson::from("object"))]),
+            None,
+        ),
         ResponseFormat::JsonSchema { json_schema } => (
             json_schema.name.as_str(),
             json_schema.schema.clone(),
             json_schema.strict,
         ),
     };
-    let mut tool = Map::new();
-    tool.insert("name".into(), json!(name));
-    tool.insert("description".into(), json!(FORMAT_TOOL_DESCRIPTION));
-    tool.insert("input_schema".into(), schema);
+    let mut tool = vec![
+        ("name", OrderedJson::from(name)),
+        ("description", OrderedJson::from(FORMAT_TOOL_DESCRIPTION)),
+        ("input_schema", schema),
+    ];
     // Only an explicit `true` is sent: absent and `false` are Anthropic's
     // default, as they are OpenAI's.
     if strict == Some(true) {
-        tool.insert("strict".into(), json!(true));
+        tool.push(("strict", OrderedJson::from(true)));
     }
     (
-        Value::Object(tool),
+        OrderedJson::object(tool),
         json!({"type": "tool", "name": name, "disable_parallel_tool_use": true}),
     )
 }
@@ -249,7 +256,7 @@ impl Provider for AnthropicMessages {
         request: &ChatRequest,
         model: &CatalogModel,
         max_output_tokens: u64,
-    ) -> Result<Value, ApiFailure> {
+    ) -> Result<OrderedJson, ApiFailure> {
         // `system` is text, and an assistant turn carries no image; a
         // `tool_result` does.
         super::images_only_on(request, &[Role::User, Role::Tool])?;
@@ -327,34 +334,26 @@ impl Provider for AnthropicMessages {
                     .collect(),
             ),
         );
+        let mut caller = Vec::new();
         if let Some(format) = &request.response_format {
             let (tool, choice) = format_tool(format);
-            body.insert("tools".into(), Value::Array(vec![tool]));
             body.insert("tool_choice".into(), choice);
+            caller.push(("tools", OrderedJson::array([tool])));
         } else if !request.tools.is_empty() {
             if let Some(choice) = tool_choice(request) {
                 body.insert("tool_choice".into(), choice);
             }
-            body.insert(
-                "tools".into(),
-                Value::Array(
+            caller.push((
+                "tools",
+                OrderedJson::array(
                     request
                         .tools
                         .iter()
-                        .map(|tool| {
-                            let mut t = Map::new();
-                            t.insert("name".into(), json!(tool.name));
-                            if let Some(d) = &tool.description {
-                                t.insert("description".into(), json!(d));
-                            }
-                            t.insert("input_schema".into(), tool.parameters.clone());
-                            Value::Object(t)
-                        })
-                        .collect(),
+                        .map(|tool| OrderedJson::object(super::tool_members(tool, "input_schema"))),
                 ),
-            );
+            ));
         }
-        Ok(Value::Object(body))
+        Ok(super::ordered_body(body, caller))
     }
 
     fn bind(&mut self, request: &ChatRequest) {

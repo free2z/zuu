@@ -16,7 +16,14 @@ tauri-plugin = { version = "2", features = ["build"] }
 f2z-sdk = { version = "0.1.0", path = "../../../rs/crates/f2z-sdk" }
 tauri = { version = "2.5", default-features = false }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# `preserve_order`: a Tauri command receives its arguments as a
+# `serde_json::Value`, which without this feature sorts object members by name
+# before `wire::chat_request` ever sees them. A JSON Schema's member order is
+# the order OpenAI emits structured-output keys in, so a `response_format` or
+# tool `parameters` schema must reach the gateway as the app wrote it
+# (zuu#1132). Declared here, where it is relied on, rather than left to the
+# host app's feature unification.
+serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 url = "2.5"

@@ -16,27 +16,11 @@
 //! ```no_run
 //! # async fn run(client: f2z_sdk::Client) -> Result<(), f2z_sdk::Error> {
 //! use f2z_sdk::ai::Charge;
-//! use f2z_sdk::proto::chat::{ContentPart, Message, Role};
+//! use f2z_sdk::proto::chat::Message;
 //! use f2z_sdk::proto::{ChatRequest, Event};
 //!
-//! let request = ChatRequest {
-//!     model: "example-model-small".into(),
-//!     messages: vec![Message {
-//!         role: Role::User,
-//!         content: vec![ContentPart::Text { text: "Hello".into() }],
-//!         tool_calls: vec![],
-//!         tool_call_id: None,
-//!     }],
-//!     tools: vec![],
-//!     max_output_tokens: Some(200),
-//!     max_output_tokens_strict: false,
-//!     stream: true,
-//!     metadata: Default::default(),
-//!     fallback: vec![],
-//!     response_format: None,
-//!     tool_choice: None,
-//!     parallel_tool_calls: None,
-//! };
+//! let request = ChatRequest::new("example-model-small", vec![Message::user("Hello")])
+//!     .with_max_output_tokens(200);
 //! let mut stream = client.ai().chat(request).await?;
 //! while let Some(event) = stream.next().await? {
 //!     match event {
@@ -58,22 +42,33 @@
 //! `reason: "response_format_unsupported"`); a reply that stopped at
 //! `length` is truncated JSON, so check `finish_reason` before parsing.
 //!
+//! The schema is an [`f2z_ai_proto::OrderedJson`]: its members are sent in
+//! the order written, and OpenAI writes the reply's keys in that order.
+//! Parse it from text to keep that order — `serde_json::json!` builds a
+//! `Value`, which has already sorted them.
+//!
 //! ```
+//! use f2z_sdk::proto::OrderedJson;
 //! use f2z_sdk::proto::chat::{JsonSchemaFormat, ResponseFormat};
 //!
+//! let schema: OrderedJson = r#"{
+//!     "type": "object",
+//!     "properties": {"reasoning": {"type": "string"}, "answer": {"type": "string"}},
+//!     "required": ["reasoning", "answer"],
+//!     "additionalProperties": false
+//! }"#
+//! .parse()
+//! .expect("valid JSON");
 //! let format = ResponseFormat::JsonSchema {
 //!     json_schema: JsonSchemaFormat {
 //!         name: "activity_spec".into(),
-//!         schema: serde_json::json!({
-//!             "type": "object",
-//!             "properties": {"title": {"type": "string"}},
-//!             "required": ["title"],
-//!             "additionalProperties": false
-//!         }),
+//!         schema,
 //!         strict: Some(true),
 //!     },
 //! };
 //! format.check().expect("within the gateway's limits");
+//! let sent = serde_json::to_string(&format).expect("serializes");
+//! assert!(sent.find("reasoning") < sent.find("answer"));
 //! ```
 //!
 //! Tool calling: set `tools` (and optionally `tool_choice`,
@@ -121,9 +116,9 @@ pub mod tools;
 
 use std::time::{Duration, Instant};
 
-use f2z_ai_proto::ChatRequest;
 use f2z_ai_proto::chat::EstimateResponse;
 use f2z_ai_proto::event::ErrorEvent;
+use f2z_ai_proto::{ChatRequest, ErrorCode, Milli2z, Whole2z};
 use reqwest::StatusCode;
 use url::Url;
 
@@ -132,7 +127,10 @@ pub use stream::{CancelHandle, ChatStream, Completion};
 pub use tools::ToolRun;
 
 use crate::client::Client;
-use crate::error::Error;
+use crate::error::{ApiError, Error};
+
+/// `details.reason` on every `max_output_tokens_strict` refusal.
+const STRICT_OUTPUT_REASON: &str = "max_output_tokens_strict";
 use crate::http;
 
 /// Options of one chat call.
@@ -347,6 +345,49 @@ impl Ai {
         http::read_json(response).await
     }
 
+    /// Estimate-then-strict-chat, the safe way: whether `request` would run
+    /// **now** with its full `max_output_tokens` — no hold, no charge, no
+    /// provider call — and, if not, which recovery to offer the user.
+    ///
+    /// ```no_run
+    /// # async fn run(client: f2z_sdk::Client) -> Result<(), f2z_sdk::Error> {
+    /// use f2z_sdk::ai::Preflight;
+    /// use f2z_sdk::proto::{ChatRequest, chat::Message};
+    ///
+    /// let request = ChatRequest::new("MODEL_ID", vec![Message::user("Plan a lesson")])
+    ///     .with_max_output_tokens(1800)
+    ///     .strict();
+    /// match client.ai().preflight(&request).await? {
+    ///     Preflight::Ready(_) => { /* enable Generate; send `request` as is */ }
+    ///     Preflight::NeedsTopUp { required_2z, .. } => { /* offer a purchase */ }
+    ///     Preflight::NeedsBudget { resets_at, .. } => { /* link free2z.cash/account/apps */ }
+    ///     Preflight::TooLarge(_) => { /* shorten input or lower max_output_tokens */ }
+    ///     _ => {}
+    /// }
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Config`] unless `request` is strict
+    /// ([`ChatRequest::strict`]) with `max_output_tokens` set — a non-strict
+    /// estimate is priced differently and can disagree with a strict call.
+    /// Every other failure is returned as [`Ai::estimate`] returns it.
+    pub async fn preflight(&self, request: &ChatRequest) -> Result<Preflight, Error> {
+        if request.max_output_tokens.is_none() || !request.max_output_tokens_strict {
+            return Err(Error::Config(
+                "preflight needs a strict request: set max_output_tokens and \
+                 max_output_tokens_strict (ChatRequest::with_max_output_tokens(..).strict())"
+                    .into(),
+            ));
+        }
+        match self.estimate(request).await {
+            Ok(estimate) => Ok(Preflight::Ready(estimate)),
+            Err(Error::Api(e)) => Preflight::from_refusal(e).map_err(Error::Api),
+            Err(e) => Err(e),
+        }
+    }
+
     /// `GET /v1/calls/{id}`: a call's record — for a receipt, or to learn
     /// the outcome of a stream that was interrupted, cancelled or ended
     /// `pending`.
@@ -397,6 +438,77 @@ impl Ai {
                 _ => tokio::time::sleep(delay).await,
             }
             delay = delay.saturating_mul(2).min(Duration::from_secs(10));
+        }
+    }
+}
+
+/// [`Ai::preflight`]: whether a strict request would run now and, if not,
+/// the recovery UX to show. A snapshot — the call itself must still carry
+/// `max_output_tokens_strict`, which is the guarantee. Amounts are `None`
+/// when the server did not send them.
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub enum Preflight {
+    /// It would run now with exactly `max_output_tokens`.
+    Ready(EstimateResponse),
+    /// `402 insufficient_balance`: the balance cannot cover it. Offer a
+    /// purchase, then re-read the balance once the purchase is `credited`.
+    NeedsTopUp {
+        /// The hold the call needs.
+        required_2z: Option<Whole2z>,
+        /// What the user has now.
+        available_milli_2z: Option<Milli2z>,
+        /// The refusal, for logs and any other `details`.
+        error: Box<ApiError>,
+    },
+    /// `403 cap_exceeded`: this app's budget for the user cannot cover it.
+    /// Buying 2Z does **not** help; link to `https://free2z.cash/account/apps`
+    /// or wait for `resets_at`.
+    NeedsBudget {
+        /// The hold the call needs.
+        required_2z: Option<Whole2z>,
+        /// What is left of the budget this period.
+        cap_remaining_milli_2z: Option<Milli2z>,
+        /// RFC 3339; `None` also for a `total` budget, which never resets.
+        resets_at: Option<String>,
+        /// The refusal, for logs and any other `details`.
+        error: Box<ApiError>,
+    },
+    /// `400 context_length_exceeded`, or `400 invalid_request` on
+    /// `max_output_tokens` with `reason: max_output_tokens_strict` (above the
+    /// model's ceiling): it can never run as
+    /// asked. Shorten the input or lower `max_output_tokens`.
+    TooLarge(Box<ApiError>),
+}
+
+impl Preflight {
+    fn from_refusal(error: Box<ApiError>) -> Result<Self, Box<ApiError>> {
+        let required_2z = error.detail_u64("required_2z").map(Whole2z::new);
+        match error.error_code() {
+            ErrorCode::InsufficientBalance => Ok(Self::NeedsTopUp {
+                required_2z,
+                available_milli_2z: error.detail_u64("available_milli_2z").map(Milli2z::new),
+                error,
+            }),
+            ErrorCode::CapExceeded => Ok(Self::NeedsBudget {
+                required_2z,
+                cap_remaining_milli_2z: error
+                    .detail_u64("cap_remaining_milli_2z")
+                    .map(Milli2z::new),
+                resets_at: error.detail_str("resets_at").map(str::to_owned),
+                error,
+            }),
+            ErrorCode::ContextLengthExceeded => Ok(Self::TooLarge(error)),
+            // Only the strict ceiling refusal: `field: max_output_tokens` is
+            // also `out_of_range` (0) or `required`, a malformed request that
+            // shortening the input would not fix.
+            ErrorCode::InvalidRequest
+                if error.detail_str("field") == Some("max_output_tokens")
+                    && error.detail_str("reason") == Some(STRICT_OUTPUT_REASON) =>
+            {
+                Ok(Self::TooLarge(error))
+            }
+            _ => Err(error),
         }
     }
 }

@@ -18,16 +18,19 @@ use super::{Ai, ChatOptions, Completion};
 use crate::error::{Error, SignedOutReason};
 
 /// A function tool: `parameters` is the JSON Schema of the arguments object.
+/// Pass an [`f2z_ai_proto::OrderedJson`] parsed from the schema's text to
+/// keep its member order; a `serde_json::Value` (e.g. `json!`) also works,
+/// but its members are already sorted by name.
 #[must_use]
 pub fn function_tool(
     name: impl Into<String>,
     description: impl Into<String>,
-    parameters: serde_json::Value,
+    parameters: impl Into<f2z_ai_proto::OrderedJson>,
 ) -> Tool {
     Tool {
         name: name.into(),
         description: Some(description.into()),
-        parameters,
+        parameters: parameters.into(),
         strict: None,
     }
 }

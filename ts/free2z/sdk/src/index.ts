@@ -5,7 +5,15 @@ export {
   type NativeBridge,
   type NativeChatRequest,
 } from "./native-transport.js";
-export { SdkError, type ErrorContext } from "./error.js";
+export {
+  SdkError,
+  errorHint,
+  type ErrorContext,
+  type SdkErrorCode,
+  type ServerErrorCode,
+  type LocalErrorCode,
+} from "./error.js";
+export { formatMilli2z } from "./format.js";
 export {
   ToolCallAccumulator,
   assistantMessage,

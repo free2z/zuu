@@ -102,6 +102,59 @@ export function retryAfter(response: Response): number | undefined {
     ? Math.max(0, Math.min(seconds, 86_400))
     : undefined;
 }
+/** `errors.md` "Retry" column: the identical request may succeed later. */
+const RETRYABLE_CODES = new Set([
+  "rate_limited",
+  "concurrency_limit",
+  "too_many_holds",
+  "provider_error",
+  "provider_timeout",
+  "catalog_unavailable",
+  "unavailable",
+  "internal",
+]);
+/** `details` members documented for refusals before any call ran
+ * (`f2z_ai_proto::error::PRE_CALL_DETAILS`). Any other member — a settlement,
+ * a charge, a partial output — means the call may have run, so it is never
+ * retryable. */
+const PRE_CALL_DETAILS = new Set([
+  "reason",
+  "max_age",
+  "acr_values",
+  "scope",
+  "debt_milli_2z",
+  "field",
+  "input_tokens_estimate",
+  "context_window",
+  "available_milli_2z",
+  "required_2z",
+  "min_charge_2z",
+  "cap_2z",
+  "cap_period",
+  "cap_remaining_milli_2z",
+  "resets_at",
+  "model",
+  "limit_bytes",
+  "limit",
+  "phase",
+  "min_2z",
+  "max_2z",
+  "packs",
+  "rail",
+  "status",
+  "purchase_id",
+  "max_output_tokens",
+  "model_max_output_tokens",
+]);
+/** The same rule as the Rust core's `ApiError::retryable`, for a refusal
+ * that carries no settlement: a retryable code whose `details` show nothing
+ * ran. Retrying a chat call still means a NEW idempotency key. */
+export function retryableRefusal(code: string, details: unknown): boolean {
+  if (!RETRYABLE_CODES.has(code)) return false;
+  if (details === undefined || details === null) return true;
+  if (typeof details !== "object" || Array.isArray(details)) return false;
+  return Object.keys(details).every((k) => PRE_CALL_DETAILS.has(k));
+}
 export async function apiError(
   response: Response,
   signal?: AbortSignal,
@@ -120,12 +173,7 @@ export async function apiError(
         : "http_error";
   const context: ConstructorParameters<typeof SdkError>[1] = {
     status: response.status,
-    retryable: [
-      "rate_limited",
-      "concurrency_limit",
-      "unavailable",
-      "catalog_unavailable",
-    ].includes(code),
+    retryable: retryableRefusal(code, data.details),
   };
   const retry = retryAfter(response);
   if (retry !== undefined) context.retryAfterSeconds = retry;

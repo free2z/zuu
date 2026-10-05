@@ -173,6 +173,13 @@ export interface NativeError {
   code: SignInErrorCode | (string & {}); retryable: boolean; status?: number; retryAfterSeconds?: Decimal;
   callId?: string; idempotencyKey?: string;
   stepUp?: { maxAge?: Decimal | null; acrValues?: string | null }; record?: CallRecord;
+  /**
+   * The server's documented refusal details (`errors.md`), integers as
+   * decimal strings: `required_2z`, `available_milli_2z`,
+   * `cap_remaining_milli_2z`, `resets_at`, `reason`, `field`, … Absent from
+   * plugins older than this field, and for local failures.
+   */
+  details?: { [key: string]: Json };
 }
 /** Fresh server policy snapshot, not an immutable cap version. */
 export interface Grant {

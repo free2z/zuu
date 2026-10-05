@@ -33,6 +33,7 @@
 //! | [`balance`] | [`balance::Balance`], the account balance including debt |
 //! | [`catalog`] | The signed model catalogue and [`catalog::verify_catalog`] |
 //! | [`canonical`] | The canonical JSON the catalogue signature covers |
+//! | [`json`] | [`json::OrderedJson`]: caller-supplied JSON (tool parameters, response schemas) that keeps its member order |
 //! | [`pricing`] | [`pricing::price_2z`]: meter to nano-USD, price to milli-2Z, integers only, one rounding of the 2Z total |
 //!
 //! # What is not
@@ -80,6 +81,7 @@ pub mod chat;
 pub mod error;
 pub mod event;
 pub mod grant;
+pub mod json;
 pub mod pricing;
 pub mod settlement;
 
@@ -87,5 +89,6 @@ pub use amount::{Milli2z, Nusd, Whole2z};
 pub use chat::{ChatRequest, ChatResponse, ResponseFormat, ToolChoice, Usage};
 pub use error::ErrorCode;
 pub use event::Event;
+pub use json::OrderedJson;
 pub use pricing::{Bps, Charge, ModelPrices, metered_cost_nusd, price_2z, price_nusd};
 pub use settlement::Settlement;

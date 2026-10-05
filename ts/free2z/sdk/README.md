@@ -86,9 +86,16 @@ for await (const event of stream) {
 Add `max_output_tokens_strict: true` when a length-truncated answer is useless
 to you: the gateway then refuses (`insufficient_balance`, `cap_exceeded`, …)
 before any hold or charge instead of lowering `max_output_tokens` to what the
-user can afford. Pre-check with `estimate()` on the same request, flag included:
-it answers exactly as the strict call would, without a hold or charge. See `docs/free2z/sdk/INTEGRATION.md`.
-The estimate also carries typed budget fields — `available_milli_2z`, `cap_remaining_milli_2z` (`null` = uncapped; absent = not reported, never uncapped), `min_charge_2z`, `catalog_version` — a snapshot for gating UI, not an authorization: the paid call re-checks.
+user can afford. Pre-check with `client.preflight(request)` on that same strict
+request: no hold or charge, and it returns the screen to show — `ready`,
+`needs_top_up` (offer a purchase), `needs_budget` (link to
+`https://free2z.cash/account/apps`; buying 2Z does not help) or `too_large`.
+Display amounts with `formatMilli2z(available_milli_2z)` (`"41.500"`). The
+[quickstart](../../../docs/free2z/sdk/QUICKSTART.md) is a complete first app.
+`estimate()` also carries typed budget fields — `available_milli_2z`,
+`cap_remaining_milli_2z` (`null` = uncapped; absent = not reported, never
+uncapped), `min_charge_2z`, `catalog_version` — a snapshot for gating UI, not
+an authorization: the paid call re-checks.
 
 For a JSON reply, set `response_format: { type: "json_schema", json_schema: {
 name, schema, strict: true } }` (or `{ type: "json_object" }`) and parse the
@@ -124,7 +131,11 @@ return the last `paid`/`pending` intent. Refund/dispute statuses are preserved.
 ## Cancellation and errors
 
 `SdkError` exposes safe codes and structured context, never raw token, keychain,
-or provider diagnostics. Inspect `stepUp` for fresh-authentication requirements;
+or provider diagnostics. `code` is typed `SdkErrorCode` (server codes from
+`errors.md` plus local ones; an unknown newer code still type-checks), and
+`message` ends with a developer hint (`errorHint(code)`) — log it, never parse
+it. Refusal `details` (`required_2z`, `cap_remaining_milli_2z`, `resets_at`, …)
+arrive as `bigint` amounts on both transports. Inspect `stepUp` for fresh-authentication requirements;
 then use `signIn({maxAge, acrValues})`. There is no automatic sign-in popup in an
 API call. `retryAfterSeconds` is bounded to 24 hours for scheduling.
 

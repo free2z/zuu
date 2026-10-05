@@ -43,6 +43,10 @@ const integerKeys = new Set([
   "confirmations",
   "required_confirmations",
   "quote_ttl_s",
+  // error `details` (errors.md §3); `required_2z` & co. match by suffix
+  "model_max_output_tokens",
+  "limit_bytes",
+  "limit",
   "charged2z",
   "collectedMilli2z",
   "shortfallMilli2z",
@@ -78,6 +82,8 @@ function unsignedLocation(path: readonly string[]): boolean {
       amountKey(key)
     );
   }
+  // error `details.packs` (`invalid_quantity`): whole-2Z pack sizes
+  if (path.length === 2 && path[0] === "packs" && path[1] === "*") return true;
   return path.length === 2 && path[0] === "milli_2z_per_minor_unit";
 }
 /** Native IPC numbers are decimal strings; content and identifiers remain strings. */

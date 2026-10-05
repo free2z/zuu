@@ -50,12 +50,12 @@
 
 use std::collections::BTreeMap;
 
-use f2z_ai_proto::ErrorCode;
 use f2z_ai_proto::catalog::{ApiStyle, CatalogModel};
 use f2z_ai_proto::chat::{
     ChatRequest, ContentPart, FinishReason, ResponseFormat, Role, ToolCall, ToolChoice, Usage,
 };
 use f2z_ai_proto::event::ToolCallDelta;
+use f2z_ai_proto::{ErrorCode, OrderedJson};
 use reqwest::header::HeaderMap;
 use secrecy::SecretString;
 use serde_json::{Map, Value, json};
@@ -121,7 +121,7 @@ impl Provider for OpenAiChat {
         request: &ChatRequest,
         model: &CatalogModel,
         max_output_tokens: u64,
-    ) -> Result<Value, ApiFailure> {
+    ) -> Result<OrderedJson, ApiFailure> {
         // A system or tool message is text here, and an assistant turn
         // carries no image.
         super::images_only_on(request, &[Role::User])?;
@@ -193,30 +193,23 @@ impl Provider for OpenAiChat {
         body.insert("stream".into(), json!(true));
         // Without this a streamed Chat Completion reports no usage at all.
         body.insert("stream_options".into(), json!({"include_usage": true}));
+        let mut caller = Vec::new();
         if !request.tools.is_empty() {
-            body.insert(
-                "tools".into(),
-                Value::Array(
-                    request
-                        .tools
-                        .iter()
-                        .map(|tool| {
-                            let mut f = Map::new();
-                            f.insert("name".into(), json!(tool.name));
-                            if let Some(d) = &tool.description {
-                                f.insert("description".into(), json!(d));
-                            }
-                            f.insert("parameters".into(), tool.parameters.clone());
-                            // `check_tools` refused `true` where it cannot be
-                            // honoured; `false` is the default everywhere.
-                            if tool.strict == Some(true) {
-                                f.insert("strict".into(), json!(true));
-                            }
-                            json!({"type": "function", "function": Value::Object(f)})
-                        })
-                        .collect(),
-                ),
-            );
+            caller.push((
+                "tools",
+                OrderedJson::array(request.tools.iter().map(|tool| {
+                    let mut function = super::tool_members(tool, "parameters");
+                    // `check_tool_translation` refused `true` where it cannot
+                    // be honoured; `false` is the default everywhere.
+                    if tool.strict == Some(true) {
+                        function.push(("strict", OrderedJson::from(true)));
+                    }
+                    OrderedJson::object([
+                        ("type", OrderedJson::from("function")),
+                        ("function", OrderedJson::object(function)),
+                    ])
+                })),
+            ));
         }
         if let Some(choice) = &request.tool_choice {
             body.insert(
@@ -237,24 +230,30 @@ impl Provider for OpenAiChat {
         if let Some(format) = &request.response_format {
             // The unified shape IS Chat Completions' shape; it is rebuilt
             // member by member anyway, so nothing the proto type does not
-            // name can reach the provider. Values, not bytes: schema
-            // object members arrive sorted by name (see
-            // `JsonSchemaFormat::schema`), not in the caller's order.
+            // name can reach the provider. The schema itself goes as the
+            // caller ordered it (zuu#1132): OpenAI emits the reply's keys in
+            // schema order.
             let wire = match format {
-                ResponseFormat::JsonObject {} => json!({"type": "json_object"}),
+                ResponseFormat::JsonObject {} => {
+                    OrderedJson::object([("type", OrderedJson::from("json_object"))])
+                }
                 ResponseFormat::JsonSchema { json_schema } => {
-                    let mut schema = Map::new();
-                    schema.insert("name".into(), json!(json_schema.name));
-                    schema.insert("schema".into(), json_schema.schema.clone());
+                    let mut schema = vec![
+                        ("name", OrderedJson::from(json_schema.name.as_str())),
+                        ("schema", json_schema.schema.clone()),
+                    ];
                     if let Some(strict) = json_schema.strict {
-                        schema.insert("strict".into(), json!(strict));
+                        schema.push(("strict", OrderedJson::from(strict)));
                     }
-                    json!({"type": "json_schema", "json_schema": Value::Object(schema)})
+                    OrderedJson::object([
+                        ("type", OrderedJson::from("json_schema")),
+                        ("json_schema", OrderedJson::object(schema)),
+                    ])
                 }
             };
-            body.insert("response_format".into(), wire);
+            caller.push(("response_format", wire));
         }
-        Ok(Value::Object(body))
+        Ok(super::ordered_body(body, caller))
     }
 
     fn parser(&self) -> Box<dyn StreamParser> {

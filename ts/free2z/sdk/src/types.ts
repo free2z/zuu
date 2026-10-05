@@ -216,12 +216,17 @@ export type PurchaseStatus =
   | "clawed_back";
 export interface Purchase extends ObjectData {
   id: string;
-  rail: string;
-  status: string;
+  /** `card` or `zcash` for third-party apps; a newer rail keeps its string. */
+  rail: PurchaseRail | "apple_iap" | "google_iap" | (string & {});
+  /** Only `credited` means 2Z reached the account. A newer status keeps its
+   * string: treat it like `pending` (keep polling), never as credited. */
+  status: PurchaseStatus | (string & {});
   quantity_2z: bigint;
   price: { currency: string; amount_minor: bigint };
   credited_milli_2z: bigint | null;
   credited_at: string | null;
+  /** The price table the quote came from, when the server sends it. */
+  pricing_version?: string;
   created_at: string;
   expires_at: string;
   rail_data: ObjectData;
@@ -236,10 +241,55 @@ export type Charge =
       collectedMilli2z?: bigint;
       shortfallMilli2z?: bigint;
     };
+/** `GET /v1/calls/{id}` `status`; a newer one keeps its string (not final). */
+export type CallStatus =
+  "streaming" | "settling" | "settled" | "released" | "settled_partial";
+/** Why generation stopped. `length` means truncated (and charged). */
+export type FinishReason =
+  "stop" | "length" | "tool_calls" | "content_filter" | "cancelled";
+/** Token and unit counts the charge was computed from. */
+export interface Usage extends ObjectData {
+  input_tokens?: bigint;
+  cached_input_tokens?: bigint;
+  cache_write_tokens?: bigint;
+  output_tokens?: bigint;
+  reasoning_tokens?: bigint;
+  images?: bigint;
+  tool_calls?: bigint;
+}
+/**
+ * A call's receipt (`chat-api.md` §7). Read `charge` for what was taken; the
+ * raw fields are for display and reconciliation. No prompt or completion
+ * text is ever in a record. An unreported member may be absent OR `null`
+ * (the native plugin sends every one, `null` when unknown).
+ */
 export interface CallRecord extends ObjectData {
   call_id: string;
-  status: string;
+  status: CallStatus | (string & {});
+  /** The only field that says whether the amount is final. */
   charge: Charge;
+  model?: string | null;
+  requested_model?: string | null;
+  provider?: string | null;
+  finish_reason?: FinishReason | (string & {}) | null;
+  usage?: Usage | null;
+  usage_source?: string | null;
+  hold_2z?: bigint | null;
+  charged_2z?: bigint | null;
+  receipt_id?: string | null;
+  collected_milli_2z?: bigint | null;
+  released_2z?: bigint | null;
+  shortfall_milli_2z?: bigint | null;
+  catalog_version?: bigint | null;
+  markup_bps?: bigint | null;
+  metadata?: { [key: string]: string } | null;
+  /** `null`, or the failure that ended the call. */
+  /** `message` is for logs and absent on native (the plugin drops it). */
+  error?: { code: string; message?: string } | null;
+  /** `true` when an idempotent replay returned this record. */
+  replayed?: boolean;
+  created_at?: string | null;
+  settled_at?: string | null;
 }
 /**
  * What the gateway will accept for a model (`docs/free2z/sdk/spec/chat-api.md`
@@ -331,11 +381,16 @@ export interface Models extends ObjectData {
  * but the protocol (`docs/free2z/sdk/spec/chat-api.md` §6) makes them optional
  * on decode, so they are optional here. Absent means "not reported" — in
  * particular an absent `cap_remaining_milli_2z` is NOT "uncapped".
+ *
+ * Not a quote and not a maximum charge. A refusal arrives as the same
+ * `SdkError` the call would get — see `Client.preflight`.
  */
 export interface Estimate extends ObjectData {
   model: string;
   input_tokens: bigint;
+  /** The limit the call would run with, after any clamping. */
   max_output_tokens: bigint;
+  /** Whole 2Z the call would reserve now. */
   hold_2z: bigint;
   /** Spendable balance net of open holds (`0` while in debt), in milli-2Z. */
   available_milli_2z?: bigint;
@@ -349,6 +404,38 @@ export interface Estimate extends ObjectData {
   /** The signed catalogue version the estimate was priced from. */
   catalog_version?: bigint;
 }
+/**
+ * `Client.preflight`: whether a strict request would run **now** with its
+ * full `max_output_tokens`, and if not, which recovery UX to show. A
+ * snapshot — send the call itself with `max_output_tokens_strict: true` too.
+ * Amount fields are absent when the server (or an older native plugin) did
+ * not send them.
+ */
+export type Preflight =
+  | { kind: "ready"; estimate: Estimate }
+  | {
+      /** Balance too low: offer a purchase (`createPurchase`). */
+      kind: "needs_top_up";
+      required2z?: bigint;
+      availableMilli2z?: bigint;
+      error: import("./error.js").SdkError;
+    }
+  | {
+      /** This app's budget is used up: link to free2z.cash/account/apps or
+       * wait for `resetsAt`. Buying 2Z does NOT raise it. */
+      kind: "needs_budget";
+      required2z?: bigint;
+      capRemainingMilli2z?: bigint;
+      /** RFC 3339; `null` for a `total` cap, which never resets. */
+      resetsAt?: string | null;
+      error: import("./error.js").SdkError;
+    }
+  | {
+      /** Never runs as asked: shorten the input or lower `max_output_tokens`
+       * (context window, or above the model's own ceiling). */
+      kind: "too_large";
+      error: import("./error.js").SdkError;
+    };
 export interface SettlementFields extends ObjectData {
   settlement: string;
   charge: Charge;
@@ -361,14 +448,25 @@ export type ChatEvent =
   | ({
       type: "meta";
       call_id: string;
+      /** The model that answered (a `fallback` may differ from the request). */
       model: string;
       hold_2z: bigint;
+      requested_model?: string;
+      provider?: string;
+      /** The limit this call runs with. Below what you asked means the
+       * gateway lowered it (not strict): expect `finish_reason: "length"`. */
+      max_output_tokens?: bigint;
+      input_tokens_estimate?: bigint;
+      created_at?: string;
     } & ObjectData)
   | { type: "delta"; text: string }
   | ({ type: "tool_call_delta" } & ToolCallDelta)
   | ({ type: "tool_call" } & ToolCall)
-  | ({ type: "usage"; usage: ObjectData; source: string } & ObjectData)
-  | ({ type: "done"; finish_reason: string } & SettlementFields)
+  | ({ type: "usage"; usage: Usage; source: string } & ObjectData)
+  | ({
+      type: "done";
+      finish_reason: FinishReason | (string & {});
+    } & SettlementFields)
   | ({ type: "error"; code: string; partial: boolean } & SettlementFields)
   | { type: "replay"; record: CallRecord };
 export interface ChatStream extends AsyncIterableIterator<ChatEvent> {
