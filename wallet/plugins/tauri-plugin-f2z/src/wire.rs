@@ -29,6 +29,13 @@ pub struct ErrorBody {
     pub step_up: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record: Option<Value>,
+    /// The envelope's documented `details` (`errors.md`): what a refusal
+    /// needs for its recovery UX (`required_2z`, `available_milli_2z`,
+    /// `cap_remaining_milli_2z`, `resets_at`, `reason`, `field`, …), with
+    /// integers as decimal strings. Only members `errors.md` documents are
+    /// passed; anything else stays native.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
 }
 impl std::ops::Deref for NativeError {
     type Target = ErrorBody;
@@ -52,6 +59,7 @@ impl NativeError {
             idempotency_key: None,
             step_up: None,
             record: None,
+            details: None,
         }))
     }
     pub fn key(mut self, key: &str) -> Self {
@@ -86,6 +94,7 @@ impl From<Error> for NativeError {
                 result.retryable = e.retryable();
                 result.status = Some(e.status);
                 result.retry_after_seconds = e.retry_after.map(|d| d.as_secs().to_string());
+                result.details = api_details(e.details.as_ref());
                 result.call_id = e.call_id;
             }
             Error::StepUpRequired(e) => {
@@ -132,6 +141,25 @@ impl From<Error> for NativeError {
         }
         result
     }
+}
+/// `details` members safe and useful in JavaScript: those `errors.md`
+/// documents for a refusal, plus the idempotency conflict's `call_id` and
+/// `in_flight`. Never a provider message or a settlement blob.
+fn api_details(details: Option<&serde_json::Map<String, Value>>) -> Option<Value> {
+    let kept: serde_json::Map<String, Value> = details?
+        .iter()
+        .filter(|(k, _)| {
+            f2z_sdk::proto::error::PRE_CALL_DETAILS.contains(&k.as_str())
+                || matches!(k.as_str(), "call_id" | "in_flight")
+        })
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    if kept.is_empty() {
+        return None;
+    }
+    let mut value = Value::Object(kept);
+    decimalize(&mut value);
+    Some(value)
 }
 /// Preserve every unsigned integer exactly at the JavaScript boundary.
 fn decimalize(value: &mut Value) {
@@ -388,6 +416,42 @@ mod tests {
             bad["response_format"] = format;
             assert!(chat_request(bad).is_err());
         }
+    }
+    /// zuu#1132: the app's schema member order survives the IPC `Value` and
+    /// reaches the SDK request as written.
+    #[test]
+    fn schema_member_order_survives_the_bridge() {
+        let schema = r#"{"type":"object","properties":{"reasoning":{"type":"string"},"answer":{"type":"number"}},"required":["reasoning","answer"]}"#;
+        let input: Value = serde_json::from_str(&format!(
+            r#"{{"model":"m","messages":[],"tools":[{{"name":"f","parameters":{schema}}}],"response_format":{{"type":"json_schema","json_schema":{{"name":"n","schema":{schema}}}}}}}"#
+        ))
+        .unwrap();
+        let mut sorted = input.clone();
+        let sent = serde_json::to_string(&chat_request(input).unwrap()).unwrap();
+        assert!(
+            sent.contains(&format!(r#""parameters":{schema}"#)),
+            "{sent}"
+        );
+        assert!(sent.contains(&format!(r#""schema":{schema}"#)), "{sent}");
+        // Negative control: the sorted `Value` a build without
+        // `preserve_order` hands the command does not survive, so the
+        // assertions above can fail.
+        sorted.sort_all_objects();
+        let control = serde_json::to_string(&chat_request(sorted).unwrap()).unwrap();
+        assert!(!control.contains(schema), "{control}");
+    }
+    #[test]
+    fn refusal_details_reach_javascript_documented_members_only() {
+        let details = json!({"reason":"max_output_tokens_strict","required_2z":12,
+            "available_milli_2z":500,"resets_at":null,"provider_message":"secret"});
+        let kept = api_details(details.as_object()).unwrap();
+        assert_eq!(
+            kept,
+            json!({"reason":"max_output_tokens_strict","required_2z":"12",
+                "available_milli_2z":"500","resets_at":null})
+        );
+        assert_eq!(api_details(json!({"x":1}).as_object()), None);
+        assert_eq!(api_details(None), None);
     }
     #[test]
     fn integers_are_lossless_and_strict() {

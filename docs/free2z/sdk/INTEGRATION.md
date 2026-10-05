@@ -199,7 +199,12 @@ session. Keep the exact request and key when restart recovery is required.
 
 ## Rust API examples
 
-The following helpers compile together against the preview. They are native
+A complete, CI-compiled version of these steps — preflight, structured
+output, receipt and recovery copy — is
+[`examples/first_app.rs`](../../../rs/crates/f2z-sdk/examples/first_app.rs);
+the [quickstart](./QUICKSTART.md) walks through it. The following helpers
+compile together against current `main` (`ChatRequest::new` and
+`Message::user` are newer than the pinned preview). They are native
 adapter building blocks, not a complete Tauri plugin. Supply a real platform
 opener and a tested keychain store; the UI transport and persistence of operation
 keys belong to the app.
@@ -212,7 +217,7 @@ use f2z_sdk::ai::{CancelHandle, Charge, ChatOptions};
 use f2z_sdk::oauth::{LoopbackSession, SignedIn, UrlOpener};
 use f2z_sdk::proto::{ChatRequest, Event, Whole2z};
 use f2z_sdk::proto::balance::Balance;
-use f2z_sdk::proto::chat::{ContentPart, Message, Role};
+use f2z_sdk::proto::chat::Message;
 use f2z_sdk::purchase::{Platform, PollOptions, PurchaseIntent, PurchaseRequest};
 
 pub fn make_client(client_id: &str, store: Arc<dyn TokenStore>) -> Result<Client, Error> {
@@ -254,22 +259,12 @@ pub async fn poll_purchase(client: &Client, id: &str) -> Result<PurchaseIntent, 
 }
 
 pub fn tutor_request(model: &str, prompt: &str) -> ChatRequest {
-    ChatRequest {
-        model: model.into(),
-        messages: vec![Message {
-            role: Role::User,
-            content: vec![ContentPart::Text { text: prompt.into() }],
-            tool_calls: vec![],
-            tool_call_id: None,
-        }],
-        tools: vec![],
-        max_output_tokens: Some(400),
-        // true: refuse up front instead of running a shorter call (below).
-        max_output_tokens_strict: true,
-        stream: true,
-        metadata: Default::default(),
-        fallback: vec![],
-    }
+    // `ChatRequest::new` leaves every optional field absent, so this keeps
+    // compiling as the contract gains additive fields.
+    ChatRequest::new(model, vec![Message::user(prompt)])
+        .with_max_output_tokens(400)
+        // Refuse up front instead of running a shorter call (below).
+        .strict()
 }
 
 pub async fn stream_tutor(
@@ -358,12 +353,16 @@ const request: ChatRequest = {
   yourself and still validate it — the model's output is untrusted, and a
   provider refusal also arrives as text. `finish_reason: "length"` means the
   JSON is truncated; pair `response_format` with `max_output_tokens_strict`.
-- **Key order is not preserved yet.** The gateway forwards the schema as a
-  parsed JSON value whose object members are sorted by name, and OpenAI
-  emits the reply's keys in schema order — so the reply arrives with keys
-  alphabetical, not in the order you declared. Parse by key, never by
-  position; and a schema that relies on order to make the model think first
-  (`reasoning` before `answer`) does not get that effect today.
+- **Key order is preserved.** The schema (and every tool's `parameters`)
+  reaches the provider with its members in the order you wrote them, and
+  OpenAI emits the reply's keys in schema order — so a schema that declares
+  `reasoning` before `answer` gets the model to write its reasoning first.
+  Still parse by key, never by position: the reply is model output. The
+  Tauri plugin keeps the order by enabling serde_json's `preserve_order`
+  (a Tauri command's arguments arrive as a `serde_json::Value`); Cargo
+  unifies features, so the host app's own `Value`s keep insertion order too.
+  In Rust, build a schema with `"…".parse::<OrderedJson>()`, not `json!`:
+  a `serde_json::Value` without `preserve_order` has already sorted it.
 - Pricing does not change. The schema is input the model reads, so it is part
   of the input hold and of the provider-reported usage you are charged for,
   like a tool definition. Keep it small.
@@ -413,8 +412,11 @@ it is byte-identical to one made before the field existed, and its
 idempotency fingerprint is unchanged. A gateway older than the field refuses it
 as an unknown field (`400 invalid_request`) rather than silently clamping.
 
-To tell the user *before* they press Generate, call `estimate` with the **same
-request, flag included**. A strict estimate runs exactly the admission the call
+To tell the user *before* they press Generate, call `preflight` (TS
+`client.preflight(request)`, Rust `client.ai().preflight(&request)`), which
+runs this estimate for a strict request and returns the recovery to show —
+`ready`, `needs_top_up`, `needs_budget` or `too_large` — or call `estimate`
+yourself with the **same request, flag included**. A strict estimate runs exactly the admission the call
 would — same bounds, same consented-markup affordability — without a hold or a
 charge: it answers `200` if the call would run at the full limit, or the same
 `402 insufficient_balance` / `403 cap_exceeded` / `400` refusal (with the same

@@ -116,7 +116,7 @@ fn response_format_is_opt_in_and_pinned() {
         Some(ResponseFormat::JsonSchema {
             json_schema: JsonSchemaFormat {
                 name: "activity_spec".into(),
-                schema: serde_json::json!({"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}),
+                schema: serde_json::json!({"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}).into(),
                 strict: Some(true),
             }
         })
@@ -167,7 +167,7 @@ fn response_format_is_opt_in_and_pinned() {
     let format = |name: &str, schema: serde_json::Value| ResponseFormat::JsonSchema {
         json_schema: JsonSchemaFormat {
             name: name.into(),
-            schema,
+            schema: schema.into(),
             strict: None,
         },
     };
@@ -210,6 +210,29 @@ fn response_format_is_opt_in_and_pinned() {
     sized(MAX_RESPONSE_SCHEMA_BYTES).check().unwrap();
     let error = sized(MAX_RESPONSE_SCHEMA_BYTES + 1).check().unwrap_err();
     assert_eq!(error.reason, "too_large");
+}
+
+/// zuu#1132: schema member order is the caller's, through decode and
+/// encode, for both `response_format` and tool `parameters` — byte for byte.
+#[test]
+fn schema_member_order_survives_the_wire() {
+    // Deliberately NOT sorted: `reasoning` before `answer`, `type` last,
+    // `zeta` before `alpha`, nested objects unsorted too.
+    let body = r#"{"model":"m","messages":[],"tools":[{"name":"lookup","parameters":{"type":"object","properties":{"zeta":{"type":"string","description":"z"},"alpha":{"type":"integer"}},"required":["zeta","alpha"]}}],"stream":false,"response_format":{"type":"json_schema","json_schema":{"name":"activity_spec","schema":{"properties":{"reasoning":{"type":"string"},"answer":{"type":"number"}},"required":["reasoning","answer"],"additionalProperties":false,"type":"object"},"strict":true}}}"#;
+    let request: ChatRequest = serde_json::from_str(body).unwrap();
+    assert_eq!(serde_json::to_string(&request).unwrap(), body);
+
+    // Negative control: the same body through `serde_json::Value` — what
+    // these fields were before #1132 — comes out reordered, so the assertion
+    // above can fail.
+    let value: serde_json::Value = serde_json::from_str(body).unwrap();
+    let through_value = serde_json::to_string(&value["response_format"]).unwrap();
+    assert!(
+        through_value.find("\"answer\"") < through_value.find("\"reasoning\""),
+        "{through_value}"
+    );
+    let tools = serde_json::to_string(&value["tools"]).unwrap();
+    assert!(tools.find("\"alpha\"") < tools.find("\"zeta\""), "{tools}");
 }
 
 #[test]

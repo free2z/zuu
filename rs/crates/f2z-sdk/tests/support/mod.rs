@@ -1008,6 +1008,23 @@ async fn chat(State(f): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) -> Re
             remember("settled", Some(1));
             happy(true)
         }
+        // A `response_format` reply: JSON text split across deltas.
+        "structured" => {
+            remember("settled", Some(1));
+            sse(
+                &[
+                    ("meta", meta(&call_id, &model)),
+                    ("delta", json!({"text": "{\"title\":\"Fractions\","})),
+                    (
+                        "delta",
+                        json!({"text": "\"steps\":[\"Halve a pizza\",\"Name the half\"]}"}),
+                    ),
+                    ("usage", usage()),
+                    ("done", done_settled()),
+                ],
+                false,
+            )
+        }
         "pending" => {
             remember("settling", None);
             sse(
@@ -1208,6 +1225,12 @@ async fn models(State(f): State<Arc<Fake>>, headers: HeaderMap) -> Response<Body
              "context_window": 400000, "max_output_tokens": 128000,
              "capabilities": {"vision": true, "tools": true, "reasoning": false},
              "prices": {"input_milli_2z_per_mtok": 300000, "output_milli_2z_per_mtok": 1200000},
+             "min_charge_2z": 1, "ttfb_timeout_ms": 30000},
+            {"id": "structured", "provider": "example-provider", "display_name": "Example (JSON)",
+             "context_window": 128000, "max_output_tokens": 16384,
+             "capabilities": {"vision": false, "tools": true, "reasoning": false,
+                              "structured_output": true},
+             "prices": {"input_milli_2z_per_mtok": 150000, "output_milli_2z_per_mtok": 600000},
              "min_charge_2z": 1, "ttfb_timeout_ms": 30000}
         ]}),
     );
@@ -1216,9 +1239,67 @@ async fn models(State(f): State<Arc<Fake>>, headers: HeaderMap) -> Response<Body
     r
 }
 
-async fn estimate(State(f): State<Arc<Fake>>, headers: HeaderMap) -> Response<Body> {
+async fn estimate(State(f): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) -> Response<Body> {
     if let Err(r) = f.check_bearer(&headers) {
         return r;
+    }
+    // Scripted strict refusals, by model name (`Ai::preflight`).
+    let model = serde_json::from_slice::<Value>(&body)
+        .ok()
+        .and_then(|v| v["model"].as_str().map(str::to_owned));
+    match model.as_deref() {
+        Some("needs-top-up") => {
+            return envelope(
+                StatusCode::PAYMENT_REQUIRED,
+                "insufficient_balance",
+                Some(
+                    json!({"reason": "max_output_tokens_strict", "max_output_tokens": 1800,
+                    "required_2z": 12, "available_milli_2z": 500, "min_charge_2z": 1}),
+                ),
+            );
+        }
+        Some("needs-budget") => {
+            return envelope(
+                StatusCode::FORBIDDEN,
+                "cap_exceeded",
+                Some(
+                    json!({"reason": "max_output_tokens_strict", "max_output_tokens": 1800,
+                    "required_2z": 12, "cap_2z": 200, "cap_period": "week",
+                    "cap_remaining_milli_2z": 0, "resets_at": "2026-10-12T00:00:00Z"}),
+                ),
+            );
+        }
+        // The model ceiling (strict), and a malformed `max_output_tokens`:
+        // the same field, different refusals (`provider::strict_model_ceiling`
+        // and `chat::validate` in f2z-ai).
+        Some("above-model-max") => {
+            return envelope(
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                Some(
+                    json!({"field": "max_output_tokens", "reason": "max_output_tokens_strict",
+                    "max_output_tokens": 1800, "model_max_output_tokens": 1024}),
+                ),
+            );
+        }
+        Some("out-of-range") => {
+            return envelope(
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                Some(json!({"field": "max_output_tokens", "reason": "out_of_range"})),
+            );
+        }
+        Some("too-large") => {
+            return envelope(
+                StatusCode::BAD_REQUEST,
+                "context_length_exceeded",
+                Some(
+                    json!({"reason": "max_output_tokens_strict", "max_output_tokens": 1800,
+                    "input_tokens_estimate": 399000, "context_window": 400000}),
+                ),
+            );
+        }
+        _ => {}
     }
     json_response(
         StatusCode::OK,

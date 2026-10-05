@@ -51,9 +51,10 @@ use std::fmt;
 use std::time::Duration;
 
 use f2z_ai_proto::ErrorCode;
+use f2z_ai_proto::OrderedJson;
 use f2z_ai_proto::catalog::{ApiStyle, CatalogModel};
 use f2z_ai_proto::chat::{ChatRequest, FinishReason, ToolCall, Usage};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::error::ApiFailure;
 
@@ -240,7 +241,10 @@ pub trait Provider: Send + Sync + fmt::Debug + 'static {
         key: &secrecy::SecretString,
     ) -> Result<reqwest::header::HeaderMap, ApiFailure>;
 
-    /// The provider request body.
+    /// The provider request body. An [`OrderedJson`], not a `Value`: the
+    /// caller's tool `parameters` and `response_format` schema reach the
+    /// provider in the caller's member order (zuu#1132) — build it with
+    /// [`ordered_body`].
     ///
     /// # Errors
     ///
@@ -250,7 +254,7 @@ pub trait Provider: Send + Sync + fmt::Debug + 'static {
         request: &ChatRequest,
         model: &CatalogModel,
         max_output_tokens: u64,
-    ) -> Result<Value, ApiFailure>;
+    ) -> Result<OrderedJson, ApiFailure>;
 
     /// Bind this adapter to the one request it will serve, before
     /// [`Provider::body`] and [`Provider::parser`]. An adapter is built per
@@ -608,6 +612,40 @@ pub const MAX_PENDING_TOOL_BYTES: usize = 4 * 1024 * 1024;
 
 /// The most tool calls one stream may have pending at once.
 pub const MAX_PENDING_TOOLS: usize = 128;
+
+/// A provider body: the gateway's own members (`own`; their order is not
+/// meaningful to any provider, and a `Map` sorts them), then the members that
+/// carry caller JSON, in the order given and with **their** member order
+/// intact. Caller JSON must never pass through a `serde_json::Value` on its
+/// way here: this workspace builds serde_json without `preserve_order`, so a
+/// `Value` sorts members by name and the provider would see `answer` before
+/// `reasoning` (zuu#1132).
+#[must_use]
+pub fn ordered_body(
+    own: Map<String, Value>,
+    caller: impl IntoIterator<Item = (&'static str, OrderedJson)>,
+) -> OrderedJson {
+    OrderedJson::object(
+        own.into_iter()
+            .map(|(k, v)| (k, OrderedJson::from(v)))
+            .chain(caller.into_iter().map(|(k, v)| (k.to_owned(), v))),
+    )
+}
+
+/// A function tool's members: `name`, an optional `description`, then the
+/// caller's schema under `schema_key`, in the caller's member order.
+#[must_use]
+pub fn tool_members(
+    tool: &f2z_ai_proto::chat::Tool,
+    schema_key: &'static str,
+) -> Vec<(&'static str, OrderedJson)> {
+    let mut members = vec![("name", OrderedJson::from(tool.name.as_str()))];
+    if let Some(d) = &tool.description {
+        members.push(("description", OrderedJson::from(d.as_str())));
+    }
+    members.push((schema_key, tool.parameters.clone()));
+    members
+}
 
 /// `data:` URL for an inline image. Built from the client's own bytes; it is
 /// not a location anything fetches.
