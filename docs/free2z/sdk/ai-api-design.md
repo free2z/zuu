@@ -956,16 +956,16 @@ anthropic}.rs` or `meter.rs` are serialised in the order above.
 | Slice | Issue |
 |---|---|
 | S10a | [#1147](https://github.com/free2z/zuu/issues/1147) |
-| S1 | zuu#ISSUE_S1 |
-| S2 | zuu#ISSUE_S2 |
-| S6 | zuu#ISSUE_S6 |
-| S3 | zuu#ISSUE_S3 |
-| S7 | zuu#ISSUE_S7 |
-| S8 | zuu#ISSUE_S8 |
-| S4 | zuu#ISSUE_S4 |
-| S5 | zuu#ISSUE_S5 |
+| S1 | [#1148](https://github.com/free2z/zuu/issues/1148) |
+| S2 | [#1149](https://github.com/free2z/zuu/issues/1149) |
+| S6 | [#1150](https://github.com/free2z/zuu/issues/1150) |
+| S3 | [#1151](https://github.com/free2z/zuu/issues/1151) |
+| S7 | [#1152](https://github.com/free2z/zuu/issues/1152) |
+| S8 | [#1153](https://github.com/free2z/zuu/issues/1153) |
+| S4 | [#1154](https://github.com/free2z/zuu/issues/1154) |
+| S5 | [#1155](https://github.com/free2z/zuu/issues/1155) |
 | S12 | [#1156](https://github.com/free2z/zuu/issues/1156) |
-| S9 | zuu#ISSUE_S9 |
+| S9 | [#1157](https://github.com/free2z/zuu/issues/1157) |
 | S-hosted | [#1158](https://github.com/free2z/zuu/issues/1158) |
 | S11 | [#1159](https://github.com/free2z/zuu/issues/1159) |
 | S10b | [#1160](https://github.com/free2z/zuu/issues/1160) |
