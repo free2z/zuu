@@ -8,9 +8,10 @@
 //! cargo run -p f2z-sdk --example first_app
 //! ```
 //!
-//! Against production, change only the configuration: `Config::new("<your
+//! Against production, change the configuration — `Config::new("<your
 //! client_id>")`, a real `UrlOpener` for the system browser, and a
-//! keychain-backed `TokenStore`.
+//! keychain-backed `TokenStore` — and delete the FAKE ONLY refusal demo in
+//! step 5.
 
 #![allow(
     missing_docs,
@@ -110,7 +111,8 @@ async fn main() -> Result<(), Error> {
             return Ok(());
         }
     }
-    // What the other outcomes look like (fake models that refuse):
+    // FAKE ONLY — delete against production: these model ids exist only in
+    // the local fake, and the real gateway answers `model_not_found`.
     for refusing in ["needs-top-up", "needs-budget", "too-large"] {
         let mut probe = request.clone();
         probe.model = refusing.into();
@@ -130,6 +132,12 @@ async fn main() -> Result<(), Error> {
         .with_max_retries(0);
     let mut stream = match client.ai().chat_with(request, options).await {
         Ok(stream) => stream,
+        // Same-key recovery found the call already ran: this IS its receipt,
+        // and it may have charged. Show it; never offer a new attempt.
+        Err(Error::Replayed(record)) => {
+            println!("already done: {:?}", record.charge());
+            return Ok(());
+        }
         Err(e) => {
             println!("{}", error_copy(&e));
             return Ok(());

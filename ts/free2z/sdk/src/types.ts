@@ -196,34 +196,35 @@ export interface Usage extends ObjectData {
 /**
  * A call's receipt (`chat-api.md` §7). Read `charge` for what was taken; the
  * raw fields are for display and reconciliation. No prompt or completion
- * text is ever in a record.
+ * text is ever in a record. An unreported member may be absent OR `null`
+ * (the native plugin sends every one, `null` when unknown).
  */
 export interface CallRecord extends ObjectData {
   call_id: string;
   status: CallStatus | (string & {});
   /** The only field that says whether the amount is final. */
   charge: Charge;
-  model?: string;
-  requested_model?: string;
-  provider?: string;
+  model?: string | null;
+  requested_model?: string | null;
+  provider?: string | null;
   finish_reason?: FinishReason | (string & {}) | null;
   usage?: Usage | null;
-  usage_source?: string;
+  usage_source?: string | null;
   hold_2z?: bigint | null;
   charged_2z?: bigint | null;
   receipt_id?: string | null;
   collected_milli_2z?: bigint | null;
   released_2z?: bigint | null;
   shortfall_milli_2z?: bigint | null;
-  catalog_version?: bigint;
-  markup_bps?: bigint;
-  metadata?: { [key: string]: string };
+  catalog_version?: bigint | null;
+  markup_bps?: bigint | null;
+  metadata?: { [key: string]: string } | null;
   /** `null`, or the failure that ended the call. */
   /** `message` is for logs and absent on native (the plugin drops it). */
   error?: { code: string; message?: string } | null;
   /** `true` when an idempotent replay returned this record. */
   replayed?: boolean;
-  created_at?: string;
+  created_at?: string | null;
   settled_at?: string | null;
 }
 /**
