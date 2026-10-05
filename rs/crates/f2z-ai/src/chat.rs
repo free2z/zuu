@@ -55,6 +55,7 @@ use crate::auth::Gatekeeper;
 use crate::call::{self, Upstream};
 use crate::catalog::{self, VerifiedCatalog};
 use crate::error::ApiFailure;
+use crate::features::{Logged, RequestFeatures};
 use crate::metrics::Rejection;
 use crate::serve::ConnectionKill;
 
@@ -233,11 +234,40 @@ pub struct ChatState {
 }
 
 /// The handler.
+///
+/// Once the body has decoded and validated, the response carries a
+/// [`Logged`] extension — the request's content-free [`RequestFeatures`] and
+/// the call id once one is known — which the `response` log line reads
+/// (`crate::server`'s observe layer). It never reaches the client.
 pub async fn handle(State(state): State<ChatState>, request: Request) -> Response {
-    match serve(&state, request).await {
-        Ok(response) => response,
-        Err(failure) => failure.into_response(),
+    let mut logged = None;
+    let handle = request.extensions().get::<CallHandle>().cloned();
+    let (mut response, failed_call) = match serve(&state, request, &mut logged).await {
+        Ok(response) => (response, None),
+        Err(failure) => {
+            let call = failure
+                .detail_of("call_id")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|id| id.parse::<uuid::Uuid>().ok());
+            (failure.into_response(), call)
+        }
+    };
+    if let Some(mut logged) = logged {
+        logged.call_id = logged.call_id.or(failed_call).or_else(|| {
+            response
+                .headers()
+                .get("x-f2z-call-id")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|id| id.parse().ok())
+        });
+        // A refusal after the claim (e.g. response_format_unsupported) may
+        // carry no call id in its body; the backend recorded it here.
+        logged.call_id = logged
+            .call_id
+            .or_else(|| handle.as_ref().and_then(CallHandle::durable_call_id));
+        response.extensions_mut().insert(logged);
     }
+    response
 }
 
 /// Small authenticated GET routes use the same peer admission bound as chat.
@@ -309,7 +339,11 @@ pub async fn read_handle(State(state): State<ChatState>, request: Request) -> Re
         .unwrap_or_else(IntoResponse::into_response)
 }
 
-async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailure> {
+async fn serve(
+    state: &ChatState,
+    request: Request,
+    logged: &mut Option<Logged>,
+) -> Result<Response, ApiFailure> {
     let estimating = request.uri().path() == "/v1/chat/estimate";
     let (parts, body) = request.into_parts();
     let Some(call) = parts.extensions.get::<CallHandle>().cloned() else {
@@ -380,6 +414,10 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
     upload.merge(decoded);
     let request = decode(&bytes, state.max_body_bytes)?;
     validate(&request)?;
+    *logged = Some(Logged {
+        features: RequestFeatures::of(&request),
+        call_id: None,
+    });
     drop(upload_lease);
     // The raw bytes are no longer needed, but the decoded request is about
     // as large and lives on into the backend's `start`: the reservation goes
@@ -448,6 +486,12 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
     match body.await {
         Ok(Ok(mut body)) => {
             if let Some(record) = body.replay.take() {
+                if let Some(logged) = logged.as_mut() {
+                    logged.call_id = record
+                        .get("call_id")
+                        .and_then(serde_json::Value::as_str)
+                        .and_then(|id| id.parse().ok());
+                }
                 let mut response = axum::Json(record).into_response();
                 response
                     .headers_mut()

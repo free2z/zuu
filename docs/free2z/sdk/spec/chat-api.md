@@ -664,6 +664,39 @@ the record. The gateway keeps no copy of either except under a grant whose
 user consented to debug capture ([oidc.md](./oidc.md) §5), and that copy
 is never served by this endpoint.
 
+**`features`** (optional, additive). A record may carry a content-free
+description of which request features the call asked for — never what they
+contained:
+
+```json
+"features": {
+  "response_format": "json_schema",
+  "response_format_strict": true,
+  "response_format_schema_name": "activity_spec",
+  "response_format_schema_bytes": 1834,
+  "tools": 0,
+  "max_output_tokens_strict": true,
+  "stream": false,
+  "fallback": 0
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `response_format` | `"json_schema"`, `"json_object"`, or `null` when the request sent none |
+| `response_format_strict` | `json_schema.strict` as sent; `null` when absent |
+| `response_format_schema_name` | `json_schema.name` (`[A-Za-z0-9_-]{1,64}`); `null` when absent |
+| `response_format_schema_bytes` | compact serialized size of `json_schema.schema`; `0` when absent |
+| `tools`, `fallback` | how many tool definitions and fallback models the request named |
+| `max_output_tokens_strict`, `stream` | as sent |
+
+It exists so that "did my request ask for structured output?" has an answer
+after the fact. It holds no schema body, prompt or tool definition. It is
+**absent** on records of calls made before a gateway recorded it, or while a
+deployment has it switched off — a client must treat absence as "not
+recorded", never as "not requested", and must ignore members it does not
+know.
+
 `404 call_not_found` for an id that does not exist or belongs to another
 (user, app).
 

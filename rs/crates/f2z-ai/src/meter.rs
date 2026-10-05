@@ -352,6 +352,7 @@ pub struct Metered {
     active: Mutex<BTreeMap<u64, Arc<Active>>>,
     configured: Option<std::collections::BTreeSet<String>>,
     allowed_models: Option<std::collections::BTreeSet<String>>,
+    features_meta: bool,
 }
 impl Metered {
     /// Share this same instance between gateway backend and detached settler.
@@ -369,7 +370,16 @@ impl Metered {
             active: Mutex::new(BTreeMap::new()),
             configured: None,
             allowed_models: None,
+            features_meta: false,
         }
+    }
+    /// Store the content-free request `features` on the ledger call claim
+    /// (`Config::ledger_features_meta`). Off by default: a ledger without
+    /// `ledger.0006_call_features` refuses the key and every claim with it.
+    #[must_use]
+    pub const fn with_features_meta(mut self, enabled: bool) -> Self {
+        self.features_meta = enabled;
+        self
     }
     /// Restrict new paid work to reviewed model IDs while preserving old receipts.
     #[must_use]
@@ -473,7 +483,17 @@ impl ChatBackend for Metered {
             .iter()
             .find(|m| m.id == request.model)
             .map_or("unavailable", |m| m.provider.as_str());
-        let request_meta = json!({"model":request.model,"requested_model":request.model,"provider":provider,"catalog_version":catalog.catalog().version,"metadata":request.metadata});
+        let mut request_meta = json!({"model":request.model,"requested_model":request.model,"provider":provider,"catalog_version":catalog.catalog().version,"metadata":request.metadata});
+        if self.features_meta
+            && let Some(meta) = request_meta.as_object_mut()
+        {
+            // Content-free (crate::features). Gated: an older ledger refuses
+            // the key, and a refused claim fails the paid call.
+            meta.insert(
+                "features".into(),
+                crate::features::RequestFeatures::of(&request).to_json(),
+            );
+        }
         let claim = Operation::Claim {
             identity,
             call: id,
@@ -523,6 +543,7 @@ impl ChatBackend for Metered {
         if existing != Some(id.to_string().as_str()) {
             return Err(invalid());
         }
+        call.set_durable_call_id(id);
         // Replay precedes spendability: a completed call remains readable even
         // after its charge exhausted the current balance/cap.
         if let Err(refusal) = self.require_model(&request.model) {
@@ -754,6 +775,15 @@ fn project(record: &Value, replayed: bool) -> Result<Value, ApiFailure> {
         "metadata",
     ] {
         out[key] = request.get(key).ok_or_else(invalid)?.clone();
+    }
+    // Optional and additive: only calls claimed with `features` carry it,
+    // and only the exact content-free shape is projected (never the stored
+    // value wholesale).
+    if let Some(features) = request
+        .get("features")
+        .and_then(crate::features::RequestFeatures::from_json)
+    {
+        out["features"] = features.to_json();
     }
     for key in ["created_at", "settled_at"] {
         out[key] = record.get(key).ok_or_else(invalid)?.clone();
@@ -1195,6 +1225,24 @@ mod tests {
         record["settlement"]["collected_milli_2z"] = json!(900);
         record["settlement"]["shortfall_milli_2z"] = json!(100);
         assert!(project(&record, false).is_err());
+    }
+
+    #[test]
+    fn stored_features_are_projected_only_in_their_exact_shape() {
+        let features = json!({"response_format":"json_schema","response_format_strict":true,
+            "response_format_schema_name":"activity_spec","response_format_schema_bytes":120,
+            "tools":0,"max_output_tokens_strict":true,"stream":false,"fallback":0});
+        let mut record = json!({"call_id":Uuid::now_v7(),"status":"streaming","request":{"model":"m","requested_model":"m","provider":"p","catalog_version":1,"metadata":{},"features":features},"created_at":"2026-10-05T00:00:00Z","settled_at":null});
+        assert_eq!(project(&record, false).unwrap()["features"], features);
+        // A record claimed without features (flag off, or an older call) has none.
+        record["request"]
+            .as_object_mut()
+            .unwrap()
+            .remove("features");
+        assert!(project(&record, false).unwrap().get("features").is_none());
+        // Anything else stored there is never forwarded.
+        record["request"]["features"] = json!({"prompt":"leak"});
+        assert!(project(&record, false).unwrap().get("features").is_none());
     }
 
     // free2z/zuu#1122: `max_output_tokens_strict` refuses instead of clamping.

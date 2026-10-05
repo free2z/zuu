@@ -67,6 +67,11 @@ struct Memory {
     lose_settle_reply: bool,
     available: u64,
     slow_completion: bool,
+    /// Mimic a ledger before `ledger.0006_call_features`: its
+    /// `gateway_metadata_valid` refuses any key it does not name, so
+    /// `call_claim` raises (22023), which the adapter reports as `Failure`.
+    old_ledger: bool,
+    claims: usize,
 }
 impl Memory {
     fn context(&self) -> Value {
@@ -124,6 +129,10 @@ impl Ledger for Database {
                 fingerprint,
                 request,
             } => {
+                m.claims += 1;
+                if m.old_ledger && request.get("features").is_some() {
+                    return Err(Failure);
+                }
                 if m.revoked {
                     return Ok(
                         json!({"status":"revoked","call_id":null,"record":null,"context":{"status":"revoked"}}),
@@ -176,6 +185,11 @@ impl Ledger for Database {
                 completion,
                 no_hold,
             } => {
+                if m.old_ledger && m.call.is_none() {
+                    // The refused claim inserted nothing: the settler's
+                    // completion of it finds no call, as the real ledger's does.
+                    return Ok(json!({"status":"not_found","record":null}));
+                }
                 assert_eq!(Some(*call), m.call);
                 assert_eq!(identity.grant_generation, 1);
                 // The production ledger's `gateway_metadata_valid` accepts an
@@ -261,13 +275,23 @@ async fn launch_catalog(
     allowed: Option<Vec<&str>>,
     catalog: f2z_ai::catalog::VerifiedCatalog,
 ) -> (support::Running, MockProvider) {
+    launch_meta(db, scenario, allowed, catalog, false).await
+}
+async fn launch_meta(
+    db: Arc<Database>,
+    scenario: Scenario,
+    allowed: Option<Vec<&str>>,
+    catalog: f2z_ai::catalog::VerifiedCatalog,
+    features_meta: bool,
+) -> (support::Running, MockProvider) {
     let mock = MockProvider::start(scenario).await.unwrap();
     let meter = Arc::new(
         Metered::new(
             db,
             adapter_support::backend(&mock.base_url(), adapter_support::tuning(0)),
         )
-        .with_allowed_models(allowed.map(|ids| ids.into_iter().map(str::to_owned).collect())),
+        .with_allowed_models(allowed.map(|ids| ids.into_iter().map(str::to_owned).collect()))
+        .with_features_meta(features_meta),
     );
     let running = support::start(
         &support::config(&[]),
@@ -967,5 +991,388 @@ async fn an_unsupported_structured_output_refusal_is_what_its_key_replays() {
     );
     assert!(db.0.lock().unwrap().hold.is_none());
     assert_eq!(mock.request_count(), 0);
+    mock.shutdown().await;
+}
+
+// response_format forwarding, end to end (P0 investigation, 2026-10-05): a
+// third-party app reported gpt-4o output that broke its strict json_schema.
+// These pin, through the real HTTP server, the metering layer, the real
+// Chat Completions adapter and the mock provider, that the upstream body
+// carries exactly the client's `response_format` — streaming, nonstreaming
+// and after an estimate — never one with a member missing, a value changed
+// or an array reordered; that a request without one sends none; and that a
+// model which cannot honour it is refused before any provider request
+// rather than called without it.
+
+/// A schema with everything a strict OpenAI schema uses: nested objects,
+/// `required` at every level, `additionalProperties: false`, a number with a
+/// fractional bound, a boolean, an array of objects, and an `enum`. The
+/// `required` lists and the `enum` are deliberately NOT in alphabetical
+/// order, and neither are the property names, so a canonicalizer that sorted
+/// arrays — or lost a member while re-ordering objects — shows up here.
+fn activity_spec_format() -> Value {
+    json!({"type": "json_schema", "json_schema": {
+        "name": "activity_spec",
+        "strict": true,
+        "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "title": {"type": "string", "description": "short title"},
+                "difficulty": {"type": "number", "minimum": 0.5, "maximum": 9.75},
+                "graded": {"type": "boolean"},
+                "kind": {"type": "string", "enum": ["quiz", "essay", "drill", "lab"]},
+                "settings": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "time_limit_s": {"type": "integer"},
+                        "shuffle": {"type": "boolean"}
+                    },
+                    "required": ["time_limit_s", "shuffle"]
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "prompt": {"type": "string"},
+                            "points": {"type": "number"},
+                            "optional": {"type": "boolean"}
+                        },
+                        "required": ["prompt", "points", "optional"]
+                    }
+                }
+            },
+            "required": ["title", "difficulty", "graded", "kind", "settings", "steps"]
+        }
+    }})
+}
+
+fn chat_with_format(model: &str, stream: bool, format: Option<Value>) -> Value {
+    let mut request = request();
+    request["model"] = json!(model);
+    request["stream"] = json!(stream);
+    if let Some(format) = format {
+        request["response_format"] = format;
+    }
+    request
+}
+
+/// Assert the one recorded upstream request carries `sent` unchanged, and
+/// print it so the evidence is readable in `--nocapture` output.
+fn assert_forwarded_unchanged(mock: &MockProvider, sent: &Value, label: &str) {
+    let recorded = mock.recorded_requests();
+    assert_eq!(recorded.len(), 1, "{label}: exactly one provider request");
+    let body = &recorded[0].body;
+    assert_eq!(
+        recorded[0].style,
+        f2z_ai_testkit::mock::ProviderStyle::ChatCompletions,
+        "{label}"
+    );
+    assert_eq!(body["stream"], true, "{label}: upstream is always streamed");
+    let upstream = &body["response_format"];
+    println!(
+        "[{label}] upstream response_format = {}",
+        serde_json::to_string_pretty(upstream).unwrap()
+    );
+    // Deep equality as values: object member order may differ (documented
+    // on `JsonSchemaFormat::schema`), but `Value` array equality is ordered,
+    // so every `required` and `enum` must also keep its order.
+    assert_eq!(upstream, sent, "{label}: response_format altered upstream");
+    assert_eq!(upstream["type"], "json_schema", "{label}");
+    assert_eq!(upstream["json_schema"]["name"], "activity_spec", "{label}");
+    assert_eq!(upstream["json_schema"]["strict"], json!(true), "{label}");
+    let schema = &upstream["json_schema"]["schema"];
+    assert_eq!(schema["additionalProperties"], json!(false), "{label}");
+    assert_eq!(
+        schema["required"],
+        json!(["title", "difficulty", "graded", "kind", "settings", "steps"]),
+        "{label}: top-level required order"
+    );
+    assert_eq!(
+        schema["properties"]["kind"]["enum"],
+        json!(["quiz", "essay", "drill", "lab"]),
+        "{label}: enum order"
+    );
+    assert_eq!(
+        schema["properties"]["settings"]["required"],
+        json!(["time_limit_s", "shuffle"]),
+        "{label}: nested required order"
+    );
+    assert_eq!(
+        schema["properties"]["steps"]["items"]["required"],
+        json!(["prompt", "points", "optional"]),
+        "{label}: array-item required order"
+    );
+    assert_eq!(
+        schema["properties"]["steps"]["items"]["additionalProperties"],
+        json!(false),
+        "{label}"
+    );
+    assert_eq!(
+        schema["properties"]["difficulty"]["minimum"],
+        json!(0.5),
+        "{label}: fractional bound survives"
+    );
+    // Nothing the client did not send rides along inside the format.
+    assert_eq!(
+        upstream.as_object().unwrap().len(),
+        2,
+        "{label}: response_format members"
+    );
+    assert_eq!(
+        upstream["json_schema"].as_object().unwrap().len(),
+        3,
+        "{label}: json_schema members"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn strict_json_schema_reaches_the_provider_unchanged_streaming_and_not() {
+    for stream in [true, false] {
+        let label = if stream { "stream" } else { "nonstream" };
+        let db = Arc::new(Database::new());
+        let (r, mock) =
+            launch_catalog(db.clone(), Scenario::default(), None, structured_catalog()).await;
+        let request = chat_with_format("m-chat", stream, Some(activity_spec_format()));
+        let (status, reply) = post(&r, "/v1/chat", &request).await;
+        assert_eq!(status, StatusCode::OK, "{label}: {reply}");
+        if stream {
+            let sse = reply.as_str().unwrap();
+            assert!(sse.contains("event: delta"), "{sse}");
+            assert!(!sse.contains("event: error"), "{sse}");
+        } else {
+            assert!(reply["message"].is_object(), "{reply}");
+        }
+        assert_forwarded_unchanged(&mock, &request["response_format"], label);
+        mock.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_estimate_then_chat_hand_off_forwards_the_same_response_format() {
+    for stream in [true, false] {
+        let label = if stream {
+            "estimate->stream"
+        } else {
+            "estimate->nonstream"
+        };
+        let db = Arc::new(Database::new());
+        let (r, mock) =
+            launch_catalog(db.clone(), Scenario::default(), None, structured_catalog()).await;
+        let request = chat_with_format("m-chat", stream, Some(activity_spec_format()));
+        let (status, estimate) = post(&r, "/v1/chat/estimate", &request).await;
+        assert_eq!(status, StatusCode::OK, "{label}: {estimate}");
+        assert!(estimate["hold_2z"].as_u64().unwrap() >= 1, "{estimate}");
+        assert_eq!(mock.request_count(), 0, "an estimate calls no provider");
+        assert!(
+            db.0.lock().unwrap().call.is_none(),
+            "an estimate is no call"
+        );
+        let (status, reply) = post(&r, "/v1/chat", &request).await;
+        assert_eq!(status, StatusCode::OK, "{label}: {reply}");
+        assert_forwarded_unchanged(&mock, &request["response_format"], label);
+        mock.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn json_object_reaches_the_provider_unchanged() {
+    let db = Arc::new(Database::new());
+    let (r, mock) =
+        launch_catalog(db.clone(), Scenario::default(), None, structured_catalog()).await;
+    let request = chat_with_format("m-chat", true, Some(json!({"type": "json_object"})));
+    let (status, reply) = post(&r, "/v1/chat", &request).await;
+    assert_eq!(status, StatusCode::OK, "{reply}");
+    let recorded = mock.recorded_requests();
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(
+        recorded[0].body["response_format"],
+        json!({"type": "json_object"})
+    );
+    mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_request_without_response_format_sends_none_upstream() {
+    for stream in [true, false] {
+        let db = Arc::new(Database::new());
+        let (r, mock) =
+            launch_catalog(db.clone(), Scenario::default(), None, structured_catalog()).await;
+        let request = chat_with_format("m-chat", stream, None);
+        let (status, reply) = post(&r, "/v1/chat", &request).await;
+        assert_eq!(status, StatusCode::OK, "{reply}");
+        let recorded = mock.recorded_requests();
+        assert_eq!(recorded.len(), 1);
+        assert!(
+            recorded[0].body.get("response_format").is_none(),
+            "stream={stream}: {}",
+            recorded[0].body
+        );
+        mock.shutdown().await;
+    }
+}
+
+/// The silent-fallback hypothesis: every way a model can lack structured
+/// output — a Chat Completions model whose catalogue row declares nothing
+/// and whose provider is not `openai`, an OpenAI model that declares
+/// `structured_output: false`, and the two adapters with no translation —
+/// is refused with `response_format_unsupported` on `/v1/chat` (streaming
+/// and not) and on `/v1/chat/estimate`, before any hold and before any
+/// provider request.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_model_without_structured_output_is_refused_before_any_provider_request() {
+    let undeclared_compatible = adapter_support::catalog(10_000); // m-chat: provider "chatco"
+    let mut declared_false = structured_catalog().catalog().clone();
+    for model in &mut declared_false.models {
+        if model.id == "m-chat" {
+            model.capabilities.structured_output = Some(false);
+        }
+    }
+    let declared_false = f2z_ai::catalog::VerifiedCatalog::from_verified(declared_false).unwrap();
+    let cases = [
+        (
+            "m-chat (chatco, undeclared)",
+            "m-chat",
+            undeclared_compatible.clone(),
+        ),
+        ("m-chat (openai, declared false)", "m-chat", declared_false),
+        (
+            "m-responses (openai responses)",
+            "m-responses",
+            structured_catalog(),
+        ),
+        ("m-anthropic", "m-anthropic", undeclared_compatible),
+    ];
+    for (label, model, catalog) in cases {
+        for (path, stream) in [
+            ("/v1/chat/estimate", true),
+            ("/v1/chat", true),
+            ("/v1/chat", false),
+        ] {
+            let db = Arc::new(Database::new());
+            let (r, mock) =
+                launch_catalog(db.clone(), Scenario::default(), None, catalog.clone()).await;
+            let request = chat_with_format(model, stream, Some(activity_spec_format()));
+            let (status, refused) = post(&r, path, &request).await;
+            let at = format!("{label} {path} stream={stream}");
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{at}: {refused}");
+            assert_eq!(
+                refused["error"]["code"], "invalid_request",
+                "{at}: {refused}"
+            );
+            assert_eq!(
+                refused["error"]["details"]["reason"], "response_format_unsupported",
+                "{at}: {refused}"
+            );
+            assert_eq!(
+                refused["error"]["details"]["field"], "response_format",
+                "{at}"
+            );
+            assert!(db.0.lock().unwrap().hold.is_none(), "{at}: no hold");
+            assert_eq!(db.0.lock().unwrap().charges, 0, "{at}: no charge");
+            assert_eq!(mock.request_count(), 0, "{at}: no provider request");
+            mock.shutdown().await;
+        }
+    }
+}
+
+// The 2026-10-05 incident: "did the client send response_format?" had no
+// durable answer. With `ledger_features_meta` on, the claim stores a
+// content-free `features` object and `GET /v1/calls/{id}` returns it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn features_are_recorded_on_the_claim_and_the_receipt_when_enabled() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch_meta(
+        db.clone(),
+        Scenario::default(),
+        None,
+        structured_catalog(),
+        true,
+    )
+    .await;
+    let request = structured_request("m-chat");
+    let response = support::send(r.public, support::chat_request(request.to_string())).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let id = response.headers()["x-f2z-call-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let _ = support::text(response).await;
+    final_state(&db).await;
+    let schema_bytes = serde_json::to_vec(&request["response_format"]["json_schema"]["schema"])
+        .unwrap()
+        .len();
+    let expected = json!({"response_format":"json_schema","response_format_strict":true,
+        "response_format_schema_name":"activity_spec","response_format_schema_bytes":schema_bytes,
+        "tools":0,"max_output_tokens_strict":false,"stream":false,"fallback":0});
+    let claimed = db.0.lock().unwrap().request.clone();
+    assert_eq!(claimed["features"], expected);
+    // Content-free: neither the schema's members nor the prompt.
+    assert!(!claimed.to_string().contains("additionalProperties"));
+    assert!(!claimed.to_string().contains("hello tutor"));
+    let read = axum::http::Request::get(format!("/v1/calls/{id}"))
+        .header("host", "gateway")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let record: Value =
+        serde_json::from_str(&support::text(support::send(r.public, read).await).await).unwrap();
+    assert_eq!(record["features"], expected, "{record}");
+    mock.shutdown().await;
+}
+
+// Off (the default), nothing new reaches the ledger: a ledger without
+// `ledger.0006_call_features`, which refuses any unknown claim key, still
+// admits and charges the call. This is the deploy-in-either-order guarantee.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn by_default_an_old_ledger_never_sees_features_and_the_call_succeeds() {
+    let db = Arc::new(Database::new());
+    db.0.lock().unwrap().old_ledger = true;
+    let (r, mock) =
+        launch_catalog(db.clone(), Scenario::default(), None, structured_catalog()).await;
+    let response = support::send(
+        r.public,
+        support::chat_request(structured_request("m-chat").to_string()),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = support::text(response).await;
+    final_state(&db).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert!(state.request.get("features").is_none(), "{}", state.request);
+        assert_eq!(state.charges, 1);
+    }
+    mock.shutdown().await;
+}
+
+// Negative control for the flag: enabled against that old ledger, every claim
+// is refused before any hold or provider request — which is exactly why the
+// flag is flipped only after the migration is live.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn enabled_against_an_old_ledger_the_claim_is_refused_before_any_paid_work() {
+    let db = Arc::new(Database::new());
+    db.0.lock().unwrap().old_ledger = true;
+    let (r, mock) = launch_meta(
+        db.clone(),
+        Scenario::default(),
+        None,
+        structured_catalog(),
+        true,
+    )
+    .await;
+    let response = support::send(
+        r.public,
+        support::chat_request(structured_request("m-chat").to_string()),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    {
+        let state = db.0.lock().unwrap();
+        assert!(state.claims >= 1 && state.hold.is_none() && state.charges == 0);
+    }
+    assert_eq!(mock.recorded_requests().len(), 0);
     mock.shutdown().await;
 }
