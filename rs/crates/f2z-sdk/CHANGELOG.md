@@ -5,6 +5,9 @@
 Initial reviewed SDK contract implementation. Publication is disabled pending
 release acceptance; see the repository SDK release guide.
 
+- `ChatRequest::tool_choice` / `parallel_tool_calls` (via `f2z_ai_proto`,
+  free2z/zuu#1128): OpenAI-shaped tool controls, opt-in; a model that cannot
+  express them refuses the call before any hold.
 - `ChatRequest::response_format` (via `f2z_ai_proto`): opt-in structured
   output, `ResponseFormat::JsonSchema { json_schema: JsonSchemaFormat { name,
   schema, strict } }` or `ResponseFormat::JsonObject {}`; `ResponseFormat::check`

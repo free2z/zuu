@@ -28,12 +28,26 @@ tools; model names never imply support. The gateway relays calls but never runs
 a client tool. Tool definitions, arguments and results enter the input hold.
 
 Structured output (`response_format`: `json_schema` or `json_object`) is passed
-through only by the Chat Completions adapter, and only to a model whose signed
+through by the Chat Completions adapter, to a model whose signed
 `capabilities.structured_output` is `true` — or, while the catalogue does not
-carry that member, whose provider is `openai`. Everything else is refused with
+carry that member, whose provider is `openai`. The Anthropic Messages adapter
+translates it into a forced single tool whose `input_schema` is the schema and
+unwraps the tool's input back into the reply's text (`finish_reason: stop`),
+for a model whose catalogue entry declares `structured_output: true`; it
+refuses a `response_format` beside `tools`. Any Anthropic request that sends
+tools also reserves `TOOL_USE_OVERHEAD_TOKENS` of input for Anthropic's
+tool-use system prompt, which the request bytes do not show (hold only). Everything else is refused with
 `400 invalid_request` (`reason: "response_format_unsupported"`) before any hold
 or provider I/O; the gateway never drops the constraint. The schema enters the
 input hold like a tool definition; the pricing formula is unchanged.
+
+OpenAI-shaped tool controls (`tool_choice`, `parallel_tool_calls`) are
+translated by the Anthropic Messages adapter (`required` → `any`, a named
+function → `tool`, `none` → `none`, `parallel_tool_calls: false` →
+`disable_parallel_tool_use`) and refused up front by the others
+(`reason: "tools_unsupported"`, `field` naming the control) until their
+translation lands. Recorded Anthropic payloads and their expected results are
+in `tests/fixtures/anthropic/` (`tests/anthropic_conformance.rs`).
 
 Nonstreaming delivery aggregates the same event pipeline. Before provider I/O it
 reserves 64 times its event-byte limit from the shared upload memory pool; the

@@ -25,10 +25,20 @@ export type ResponseFormat =
       /** `name`: 1-64 of `A-Z a-z 0-9 _ -`; `schema`: a JSON Schema object, at most 32 KiB. */
       json_schema: { name: string; schema: Json; strict?: boolean };
     };
+/** OpenAI's `tool_choice`; requires `tools`. */
+export type ToolChoice =
+  | 'auto'
+  | 'none'
+  | 'required'
+  | { type: 'function'; function: { name: string } };
 export interface ChatRequest {
   model: string;
   messages: Message[];
   tools?: { name: string; description?: string; parameters: Json }[];
+  /** Opt-in; refused up front (`tools_unsupported`) where a model cannot express it. */
+  tool_choice?: ToolChoice;
+  /** Opt-in; `false` = at most one tool call per turn. */
+  parallel_tool_calls?: boolean;
   max_output_tokens?: Decimal;
   /** `true`: refuse up front rather than lower `max_output_tokens` (requires it). */
   max_output_tokens_strict?: boolean;

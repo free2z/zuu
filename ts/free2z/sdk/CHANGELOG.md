@@ -5,6 +5,9 @@
 Initial TypeScript facade, browser OAuth/Fetch transport, native pull bridge,
 lossless integer decoding, purchase polling, and structured settlement recovery.
 
+- `ChatRequest.tool_choice` (`ToolChoice`) and `ChatRequest.parallel_tool_calls`
+  (free2z/zuu#1128): OpenAI-shaped tool controls, passed through as sent;
+  absent is never sent.
 - `Models` types the catalogue (`Model`, `ModelCapabilities`, `ModelPrices`):
   `capabilities.{vision,tools,reasoning,structured_output}` as `boolean`
   (absent = unsupported; a non-boolean is `invalid_response`), prices and

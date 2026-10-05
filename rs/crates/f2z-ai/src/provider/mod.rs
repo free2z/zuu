@@ -252,6 +252,14 @@ pub trait Provider: Send + Sync + fmt::Debug + 'static {
         max_output_tokens: u64,
     ) -> Result<Value, ApiFailure>;
 
+    /// Bind this adapter to the one request it will serve, before
+    /// [`Provider::body`] and [`Provider::parser`]. An adapter is built per
+    /// call ([`for_style`]), and one whose stream must be read differently
+    /// depending on the request — Anthropic's, which unwraps a
+    /// `response_format` from a forced tool call — records that here. The
+    /// default records nothing.
+    fn bind(&mut self, _request: &ChatRequest) {}
+
     /// A parser for one attempt's stream.
     fn parser(&self) -> Box<dyn StreamParser>;
 
@@ -276,7 +284,7 @@ pub fn for_style(
 ) -> Option<Box<dyn Provider>> {
     match style {
         ApiStyle::OpenaiResponses => Some(Box::new(openai_responses::OpenAiResponses)),
-        ApiStyle::AnthropicMessages => Some(Box::new(anthropic::AnthropicMessages)),
+        ApiStyle::AnthropicMessages => Some(Box::new(anthropic::AnthropicMessages::default())),
         ApiStyle::OpenaiChat => Some(Box::new(openai_chat::OpenAiChat::new(chat_usage))),
         _ => None,
     }
@@ -420,15 +428,18 @@ pub const RESPONSE_FORMAT_UNSUPPORTED: &str = "response_format_unsupported";
 ///
 /// Two conditions, both required:
 ///
-/// * **The adapter can express it.** Only [`ApiStyle::OpenaiChat`] (Chat
-///   Completions' own `response_format`) does in this build. The Responses
-///   and Anthropic Messages adapters have no translation, so a request for
-///   either is refused rather than sent without the constraint.
+/// * **The adapter can express it.** [`ApiStyle::OpenaiChat`] (Chat
+///   Completions' own `response_format`) and [`ApiStyle::AnthropicMessages`]
+///   (a forced single tool whose `input_schema` is the schema, unwrapped back
+///   into the reply's text — [`anthropic`]) do in this build. The Responses
+///   adapter has no translation, so a request for it is refused rather than
+///   sent without the constraint.
 /// * **The model honours it.** The signed catalogue's
 ///   `capabilities.structured_output` decides when present — `false` refuses
-///   even an OpenAI model. When absent (every catalogue the platform signs
-///   today: its signer allowlists only `vision`/`tools`/`reasoning`), the
-///   interim rule is `provider == "openai"`. That is a statement about the
+///   even an OpenAI model. On Anthropic Messages, absence is **not** support:
+///   the model must be declared. On Chat Completions, when absent (a
+///   catalogue signed before the signer emitted the member), the interim
+///   rule is `provider == "openai"`. That is a statement about the
 ///   provider's API, not a guess from a model name: OpenAI's Chat
 ///   Completions endpoint takes `response_format` for the models the
 ///   platform seeds as callable (gpt-4o, gpt-5.x). An older model that takes
@@ -439,11 +450,12 @@ pub const RESPONSE_FORMAT_UNSUPPORTED: &str = "response_format_unsupported";
 ///   Kimi) must be declared explicitly.
 #[must_use]
 pub fn structured_output_supported(model: &CatalogModel) -> bool {
-    model.api_style == ApiStyle::OpenaiChat
-        && model
-            .capabilities
-            .structured_output
-            .unwrap_or(model.provider == "openai")
+    let declared = model.capabilities.structured_output;
+    match model.api_style {
+        ApiStyle::OpenaiChat => declared.unwrap_or(model.provider == "openai"),
+        ApiStyle::AnthropicMessages => declared.unwrap_or(false),
+        _ => false,
+    }
 }
 
 /// Refuse a `response_format` [`structured_output_supported`] says no to —
@@ -461,6 +473,22 @@ pub fn check_response_format(
         return Ok(());
     }
     Err(response_format_unsupported())
+}
+
+/// Input tokens the provider adds to `request` that its bytes do not show,
+/// for the metering layer's input reservation only (the charge is always the
+/// provider-reported usage): Anthropic's tool-use system prompt, on a request
+/// that sends tools — its own or the forced `response_format` tool.
+#[must_use]
+pub fn reserved_overhead_tokens(request: &ChatRequest, model: &CatalogModel) -> u64 {
+    match model.api_style {
+        ApiStyle::AnthropicMessages
+            if !request.tools.is_empty() || request.response_format.is_some() =>
+        {
+            anthropic::TOOL_USE_OVERHEAD_TOKENS
+        }
+        _ => 0,
+    }
 }
 
 /// For an adapter with no `response_format` translation: refuse any request
@@ -484,6 +512,61 @@ fn response_format_unsupported() -> ApiFailure {
     )
     .detail("field", "response_format")
     .detail("reason", RESPONSE_FORMAT_UNSUPPORTED)
+}
+
+/// `details.reason` on every refusal of a tool control the model's adapter
+/// cannot express (`tool_choice`, `parallel_tool_calls`); `details.field`
+/// names which.
+pub const TOOLS_UNSUPPORTED: &str = "tools_unsupported";
+
+/// The adapters that translate `tool_choice` and `parallel_tool_calls`.
+/// Anthropic Messages maps them onto its own `tool_choice`
+/// ([`anthropic`]). An adapter that is not listed refuses them rather than
+/// send the call without them.
+pub const TOOL_CONTROL_STYLES: [ApiStyle; 1] = [ApiStyle::AnthropicMessages];
+
+/// The request-shape refusals a model's adapter makes, run before any hold,
+/// charge or provider request (the metering layer calls it beside
+/// [`check_response_format`]; each adapter's `body` calls it again, so the
+/// direct-adapter path refuses identically). Never by dropping a field:
+///
+/// * `tool_choice` / `parallel_tool_calls` outside [`TOOL_CONTROL_STYLES`].
+/// * Anthropic Messages also refuses a `response_format` beside `tools`
+///   ([`anthropic::check`]).
+///
+/// # Errors
+///
+/// `400 invalid_request` naming the field, `details.reason` =
+/// [`TOOLS_UNSUPPORTED`] (or, for the Anthropic combination,
+/// [`RESPONSE_FORMAT_UNSUPPORTED`]).
+pub fn check_tool_translation(
+    request: &ChatRequest,
+    model: &CatalogModel,
+) -> Result<(), ApiFailure> {
+    if !TOOL_CONTROL_STYLES.contains(&model.api_style) {
+        if request.tool_choice.is_some() {
+            return Err(tools_unsupported(
+                "tool_choice",
+                "this model does not support tool_choice",
+            ));
+        }
+        if request.parallel_tool_calls.is_some() {
+            return Err(tools_unsupported(
+                "parallel_tool_calls",
+                "this model does not support parallel_tool_calls",
+            ));
+        }
+    }
+    match model.api_style {
+        ApiStyle::AnthropicMessages => anthropic::check(request),
+        _ => Ok(()),
+    }
+}
+
+fn tools_unsupported(field: &str, message: &'static str) -> ApiFailure {
+    ApiFailure::new(ErrorCode::InvalidRequest, message)
+        .detail("field", field)
+        .detail("reason", TOOLS_UNSUPPORTED)
 }
 
 /// Refuse an image part on a message whose role this provider cannot carry
