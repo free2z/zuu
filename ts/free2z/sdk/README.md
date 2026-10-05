@@ -102,6 +102,7 @@ name, schema, strict: true } }` (or `{ type: "json_object" }`) and parse the
 reply text yourself. The SDK checks the gateway's limits before sending; a
 model without `capabilities.structured_output` refuses the call before any
 hold or charge (`invalid_request`, `reason: "response_format_unsupported"`).
+`models()` types it: gate on `model.capabilities.structured_output === true` (and `capabilities.tools === true` before sending `tools`); absent means unsupported, and prices/limits are `bigint`.
 
 Only one `next()` may be outstanding. `cancel()`, breaking iteration, or an
 AbortSignal stops delivery; none proves that generation or charging stopped.

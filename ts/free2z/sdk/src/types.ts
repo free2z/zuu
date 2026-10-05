@@ -118,9 +118,9 @@ export interface ChatRequest {
   metadata?: Record<string, string>;
   fallback?: string[];
   /**
-   * Opt-in structured output; absent is never sent. A model whose
-   * `capabilities.structured_output` is false refuses the call before any
-   * hold or charge (`invalid_request`, `reason: "response_format_unsupported"`);
+   * Opt-in structured output; absent is never sent. Check
+   * `Model.capabilities.structured_output === true` first: a model without it
+   * refuses the call before any hold or charge (`invalid_request`, `reason: "response_format_unsupported"`);
    * it is never silently answered in prose.
    */
   response_format?: ResponseFormat;
@@ -226,42 +226,79 @@ export interface CallRecord extends ObjectData {
   created_at?: string;
   settled_at?: string | null;
 }
-/** What `/v1/models` says a model accepts. Absent members read as `false`. */
-export interface ModelCapabilities extends ObjectData {
+/**
+ * What the gateway will accept for a model (`docs/free2z/sdk/spec/chat-api.md`
+ * §5). A member that is absent was not declared, and is never `true`: read it
+ * as unsupported. Compare with `=== true`.
+ */
+export interface ModelCapabilities {
+  /** Accepts image parts; otherwise they are refused (`invalid_request`). */
   vision?: boolean;
-  /** Accepts `tools`. */
+  /**
+   * Accepts `tools` and tool-result history; otherwise the gateway refuses
+   * them (`invalid_request`) before any hold or charge.
+   */
   tools?: boolean;
+  /** Reasons before answering (billed as output). */
   reasoning?: boolean;
-  /** Accepts `response_format`; without it the call is refused up front. */
+  /**
+   * `true` is the precondition for `ChatRequest.response_format`: otherwise
+   * the gateway refuses the call (`invalid_request`,
+   * `reason: "response_format_unsupported"`) before any hold or charge.
+   * Absent (an older gateway): unsupported.
+   */
   structured_output?: boolean;
+  /** Capabilities newer than this SDK pass through undeclared. */
+  [key: string]: Json | undefined;
 }
-/** Published rates, already including platform margin and app markup. */
-export interface ModelPrices extends ObjectData {
+/**
+ * Published rates, already including the platform margin and the calling
+ * app's markup. A documented member that is absent was not published.
+ */
+export interface ModelPrices {
+  /** Milli-2Z per million tokens; `0` means no such price. */
   input_milli_2z_per_mtok?: bigint;
   cached_input_milli_2z_per_mtok?: bigint;
   cache_write_milli_2z_per_mtok?: bigint;
   output_milli_2z_per_mtok?: bigint;
+  /** Milli-2Z per unit where the provider bills per unit; `0` otherwise. */
   image_milli_2z?: bigint;
   tool_call_milli_2z?: bigint;
+  /**
+   * Rates newer than this SDK pass through; one named `*_milli_2z_per_mtok`
+   * or `*_2z` is a `bigint` like the members above.
+   */
+  [key: string]: Json | undefined;
 }
-/** One callable model (`chat-api.md` §5). Pass `id` as `ChatRequest.model`. */
-export interface ModelInfo extends ObjectData {
+/**
+ * One model of `GET /v1/models`. Optional members absent (or `null`) were not
+ * reported. Unknown members pass through.
+ */
+export interface Model extends ObjectData {
+  /** What `ChatRequest.model` names; never empty. */
   id: string;
+  /** `openai`, `anthropic`, `xai`, … */
   provider?: string;
+  /** For a picker. */
   display_name?: string;
+  /** Input plus output, tokens. */
   context_window?: bigint;
-  /** The most one call can generate on this model. */
+  /** The most a call can generate, tokens. */
   max_output_tokens?: bigint;
-  capabilities?: ModelCapabilities;
-  prices?: ModelPrices;
-  /** The floor for one call, whole 2Z (never below 1). */
+  /** Always present: `{}` when the gateway sent none (nothing supported). */
+  capabilities: ModelCapabilities;
+  /** Always present: `{}` when the gateway sent none. */
+  prices: ModelPrices;
+  /** The floor for one call, whole 2Z. */
   min_charge_2z?: bigint;
+  /** How long the gateway waits for the provider's first byte. */
   ttfb_timeout_ms?: bigint;
 }
 export interface Models extends ObjectData {
-  models: ModelInfo[];
+  models: Model[];
+  /** The signed catalogue's version; only increases. */
   catalog_version: bigint;
-  /** The app markup already inside every price, basis points. */
+  /** The markup, in basis points, already inside every price. */
   includes_markup_bps?: bigint;
 }
 /**

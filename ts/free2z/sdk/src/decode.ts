@@ -9,6 +9,9 @@ import type {
   ChatEvent,
   Estimate,
   Json,
+  Model,
+  ModelCapabilities,
+  ModelPrices,
   Models,
   ObjectData,
   Purchase,
@@ -329,17 +332,83 @@ export function callRecord(value: unknown): CallRecord {
     charge: charge(d, true),
   };
 }
+const capabilityKeys = [
+  "vision",
+  "tools",
+  "reasoning",
+  "structured_output",
+] as const;
+/** Absent or `null` is `{}`: nothing declared, so nothing supported. A
+ * declared member must be a boolean — a string `"true"` would otherwise read
+ * as unsupported in an `=== true` check without anyone noticing. */
+function capabilities(value: Json | undefined): ModelCapabilities {
+  const result = Object.create(null) as ModelCapabilities;
+  if (value == null) return result;
+  for (const [key, member] of Object.entries(object(value))) {
+    if (member === undefined) continue;
+    if ((capabilityKeys as readonly string[]).includes(key)) {
+      if (member === null) continue;
+      if (typeof member !== "boolean") failure("invalid_response");
+    }
+    result[key] = member;
+  }
+  return result;
+}
+/** Absent or `null` is `{}`. Amount-named rates were checked as unsigned by
+ * `validated`; `null` reads as absent. Other members pass through. */
+function prices(value: Json | undefined): ModelPrices {
+  const result = Object.create(null) as ModelPrices;
+  if (value == null) return result;
+  for (const [key, member] of Object.entries(object(value))) {
+    if (member === undefined) continue;
+    if (unsignedLocation(["models", "*", "prices", key])) {
+      if (member !== null) result[key] = uint(member);
+    } else result[key] = member;
+  }
+  return result;
+}
+function model(value: unknown): Model {
+  const {
+    id,
+    provider,
+    display_name: displayName,
+    context_window: contextWindow,
+    max_output_tokens: maxOutputTokens,
+    capabilities: declared,
+    prices: rates,
+    min_charge_2z: minCharge,
+    ttfb_timeout_ms: ttfb,
+    ...rest
+  } = object(value);
+  const result: Model = {
+    ...rest,
+    id: string(id),
+    capabilities: capabilities(declared),
+    prices: prices(rates),
+  };
+  if (!result.id) failure("invalid_response");
+  if (provider != null) result.provider = string(provider);
+  if (displayName != null) result.display_name = string(displayName);
+  if (contextWindow != null) result.context_window = uint(contextWindow);
+  if (maxOutputTokens != null) result.max_output_tokens = uint(maxOutputTokens);
+  if (minCharge != null) result.min_charge_2z = uint(minCharge);
+  if (ttfb != null) result.ttfb_timeout_ms = uint(ttfb);
+  return result;
+}
+/** Typed members are checked; `null` reads as absent, as the Rust SDK reads
+ * it. Unknown members — of the answer, a model, its capabilities or prices —
+ * pass through. */
 export function models(value: unknown): Models {
   const d = validated(value);
+  const { includes_markup_bps: markup, ...rest } = d;
   if (!Array.isArray(d.models)) failure("invalid_response");
-  return {
-    ...d,
+  const result: Models = {
+    ...rest,
     catalog_version: uint(d.catalog_version),
-    models: d.models.map((v) => {
-      const model = object(v);
-      return { ...model, id: string(model.id) };
-    }),
+    models: d.models.map(model),
   };
+  if (markup != null) result.includes_markup_bps = uint(markup);
+  return result;
 }
 /** The budget fields are optional on decode (chat-api.md §6). `null` reads as
  * absent, as the Rust proto reads it, except for `cap_remaining_milli_2z`,

@@ -11,14 +11,17 @@
   `provider_timeout`, `too_many_holds` — and never when `details` show the
   call may have run.
 - `NativeTransport` keeps the plugin's refusal `details`, amounts as `bigint`.
-- `formatMilli2z` for display. Typed `ModelInfo` / `ModelCapabilities` /
-  `ModelPrices`, `Estimate`'s optional members, `CallRecord` fields,
+- `formatMilli2z` for display. Typed `Estimate`'s optional members, `CallRecord` fields,
   `CallStatus`, `FinishReason`, `Usage`, `Purchase.status` / `rail` /
   `pricing_version`.
 
 Initial TypeScript facade, browser OAuth/Fetch transport, native pull bridge,
 lossless integer decoding, purchase polling, and structured settlement recovery.
 
+- `Models` types the catalogue (`Model`, `ModelCapabilities`, `ModelPrices`):
+  `capabilities.{vision,tools,reasoning,structured_output}` as `boolean`
+  (absent = unsupported; a non-boolean is `invalid_response`), prices and
+  limits as `bigint`, `includes_markup_bps`. Additive; unknown members pass through.
 - `Estimate` types the budget fields the gateway sends: optional `available_milli_2z`,
   `cap_remaining_milli_2z` (`null` = uncapped), `min_charge_2z`, `catalog_version`
   as `bigint`. Additive; unknown response fields still pass through.
