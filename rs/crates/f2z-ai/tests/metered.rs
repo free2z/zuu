@@ -1340,10 +1340,11 @@ async fn by_default_an_old_ledger_never_sees_features_and_the_call_succeeds() {
     assert_eq!(response.status(), StatusCode::OK);
     let _ = support::text(response).await;
     final_state(&db).await;
-    let state = db.0.lock().unwrap();
-    assert!(state.request.get("features").is_none(), "{}", state.request);
-    assert_eq!(state.charges, 1);
-    drop(state);
+    {
+        let state = db.0.lock().unwrap();
+        assert!(state.request.get("features").is_none(), "{}", state.request);
+        assert_eq!(state.charges, 1);
+    }
     mock.shutdown().await;
 }
 
@@ -1368,9 +1369,10 @@ async fn enabled_against_an_old_ledger_the_claim_is_refused_before_any_paid_work
     )
     .await;
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    let state = db.0.lock().unwrap();
-    assert!(state.claims >= 1 && state.hold.is_none() && state.charges == 0);
-    drop(state);
+    {
+        let state = db.0.lock().unwrap();
+        assert!(state.claims >= 1 && state.hold.is_none() && state.charges == 0);
+    }
     assert_eq!(mock.recorded_requests().len(), 0);
     mock.shutdown().await;
 }
