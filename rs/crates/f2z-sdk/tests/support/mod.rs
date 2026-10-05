@@ -1124,6 +1124,30 @@ async fn chat(State(f): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) -> Re
             });
             return stream_response(&call_id, Body::from_stream(stream));
         }
+        // zuu#1163: a model that thinks for 50 s before its first content
+        // event, served the way the gateway serves it — headers at once
+        // (the hold exists), `: ping` every 15 s of silence, then the
+        // stream — and, `thinking-silent`, without the pings. Either way the
+        // call is read to completion and charged.
+        "thinking" | "thinking-silent" => {
+            remember("settled", Some(1));
+            let pings = model == "thinking";
+            let wire = happy(false);
+            let stream = futures_util::stream::unfold(0u8, move |step| {
+                let wire = wire.clone();
+                async move {
+                    let (wait, chunk) = match (pings, step) {
+                        (true, 0..=2) => (15, Bytes::from_static(b": ping\n\n")),
+                        (true, 3) => (5, Bytes::from(wire)),
+                        (false, 0) => (50, Bytes::from(wire)),
+                        _ => return None,
+                    };
+                    tokio::time::sleep(Duration::from_secs(wait)).await;
+                    Some((Ok::<_, Infallible>(chunk), step + 1))
+                }
+            });
+            return stream_response(&call_id, Body::from_stream(stream));
+        }
         "rate-limited-once" if nth_for_model == 1 => {
             let mut r = envelope(StatusCode::TOO_MANY_REQUESTS, "rate_limited", None);
             r.headers_mut()

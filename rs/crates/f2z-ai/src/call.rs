@@ -53,6 +53,27 @@
 //!
 //! The `delivery_aborted` frame is `f2z_ai_proto`'s own
 //! [`ErrorCode::DeliveryAborted`] with `settlement: pending` and no amounts.
+//!
+//! # Keep-alive comments
+//!
+//! chat-api.md §3: while the upstream is silent the reader writes a `: ping`
+//! comment frame every `stream_keepalive_secs` (15 s), from the moment the
+//! headers go out — before `meta`, while the provider is still being
+//! contacted or is thinking — until the terminal event, and never after it.
+//! Every upstream event restarts the interval, so a stream that is producing
+//! output carries no pings. The TypeScript SDK treats 45 s without a byte as
+//! a dead connection (the Rust SDK, 90 s); without the pings a model that
+//! reasons for longer than that before its first content event loses its
+//! client while the call still reads to completion and settles (zuu#1163).
+//!
+//! A ping is queued **only into an empty buffer**. It is therefore never
+//! behind undelivered frames, and taking it — which, like taking any frame,
+//! is delivery progress for the stall rule — means the client has taken
+//! everything before it. A client that is not reading data cannot be kept
+//! alive by pings: its data frames wait, so no ping is queued, and the stall
+//! rule runs exactly as before. A ping costs the buffer nothing it could
+//! refuse: it is 8 bytes into a buffer holding none. A non-streamed call
+//! (`stream: false`) gets no pings — its body is one JSON document.
 
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -122,12 +143,18 @@ pub trait Upstream: Send + 'static {
 /// How often the watchers check the stall limit.
 const STALL_CHECK: Duration = Duration::from_millis(250);
 
+/// The SSE keep-alive comment (chat-api.md §3).
+const PING: &[u8] = b": ping\n\n";
+
 /// The per-call limits.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Limits {
     pub(crate) buffer_bytes: usize,
     pub(crate) stall: Duration,
     pub(crate) start_timeout: Duration,
+    /// Upstream silence after which a `: ping` is sent; `None` sends none
+    /// (a non-streamed call).
+    pub(crate) keepalive: Option<Duration>,
 }
 
 /// Delivery's state, shared by the reader and the body.
@@ -267,6 +294,24 @@ impl Shared {
                 kill.kill();
             }
         }
+    }
+
+    /// Queue a `: ping`, only if nothing is waiting to be delivered (see
+    /// the module documentation: a ping must never stand in for data).
+    fn ping(&self) {
+        let waker = {
+            let mut buffer = self.lock();
+            if buffer.state != State::Open || !buffer.frames.is_empty() {
+                return;
+            }
+            let frame = Bytes::from_static(PING);
+            buffer.last_progress = Instant::now();
+            self.inflight.add_buffered(frame.len());
+            buffer.bytes = buffer.bytes.saturating_add(frame.len());
+            buffer.frames.push_back(frame);
+            buffer.waker.take()
+        };
+        Self::wake(waker);
     }
 
     fn tick(&self, stall: Duration) {
@@ -567,10 +612,25 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
 
     let mut tick = tokio::time::interval(STALL_CHECK.min(limits.stall));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // The keep-alive: armed from the headers, restarted by every upstream
+    // event, disarmed by the terminal one.
+    let mut keepalive = limits.keepalive;
+    let ping = tokio::time::sleep(keepalive.unwrap_or(STALL_CHECK));
+    tokio::pin!(ping);
+    let rearm = |ping: Pin<&mut tokio::time::Sleep>, every: Duration| {
+        let now = tokio::time::Instant::now();
+        ping.reset(now.checked_add(every).unwrap_or(now));
+    };
     let drained = loop {
         tokio::select! {
             event = upstream.next() => {
                 let Some(event) = event else { break false };
+                if matches!(event, Event::Done(_) | Event::Error(_)) {
+                    keepalive = None;
+                }
+                if let Some(every) = keepalive {
+                    rearm(ping.as_mut(), every);
+                }
                 if let Event::Usage(usage) = &event {
                     guard.record.usage = Some(usage.usage);
                 }
@@ -580,6 +640,12 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
                 }
             }
             _ = tick.tick() => shared.tick(limits.stall),
+            () = &mut ping, if keepalive.is_some() => {
+                shared.ping();
+                if let Some(every) = keepalive {
+                    rearm(ping.as_mut(), every);
+                }
+            }
             () = crate::shutdown::raised(&mut abort) => break true,
         }
     };
