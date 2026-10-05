@@ -42,22 +42,33 @@
 //! `reason: "response_format_unsupported"`); a reply that stopped at
 //! `length` is truncated JSON, so check `finish_reason` before parsing.
 //!
+//! The schema is an [`f2z_ai_proto::OrderedJson`]: its members are sent in
+//! the order written, and OpenAI writes the reply's keys in that order.
+//! Parse it from text to keep that order — `serde_json::json!` builds a
+//! `Value`, which has already sorted them.
+//!
 //! ```
+//! use f2z_sdk::proto::OrderedJson;
 //! use f2z_sdk::proto::chat::{JsonSchemaFormat, ResponseFormat};
 //!
+//! let schema: OrderedJson = r#"{
+//!     "type": "object",
+//!     "properties": {"reasoning": {"type": "string"}, "answer": {"type": "string"}},
+//!     "required": ["reasoning", "answer"],
+//!     "additionalProperties": false
+//! }"#
+//! .parse()
+//! .expect("valid JSON");
 //! let format = ResponseFormat::JsonSchema {
 //!     json_schema: JsonSchemaFormat {
 //!         name: "activity_spec".into(),
-//!         schema: serde_json::json!({
-//!             "type": "object",
-//!             "properties": {"title": {"type": "string"}},
-//!             "required": ["title"],
-//!             "additionalProperties": false
-//!         }),
+//!         schema,
 //!         strict: Some(true),
 //!     },
 //! };
 //! format.check().expect("within the gateway's limits");
+//! let sent = serde_json::to_string(&format).expect("serializes");
+//! assert!(sent.find("reasoning") < sent.find("answer"));
 //! ```
 
 mod record;

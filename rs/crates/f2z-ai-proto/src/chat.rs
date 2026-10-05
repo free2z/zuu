@@ -18,6 +18,7 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::amount::{Milli2z, Whole2z};
+use crate::json::OrderedJson;
 use crate::settlement::{self, Outcome, Settlement, SettlementError, double_option};
 
 /// The body of `POST /v1/chat` and `POST /v1/chat/estimate`.
@@ -271,13 +272,10 @@ pub struct JsonSchemaFormat {
     /// provider's, and a schema it refuses is a `provider_error` before any
     /// output, with the hold released.
     ///
-    /// **Object member order is not preserved.** `serde_json::Value` (built
-    /// without `preserve_order`) sorts members by name, so the provider
-    /// receives `properties` alphabetically, and OpenAI emits the reply's
-    /// keys in schema order. The JSON and its validity are unchanged; a
-    /// schema that relies on order (e.g. `reasoning` before `answer`) does
-    /// not get it yet.
-    pub schema: serde_json::Value,
+    /// **Object member order is preserved** ([`OrderedJson`], zuu#1132):
+    /// OpenAI emits the reply's keys in schema order, so a schema that
+    /// declares `reasoning` before `answer` gets them in that order.
+    pub schema: OrderedJson,
     /// Ask the provider to enforce the schema exactly. Absent: the provider's
     /// default (OpenAI: `false`). A `null` is refused, not read as absent.
     #[serde(
@@ -595,8 +593,9 @@ pub struct Tool {
     /// What the function does, for the model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// JSON Schema of the arguments object.
-    pub parameters: serde_json::Value,
+    /// JSON Schema of the arguments object. Member order is preserved
+    /// ([`OrderedJson`]) and reaches the provider as sent.
+    pub parameters: OrderedJson,
 }
 
 /// A call the model made to one of the request's [`Tool`]s.

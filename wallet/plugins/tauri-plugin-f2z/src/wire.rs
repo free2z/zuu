@@ -417,6 +417,29 @@ mod tests {
             assert!(chat_request(bad).is_err());
         }
     }
+    /// zuu#1132: the app's schema member order survives the IPC `Value` and
+    /// reaches the SDK request as written.
+    #[test]
+    fn schema_member_order_survives_the_bridge() {
+        let schema = r#"{"type":"object","properties":{"reasoning":{"type":"string"},"answer":{"type":"number"}},"required":["reasoning","answer"]}"#;
+        let input: Value = serde_json::from_str(&format!(
+            r#"{{"model":"m","messages":[],"tools":[{{"name":"f","parameters":{schema}}}],"response_format":{{"type":"json_schema","json_schema":{{"name":"n","schema":{schema}}}}}}}"#
+        ))
+        .unwrap();
+        let mut sorted = input.clone();
+        let sent = serde_json::to_string(&chat_request(input).unwrap()).unwrap();
+        assert!(
+            sent.contains(&format!(r#""parameters":{schema}"#)),
+            "{sent}"
+        );
+        assert!(sent.contains(&format!(r#""schema":{schema}"#)), "{sent}");
+        // Negative control: the sorted `Value` a build without
+        // `preserve_order` hands the command does not survive, so the
+        // assertions above can fail.
+        sorted.sort_all_objects();
+        let control = serde_json::to_string(&chat_request(sorted).unwrap()).unwrap();
+        assert!(!control.contains(schema), "{control}");
+    }
     #[test]
     fn refusal_details_reach_javascript_documented_members_only() {
         let details = json!({"reason":"max_output_tokens_strict","required_2z":12,

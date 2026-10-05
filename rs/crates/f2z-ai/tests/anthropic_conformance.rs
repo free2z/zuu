@@ -248,7 +248,7 @@ fn requests_translate_to_anthropic_tools_and_tool_choice() {
         )
         .unwrap();
         adapter.bind(&request);
-        let body = adapter.body(&request, &model, 1024).unwrap();
+        let body = adapter.body(&request, &model, 1024).unwrap().to_value();
         for member in ["tools", "tool_choice"] {
             let want = &case["expect"][member];
             match body.get(member) {
@@ -292,7 +292,7 @@ fn a_tool_round_trip_keeps_the_providers_ids() {
         UsageConvention::CompletionIncludesReasoning,
     )
     .unwrap();
-    let body = adapter.body(&request, &model, 1024).unwrap();
+    let body = adapter.body(&request, &model, 1024).unwrap().to_value();
     let turns = body["messages"].as_array().unwrap();
     assert_eq!(turns[1]["content"][1]["type"], "tool_use");
     assert_eq!(
