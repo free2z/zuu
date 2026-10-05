@@ -72,8 +72,8 @@ dependency map and the parallel waves.
 | Surface | Today |
 |---|---|
 | Routes | `POST /v1/chat`, `POST /v1/chat/estimate`, `GET /v1/models`, `GET /v1/calls/{id}` (gateway `server.rs`); admin `/healthz`, `/readyz`, `/metrics` |
-| Request (`f2z-ai-proto::ChatRequest`, `deny_unknown_fields`) | `model`, `messages[]` (`system`/`user`/`assistant`/`tool`; parts `text`, `image` base64), `tools[]` (`name`, `description`, `parameters`), `max_output_tokens`, `max_output_tokens_strict`, `stream`, `metadata`, `fallback[]`, `response_format` (`json_schema` / `json_object`, #1129). **Specified and typed but refused by the metered gateway today:** `image` parts and a non-empty `fallback` — `meter::plan` answers `400 invalid_request` ("this gateway release supports text input and a single model"), and finalisation supports one attempt. Both are gaps below (§2.4, §2.23), not features |
-| Events | `meta`, `delta` (text only), `tool_call` (complete), `usage`, `done`, `error`; `: ping` every 15 s; no `Last-Event-ID` |
+| Request (`f2z-ai-proto::ChatRequest`, `deny_unknown_fields`) | `model`, `messages[]` (`system`/`user`/`assistant`/`tool`; parts `text`, `image` base64), `tools[]` (`name`, `description`, `parameters`), `tool_choice` + `parallel_tool_calls` (Anthropic adapter only, #1140; Chat Completions in #1142), `max_output_tokens`, `max_output_tokens_strict`, `stream`, `metadata`, `fallback[]`, `response_format` (`json_schema` / `json_object`, #1129). **Specified and typed but refused by the metered gateway today:** `image` parts and a non-empty `fallback` — `meter::plan` answers `400 invalid_request` ("this gateway release supports text input and a single model"), and finalisation supports one attempt. Both are gaps below (§2.4, §2.23), not features |
+| Events | `meta`, `delta` (text only), `tool_call` (complete), `usage`, `done`, `error`; no `Last-Event-ID`. **`: ping` every 15 s is specified (chat-api.md §3) but not emitted**: `call.rs` writes only queued event frames, while both SDKs treat 45 s of silence as a dead connection — latent only because `gpt-4o`'s TTFB is under 45 s; [#1163](https://github.com/free2z/zuu/issues/1163), a precondition for S3 |
 | Usage | `input_tokens`, `cached_input_tokens`, `cache_write_tokens`, `output_tokens` (incl. reasoning), `reasoning_tokens`, `images`, `tool_calls` (server-side only, #1066) |
 | Adapters | `openai_responses`, `openai_chat` (OpenAI + xAI), `anthropic_messages`; usage normalisation per provider; retries only before a 2xx head; circuit breaker; header allowlist; no URL fetch |
 | Catalogue (signed, Ed25519, schema 1; opt-in schema 2 long-context tiers) | per model: `id`, `provider`, `provider_model_id`, `api_style`, `capabilities{vision,tools,reasoning,structured_output}` (tri-state `structured_output`), `prices` (6 dimensions, **`deny_unknown_fields`**), `min_charge_2z ≥ 1`, `safety_factor_bps`, `context_window`, `max_output_tokens`, `ttfb_timeout_ms`, `idle_timeout_ms`, `enabled` |
@@ -92,7 +92,7 @@ dependency map and the parallel waves.
 | [#1140](https://github.com/free2z/zuu/pull/1140) Anthropic tools + structured output (**merged** 4527e8fa) | `tool_choice` → `auto/any/tool/none`, `disable_parallel_tool_use`, `response_format` as a forced tool, Anthropic fixtures | Anthropic structured output is the forced-tool mode, declared in the catalogue |
 | [#1143](https://github.com/free2z/zuu/pull/1143) (#1132) | `OrderedJson` for schemas; fingerprints unchanged | compat encodings decode schemas into `OrderedJson` too |
 | [#1138](https://github.com/free2z/zuu/pull/1138) (**merged**), [#1136](https://github.com/free2z/zuu/pull/1136) | sign-in codes; DX (preflight, typed errors, quickstart) | out of scope here |
-| tuzi #2482 + zuu #1141 | per-call `features` | new features extend the record (§3.2.4) |
+| tuzi #2482 + zuu #1141 | per-call `features` | new features extend the record (§3.2, "`features` grows per slice") |
 | **Catalogue as the single source of model truth** (orchestrator, 2026-10-05, in progress by another agent) | provider model discovery with the existing keys; rate card v3 with audited prices and a long-context cap; catalogue = discovered ∩ priced ∩ enabled, **signed with capabilities**; the gateway admits exactly the signed catalogue (no static allow-list), with an emergency override | **every capability claim in this document is a signed catalogue member read by the gateway, never a name-based or hard-coded rule.** §3.3 defines *which* members and what the gateway and SDKs do with them; it does not define discovery, pricing or admission, which are that work's |
 
 ### 1.3 Provider reality
@@ -146,7 +146,7 @@ once-per-stream; the encoders synthesise the provider-native placement.
 | Hosted: code interpreter / execution | — | `code_interpreter` (per container session) | `code_execution` (per session hour) | `code_execution` | **gap**; per-session prices need a price dimension → deferred (§3.5.6) |
 | Hosted: file search / files | — | `file_search` (per call + storage) | Files API + `document` | — | **refuse**: needs a store the platform does not run |
 | MCP / computer use | — | `mcp`, `computer_use_preview` | MCP connector, `computer` | — | **refuse**: remote-tool fan-out is unpriced and unbounded |
-| Tool-call limits | — | `max_tool_calls` | `max_uses` (web search) | — | `tool_budget` in the hold (metering.md §3) — expose as `max_tool_calls` in S-hosted |
+| Tool-call limits | — | `max_tool_calls` | `max_uses` (web search) | — | `tool_budget` in the hold (metering.md §3 `extend`, §4) — expose as `max_tool_calls` in S-hosted |
 
 Unified expression: OpenAI's `tools[].type` discriminator. `function` is
 the client-executed kind we have; `web_search` is a hosted kind the gateway
@@ -330,7 +330,9 @@ a ledger function (tuzi) and a later slice.
 ### 2.16 Idempotency
 
 OpenAI/Anthropic: `Idempotency-Key` honoured (Anthropic documents it;
-Stainless-generated SDKs attach one on POST retries). **We have:** a
+the Stainless-generated SDKs *may* attach one on their automatic POST
+retries — whether a given SDK version does is observed by S10b, not
+assumed). **We have:** a
 stricter, better-specified contract (chat-api.md §2.5): 24 h, body
 fingerprint, `409` while running, record replay when terminal. **Gap:** a
 replay returns a *record*, which no official SDK can parse as a completion.
@@ -358,8 +360,9 @@ official SDKs raise their typed exceptions and our SDKs decode unchanged.
 OpenAI: `x-ratelimit-{limit,remaining,reset}-{requests,tokens}`,
 `x-request-id`, `retry-after`. Anthropic: `anthropic-ratelimit-{requests,
 tokens,input-tokens,output-tokens}-{limit,remaining,reset}`, `request-id`,
-`retry-after`. **We have:** `X-F2Z-RateLimit-*` (requests only),
-`X-F2Z-Call-Id`, `Retry-After`. **Design:** emit the provider-shaped
+`retry-after`. **We have:** `X-F2Z-RateLimit-*` (requests only, and
+**only on the `429` refusal today** — `auth/limits.rs`; emitting them on
+every response is S6 work), `X-F2Z-Call-Id`, `Retry-After`. **Design:** emit the provider-shaped
 request-rate headers as aliases on the compat surfaces, `x-request-id` and
 `request-id` = `X-F2Z-Call-Id` (the SDKs expose it as `_request_id`), and
 `anthropic-ratelimit-*`; token-rate headers are omitted (we rate-limit
@@ -480,7 +483,7 @@ There is no fourth state.
 
 | OpenAI CC member | Unified |
 |---|---|
-| `model`, `messages` (string content, parts `text`, `image_url` with `data:` URL + `detail`, `file`), roles `system/developer/user/assistant/tool`, `tool_calls`, `tool_call_id`, `name` (dropped into `metadata.name_*`? **no — refused**: no unified equivalent) | `ChatRequest` (S2 for `developer`, S5 for `file`/`detail`) |
+| `model`, `messages` (string content, parts `text`, `image_url` with `data:` URL + `detail`, `file`), roles `system/developer/user/assistant/tool`, `tool_calls`, `tool_call_id`, `name` (**refused**: no unified equivalent) | `ChatRequest` (S2 for `developer`, S5 for `file`/`detail`) |
 | `tools[]` (`type: function` → ours; others → refuse unless S-hosted), `tool_choice`, `parallel_tool_calls`, `functions`/`function_call` (legacy → refuse with pointer to `tools`) | #1142 |
 | `response_format` | ours (same shape) |
 | `max_completion_tokens`, `max_tokens` | `max_output_tokens` (both present and different → refuse) |
@@ -531,7 +534,7 @@ Pinned by fixtures (§3.4), including the official SDKs' parsers.
 | `reasoning_delta` (S3) | `delta.reasoning_content` (xAI-style; OpenAI clients ignore) | `response.reasoning_summary_text.delta` | `thinking_delta` (+ `signature_delta` from `provider_state`) |
 | `tool_call_delta` (#1142) | `delta.tool_calls[{index, id, type: "function", function: {name, arguments}}]` | `output_item.added`(function_call) + `function_call_arguments.delta` | `content_block_start`(tool_use) + `input_json_delta` |
 | `tool_call` (complete) | nothing new (the deltas were authoritative-enough; a client that only reads complete calls sees the same text) — the renderer emits a delta per call when no fragments were streamed | `function_call_arguments.done` + `output_item.done` | `content_block_stop` |
-| `usage` | last chunk `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`, `prompt_tokens_details.cached_tokens`, `completion_tokens_details.reasoning_tokens`) | on `response.completed` | `message_delta.usage` (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`) |
+| `usage` | `usage` on the **final chunk that also carries `finish_reason`** (non-empty `choices`), always — a usage-only chunk with `choices: []` breaks naive clients that did not ask for it; when the request sent `stream_options.include_usage`, OpenAI's native trailing usage-only chunk is emitted as well. Fields: `prompt_tokens`, `completion_tokens`, `total_tokens`, `prompt_tokens_details.cached_tokens`, `completion_tokens_details.reasoning_tokens` | on `response.completed` | `message_delta.usage` (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`) |
 | `done` | last chunk `finish_reason`, `f2z` with settlement; then `data: [DONE]` | `response.completed` (or `response.incomplete` for `length`) with `response.f2z` | `message_delta` (`stop_reason`, `f2z`) + `message_stop` |
 | `error` before the HTTP response (steps 1–6) | HTTP status with the superset envelope | same | same |
 | `error` inside the stream (step 7 onwards, before or after `meta`) | a chunk `{"error": {…superset…}}` then close — `openai-python`/`openai-node` raise `APIError` on an `error` member in a chunk and **do not retry** (retries are decided on the HTTP status) | `response.failed` with `response.error` + `f2z` | `event: error` with the Anthropic error shape + `f2z` |
@@ -539,7 +542,8 @@ Pinned by fixtures (§3.4), including the official SDKs' parsers.
 **Headers at the hold, exactly as the native route.** A streamed compat
 call sends `200` and its headers when the hold exists (chat-api.md §2.2),
 `: ping` comments flow every 15 s while the provider is contacted (the
-Stainless SSE decoders skip comment lines), and every failure from step 7
+Stainless SSE decoders skip comment lines; the emitter is #1163, which
+must land first — today nothing keeps a long pre-`meta` wait alive), and every failure from step 7
 on — including one the provider may already have accepted and billed —
 arrives as an in-stream error chunk, which the official SDKs surface as an
 error and never retry at the HTTP level. That matters: the gateway itself
@@ -556,8 +560,10 @@ provider call. Whether a given official SDK attaches a key on its automatic
 retries is **observed by the conformance job (§3.4 rule 4), not assumed**;
 for an SDK that does not, the quickstart sets `maxRetries: 0` for
 non-streamed calls and the renderer adds `Retry-After` only to the
-retryable pre-acceptance statuses (`429`, `503`), never to a `502` whose
-provider attempt was accepted.
+retryable pre-acceptance statuses (`429`, `503`), never to a `502`/`504`
+whose provider attempt was accepted — and sends **`x-should-retry:
+false`** on those, which the Stainless SDKs (OpenAI and Anthropic) honour
+over their default status-based retry.
 
 **xAI through the Chat Completions encoding** is the native shape with one
 difference the renderer preserves: `completion_tokens` excludes reasoning
@@ -592,7 +598,9 @@ code (and `details.field` → `param`):
 | `invalid_token`, `token_revoked`, `insufficient_user_authentication` (401) | `authentication_error` | `authentication_error` |
 | `insufficient_balance` (402) | `insufficient_quota` | `permission_error` (Anthropic has no 402; the status stays 402) |
 | `insufficient_scope`, `app_disabled`, `account_frozen`, `account_in_debt`, `cap_exceeded`, `model_disabled` (403) | `permission_error` | `permission_error` |
-| `model_not_found`, `call_not_found` (404) | `not_found_error` | `not_found_error` |
+| `model_not_found`, `call_not_found`, `purchase_not_found` (404) | `not_found_error` | `not_found_error` |
+| `delivery_aborted` (stream only) | in-stream `server_error` | in-stream `api_error` |
+| any code this table does not list (a future one) | `server_error` | `api_error` |
 | `idempotency_conflict`, `too_many_holds` (409) | `invalid_request_error` | `invalid_request_error` |
 | `completion_not_retained` (410, compat only) | `invalid_request_error` | `invalid_request_error` |
 | `payload_too_large` (413) | `invalid_request_error` | `request_too_large` |
@@ -652,7 +660,7 @@ Two equivalent carriers; **both present and different → `400`
 | Extension | Body `f2z.…` | Header | Native field | Semantics |
 |---|---|---|---|---|
 | Strict budget | `max_output_tokens_strict: true` | `X-F2Z-Max-Output-Tokens-Strict: true` | exists | refuse instead of clamp (chat-api.md §2.1) |
-| Per-call cap (new) | `max_charge_2z: 5` | `X-F2Z-Max-Charge-2z: 5` | `max_charge_2z` (S11) | a **ceiling on collection, not only on the hold**: `out_cap` is clamped to what the ceiling affords (with strict, refused: `403 cap_exceeded`, `reason: "max_charge_2z"`), the ceiling is persisted on the hold (`hold(… max_collect_milli_2z)`, S11's tuzi half), `extend` may not raise the reservation past it, and `settle` collects at most the ceiling — a charge above it is `shortfall_milli_2z`, written off like metering.md §5.5, never taken from the user. Without the ledger half the field is refused, not accepted as a hint |
+| Per-call cap (new) | `max_charge_2z: 5` | `X-F2Z-Max-Charge-2z: 5` | `max_charge_2z` (S11) | a **ceiling on collection, not only on the hold**: `out_cap` is clamped to what the ceiling affords (with strict, refused: `403 cap_exceeded`, `reason: "max_charge_2z"`), the ceiling is persisted on the hold (`hold(… max_collect_milli_2z)`, S11's tuzi half), `extend` may not raise the reservation past it, and `settle` collects at most the ceiling — a charge above it is `shortfall_milli_2z`, written off like metering.md §5.5, never taken from the user. A value below the model's `min_charge_2z` is refused (`400 invalid_request`, `reason: "below_min_charge"`) rather than silently unreachable. Without the ledger half the field is refused, not accepted as a hint |
 | Fallback | `fallback: ["m2"]` | `X-F2Z-Fallback: m2,m3` | spec'd; refused by the metered path today (§2.23) | ordered; renderers hide the switch except in `f2z.model`. **Requires S12**; until it lands the compat carriers refuse it exactly as the native field is refused |
 | Estimate (dry run) | `estimate: true` | `X-F2Z-Estimate: true` | `/v1/chat/estimate` | answers `200` with the native `EstimateResponse` (not a completion) — the compat endpoint *is* the estimate endpoint with this flag; errors exactly as the call would |
 | Metadata | OpenAI/Responses native `metadata`; Messages `f2z.metadata` | — | exists | 16 keys |
@@ -716,7 +724,7 @@ from a model name, never a gateway constant).
     "limits": {
       "tools_max": 128, "tool_schema_bytes_max": 32768, "response_schema_bytes_max": 32768,
       "images_max": 20, "image_tokens_max": 1445, "documents_max": 5, "pdf_pages_max": 100,
-      "document_bytes_max": 33554432, "pdf_page_image_tokens": 1445,
+      "document_bytes_max": 20971520, "pdf_page_image_tokens": 1445,
       "stop_sequences_max": 4, "cache_breakpoints_max": 0, "hosted_tool_calls_max": 0, "hosted_search_content_tokens": 0, "temperature_max": 2
     },
     "encodings": ["native", "chat_completions", "responses", "messages"],
@@ -838,8 +846,11 @@ released and written off, never guessed, as for tokens.
   "low_detail_tokens": 85}` (fit within 2048², shortest side to 768,
   `base + tile × ⌈w/512⌉ × ⌈h/512⌉`; the worst case over all aspect ratios
   is a 2048×768 image, 8 tiles — **1,445** tokens on `gpt-4o`),
-  `{"kind": "anthropic_area", "pixels_per_token": 750}` (after the 1568 px
-  long-side resize, ≤ ~1,600), `{"kind": "patches", …}` for patch-based
+  `{"kind": "anthropic_patches", "patch_px": 28, "max_tokens": 1568}`
+  (Anthropic's current rule is `⌈w/28⌉ × ⌈h/28⌉`, capped at 1,568 on the
+  standard tier and **4,784** on the high-resolution tier of Claude 4.7+;
+  the cap is a parameter, because the tier is a model fact and a
+  constant would under-reserve 3× on that tier), `{"kind": "patches", …}` for patch-based
   models (GPT-4.1-mini/nano, o-series), `{"kind": "xai_tiles", …}` (per
   docs.x.ai). An unknown `kind` or a missing parameter makes the model
   refuse image parts. `limits.image_tokens_max`
@@ -853,10 +864,17 @@ released and written off, never guessed, as for tokens.
   construction: every BPE token encodes at least one byte, so the UTF-8
   size of the document's text is an upper bound on its text tokens. The
   gateway parses the PDF with a bounded reader (refuses above
-  `limits.document_bytes_max` compressed and 8× that inflated, above
+  `limits.document_bytes_max` as sent — never above the 20 MiB request
+  body limit of chat-api.md §1, which bounds it anyway — and 8× that
+  inflated, above
   `limits.pdf_pages_max` pages, or anything it cannot parse —
   `reason: "document_unreadable"`), inflates its content streams, and
-  reserves `text_bytes + pages × page_image_tokens` where
+  reserves `text_bytes + pages × page_image_tokens` — `text_bytes` the
+  UTF-8 size of the text the gateway *decodes* from the content streams
+  (a BPE token is ≥ 1 byte of decoded text; raw stream bytes are not a
+  bound once a font encoding maps several bytes to one character), and,
+  for a stream whose text it cannot decode, the inflated stream size,
+  which is strictly larger — where
   `page_image_tokens` is the image formula above at the provider's page
   render size (signed as `limits.pdf_page_image_tokens`). Where the provider
   offers a free count (Anthropic `count_tokens`), the gateway may use it in
@@ -957,7 +975,8 @@ until #1142 and #1143 merge** (#1140 has): every slice that touches
   S1+S10a. S9's proto reader (`controls`/`limits`, new structs, tolerant)
   can run here: it adds members, touches no adapter.
 - **Wave 2:** S7 ∥ S8 (each a new `compat/*.rs`; both need S3 for
-  reasoning blocks); S4 after S3 (adapters).
+  reasoning blocks); S4 after S3 (adapters), and **after S8** on
+  `provider/openai_responses.rs` (both edit it; S8 first, S4 rebases).
 - **Wave 3:** S5 (adapters + meter) → S12 (meter `plan` + call/settle;
   serial with S5 on `meter.rs`) ∥ S11 (meter + decoders; coordinate
   `meter.rs` with S5 — S11 touches the plan's budget, S5 the estimate) ∥
