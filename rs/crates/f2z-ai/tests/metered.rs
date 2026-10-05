@@ -67,6 +67,11 @@ struct Memory {
     lose_settle_reply: bool,
     available: u64,
     slow_completion: bool,
+    /// Mimic a ledger before `ledger.0006_call_features`: its
+    /// `gateway_metadata_valid` refuses any key it does not name, so
+    /// `call_claim` raises (22023), which the adapter reports as `Failure`.
+    old_ledger: bool,
+    claims: usize,
 }
 impl Memory {
     fn context(&self) -> Value {
@@ -124,6 +129,10 @@ impl Ledger for Database {
                 fingerprint,
                 request,
             } => {
+                m.claims += 1;
+                if m.old_ledger && request.get("features").is_some() {
+                    return Err(Failure);
+                }
                 if m.revoked {
                     return Ok(
                         json!({"status":"revoked","call_id":null,"record":null,"context":{"status":"revoked"}}),
@@ -176,6 +185,11 @@ impl Ledger for Database {
                 completion,
                 no_hold,
             } => {
+                if m.old_ledger && m.call.is_none() {
+                    // The refused claim inserted nothing: the settler's
+                    // completion of it finds no call, as the real ledger's does.
+                    return Ok(json!({"status":"not_found","record":null}));
+                }
                 assert_eq!(Some(*call), m.call);
                 assert_eq!(identity.grant_generation, 1);
                 // The production ledger's `gateway_metadata_valid` accepts an
@@ -261,13 +275,23 @@ async fn launch_catalog(
     allowed: Option<Vec<&str>>,
     catalog: f2z_ai::catalog::VerifiedCatalog,
 ) -> (support::Running, MockProvider) {
+    launch_meta(db, scenario, allowed, catalog, false).await
+}
+async fn launch_meta(
+    db: Arc<Database>,
+    scenario: Scenario,
+    allowed: Option<Vec<&str>>,
+    catalog: f2z_ai::catalog::VerifiedCatalog,
+    features_meta: bool,
+) -> (support::Running, MockProvider) {
     let mock = MockProvider::start(scenario).await.unwrap();
     let meter = Arc::new(
         Metered::new(
             db,
             adapter_support::backend(&mock.base_url(), adapter_support::tuning(0)),
         )
-        .with_allowed_models(allowed.map(|ids| ids.into_iter().map(str::to_owned).collect())),
+        .with_allowed_models(allowed.map(|ids| ids.into_iter().map(str::to_owned).collect()))
+        .with_features_meta(features_meta),
     );
     let running = support::start(
         &support::config(&[]),
@@ -1253,4 +1277,102 @@ async fn a_model_without_structured_output_is_refused_before_any_provider_reques
             mock.shutdown().await;
         }
     }
+}
+
+// The 2026-10-05 incident: "did the client send response_format?" had no
+// durable answer. With `ledger_features_meta` on, the claim stores a
+// content-free `features` object and `GET /v1/calls/{id}` returns it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn features_are_recorded_on_the_claim_and_the_receipt_when_enabled() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch_meta(
+        db.clone(),
+        Scenario::default(),
+        None,
+        structured_catalog(),
+        true,
+    )
+    .await;
+    let request = structured_request("m-chat");
+    let response = support::send(r.public, support::chat_request(request.to_string())).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let id = response.headers()["x-f2z-call-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let _ = support::text(response).await;
+    final_state(&db).await;
+    let schema_bytes = serde_json::to_vec(&request["response_format"]["json_schema"]["schema"])
+        .unwrap()
+        .len();
+    let expected = json!({"response_format":"json_schema","response_format_strict":true,
+        "response_format_schema_name":"activity_spec","response_format_schema_bytes":schema_bytes,
+        "tools":0,"max_output_tokens_strict":false,"stream":false,"fallback":0});
+    let claimed = db.0.lock().unwrap().request.clone();
+    assert_eq!(claimed["features"], expected);
+    // Content-free: neither the schema's members nor the prompt.
+    assert!(!claimed.to_string().contains("additionalProperties"));
+    assert!(!claimed.to_string().contains("hello tutor"));
+    let read = axum::http::Request::get(format!("/v1/calls/{id}"))
+        .header("host", "gateway")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let record: Value =
+        serde_json::from_str(&support::text(support::send(r.public, read).await).await).unwrap();
+    assert_eq!(record["features"], expected, "{record}");
+    mock.shutdown().await;
+}
+
+// Off (the default), nothing new reaches the ledger: a ledger without
+// `ledger.0006_call_features`, which refuses any unknown claim key, still
+// admits and charges the call. This is the deploy-in-either-order guarantee.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn by_default_an_old_ledger_never_sees_features_and_the_call_succeeds() {
+    let db = Arc::new(Database::new());
+    db.0.lock().unwrap().old_ledger = true;
+    let (r, mock) =
+        launch_catalog(db.clone(), Scenario::default(), None, structured_catalog()).await;
+    let response = support::send(
+        r.public,
+        support::chat_request(structured_request("m-chat").to_string()),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = support::text(response).await;
+    final_state(&db).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert!(state.request.get("features").is_none(), "{}", state.request);
+        assert_eq!(state.charges, 1);
+    }
+    mock.shutdown().await;
+}
+
+// Negative control for the flag: enabled against that old ledger, every claim
+// is refused before any hold or provider request — which is exactly why the
+// flag is flipped only after the migration is live.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn enabled_against_an_old_ledger_the_claim_is_refused_before_any_paid_work() {
+    let db = Arc::new(Database::new());
+    db.0.lock().unwrap().old_ledger = true;
+    let (r, mock) = launch_meta(
+        db.clone(),
+        Scenario::default(),
+        None,
+        structured_catalog(),
+        true,
+    )
+    .await;
+    let response = support::send(
+        r.public,
+        support::chat_request(structured_request("m-chat").to_string()),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    {
+        let state = db.0.lock().unwrap();
+        assert!(state.claims >= 1 && state.hold.is_none() && state.charges == 0);
+    }
+    assert_eq!(mock.recorded_requests().len(), 0);
+    mock.shutdown().await;
 }

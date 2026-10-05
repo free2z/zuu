@@ -231,6 +231,7 @@ struct CallState {
     slot: Mutex<Option<Slot>>,
     principal: OnceLock<Principal>,
     idempotency_key: OnceLock<String>,
+    durable_call_id: OnceLock<uuid::Uuid>,
 }
 
 /// The handler's view of an admitted request. Inserted into its extensions.
@@ -269,6 +270,19 @@ impl CallHandle {
     }
     pub(crate) fn idempotency_key(&self) -> Option<&str> {
         self.0.idempotency_key.get().map(String::as_str)
+    }
+
+    /// Record the durable (ledger) call id once a backend has claimed one,
+    /// so the `response` log line can name it even when the call is refused
+    /// after the claim without a `call_id` in the error.
+    pub fn set_durable_call_id(&self, id: uuid::Uuid) {
+        let _ = self.0.durable_call_id.set(id);
+    }
+
+    /// The durable call id, once claimed.
+    #[must_use]
+    pub fn durable_call_id(&self) -> Option<uuid::Uuid> {
+        self.0.durable_call_id.get().copied()
     }
 
     /// Park the user's concurrency lease on this call's slot, so that it is
@@ -388,6 +402,7 @@ where
             slot: Mutex::new(Some(slot)),
             principal: OnceLock::new(),
             idempotency_key: OnceLock::new(),
+            durable_call_id: OnceLock::new(),
         }));
         request.extensions_mut().insert(handle.clone());
         let future = self.inner.call(request);
