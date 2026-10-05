@@ -283,6 +283,18 @@ impl<'de> Visitor<'de> for NodeVisitor {
         Ok(Node::Number(v.into()))
     }
 
+    // Not reached from JSON text, but `serde_json::from_value` under
+    // `arbitrary_precision` hands an integer wider than 64 bits to these (the
+    // Tauri plugin decodes its IPC `Value` this way). `Value`'s visitor takes
+    // them through `Number`'s own decoder; so does this.
+    fn visit_i128<E: de::Error>(self, v: i128) -> Result<Node, E> {
+        Number::deserialize(de::value::I128Deserializer::<E>::new(v)).map(Node::Number)
+    }
+
+    fn visit_u128<E: de::Error>(self, v: u128) -> Result<Node, E> {
+        Number::deserialize(de::value::U128Deserializer::<E>::new(v)).map(Node::Number)
+    }
+
     fn visit_f64<E>(self, v: f64) -> Result<Node, E> {
         // `Value` maps a non-finite float to `null`; so does this.
         Ok(Number::from_f64(v).map_or(Node::Null, Node::Number))
@@ -470,6 +482,30 @@ mod tests {
         }
         let schema: OrderedJson = r#"{"minimum":0.5}"#.parse().unwrap();
         assert_eq!(schema.to_string(), r#"{"minimum":0.5}"#);
+    }
+
+    /// Decoding from a `Value` (`serde_json::from_value`, the Tauri plugin's
+    /// IPC path) agrees with `Value` too. Under `arbitrary_precision` a
+    /// `Value` hands integers wider than 64 bits to `visit_u128`/`visit_i128`
+    /// and a non-`f64` decimal to the private map form; without it they are
+    /// already `f64`s.
+    #[test]
+    fn decoding_from_a_value_agrees_with_value() {
+        for text in [
+            SCHEMA,
+            r#"{"maximum":18446744073709551616,"minimum":-9223372036854775809}"#,
+            r#"{"big":340282366920938463463374607431768211456,"exact":0.1000000000000000000001}"#,
+            r#"[18446744073709551615,-9223372036854775808,1.5,1e2]"#,
+        ] {
+            let value: Value = serde_json::from_str(text).unwrap();
+            let ordered: OrderedJson = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(ordered.to_value(), value, "{text}");
+            assert_eq!(
+                serde_json::to_vec(&ordered.with_sorted_keys()).unwrap(),
+                serde_json::to_vec(&value).unwrap(),
+                "{text}"
+            );
+        }
     }
 
     #[test]

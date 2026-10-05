@@ -468,7 +468,10 @@ async fn schema_member_order_reaches_the_provider_as_sent() {
         ANTHROPIC.id
     );
     for (request, kept) in [
-        (serde_json::from_str::<ChatRequest>(&formatted).unwrap(), true),
+        (
+            serde_json::from_str::<ChatRequest>(&formatted).unwrap(),
+            true,
+        ),
         // Negative control: the same request through a `Value` arrives sorted.
         (
             serde_json::from_value(serde_json::from_str(&formatted).unwrap()).unwrap(),
@@ -477,7 +480,13 @@ async fn schema_member_order_reaches_the_provider_as_sent() {
     ] {
         let run = drive(&backend, &anthropic, &request).await;
         assert_eq!(run.outcome.failure, None);
-        let sent = mock.recorded_requests().last().unwrap().body_text.clone().unwrap();
+        let sent = mock
+            .recorded_requests()
+            .last()
+            .unwrap()
+            .body_text
+            .clone()
+            .unwrap();
         assert_eq!(
             sent.contains(&format!(r#""input_schema":{SCHEMA}"#)),
             kept,
