@@ -18,6 +18,9 @@ targets alongside desktop and web**; nothing in this contract is desktop-first.
 
 New here? Build the [15-minute quickstart](./QUICKSTART.md) first. For
 application work, continue with the [integration handoff](./INTEGRATION.md).
+Where the AI API is going — the gap analysis against OpenAI, Anthropic and
+xAI, the drop-in compatibility encodings and the build order — is in
+[the AI API design](./ai-api-design.md) (proposal, #1128).
 Package maintainers can use the [release verification guide](./RELEASING.md).
 It separates the implemented Rust preview and mock flows from the pending
 Tauri/TypeScript packages and live-platform prerequisites.
