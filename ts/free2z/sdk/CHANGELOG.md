@@ -5,6 +5,9 @@
 Initial TypeScript facade, browser OAuth/Fetch transport, native pull bridge,
 lossless integer decoding, purchase polling, and structured settlement recovery.
 
+- `ChatRequest.tool_choice` (`ToolChoice`) and `ChatRequest.parallel_tool_calls`
+  (free2z/zuu#1128): OpenAI-shaped tool controls, passed through as sent;
+  absent is never sent.
 - `Estimate` types the budget fields the gateway sends: optional `available_milli_2z`,
   `cap_remaining_milli_2z` (`null` = uncapped), `min_charge_2z`, `catalog_version`
   as `bigint`. Additive; unknown response fields still pass through.

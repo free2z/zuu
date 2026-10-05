@@ -84,7 +84,7 @@ pub mod pricing;
 pub mod settlement;
 
 pub use amount::{Milli2z, Nusd, Whole2z};
-pub use chat::{ChatRequest, ChatResponse, ResponseFormat, Usage};
+pub use chat::{ChatRequest, ChatResponse, ResponseFormat, ToolChoice, Usage};
 pub use error::ErrorCode;
 pub use event::Event;
 pub use pricing::{Bps, Charge, ModelPrices, metered_cost_nusd, price_2z, price_nusd};

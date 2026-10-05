@@ -24,18 +24,57 @@
 //! use: it is `usage.tool_calls`. `web_fetch_requests` is not — web fetch is
 //! billed in tokens only (zuu#1066).
 //!
+//! Function calls the model makes (`tool_use` blocks) are in
+//! `output_tokens`, as Anthropic counts them; they are not `tool_calls`,
+//! which is the server-side count only. The pricing math does not change
+//! for tools or for `response_format`.
+//!
 //! # Content
 //!
 //! `text_delta` → `delta`; a `tool_use` block is buffered from
 //! `content_block_start` through its `input_json_delta` fragments and emitted
-//! as one `tool_call` at its `content_block_stop`. Thinking, signatures,
+//! as one `tool_call` at its `content_block_stop`, its `id` unchanged — the
+//! same id comes back as a `tool` message's `tool_call_id` and goes out as
+//! the `tool_result` block's `tool_use_id`. Thinking, signatures,
 //! server-tool blocks and citations are not streamed (chat-api.md §3.3).
+//!
+//! # Tool controls (OpenAI shape → Anthropic)
+//!
+//! | `/v1/chat` | Anthropic `tool_choice` |
+//! |---|---|
+//! | absent | absent (Anthropic's default, `auto`) |
+//! | `"auto"` | `{"type":"auto"}` |
+//! | `"none"` | `{"type":"none"}` — the tools stay defined, so a history carrying `tool_use` blocks remains valid and the prompt-cache prefix is unchanged |
+//! | `"required"` | `{"type":"any"}` |
+//! | `{"type":"function","function":{"name":n}}` | `{"type":"tool","name":n}` |
+//! | `parallel_tool_calls: false` | `disable_parallel_tool_use: true` on the choice (`auto` when no choice was named; not added to `none`) |
+//!
+//! # Structured output (`response_format`)
+//!
+//! Anthropic has no `response_format`, so the adapter asks for it as a
+//! **forced single tool**: one tool whose `input_schema` is the requested
+//! schema (`{"type":"object"}` for `json_object`; `strict: true` carried onto
+//! the tool when the request set it), `tool_choice: {"type":"tool"}` naming
+//! it, parallel use disabled. The tool's input *is* the answer, so the stream
+//! unwraps it: each `input_json_delta` fragment is re-emitted as a text
+//! `delta`, the reply's `content` is the JSON text, and the `tool_use` stop
+//! reason reads as `stop` — the client asked for content, not for a call.
+//! `max_tokens` still reads as `length`. Text blocks outside the forced tool
+//! (a forced call has none) are not part of the answer and are not emitted.
+//!
+//! A `response_format` beside `tools` (or `tool_choice`) is refused before
+//! any hold ([`check`]): the forced tool would make the caller's own tools
+//! uncallable, which is dropping them. Note that some newer Anthropic models
+//! refuse a forced `tool_choice` outright; the signed catalogue's
+//! `capabilities.structured_output` must not be declared for those.
 
 use std::collections::BTreeMap;
 
 use f2z_ai_proto::ErrorCode;
 use f2z_ai_proto::catalog::{ApiStyle, CatalogModel};
-use f2z_ai_proto::chat::{ChatRequest, ContentPart, FinishReason, Role, ToolCall, Usage};
+use f2z_ai_proto::chat::{
+    ChatRequest, ContentPart, FinishReason, ResponseFormat, Role, ToolCall, ToolChoice, Usage,
+};
 use reqwest::header::{HeaderMap, HeaderValue};
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::{Map, Value, json};
@@ -52,7 +91,117 @@ pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 /// The Anthropic Messages adapter.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct AnthropicMessages;
+pub struct AnthropicMessages {
+    /// The bound request asked for a `response_format`: the stream's one
+    /// forced `tool_use` block is the reply's text ([`Provider::bind`]).
+    structured: bool,
+}
+
+/// The forced tool's name for a `json_object` request (a `json_schema`
+/// request's tool is named after its schema).
+pub const JSON_OBJECT_TOOL: &str = "json_object";
+
+/// The forced tool's description: what the model is told the tool is for.
+/// Fixed text; nothing from the request.
+const FORMAT_TOOL_DESCRIPTION: &str = "Respond by calling this tool. Its input is your complete answer, as JSON matching the input schema.";
+
+/// The refusals this adapter makes for a request it cannot express, before
+/// any hold, charge or provider request ([`super::check_tool_translation`]).
+///
+/// * `response_format` with `tools`, `tool_choice` or `parallel_tool_calls`:
+///   the forced format tool would leave the caller's tools uncallable.
+///   `details.reason = "response_format_unsupported"`, `details.conflict`
+///   naming the other field.
+/// * `tool_choice` or `parallel_tool_calls` with no `tools` (the gateway's
+///   structural validation refuses this first; repeated here for the direct
+///   adapter path): Anthropic has nothing to choose among.
+///
+/// # Errors
+///
+/// `400 invalid_request` naming the field.
+pub fn check(request: &ChatRequest) -> Result<(), ApiFailure> {
+    if request.response_format.is_some() {
+        let conflict = if !request.tools.is_empty() {
+            Some("tools")
+        } else if request.tool_choice.is_some() {
+            Some("tool_choice")
+        } else if request.parallel_tool_calls.is_some() {
+            Some("parallel_tool_calls")
+        } else {
+            None
+        };
+        if let Some(conflict) = conflict {
+            return Err(ApiFailure::new(
+                ErrorCode::InvalidRequest,
+                "this model cannot combine response_format with tools",
+            )
+            .detail("field", "response_format")
+            .detail("reason", super::RESPONSE_FORMAT_UNSUPPORTED)
+            .detail("conflict", conflict));
+        }
+    }
+    if request.tools.is_empty() {
+        for (field, present) in [
+            ("tool_choice", request.tool_choice.is_some()),
+            ("parallel_tool_calls", request.parallel_tool_calls.is_some()),
+        ] {
+            if present {
+                return Err(ApiFailure::new(
+                    ErrorCode::InvalidRequest,
+                    "tool_choice and parallel_tool_calls require tools",
+                )
+                .detail("field", field)
+                .detail("reason", "requires_tools"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The Anthropic `tool_choice` for a request's tool controls, or `None` to
+/// leave Anthropic's default (`auto`, parallel calls allowed).
+fn tool_choice(request: &ChatRequest) -> Option<Value> {
+    let serial = request.parallel_tool_calls == Some(false);
+    let mut choice = match &request.tool_choice {
+        None if serial => json!({"type": "auto"}),
+        None => return None,
+        Some(ToolChoice::Auto) => json!({"type": "auto"}),
+        // Nothing to call, so nothing to serialise.
+        Some(ToolChoice::None) => return Some(json!({"type": "none"})),
+        Some(ToolChoice::Required) => json!({"type": "any"}),
+        Some(ToolChoice::Function { name }) => json!({"type": "tool", "name": name}),
+    };
+    if serial && let Some(object) = choice.as_object_mut() {
+        object.insert("disable_parallel_tool_use".into(), json!(true));
+    }
+    Some(choice)
+}
+
+/// The forced tool that carries a `response_format`, and the `tool_choice`
+/// that forces it.
+fn format_tool(format: &ResponseFormat) -> (Value, Value) {
+    let (name, schema, strict) = match format {
+        ResponseFormat::JsonObject {} => (JSON_OBJECT_TOOL, json!({"type": "object"}), None),
+        ResponseFormat::JsonSchema { json_schema } => (
+            json_schema.name.as_str(),
+            json_schema.schema.clone(),
+            json_schema.strict,
+        ),
+    };
+    let mut tool = Map::new();
+    tool.insert("name".into(), json!(name));
+    tool.insert("description".into(), json!(FORMAT_TOOL_DESCRIPTION));
+    tool.insert("input_schema".into(), schema);
+    // Only an explicit `true` is sent: absent and `false` are Anthropic's
+    // default, as they are OpenAI's.
+    if strict == Some(true) {
+        tool.insert("strict".into(), json!(true));
+    }
+    (
+        Value::Object(tool),
+        json!({"type": "tool", "name": name, "disable_parallel_tool_use": true}),
+    )
+}
 
 impl Provider for AnthropicMessages {
     fn style(&self) -> ApiStyle {
@@ -87,9 +236,11 @@ impl Provider for AnthropicMessages {
         // `system` is text, and an assistant turn carries no image; a
         // `tool_result` does.
         super::images_only_on(request, &[Role::User, Role::Tool])?;
-        // No `response_format` translation for this API yet: refused, never
+        // A `response_format` only where the catalogue declares the model
+        // honours it; and nothing this adapter cannot express. Refused, never
         // dropped (an unconstrained answer billed as a structured one).
-        super::no_response_format(request)?;
+        super::check_response_format(request, model)?;
+        super::check_tool_translation(request, model)?;
         let mut system = None;
         let mut turns: Vec<(&'static str, Vec<Value>)> = Vec::new();
         for (index, message) in request.messages.iter().enumerate() {
@@ -159,7 +310,14 @@ impl Provider for AnthropicMessages {
                     .collect(),
             ),
         );
-        if !request.tools.is_empty() {
+        if let Some(format) = &request.response_format {
+            let (tool, choice) = format_tool(format);
+            body.insert("tools".into(), Value::Array(vec![tool]));
+            body.insert("tool_choice".into(), choice);
+        } else if !request.tools.is_empty() {
+            if let Some(choice) = tool_choice(request) {
+                body.insert("tool_choice".into(), choice);
+            }
             body.insert(
                 "tools".into(),
                 Value::Array(
@@ -182,8 +340,15 @@ impl Provider for AnthropicMessages {
         Ok(Value::Object(body))
     }
 
+    fn bind(&mut self, request: &ChatRequest) {
+        self.structured = request.response_format.is_some();
+    }
+
     fn parser(&self) -> Box<dyn StreamParser> {
-        Box::new(Parser::default())
+        Box::new(Parser {
+            structured: self.structured,
+            ..Parser::default()
+        })
     }
 }
 
@@ -294,8 +459,26 @@ struct PendingTool {
     initial: Value,
 }
 
+/// The forced `response_format` block, while it streams.
+#[derive(Debug)]
+struct FormatBlock {
+    index: u64,
+    /// Whether any of its JSON was emitted as text.
+    emitted: bool,
+    /// The block's `input` at `content_block_start`: the answer when no
+    /// `input_json_delta` follows.
+    initial: Value,
+}
+
 #[derive(Debug, Default)]
 struct Parser {
+    /// The request asked for a `response_format`: the forced tool's input is
+    /// the reply's text, and its `tool_use` stop is `stop`.
+    structured: bool,
+    /// The forced block, once it started.
+    format: Option<FormatBlock>,
+    /// Whether the forced block has started (it may start once).
+    format_seen: bool,
     started: bool,
     /// `message_start`'s counts, with its placeholder `output_tokens` dropped.
     start: Counts,
@@ -357,7 +540,20 @@ impl StreamParser for Parser {
                 let block = data
                     .get("content_block")
                     .ok_or(Malformed("content_block"))?;
-                if block.get("type").and_then(Value::as_str) == Some("tool_use") {
+                if self.structured && block.get("type").and_then(Value::as_str) == Some("tool_use")
+                {
+                    // The forced tool, and parallel use was disabled: a
+                    // second block is not a stream this request produces.
+                    if self.format_seen {
+                        return Err(Malformed("more than one response_format block"));
+                    }
+                    self.format_seen = true;
+                    self.format = Some(FormatBlock {
+                        index,
+                        emitted: false,
+                        initial: block.get("input").cloned().unwrap_or_else(|| json!({})),
+                    });
+                } else if block.get("type").and_then(Value::as_str) == Some("tool_use") {
                     if self.tools.len() >= super::MAX_PENDING_TOOLS {
                         return Err(Malformed("too many pending tool calls"));
                     }
@@ -385,7 +581,9 @@ impl StreamParser for Parser {
                             .get("text")
                             .and_then(Value::as_str)
                             .ok_or(Malformed("text_delta"))?;
-                        if !text.is_empty() {
+                        // With a response_format, the answer is the forced
+                        // tool's input; text beside it is not the answer.
+                        if !text.is_empty() && !self.structured {
                             out.push(Content::Text(text.to_owned()));
                         }
                     }
@@ -394,7 +592,14 @@ impl StreamParser for Parser {
                             .get("partial_json")
                             .and_then(Value::as_str)
                             .ok_or(Malformed("input_json_delta"))?;
-                        if let Some(tool) = self.tools.get_mut(&index) {
+                        if let Some(format) = self.format.as_mut().filter(|f| f.index == index) {
+                            // Re-emitted as it arrives: the JSON answer
+                            // streams like any other reply.
+                            if !part.is_empty() {
+                                format.emitted = true;
+                                out.push(Content::Text(part.to_owned()));
+                            }
+                        } else if let Some(tool) = self.tools.get_mut(&index) {
                             self.pending_bytes = self.pending_bytes.saturating_add(part.len());
                             if self.pending_bytes > super::MAX_PENDING_TOOL_BYTES {
                                 return Err(Malformed("tool call arguments too large"));
@@ -411,7 +616,12 @@ impl StreamParser for Parser {
                     .get("index")
                     .and_then(Value::as_u64)
                     .ok_or(Malformed("block index"))?;
-                if let Some(tool) = self.tools.remove(&index) {
+                if let Some(format) = self.format.take_if(|f| f.index == index) {
+                    // A block whose input arrived whole, at its start.
+                    if !format.emitted {
+                        out.push(Content::Text(format.initial.to_string()));
+                    }
+                } else if let Some(tool) = self.tools.remove(&index) {
                     self.pending_bytes = self.pending_bytes.saturating_sub(tool.json.len());
                     let arguments = if tool.json.is_empty() {
                         tool.initial.to_string()
@@ -431,7 +641,12 @@ impl StreamParser for Parser {
                     .and_then(|d| d.get("stop_reason"))
                     .and_then(Value::as_str)
                 {
-                    self.stop_reason = Some(finish_reason(stop));
+                    self.stop_reason = Some(match finish_reason(stop) {
+                        // The forced format tool ended the turn: the client
+                        // asked for content, and got it.
+                        FinishReason::ToolCalls if self.structured => FinishReason::Stop,
+                        reason => reason,
+                    });
                 }
                 if let Some(usage) = data.get("usage").filter(|u| !u.is_null()) {
                     // Cumulative: the latest report of each count replaces

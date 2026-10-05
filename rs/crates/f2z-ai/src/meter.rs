@@ -192,6 +192,9 @@ fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result
     // Refused before any hold: a model or adapter that cannot honour a
     // response_format never receives the call without it.
     crate::provider::check_response_format(request, &model)?;
+    // Likewise tool_choice / parallel_tool_calls, and the combinations the
+    // model's adapter cannot express: refused here, never dropped.
+    crate::provider::check_tool_translation(request, &model)?;
     // Conservative byte-token reservation, including roles, message framing,
     // tool definitions and prior tool arguments/results. Metadata is excluded.
     // Final billing uses provider usage, never this byte bound.
@@ -705,13 +708,15 @@ impl ChatBackend for Metered {
 
 /// A refusal `plan` makes after the idempotency claim that must be
 /// persisted as the key's terminal answer: `max_output_tokens_strict`
-/// forbade a clamp, or the model cannot honour `response_format`. Either way
+/// forbade a clamp, or the model cannot honour `response_format`,
+/// `tool_choice` or `parallel_tool_calls`. Either way
 /// a same-key replay must name it, not an abandoned-claim `unavailable`.
 fn is_terminal_refusal(failure: &ApiFailure) -> bool {
     matches!(
         failure.detail_of("reason").and_then(Value::as_str),
         Some(reason) if reason == crate::provider::STRICT_OUTPUT_REASON
             || reason == crate::provider::RESPONSE_FORMAT_UNSUPPORTED
+            || reason == crate::provider::TOOLS_UNSUPPORTED
     )
 }
 
@@ -1438,7 +1443,11 @@ mod tests {
                 ("xai", "openai_chat", None, false),
                 ("xai", "openai_chat", Some(true), true),
                 ("openai", "openai_responses", Some(true), false),
-                ("anthropic", "anthropic_messages", Some(true), false),
+                // Anthropic: a forced-tool translation, admitted only when
+                // the catalogue declares the model (absence is not support).
+                ("anthropic", "anthropic_messages", Some(true), true),
+                ("anthropic", "anthropic_messages", None, false),
+                ("anthropic", "anthropic_messages", Some(false), false),
             ] {
                 let catalog = styled(provider, style, declared);
                 let result = plan(&request, &catalog, &rich);
@@ -1461,6 +1470,69 @@ mod tests {
                 plan(&formatted(None), &catalog, &rich).unwrap();
             }
         }
+    }
+
+    #[test]
+    fn tool_controls_are_refused_before_any_hold_where_they_cannot_be_expressed() {
+        let rich = ctx(u64::from(u32::MAX), None);
+        let tooled = |extra: serde_json::Value| -> ChatRequest {
+            let mut request = json!({"model":"m","max_output_tokens":100,
+                "messages":[{"role":"user","content":[{"type":"text","text":"go"}]}],
+                "tools":[{"name":"lookup","parameters":{"type":"object"}}]});
+            for (key, value) in extra.as_object().unwrap() {
+                request[key] = value.clone();
+            }
+            serde_json::from_value(request).unwrap()
+        };
+        let with_tools = |provider: &str, style: &str| {
+            let mut catalog =
+                serde_json::to_value(styled(provider, style, Some(true)).catalog()).unwrap();
+            catalog["models"][0]["capabilities"]["tools"] = json!(true);
+            VerifiedCatalog::from_verified(serde_json::from_value(catalog).unwrap()).unwrap()
+        };
+        for (extra, field) in [
+            (json!({"tool_choice":"required"}), "tool_choice"),
+            (json!({"parallel_tool_calls":false}), "parallel_tool_calls"),
+        ] {
+            // No translation on the OpenAI adapters in this build.
+            for style in ["openai_chat", "openai_responses"] {
+                let catalog = with_tools("openai", style);
+                let e = plan(&tooled(extra.clone()), &catalog, &rich).err().unwrap();
+                assert_eq!(e.status().as_u16(), 400);
+                assert_eq!(
+                    e.detail_of("reason"),
+                    Some(&json!(crate::provider::TOOLS_UNSUPPORTED)),
+                    "{style}"
+                );
+                assert_eq!(e.detail_of("field"), Some(&json!(field)), "{style}");
+                // Persisted as the key's terminal answer, like the
+                // response_format refusal.
+                assert!(is_terminal_refusal(&e));
+                // Negative control: the same tools, no control.
+                plan(&tooled(json!({})), &catalog, &rich).unwrap();
+            }
+            // Anthropic translates both.
+            plan(
+                &tooled(extra),
+                &with_tools("anthropic", "anthropic_messages"),
+                &rich,
+            )
+            .unwrap();
+        }
+        // Anthropic refuses a response_format beside tools: the forced format
+        // tool would leave the caller's tools uncallable.
+        let e = plan(
+            &tooled(json!({"response_format":{"type":"json_object"}})),
+            &with_tools("anthropic", "anthropic_messages"),
+            &rich,
+        )
+        .err()
+        .unwrap();
+        assert_eq!(
+            e.detail_of("reason"),
+            Some(&json!(crate::provider::RESPONSE_FORMAT_UNSUPPORTED))
+        );
+        assert!(is_terminal_refusal(&e));
     }
 
     #[test]

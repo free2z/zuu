@@ -213,7 +213,8 @@ impl ProviderBackend {
             .detail("model", request.model.as_str())
         };
         let handle = self.providers.get(&model.provider).ok_or_else(disabled)?;
-        let adapter = for_style(model.api_style, handle.chat_usage).ok_or_else(disabled)?;
+        let mut adapter = for_style(model.api_style, handle.chat_usage).ok_or_else(disabled)?;
+        adapter.bind(request);
         strict_model_ceiling(request, model)?;
         let body = adapter.body(request, model, output_cap(request, model))?;
         let body = serde_json::to_vec(&body).map_err(|_| {

@@ -34,6 +34,8 @@
 //!     metadata: Default::default(),
 //!     fallback: vec![],
 //!     response_format: None,
+//!     tool_choice: None,
+//!     parallel_tool_calls: None,
 //! };
 //! let mut stream = client.ai().chat(request).await?;
 //! while let Some(event) = stream.next().await? {

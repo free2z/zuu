@@ -102,10 +102,31 @@ export type ResponseFormat =
         strict?: boolean;
       };
     };
+/**
+ * OpenAI's `tool_choice`: which of `tools` the model may or must call.
+ * Requires `tools`; a named function must be one of them.
+ */
+export type ToolChoice =
+  | "auto"
+  | "none"
+  | "required"
+  | { type: "function"; function: { name: string } };
 export interface ChatRequest {
   model: string;
   messages: Message[];
   tools?: { name: string; description?: string; parameters: Json }[];
+  /**
+   * Opt-in; absent is never sent (the provider's default, `auto`). A model
+   * whose adapter cannot express it refuses the call before any hold or
+   * charge (`invalid_request`, `reason: "tools_unsupported"`).
+   */
+  tool_choice?: ToolChoice;
+  /**
+   * Opt-in; `false` asks for at most one tool call per turn. Absent is never
+   * sent. Refused up front where unsupported
+   * (`reason: "tools_unsupported"`).
+   */
+  parallel_tool_calls?: boolean;
   max_output_tokens?: bigint;
   /**
    * `true`: `max_output_tokens` is required, not a ceiling. The gateway

@@ -697,6 +697,9 @@ fn decode(bytes: &[u8], text_limit: usize) -> Result<ChatRequest, ApiFailure> {
             if let Some(refusal) = response_format_refusal(bytes) {
                 return Err(refusal);
             }
+            if let Some(refusal) = tool_control_refusal(bytes) {
+                return Err(refusal);
+            }
             let reason = match error.classify() {
                 serde_json::error::Category::Syntax => "syntax",
                 serde_json::error::Category::Eof => "eof",
@@ -740,6 +743,43 @@ fn response_format_refusal(bytes: &[u8]) -> Option<ApiFailure> {
             "response_format.type",
             "unsupported",
             "response_format.type must be \"json_schema\" or \"json_object\"",
+        )),
+    }
+}
+
+/// As [`response_format_refusal`], for `tool_choice` and
+/// `parallel_tool_calls`: an OpenAI port's likeliest mistakes (`"any"`, a
+/// present `null`) are named by field, not by line and column. Error path
+/// only; never quotes the request.
+fn tool_control_refusal(bytes: &[u8]) -> Option<ApiFailure> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    if let Some(choice) = value.get("tool_choice") {
+        if choice.is_null() {
+            return Some(invalid(
+                "tool_choice",
+                "null",
+                "tool_choice must be a string or an object; omit it for the default",
+            ));
+        }
+        if serde_json::from_value::<f2z_ai_proto::chat::ToolChoice>(choice.clone()).is_err() {
+            return Some(invalid(
+                "tool_choice",
+                "unsupported",
+                "tool_choice must be \"auto\", \"none\", \"required\" or {\"type\":\"function\",\"function\":{\"name\":...}}",
+            ));
+        }
+    }
+    match value.get("parallel_tool_calls") {
+        Some(serde_json::Value::Null) => Some(invalid(
+            "parallel_tool_calls",
+            "null",
+            "parallel_tool_calls must be a boolean; omit it for the default",
+        )),
+        Some(serde_json::Value::Bool(_)) | None => None,
+        Some(_) => Some(invalid(
+            "parallel_tool_calls",
+            "not_boolean",
+            "parallel_tool_calls must be a boolean",
         )),
     }
 }
@@ -863,6 +903,31 @@ pub fn validate(request: &ChatRequest) -> Result<(), ApiFailure> {
                 "tool parameters must be a JSON Schema object",
             ));
         }
+    }
+    if request.tools.is_empty() {
+        if request.tool_choice.is_some() {
+            return Err(invalid(
+                "tool_choice",
+                "requires_tools",
+                "tool_choice requires tools",
+            ));
+        }
+        if request.parallel_tool_calls.is_some() {
+            return Err(invalid(
+                "parallel_tool_calls",
+                "requires_tools",
+                "parallel_tool_calls requires tools",
+            ));
+        }
+    }
+    if let Some(f2z_ai_proto::chat::ToolChoice::Function { name }) = &request.tool_choice
+        && !request.tools.iter().any(|tool| tool.name == *name)
+    {
+        return Err(invalid(
+            "tool_choice.function.name",
+            "unknown_tool",
+            "tool_choice names a function that is not in tools",
+        ));
     }
     if request.max_output_tokens == Some(0) {
         return Err(invalid(
@@ -989,6 +1054,75 @@ mod tests {
                 "{field}: {rendered}"
             );
         }
+    }
+
+    #[test]
+    fn tool_controls_are_named_when_malformed_and_need_tools() {
+        let tools = json!([{"name": "lookup", "parameters": {"type": "object"}}]);
+        // Decode: an OpenAI port's mistakes, named by field, never quoted.
+        for (member, value, reason) in [
+            ("tool_choice", json!("any"), "unsupported"),
+            (
+                "tool_choice",
+                json!({"type": "tool", "name": "CANARY"}),
+                "unsupported",
+            ),
+            ("tool_choice", serde_json::Value::Null, "null"),
+            ("parallel_tool_calls", serde_json::Value::Null, "null"),
+            ("parallel_tool_calls", json!("false"), "not_boolean"),
+        ] {
+            let mut body = minimal();
+            body["tools"] = tools.clone();
+            body[member] = value.clone();
+            let failure = decode(body.to_string().as_bytes(), 1 << 20).unwrap_err();
+            assert_eq!(failure.detail_of("field"), Some(&json!(member)), "{value}");
+            assert_eq!(failure.detail_of("reason"), Some(&json!(reason)), "{value}");
+            assert!(!reason_of(&failure).contains("CANARY"));
+        }
+        // Validate: a tool control needs tools, and a named function must be
+        // one of them.
+        for (extra, field, why) in [
+            (
+                json!({"tool_choice": "auto"}),
+                "tool_choice",
+                "requires_tools",
+            ),
+            (
+                json!({"parallel_tool_calls": false}),
+                "parallel_tool_calls",
+                "requires_tools",
+            ),
+            (
+                json!({"tools": tools, "tool_choice": {"type": "function", "function": {"name": "other"}}}),
+                "tool_choice.function.name",
+                "unknown_tool",
+            ),
+        ] {
+            let mut body = minimal();
+            for (key, value) in extra.as_object().unwrap() {
+                body[key] = value.clone();
+            }
+            let failure = validate(&request(body)).unwrap_err();
+            assert_eq!(failure.detail_of("field"), Some(&json!(field)));
+            assert_eq!(failure.detail_of("reason"), Some(&json!(why)));
+        }
+        // Negative control: every well-formed control validates with tools.
+        for choice in [
+            json!("auto"),
+            json!("none"),
+            json!("required"),
+            json!({"type": "function", "function": {"name": "lookup"}}),
+        ] {
+            let mut body = minimal();
+            body["tools"] = tools.clone();
+            body["tool_choice"] = choice;
+            body["parallel_tool_calls"] = json!(false);
+            validate(&decode(body.to_string().as_bytes(), 1 << 20).unwrap()).unwrap();
+        }
+    }
+
+    fn reason_of(failure: &ApiFailure) -> String {
+        format!("{failure:?}")
     }
 
     #[test]
