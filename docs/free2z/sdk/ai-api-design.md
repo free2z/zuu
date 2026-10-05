@@ -851,7 +851,7 @@ released and written off, never guessed, as for tokens.
   standard tier and **4,784** on the high-resolution tier of Claude 4.7+;
   the cap is a parameter, because the tier is a model fact and a
   constant would under-reserve 3× on that tier), `{"kind": "patches", …}` for patch-based
-  models (GPT-4.1-mini/nano, o-series), `{"kind": "xai_tiles", …}` (per
+  models (GPT-4.1-mini/nano, o4-mini; o1/o3 are tile-based at 75/150), `{"kind": "xai_tiles", …}` (per
   docs.x.ai). An unknown `kind` or a missing parameter makes the model
   refuse image parts. `limits.image_tokens_max`
   is the signed ceiling the formula's result may not exceed (a formula
@@ -872,9 +872,10 @@ released and written off, never guessed, as for tokens.
   reserves `text_bytes + pages × page_image_tokens` — `text_bytes` the
   UTF-8 size of the text the gateway *decodes* from the content streams
   (a BPE token is ≥ 1 byte of decoded text; raw stream bytes are not a
-  bound once a font encoding maps several bytes to one character), and,
-  for a stream whose text it cannot decode, the inflated stream size,
-  which is strictly larger — where
+  bound once a font encoding maps several bytes to one character); a
+  stream whose text it cannot decode is **refused** (`document_unreadable`),
+  not bounded by its raw size — a two-byte CJK code becomes three UTF-8
+  bytes, so the raw size is not an upper bound — where
   `page_image_tokens` is the image formula above at the provider's page
   render size (signed as `limits.pdf_page_image_tokens`). Where the provider
   offers a free count (Anthropic `count_tokens`), the gateway may use it in
@@ -951,7 +952,7 @@ until #1142 and #1143 merge** (#1140 has): every slice that touches
 | **S1** Sampling (`temperature`, `top_p`, `top_k`, `stop`, `seed`, `logprobs`, penalties; `n` refused) | proto `chat.rs` (`Sampling`), three adapters, `meter::plan` gates, catalogue bools (proto reader; signer emits), SDKs (builders + types), `chat-api.md` | #1143 |
 | **S2** `developer` role, several system messages, Responses `instructions` semantics | proto `Role`, adapters' system assembly, spec | S1 (same functions) |
 | **S6** `/v1/chat/completions` encoding + superset errors + headers + `f2z` object + `X-F2Z-*` headers + `/v1/models` list superset + CORS + ADR 0005 + `COMPAT.md` + `@free2z/sdk` `compatFetch` | new `rs/crates/f2z-ai/src/compat/{mod,openai_chat}.rs`, `server.rs` routes, proto `ErrorCode::CompletionNotRetained`, `errors.md`, TS SDK `compat.ts` | S1, S10a (fixtures land in the corpus) |
-| **S3** Reasoning controls + reasoning parts/deltas + provider-state round-trip | proto (`reasoning`, `OutputPart::Reasoning`, `reasoning_delta`), adapters, catalogue (`reasoning_effort/_budget/_summary`, `controls.effort_budgets`), SDKs, spec | S2 |
+| **S3** Reasoning controls + reasoning parts/deltas + provider-state round-trip | proto (`reasoning`, `OutputPart::Reasoning`, `reasoning_delta`), adapters, catalogue (`reasoning_effort/_budget/_summary`, `controls.effort_budgets`), SDKs, spec | S2, **#1163** (ping emitter: a reasoning model's pre-`meta` wait exceeds the SDKs' 45 s watchdog) |
 | **S7** `/v1/messages` + `count_tokens` + Anthropic envelope + `x-api-key` | new `compat/anthropic_messages.rs`; shares S6's compat infrastructure | S6, S3 (thinking blocks) |
 | **S8** `/v1/responses` (stateless subset; `text.format`; `reasoning`; refusals for state/hosted) + Responses adapter tool controls (the refusal #1142 leaves) | new `compat/openai_responses.rs`; `provider/openai_responses.rs` tool_choice/parallel/strict | S6, S3 |
 | **S4** Prompt caching (`cache_control`, `prompt_cache_key`), 1 h refusal, cache usage in every encoding | proto parts, Anthropic adapter, OpenAI adapters, catalogue bools, spec | S3 |
@@ -970,7 +971,8 @@ until #1142 and #1143 merge** (#1140 has): every slice that touches
   only) ∥ S1 (proto + adapters) ∥ S6's *scaffold* (new `compat/` module,
   routes, envelope, headers, CORS, ADR, `compatFetch`) — S6 maps sampling
   fields through S1's `Sampling` type, so it rebases on S1 before merge;
-  the tuzi `features` versioning half of S11 (tuzi repo, no overlap).
+  the tuzi `features` versioning half of S11 (tuzi repo, no overlap) ∥
+  **#1163** (ping emitter; `call.rs` only).
 - **Wave 1:** S2 → S3 serial (same adapter functions); S6 finishes against
   S1+S10a. S9's proto reader (`controls`/`limits`, new structs, tolerant)
   can run here: it adds members, touches no adapter.
