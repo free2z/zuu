@@ -17,6 +17,7 @@ pub struct MobileRedirects {
 /// one of these codes when they know why the session ended. Anything else —
 /// no code, or a code this core does not know — is the `browser_error`
 /// fallback, which is what every rejection was before the codes existed.
+#[cfg(any(mobile, test))]
 pub(crate) fn native_auth_rejection(code: Option<&str>) -> f2z_sdk::Error {
     match code {
         Some("user_cancelled") => f2z_sdk::Error::UserCancelled,

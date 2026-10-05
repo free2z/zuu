@@ -13,7 +13,11 @@ internal object AuthRejection {
     const val TIMEOUT = "timeout"
 
     enum class Ending {
-        /** The user came back to the app from the Custom Tab without a callback. */
+        /**
+         * The app resumed from the Custom Tab without a callback. Custom Tabs
+         * report no dismissal of their own, so this is the dismissal signal; a
+         * browser that closed itself looks the same.
+         */
         DISMISSED,
         /** The attempt's deadline passed. */
         TIMED_OUT,

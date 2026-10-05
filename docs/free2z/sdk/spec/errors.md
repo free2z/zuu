@@ -149,7 +149,7 @@ TypeScript `NativeTransport` report:
 
 | `code` | Retry | Meaning | Client action |
 |---|---|---|---|
-| `user_cancelled` | no | The user dismissed the sign-in sheet: iOS `ASWebAuthenticationSession` cancel, or returning to the Android app from the Custom Tab without a callback | Not an error. Leave the sign-in button available; do not show a failure |
+| `user_cancelled` | no | The user dismissed the sign-in sheet: iOS `ASWebAuthenticationSession` cancel, or returning to the Android app from the Custom Tab without a callback (Android cannot tell that apart from a browser that closed itself) | Not an error. Leave the sign-in button available; do not show a failure |
 | `browser_unavailable` | no | No browser or authentication session could be shown: no default browser, no window to present from, or the session refused to start. Nothing was shown | Explain that sign-in needs a browser |
 | `timeout` | no | No callback before the deadline (300 s on iOS/Android; `callback_timeout` on desktop). Desktop cannot observe a closed browser tab, so a desktop cancel arrives as this. Also the §5 registration mistake | Offer sign-in again; if it persists, check the registration |
 | `browser_error` | no | Any other browser or session failure, and **every** one from a plugin older than these codes | The fallback. Always handle it |
