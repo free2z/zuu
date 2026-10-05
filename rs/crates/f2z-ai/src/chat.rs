@@ -231,6 +231,9 @@ pub struct ChatState {
     pub delivery_buffer_bytes: usize,
     /// Time with frames waiting and none delivered before delivery ends.
     pub delivery_stall: Duration,
+    /// Upstream silence after which a streamed call sends `: ping`
+    /// (chat-api.md §3); `None` sends none.
+    pub stream_keepalive: Option<Duration>,
 }
 
 /// The handler.
@@ -479,6 +482,8 @@ async fn serve(
                 buffer_bytes: state.delivery_buffer_bytes,
                 stall: state.delivery_stall,
                 start_timeout: state.start_timeout,
+                // Streamed only: a non-streamed body is one JSON document.
+                keepalive: state.stream_keepalive.filter(|_| aggregation.is_none()),
             },
         },
         head,
