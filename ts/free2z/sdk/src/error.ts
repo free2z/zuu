@@ -43,6 +43,7 @@ export type ServerErrorCode =
   | "invalid_client"
   | "unauthorized_client"
   | "unsupported_grant_type"
+  | "unsupported_token_type"
   // §6 purchases
   | "invalid_quantity"
   | "rail_unavailable"

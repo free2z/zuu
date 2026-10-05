@@ -99,7 +99,12 @@ export class Client {
         case "context_length_exceeded":
           return { kind: "too_large", error };
         case "invalid_request":
-          if (details.field === "max_output_tokens")
+          // Only the strict ceiling refusal: `field: max_output_tokens` is
+          // also `out_of_range` (0), a malformed request, not a large one.
+          if (
+            details.field === "max_output_tokens" &&
+            details.reason === "max_output_tokens_strict"
+          )
             return { kind: "too_large", error };
           throw error;
         default:

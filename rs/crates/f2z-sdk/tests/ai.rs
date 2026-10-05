@@ -434,6 +434,15 @@ async fn preflight_maps_strict_refusals_to_the_recovery_to_offer() {
         ai.preflight(&strict("too-large")).await.unwrap(),
         Preflight::TooLarge(_)
     ));
+    assert!(matches!(
+        ai.preflight(&strict("above-model-max")).await.unwrap(),
+        Preflight::TooLarge(_)
+    ));
+    // Same field, not a size problem: returned as the error it is.
+    assert!(matches!(
+        ai.preflight(&strict("out-of-range")).await,
+        Err(Error::Api(ref e)) if e.detail_str("reason") == Some("out_of_range")
+    ));
     assert!(
         fake.chat_calls().is_empty(),
         "a preflight never starts a call"

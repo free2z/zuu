@@ -130,7 +130,10 @@ test("preflight turns refusals into the recovery UX to show", async () => {
   for (const error of [
     new SdkError("context_length_exceeded"),
     new SdkError("invalid_request", {
-      details: { field: "max_output_tokens", reason: "above_model_max" },
+      details: {
+        field: "max_output_tokens",
+        reason: "max_output_tokens_strict",
+      },
     }),
   ])
     assert.equal((await refusing(error).preflight(strict)).kind, "too_large");
@@ -138,6 +141,10 @@ test("preflight turns refusals into the recovery UX to show", async () => {
   for (const error of [
     new SdkError("rate_limited"),
     new SdkError("invalid_request", { details: { field: "model" } }),
+    // `max_output_tokens: 0` is malformed, not too large.
+    new SdkError("invalid_request", {
+      details: { field: "max_output_tokens", reason: "out_of_range" },
+    }),
   ])
     await assert.rejects(refusing(error).preflight(strict), (e) => e === error);
 });

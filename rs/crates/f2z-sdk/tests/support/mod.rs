@@ -1245,6 +1245,26 @@ async fn estimate(State(f): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) -
                 ),
             );
         }
+        // The model ceiling (strict), and a malformed `max_output_tokens`:
+        // the same field, different refusals (`provider::strict_model_ceiling`
+        // and `chat::validate` in f2z-ai).
+        Some("above-model-max") => {
+            return envelope(
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                Some(
+                    json!({"field": "max_output_tokens", "reason": "max_output_tokens_strict",
+                    "max_output_tokens": 1800, "model_max_output_tokens": 1024}),
+                ),
+            );
+        }
+        Some("out-of-range") => {
+            return envelope(
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                Some(json!({"field": "max_output_tokens", "reason": "out_of_range"})),
+            );
+        }
         Some("too-large") => {
             return envelope(
                 StatusCode::BAD_REQUEST,

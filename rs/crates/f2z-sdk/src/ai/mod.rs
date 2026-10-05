@@ -77,6 +77,9 @@ pub use stream::{CancelHandle, ChatStream, Completion};
 
 use crate::client::Client;
 use crate::error::{ApiError, Error};
+
+/// `details.reason` on every `max_output_tokens_strict` refusal.
+const STRICT_OUTPUT_REASON: &str = "max_output_tokens_strict";
 use crate::http;
 
 /// Options of one chat call.
@@ -384,9 +387,6 @@ impl Ai {
     }
 }
 
-/// The gateway's structural limits that need no catalogue, checked before
-/// anything is sent: a request the gateway would refuse never spends a
-/// request against the user's or the app's rate allowance.
 /// [`Ai::preflight`]: whether a strict request would run now and, if not,
 /// the recovery UX to show. A snapshot — the call itself must still carry
 /// `max_output_tokens_strict`, which is the guarantee. Amounts are `None`
@@ -420,7 +420,8 @@ pub enum Preflight {
         error: Box<ApiError>,
     },
     /// `400 context_length_exceeded`, or `400 invalid_request` on
-    /// `max_output_tokens` (above the model's ceiling): it can never run as
+    /// `max_output_tokens` with `reason: max_output_tokens_strict` (above the
+    /// model's ceiling): it can never run as
     /// asked. Shorten the input or lower `max_output_tokens`.
     TooLarge(Box<ApiError>),
 }
@@ -443,7 +444,13 @@ impl Preflight {
                 error,
             }),
             ErrorCode::ContextLengthExceeded => Ok(Self::TooLarge(error)),
-            ErrorCode::InvalidRequest if error.detail_str("field") == Some("max_output_tokens") => {
+            // Only the strict ceiling refusal: `field: max_output_tokens` is
+            // also `out_of_range` (0) or `required`, a malformed request that
+            // shortening the input would not fix.
+            ErrorCode::InvalidRequest
+                if error.detail_str("field") == Some("max_output_tokens")
+                    && error.detail_str("reason") == Some(STRICT_OUTPUT_REASON) =>
+            {
                 Ok(Self::TooLarge(error))
             }
             _ => Err(error),
@@ -451,6 +458,9 @@ impl Preflight {
     }
 }
 
+/// The gateway's structural limits that need no catalogue, checked before
+/// anything is sent: a request the gateway would refuse never spends a
+/// request against the user's or the app's rate allowance.
 fn local_limits(request: &ChatRequest) -> Result<(), Error> {
     match &request.response_format {
         Some(format) => format.check().map_err(|e| Error::Config(e.to_string())),
