@@ -9,10 +9,16 @@
 //!   gpt-4o-mini, each with the usage the provider reported through the
 //!   gateway and the estimate the byte bound produced for it. The
 //!   `response_format` is the ~28 KB strict schema, stored once.
-//! * `openai_prompt_probes.json` — 27 shapes measured against
-//!   `usage.prompt_tokens` on 2026-10-05: schema features (terse, described,
-//!   enums, constraints, patterns, nested, nullable/anyOf), tool definitions,
-//!   tool-call history, `tool_choice`, and a request with no schema.
+//! * `openai_prompt_probes.json` — 45 shapes measured against
+//!   `usage.prompt_tokens` on 2026-10-05/06: schema features (terse,
+//!   described, enums, constraints, patterns, nested, nullable/anyOf), tool
+//!   definitions (flat, nested objects, arrays of objects, anyOf branches,
+//!   nullable types, enums, two/four tools, each ¡AHA! tool alone and
+//!   together), tool-call history, `tool_choice`, and a request with no
+//!   schema.
+//! * `aha_tool_turns.json` — the three turn-1 tool calls of ¡AHA!'s first
+//!   paid tool turns on prod (2026-10-06), with the exact tool definitions
+//!   and the usage the gateway reported.
 //! * `tokenizer_oracle.json` — texts with their counts from the reference
 //!   `tiktoken` (Python 0.14.0), for both encodings.
 #![allow(
@@ -125,17 +131,62 @@ fn every_measured_prompt_shape_is_covered_and_bounded() {
         );
         // The framing constants are measured values rounded up, so small
         // shapes carry the rounding: a schema that is nothing but enum
-        // values measures 33% over. Real prompts (the corpus above) are
-        // within 8%.
+        // values measures 33% over, a tool of three one-property arrays
+        // 43%. Real prompts (the corpora) are within 8%.
         assert!(
-            estimate.tokens * 100 <= actual * 135,
-            "{name}: estimated {} is more than 35% over the {actual} measured",
+            estimate.tokens * 100 <= actual * 145,
+            "{name}: estimated {} is more than 45% over the {actual} measured",
             estimate.tokens
         );
         if name == "no_schema" || name == "developer_role" || name == "multipart_text" {
             // Plain messages are exact.
             assert_eq!(estimate.tokens, actual, "{name}");
         }
+    }
+}
+
+// The first paid tool turns ¡AHA! ran on prod (2026-10-06, gateway d26c9397,
+// byte-bound estimate): holds of 17–21 2Z against charges of 4–5 — the tool
+// definitions (4–5 deeply nested strict schemas, ~26–37 KB) were reserved
+// as bytes. Joined with the definitions the AHA harness regenerated, the
+// tokenised estimate must sit on the billed count.
+#[test]
+fn the_aha_tool_turns_are_never_under_estimated_and_land_within_five_percent() {
+    let turns = fixture("aha_tool_turns.json");
+    let turns = turns.as_array().unwrap();
+    assert_eq!(turns.len(), 3);
+    for turn in turns {
+        let name = turn["name"].as_str().unwrap();
+        let request: ChatRequest = serde_json::from_value(json!({
+            "model": turn["model"], "messages": turn["messages"], "tools": turn["tools"],
+            "max_output_tokens": turn["max_output_tokens"],
+        }))
+        .unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!(request.tools.len() >= 4, "{name}");
+        let actual = billed_input(&turn["usage"]);
+        let catalog_model = model("openai", turn["model"].as_str().unwrap());
+        let estimate = input_tokens(&request, &catalog_model).unwrap();
+        assert!(estimate.exact, "{name}");
+        assert!(
+            estimate.tokens >= actual,
+            "{name}: estimated {} below the {actual} the provider billed",
+            estimate.tokens
+        );
+        assert!(
+            estimate.tokens * 100 <= actual * 105,
+            "{name}: estimated {} is more than 5% over the {actual} billed",
+            estimate.tokens
+        );
+        // The byte bound those turns were held on: ~4× the billed input.
+        let bound = input_tokens(&request, &model("anthropic", "claude-sonnet-5")).unwrap();
+        assert!(bound.tokens > actual * 3, "{name}: {}", bound.tokens);
+        eprintln!(
+            "{name}: billed {actual}, estimate {} ({}‰), legacy hold {} 2Z vs charge {} 2Z",
+            estimate.tokens,
+            estimate.tokens * 1000 / actual,
+            turn["legacy_hold_2z"],
+            turn["charged_2z"]
+        );
     }
 }
 

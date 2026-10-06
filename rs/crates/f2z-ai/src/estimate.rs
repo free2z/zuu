@@ -31,8 +31,11 @@
 //!   `additionalProperties`, `required`) cost nothing. The compact JSON of
 //!   the ¡AHA! schema is 8,016 tokens; the provider bills 4,460.
 //! * A tool definition is rendered the same way but cheaper per property
-//!   (`3` rather than `6`), with `8` per function and `12` once for the
-//!   block. A prior tool call in the history costs its name and arguments
+//!   (`3` rather than `6`), with `8` per function, `12` once for the
+//!   block, and `6` per nested object property — the term the ¡AHA! tool
+//!   definitions (4–5 deeply nested strict schemas, 4,869 / 7,108 billed
+//!   tokens, recorded 2026-10-06 and in `tests/fixtures/estimate/`) added
+//!   to the measurements. A prior tool call in the history costs its name and arguments
 //!   plus `8`, and `16` more per call when one assistant message carries
 //!   several (the parallel-call wrapper). The call `id` is not rendered.
 //!   `tool_choice: required` costs nothing and a named function `8`; both
@@ -294,6 +297,12 @@ const PER_ENUM_VALUE: u64 = 2;
 /// Per schema node that is not a property value: array items, `anyOf` /
 /// `oneOf` / `allOf` branches, and the root of a tool's parameters.
 const PER_CONTAINER: u64 = 5;
+/// Per property of a tool's parameters whose value is itself an object
+/// with properties, below the root (a nested object in the rendering).
+/// Measured 2026-10-06 on the ¡AHA! tool definitions (4 and 5 deeply
+/// nested strict tools, 4,869 and 7,108 billed): without it the four
+/// `write_*_activity` tools were counted 1.1–1.6 % under.
+const TOOL_NESTED_OBJECT: u64 = 6;
 /// Keywords **measured** to cost nothing in the provider's rendering
 /// (validation constraints and the structural members the walk follows).
 /// Any other member — `title`, `default`, `examples`, `format`, `$ref`,
@@ -538,6 +547,9 @@ fn schema_node(
         n = n
             .saturating_add(count(&value.to_string()))
             .saturating_add(PER_ENUM_VALUE);
+    }
+    if place == SchemaPlace::Tool && is_property && depth > 0 && object.contains_key("properties") {
+        n = n.saturating_add(TOOL_NESTED_OBJECT);
     }
     let child = depth.saturating_add(1);
     for keyed in ["properties", "patternProperties", "$defs", "definitions"] {
