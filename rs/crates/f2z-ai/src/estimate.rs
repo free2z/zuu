@@ -606,6 +606,14 @@ pub struct OutputCounter {
 /// Text retained per call before it is counted and dropped.
 pub const OUTPUT_CHUNK_BYTES: usize = 64 * 1024;
 
+/// Build both encodings' tables now (~200 ms once), so the first call of
+/// the process does not pay for it on a request — nor on the async
+/// runtime, where [`OutputCounter`] flushes run.
+pub fn warm() {
+    let _ = Encoding::O200kBase.bpe();
+    let _ = Encoding::Cl100kBase.bpe();
+}
+
 impl OutputCounter {
     /// Append generated text, counting and dropping full chunks.
     pub fn push(&mut self, encoding: Encoding, text: &str) {
@@ -869,6 +877,21 @@ mod tests {
         counter.push(enc, &"é".repeat(OUTPUT_CHUNK_BYTES));
         assert!(counter.pending.len() <= OUTPUT_CHUNK_BYTES);
         assert!(counter.tokens(enc) > 0);
+        // A chunk boundary inside a merge the cut prevents: "jaa" + "oog"
+        // is 2 tokens apart and 3 together, so the flushed half plus the
+        // pending half would undercount by one without the cut allowance.
+        let mut counter = OutputCounter::default();
+        let filler = " ".repeat(OUTPUT_CHUNK_BYTES - 3);
+        counter.push(enc, &filler);
+        counter.push(enc, "jaaoog");
+        assert_eq!(counter.pending, "oog");
+        let whole = format!("{filler}jaaoog");
+        assert!(
+            counter.tokens(enc) >= enc.count(&whole),
+            "{} < {}",
+            counter.tokens(enc),
+            enc.count(&whole)
+        );
     }
 
     #[test]

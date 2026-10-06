@@ -492,6 +492,7 @@ pub struct Metered {
 impl Metered {
     /// Share this same instance between gateway backend and detached settler.
     pub fn new(ledger: Arc<dyn Ledger>, provider: ProviderBackend) -> Self {
+        crate::estimate::warm();
         let configured = provider.configured_providers();
         let mut backend = Self::with_provider(ledger, Arc::new(provider));
         backend.configured = Some(configured);
