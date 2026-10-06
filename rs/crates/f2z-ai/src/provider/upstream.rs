@@ -425,10 +425,14 @@ impl ProviderUpstream {
                 }
                 entry.1.push_str(&fragment.arguments);
             }
+            // Produced output is produced output in every mode: a fragment
+            // the model generated commits the call (no retry, after-content
+            // phase, settled rather than released on a later failure) even
+            // when `stream: false` keeps it off the wire.
+            self.output_produced = true;
             if matches!(content, Content::ToolCallDelta(_)) && !self.tool_deltas {
                 continue;
             }
-            self.output_produced = true;
             self.queue.push_back(match content {
                 Content::Text(text) => Event::Delta(Delta { text }),
                 Content::ToolCallDelta(fragment) => Event::ToolCallDelta(fragment),

@@ -158,6 +158,9 @@ impl Context {
 struct Plan {
     model: CatalogModel,
     input: u64,
+    /// Whether `input` came from the model's tokeniser (`true`) or from the
+    /// UTF-8 byte bound (`false`, a provider without one).
+    input_exact: bool,
     output: u64,
     hold: Whole2z,
     markup: Bps,
@@ -205,6 +208,10 @@ async fn estimate_off_runtime(
     let Some(model) = catalog.catalog().callable_model(&request.model).cloned() else {
         return Ok((request, None));
     };
+    // A few at a time: a 4 MiB prompt is ~1 s of tokeniser CPU, and the
+    // blocking pool is shared with everything else that blocks.
+    static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
+    let _slot = SLOTS.acquire().await.map_err(|_| invalid())?;
     tokio::task::spawn_blocking(move || {
         let estimate = crate::estimate::input_tokens(&request, &model);
         (request, estimate)
@@ -310,6 +317,7 @@ fn plan_with(
     let mut p = Plan {
         model,
         input,
+        input_exact: estimate.exact,
         output: ceiling,
         hold: Whole2z::ZERO,
         markup: c.markup(),
@@ -999,6 +1007,19 @@ fn estimated_usage(active: &Active, outcome: Option<&ProviderOutcome>) -> Option
                 .input_tokens
                 .saturating_add(p.cached_input_tokens)
                 .saturating_add(p.cache_write_tokens);
+    if !plan.input_exact && partial.is_none() {
+        // metering.md §5.4: a provider without a tokeniser settles its
+        // interrupted calls at the byte bound (4–5× the billed input).
+        // Loud, so that it cannot go live unnoticed when such a provider
+        // is first sold through the gateway.
+        tracing::warn!(
+            call_id = %active.id,
+            model = plan.model.id.as_str(),
+            provider = plan.model.provider.as_str(),
+            input_tokens = plan.input,
+            "estimated_input_byte_bound: interrupted call settled at the byte bound, no tokeniser and no partial usage"
+        );
+    }
             total > 0 && total <= plan.input
         })
         .map_or((plan.input, 0, 0), |p| {

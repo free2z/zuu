@@ -125,11 +125,16 @@ received `meta` knows every step passed.
 6. **Hold.** The ledger reserves the worst-case price for `out_cap`. The
    ledger's own answer decides: `402`, `403 cap_exceeded`,
    `403 account_frozen`, `403 account_in_debt`, `409 too_many_holds`.
-7. **Provider request.** A provider error here, on the primary and any
-   `fallback`, releases the hold and ends the (already open) stream with
-   a lone `error` event carrying `provider_error`, `unavailable` or
-   `provider_timeout` and `charged_2z: 0`. Nothing was charged. In
-   non-streamed mode the same failure is the HTTP `502`, `503` or `504`.
+7. **Provider request.** A provider **refusal** here — no connection, a
+   non-2xx head, no response head in time, or the provider's own `error`
+   event before any output — on the primary and any `fallback`, releases
+   the hold and ends the (already open) stream with a lone `error` event
+   carrying `provider_error`, `unavailable` or `provider_timeout` and
+   `charged_2z: 0`. Nothing was charged. In non-streamed mode the same
+   failure is the HTTP `502`, `503` or `504`. A request the provider
+   **accepted** (a 2xx head) that then went silent or was cut is billed by
+   the provider and settled on the estimate: `meta`, then the `error`
+   with its settlement ([metering.md](./metering.md) §5.2).
 
 The HTTP response headers (§2.3) are sent as soon as the hold exists —
 step 6 — so that the client's connection is established and `: ping`

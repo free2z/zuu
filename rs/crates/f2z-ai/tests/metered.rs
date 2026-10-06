@@ -1087,6 +1087,101 @@ async fn a_drain_after_anthropic_message_start_settles_on_its_reported_input() {
     }
     mock.shutdown().await;
 }
+// Chat Completions sends nothing before the first content chunk, so a
+// reasoning model that thinks past `ttfb_timeout_ms` after its 2xx head
+// ends as `provider_timeout` / `first_byte` — an accepted request the
+// provider bills. Charged on the input estimate, after a `meta`. The
+// provider here is a raw socket: head, flush, silence.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_head_then_silence_past_ttfb_is_charged_the_input_estimate_after_meta() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 65536];
+                let mut read = 0usize;
+                // Read to the end of the headers, then the body length.
+                let length = loop {
+                    let n = socket.read(&mut buf[read..]).await.unwrap_or(0);
+                    if n == 0 {
+                        return;
+                    }
+                    read += n;
+                    let text = String::from_utf8_lossy(&buf[..read]).to_string();
+                    if let Some(end) = text.find("\r\n\r\n") {
+                        let length = text
+                            .lines()
+                            .find_map(|l| {
+                                l.to_ascii_lowercase()
+                                    .strip_prefix("content-length:")
+                                    .map(|v| v.trim().parse::<usize>().unwrap())
+                            })
+                            .unwrap_or(0);
+                        if read >= end + 4 + length {
+                            break length;
+                        }
+                    }
+                };
+                let _ = length;
+                socket
+                    .write_all(b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n")
+                    .await
+                    .unwrap();
+                socket.flush().await.unwrap();
+                // The head is out; now silence past the first-byte limit.
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            });
+        }
+    });
+    let db = Arc::new(Database::new());
+    let meter = Arc::new(Metered::new(
+        db.clone(),
+        adapter_support::backend(&base, adapter_support::tuning(0)),
+    ));
+    let r = support::start(
+        &support::config(&[]),
+        Deps {
+            gate: Arc::new(Gate),
+            catalog: Arc::new(Fixed(adapter_support::catalog_with(300, None))),
+            backend: meter.clone(),
+            settler: meter,
+        },
+    )
+    .await;
+    support::wait_readyz(r.admin, StatusCode::OK).await;
+    let mut request = request();
+    request["model"] = json!("m-chat");
+    let input = estimate_input(&r, &request).await;
+    let mut req = support::chat_request(request.to_string());
+    req.headers_mut()
+        .insert("idempotency-key", "lesson-1".parse().unwrap());
+    let text = support::text(support::send(r.public, req).await).await;
+    // The stream-level `error` carries the code and the settlement; the
+    // phase (`first_byte`) is the adapter's and is pinned in
+    // `adapter_faults.rs`.
+    assert!(text.contains("\"code\":\"provider_timeout\""), "{text}");
+    assert!(text.contains("\"settlement\":\"settled\""), "{text}");
+    assert!(text.contains("\"source\":\"estimated\""), "{text}");
+    let events: Vec<&str> = text
+        .lines()
+        .filter_map(|l| l.strip_prefix("event: "))
+        .collect();
+    assert_eq!(events, ["meta", "usage", "error"], "{text}");
+    final_state(&db).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert_eq!(state.charges, 1);
+        assert_eq!(state.settled_usage["input_tokens"], input);
+        assert_eq!(state.settled_usage["output_tokens"], 0);
+        assert_eq!(state.record()["completion"]["usage_source"], "estimated");
+    }
+    server.abort();
+}
 // Negative control for the three above: a request the provider REFUSED (a
 // 503 head, no stream) is not billed by it, and the hold is released with
 // nothing charged — the estimate applies only to an accepted request.
