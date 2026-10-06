@@ -28,6 +28,13 @@ export const ALLOWLIST = [
     issue: "https://github.com/free2z/zuu/issues/1174",
     reason: "dev/test-only via vitest 3; no patched version in range (needs vitest 5)",
   },
+  {
+    id: "GHSA-68fv-2mgg-jv7q",
+    package: "source-map-js",
+    expires: "2026-11-04", // 30 days from 2026-10-05
+    issue: "https://github.com/free2z/zuu/issues/1176",
+    reason: "build-time only (postcss/vite); patched in range but lockfile bump invalidates store-capture digests until recapture",
+  },
 ];
 
 const BLOCKING = new Set(["high", "critical"]);

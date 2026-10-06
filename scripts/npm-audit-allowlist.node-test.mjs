@@ -42,6 +42,7 @@ test("allowlist is exactly the known entries, each with an issue and a 30-day ex
       ["GHSA-vfj7-8cjw-p6xm", "braces", "1130"],
       ["GHSA-5gmw-xhrv-c9v3", "tinypool", "1173"],
       ["GHSA-85c8-ppgw-ccpr", "tinypool", "1174"],
+      ["GHSA-68fv-2mgg-jv7q", "source-map-js", "1176"],
     ],
   );
   for (const e of ALLOWLIST) assert.match(e.expires, /^2026-11-0[34]$/);
