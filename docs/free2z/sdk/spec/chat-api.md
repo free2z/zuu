@@ -72,16 +72,17 @@ checked by each terminal type's `check()`.
 | `messages[].content[]` | part | `{"type":"text","text":…}` or `{"type":"image","media_type":…,"data":<standard base64>}`. Image `media_type` ∈ `image/png`, `image/jpeg`, `image/webp`, `image/gif`; at most 20 images per request. **URLs are not accepted**: there is no URL part type, because the gateway never fetches a client-supplied URL. Image parts on a model without `capabilities.vision` → `400 invalid_request` |
 | `messages[].tool_calls` | array | On an `assistant` message: the tool calls the assistant previously made, each `{id, name, arguments}` with `arguments` a JSON string |
 | `messages[].tool_call_id` | string | Required on a `tool` message |
-| `tools` | array | Function tools, each `{name, description?, parameters}` with `parameters` a JSON Schema object. Tools or tool-result history on a model without `capabilities.tools` → `400 invalid_request`. The gateway **never executes a tool**: it relays the model's call to the client and the client's result back on the next request. Provider-hosted tools (web search, code execution, file search) are not available on this endpoint in v1 ([ADR 0003](../../ai-gateway/adr/0003-unified-api-before-passthrough.md)) |
-| `tool_choice` | string \| object | Optional, OpenAI's shape; omitted when absent (the provider's default, `auto`). `"auto"`, `"none"`, `"required"`, or `{"type":"function","function":{"name":…}}` naming one of `tools`. Requires `tools` (`field: "tool_choice"`, `reason: "requires_tools"`); an unknown name → `field: "tool_choice.function.name"`, `reason: "unknown_tool"`; any other shape → `reason: "unsupported"`; a present `null` → `reason: "null"`. A model whose adapter cannot express it → `400 invalid_request`, `field: "tool_choice"`, `reason: "tools_unsupported"`, before any hold, charge or provider request. Translated today by Anthropic Messages (`auto`→`auto`, `none`→`none` with the tools still defined, `required`→`any`, a named function→`tool`); Chat Completions and Responses refuse it until their translation lands |
-| `parallel_tool_calls` | boolean | Optional, OpenAI's shape; omitted when absent (parallel calls allowed). `false` asks for at most one tool call per turn. Requires `tools`; `null` or a non-boolean refused by name. Refused up front where unsupported (`field: "parallel_tool_calls"`, `reason: "tools_unsupported"`). Anthropic Messages: `disable_parallel_tool_use: true` on its `tool_choice` |
+| `tools` | array | Function tools, each `{name, description?, parameters, strict?}`: `name` 1–64 characters of `A-Z a-z 0-9 _ -`, unique in the request; `parameters` a JSON Schema **object** of at most 32 768 bytes serialized (members reach the provider in the order sent); at most 128 tools. The gateway adds the provider's own wrapper (OpenAI's `{"type":"function","function":{…}}`). Tools or tool-result history on a model without `capabilities.tools` → `400 invalid_request`, `field: "tools"`, `reason: "tools_unsupported"`, before any hold. A limit broken → `400 invalid_request` naming the field (`tools[2].name`, `reason` one of `empty`, `too_long`, `invalid_characters`, `duplicate`, `not_object`, `too_large`, `too_many`). The gateway **never executes a tool**: it relays the model's call to the client and the client's result back on the next request. Provider-hosted tools (web search, code execution, file search) are not available on this endpoint in v1 ([ADR 0003](../../ai-gateway/adr/0003-unified-api-before-passthrough.md)) |
+| `tools[].strict` | boolean | Optional. `true` asks the provider to make the arguments match `parameters` exactly (OpenAI strict function calling, which also wants `additionalProperties: false` and every property `required`). On a model without `capabilities.strict_tools` → `400 invalid_request`, `field: "tools[i].strict"`, `reason: "tools_unsupported"`, before any hold — never sent without it. Absent or `false` is the providers' default; `null` is refused |
+| `tool_choice` | string or object | Optional, OpenAI's shape: `"auto"` (the default when `tools` is set), `"none"`, `"required"` (call at least one), or `{"type":"function","function":{"name":"…"}}` (call that one, which must be in `tools`, else `field: "tool_choice.function.name"`, `reason: "unknown_tool"`). Requires `tools` (`reason: "requires_tools"`). Any other shape, including Anthropic's `"any"` → `400 invalid_request`, `field: "tool_choice"`, `reason: "unsupported"`; `null` → `reason: "null"`. On a model whose adapter cannot express it → `400 invalid_request`, `field: "tool_choice"`, `reason: "tools_unsupported"`, before any hold |
+| `parallel_tool_calls` | boolean | Optional. `false`: at most one tool call per turn; `true` (the providers' default) allows several. Requires `tools`. Refused like `tool_choice` where the adapter cannot express it; Anthropic Messages sends `disable_parallel_tool_use: true` on its `tool_choice`. OpenAI notes strict schemas are not guaranteed on parallel calls; set `false` beside `strict: true` when that matters |
 | `max_output_tokens` | integer | 1 … the model's `max_output_tokens`, which is also the default when omitted. It bounds **total** generated tokens, reasoning included. The gateway may **clamp** it lower for affordability (§2.2) and never raises it; the effective value is reported in `meta` |
 | `max_output_tokens_strict` | boolean | Default `false` (and omitted). `true` makes `max_output_tokens` a requirement: wherever §2.2 would lower it — the model's ceiling, the context window, the balance or the grant's cap — the request is refused before any hold, charge or provider request (`400 invalid_request`, `400 context_length_exceeded`, `402 insufficient_balance`, `403 cap_exceeded`, each with `details.reason: "max_output_tokens_strict"`). Requires `max_output_tokens` (`400 invalid_request`, `reason: "required"`). For an app that discards a length-truncated answer ([INTEGRATION.md](../INTEGRATION.md)) |
 | `stream` | boolean | Default `true`. `false` returns one JSON document (§4) |
 | `fallback` | array of model ids | Opt-in, **ordered**: tried in order, at most once each. If the current model fails with a provider-side error **before the gateway has committed to it** — that is, before its first content event, which is also when `meta` is sent (§3.2) — the gateway releases that attempt's hold, takes a new hold at the next model's price, and tries it; a hold it cannot take ends the call with that code ([metering.md](./metering.md) §5.7). Never after `meta`. The model actually used is in `meta` |
 | `metadata` | object | Up to 16 string keys, each key ≤ 64 and value ≤ 256 characters. Stored with the call record and returned by `GET /v1/calls/{id}`; never sent to a provider |
 | `response_format` | object | Optional, opt-in structured output; omitted when absent. `{"type":"json_schema","json_schema":{"name":…,"schema":{…},"strict":true}}` constrains the reply to JSON matching `schema`; `{"type":"json_object"}` to any JSON object (OpenAI also requires the word "JSON" in the messages). `name`: 1–64 characters of `A-Z a-z 0-9 _ -`; `schema`: a JSON Schema **object** of at most 32 768 bytes serialized; `strict`: optional boolean (absent = the provider's default; `null` refused); no other members. The schema's object members reach the provider in the order sent (as do a tool's `parameters`, and on Anthropic the forced tool's `input_schema`), so a provider that emits keys in schema order (OpenAI) replies in the declared order; a repeated member name keeps its first position and its last value. A present `"response_format": null` is refused (`field: "response_format"`, `reason: "null"`), never read as absent. Any other `type` (including `text`, the default — omit the field instead) → `400 invalid_request`, `field: "response_format.type"`, `reason: "unsupported"`; a limit broken → `400 invalid_request` naming the field. On a model without `capabilities.structured_output` → `400 invalid_request`, `field: "response_format"`, `reason: "response_format_unsupported"`, before any hold, charge or provider request — never sent without the constraint. On Anthropic Messages the model must be declared (absence is not support) and the format is sent as a forced single tool whose `input_schema` is the schema (`strict` carried onto the tool), unwrapped back into `delta` text with `finish_reason: "stop"`; there it cannot be combined with `tools`, `tool_choice` or `parallel_tool_calls` (`reason: "response_format_unsupported"`, `details.conflict` naming the field), since the forced tool would leave the caller's tools uncallable. The reply is ordinary `delta` text (a provider refusal arrives as text too); `finish_reason: "length"` means truncated JSON. Pricing is unchanged: the schema is input the provider reads, so it enters the input reservation like a tool definition, and the charge is provider-reported usage |
-| `reasoning_effort` | string | Optional, OpenAI's `reasoning_effort`; omitted when absent (the provider's default). Exactly `"minimal"`, `"low"`, `"medium"` or `"high"`; any other value (including provider extensions such as `"none"` or `"xhigh"`) → `400 invalid_request`, `field: "reasoning_effort"`, `reason: "unsupported"`; a present `null` → `reason: "null"`. On a model without `capabilities.reasoning_effort`, or at a level outside its `controls.effort_levels` when the catalogue lists them, → `400 invalid_request`, `field: "reasoning_effort"`, `reason: "reasoning_effort_unsupported"` (with `details.effort_levels` for a level outside the list), before any hold, charge or provider request — never sent without it. Translated by Chat Completions as `reasoning_effort` (OpenAI and xAI) and by Responses as `reasoning.effort`; Anthropic Messages has no effort control (its `thinking` takes a budget) and refuses it. Pricing and the hold are unchanged: reasoning tokens are billed as output tokens and the hold already reserves the whole output cap. On OpenAI that cap (`max_completion_tokens` / `max_output_tokens`) **includes** reasoning, so a small `max_output_tokens` can be spent thinking before any text (`finish_reason: "length"`); leave room. On xAI it does **not** (docs.x.ai: `max_completion_tokens` "only applies to visible output tokens"), so an xAI reasoning model's charge can exceed its hold — a pre-existing property of every xAI reasoning model, effort or not (xAI's default effort is already `high`); the shortfall is written off, never debt (metering.md) |
+| `reasoning_effort` | string | Optional, OpenAI's `reasoning_effort`; omitted when absent (the provider's default). Exactly `"minimal"`, `"low"`, `"medium"` or `"high"`; any other value (including provider extensions such as `"none"` or `"xhigh"`) → `400 invalid_request`, `field: "reasoning_effort"`, `reason: "unsupported"`; a present `null` → `reason: "null"`. On a model without `capabilities.reasoning_effort`, or at a level outside its `controls.effort_levels` when the catalogue lists them, → `400 invalid_request`, `field: "reasoning_effort"`, `reason: "reasoning_effort_unsupported"` (with `details.effort_levels` for a level outside the list), before any hold, charge or provider request — never sent without it. Translated by Chat Completions as `reasoning_effort` (OpenAI and xAI) and by Responses as `reasoning.effort`; Anthropic Messages has no effort control (its `thinking` takes a budget) and refuses it. OpenAI documents that from GPT-5.4 on, Chat Completions does not combine function tools with a `reasoning_effort` other than `none`; such a call is refused by OpenAI before any output (`provider_error`, uncharged). Pricing and the hold are unchanged: reasoning tokens are billed as output tokens and the hold already reserves the whole output cap. On OpenAI that cap (`max_completion_tokens` / `max_output_tokens`) **includes** reasoning, so a small `max_output_tokens` can be spent thinking before any text (`finish_reason: "length"`); leave room. On xAI it does **not** (docs.x.ai: `max_completion_tokens` "only applies to visible output tokens"), so an xAI reasoning model's charge can exceed its hold — a pre-existing property of every xAI reasoning model, effort or not (xAI's default effort is already `high`); the shortfall is written off, never debt (metering.md) |
 
 Anything not listed is rejected with `400 invalid_request` naming the field;
 the gateway does not pass unknown fields through. **Not in v1**, and
@@ -238,7 +239,7 @@ waiting on the provider and MUST be ignored.
 ### 3.1 Grammar
 
 ```
-stream   := meta (delta | tool_call)* usage? (done | error)
+stream   := meta (delta | tool_call_delta | tool_call)* usage? (done | error)
           | error
 ```
 
@@ -250,9 +251,11 @@ stream   := meta (delta | tool_call)* usage? (done | error)
   when a `fallback` hold could not be taken, `insufficient_balance`,
   `cap_exceeded` or `token_revoked` — because the HTTP status is already
   `200` by then.
-- Zero or more `delta` and `tool_call`, in the order the model produced them.
+- Zero or more `delta`, `tool_call_delta` and `tool_call`, in the order the
+  model produced them; every `tool_call_delta` of a call precedes its
+  `tool_call`.
 - At most one `usage`, and if present it comes after the last `delta` /
-  `tool_call` and before the terminal event.
+  `tool_call_delta` / `tool_call` and before the terminal event.
 - Exactly one terminal event, `done` or `error`, after which the gateway
   closes the connection. A stream that ends without a terminal event was
   cut by the network; the client treats it as `error stream_interrupted`
@@ -317,10 +320,12 @@ field set of `delta` will grow (`kind`) rather than change if that changes.
 
 ### 3.4 `tool_call`
 
-One **complete** tool call. The gateway buffers a provider's argument
+One **complete** tool call. The gateway assembles a provider's argument
 fragments and emits the call once the provider has finished producing
-them, so a client never sees a fragment; whether the finished text is
-valid JSON is the model's doing, not the gateway's promise.
+them; whether the finished text is valid JSON is the model's doing, not the
+gateway's promise. This is the event to **run** a tool from. (Where the
+adapter streams them, the fragments are also relayed first as
+`tool_call_delta`, §3.4.1, for display.)
 
 ```
 event: tool_call
@@ -338,9 +343,44 @@ Tool calls arrive in the order the model produced them; a client that
 needs a position counts.
 
 A response with tool calls normally ends with `done.finish_reason =
-"tool_calls"`. The client executes the tools, appends an `assistant` message
+"tool_calls"` (OpenAI may end a call forced by a named `tool_choice` with
+`"stop"`). A turn that ended at `"length"` — the output cap, possibly lowered
+for affordability — may carry a `tool_call` whose `arguments` were cut off:
+do not run calls from a turn that did not finish normally. The client executes the tools, appends an `assistant` message
 carrying `tool_calls` and one `tool` message per result, and makes a **new**
 `/v1/chat` call — which is a new hold and a new charge.
+
+#### 3.4.1 `tool_call_delta`
+
+A fragment of a tool call still being generated, relayed as the provider
+streamed it — for a client that wants to show a call taking shape. Sent on
+streamed calls only (never in a §4 response), by the Chat Completions
+adapter today (OpenAI and xAI; xAI sends each call whole, so one fragment per
+call). A client that ignores this event loses nothing: the complete
+`tool_call` follows and is authoritative.
+
+```
+event: tool_call_delta
+data: {"index":0,"id":"call_9a1","name":"lookup_formula","arguments":""}
+
+event: tool_call_delta
+data: {"index":0,"arguments":"{\"name\":\"quadratic\"}"}
+
+```
+
+| Field | Meaning |
+|---|---|
+| `index` | The call's position among this turn's calls, from `0`; fragments with one `index` are one call |
+| `id`, `name` | On the fragment that first carries them (normally the first); a later value replaces an earlier one |
+| `arguments` | JSON text to **append**; possibly empty. Concatenated, a call's fragments equal its `tool_call.arguments` — unless some were dropped (below) |
+
+A stream that fails mid-call leaves fragments with no `tool_call`: that call
+never completed and must not be run. Fragments are best effort: when a client
+reads too slowly and the gateway's delivery buffer is half full, further
+fragments are dropped (never the `tool_call`), so a display built from them
+can be incomplete; the `tool_call` is always the whole call. A fragment counts as output: after one,
+the call is committed to its model (no `fallback`) and an `error` carries
+`partial: true`.
 
 ### 3.5 `usage`
 
@@ -410,7 +450,7 @@ data: {"code":"provider_error","message":"The provider closed the stream before 
 | `message` | For a log, not for the user; SDKs map `code` to user-facing copy. Never contains prompt or completion text |
 | `settlement` | As in `done`, and **`settlement` means final**: `settled` (default) or `released` is the ledger's last word on this call, and only `pending` leaves anything to read from the record. `settled` with `charged_2z: 0` and no `receipt_id` is an **uncharged** call — the provider failed before producing anything ([metering.md](./metering.md) §5.2) — not a pending one. `released` is the settler finding the hold expired ([metering.md](./metering.md) §5.6): `charged_2z: 0`, a platform write-off. An error after output is settled for what was produced, and the ledger can be unreachable or the hold expired then too |
 | `charged_2z`, `receipt_id`, `collected_milli_2z`, `shortfall_milli_2z` | What this failed call still cost, as in `done`. `charged_2z: 0` and no `receipt_id` when the provider failed before producing anything ([metering.md](./metering.md) §5.2); absent when `settlement` is `pending` |
-| `partial` | `true` when the client received at least one `delta` or `tool_call` before the error |
+| `partial` | `true` when the client received at least one `delta`, `tool_call_delta` or `tool_call` before the error |
 
 The payload is the crate's `ErrorEvent`; `ErrorEvent::check()` also
 enforces that `delivery_aborted` is `pending` and that a `partial` settled
@@ -544,7 +584,7 @@ without arithmetic. Requires `ai:invoke`.
       "display_name": "Example model (small)",
       "context_window": 400000,
       "max_output_tokens": 128000,
-      "capabilities": { "vision": true, "tools": true, "reasoning": true, "structured_output": true, "reasoning_effort": true },
+      "capabilities": { "vision": true, "tools": true, "reasoning": true, "structured_output": true, "strict_tools": true, "reasoning_effort": true },
       "controls": { "effort_levels": ["low", "medium", "high"] },
       "prices": {
         "input_milli_2z_per_mtok": 300000,
@@ -575,7 +615,7 @@ model ids, API styles, safety factors) are not projected.
 | `image_milli_2z`, `tool_call_milli_2z` | Per-unit prices where the provider bills per unit; `0` otherwise |
 | `min_charge_2z` | The floor for a call on this model, in whole 2Z. Never below `1`: the catalogue refuses a model priced at zero minimum |
 | `ttfb_timeout_ms` | How long the gateway waits for the provider's first byte before `504 provider_timeout` |
-| `capabilities` | What the gateway will accept for this model. `tools` and `reasoning` come from the signed catalogue's `capabilities`. `structured_output` (`response_format`) requires an adapter that can express it (Chat Completions and Anthropic Messages today) and the catalogue's `capabilities.structured_output`; while the catalogue does not carry that member, the gateway treats an OpenAI Chat Completions model as supporting it and every other model as not. Absent in an older gateway's answer: read as `false`. `reasoning_effort` (`ChatRequest.reasoning_effort`) is the catalogue's `capabilities.reasoning_effort` on an adapter that translates it (Chat Completions, Responses); it is not implied by `reasoning`, which says only that the model reasons. Each member is a JSON boolean (the SDKs refuse another type as an invalid response); a member a client does not know is ignored, never an error |
+| `capabilities` | What the gateway will accept for this model. `tools` and `reasoning` come from the signed catalogue's `capabilities`. `structured_output` (`response_format`) requires an adapter that can express it (Chat Completions and Anthropic Messages today) and the catalogue's `capabilities.structured_output`; while the catalogue does not carry that member, the gateway treats an OpenAI Chat Completions model as supporting it and every other model as not. Absent in an older gateway's answer: read as `false`. `strict_tools` (`tools[].strict: true`) likewise requires the Chat Completions adapter and the catalogue's `capabilities.strict_tools`, with the same interim rule (OpenAI: yes; xAI and every other provider: no — docs.x.ai documents no `strict` on a function), and is `false` whenever `tools` is. `tool_choice` and `parallel_tool_calls` are accepted wherever `tools` is on a Chat Completions or Anthropic Messages model. `reasoning_effort` (`ChatRequest.reasoning_effort`) is the catalogue's `capabilities.reasoning_effort` on an adapter that translates it (Chat Completions, Responses); it is not implied by `reasoning`, which says only that the model reasons. Each member is a JSON boolean (the SDKs refuse another type as an invalid response); a member a client does not know is ignored, never an error |
 | `controls` | Signed narrowing of what a capability admits; always an object, `{}` when nothing is narrowed (absent in an older gateway's answer: read as `{}`). `effort_levels`: the `reasoning_effort` levels the model takes, as strings, present only where `capabilities.reasoning_effort` is `true` and the catalogue lists them; absent means any level is forwarded and one the provider rejects fails before any output, uncharged. A level string a client does not know is ignored |
 
 Responses carry `ETag`; `If-None-Match` → `304`. Clients SHOULD cache for

@@ -1,7 +1,7 @@
 //! The SSE event grammar of a streamed `POST /v1/chat`.
 //!
 //! ```text
-//! stream  = meta *(delta / tool_call) [usage] (done / error)
+//! stream  = meta *(delta / tool_call_delta / tool_call) [usage] (done / error)
 //!         / error                                  ; failed before meta
 //! ```
 //!
@@ -34,7 +34,15 @@ use crate::error::ErrorCode;
 use crate::settlement::{self, NotFinal, Outcome, Settlement, SettlementError, double_option};
 
 /// Every event name this crate knows, in grammar order.
-pub const KNOWN_EVENTS: [&str; 6] = ["meta", "delta", "tool_call", "usage", "done", "error"];
+pub const KNOWN_EVENTS: [&str; 7] = [
+    "meta",
+    "delta",
+    "tool_call_delta",
+    "tool_call",
+    "usage",
+    "done",
+    "error",
+];
 
 /// One event of a chat stream.
 #[non_exhaustive]
@@ -45,6 +53,10 @@ pub enum Event {
     Meta(Meta),
     /// A chunk of assistant text.
     Delta(Delta),
+    /// A fragment of a tool call still being generated. Informational: the
+    /// complete [`Event::ToolCall`] for the same call follows and is
+    /// authoritative.
+    ToolCallDelta(ToolCallDelta),
     /// A complete tool call.
     ToolCall(ToolCall),
     /// Final usage, just before `done`.
@@ -111,6 +123,36 @@ impl Meta {
 pub struct Delta {
     /// Text to append to the assistant's reply.
     pub text: String,
+}
+
+/// The `tool_call_delta` event: a fragment of a tool call, as the provider
+/// streamed it, for a client that wants to show a call taking shape.
+///
+/// Fragments with the same `index` belong to one call. The first carries
+/// `id` and `name`; each carries a piece of `arguments` (possibly empty) to
+/// append. Concatenated, a call's `arguments` pieces are exactly the
+/// `arguments` of the complete `tool_call` event that follows them — which
+/// is authoritative, and is all a client that ignores this event needs.
+/// A provider that sends a call whole (xAI) yields one fragment per call.
+/// A stream that fails mid-call leaves fragments with no `tool_call`: that
+/// call never completed and must not be run. Sent only on streamed calls,
+/// and best effort: a gateway under client backpressure drops fragments
+/// (never the `tool_call`), so the concatenation can then be incomplete.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolCallDelta {
+    /// The call's position among this turn's tool calls, from `0`.
+    pub index: u32,
+    /// The call's id, on its first fragment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// The function name, on the fragment that first carries it (normally
+    /// the first). Should a later fragment carry it again, the later value
+    /// replaces the earlier one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// JSON text to append to the call's arguments.
+    #[serde(default)]
+    pub arguments: String,
 }
 
 /// The `usage` event.
@@ -306,7 +348,8 @@ pub struct ErrorEvent {
     /// What could not be taken and was written off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shortfall_milli_2z: Option<Milli2z>,
-    /// Whether the client received at least one `delta` or `tool_call`.
+    /// Whether the client received at least one `delta`, `tool_call_delta`
+    /// or `tool_call`.
     #[serde(default)]
     pub partial: bool,
 }
@@ -407,6 +450,7 @@ impl Event {
         match self {
             Self::Meta(_) => "meta",
             Self::Delta(_) => "delta",
+            Self::ToolCallDelta(_) => "tool_call_delta",
             Self::ToolCall(_) => "tool_call",
             Self::Usage(_) => "usage",
             Self::Done(_) => "done",
@@ -429,6 +473,7 @@ impl Event {
         match self {
             Self::Meta(p) => serde_json::to_string(p),
             Self::Delta(p) => serde_json::to_string(p),
+            Self::ToolCallDelta(p) => serde_json::to_string(p),
             Self::ToolCall(p) => serde_json::to_string(p),
             Self::Usage(p) => serde_json::to_string(p),
             Self::Done(p) => serde_json::to_string(p),
@@ -483,6 +528,7 @@ impl Event {
         let parsed = match name {
             "meta" => serde_json::from_str(data).map(Self::Meta),
             "delta" => serde_json::from_str(data).map(Self::Delta),
+            "tool_call_delta" => serde_json::from_str(data).map(Self::ToolCallDelta),
             "tool_call" => serde_json::from_str(data).map(Self::ToolCall),
             "usage" => serde_json::from_str(data).map(Self::Usage),
             "done" => serde_json::from_str(data).map(Self::Done),

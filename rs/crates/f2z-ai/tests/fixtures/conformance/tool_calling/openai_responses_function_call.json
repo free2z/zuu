@@ -1,0 +1,177 @@
+{
+  "name": "openai_responses_function_call",
+  "feature": "tool_calling",
+  "source": "OpenAI Responses function calling (platform.openai.com/docs/guides/function-calling, streaming): function_call output item with arguments deltas, completed by response.output_item.done; a Responses tool is sent strict: false because the unified API has no strict option there. Synthetic, documented shape.",
+  "api_style": "openai_responses",
+  "provider": "openai",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true
+    }
+  },
+  "request": {
+    "model": "m-openai-responses",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Look up the area formula."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "description": "Find a formula",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      }
+    ]
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "tools": [
+        {
+          "type": "function",
+          "name": "lookup",
+          "description": "Find a formula",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "strict": false
+        }
+      ],
+      "tool_choice": null,
+      "parallel_tool_calls": null
+    },
+    "provider_stream": [
+      {
+        "type": "response.created",
+        "sequence_number": 0,
+        "response": {
+          "id": "resp_fx1",
+          "object": "response",
+          "created_at": 1759600000,
+          "status": "in_progress",
+          "model": "gpt-5",
+          "output": [],
+          "usage": null
+        }
+      },
+      {
+        "type": "response.output_item.added",
+        "sequence_number": 1,
+        "output_index": 0,
+        "item": {
+          "id": "fc_fx1",
+          "type": "function_call",
+          "status": "in_progress",
+          "call_id": "call_fx_lookup",
+          "name": "lookup",
+          "arguments": ""
+        }
+      },
+      {
+        "type": "response.function_call_arguments.delta",
+        "sequence_number": 2,
+        "item_id": "fc_fx1",
+        "output_index": 0,
+        "delta": "{\"name\":"
+      },
+      {
+        "type": "response.function_call_arguments.delta",
+        "sequence_number": 3,
+        "item_id": "fc_fx1",
+        "output_index": 0,
+        "delta": "\"area\"}"
+      },
+      {
+        "type": "response.function_call_arguments.done",
+        "sequence_number": 4,
+        "item_id": "fc_fx1",
+        "output_index": 0,
+        "arguments": "{\"name\":\"area\"}"
+      },
+      {
+        "type": "response.output_item.done",
+        "sequence_number": 5,
+        "output_index": 0,
+        "item": {
+          "id": "fc_fx1",
+          "type": "function_call",
+          "status": "completed",
+          "call_id": "call_fx_lookup",
+          "name": "lookup",
+          "arguments": "{\"name\":\"area\"}"
+        }
+      },
+      {
+        "type": "response.completed",
+        "sequence_number": 6,
+        "response": {
+          "id": "resp_fx1",
+          "object": "response",
+          "created_at": 1759600000,
+          "status": "completed",
+          "model": "gpt-5",
+          "output": [
+            {
+              "type": "function_call",
+              "call_id": "call_fx_lookup",
+              "name": "lookup",
+              "arguments": "{\"name\":\"area\"}"
+            }
+          ],
+          "usage": {
+            "input_tokens": 80,
+            "input_tokens_details": {
+              "cached_tokens": 0
+            },
+            "output_tokens": 15,
+            "output_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "total_tokens": 95
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "type": "tool_call",
+        "id": "call_fx_lookup",
+        "name": "lookup",
+        "arguments": "{\"name\":\"area\"}"
+      }
+    ],
+    "finish_reason": "tool_calls",
+    "usage": {
+      "input_tokens": 80,
+      "output_tokens": 15,
+      "tool_calls": 0
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}

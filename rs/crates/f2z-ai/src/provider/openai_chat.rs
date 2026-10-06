@@ -31,16 +31,30 @@
 //!
 //! `choices[0].delta.content` → `delta`. `delta.tool_calls` arrive as
 //! fragments keyed by `index` (the first carries `id` and `function.name`,
-//! later ones `function.arguments` pieces); they are assembled and emitted as
-//! complete `tool_call`s, in index order, when the choice's `finish_reason`
-//! arrives. A stream cut before that emits none of them.
+//! later ones `function.arguments` pieces). Each fragment is relayed at once
+//! as a `tool_call_delta`, and the fragments are also assembled and emitted
+//! as complete `tool_call`s, in index order, when the choice's
+//! `finish_reason` arrives. A stream cut before that emits no `tool_call`.
+//! xAI sends each call whole, in one fragment (docs.x.ai: "the function call
+//! is returned in whole in a single chunk"), which is simply one
+//! `tool_call_delta` per call.
+//!
+//! # Tools
+//!
+//! The unified [`f2z_ai_proto::chat::Tool`] gains OpenAI's
+//! `{"type":"function","function":{…}}` wrapper; `strict: true` is sent as
+//! the function's `strict` (only where [`super::strict_tools_supported`]
+//! allows; `false` is the default and is not sent). `tool_choice` and
+//! `parallel_tool_calls` are Chat Completions' own fields and pass through
+//! in its shape — the same shape xAI documents.
 
 use std::collections::BTreeMap;
 
 use f2z_ai_proto::catalog::{ApiStyle, CatalogModel};
 use f2z_ai_proto::chat::{
-    ChatRequest, ContentPart, FinishReason, ResponseFormat, Role, ToolCall, Usage,
+    ChatRequest, ContentPart, FinishReason, ResponseFormat, Role, ToolCall, ToolChoice, Usage,
 };
+use f2z_ai_proto::event::ToolCallDelta;
 use f2z_ai_proto::{ErrorCode, OrderedJson};
 use reqwest::header::HeaderMap;
 use secrecy::SecretString;
@@ -112,8 +126,6 @@ impl Provider for OpenAiChat {
         // carries no image.
         super::images_only_on(request, &[Role::User])?;
         super::check_response_format(request, model)?;
-        // No tool_choice / parallel_tool_calls translation here yet: refused,
-        // never dropped.
         super::check_tool_translation(request, model)?;
         // Only where the catalogue declares it (and the level, where listed):
         // refused, never dropped.
@@ -195,15 +207,34 @@ impl Provider for OpenAiChat {
             caller.push((
                 "tools",
                 OrderedJson::array(request.tools.iter().map(|tool| {
+                    let mut function = super::tool_members(tool, "parameters");
+                    // `check_tool_translation` refused `true` where it cannot
+                    // be honoured; `false` is the default everywhere.
+                    if tool.strict == Some(true) {
+                        function.push(("strict", OrderedJson::from(true)));
+                    }
                     OrderedJson::object([
                         ("type", OrderedJson::from("function")),
-                        (
-                            "function",
-                            OrderedJson::object(super::tool_members(tool, "parameters")),
-                        ),
+                        ("function", OrderedJson::object(function)),
                     ])
                 })),
             ));
+        }
+        if let Some(choice) = &request.tool_choice {
+            body.insert(
+                "tool_choice".into(),
+                match choice {
+                    ToolChoice::Auto => json!("auto"),
+                    ToolChoice::None => json!("none"),
+                    ToolChoice::Required => json!("required"),
+                    ToolChoice::Function { name } => {
+                        json!({"type": "function", "function": {"name": name}})
+                    }
+                },
+            );
+        }
+        if let Some(parallel) = request.parallel_tool_calls {
+            body.insert("parallel_tool_calls".into(), json!(parallel));
         }
         if let Some(format) = &request.response_format {
             // The unified shape IS Chat Completions' shape; it is rebuilt
@@ -450,8 +481,18 @@ impl StreamParser for Parser {
                                 return Err(Malformed("tool call arguments too large"));
                             }
                             let tool = self.tools.entry(index).or_default();
-                            if let Some(id) = id {
+                            let mut fragment = ToolCallDelta {
+                                index: u32::try_from(index)
+                                    .map_err(|_| Malformed("tool call index out of range"))?,
+                                id: None,
+                                name: None,
+                                arguments: String::new(),
+                            };
+                            if let Some(id) = id
+                                && tool.id != id
+                            {
                                 id.clone_into(&mut tool.id);
+                                fragment.id = Some(id.to_owned());
                             }
                             let function = call.get("function");
                             if let Some(name) =
@@ -462,6 +503,7 @@ impl StreamParser for Parser {
                                 // A repeat is not a second half.
                                 if tool.name != name {
                                     tool.name.push_str(name);
+                                    fragment.name = Some(tool.name.clone());
                                 }
                             }
                             if let Some(args) = function
@@ -469,6 +511,13 @@ impl StreamParser for Parser {
                                 .and_then(Value::as_str)
                             {
                                 tool.arguments.push_str(args);
+                                args.clone_into(&mut fragment.arguments);
+                            }
+                            if fragment.id.is_some()
+                                || fragment.name.is_some()
+                                || !fragment.arguments.is_empty()
+                            {
+                                out.push(Content::ToolCallDelta(fragment));
                             }
                         }
                     }
@@ -513,6 +562,22 @@ impl StreamParser for Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn complete(out: &[Content]) -> Vec<Content> {
+        out.iter()
+            .filter(|c| matches!(c, Content::ToolCall(_)))
+            .cloned()
+            .collect()
+    }
+
+    fn fragments(out: &[Content]) -> Vec<ToolCallDelta> {
+        out.iter()
+            .filter_map(|c| match c {
+                Content::ToolCallDelta(d) => Some(d.clone()),
+                _ => None,
+            })
+            .collect()
+    }
 
     #[test]
     fn cache_writes_are_exclusive_and_charge_at_the_write_rate() {
@@ -609,8 +674,32 @@ mod tests {
             )
             .unwrap();
         }
+        // The repeated name is not relayed as a second fragment's name.
         assert_eq!(
-            out,
+            fragments(&out),
+            vec![
+                ToolCallDelta {
+                    index: 0,
+                    id: Some("a".into()),
+                    name: Some("f".into()),
+                    arguments: "{\"x\"".into()
+                },
+                ToolCallDelta {
+                    index: 0,
+                    id: None,
+                    name: None,
+                    arguments: ":1}".into()
+                },
+                ToolCallDelta {
+                    index: 1,
+                    id: Some("b".into()),
+                    name: Some("g".into()),
+                    arguments: "{}".into()
+                },
+            ]
+        );
+        assert_eq!(
+            complete(&out),
             vec![
                 Content::ToolCall(ToolCall {
                     id: "a".into(),
@@ -659,7 +748,22 @@ mod tests {
             )
             .unwrap();
         }
-        assert!(out.is_empty());
+        // Each fragment is relayed as it arrives; no call is complete yet.
+        assert!(complete(&out).is_empty());
+        let pieces: String = fragments(&out)
+            .iter()
+            .map(|d| d.arguments.as_str())
+            .collect();
+        assert_eq!(pieces, "{\"a\":1}");
+        let first = &fragments(&out)[0];
+        assert_eq!(
+            (first.id.as_deref(), first.name.as_deref()),
+            (Some("call_1"), Some("f"))
+        );
+        // `"arguments": ""` on the opening fragment still relays the id+name;
+        // an empty continuation relays nothing.
+        assert_eq!(fragments(&out).len(), 3);
+        out.clear();
         p.feed(
             &SseEvent {
                 event: String::new(),

@@ -17,6 +17,7 @@ import type {
   ObjectData,
   Purchase,
   Session,
+  ToolCallDelta,
 } from "./types.js";
 
 const integerKeys = new Set([
@@ -338,6 +339,7 @@ const capabilityKeys = [
   "tools",
   "reasoning",
   "structured_output",
+  "strict_tools",
   "reasoning_effort",
 ] as const;
 /** Absent or `null` is `{}`: nothing declared, so nothing supported. A
@@ -461,8 +463,27 @@ export function estimate(value: unknown): Estimate {
   if (catalogVersion != null) result.catalog_version = uint(catalogVersion);
   return result;
 }
+/** A tool call's position: a u32, as a JSON integer (bigint here) or, across
+ * native IPC, a canonical decimal string. */
+function toolIndex(value: unknown): number {
+  if (typeof value === "string" && /^(0|[1-9][0-9]{0,9})$/.test(value))
+    value = BigInt(value);
+  if (typeof value !== "bigint" || value < 0n || value > 4_294_967_295n)
+    failure("invalid_response");
+  return Number(value);
+}
 export function event(type: string, value: unknown): ChatEvent | undefined {
-  if (!["meta", "delta", "tool_call", "usage", "done", "error"].includes(type))
+  if (
+    ![
+      "meta",
+      "delta",
+      "tool_call_delta",
+      "tool_call",
+      "usage",
+      "done",
+      "error",
+    ].includes(type)
+  )
     return undefined;
   const d = validated(value);
   switch (type) {
@@ -476,6 +497,16 @@ export function event(type: string, value: unknown): ChatEvent | undefined {
       };
     case "delta":
       return { type, text: string(d.text) };
+    case "tool_call_delta": {
+      const fragment: { type: "tool_call_delta" } & ToolCallDelta = {
+        type,
+        index: toolIndex(d.index),
+        arguments: d.arguments === undefined ? "" : string(d.arguments),
+      };
+      if (d.id !== undefined) fragment.id = string(d.id);
+      if (d.name !== undefined) fragment.name = string(d.name);
+      return fragment;
+    }
     case "tool_call":
       return {
         type,

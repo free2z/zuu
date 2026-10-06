@@ -116,11 +116,22 @@ pub struct ModelCapabilities {
         deserialize_with = "declared_bool"
     )]
     pub structured_output: Option<bool>,
+    /// `Tool::strict: true` (provider-enforced argument schemas) is
+    /// supported. Tri-state like `structured_output`: absent means the
+    /// catalogue does not say, and the gateway applies its documented
+    /// interim rule (the `f2z-ai` crate's `provider::strict_tools_supported`).
+    /// A present `null` is refused.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "declared_bool"
+    )]
+    pub strict_tools: Option<bool>,
     /// `ChatRequest::reasoning_effort` is supported: the model takes the
     /// provider's own effort control (OpenAI/xAI `reasoning_effort`). Not the
     /// same claim as [`ModelCapabilities::reasoning`], which says the model
-    /// *reasons*: a reasoning model may still take no effort control (xAI's
-    /// `grok-4`, Anthropic's budget-only `thinking`). Absent reads as `false`
+    /// *reasons*: a reasoning model may still take no effort control (Anthropic's
+    /// budget-only `thinking`). Absent reads as `false`
     /// and is omitted when serialized, so a catalogue without it re-encodes
     /// exactly as before. Which levels: [`ModelControls::effort_levels`].
     #[serde(skip_serializing_if = "core::ops::Not::not")]
@@ -137,6 +148,7 @@ impl ModelCapabilities {
             && !self.tools
             && !self.reasoning
             && self.structured_output.is_none()
+            && self.strict_tools.is_none()
             && !self.reasoning_effort
     }
 }

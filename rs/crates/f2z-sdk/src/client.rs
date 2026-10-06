@@ -536,6 +536,14 @@ impl Client {
         self.access_token_in(&mut None).await
     }
 
+    /// The current session generation, for an operation made of several
+    /// calls (the tool loop) that must stop if the user changes.
+    pub(crate) async fn session_generation(&self) -> Result<u64, Error> {
+        let mut s = Arc::clone(&self.inner.session).lock_owned().await;
+        self.ensure_loaded(&mut s).await?;
+        Ok(s.generation)
+    }
+
     /// [`Client::access_token`] for one operation: the first call records
     /// the session generation in `generation`, and every later call refuses
     /// with [`SignedOutReason::SessionChanged`] if the session is no longer

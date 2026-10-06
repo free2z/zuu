@@ -116,6 +116,8 @@ pub struct ProviderUpstream {
     retry: RetryPolicy,
     /// The request's image parts: `usage.images` (no provider reports it).
     images: u64,
+    /// See [`Prepared::tool_deltas`].
+    tool_deltas: bool,
     state: State,
     queue: VecDeque<Event>,
     attempts: u32,
@@ -151,6 +153,11 @@ pub(crate) struct Prepared {
     pub(crate) hard_deadline: Instant,
     pub(crate) retry: RetryPolicy,
     pub(crate) images: u64,
+    /// Relay `tool_call_delta` fragments: the request asked for a stream.
+    /// A `stream: false` call has no use for them, so they are dropped
+    /// before they count as output — its fallback and partial-output rules
+    /// stay exactly what they were before fragments existed.
+    pub(crate) tool_deltas: bool,
 }
 
 impl ProviderUpstream {
@@ -167,6 +174,7 @@ impl ProviderUpstream {
             hard_deadline: p.hard_deadline,
             retry: p.retry,
             images: p.images,
+            tool_deltas: p.tool_deltas,
             state: State::Start,
             queue: VecDeque::new(),
             attempts: 0,
@@ -391,9 +399,13 @@ impl ProviderUpstream {
     /// Move parsed content into the event queue.
     fn drain_content(&mut self) {
         for content in self.content.drain(..) {
+            if matches!(content, Content::ToolCallDelta(_)) && !self.tool_deltas {
+                continue;
+            }
             self.output_produced = true;
             self.queue.push_back(match content {
                 Content::Text(text) => Event::Delta(Delta { text }),
+                Content::ToolCallDelta(fragment) => Event::ToolCallDelta(fragment),
                 Content::ToolCall(call) => {
                     self.function_tool_calls = self.function_tool_calls.saturating_add(1);
                     Event::ToolCall(call)

@@ -14,11 +14,13 @@
 
 use f2z_ai_proto::amount::{Milli2z, Whole2z};
 use f2z_ai_proto::chat::{
-    AssistantMessage, ChatRequest, ChatResponse, ContentPart, FinishReason, Message, OutputPart,
-    Role, ToolCall, Usage, UsageSource,
+    AssistantMessage, ChatRequest, ChatResponse, ContentPart, FinishReason, MAX_TOOL_SCHEMA_BYTES,
+    MAX_TOOLS, Message, OutputPart, Role, ToolCall, ToolChoice, Usage, UsageSource,
 };
 use f2z_ai_proto::error::{ApiError, ErrorBody, ErrorCode};
-use f2z_ai_proto::event::{Delta, Done, ErrorEvent, Event, EventError, Meta, UsageEvent};
+use f2z_ai_proto::event::{
+    Delta, Done, ErrorEvent, Event, EventError, Meta, ToolCallDelta, UsageEvent,
+};
 
 #[test]
 fn a_minimal_request_defaults_to_streaming() {
@@ -649,5 +651,159 @@ fn the_ipc_form_parses_and_an_unknown_type_is_skippable() {
     assert!(matches!(
         Event::from_ipc_json("not json"),
         Err(EventError::Payload(_))
+    ));
+}
+
+// zuu#1128: tool calling. Literal text, so a renamed member fails here.
+#[test]
+fn tool_controls_are_openai_shaped_on_the_wire_and_omitted_when_absent() {
+    let text = r#"{"model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"tools":[{"name":"check_answer","description":"Grade","parameters":{"type":"object"},"strict":true}],"stream":true,"tool_choice":{"type":"function","function":{"name":"check_answer"}},"parallel_tool_calls":false}"#;
+    let req: ChatRequest = serde_json::from_str(text).unwrap();
+    assert_eq!(req.tools[0].strict, Some(true));
+    assert_eq!(
+        req.tool_choice,
+        Some(ToolChoice::Function {
+            name: "check_answer".into()
+        })
+    );
+    assert_eq!(req.parallel_tool_calls, Some(false));
+    req.check_tools().unwrap();
+    assert_eq!(serde_json::to_string(&req).unwrap(), text);
+    for (mode, choice) in [
+        ("auto", ToolChoice::Auto),
+        ("none", ToolChoice::None),
+        ("required", ToolChoice::Required),
+    ] {
+        let wire = format!("\"{mode}\"");
+        assert_eq!(serde_json::to_string(&choice).unwrap(), wire);
+        assert_eq!(serde_json::from_str::<ToolChoice>(&wire).unwrap(), choice);
+    }
+    // Absent stays absent: an old request is byte-identical.
+    let plain: ChatRequest = serde_json::from_str(
+        r#"{"model":"m","messages":[],"tools":[{"name":"f","parameters":{}}]}"#,
+    )
+    .unwrap();
+    let out = serde_json::to_string(&plain).unwrap();
+    for member in ["strict", "tool_choice", "parallel_tool_calls"] {
+        assert!(
+            !out.contains(member),
+            "{member} serialized when absent: {out}"
+        );
+    }
+}
+
+#[test]
+fn tool_controls_refuse_null_and_shapes_from_other_apis() {
+    let base = |extra: &str| {
+        format!(r#"{{"model":"m","messages":[],"tools":[{{"name":"f","parameters":{{}}{extra}}}]"#)
+    };
+    for bad in [
+        format!("{},\"tool_choice\":null}}", base("")),
+        format!("{},\"tool_choice\":\"any\"}}", base("")),
+        format!(
+            "{},\"tool_choice\":{{\"type\":\"tool\",\"name\":\"f\"}}}}",
+            base("")
+        ),
+        format!(
+            "{},\"tool_choice\":{{\"type\":\"function\",\"function\":{{\"name\":\"f\"}},\"x\":1}}}}",
+            base("")
+        ),
+        format!("{},\"parallel_tool_calls\":null}}", base("")),
+        format!("{}}}", base(",\"strict\":null")),
+        format!("{}}}", base(",\"strict\":\"true\"")),
+    ] {
+        assert!(
+            serde_json::from_str::<ChatRequest>(&bad).is_err(),
+            "accepted {bad}"
+        );
+    }
+}
+
+#[test]
+fn check_tools_names_the_broken_limit() {
+    let req = |value: serde_json::Value| -> ChatRequest { serde_json::from_value(value).unwrap() };
+    let tool = |name: &str| serde_json::json!({"name": name, "parameters": {"type": "object"}});
+    let cases = [
+        (
+            serde_json::json!({"tools": [tool("has space")]}),
+            "tools[0].name",
+            "invalid_characters",
+        ),
+        (
+            serde_json::json!({"tools": [tool(&"n".repeat(65))]}),
+            "tools[0].name",
+            "too_long",
+        ),
+        (
+            serde_json::json!({"tools": [tool("f"), tool("f")]}),
+            "tools[1].name",
+            "duplicate",
+        ),
+        (
+            serde_json::json!({"tools": [{"name": "f", "parameters": {"d": "x".repeat(MAX_TOOL_SCHEMA_BYTES)}}]}),
+            "tools[0].parameters",
+            "too_large",
+        ),
+        (
+            serde_json::json!({"tools": (0..=MAX_TOOLS).map(|i| tool(&format!("f{i}"))).collect::<Vec<_>>()}),
+            "tools",
+            "too_many",
+        ),
+        (
+            serde_json::json!({"tool_choice": "auto"}),
+            "tool_choice",
+            "requires_tools",
+        ),
+        (
+            serde_json::json!({"parallel_tool_calls": true}),
+            "parallel_tool_calls",
+            "requires_tools",
+        ),
+        (
+            serde_json::json!({"tools": [tool("f")], "tool_choice": {"type": "function", "function": {"name": "g"}}}),
+            "tool_choice.function.name",
+            "unknown_tool",
+        ),
+    ];
+    for (mut value, field, reason) in cases {
+        value["model"] = "m".into();
+        value["messages"] = serde_json::json!([]);
+        let error = req(value).check_tools().unwrap_err();
+        assert_eq!((error.field.as_str(), error.reason), (field, reason));
+    }
+    // Negative control: the limits themselves are allowed.
+    let mut ok = serde_json::json!({"model": "m", "messages": [],
+        "tools": (0..MAX_TOOLS).map(|i| tool(&format!("f_{i}-x"))).collect::<Vec<_>>(),
+        "tool_choice": "required", "parallel_tool_calls": false});
+    ok["tools"][0]["name"] = "n".repeat(64).into();
+    req(ok).check_tools().unwrap();
+}
+
+#[test]
+fn a_tool_call_delta_frame_is_pinned_and_skippable_by_an_old_reader() {
+    let first = Event::ToolCallDelta(ToolCallDelta {
+        index: 0,
+        id: Some("call_1".into()),
+        name: Some("check_answer".into()),
+        arguments: String::new(),
+    });
+    assert_eq!(
+        first.to_sse().unwrap(),
+        "event: tool_call_delta\ndata: {\"index\":0,\"id\":\"call_1\",\"name\":\"check_answer\",\"arguments\":\"\"}\n\n"
+    );
+    let next = Event::from_sse("tool_call_delta", r#"{"index":1,"arguments":"{\"a\""}"#).unwrap();
+    assert_eq!(
+        next,
+        Event::ToolCallDelta(ToolCallDelta {
+            index: 1,
+            id: None,
+            name: None,
+            arguments: "{\"a\"".into()
+        })
+    );
+    assert!(f2z_ai_proto::event::KNOWN_EVENTS.contains(&"tool_call_delta"));
+    assert!(matches!(
+        Event::from_ipc_json(r#"{"type":"tool_call_delta","index":0,"arguments":"{}"}"#),
+        Ok(Event::ToolCallDelta(_))
     ));
 }

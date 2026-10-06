@@ -7,6 +7,12 @@
   `field`, …; integers as decimal strings). Undocumented members are dropped.
 - `ChatRequest.tool_choice` / `parallel_tool_calls` pass through to the
   gateway (free2z/zuu#1128).
+- Tool calling (free2z/zuu#1128): guest `Tool` (`strict?`), `ToolChoice`,
+  `tool_choice`, `parallel_tool_calls`, and the `tool_call_delta` stream event
+  (`index` a decimal string). `start_chat`/`estimate` refuse an out-of-limit
+  tool request with `invalid_request` before the call is registered.
+  `ChatOperation.sessionGeneration` (optional): registration refuses with
+  `session_changed` unless the session is still that one.
 - `ChatRequest.reasoning_effort` passes through to the gateway
   (free2z/zuu#1151); an unknown level is `invalid_request` before the call
   is registered. Guest types gain `ModelCapabilities.reasoning_effort` and

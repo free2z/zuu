@@ -1,0 +1,146 @@
+{
+  "name": "xai_whole_call_single_chunk",
+  "source": "Shape per docs.x.ai function-calling guide: \"With streaming, the function call is returned in whole in a single chunk\"; tool_choice \"auto\"/\"required\"/\"none\"/{type:function,...} and parallel_tool_calls are documented; a function `strict` member is not. xAI completion_tokens exclude reasoning_tokens. Synthetic.",
+  "provider": "xai",
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "You are a patient algebra tutor. Grade answers with check_answer."
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Q1: solve 2x + 3 = 11. My answer: x = 4"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "check_answer",
+        "description": "Grade a student's answer to one question.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "question_id": {
+              "type": "string"
+            },
+            "answer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "question_id",
+            "answer"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "tool_choice": "auto",
+    "parallel_tool_calls": false
+  },
+  "provider_request": {
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "check_answer",
+          "description": "Grade a student's answer to one question.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "question_id": {
+                "type": "string"
+              },
+              "answer": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "question_id",
+              "answer"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "tool_choice": "auto",
+    "parallel_tool_calls": false
+  },
+  "provider_stream": [
+    {
+      "id": "fixture-xai",
+      "object": "chat.completion.chunk",
+      "created": 1759600000,
+      "model": "grok-4",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "role": "assistant",
+            "tool_calls": [
+              {
+                "id": "call_xai_1",
+                "function": {
+                  "name": "check_answer",
+                  "arguments": "{\"question_id\":\"q1\",\"answer\":\"x = 4\"}"
+                },
+                "index": 0,
+                "type": "function"
+              }
+            ]
+          },
+          "finish_reason": "tool_calls"
+        }
+      ],
+      "system_fingerprint": "fp_fixture"
+    },
+    {
+      "id": "fixture-xai",
+      "object": "chat.completion.chunk",
+      "created": 1759600000,
+      "model": "grok-4",
+      "choices": [],
+      "system_fingerprint": "fp_fixture",
+      "usage": {
+        "prompt_tokens": 96,
+        "completion_tokens": 20,
+        "total_tokens": 146,
+        "completion_tokens_details": {
+          "reasoning_tokens": 30
+        }
+      }
+    },
+    "[DONE]"
+  ],
+  "events": [
+    {
+      "type": "tool_call_delta",
+      "index": 0,
+      "id": "call_xai_1",
+      "name": "check_answer",
+      "arguments": "{\"question_id\":\"q1\",\"answer\":\"x = 4\"}"
+    },
+    {
+      "type": "tool_call",
+      "id": "call_xai_1",
+      "name": "check_answer",
+      "arguments": "{\"question_id\":\"q1\",\"answer\":\"x = 4\"}"
+    }
+  ],
+  "finish_reason": "tool_calls",
+  "usage": {
+    "input_tokens": 96,
+    "output_tokens": 50
+  }
+}

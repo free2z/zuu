@@ -14,6 +14,7 @@ import {
   reasoningEffort,
   responseFormat,
   strictOutput,
+  toolOptions,
   stringifyJson,
   uint,
 } from "./json.js";
@@ -240,7 +241,9 @@ export class FetchTransport implements Transport {
   ): Promise<Estimate> {
     if (request.max_output_tokens !== undefined)
       uint(request.max_output_tokens);
-    request = reasoningEffort(responseFormat(strictOutput(request)));
+    request = reasoningEffort(
+      toolOptions(responseFormat(strictOutput(request))),
+    );
     return decode.estimate(
       await this.#json(
         `${this.#ai}/chat/estimate`,
@@ -328,9 +331,16 @@ export class FetchTransport implements Transport {
     cancelled(options.signal);
     if (request.max_output_tokens !== undefined)
       uint(request.max_output_tokens);
-    request = reasoningEffort(responseFormat(strictOutput(request)));
+    request = reasoningEffort(
+      toolOptions(responseFormat(strictOutput(request))),
+    );
     const generation = this.#auth.generation,
       control = new AbortController();
+    if (
+      options.sessionGeneration !== undefined &&
+      options.sessionGeneration !== generation
+    )
+      failure("signed_out");
     const abort = () => control.abort();
     options.signal?.addEventListener("abort", abort, { once: true });
     this.#streams.add(control);
@@ -403,6 +413,7 @@ export class FetchTransport implements Transport {
                 ![
                   "meta",
                   "delta",
+                  "tool_call_delta",
                   "tool_call",
                   "usage",
                   "done",
@@ -425,7 +436,9 @@ export class FetchTransport implements Transport {
               }
               if (
                 usage &&
-                (event.type === "delta" || event.type === "tool_call")
+                (event.type === "delta" ||
+                  event.type === "tool_call_delta" ||
+                  event.type === "tool_call")
               )
                 failure("invalid_response");
               yield event;

@@ -24,6 +24,14 @@ release acceptance; see the repository SDK release guide.
   `ChatRequest::parallel_tool_calls` (free2z/zuu#1128): OpenAI's shapes,
   opt-in, omitted on the wire when absent; a present `null`, another string,
   another `type` or an extra member is refused at decode.
+- Tool calling, OpenAI-compatible slice (zuu#1128): `Tool::strict` (omitted
+  when absent, refused when `null`). `ChatRequest::check_tools`
+  holds the structural limits (`MAX_TOOLS` 128, names 1–64 of `[A-Za-z0-9_-]`
+  and unique, `MAX_TOOL_SCHEMA_BYTES` 32 KiB, controls only beside `tools`).
+  New `tool_call_delta` event (`event::ToolCallDelta`, `KNOWN_EVENTS` now 7):
+  streamed argument fragments ahead of the authoritative `tool_call`.
+  `ModelCapabilities::strict_tools`: tri-state like `structured_output`.
+
 - `json::OrderedJson` (re-exported at the root): caller JSON that keeps its
   object member order. `Tool::parameters` and `JsonSchemaFormat::schema` are
   now `OrderedJson`, not `serde_json::Value`, so a schema reaches the provider

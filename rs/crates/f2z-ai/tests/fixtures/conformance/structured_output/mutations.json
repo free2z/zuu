@@ -1,0 +1,126 @@
+{
+  "feature": "structured_output",
+  "mutations": [
+    {
+      "name": "drop response_format",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/response_format"
+    },
+    {
+      "name": "drop strict",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/response_format/json_schema/strict"
+    },
+    {
+      "name": "flip strict",
+      "target": "provider_request",
+      "op": "replace",
+      "path": "/response_format/json_schema/strict",
+      "value": false,
+      "fixtures": [
+        "openai_chat_json_schema_strict"
+      ]
+    },
+    {
+      "name": "json_schema downgraded to json_object",
+      "target": "provider_request",
+      "op": "replace",
+      "path": "/response_format/type",
+      "value": "json_object",
+      "fixtures": [
+        "openai_chat_json_schema_strict",
+        "xai_chat_json_schema_declared"
+      ]
+    },
+    {
+      "name": "reorder schema properties (OpenAI emits keys in schema order)",
+      "target": "provider_request",
+      "op": "reverse",
+      "path": "/response_format/json_schema/schema/properties"
+    },
+    {
+      "name": "reorder required",
+      "target": "provider_request",
+      "op": "reverse",
+      "path": "/response_format/json_schema/schema/required"
+    },
+    {
+      "name": "reorder an enum",
+      "target": "provider_request",
+      "op": "reverse",
+      "path": "/response_format/json_schema/schema/properties/level/enum"
+    },
+    {
+      "name": "drop additionalProperties false",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/response_format/json_schema/schema/additionalProperties"
+    },
+    {
+      "name": "drop the forced tool's strict (Anthropic)",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/tools/0/strict"
+    },
+    {
+      "name": "drop tool_choice (the forced tool is then optional)",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/tool_choice"
+    },
+    {
+      "name": "allow parallel forced calls",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/tool_choice/disable_parallel_tool_use"
+    },
+    {
+      "name": "reorder the forced tool's schema",
+      "target": "provider_request",
+      "op": "reverse",
+      "path": "/tools/0/input_schema"
+    },
+    {
+      "name": "response_format leaks into the Anthropic body",
+      "target": "provider_request",
+      "op": "add",
+      "path": "/response_format",
+      "value": {
+        "type": "json_object"
+      },
+      "fixtures": [
+        "anthropic_json_schema_forced_tool_streamed",
+        "anthropic_request_json_object"
+      ]
+    },
+    {
+      "name": "the structured reply is a tool call instead of text",
+      "target": "events",
+      "op": "replace",
+      "path": "/0/type",
+      "value": "tool_call",
+      "fixtures": [
+        "anthropic_json_schema_forced_tool_streamed"
+      ]
+    },
+    {
+      "name": "a structured fragment is lost",
+      "target": "events",
+      "op": "remove",
+      "path": "/1"
+    },
+    {
+      "name": "a cut-off reply reads as complete",
+      "target": "finish_reason",
+      "op": "replace",
+      "path": "",
+      "value": "stop",
+      "fixtures": [
+        "anthropic_json_object_max_tokens",
+        "anthropic_json_object_model_refusal"
+      ]
+    }
+  ]
+}

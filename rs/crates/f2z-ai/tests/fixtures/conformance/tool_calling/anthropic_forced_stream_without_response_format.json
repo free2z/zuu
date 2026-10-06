@@ -1,0 +1,65 @@
+{
+  "name": "anthropic_forced_stream_without_response_format",
+  "feature": "tool_calling",
+  "source": "Migrated from tests/fixtures/anthropic/streams.json (#1140), its negative control: the same forced-tool stream as structured_output/anthropic_json_schema_forced_tool_streamed, bound to a request WITHOUT response_format, is a tool call and not text.",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true
+    }
+  },
+  "request": {
+    "model": "m-anthropic",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "An activity about fractions."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "activity_spec",
+        "parameters": {
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "tools": [
+        {
+          "name": "activity_spec",
+          "input_schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "tool_choice": null
+    },
+    "provider_stream": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_01Struct\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":388,\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":0,\"output_tokens\":3}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01Fmt\",\"name\":\"activity_spec\",\"input\":{}}}\n\nevent: ping\ndata: {\"type\": \"ping\"}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"title\\\": \\\"Fra\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ctions\\\", \\\"steps\\\": [\\\"Cut\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" the pie\\\", \\\"Count the slices\\\"]}\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":42}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    "events": [
+      {
+        "type": "tool_call",
+        "id": "toolu_01Fmt",
+        "name": "activity_spec",
+        "arguments": "{\"title\": \"Fractions\", \"steps\": [\"Cut the pie\", \"Count the slices\"]}"
+      }
+    ],
+    "finish_reason": "tool_calls",
+    "usage": {
+      "input_tokens": 388,
+      "output_tokens": 42,
+      "tool_calls": 0
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}

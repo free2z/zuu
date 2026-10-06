@@ -1,0 +1,46 @@
+{
+  "name": "refused_openai_responses_parallel_tool_calls",
+  "feature": "tool_calling",
+  "source": "provider::check_tool_translation: Responses has no parallel_tool_calls translation; refused, never dropped.",
+  "api_style": "openai_responses",
+  "provider": "openai",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true
+    }
+  },
+  "request": {
+    "model": "m-openai-responses",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Go."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "parameters": {
+          "type": "object"
+        }
+      }
+    ],
+    "parallel_tool_calls": false
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "reason": "tools_unsupported",
+        "field": "parallel_tool_calls"
+      }
+    },
+    "encodings": {}
+  }
+}

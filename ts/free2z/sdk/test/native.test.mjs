@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Client, NativeTransport } from "../dist/index.js";
+import { Client, NativeTransport, runTools } from "../dist/index.js";
 const deferred = () => {
   let resolve, reject;
   const promise = new Promise((a, b) => {
@@ -511,6 +511,77 @@ test("native estimate decodes the budget fields from decimal strings", async () 
     );
   }
 });
+test("native adapter forwards tool controls as plain JSON and decodes a decimal fragment index", async () => {
+  const seen = [];
+  const events = [
+    { type: "meta", call_id: "call-1", model: "test", hold_2z: "1" },
+    {
+      type: "tool_call_delta",
+      index: "1",
+      id: "call_q2",
+      name: "check_answer",
+      arguments: "{}",
+    },
+    { type: "tool_call", id: "call_q2", name: "check_answer", arguments: "{}" },
+    {
+      type: "done",
+      finish_reason: "tool_calls",
+      charge: { state: "charged", charged2z: "1", receiptId: "r" },
+    },
+  ];
+  const b = bridge({
+    startChat: async (r, o) => {
+      seen.push(r);
+      return { operationId: o.operationId };
+    },
+    nextChat: async () => events.shift() ?? null,
+  });
+  const transport = new NativeTransport(b);
+  const tool = {
+    name: "check_answer",
+    parameters: { type: "object", properties: { n: { maximum: 9n } } },
+    strict: true,
+  };
+  const stream = await transport.chat(
+    {
+      ...request,
+      tools: [tool],
+      tool_choice: "required",
+      parallel_tool_calls: false,
+    },
+    options,
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(seen.at(-1))), {
+    ...request,
+    tools: [
+      {
+        ...tool,
+        parameters: { type: "object", properties: { n: { maximum: 9 } } },
+      },
+    ],
+    tool_choice: "required",
+    parallel_tool_calls: false,
+  });
+  const decoded = [];
+  for await (const event of stream) decoded.push(event);
+  assert.deepEqual(decoded[1], {
+    type: "tool_call_delta",
+    index: 1,
+    id: "call_q2",
+    name: "check_answer",
+    arguments: "{}",
+  });
+  assert.equal(decoded[3].finish_reason, "tool_calls");
+  const before = seen.length;
+  await assert.rejects(
+    transport.chat(
+      { ...request, tool_choice: "auto" },
+      { ...options, operationId: "operation-2" },
+    ),
+    (e) => e.code === "invalid_request",
+  );
+  assert.equal(seen.length, before, "a refused request never crosses IPC");
+});
 test("native models decodes the plugin's decimal-string catalogue", async () => {
   let answer;
   const transport = new NativeTransport(bridge({ models: async () => answer }));
@@ -585,7 +656,116 @@ test("native models decodes the plugin's decimal-string catalogue", async () => 
     );
   }
 });
+test("runTools stops when the session changes between rounds", async () => {
+  let generation = "1",
+    starts = 0,
+    reads = 0;
+  const b = bridge({
+    session: async () => ({
+      signedIn: true,
+      subject: generation === "1" ? "alice" : "bob",
+      grantedScopes: [],
+      persistence: "persistent",
+      generation,
+    }),
+    startChat: async (r, o) => {
+      starts++;
+      return { operationId: o.operationId };
+    },
+    nextChat: async () =>
+      [
+        { type: "meta", call_id: "call-1", model: "test", hold_2z: "1" },
+        {
+          type: "tool_call",
+          id: "call_q1",
+          name: "check_answer",
+          arguments: "{}",
+        },
+        {
+          type: "done",
+          finish_reason: "tool_calls",
+          charge: { state: "charged", charged2z: "1", receiptId: "r" },
+        },
+      ][reads++] ?? null,
+    cancelChat: async () => {},
+  });
+  const client = new Client(new NativeTransport(b));
+  const run = await runTools(
+    client,
+    {
+      ...request,
+      tools: [{ name: "check_answer", parameters: { type: "object" } }],
+    },
+    () => {
+      generation = "2"; // the user switches to Bob while the tool runs
+      return "{}";
+    },
+    {
+      operation: (round) => ({
+        operationId: `op-${round}`,
+        idempotencyKey: `key-${round}`,
+      }),
+    },
+  );
+  assert.equal(starts, 1, "a round was sent under another session");
+  assert.equal(run.rounds.length, 1);
+  assert.equal(run.error?.code, "signed_out");
+  assert.equal(run.finished, false);
+});
 
+test("runTools pins each round to the starting session, even across the operation callback", async () => {
+  let generation = "1",
+    starts = 0;
+  const pinned = [];
+  const b = bridge({
+    session: async () => ({
+      signedIn: true,
+      subject: generation === "1" ? "alice" : "bob",
+      grantedScopes: [],
+      persistence: "persistent",
+      generation,
+    }),
+    startChat: async (r, o) => {
+      starts++;
+      pinned.push(o.sessionGeneration);
+      return { operationId: o.operationId };
+    },
+    nextChat: async () => null,
+    cancelChat: async () => {},
+  });
+  const client = new Client(new NativeTransport(b));
+  const run = await runTools(
+    client,
+    { ...request, tools: [{ name: "f", parameters: { type: "object" } }] },
+    () => "{}",
+    {
+      operation: async (round) => {
+        generation = "2"; // Bob signs in while the app journals the keys
+        return { operationId: `op-${round}`, idempotencyKey: `key-${round}` };
+      },
+    },
+  );
+  assert.equal(starts, 0, "Alice's history was sent as Bob");
+  assert.equal(run.error?.code, "signed_out");
+  assert.equal(run.rounds.length, 0);
+});
+
+test("the session pin reaches native registration", async () => {
+  const seen = [];
+  const b = bridge({
+    startChat: async (r, o) => {
+      seen.push(o);
+      return { operationId: o.operationId };
+    },
+    nextChat: async () => null,
+    cancelChat: async () => {},
+  });
+  const transport = new NativeTransport(b);
+  await transport.chat(request, { ...options, sessionGeneration: "1" });
+  assert.equal(seen.at(-1).sessionGeneration, "1");
+  await transport.chat(request, { ...options, operationId: "operation-2" });
+  assert.equal("sessionGeneration" in seen.at(-1), false, "absent is not sent");
+});
 test("native sign-in rejection codes reach the app unchanged and are never retryable", async () => {
   for (const code of [
     "user_cancelled",
@@ -607,4 +787,47 @@ test("native sign-in rejection codes reach the app unchanged and are never retry
       (e) => e.name === "SdkError" && e.code === code && e.retryable === false,
     );
   }
+});
+test("a release failure after the terminal event never loses the charged round", async () => {
+  let reads = 0,
+    cancels = 0;
+  const b = bridge({
+    startChat: async (r, o) => ({ operationId: o.operationId }),
+    nextChat: async () =>
+      [
+        { type: "meta", call_id: "call-1", model: "test", hold_2z: "1" },
+        { type: "delta", text: "Correct!" },
+        {
+          type: "done",
+          finish_reason: "stop",
+          charge: { state: "charged", charged2z: "1", receiptId: "r" },
+        },
+      ][reads++] ?? null,
+    // A sign-out cleared the native operation after `done` was delivered.
+    cancelChat: async () => {
+      cancels++;
+      throw Object.assign(new Error("gone"), { code: "operation_not_found" });
+    },
+  });
+  const client = new Client(new NativeTransport(b));
+  const run = await runTools(
+    client,
+    {
+      ...request,
+      tools: [{ name: "check_answer", parameters: { type: "object" } }],
+    },
+    () => "{}",
+    {
+      operation: (round) => ({
+        operationId: `rel-${round}`,
+        idempotencyKey: `rel-${round}`,
+      }),
+    },
+  );
+  assert.equal(cancels, 1, "the stream was still released");
+  assert.equal(run.error, undefined, String(run.error?.code));
+  assert.equal(run.rounds.length, 1, "the charged round was lost");
+  assert.equal(run.rounds[0].text, "Correct!");
+  assert.equal(run.rounds[0].charge.state, "charged");
+  assert.equal(run.finished, true);
 });

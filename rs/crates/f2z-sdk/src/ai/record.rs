@@ -279,6 +279,10 @@ pub struct Capabilities {
     /// gateway that predates the field.
     #[serde(default)]
     pub structured_output: bool,
+    /// Accepts a tool with `strict: true`. `false` from a gateway that
+    /// predates the field.
+    #[serde(default)]
+    pub strict_tools: bool,
     /// Accepts `reasoning_effort` (at the levels in
     /// [`Controls::effort_levels`], when listed). `false` from a gateway that
     /// predates the field. Not implied by [`Capabilities::reasoning`]: a

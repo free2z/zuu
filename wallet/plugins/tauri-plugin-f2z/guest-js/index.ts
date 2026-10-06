@@ -5,6 +5,14 @@ import { invoke } from '@tauri-apps/api/core';
 export type Decimal = string;
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export interface ToolCall { id: string; name: string; arguments: string }
+/**
+ * A function tool: `name` 1-64 of `A-Z a-z 0-9 _ -`, unique; `parameters` a JSON
+ * Schema object (at most 32 KiB); at most 128 tools. `strict: true` is refused up
+ * front by a model without `capabilities.strict_tools` (reason `tools_unsupported`).
+ */
+export interface Tool { name: string; description?: string; parameters: Json; strict?: boolean }
+/** A fragment of a call still arriving (display only; the `tool_call` that follows is authoritative). */
+export interface ToolCallDelta { index: Decimal; id?: string; name?: string; arguments: string }
 export type ContentPart = { type: 'text'; text: string } | { type: 'image'; media_type: string; data: string };
 export interface Message {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -36,10 +44,10 @@ export type ToolChoice =
 export interface ChatRequest {
   model: string;
   messages: Message[];
-  tools?: { name: string; description?: string; parameters: Json }[];
-  /** Opt-in; refused up front (`tools_unsupported`) where a model cannot express it. */
+  tools?: Tool[];
+  /** Absent is never sent; refused before any hold where the model cannot honour it. */
   tool_choice?: ToolChoice;
-  /** Opt-in; `false` = at most one tool call per turn. */
+  /** `false`: at most one tool call per turn. Requires `tools`. */
   parallel_tool_calls?: boolean;
   max_output_tokens?: Decimal;
   /** `true`: refuse up front rather than lower `max_output_tokens` (requires it). */
@@ -107,6 +115,7 @@ export interface CallRecord {
 export type StreamEvent =
   | { type: 'meta'; call_id: string; model: string; hold_2z: Decimal; [key: string]: unknown }
   | { type: 'delta'; text: string }
+  | ({ type: 'tool_call_delta' } & ToolCallDelta)
   | ({ type: 'tool_call' } & ToolCall)
   | { type: 'usage'; usage: Usage; source?: string }
   | { type: 'done'; charge: Charge; finish_reason: string; [key: string]: unknown }
@@ -120,6 +129,8 @@ export type StreamEvent =
  */
 export interface ModelCapabilities {
   vision?: boolean; tools?: boolean; reasoning?: boolean; structured_output?: boolean;
+  /** `true` is the precondition for a tool with `strict: true`. */
+  strict_tools?: boolean;
   /** Precondition for `ChatRequest.reasoning_effort`; not implied by `reasoning`. */
   reasoning_effort?: boolean;
   [key: string]: unknown;
@@ -158,7 +169,8 @@ export interface Purchase {
   [key: string]: unknown;
 }
 export interface PurchaseRequest { rail: 'card' | 'zcash'; quantity2z: Decimal; idempotencyKey: string }
-export interface ChatOperation { operationId: string; idempotencyKey: string }
+/** `sessionGeneration`: refuse (`session_changed`) unless the session is still this one. */
+export interface ChatOperation { operationId: string; idempotencyKey: string; sessionGeneration?: Decimal }
 export interface ChatOpened { operationId: string; callId?: string; replay?: CallRecord }
 export interface PollOptions { timeoutMs?: number }
 /**

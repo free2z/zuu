@@ -1,0 +1,43 @@
+{
+  "name": "refused_tools_without_capability",
+  "feature": "tool_calling",
+  "source": "metered.rs old_catalogues_refuse_tools_before_hold_or_provider_io: a model whose signed capabilities do not carry tools refuses a request with tools, with reason tools_unsupported / field tools (#1142).",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {
+    "capabilities": {}
+  },
+  "request": {
+    "model": "m-anthropic",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Go."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "parameters": {
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "reason": "tools_unsupported",
+        "field": "tools"
+      }
+    },
+    "encodings": {}
+  }
+}

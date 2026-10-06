@@ -317,6 +317,12 @@ pub struct PurchaseRequest {
 pub struct ChatOperation {
     pub operation_id: String,
     pub idempotency_key: String,
+    /// The session generation (`session().generation`) the caller expects:
+    /// registration refuses with `session_changed` if the session is no
+    /// longer that one, under the same lock that pins the call to it.
+    /// Absent: no expectation (the call joins the current session).
+    #[serde(default)]
+    pub session_generation: Option<String>,
 }
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -352,6 +358,9 @@ pub fn chat_request(mut input: Value) -> Result<f2z_sdk::proto::ChatRequest> {
     let request: f2z_sdk::proto::ChatRequest =
         serde_json::from_value(input).map_err(|_| NativeError::new("invalid_request"))?;
     // The gateway's limits, before the call is registered or sent.
+    request
+        .check_tools()
+        .map_err(|_| NativeError::new("invalid_request"))?;
     if let Some(format) = &request.response_format {
         format
             .check()
@@ -483,6 +492,45 @@ mod tests {
             with["reasoning_effort"] = bad;
             assert!(chat_request(with).is_err());
         }
+    }
+    #[test]
+    fn tool_controls_pass_through_as_plain_json_and_limits_hold() {
+        let base = json!({"model":"m","messages":[],
+            "tools":[{"name":"check_answer","parameters":{"type":"object"},"strict":true}]});
+        let mut with = base.clone();
+        with["tool_choice"] = json!({"type":"function","function":{"name":"check_answer"}});
+        with["parallel_tool_calls"] = json!(false);
+        let sent = serde_json::to_value(chat_request(with.clone()).unwrap()).unwrap();
+        for member in ["tools", "tool_choice", "parallel_tool_calls"] {
+            assert_eq!(sent[member], with[member], "{member}");
+        }
+        let plain = serde_json::to_string(&chat_request(base.clone()).unwrap()).unwrap();
+        assert!(!plain.contains("tool_choice") && !plain.contains("parallel_tool_calls"));
+        for (member, value) in [
+            ("tool_choice", json!("any")),
+            ("tool_choice", serde_json::Value::Null),
+            (
+                "tool_choice",
+                json!({"type":"function","function":{"name":"other"}}),
+            ),
+            ("parallel_tool_calls", json!("false")),
+        ] {
+            let mut bad = base.clone();
+            bad[member] = value;
+            assert!(chat_request(bad).is_err(), "{member}");
+        }
+        assert!(chat_request(json!({"model":"m","messages":[],"tool_choice":"auto"})).is_err());
+    }
+    #[test]
+    fn a_tool_call_fragment_crosses_ipc_with_a_decimal_index() {
+        let fragment: Event = serde_json::from_value(json!({"type":"tool_call_delta",
+            "index":2,"id":"call_q1","name":"check_answer","arguments":"{"}))
+        .unwrap();
+        assert_eq!(
+            event(&fragment).unwrap(),
+            json!({"type":"tool_call_delta","index":"2","id":"call_q1",
+                "name":"check_answer","arguments":"{"})
+        );
     }
     #[test]
     fn integers_are_lossless_and_strict() {

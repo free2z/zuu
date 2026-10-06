@@ -1,0 +1,229 @@
+{
+  "name": "openai_responses_effort_medium",
+  "feature": "reasoning_effort",
+  "source": "OpenAI Responses create, request member reasoning.effort (developers.openai.com/api/docs/guides/reasoning), streamed as platform.openai.com/docs/api-reference/responses-streaming. Synthetic, documented shape.",
+  "api_style": "openai_responses",
+  "provider": "openai",
+  "catalog_model": {
+    "capabilities": {
+      "reasoning": true,
+      "reasoning_effort": true
+    }
+  },
+  "request": {
+    "model": "m-openai-responses",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Be brief."
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Half of a pie?"
+          }
+        ]
+      }
+    ],
+    "max_output_tokens": 256,
+    "reasoning_effort": "medium"
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "model": "m-openai-responses-upstream",
+      "service_tier": "default",
+      "input": [
+        {
+          "role": "system",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "Be brief."
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "Half of a pie?"
+            }
+          ]
+        }
+      ],
+      "max_output_tokens": 256,
+      "stream": true,
+      "store": false,
+      "reasoning": {
+        "effort": "medium"
+      },
+      "reasoning_effort": null
+    },
+    "provider_stream": [
+      {
+        "type": "response.created",
+        "sequence_number": 0,
+        "response": {
+          "id": "resp_fx1",
+          "object": "response",
+          "created_at": 1759600000,
+          "status": "in_progress",
+          "model": "gpt-5",
+          "output": [],
+          "usage": null
+        }
+      },
+      {
+        "type": "response.in_progress",
+        "sequence_number": 1,
+        "response": {
+          "id": "resp_fx1",
+          "object": "response",
+          "created_at": 1759600000,
+          "status": "in_progress",
+          "model": "gpt-5",
+          "output": [],
+          "usage": null
+        }
+      },
+      {
+        "type": "response.output_item.added",
+        "sequence_number": 2,
+        "output_index": 0,
+        "item": {
+          "id": "msg_fx1",
+          "type": "message",
+          "status": "in_progress",
+          "role": "assistant",
+          "content": []
+        }
+      },
+      {
+        "type": "response.content_part.added",
+        "sequence_number": 3,
+        "item_id": "msg_fx1",
+        "output_index": 0,
+        "content_index": 0,
+        "part": {
+          "type": "output_text",
+          "text": "",
+          "annotations": []
+        }
+      },
+      {
+        "type": "response.output_text.delta",
+        "sequence_number": 4,
+        "item_id": "msg_fx1",
+        "output_index": 0,
+        "content_index": 0,
+        "delta": "One"
+      },
+      {
+        "type": "response.output_text.delta",
+        "sequence_number": 5,
+        "item_id": "msg_fx1",
+        "output_index": 0,
+        "content_index": 0,
+        "delta": " half."
+      },
+      {
+        "type": "response.output_text.done",
+        "sequence_number": 6,
+        "item_id": "msg_fx1",
+        "output_index": 0,
+        "content_index": 0,
+        "text": "One half."
+      },
+      {
+        "type": "response.content_part.done",
+        "sequence_number": 7,
+        "item_id": "msg_fx1",
+        "output_index": 0,
+        "content_index": 0,
+        "part": {
+          "type": "output_text",
+          "text": "One half.",
+          "annotations": []
+        }
+      },
+      {
+        "type": "response.output_item.done",
+        "sequence_number": 8,
+        "output_index": 0,
+        "item": {
+          "id": "msg_fx1",
+          "type": "message",
+          "status": "completed",
+          "role": "assistant",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "One half.",
+              "annotations": []
+            }
+          ]
+        }
+      },
+      {
+        "type": "response.completed",
+        "sequence_number": 9,
+        "response": {
+          "id": "resp_fx1",
+          "object": "response",
+          "created_at": 1759600000,
+          "status": "completed",
+          "model": "gpt-5",
+          "output": [
+            {
+              "type": "reasoning",
+              "summary": []
+            },
+            {
+              "type": "message"
+            }
+          ],
+          "usage": {
+            "input_tokens": 50,
+            "input_tokens_details": {
+              "cached_tokens": 20
+            },
+            "output_tokens": 70,
+            "output_tokens_details": {
+              "reasoning_tokens": 64
+            },
+            "total_tokens": 120
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "type": "delta",
+        "text": "One"
+      },
+      {
+        "type": "delta",
+        "text": " half."
+      }
+    ],
+    "finish_reason": "stop",
+    "usage": {
+      "input_tokens": 30,
+      "cached_input_tokens": 20,
+      "output_tokens": 70,
+      "reasoning_tokens": 64,
+      "tool_calls": 0
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}
