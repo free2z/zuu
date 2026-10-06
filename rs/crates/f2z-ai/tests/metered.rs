@@ -1015,6 +1015,78 @@ async fn an_anthropic_stream_cut_after_message_start_settles_on_its_reported_inp
     }
     mock.shutdown().await;
 }
+// The same drain on an Anthropic stream that had sent `message_start`:
+// its exact input counts (a mostly cached prompt) settle the call, not the
+// byte bound the hold was sized with — the parser's knowledge is taken
+// before the upstream is dropped.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_drain_after_anthropic_message_start_settles_on_its_reported_input() {
+    let db = Arc::new(Database::new());
+    let mock = MockProvider::start(
+        Scenario::default()
+            .with_input_tokens(40)
+            .with_cache(5, 3)
+            .with_stall(0, SILENCE),
+    )
+    .await
+    .unwrap();
+    let mut tuning = adapter_support::tuning(0);
+    tuning.timeouts.idle = Duration::from_secs(120);
+    let meter = Arc::new(Metered::new(
+        db.clone(),
+        adapter_support::backend(&mock.base_url(), tuning),
+    ));
+    let running = support::start(
+        &support::config(&[
+            ("F2Z_AI_DRAIN_TIMEOUT_SECS", "1"),
+            ("F2Z_AI_ABORT_GRACE_SECS", "1"),
+        ]),
+        Deps {
+            gate: Arc::new(Gate),
+            catalog: Arc::new(Fixed(adapter_support::catalog_with(120_000, Some(120_000)))),
+            backend: meter.clone(),
+            settler: meter,
+        },
+    )
+    .await;
+    support::wait_readyz(running.admin, StatusCode::OK).await;
+    let mut request = request();
+    request["model"] = json!("m-anthropic");
+    // The byte bound sized the hold, far above the 48 tokens Anthropic reports.
+    let estimate = estimate_input(&running, &request).await;
+    assert!(estimate > 48, "{estimate}");
+    let mut req = support::chat_request(request.to_string());
+    req.headers_mut()
+        .insert("idempotency-key", "lesson-drain".parse().unwrap());
+    let response = support::send(running.public, req).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let (signal, fired) = tokio::sync::oneshot::channel::<()>();
+    let run = tokio::spawn(running.gateway.run_until(async move {
+        let _ = fired.await;
+    }));
+    signal.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(15), run)
+        .await
+        .expect("the drain did not finish")
+        .unwrap();
+    drop(response);
+    final_state(&db).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert_eq!(state.terminal, Some("settled"));
+        assert_eq!(
+            state.settled_usage["input_tokens"], 40,
+            "{}",
+            state.settled_usage
+        );
+        assert_eq!(state.settled_usage["cached_input_tokens"], 5);
+        assert_eq!(state.settled_usage["cache_write_tokens"], 3);
+        assert_eq!(state.settled_usage["output_tokens"], 0);
+        assert_eq!(state.record()["completion"]["error"]["code"], "unavailable");
+    }
+    mock.shutdown().await;
+}
 // Negative control for the three above: a request the provider REFUSED (a
 // 503 head, no stream) is not billed by it, and the hold is released with
 // nothing charged — the estimate applies only to an accepted request.

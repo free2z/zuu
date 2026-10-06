@@ -958,6 +958,12 @@ fn completion(active: &Active, outcome: Option<&ProviderOutcome>) -> Value {
     if let Some(usage) = reported {
         value["usage"] = json!(usage);
         value["usage_source"] = json!("provider");
+        // The provider's numbers settle this call: what was retained for
+        // the estimate is not needed and is released now rather than at
+        // settlement, which a ledger outage can hold open for minutes.
+        // Retention is bounded in any case by `max_concurrent_calls` ×
+        // the output cap the provider was given.
+        *lock(&active.produced) = Produced::default();
     } else if accepted
         && !refused_in_stream
         && let Some(usage) = estimated_usage(active, outcome)

@@ -700,6 +700,20 @@ impl Upstream for ProviderUpstream {
     }
 
     fn outcome(&mut self) -> Option<ProviderOutcome> {
+        if self.outcome.is_none() && matches!(self.state, State::Streaming { .. }) {
+            // Asked for the outcome while the stream is still open: only a
+            // drain does this (`call::run`, before it drops the upstream).
+            // The provider accepted the request and bills it, so what the
+            // stream has said so far — Anthropic's `message_start` input
+            // counts, the tool arguments generated — must reach the
+            // settler rather than be dropped with the parser. Not the
+            // provider's fault: the breaker sees a neutral verdict.
+            if let Some(permit) = self.permit.take() {
+                permit.record(Verdict::Neutral);
+            }
+            let failure = ProviderFailure::new(ErrorCode::Unavailable, "drained", false);
+            self.stream_over(false, Some(failure));
+        }
         self.outcome.clone()
     }
 
