@@ -422,6 +422,40 @@ test("native adapter forwards response_format as plain JSON, only when set", asy
   );
   assert.equal(seen.length, before);
 });
+test("native adapter forwards reasoning_effort as a plain string, only when set", async () => {
+  const seen = [];
+  const b = bridge({
+    estimate: async (r) => {
+      seen.push(r);
+      return {
+        model: "test",
+        input_tokens: "1",
+        max_output_tokens: "1800",
+        hold_2z: "1",
+      };
+    },
+    startChat: async (r, o) => {
+      seen.push(r);
+      return { operationId: o.operationId };
+    },
+  });
+  const transport = new NativeTransport(b);
+  await transport.chat({ ...request, reasoning_effort: "low" }, options);
+  assert.equal(seen.at(-1).reasoning_effort, "low");
+  await transport.estimate({ ...request, reasoning_effort: "high" });
+  assert.equal(seen.at(-1).reasoning_effort, "high");
+  await transport.estimate(request);
+  assert.equal("reasoning_effort" in seen.at(-1), false);
+  const before = seen.length;
+  await assert.rejects(
+    transport.chat(
+      { ...request, reasoning_effort: "xhigh" },
+      { ...options, operationId: "operation-2" },
+    ),
+    (e) => e.code === "invalid_request",
+  );
+  assert.equal(seen.length, before);
+});
 test("native estimate decodes the budget fields from decimal strings", async () => {
   let answer;
   const transport = new NativeTransport(

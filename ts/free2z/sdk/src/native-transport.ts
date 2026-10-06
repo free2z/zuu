@@ -10,6 +10,7 @@ import { identifier, key, withOperation } from "./http.js";
 import { spendCapParams } from "./spend-cap.js";
 import {
   object,
+  reasoningEffort,
   responseFormat,
   strictOutput,
   string,
@@ -121,7 +122,7 @@ function request(value: ChatRequest): NativeChatRequest {
     tools,
     response_format: format,
     ...rest
-  } = toolOptions(responseFormat(strictOutput(value)));
+  } = reasoningEffort(toolOptions(responseFormat(strictOutput(value))));
   const result: NativeChatRequest = { ...rest };
   if (format?.type === "json_object") result.response_format = format;
   else if (format !== undefined)

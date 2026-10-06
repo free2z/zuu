@@ -1,0 +1,39 @@
+{
+  "name": "refused_xai_chat_declared_false",
+  "feature": "reasoning_effort",
+  "source": "provider::check_reasoning_effort: a signed reasoning_effort: false refuses before any hold, whatever the provider's API accepts.",
+  "api_style": "openai_chat",
+  "provider": "xai",
+  "catalog_model": {
+    "capabilities": {
+      "reasoning": true,
+      "reasoning_effort": false
+    }
+  },
+  "request": {
+    "model": "m-xai",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Think, then answer."
+          }
+        ]
+      }
+    ],
+    "reasoning_effort": "high"
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "reason": "reasoning_effort_unsupported",
+        "field": "reasoning_effort"
+      }
+    },
+    "encodings": {}
+  }
+}

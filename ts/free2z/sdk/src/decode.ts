@@ -11,6 +11,7 @@ import type {
   Json,
   Model,
   ModelCapabilities,
+  ModelControls,
   ModelPrices,
   Models,
   ObjectData,
@@ -339,6 +340,7 @@ const capabilityKeys = [
   "reasoning",
   "structured_output",
   "strict_tools",
+  "reasoning_effort",
 ] as const;
 /** Absent or `null` is `{}`: nothing declared, so nothing supported. A
  * declared member must be a boolean — a string `"true"` would otherwise read
@@ -369,6 +371,26 @@ function prices(value: Json | undefined): ModelPrices {
   }
   return result;
 }
+/** Absent or `null` is `{}`: nothing narrowed. A present `effort_levels`
+ * must be an array of strings; `null` reads as absent. Other members pass
+ * through. */
+function controls(value: Json | undefined): ModelControls {
+  const result = Object.create(null) as ModelControls;
+  if (value == null) return result;
+  for (const [key, member] of Object.entries(object(value))) {
+    if (member === undefined) continue;
+    if (key === "effort_levels") {
+      if (member === null) continue;
+      if (
+        !Array.isArray(member) ||
+        !member.every((level) => typeof level === "string")
+      )
+        failure("invalid_response");
+    }
+    result[key] = member;
+  }
+  return result;
+}
 function model(value: unknown): Model {
   const {
     id,
@@ -377,6 +399,7 @@ function model(value: unknown): Model {
     context_window: contextWindow,
     max_output_tokens: maxOutputTokens,
     capabilities: declared,
+    controls: narrowed,
     prices: rates,
     min_charge_2z: minCharge,
     ttfb_timeout_ms: ttfb,
@@ -386,6 +409,7 @@ function model(value: unknown): Model {
     ...rest,
     id: string(id),
     capabilities: capabilities(declared),
+    controls: controls(narrowed),
     prices: prices(rates),
   };
   if (!result.id) failure("invalid_response");

@@ -30,7 +30,7 @@ conformance/
     mutations.json     the feature's negative controls (required, non-empty)
 ```
 
-Features today: `text`, `structured_output`, `tool_calling`. A new
+Features today: `text`, `structured_output`, `tool_calling`, `reasoning_effort`. A new
 directory must be added to `FEATURES` in `conformance_support/mod.rs`, with
 the signed capability a success fixture of it must declare; an unknown
 directory, a stray file, or a feature without `mutations.json` is a failure.
@@ -47,7 +47,7 @@ directory, a stray file, or a feature without `mutations.json` is a failure.
   "provider": "openai",                    // openai | xai | anthropic
   "catalog_model": {                       // the signed members the fixture assumes
     "capabilities": { "structured_output": true },
-    "controls": { },                       // optional, ai-api-design §3.3 (read by no gateway yet)
+    "controls": { },                       // optional, ai-api-design §3.3 (only `effort_levels` is read today)
     "limits": { }                          // optional, ditto
   },
   "request": { "model": "m-openai-chat", "messages": [ ], "response_format": { } },
@@ -121,7 +121,8 @@ directory, a stray file, or a feature without `mutations.json` is a failure.
 
 The capabilities a request exercises are derived from the request itself
 (`tools`/`tool_choice`/`parallel_tool_calls` → `tools`, `tools[].strict:
-true` → `strict_tools`, `response_format` → `structured_output`, an image
+true` → `strict_tools`, `response_format` → `structured_output`, `reasoning_effort` →
+`reasoning_effort`, an image
 part → `vision`), plus the feature directory's own capability. A **success**
 fixture whose `catalog_model.capabilities` does not carry every one of them
 as `true` is refused by the runner. And for every one of them, the runner

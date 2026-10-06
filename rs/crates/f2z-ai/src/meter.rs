@@ -304,6 +304,10 @@ fn plan_with(
     // Refused before any hold: a model or adapter that cannot honour a
     // response_format never receives the call without it.
     crate::provider::check_response_format(request, &model)?;
+    // And a reasoning_effort the model or its adapter cannot honour. Effort
+    // changes no bound below: reasoning tokens are output tokens, and the
+    // hold already reserves the worst case of the whole output cap.
+    crate::provider::check_reasoning_effort(request, &model)?;
     // The input estimate (crate::estimate): the provider's own tokeniser
     // over messages, tool definitions and the response_format schema with
     // the measured per-message / per-tool / per-schema framing, for a model
@@ -570,7 +574,7 @@ impl ChatBackend for Metered {
                 let n=u64::try_from(numerator.div_ceil(1_000_000_000_000)).map_err(|_| invalid())?;
                 if n > SAFE_INTEGER { return Err(invalid()); } prices.insert(name.into(),json!(n));
             }
-            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":m.capabilities.tools,"reasoning":m.capabilities.reasoning,"structured_output":crate::provider::structured_output_supported(m),"strict_tools":m.capabilities.tools && crate::provider::strict_tools_supported(m)},"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
+            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":m.capabilities.tools,"reasoning":m.capabilities.reasoning,"structured_output":crate::provider::structured_output_supported(m),"strict_tools":m.capabilities.tools && crate::provider::strict_tools_supported(m),"reasoning_effort":crate::provider::reasoning_effort_supported(m)},"controls":models_controls(m),"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
         }).collect::<Result<Vec<_>, ApiFailure>>()?;
         Ok(
             json!({"catalog_version":cat.version,"includes_markup_bps":c.markup().0,"models":models}),
@@ -868,8 +872,8 @@ impl ChatBackend for Metered {
 
 /// A refusal `plan` makes after the idempotency claim that must be
 /// persisted as the key's terminal answer: `max_output_tokens_strict`
-/// forbade a clamp, or the model cannot honour `response_format` or a tool
-/// feature (`tools_unsupported`). Either way
+/// forbade a clamp, or the model cannot honour `response_format`, a tool
+/// feature (`tools_unsupported`) or `reasoning_effort`. Either way
 /// a same-key replay must name it, not an abandoned-claim `unavailable`.
 fn is_terminal_refusal(failure: &ApiFailure) -> bool {
     matches!(
@@ -877,7 +881,21 @@ fn is_terminal_refusal(failure: &ApiFailure) -> bool {
         Some(reason) if reason == crate::provider::STRICT_OUTPUT_REASON
             || reason == crate::provider::RESPONSE_FORMAT_UNSUPPORTED
             || reason == crate::provider::TOOLS_UNSUPPORTED
+            || reason == crate::provider::REASONING_EFFORT_UNSUPPORTED
     )
+}
+
+/// `/v1/models`' `controls` for `m`: the signed narrowing of what a capability
+/// admits, only where that capability is advertised. Always an object, so a
+/// client reads a missing member as "not narrowed".
+fn models_controls(m: &CatalogModel) -> Value {
+    let mut controls = serde_json::Map::new();
+    if crate::provider::reasoning_effort_supported(m)
+        && let Some(levels) = &m.controls.effort_levels
+    {
+        controls.insert("effort_levels".into(), json!(levels));
+    }
+    Value::Object(controls)
 }
 
 /// A persisted error message: the ledger accepts 1–256 characters.
@@ -2005,6 +2023,89 @@ mod tests {
                 // Negative control: the same model takes the same call
                 // without a response_format, so the refusal is the field's.
                 plan(&formatted(None), &catalog, &rich).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn reasoning_effort_is_refused_before_any_hold_unless_signed() {
+        let rich = ctx(u64::from(u32::MAX), None);
+        let effort = |level: Option<&str>| -> ChatRequest {
+            let mut request = json!({"model":"m","max_output_tokens":100,
+                "messages":[{"role":"user","content":[{"type":"text","text":"think"}]}]});
+            if let Some(level) = level {
+                request["reasoning_effort"] = json!(level);
+            }
+            serde_json::from_value(request).unwrap()
+        };
+        let signed = |style: &str, declared: Option<bool>, levels: Option<serde_json::Value>| {
+            let mut catalog =
+                serde_json::to_value(styled("openai", style, None).catalog()).unwrap();
+            if let Some(declared) = declared {
+                catalog["models"][0]["capabilities"]["reasoning_effort"] = json!(declared);
+            }
+            if let Some(levels) = levels {
+                catalog["models"][0]["controls"] = json!({"effort_levels": levels});
+            }
+            VerifiedCatalog::from_verified(serde_json::from_value(catalog).unwrap()).unwrap()
+        };
+        for (style, declared, levels, level, admitted) in [
+            // gpt-4o tonight: nothing declared. Absence is never support.
+            ("openai_chat", None, None, "low", false),
+            ("openai_chat", Some(false), None, "low", false),
+            ("openai_chat", Some(true), None, "minimal", true),
+            ("openai_responses", Some(true), None, "high", true),
+            ("openai_responses", None, None, "high", false),
+            // Messages has no effort control, whatever is signed.
+            ("anthropic_messages", Some(true), None, "low", false),
+            // A signed list narrows; an unknown signed level is inert.
+            (
+                "openai_chat",
+                Some(true),
+                Some(json!(["low", "high", "xhigh"])),
+                "high",
+                true,
+            ),
+            (
+                "openai_chat",
+                Some(true),
+                Some(json!(["low", "high", "xhigh"])),
+                "medium",
+                false,
+            ),
+            ("openai_chat", Some(true), Some(json!([])), "low", false),
+            // The list only narrows a declared capability; it never grants.
+            ("openai_chat", None, Some(json!(["low"])), "low", false),
+        ] {
+            let catalog = signed(style, declared, levels.clone());
+            let result = plan(&effort(Some(level)), &catalog, &rich);
+            assert_eq!(
+                result.is_ok(),
+                admitted,
+                "{style}/{declared:?}/{levels:?}/{level}"
+            );
+            if let Err(e) = result {
+                assert_eq!(e.code(), ErrorCode::InvalidRequest.as_str());
+                assert_eq!(e.status().as_u16(), 400);
+                assert_eq!(
+                    e.detail_of("reason"),
+                    Some(&json!(crate::provider::REASONING_EFFORT_UNSUPPORTED))
+                );
+                assert_eq!(e.detail_of("field"), Some(&json!("reasoning_effort")));
+                // Persisted as the key's terminal answer, like the
+                // response_format refusal.
+                assert!(is_terminal_refusal(&e));
+            }
+            // Negative control: the same model takes the same call without
+            // reasoning_effort, so the refusal is the field's — and effort
+            // changes no bound: the admitted plan reserves exactly what the
+            // plain one does.
+            let plain = plan(&effort(None), &catalog, &rich).unwrap();
+            if let Ok(with) = plan(&effort(Some(level)), &catalog, &rich) {
+                assert_eq!(
+                    (with.input, with.output, with.hold),
+                    (plain.input, plain.output, plain.hold)
+                );
             }
         }
     }

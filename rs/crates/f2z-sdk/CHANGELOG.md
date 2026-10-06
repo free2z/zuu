@@ -9,6 +9,9 @@ release acceptance; see the repository SDK release guide.
   `NeedsBudget`, `TooLarge`): a strict estimate mapped to the recovery UX.
   A non-strict request is `Error::Config`.
 - `examples/first_app.rs`: the quickstart's first app, compiled by CI.
+- `ChatRequest::reasoning_effort` / `with_reasoning_effort` (via
+  `f2z_ai_proto`, free2z/zuu#1151); `Capabilities::reasoning_effort` and
+  `ModelInfo::controls` (`Controls { effort_levels }`) from `/v1/models`.
 - Via `f2z_ai_proto`: `ChatRequest::new(model, messages)` with
   `with_max_output_tokens`, `strict`, `with_response_format`,
   `with_metadata`; `Message::{system, user, assistant, text}`;

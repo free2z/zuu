@@ -127,6 +127,9 @@ impl Provider for OpenAiChat {
         super::images_only_on(request, &[Role::User])?;
         super::check_response_format(request, model)?;
         super::check_tool_translation(request, model)?;
+        // Only where the catalogue declares it (and the level, where listed):
+        // refused, never dropped.
+        super::check_reasoning_effort(request, model)?;
         let messages: Vec<Value> = request
             .messages
             .iter()
@@ -193,6 +196,12 @@ impl Provider for OpenAiChat {
         body.insert("stream".into(), json!(true));
         // Without this a streamed Chat Completion reports no usage at all.
         body.insert("stream_options".into(), json!({"include_usage": true}));
+        // OpenAI's and xAI's Chat Completions both name it
+        // `reasoning_effort`, a top-level string. Only when set: a request
+        // without it is byte-for-byte what it was before the field existed.
+        if let Some(effort) = request.reasoning_effort {
+            body.insert("reasoning_effort".into(), json!(effort.as_str()));
+        }
         let mut caller = Vec::new();
         if !request.tools.is_empty() {
             caller.push((

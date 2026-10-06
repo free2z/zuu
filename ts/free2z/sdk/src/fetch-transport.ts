@@ -11,6 +11,7 @@ import {
 } from "./http.js";
 import {
   parseJson,
+  reasoningEffort,
   responseFormat,
   strictOutput,
   toolOptions,
@@ -240,7 +241,9 @@ export class FetchTransport implements Transport {
   ): Promise<Estimate> {
     if (request.max_output_tokens !== undefined)
       uint(request.max_output_tokens);
-    request = toolOptions(responseFormat(strictOutput(request)));
+    request = reasoningEffort(
+      toolOptions(responseFormat(strictOutput(request))),
+    );
     return decode.estimate(
       await this.#json(
         `${this.#ai}/chat/estimate`,
@@ -328,7 +331,9 @@ export class FetchTransport implements Transport {
     cancelled(options.signal);
     if (request.max_output_tokens !== undefined)
       uint(request.max_output_tokens);
-    request = toolOptions(responseFormat(strictOutput(request)));
+    request = reasoningEffort(
+      toolOptions(responseFormat(strictOutput(request))),
+    );
     const generation = this.#auth.generation,
       control = new AbortController();
     if (

@@ -547,3 +547,119 @@ async fn response_format_is_refused_before_any_io_where_it_cannot_be_honoured() 
             .is_ok()
     );
 }
+
+/// The adapter catalogue with `capabilities.reasoning_effort` declared on
+/// every model when `declared`, and `controls.effort_levels` = `levels`.
+fn with_effort(declared: bool, levels: Option<&[&str]>) -> f2z_ai::catalog::VerifiedCatalog {
+    let mut value = serde_json::to_value(catalog(10_000).catalog()).unwrap();
+    for model in value["models"].as_array_mut().unwrap() {
+        if declared {
+            model["capabilities"] = json!({"reasoning": true, "reasoning_effort": true});
+        }
+        if let Some(levels) = levels {
+            model["controls"] = json!({"effort_levels": levels});
+        }
+    }
+    f2z_ai::catalog::VerifiedCatalog::from_verified(serde_json::from_value(value).unwrap()).unwrap()
+}
+
+fn with_effort_request(model: &str, effort: &str) -> ChatRequest {
+    // Client JSON text -> proto: the wire round trip the SDKs make.
+    let mut value = serde_json::to_value(request(model)).unwrap();
+    value["reasoning_effort"] = json!(effort);
+    serde_json::from_str(&value.to_string()).unwrap()
+}
+
+/// zuu#1151 (S3, effort only): Chat Completions (OpenAI and xAI) sends
+/// `reasoning_effort` as a top-level string; Responses nests it as
+/// `reasoning.effort`. Documented shapes: platform.openai.com
+/// `chat/completions` `reasoning_effort` and `responses` `reasoning.effort`;
+/// docs.x.ai `chat/completions` `reasoning_effort`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reasoning_effort_reaches_each_openai_shaped_adapter_as_documented() {
+    let mock = MockProvider::start(Scenario::default()).await.unwrap();
+    let backend = backend(&mock.base_url(), tuning(0));
+    let catalog = with_effort(true, None);
+    for model in [CHAT, XAI, RESPONSES] {
+        for effort in ["minimal", "low", "medium", "high"] {
+            let run = drive(&backend, &catalog, &with_effort_request(model.id, effort)).await;
+            assert_eq!(run.outcome.failure, None, "{} {effort}", model.id);
+            let sent = mock.recorded_requests().last().unwrap().body.clone();
+            if model.style == ProviderStyle::OpenAiResponses {
+                assert_eq!(sent["reasoning"], json!({"effort": effort}), "{}", model.id);
+                assert!(sent.get("reasoning_effort").is_none(), "{}", model.id);
+            } else {
+                assert_eq!(sent["reasoning_effort"], json!(effort), "{}", model.id);
+                assert!(sent.get("reasoning").is_none(), "{}", model.id);
+            }
+        }
+        // Negative control: absent stays absent — the same model, catalogue
+        // and backend send neither member, so the assertions above can fail.
+        let run = drive(&backend, &catalog, &request(model.id)).await;
+        assert_eq!(run.outcome.failure, None, "{}", model.id);
+        let sent = mock.recorded_requests().last().unwrap().body.clone();
+        assert!(sent.get("reasoning_effort").is_none(), "{}", model.id);
+        assert!(sent.get("reasoning").is_none(), "{}", model.id);
+    }
+    mock.shutdown().await;
+}
+
+#[tokio::test]
+async fn reasoning_effort_is_refused_before_any_io_where_it_cannot_be_honoured() {
+    // Port 9 (discard): a request that got as far as I/O would fail with a
+    // connection error, not this refusal.
+    let backend = backend("http://127.0.0.1:9", tuning(0));
+    let undeclared = with_effort(false, None);
+    let declared = with_effort(true, None);
+    let narrowed = with_effort(true, Some(&["low", "high"]));
+    let cases = [
+        // Not declared: absence is never support, on any adapter.
+        (CHAT.id, "low", &undeclared),
+        (XAI.id, "high", &undeclared),
+        (RESPONSES.id, "medium", &undeclared),
+        // Declared, but Messages has no effort control (only a budget).
+        (ANTHROPIC.id, "low", &declared),
+        // Declared, but the level is not one the catalogue lists.
+        (CHAT.id, "medium", &narrowed),
+        (XAI.id, "minimal", &narrowed),
+    ];
+    for (model, effort, catalog) in cases {
+        let e = backend
+            .open(&with_effort_request(model, effort), catalog, Instant::now())
+            .map(|_| ())
+            .unwrap_err();
+        assert_eq!(
+            (e.status().as_u16(), e.code()),
+            (400, "invalid_request"),
+            "{model} {effort}"
+        );
+        assert_eq!(
+            e.detail_of("reason"),
+            Some(&json!("reasoning_effort_unsupported")),
+            "{model} {effort}"
+        );
+        assert_eq!(e.detail_of("field"), Some(&json!("reasoning_effort")));
+        // Negative control: without the field, the same model and catalogue
+        // pass every pre-I/O check.
+        assert!(
+            backend
+                .open(&request(model), catalog, Instant::now())
+                .is_ok(),
+            "{model}"
+        );
+    }
+    // A listed level, and a declared model with no list, are admitted.
+    for (model, effort, catalog) in [
+        (CHAT.id, "high", &narrowed),
+        (XAI.id, "low", &narrowed),
+        (CHAT.id, "minimal", &declared),
+        (RESPONSES.id, "medium", &declared),
+    ] {
+        assert!(
+            backend
+                .open(&with_effort_request(model, effort), catalog, Instant::now())
+                .is_ok(),
+            "{model} {effort}"
+        );
+    }
+}

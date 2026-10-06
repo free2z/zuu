@@ -530,6 +530,8 @@ fn the_corpus_controls_dropping_tool_choice_response_format_and_strict() {
             "a dropped json_schema strict",
         ),
         ("/tools/0/strict", "a dropped tool strict"),
+        ("/reasoning_effort", "a dropped reasoning_effort"),
+        ("/reasoning", "a dropped Responses reasoning.effort"),
     ] {
         assert!(
             all.iter().any(|m| m.target == Target::ProviderRequest

@@ -86,7 +86,7 @@ pub mod pricing;
 pub mod settlement;
 
 pub use amount::{Milli2z, Nusd, Whole2z};
-pub use chat::{ChatRequest, ChatResponse, ResponseFormat, ToolChoice, Usage};
+pub use chat::{ChatRequest, ChatResponse, ReasoningEffort, ResponseFormat, ToolChoice, Usage};
 pub use error::ErrorCode;
 pub use event::Event;
 pub use json::OrderedJson;

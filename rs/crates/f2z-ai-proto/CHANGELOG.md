@@ -10,6 +10,15 @@ release acceptance; see the repository SDK release guide.
   user, assistant, text}`. A request built this way keeps compiling as the
   contract gains additive fields.
 - `Milli2z::display_2z()` (`Display2z`): exact `41.500` display text.
+- `ChatRequest::reasoning_effort` (`ReasoningEffort`: `minimal`, `low`,
+  `medium`, `high`; builder `with_reasoning_effort`) — free2z/zuu#1151, effort
+  only: opt-in, omitted on the wire when absent; any other string, another
+  case or a present `null` is refused at decode, and the error never quotes
+  the value.
+- `ModelCapabilities::reasoning_effort` (signed, absent = `false`, not
+  serialized when `false`) and `CatalogModel::controls` (`ModelControls {
+  effort_levels }`, absent = not narrowed, an unknown level string is kept
+  and inert).
 - `ChatRequest::tool_choice` (`ToolChoice`: `"auto"`, `"none"`, `"required"`,
   `{"type":"function","function":{"name":…}}`) and
   `ChatRequest::parallel_tool_calls` (free2z/zuu#1128): OpenAI's shapes,

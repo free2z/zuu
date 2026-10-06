@@ -308,6 +308,106 @@ fn tool_choice_and_parallel_tool_calls_are_opt_in_and_pinned() {
 }
 
 #[test]
+fn reasoning_effort_is_opt_in_and_pinned() {
+    use f2z_ai_proto::chat::ReasoningEffort;
+
+    // Absent: not on the wire, so a pre-existing request keeps its bytes
+    // (and its idempotency fingerprint).
+    let base = r#"{"model":"m","messages":[],"stream":true}"#;
+    let absent: ChatRequest = serde_json::from_str(base).unwrap();
+    assert_eq!(absent.reasoning_effort, None);
+    assert_eq!(serde_json::to_string(&absent).unwrap(), base);
+    assert_eq!(
+        serde_json::to_string(&ChatRequest::new("m", vec![])).unwrap(),
+        base
+    );
+
+    // OpenAI's four values, pinned as literal text in both directions.
+    for (text, effort) in [
+        ("minimal", ReasoningEffort::Minimal),
+        ("low", ReasoningEffort::Low),
+        ("medium", ReasoningEffort::Medium),
+        ("high", ReasoningEffort::High),
+    ] {
+        let body =
+            format!(r#"{{"model":"m","messages":[],"stream":true,"reasoning_effort":"{text}"}}"#);
+        let on: ChatRequest = serde_json::from_str(&body).unwrap();
+        assert_eq!(on.reasoning_effort, Some(effort), "{text}");
+        assert_eq!(effort.as_str(), text);
+        assert_eq!(serde_json::to_string(&on).unwrap(), body);
+        assert_eq!(
+            ChatRequest::new("m", vec![]).with_reasoning_effort(effort),
+            on
+        );
+    }
+
+    // Refused at decode, never mapped to a neighbour or read as absent:
+    // provider values the unified wire does not carry, another case, a
+    // non-string, a null.
+    for bad in [
+        r#""none""#,
+        r#""xhigh""#,
+        r#""High""#,
+        r#""""#,
+        "1",
+        "{}",
+        "null",
+    ] {
+        let body = format!(r#"{{"model":"m","messages":[],"reasoning_effort":{bad}}}"#);
+        assert!(
+            serde_json::from_str::<ChatRequest>(&body).is_err(),
+            "accepted reasoning_effort {bad}"
+        );
+    }
+    // The decode error names the shape, never the caller's value.
+    let error = serde_json::from_str::<ChatRequest>(
+        r#"{"model":"m","messages":[],"reasoning_effort":"CANARY-VALUE"}"#,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(!error.contains("CANARY"), "{error}");
+}
+
+#[test]
+fn reasoning_effort_capability_and_levels_are_signed_members() {
+    use f2z_ai_proto::catalog::{ModelCapabilities, ModelControls};
+
+    // Absent reads as unsupported and not narrowed, and re-encodes as before.
+    let caps: ModelCapabilities = serde_json::from_str(r#"{"reasoning":true}"#).unwrap();
+    assert!(!caps.reasoning_effort);
+    assert_eq!(
+        serde_json::to_string(&caps).unwrap(),
+        r#"{"vision":false,"tools":false,"reasoning":true}"#
+    );
+    let caps: ModelCapabilities =
+        serde_json::from_str(r#"{"reasoning":true,"reasoning_effort":true}"#).unwrap();
+    assert!(caps.reasoning_effort);
+    assert_eq!(
+        serde_json::to_string(&caps).unwrap(),
+        r#"{"vision":false,"tools":false,"reasoning":true,"reasoning_effort":true}"#
+    );
+    for bad in [
+        r#"{"reasoning_effort":null}"#,
+        r#"{"reasoning_effort":"true"}"#,
+    ] {
+        assert!(
+            serde_json::from_str::<ModelCapabilities>(bad).is_err(),
+            "{bad}"
+        );
+    }
+    let controls: ModelControls =
+        serde_json::from_str(r#"{"effort_levels":["low","high","xhigh"]}"#).unwrap();
+    assert_eq!(
+        controls.effort_levels.as_deref(),
+        Some(&["low".to_owned(), "high".to_owned(), "xhigh".to_owned()][..])
+    );
+    assert_eq!(
+        serde_json::to_string(&ModelControls::default()).unwrap(),
+        "{}"
+    );
+}
+
+#[test]
 fn requests_are_strict() {
     for bad in [
         // misspelt cap: must not be silently ignored
