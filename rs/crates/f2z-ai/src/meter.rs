@@ -249,12 +249,16 @@ async fn estimate_off_runtime(
                 .map(|f| serde_json::to_vec(f).map_or(usize::MAX, |b| b.len())),
         )
         .fold(0usize, usize::saturating_add);
-    let _slot = if text_bytes > LARGE_PROMPT_BYTES {
+    let slot = if text_bytes > LARGE_PROMPT_BYTES {
         Some(SLOTS.acquire().await.map_err(|_| invalid())?)
     } else {
         None
     };
     tokio::task::spawn_blocking(move || {
+        // The permit lives with the work, not with the awaiting future: a
+        // cancelled request (client gone) must not free a slot while its
+        // tokeniser job is still running.
+        let _slot = slot;
         let estimate = crate::estimate::input_tokens(&request, &model);
         (request, estimate)
     })
