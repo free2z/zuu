@@ -197,6 +197,10 @@ impl Plan {
         }
     }
 }
+/// Above this much message text an estimate takes one of the tokeniser
+/// slots (`estimate_off_runtime`).
+const LARGE_PROMPT_BYTES: usize = 64 * 1024;
+
 /// The input estimate computed off the async runtime: the tokeniser's work
 /// grows with the prompt (tens of ms per MiB), and a request body can be
 /// large. Returns the request with its estimate; `None` when the model is
@@ -208,10 +212,25 @@ async fn estimate_off_runtime(
     let Some(model) = catalog.catalog().callable_model(&request.model).cloned() else {
         return Ok((request, None));
     };
-    // A few at a time: a 4 MiB prompt is ~1 s of tokeniser CPU, and the
-    // blocking pool is shared with everything else that blocks.
+    // Large prompts a few at a time: a 4 MiB prompt is ~1 s of tokeniser
+    // CPU, and the blocking pool is shared with everything else that
+    // blocks. A small prompt (the common case, milliseconds) never queues
+    // behind a large one.
     static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
-    let _slot = SLOTS.acquire().await.map_err(|_| invalid())?;
+    let text_bytes: usize = request
+        .messages
+        .iter()
+        .flat_map(|m| &m.content)
+        .map(|p| match p {
+            ContentPart::Text { text } => text.len(),
+            ContentPart::Image { data, .. } => data.len(),
+        })
+        .sum();
+    let _slot = if text_bytes > LARGE_PROMPT_BYTES {
+        Some(SLOTS.acquire().await.map_err(|_| invalid())?)
+    } else {
+        None
+    };
     tokio::task::spawn_blocking(move || {
         let estimate = crate::estimate::input_tokens(&request, &model);
         (request, estimate)
@@ -423,7 +442,10 @@ struct Active {
 /// relayed fragments (name, then arguments, by call index) of one call.
 #[derive(Default)]
 struct Produced {
-    text: String,
+    /// The generated text, counted incrementally in bounded chunks
+    /// (`estimate::OutputCounter`): retention per call is a chunk, not the
+    /// whole answer.
+    text: crate::estimate::OutputCounter,
     tool_calls: Vec<ToolCall>,
     /// By call index: the name as last reported (a later fragment's name
     /// is the accumulated one and replaces it) and the arguments so far.
@@ -1007,6 +1029,11 @@ fn estimated_usage(active: &Active, outcome: Option<&ProviderOutcome>) -> Option
                 .input_tokens
                 .saturating_add(p.cached_input_tokens)
                 .saturating_add(p.cache_write_tokens);
+            total > 0 && total <= plan.input
+        })
+        .map_or((plan.input, 0, 0), |p| {
+            (p.input_tokens, p.cached_input_tokens, p.cache_write_tokens)
+        });
     if !plan.input_exact && partial.is_none() {
         // metering.md §5.4: a provider without a tokeniser settles its
         // interrupted calls at the byte bound (4–5× the billed input).
@@ -1020,11 +1047,6 @@ fn estimated_usage(active: &Active, outcome: Option<&ProviderOutcome>) -> Option
             "estimated_input_byte_bound: interrupted call settled at the byte bound, no tokeniser and no partial usage"
         );
     }
-            total > 0 && total <= plan.input
-        })
-        .map_or((plan.input, 0, 0), |p| {
-            (p.input_tokens, p.cached_input_tokens, p.cache_write_tokens)
-        });
     let output = {
         let produced = lock(&active.produced);
         // The fragments the adapter saw (every mode) or, on a drain that
@@ -1039,7 +1061,12 @@ fn estimated_usage(active: &Active, outcome: Option<&ProviderOutcome>) -> Option
             .filter(|f| !f.is_empty())
             .or_else(|| Some(produced.upstream_fragments.as_slice()).filter(|f| !f.is_empty()))
             .unwrap_or(&relayed);
-        crate::estimate::output_tokens(&plan.model, &produced.text, &produced.tool_calls, fragments)
+        crate::estimate::output_tokens_counted(
+            &plan.model,
+            &produced.text,
+            &produced.tool_calls,
+            fragments,
+        )
     };
     Some(Usage {
         input_tokens: input.0,
@@ -1298,7 +1325,12 @@ impl Upstream for MeterStream {
                     Event::Delta(delta) => {
                         let mut n = lock(&self.active.output_bytes);
                         *n = n.saturating_add(u64::try_from(delta.text.len()).unwrap_or(u64::MAX));
-                        lock(&self.active.produced).text.push_str(&delta.text);
+                        let encoding = lock(&self.active.plan)
+                            .as_ref()
+                            .map(|p| crate::estimate::output_encoding(&p.model));
+                        if let Some(encoding) = encoding {
+                            lock(&self.active.produced).text.push(encoding, &delta.text);
+                        }
                     }
                     // `output_bytes` only says whether any output was
                     // produced (the completion's `partial`); the fragments
@@ -1563,6 +1595,120 @@ mod tests {
         // Anything else stored there is never forwarded.
         record["request"]["features"] = json!({"prompt":"leak"});
         assert!(project(&record, false).unwrap().get("features").is_none());
+    }
+
+    /// A `tracing` layer that keeps every event's message, for asserting
+    /// that an operator-facing log line fires.
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<String>>>);
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Captured {
+        fn on_event(
+            &self,
+            event: &tracing::Event<'_>,
+            _ctx: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            struct Message(String);
+            impl tracing::field::Visit for Message {
+                fn record_debug(
+                    &mut self,
+                    field: &tracing::field::Field,
+                    value: &dyn std::fmt::Debug,
+                ) {
+                    if field.name() == "message" {
+                        self.0 = format!("{value:?}");
+                    }
+                }
+            }
+            let mut message = Message(String::new());
+            event.record(&mut message);
+            lock(&self.0).push(message.0);
+        }
+    }
+
+    fn active_with(plan: Plan) -> Active {
+        Active {
+            identity: Identity::try_from(&Principal {
+                sub: "11111111-1111-4111-8111-111111111111".into(),
+                client_id: "c".into(),
+                app_id: "22222222-2222-4222-8222-222222222222".into(),
+                scope: "ai:invoke".into(),
+                aep: 1,
+                agen: 1,
+                exp: u64::MAX,
+                jti: "t".into(),
+            })
+            .unwrap(),
+            id: Uuid::now_v7(),
+            plan: Mutex::new(Some(plan)),
+            request_meta: json!({}),
+            hold: Mutex::new(None),
+            hold_id: Mutex::new(None),
+            completion: Mutex::new(None),
+            provider_started: Mutex::new(true),
+            output_bytes: Mutex::new(0),
+            accepted: Mutex::new(true),
+            produced: Mutex::new(Produced::default()),
+            final_record: Mutex::new(None),
+        }
+    }
+
+    fn drained_outcome(partial: Option<Usage>) -> ProviderOutcome {
+        ProviderOutcome {
+            finish_reason: None,
+            usage: UsageReport::Missing { partial },
+            cache_write_1h_tokens: 0,
+            failure: None,
+            output_produced: false,
+            accepted: true,
+            tool_fragments: Vec::new(),
+            function_tool_calls: 0,
+            attempts: 1,
+        }
+    }
+
+    // metering.md §5.4's guard on the byte-bound settlement: a provider
+    // without a tokeniser whose interrupted call settles at the byte bound
+    // logs `estimated_input_byte_bound`; a tokenised model, or partial
+    // counts from the provider, do not.
+    #[test]
+    fn a_byte_bound_settlement_without_partial_counts_is_logged() {
+        use tracing_subscriber::layer::SubscriberExt;
+        let catalog = priced(200_000);
+        let model = catalog.catalog().models[0].clone();
+        let plan = |exact: bool| Plan {
+            model: model.clone(),
+            input: 135,
+            input_exact: exact,
+            output: 100,
+            hold: Whole2z::new(1),
+            markup: Bps(0),
+            margin: Bps(2000),
+        };
+        let run = |exact: bool, partial: Option<Usage>| {
+            let captured = Captured::default();
+            let subscriber = tracing_subscriber::registry().with(captured.clone());
+            let usage = tracing::subscriber::with_default(subscriber, || {
+                estimated_usage(&active_with(plan(exact)), Some(&drained_outcome(partial)))
+            })
+            .unwrap();
+            let fired = lock(&captured.0)
+                .iter()
+                .any(|m| m.contains("estimated_input_byte_bound"));
+            (usage, fired)
+        };
+        let (usage, fired) = run(false, None);
+        assert_eq!(usage.input_tokens, 135);
+        assert!(fired, "the byte-bound settlement did not log");
+        let (_, fired) = run(true, None);
+        assert!(!fired, "a tokenised estimate logged the byte-bound line");
+        let reported = Usage {
+            input_tokens: 40,
+            cached_input_tokens: 5,
+            ..Usage::default()
+        };
+        let (usage, fired) = run(false, Some(reported));
+        assert_eq!((usage.input_tokens, usage.cached_input_tokens), (40, 5));
+        assert!(!fired, "provider counts settled it, yet it logged");
     }
 
     // free2z/zuu#1122: `max_output_tokens_strict` refuses instead of clamping.

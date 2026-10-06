@@ -280,7 +280,7 @@ Two invariants a user can observe:
 Before the provider is called, the gateway computes the **worst case**:
 
 ```
-input_est   = ceil(tokenise(messages + tools + provider framing) × safety_factor_bps / 10⁴)   (the model's catalogue margin, applied to a tokenised count as to a bound: 11,000 bps on OpenAI rows, 11,500 elsewhere)
+input_est   = ceil(tokenise(messages + tools + provider framing) × safety_factor_bps / 10⁴)   (the model's catalogue `safety_factor_bps`, applied to a tokenised count as to a bound; the catalogue sets a smaller margin on rows the gateway tokenises exactly)
 out_cap     = min(max_output_tokens, context_window − input_est, affordable)
 hold_2z     = price(input_est at the dearest input rate, out_cap, images, tool_budget)        by §2.1 then §2.2
 ```

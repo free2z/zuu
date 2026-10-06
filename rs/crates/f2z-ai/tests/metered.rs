@@ -1182,6 +1182,145 @@ async fn a_head_then_silence_past_ttfb_is_charged_the_input_estimate_after_meta(
     }
     server.abort();
 }
+// The Responses adapter keeps reading after a provider `error` event (a
+// `response.failed` with usage may follow). When the provider then stalls
+// instead, the idle timeout must not outrank the provider's own refusal:
+// the request was refused before any content and is released, not charged.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_responses_error_event_then_silence_is_still_a_refusal() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 65536];
+                let mut read = 0usize;
+                loop {
+                    let n = socket.read(&mut buf[read..]).await.unwrap_or(0);
+                    if n == 0 {
+                        return;
+                    }
+                    read += n;
+                    let text = String::from_utf8_lossy(&buf[..read]).to_string();
+                    if let Some(end) = text.find("\r\n\r\n") {
+                        let length = text
+                            .lines()
+                            .find_map(|l| {
+                                l.to_ascii_lowercase()
+                                    .strip_prefix("content-length:")
+                                    .map(|v| v.trim().parse::<usize>().unwrap())
+                            })
+                            .unwrap_or(0);
+                        if read >= end + 4 + length {
+                            break;
+                        }
+                    }
+                }
+                let frame = "event: error\ndata: {\"type\":\"error\",\"code\":\"server_error\",\"message\":\"overloaded\",\"param\":null,\"sequence_number\":1}\n\n";
+                let body = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n{:x}\r\n{frame}\r\n",
+                    frame.len()
+                );
+                socket.write_all(body.as_bytes()).await.unwrap();
+                socket.flush().await.unwrap();
+                // The provider has refused; now it stalls past the idle limit.
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            });
+        }
+    });
+    let db = Arc::new(Database::new());
+    let meter = Arc::new(Metered::new(
+        db.clone(),
+        adapter_support::backend(&base, adapter_support::tuning(0)),
+    ));
+    let r = support::start(
+        &support::config(&[]),
+        Deps {
+            gate: Arc::new(Gate),
+            catalog: Arc::new(Fixed(adapter_support::catalog_with(10_000, Some(200)))),
+            backend: meter.clone(),
+            settler: meter,
+        },
+    )
+    .await;
+    support::wait_readyz(r.admin, StatusCode::OK).await;
+    let text = support::text(send(&r).await).await;
+    assert!(text.contains("\"code\":\"provider_error\""), "{text}");
+    assert!(text.contains("\"settlement\":\"released\""), "{text}");
+    assert!(!text.contains("event: meta"), "{text}");
+    final_state(&db).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert_eq!(state.charges, 0);
+        assert_eq!(state.terminal, Some("released"));
+    }
+    server.abort();
+}
+// Generated tool arguments commit the call in every mode: with
+// `stream: false` the fragments never reach the wire, but a provider error
+// after them is an error AFTER output (the provider bills the arguments),
+// settled on the estimate — not a pre-content refusal that releases.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unrelayed_tool_fragments_still_commit_a_nonstreamed_call() {
+    let fixture = tool_fixture("openai_strict_forced_streamed.json");
+    let chunks = fixture["provider_stream"].as_array().unwrap();
+    let mut fragments_then_error: Vec<Value> = chunks
+        .iter()
+        .take_while(|c| c["choices"][0]["finish_reason"].is_null() && *c != &json!("[DONE]"))
+        .cloned()
+        .collect();
+    fragments_then_error.push(json!({"error": {"message": "The server had an error while processing your request.", "type": "server_error", "param": null, "code": null}}));
+    let (base, server) = replay_server(&fragments_then_error).await;
+    let (catalog, model) = refusal_catalog("openai_interim");
+    let generated = "check_answer{\"question_id\":\"q1\",\"answer\":\"x = 4\"}";
+    let raw = f2z_ai::estimate::Encoding::O200kBase.count(generated);
+    for stream in [false, true] {
+        let db = Arc::new(Database::new());
+        let meter = Arc::new(Metered::new(
+            db.clone(),
+            adapter_support::backend(&base, adapter_support::tuning(0)),
+        ));
+        let r = support::start(
+            &support::config(&[]),
+            Deps {
+                gate: Arc::new(Gate),
+                catalog: Arc::new(Fixed(catalog.clone())),
+                backend: meter.clone(),
+                settler: meter,
+            },
+        )
+        .await;
+        support::wait_readyz(r.admin, StatusCode::OK).await;
+        let mut request = fixture["request"].clone();
+        request["model"] = json!(model);
+        request["stream"] = json!(stream);
+        let text = support::text(
+            support::send(r.public, support::chat_request(request.to_string())).await,
+        )
+        .await;
+        assert!(text.contains("provider_error"), "stream={stream}: {text}");
+        assert!(
+            text.contains("\"settlement\":\"settled\""),
+            "stream={stream}: {text}"
+        );
+        final_state(&db).await;
+        {
+            let state = db.0.lock().unwrap();
+            assert_eq!(state.charges, 1, "stream={stream}");
+            assert_eq!(
+                state.settled_usage["output_tokens"],
+                raw + raw.div_ceil(10),
+                "stream={stream}: {}",
+                state.settled_usage
+            );
+        }
+    }
+    server.abort();
+}
 // Negative control for the three above: a request the provider REFUSED (a
 // 503 head, no stream) is not billed by it, and the hold is released with
 // nothing charged — the estimate applies only to an accepted request.

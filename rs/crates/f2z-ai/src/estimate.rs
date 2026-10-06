@@ -582,6 +582,73 @@ fn schema_node(
     n
 }
 
+/// The encoding an output estimate for `model` is counted with:
+/// the model's own, or `o200k_base` as the approximation for a provider
+/// without one.
+#[must_use]
+pub fn output_encoding(model: &CatalogModel) -> Encoding {
+    Encoding::for_model(model).unwrap_or(Encoding::O200kBase)
+}
+
+/// Generated text counted as it arrives, in bounded chunks, so that a call
+/// retains at most [`OUTPUT_CHUNK_BYTES`] of its answer rather than all of
+/// it (metering.md §5.4 counts "everything the provider produced", and a
+/// gateway holds `max_concurrent_calls` of those at once). Every flushed
+/// chunk is a cut, charged [`CUT_PENALTY`] like the cuts in
+/// [`Encoding::count`], so the running total is never below the count of
+/// the whole text.
+#[derive(Default)]
+pub struct OutputCounter {
+    counted: u64,
+    pending: String,
+}
+
+/// Text retained per call before it is counted and dropped.
+pub const OUTPUT_CHUNK_BYTES: usize = 64 * 1024;
+
+impl OutputCounter {
+    /// Append generated text, counting and dropping full chunks.
+    pub fn push(&mut self, encoding: Encoding, text: &str) {
+        self.pending.push_str(text);
+        while self.pending.len() > OUTPUT_CHUNK_BYTES {
+            let mut at = OUTPUT_CHUNK_BYTES;
+            while !self.pending.is_char_boundary(at) {
+                at = at.saturating_sub(1);
+            }
+            let rest = self.pending.split_off(at);
+            self.counted = self
+                .counted
+                .saturating_add(encoding.count(&self.pending))
+                .saturating_add(CUT_PENALTY);
+            self.pending = rest;
+        }
+    }
+
+    /// The tokens of everything pushed so far.
+    #[must_use]
+    pub fn tokens(&self, encoding: Encoding) -> u64 {
+        self.counted.saturating_add(encoding.count(&self.pending))
+    }
+
+    /// Whether anything was pushed.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.counted == 0 && self.pending.is_empty()
+    }
+}
+
+/// [`output_tokens`] over an [`OutputCounter`].
+#[must_use]
+pub fn output_tokens_counted(
+    model: &CatalogModel,
+    text: &OutputCounter,
+    tool_calls: &[ToolCall],
+    fragments: &[String],
+) -> u64 {
+    let encoding = output_encoding(model);
+    tool_output(encoding, text.tokens(encoding), tool_calls, fragments)
+}
+
 /// metering.md §5.4's output estimate: everything the provider produced —
 /// the text and the tool calls' names and arguments — tokenised with the
 /// model's encoding (`o200k_base` as the approximation for a provider
@@ -600,7 +667,16 @@ pub fn output_tokens(
     tool_calls: &[ToolCall],
     fragments: &[String],
 ) -> u64 {
-    let encoding = Encoding::for_model(model).unwrap_or(Encoding::O200kBase);
+    let encoding = output_encoding(model);
+    tool_output(encoding, encoding.count(text), tool_calls, fragments)
+}
+
+fn tool_output(
+    encoding: Encoding,
+    text_tokens: u64,
+    tool_calls: &[ToolCall],
+    fragments: &[String],
+) -> u64 {
     let complete = tool_calls.iter().fold(0u64, |n, call| {
         n.saturating_add(encoding.count(&call.name))
             .saturating_add(encoding.count(&call.arguments))
@@ -608,9 +684,7 @@ pub fn output_tokens(
     let fragmented = fragments
         .iter()
         .fold(0u64, |n, f| n.saturating_add(encoding.count(f)));
-    let raw = encoding
-        .count(text)
-        .saturating_add(complete.max(fragmented));
+    let raw = text_tokens.saturating_add(complete.max(fragmented));
     apply_safety_factor(raw, OUTPUT_ESTIMATE_BPS).unwrap_or(u64::MAX)
 }
 
@@ -769,6 +843,32 @@ mod tests {
         assert!(spaces_alone >= (chunks + 1) * CUT_PENALTY);
         assert!(enc.count(&format!("{spaces}x")) >= spaces_alone);
         assert!(Encoding::Cl100kBase.count(&format!("{spaces}x")) > 0);
+    }
+
+    #[test]
+    fn the_output_counter_retains_one_chunk_and_never_undercounts() {
+        let enc = Encoding::O200kBase;
+        let mut counter = OutputCounter::default();
+        assert!(counter.is_empty());
+        let sentence = "The quick brown fox jumps over the lazy dog. ";
+        let mut whole = String::new();
+        // Pushed a sentence at a time, ~200 KiB in all: three flushes.
+        while whole.len() < 200 * 1024 {
+            counter.push(enc, sentence);
+            whole.push_str(sentence);
+        }
+        assert!(!counter.is_empty());
+        assert!(counter.pending.len() <= OUTPUT_CHUNK_BYTES);
+        let exact = enc.count(&whole);
+        let counted = counter.tokens(enc);
+        assert!(counted >= exact, "{counted} < {exact}");
+        // Three cuts' allowance, plus the few tokens a cut mid-word adds.
+        assert!(counted <= exact + 4 * CUT_PENALTY, "{counted} vs {exact}");
+        // A multi-byte character astride the chunk boundary is kept whole.
+        let mut counter = OutputCounter::default();
+        counter.push(enc, &"é".repeat(OUTPUT_CHUNK_BYTES));
+        assert!(counter.pending.len() <= OUTPUT_CHUNK_BYTES);
+        assert!(counter.tokens(enc) > 0);
     }
 
     #[test]

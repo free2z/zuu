@@ -512,8 +512,19 @@ impl ProviderUpstream {
         // A stream exists, so the provider answered 2xx: it accepted the
         // request and bills for it whatever happens next. Never retried —
         // the attempt's own usage (or its absence) is what the call has.
+        // An error the provider itself declared in the stream outranks
+        // whatever ended the body afterwards (a stall, a reset, a drain):
+        // it is the provider's verdict on the request, and before any
+        // content it is a refusal the provider does not bill.
+        let declared = stream_failure
+            .as_ref()
+            .is_some_and(ProviderFailure::declared_by_provider);
         self.finish(
-            failure.or(stream_failure),
+            if declared {
+                stream_failure
+            } else {
+                failure.or(stream_failure)
+            },
             finish_reason,
             usage,
             cache_write_1h_tokens,
