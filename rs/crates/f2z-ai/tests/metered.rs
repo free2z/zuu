@@ -72,6 +72,8 @@ struct Memory {
     /// `call_claim` raises (22023), which the adapter reports as `Failure`.
     old_ledger: bool,
     claims: usize,
+    /// The usage vector the last `Settle` carried.
+    settled_usage: Value,
 }
 impl Memory {
     fn context(&self) -> Value {
@@ -230,6 +232,7 @@ impl Ledger for Database {
                 assert_eq!(Some(*hold), m.hold);
                 assert!(*cost_nusd > 0);
                 assert!(usage["input_tokens"].as_u64().unwrap() > 0);
+                m.settled_usage = usage.clone();
                 m.settle_requests += 1;
                 if m.terminal.is_none() {
                     m.charges += 1;
@@ -624,19 +627,164 @@ async fn lost_hold_reply_then_revocation_recovers_attempt_before_release() {
     assert_eq!(db.0.lock().unwrap().charges, 0);
     mock.shutdown().await;
 }
+/// The text of every `delta` in an SSE body.
+fn delivered_text(sse: &str) -> String {
+    let mut text = String::new();
+    let mut lines = sse.lines();
+    while let Some(line) = lines.next() {
+        if line == "event: delta"
+            && let Some(data) = lines.next().and_then(|d| d.strip_prefix("data: "))
+        {
+            let delta: Value = serde_json::from_str(data).unwrap();
+            text.push_str(delta["text"].as_str().unwrap());
+        }
+    }
+    text
+}
+/// The expected metering.md §5.4 usage for `text` delivered on `request`:
+/// `input_tokens` is the hold's estimate, `output_tokens` the delivered text
+/// tokenised and scaled by 11,000 bps.
+async fn expected_estimate(r: &support::Running, request: &Value, text: &str) -> (u64, u64) {
+    let input = estimate_input(r, request).await;
+    let raw = f2z_ai::estimate::Encoding::O200kBase.count(text);
+    (input, raw + raw.div_ceil(10))
+}
+// free2z/zuu#1164: a stream that ends without its usage frame used to
+// release the whole hold (the platform absorbed the call, and a refund was
+// repeatable with a 1 2Z balance). It settles on metering.md §5.4's
+// estimate: the hold's input estimate plus the produced output tokenised.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn missing_usage_is_explicitly_released_never_invented_zero_usage_or_byte_charge() {
+async fn missing_usage_settles_on_the_estimate_never_zero_and_never_above_the_hold() {
     let db = Arc::new(Database::new());
     let (r, mock) = launch(db.clone(), Scenario::default().without_usage()).await;
     let response = send(&r).await;
     assert_eq!(response.status(), StatusCode::OK);
     let text = support::text(response).await;
     assert!(text.contains("event: delta"), "{text}");
+    assert!(!text.contains("event: error"), "{text}");
+    assert!(text.contains("event: usage"), "{text}");
+    assert!(text.contains("\"source\":\"estimated\""), "{text}");
+    assert!(text.contains("event: done"), "{text}");
+    assert!(text.contains("\"settlement\":\"settled\""), "{text}");
+    assert!(text.contains("\"usage_source\":\"estimated\""), "{text}");
+    final_state(&db).await;
+    let delivered = delivered_text(&text);
+    assert!(!delivered.is_empty());
+    let (input, output) = expected_estimate(&r, &request(), &delivered).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert_eq!(state.charges, 1);
+        assert_eq!(state.terminal, Some("settled"));
+        assert_eq!(state.settled_usage["input_tokens"], input);
+        assert_eq!(state.settled_usage["output_tokens"], output);
+        // Never above the hold: the input is the hold's own estimate and the
+        // output is within the cap the provider was given.
+        assert!(output <= 100, "{output}");
+        for bucket in [
+            "cached_input_tokens",
+            "cache_write_tokens",
+            "reasoning_tokens",
+            "tool_calls",
+        ] {
+            assert_eq!(state.settled_usage[bucket], 0, "{bucket}");
+        }
+    }
+    // The record says so, for the count metering.md §5.4 asks for.
+    let record = db.0.lock().unwrap().record();
+    assert_eq!(record["completion"]["usage_source"], "estimated");
+    mock.shutdown().await;
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stream_cut_after_output_settles_partial_on_the_estimate() {
+    let db = Arc::new(Database::new());
+    // Cut half way through the body: after the first deltas, before the
+    // usage frame (the recipe `adapter_faults.rs` uses).
+    let scenario = Scenario::default().with_output_tokens(64);
+    let ctx = f2z_ai_testkit::mock::RenderContext {
+        model: format!("{}-upstream", adapter_support::RESPONSES.id),
+        include_usage: true,
+        request_seq: 1,
+    };
+    let byte = (f2z_ai_testkit::mock::plan(adapter_support::RESPONSES.style, &scenario, &ctx)
+        .body_bytes()
+        .len()
+        / 2) as u64;
+    let (r, mock) = launch(
+        db.clone(),
+        scenario.with_fault(f2z_ai_testkit::mock::Fault::DisconnectAtByte { byte }),
+    )
+    .await;
+    let text = support::text(send(&r).await).await;
+    assert!(text.contains("event: delta"), "{text}");
+    assert!(text.contains("event: error"), "{text}");
+    assert!(text.contains("\"code\":\"provider_error\""), "{text}");
+    assert!(text.contains("\"settlement\":\"settled\""), "{text}");
+    assert!(text.contains("\"partial\":true"), "{text}");
+    final_state(&db).await;
+    let delivered = delivered_text(&text);
+    let (input, output) = expected_estimate(&r, &request(), &delivered).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert_eq!(state.charges, 1);
+        assert_eq!(state.settled_usage["input_tokens"], input);
+        assert_eq!(state.settled_usage["output_tokens"], output);
+        assert_eq!(state.record()["status"], "settled_partial");
+    }
+    mock.shutdown().await;
+}
+// The case that fenced the production shelf to gpt-4o (tuzi#2490): a model
+// that reasons silently past the idle limit produced nothing the gateway
+// could see, yet the provider accepted — and bills — the request. The input
+// estimate is charged; the unseen reasoning is the platform's loss, as
+// metering.md §5.4 says.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_idle_timeout_before_any_output_still_charges_the_input_estimate() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch_catalog(
+        db.clone(),
+        Scenario::default().with_stall(0, Duration::from_millis(1_500)),
+        None,
+        adapter_support::catalog_with(10_000, Some(150)),
+    )
+    .await;
+    let text = support::text(send(&r).await).await;
+    assert!(!text.contains("event: delta"), "{text}");
+    assert!(text.contains("\"code\":\"provider_timeout\""), "{text}");
+    assert!(text.contains("\"settlement\":\"settled\""), "{text}");
+    assert!(!text.contains("released"), "{text}");
+    final_state(&db).await;
+    let input = estimate_input(&r, &request()).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert_eq!(state.charges, 1);
+        assert_eq!(state.settled_usage["input_tokens"], input);
+        assert_eq!(state.settled_usage["output_tokens"], 0);
+        assert_eq!(state.record()["completion"]["usage_source"], "estimated");
+    }
+    mock.shutdown().await;
+}
+// Negative control for the three above: a request the provider REFUSED (a
+// 503 head, no stream) is not billed by it, and the hold is released with
+// nothing charged — the estimate applies only to an accepted request.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refused_request_releases_the_hold_and_charges_nothing() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch(
+        db.clone(),
+        Scenario::default().with_fault(f2z_ai_testkit::mock::Fault::Status { status: 503 }),
+    )
+    .await;
+    let text = support::text(send(&r).await).await;
     assert!(text.contains("event: error"), "{text}");
     assert!(text.contains("\"settlement\":\"released\""), "{text}");
-    assert!(!text.contains("event: done"));
-    assert!(!text.contains("event: usage"));
-    assert_eq!(db.0.lock().unwrap().charges, 0);
+    assert!(!text.contains("event: usage"), "{text}");
+    final_state(&db).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert_eq!(state.charges, 0);
+        assert_eq!(state.terminal, Some("released"));
+        assert_eq!(state.settle_requests, 0);
+    }
     mock.shutdown().await;
 }
 
@@ -846,21 +994,25 @@ async fn nonstream_uses_confirmed_settlement_and_replays_receipt_json() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn nonstream_missing_usage_keeps_partial_text_and_confirmed_release() {
+async fn nonstream_missing_usage_settles_on_the_estimate_and_returns_the_message() {
     let db = Arc::new(Database::new());
     let (r, mock) = launch(db.clone(), Scenario::default().without_usage()).await;
     let response = send_nonstream(&r).await;
-    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(response.status(), StatusCode::OK);
     let value: Value = serde_json::from_str(&support::text(response).await).unwrap();
-    assert_eq!(value["error"]["details"]["settlement"], "released");
-    assert_eq!(value["error"]["details"]["partial"], true);
-    assert!(
-        !value["error"]["details"]["message"]["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .is_empty()
-    );
-    assert_eq!(db.0.lock().unwrap().charges, 0);
+    assert_eq!(value["settlement"], "settled");
+    assert_eq!(value["usage_source"], "estimated");
+    let content = value["message"]["content"][0]["text"].as_str().unwrap();
+    assert!(!content.is_empty());
+    final_state(&db).await;
+    let (input, output) = expected_estimate(&r, &request(), content).await;
+    assert_eq!(value["usage"]["input_tokens"], input);
+    assert_eq!(value["usage"]["output_tokens"], output);
+    {
+        let state = db.0.lock().unwrap();
+        assert_eq!(state.charges, 1);
+        assert_eq!(state.settled_usage["output_tokens"], output);
+    }
     mock.shutdown().await;
 }
 

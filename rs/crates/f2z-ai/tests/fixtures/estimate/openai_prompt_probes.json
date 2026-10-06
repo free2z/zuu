@@ -1,0 +1,2231 @@
+[
+ {
+  "name": "no_schema",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ]
+  },
+  "prompt_tokens": 24,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "one_string",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+     "name": "one_string",
+     "strict": true,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "a"
+      ],
+      "additionalProperties": false
+     }
+    }
+   }
+  },
+  "prompt_tokens": 50,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "flat_terse_40",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+     "name": "flat_terse_40",
+     "strict": true,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "k0": {
+        "type": "string"
+       },
+       "k1": {
+        "type": "string"
+       },
+       "k2": {
+        "type": "string"
+       },
+       "k3": {
+        "type": "string"
+       },
+       "k4": {
+        "type": "string"
+       },
+       "k5": {
+        "type": "string"
+       },
+       "k6": {
+        "type": "string"
+       },
+       "k7": {
+        "type": "string"
+       },
+       "k8": {
+        "type": "string"
+       },
+       "k9": {
+        "type": "string"
+       },
+       "k10": {
+        "type": "string"
+       },
+       "k11": {
+        "type": "string"
+       },
+       "k12": {
+        "type": "string"
+       },
+       "k13": {
+        "type": "string"
+       },
+       "k14": {
+        "type": "string"
+       },
+       "k15": {
+        "type": "string"
+       },
+       "k16": {
+        "type": "string"
+       },
+       "k17": {
+        "type": "string"
+       },
+       "k18": {
+        "type": "string"
+       },
+       "k19": {
+        "type": "string"
+       },
+       "k20": {
+        "type": "string"
+       },
+       "k21": {
+        "type": "string"
+       },
+       "k22": {
+        "type": "string"
+       },
+       "k23": {
+        "type": "string"
+       },
+       "k24": {
+        "type": "string"
+       },
+       "k25": {
+        "type": "string"
+       },
+       "k26": {
+        "type": "string"
+       },
+       "k27": {
+        "type": "string"
+       },
+       "k28": {
+        "type": "string"
+       },
+       "k29": {
+        "type": "string"
+       },
+       "k30": {
+        "type": "string"
+       },
+       "k31": {
+        "type": "string"
+       },
+       "k32": {
+        "type": "string"
+       },
+       "k33": {
+        "type": "string"
+       },
+       "k34": {
+        "type": "string"
+       },
+       "k35": {
+        "type": "string"
+       },
+       "k36": {
+        "type": "string"
+       },
+       "k37": {
+        "type": "string"
+       },
+       "k38": {
+        "type": "string"
+       },
+       "k39": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "k0",
+       "k1",
+       "k2",
+       "k3",
+       "k4",
+       "k5",
+       "k6",
+       "k7",
+       "k8",
+       "k9",
+       "k10",
+       "k11",
+       "k12",
+       "k13",
+       "k14",
+       "k15",
+       "k16",
+       "k17",
+       "k18",
+       "k19",
+       "k20",
+       "k21",
+       "k22",
+       "k23",
+       "k24",
+       "k25",
+       "k26",
+       "k27",
+       "k28",
+       "k29",
+       "k30",
+       "k31",
+       "k32",
+       "k33",
+       "k34",
+       "k35",
+       "k36",
+       "k37",
+       "k38",
+       "k39"
+      ],
+      "additionalProperties": false
+     }
+    }
+   }
+  },
+  "prompt_tokens": 371,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "flat_terse_40_ints",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+     "name": "flat_terse_40_ints",
+     "strict": true,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "k0": {
+        "type": "integer"
+       },
+       "k1": {
+        "type": "integer"
+       },
+       "k2": {
+        "type": "integer"
+       },
+       "k3": {
+        "type": "integer"
+       },
+       "k4": {
+        "type": "integer"
+       },
+       "k5": {
+        "type": "integer"
+       },
+       "k6": {
+        "type": "integer"
+       },
+       "k7": {
+        "type": "integer"
+       },
+       "k8": {
+        "type": "integer"
+       },
+       "k9": {
+        "type": "integer"
+       },
+       "k10": {
+        "type": "integer"
+       },
+       "k11": {
+        "type": "integer"
+       },
+       "k12": {
+        "type": "integer"
+       },
+       "k13": {
+        "type": "integer"
+       },
+       "k14": {
+        "type": "integer"
+       },
+       "k15": {
+        "type": "integer"
+       },
+       "k16": {
+        "type": "integer"
+       },
+       "k17": {
+        "type": "integer"
+       },
+       "k18": {
+        "type": "integer"
+       },
+       "k19": {
+        "type": "integer"
+       },
+       "k20": {
+        "type": "integer"
+       },
+       "k21": {
+        "type": "integer"
+       },
+       "k22": {
+        "type": "integer"
+       },
+       "k23": {
+        "type": "integer"
+       },
+       "k24": {
+        "type": "integer"
+       },
+       "k25": {
+        "type": "integer"
+       },
+       "k26": {
+        "type": "integer"
+       },
+       "k27": {
+        "type": "integer"
+       },
+       "k28": {
+        "type": "integer"
+       },
+       "k29": {
+        "type": "integer"
+       },
+       "k30": {
+        "type": "integer"
+       },
+       "k31": {
+        "type": "integer"
+       },
+       "k32": {
+        "type": "integer"
+       },
+       "k33": {
+        "type": "integer"
+       },
+       "k34": {
+        "type": "integer"
+       },
+       "k35": {
+        "type": "integer"
+       },
+       "k36": {
+        "type": "integer"
+       },
+       "k37": {
+        "type": "integer"
+       },
+       "k38": {
+        "type": "integer"
+       },
+       "k39": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "k0",
+       "k1",
+       "k2",
+       "k3",
+       "k4",
+       "k5",
+       "k6",
+       "k7",
+       "k8",
+       "k9",
+       "k10",
+       "k11",
+       "k12",
+       "k13",
+       "k14",
+       "k15",
+       "k16",
+       "k17",
+       "k18",
+       "k19",
+       "k20",
+       "k21",
+       "k22",
+       "k23",
+       "k24",
+       "k25",
+       "k26",
+       "k27",
+       "k28",
+       "k29",
+       "k30",
+       "k31",
+       "k32",
+       "k33",
+       "k34",
+       "k35",
+       "k36",
+       "k37",
+       "k38",
+       "k39"
+      ],
+      "additionalProperties": false
+     }
+    }
+   }
+  },
+  "prompt_tokens": 375,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "flat_described_20",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+     "name": "flat_described_20",
+     "strict": true,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "field_0": {
+        "type": "string",
+        "description": "The 0th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_1": {
+        "type": "string",
+        "description": "The 1th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_2": {
+        "type": "string",
+        "description": "The 2th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_3": {
+        "type": "string",
+        "description": "The 3th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_4": {
+        "type": "string",
+        "description": "The 4th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_5": {
+        "type": "string",
+        "description": "The 5th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_6": {
+        "type": "string",
+        "description": "The 6th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_7": {
+        "type": "string",
+        "description": "The 7th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_8": {
+        "type": "string",
+        "description": "The 8th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_9": {
+        "type": "string",
+        "description": "The 9th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_10": {
+        "type": "string",
+        "description": "The 10th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_11": {
+        "type": "string",
+        "description": "The 11th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_12": {
+        "type": "string",
+        "description": "The 12th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_13": {
+        "type": "string",
+        "description": "The 13th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_14": {
+        "type": "string",
+        "description": "The 14th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_15": {
+        "type": "string",
+        "description": "The 15th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_16": {
+        "type": "string",
+        "description": "The 16th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_17": {
+        "type": "string",
+        "description": "The 17th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_18": {
+        "type": "string",
+        "description": "The 18th thing the learner wrote, verbatim, trimmed of whitespace."
+       },
+       "field_19": {
+        "type": "string",
+        "description": "The 19th thing the learner wrote, verbatim, trimmed of whitespace."
+       }
+      },
+      "required": [
+       "field_0",
+       "field_1",
+       "field_2",
+       "field_3",
+       "field_4",
+       "field_5",
+       "field_6",
+       "field_7",
+       "field_8",
+       "field_9",
+       "field_10",
+       "field_11",
+       "field_12",
+       "field_13",
+       "field_14",
+       "field_15",
+       "field_16",
+       "field_17",
+       "field_18",
+       "field_19"
+      ],
+      "additionalProperties": false
+     }
+    }
+   }
+  },
+  "prompt_tokens": 590,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "enums",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+     "name": "enums",
+     "strict": true,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "color": {
+        "type": "string",
+        "enum": [
+         "red",
+         "green",
+         "blue",
+         "cyan",
+         "magenta",
+         "yellow",
+         "black",
+         "white"
+        ]
+       },
+       "size": {
+        "type": "integer",
+        "enum": [
+         1,
+         2,
+         3,
+         4,
+         5,
+         6,
+         7,
+         8,
+         9,
+         10
+        ]
+       }
+      },
+      "required": [
+       "color",
+       "size"
+      ],
+      "additionalProperties": false
+     }
+    }
+   }
+  },
+  "prompt_tokens": 98,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "constraints",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+     "name": "constraints",
+     "strict": true,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "n0": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n1": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n2": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n3": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n4": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n5": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n6": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n7": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n8": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n9": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n10": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n11": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n12": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n13": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n14": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n15": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n16": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n17": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n18": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "n19": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       }
+      },
+      "required": [
+       "n0",
+       "n1",
+       "n2",
+       "n3",
+       "n4",
+       "n5",
+       "n6",
+       "n7",
+       "n8",
+       "n9",
+       "n10",
+       "n11",
+       "n12",
+       "n13",
+       "n14",
+       "n15",
+       "n16",
+       "n17",
+       "n18",
+       "n19"
+      ],
+      "additionalProperties": false
+     }
+    }
+   }
+  },
+  "prompt_tokens": 201,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "patterns",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+     "name": "patterns",
+     "strict": true,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "id0": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,47}$"
+       },
+       "id1": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,47}$"
+       },
+       "id2": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,47}$"
+       },
+       "id3": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,47}$"
+       },
+       "id4": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,47}$"
+       },
+       "id5": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,47}$"
+       },
+       "id6": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,47}$"
+       },
+       "id7": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,47}$"
+       },
+       "id8": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,47}$"
+       },
+       "id9": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,47}$"
+       }
+      },
+      "required": [
+       "id0",
+       "id1",
+       "id2",
+       "id3",
+       "id4",
+       "id5",
+       "id6",
+       "id7",
+       "id8",
+       "id9"
+      ],
+      "additionalProperties": false
+     }
+    }
+   }
+  },
+  "prompt_tokens": 121,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "nested_arrays",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+     "name": "nested_arrays",
+     "strict": true,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "items": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 5,
+        "items": {
+         "type": "object",
+         "properties": {
+          "x": {
+           "type": "number"
+          },
+          "y": {
+           "type": "number"
+          },
+          "tags": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          }
+         },
+         "required": [
+          "x",
+          "y",
+          "tags"
+         ],
+         "additionalProperties": false
+        }
+       }
+      },
+      "required": [
+       "items"
+      ],
+      "additionalProperties": false
+     }
+    }
+   }
+  },
+  "prompt_tokens": 86,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "nullable_anyof",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+     "name": "nullable_anyof",
+     "strict": true,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "title": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "shape": {
+        "anyOf": [
+         {
+          "type": "object",
+          "properties": {
+           "kind": {
+            "type": "string",
+            "enum": [
+             "circle"
+            ]
+           },
+           "r": {
+            "type": "number"
+           }
+          },
+          "required": [
+           "kind",
+           "r"
+          ],
+          "additionalProperties": false
+         },
+         {
+          "type": "object",
+          "properties": {
+           "kind": {
+            "type": "string",
+            "enum": [
+             "rect"
+            ]
+           },
+           "w": {
+            "type": "number"
+           },
+           "h": {
+            "type": "number"
+           }
+          },
+          "required": [
+           "kind",
+           "w",
+           "h"
+          ],
+          "additionalProperties": false
+         }
+        ]
+       }
+      },
+      "required": [
+       "title",
+       "shape"
+      ],
+      "additionalProperties": false
+     }
+    }
+   }
+  },
+  "prompt_tokens": 117,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "long_descriptions",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+     "name": "long_descriptions",
+     "strict": true,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "p0": {
+        "type": "string",
+        "description": "A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description "
+       },
+       "p1": {
+        "type": "string",
+        "description": "A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description "
+       },
+       "p2": {
+        "type": "string",
+        "description": "A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description "
+       },
+       "p3": {
+        "type": "string",
+        "description": "A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description "
+       },
+       "p4": {
+        "type": "string",
+        "description": "A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description "
+       },
+       "p5": {
+        "type": "string",
+        "description": "A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description "
+       },
+       "p6": {
+        "type": "string",
+        "description": "A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description "
+       },
+       "p7": {
+        "type": "string",
+        "description": "A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description A long explanatory description "
+       }
+      },
+      "required": [
+       "p0",
+       "p1",
+       "p2",
+       "p3",
+       "p4",
+       "p5",
+       "p6",
+       "p7"
+      ],
+      "additionalProperties": false
+     }
+    }
+   }
+  },
+  "prompt_tokens": 390,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "not_strict_flat",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+     "name": "not_strict_flat",
+     "strict": false,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "k0": {
+        "type": "string"
+       },
+       "k1": {
+        "type": "string"
+       },
+       "k2": {
+        "type": "string"
+       },
+       "k3": {
+        "type": "string"
+       },
+       "k4": {
+        "type": "string"
+       },
+       "k5": {
+        "type": "string"
+       },
+       "k6": {
+        "type": "string"
+       },
+       "k7": {
+        "type": "string"
+       },
+       "k8": {
+        "type": "string"
+       },
+       "k9": {
+        "type": "string"
+       },
+       "k10": {
+        "type": "string"
+       },
+       "k11": {
+        "type": "string"
+       },
+       "k12": {
+        "type": "string"
+       },
+       "k13": {
+        "type": "string"
+       },
+       "k14": {
+        "type": "string"
+       },
+       "k15": {
+        "type": "string"
+       },
+       "k16": {
+        "type": "string"
+       },
+       "k17": {
+        "type": "string"
+       },
+       "k18": {
+        "type": "string"
+       },
+       "k19": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "k0",
+       "k1",
+       "k2",
+       "k3",
+       "k4",
+       "k5",
+       "k6",
+       "k7",
+       "k8",
+       "k9",
+       "k10",
+       "k11",
+       "k12",
+       "k13",
+       "k14",
+       "k15",
+       "k16",
+       "k17",
+       "k18",
+       "k19"
+      ],
+      "additionalProperties": false
+     }
+    }
+   }
+  },
+  "prompt_tokens": 207,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "tool_one_terse",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "tools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "name"
+      ],
+      "additionalProperties": false
+     }
+    }
+   ]
+  },
+  "prompt_tokens": 49,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "tool_one_described",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "Find a formula by its common name.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string",
+        "description": "The formula's common name"
+       }
+      },
+      "required": [
+       "name"
+      ],
+      "additionalProperties": false
+     }
+    }
+   ]
+  },
+  "prompt_tokens": 64,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "tool_strict_described",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "Find a formula by its common name.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string",
+        "description": "The formula's common name"
+       }
+      },
+      "required": [
+       "name"
+      ],
+      "additionalProperties": false
+     },
+     "strict": true
+    }
+   ]
+  },
+  "prompt_tokens": 64,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "tools_three",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "tools": [
+    {
+     "name": "fn_0",
+     "description": "Tool number 0 does a thing.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "arg0": {
+        "type": "string"
+       },
+       "arg1": {
+        "type": "string"
+       },
+       "arg2": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "arg0",
+       "arg1",
+       "arg2"
+      ],
+      "additionalProperties": false
+     }
+    },
+    {
+     "name": "fn_1",
+     "description": "Tool number 1 does a thing.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "arg0": {
+        "type": "string"
+       },
+       "arg1": {
+        "type": "string"
+       },
+       "arg2": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "arg0",
+       "arg1",
+       "arg2"
+      ],
+      "additionalProperties": false
+     }
+    },
+    {
+     "name": "fn_2",
+     "description": "Tool number 2 does a thing.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "arg0": {
+        "type": "string"
+       },
+       "arg1": {
+        "type": "string"
+       },
+       "arg2": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "arg0",
+       "arg1",
+       "arg2"
+      ],
+      "additionalProperties": false
+     }
+    }
+   ]
+  },
+  "prompt_tokens": 138,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "tool_enum",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "tools": [
+    {
+     "name": "paint",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "color": {
+        "type": "string",
+        "enum": [
+         "red",
+         "green",
+         "blue",
+         "cyan"
+        ]
+       },
+       "n": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "color",
+       "n"
+      ],
+      "additionalProperties": false
+     }
+    }
+   ]
+  },
+  "prompt_tokens": 66,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "tool_no_params",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "tools": [
+    {
+     "name": "ping",
+     "description": "Check liveness.",
+     "parameters": {
+      "type": "object",
+      "properties": {}
+     }
+    }
+   ]
+  },
+  "prompt_tokens": 47,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "tool_flat_20",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "tools": [
+    {
+     "name": "big",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "k0": {
+        "type": "string"
+       },
+       "k1": {
+        "type": "string"
+       },
+       "k2": {
+        "type": "string"
+       },
+       "k3": {
+        "type": "string"
+       },
+       "k4": {
+        "type": "string"
+       },
+       "k5": {
+        "type": "string"
+       },
+       "k6": {
+        "type": "string"
+       },
+       "k7": {
+        "type": "string"
+       },
+       "k8": {
+        "type": "string"
+       },
+       "k9": {
+        "type": "string"
+       },
+       "k10": {
+        "type": "string"
+       },
+       "k11": {
+        "type": "string"
+       },
+       "k12": {
+        "type": "string"
+       },
+       "k13": {
+        "type": "string"
+       },
+       "k14": {
+        "type": "string"
+       },
+       "k15": {
+        "type": "string"
+       },
+       "k16": {
+        "type": "string"
+       },
+       "k17": {
+        "type": "string"
+       },
+       "k18": {
+        "type": "string"
+       },
+       "k19": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "k0",
+       "k1",
+       "k2",
+       "k3",
+       "k4",
+       "k5",
+       "k6",
+       "k7",
+       "k8",
+       "k9",
+       "k10",
+       "k11",
+       "k12",
+       "k13",
+       "k14",
+       "k15",
+       "k16",
+       "k17",
+       "k18",
+       "k19"
+      ],
+      "additionalProperties": false
+     }
+    }
+   ]
+  },
+  "prompt_tokens": 145,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "history_one_call",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": [],
+     "tool_calls": [
+      {
+       "id": "call_abc123XYZ789abc123XYZ789",
+       "name": "lookup",
+       "arguments": "{\"name\":\"area\"}"
+      }
+     ]
+    },
+    {
+     "role": "tool",
+     "content": [
+      {
+       "type": "text",
+       "text": "area = width * height"
+      }
+     ],
+     "tool_call_id": "call_abc123XYZ789abc123XYZ789"
+    }
+   ],
+   "tools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "name"
+      ],
+      "additionalProperties": false
+     }
+    }
+   ]
+  },
+  "prompt_tokens": 74,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "history_two_calls",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "text",
+       "text": "Let me check."
+      }
+     ],
+     "tool_calls": [
+      {
+       "id": "call_1aaaaaaaaaaaaaaaaaaaaaaa",
+       "name": "lookup",
+       "arguments": "{\"name\":\"area\"}"
+      },
+      {
+       "id": "call_2bbbbbbbbbbbbbbbbbbbbbbb",
+       "name": "lookup",
+       "arguments": "{\"name\":\"volume\"}"
+      }
+     ]
+    },
+    {
+     "role": "tool",
+     "content": [
+      {
+       "type": "text",
+       "text": "area = width * height"
+      }
+     ],
+     "tool_call_id": "call_1aaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+     "role": "tool",
+     "content": [
+      {
+       "type": "text",
+       "text": "volume = w*h*d"
+      }
+     ],
+     "tool_call_id": "call_2bbbbbbbbbbbbbbbbbbbbbbb"
+    }
+   ],
+   "tools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "name"
+      ],
+      "additionalProperties": false
+     }
+    }
+   ]
+  },
+  "prompt_tokens": 123,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "tool_choice_required",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "tools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "name"
+      ],
+      "additionalProperties": false
+     }
+    }
+   ],
+   "tool_choice": "required"
+  },
+  "prompt_tokens": 49,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "tool_choice_named",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "tools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "name"
+      ],
+      "additionalProperties": false
+     }
+    }
+   ],
+   "tool_choice": {
+    "type": "function",
+    "function": {
+     "name": "lookup"
+    }
+   }
+  },
+  "prompt_tokens": 57,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "parallel_false",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "tools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "name"
+      ],
+      "additionalProperties": false
+     }
+    }
+   ]
+  },
+  "prompt_tokens": 49,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "schema_and_tool",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ],
+   "tools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "name"
+      ],
+      "additionalProperties": false
+     }
+    }
+   ],
+   "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+     "name": "r",
+     "strict": true,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "a"
+      ],
+      "additionalProperties": false
+     }
+    }
+   }
+  },
+  "prompt_tokens": 71,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "developer_role",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the smallest valid object."
+      }
+     ]
+    }
+   ]
+  },
+  "prompt_tokens": 24,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ },
+ {
+  "name": "multipart_text",
+  "request": {
+   "model": "gpt-4o-mini",
+   "max_output_tokens": 16,
+   "messages": [
+    {
+     "role": "system",
+     "content": [
+      {
+       "type": "text",
+       "text": "You are a terse assistant."
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with the"
+      },
+      {
+       "type": "text",
+       "text": " smallest valid object."
+      }
+     ]
+    }
+   ]
+  },
+  "prompt_tokens": 24,
+  "measured": "2026-10-05 gpt-4o-mini usage.prompt_tokens"
+ }
+]

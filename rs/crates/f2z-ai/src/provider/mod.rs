@@ -164,6 +164,13 @@ pub struct ProviderOutcome {
     pub failure: Option<ProviderFailure>,
     /// Whether a `delta` or `tool_call` was produced (the call committed).
     pub output_produced: bool,
+    /// Whether the provider answered the request's head with a 2xx. An
+    /// accepted request is billed by the provider whether or not its stream
+    /// then completes, so a missing usage report on an accepted request is
+    /// settled on the gateway's estimate (metering.md §5.4), while a request
+    /// the provider refused — no connection, a non-2xx head, no first byte —
+    /// cost nothing and releases the hold.
+    pub accepted: bool,
     /// The client-executed function calls the model produced. **Not** in
     /// `usage.tool_calls`, which counts only provider-billed server-side tool
     /// invocations (see the PR for zuu#1064 on the spec's wording).

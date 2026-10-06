@@ -118,6 +118,8 @@ pub struct ProviderUpstream {
     images: u64,
     /// See [`Prepared::tool_deltas`].
     tool_deltas: bool,
+    /// A 2xx head arrived: the provider accepted, and bills, the request.
+    accepted: bool,
     state: State,
     queue: VecDeque<Event>,
     attempts: u32,
@@ -175,6 +177,7 @@ impl ProviderUpstream {
             retry: p.retry,
             images: p.images,
             tool_deltas: p.tool_deltas,
+            accepted: false,
             state: State::Start,
             queue: VecDeque::new(),
             attempts: 0,
@@ -244,6 +247,7 @@ impl ProviderUpstream {
                         );
                     }
                     Ok(Ok(response)) if response.status().is_success() => {
+                        self.accepted = true;
                         // Accepted: nothing after this is ever re-sent, so
                         // the request body (up to 20 MiB of prompt and
                         // images) is not kept for the rest of the stream.
@@ -607,6 +611,7 @@ impl ProviderUpstream {
             cache_write_1h_tokens,
             failure,
             output_produced: self.output_produced,
+            accepted: self.accepted,
             function_tool_calls: self.function_tool_calls,
             attempts: self.attempts,
         });
@@ -673,6 +678,10 @@ impl Upstream for ProviderUpstream {
 
     fn outcome(&mut self) -> Option<ProviderOutcome> {
         self.outcome.clone()
+    }
+
+    fn accepted(&self) -> bool {
+        self.accepted
     }
 
     fn keep_upload_reservation(&mut self, reservation: tokio::sync::OwnedSemaphorePermit) {

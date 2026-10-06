@@ -34,6 +34,7 @@ pub mod catalog;
 pub mod chat;
 pub mod config;
 pub mod error;
+pub mod estimate;
 pub mod features;
 pub mod ledger;
 pub mod meter;

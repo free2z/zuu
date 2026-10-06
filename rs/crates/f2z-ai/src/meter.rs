@@ -16,7 +16,9 @@ use async_trait::async_trait;
 use f2z_ai_proto::{ErrorCode, Event, Milli2z, Whole2z};
 use f2z_ai_proto::{
     catalog::CatalogModel,
-    chat::{ChatRequest, ContentPart, EstimateResponse, FinishReason, Usage, UsageSource},
+    chat::{
+        ChatRequest, ContentPart, EstimateResponse, FinishReason, ToolCall, Usage, UsageSource,
+    },
     event::{Done, ErrorEvent, Meta, UsageEvent},
     pricing::{Bps, apply_safety_factor, metered_cost_nusd, price_nusd},
 };
@@ -218,28 +220,19 @@ fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result
     // Refused before any hold: a model or adapter that cannot honour a
     // response_format never receives the call without it.
     crate::provider::check_response_format(request, &model)?;
-    // Conservative byte-token reservation, including roles, message framing,
-    // tool definitions and prior tool arguments/results. Metadata is excluded.
-    // Final billing uses provider usage, never this byte bound.
-    let mut bytes = serde_json::to_vec(&(&request.messages, &request.tools))
-        .map_err(|_| invalid())?
-        .len();
-    // A response_format schema is input the provider reads (and bills), so it
-    // is reserved like a tool definition. Only when present: a request without
-    // one reserves exactly what it did before the field existed. The pricing
-    // formula is untouched; this only sizes the hold.
-    if let Some(format) = &request.response_format {
-        bytes = bytes.saturating_add(serde_json::to_vec(format).map_err(|_| invalid())?.len());
-    }
-    // Input the provider adds that the bytes do not show (Anthropic's
-    // tool-use system prompt). Zero for every other request, which keeps its
-    // pre-existing reservation exactly.
+    // The input estimate (crate::estimate): the provider's own tokeniser
+    // over messages, tool definitions and the response_format schema with
+    // the measured per-message / per-tool / per-schema framing, for a model
+    // this build has a tokeniser for; the conservative UTF-8 byte bound for
+    // every other provider. Final billing uses provider usage, never this
+    // estimate — except metering.md §5.4, where a stream that lost its usage
+    // frame settles on `input` as its input count.
+    let estimate = crate::estimate::input_tokens(request, &model).ok_or_else(invalid)?;
+    // Input the provider adds that the tokeniser cannot see (Anthropic's
+    // tool-use system prompt). Zero for every other request.
     let overhead = crate::provider::reserved_overhead_tokens(request, &model);
     let input = apply_safety_factor(
-        u64::try_from(bytes)
-            .map_err(|_| invalid())?
-            .saturating_add(64)
-            .saturating_add(overhead),
+        estimate.tokens.saturating_add(overhead),
         model.safety_factor_bps,
     )
     .map_err(|_| invalid())?;
@@ -372,7 +365,23 @@ struct Active {
     completion: Mutex<Option<Value>>,
     provider_started: Mutex<bool>,
     output_bytes: Mutex<u64>,
+    /// The provider answered the request's head with a 2xx: it bills the
+    /// call whatever happens next (`Upstream::accepted`). Observed on every
+    /// poll so a call cut by a drain, which never yields an outcome, still
+    /// knows whether the provider is owed.
+    accepted: Mutex<bool>,
+    /// Everything the provider produced, delivered or not, for metering.md
+    /// §5.4's output estimate when its usage frame never arrives. Bounded
+    /// by the output cap the hold was sized for.
+    produced: Mutex<Produced>,
     final_record: Mutex<Option<Value>>,
+}
+
+/// The generated text and the complete tool calls of one call.
+#[derive(Default)]
+struct Produced {
+    text: String,
+    tool_calls: Vec<ToolCall>,
 }
 
 /// Production backend and settler share a bounded map: one entry per admitted
@@ -537,6 +546,8 @@ impl ChatBackend for Metered {
             completion: Mutex::new(None),
             provider_started: Mutex::new(false),
             output_bytes: Mutex::new(0),
+            accepted: Mutex::new(false),
+            produced: Mutex::new(Produced::default()),
             final_record: Mutex::new(None),
         });
         lock(&self.active).insert(call.id(), Arc::clone(&active));
@@ -883,20 +894,46 @@ fn completion(active: &Active, outcome: Option<&ProviderOutcome>) -> Value {
         json!({"code":f.code,"message":"provider call failed"})
     } else if outcome.is_none() {
         json!({"code":"unavailable","message":"gateway stopped before provider completion"})
-    } else if reported.is_none() {
-        // No tokenizer-backed fallback yet: fail this unsupported billing path,
-        // release the hold, and make the platform absorb unknown provider cost.
-        // Never manufacture zero usage or bill a UTF-8 byte count as tokens.
-        json!({"code":"provider_error","message":"provider usage unavailable; this gateway cannot meter the response"})
     } else {
         Value::Null
     };
     let mut value = json!({"model":active.request_meta.get("model"),"provider":active.request_meta.get("provider"),"finish_reason":outcome.and_then(|o|o.finish_reason).unwrap_or(FinishReason::Stop),"partial":bytes>0 && !error.is_null(),"error":error});
+    // The provider accepted the request (a 2xx head), so it bills the call
+    // whether or not its usage frame arrived. A request it refused — or one
+    // never sent — has no usage here, and `finalize` releases the hold.
+    let accepted = *lock(&active.provider_started)
+        && outcome.map_or_else(|| *lock(&active.accepted), |o| o.accepted);
     if let Some(usage) = reported {
         value["usage"] = json!(usage);
         value["usage_source"] = json!("provider");
+    } else if accepted && let Some(usage) = estimated_usage(active) {
+        // metering.md §5.4: the hold's input estimate, the produced output
+        // tokenised, nothing invented for the buckets a stream cannot show.
+        // Never a zero usage, never a byte count billed as tokens.
+        value["usage"] = json!(usage);
+        value["usage_source"] = json!("estimated");
     }
     value
+}
+
+/// metering.md §5.4's usage vector for a call whose provider usage never
+/// arrived: `input_tokens` is the hold's estimate (the dearest input bucket;
+/// cached and cache-write counts are `0`), `output_tokens` is everything the
+/// provider produced — delivered or not — tokenised and scaled by 11,000 bps,
+/// capped at the output ceiling the provider was given, so the price can
+/// never exceed the hold that was sized from the same two numbers. Reasoning
+/// tokens are not streamed and are not in it. `None` before admission.
+fn estimated_usage(active: &Active) -> Option<Usage> {
+    let plan = lock(&active.plan).clone()?;
+    let output = {
+        let produced = lock(&active.produced);
+        crate::estimate::output_tokens(&plan.model, &produced.text, &produced.tool_calls)
+    };
+    Some(Usage {
+        input_tokens: plan.input,
+        output_tokens: output.min(plan.output),
+        ..Usage::default()
+    })
 }
 
 async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFailure> {
@@ -956,15 +993,18 @@ async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFail
         return Err(unavailable());
     };
     *lock(&active.hold_id) = Some(hold);
-    let failed = !intent.get("error").is_none_or(Value::is_null);
-    let output = *lock(&active.output_bytes) > 0;
+    // Release only when the provider is owed nothing: the request was never
+    // sent, or `completion` found no usage to settle on — reported or
+    // estimated — because the provider refused the request (a non-2xx head,
+    // no first byte, no connection). An accepted request always has a
+    // usage here (metering.md §5.4), so a failure before any output on an
+    // accepted stream — an idle timeout during silent reasoning — settles
+    // on the input estimate rather than refunding a call the provider bills.
     let usage = intent
         .get("usage")
         .map(|v| serde_json::from_value::<Usage>(v.clone()).map_err(|_| invalid()))
         .transpose()?;
-    let operation = if !late_cost
-        && (!*lock(&active.provider_started) || (failed && !output) || usage.is_none())
-    {
+    let operation = if !late_cost && (!*lock(&active.provider_started) || usage.is_none()) {
         Operation::Release {
             hold,
             usage: json!({}),
@@ -1136,11 +1176,15 @@ impl Upstream for MeterStream {
                 },
                 ()=async { if let Some(future)=self.extending.as_mut() {future.await;} else {std::future::pending::<()>().await;} }=>{self.extending=None;continue;},
             };
+            if self.upstream.accepted() {
+                *lock(&self.active.accepted) = true;
+            }
             if let Some(event) = event {
                 match &event {
                     Event::Delta(delta) => {
                         let mut n = lock(&self.active.output_bytes);
                         *n = n.saturating_add(u64::try_from(delta.text.len()).unwrap_or(u64::MAX));
+                        lock(&self.active.produced).text.push_str(&delta.text);
                     }
                     // Only whether any output was produced reads this
                     // count (the completion's `partial`); a fragment and its
@@ -1156,6 +1200,9 @@ impl Upstream for MeterStream {
                         *n = n.saturating_add(
                             u64::try_from(tool.arguments.len()).unwrap_or(u64::MAX),
                         );
+                        // The complete call only: its `tool_call_delta`
+                        // fragments repeat the same arguments.
+                        lock(&self.active.produced).tool_calls.push(tool.clone());
                     }
                     Event::Usage(_) => continue,
                     _ => {}
@@ -1204,6 +1251,9 @@ impl Upstream for MeterStream {
     }
     fn outcome(&mut self) -> Option<ProviderOutcome> {
         self.outcome.clone().or_else(|| self.upstream.outcome())
+    }
+    fn accepted(&self) -> bool {
+        *lock(&self.active.accepted) || self.upstream.accepted()
     }
     fn keep_upload_reservation(&mut self, reservation: tokio::sync::OwnedSemaphorePermit) {
         self.upstream.keep_upload_reservation(reservation);

@@ -131,6 +131,16 @@ pub trait Upstream: Send + 'static {
         None
     }
 
+    /// Whether the provider has **accepted** the request — answered its
+    /// head with a 2xx — so that it bills for the call whatever happens
+    /// next (metering.md §5.4). Readable at any time, so a call aborted by
+    /// a drain, whose [`Upstream::outcome`] never arrives, can still be
+    /// settled on what the provider will bill. `false` from an upstream
+    /// that does not know.
+    fn accepted(&self) -> bool {
+        false
+    }
+
     /// Take the request body's share of the gateway-wide upload budget. An
     /// upstream that still holds the request's bytes after `start` keeps it
     /// until it drops them, so request memory stays inside
