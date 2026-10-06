@@ -298,16 +298,52 @@ pub fn plan(style: ProviderStyle, scenario: &Scenario, ctx: &RenderContext) -> P
             body: status_body(style, status, ctx.request_seq),
         };
     }
-    let segments = match style {
-        ProviderStyle::OpenAiResponses => responses(scenario, ctx),
-        ProviderStyle::ChatCompletions => chat(scenario, ctx),
-        ProviderStyle::AnthropicMessages => anthropic(scenario, ctx),
+    let segments = match (&scenario.replay, style) {
+        (Some(replay), _) => replay_frames(replay.as_str()),
+        (None, ProviderStyle::OpenAiResponses) => responses(scenario, ctx),
+        (None, ProviderStyle::ChatCompletions) => chat(scenario, ctx),
+        (None, ProviderStyle::AnthropicMessages) => anthropic(scenario, ctx),
     };
     Plan::Stream(StreamPlan {
         segments,
         style,
         fault: scenario.fault,
     })
+}
+
+/// A replayed body as one unpaced step per SSE frame: each step ends with
+/// the blank line that ends its frame (`\n\n`, or `\r\n\r\n`), so a step
+/// boundary is a frame boundary as everywhere else. Bytes after the last
+/// blank line are one final step, unchanged.
+fn replay_frames(body: &str) -> Vec<Segment> {
+    let bytes = body.as_bytes();
+    let step = |part: &[u8]| {
+        Segment::Frame(Step {
+            delay: Duration::ZERO,
+            bytes: part.to_vec(),
+        })
+    };
+    let mut segments = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    while let Some(rest) = bytes.get(i..).filter(|r| !r.is_empty()) {
+        let blank = if rest.starts_with(b"\r\n\r\n") {
+            4
+        } else if rest.starts_with(b"\n\n") {
+            2
+        } else {
+            i = i.saturating_add(1);
+            continue;
+        };
+        let end = i.saturating_add(blank);
+        segments.push(step(bytes.get(start..end).unwrap_or_default()));
+        start = end;
+        i = end;
+    }
+    if let Some(tail) = bytes.get(start..).filter(|t| !t.is_empty()) {
+        segments.push(step(tail));
+    }
+    segments
 }
 
 // ---------------------------------------------------------------------------

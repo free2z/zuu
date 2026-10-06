@@ -1,0 +1,89 @@
+{
+  "name": "refused_openai_chat_declared_false",
+  "feature": "structured_output",
+  "source": "metered.rs a_model_without_structured_output_is_refused_before_any_provider_request: structured_output false refuses even an OpenAI model.",
+  "api_style": "openai_chat",
+  "provider": "openai",
+  "catalog_model": {
+    "capabilities": {
+      "structured_output": false
+    }
+  },
+  "request": {
+    "model": "m-openai-chat",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "JSON please."
+          }
+        ]
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "activity_spec",
+        "strict": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "level": {
+              "type": "string",
+              "enum": [
+                "intro",
+                "core",
+                "advanced"
+              ]
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "answer": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "prompt",
+                  "answer"
+                ]
+              }
+            },
+            "graded": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "title",
+            "steps",
+            "level",
+            "graded"
+          ]
+        }
+      }
+    }
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "reason": "response_format_unsupported",
+        "field": "response_format"
+      }
+    },
+    "encodings": {}
+  }
+}

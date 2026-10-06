@@ -1,0 +1,129 @@
+{
+  "feature": "tool_calling",
+  "mutations": [
+    {
+      "name": "drop tool_choice",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/tool_choice"
+    },
+    {
+      "name": "drop disable_parallel_tool_use",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/tool_choice/disable_parallel_tool_use"
+    },
+    {
+      "name": "required degraded to auto",
+      "target": "provider_request",
+      "op": "replace",
+      "path": "/tool_choice/type",
+      "value": "auto",
+      "fixtures": [
+        "anthropic_request_tool_choice_required",
+        "anthropic_request_tool_choice_named"
+      ]
+    },
+    {
+      "name": "drop tools",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/tools"
+    },
+    {
+      "name": "drop a tool",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/tools/1"
+    },
+    {
+      "name": "reorder tools",
+      "target": "provider_request",
+      "op": "reverse",
+      "path": "/tools"
+    },
+    {
+      "name": "drop strict:false on Responses tools (Responses then normalises to strict)",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/tools/0/strict"
+    },
+    {
+      "name": "reorder a tool's schema members",
+      "target": "provider_request",
+      "op": "reverse",
+      "path": "/tools/0/parameters"
+    },
+    {
+      "name": "drop a tool description",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/tools/0/description"
+    },
+    {
+      "name": "parallel_tool_calls leaks into the Anthropic body",
+      "target": "provider_request",
+      "op": "add",
+      "path": "/parallel_tool_calls",
+      "value": false,
+      "fixtures": [
+        "anthropic_request_parallel_false"
+      ]
+    },
+    {
+      "name": "invent a tool_choice",
+      "target": "provider_request",
+      "op": "add",
+      "path": "/tool_choice",
+      "value": {
+        "type": "auto"
+      },
+      "fixtures": [
+        "anthropic_request_tools_default",
+        "anthropic_request_parallel_true",
+        "anthropic_tool_use_streamed"
+      ]
+    },
+    {
+      "name": "rewrite the provider's tool_use id on the round trip",
+      "target": "provider_request",
+      "op": "replace",
+      "path": "/messages/2/content/0/tool_use_id",
+      "value": "call_0"
+    },
+    {
+      "name": "rewrite a tool call id",
+      "target": "events",
+      "op": "replace",
+      "path": "/-1/id",
+      "value": "call_0"
+    },
+    {
+      "name": "rewrite tool call arguments",
+      "target": "events",
+      "op": "replace",
+      "path": "/-1/arguments",
+      "value": "{}"
+    },
+    {
+      "name": "drop a tool call",
+      "target": "events",
+      "op": "remove",
+      "path": "/-1"
+    },
+    {
+      "name": "bill a function call as a server tool",
+      "target": "usage",
+      "op": "replace",
+      "path": "/tool_calls",
+      "value": 1
+    },
+    {
+      "name": "a tool turn reads as a final answer",
+      "target": "finish_reason",
+      "op": "replace",
+      "path": "",
+      "value": "stop"
+    }
+  ]
+}
