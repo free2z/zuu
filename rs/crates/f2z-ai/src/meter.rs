@@ -197,8 +197,9 @@ impl Plan {
         }
     }
 }
-/// Above this much message text an estimate takes one of the tokeniser
-/// slots (`estimate_off_runtime`).
+/// Above this many bytes of tokenised input — message text, prior tool
+/// calls, tool definitions, the response_format schema — an estimate takes
+/// one of the tokeniser slots (`estimate_off_runtime`).
 const LARGE_PROMPT_BYTES: usize = 64 * 1024;
 
 /// The input estimate computed off the async runtime: the tokeniser's work
@@ -217,15 +218,37 @@ async fn estimate_off_runtime(
     // blocks. A small prompt (the common case, milliseconds) never queues
     // behind a large one.
     static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
+    // Everything the estimate tokenises: message parts, prior tool calls,
+    // tool definitions and the response_format schema.
     let text_bytes: usize = request
         .messages
         .iter()
-        .flat_map(|m| &m.content)
-        .map(|p| match p {
-            ContentPart::Text { text } => text.len(),
-            ContentPart::Image { data, .. } => data.len(),
+        .flat_map(|m| {
+            m.content
+                .iter()
+                .map(|p| match p {
+                    ContentPart::Text { text } => text.len(),
+                    ContentPart::Image { data, .. } => data.len(),
+                })
+                .chain(
+                    m.tool_calls
+                        .iter()
+                        .map(|c| c.arguments.len().saturating_add(c.name.len())),
+                )
         })
-        .sum();
+        .chain(
+            request
+                .tools
+                .iter()
+                .map(|t| serde_json::to_vec(t).map_or(usize::MAX, |b| b.len())),
+        )
+        .chain(
+            request
+                .response_format
+                .iter()
+                .map(|f| serde_json::to_vec(f).map_or(usize::MAX, |b| b.len())),
+        )
+        .fold(0usize, usize::saturating_add);
     let _slot = if text_bytes > LARGE_PROMPT_BYTES {
         Some(SLOTS.acquire().await.map_err(|_| invalid())?)
     } else {
