@@ -297,8 +297,9 @@ pub struct Capabilities {
 pub struct Controls {
     /// The `reasoning_effort` levels the model takes, as wire strings.
     /// `None`: not narrowed — any level may be sent, and one the provider
-    /// rejects fails before any output, uncharged.
-    #[serde(default)]
+    /// rejects fails before any output, uncharged. Omitted (never `null`)
+    /// when re-serialized, as the Tauri plugin does across IPC.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort_levels: Option<Vec<String>>,
 }
 
@@ -356,6 +357,11 @@ mod tests {
         // reasoning_effort: absent (an older gateway) reads as unsupported.
         assert!(!m.models[0].capabilities.reasoning_effort);
         assert_eq!(m.models[0].controls, Controls::default());
+        // Re-serialized (the plugin's IPC form): absent, never `null`.
+        assert_eq!(
+            serde_json::to_value(&m.models[0].controls).unwrap(),
+            serde_json::json!({})
+        );
         let caps: Capabilities =
             serde_json::from_value(serde_json::json!({"reasoning_effort": true})).unwrap();
         assert!(caps.reasoning_effort);
