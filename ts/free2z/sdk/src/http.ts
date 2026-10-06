@@ -145,6 +145,7 @@ const PRE_CALL_DETAILS = new Set([
   "purchase_id",
   "max_output_tokens",
   "model_max_output_tokens",
+  "effort_levels",
 ]);
 /** The same rule as the Rust core's `ApiError::retryable`, for a refusal
  * that carries no settlement: a retryable code whose `details` show nothing

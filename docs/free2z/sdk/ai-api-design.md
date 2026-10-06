@@ -216,6 +216,18 @@ provider switch via `fallback` drops it and the `features` record counts
 request is refused with the clamping bound's code and `reason:
 "reasoning_budget"` — the gateway never silently lowers a budget.
 
+**Landed first (zuu#1151, effort only):** `ChatRequest.reasoning_effort` as a
+flat, OpenAI-CC-named string — `minimal | low | medium | high` — gated by
+signed `capabilities.reasoning_effort` and narrowed by signed
+`controls.effort_levels`; Chat Completions (OpenAI, xAI) → `reasoning_effort`,
+Responses → `reasoning.effort`, Anthropic → refused. The flat name is what
+OpenAI CC clients already send, so the compat encoding (§3.1) maps it 1:1.
+When `budget_tokens`/`summary` land, the `reasoning` object's `effort` is the
+same value; a request that sets both and they differ is refused, never
+reconciled. `capabilities.reasoning` stays descriptive ("the model reasons")
+and gates nothing. `features.reasoning_effort` waits for S11's versioned
+`features` object (the tuzi validator requires exactly today's members).
+
 ### 2.6 Prompt caching
 
 OpenAI/xAI: automatic, ≥ 1024-token prefixes, `prompt_cache_key` hint,

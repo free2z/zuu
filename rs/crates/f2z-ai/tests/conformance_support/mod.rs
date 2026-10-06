@@ -248,10 +248,11 @@ impl<'de> Deserialize<'de> for J {
 /// SUCCESS fixture of that feature must declare. A new feature directory
 /// must be added here, which is the point: a directory the runner does not
 /// know is refused rather than silently skipped.
-pub const FEATURES: [(&str, Option<&str>); 3] = [
+pub const FEATURES: [(&str, Option<&str>); 4] = [
     ("text", None),
     ("structured_output", Some("structured_output")),
     ("tool_calling", Some("tools")),
+    ("reasoning_effort", Some("reasoning_effort")),
 ];
 
 /// Top-level provider-body members a fixture may leave unlisted, per
@@ -539,6 +540,9 @@ pub fn required_capabilities(request: &J) -> BTreeSet<&'static str> {
     }
     if request.get("response_format").is_some() {
         out.insert("structured_output");
+    }
+    if request.get("reasoning_effort").is_some() {
+        out.insert("reasoning_effort");
     }
     if let Some(J::Array(messages)) = request.get("messages")
         && messages.iter().any(|m| match m.get("content") {

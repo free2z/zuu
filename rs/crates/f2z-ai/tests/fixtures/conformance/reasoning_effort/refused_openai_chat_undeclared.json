@@ -1,0 +1,38 @@
+{
+  "name": "refused_openai_chat_undeclared",
+  "feature": "reasoning_effort",
+  "source": "provider::check_reasoning_effort: capabilities.reasoning_effort absent is unsupported, never inferred from a model name or from capabilities.reasoning.",
+  "api_style": "openai_chat",
+  "provider": "openai",
+  "catalog_model": {
+    "capabilities": {
+      "reasoning": true
+    }
+  },
+  "request": {
+    "model": "m-openai-chat",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Think, then answer."
+          }
+        ]
+      }
+    ],
+    "reasoning_effort": "low"
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "reason": "reasoning_effort_unsupported",
+        "field": "reasoning_effort"
+      }
+    },
+    "encodings": {}
+  }
+}

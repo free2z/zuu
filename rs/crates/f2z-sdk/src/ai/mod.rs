@@ -71,6 +71,24 @@
 //! assert!(sent.find("reasoning") < sent.find("answer"));
 //! ```
 //!
+//! Reasoning effort: on a model whose `capabilities.reasoning_effort` is
+//! `true` (and whose `controls.effort_levels`, when listed, include the
+//! level), set `reasoning_effort`. Any other model refuses the call before
+//! any hold (`400 invalid_request`, `reason: "reasoning_effort_unsupported"`)
+//! — it is never sent without it. Reasoning is billed as output and, on
+//! OpenAI, counts inside `max_output_tokens`: leave room for it.
+//!
+//! ```
+//! use f2z_sdk::proto::chat::{ChatRequest, Message, ReasoningEffort};
+//!
+//! let request = ChatRequest::new("MODEL_ID_FROM_V1_MODELS", vec![Message::user("Plan a week.")])
+//!     .with_reasoning_effort(ReasoningEffort::Low);
+//! assert_eq!(
+//!     serde_json::to_value(&request).unwrap()["reasoning_effort"],
+//!     "low"
+//! );
+//! ```
+//!
 //! Tool calling: set `tools` (and optionally `tool_choice`,
 //! `parallel_tool_calls`, a tool's `strict`). The model's calls arrive as
 //! `tool_call` events (and, while streaming, `tool_call_delta` fragments for
@@ -122,7 +140,9 @@ use f2z_ai_proto::{ChatRequest, ErrorCode, Milli2z, Whole2z};
 use reqwest::StatusCode;
 use url::Url;
 
-pub use record::{CallError, CallRecord, CallStatus, Capabilities, Charge, ModelInfo, Models};
+pub use record::{
+    CallError, CallRecord, CallStatus, Capabilities, Charge, Controls, ModelInfo, Models,
+};
 pub use stream::{CancelHandle, ChatStream, Completion};
 pub use tools::ToolRun;
 
