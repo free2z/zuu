@@ -101,6 +101,13 @@ reqwest = { version = "0.12.28", default-features = false, features = [
 # `Retry-After` as an HTTP-date (RFC 9110). Already in the lock beneath hyper.
 httpdate = { version = "1", default-features = false }
 
+# The input estimate's tokeniser (src/estimate.rs): OpenAI's own BPE ranks
+# (`o200k_base` for gpt-4o and later, `cl100k_base` for gpt-4 / gpt-3.5),
+# vendored into the binary by `include_str!` — no download, no network, no
+# file at runtime — and built once per process. No optional features: the
+# `async-openai` request types and the `dhat` profiler stay out of the graph.
+tiktoken-rs = { version = "0.12.1", default-features = false }
+
 # Access-token verification (src/auth). ES256 only, verified with `ring`'s
 # fixed-width P-256 ECDSA — the same `ring` the TLS stack above already links,
 # so the gateway gains no second crypto core and no `rsa` crate (the

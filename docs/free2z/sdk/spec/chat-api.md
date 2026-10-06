@@ -126,11 +126,16 @@ received `meta` knows every step passed.
 6. **Hold.** The ledger reserves the worst-case price for `out_cap`. The
    ledger's own answer decides: `402`, `403 cap_exceeded`,
    `403 account_frozen`, `403 account_in_debt`, `409 too_many_holds`.
-7. **Provider request.** A provider error here, on the primary and any
-   `fallback`, releases the hold and ends the (already open) stream with
-   a lone `error` event carrying `provider_error`, `unavailable` or
-   `provider_timeout` and `charged_2z: 0`. Nothing was charged. In
-   non-streamed mode the same failure is the HTTP `502`, `503` or `504`.
+7. **Provider request.** A provider **refusal** here — no connection, a
+   non-2xx head, no response head in time, or the provider's own `error`
+   event before any output — on the primary and any `fallback`, releases
+   the hold and ends the (already open) stream with a lone `error` event
+   carrying `provider_error`, `unavailable` or `provider_timeout` and
+   `charged_2z: 0`. Nothing was charged. In non-streamed mode the same
+   failure is the HTTP `502`, `503` or `504`. A request the provider
+   **accepted** (a 2xx head) that then went silent or was cut is billed by
+   the provider and settled on the estimate: `meta`, then the `error`
+   with its settlement ([metering.md](./metering.md) §5.2).
 
 The HTTP response headers (§2.3) are sent as soon as the hold exists —
 step 6 — so that the client's connection is established and `: ping`
@@ -140,8 +145,13 @@ point is `meta`**, sent when the provider's first content event arrives
 is handled as step 7: `fallback` may switch models, and because no `meta`
 has been sent the switch is invisible except through `meta.requested_model`.
 A provider failure that cannot be recovered before `meta` is delivered as
-an `error` event (§3.7) with `charged_2z: 0` — the stream has already
-begun at the HTTP level, so an HTTP status can no longer carry it.
+an `error` event (§3.7) — the stream has already begun at the HTTP level,
+so an HTTP status can no longer carry it. When the provider **refused** the
+request (no 2xx head, or its own `error` event before any output) that is
+a lone `error` with `charged_2z: 0`. When the provider **accepted** the
+request and the stream then went silent or was cut before any output, the
+provider bills the call: the gateway sends `meta` and then the `error`
+with the settlement ([metering.md](./metering.md) §5.2, §5.4).
 
 ### 2.3 Streamed response
 
@@ -244,8 +254,10 @@ stream   := meta (delta | tool_call_delta | tool_call)* usage? (done | error)
 ```
 
 - Exactly one `meta`, always first — except that a stream whose provider
-  attempt (and any `fallback`) failed before the gateway could commit
-  consists of a single `error` event with `charged_2z: 0` (§2.2). That
+  attempt (and any `fallback`) was refused before the gateway could commit
+  consists of a single `error` event with `charged_2z: 0` (§2.2); an
+  accepted attempt that failed before any output is `meta` then `error`
+  with its settlement, never a lone `error`. That
   lone `error` may carry any code the pre-stream steps can produce —
   `provider_error`, `provider_timeout`, `unavailable`, `internal`, and,
   when a `fallback` hold could not be taken, `insufficient_balance`,
@@ -693,8 +705,10 @@ can read it. Requires `ai:invoke`.
 `status` ∈ `streaming` (hold exists, call in progress), `settling`
 (provider finished, ledger not yet confirmed — [metering.md](./metering.md)
 §5.11), `settled` (charged; `charged_2z` ≥ `min_charge_2z`), `released`
-(nothing charged — the provider failed before output, or the hold expired
-unsettled), `settled_partial` (an error after output; charged for what
+(nothing charged — the provider refused the request, or the hold expired
+unsettled; an accepted request that went silent before output is
+`settled` on the estimate, [metering.md](./metering.md) §5.2),
+`settled_partial` (an error after output; charged for what
 was produced — a client disconnect is **not** this: the upstream is read
 to completion and the call is `settled` with `finish_reason: cancelled`,
 unless the provider then fails, which is `settled_partial` like any

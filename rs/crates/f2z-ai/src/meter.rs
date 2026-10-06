@@ -9,14 +9,16 @@ use crate::{
     chat::ChatBackend,
     error::ApiFailure,
     ledger::{self, Identity, Ledger, Operation},
-    provider::{ProviderBackend, ProviderOutcome, UsageReport},
+    provider::{Phase, ProviderBackend, ProviderOutcome, UsageReport},
     settle::{CallRecord, Settler},
 };
 use async_trait::async_trait;
 use f2z_ai_proto::{ErrorCode, Event, Milli2z, Whole2z};
 use f2z_ai_proto::{
     catalog::CatalogModel,
-    chat::{ChatRequest, ContentPart, EstimateResponse, FinishReason, Usage, UsageSource},
+    chat::{
+        ChatRequest, ContentPart, EstimateResponse, FinishReason, ToolCall, Usage, UsageSource,
+    },
     event::{Done, ErrorEvent, Meta, UsageEvent},
     pricing::{Bps, apply_safety_factor, metered_cost_nusd, price_nusd},
 };
@@ -156,6 +158,9 @@ impl Context {
 struct Plan {
     model: CatalogModel,
     input: u64,
+    /// Whether `input` came from the model's tokeniser (`true`) or from the
+    /// UTF-8 byte bound (`false`, a provider without one).
+    input_exact: bool,
     output: u64,
     hold: Whole2z,
     markup: Bps,
@@ -192,7 +197,88 @@ impl Plan {
         }
     }
 }
+/// Above this many bytes of tokenised input — message text, prior tool
+/// calls, tool definitions, the response_format schema — an estimate takes
+/// one of the tokeniser slots (`estimate_off_runtime`).
+const LARGE_PROMPT_BYTES: usize = 64 * 1024;
+
+/// The input estimate computed off the async runtime: the tokeniser's work
+/// grows with the prompt (tens of ms per MiB), and a request body can be
+/// large. Returns the request with its estimate; `None` when the model is
+/// not callable, which `plan` then refuses.
+async fn estimate_off_runtime(
+    request: ChatRequest,
+    catalog: &VerifiedCatalog,
+) -> Result<(ChatRequest, Option<crate::estimate::InputEstimate>), ApiFailure> {
+    let Some(model) = catalog.catalog().callable_model(&request.model).cloned() else {
+        return Ok((request, None));
+    };
+    // Large prompts a few at a time: a 4 MiB prompt is ~1 s of tokeniser
+    // CPU, and the blocking pool is shared with everything else that
+    // blocks. A small prompt (the common case, milliseconds) never queues
+    // behind a large one.
+    static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
+    // Everything the estimate tokenises: message parts, prior tool calls,
+    // tool definitions and the response_format schema.
+    let text_bytes: usize = request
+        .messages
+        .iter()
+        .flat_map(|m| {
+            m.content
+                .iter()
+                .map(|p| match p {
+                    ContentPart::Text { text } => text.len(),
+                    ContentPart::Image { data, .. } => data.len(),
+                })
+                .chain(
+                    m.tool_calls
+                        .iter()
+                        .map(|c| c.arguments.len().saturating_add(c.name.len())),
+                )
+        })
+        .chain(
+            request
+                .tools
+                .iter()
+                .map(|t| serde_json::to_vec(t).map_or(usize::MAX, |b| b.len())),
+        )
+        .chain(
+            request
+                .response_format
+                .iter()
+                .map(|f| serde_json::to_vec(f).map_or(usize::MAX, |b| b.len())),
+        )
+        .fold(0usize, usize::saturating_add);
+    let slot = if text_bytes > LARGE_PROMPT_BYTES {
+        Some(SLOTS.acquire().await.map_err(|_| invalid())?)
+    } else {
+        None
+    };
+    tokio::task::spawn_blocking(move || {
+        // The permit lives with the work, not with the awaiting future: a
+        // cancelled request (client gone) must not free a slot while its
+        // tokeniser job is still running.
+        let _slot = slot;
+        let estimate = crate::estimate::input_tokens(&request, &model);
+        (request, estimate)
+    })
+    .await
+    .map_err(|_| invalid())
+}
+
+#[cfg(test)]
 fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result<Plan, ApiFailure> {
+    plan_with(request, catalog, c, None)
+}
+
+/// `plan` with the input estimate already computed (`estimate_off_runtime`);
+/// `None` computes it inline.
+fn plan_with(
+    request: &ChatRequest,
+    catalog: &VerifiedCatalog,
+    c: &Context,
+    precomputed: Option<crate::estimate::InputEstimate>,
+) -> Result<Plan, ApiFailure> {
     if !request.fallback.is_empty()
         || request.messages.iter().any(|m| {
             m.content
@@ -222,28 +308,22 @@ fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result
     // changes no bound below: reasoning tokens are output tokens, and the
     // hold already reserves the worst case of the whole output cap.
     crate::provider::check_reasoning_effort(request, &model)?;
-    // Conservative byte-token reservation, including roles, message framing,
-    // tool definitions and prior tool arguments/results. Metadata is excluded.
-    // Final billing uses provider usage, never this byte bound.
-    let mut bytes = serde_json::to_vec(&(&request.messages, &request.tools))
-        .map_err(|_| invalid())?
-        .len();
-    // A response_format schema is input the provider reads (and bills), so it
-    // is reserved like a tool definition. Only when present: a request without
-    // one reserves exactly what it did before the field existed. The pricing
-    // formula is untouched; this only sizes the hold.
-    if let Some(format) = &request.response_format {
-        bytes = bytes.saturating_add(serde_json::to_vec(format).map_err(|_| invalid())?.len());
-    }
-    // Input the provider adds that the bytes do not show (Anthropic's
-    // tool-use system prompt). Zero for every other request, which keeps its
-    // pre-existing reservation exactly.
+    // The input estimate (crate::estimate): the provider's own tokeniser
+    // over messages, tool definitions and the response_format schema with
+    // the measured per-message / per-tool / per-schema framing, for a model
+    // this build has a tokeniser for; the conservative UTF-8 byte bound for
+    // every other provider. Final billing uses provider usage, never this
+    // estimate — except metering.md §5.4, where a stream that lost its usage
+    // frame settles on `input` as its input count.
+    let estimate = match precomputed {
+        Some(estimate) => estimate,
+        None => crate::estimate::input_tokens(request, &model).ok_or_else(invalid)?,
+    };
+    // Input the provider adds that the tokeniser cannot see (Anthropic's
+    // tool-use system prompt). Zero for every other request.
     let overhead = crate::provider::reserved_overhead_tokens(request, &model);
     let input = apply_safety_factor(
-        u64::try_from(bytes)
-            .map_err(|_| invalid())?
-            .saturating_add(64)
-            .saturating_add(overhead),
+        estimate.tokens.saturating_add(overhead),
         model.safety_factor_bps,
     )
     .map_err(|_| invalid())?;
@@ -287,6 +367,7 @@ fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result
     let mut p = Plan {
         model,
         input,
+        input_exact: estimate.exact,
         output: ceiling,
         hold: Whole2z::ZERO,
         markup: c.markup(),
@@ -376,7 +457,34 @@ struct Active {
     completion: Mutex<Option<Value>>,
     provider_started: Mutex<bool>,
     output_bytes: Mutex<u64>,
+    /// The provider answered the request's head with a 2xx: it bills the
+    /// call whatever happens next (`Upstream::accepted`). Observed on every
+    /// poll so a call cut by a drain, which never yields an outcome, still
+    /// knows whether the provider is owed.
+    accepted: Mutex<bool>,
+    /// Everything the provider produced, delivered or not, for metering.md
+    /// §5.4's output estimate when its usage frame never arrives. Bounded
+    /// by the output cap the hold was sized for.
+    produced: Mutex<Produced>,
     final_record: Mutex<Option<Value>>,
+}
+
+/// The generated text, the complete tool calls, and each tool call's
+/// relayed fragments (name, then arguments, by call index) of one call.
+#[derive(Default)]
+struct Produced {
+    /// The generated text, counted incrementally in bounded chunks
+    /// (`estimate::OutputCounter`): retention per call is a chunk, not the
+    /// whole answer.
+    text: crate::estimate::OutputCounter,
+    tool_calls: Vec<ToolCall>,
+    /// By call index: the name as last reported (a later fragment's name
+    /// is the accumulated one and replaces it) and the arguments so far.
+    fragments: BTreeMap<u32, (String, String)>,
+    /// The upstream's own record of the fragments, read when the stream
+    /// ends or is dropped: complete in every mode, including `stream:
+    /// false`, where nothing is relayed.
+    upstream_fragments: Vec<String>,
 }
 
 /// Production backend and settler share a bounded map: one entry per admitted
@@ -392,6 +500,7 @@ pub struct Metered {
 impl Metered {
     /// Share this same instance between gateway backend and detached settler.
     pub fn new(ledger: Arc<dyn Ledger>, provider: ProviderBackend) -> Self {
+        crate::estimate::warm();
         let configured = provider.configured_providers();
         let mut backend = Self::with_provider(ledger, Arc::new(provider));
         backend.configured = Some(configured);
@@ -479,8 +588,11 @@ impl ChatBackend for Metered {
     ) -> Result<Value, ApiFailure> {
         self.require_model(&request.model)?;
         let (_, c) = self.context(principal).await?;
-        serde_json::to_value(plan(&request, &catalog, &c)?.estimate(&c, catalog.catalog().version))
-            .map_err(|_| invalid())
+        let (request, estimate) = estimate_off_runtime(request, &catalog).await?;
+        serde_json::to_value(
+            plan_with(&request, &catalog, &c, estimate)?.estimate(&c, catalog.catalog().version),
+        )
+        .map_err(|_| invalid())
     }
     async fn receipt(&self, id: &str, principal: &Principal) -> Result<Value, ApiFailure> {
         let identity = Identity::try_from(principal).map_err(|_| invalid())?;
@@ -499,7 +611,7 @@ impl ChatBackend for Metered {
     }
     async fn start(
         &self,
-        mut request: ChatRequest,
+        request: ChatRequest,
         catalog: Arc<VerifiedCatalog>,
         call: &CallHandle,
     ) -> Result<Box<dyn Upstream>, ApiFailure> {
@@ -541,6 +653,8 @@ impl ChatBackend for Metered {
             completion: Mutex::new(None),
             provider_started: Mutex::new(false),
             output_bytes: Mutex::new(0),
+            accepted: Mutex::new(false),
+            produced: Mutex::new(Produced::default()),
             final_record: Mutex::new(None),
         });
         lock(&self.active).insert(call.id(), Arc::clone(&active));
@@ -590,7 +704,9 @@ impl ChatBackend for Metered {
             return Err(refusal);
         }
         let admitted_context = Context::parse(row.get("context").ok_or_else(invalid)?.clone())?;
-        let p = match plan(&request, &catalog, &admitted_context) {
+        let (request, estimate) = estimate_off_runtime(request, &catalog).await?;
+        let mut request = request;
+        let p = match plan_with(&request, &catalog, &admitted_context, estimate) {
             Ok(p) => p,
             Err(refused) if is_terminal_refusal(&refused) => {
                 // The key is already claimed. Persist the strict (or
@@ -901,20 +1017,110 @@ fn completion(active: &Active, outcome: Option<&ProviderOutcome>) -> Value {
         json!({"code":f.code,"message":"provider call failed"})
     } else if outcome.is_none() {
         json!({"code":"unavailable","message":"gateway stopped before provider completion"})
-    } else if reported.is_none() {
-        // No tokenizer-backed fallback yet: fail this unsupported billing path,
-        // release the hold, and make the platform absorb unknown provider cost.
-        // Never manufacture zero usage or bill a UTF-8 byte count as tokens.
-        json!({"code":"provider_error","message":"provider usage unavailable; this gateway cannot meter the response"})
     } else {
         Value::Null
     };
     let mut value = json!({"model":active.request_meta.get("model"),"provider":active.request_meta.get("provider"),"finish_reason":outcome.and_then(|o|o.finish_reason).unwrap_or(FinishReason::Stop),"partial":bytes>0 && !error.is_null(),"error":error});
+    // The provider accepted the request (a 2xx head), so it bills the call
+    // whether or not its usage frame arrived. A request it refused — never
+    // sent, a non-2xx head, or its own `error` event before any content
+    // (the in-stream form of a refusal, metering.md §5.2) — has no usage
+    // here, and `finalize` releases the hold.
+    let accepted = *lock(&active.provider_started)
+        && outcome.map_or_else(|| *lock(&active.accepted), |o| o.accepted);
+    let refused_in_stream = outcome
+        .and_then(|o| o.failure.as_ref())
+        .is_some_and(|f| f.phase == Phase::BeforeContent && f.declared_by_provider());
     if let Some(usage) = reported {
         value["usage"] = json!(usage);
         value["usage_source"] = json!("provider");
+        // The provider's numbers settle this call: what was retained for
+        // the estimate is not needed and is released now rather than at
+        // settlement, which a ledger outage can hold open for minutes.
+        // Retention is bounded in any case by `max_concurrent_calls` ×
+        // the output cap the provider was given.
+        *lock(&active.produced) = Produced::default();
+    } else if accepted
+        && !refused_in_stream
+        && let Some(usage) = estimated_usage(active, outcome)
+    {
+        // metering.md §5.4: the hold's input estimate, the produced output
+        // tokenised, nothing invented for the buckets a stream cannot show.
+        // Never a zero usage, never a byte count billed as tokens.
+        value["usage"] = json!(usage);
+        value["usage_source"] = json!("estimated");
     }
     value
+}
+
+/// metering.md §5.4's usage vector for a call whose provider usage never
+/// arrived: the input buckets are the counts the provider did report before
+/// the stream ended (Anthropic's `message_start`) when they fit under the
+/// hold's input estimate, else the estimate itself in the uncached bucket;
+/// `output_tokens` is everything the provider produced — delivered or not —
+/// tokenised and scaled by 11,000 bps, capped at the output ceiling the
+/// provider was given. Every bucket is bounded by the two numbers the hold
+/// was priced from at the dearest input rate, so the price can never exceed
+/// the hold. Reasoning tokens are not streamed and are not in it. `None`
+/// before admission.
+fn estimated_usage(active: &Active, outcome: Option<&ProviderOutcome>) -> Option<Usage> {
+    let plan = lock(&active.plan).clone()?;
+    let partial = match outcome.map(|o| &o.usage) {
+        Some(UsageReport::Missing { partial: Some(p) }) => Some(*p),
+        _ => None,
+    };
+    let input = partial
+        .filter(|p| {
+            let total = p
+                .input_tokens
+                .saturating_add(p.cached_input_tokens)
+                .saturating_add(p.cache_write_tokens);
+            total > 0 && total <= plan.input
+        })
+        .map_or((plan.input, 0, 0), |p| {
+            (p.input_tokens, p.cached_input_tokens, p.cache_write_tokens)
+        });
+    if !plan.input_exact && partial.is_none() {
+        // metering.md §5.4: a provider without a tokeniser settles its
+        // interrupted calls at the byte bound (4–5× the billed input).
+        // Loud, so that it cannot go live unnoticed when such a provider
+        // is first sold through the gateway.
+        tracing::warn!(
+            call_id = %active.id,
+            model = plan.model.id.as_str(),
+            provider = plan.model.provider.as_str(),
+            input_tokens = plan.input,
+            "estimated_input_byte_bound: interrupted call settled at the byte bound, no tokeniser and no partial usage"
+        );
+    }
+    let output = {
+        let produced = lock(&active.produced);
+        // The fragments the adapter saw (every mode) or, on a drain that
+        // left no outcome, the ones this stream relayed.
+        let relayed: Vec<String> = produced
+            .fragments
+            .values()
+            .map(|(name, arguments)| format!("{name}{arguments}"))
+            .collect();
+        let fragments = outcome
+            .map(|o| o.tool_fragments.as_slice())
+            .filter(|f| !f.is_empty())
+            .or_else(|| Some(produced.upstream_fragments.as_slice()).filter(|f| !f.is_empty()))
+            .unwrap_or(&relayed);
+        crate::estimate::output_tokens_counted(
+            &plan.model,
+            &produced.text,
+            &produced.tool_calls,
+            fragments,
+        )
+    };
+    Some(Usage {
+        input_tokens: input.0,
+        cached_input_tokens: input.1,
+        cache_write_tokens: input.2,
+        output_tokens: output.min(plan.output),
+        ..Usage::default()
+    })
 }
 
 async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFailure> {
@@ -974,15 +1180,18 @@ async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFail
         return Err(unavailable());
     };
     *lock(&active.hold_id) = Some(hold);
-    let failed = !intent.get("error").is_none_or(Value::is_null);
-    let output = *lock(&active.output_bytes) > 0;
+    // Release only when the provider is owed nothing: the request was never
+    // sent, or `completion` found no usage to settle on — reported or
+    // estimated — because the provider refused the request (a non-2xx head,
+    // no first byte, no connection). An accepted request always has a
+    // usage here (metering.md §5.4), so a failure before any output on an
+    // accepted stream — an idle timeout during silent reasoning — settles
+    // on the input estimate rather than refunding a call the provider bills.
     let usage = intent
         .get("usage")
         .map(|v| serde_json::from_value::<Usage>(v.clone()).map_err(|_| invalid()))
         .transpose()?;
-    let operation = if !late_cost
-        && (!*lock(&active.provider_started) || (failed && !output) || usage.is_none())
-    {
+    let operation = if !late_cost && (!*lock(&active.provider_started) || usage.is_none()) {
         Operation::Release {
             hold,
             usage: json!({}),
@@ -1154,26 +1363,48 @@ impl Upstream for MeterStream {
                 },
                 ()=async { if let Some(future)=self.extending.as_mut() {future.await;} else {std::future::pending::<()>().await;} }=>{self.extending=None;continue;},
             };
+            if self.upstream.accepted() {
+                *lock(&self.active.accepted) = true;
+            }
             if let Some(event) = event {
                 match &event {
                     Event::Delta(delta) => {
                         let mut n = lock(&self.active.output_bytes);
                         *n = n.saturating_add(u64::try_from(delta.text.len()).unwrap_or(u64::MAX));
+                        let encoding = lock(&self.active.plan)
+                            .as_ref()
+                            .map(|p| crate::estimate::output_encoding(&p.model));
+                        if let Some(encoding) = encoding {
+                            lock(&self.active.produced).text.push(encoding, &delta.text);
+                        }
                     }
-                    // Only whether any output was produced reads this
-                    // count (the completion's `partial`); a fragment and its
-                    // complete call both counting cannot change a charge.
+                    // `output_bytes` only says whether any output was
+                    // produced (the completion's `partial`); the fragments
+                    // themselves are kept, by call index, for metering.md
+                    // §5.4's output estimate when the stream is cut before
+                    // the complete call (the larger of fragments and
+                    // complete calls is counted, never both).
                     Event::ToolCallDelta(fragment) => {
                         let mut n = lock(&self.active.output_bytes);
                         *n = n.saturating_add(
                             u64::try_from(fragment.arguments.len().max(1)).unwrap_or(u64::MAX),
                         );
+                        drop(n);
+                        let mut produced = lock(&self.active.produced);
+                        let entry = produced.fragments.entry(fragment.index).or_default();
+                        if let Some(name) = &fragment.name {
+                            entry.0.clone_from(name);
+                        }
+                        entry.1.push_str(&fragment.arguments);
                     }
                     Event::ToolCall(tool) => {
                         let mut n = lock(&self.active.output_bytes);
                         *n = n.saturating_add(
                             u64::try_from(tool.arguments.len()).unwrap_or(u64::MAX),
                         );
+                        // The complete call only: its `tool_call_delta`
+                        // fragments repeat the same arguments.
+                        lock(&self.active.produced).tool_calls.push(tool.clone());
                     }
                     Event::Usage(_) => continue,
                     _ => {}
@@ -1187,11 +1418,15 @@ impl Upstream for MeterStream {
             self.outcome = self.upstream.outcome();
             *lock(&self.active.completion) = Some(completion(&self.active, self.outcome.as_ref()));
             let success = self.outcome.as_ref().is_some_and(|o| o.failure.is_none());
-            if success || *lock(&self.active.output_bytes) > 0 {
+            let intent = lock(&self.active.completion).clone().unwrap_or(Value::Null);
+            // `meta` precedes every terminal that carries a charge: a call
+            // that failed before any output but settles on the estimate
+            // (chat-api.md §2.3) is not a lone `error` with `charged_2z: 0`.
+            let charged = intent.get("usage").is_some();
+            if success || charged || *lock(&self.active.output_bytes) > 0 {
                 if let Some(meta) = self.meta.take() {
                     self.queued.push_back(Event::Meta(meta));
                 }
-                let intent = lock(&self.active.completion).clone().unwrap_or(Value::Null);
                 if let Some(usage) = intent
                     .get("usage")
                     .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -1221,10 +1456,38 @@ impl Upstream for MeterStream {
         }
     }
     fn outcome(&mut self) -> Option<ProviderOutcome> {
+        // Read on every path that ends the stream, the drain included
+        // (`call::run` asks for the outcome before it drops the upstream):
+        // a provider that accepted a request and was still silent when the
+        // drain cut it is owed the call, and `completion` must know.
+        self.note_accepted();
         self.outcome.clone().or_else(|| self.upstream.outcome())
+    }
+    fn accepted(&self) -> bool {
+        *lock(&self.active.accepted) || self.upstream.accepted()
     }
     fn keep_upload_reservation(&mut self, reservation: tokio::sync::OwnedSemaphorePermit) {
         self.upstream.keep_upload_reservation(reservation);
+    }
+}
+
+impl MeterStream {
+    /// Copy the upstream's acceptance and its record of the tool fragments
+    /// into the call's shared state, where the settler reads them after
+    /// this stream is gone.
+    fn note_accepted(&self) {
+        if self.upstream.accepted() {
+            *lock(&self.active.accepted) = true;
+        }
+        let fragments = self.upstream.tool_fragments();
+        if !fragments.is_empty() {
+            lock(&self.active.produced).upstream_fragments = fragments;
+        }
+    }
+}
+impl Drop for MeterStream {
+    fn drop(&mut self) {
+        self.note_accepted();
     }
 }
 
@@ -1378,6 +1641,120 @@ mod tests {
         // Anything else stored there is never forwarded.
         record["request"]["features"] = json!({"prompt":"leak"});
         assert!(project(&record, false).unwrap().get("features").is_none());
+    }
+
+    /// A `tracing` layer that keeps every event's message, for asserting
+    /// that an operator-facing log line fires.
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<String>>>);
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Captured {
+        fn on_event(
+            &self,
+            event: &tracing::Event<'_>,
+            _ctx: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            struct Message(String);
+            impl tracing::field::Visit for Message {
+                fn record_debug(
+                    &mut self,
+                    field: &tracing::field::Field,
+                    value: &dyn std::fmt::Debug,
+                ) {
+                    if field.name() == "message" {
+                        self.0 = format!("{value:?}");
+                    }
+                }
+            }
+            let mut message = Message(String::new());
+            event.record(&mut message);
+            lock(&self.0).push(message.0);
+        }
+    }
+
+    fn active_with(plan: Plan) -> Active {
+        Active {
+            identity: Identity::try_from(&Principal {
+                sub: "11111111-1111-4111-8111-111111111111".into(),
+                client_id: "c".into(),
+                app_id: "22222222-2222-4222-8222-222222222222".into(),
+                scope: "ai:invoke".into(),
+                aep: 1,
+                agen: 1,
+                exp: u64::MAX,
+                jti: "t".into(),
+            })
+            .unwrap(),
+            id: Uuid::now_v7(),
+            plan: Mutex::new(Some(plan)),
+            request_meta: json!({}),
+            hold: Mutex::new(None),
+            hold_id: Mutex::new(None),
+            completion: Mutex::new(None),
+            provider_started: Mutex::new(true),
+            output_bytes: Mutex::new(0),
+            accepted: Mutex::new(true),
+            produced: Mutex::new(Produced::default()),
+            final_record: Mutex::new(None),
+        }
+    }
+
+    fn drained_outcome(partial: Option<Usage>) -> ProviderOutcome {
+        ProviderOutcome {
+            finish_reason: None,
+            usage: UsageReport::Missing { partial },
+            cache_write_1h_tokens: 0,
+            failure: None,
+            output_produced: false,
+            accepted: true,
+            tool_fragments: Vec::new(),
+            function_tool_calls: 0,
+            attempts: 1,
+        }
+    }
+
+    // metering.md §5.4's guard on the byte-bound settlement: a provider
+    // without a tokeniser whose interrupted call settles at the byte bound
+    // logs `estimated_input_byte_bound`; a tokenised model, or partial
+    // counts from the provider, do not.
+    #[test]
+    fn a_byte_bound_settlement_without_partial_counts_is_logged() {
+        use tracing_subscriber::layer::SubscriberExt;
+        let catalog = priced(200_000);
+        let model = catalog.catalog().models[0].clone();
+        let plan = |exact: bool| Plan {
+            model: model.clone(),
+            input: 135,
+            input_exact: exact,
+            output: 100,
+            hold: Whole2z::new(1),
+            markup: Bps(0),
+            margin: Bps(2000),
+        };
+        let run = |exact: bool, partial: Option<Usage>| {
+            let captured = Captured::default();
+            let subscriber = tracing_subscriber::registry().with(captured.clone());
+            let usage = tracing::subscriber::with_default(subscriber, || {
+                estimated_usage(&active_with(plan(exact)), Some(&drained_outcome(partial)))
+            })
+            .unwrap();
+            let fired = lock(&captured.0)
+                .iter()
+                .any(|m| m.contains("estimated_input_byte_bound"));
+            (usage, fired)
+        };
+        let (usage, fired) = run(false, None);
+        assert_eq!(usage.input_tokens, 135);
+        assert!(fired, "the byte-bound settlement did not log");
+        let (_, fired) = run(true, None);
+        assert!(!fired, "a tokenised estimate logged the byte-bound line");
+        let reported = Usage {
+            input_tokens: 40,
+            cached_input_tokens: 5,
+            ..Usage::default()
+        };
+        let (usage, fired) = run(false, Some(reported));
+        assert_eq!((usage.input_tokens, usage.cached_input_tokens), (40, 5));
+        assert!(!fired, "provider counts settled it, yet it logged");
     }
 
     // free2z/zuu#1122: `max_output_tokens_strict` refuses instead of clamping.

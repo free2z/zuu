@@ -37,8 +37,9 @@ THIS BUILD:
     Metered text and function-tool chat, streamed or JSON. Configure catalogue trust, ledger,
     authentication and provider credentials before serving paid calls. Without
     backend configuration the diagnostic service stays closed and unready.
-    Fallback, images and estimated-usage billing are not
-    implemented in this preview. See the crate README and zuu#1078.
+    Fallback and images are not implemented in this preview; a call whose
+    provider usage never arrives settles on the metering.md §5.4 estimate.
+    See the crate README and zuu#1078.
 ";
 
 fn main() -> ExitCode {

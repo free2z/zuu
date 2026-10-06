@@ -75,16 +75,20 @@ Exhaustion before starting is `503`; overflow or interrupted delivery is `502`
 with a pending charge and a call ID for receipt reconciliation. Provider reading
 and settlement continue after delivery ends.
 
-Limitations: model fallback and images are unsupported. Input reservation uses
-a conservative UTF-8 byte-token bound including serialized message and
-tool-definition framing; it can reserve more than a tokenizer. Final charges
-use provider-reported usage and signed prices. **Missing provider usage has no
-tokenizer-backed billing fallback in this release**: produced text is preserved,
-followed by an explicit error and confirmed released/no-charge receipt (or pending
-until release is confirmed). The platform absorbs that unknown cost; missing
-usage is never fabricated as zero or charged as bytes. Full contract work remains
-in #1078. These local tests do not establish production deployment, authenticated
-paid-call, load, or drain acceptance.
+Limitations: model fallback and images are unsupported. Input reservation runs
+the provider's own tokenizer (`o200k_base` / `cl100k_base`, vendored by
+`tiktoken-rs`) over messages, tool definitions and the `response_format` schema
+with measured framing for OpenAI models (`src/estimate.rs`; the recorded corpus
+in `tests/estimate.rs` holds it never below, and within 15 % of, what the provider
+billed), and a conservative UTF-8 byte bound for every other provider. Final
+charges use provider-reported usage and signed prices. **Missing provider usage
+on an accepted request settles on the metering.md §5.4 estimate** — the hold's
+input estimate plus the produced output tokenized (× 1.1), never above the hold,
+recorded as `usage_source: "estimated"`; a request the provider refused releases
+the hold. Reasoning tokens a lost usage frame would have carried are not
+estimated and are the platform's loss. Full contract work remains in #1078. These
+local tests do not establish production deployment, authenticated paid-call,
+load, or drain acceptance.
 
 ## Backend configuration
 
