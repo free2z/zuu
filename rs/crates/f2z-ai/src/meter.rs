@@ -1278,6 +1278,15 @@ impl Upstream for MeterStream {
                         }
                         entry.push_str(&fragment.arguments);
                     }
+                    // Only whether any output was produced reads this
+                    // count (the completion's `partial`); a fragment and its
+                    // complete call both counting cannot change a charge.
+                    Event::ToolCallDelta(fragment) => {
+                        let mut n = lock(&self.active.output_bytes);
+                        *n = n.saturating_add(
+                            u64::try_from(fragment.arguments.len().max(1)).unwrap_or(u64::MAX),
+                        );
+                    }
                     Event::ToolCall(tool) => {
                         let mut n = lock(&self.active.output_bytes);
                         *n = n.saturating_add(

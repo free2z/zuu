@@ -95,7 +95,7 @@ directory, a stray file, or a feature without `mutations.json` is a failure.
   renders its own stream, and the fixture must then not pin `events`,
   `finish_reason` or `usage` (they would assert the mock, not the gateway).
 - **`expect.events`** — the content events the client receives, in order
-  (`delta`, `tool_call`, and `tool_call_delta` once #1142 lands); the runner
+  (`delta`, `tool_call`, and `tool_call_delta`); the runner
   checks `meta` first, one `usage` just before `done`, `done` last, and no
   `error`. With `stream: false` the same expectation is folded into the
   reply: all text as one message, then the complete calls in order, and no
@@ -177,5 +177,10 @@ The `anthropic_*` stream and request fixtures were migrated from
 the same assertions (stream bodies copied byte for byte); that runner,
 `tests/anthropic_conformance.rs`, still runs alongside until its fixtures
 are removed in a follow-up. #1142's `tests/fixtures/tool_calling/*` (Chat
-Completions / xAI tool calling, `tool_call_delta`) migrate into
-`tool_calling/` the same way once it merges.
+Completions / xAI tool calling, `tool_call_delta`) are migrated the same way
+into `tool_calling/` as `openai_chat_*`, `xai_chat_*` and the
+`refused_{openai,xai}_chat_*` fixtures (provider streams copied byte for
+byte; every success fixture now also pins `usage.tool_calls: 0`). Its runner,
+`tests/tool_conformance.rs`, and the `metered.rs` refusal cases that read
+`tests/fixtures/tool_calling/refusals.json` likewise run alongside until
+that directory is removed in the same follow-up.

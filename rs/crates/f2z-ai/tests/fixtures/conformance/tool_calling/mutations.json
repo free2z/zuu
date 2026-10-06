@@ -112,6 +112,37 @@
       "path": "/-1"
     },
     {
+      "name": "drop parallel_tool_calls on Chat Completions",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/parallel_tool_calls",
+      "fixtures": [
+        "openai_chat_parallel_required",
+        "openai_chat_strict_forced_streamed",
+        "xai_chat_whole_call_single_chunk"
+      ]
+    },
+    {
+      "name": "drop strict on a Chat Completions function",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/tools/0/function/strict",
+      "fixtures": [
+        "openai_chat_strict_forced_streamed"
+      ]
+    },
+    {
+      "name": "drop a tool_call_delta fragment",
+      "target": "events",
+      "op": "remove",
+      "path": "/0",
+      "fixtures": [
+        "openai_chat_strict_forced_streamed",
+        "openai_chat_parallel_required",
+        "xai_chat_whole_call_single_chunk"
+      ]
+    },
+    {
       "name": "bill a function call as a server tool",
       "target": "usage",
       "op": "replace",
