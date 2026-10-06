@@ -231,6 +231,7 @@ impl Gateway {
             metrics: Some(Arc::clone(&metrics)),
             delivery_buffer_bytes: config.delivery_buffer_bytes,
             delivery_stall: config.delivery_stall,
+            stream_keepalive: config.stream_keepalive,
         };
         let public_router = public_router(chat_state, config, &inflight, &metrics);
         let admin_router = admin_router(shared.clone());
