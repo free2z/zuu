@@ -1,0 +1,57 @@
+{
+  "name": "anthropic_request_parallel_false",
+  "feature": "tool_calling",
+  "source": "Migrated from tests/fixtures/anthropic/requests.json (#1140), case 'parallel_tool_calls false alone is auto with parallel use disabled'. Request translation only: no provider_stream, so the mock renders its own Anthropic text stream.",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true,
+      "structured_output": true
+    }
+  },
+  "request": {
+    "model": "m-anthropic",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Go."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "parameters": {
+          "type": "object"
+        }
+      }
+    ],
+    "parallel_tool_calls": false
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "tools": [
+        {
+          "name": "lookup",
+          "input_schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "tool_choice": {
+        "type": "auto",
+        "disable_parallel_tool_use": true
+      },
+      "response_format": null,
+      "parallel_tool_calls": null
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}
