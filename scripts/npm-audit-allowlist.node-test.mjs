@@ -35,7 +35,15 @@ test("expired entry fails even with a clean report", () => {
 test("malformed report is not a pass", () => {
   assert.ok(evaluate({}, ALLOWLIST, before).unparseable);
 });
-test("allowlist is exactly one entry with issue and 30-day expiry", () => {
-  assert.equal(ALLOWLIST.length, 1);
-  assert.match(ALLOWLIST[0].issue, /issues\/1130$/);
+test("allowlist is exactly the known entries, each with an issue and a 30-day expiry", () => {
+  assert.deepEqual(
+    ALLOWLIST.map((e) => [e.id, e.package, e.issue.split("/").pop()]),
+    [
+      ["GHSA-vfj7-8cjw-p6xm", "braces", "1130"],
+      ["GHSA-5gmw-xhrv-c9v3", "tinypool", "1173"],
+      ["GHSA-85c8-ppgw-ccpr", "tinypool", "1174"],
+      ["GHSA-68fv-2mgg-jv7q", "source-map-js", "1176"],
+    ],
+  );
+  for (const e of ALLOWLIST) assert.match(e.expires, /^2026-11-0[34]$/);
 });
