@@ -14,6 +14,20 @@ export const ALLOWLIST = [
     issue: "https://github.com/free2z/zuu/issues/1130",
     reason: "build-time only via tailwind 3; no runtime exposure",
   },
+  {
+    id: "GHSA-5gmw-xhrv-c9v3",
+    package: "tinypool",
+    expires: "2026-11-04", // 30 days from 2026-10-05
+    issue: "https://github.com/free2z/zuu/issues/1173",
+    reason: "dev/test-only via vitest 3; no patched version in range (needs vitest 5)",
+  },
+  {
+    id: "GHSA-85c8-ppgw-ccpr",
+    package: "tinypool",
+    expires: "2026-11-04", // 30 days from 2026-10-05
+    issue: "https://github.com/free2z/zuu/issues/1174",
+    reason: "dev/test-only via vitest 3; no patched version in range (needs vitest 5)",
+  },
 ];
 
 const BLOCKING = new Set(["high", "critical"]);
