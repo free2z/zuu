@@ -6,9 +6,8 @@ Start with [the pinned source-preview installation and Tauri adapter guide](./SO
 Registry publication and live end-to-end acceptance are still pending; building
 the real SDK does not establish availability of every service or payment rail.
 
-The Rust examples below target merged core
-[`534d2a58`](https://github.com/free2z/zuu/commit/534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860),
-which includes the reviewed grant API alongside login, balance, purchase and
+The Rust examples below target the tagged release `sdk-v0.2.0`
+([release notes](./RELEASES.md#sdk-v020--2026-10-06)), which includes the reviewed grant API alongside login, balance, purchase and
 AI operations. Local fake-service regressions and native builds are not live
 service acceptance evidence.
 
@@ -53,12 +52,12 @@ npm install @free2z/sdk @free2z/tauri-plugin-f2z-api
 Plugin registration, capabilities and mobile setup still require the released
 plugin's own installation instructions; adding dependencies alone is insufficient.
 
-For **pre-release source experimentation only**, Cargo can identify the public
-preview by commit, without a private repository or a path into this workspace:
+Until registry publication, Cargo can identify the public release by its Git
+tag, without a private repository or a path into this workspace:
 
 ```toml
 [dependencies]
-f2z-sdk = { git = "https://github.com/free2z/zuu", rev = "534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860" }
+f2z-sdk = { git = "https://github.com/free2z/zuu", tag = "sdk-v0.2.0" }
 ```
 
 This is not the supported published-package installation and does not establish
@@ -70,7 +69,7 @@ initializing them and run the SDK's own fake example:
 ```sh
 git clone --filter=blob:none https://github.com/free2z/zuu.git zuu-sdk-preview
 cd zuu-sdk-preview
-git checkout 534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860
+git checkout sdk-v0.2.0
 cd rs
 cargo +1.97.1 run --locked -p f2z-sdk --example full_flow
 cargo +1.97.1 test --locked -p f2z-sdk --all-targets
@@ -125,10 +124,10 @@ otherwise, and an existing grant keeps its own period. Direct users whose
 grant does not qualify to [manage this app's budget](https://free2z.cash/account/apps)
 or sign in again with `prompt: "consent"`.
 
-**Version requirement.** The spend-cap hint is newer than the preview commit
-pinned above (`534d2a58`), which does not have `spendCap`, `with_spend_cap` or
-the plugin's `spendCap` / `spendPeriod`. Using it means moving the pin to a
-commit that includes it, and a Tauri app must move **all three together**: the
+**Version requirement.** The spend-cap hint is in `sdk-v0.2.0` and later; the
+older `534d2a58` preview does not have `spendCap`, `with_spend_cap` or the
+plugin's `spendCap` / `spendPeriod`. A Tauri app moving its pin must move
+**all three together**: the
 TypeScript SDK (`@free2z/sdk`), the plugin's guest API
 (`@free2z/tauri-plugin-f2z-api`) and the Rust plugin crate
 (`tauri-plugin-f2z`, which brings `f2z-sdk`). A newer TypeScript SDK or guest

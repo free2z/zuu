@@ -11,8 +11,8 @@ requirements. Start with the public
 
 ## Constructing a client
 
-The planned release dependency is `f2z-sdk = "0.1"`; it is not available on
-crates.io yet. The preview requires the repository's Rust 1.97.1 toolchain.
+The current release is `0.2.0`, Git tag `sdk-v0.2.0`; it is not available on
+crates.io yet, so pin the tag. The preview requires the repository's Rust 1.97.1 toolchain.
 
 ```rust
 use std::sync::Arc;

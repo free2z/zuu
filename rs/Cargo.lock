@@ -950,7 +950,7 @@ dependencies = [
 
 [[package]]
 name = "f2z-ai-proto"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ed25519-dalek 3.0.0",
  "proptest",
@@ -1182,7 +1182,7 @@ dependencies = [
 
 [[package]]
 name = "f2z-sdk"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "base64 0.22.1",

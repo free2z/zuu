@@ -1,7 +1,8 @@
 # Use the real SDK from pinned public source
 
-This is an interim **source preview**, not a published release. You can compile
-and integrate the real SDK in a Tauri 2 app now. A successful build does not
+The SDK is released as **Git tags** (`sdk-v<version>`; the current one is
+`sdk-v0.2.0`, see [RELEASES.md](./RELEASES.md)) and is not on crates.io or npm
+yet. You can compile and integrate the real SDK in a Tauri 2 app now. A successful build does not
 prove that login, a payment rail or metered AI is ready for your registered
 client. See [live prerequisites](#live-prerequisites) before enabling those UI
 flows. The supported release installation will use crates.io/npm packages.
@@ -9,20 +10,20 @@ flows. The supported release installation will use crates.io/npm packages.
 ## Versions and installation
 
 Use Rust 1.97.1, Node 22+ and your platform's Tauri 2 build prerequisites. The
-following public revisions are independently reviewed previews:
+following public release is independently reviewed:
 
-| Component | Exact source revision | Tracking |
+| Component | Release tag | Notes |
 |---|---|---|
-| Rust core, including `grant()` | `534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860` | [#1106](https://github.com/free2z/zuu/pull/1106) |
-| Native plugin and its JavaScript bridge | `534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860` | [#1106](https://github.com/free2z/zuu/pull/1106) |
-| TypeScript facade | `534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860` | [#1106](https://github.com/free2z/zuu/pull/1106) |
+| Rust core (`f2z-sdk` 0.2.0, `f2z-ai-proto` 0.2.0) | `sdk-v0.2.0` | [RELEASES.md](./RELEASES.md#sdk-v020--2026-10-06) |
+| Native plugin and its JavaScript bridge (`tauri-plugin-f2z` / `@free2z/tauri-plugin-f2z-api` 0.2.0) | `sdk-v0.2.0` | [RELEASES.md](./RELEASES.md#sdk-v020--2026-10-06) |
+| TypeScript facade (`@free2z/sdk` 0.2.0) | `sdk-v0.2.0` | [RELEASES.md](./RELEASES.md#sdk-v020--2026-10-06) |
 
 The plugin's revision already includes the merged core. Do not add a second
 independent core client to the app. In `src-tauri/Cargo.toml`:
 
 ```toml
 [dependencies]
-tauri-plugin-f2z = { git = "https://github.com/free2z/zuu", rev = "534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860" }
+tauri-plugin-f2z = { git = "https://github.com/free2z/zuu", tag = "sdk-v0.2.0" }
 ```
 
 Cargo also fetches this synthetic repository's upstream submodules when
@@ -38,10 +39,9 @@ mkdir free2z-sdk-preview-build
 cd free2z-sdk-preview-build
 SDK_BUILD="$PWD"
 git clone --filter=blob:none --no-checkout https://github.com/free2z/zuu.git repository
-git -C repository fetch origin 534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860
-git -C repository worktree add --detach "$SDK_BUILD/native" 534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860
-git -C repository fetch origin 534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860
-git -C repository worktree add --detach "$SDK_BUILD/typescript" 534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860
+git -C repository fetch origin tag sdk-v0.2.0
+git -C repository worktree add --detach "$SDK_BUILD/native" sdk-v0.2.0
+git -C repository worktree add --detach "$SDK_BUILD/typescript" sdk-v0.2.0
 mkdir artifacts
 cd "$SDK_BUILD/native/wallet/plugins/tauri-plugin-f2z"
 npm ci
@@ -53,16 +53,15 @@ npm pack --pack-destination "$SDK_BUILD/artifacts"
 
 Do not initialize submodules for these JavaScript builds. Copy both generated
 `.tgz` files into your application's
-`vendor/free2z/sdk/534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860/` directory,
+`vendor/free2z/sdk/sdk-v0.2.0/` directory,
 then run from the app root:
 
 ```sh
-npm install ./vendor/free2z/sdk/534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860/free2z-tauri-plugin-f2z-api-0.1.0.tgz ./vendor/free2z/sdk/534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860/free2z-sdk-0.1.0.tgz
+npm install ./vendor/free2z/sdk/sdk-v0.2.0/free2z-tauri-plugin-f2z-api-0.2.0.tgz ./vendor/free2z/sdk/sdk-v0.2.0/free2z-sdk-0.2.0.tgz
 ```
 
 Keep the tarballs, their exact source revisions and the application lockfile
-with your build inputs. Preview upgrades may retain package version `0.1.0`;
-put each new revision in a new directory and run `npm install` with those new
+with your build inputs. Put each new release tag in a new directory and run `npm install` with those new
 paths. Commit the resulting dependency paths and lockfile integrity values;
 do not overwrite an older revision's tarballs or rely on the version alone. The native bridge also requires `@tauri-apps/api` 2.5+
 within major version 2, normally already present in a Tauri app. Set the app's
@@ -138,7 +137,7 @@ This helper is sufficient for the desktop callback profile: register
 `http://127.0.0.1:<ephemeral-port>/callback` according to the public client
 contract. Mobile sign-in additionally requires `Builder::mobile_redirects`,
 registered HTTPS/private-scheme callbacks and OS app-link configuration. Follow
-[the pinned plugin's platform registration instructions](https://github.com/free2z/zuu/blob/534d2a58c5baa6fa67ccd8a0d5ab1e18adb5b860/wallet/plugins/tauri-plugin-f2z/README.md#platform-registration)
+[the pinned plugin's platform registration instructions](https://github.com/free2z/zuu/blob/sdk-v0.2.0/wallet/plugins/tauri-plugin-f2z/README.md#platform-registration)
 for iOS and Android; desktop success does not establish mobile acceptance.
 
 ## Typed application adapter

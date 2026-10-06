@@ -29,8 +29,8 @@ A pending or unknown settlement is not a zero charge. This crate does not
 perform authorization, reserve balances, settle ledger entries, or certify
 that a service endpoint is deployed.
 
-The planned release dependency is `f2z-ai-proto = "0.1"`; it is not available
-on crates.io yet. Source verification uses Rust 1.97.1:
+The current release is `0.2.0`, Git tag `sdk-v0.2.0`; it is not available
+on crates.io yet, so pin the tag. Source verification uses Rust 1.97.1:
 
 ```text
 cargo +1.97.1 test --locked -p f2z-ai-proto --all-targets

@@ -1,6 +1,28 @@
 # Changelog
 
-## 0.1.0 — unreleased
+## 0.2.0 — 2026-10-06
+
+First tagged release, `sdk-v0.2.0`, versioned together with the other Free2Z
+SDK packages; `0.1.0` was never tagged or published. Not on a registry yet:
+pin the Git tag. Consolidated notes and the gateway compatibility matrix
+(minimum `f2z-ai` gateway: zuu `d26c9397`; `reasoning_effort` needs
+`b8e0c814` or later): [RELEASES.md](https://github.com/free2z/zuu/blob/sdk-v0.2.0/docs/free2z/sdk/RELEASES.md#sdk-v020--2026-10-06).
+
+### Breaking
+
+- `SdkError.code` is typed `SdkErrorCode`, `message` ends with a developer
+  hint, and `retryable` follows `errors.md` (#1136).
+- A non-boolean value for a known `capabilities` member (`vision`, `tools`,
+  `reasoning`, `structured_output`, `strict_tools`, `reasoning_effort`) is now
+  `invalid_response`; unknown members still pass through; catalogue prices and limits decode as `bigint` (#1137).
+- Native sign-in rejects with `user_cancelled` / `browser_unavailable` /
+  `timeout` where it used to say `browser_error` (#1138).
+- The `ChatEvent` union gained `tool_call_delta` (#1142): an exhaustive
+  `switch` with a `never` check must handle it.
+- The optional peer is `@free2z/tauri-plugin-f2z-api@^0.2.0`; a 0.1.0 guest-js
+  build no longer satisfies it.
+
+### Added and changed
 
 - `ChatRequest.reasoning_effort` (`ReasoningEffort`: `"minimal" | "low" |
   "medium" | "high"`, free2z/zuu#1151): sent only when set; any other value is
@@ -19,9 +41,6 @@
 - `formatMilli2z` for display. Typed `Estimate`'s optional members, `CallRecord` fields,
   `CallStatus`, `FinishReason`, `Usage`, `Purchase.status` / `rail` /
   `pricing_version`.
-
-Initial TypeScript facade, browser OAuth/Fetch transport, native pull bridge,
-lossless integer decoding, purchase polling, and structured settlement recovery.
 
 - `ChatRequest.tool_choice` (`ToolChoice`) and `ChatRequest.parallel_tool_calls`
   (free2z/zuu#1128): OpenAI-shaped tool controls, passed through as sent;
@@ -60,3 +79,8 @@ lossless integer decoding, purchase polling, and structured settlement recovery.
   suggested spend cap sent as `f2z_spend_cap` / `f2z_spend_period`.
   Only pre-selects the consent screen; read the result from
   `grant()`.
+
+## 0.1.0 — source preview, never tagged
+
+Initial TypeScript facade, browser OAuth/Fetch transport, native pull bridge,
+lossless integer decoding, purchase polling, and structured settlement recovery.

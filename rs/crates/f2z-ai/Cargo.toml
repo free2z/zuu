@@ -27,7 +27,7 @@ workspace = true
 sqlx-core = { version = "0.8.6", default-features = false, features = ["_rt-tokio", "_tls-rustls-ring-webpki"] }
 sqlx-postgres = { version = "0.8.6", default-features = false, features = ["json", "uuid"] }
 uuid = { version = "1", default-features = false, features = ["v7", "serde", "std"] }
-f2z-ai-proto = { path = "../f2z-ai-proto", version = "0.1.0" }
+f2z-ai-proto = { path = "../f2z-ai-proto", version = "0.2.0" }
 
 # The HTTP stack. `axum` routes; the accept loop is `hyper` + `hyper-util`
 # driven by hand (src/serve.rs) because `axum::serve` sets no timer, so it can

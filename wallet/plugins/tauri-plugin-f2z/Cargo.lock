@@ -1148,7 +1148,7 @@ dependencies = [
 
 [[package]]
 name = "f2z-ai-proto"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
  "serde",
@@ -1157,7 +1157,7 @@ dependencies = [
 
 [[package]]
 name = "f2z-sdk"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "f2z-ai-proto",
@@ -4093,7 +4093,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-f2z"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "android-native-keyring-store",
  "apple-native-keyring-store",

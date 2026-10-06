@@ -30,7 +30,7 @@ workspace = true
 # `wildcards = "deny"`, and a bare path dependency is a wildcard requirement.
 # Every usage number, price and charge here is an `f2z-ai-proto` type, so the
 # harness cannot drift from the contract it tests.
-f2z-ai-proto = { path = "../f2z-ai-proto", version = "0.1.0" }
+f2z-ai-proto = { path = "../f2z-ai-proto", version = "0.2.0" }
 serde = { workspace = true, features = ["alloc", "std"] }
 serde_json = { workspace = true, features = ["std"] }
 # The mock provider's HTTP server. The workspace entry is

@@ -44,6 +44,15 @@ not registry availability. Native verification similarly stages the unpacked
 core. No `cargo publish`, npm publication or live API calls
 occur in this checker.
 
+## Tagged Git releases
+
+Until registry publication, a release is a coordinated version bump of all
+five packages in one PR (manifests, `Cargo.lock` / `package-lock.json`, and a
+dated `CHANGELOG.md` section in each), a consolidated entry in
+[RELEASES.md](./RELEASES.md) with the gateway compatibility matrix, then the
+annotated tag `sdk-v<version>` on the squash-merge commit and a GitHub release
+whose notes are that entry. Consumers pin the tag. Neither step publishes.
+
 ## Publication sequence
 
 A release PR must record independent review, exact-head green required gates,
