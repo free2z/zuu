@@ -1,11 +1,13 @@
 # The cross-app intent bridge, version 1
 
-**Status:** wire format and both implementations landed. **Not shippable as a
-transport** — see [§7](#7-what-is-blocked-on-461).
+**Status:** wire format and both implementations landed. Carried over verified
+App Links on iOS and Android, and refused everywhere else — see
+[§7](#7-the-transport-and-what-461-made-possible).
 
 Issues: [#905](https://github.com/free2z/zuu/issues/905) (this document),
 [#904](https://github.com/free2z/zuu/issues/904) (why the apps are splitting),
-[#461](https://github.com/free2z/zuu/issues/461) (the blocking prerequisite).
+[#461](https://github.com/free2z/zuu/issues/461) (the verified links the
+transport rests on).
 
 Companion documents:
 
@@ -201,7 +203,7 @@ key-transparency directory is built on.
 > instead, and the field disappears from the problem rather than from the wire.
 > `identity_pk` and `handle` are already **inside** the signed credential, and a
 > second, unsigned copy beside it would be a copy whoever answered gets to
-> choose — see [§7](#7-what-is-blocked-on-461) and
+> choose — see [§7](#7-the-transport-and-what-461-made-possible) and
 > [#929](https://github.com/free2z/zuu/issues/929). That reasoning covers values
 > the *responder* supplies and not one the *caller already holds*: ADR 0016 also
 > requires the caller to **refuse a credential whose handle is not the one it
@@ -210,9 +212,9 @@ key-transparency directory is built on.
 > `IdentityInstall`, which is a Rust API rather than a wire format. That work
 > has since landed: `IdentityInstall` lost its `wrap_key`, `Engine::unlock`
 > takes no key, and `cash.free2z.e2e2z` gained the app-crate command that
-> installs a credential and the one that retries the unlock. The caller can now
-> consume a credential, but the transport (#461) and ZUULI's authority handler
-> for `issue-device-credential` are still missing. ADR 0016 §6 also leaves the
+> installs a credential and the one that retries the unlock. The transport and
+> ZUULI's authority handler for `issue-device-credential` followed in
+> [#1019](https://github.com/free2z/zuu/pull/1019). ADR 0016 §6 still leaves the
 > `device_kem_pk` binding unresolved.
 
 #### Why version 2 carries an endpoint, and why that is not a "new field"
@@ -474,10 +476,12 @@ response.
 a creator ZEC tip ([#790](https://github.com/free2z/zuu/issues/790)). It
 collects the amount — the product gap that kept `execute-payment` unbuildable,
 since `encodeExecutePaymentPayload` refuses a non-positive amount — builds the
-request through this package, and hands it to `./intent-transport`, which is
-**one interface with one fail-closed implementation**. Its `exchange` cannot
-return bytes; it rejects with a typed error naming #461, and the UI says that
-nothing was sent.
+request through this package, and hands it to `./intent-transport`, which
+chooses the transport in one place: the verified App Link (§7) in a native iOS
+or Android build, and elsewhere a refusal whose `exchange` cannot return bytes,
+which the UI renders as "nothing was sent". Once the link has been opened,
+ZUULI may have acted, so a timeout or a lost answer is reported as an unknown
+outcome ("check your wallet"), never as "nothing was sent".
 
 Two details of that caller are worth copying rather than reinventing:
 
@@ -550,11 +554,32 @@ than a newly allocated wire refusal code. Free2Z preserves it through its tip
 result and maps it to uncertain copy; E2E2Z raises `IntentStatusUnknownError`
 and does not install a credential or infer enrollment.
 
-## 7. What is blocked on #461
+## 7. The transport, and what #461 made possible
 
 Everything above is correct regardless of how the bytes travel. Nothing above is
 *sufficient* without a transport that authenticates the response destination,
-and we do not have one:
+and for a long time there was none. There is now, on iOS and Android only:
+
+- [#977](https://github.com/free2z/zuu/pull/977) resolved #461: `assetlinks.json`
+  and `apple-app-site-association` are served from `free2z.com`, and each app
+  claims its own `/bridge/<app>/` prefix under `plugins.deep-link.mobile`.
+- [#1019](https://github.com/free2z/zuu/pull/1019) gave ZUULI a listener on
+  `/bridge/zuuli/` (`wallet/zuuli/src-tauri/src/bridge.rs`) and e2e2z a caller
+  transport (`wallet/e2e2z/src/lib/enrollment/appLinkTransport.ts`), for
+  `issue-device-credential`.
+- free2z's caller transport (`wallet/free2z/src/lib/bridge/appLinkTransport.ts`)
+  carries `execute-payment` for the creator ZEC tip (§6.1). free2z registers no
+  `invoke_handler`, so it opens the link through `tauri-plugin-opener` under the
+  `opener:default` grant it already had.
+
+Both callers send the request in the **fragment** of
+`https://free2z.com/bridge/zuuli/`, and read the answer from the fragment of
+their own `https://free2z.com/bridge/<app>/`, whose address ZUULI takes from its
+registry rather than from the request. On a desktop build or in a browser there
+is no association, so both callers keep their fail-closed refusal there.
+
+The rules that held while the channel was missing still hold, because they are
+why the channel is the one it is:
 
 - **Custom schemes are not an authenticated channel.** Any app can register
   `zuuli://`. `#904` says this plainly and `#905` refuses to ship on it. Doing
@@ -564,30 +589,22 @@ and we do not have one:
   whose package or team owns the domain association receives the link. That is
   the property the response half of this protocol rests on, and it requires
   `assetlinks.json` and `apple-app-site-association` served from a domain we
-  control — [#461](https://github.com/free2z/zuu/issues/461), currently blocked.
+  control — [#461](https://github.com/free2z/zuu/issues/461).
 
-Therefore, until #461 lands:
+Therefore:
 
-- **No intent carrying authority may be dispatched over a deep link.** Not
-  `sign-challenge`, not `issue-device-credential`, not `execute-payment`.
-- The one caller that exists, `wallet/e2e2z/src/lib/enrollment`, holds that line
-  in one file: `transport.ts` declares an `IntentTransport` interface and ships
-  the only implementation there is, which **rejects**. It rejects before the
-  caller samples a device key set — sampling one for a request that cannot leave
-  the process discards the previous secrets for nothing — and it rejects again
-  inside `dispatch`, unconditionally, so flipping the availability flag moves the
-  refusal rather than removing it. When #461 lands, the work is to write an
-  `IntentTransport` and register it; nothing else on that path changes.
-- `f2z-intent` deliberately contains **no transport**: no URL parsing, no intent
-  filter, no scheme. Adding one is the work #461 gates, not work this crate
-  quietly permits.
+- **No intent carrying authority may be dispatched over anything but a verified
+  link.** Not over a custom scheme, and not from a runtime where the association
+  does not exist. Each caller chooses its transport in one place — e2e2z's
+  `installAppLinkIntentTransport`, free2z's `installedIntentTransport` — and
+  everywhere else ships a refusal that cannot return bytes.
+- `f2z-intent` still contains **no transport**: no URL parsing, no intent filter,
+  no scheme. The transports live in the apps that own the links.
 - The residual risk if the App Link assumption fails is stated in
   [`CALLER-AUTHENTICATION.md` §4](./CALLER-AUTHENTICATION.md#4-response-authenticity).
-
-What *is* usable today, and is why this landed ahead of the transport: the wire
-format is fixed, both implementations exist and agree byte-for-byte, every guard
-has a mutation-verified test, and the two hard questions are written down
-instead of discovered during integration.
+- **Not yet observed on a device.** The App Link has not been exercised on a
+  signed build, and whether Android's `startActivityForResult` composes with it
+  is still unmeasured (`CALLER-AUTHENTICATION.md` §3.1).
 
 ### 7.1 What has landed of #461, and what has not
 
@@ -601,20 +618,16 @@ asserts that the four surfaces agree and that no fingerprint is an upload
 certificate, with a mutation test per check, because every failure in this area
 is one the platform reports as silence.
 
-**None of that makes the channel verified yet, and this section's refusal
-stands unchanged.** Three things are still open, and the first two are outside
-this repository:
+The **serving half** is live: `https://free2z.com/.well-known/assetlinks.json`
+and `apple-app-site-association` both return `200`, and the Android document
+lists all three packages, byte-identical to
+[`association/assetlinks.json`](./association/assetlinks.json) (checked
+2026-09-24). The **transports** are written too — see §7.
 
-- **`https://free2z.com/.well-known/assetlinks.json` still returns `503`.** The
-  serving repository generates it from a reviewed fingerprint list that is still
-  empty, and deliberately writes no document until every listed package has an
-  entry — a partial document is a cacheable "not associated" answer for the apps
-  it omits. Until the three fingerprints are added there and deployed, **Android
-  App Links do not verify for any of the three apps.**
+One thing is still open, and it is the one no amount of CI can close:
+
 - **Nothing has been verified on a signed device, on either platform.** That is
   the whole point of the mechanism and it fails silently; `adb shell pm
   get-app-links <pkg>` reporting `verified`, and an iOS device opening a
   `/bridge/…` URL in the app, are the only evidence that counts. A simulator or
   emulator check is not evidence.
-- **The transport itself is still unwritten**, and `transport.ts` still rejects
-  twice. That remains the next change, not this one.

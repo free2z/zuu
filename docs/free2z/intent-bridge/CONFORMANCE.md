@@ -584,6 +584,63 @@ association resolves on a signed build is the App Link association section's
 question. `CallerAttestation::None` is not mutated either: nothing an App Link
 carries could replace it.
 
+## The free2z transport — `appLinkTransport.ts` and the creator tip
+
+free2z's caller transport carries `execute-payment` for the creator ZEC tip
+(#790). It is e2e2z's transport with two differences that get their own rows:
+free2z registers no `invoke_handler`, so the link is built here and opened
+through `tauri-plugin-opener`; and a payment adds one rule e2e2z does not need
+— once the link has opened, ZUULI may have paid, so no failure after that point
+may be read as "nothing was sent".
+
+Baseline: 18 tests in `wallet/free2z/src/lib/bridge/appLinkTransport.test.ts`
+and 96 in `creator-tip.test.ts`. Reproduce one row at a time: patch, then
+`npx vitest run src/lib/bridge/appLinkTransport.test.ts src/lib/bridge/creator-tip.test.ts`,
+then restore.
+
+| Guard, as mutated | Test that must fail | Result |
+|---|---|---|
+| a non-`https` answer accepted | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| an answer on any host accepted | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| the reply path matched as a prefix, not exactly | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| an answer carrying a query accepted | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| a fragment key matched by prefix | `an inbound link > is refused on every condition the association rests on` | FAILS |
+| an answer accepted whatever its `rid` | `an exchange > ignores an answer to a request it is not waiting for` | FAILS |
+| an answer delivered with nothing waiting | `an exchange > ignores an answer when nothing is waiting` | FAILS |
+| a second exchange allowed while one waits | `an exchange > refuses a second exchange while one is outstanding` | FAILS |
+| a deadline other than the request's own | `an exchange > times out on the request's own deadline, and says so as 'unknown'` | FAILS |
+| any transport error read as "no channel" | `a creator tip over the App Link > is 'unknown', never 'not sent', when ZUULI does not answer in time` | FAILS |
+| a failure to open the link swallowed | `an exchange > rejects, as a broken channel, when the platform will not open the link` | FAILS |
+| the request sent in the query | `the outbound link > goes to ZUULI's bridge, with the request in the fragment only` | FAILS |
+| the App Link chosen on a desktop build | `the transport this runtime gets > is the refusal in a desktop build, which has no App Link association` | FAILS |
+| the App Link chosen in a browser | `the transport this runtime gets > is the refusal in a browser` | FAILS |
+| the answer listener registered off mobile | `the transport this runtime gets > listens for answers only where it can send` | FAILS |
+| the tip handing the transport another request's `rid` | `a creator tip over the App Link > hands the transport the request's own identifier and deadline` | FAILS |
+| the tip handing the transport the wrong deadline | `a creator tip over the App Link > hands the transport the request's own identifier and deadline` | FAILS |
+
+17 mutations, 17 failures, 0 survivors. Each row's log was read to confirm the
+test that failed is the one named, not a neighbour failing by accident.
+
+### Notes on rows that pass
+
+- The five inbound rows share one table test; each mutation makes a different
+  URL in it come back non-null, and the assertion names that URL.
+- The single-flight, deadline, `rid` and open-failure rows fail by timing out,
+  not by assertion: with the guard gone, the promise never settles the way the
+  test waits for.
+- The first run of the harness reported every row in `appLinkTransport.ts` as
+  unchanged, because it confirmed each mutation with `git diff` and a new,
+  untracked file has none. It now compares file contents. A mutation that is
+  not applied cannot fail, so "0 survivors" is only worth reading once each row
+  is known to have been applied.
+
+### What none of this proves
+
+No row delivers a link, and none pays. `openUrl` and `onOpenUrl` are mocked,
+ZUULI's answer is written by hand, and the startup call in `src/main.tsx` that
+registers the listener is not exercised by any unit test. Whether a tip reaches
+ZUULI and its answer reaches free2z on a signed device is still unobserved.
+
 ## Cross-language agreement
 
 `rs/crates/f2z-intent/tests/wire_vectors.rs` and
