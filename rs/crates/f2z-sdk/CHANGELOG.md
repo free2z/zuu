@@ -1,10 +1,27 @@
 # Changelog
 
-## 0.1.0 — unreleased
+## 0.2.0 — 2026-10-06
 
-Initial reviewed SDK contract implementation. Publication is disabled pending
-release acceptance; see the repository SDK release guide.
+First tagged release, `sdk-v0.2.0`, versioned together with the other Free2Z
+SDK packages; `0.1.0` was never tagged or published. Not on a registry yet:
+pin the Git tag. Consolidated notes and the gateway compatibility matrix
+(minimum `f2z-ai` gateway: zuu `d26c9397`; `reasoning_effort` needs
+`b8e0c814` or later): [RELEASES.md](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASES.md#sdk-v020--2026-10-06).
 
+### Breaking
+
+- Tool `parameters` and the `response_format` schema are
+  `f2z_ai_proto::OrderedJson` (#1143): `serde_json::json!(…).into()` compiles
+  but is already sorted — parse the schema text to keep its order.
+- `ChatRequest` / `Tool` (re-exported from `f2z_ai_proto`) gained fields; a
+  struct literal must name them. Prefer `ChatRequest::new` and the builders.
+- `LoopbackSession` reports an opener failure as `Error::BrowserUnavailable`,
+  not `Error::Browser` (#1138).
+
+### Added and changed
+
+- SSE `: ping` keep-alive comments (#1165) are ignored mid-stream; pinned by
+  `tests/keepalive.rs`.
 - `Ai::preflight(&request)` → `ai::Preflight` (`Ready`, `NeedsTopUp`,
   `NeedsBudget`, `TooLarge`): a strict estimate mapped to the recovery UX.
   A non-strict request is `Error::Config`.

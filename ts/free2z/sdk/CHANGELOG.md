@@ -1,6 +1,25 @@
 # Changelog
 
-## 0.1.0 — unreleased
+## 0.2.0 — 2026-10-06
+
+First tagged release, `sdk-v0.2.0`, versioned together with the other Free2Z
+SDK packages; `0.1.0` was never tagged or published. Not on a registry yet:
+pin the Git tag. Consolidated notes and the gateway compatibility matrix
+(minimum `f2z-ai` gateway: zuu `d26c9397`; `reasoning_effort` needs
+`b8e0c814` or later): [RELEASES.md](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASES.md#sdk-v020--2026-10-06).
+
+### Breaking
+
+- `SdkError.code` is typed `SdkErrorCode`, `message` ends with a developer
+  hint, and `retryable` follows `errors.md` (#1136).
+- A non-boolean `capabilities.*` member in `/v1/models` is now
+  `invalid_response`; catalogue prices and limits decode as `bigint` (#1137).
+- Native sign-in rejects with `user_cancelled` / `browser_unavailable` /
+  `timeout` where it used to say `browser_error` (#1138).
+- The optional peer is `@free2z/tauri-plugin-f2z-api@^0.2.0`; a 0.1.0 guest-js
+  build no longer satisfies it.
+
+### Added and changed
 
 - `ChatRequest.reasoning_effort` (`ReasoningEffort`: `"minimal" | "low" |
   "medium" | "high"`, free2z/zuu#1151): sent only when set; any other value is

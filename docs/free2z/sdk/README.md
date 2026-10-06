@@ -21,7 +21,9 @@ application work, continue with the [integration handoff](./INTEGRATION.md).
 Where the AI API is going — the gap analysis against OpenAI, Anthropic and
 xAI, the drop-in compatibility encodings and the build order — is in
 [the AI API design](./ai-api-design.md) (proposal, #1128).
-Package maintainers can use the [release verification guide](./RELEASING.md).
+Tagged releases and the gateway compatibility matrix are in
+[RELEASES.md](./RELEASES.md). Package maintainers can use the
+[release verification guide](./RELEASING.md).
 It separates the implemented Rust preview and mock flows from the pending
 Tauri/TypeScript packages and live-platform prerequisites.
 

@@ -6,11 +6,10 @@ on npm or crates.io yet; build from source and test against mocks.
 
 > **Version requirement.** This guide uses `preflight`, `formatMilli2z`,
 > typed error codes, `ChatRequest::new` and `Milli2z::display_2z`, which are
-> newer than the revision pinned in the
-> [source-preview guide](./SOURCE-PREVIEW.md) (`534d2a58`). Follow that guide
-> but pin a `main` commit that contains them, and move all three Tauri
-> pieces — `@free2z/sdk`, `@free2z/tauri-plugin-f2z-api` and
-> `tauri-plugin-f2z` — to the same commit together.
+> in the `sdk-v0.2.0` release and later, not in the older `534d2a58` preview.
+> Follow the [source-install guide](./SOURCE-PREVIEW.md) with that tag, and
+> move all three Tauri pieces — `@free2z/sdk`, `@free2z/tauri-plugin-f2z-api`
+> and `tauri-plugin-f2z` — to the same tag together.
 
 You will build the loop every paid-AI app needs: **sign in → check the
 budget and balance → pick a model → preflight a strict request → stream it →

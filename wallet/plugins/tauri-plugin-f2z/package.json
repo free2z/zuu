@@ -1,6 +1,6 @@
 {
   "name": "@free2z/tauri-plugin-f2z-api",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Native Free2Z SDK bridge for Tauri 2",
   "license": "MIT",
   "type": "module",

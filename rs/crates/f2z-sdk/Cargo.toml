@@ -1,6 +1,6 @@
 [package]
 name = "f2z-sdk"
-version = "0.1.0"
+version = "0.2.0"
 description = "The Free2Z Rust SDK core: OAuth 2.0 / OpenID Connect sign-in (PKCE S256, RFC 8252 loopback or a platform auth session, RFC 9207 iss check, rotating refresh tokens with single-flight refresh), a pluggable token store, the 2Z balance, card purchases, and the metered AI gateway's /v1/chat SSE client"
 edition.workspace = true
 # A restatement of rust-toolchain.toml's channel in Cargo's MSRV form,
@@ -18,7 +18,7 @@ readme = "README.md"
 include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
 # Intended for crates.io (zuu #1047's namespace table), but not published
 # until v1: the public surface is frozen at 1.0, and a stray `cargo publish`
-# must not freeze an unreviewed 0.1.0 forever.
+# must not freeze an unreviewed version forever.
 publish.workspace = true
 keywords = ["free2z", "oauth", "oidc", "sdk", "sse"]
 categories = ["api-bindings", "authentication"]
@@ -40,7 +40,7 @@ default = ["keyring"]
 keyring = ["dep:keyring-core"]
 
 [dependencies]
-f2z-ai-proto = { path = "../f2z-ai-proto", version = "0.1.0" }
+f2z-ai-proto = { path = "../f2z-ai-proto", version = "0.2.0" }
 
 serde = { workspace = true, features = ["alloc", "std"] }
 serde_json = { workspace = true, features = ["std"] }

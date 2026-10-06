@@ -1,6 +1,6 @@
 [package]
 name = "tauri-plugin-f2z"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.97"
 license = "MIT"
@@ -13,7 +13,7 @@ include = ["src/**", "build.rs", "command_registry.rs", "permissions/**", "andro
 tauri-plugin = { version = "2", features = ["build"] }
 
 [dependencies]
-f2z-sdk = { version = "0.1.0", path = "../../../rs/crates/f2z-sdk" }
+f2z-sdk = { version = "0.2.0", path = "../../../rs/crates/f2z-sdk" }
 tauri = { version = "2.5", default-features = false }
 serde = { version = "1", features = ["derive"] }
 # `preserve_order`: a Tauri command receives its arguments as a
