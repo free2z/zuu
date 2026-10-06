@@ -1,0 +1,46 @@
+{
+  "name": "refused_openai_responses_tool_choice",
+  "feature": "tool_calling",
+  "source": "provider::check_tool_translation: Responses has no tool_choice translation; refused, never dropped.",
+  "api_style": "openai_responses",
+  "provider": "openai",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true
+    }
+  },
+  "request": {
+    "model": "m-openai-responses",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Go."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "parameters": {
+          "type": "object"
+        }
+      }
+    ],
+    "tool_choice": "required"
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "reason": "tools_unsupported",
+        "field": "tool_choice"
+      }
+    },
+    "encodings": {}
+  }
+}

@@ -1,0 +1,115 @@
+{
+  "feature": "text",
+  "mutations": [
+    {
+      "name": "drop stream_options (a streamed Chat Completion then reports no usage)",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/stream_options"
+    },
+    {
+      "name": "drop include_usage",
+      "target": "provider_request",
+      "op": "replace",
+      "path": "/stream_options/include_usage",
+      "value": false
+    },
+    {
+      "name": "drop service_tier default on OpenAI",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/service_tier"
+    },
+    {
+      "name": "send service_tier to xAI",
+      "target": "provider_request",
+      "op": "add",
+      "path": "/service_tier",
+      "value": "default",
+      "fixtures": [
+        "xai_chat_reasoning_usage"
+      ]
+    },
+    {
+      "name": "drop store:false on Responses",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/store"
+    },
+    {
+      "name": "change the output cap",
+      "target": "provider_request",
+      "op": "replace",
+      "path": "/max_completion_tokens",
+      "value": 1
+    },
+    {
+      "name": "change the Anthropic output cap",
+      "target": "provider_request",
+      "op": "replace",
+      "path": "/max_tokens",
+      "value": 1
+    },
+    {
+      "name": "drop the system prompt",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/system"
+    },
+    {
+      "name": "an unlisted member leaks into the provider body",
+      "target": "provider_request",
+      "op": "add",
+      "path": "/temperature",
+      "value": 1
+    },
+    {
+      "name": "drop a text delta",
+      "target": "events",
+      "op": "remove",
+      "path": "/0"
+    },
+    {
+      "name": "change a text delta",
+      "target": "events",
+      "op": "replace",
+      "path": "/0/text",
+      "value": "Half"
+    },
+    {
+      "name": "reorder the deltas",
+      "target": "events",
+      "op": "reverse",
+      "path": ""
+    },
+    {
+      "name": "count reasoning outside output",
+      "target": "usage",
+      "op": "replace",
+      "path": "/output_tokens",
+      "value": 3,
+      "fixtures": [
+        "xai_chat_reasoning_usage"
+      ]
+    },
+    {
+      "name": "fold cached input into uncached",
+      "target": "usage",
+      "op": "replace",
+      "path": "/cached_input_tokens",
+      "value": 0,
+      "fixtures": [
+        "openai_responses_text",
+        "anthropic_messages_text",
+        "xai_chat_reasoning_usage"
+      ]
+    },
+    {
+      "name": "change the finish reason",
+      "target": "finish_reason",
+      "op": "replace",
+      "path": "",
+      "value": "length"
+    }
+  ]
+}

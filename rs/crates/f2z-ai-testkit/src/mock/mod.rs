@@ -146,6 +146,20 @@
 //! (see its documentation for what that means per style) and [`Stall`]
 //! pauses the stream mid-way.
 //!
+//! # Replay
+//!
+//! [`Scenario::with_replay`] serves a fixed body **byte for byte** instead of
+//! rendering one: a recorded or documented provider stream, for a
+//! conformance fixture whose events (tool calls, structured output, a
+//! refusal) the renderer above cannot produce. The status, `content-type`,
+//! the `"stream": true` rule and request recording are unchanged; the body
+//! is written one SSE frame (up to and including its blank line) per step,
+//! so [`Fault::DisconnectAtByte`] and [`Fault::ErrorEventAtByte`] still
+//! apply, and a [`Fault::Status`] still answers before the first byte. The
+//! token counts, [`Ending`], usage and pacing members of the scenario are
+//! ignored, and so is [`Scenario::expected_usage`]: a replay's usage is
+//! whatever its bytes say.
+//!
 //! # Pacing and the drain probe
 //!
 //! A paced stream ([`Scenario::tokens_per_sec`]) is written against an
@@ -166,7 +180,9 @@
 mod render;
 mod server;
 
+use core::fmt;
 use core::time::Duration;
+use std::sync::Arc;
 
 use f2z_ai_proto::Usage;
 
@@ -290,6 +306,35 @@ pub struct AnthropicCumulative {
     pub message_deltas: u32,
 }
 
+/// A response body replayed verbatim ([`Scenario::with_replay`]).
+///
+/// `Debug` reports the length only, per the workspace rule against derived
+/// byte dumps (`f2z-codec/tests/workspace_debug_scan.rs`).
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct Replay(Arc<str>);
+
+impl Replay {
+    /// A replay of `body`, exactly as given.
+    #[must_use]
+    pub fn new(body: impl Into<Arc<str>>) -> Self {
+        Self(body.into())
+    }
+
+    /// The body.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for Replay {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Replay")
+            .field("body_len", &self.0.len())
+            .finish()
+    }
+}
+
 /// A mid-stream pause.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Stall {
@@ -348,6 +393,9 @@ pub struct Scenario {
     /// cache-write price today, so [`Scenario::expected_usage`] reports the
     /// sum. Clamped to `cache_write_tokens`.
     pub cache_write_1h_tokens: u64,
+    /// Serve this body verbatim instead of rendering one (see the module's
+    /// *Replay* section). `None` renders as usual.
+    pub replay: Option<Replay>,
 }
 
 impl Default for Scenario {
@@ -368,6 +416,7 @@ impl Default for Scenario {
             ending: Ending::Complete,
             anthropic_cumulative: None,
             cache_write_1h_tokens: 0,
+            replay: None,
         }
     }
 }
@@ -455,6 +504,14 @@ impl Scenario {
         self
     }
 
+    /// Serve `body` byte for byte instead of rendering a stream (see the
+    /// module's *Replay* section).
+    #[must_use]
+    pub fn with_replay(mut self, body: impl Into<Arc<str>>) -> Self {
+        self.replay = Some(Replay::new(body));
+        self
+    }
+
     /// Use `flavor`'s Chat Completions usage conventions.
     #[must_use]
     pub fn with_chat_flavor(mut self, flavor: ChatFlavor) -> Self {
@@ -480,7 +537,8 @@ impl Scenario {
     /// final usage report (usage omitted, Chat Completions without
     /// `include_usage`, or an [`Ending::Failed`] outside Responses). Faults
     /// are not considered: a faulted stream's usage is whatever reached the
-    /// adapter before the fault.
+    /// adapter before the fault. Nor is [`Scenario::replay`]: a replayed
+    /// body's usage is whatever its bytes say.
     #[must_use]
     pub fn expected_usage(&self, style: ProviderStyle, include_usage: bool) -> Option<Usage> {
         if self.omit_usage {

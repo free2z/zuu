@@ -1,0 +1,55 @@
+{
+  "name": "anthropic_request_tools_default",
+  "feature": "tool_calling",
+  "source": "Migrated from tests/fixtures/anthropic/requests.json (#1140), case 'tools with no tool controls: Anthropic's default, nothing invented'. Request translation only: no provider_stream, so the mock renders its own Anthropic text stream.",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true,
+      "structured_output": true
+    }
+  },
+  "request": {
+    "model": "m-anthropic",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Go."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "description": "Find a formula",
+        "parameters": {
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "tools": [
+        {
+          "name": "lookup",
+          "description": "Find a formula",
+          "input_schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "tool_choice": null,
+      "response_format": null,
+      "parallel_tool_calls": null
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}
