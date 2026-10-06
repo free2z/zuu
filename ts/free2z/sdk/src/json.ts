@@ -209,7 +209,12 @@ export function responseFormat<T extends { response_format?: ResponseFormat }>(
   } as T;
 }
 
-const REASONING_EFFORTS: readonly string[] = ["minimal", "low", "medium", "high"];
+const REASONING_EFFORTS: readonly string[] = [
+  "minimal",
+  "low",
+  "medium",
+  "high",
+];
 /**
  * The request as sent: `reasoning_effort` must be one of the four wire
  * values (anything else — `"none"`, `"xhigh"`, `null` — is refused here,

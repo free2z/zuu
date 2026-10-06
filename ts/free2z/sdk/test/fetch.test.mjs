@@ -499,6 +499,41 @@ test("response_format reaches the gateway exactly, only when set, and is checked
   }
   assert.equal(bodies.length, sent, "a refused request is never sent");
 });
+test("reasoning_effort reaches the gateway exactly, only when set, and is checked first", async () => {
+  const mock = issuer(),
+    transport = new FetchTransport(mock.config);
+  await transport.signIn();
+  const bodies = [];
+  mock.api = (path, init) => {
+    bodies.push(init.body);
+    return new Response(
+      '{"model":"test","input_tokens":1,"max_output_tokens":1800,"hold_2z":1}',
+      { headers: { "content-type": "application/json" } },
+    );
+  };
+  for (const effort of ["minimal", "low", "medium", "high"]) {
+    await transport.estimate({ ...request, reasoning_effort: effort });
+    assert.equal(JSON.parse(bodies.at(-1)).reasoning_effort, effort);
+  }
+  // Negative control: absent (or explicitly undefined) is not on the wire.
+  await transport.estimate({ ...request, reasoning_effort: undefined });
+  assert.equal("reasoning_effort" in JSON.parse(bodies.at(-1)), false);
+  await transport.estimate(request);
+  assert.equal("reasoning_effort" in JSON.parse(bodies.at(-1)), false);
+  const sent = bodies.length;
+  for (const bad of [null, "none", "xhigh", "High", "", 1, {}]) {
+    await assert.rejects(
+      transport.estimate({ ...request, reasoning_effort: bad }),
+      (e) => e.code === "invalid_request",
+      JSON.stringify(bad),
+    );
+    await assert.rejects(
+      transport.chat({ ...request, reasoning_effort: bad }, options),
+      (e) => e.code === "invalid_request",
+    );
+  }
+  assert.equal(bodies.length, sent, "a refused request is never sent");
+});
 test("estimate decodes the budget fields a paid-call gate reads, and tolerates additive fields", async () => {
   const mock = issuer(),
     transport = new FetchTransport(mock.config);
@@ -611,6 +646,9 @@ test("models types capabilities, prices and limits, and tolerates additive field
   );
   assert.equal(m.capabilities.structured_output, true);
   assert.equal(m.capabilities.tools, false);
+  // gpt-4o declares no reasoning_effort, and nothing is narrowed.
+  assert.notEqual(m.capabilities.reasoning_effort, true);
+  assert.deepEqual({ ...m.controls }, {});
   assert.equal(m.prices.input_milli_2z_per_mtok, 300000n);
   assert.equal(m.prices.output_milli_2z_per_mtok, 1200000n);
   assert.equal(m.prices.image_milli_2z, 0n);
@@ -618,6 +656,7 @@ test("models types capabilities, prices and limits, and tolerates additive field
   body = catalog('{"id":"old"}');
   const old = (await transport.models()).models[0];
   assert.deepEqual({ ...old.capabilities }, {});
+  assert.deepEqual({ ...old.controls }, {});
   assert.deepEqual({ ...old.prices }, {});
   assert.notEqual(old.capabilities.structured_output, true);
   for (const key of ["provider", "context_window", "min_charge_2z"])
@@ -655,8 +694,34 @@ test("models types capabilities, prices and limits, and tolerates additive field
   assert.equal(next.prices.audio_milli_2z_per_mtok, 7n);
   assert.equal(next.prices.tier, "std");
   assert.deepEqual({ ...next.future_field }, { x: 1n });
+  // A reasoning model with its signed effort levels.
+  body = catalog(
+    gpt4o
+      .replace(
+        '"structured_output":true',
+        '"structured_output":true,"reasoning_effort":true',
+      )
+      .replace(
+        '"prices"',
+        '"controls":{"effort_levels":["low","medium","high"]},"prices"',
+      ),
+  );
+  const o3 = (await transport.models()).models[0];
+  assert.equal(o3.capabilities.reasoning_effort, true);
+  assert.deepEqual(o3.controls.effort_levels, ["low", "medium", "high"]);
+  body = catalog(
+    gpt4o.replace('"prices"', '"controls":{"effort_levels":null},"prices"'),
+  );
+  assert.deepEqual({ ...(await transport.models()).models[0].controls }, {});
   for (const bad of [
     gpt4o.replace('"structured_output":true', '"structured_output":"true"'),
+    gpt4o.replace(
+      '"structured_output":true',
+      '"structured_output":true,"reasoning_effort":"true"',
+    ),
+    gpt4o.replace('"prices"', '"controls":{"effort_levels":"low"},"prices"'),
+    gpt4o.replace('"prices"', '"controls":{"effort_levels":[1]},"prices"'),
+    gpt4o.replace('"prices"', '"controls":["low"],"prices"'),
     gpt4o.replace('"tools":false', '"tools":0'),
     gpt4o.replace(
       '"capabilities":{"vision":false,"tools":false,"reasoning":false,"structured_output":true}',

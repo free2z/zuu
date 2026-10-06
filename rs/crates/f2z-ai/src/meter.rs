@@ -1683,8 +1683,20 @@ mod tests {
             // Messages has no effort control, whatever is signed.
             ("anthropic_messages", Some(true), None, "low", false),
             // A signed list narrows; an unknown signed level is inert.
-            ("openai_chat", Some(true), Some(json!(["low", "high", "xhigh"])), "high", true),
-            ("openai_chat", Some(true), Some(json!(["low", "high", "xhigh"])), "medium", false),
+            (
+                "openai_chat",
+                Some(true),
+                Some(json!(["low", "high", "xhigh"])),
+                "high",
+                true,
+            ),
+            (
+                "openai_chat",
+                Some(true),
+                Some(json!(["low", "high", "xhigh"])),
+                "medium",
+                false,
+            ),
             ("openai_chat", Some(true), Some(json!([])), "low", false),
             // The list only narrows a declared capability; it never grants.
             ("openai_chat", None, Some(json!(["low"])), "low", false),
@@ -1714,7 +1726,10 @@ mod tests {
             // plain one does.
             let plain = plan(&effort(None), &catalog, &rich).unwrap();
             if let Ok(with) = plan(&effort(Some(level)), &catalog, &rich) {
-                assert_eq!((with.input, with.output, with.hold), (plain.input, plain.output, plain.hold));
+                assert_eq!(
+                    (with.input, with.output, with.hold),
+                    (plain.input, plain.output, plain.hold)
+                );
             }
         }
     }

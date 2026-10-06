@@ -383,6 +383,21 @@ whose adapter cannot express a control refuses the call up front
 ignoring it — today Anthropic models translate both, and OpenAI-style models
 do not yet.
 
+### Reasoning effort: `reasoning_effort`
+
+`"minimal"`, `"low"`, `"medium"` or `"high"` — OpenAI's values — on a model
+whose `/v1/models` entry has `capabilities.reasoning_effort: true`, at a level
+in `controls.effort_levels` when that list is present (`"minimal"` is
+GPT-5-family only; xAI's grok models take `low`/`medium`/`high`). Any other
+model refuses the call before any hold or charge
+(`reason: "reasoning_effort_unsupported"`); it is never sent without it.
+Omit the field for the provider's default. Reasoning tokens are billed as
+output tokens. On OpenAI they count inside `max_output_tokens`, so a small cap
+can be spent thinking with little or no text left (`finish_reason: "length"`):
+give a reasoning call room, or leave `max_output_tokens` unset and let the
+estimate show the hold. `capabilities.reasoning` alone does not mean the model
+takes an effort.
+
 ### Output that must not be truncated: `max_output_tokens_strict`
 
 By default `max_output_tokens` is a ceiling the gateway may **lower**: to the

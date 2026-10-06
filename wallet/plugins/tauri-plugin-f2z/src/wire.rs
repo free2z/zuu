@@ -472,7 +472,13 @@ mod tests {
                 json!(level)
             );
         }
-        for bad in [json!("xhigh"), json!("none"), json!("High"), json!(1), Value::Null] {
+        for bad in [
+            json!("xhigh"),
+            json!("none"),
+            json!("High"),
+            json!(1),
+            Value::Null,
+        ] {
             let mut with = base.clone();
             with["reasoning_effort"] = bad;
             assert!(chat_request(with).is_err());

@@ -342,7 +342,15 @@ fn reasoning_effort_is_opt_in_and_pinned() {
     // Refused at decode, never mapped to a neighbour or read as absent:
     // provider values the unified wire does not carry, another case, a
     // non-string, a null.
-    for bad in [r#""none""#, r#""xhigh""#, r#""High""#, r#""""#, "1", "{}", "null"] {
+    for bad in [
+        r#""none""#,
+        r#""xhigh""#,
+        r#""High""#,
+        r#""""#,
+        "1",
+        "{}",
+        "null",
+    ] {
         let body = format!(r#"{{"model":"m","messages":[],"reasoning_effort":{bad}}}"#);
         assert!(
             serde_json::from_str::<ChatRequest>(&body).is_err(),
@@ -376,8 +384,14 @@ fn reasoning_effort_capability_and_levels_are_signed_members() {
         serde_json::to_string(&caps).unwrap(),
         r#"{"vision":false,"tools":false,"reasoning":true,"reasoning_effort":true}"#
     );
-    for bad in [r#"{"reasoning_effort":null}"#, r#"{"reasoning_effort":"true"}"#] {
-        assert!(serde_json::from_str::<ModelCapabilities>(bad).is_err(), "{bad}");
+    for bad in [
+        r#"{"reasoning_effort":null}"#,
+        r#"{"reasoning_effort":"true"}"#,
+    ] {
+        assert!(
+            serde_json::from_str::<ModelCapabilities>(bad).is_err(),
+            "{bad}"
+        );
     }
     let controls: ModelControls =
         serde_json::from_str(r#"{"effort_levels":["low","high","xhigh"]}"#).unwrap();

@@ -528,7 +528,8 @@ pub const REASONING_EFFORT_UNSUPPORTED: &str = "reasoning_effort_unsupported";
 /// control — its `thinking` takes a token budget, and the effort→budget table
 /// is a future signed `controls.effort_budgets` (design §2.5), never a
 /// gateway constant — so it refuses, whatever the catalogue says.
-pub const REASONING_EFFORT_STYLES: [ApiStyle; 2] = [ApiStyle::OpenaiChat, ApiStyle::OpenaiResponses];
+pub const REASONING_EFFORT_STYLES: [ApiStyle; 2] =
+    [ApiStyle::OpenaiChat, ApiStyle::OpenaiResponses];
 
 /// Refuse a `reasoning_effort` the model cannot honour — before any hold,
 /// charge or provider request (the metering layer calls it beside

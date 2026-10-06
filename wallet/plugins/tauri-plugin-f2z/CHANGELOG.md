@@ -7,6 +7,10 @@
   `field`, …; integers as decimal strings). Undocumented members are dropped.
 - `ChatRequest.tool_choice` / `parallel_tool_calls` pass through to the
   gateway (free2z/zuu#1128).
+- `ChatRequest.reasoning_effort` passes through to the gateway
+  (free2z/zuu#1151); an unknown level is `invalid_request` before the call
+  is registered. Guest types gain `ModelCapabilities.reasoning_effort` and
+  `CatalogModel.controls.effort_levels`.
 - Native Free2Z sign-in/session, exact balance, card/Zcash purchase and AI APIs.
 - OS credential storage and system browser adapters for desktop, iOS and Android.
 - Explicit command permissions and bounded, window/account-scoped pull streams.

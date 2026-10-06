@@ -2,6 +2,11 @@
 
 ## 0.1.0 — unreleased
 
+- `ChatRequest.reasoning_effort` (`ReasoningEffort`: `"minimal" | "low" |
+  "medium" | "high"`, free2z/zuu#1151): sent only when set; any other value is
+  refused locally (`invalid_request`) on both transports.
+  `ModelCapabilities.reasoning_effort` and `Model.controls`
+  (`ModelControls.effort_levels`) are decoded from `/v1/models`.
 - `Client.preflight(request)` → `Preflight` (`ready` / `needs_top_up` /
   `needs_budget` / `too_large`): a strict estimate mapped to the recovery UX.
   Refuses a non-strict request locally (`invalid_request`).

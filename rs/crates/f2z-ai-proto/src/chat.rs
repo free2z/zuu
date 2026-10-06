@@ -189,8 +189,11 @@ impl<'de> Deserialize<'de> for ReasoningEffort {
         use serde::de::Error as _;
         // By hand: the derived error quotes the caller's value
         // (`unknown variant "…"`), and a decode error must not.
-        let refused =
-            || D::Error::custom("reasoning_effort must be \"minimal\", \"low\", \"medium\" or \"high\"");
+        let refused = || {
+            D::Error::custom(
+                "reasoning_effort must be \"minimal\", \"low\", \"medium\" or \"high\"",
+            )
+        };
         match serde_json::Value::deserialize(d)? {
             serde_json::Value::String(level) => Self::ALL
                 .into_iter()

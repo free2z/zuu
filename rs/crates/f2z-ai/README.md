@@ -41,6 +41,17 @@ tool-use system prompt, which the request bytes do not show (hold only). Everyth
 or provider I/O; the gateway never drops the constraint. The schema enters the
 input hold like a tool definition; the pricing formula is unchanged.
 
+Reasoning effort (`reasoning_effort`: `minimal`/`low`/`medium`/`high`) is sent
+by the Chat Completions adapter as `reasoning_effort` (OpenAI and xAI) and by
+the Responses adapter as `reasoning.effort`, only to a model whose signed
+`capabilities.reasoning_effort` is `true` and, where the catalogue lists
+`controls.effort_levels`, only at a listed level. Anthropic Messages refuses
+it (its `thinking` takes a budget, not an effort). Everything else is refused
+with `400 invalid_request` (`reason: "reasoning_effort_unsupported"`) before
+any hold or provider I/O. The hold is unchanged: reasoning is output, and the
+hold reserves the whole output cap — which on OpenAI bounds reasoning and on
+xAI does not (`max_completion_tokens` there counts visible tokens only).
+
 OpenAI-shaped tool controls (`tool_choice`, `parallel_tool_calls`) are
 translated by the Anthropic Messages adapter (`required` → `any`, a named
 function → `tool`, `none` → `none`, `parallel_tool_calls: false` →

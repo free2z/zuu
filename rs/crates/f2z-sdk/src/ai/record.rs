@@ -356,8 +356,7 @@ mod tests {
             serde_json::from_value(serde_json::json!({"reasoning_effort": true})).unwrap();
         assert!(caps.reasoning_effort);
         let controls: Controls =
-            serde_json::from_value(serde_json::json!({"effort_levels": ["low", "high"]}))
-                .unwrap();
+            serde_json::from_value(serde_json::json!({"effort_levels": ["low", "high"]})).unwrap();
         assert_eq!(
             controls.effort_levels.as_deref(),
             Some(&["low".to_owned(), "high".to_owned()][..])
