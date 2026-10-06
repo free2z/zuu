@@ -10,7 +10,7 @@ separate, owner-authorized step ([RELEASING.md](./RELEASING.md#publication-seque
 | Rust core | `rs/crates/f2z-sdk` | `f2z-sdk` |
 | Wire contract (versioned with the core) | `rs/crates/f2z-ai-proto` | `f2z-ai-proto` |
 | Native Tauri 2 plugin | `wallet/plugins/tauri-plugin-f2z` | `tauri-plugin-f2z` |
-| Plugin guest bindings (guest-js) | `wallet/plugins/tauri-plugin-f2z/guest-js` | `@free2z/tauri-plugin-f2z-api` |
+| Plugin guest bindings (guest-js) | `wallet/plugins/tauri-plugin-f2z` (sources in `guest-js/`) | `@free2z/tauri-plugin-f2z-api` |
 | TypeScript facade | `ts/free2z/sdk` | `@free2z/sdk` |
 
 Per-package detail lives in each package's `CHANGELOG.md`.
@@ -46,7 +46,7 @@ they produce `free2z-tauri-plugin-f2z-api-0.2.0.tgz` and `free2z-sdk-0.2.0.tgz`.
 | older than `d26c9397` | Not supported. A request that sets a field newer than that gateway (`tool_choice`, `parallel_tool_calls`, `Tool.strict`, …) is refused with `400 invalid_request`, and no `tool_call_delta` is ever streamed |
 | **`d26c9397` (#1142) — minimum.** The image tuzi pins on `main` today: `ghcr.io/free2z/f2z-ai@sha256:5b1cb4c6dd84998f23d74c5c346a6dc8dc053284c5632d573d528c758a98dcbf` (tuzi `k8s/f2z-ai/deployment.yaml`, tuzi#2499) | Everything except `reasoning_effort`. A request that sets it is refused by that gateway's `deny_unknown_fields` with `400 invalid_request`, before any hold or charge. `capabilities.reasoning_effort` is absent from its `/v1/models`, which the SDKs read as `false` |
 | `b8e0c814` (#1170) and later | Adds `reasoning_effort`, on models whose **signed** catalogue entry declares `capabilities.reasoning_effort` (tuzi#2502) |
-| `6c397db3` (#1171) — recommended; the commit this release is cut from | Adds the tokenizer input estimate and estimate-based settlement of interrupted calls. Gateway-side only: no SDK API change. tuzi#2507 pins this image |
+| `6c397db3` (#1171) — recommended; the commit this release is cut from | Adds the tokenizer input estimate and estimate-based settlement of interrupted calls. Gateway-side only: no SDK API change. proposed in tuzi#2507 (open) |
 
 Unknown response members, events and catalogue capabilities pass through or are
 ignored, so a newer gateway never breaks this SDK.
@@ -66,6 +66,10 @@ ignored, so a newer gateway never breaks this SDK.
   `ChatRequest::new(model, messages)` (plus the `with_*` builders) and assign
   the remaining public fields on the value; that keeps compiling as the
   contract grows. For tools, `ai::tools::function_tool` builds a `Tool`.
+- **Rust — more exhaustive types grew.** `grant::Grant` gained
+  `enforcement_reason` (#1123) — `Client::grant()` returns it, so a test fake's
+  `Grant { … }` literal must name it — and `CatalogModel` gained
+  `capabilities` / `controls` (#1114, #1170). `KNOWN_EVENTS` is `[&str; 7]`.
 - **Rust — `LoopbackSession`** reports an opener failure as
   `Error::BrowserUnavailable`, not `Error::Browser` (#1138).
 - **Tauri plugin — `serde_json/preserve_order`** is now enabled by the plugin
@@ -80,10 +84,11 @@ ignored, so a newer gateway never breaks this SDK.
   (also `internal`, `provider_error`, `provider_timeout`, `too_many_holds`, and
   never when `details` show the call may have run). `NativeTransport` keeps the
   refusal `details`, amounts as `bigint`.
-- **TypeScript — typed catalogue (#1137).** A non-boolean `capabilities.*`
-  member is now `invalid_response`; prices and limits decode as `bigint`.
-- **Tauri plugin — refusal `details`** carry only the documented members
-  (integers as decimal strings); undocumented members are dropped (#1136).
+- **TypeScript — typed catalogue (#1137).** A non-boolean value for a known
+  `capabilities` member is now `invalid_response` (unknown members still pass
+  through); prices and limits decode as `bigint`.
+- **TypeScript — `ChatEvent` gained `tool_call_delta`** (#1142): an exhaustive
+  `switch` with a `never` check must handle it.
 
 ### What's in it
 
@@ -105,8 +110,8 @@ ignored, so a newer gateway never breaks this SDK.
   estimate hand-off); the gateway records requested features per call.
 - **Anthropic tools and structured output** (#1140): `tool_choice`,
   `parallel_tool_calls` and `response_format` translated for Anthropic models.
-- **Tool calling** (#1142): `Tool.strict`, `tool_choice`,
-  `parallel_tool_calls`, the streamed `tool_call_delta` event with assemblers
+- **Tool calling** (#1140, #1142): `tool_choice` and `parallel_tool_calls`
+  (#1140), `Tool.strict`, the streamed `tool_call_delta` event with assemblers
   (`ToolCallAssembler` / `ToolCallAccumulator`), and `run_tools` / `runTools`
   with a hard ceiling of **32 rounds** (`MAX_TOOL_ROUNDS`); a charged failed
   round is never lost from the accounting.

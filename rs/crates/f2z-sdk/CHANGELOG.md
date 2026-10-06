@@ -6,7 +6,7 @@ First tagged release, `sdk-v0.2.0`, versioned together with the other Free2Z
 SDK packages; `0.1.0` was never tagged or published. Not on a registry yet:
 pin the Git tag. Consolidated notes and the gateway compatibility matrix
 (minimum `f2z-ai` gateway: zuu `d26c9397`; `reasoning_effort` needs
-`b8e0c814` or later): [RELEASES.md](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASES.md#sdk-v020--2026-10-06).
+`b8e0c814` or later): [RELEASES.md](https://github.com/free2z/zuu/blob/sdk-v0.2.0/docs/free2z/sdk/RELEASES.md#sdk-v020--2026-10-06).
 
 ### Breaking
 
@@ -15,6 +15,9 @@ pin the Git tag. Consolidated notes and the gateway compatibility matrix
   but is already sorted — parse the schema text to keep its order.
 - `ChatRequest` / `Tool` (re-exported from `f2z_ai_proto`) gained fields; a
   struct literal must name them. Prefer `ChatRequest::new` and the builders.
+- `Client::grant()` returns `f2z_ai_proto::grant::Grant`, which gained
+  `enforcement_reason` (#1123): a `Grant { … }` literal in a test fake must
+  name it.
 - `LoopbackSession` reports an opener failure as `Error::BrowserUnavailable`,
   not `Error::Browser` (#1138).
 
@@ -63,3 +66,8 @@ pin the Git tag. Consolidated notes and the gateway compatibility matrix
 - `SignInOptions::spend_cap` / `with_spend_cap(SpendCapHint)` and `CapPeriod`:
   an optional, additive suggested spend cap sent as `f2z_spend_cap` /
   `f2z_spend_period`. Only pre-selects the consent screen.
+
+## 0.1.0 — source preview, never tagged
+
+Initial reviewed SDK contract implementation, consumed as source previews by
+commit (last: `534d2a58`, #1106).

@@ -6,7 +6,7 @@ First tagged release, `sdk-v0.2.0`, versioned together with the other Free2Z
 SDK packages; `0.1.0` was never tagged or published. Not on a registry yet:
 pin the Git tag. Consolidated notes and the gateway compatibility matrix
 (minimum `f2z-ai` gateway: zuu `d26c9397`; `reasoning_effort` needs
-`b8e0c814` or later): [RELEASES.md](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASES.md#sdk-v020--2026-10-06).
+`b8e0c814` or later): [RELEASES.md](https://github.com/free2z/zuu/blob/sdk-v0.2.0/docs/free2z/sdk/RELEASES.md#sdk-v020--2026-10-06).
 
 ### Breaking
 
@@ -18,6 +18,12 @@ pin the Git tag. Consolidated notes and the gateway compatibility matrix
   `tool_choice`, `parallel_tool_calls` and `reasoning_effort`, and `Tool`
   gained `strict`: a struct literal must name them. Prefer
   `ChatRequest::new` and the builders.
+- Other exhaustive structs gained fields: `grant::Grant::enforcement_reason`
+  (#1123; `Client::grant()` returns it, so a test fake's `Grant { … }` literal
+  must name it) and `CatalogModel::{capabilities, controls}` (#1114, #1170).
+  `KNOWN_EVENTS` is `[&str; 7]` (was 6, #1142).
+- Also added since the preview: signed tool capabilities (`ModelCapabilities`,
+  #1114), catalogue v2 context pricing (#1121), `EnforcementReason` (#1123).
 
 ### Added and changed
 
@@ -66,3 +72,8 @@ pin the Git tag. Consolidated notes and the gateway compatibility matrix
   of at most `MAX_RESPONSE_SCHEMA_BYTES` (32 KiB). Any other `type` is refused.
 - `ModelCapabilities::structured_output`: optional, tri-state signed catalogue
   declaration (absent = the gateway's interim rule; `null` refused).
+
+## 0.1.0 — source preview, never tagged
+
+Initial reviewed SDK contract implementation, consumed as source previews by
+commit (last: `534d2a58`, #1106).

@@ -6,7 +6,7 @@ First tagged release, `sdk-v0.2.0`, versioned together with the other Free2Z
 SDK packages; `0.1.0` was never tagged or published. Not on a registry yet:
 pin the Git tag. Consolidated notes and the gateway compatibility matrix
 (minimum `f2z-ai` gateway: zuu `d26c9397`; `reasoning_effort` needs
-`b8e0c814` or later): [RELEASES.md](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASES.md#sdk-v020--2026-10-06).
+`b8e0c814` or later): [RELEASES.md](https://github.com/free2z/zuu/blob/sdk-v0.2.0/docs/free2z/sdk/RELEASES.md#sdk-v020--2026-10-06).
 
 ### Breaking
 
@@ -15,8 +15,6 @@ pin the Git tag. Consolidated notes and the gateway compatibility matrix
   insertion order instead of sorting.
 - Sign-in rejects with `user_cancelled` / `browser_unavailable` / `timeout`
   where it used to say `browser_error` (still the fallback) (#1138).
-- Refusal `details` carry only the documented members, integers as decimal
-  strings; undocumented members are dropped (#1136).
 - Links `f2z-sdk` 0.2.0; guest-js is `@free2z/tauri-plugin-f2z-api` 0.2.0.
 
 ### Added and changed
@@ -36,10 +34,6 @@ pin the Git tag. Consolidated notes and the gateway compatibility matrix
   (free2z/zuu#1151); an unknown level is `invalid_request` before the call
   is registered. Guest types gain `ModelCapabilities.reasoning_effort` and
   `CatalogModel.controls.effort_levels`.
-- Native Free2Z sign-in/session, exact balance, card/Zcash purchase and AI APIs.
-- OS credential storage and system browser adapters for desktop, iOS and Android.
-- Explicit command permissions and bounded, window/account-scoped pull streams.
-- Caller-owned recovery keys and lossless decimal quantities across IPC.
 - Tool `parameters` and `response_format` schemas reach the gateway with
   their member order intact (free2z/zuu#1132): the plugin enables serde_json's
   `preserve_order`, which Cargo unifies into the host app.
@@ -57,3 +51,10 @@ pin the Git tag. Consolidated notes and the gateway compatibility matrix
   `user_cancelled` (iOS `ASWebAuthenticationSession` cancel, Android Custom Tab
   dismissal), `browser_unavailable`, `timeout`. `browser_error` stays the
   fallback for anything else; the guest API exports `SignInErrorCode`.
+
+## 0.1.0 — source preview, never tagged
+
+- Native Free2Z sign-in/session, exact balance, card/Zcash purchase and AI APIs.
+- OS credential storage and system browser adapters for desktop, iOS and Android.
+- Explicit command permissions and bounded, window/account-scoped pull streams.
+- Caller-owned recovery keys and lossless decimal quantities across IPC.
