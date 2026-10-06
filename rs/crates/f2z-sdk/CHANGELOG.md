@@ -16,6 +16,15 @@ release acceptance; see the repository SDK release guide.
 - `ChatRequest::tool_choice` / `parallel_tool_calls` (via `f2z_ai_proto`,
   free2z/zuu#1128): OpenAI-shaped tool controls, opt-in; a model that cannot
   express them refuses the call before any hold.
+- Tool calling (zuu#1128): `ai::tools` — `function_tool`, `tool_result`,
+  `Completion::assistant_message`, `ToolCallAssembler` for `tool_call_delta`
+  fragments, and `Ai::run_tools` / `run_tools_with` (the round trip, at most
+  `max_rounds` paid calls, itself at most `MAX_TOOL_ROUNDS` (32), a forcing `tool_choice` on the first round only,
+  calls run only from a normally finished turn; a failed round is returned
+  in `ToolRun::error` with the earlier rounds, results and keys kept). `chat`/`estimate`
+  refuse an out-of-limit `tools`/`tool_choice`/`parallel_tool_calls` locally
+  (`Error::Config`). `Capabilities::strict_tools`.
+
 - Tool `parameters` and the `response_format` schema are
   `f2z_ai_proto::OrderedJson` (free2z/zuu#1132): sent in the order written.
   `serde_json::json!(…).into()` still compiles but is already sorted; parse

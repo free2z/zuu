@@ -30,7 +30,9 @@ pub struct ChatRequest {
     /// The conversation, oldest first.
     pub messages: Vec<Message>,
     /// Function tools the model may call. The gateway never *runs* a tool: a
-    /// call comes back to the client as a `tool_call` event.
+    /// call comes back to the client as a `tool_call` event (streamed first
+    /// as `tool_call_delta` fragments, where the provider streams them).
+    /// [`ChatRequest::check_tools`] holds the structural limits.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<Tool>,
     /// Upper bound on output tokens. The gateway may clamp it further to the
@@ -375,6 +377,120 @@ impl ResponseFormat {
 }
 
 impl ChatRequest {
+    /// The structural limits on `tools`, `tool_choice` and
+    /// `parallel_tool_calls` that need no catalogue: at most [`MAX_TOOLS`]
+    /// tools; each name well-formed and unique; each `parameters` an object
+    /// of at most [`MAX_TOOL_SCHEMA_BYTES`]; `tool_choice` and
+    /// `parallel_tool_calls` only beside `tools`; a named `tool_choice`
+    /// naming one of them. The same check runs in the gateway and may run
+    /// in a client before it sends. Whether the *model* supports tools,
+    /// `strict` or the controls is the catalogue's question, asked later.
+    ///
+    /// # Errors
+    ///
+    /// The first limit broken, naming the field.
+    pub fn check_tools(&self) -> Result<(), ToolsError> {
+        let err = |field: String, reason: &'static str, message: &'static str| ToolsError {
+            field,
+            reason,
+            message,
+        };
+        if self.tools.len() > MAX_TOOLS {
+            return Err(err(
+                "tools".into(),
+                "too_many",
+                "at most 128 tools per request",
+            ));
+        }
+        let mut names = alloc::collections::BTreeSet::new();
+        for (index, tool) in self.tools.iter().enumerate() {
+            let at = |member: &str| alloc::format!("tools[{index}].{member}");
+            if tool.name.is_empty() {
+                return Err(err(at("name"), "empty", "a tool needs a name"));
+            }
+            if tool.name.chars().count() > MAX_TOOL_NAME_CHARS {
+                return Err(err(
+                    at("name"),
+                    "too_long",
+                    "a tool name is at most 64 characters",
+                ));
+            }
+            if !tool
+                .name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            {
+                return Err(err(
+                    at("name"),
+                    "invalid_characters",
+                    "a tool name may contain only a-z, A-Z, 0-9, _ and -",
+                ));
+            }
+            if !names.insert(tool.name.as_str()) {
+                return Err(err(
+                    at("name"),
+                    "duplicate",
+                    "tool names must be unique within a request",
+                ));
+            }
+            if !tool.parameters.is_object() {
+                return Err(err(
+                    at("parameters"),
+                    "not_object",
+                    "tool parameters must be a JSON Schema object",
+                ));
+            }
+            let too_large = || {
+                err(
+                    at("parameters"),
+                    "too_large",
+                    "tool parameters are at most 32768 bytes serialized",
+                )
+            };
+            let bytes = serde_json::to_vec(&tool.parameters).map_err(|_| too_large())?;
+            if bytes.len() > MAX_TOOL_SCHEMA_BYTES {
+                return Err(too_large());
+            }
+        }
+        if self.tools.is_empty() {
+            if self.tool_choice.is_some() {
+                return Err(err(
+                    "tool_choice".into(),
+                    "requires_tools",
+                    "tool_choice requires tools",
+                ));
+            }
+            if self.parallel_tool_calls.is_some() {
+                return Err(err(
+                    "parallel_tool_calls".into(),
+                    "requires_tools",
+                    "parallel_tool_calls requires tools",
+                ));
+            }
+        }
+        if let Some(ToolChoice::Function { name }) = &self.tool_choice
+            && !names.contains(name.as_str())
+        {
+            return Err(err(
+                "tool_choice.function.name".into(),
+                "unknown_tool",
+                "tool_choice names a function that is not in tools",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Whether the request uses function tools at all: definitions, or a
+    /// tool call or tool result in its history.
+    #[must_use]
+    pub fn uses_tools(&self) -> bool {
+        !self.tools.is_empty()
+            || self
+                .messages
+                .iter()
+                .any(|m| !m.tool_calls.is_empty() || m.tool_call_id.is_some())
+    }
+
     /// The models a call may try, in order, each at most once: `model`, then
     /// each `fallback` entry not already listed. Attempt `n` (from 1) is the
     /// `n`-th item, and its ledger `hold_key` is `(call_id, n)`, so a call
@@ -585,17 +701,70 @@ pub enum ContentPart {
 }
 
 /// A function tool the model may call.
+///
+/// Flat, unlike OpenAI's `{"type":"function","function":{…}}` wrapper: the
+/// gateway has one tool type, and adds the wrapper when it talks to a
+/// provider that wants one.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Tool {
-    /// The function name the model will call.
+    /// The function name the model will call: `1..=64` characters of
+    /// `a-z`, `A-Z`, `0-9`, `_` and `-`, unique within the request.
     pub name: String,
     /// What the function does, for the model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// JSON Schema of the arguments object. Member order is preserved
+    /// JSON Schema of the arguments **object**, at most
+    /// [`MAX_TOOL_SCHEMA_BYTES`] serialized. Member order is preserved
     /// ([`OrderedJson`]) and reaches the provider as sent.
     pub parameters: OrderedJson,
+    /// Ask the provider to make the arguments match `parameters` exactly
+    /// (OpenAI's strict function calling, which also wants
+    /// `additionalProperties: false` and every property `required`).
+    /// `Some(true)` on a model whose catalogue entry does not support it is
+    /// refused before any hold (`details.reason = "tools_unsupported"`,
+    /// `details.field = "tools[i].strict"`), never sent without it. Absent
+    /// or `false` is the providers' default. A present `null` is refused.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_bool"
+    )]
+    pub strict: Option<bool>,
+}
+
+/// The most [`ChatRequest::tools`] one request may carry: 128 (OpenAI's own
+/// limit; xAI allows more, so this is the binding one).
+pub const MAX_TOOLS: usize = 128;
+
+/// The longest [`Tool::name`], in characters.
+pub const MAX_TOOL_NAME_CHARS: usize = 64;
+
+/// The most bytes one [`Tool::parameters`] may take, serialized compactly:
+/// 32 KiB, as for a response schema. Every definition is prompt the caller
+/// pays for on every turn.
+pub const MAX_TOOL_SCHEMA_BYTES: usize = 32 * 1024;
+
+/// A [`ChatRequest`] whose tool fields break a limit
+/// [`ChatRequest::check_tools`] holds: the gateway's `400 invalid_request`
+/// details.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToolsError {
+    /// The offending field, as a path from the request root, e.g.
+    /// `tools[2].name`. Built from field names and indices only.
+    pub field: String,
+    /// A fixed, content-free label: `too_many`, `empty`, `too_long`,
+    /// `invalid_characters`, `duplicate`, `not_object`, `too_large`,
+    /// `requires_tools` or `unknown_tool`.
+    pub reason: &'static str,
+    /// A human-readable sentence that quotes nothing from the request.
+    pub message: &'static str,
+}
+
+impl core::fmt::Display for ToolsError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}: {}", self.field, self.message)
+    }
 }
 
 /// A call the model made to one of the request's [`Tool`]s.

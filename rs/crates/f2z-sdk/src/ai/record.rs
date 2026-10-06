@@ -275,6 +275,10 @@ pub struct Capabilities {
     /// gateway that predates the field.
     #[serde(default)]
     pub structured_output: bool,
+    /// Accepts a tool with `strict: true`. `false` from a gateway that
+    /// predates the field.
+    #[serde(default)]
+    pub strict_tools: bool,
 }
 
 #[cfg(test)]

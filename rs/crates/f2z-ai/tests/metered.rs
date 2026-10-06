@@ -1556,3 +1556,219 @@ async fn enabled_against_an_old_ledger_the_claim_is_refused_before_any_paid_work
     assert_eq!(mock.recorded_requests().len(), 0);
     mock.shutdown().await;
 }
+
+// zuu#1128: tool calling through the whole metered path.
+fn tool_fixture(name: &str) -> Value {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/tool_calling")
+        .join(name);
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// The catalogue a `refusals.json` case names, and the model id to call.
+fn refusal_catalog(case: &str) -> (f2z_ai::catalog::VerifiedCatalog, &'static str) {
+    let mut catalog = tool_catalog().catalog().clone();
+    let id = match case {
+        "xai" => "m-xai",
+        "responses" => "m-responses",
+        "no_tools" => {
+            catalog = adapter_support::catalog(10_000).catalog().clone();
+            "m-chat"
+        }
+        "openai_strict_off" | "openai_interim" => {
+            for model in &mut catalog.models {
+                if model.id == "m-chat" {
+                    model.provider = "openai".into();
+                    model.capabilities.strict_tools =
+                        (case == "openai_strict_off").then_some(false);
+                }
+            }
+            "m-chat"
+        }
+        other => panic!("no catalogue for {other}"),
+    };
+    (
+        f2z_ai::catalog::VerifiedCatalog::from_verified(catalog).unwrap(),
+        id,
+    )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unsupported_tool_features_are_refused_before_hold_and_replay_as_terminal() {
+    let refusals = tool_fixture("refusals.json");
+    for case in refusals["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let (catalog, model) = refusal_catalog(case["model"].as_str().unwrap());
+        let db = Arc::new(Database::new());
+        let (r, mock) = launch_catalog(db.clone(), Scenario::default(), None, catalog).await;
+        let mut request = case["request"].clone();
+        request["model"] = json!(model);
+        let (status, refused) = post(&r, "/v1/chat", &request).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{name}: {refused}");
+        assert_eq!(refused["error"]["code"], "invalid_request", "{name}");
+        assert_eq!(
+            refused["error"]["details"]["reason"], "tools_unsupported",
+            "{name}: {refused}"
+        );
+        assert_eq!(
+            refused["error"]["details"]["field"], case["field"],
+            "{name}"
+        );
+        assert!(db.0.lock().unwrap().hold.is_none(), "{name}: held");
+        assert_eq!(mock.request_count(), 0, "{name}: reached the provider");
+        // The estimate refuses identically, and holds nothing either.
+        let (status, estimate) = post(&r, "/v1/chat/estimate", &request).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{name}: {estimate}");
+        // The same key answers with the refusal, never `unavailable`.
+        final_state(&db).await;
+        let (status, record) = post(&r, "/v1/chat", &request).await;
+        assert_eq!(status, StatusCode::OK, "{name}: {record}");
+        assert_eq!(record["replayed"], true, "{name}");
+        assert_eq!(record["charged_2z"], 0, "{name}");
+        assert_eq!(
+            record["error"]["code"], "invalid_request",
+            "{name}: {record}"
+        );
+        assert_eq!(mock.request_count(), 0, "{name}");
+        mock.shutdown().await;
+    }
+}
+
+/// Negative control for the strict refusal: the same OpenAI model with the
+/// catalogue silent (the interim rule), or the same request without
+/// `strict`, is held, sent with the tool, and charged.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn strict_tools_pass_where_the_catalogue_allows_them() {
+    let refusals = tool_fixture("refusals.json");
+    let strict = refusals["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "openai_strict_declared_false")
+        .unwrap()
+        .clone();
+    let mut relaxed = strict["request"].clone();
+    relaxed["tools"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("strict");
+    for (catalog, request, sent_strict) in [
+        ("openai_interim", strict["request"].clone(), true),
+        ("openai_strict_off", relaxed, false),
+    ] {
+        let (catalog, model) = refusal_catalog(catalog);
+        let db = Arc::new(Database::new());
+        let (r, mock) = launch_catalog(db.clone(), Scenario::default(), None, catalog).await;
+        let mut request = request;
+        request["model"] = json!(model);
+        request["stream"] = json!(false);
+        let (status, reply) = post(&r, "/v1/chat", &request).await;
+        assert_eq!(status, StatusCode::OK, "{reply}");
+        assert_eq!(reply["charged_2z"], 1, "{reply}");
+        let sent = mock.recorded_requests();
+        assert_eq!(sent.len(), 1);
+        let function = &sent[0].body["tools"][0]["function"];
+        assert_eq!(function["name"], "check_answer");
+        assert_eq!(
+            function.get("strict") == Some(&json!(true)),
+            sent_strict,
+            "{function}"
+        );
+        mock.shutdown().await;
+    }
+}
+
+/// A Chat Completions tool turn through the metered gateway: streamed, the
+/// client sees every fragment and then the complete call; not streamed, the
+/// response carries the call; either way one charge and
+/// `finish_reason: "tool_calls"`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_chat_completions_tool_turn_streams_fragments_then_the_call() {
+    let fixture = tool_fixture("openai_strict_forced_streamed.json");
+    let body: String = fixture["provider_stream"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| match c {
+            Value::String(s) => format!("data: {s}\n\n"),
+            other => format!("data: {other}\n\n"),
+        })
+        .collect();
+    let app = axum::Router::new().route(
+        "/v1/chat/completions",
+        axum::routing::post(move || {
+            let body = body.clone();
+            async move { ([("content-type", "text/event-stream")], body) }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let (catalog, model) = refusal_catalog("openai_interim");
+    let expected: Vec<f2z_ai_proto::chat::ToolCall> = fixture["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["type"] == "tool_call")
+        .map(|e| serde_json::from_value(e.clone()).unwrap())
+        .collect();
+    for stream in [true, false] {
+        let db = Arc::new(Database::new());
+        let meter = Arc::new(Metered::new(
+            db.clone(),
+            adapter_support::backend(&base, adapter_support::tuning(0)),
+        ));
+        let r = support::start(
+            &support::config(&[]),
+            Deps {
+                gate: Arc::new(Gate),
+                catalog: Arc::new(Fixed(catalog.clone())),
+                backend: meter.clone(),
+                settler: meter,
+            },
+        )
+        .await;
+        support::wait_readyz(r.admin, StatusCode::OK).await;
+        let mut request = fixture["request"].clone();
+        request["model"] = json!(model);
+        request["stream"] = json!(stream);
+        let response = support::send(r.public, support::chat_request(request.to_string())).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let text = support::text(response).await;
+        if stream {
+            let names: Vec<&str> = text
+                .lines()
+                .filter_map(|l| l.strip_prefix("event: "))
+                .collect();
+            let fragments = names.iter().filter(|n| **n == "tool_call_delta").count();
+            assert_eq!(fragments, 8, "{text}");
+            let first_call = names.iter().position(|n| *n == "tool_call").unwrap();
+            let last_fragment = names.iter().rposition(|n| *n == "tool_call_delta").unwrap();
+            assert!(last_fragment < first_call, "{names:?}");
+            assert_eq!(names.first(), Some(&"meta"), "{names:?}");
+            assert_eq!(names.last(), Some(&"done"), "{names:?}");
+            assert!(text.contains("\"finish_reason\":\"tool_calls\""), "{text}");
+            let calls: Vec<f2z_ai_proto::chat::ToolCall> = text
+                .split("event: tool_call\ndata: ")
+                .skip(1)
+                .map(|rest| serde_json::from_str(rest.lines().next().unwrap()).unwrap())
+                .collect();
+            assert_eq!(calls, expected);
+        } else {
+            assert!(!text.contains("tool_call_delta"), "{text}");
+            let reply: f2z_ai_proto::chat::ChatResponse = serde_json::from_str(&text).unwrap();
+            reply.check().unwrap();
+            assert_eq!(
+                reply.finish_reason,
+                f2z_ai_proto::chat::FinishReason::ToolCalls
+            );
+            assert_eq!(reply.message.tool_calls, expected);
+            assert_eq!(reply.usage.input_tokens, 96);
+        }
+        final_state(&db).await;
+        assert_eq!(db.0.lock().unwrap().charges, 1);
+    }
+    server.abort();
+}

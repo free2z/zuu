@@ -121,6 +121,9 @@ fn parse(request: &ChatRequest, sse: &str) -> Parsed {
                 parsed.text.push_str(&text);
             }
             Content::ToolCall(call) => parsed.tool_calls.push(call),
+            // Fragments are informational (zuu#1128); the complete call is
+            // what this conformance pins.
+            Content::ToolCallDelta(_) => {}
         }
     }
     parsed
@@ -359,9 +362,19 @@ async fn what_cannot_be_expressed_is_refused_before_any_io() {
     }
 
     // tool_choice / parallel_tool_calls on an adapter without the
-    // translation: refused, never dropped. Negative control: the same
-    // request without them passes.
-    for model in [CHAT, RESPONSES] {
+    // translation (Responses): refused, never dropped. Negative control: the
+    // same request without them passes. Chat Completions translates both
+    // natively (zuu#1128, tests/tool_conformance.rs), so there they pass.
+    for (extra, _) in [
+        (json!({"tools": tools, "tool_choice": "required"}), ()),
+        (json!({"tools": tools, "parallel_tool_calls": false}), ()),
+    ] {
+        assert!(
+            refusal(&chat(CHAT.id, &extra), &declared(Some(true))).is_none(),
+            "{extra}"
+        );
+    }
+    for model in [RESPONSES] {
         for (extra, field) in [
             (
                 json!({"tools": tools, "tool_choice": "required"}),

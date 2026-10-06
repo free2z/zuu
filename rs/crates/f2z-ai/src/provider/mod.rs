@@ -54,6 +54,7 @@ use f2z_ai_proto::ErrorCode;
 use f2z_ai_proto::OrderedJson;
 use f2z_ai_proto::catalog::{ApiStyle, CatalogModel};
 use f2z_ai_proto::chat::{ChatRequest, FinishReason, ToolCall, Usage};
+use f2z_ai_proto::event::ToolCallDelta;
 use serde_json::{Map, Value};
 
 use crate::error::ApiFailure;
@@ -176,6 +177,12 @@ pub struct ProviderOutcome {
 pub enum Content {
     /// Assistant text, never empty.
     Text(String),
+    /// A fragment of a function call still being generated, as the provider
+    /// streamed it. The adapter still emits the complete
+    /// [`Content::ToolCall`] once the call is whole; a fragment is only for
+    /// the client to watch it take shape, and is dropped on a call made with
+    /// `stream: false`.
+    ToolCallDelta(ToolCallDelta),
     /// A complete function call.
     ToolCall(ToolCall),
 }
@@ -518,23 +525,66 @@ fn response_format_unsupported() -> ApiFailure {
     .detail("reason", RESPONSE_FORMAT_UNSUPPORTED)
 }
 
-/// `details.reason` on every refusal of a tool control the model's adapter
-/// cannot express (`tool_choice`, `parallel_tool_calls`); `details.field`
-/// names which.
+/// `details.reason` on every refusal of a tool feature the model (or its
+/// adapter) cannot honour: `tools` on a model without
+/// `capabilities.tools`, `tools[i].strict: true` without
+/// [`strict_tools_supported`], and `tool_choice` / `parallel_tool_calls` on
+/// an adapter that has no translation for them. `details.field` names which.
 pub const TOOLS_UNSUPPORTED: &str = "tools_unsupported";
 
 /// The adapters that translate `tool_choice` and `parallel_tool_calls`.
-/// Anthropic Messages maps them onto its own `tool_choice`
-/// ([`anthropic`]). An adapter that is not listed refuses them rather than
-/// send the call without them.
-pub const TOOL_CONTROL_STYLES: [ApiStyle; 1] = [ApiStyle::AnthropicMessages];
+/// Chat Completions takes both natively (OpenAI, and xAI per docs.x.ai:
+/// `"auto" | "required" | "none" | {"type":"function",…}` and
+/// `parallel_tool_calls: false`); Anthropic Messages maps them onto its own
+/// `tool_choice` ([`anthropic`]). An adapter that is not listed refuses them
+/// rather than send the call without them.
+pub const TOOL_CONTROL_STYLES: [ApiStyle; 2] = [ApiStyle::OpenaiChat, ApiStyle::AnthropicMessages];
+
+/// Whether the gateway may send `model` a tool with `strict: true`.
+///
+/// As [`structured_output_supported`]: the adapter must express it (only
+/// [`ApiStyle::OpenaiChat`] in this build), and the signed catalogue's
+/// `capabilities.strict_tools` decides when present. When absent, the
+/// interim rule is `provider == "openai"`: OpenAI documents strict function
+/// calling on Chat Completions for the models the platform seeds
+/// (gpt-4o-2024-08-06 and later, gpt-5.x). xAI does **not** document a
+/// `strict` member on a function definition, so an xAI model is refused
+/// until a catalogue declares otherwise.
+#[must_use]
+pub fn strict_tools_supported(model: &CatalogModel) -> bool {
+    model.api_style == ApiStyle::OpenaiChat
+        && model
+            .capabilities
+            .strict_tools
+            .unwrap_or(model.provider == "openai")
+}
+
+/// Refuse a tool feature `model` cannot honour — before any hold, charge or
+/// provider request, and never by dropping it. Runs in the metering plan;
+/// each adapter's `body` re-runs the translation half,
+/// [`check_tool_translation`].
+///
+/// # Errors
+///
+/// `400 invalid_request`, `details.reason = "tools_unsupported"`,
+/// `details.field` naming the feature.
+pub fn check_tools(request: &ChatRequest, model: &CatalogModel) -> Result<(), ApiFailure> {
+    if request.uses_tools() && !model.capabilities.tools {
+        return Err(tools_unsupported(
+            "tools",
+            "this model does not support function tools",
+        ));
+    }
+    check_tool_translation(request, model)
+}
 
 /// The request-shape refusals a model's adapter makes, run before any hold,
-/// charge or provider request (the metering layer calls it beside
-/// [`check_response_format`]; each adapter's `body` calls it again, so the
-/// direct-adapter path refuses identically). Never by dropping a field:
+/// charge or provider request (the half of [`check_tools`] each adapter's
+/// `body` calls again, so the direct-adapter path refuses identically).
+/// Never by dropping a field:
 ///
 /// * `tool_choice` / `parallel_tool_calls` outside [`TOOL_CONTROL_STYLES`].
+/// * `tools[i].strict: true` without [`strict_tools_supported`].
 /// * Anthropic Messages also refuses a `response_format` beside `tools`
 ///   ([`anthropic::check`]).
 ///
@@ -560,6 +610,14 @@ pub fn check_tool_translation(
                 "this model does not support parallel_tool_calls",
             ));
         }
+    }
+    if let Some(index) = request.tools.iter().position(|t| t.strict == Some(true))
+        && !strict_tools_supported(model)
+    {
+        return Err(tools_unsupported(
+            &format!("tools[{index}].strict"),
+            "this model does not support strict tools",
+        ));
     }
     match model.api_style {
         ApiStyle::AnthropicMessages => anthropic::check(request),

@@ -210,24 +210,14 @@ fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result
         .callable_model(&request.model)
         .ok_or_else(|| ApiFailure::new(ErrorCode::ModelNotFound, "model is not callable"))?
         .clone();
-    if !model.capabilities.tools
-        && (!request.tools.is_empty()
-            || request
-                .messages
-                .iter()
-                .any(|m| !m.tool_calls.is_empty() || m.tool_call_id.is_some()))
-    {
-        return Err(ApiFailure::new(
-            ErrorCode::InvalidRequest,
-            "this model does not support function tools",
-        ));
-    }
+    // Refused before any hold: tools on a model without the capability, a
+    // strict tool it cannot enforce, a tool control its adapter cannot
+    // express, or a combination it cannot (Anthropic: response_format beside
+    // tools) never reach the provider without them.
+    crate::provider::check_tools(request, &model)?;
     // Refused before any hold: a model or adapter that cannot honour a
     // response_format never receives the call without it.
     crate::provider::check_response_format(request, &model)?;
-    // Likewise tool_choice / parallel_tool_calls, and the combinations the
-    // model's adapter cannot express: refused here, never dropped.
-    crate::provider::check_tool_translation(request, &model)?;
     // Conservative byte-token reservation, including roles, message framing,
     // tool definitions and prior tool arguments/results. Metadata is excluded.
     // Final billing uses provider usage, never this byte bound.
@@ -471,7 +461,7 @@ impl ChatBackend for Metered {
                 let n=u64::try_from(numerator.div_ceil(1_000_000_000_000)).map_err(|_| invalid())?;
                 if n > SAFE_INTEGER { return Err(invalid()); } prices.insert(name.into(),json!(n));
             }
-            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":m.capabilities.tools,"reasoning":m.capabilities.reasoning,"structured_output":crate::provider::structured_output_supported(m)},"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
+            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":m.capabilities.tools,"reasoning":m.capabilities.reasoning,"structured_output":crate::provider::structured_output_supported(m),"strict_tools":m.capabilities.tools && crate::provider::strict_tools_supported(m)},"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
         }).collect::<Result<Vec<_>, ApiFailure>>()?;
         Ok(
             json!({"catalog_version":cat.version,"includes_markup_bps":c.markup().0,"models":models}),
@@ -762,8 +752,8 @@ impl ChatBackend for Metered {
 
 /// A refusal `plan` makes after the idempotency claim that must be
 /// persisted as the key's terminal answer: `max_output_tokens_strict`
-/// forbade a clamp, or the model cannot honour `response_format`,
-/// `tool_choice` or `parallel_tool_calls`. Either way
+/// forbade a clamp, or the model cannot honour `response_format` or a tool
+/// feature (`tools_unsupported`). Either way
 /// a same-key replay must name it, not an abandoned-claim `unavailable`.
 fn is_terminal_refusal(failure: &ApiFailure) -> bool {
     matches!(
@@ -1151,6 +1141,15 @@ impl Upstream for MeterStream {
                     Event::Delta(delta) => {
                         let mut n = lock(&self.active.output_bytes);
                         *n = n.saturating_add(u64::try_from(delta.text.len()).unwrap_or(u64::MAX));
+                    }
+                    // Only whether any output was produced reads this
+                    // count (the completion's `partial`); a fragment and its
+                    // complete call both counting cannot change a charge.
+                    Event::ToolCallDelta(fragment) => {
+                        let mut n = lock(&self.active.output_bytes);
+                        *n = n.saturating_add(
+                            u64::try_from(fragment.arguments.len().max(1)).unwrap_or(u64::MAX),
+                        );
                     }
                     Event::ToolCall(tool) => {
                         let mut n = lock(&self.active.output_bytes);
@@ -1655,30 +1654,35 @@ mod tests {
             (json!({"tool_choice":"required"}), "tool_choice"),
             (json!({"parallel_tool_calls":false}), "parallel_tool_calls"),
         ] {
-            // No translation on the OpenAI adapters in this build.
-            for style in ["openai_chat", "openai_responses"] {
-                let catalog = with_tools("openai", style);
-                let e = plan(&tooled(extra.clone()), &catalog, &rich).err().unwrap();
-                assert_eq!(e.status().as_u16(), 400);
-                assert_eq!(
-                    e.detail_of("reason"),
-                    Some(&json!(crate::provider::TOOLS_UNSUPPORTED)),
-                    "{style}"
-                );
-                assert_eq!(e.detail_of("field"), Some(&json!(field)), "{style}");
-                // Persisted as the key's terminal answer, like the
-                // response_format refusal.
-                assert!(is_terminal_refusal(&e));
-                // Negative control: the same tools, no control.
-                plan(&tooled(json!({})), &catalog, &rich).unwrap();
-            }
-            // Anthropic translates both.
+            // No translation on the Responses adapter in this build.
+            let catalog = with_tools("openai", "openai_responses");
+            let e = plan(&tooled(extra.clone()), &catalog, &rich).err().unwrap();
+            assert_eq!(e.status().as_u16(), 400);
+            assert_eq!(
+                e.detail_of("reason"),
+                Some(&json!(crate::provider::TOOLS_UNSUPPORTED))
+            );
+            assert_eq!(e.detail_of("field"), Some(&json!(field)));
+            // Persisted as the key's terminal answer, like the
+            // response_format refusal.
+            assert!(is_terminal_refusal(&e));
+            // Negative control: the same tools, no control.
+            plan(&tooled(json!({})), &catalog, &rich).unwrap();
+            // Anthropic and Chat Completions (OpenAI, xAI) translate both.
             plan(
-                &tooled(extra),
+                &tooled(extra.clone()),
                 &with_tools("anthropic", "anthropic_messages"),
                 &rich,
             )
             .unwrap();
+            for provider in ["openai", "xai"] {
+                plan(
+                    &tooled(extra.clone()),
+                    &with_tools(provider, "openai_chat"),
+                    &rich,
+                )
+                .unwrap();
+            }
         }
         // Anthropic refuses a response_format beside tools: the forced format
         // tool would leave the caller's tools uncallable.

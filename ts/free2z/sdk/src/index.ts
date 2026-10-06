@@ -15,6 +15,19 @@ export {
 } from "./error.js";
 export { formatMilli2z } from "./format.js";
 export {
+  MAX_TOOL_ROUNDS,
+  ToolCallAccumulator,
+  assistantMessage,
+  collectChat,
+  runTools,
+  toolResult,
+  type PartialToolCall,
+  type RunToolsOptions,
+  type ToolContext,
+  type ToolRound,
+  type ToolRun,
+} from "./tools.js";
+export {
   PopupAuthSession,
   completeBrowserSignIn,
   type BrowserAuthSession,

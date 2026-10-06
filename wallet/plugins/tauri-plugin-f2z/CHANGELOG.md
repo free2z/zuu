@@ -7,6 +7,12 @@
   `field`, …; integers as decimal strings). Undocumented members are dropped.
 - `ChatRequest.tool_choice` / `parallel_tool_calls` pass through to the
   gateway (free2z/zuu#1128).
+- Tool calling (free2z/zuu#1128): guest `Tool` (`strict?`), `ToolChoice`,
+  `tool_choice`, `parallel_tool_calls`, and the `tool_call_delta` stream event
+  (`index` a decimal string). `start_chat`/`estimate` refuse an out-of-limit
+  tool request with `invalid_request` before the call is registered.
+  `ChatOperation.sessionGeneration` (optional): registration refuses with
+  `session_changed` unless the session is still that one.
 - Native Free2Z sign-in/session, exact balance, card/Zcash purchase and AI APIs.
 - OS credential storage and system browser adapters for desktop, iOS and Android.
 - Explicit command permissions and bounded, window/account-scoped pull streams.

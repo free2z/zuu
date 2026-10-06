@@ -153,6 +153,7 @@ impl ChatStream {
             None => random::uuid_v4()?,
         };
         let idle = client.inner.config.stream_idle_timeout;
+        let session = options.session;
         let mut stream = Self {
             client,
             body,
@@ -168,7 +169,7 @@ impl ChatStream {
             finished: false,
             cancel: CancelHandle(Arc::new(CancelState::default())),
             idle,
-            session: None,
+            session,
         };
         stream.connect().await?;
         Ok(stream)

@@ -89,6 +89,32 @@ export type NativeSignInErrorCode =
 export interface ToolCall {
   id: string;
   name: string;
+  /** JSON text exactly as the model produced it; parse (and validate) it yourself. */
+  arguments: string;
+}
+/**
+ * A function tool. `name`: 1–64 of `A-Z a-z 0-9 _ -`, unique per request;
+ * `parameters`: a JSON Schema object, at most 32 KiB serialized; at most 128
+ * tools. `strict: true` asks the provider to enforce the schema exactly; a
+ * model whose `capabilities.strict_tools` is false refuses the call up front
+ * (`invalid_request`, reason `tools_unsupported`, field `tools[i].strict`).
+ */
+export interface Tool {
+  name: string;
+  description?: string;
+  parameters: Json;
+  strict?: boolean;
+}
+/**
+ * A fragment of a tool call still being generated (streamed calls only).
+ * Fragments with one `index` belong to one call: append `arguments`; `id`
+ * and `name` arrive on the first. Display only — the complete `tool_call`
+ * event that follows is authoritative, and is what to run.
+ */
+export interface ToolCallDelta {
+  index: number;
+  id?: string;
+  name?: string;
   arguments: string;
 }
 export type ContentPart =
@@ -131,18 +157,10 @@ export type ToolChoice =
 export interface ChatRequest {
   model: string;
   messages: Message[];
-  tools?: { name: string; description?: string; parameters: Json }[];
-  /**
-   * Opt-in; absent is never sent (the provider's default, `auto`). A model
-   * whose adapter cannot express it refuses the call before any hold or
-   * charge (`invalid_request`, `reason: "tools_unsupported"`).
-   */
+  tools?: Tool[];
+  /** Absent is never sent. Refused before any hold where the model cannot honour it. */
   tool_choice?: ToolChoice;
-  /**
-   * Opt-in; `false` asks for at most one tool call per turn. Absent is never
-   * sent. Refused up front where unsupported
-   * (`reason: "tools_unsupported"`).
-   */
+  /** `false`: at most one tool call per turn. Requires `tools`. */
   parallel_tool_calls?: boolean;
   max_output_tokens?: bigint;
   /**
@@ -171,6 +189,14 @@ export interface OperationOptions {
 export interface ChatOptions extends OperationOptions {
   /** A caller-owned UUID identifying the native stream operation. */
   operationId: string;
+  /**
+   * Optional: the `session().generation` this call belongs to. When the
+   * session is no longer that one at the moment the transport takes its
+   * credentials, the call is refused with `signed_out` before anything is
+   * sent — so a multi-call operation (`runTools`) never continues as another
+   * user.
+   */
+  sessionGeneration?: string;
 }
 export type PurchaseRail = "card" | "zcash";
 export interface PurchaseRequest {
@@ -287,6 +313,12 @@ export interface ModelCapabilities {
    * Absent (an older gateway): unsupported.
    */
   structured_output?: boolean;
+  /**
+   * `true` is the precondition for a tool with `strict: true`: otherwise the
+   * gateway refuses the call (`invalid_request`, `reason: "tools_unsupported"`,
+   * `field: "tools[i].strict"`) before any hold or charge. Absent: unsupported.
+   */
+  strict_tools?: boolean;
   /** Capabilities newer than this SDK pass through undeclared. */
   [key: string]: Json | undefined;
 }
@@ -428,6 +460,7 @@ export type ChatEvent =
       created_at?: string;
     } & ObjectData)
   | { type: "delta"; text: string }
+  | ({ type: "tool_call_delta" } & ToolCallDelta)
   | ({ type: "tool_call" } & ToolCall)
   | ({ type: "usage"; usage: Usage; source: string } & ObjectData)
   | ({

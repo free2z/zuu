@@ -743,10 +743,9 @@ fn decode(bytes: &[u8], text_limit: usize) -> Result<ChatRequest, ApiFailure> {
         // have earned the image allowance.
         Err(_) if over_text_limit => return Err(too_large(text_limit)),
         Err(error) => {
-            if let Some(refusal) = response_format_refusal(bytes) {
-                return Err(refusal);
-            }
-            if let Some(refusal) = tool_control_refusal(bytes) {
+            if let Some(refusal) =
+                response_format_refusal(bytes).or_else(|| tool_option_refusal(bytes))
+            {
                 return Err(refusal);
             }
             let reason = match error.classify() {
@@ -796,41 +795,56 @@ fn response_format_refusal(bytes: &[u8]) -> Option<ApiFailure> {
     }
 }
 
-/// As [`response_format_refusal`], for `tool_choice` and
-/// `parallel_tool_calls`: an OpenAI port's likeliest mistakes (`"any"`, a
-/// present `null`) are named by field, not by line and column. Error path
+/// As [`response_format_refusal`], for the tool controls an integrator
+/// porting from another API is likely to get wrong: a `tool_choice` that is
+/// not one of OpenAI's four shapes (Anthropic's `"any"`, `{"type":"tool"}`),
+/// a `null` control, and a tool `strict` that is not a boolean. Error path
 /// only; never quotes the request.
-fn tool_control_refusal(bytes: &[u8]) -> Option<ApiFailure> {
+fn tool_option_refusal(bytes: &[u8]) -> Option<ApiFailure> {
     let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
-    if let Some(choice) = value.get("tool_choice") {
-        if choice.is_null() {
+    if let Some(choice) = value.get("tool_choice")
+        && serde_json::from_value::<f2z_ai_proto::chat::ToolChoice>(choice.clone()).is_err()
+    {
+        return Some(invalid(
+            "tool_choice",
+            if choice.is_null() {
+                "null"
+            } else {
+                "unsupported"
+            },
+            "tool_choice must be \"auto\", \"none\", \"required\" or {\"type\":\"function\",\"function\":{\"name\":...}}",
+        ));
+    }
+    if let Some(parallel) = value.get("parallel_tool_calls")
+        && !parallel.is_boolean()
+    {
+        return Some(invalid(
+            "parallel_tool_calls",
+            if parallel.is_null() {
+                "null"
+            } else {
+                "not_boolean"
+            },
+            "parallel_tool_calls must be true or false",
+        ));
+    }
+    let tools = value.get("tools")?.as_array()?;
+    for (index, tool) in tools.iter().enumerate() {
+        if let Some(strict) = tool.get("strict")
+            && !strict.is_boolean()
+        {
             return Some(invalid(
-                "tool_choice",
-                "null",
-                "tool_choice must be a string or an object; omit it for the default",
-            ));
-        }
-        if serde_json::from_value::<f2z_ai_proto::chat::ToolChoice>(choice.clone()).is_err() {
-            return Some(invalid(
-                "tool_choice",
-                "unsupported",
-                "tool_choice must be \"auto\", \"none\", \"required\" or {\"type\":\"function\",\"function\":{\"name\":...}}",
+                &format!("tools[{index}].strict"),
+                if strict.is_null() {
+                    "null"
+                } else {
+                    "not_boolean"
+                },
+                "a tool's strict must be true or false",
             ));
         }
     }
-    match value.get("parallel_tool_calls") {
-        Some(serde_json::Value::Null) => Some(invalid(
-            "parallel_tool_calls",
-            "null",
-            "parallel_tool_calls must be a boolean; omit it for the default",
-        )),
-        Some(serde_json::Value::Bool(_)) | None => None,
-        Some(_) => Some(invalid(
-            "parallel_tool_calls",
-            "not_boolean",
-            "parallel_tool_calls must be a boolean",
-        )),
-    }
+    None
 }
 
 fn image_count(request: &ChatRequest) -> usize {
@@ -937,47 +951,9 @@ pub fn validate(request: &ChatRequest) -> Result<(), ApiFailure> {
             "at most 20 image parts per request",
         ));
     }
-    for (index, tool) in request.tools.iter().enumerate() {
-        if tool.name.is_empty() {
-            return Err(invalid(
-                &format!("tools[{index}].name"),
-                "empty",
-                "a tool needs a name",
-            ));
-        }
-        if !tool.parameters.is_object() {
-            return Err(invalid(
-                &format!("tools[{index}].parameters"),
-                "not_object",
-                "tool parameters must be a JSON Schema object",
-            ));
-        }
-    }
-    if request.tools.is_empty() {
-        if request.tool_choice.is_some() {
-            return Err(invalid(
-                "tool_choice",
-                "requires_tools",
-                "tool_choice requires tools",
-            ));
-        }
-        if request.parallel_tool_calls.is_some() {
-            return Err(invalid(
-                "parallel_tool_calls",
-                "requires_tools",
-                "parallel_tool_calls requires tools",
-            ));
-        }
-    }
-    if let Some(f2z_ai_proto::chat::ToolChoice::Function { name }) = &request.tool_choice
-        && !request.tools.iter().any(|tool| tool.name == *name)
-    {
-        return Err(invalid(
-            "tool_choice.function.name",
-            "unknown_tool",
-            "tool_choice names a function that is not in tools",
-        ));
-    }
+    request
+        .check_tools()
+        .map_err(|e| invalid(&e.field, e.reason, e.message))?;
     if request.max_output_tokens == Some(0) {
         return Err(invalid(
             "max_output_tokens",
@@ -1215,6 +1191,84 @@ mod tests {
             body["response_format"] = format;
             validate(&decode(body.to_string().as_bytes(), 1 << 20).unwrap()).unwrap();
         }
+    }
+
+    #[test]
+    fn a_tool_control_from_another_api_is_named_not_located() {
+        let with_tool = || {
+            let mut body = minimal();
+            body["tools"] = json!([{"name": "check_answer", "parameters": {"type": "object"}}]);
+            body
+        };
+        for (member, value, field, why) in [
+            ("tool_choice", json!("any"), "tool_choice", "unsupported"),
+            (
+                "tool_choice",
+                json!({"type": "tool", "name": "check_answer"}),
+                "tool_choice",
+                "unsupported",
+            ),
+            (
+                "tool_choice",
+                json!({"type": "function", "name": "check_answer"}),
+                "tool_choice",
+                "unsupported",
+            ),
+            (
+                "tool_choice",
+                serde_json::Value::Null,
+                "tool_choice",
+                "null",
+            ),
+            (
+                "parallel_tool_calls",
+                serde_json::Value::Null,
+                "parallel_tool_calls",
+                "null",
+            ),
+            (
+                "parallel_tool_calls",
+                json!("false"),
+                "parallel_tool_calls",
+                "not_boolean",
+            ),
+        ] {
+            let mut body = with_tool();
+            body[member] = value.clone();
+            let failure = decode(body.to_string().as_bytes(), 1 << 20).unwrap_err();
+            assert_eq!(failure.detail_of("field"), Some(&json!(field)), "{value}");
+            assert_eq!(failure.detail_of("reason"), Some(&json!(why)), "{value}");
+        }
+        let mut body = with_tool();
+        body["tools"][0]["strict"] = serde_json::Value::Null;
+        let failure = decode(body.to_string().as_bytes(), 1 << 20).unwrap_err();
+        assert_eq!(failure.detail_of("field"), Some(&json!("tools[0].strict")));
+        // Every OpenAI shape decodes and validates.
+        for choice in [
+            json!("auto"),
+            json!("none"),
+            json!("required"),
+            json!({"type": "function", "function": {"name": "check_answer"}}),
+        ] {
+            let mut body = with_tool();
+            body["tool_choice"] = choice;
+            body["parallel_tool_calls"] = json!(false);
+            body["tools"][0]["strict"] = json!(true);
+            validate(&decode(body.to_string().as_bytes(), 1 << 20).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn tool_limits_are_refused_by_path() {
+        let mut body = minimal();
+        body["tool_choice"] = json!("required");
+        let failure = validate(&request(body)).unwrap_err();
+        assert_eq!(failure.detail_of("field"), Some(&json!("tool_choice")));
+        assert_eq!(failure.detail_of("reason"), Some(&json!("requires_tools")));
+        let mut body = minimal();
+        body["tools"] = json!([{"name": "a b", "parameters": {}}]);
+        let failure = validate(&request(body)).unwrap_err();
+        assert_eq!(failure.detail_of("field"), Some(&json!("tools[0].name")));
     }
 
     #[test]

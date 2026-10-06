@@ -1174,6 +1174,39 @@ async fn chat(State(f): State<Arc<Fake>>, headers: HeaderMap, body: Bytes) -> Re
                 .body(Body::from_stream(stream))
                 .unwrap();
         }
+        // zuu#1128: round 1 asks for a tool; round 2 is refused for balance.
+        "tool-turn" if nth_for_model == 1 => {
+            remember("settled", Some(1));
+            let mut done = done_settled();
+            done["finish_reason"] = json!("tool_calls");
+            sse(
+                &[
+                    ("meta", meta(&call_id, &model)),
+                    (
+                        "tool_call_delta",
+                        json!({"index": 0, "id": "call_q1", "name": "check_answer", "arguments": ""}),
+                    ),
+                    (
+                        "tool_call_delta",
+                        json!({"index": 0, "arguments": "{\"answer\":\"4\"}"}),
+                    ),
+                    (
+                        "tool_call",
+                        json!({"id": "call_q1", "name": "check_answer", "arguments": "{\"answer\":\"4\"}"}),
+                    ),
+                    ("usage", usage()),
+                    ("done", done),
+                ],
+                false,
+            )
+        }
+        "tool-turn" => {
+            return envelope(
+                StatusCode::PAYMENT_REQUIRED,
+                "insufficient_balance",
+                Some(json!({"available_milli_2z": 400, "required_2z": 1, "min_charge_2z": 1})),
+            );
+        }
         "insufficient" => {
             return envelope(
                 StatusCode::PAYMENT_REQUIRED,
