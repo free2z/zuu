@@ -801,9 +801,7 @@ pub fn catalog_for(fixture: &Fixture, capabilities: &BTreeMap<String, Value>) ->
     let mut model = json!({
         "id": id, "provider": fixture.provider, "provider_model_id": format!("{id}-upstream"),
         "api_style": fixture.api_style,
-        "prices": {"input_nusd_per_mtok": 1000, "cached_input_nusd_per_mtok": 100,
-                   "cache_write_nusd_per_mtok": 1250, "output_nusd_per_mtok": 4000,
-                   "image_nusd": 0, "tool_call_nusd": 0},
+        "prices": PRICES.to_value(),
         "min_charge_2z": 1, "safety_factor_bps": 10000, "context_window": 200000,
         "max_output_tokens": 8192, "ttfb_timeout_ms": 10000, "enabled": true,
         "capabilities": capabilities,
@@ -826,6 +824,55 @@ pub fn catalog_for(fixture: &Fixture, capabilities: &BTreeMap<String, Value>) ->
         )
     });
     VerifiedCatalog::from_verified(catalog).unwrap()
+}
+
+/// Every fixture model's prices, in nano-USD per million tokens (per unit
+/// for images and server tool calls): gpt-4o-like, so a settlement's cost is
+/// a real number of nano-USD and a mis-scaled one is visible.
+pub struct Prices {
+    pub input: u64,
+    pub cached_input: u64,
+    pub cache_write: u64,
+    pub output: u64,
+    pub image: u64,
+    pub tool_call: u64,
+}
+
+pub const PRICES: Prices = Prices {
+    input: 2_500_000_000,
+    cached_input: 1_250_000_000,
+    cache_write: 3_125_000_000,
+    output: 10_000_000_000,
+    image: 1_000_000,
+    tool_call: 25_000_000,
+};
+
+impl Prices {
+    fn to_value(&self) -> Value {
+        json!({"input_nusd_per_mtok": self.input, "cached_input_nusd_per_mtok": self.cached_input,
+               "cache_write_nusd_per_mtok": self.cache_write, "output_nusd_per_mtok": self.output,
+               "image_nusd": self.image, "tool_call_nusd": self.tool_call})
+    }
+
+    /// The cost of `usage` (a normalised `Usage` as JSON) in whole nano-USD,
+    /// rounded up — computed here, independently of `f2z_ai_proto::pricing`,
+    /// as the oracle for what the gateway hands the ledger's settle.
+    pub fn cost_nusd(&self, usage: &Value) -> u128 {
+        let n = |k: &str| {
+            u128::from(
+                usage[k]
+                    .as_u64()
+                    .unwrap_or_else(|| panic!("usage.{k}: {usage}")),
+            )
+        };
+        let micro = n("input_tokens") * u128::from(self.input)
+            + n("cached_input_tokens") * u128::from(self.cached_input)
+            + n("cache_write_tokens") * u128::from(self.cache_write)
+            + n("output_tokens") * u128::from(self.output)
+            + (n("images") * u128::from(self.image) + n("tool_calls") * u128::from(self.tool_call))
+                * 1_000_000;
+        micro.div_ceil(1_000_000)
+    }
 }
 
 /// Every provider the corpus uses, at the mock. xAI reports
@@ -879,6 +926,8 @@ pub struct LedgerState {
     /// post-hold resize.
     pub extends: u64,
     pub holds: u64,
+    /// Every `settle`: `(cost_nusd, usage)` exactly as the gateway sent it.
+    pub settles: Vec<(i64, Value)>,
 }
 
 impl LedgerState {
@@ -954,7 +1003,10 @@ impl Ledger for MemoryLedger {
                 }
                 json!({"status":"recorded","record":m.record()})
             }
-            Operation::Settle { .. } => {
+            Operation::Settle {
+                cost_nusd, usage, ..
+            } => {
+                m.settles.push((*cost_nusd, usage.clone()));
                 m.terminal.get_or_insert("settled");
                 json!({"status":"settled"})
             }

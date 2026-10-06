@@ -179,6 +179,22 @@ async fn run(fixture: &Fixture, stream: bool) -> Observed {
     {
         let ledger = harness.ledger.0.lock().unwrap();
         assert_eq!(ledger.holds, 1, "{name}: one hold");
+        // The settlement is the usage the client was shown, priced at the
+        // signed prices — never a re-derived or re-scaled number.
+        assert_eq!(ledger.settles.len(), 1, "{name}: one settle");
+        let (cost, settled) = &ledger.settles[0];
+        assert_eq!(
+            J::of(settled).sorted(),
+            usage.sorted(),
+            "{name}: settled usage"
+        );
+        let want = conformance_support::PRICES.cost_nusd(settled);
+        assert!(want > 0, "{name}: a priced call costs something");
+        assert_eq!(
+            u128::try_from(*cost).unwrap(),
+            want,
+            "{name}: settled cost_nusd"
+        );
         assert_eq!(
             ledger.extends,
             e.hold_extends.unwrap(),

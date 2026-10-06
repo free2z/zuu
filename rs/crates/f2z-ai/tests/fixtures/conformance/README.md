@@ -104,7 +104,10 @@ directory, a stray file, or a feature without `mutations.json` is a failure.
   (list `tool_calls: 0` to pin that a function call is never billed as a
   server tool).
 - **`expect.hold_extends`** — the ledger's heartbeat extensions during the
-  call. The runner also asserts exactly one hold and a settlement.
+  call. The runner also asserts exactly one hold and exactly one settle,
+  whose `usage` is the usage the client was shown and whose `cost_nusd` is
+  that usage at the fixture model's (gpt-4o-like) prices, computed by the
+  runner independently of `f2z_ai_proto::pricing`.
 - **`expect.encodings`** — the compat-encoding slot (S6–S8: Chat Completions,
   Responses, Messages renderings). It must be `{}` until those land: data the
   runner cannot yet check would read as proof.
