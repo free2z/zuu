@@ -1,0 +1,70 @@
+{
+  "name": "refused_openai_chat_strict_declared_false",
+  "feature": "tool_calling",
+  "source": "Requests the gateway must refuse before any hold or provider request (400 invalid_request, details.reason tools_unsupported). Migrated from tests/fixtures/tool_calling/refusals.json case openai_strict_declared_false (#1142).",
+  "api_style": "openai_chat",
+  "provider": "openai",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true,
+      "strict_tools": false
+    }
+  },
+  "request": {
+    "model": "m-openai-chat",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "You are a patient algebra tutor. Grade answers with check_answer."
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Q1: solve 2x + 3 = 11. My answer: x = 4"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "check_answer",
+        "description": "Grade a student's answer to one question.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "question_id": {
+              "type": "string"
+            },
+            "answer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "question_id",
+            "answer"
+          ],
+          "additionalProperties": false
+        },
+        "strict": true
+      }
+    ]
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "reason": "tools_unsupported",
+        "field": "tools[0].strict"
+      }
+    },
+    "encodings": {}
+  }
+}

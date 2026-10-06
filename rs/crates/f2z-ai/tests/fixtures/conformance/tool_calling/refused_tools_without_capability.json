@@ -1,7 +1,7 @@
 {
   "name": "refused_tools_without_capability",
   "feature": "tool_calling",
-  "source": "metered.rs old_catalogues_refuse_tools_before_hold_or_provider_io: a model whose signed capabilities do not carry tools refuses a request with tools. details are not pinned: this refusal carries none on main; #1142 adds reason tools_unsupported / field tools, to pin here when it lands.",
+  "source": "metered.rs old_catalogues_refuse_tools_before_hold_or_provider_io: a model whose signed capabilities do not carry tools refuses a request with tools, with reason tools_unsupported / field tools (#1142).",
   "api_style": "anthropic_messages",
   "provider": "anthropic",
   "catalog_model": {
@@ -33,7 +33,10 @@
     "refusal": {
       "status": 400,
       "code": "invalid_request",
-      "details": {}
+      "details": {
+        "reason": "tools_unsupported",
+        "field": "tools"
+      }
     },
     "encodings": {}
   }
