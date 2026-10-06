@@ -417,7 +417,13 @@ struct Active {
 struct Produced {
     text: String,
     tool_calls: Vec<ToolCall>,
-    fragments: BTreeMap<u32, String>,
+    /// By call index: the name as last reported (a later fragment's name
+    /// is the accumulated one and replaces it) and the arguments so far.
+    fragments: BTreeMap<u32, (String, String)>,
+    /// The upstream's own record of the fragments, read when the stream
+    /// ends or is dropped: complete in every mode, including `stream:
+    /// false`, where nothing is relayed.
+    upstream_fragments: Vec<String>,
 }
 
 /// Production backend and settler share a bounded map: one entry per admitted
@@ -996,10 +1002,15 @@ fn estimated_usage(active: &Active, outcome: Option<&ProviderOutcome>) -> Option
         let produced = lock(&active.produced);
         // The fragments the adapter saw (every mode) or, on a drain that
         // left no outcome, the ones this stream relayed.
-        let relayed: Vec<String> = produced.fragments.values().cloned().collect();
+        let relayed: Vec<String> = produced
+            .fragments
+            .values()
+            .map(|(name, arguments)| format!("{name}{arguments}"))
+            .collect();
         let fragments = outcome
             .map(|o| o.tool_fragments.as_slice())
             .filter(|f| !f.is_empty())
+            .or_else(|| Some(produced.upstream_fragments.as_slice()).filter(|f| !f.is_empty()))
             .unwrap_or(&relayed);
         crate::estimate::output_tokens(&plan.model, &produced.text, &produced.tool_calls, fragments)
     };
@@ -1277,9 +1288,9 @@ impl Upstream for MeterStream {
                         let mut produced = lock(&self.active.produced);
                         let entry = produced.fragments.entry(fragment.index).or_default();
                         if let Some(name) = &fragment.name {
-                            entry.push_str(name);
+                            entry.0.clone_from(name);
                         }
-                        entry.push_str(&fragment.arguments);
+                        entry.1.push_str(&fragment.arguments);
                     }
                     Event::ToolCall(tool) => {
                         let mut n = lock(&self.active.output_bytes);
@@ -1356,11 +1367,16 @@ impl Upstream for MeterStream {
 }
 
 impl MeterStream {
-    /// Copy the upstream's acceptance into the call's shared state, where
-    /// the settler reads it after this stream is gone.
+    /// Copy the upstream's acceptance and its record of the tool fragments
+    /// into the call's shared state, where the settler reads them after
+    /// this stream is gone.
     fn note_accepted(&self) {
         if self.upstream.accepted() {
             *lock(&self.active.accepted) = true;
+        }
+        let fragments = self.upstream.tool_fragments();
+        if !fragments.is_empty() {
+            lock(&self.active.produced).upstream_fragments = fragments;
         }
     }
 }

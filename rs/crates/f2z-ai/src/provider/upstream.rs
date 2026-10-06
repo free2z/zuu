@@ -120,8 +120,10 @@ pub struct ProviderUpstream {
     tool_deltas: bool,
     /// A 2xx head arrived: the provider accepted, and bills, the request.
     accepted: bool,
-    /// See [`ProviderOutcome::tool_fragments`]: by call index.
-    tool_fragments: std::collections::BTreeMap<u32, String>,
+    /// See [`ProviderOutcome::tool_fragments`]: by call index, the name
+    /// (as the parser last reported it — accumulated, so a later fragment
+    /// replaces it) and the arguments so far.
+    tool_fragments: std::collections::BTreeMap<u32, (String, String)>,
     state: State,
     queue: VecDeque<Event>,
     attempts: u32,
@@ -191,6 +193,14 @@ impl ProviderUpstream {
             events: Vec::new(),
             content: Vec::new(),
         }
+    }
+
+    /// Each tool call's fragments so far, name then arguments, by index.
+    fn tool_fragments(&self) -> Vec<String> {
+        self.tool_fragments
+            .values()
+            .map(|(name, arguments)| format!("{name}{arguments}"))
+            .collect()
     }
 
     /// The outcome, once the stream has ended.
@@ -411,9 +421,9 @@ impl ProviderUpstream {
                 // call drops the fragments on the wire, not from the bill.
                 let entry = self.tool_fragments.entry(fragment.index).or_default();
                 if let Some(name) = &fragment.name {
-                    entry.push_str(name);
+                    entry.0.clone_from(name);
                 }
-                entry.push_str(&fragment.arguments);
+                entry.1.push_str(&fragment.arguments);
             }
             if matches!(content, Content::ToolCallDelta(_)) && !self.tool_deltas {
                 continue;
@@ -624,7 +634,7 @@ impl ProviderUpstream {
             failure,
             output_produced: self.output_produced,
             accepted: self.accepted,
-            tool_fragments: self.tool_fragments.values().cloned().collect(),
+            tool_fragments: self.tool_fragments(),
             function_tool_calls: self.function_tool_calls,
             attempts: self.attempts,
         });
@@ -695,6 +705,10 @@ impl Upstream for ProviderUpstream {
 
     fn accepted(&self) -> bool {
         self.accepted
+    }
+
+    fn tool_fragments(&self) -> Vec<String> {
+        Self::tool_fragments(self)
     }
 
     fn keep_upload_reservation(&mut self, reservation: tokio::sync::OwnedSemaphorePermit) {

@@ -132,40 +132,60 @@ impl Encoding {
     /// (`<|endoftext|>`) treated as ordinary text — the way the API treats
     /// user content.
     ///
-    /// **Bounded work.** The BPE's pre-tokeniser splits text into words,
-    /// digit groups, whitespace runs and punctuation runs, and merges each
-    /// piece on its own; its time and transient memory grow with the
-    /// longest piece, which a request controls (a 4 MiB prompt of one letter
-    /// is one piece). A run of one character class longer than
-    /// [`LONG_RUN_BYTES`] is therefore not merged at all: it is counted as
-    /// its byte length — never fewer tokens than the BPE would produce — and
-    /// the text around it is counted separately, with [`CUT_PENALTY`] tokens
-    /// per cut for the merges a cut can prevent. No piece of natural
-    /// language, code, JSON or base64 comes near the limit, so the exact
-    /// count is unchanged for every real prompt.
+    /// **Bounded work.** The BPE's pre-tokeniser splits text into pieces —
+    /// a word with its combining marks, a run of punctuation and symbols, a
+    /// run of whitespace, one to three digits — and merges each piece on its
+    /// own; its time and transient memory (some 32 bytes per input byte of
+    /// the piece) grow with the longest piece, which a request controls: a
+    /// 4 MiB prompt of one letter, or of `a` + U+0301, is one piece. Every
+    /// unbounded kind of piece lies inside a run of non-whitespace,
+    /// non-digit characters or inside a run of whitespace, so a run of
+    /// either kind longer than [`LONG_RUN_BYTES`] is cut into pieces of at
+    /// most that many bytes and each piece is merged on its own, with
+    /// [`CUT_PENALTY`] tokens per cut for the merges a cut can prevent.
+    /// Digits need no cut: the pre-tokeniser already takes them three at a
+    /// time. No run of natural language, code, JSON or base64 comes near
+    /// the limit, so the count is the BPE's own for every real prompt.
     #[must_use]
     pub fn count(self, text: &str) -> u64 {
+        let encode = |piece: &str| {
+            u64::try_from(self.bpe().encode_ordinary(piece).len()).unwrap_or(u64::MAX)
+        };
         let mut total = 0u64;
         for segment in segments(text) {
             total = total.saturating_add(match segment {
-                Segment::Text(piece) => {
-                    u64::try_from(self.bpe().encode_ordinary(piece).len()).unwrap_or(u64::MAX)
+                Segment::Text(piece) => encode(piece),
+                Segment::LongRun(run) => {
+                    // Cut out of its surroundings (two cuts), then into
+                    // bounded chunks at character boundaries.
+                    let mut n = CUT_PENALTY.saturating_mul(2);
+                    let mut rest = run;
+                    while !rest.is_empty() {
+                        let mut at = rest.len().min(LONG_RUN_BYTES);
+                        while !rest.is_char_boundary(at) {
+                            at = at.saturating_sub(1);
+                        }
+                        let (chunk, tail) = rest.split_at(at);
+                        n = n.saturating_add(encode(chunk));
+                        if !tail.is_empty() {
+                            n = n.saturating_add(CUT_PENALTY);
+                        }
+                        rest = tail;
+                    }
+                    n
                 }
-                Segment::LongRun(run) => u64::try_from(run.len())
-                    .unwrap_or(u64::MAX)
-                    .saturating_add(CUT_PENALTY.saturating_mul(2)),
             });
         }
         total
     }
 }
 
-/// A run of one character class the BPE is not asked to merge.
+/// The longest run the BPE is handed in one piece.
 pub const LONG_RUN_BYTES: usize = 16 * 1024;
-/// Tokens added per cut around a long run: a cut can only prevent merges
-/// that straddle it, which changes the count by a handful of tokens either
-/// way (`"jaa" + "oog"` is 2 tokens apart, 3 together), so the count on
-/// either side of a cut is held safe by this allowance.
+/// Tokens added per cut: a cut can only prevent merges that straddle it,
+/// which changes the count by a handful of tokens either way (`"jaa"` +
+/// `"oog"` is 2 tokens apart, 3 together), so the count on either side of a
+/// cut is held safe by this allowance.
 pub const CUT_PENALTY: u64 = 8;
 
 enum Segment<'a> {
@@ -173,27 +193,29 @@ enum Segment<'a> {
     LongRun(&'a str),
 }
 
+/// The coarse classes whose runs bound every piece the pre-tokeniser can
+/// form: a piece never crosses from whitespace to non-whitespace and never
+/// contains a digit beside a non-digit (digits are taken 1–3 at a time, so
+/// a digit run is never one piece and needs no cut).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Class {
-    Letter,
-    Digit,
     Space,
+    Digit,
     Other,
 }
 
 fn class(c: char) -> Class {
-    if c.is_alphabetic() {
-        Class::Letter
+    if c.is_whitespace() {
+        Class::Space
     } else if c.is_numeric() {
         Class::Digit
-    } else if c.is_whitespace() {
-        Class::Space
     } else {
         Class::Other
     }
 }
 
-/// `text` as ordinary pieces and long same-class runs, in order.
+/// `text` as ordinary stretches and the long same-class runs cut out of
+/// them, in order.
 fn segments(text: &str) -> Vec<Segment<'_>> {
     // Byte ranges of the runs longer than the limit.
     let mut long_runs: Vec<(usize, usize)> = Vec::new();
@@ -202,14 +224,15 @@ fn segments(text: &str) -> Vec<Segment<'_>> {
     for (offset, c) in text.char_indices() {
         let current = class(c);
         if run_class != Some(current) {
-            if offset.saturating_sub(run_start) > LONG_RUN_BYTES {
+            if run_class != Some(Class::Digit) && offset.saturating_sub(run_start) > LONG_RUN_BYTES
+            {
                 long_runs.push((run_start, offset));
             }
             run_start = offset;
             run_class = Some(current);
         }
     }
-    if text.len().saturating_sub(run_start) > LONG_RUN_BYTES {
+    if run_class != Some(Class::Digit) && text.len().saturating_sub(run_start) > LONG_RUN_BYTES {
         long_runs.push((run_start, text.len()));
     }
     let mut out = Vec::new();
@@ -737,17 +760,15 @@ mod tests {
             + enc.count("format")
             + enc.count("\"int32\"");
         assert_eq!(extra, text + 4 * PER_DESCRIPTION);
-        // A long whitespace run no longer reaches the regex engine at all.
+        // A megabyte of whitespace reaches the regex engine only in bounded
+        // chunks (whole, it overflows fancy-regex's stack and panics).
         let spaces = " ".repeat(1 << 20);
-        assert_eq!(enc.count(&spaces), (1u64 << 20) + 2 * CUT_PENALTY);
-        assert_eq!(
-            enc.count(&format!("{spaces}x")),
-            (1u64 << 20) + 2 * CUT_PENALTY + 1
-        );
-        assert_eq!(
-            Encoding::Cl100kBase.count(&format!("{spaces}x")),
-            (1u64 << 20) + 2 * CUT_PENALTY + 1
-        );
+        let chunks = (1u64 << 20) / LONG_RUN_BYTES as u64;
+        let spaces_alone = enc.count(&spaces);
+        assert!(spaces_alone < (1u64 << 20) / 64 + (chunks + 1) * CUT_PENALTY);
+        assert!(spaces_alone >= (chunks + 1) * CUT_PENALTY);
+        assert!(enc.count(&format!("{spaces}x")) >= spaces_alone);
+        assert!(Encoding::Cl100kBase.count(&format!("{spaces}x")) > 0);
     }
 
     #[test]
@@ -816,38 +837,61 @@ mod tests {
     }
 
     #[test]
-    fn a_long_same_class_run_is_counted_as_bytes_without_merging() {
+    fn a_long_run_is_merged_in_bounded_chunks_never_as_one_piece() {
         let enc = Encoding::O200kBase;
         // Below the limit: the exact BPE count (8 bytes per token here).
         let short = "a".repeat(LONG_RUN_BYTES);
         assert_eq!(enc.count(&short), (LONG_RUN_BYTES / 8) as u64);
-        // Over it: one token per byte plus the cut allowance, instantly.
-        let long = "a".repeat(LONG_RUN_BYTES + 1);
+        // Over it: two bounded chunks, the exact count of each, plus the
+        // allowance for the two outer cuts and the one between them.
+        let long = "a".repeat(LONG_RUN_BYTES + 8);
         assert_eq!(
             enc.count(&long),
-            LONG_RUN_BYTES as u64 + 1 + 2 * CUT_PENALTY
+            (LONG_RUN_BYTES / 8) as u64 + 1 + 3 * CUT_PENALTY
         );
         // Text around a long run is still counted exactly; the run is the
-        // whole same-class stretch, adjacent single spaces included.
+        // whole non-whitespace stretch.
         let (before, run, after) = (
-            "The quick brown fox",
-            " ".repeat(LONG_RUN_BYTES * 2),
-            "jumps over the lazy dog.",
+            "The quick brown fox ",
+            "a".repeat(LONG_RUN_BYTES * 2),
+            " jumps over the lazy dog.",
         );
         let text = format!("{before}{run}{after}");
         assert_eq!(
             enc.count(&text),
-            enc.count(before) + enc.count(after) + (LONG_RUN_BYTES * 2) as u64 + 2 * CUT_PENALTY
+            enc.count(before) + enc.count(after) + (LONG_RUN_BYTES / 4) as u64 + 3 * CUT_PENALTY
         );
-        // A run that changes class every character is many short pieces,
-        // never a long run: the exact count (one token per character here),
-        // with no cut allowance added.
+        // Letters and combining marks are one piece to the pre-tokeniser,
+        // as are punctuation and marks: both are one non-whitespace run
+        // here and are cut.
+        for pathological in ["a\u{301}", "!\u{301}", "\u{301}", "—a", "—!"] {
+            let run = pathological.repeat(LONG_RUN_BYTES);
+            let segments = segments(&run);
+            assert!(
+                segments.iter().all(|s| matches!(s, Segment::LongRun(_))),
+                "{pathological:?} was not cut"
+            );
+            assert!(enc.count(&run) > 0);
+        }
+        // A digit run is taken three at a time by the pre-tokeniser and is
+        // never cut here; letters beside digits break every other run.
+        let digits = "7".repeat(LONG_RUN_BYTES * 2);
+        assert!(
+            segments(&digits)
+                .iter()
+                .all(|s| matches!(s, Segment::Text(_)))
+        );
+        assert_eq!(enc.count(&digits), (LONG_RUN_BYTES * 2 / 3) as u64 + 1);
         let mixed = "a1".repeat(LONG_RUN_BYTES);
         assert_eq!(enc.count(&mixed), mixed.len() as u64);
-        // Four megabytes of one letter: a bound, not a stall.
-        let started = std::time::Instant::now();
-        let huge = "a".repeat(4 << 20);
-        assert_eq!(enc.count(&huge), (4u64 << 20) + 2 * CUT_PENALTY);
-        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        // A megabyte of one letter: 64 bounded pieces, not one (a debug
+        // build is slow here, so the timing is not asserted; the chunk
+        // arithmetic is).
+        let huge = "a".repeat(1 << 20);
+        let chunks = (1u64 << 20) / LONG_RUN_BYTES as u64;
+        assert_eq!(
+            enc.count(&huge),
+            (1u64 << 20) / 8 + (chunks + 1) * CUT_PENALTY
+        );
     }
 }

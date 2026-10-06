@@ -141,6 +141,15 @@ pub trait Upstream: Send + 'static {
         false
     }
 
+    /// Each tool call's streamed fragments so far — name, then arguments —
+    /// whether or not they were relayed (`stream: false` drops them on the
+    /// wire). Readable at any time, like [`Upstream::accepted`], so a drain
+    /// that leaves no outcome still settles on what the model generated
+    /// (metering.md §5.4). Empty from an upstream that does not know.
+    fn tool_fragments(&self) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Take the request body's share of the gateway-wide upload budget. An
     /// upstream that still holds the request's bytes after `start` keeps it
     /// until it drops them, so request memory stays inside
