@@ -120,6 +120,8 @@ pub struct ProviderUpstream {
     tool_deltas: bool,
     /// A 2xx head arrived: the provider accepted, and bills, the request.
     accepted: bool,
+    /// See [`ProviderOutcome::tool_fragments`]: by call index.
+    tool_fragments: std::collections::BTreeMap<u32, String>,
     state: State,
     queue: VecDeque<Event>,
     attempts: u32,
@@ -178,6 +180,7 @@ impl ProviderUpstream {
             images: p.images,
             tool_deltas: p.tool_deltas,
             accepted: false,
+            tool_fragments: std::collections::BTreeMap::new(),
             state: State::Start,
             queue: VecDeque::new(),
             attempts: 0,
@@ -403,6 +406,15 @@ impl ProviderUpstream {
     /// Move parsed content into the event queue.
     fn drain_content(&mut self) {
         for content in self.content.drain(..) {
+            if let Content::ToolCallDelta(fragment) = &content {
+                // Recorded before the relay decision: a `stream: false`
+                // call drops the fragments on the wire, not from the bill.
+                let entry = self.tool_fragments.entry(fragment.index).or_default();
+                if let Some(name) = &fragment.name {
+                    entry.push_str(name);
+                }
+                entry.push_str(&fragment.arguments);
+            }
             if matches!(content, Content::ToolCallDelta(_)) && !self.tool_deltas {
                 continue;
             }
@@ -612,6 +624,7 @@ impl ProviderUpstream {
             failure,
             output_produced: self.output_produced,
             accepted: self.accepted,
+            tool_fragments: self.tool_fragments.values().cloned().collect(),
             function_tool_calls: self.function_tool_calls,
             attempts: self.attempts,
         });

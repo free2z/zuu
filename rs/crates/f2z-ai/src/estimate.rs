@@ -87,6 +87,7 @@ const O200K_FAMILIES: &[&str] = &[
     "gpt-4o",
     "chatgpt-4o",
     "gpt-4.1",
+    "gpt-4.5",
     "gpt-5",
     "gpt-6",
     "o1",
@@ -130,10 +131,102 @@ impl Encoding {
     /// The number of tokens in `text`, with special-token spellings
     /// (`<|endoftext|>`) treated as ordinary text — the way the API treats
     /// user content.
+    ///
+    /// **Bounded work.** The BPE's pre-tokeniser splits text into words,
+    /// digit groups, whitespace runs and punctuation runs, and merges each
+    /// piece on its own; its time and transient memory grow with the
+    /// longest piece, which a request controls (a 4 MiB prompt of one letter
+    /// is one piece). A run of one character class longer than
+    /// [`LONG_RUN_BYTES`] is therefore not merged at all: it is counted as
+    /// its byte length — never fewer tokens than the BPE would produce — and
+    /// the text around it is counted separately, with [`CUT_PENALTY`] tokens
+    /// per cut for the merges a cut can prevent. No piece of natural
+    /// language, code, JSON or base64 comes near the limit, so the exact
+    /// count is unchanged for every real prompt.
     #[must_use]
     pub fn count(self, text: &str) -> u64 {
-        u64::try_from(self.bpe().encode_ordinary(text).len()).unwrap_or(u64::MAX)
+        let mut total = 0u64;
+        for segment in segments(text) {
+            total = total.saturating_add(match segment {
+                Segment::Text(piece) => {
+                    u64::try_from(self.bpe().encode_ordinary(piece).len()).unwrap_or(u64::MAX)
+                }
+                Segment::LongRun(run) => u64::try_from(run.len())
+                    .unwrap_or(u64::MAX)
+                    .saturating_add(CUT_PENALTY.saturating_mul(2)),
+            });
+        }
+        total
     }
+}
+
+/// A run of one character class the BPE is not asked to merge.
+pub const LONG_RUN_BYTES: usize = 16 * 1024;
+/// Tokens added per cut around a long run: a cut can only prevent merges
+/// that straddle it, which changes the count by a handful of tokens either
+/// way (`"jaa" + "oog"` is 2 tokens apart, 3 together), so the count on
+/// either side of a cut is held safe by this allowance.
+pub const CUT_PENALTY: u64 = 8;
+
+enum Segment<'a> {
+    Text(&'a str),
+    LongRun(&'a str),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Class {
+    Letter,
+    Digit,
+    Space,
+    Other,
+}
+
+fn class(c: char) -> Class {
+    if c.is_alphabetic() {
+        Class::Letter
+    } else if c.is_numeric() {
+        Class::Digit
+    } else if c.is_whitespace() {
+        Class::Space
+    } else {
+        Class::Other
+    }
+}
+
+/// `text` as ordinary pieces and long same-class runs, in order.
+fn segments(text: &str) -> Vec<Segment<'_>> {
+    // Byte ranges of the runs longer than the limit.
+    let mut long_runs: Vec<(usize, usize)> = Vec::new();
+    let mut run_start = 0usize;
+    let mut run_class: Option<Class> = None;
+    for (offset, c) in text.char_indices() {
+        let current = class(c);
+        if run_class != Some(current) {
+            if offset.saturating_sub(run_start) > LONG_RUN_BYTES {
+                long_runs.push((run_start, offset));
+            }
+            run_start = offset;
+            run_class = Some(current);
+        }
+    }
+    if text.len().saturating_sub(run_start) > LONG_RUN_BYTES {
+        long_runs.push((run_start, text.len()));
+    }
+    let mut out = Vec::new();
+    let mut emitted = 0usize;
+    for (start, end) in long_runs {
+        if let Some(before) = text.get(emitted..start).filter(|t| !t.is_empty()) {
+            out.push(Segment::Text(before));
+        }
+        if let Some(run) = text.get(start..end) {
+            out.push(Segment::LongRun(run));
+        }
+        emitted = end;
+    }
+    if let Some(tail) = text.get(emitted..).filter(|t| !t.is_empty()) {
+        out.push(Segment::Text(tail));
+    }
+    out
 }
 
 /// Where a JSON schema is rendered, which decides its per-property cost.
@@ -178,6 +271,40 @@ const PER_ENUM_VALUE: u64 = 2;
 /// Per schema node that is not a property value: array items, `anyOf` /
 /// `oneOf` / `allOf` branches, and the root of a tool's parameters.
 const PER_CONTAINER: u64 = 5;
+/// Keywords **measured** to cost nothing in the provider's rendering
+/// (validation constraints and the structural members the walk follows).
+/// Any other member — `title`, `default`, `examples`, `format`, `$ref`,
+/// `minLength`, … — was not measured and is counted as its JSON text, which
+/// is never fewer tokens than any rendering of it.
+const FREE_SCHEMA_KEYWORDS: &[&str] = &[
+    "type",
+    "properties",
+    "required",
+    "additionalProperties",
+    "items",
+    "prefixItems",
+    "anyOf",
+    "oneOf",
+    "allOf",
+    "not",
+    "if",
+    "then",
+    "else",
+    "enum",
+    "const",
+    "description",
+    "pattern",
+    "minimum",
+    "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "minItems",
+    "maxItems",
+    "$defs",
+    "definitions",
+    "patternProperties",
+    "strict",
+];
 /// Below this nesting the walk stops and the subtree's compact JSON text
 /// is counted instead — larger, never smaller, than its rendering.
 const MAX_SCHEMA_DEPTH: u32 = 64;
@@ -248,13 +375,18 @@ fn prompt_tokens(encoding: Encoding, request: &ChatRequest) -> u64 {
         n = n
             .saturating_add(PER_MESSAGE)
             .saturating_add(count(role_word(message.role)));
+        // The adapter sends a message's text parts concatenated, and token
+        // counts are not additive across a concatenation (`"jaa"` + `"oog"`
+        // is 2 tokens apart and 3 together), so the parts are counted as
+        // the one string the provider sees. Image parts are refused by
+        // `meter::plan` in this build.
+        let mut text = String::new();
         for part in &message.content {
-            // Image parts are refused by `meter::plan` in this build; a text
-            // part costs exactly its tokens, however many parts there are.
-            if let ContentPart::Text { text } = part {
-                n = n.saturating_add(count(text));
+            if let ContentPart::Text { text: piece } = part {
+                text.push_str(piece);
             }
         }
+        n = n.saturating_add(count(&text));
         let parallel = message.tool_calls.len() > 1;
         for call in &message.tool_calls {
             n = n
@@ -296,11 +428,17 @@ fn prompt_tokens(encoding: Encoding, request: &ChatRequest) -> u64 {
     }
     match &request.response_format {
         Some(ResponseFormat::JsonSchema { json_schema }) => {
-            n = n.saturating_add(SCHEMA_BLOCK).saturating_add(schema_tokens(
-                encoding,
-                &json_schema.schema.to_value(),
-                SchemaPlace::ResponseFormat,
-            ));
+            // The format's `name` was not separable in the measurements
+            // (`SCHEMA_BLOCK` was measured with short names); counted so a
+            // long one cannot hide.
+            n = n
+                .saturating_add(SCHEMA_BLOCK)
+                .saturating_add(count(&json_schema.name))
+                .saturating_add(schema_tokens(
+                    encoding,
+                    &json_schema.schema.to_value(),
+                    SchemaPlace::ResponseFormat,
+                ));
         }
         // `json_object` injects nothing measurable (the API requires the
         // word "json" in the prompt instead).
@@ -410,22 +548,46 @@ fn schema_node(
             n = n.saturating_add(schema_node(encoding, value, false, place, child));
         }
     }
+    for (key, value) in object {
+        if !FREE_SCHEMA_KEYWORDS.contains(&key.as_str()) {
+            n = n
+                .saturating_add(count(key))
+                .saturating_add(count(&value.to_string()))
+                .saturating_add(PER_DESCRIPTION);
+        }
+    }
     n
 }
 
 /// metering.md §5.4's output estimate: everything the provider produced —
-/// the text and each tool call's name and arguments — tokenised with the
+/// the text and the tool calls' names and arguments — tokenised with the
 /// model's encoding (`o200k_base` as the approximation for a provider
 /// without one) and scaled by [`OUTPUT_ESTIMATE_BPS`].
+///
+/// Tool calls arrive twice on a stream: as `tool_call_delta` fragments and,
+/// at the end, as the complete `tool_call`. `fragments` is each call's
+/// fragments concatenated (name, then arguments); `tool_calls` the complete
+/// calls. On a stream that ended properly both say the same thing; on one
+/// cut mid-call only the fragments carry what was generated — and billed.
+/// The **larger** of the two is counted, never both.
 #[must_use]
-pub fn output_tokens(model: &CatalogModel, text: &str, tool_calls: &[ToolCall]) -> u64 {
+pub fn output_tokens(
+    model: &CatalogModel,
+    text: &str,
+    tool_calls: &[ToolCall],
+    fragments: &[String],
+) -> u64 {
     let encoding = Encoding::for_model(model).unwrap_or(Encoding::O200kBase);
-    let mut raw = encoding.count(text);
-    for call in tool_calls {
-        raw = raw
-            .saturating_add(encoding.count(&call.name))
-            .saturating_add(encoding.count(&call.arguments));
-    }
+    let complete = tool_calls.iter().fold(0u64, |n, call| {
+        n.saturating_add(encoding.count(&call.name))
+            .saturating_add(encoding.count(&call.arguments))
+    });
+    let fragmented = fragments
+        .iter()
+        .fold(0u64, |n, f| n.saturating_add(encoding.count(f)));
+    let raw = encoding
+        .count(text)
+        .saturating_add(complete.max(fragmented));
     apply_safety_factor(raw, OUTPUT_ESTIMATE_BPS).unwrap_or(u64::MAX)
 }
 
@@ -468,6 +630,10 @@ mod tests {
                 "{id}"
             );
         }
+        assert_eq!(
+            Encoding::for_openai_id("gpt-4.5-preview"),
+            Some(Encoding::O200kBase)
+        );
         for id in ["gpt-4", "gpt-4-turbo", "gpt-3.5-turbo"] {
             assert_eq!(
                 Encoding::for_openai_id(id),
@@ -555,6 +721,36 @@ mod tests {
     }
 
     #[test]
+    fn unmeasured_keywords_are_counted_as_their_json_text() {
+        let enc = Encoding::O200kBase;
+        let plain = json!({"type": "object", "properties": {"n": {"type": "integer"}}});
+        let decorated = json!({"type": "object", "properties": {"n": {"type": "integer",
+            "title": "Count", "default": 3, "examples": [1, 2, 3], "format": "int32"}}});
+        let extra = schema_tokens(enc, &decorated, SchemaPlace::ResponseFormat)
+            - schema_tokens(enc, &plain, SchemaPlace::ResponseFormat);
+        let text = enc.count("title")
+            + enc.count("\"Count\"")
+            + enc.count("default")
+            + enc.count("3")
+            + enc.count("examples")
+            + enc.count("[1,2,3]")
+            + enc.count("format")
+            + enc.count("\"int32\"");
+        assert_eq!(extra, text + 4 * PER_DESCRIPTION);
+        // A long whitespace run no longer reaches the regex engine at all.
+        let spaces = " ".repeat(1 << 20);
+        assert_eq!(enc.count(&spaces), (1u64 << 20) + 2 * CUT_PENALTY);
+        assert_eq!(
+            enc.count(&format!("{spaces}x")),
+            (1u64 << 20) + 2 * CUT_PENALTY + 1
+        );
+        assert_eq!(
+            Encoding::Cl100kBase.count(&format!("{spaces}x")),
+            (1u64 << 20) + 2 * CUT_PENALTY + 1
+        );
+    }
+
+    #[test]
     fn a_pathological_depth_is_counted_as_text_not_walked() {
         let mut deep = json!({"type": "string"});
         for _ in 0..200 {
@@ -567,10 +763,10 @@ mod tests {
     #[test]
     fn output_estimate_scales_text_and_tool_arguments_by_eleven_tenths() {
         let m = model("openai", "gpt-4o");
-        assert_eq!(output_tokens(&m, "", &[]), 0);
+        assert_eq!(output_tokens(&m, "", &[], &[]), 0);
         let text = "The quick brown fox jumps over the lazy dog.";
         assert_eq!(Encoding::O200kBase.count(text), 10);
-        assert_eq!(output_tokens(&m, text, &[]), 11);
+        assert_eq!(output_tokens(&m, text, &[], &[]), 11);
         let call = ToolCall {
             id: "call_1".into(),
             name: "lookup".into(),
@@ -579,11 +775,79 @@ mod tests {
         let raw = 10
             + Encoding::O200kBase.count("lookup")
             + Encoding::O200kBase.count("{\"name\":\"area\"}");
-        assert_eq!(output_tokens(&m, text, &[call]), raw.div_ceil(10) + raw);
+        assert_eq!(
+            output_tokens(&m, text, std::slice::from_ref(&call), &[]),
+            raw.div_ceil(10) + raw
+        );
+        // Fragments and the complete call describe the same generation:
+        // the larger counts, never the sum.
+        let fragments = vec!["lookup{\"name\":\"area\"}".to_owned()];
+        let both = output_tokens(&m, text, std::slice::from_ref(&call), &fragments);
+        assert!(both <= raw.div_ceil(10) + raw + 2, "{both}");
+        assert_eq!(output_tokens(&m, text, &[], &fragments), both);
         // A provider without a tokeniser is approximated with o200k.
         assert_eq!(
-            output_tokens(&model("anthropic", "claude-sonnet-5"), text, &[]),
+            output_tokens(&model("anthropic", "claude-sonnet-5"), text, &[], &[]),
             11
         );
+    }
+
+    #[test]
+    fn a_message_is_counted_as_the_one_string_the_provider_sees() {
+        // "jaa" and "oog" are one token each apart and three together.
+        let enc = Encoding::O200kBase;
+        assert_eq!(
+            (enc.count("jaa"), enc.count("oog"), enc.count("jaaoog")),
+            (1, 1, 3)
+        );
+        let split: ChatRequest = serde_json::from_value(json!({
+            "model": "m", "max_output_tokens": 10,
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "jaa"}, {"type": "text", "text": "oog"}]}]
+        }))
+        .unwrap();
+        let joined: ChatRequest = serde_json::from_value(json!({
+            "model": "m", "max_output_tokens": 10,
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "jaaoog"}]}]
+        }))
+        .unwrap();
+        let m = model("openai", "gpt-4o");
+        assert_eq!(input_tokens(&split, &m), input_tokens(&joined, &m));
+        assert_eq!(input_tokens(&joined, &m).unwrap().tokens, 3 + 3 + 1 + 3);
+    }
+
+    #[test]
+    fn a_long_same_class_run_is_counted_as_bytes_without_merging() {
+        let enc = Encoding::O200kBase;
+        // Below the limit: the exact BPE count (8 bytes per token here).
+        let short = "a".repeat(LONG_RUN_BYTES);
+        assert_eq!(enc.count(&short), (LONG_RUN_BYTES / 8) as u64);
+        // Over it: one token per byte plus the cut allowance, instantly.
+        let long = "a".repeat(LONG_RUN_BYTES + 1);
+        assert_eq!(
+            enc.count(&long),
+            LONG_RUN_BYTES as u64 + 1 + 2 * CUT_PENALTY
+        );
+        // Text around a long run is still counted exactly; the run is the
+        // whole same-class stretch, adjacent single spaces included.
+        let (before, run, after) = (
+            "The quick brown fox",
+            " ".repeat(LONG_RUN_BYTES * 2),
+            "jumps over the lazy dog.",
+        );
+        let text = format!("{before}{run}{after}");
+        assert_eq!(
+            enc.count(&text),
+            enc.count(before) + enc.count(after) + (LONG_RUN_BYTES * 2) as u64 + 2 * CUT_PENALTY
+        );
+        // A run that changes class every character is many short pieces,
+        // never a long run: the exact count (one token per character here),
+        // with no cut allowance added.
+        let mixed = "a1".repeat(LONG_RUN_BYTES);
+        assert_eq!(enc.count(&mixed), mixed.len() as u64);
+        // Four megabytes of one letter: a bound, not a stall.
+        let started = std::time::Instant::now();
+        let huge = "a".repeat(4 << 20);
+        assert_eq!(enc.count(&huge), (4u64 << 20) + 2 * CUT_PENALTY);
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 }

@@ -137,6 +137,20 @@ impl ProviderFailure {
         }
     }
 
+    /// Whether the **provider itself** declared this failure inside an
+    /// accepted stream — an `error` event (OpenAI's `{"error": …}` chunk,
+    /// the Responses `error` event, Anthropic's `error` event such as
+    /// `overloaded_error`) — as opposed to a deadline the gateway enforced,
+    /// a transport cut, or a body the gateway could not parse. Before any
+    /// content, a provider-declared error is the in-stream form of a refused
+    /// request (Anthropic's `overloaded_error` is its 529): the provider
+    /// does not bill it, so metering.md §5.2 releases the hold rather than
+    /// settling on the estimate.
+    #[must_use]
+    pub fn declared_by_provider(&self) -> bool {
+        self.reason == "stream_error"
+    }
+
     /// The `details.phase` of a `provider_timeout` (errors.md §4), when this
     /// is one.
     #[must_use]
@@ -175,6 +189,13 @@ pub struct ProviderOutcome {
     /// `usage.tool_calls`, which counts only provider-billed server-side tool
     /// invocations (see the PR for zuu#1064 on the spec's wording).
     pub function_tool_calls: u64,
+    /// Each tool call's streamed fragments concatenated — its name, then its
+    /// arguments as generated so far — by call index, whether or not the
+    /// fragments were relayed as `tool_call_delta` events. Equal to the
+    /// complete calls on a stream that ended properly; on one cut mid-call,
+    /// the only record of what the model generated (and the provider
+    /// billed), for metering.md §5.4's output estimate.
+    pub tool_fragments: Vec<String>,
     /// Provider requests made for this call, retries included.
     pub attempts: u32,
 }

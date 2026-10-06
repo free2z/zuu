@@ -318,10 +318,11 @@ impl Done {
 /// The `error` event: the terminal event of a failed call, and what the
 /// failure still cost.
 ///
-/// A provider failure before `meta` is a lone `error` with `charged_2z: 0`
-/// and no receipt. After output began, the call is settled for what was
-/// produced. `delivery_aborted` always carries `settlement: "pending"`: the
-/// call is still running upstream.
+/// A provider **refusal** before `meta` is a lone `error` with
+/// `charged_2z: 0` and no receipt. A provider that accepted the request and
+/// then failed — before or after output — settles the call for what it is
+/// owed (`meta` precedes that `error`). `delivery_aborted` always carries
+/// `settlement: "pending"`: the call is still running upstream.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ErrorEvent {
     /// What went wrong, for a program. Whether to retry is

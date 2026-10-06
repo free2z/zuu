@@ -752,6 +752,13 @@ async fn an_idle_timeout_before_any_output_still_charges_the_input_estimate() {
     assert!(text.contains("\"code\":\"provider_timeout\""), "{text}");
     assert!(text.contains("\"settlement\":\"settled\""), "{text}");
     assert!(!text.contains("released"), "{text}");
+    // A charged terminal is never a lone `error`: `meta` precedes it
+    // (chat-api.md §2.3), so a client reading to the spec sees the charge.
+    let events: Vec<&str> = text
+        .lines()
+        .filter_map(|l| l.strip_prefix("event: "))
+        .collect();
+    assert_eq!(events, ["meta", "usage", "error"], "{text}");
     final_state(&db).await;
     let input = estimate_input(&r, &request()).await;
     {
@@ -760,6 +767,251 @@ async fn an_idle_timeout_before_any_output_still_charges_the_input_estimate() {
         assert_eq!(state.settled_usage["input_tokens"], input);
         assert_eq!(state.settled_usage["output_tokens"], 0);
         assert_eq!(state.record()["completion"]["usage_source"], "estimated");
+    }
+    mock.shutdown().await;
+}
+/// A Chat Completions server replaying `chunks` as an SSE body, byte for
+/// byte, then closing — the recipe of the tool-fragment test below.
+async fn replay_server(chunks: &[Value]) -> (String, tokio::task::JoinHandle<()>) {
+    let body: String = chunks
+        .iter()
+        .map(|c| match c {
+            Value::String(s) => format!("data: {s}\n\n"),
+            other => format!("data: {other}\n\n"),
+        })
+        .collect();
+    let app = axum::Router::new().route(
+        "/v1/chat/completions",
+        axum::routing::post(move || {
+            let body = body.clone();
+            async move { ([("content-type", "text/event-stream")], body) }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (base, server)
+}
+// A tool stream cut before its complete `tool_call` (and its usage): the
+// arguments the model generated were billed by the provider, and the
+// fragments are the only record of them. They are counted — once, not
+// beside the complete call — streamed or not (`stream: false` drops the
+// fragments on the wire, never from the bill).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tool_stream_cut_mid_call_bills_the_generated_arguments_from_its_fragments() {
+    let fixture = tool_fixture("openai_strict_forced_streamed.json");
+    let chunks = fixture["provider_stream"].as_array().unwrap();
+    // Every fragment, then the cut: no finish chunk, no usage, no [DONE].
+    let fragments_only: Vec<Value> = chunks
+        .iter()
+        .take_while(|c| c["choices"][0]["finish_reason"].is_null() && *c != &json!("[DONE]"))
+        .cloned()
+        .collect();
+    assert_eq!(fragments_only.len(), 8, "{fragments_only:?}");
+    let (base, server) = replay_server(&fragments_only).await;
+    let (catalog, model) = refusal_catalog("openai_interim");
+    let generated = "check_answer{\"question_id\":\"q1\",\"answer\":\"x = 4\"}";
+    let raw = f2z_ai::estimate::Encoding::O200kBase.count(generated);
+    let expected_output = raw + raw.div_ceil(10);
+    for stream in [true, false] {
+        let db = Arc::new(Database::new());
+        let meter = Arc::new(Metered::new(
+            db.clone(),
+            adapter_support::backend(&base, adapter_support::tuning(0)),
+        ));
+        let r = support::start(
+            &support::config(&[]),
+            Deps {
+                gate: Arc::new(Gate),
+                catalog: Arc::new(Fixed(catalog.clone())),
+                backend: meter.clone(),
+                settler: meter,
+            },
+        )
+        .await;
+        support::wait_readyz(r.admin, StatusCode::OK).await;
+        let mut request = fixture["request"].clone();
+        request["model"] = json!(model);
+        request["stream"] = json!(stream);
+        let input = estimate_input(&r, &request).await;
+        let response = support::send(r.public, support::chat_request(request.to_string())).await;
+        let text = support::text(response).await;
+        if stream {
+            assert!(text.contains("event: tool_call_delta"), "{text}");
+            assert!(!text.contains("event: tool_call\n"), "{text}");
+            assert!(text.contains("\"code\":\"provider_error\""), "{text}");
+            assert!(text.contains("\"settlement\":\"settled\""), "{text}");
+        } else {
+            let value: Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(value["error"]["code"], "provider_error", "{text}");
+            assert_eq!(value["error"]["details"]["settlement"], "settled", "{text}");
+        }
+        final_state(&db).await;
+        let state = db.0.lock().unwrap();
+        assert_eq!(state.charges, 1, "stream={stream}");
+        assert_eq!(
+            state.settled_usage["input_tokens"], input,
+            "stream={stream}"
+        );
+        assert_eq!(
+            state.settled_usage["output_tokens"], expected_output,
+            "stream={stream}: {}",
+            state.settled_usage
+        );
+        assert_eq!(state.record()["completion"]["usage_source"], "estimated");
+    }
+    server.abort();
+}
+// A drain that cuts a silent, accepted stream: the provider answered 2xx and
+// was still thinking when the window closed, so it bills the request. The
+// hold settles on the input estimate — it is not refunded because the
+// upstream had no outcome to hand the settler.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_drain_that_cuts_a_silent_accepted_stream_settles_on_the_input_estimate() {
+    let db = Arc::new(Database::new());
+    let mock = MockProvider::start(Scenario::default().with_stall(0, SILENCE))
+        .await
+        .unwrap();
+    let mut tuning = adapter_support::tuning(0);
+    tuning.timeouts.idle = Duration::from_secs(120);
+    let meter = Arc::new(Metered::new(
+        db.clone(),
+        adapter_support::backend(&mock.base_url(), tuning),
+    ));
+    let running = support::start(
+        &support::config(&[
+            ("F2Z_AI_DRAIN_TIMEOUT_SECS", "1"),
+            ("F2Z_AI_ABORT_GRACE_SECS", "1"),
+        ]),
+        Deps {
+            gate: Arc::new(Gate),
+            catalog: Arc::new(Fixed(adapter_support::catalog_with(120_000, Some(120_000)))),
+            backend: meter.clone(),
+            settler: meter,
+        },
+    )
+    .await;
+    let (public, admin, gateway) = (running.public, running.admin, running.gateway);
+    support::wait_readyz(admin, StatusCode::OK).await;
+    let mut req = support::chat_request(request().to_string());
+    req.headers_mut()
+        .insert("idempotency-key", "lesson-drain".parse().unwrap());
+    let response = support::send(public, req).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    // The provider has the request (2xx head, then silence). Drain.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let (signal, fired) = tokio::sync::oneshot::channel::<()>();
+    let run = tokio::spawn(gateway.run_until(async move {
+        let _ = fired.await;
+    }));
+    signal.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(15), run)
+        .await
+        .expect("the drain did not finish")
+        .unwrap();
+    drop(response);
+    final_state(&db).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert_eq!(
+            state.terminal,
+            Some("settled"),
+            "a silent accepted call was refunded"
+        );
+        assert_eq!(state.charges, 1);
+        assert!(state.settled_usage["input_tokens"].as_u64().unwrap() > 0);
+        assert_eq!(state.settled_usage["output_tokens"], 0);
+        assert_eq!(state.record()["completion"]["usage_source"], "estimated");
+        assert_eq!(state.record()["completion"]["error"]["code"], "unavailable");
+    }
+    mock.shutdown().await;
+}
+// A provider's OWN error event before any content is its in-stream refusal
+// (Anthropic's `overloaded_error` is a 529 that happens to arrive after the
+// head): it does not bill, so the hold is released — a lone error with
+// `charged_2z: 0`, as chat-api.md §2.3 has always said.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_provider_error_event_before_content_releases_like_a_refusal() {
+    for model in ["m-anthropic", "m-chat", "m-responses"] {
+        let db = Arc::new(Database::new());
+        let (r, mock) = launch(
+            db.clone(),
+            Scenario::default().with_fault(f2z_ai_testkit::mock::Fault::ErrorEventAtByte {
+                byte: 0,
+                status: 529,
+            }),
+        )
+        .await;
+        let mut request = request();
+        request["model"] = json!(model);
+        let mut req = support::chat_request(request.to_string());
+        req.headers_mut()
+            .insert("idempotency-key", "lesson-1".parse().unwrap());
+        let text = support::text(support::send(r.public, req).await).await;
+        assert!(
+            text.contains("\"settlement\":\"released\""),
+            "{model}: {text}"
+        );
+        assert!(text.contains("\"charged_2z\":0"), "{model}: {text}");
+        assert!(!text.contains("event: meta"), "{model}: {text}");
+        final_state(&db).await;
+        {
+            let state = db.0.lock().unwrap();
+            assert_eq!(state.charges, 0, "{model}");
+            assert_eq!(state.terminal, Some("released"), "{model}");
+        }
+        mock.shutdown().await;
+    }
+}
+// Anthropic's `message_start` reports the exact input counts before any
+// output; a stream that then loses its usage frame settles on THOSE, not on
+// the byte bound the hold was sized with.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_anthropic_stream_cut_after_message_start_settles_on_its_reported_input() {
+    let db = Arc::new(Database::new());
+    let scenario = Scenario::default()
+        .with_input_tokens(40)
+        .with_cache(5, 3)
+        .with_output_tokens(64);
+    let ctx = f2z_ai_testkit::mock::RenderContext {
+        model: format!("{}-upstream", adapter_support::ANTHROPIC.id),
+        include_usage: true,
+        request_seq: 1,
+    };
+    let byte = (f2z_ai_testkit::mock::plan(adapter_support::ANTHROPIC.style, &scenario, &ctx)
+        .body_bytes()
+        .len()
+        / 2) as u64;
+    let (r, mock) = launch(
+        db.clone(),
+        scenario.with_fault(f2z_ai_testkit::mock::Fault::DisconnectAtByte { byte }),
+    )
+    .await;
+    let mut request = request();
+    request["model"] = json!("m-anthropic");
+    let estimate = estimate_input(&r, &request).await;
+    let mut req = support::chat_request(request.to_string());
+    req.headers_mut()
+        .insert("idempotency-key", "lesson-1".parse().unwrap());
+    let text = support::text(support::send(r.public, req).await).await;
+    assert!(text.contains("\"settlement\":\"settled\""), "{text}");
+    final_state(&db).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert_eq!(state.charges, 1);
+        // The byte bound (far above 48) sized the hold; the provider's own
+        // counts settle it.
+        assert!(estimate > 48, "{estimate}");
+        assert_eq!(
+            state.settled_usage["input_tokens"], 40,
+            "{}",
+            state.settled_usage
+        );
+        assert_eq!(state.settled_usage["cached_input_tokens"], 5);
+        assert_eq!(state.settled_usage["cache_write_tokens"], 3);
+        assert!(state.settled_usage["output_tokens"].as_u64().unwrap() > 0);
     }
     mock.shutdown().await;
 }

@@ -139,8 +139,13 @@ point is `meta`**, sent when the provider's first content event arrives
 is handled as step 7: `fallback` may switch models, and because no `meta`
 has been sent the switch is invisible except through `meta.requested_model`.
 A provider failure that cannot be recovered before `meta` is delivered as
-an `error` event (§3.7) with `charged_2z: 0` — the stream has already
-begun at the HTTP level, so an HTTP status can no longer carry it.
+an `error` event (§3.7) — the stream has already begun at the HTTP level,
+so an HTTP status can no longer carry it. When the provider **refused** the
+request (no 2xx head, or its own `error` event before any output) that is
+a lone `error` with `charged_2z: 0`. When the provider **accepted** the
+request and the stream then went silent or was cut before any output, the
+provider bills the call: the gateway sends `meta` and then the `error`
+with the settlement ([metering.md](./metering.md) §5.2, §5.4).
 
 ### 2.3 Streamed response
 
@@ -243,8 +248,10 @@ stream   := meta (delta | tool_call_delta | tool_call)* usage? (done | error)
 ```
 
 - Exactly one `meta`, always first — except that a stream whose provider
-  attempt (and any `fallback`) failed before the gateway could commit
-  consists of a single `error` event with `charged_2z: 0` (§2.2). That
+  attempt (and any `fallback`) was refused before the gateway could commit
+  consists of a single `error` event with `charged_2z: 0` (§2.2); an
+  accepted attempt that failed before any output is `meta` then `error`
+  with its settlement, never a lone `error`. That
   lone `error` may carry any code the pre-stream steps can produce —
   `provider_error`, `provider_timeout`, `unavailable`, `internal`, and,
   when a `fallback` hold could not be taken, `insufficient_balance`,
@@ -690,8 +697,10 @@ can read it. Requires `ai:invoke`.
 `status` ∈ `streaming` (hold exists, call in progress), `settling`
 (provider finished, ledger not yet confirmed — [metering.md](./metering.md)
 §5.11), `settled` (charged; `charged_2z` ≥ `min_charge_2z`), `released`
-(nothing charged — the provider failed before output, or the hold expired
-unsettled), `settled_partial` (an error after output; charged for what
+(nothing charged — the provider refused the request, or the hold expired
+unsettled; an accepted request that went silent before output is
+`settled` on the estimate, [metering.md](./metering.md) §5.2),
+`settled_partial` (an error after output; charged for what
 was produced — a client disconnect is **not** this: the upstream is read
 to completion and the call is `settled` with `finish_reason: cancelled`,
 unless the provider then fails, which is `settled_partial` like any
