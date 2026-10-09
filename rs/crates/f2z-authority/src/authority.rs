@@ -3,7 +3,7 @@
 //! # The whole of it, in one function
 //!
 //! [`AuthorityConfig::check_assertion_layer`] is the only public verification
-//! path for this experimental assertion proposal. There is no
+//! path for the ratified `KT.md` §4.5 assertion layer. There is no
 //! `verify_assertion`, no `check_authority_signature`, and no `is_expired`:
 //! those narrower helpers would make it easy to mistake one successful rule
 //! for the complete assertion-layer check. The single assertion-layer door is
@@ -26,10 +26,9 @@
 //!
 //! # "No authority" is a configuration, and it is reported
 //!
-//! This proposal models a self-hosted log with no user directory through
-//! [`AuthoritySet::none`]. `KT.md` does not ratify that behavior; #594 remains
-//! open. It is *spelled*, not reached by leaving the set empty, which is
-//! [`AuthorityError::EmptyAuthoritySet`] instead.
+//! `KT.md` §4.6 permits a self-hosted log with no user directory through
+//! [`AuthoritySet::none`]. It is *spelled*, not reached by leaving the set
+//! empty, which is [`AuthorityError::EmptyAuthoritySet`] instead.
 //!
 //! It is not silent. Every successful assertion-layer check on such a log returns
 //! [`Vouch::Unvouched`], and [`AuthoritySet::status`] answers the same question
@@ -250,8 +249,7 @@ impl AuthoritySet {
         Self::new(alloc::vec![AuthorityKey::new(key)])
     }
 
-    /// **Experimental proposal:** this log has no user directory, so handles
-    /// on it are unvouched. `KT.md` has not ratified this mode (#594).
+    /// Configure the log with no handle-vouching authority (`KT.md` §4.6).
     ///
     /// See the module note: this must be chosen, and it is reported on every
     /// assertion-layer check.
@@ -337,11 +335,14 @@ impl fmt::Display for Vouch {
 
 /// Why this directory entry exists.
 ///
-/// The last three variants are `KT.md`'s `EntryKind`. [`InitialBind`] names
-/// this crate's **unratified candidate** for the first-entry case that `KT.md`
-/// and #594 deliberately leave open. It must not be read as merged protocol.
+/// The last three variants are `KT.md`'s `EntryKind`. [`InitialBind`] is this
+/// crate's internal model for the first-entry case. It is not a `KT.md` v1
+/// `EntryKind`: using a distinct wire discriminator to move first-entry
+/// authorization into `EntryAuthorization` is one of the open choices in
+/// [issue #649].
 ///
 /// [`InitialBind`]: Self::InitialBind
+/// [issue #649]: https://github.com/free2z/zuu/issues/649
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EntryKind {
     /// The handle's first entry.
@@ -354,7 +355,7 @@ pub enum EntryKind {
     PlatformReset,
 }
 
-/// The result of checking only this crate's experimental assertion layer.
+/// The result of checking only the ratified assertion layer.
 ///
 /// This is deliberately **not** an authorization-to-publish token. In
 /// particular, for `same_key` and `key_change` this crate does not parse or
@@ -413,7 +414,7 @@ impl AssertionLayerCheck {
 
     /// The `account_epoch` to retain for this handle. A platform assertion
     /// advances it; a routine entry carries the required previous value
-    /// forward. The experimental unvouched initial path starts at zero. Feed
+    /// forward. The unvouched initial path starts at zero under `KT.md` §4.6. Feed
     /// it back as [`Submission::previous_account_epoch`] next time.
     #[must_use]
     pub const fn account_epoch(&self) -> u32 {
@@ -470,7 +471,7 @@ pub struct Submission<'a> {
     pub previous_vouch: Option<Vouch>,
     /// The predecessor's retained `account_epoch`, or `None` only if this is
     /// the first entry. Every non-initial entry must carry it, including an
-    /// unvouched history whose experimental baseline is zero.
+    /// unvouched history whose baseline is zero under `KT.md` §4.6.
     pub previous_account_epoch: Option<u32>,
 }
 
@@ -636,7 +637,7 @@ impl AuthorityConfig {
         )
     }
 
-    /// Check this crate's experimental assertion layer.
+    /// Check the `KT.md` §4.5 assertion layer.
     ///
     /// The returned [`AssertionLayerCheck`] is partial, not permission to
     /// publish a directory entry. `same_key` and `key_change` still require the

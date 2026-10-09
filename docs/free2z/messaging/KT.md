@@ -817,6 +817,10 @@ this paragraph be restated without its scope.
 > and this section's job is to write down what they agreed on so a third
 > implementer is not left to infer it. Where the two disagreed on a *default*
 > rather than on a rule, §4.5 fixes the rule and says the default is not one.
+> This ratification binds the current v1 wire shape as specified here. The
+> client-verifiability change proposed by [#649](https://github.com/free2z/zuu/issues/649)
+> is a coordinated wire change, not an exception or pre-approval under this
+> ratification; its encoding decisions remain open.
 >
 > **Rules 11 and 12 are new, and the `auth_signature` table's first row is a
 > split.** As first published the table had one `same_key` row, authorized by
