@@ -71,8 +71,8 @@
 //! is delivery progress for the stall rule — means the client has taken
 //! everything before it. A client that is not reading data cannot be kept
 //! alive by pings: its data frames wait, so no ping is queued, and the stall
-//! rule runs exactly as before. A ping costs the buffer nothing it could
-//! refuse: it is 8 bytes into a buffer holding none. A non-streamed call
+//! rule runs exactly as before. Pings are evictable, so they can never make a
+//! required event exceed the delivery limit. A non-streamed call
 //! (`stream: false`) gets no pings — its body is one JSON document.
 
 use std::collections::VecDeque;
@@ -191,8 +191,9 @@ enum State {
 
 #[derive(Debug)]
 struct Buffer {
-    /// Each frame, and whether it is optional (a `tool_call_delta`, which
-    /// may be evicted to make room for a frame that is not).
+    /// Each frame, and whether it is optional (a `tool_call_delta` or
+    /// keep-alive ping, which may be evicted to make room for a required
+    /// frame).
     frames: VecDeque<(Bytes, bool)>,
     bytes: usize,
     state: State,
@@ -350,7 +351,7 @@ impl Shared {
             buffer.last_progress = Instant::now();
             self.inflight.add_buffered(frame.len());
             buffer.bytes = buffer.bytes.saturating_add(frame.len());
-            buffer.frames.push_back((frame, false));
+            buffer.frames.push_back((frame, true));
             buffer.waker.take()
         };
         Self::wake(waker);
