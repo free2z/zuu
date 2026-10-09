@@ -26,7 +26,7 @@ const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 // changed. This digest remains the exact selector tripwire; changing it alone
 // cannot bypass the independent executable selector and required-job controls.
 const changeDetectorDigest =
-  "c5a293405ab6fae81f95ccea6a158519bf82bb12794545050788e2b72dd2c010";
+  "f321c087a4ddf39b843a1f0494e8bb4520334fa4fbcde8501438afa5b0cffd02";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
@@ -69,7 +69,8 @@ function namedStep(jobContents, name) {
 ///
 /// Read off the manifests rather than listed, because a list is what rots. The
 /// messaging plugin links six of these and takes a seventh as a
-/// dev-dependency; a change to any of them changes the wallet's own build, and
+/// dev-dependency; MLS shipping roots also path-patch the OpenMLS libcrux
+/// provider bridge. A change to any of them changes the wallet's own build, and
 /// before the selector named them an `rs/` change that broke the wallet would
 /// have skipped the entire ZUULI suite. ZUULI names `f2z-authority` directly
 /// since ADR 0017 (it pre-checks handle assertions, and `f2z-msg-identity`
