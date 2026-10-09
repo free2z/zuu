@@ -831,21 +831,35 @@ mod tests {
     fn a_tool_use_block_is_one_complete_call() {
         let mut p = Parser::default();
         start(&mut p);
-        feed(
+        let out = feed(
             &mut p,
             "content_block_start",
             json!({"type":"content_block_start","index":0,
                    "content_block":{"type":"tool_use","id":"toolu_1","name":"f","input":{}}}),
         );
+        assert_eq!(
+            out,
+            vec![Content::ToolCallDelta(ToolCallDelta {
+                index: 0,
+                id: Some("toolu_1".into()),
+                name: Some("f".into()),
+                arguments: String::new(),
+            })]
+        );
         for part in ["{\"a\"", ": 1}"] {
-            assert!(
+            assert_eq!(
                 feed(
                     &mut p,
                     "content_block_delta",
                     json!({"type":"content_block_delta","index":0,
                            "delta":{"type":"input_json_delta","partial_json":part}}),
-                )
-                .is_empty()
+                ),
+                vec![Content::ToolCallDelta(ToolCallDelta {
+                    index: 0,
+                    id: None,
+                    name: None,
+                    arguments: part.into(),
+                })]
             );
         }
         let out = feed(
