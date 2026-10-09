@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "description": "Shared pricing fixtures for f2z-ai-proto::pricing (Rust), and the Python and SQL implementations of the same formula. Expected values were computed independently with exact rationals from the formula as written: p = cost_usd*100*(1+platform_margin), d = p*dev_markup, total = max(min_charge, ceil(p+d)) whole 2Z; provider = ceil(cost), developer = floor(d), platform = total - provider - developer, all in milli-2Z. 1 2Z = $0.01 = 10,000,000 nano-USD. Margins are basis points (10000 = 100%).",
-  "input_unit": "usage: counts; prices: nano-USD per 1M tokens, or per image / per tool call; expected.cost_nusd is the metered cost (rounded up to whole nano-USD) that settle receives",
+  "input_unit": "usage: counts; prices: nano-USD per 1M tokens, or per image / per provider-billed server-side tool call; expected.cost_nusd is the metered cost (rounded up to whole nano-USD) that settle receives",
   "cases": [
     {
       "name": "prompt_cache_mix",
@@ -71,7 +71,7 @@
     },
     {
       "name": "images_and_tools",
-      "note": "2 images at $0.001, 1 tool call at $0.01, 100 in at $2.50/M, 50 out at $10/M = $0.01275; 50% margin + 10% markup = 2.10375 -> 3 2Z.",
+      "note": "2 images at $0.001, 1 provider-billed server-side tool invocation at $0.01, 100 in at $2.50/M, 50 out at $10/M = $0.01275; 50% margin + 10% markup = 2.10375 -> 3 2Z. Client function calls do not use this per-call price.",
       "input": {
         "usage": {
           "input_tokens": 100,
