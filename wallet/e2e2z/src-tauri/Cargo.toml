@@ -57,3 +57,8 @@ opt-level = 3
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# This app links the messaging plugin, so its independent lockfile must select
+# the tracked provider bridge for the fixed libcrux and HPKE releases.
+[patch.crates-io]
+openmls_libcrux_crypto = { path = "../../../rs/crates/openmls-libcrux-crypto-bridge" }

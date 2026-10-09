@@ -8,6 +8,12 @@
 resolver = "3"
 members = ["crates/*"]
 
+# `openmls_libcrux_crypto` 0.4.0 pins vulnerable libcrux-hmac-drbg 0.0.1 and
+# HPKE 0.7. The tracked 0.4.1 bridge preserves the published provider source
+# and updates those dependency seams; see docs/DEPENDENCIES.md.
+[patch.crates-io]
+openmls_libcrux_crypto = { path = "crates/openmls-libcrux-crypto-bridge" }
+
 # Deliberately minimal. `rust-version` and `license` are NOT inherited from
 # here: `scripts/check-rust-toolchain.sh --manifest` reads the literal
 # `rust-version` line out of each crate's own manifest, and the licence boundary
@@ -148,14 +154,15 @@ f2z-codec = { path = "crates/f2z-codec", version = "0.1.0" }
 # ---------------------------------------------------------------------------
 # MLS (RFC 9420), ARCHITECTURE.md §5.
 #
-# The 0.9 train (`openmls 0.9.0`, `openmls_traits 0.6.0`,
-# `openmls_libcrux_crypto 0.4.0`), taken for a **security** reason and not for
-# freshness: 0.4.0 of the provider moves to `libcrux-aead 0.0.9` /
-# `libcrux-ed25519 0.0.9`, which is the first libcrux release train whose
-# `libcrux-secrets` requirement admits `0.0.6` — the fix for RUSTSEC-2026-0212,
-# the aarch64 constant-time swap/select defect that #701 could not patch around
-# without forking libcrux. Ten `ignore` entries came out of `rs/deny.toml` with
-# this bump; see #723.
+# The 0.9 train (`openmls 0.9.0`, `openmls_traits 0.6.0`), taken for a
+# **security** reason and not for freshness. Provider 0.4.0 moved to
+# `libcrux-aead 0.0.9` / `libcrux-ed25519 0.0.9`, the first libcrux release
+# train whose `libcrux-secrets` requirement admits `0.0.6` — the fix for
+# RUSTSEC-2026-0212, the aarch64 constant-time swap/select defect that #701
+# could not patch around without forking libcrux. Ten `ignore` entries came
+# out of `rs/deny.toml` with this bump; see #723. The tracked provider bridge
+# carries that source forward while raising the DRBG, KEM and HPKE requirements
+# past RUSTSEC-2026-0329, -0330 and -0331; see docs/DEPENDENCIES.md.
 #
 # None of these is free to move on a whim, and the floor beneath `openmls` and
 # `openmls_traits` is enforced by `[[bans.deny]]` in rs/deny.toml rather than by
@@ -209,26 +216,26 @@ openmls = { version = "0.9.0", default-features = false, features = [
 # Appendix C, on nine targets — against 0.3.1. #723 re-ran the two-instance
 # exchange, the crash suite and the cross-compilation matrix against 0.4.0;
 # what it could not re-run is recorded on that issue.
-openmls_libcrux_crypto = { version = "0.4.0", default-features = false }
+openmls_libcrux_crypto = { version = "0.4.1", path = "crates/openmls-libcrux-crypto-bridge", default-features = false }
 # Ed25519, straight from the libcrux core. This is the *same* crate and the same
 # functions `openmls_libcrux_crypto`'s `CryptoProvider::sign` /
 # `verify_signature` call, so naming it here adds nothing to the graph — it lets
 # `f2z-msg-mls` implement `openmls_traits::signatures::Signer` itself instead of
 # taking `openmls_basic_credential`, which is #693.
 #
-# 0.0.9 rather than 0.0.6 because `openmls_libcrux_crypto 0.4.0` requires it,
+# 0.0.10 rather than 0.0.6 because the tracked provider bridge requires it,
 # and unifying is the point — a second copy would mean MLS framing signed by one
-# build of the primitive and verified by another. It is also the release that
-# fixes RUSTSEC-2026-0075: `generate_key_pair` now returns `Error::KeyGen`
-# instead of an all-zero secret key when the CSPRNG fails 100 times running.
-# `sign` is unchanged, which is the only function this tree calls.
-libcrux-ed25519 = { version = "0.0.9", default-features = false }
+# build of the primitive and verified by another. It includes the upstream
+# `generate_key_pair` error behavior: it returns `Error::KeyGen` instead of an
+# all-zero secret key when the CSPRNG fails 100 times running. `sign` is
+# unchanged, which is the only function this tree calls.
+libcrux-ed25519 = { version = "0.0.10", default-features = false }
 # Direct dependencies of the permanent known-answer harness. These versions
 # are the same packages already selected beneath openmls_libcrux_crypto; naming
 # them lets the harness exercise the primitives themselves without introducing
 # an implementation outside ADR 0001's single crypto core.
-libcrux-ecdh = { version = "0.0.8", default-features = false }
-libcrux-kem = { version = "0.0.9", default-features = false }
+libcrux-ecdh = { version = "0.0.9", default-features = false }
+libcrux-kem = { version = "0.0.10", default-features = false }
 # `openmls_basic_credential` is NOT here and must not be added. It signs with
 # `ed25519-dalek` and `p256` outside the libcrux provider (#693), which
 # contradicts ADR 0001's single crypto core; `f2z-msg-mls` implements

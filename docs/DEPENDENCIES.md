@@ -120,7 +120,7 @@ same badge as the ones that are checked.
 | `nonempty` | 0.11 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:94`. This one crosses an API boundary rather than merely duplicating: `send/native.rs` returns `nonempty::NonEmpty<TxId>` straight out of a librustzcash call, so a second `nonempty` is a type mismatch, not a bigger binary. Single copy (0.11.0), shared by 9 packages in the wallet lock | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`nonempty` entry) |
 | `base64` | 0.22 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:113`. 0.22.1 is the **shared** copy — 12 packages, including `zcash_client_backend`, `zip321`, `reqwest`, `tonic`, `wry`, `tauri-codegen` and ZUULI itself (ADR 0017's Contract C client). Bumping ours would not retire it; it would move our one crate onto `ureq`'s 0.23 island and lose the alignment for nothing | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`base64` entry) |
 | `bip0039` | 0.12 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:192`. Weaker than the rows above, deliberately: upstream declares it only `optional`, behind `zcash_keys`'s `zcashd-compat` and a `zcash_client_sqlite` feature, and neither is on — so today exactly 1 package resolves `bip0039` in the wallet lock, and it is ours (`tauri-plugin-zcash`). Matching 0.12 is what keeps turning either feature on from adding a second BIP-39 | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`bip0039` entry) |
-| `chacha20poly1305` | 0.10 | **A different upstream.** Not librustzcash's — `z/zcash/zcash_note_encryption/Cargo.toml:24` declares it, under plain `[dependencies]`, because `zcash_note_encryption` is a standalone crate. Every wallet lock carries exactly **one** copy (0.10.1), shared by 5 packages: ours (`tauri-plugin-zcash`, `tauri-plugin-f2zmsg`), `zcash_note_encryption`, `hpke-rs-rust-crypto` and `openmls_rust_crypto`. Bumping ours to 0.11 strands the other three on 0.10 and adds a second AEAD to **all four** wallet locks | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` and `wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml` (`chacha20poly1305` entries) |
+| `chacha20poly1305` | 0.10 | **A different upstream.** Not librustzcash's — `z/zcash/zcash_note_encryption/Cargo.toml:24` declares it, under plain `[dependencies]`, because `zcash_note_encryption` is a standalone crate. All five app/plugin locks retain 0.10.1; the three MLS roots also resolve 0.11.0 because `hpke-rs-rust-crypto 0.8.0` requires it. In Zuuli, 0.10.1 is shared by 5 packages: ours (`tauri-plugin-zcash`, `tauri-plugin-f2zmsg`), `zcash_note_encryption`, `hpke-rs-rust-crypto 0.7.0` and `openmls_rust_crypto`. The bridge records that split rather than treating the 0.11 lock entry as an active provider | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` and `wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml` (`chacha20poly1305` entries) |
 | `getrandom` | 0.3 | **A registry crate, not a vendored one.** `tauri 2.11.5` declares `getrandom = "0.3"` unconditionally in its own published manifest, so 0.3 is in the shipping graph whatever we choose; `wallet/zuuli/src-tauri/Cargo.lock` records the edge as `tauri 2.11.5 → getrandom 0.3.4`. Our single call site is `oauth.rs`'s PKCE randomness. Bumping to 0.4 would not retire tauri's copy — the lock already carries 0.2.17, 0.3.4 and 0.4.3 — it would only move us off the copy the framework links. This hold retires when **tauri** moves, not when we decide to | `wallet/zuuli/src-tauri/Cargo.toml` (`getrandom` entry); the edge in `wallet/zuuli/src-tauri/Cargo.lock` |
 | `hkdf` | 0.12 | **Our own choice.** `hkdf` appears in neither constraint source. 0.12 is the line that pairs with `sha2` 0.10 (both on `digest` 0.10), so it moves only when `sha2` does | [`rs/Cargo.toml`](../rs/Cargo.toml) (`hkdf` entry) |
 
@@ -182,7 +182,7 @@ SHA-256 to the shipped wallet." It would not. The wallet lock already carries
 **0.10.9 and 0.11.0**: the MLS half of the graph brought 0.11 in through
 `bip32`, `ed25519-dalek`, `hpke-rs-rust-crypto` and `openmls_rust_crypto`, and
 nothing re-read the sentence that said otherwise. 14 packages resolve `sha2`
-on 0.10 and 4 packages on 0.11. So the real cost of moving `f2z-msg-identity` is
+on 0.10 and 5 packages on 0.11 after the HPKE 0.8 dependency resolution. So the real cost of moving `f2z-msg-identity` is
 *defection* — it would leave the copy every Zcash crate in the binary shares —
 not a new copy. Both numbers, and both edges, are now `evidence` entries in
 `scripts/check-dependency-register.mjs`, so the next time this drifts the check
@@ -266,13 +266,45 @@ exactly what happened to `z/ZcashFoundation/z3` when upstream renamed `dev` to
 `--upstream` mode `git ls-remote`s every `branch` in `.gitmodules`; it is the
 cheapest of the three rules and the one that would have caught that.
 
+## 6. Tracked source bridge: `openmls_libcrux_crypto`
+
+| | |
+|---|---|
+| **Kind** | In-repository Cargo source bridge, patched by path from `rs/Cargo.toml` |
+| **Source** | crates.io `openmls_libcrux_crypto 0.4.0`, MIT, published 2026-08-25; package provenance commit [`3a3e35de3feeca8f6605143c464d5452ae584d43`](https://github.com/openmls/openmls/tree/3a3e35de3feeca8f6605143c464d5452ae584d43/libcrux_crypto) |
+| **Tracked copy** | [`rs/crates/openmls-libcrux-crypto-bridge`](../rs/crates/openmls-libcrux-crypto-bridge) (`openmls_libcrux_crypto 0.4.1`) |
+| **Delta** | Provider dependency requirements: libcrux `0.0.9` → `0.0.10` where needed, `libcrux-hmac-drbg 0.0.1` → `0.0.2`, and the HPKE family `0.7` → `0.8`; one HMAC adapter now supplies the output buffer required by the new `libcrux-hmac` API |
+| **Exit condition** | An upstream `openmls_libcrux_crypto` release whose source requires `libcrux-hmac-drbg >=0.0.2`, the `hpke-rs` family `>=0.8`, and resolves `libcrux-kem >=0.0.10` |
+| **Why** | The published 0.4.0 provider pins the vulnerable DRBG and old HPKE family; its `^0.0.1` requirement cannot select 0.0.2. The current upstream provider source still has these constraints. The patched KEM is 0.0.10, and the released HPKE 0.8 family accepts the corresponding libcrux train. |
+
+The repaired graph selects `libcrux-hmac-drbg 0.0.2`, `libcrux-kem 0.0.10`,
+and `hpke-rs-libcrux 0.8.0`.
+
+Some lockfiles also retain `hpke-rs-libcrux 0.7.0` and `libcrux-kem 0.0.9`
+under OpenMLS's optional `openmls_rust_crypto` provider. The shipping MLS roots
+disable OpenMLS defaults and select `libcrux-provider`; the retained 0.7/0.9
+nodes are not part of those resolved feature graphs. The direct KAT dependency
+also moves to KEM 0.0.10. The unmodified `cargo-deny` gates pass on the selected
+graphs without advisory exemptions.
+
+`Cargo.toml.orig`, `.cargo_vcs_info.json`, and `LICENSE` in the tracked copy
+preserve the published source manifest, exact upstream commit provenance, and
+MIT license. The upstream implementation is retained except for the single
+HMAC API adaptation in `src/crypto.rs`. The bridge manifest identifies the locally adapted package as
+0.4.1; it does not claim a published upstream 0.4.1 release. The path patch is
+registered at the `rs`, plugin, ZUULI and E2E2Z Cargo roots because each has an
+independent lockfile. `scripts/check-dependency-register.mjs` checks every patch
+path and the release retirement condition. On each release, inspect its actual
+manifest and resolved graph before retiring the bridge; the version number
+alone does not prove that it carries these fixes.
+
 ---
 
 ## Why a scheduled issue and not a gate
 
 The offline half of `scripts/check-dependency-register.mjs` — this page agreeing
 with `.gitmodules`, the `[patch.crates-io]` set, every constraint source §3's
-holds name, and the four wallet lockfiles its measured numbers came from —
+holds name, and the wallet/app lockfiles its measured numbers came from —
 depends on nothing outside this repository, so it is safe to run on a pull
 request and it does.
 
