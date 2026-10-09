@@ -162,6 +162,10 @@ struct Plan {
     /// UTF-8 byte bound (`false`, a provider without one).
     input_exact: bool,
     output: u64,
+    /// Reasoning is not visible in streamed output. If the provider loses
+    /// its usage frame, its billed output can only be bounded by this
+    /// provider-sent output ceiling.
+    reasoning_output: bool,
     hold: Whole2z,
     markup: Bps,
     margin: Bps,
@@ -364,11 +368,16 @@ fn plan_with(
         ));
     }
     let consented = Bps(c.consented_markup_bps);
+    let reasoning_output = model.capabilities.reasoning
+        || model.capabilities.reasoning_effort
+        || model.controls.effort_levels.is_some()
+        || request.reasoning_effort.is_some();
     let mut p = Plan {
         model,
         input,
         input_exact: estimate.exact,
         output: ceiling,
+        reasoning_output,
         hold: Whole2z::ZERO,
         markup: c.markup(),
         margin: catalog.platform_margin_bps,
@@ -1044,9 +1053,9 @@ fn completion(active: &Active, outcome: Option<&ProviderOutcome>) -> Value {
         && !refused_in_stream
         && let Some(usage) = estimated_usage(active, outcome)
     {
-        // metering.md §5.4: the hold's input estimate, the produced output
-        // tokenised, nothing invented for the buckets a stream cannot show.
-        // Never a zero usage, never a byte count billed as tokens.
+        // metering.md §5.4: preserve fitting partial input counts; estimate
+        // visible output for ordinary models and use the held output ceiling
+        // when reasoning may be hidden. Never invent a reasoning-token count.
         value["usage"] = json!(usage);
         value["usage_source"] = json!("estimated");
     }
@@ -1059,10 +1068,12 @@ fn completion(active: &Active, outcome: Option<&ProviderOutcome>) -> Value {
 /// hold's input estimate, else the estimate itself in the uncached bucket;
 /// `output_tokens` is everything the provider produced — delivered or not —
 /// tokenised and scaled by 11,000 bps, capped at the output ceiling the
-/// provider was given. Every bucket is bounded by the two numbers the hold
-/// was priced from at the dearest input rate, so the price can never exceed
-/// the hold. Reasoning tokens are not streamed and are not in it. `None`
-/// before admission.
+/// provider was given. For a reasoning-capable model or a request carrying
+/// `reasoning_effort`, visible output cannot bound the hidden reasoning
+/// tokens, so the output estimate is the full provider-sent ceiling. Every
+/// bucket is bounded by the two numbers the hold was priced from at the
+/// dearest input rate, so the price can never exceed the hold. `None` before
+/// admission.
 fn estimated_usage(active: &Active, outcome: Option<&ProviderOutcome>) -> Option<Usage> {
     let plan = lock(&active.plan).clone()?;
     let partial = match outcome.map(|o| &o.usage) {
@@ -1114,11 +1125,16 @@ fn estimated_usage(active: &Active, outcome: Option<&ProviderOutcome>) -> Option
             fragments,
         )
     };
+    let output = if plan.reasoning_output {
+        plan.output
+    } else {
+        output.min(plan.output)
+    };
     Some(Usage {
         input_tokens: input.0,
         cached_input_tokens: input.1,
         cache_write_tokens: input.2,
-        output_tokens: output.min(plan.output),
+        output_tokens: output,
         ..Usage::default()
     })
 }
@@ -1183,10 +1199,9 @@ async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFail
     // Release only when the provider is owed nothing: the request was never
     // sent, or `completion` found no usage to settle on — reported or
     // estimated — because the provider refused the request (a non-2xx head,
-    // no first byte, no connection). An accepted request always has a
-    // usage here (metering.md §5.4), so a failure before any output on an
-    // accepted stream — an idle timeout during silent reasoning — settles
-    // on the input estimate rather than refunding a call the provider bills.
+    // no first byte, no connection). An accepted request without reported
+    // usage gets the §5.4 estimate: input plus the held output ceiling when
+    // reasoning may be hidden, or input plus visible output for other rows.
     let usage = intent
         .get("usage")
         .map(|v| serde_json::from_value::<Usage>(v.clone()).map_err(|_| invalid()))
@@ -1726,6 +1741,7 @@ mod tests {
             input: 135,
             input_exact: exact,
             output: 100,
+            reasoning_output: false,
             hold: Whole2z::new(1),
             markup: Bps(0),
             margin: Bps(2000),
@@ -1755,6 +1771,45 @@ mod tests {
         let (usage, fired) = run(false, Some(reported));
         assert_eq!((usage.input_tokens, usage.cached_input_tokens), (40, 5));
         assert!(!fired, "provider counts settled it, yet it logged");
+    }
+
+    #[test]
+    fn reasoning_missing_usage_uses_cap_and_keeps_partial_input_counts() {
+        let catalog = priced(200_000);
+        let mut model = catalog.catalog().models[0].clone();
+        model.capabilities.reasoning = true;
+        let mut plan = Plan {
+            model,
+            input: 135,
+            input_exact: true,
+            output: 72,
+            reasoning_output: true,
+            hold: Whole2z::ZERO,
+            markup: Bps(0),
+            margin: Bps(2000),
+        };
+        plan.hold = plan.worst(plan.output).unwrap();
+        let hold = plan.hold;
+        let active = active_with(plan.clone());
+        let partial = Usage {
+            input_tokens: 40,
+            cached_input_tokens: 5,
+            cache_write_tokens: 3,
+            output_tokens: 0,
+            ..Usage::default()
+        };
+        let usage = estimated_usage(&active, Some(&drained_outcome(Some(partial)))).unwrap();
+        assert_eq!(usage.input_tokens, 40);
+        assert_eq!(usage.cached_input_tokens, 5);
+        assert_eq!(usage.cache_write_tokens, 3);
+        assert_eq!(usage.output_tokens, 72);
+        assert_eq!(
+            usage.reasoning_tokens, 0,
+            "never fabricate an exact reasoning count"
+        );
+        let cost = metered_cost_nusd(&usage, &plan.model.prices).unwrap();
+        let charged = price_nusd(cost, plan.margin, plan.markup, plan.model.min_charge_2z).unwrap();
+        assert!(charged.total_2z().get() <= hold.get());
     }
 
     // free2z/zuu#1122: `max_output_tokens_strict` refuses instead of clamping.
