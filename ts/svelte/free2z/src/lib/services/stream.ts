@@ -135,7 +135,7 @@ export class StreamService {
      * can retry, back off, and preserve the last known status.
      */
     static async fetchLiveStatus(username: string, signal?: AbortSignal): Promise<LiveStatusResponse> {
-        const response = await dyteLiveStatusRetrieve(username, undefined, signal) as unknown;
+        const response = await dyteLiveStatusRetrieve(username, { signal }) as unknown;
         return liveStatusResponseSchema.parse(response);
     }
 
