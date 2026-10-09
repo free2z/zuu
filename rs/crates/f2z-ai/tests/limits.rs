@@ -25,7 +25,9 @@ use f2z_ai::catalog;
 use f2z_ai::chat::NotImplemented;
 use serde_json::{Value, json};
 use support::*;
-use tokio::sync::mpsc;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::net::TcpStream;
+use tokio::sync::{mpsc, oneshot};
 
 const MIB: usize = 1024 * 1024;
 
@@ -119,20 +121,96 @@ async fn a_declared_length_over_20_mib_is_refused_before_the_body_is_sent() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_chunked_body_over_20_mib_is_cut_off_at_the_limit() {
-    let running = gateway(&[]).await;
-    // No Content-Length: the limit has to hold while reading.
-    let (tx, rx) = mpsc::channel::<Bytes>(4);
-    tokio::spawn(async move {
-        let chunk = Bytes::from(vec![b' '; MIB]);
-        for _ in 0..21 {
-            if tx.send(chunk.clone()).await.is_err() {
-                return;
+    let settler = RecordingSettler::default();
+    let running = start(
+        &config(&[]),
+        deps(fixed_catalog(), Arc::new(NotImplemented), settler.clone()),
+    )
+    .await;
+    wait_readyz(running.admin, StatusCode::OK).await;
+
+    // No Content-Length: the limit has to hold while reading. Read the
+    // response concurrently so a correct early refusal cannot turn the
+    // client's still-running upload into a BodyWrite/BrokenPipe panic.
+    let stream = TcpStream::connect(running.public).await.unwrap();
+    let (mut reader, mut writer) = stream.into_split();
+    let (response_started_tx, mut response_started_rx) = oneshot::channel();
+    let response = tokio::spawn(async move {
+        let mut response = Vec::new();
+        let mut response_started_tx = Some(response_started_tx);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let mut buffer = [0; 8192];
+            loop {
+                let read = reader.read(&mut buffer).await?;
+                if read == 0 {
+                    break;
+                }
+                if let Some(tx) = response_started_tx.take() {
+                    let _ = tx.send(());
+                }
+                response.extend_from_slice(&buffer[..read]);
             }
-        }
+            std::io::Result::Ok(())
+        })
+        .await
+        .expect("gateway did not finish its refusal response")
+        .unwrap();
+        String::from_utf8_lossy(&response).into_owned()
     });
-    let response = send(running.public, chat_request(Body::new(ChannelBody(rx)))).await;
-    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
-    assert_eq!(error_of(response).await["details"]["limit_bytes"], 20 * MIB);
+
+    writer
+        .write_all(
+            b"POST /v1/chat HTTP/1.1\r\nHost: gateway\r\nContent-Type: application/json\r\n\
+              Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+        )
+        .await
+        .unwrap();
+
+    // Complete exactly 20 MiB of small fixed-size frames, then one complete
+    // byte over. Keep the request unfinished while awaiting the response: a
+    // gateway that waits for chunked EOF instead of enforcing the streaming
+    // limit must time out this test.
+    let chunk = vec![b' '; 64 * 1024];
+    let mut frame = format!("{:x}\r\n", chunk.len()).into_bytes();
+    frame.extend_from_slice(&chunk);
+    frame.extend_from_slice(b"\r\n");
+    let mut peer_closed = false;
+    for _ in 0..(20 * MIB / chunk.len()) {
+        match tokio::time::timeout(Duration::from_secs(2), writer.write_all(&frame)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) => {
+                peer_closed = true;
+                break;
+            }
+            Err(_) => panic!("bounded chunked upload stalled before the gateway refused it"),
+        }
+    }
+    match tokio::time::timeout(Duration::from_millis(100), &mut response_started_rx).await {
+        Ok(Ok(())) => panic!("gateway refused a body at exactly the 20 MiB limit"),
+        Ok(Err(_)) => panic!("response reader stopped before the over-limit byte was sent"),
+        Err(_) => {}
+    }
+    if !peer_closed {
+        match tokio::time::timeout(Duration::from_secs(2), writer.write_all(b"1\r\n \r\n")).await {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) => {}
+            Err(_) => panic!("bounded over-limit chunk stalled before the gateway refused it"),
+        }
+    }
+
+    let response = response.await.unwrap();
+    drop(writer);
+    assert!(response.starts_with("HTTP/1.1 413"), "{response}");
+    assert!(response.contains("\"limit_bytes\":20971520"), "{response}");
+    assert_eq!(
+        metric(running.admin, "f2z_ai_active_streams ").await,
+        "0",
+        "oversized upload reached call admission"
+    );
+    assert!(
+        settler.records().is_empty(),
+        "oversized upload reached the backend and was settled"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
