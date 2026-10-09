@@ -70,7 +70,7 @@ usage_cases = [
    dict(Z, input_tokens=7, output_tokens=3),
    dict(P, input_nusd_per_mtok=37_500_000, output_nusd_per_mtok=150_000_000),
    5000, 0, 1),
-  ("images_and_tools", "2 images at $0.001, 1 tool call at $0.01, 100 in at $2.50/M, 50 out at $10/M = $0.01275; 50% margin + 10% markup = 2.10375 -> 3 2Z.",
+  ("images_and_tools", "2 images at $0.001, 1 provider-billed server-side tool invocation at $0.01, 100 in at $2.50/M, 50 out at $10/M = $0.01275; 50% margin + 10% markup = 2.10375 -> 3 2Z. Client function calls do not use this per-call price.",
    dict(Z, input_tokens=100, output_tokens=50, images=2, tool_calls=1),
    dict(P, input_nusd_per_mtok=2_500_000_000, output_nusd_per_mtok=10_000_000_000, image_nusd=1_000_000, tool_call_nusd=10_000_000),
    5000, 1000, 1),
@@ -101,7 +101,7 @@ hdr = ("Shared pricing fixtures for f2z-ai-proto::pricing (Rust), and the Python
 d = sys.argv[1]
 json.dump(dict(schema=1, description=hdr, input_unit="cost_nusd: nano-USD (integer)", cases=out_cost),
           open(f"{d}/worked_examples.json", "w"), indent=2, ensure_ascii=False)
-json.dump(dict(schema=1, description=hdr, input_unit="usage: counts; prices: nano-USD per 1M tokens, or per image / per tool call; expected.cost_nusd is the metered cost (rounded up to whole nano-USD) that settle receives", cases=out_usage),
+json.dump(dict(schema=1, description=hdr, input_unit="usage: counts; prices: nano-USD per 1M tokens, or per image / per provider-billed server-side tool call; expected.cost_nusd is the metered cost (rounded up to whole nano-USD) that settle receives", cases=out_usage),
           open(f"{d}/from_usage.json", "w"), indent=2, ensure_ascii=False)
 for f in ("worked_examples.json","from_usage.json"):
     open(f"{d}/{f}","a").write("\n")
