@@ -159,6 +159,23 @@
     ],
     "events": [
       {
+        "type": "tool_call_delta",
+        "index": 0,
+        "id": "call_fx_lookup",
+        "name": "lookup",
+        "arguments": ""
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 0,
+        "arguments": "{\"name\":"
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 0,
+        "arguments": "\"area\"}"
+      },
+      {
         "type": "tool_call",
         "id": "call_fx_lookup",
         "name": "lookup",
