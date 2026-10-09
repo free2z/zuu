@@ -783,3 +783,69 @@ impl Drop for SettleGuard {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metrics::Metrics;
+    use tokio::sync::mpsc;
+
+    fn shared() -> Shared {
+        let (settle, _) = mpsc::unbounded_channel();
+        let inflight = Arc::new(InFlight::new(1, 1, settle, Arc::new(Metrics::default())));
+        Shared {
+            buffer: Mutex::new(Buffer {
+                frames: VecDeque::new(),
+                bytes: 0,
+                state: State::Open,
+                upstream_done: false,
+                error_reported: false,
+                last_progress: Instant::now(),
+                aborted_at: None,
+                killed: false,
+                output_seen: false,
+                waker: None,
+            }),
+            inflight,
+            kill: None,
+        }
+    }
+
+    #[test]
+    fn ping_is_ignored_while_a_frame_is_waiting() {
+        let shared = shared();
+        let data = Bytes::from_static(b"data");
+        shared.push(data.clone(), false, false, 1024, Duration::from_secs(30));
+
+        shared.ping();
+
+        let buffer = shared.lock();
+        assert_eq!(buffer.frames.len(), 1);
+        assert_eq!(buffer.frames.front(), Some(&(data, false)));
+        assert_eq!(buffer.bytes, 4);
+        assert_eq!(shared.inflight.buffered_bytes(), 4);
+    }
+
+    #[test]
+    fn ping_is_evicted_before_a_required_frame_can_fill_the_buffer() {
+        let shared = shared();
+        shared.ping();
+        assert_eq!(shared.inflight.buffered_bytes(), PING.len() as u64);
+
+        let data = Bytes::from_static(b"123456789");
+        shared.push(
+            data.clone(),
+            false,
+            false,
+            PING.len() + 8,
+            Duration::from_secs(30),
+        );
+
+        let buffer = shared.lock();
+        assert_eq!(buffer.state, State::Open);
+        assert_eq!(buffer.frames.len(), 1);
+        assert_eq!(buffer.frames.front(), Some(&(data, false)));
+        assert_eq!(buffer.bytes, 9);
+        assert_eq!(shared.inflight.buffered_bytes(), 9);
+    }
+}
