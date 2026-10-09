@@ -91,12 +91,12 @@ const EXPECTED_MULTIPLE_IDENTITIES = new Map([
 const BRIDGE_PACKAGE = "openmls_libcrux_crypto";
 const BRIDGE_VERSION = "0.4.1";
 const BRIDGE_DIR = "rs/crates/openmls-libcrux-crypto-bridge";
-const BRIDGE_TREE_SHA256 = "ba02e5125ef1788fa476cc0b89afa4476e10957bb071f1bdec2c221cbc5c30a5";
+const BRIDGE_TREE_SHA256 = "c9110a03f34e6d7c93daf82fbfc13d917ddc3c086cc0f594d456142f19f3df24";
 const BRIDGE_PATCH = 'openmls_libcrux_crypto = { path = "crates/openmls-libcrux-crypto-bridge" }';
 const BRIDGE_FILES = [
   ".cargo_vcs_info.json", "BRIDGE.md", "CHANGELOG.md", "Cargo.toml",
   "Cargo.toml.orig", "LICENSE", "README.md", "src/crypto.rs", "src/ff1.rs",
-  "src/lib.rs", "src/rand.rs",
+  "src/lib.rs", "src/rand.rs", "tests/strict_verification.rs",
 ];
 const PACKAGE_FAMILIES = [
   ["libcrux", "libcrux-kem", "libcrux-self-test-added"],

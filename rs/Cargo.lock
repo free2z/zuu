@@ -3087,6 +3087,7 @@ name = "openmls_libcrux_crypto"
 version = "0.4.1"
 dependencies = [
  "aes 0.8.4",
+ "curve25519-dalek 5.0.0",
  "fpe",
  "hpke-rs 0.8.0",
  "hpke-rs-crypto 0.8.0",

@@ -273,8 +273,8 @@ cheapest of the three rules and the one that would have caught that.
 | **Kind** | In-repository Cargo source bridge, patched by path from `rs/Cargo.toml` |
 | **Source** | crates.io `openmls_libcrux_crypto 0.4.0`, MIT, published 2026-08-25; package provenance commit [`3a3e35de3feeca8f6605143c464d5452ae584d43`](https://github.com/openmls/openmls/tree/3a3e35de3feeca8f6605143c464d5452ae584d43/libcrux_crypto) |
 | **Tracked copy** | [`rs/crates/openmls-libcrux-crypto-bridge`](../rs/crates/openmls-libcrux-crypto-bridge) (`openmls_libcrux_crypto 0.4.1`) |
-| **Delta** | Provider dependency requirements: libcrux `0.0.9` → `0.0.10` where needed, `libcrux-hmac-drbg 0.0.1` → `0.0.2`, and the HPKE family `0.7` → `0.8`; one HMAC adapter now supplies the output buffer required by the new `libcrux-hmac` API |
-| **Exit condition** | An upstream `openmls_libcrux_crypto` release whose source requires `libcrux-hmac-drbg >=0.0.2`, the `hpke-rs` family `>=0.8`, and resolves `libcrux-kem >=0.0.10` |
+| **Delta** | Provider dependency requirements: libcrux `0.0.9` → `0.0.10` where needed, `libcrux-hmac-drbg 0.0.1` → `0.0.2`, and the HPKE family `0.7` → `0.8`; one HMAC adapter supplies the output buffer required by the new `libcrux-hmac` API; the Ed25519 adapter rejects small-order public keys and signature `R` before delegating the equation check to libcrux |
+| **Exit condition** | An upstream `openmls_libcrux_crypto` release whose source requires `libcrux-hmac-drbg >=0.0.2`, the `hpke-rs` family `>=0.8`, resolves `libcrux-kem >=0.0.10`, and rejects small-order Ed25519 public keys and signature `R` before its libcrux verifier |
 | **Why** | The published 0.4.0 provider pins the vulnerable DRBG and old HPKE family; its `^0.0.1` requirement cannot select 0.0.2. The current upstream provider source still has these constraints. The patched KEM is 0.0.10, and the released HPKE 0.8 family accepts the corresponding libcrux train. |
 
 The repaired graph selects `libcrux-hmac-drbg 0.0.2`, `libcrux-kem 0.0.10`,
@@ -289,8 +289,13 @@ graphs without advisory exemptions.
 
 `Cargo.toml.orig`, `.cargo_vcs_info.json`, and `LICENSE` in the tracked copy
 preserve the published source manifest, exact upstream commit provenance, and
-MIT license. The upstream implementation is retained except for the single
-HMAC API adaptation in `src/crypto.rs`. The bridge manifest identifies the locally adapted package as
+MIT license. The upstream implementation is retained except for the HMAC API
+adaptation and the Ed25519 small-order-point preflight in `src/crypto.rs`. The
+preflight is required because the checksum-verified `libcrux-ed25519 0.0.10`
+verifier checks the signature equation but does not reject small-order public
+keys or `R`; the identity-key forgery otherwise verifies arbitrary messages.
+The adapter rejects those points and leaves the equation check to libcrux. The
+bridge manifest identifies the locally adapted package as
 0.4.1; it does not claim a published upstream 0.4.1 release. The path patch is
 registered at the `rs`, plugin, ZUULI and E2E2Z Cargo roots because each has an
 independent lockfile. `scripts/check-dependency-register.mjs` checks every patch

@@ -35,6 +35,7 @@ path = "src/lib.rs"
 
 [dependencies]
 aes = { version = "0.8", optional = true }
+curve25519-dalek = { version = "5", default-features = false }
 fpe = { version = "0.6", optional = true }
 hpke-rs = { version = "0.8", features = ["hazmat", "serialization"] }
 hpke-rs-crypto = { version = "0.8" }

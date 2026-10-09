@@ -4373,6 +4373,7 @@ dependencies = [
 name = "openmls_libcrux_crypto"
 version = "0.4.1"
 dependencies = [
+ "curve25519-dalek 5.0.0",
  "hpke-rs 0.8.0",
  "hpke-rs-crypto 0.8.0",
  "hpke-rs-libcrux 0.8.0",
@@ -6569,7 +6570,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",

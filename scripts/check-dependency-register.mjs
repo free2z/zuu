@@ -174,9 +174,11 @@ const TRACKED = [
       "3a3e35de3feeca8f6605143c464d5452ae584d43",
       "libcrux-hmac-drbg 0.0.2",
       "hpke-rs-libcrux 0.8.0",
+      "small-order Ed25519 public keys",
+      "signature `R`",
     ],
     exitNote:
-      "Re-read the published provider manifest and lock graph: retire this tracked source bridge when an upstream openmls_libcrux_crypto release requires libcrux-hmac-drbg >=0.0.2, hpke-rs/hpke-rs-crypto/hpke-rs-libcrux >=0.8, and resolves libcrux-kem >=0.0.10.",
+      "Re-read the published provider manifest, source and lock graph: retire this tracked source bridge when an upstream openmls_libcrux_crypto release requires libcrux-hmac-drbg >=0.0.2, hpke-rs/hpke-rs-crypto/hpke-rs-libcrux >=0.8, resolves libcrux-kem >=0.0.10, and rejects small-order Ed25519 public keys and signature R before its libcrux equation verifier.",
   },
   ...[
     "wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml",
@@ -196,6 +198,8 @@ const TRACKED = [
       "3a3e35de3feeca8f6605143c464d5452ae584d43",
       "libcrux-hmac-drbg 0.0.2",
       "hpke-rs-libcrux 0.8.0",
+      "small-order Ed25519 public keys",
+      "signature `R`",
     ],
   })),
 ];
