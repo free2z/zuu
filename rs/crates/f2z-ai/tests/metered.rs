@@ -1015,6 +1015,77 @@ async fn an_anthropic_stream_cut_after_message_start_settles_on_its_reported_inp
     }
     mock.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_anthropic_tool_cut_settles_its_name_and_argument_fragments_in_both_relay_modes() {
+    let mut value = serde_json::to_value(adapter_support::catalog(10_000).catalog()).unwrap();
+    for model in value["models"].as_array_mut().unwrap() {
+        if model["id"] == "m-anthropic" {
+            model["capabilities"] = json!({"tools": true});
+        }
+    }
+    let catalog =
+        f2z_ai::catalog::VerifiedCatalog::from_verified(serde_json::from_value(value).unwrap())
+            .unwrap();
+    let fixture = include_str!("fixtures/anthropic/tool_use_cut_after_2_arguments.sse");
+    let generated = "lookup{\"query\":\"harbor\"";
+    let raw = f2z_ai::estimate::Encoding::O200kBase.count(generated);
+    let calculated_output = raw + raw.div_ceil(10);
+    assert_eq!(calculated_output, 8);
+
+    for (stream, relay_mode) in [(true, "stream"), (false, "nonstream")] {
+        for output_cap in [100, 5] {
+            let expected_output = calculated_output.min(output_cap);
+            assert_eq!(expected_output, if output_cap == 100 { 8 } else { 5 });
+            let db = Arc::new(Database::new());
+            let (r, mock) = launch_catalog(
+                db.clone(),
+                Scenario::default().with_replay(fixture),
+                None,
+                catalog.clone(),
+            )
+            .await;
+            let mut body = request();
+            body["model"] = json!("m-anthropic");
+            body["stream"] = json!(stream);
+            body["max_output_tokens"] = json!(output_cap);
+            body["tools"] = json!([{"name":"lookup","parameters":{"type":"object"}}]);
+            let mut req = support::chat_request(body.to_string());
+            req.headers_mut().insert(
+                "idempotency-key",
+                format!("anthropic-tool-{relay_mode}-{output_cap}")
+                    .parse()
+                    .unwrap(),
+            );
+            let text = support::text(support::send(r.public, req).await).await;
+            if stream {
+                assert!(text.contains("event: tool_call_delta"), "{text}");
+                assert!(!text.contains("event: tool_call\n"), "{text}");
+                assert!(text.contains("\"source\":\"estimated\""), "{text}");
+            } else {
+                assert!(!text.contains("tool_call_delta"), "{text}");
+            }
+            assert!(text.contains("\"settlement\":\"settled\""), "{text}");
+            final_state(&db).await;
+            {
+                let state = db.0.lock().unwrap();
+                assert_eq!(state.charges, 1, "{relay_mode}, cap={output_cap}");
+                assert_eq!(state.settle_requests, 1, "{relay_mode}, cap={output_cap}");
+                assert_eq!(
+                    state.settled_usage["output_tokens"], expected_output,
+                    "{relay_mode}, cap={output_cap}"
+                );
+                assert_eq!(state.settled_usage["tool_calls"], 0);
+                assert_eq!(
+                    state.record()["status"],
+                    if stream { "settled_partial" } else { "settled" }
+                );
+                assert_eq!(state.completion["usage_source"], "estimated");
+            }
+            mock.shutdown().await;
+        }
+    }
+}
 // The same drain on an Anthropic stream that had sent `message_start`:
 // its exact input counts (a mostly cached prompt) settle the call, not the
 // byte bound the hold was sized with — the parser's knowledge is taken
