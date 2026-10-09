@@ -51,7 +51,7 @@ const RUST_REQUIRED_JOB_IDS = new Set([
 ]);
 // This package job intentionally runs on every PR, independently of the wallet
 // selectors. Its success must never be mistaken for an illegitimate selected skip.
-const ALWAYS_REQUIRED_JOB_IDS = new Set(["free2z_sdk_typescript"]);
+const ALWAYS_REQUIRED_JOB_IDS = new Set(["free2z_sdk_typescript", "svelte_advisory"]);
 const POLICED_RUST_ROOTS = ["wallet", "rs"];
 const RUST_ROOT_CONTRACTS = [
   {
@@ -7048,6 +7048,33 @@ function runSelfTest(repoRoot) {
       needle: "required job free2z_sdk_typescript must be success, got failure",
       needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
         free2z_sdk_typescript: { result: "failure" } },
+    },
+    {
+      name: "unconditional Svelte advisory audit succeeds when wallet selectors are false",
+      policyOutcome: "success",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
+        svelte_advisory: { result: "success" } },
+    },
+    {
+      name: "unconditional Svelte advisory audit cannot disappear",
+      policyOutcome: "success",
+      omitJob: "svelte_advisory",
+      needle: "always-required job svelte_advisory is missing",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } } },
+    },
+    {
+      name: "unconditional Svelte advisory audit cannot be skipped",
+      policyOutcome: "success",
+      needle: "required job svelte_advisory must be success, got skipped",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
+        svelte_advisory: { result: "skipped" } },
+    },
+    {
+      name: "Svelte advisory audit failure blocks every change",
+      policyOutcome: "success",
+      needle: "required job svelte_advisory must be success, got failure",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
+        svelte_advisory: { result: "failure" } },
     },
     {
       name: "frontend source succeeds with native jobs skipped",

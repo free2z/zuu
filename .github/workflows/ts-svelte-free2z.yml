@@ -24,6 +24,15 @@ jobs:
         working-directory: ts/svelte/free2z
         run: npm ci
 
+      - name: Audit dependencies (high and critical)
+        working-directory: ts/svelte/free2z
+        run: |
+          for attempt in 1 2 3; do
+            node "$GITHUB_WORKSPACE/scripts/npm-audit-allowlist.mjs" && exit 0
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep $((attempt * 5))
+          done
+
       - name: Type-check
         working-directory: ts/svelte/free2z
         run: npm run check
