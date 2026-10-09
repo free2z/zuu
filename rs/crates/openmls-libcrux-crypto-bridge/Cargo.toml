@@ -1,0 +1,53 @@
+[package]
+name = "openmls_libcrux_crypto"
+version = "0.4.1"
+edition = "2021"
+rust-version = "1.97"
+authors = ["OpenMLS Authors"]
+description = "OpenMLS libcrux provider source bridge for patched libcrux and HPKE dependencies"
+license = "MIT"
+documentation = "https://docs.rs/openmls_libcrux_crypto"
+repository = "https://github.com/openmls/openmls/tree/main/libcrux_crypto"
+readme = "README.md"
+publish = false
+
+[features]
+draft-ietf-mls-pq-ciphersuites = [
+    "openmls_traits/draft-ietf-mls-pq-ciphersuites",
+    "openmls_memory_storage/draft-ietf-mls-pq-ciphersuites",
+]
+extensions-draft = [
+    "openmls_traits/extensions-draft",
+    "openmls_memory_storage/extensions-draft",
+]
+targeted-messages-draft = ["openmls_traits/targeted-messages-draft"]
+virtual-clients-draft = [
+    "extensions-draft",
+    "openmls_traits/virtual-clients-draft",
+    "openmls_memory_storage/virtual-clients-draft",
+    "dep:fpe",
+    "dep:aes",
+]
+
+[lib]
+name = "openmls_libcrux_crypto"
+path = "src/lib.rs"
+
+[dependencies]
+aes = { version = "0.8", optional = true }
+curve25519-dalek = { version = "5", default-features = false }
+fpe = { version = "0.6", optional = true }
+hpke-rs = { version = "0.8", features = ["hazmat", "serialization"] }
+hpke-rs-crypto = { version = "0.8" }
+hpke-rs-libcrux = { version = "0.8" }
+libcrux-aead = { version = "0.0.10" }
+libcrux-ed25519 = { version = "0.0.10", features = ["rand"] }
+libcrux-hkdf = { version = "0.0.9" }
+libcrux-hmac = { version = "0.0.9" }
+libcrux-hmac-drbg = { version = "0.0.2", features = ["rand"] }
+libcrux-sha2 = { version = "0.0.9" }
+libcrux-traits = { version = "0.0.9" }
+openmls_memory_storage = { version = "0.6.0" }
+openmls_traits = { version = "0.6.0" }
+rand = { version = "0.10" }
+tls_codec = { version = "0.5", features = ["derive", "serde", "mls"] }

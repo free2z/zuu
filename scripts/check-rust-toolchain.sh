@@ -83,6 +83,7 @@ MANIFESTS=(
   rs/crates/f2z-msg-store/Cargo.toml
   rs/crates/f2z-msg-mls/Cargo.toml
   rs/crates/f2z-msg-dag/Cargo.toml
+  rs/crates/openmls-libcrux-crypto-bridge/Cargo.toml
   # Dependency KAT harness (#730). Host-only test evidence, permissive because
   # it contains no production code and is useful to downstream auditors.
   rs/crates/f2z-crypto-kat/Cargo.toml

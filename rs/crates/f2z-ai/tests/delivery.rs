@@ -135,7 +135,9 @@ async fn no_delivery_progress_for_the_stall_limit_aborts_delivery_only() {
     let (backend, mut streams) = ControlledBackend::new();
     let settler = RecordingSettler::default();
     let config = config(&[
-        ("F2Z_AI_DELIVERY_STALL_SECS", "1"),
+        // Match the neighboring 16 MiB fixture: shared CI runners can take
+        // over a second to feed this amount through the gateway.
+        ("F2Z_AI_DELIVERY_STALL_SECS", "5"),
         ("F2Z_AI_DELIVERY_BUFFER_BYTES", "268435456"),
     ]);
     let running = start(&config, deps(fixed_catalog(), backend, settler.clone())).await;
@@ -143,15 +145,39 @@ async fn no_delivery_progress_for_the_stall_limit_aborts_delivery_only() {
 
     let client = stalled_client(running.public).await;
     let upstream = streams.recv().await.unwrap();
-    push_fast(&upstream, 1024, 16 * 1024).await;
-    let before = metric(running.admin, "f2z_ai_delivery_buffered_bytes ").await;
+    let feeding_upstream = upstream.clone();
+    let feeding = tokio::spawn(async move {
+        push_fast(&feeding_upstream, 1024, 16 * 1024).await;
+    });
+    let before = tokio::time::timeout(Duration::from_secs(4), async {
+        loop {
+            let buffered = metric(running.admin, "f2z_ai_delivery_buffered_bytes ").await;
+            if buffered != "0" {
+                break buffered;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("delivery never held pending bytes while the upstream was feeding");
     assert_ne!(before, "0", "nothing was waiting in the buffer");
-    wait_metric(
-        running.admin,
-        "f2z_ai_delivery_aborted_total{reason=\"stalled\"} ",
-        "1",
-    )
-    .await;
+    feeding.await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if metric(
+                running.admin,
+                "f2z_ai_delivery_aborted_total{reason=\"stalled\"} ",
+            )
+            .await
+                == "1"
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("delivery did not reach its five-second stall deadline");
     assert_eq!(
         metric(running.admin, "f2z_ai_delivery_buffered_bytes ").await,
         "0"

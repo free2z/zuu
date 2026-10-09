@@ -259,3 +259,9 @@ opt-level = 3
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# Keep the independent plugin test/build lockfile on the same patched provider
+# as the shipping app roots. The tracked source and retirement condition are
+# recorded in docs/DEPENDENCIES.md.
+[patch.crates-io]
+openmls_libcrux_crypto = { path = "../../../rs/crates/openmls-libcrux-crypto-bridge" }

@@ -76,8 +76,9 @@ const GITMODULES_PATH = ".gitmodules";
 const LIBRUSTZCASH_MANIFEST = "z/zcash/librustzcash/Cargo.toml";
 const NOTE_ENCRYPTION_MANIFEST = "z/zcash/zcash_note_encryption/Cargo.toml";
 const ZUULI_LOCK = "wallet/zuuli/src-tauri/Cargo.lock";
+const E2E2Z_LOCK = "wallet/e2e2z/src-tauri/Cargo.lock";
 
-/// The four locks that resolve a shipping wallet binary or the plugins it is
+/// The shipping wallet/app locks that resolve a binary or the plugins it is
 /// built from. `rs/Cargo.lock` is deliberately not one of them: it resolves the
 /// server-side workspace, whose graph is a different question.
 const WALLET_LOCKS = [
@@ -85,13 +86,19 @@ const WALLET_LOCKS = [
   "wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock",
   "wallet/zuuallet/src-tauri/Cargo.lock",
   ZUULI_LOCK,
+  E2E2Z_LOCK,
 ];
 
 /// Manifests allowed to carry a `[patch.crates-io]` section. A patch anywhere
-/// else is a fork nobody registered, so the enumeration is the point: the
-/// offline check reads every tracked `Cargo.toml` and fails on a patch section
-/// in a file that is not on this list.
-const PATCHABLE_MANIFESTS = ["wallet/zuuli/src-tauri/Cargo.toml"];
+/// else is a fork/source bridge nobody registered, so the enumeration is the
+/// point: the offline check reads every tracked `Cargo.toml` and fails on a
+/// patch section in a file that is not on this list.
+const PATCHABLE_MANIFESTS = [
+  "wallet/zuuli/src-tauri/Cargo.toml",
+  "wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml",
+  "wallet/e2e2z/src-tauri/Cargo.toml",
+  "rs/Cargo.toml",
+];
 
 /// GitHub owners whose repositories are *ours*. A `.gitmodules` `url` under one
 /// of these is by definition a fork we are carrying, and must be registered.
@@ -152,6 +159,49 @@ const TRACKED = [
       "0.6.0-pre.1",
     ],
   },
+  {
+    id: "openmls_libcrux_crypto",
+    kind: "path-patch",
+    manifest: "rs/Cargo.toml",
+    patchPath: "crates/openmls-libcrux-crypto-bridge",
+    upstreamRepo: "openmls/openmls",
+    upstreamCommit: "3a3e35de3feeca8f6605143c464d5452ae584d43",
+    exitCrate: { name: "openmls_libcrux_crypto", stableAtLeast: "0.4.1" },
+    registerTokens: [
+      "openmls_libcrux_crypto",
+      "openmls-libcrux-crypto-bridge",
+      "0.4.0",
+      "3a3e35de3feeca8f6605143c464d5452ae584d43",
+      "libcrux-hmac-drbg 0.0.2",
+      "hpke-rs-libcrux 0.8.0",
+      "small-order Ed25519 public keys",
+      "signature `R`",
+    ],
+    exitNote:
+      "Re-read the published provider manifest, source and lock graph: retire this tracked source bridge when an upstream openmls_libcrux_crypto release requires libcrux-hmac-drbg >=0.0.2, hpke-rs/hpke-rs-crypto/hpke-rs-libcrux >=0.8, resolves libcrux-kem >=0.0.10, and rejects small-order Ed25519 public keys and signature R before its libcrux equation verifier.",
+  },
+  ...[
+    "wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml",
+    "wallet/e2e2z/src-tauri/Cargo.toml",
+    "wallet/zuuli/src-tauri/Cargo.toml",
+  ].map((manifest) => ({
+    id: "openmls_libcrux_crypto",
+    kind: "path-patch",
+    manifest,
+    patchPath: "../../../rs/crates/openmls-libcrux-crypto-bridge",
+    upstreamRepo: "openmls/openmls",
+    upstreamCommit: "3a3e35de3feeca8f6605143c464d5452ae584d43",
+    registerTokens: [
+      "openmls_libcrux_crypto",
+      "openmls-libcrux-crypto-bridge",
+      "0.4.0",
+      "3a3e35de3feeca8f6605143c464d5452ae584d43",
+      "libcrux-hmac-drbg 0.0.2",
+      "hpke-rs-libcrux 0.8.0",
+      "small-order Ed25519 public keys",
+      "signature `R`",
+    ],
+  })),
 ];
 
 /// Every deliberate version hold, with the source that verifies it.
@@ -257,7 +307,7 @@ const HOLDS = [
     evidence: [
       { kind: "copies", path: ZUULI_LOCK, versions: ["0.10.9", "0.11.0"], sectionClaim: true },
       { kind: "consumers", path: ZUULI_LOCK, on: "0.10", count: 14, sectionClaim: true },
-      { kind: "consumers", path: ZUULI_LOCK, on: "0.11", count: 4, sectionClaim: true },
+      { kind: "consumers", path: ZUULI_LOCK, on: "0.11", count: 5, sectionClaim: true },
       { kind: "edge", path: ZUULI_LOCK, from: { name: "f2z-msg-identity" }, on: "0.10" },
       { kind: "edge", path: ZUULI_LOCK, from: { name: "zcash_primitives" }, on: "0.10" },
     ],
@@ -342,7 +392,16 @@ const HOLDS = [
       ...WALLET_LOCKS.map((lockPath) => ({
         kind: "copies",
         path: lockPath,
-        versions: ["0.10.1"],
+        versions: [
+          "0.10.1",
+          ...(new Set([
+            "wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock",
+            ZUULI_LOCK,
+            E2E2Z_LOCK,
+          ]).has(lockPath)
+            ? ["0.11.0"]
+            : []),
+        ],
       })),
       {
         kind: "edge",
@@ -350,9 +409,10 @@ const HOLDS = [
         from: { name: "zcash_note_encryption" },
         on: "0.10",
       },
-      /// Five: ours twice, plus zcash_note_encryption, hpke-rs-rust-crypto and
-      /// openmls_rust_crypto. Three of the five are not ours to move, which is
-      /// what makes a 0.11 bump cost a second AEAD rather than a migration.
+      /// Five consumers of the retained 0.10 line: ours twice, plus
+      /// zcash_note_encryption, hpke-rs-rust-crypto and openmls_rust_crypto.
+      /// HPKE 0.8 also resolves 0.11 in MLS locks through its optional RustCrypto
+      /// provider, so record both copies in those locks below.
       { kind: "consumers", path: ZUULI_LOCK, on: "0.10", count: 5, rowClaim: true },
     ],
   },
@@ -460,7 +520,7 @@ export function parseGitmodules(text) {
 }
 
 /// The `[patch.crates-io]` entries of one manifest, as
-/// `[{ crate, git, rev, branch }]`. Absent section yields `[]`.
+/// `[{ crate, git, rev, branch, path }]`. Absent section yields `[]`.
 export function parsePatchSection(text) {
   const lines = text.split("\n");
   const start = lines.findIndex((line) => line.trim() === "[patch.crates-io]");
@@ -478,6 +538,7 @@ export function parsePatchSection(text) {
       git: /git\s*=\s*"([^"]+)"/.exec(value)?.[1] ?? null,
       rev: /rev\s*=\s*"([^"]+)"/.exec(value)?.[1] ?? null,
       branch: /branch\s*=\s*"([^"]+)"/.exec(value)?.[1] ?? null,
+      path: /path\s*=\s*"([^"]+)"/.exec(value)?.[1] ?? null,
     });
   }
   return patches;
@@ -749,10 +810,11 @@ export function offlineFailures(snapshot) {
     }
   }
 
-  // `[patch.crates-io]` must be registered, pinned by rev, and confined to the
-  // manifests that are allowed one.
+  // `[patch.crates-io]` must be registered and confined to approved manifests.
+  // Remote patches require immutable revs; tracked-source bridges require an
+  // exact in-repository path registered with a retirement condition.
   const registeredPatches = new Map(
-    TRACKED.filter((entry) => entry.kind === "patch").map((entry) => [
+    TRACKED.filter((entry) => entry.kind === "patch" || entry.kind === "path-patch").map((entry) => [
       `${entry.manifest}#${entry.id}`,
       entry,
     ]),
@@ -776,22 +838,29 @@ export function offlineFailures(snapshot) {
         );
         continue;
       }
-      // A moving branch is not a reproducible build and `--locked` has to mean
-      // something, so `rev` is the only accepted pin.
-      if (patch.branch || !patch.rev) {
-        failures.push(
-          `${key}: [patch.crates-io] must be pinned by rev, never by branch`,
-        );
-      }
-      if (patch.rev && patch.rev !== tracked.forkRev) {
-        failures.push(
-          `${key}: registered rev ${tracked.forkRev}, manifest says ${patch.rev}`,
-        );
-      }
-      if (patch.git && patch.git !== tracked.forkUrl) {
-        failures.push(
-          `${key}: registered fork url ${tracked.forkUrl}, manifest says ${patch.git}`,
-        );
+      if (tracked.kind === "path-patch") {
+        if (patch.path !== tracked.patchPath || patch.git || patch.rev || patch.branch) {
+          failures.push(
+            `${key}: registered tracked-source path ${tracked.patchPath}, manifest says ${patch.path ?? "no path"}`,
+          );
+        }
+      } else {
+        // A moving branch is not reproducible; remote patches require rev pins.
+        if (patch.branch || !patch.rev || patch.path) {
+          failures.push(
+            `${key}: [patch.crates-io] must be pinned by rev, never by branch or local path`,
+          );
+        }
+        if (patch.rev && patch.rev !== tracked.forkRev) {
+          failures.push(
+            `${key}: registered rev ${tracked.forkRev}, manifest says ${patch.rev}`,
+          );
+        }
+        if (patch.git && patch.git !== tracked.forkUrl) {
+          failures.push(
+            `${key}: registered fork url ${tracked.forkUrl}, manifest says ${patch.git}`,
+          );
+        }
       }
     }
   }
@@ -1242,12 +1311,13 @@ export async function upstreamFindings(snapshot, deps = {}) {
         note(
           "exit",
           `${tracked.id}: crates.io now publishes ${tracked.exitCrate.name} ${stable}`,
-          `The register expects the patch to retire once a real ${tracked.exitCrate.name} ` +
-            `${tracked.exitCrate.stableAtLeast} exists. Re-read the second half of the exit ` +
-            "condition (the Zcash stack's secp256k1 version) before dropping the patch.",
+          tracked.exitNote ??
+            `The register expects the patch to retire once a real ${tracked.exitCrate.name} ` +
+              `${tracked.exitCrate.stableAtLeast} exists. Re-read the remaining exit condition before dropping the patch.`,
         );
       }
     }
+    if (tracked.kind === "path-patch") continue;
     if (tracked.exitDependencyMove) {
       const workspace = parseDependencyTable(
         snapshot.sources[LIBRUSTZCASH_MANIFEST] ?? "",
@@ -1462,6 +1532,28 @@ function runSelfTest() {
       "is not a registered patch site",
     ],
     [
+      "the tracked provider bridge path drifts from the registered source",
+      withManifest(
+        "rs/Cargo.toml",
+        baseline.manifests["rs/Cargo.toml"].replace(
+          'openmls_libcrux_crypto = { path = "crates/openmls-libcrux-crypto-bridge" }',
+          'openmls_libcrux_crypto = { path = "crates/unreviewed-provider" }',
+        ),
+      ),
+      "registered tracked-source path crates/openmls-libcrux-crypto-bridge",
+    ],
+    [
+      "the provider bridge is removed while the register still claims it",
+      withManifest(
+        "rs/Cargo.toml",
+        baseline.manifests["rs/Cargo.toml"].replace(
+          "[patch.crates-io]",
+          "[patch.crates-io-disabled]",
+        ),
+      ),
+      "registered as a patch but absent from",
+    ],
+    [
       "upstream librustzcash bumps a hold the register says it forces",
       editSource(
         LIBRUSTZCASH_MANIFEST,
@@ -1602,7 +1694,7 @@ function runSelfTest() {
       "no longer resolves zip321 at all",
     ],
     [
-      // The `sha2` correction says 14 packages share 0.10 and 4 are on 0.11.
+      // The `sha2` correction says 14 packages share 0.10 and 5 are on 0.11.
       // Counts are the most quietly-rotting kind of claim there is.
       "a consumer count the register states drifts",
       editSource(ZUULI_LOCK, ' "sha2 0.10.9",\n "zeroize",\n]', ' "zeroize",\n]'),
@@ -1759,7 +1851,12 @@ async function runUpstreamSelfTest() {
       if (route.includes("/branches/")) return { commit: { sha: "b".repeat(40) } };
       throw new Error(`unexpected route ${route}`);
     },
-    cratesIo: async () => ({ crate: { max_stable_version: "0.5.3" } }),
+    cratesIo: async (name) => ({
+      crate: {
+        max_stable_version:
+          name === "bip32" ? "0.5.3" : "0.4.0",
+      },
+    }),
     remoteHasBranch: () => true,
     today: new Date("2026-08-31T00:00:00Z"),
   });

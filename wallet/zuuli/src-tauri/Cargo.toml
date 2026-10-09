@@ -155,9 +155,9 @@ lto = "thin"
 codegen-units = 1
 
 # ---------------------------------------------------------------------------
-# The one patch this app carries, and the reason it can link the messaging
-# plugin at all. TRANSIENT — delete it the moment bip32 0.6.0 is published and
-# the Zcash stack is on secp256k1 0.31.
+# The `bip32` patch is the reason this app can link the messaging plugin at
+# all. TRANSIENT — delete it the moment bip32 0.6.0 is published and the Zcash
+# stack is on secp256k1 0.31.
 #
 # `bip32 0.6.0-pre.1` is the only 0.6 release (2025-01-27) and it exact-pins
 # three 2024-era RustCrypto pre-releases: `sha2 =0.11.0-pre.4`,
@@ -183,3 +183,4 @@ codegen-units = 1
 # ---------------------------------------------------------------------------
 [patch.crates-io]
 bip32 = { git = "https://github.com/free2z/crates", rev = "131d490ef75ccd23111cc7f3df91e4a88fc971ae" }
+openmls_libcrux_crypto = { path = "../../../rs/crates/openmls-libcrux-crypto-bridge" }
