@@ -1,10 +1,14 @@
 //! The two signed structures: what an authority says, and what the identity
 //! key it names says back.
 //!
-//! **Experimental proposal, not `KT.md` v1 wire format.** `KT.md` leaves
-//! first-entry authorization unresolved in #594 and defines none of these
-//! structures or no-authority semantics. The presentation below and the byte
-//! vectors in this module pin this crate's candidate layout for review only.
+//! These structures are the ratified `KT.md` v1 wire format (§4.5): their
+//! fields, encoding, and signing transcripts are frozen for the current v1
+//! shape. [Issue #649] proposes moving first-entry authorization into
+//! `EntryAuthorization` so clients can verify it, but that coordinated wire
+//! change remains open and its additional encoding decisions are not ratified.
+//! The vectors in this module pin the current encoding.
+//!
+//! [Issue #649]: https://github.com/free2z/zuu/issues/649
 //!
 //! ```text
 //! struct {
