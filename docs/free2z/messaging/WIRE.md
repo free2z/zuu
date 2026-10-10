@@ -1008,8 +1008,8 @@ existed gets (§10).
 
 The sender, if any, learns nothing except that its next `APPEND` fails with
 `ERR_UNAVAILABLE` (§6.3). Telling the peer that a queue was retired is the
-application's job, in-band, and is a `queue_advert` that names a replacement
-(§7.5).
+application's job, in-band: it can send a `queue_advert` for the route the peer
+should use (§7.5). The shipping payload has no explicit `replaces` list.
 
 ### 6.3 Commands signed by the send-side queue key
 
@@ -1139,19 +1139,32 @@ See [ADR 0009](./decisions/0009-queue-addressing-and-binding.md).
 ### 7.2 The send address is advertised in-band, never through the server
 
 After creation the recipient holds `recv_addr` and `send_addr`. It keeps
-`recv_addr` and gives `send_addr` to exactly one peer, in a `queue_advert`
-application message **inside the MLS group**
-([`ARCHITECTURE.md` §6.2](./ARCHITECTURE.md#62-queues)) — confidential,
-authenticated, attributable, and never seen by any relay.
+`recv_addr` and gives `send_addr` to exactly one peer in an authenticated MLS
+application message whose outer `MessageType` is `QUEUE_ADVERT`
+([`ARCHITECTURE.md` §6.2](./ARCHITECTURE.md#62-queues)). The shipping plugin
+serializes the message body with `serde_json`; its `QueueAdvert` contains these
+three fields (the default serde field names are the JSON names):
 
-```
-queue_advert = {
-  type:        "free2z/queue-advert/v1",
-  endpoints:   [ { relay_url, relay_id, send_addr }, ... ],   // one per relay, ADR 0005's k
-  valid_from_epoch: uint64,
-  replaces:    [ send_addr, ... ],       // addresses this advert retires
+```json
+{
+  "relay_url": "wss://relay.example/relay/v1",
+  "relay_id": "<hex relay identity>",
+  "send_addr": "<hex send address>"
 }
 ```
+
+This is the complete payload emitted and consumed by the shipping serializer and
+receive path. It has no `type`, `endpoints`, `replaces`, or epoch field; the
+outer MLS application message supplies the type. The sender installs a distinct
+authenticated route as a replacement, but the payload does not declare which
+older route it replaces.
+
+The multi-endpoint `endpoints` plus `replaces` object remains a design-only
+shape. `f2z-relay-proto::QueueAdvert` models that proposal and its standalone
+rotation helper, but the type has no wire/JSON encoding and the shipping plugin
+does not serialize or deserialize it. In particular, the helper does not make
+multi-relay publication, replacement overlap, or drain coordination part of
+the shipping path.
 
 `relay_id` travels with the address because §5.2 needs it: it is what lets the
 sender detect that it is talking to a different relay than the one the recipient
@@ -1160,9 +1173,8 @@ chose.
 A relay never sees a `queue_advert`; it sees an opaque MLS `PrivateMessage` like
 every other payload.
 
-The object above deliberately has no `tls_codec` encoding in this document. Its
-application-layer encoding belongs to the MLS message schema; inventing a relay
-wire encoding for an object no relay parses would create a second contract.
+The payload has no relay wire encoding: no relay parses it. The shipping
+application-layer encoding is the JSON body inside the MLS message.
 
 ### 7.3 `BIND_SEND` — once-only and irreversible
 
@@ -1254,46 +1266,51 @@ than rediscovered later.
 
 ### 7.5 Rotation needs no new command
 
-Queue rotation is: **create a new queue, advertise it in-band, delete the old
-one.** There is no `ROTATE` command and there should not be one.
+The retained shipping behavior is advert-driven installation: after receiving
+an authenticated `QUEUE_ADVERT`, the sender installs its advertised route. The
+shipping engine does not automate the rest of a rotation lifecycle. There is no
+`ROTATE` command and the retired synchronized epoch-based switch is not part of
+v1.
 
 An authenticated replay of the same relay and send-address bytes is idempotent:
 it preserves the existing bind state and any active compromise. Only a genuinely
 distinct replacement address enters `Fresh` and abandons the old queue's active
 transport state; the historical alarm from §7.4 remains non-dismissible.
 
+The following is a design sketch for a future full rotation, not the shipping
+serializer or an automated engine flow:
+
 ```
 1. Recipient: CREATE_QUEUE           → (recv_addr', send_addr')
-2. Recipient: queue_advert{ send_addr', replaces: [send_addr] }   (inside MLS)
-3. Sender:    BIND_SEND on send_addr' with a fresh key
-4. Sender:    APPEND to send_addr' from valid_from_epoch onward
-5. Recipient: drains recv_addr, then DELETE_QUEUE on recv_addr
+2. Recipient: queue_advert{ relay_url', relay_id', send_addr' }  (inside MLS)
+3. Sender:    install a fresh endpoint-owned key; BIND_SEND on send_addr'
+4. Sender:    APPEND to send_addr' after processing the advert
+5. Recipient: keep recv_addr readable while draining it, then DELETE_QUEUE
 ```
 
 Queue capability signing keys are endpoint-owned and independently generated or
 derived; they are not shared MLS exporter outputs. The authenticated advert
-carries the relay, address, and rotation intent, never a private recv or send
-capability key. On a genuinely distinct advert the sender MUST install a fresh
-CSPRNG signing seed before binding; an identical authenticated replay preserves
-the existing seed and state.
+carries the relay and address, never a private recv or send capability key. On a
+genuinely distinct authenticated advert the sender installs a fresh CSPRNG
+signing seed before binding; an identical authenticated replay preserves the
+existing seed and bind state.
 
-`free2z/queue/v1` is reserved for a future synchronized rotation schedule. No
-durable counter or advert field synchronizes such an exporter schedule in v1,
-and the shipping path does not invoke that exporter, so this document does not
-claim such a schedule is active. The shipping engine can consume a distinct
-authenticated advert and safely replace its outbound queue, but it does not
-automate this section's full create/advertise/`valid_from_epoch`/overlap/drain
-flow. The address still comes
-from the relay and the new `send_addr` still has to reach the peer in an advert,
-so a complete rotation costs one relay round trip and one in-band message. This
-deliberate architecture correction is recorded in
+The shipping receive path authenticates each MLS application message before it
+dispatches `QUEUE_ADVERT`. A distinct route then replaces the stored outbound
+route and receives a fresh endpoint-owned signing seed; an identical replay
+preserves that seed and bind state, including across persisted receive state.
+The shipping plugin does not automate replacement queue creation, advert
+publication, keeping both queues live during overlap, or draining/deleting the
+old queue. A caller must create and publish a new route for the retained
+advert-driven receiver path to install it. This deliberate architecture
+correction is recorded in
 [`ARCHITECTURE.md` §5.4](./ARCHITECTURE.md#54-exporter-derived-application-secrets)
 and [ADR 0009](./decisions/0009-queue-addressing-and-binding.md).
 
-Overlap: the old queue MUST remain readable until the recipient has drained it.
-The sender switches at `valid_from_epoch`; the recipient deletes only after the
-old queue is empty and acknowledged. A message in flight during the switch lands
-in the old queue and is read from it.
+For a future full rotation protocol, the old queue MUST remain readable until
+the recipient has drained and acknowledged it. The sender moves to the
+advertised endpoint after processing the MLS advert. The current engine does
+not automate this overlap and drain protocol.
 
 ### 7.6 Deletion
 

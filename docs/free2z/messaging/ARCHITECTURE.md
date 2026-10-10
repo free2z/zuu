@@ -403,7 +403,6 @@ is the mechanism we intend to use for component-scoped exports as it stabilizes.
 |---|---|---|---|
 | FROST/DKG (§11) | `free2z/frost/v1` | `ceremony_id` | Session domain separator, transcript binding, outer AEAD for part-2 shares |
 | WebRTC binding (§10) | `free2z/webrtc/v1` | `session_id` | Binds DTLS fingerprints to the group |
-| Queue rotation (§6.2) | `free2z/queue/v1` | reserved | Reserved for a future synchronized rotation schedule; it is not used by the shipping queue path — see the correction below |
 | Local history wrap | `free2z/history/v1` | `conversation_id` | At-rest key for retained plaintext |
 
 Because these are exporter outputs, they inherit the group's forward secrecy and
@@ -420,12 +419,16 @@ standard instead of invented.
 > generate both queue addresses from its own CSPRNG, because client-chosen
 > addresses permit squatting and collisions. Queue capability signing keys are
 > endpoint-owned and independently generated or derived; they are not shared
-> MLS exporter output. The authenticated advert carries the relay, address, and
-> rotation intent, never either private capability key. `free2z/queue/v1` is
-> reserved for a future synchronized schedule, but no counter or advert field
-> synchronizes such a schedule today and the shipping path does not call it.
-> The designed rotation flow is therefore advert-driven and costs one relay
-> round trip and one in-band message; the shipping scope is stated in §6.2 —
+> MLS exporter output. The shipping authenticated advert carries the relay and
+> address only, never replacement metadata or either private capability key.
+> Queue replacement is advert-driven: the receiver consumes a distinct
+> authenticated route and generates a fresh endpoint-owned capability signing key. An
+> identical replay retains the current key. No exporter-derived queue key or
+> synchronized epoch schedule is part of v1. Creating and advertising the
+> replacement, overlapping queues, and draining and deleting the old queue are
+> not automated by the shipping engine. A complete caller-driven replacement
+> costs one relay round trip and one in-band message; the shipping scope is
+> stated in §6.2 —
 > [`WIRE.md` §7.5](./WIRE.md#75-rotation-needs-no-new-command).
 
 ### 5.5 What hybrid PQ does and does not buy
@@ -539,12 +542,16 @@ and against that adversary it fails completely. See
 and [§4.9](./THREAT-MODEL.md#49-the-relay-knows-which-queue-addresses-are-paired).
 
 Queue addresses are established **inside** the MLS group — a member advertises
-its `QueueSendAddr` set to peers in an authenticated application message, never
-via the server. The shipping path can consume a distinct authenticated advert
-and safely replace its outbound queue. It does not yet automate the full
-create/advertise/overlap/drain rotation flow, and the reserved `free2z/queue/v1`
-synchronized schedule is not implemented. Without an external replacement
-advert, today's queue pseudonym can therefore remain long-lived.
+its single relay URL, relay identity and send address to a peer in an
+authenticated application message, never via the server. The shipping plugin
+serializes that three-field JSON payload under the `QUEUE_ADVERT` MLS message
+type; it does not carry the design-only multi-endpoint/replaces shape. The
+shipping receive path consumes a distinct authenticated route and safely
+replaces its outbound queue with a fresh endpoint-owned key; identical replays
+preserve the existing key and state. It does not automate replacement queue
+creation or advert publication, overlapping old and new queues, or draining
+and deleting the old queue. Without an external replacement advert, today's
+queue pseudonym can therefore remain long-lived.
 
 > **This paragraph is circular for a pair that has never spoken**, and the gap is
 > real rather than a detail: there is no path for the `Welcome` that creates the
