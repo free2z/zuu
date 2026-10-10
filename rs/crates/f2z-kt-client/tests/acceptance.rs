@@ -58,6 +58,7 @@ use f2z_kt::testing::{EntryBuilder, Harness, Identity, Key};
 use f2z_kt_client::{
     AlarmKind, ClientConfig, ClientError, KtClient, PinOutcome, Resolution, Transport,
 };
+use f2z_kt_core::entry::EntryAuthorization;
 use f2z_kt_core::entry::{DirectoryEntry, EntryKind};
 use f2z_kt_core::types::Handle;
 use f2z_kt_core::{ConfiguredWitness, KtError, WitnessSet, labels};
@@ -97,6 +98,7 @@ struct DirectTransport {
     omit_history_entry: Mutex<Option<usize>>,
     /// Serve these bytes in place of the history entry at this index.
     swap_history_entry: Mutex<Option<(usize, Vec<u8>)>>,
+    authority_policy: Mutex<Option<Vec<u8>>>,
 }
 
 impl DirectTransport {
@@ -115,6 +117,7 @@ impl DirectTransport {
             claim_absent_with_proof: Mutex::new(false),
             omit_history_entry: Mutex::new(None),
             swap_history_entry: Mutex::new(None),
+            authority_policy: Mutex::new(None),
         }
     }
 
@@ -128,6 +131,10 @@ impl DirectTransport {
     /// Serve `bytes` in place of the history entry at `index`.
     fn swap_history_entry(&self, swap: Option<(usize, Vec<u8>)>) {
         *self.swap_history_entry.lock().unwrap() = swap;
+    }
+
+    fn serve_authority_policy(&self, policy: Option<Vec<u8>>) {
+        *self.authority_policy.lock().unwrap() = policy;
     }
 
     fn tamper_next_proof(&self) {
@@ -245,13 +252,11 @@ impl Transport for DirectTransport {
     }
 
     fn authority_policy(&self) -> f2z_kt_client::Result<Vec<u8>> {
-        // The `LogService` does not sign the policy; `f2z-kt`'s binary does, at
-        // startup. Reported as unreachable rather than faked, which is exactly
-        // what a client must do with an unanswered §8.1 step 7 — see
-        // `a_policy_that_cannot_be_fetched_leaves_vouching_unknown`.
-        Err(ClientError::Unreachable(
-            "this fixture serves no policy".to_owned(),
-        ))
+        self.authority_policy
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| ClientError::Unreachable("this fixture serves no policy".to_owned()))
     }
 
     fn descriptor(&self) -> f2z_kt_client::Result<Vec<u8>> {
@@ -342,6 +347,16 @@ impl Deployment {
         setup.block_on(harness.log.publish_epoch(NOW)).unwrap();
 
         let transport = Arc::new(DirectTransport::new(Arc::clone(&harness.log)));
+        let policy = f2z_kt::sign_policy(
+            harness.log.authority(),
+            harness.log_id,
+            harness.log.signer(),
+            NOW,
+        )
+        .unwrap()
+        .encode_canonical()
+        .unwrap();
+        transport.serve_authority_policy(Some(policy));
         let dir = f2z_kt::testing::temp_dir(&format!("{name}-w"));
         let witness = Witness::new(
             Settings {
@@ -364,19 +379,62 @@ impl Deployment {
         }
     }
 
+    fn unvouched(name: &str) -> Self {
+        let setup = tokio::runtime::Runtime::new().unwrap();
+        let harness = setup.block_on(Harness::unvouched_with_witnesses(
+            name,
+            vec![Key::from_byte(WITNESS_SEED).public],
+        ));
+        setup.block_on(harness.log.publish_epoch(NOW)).unwrap();
+        let transport = Arc::new(DirectTransport::new(Arc::clone(&harness.log)));
+        let policy = f2z_kt::sign_policy(
+            harness.log.authority(),
+            harness.log_id,
+            harness.log.signer(),
+            NOW,
+        )
+        .unwrap()
+        .encode_canonical()
+        .unwrap();
+        transport.serve_authority_policy(Some(policy));
+        let dir = f2z_kt::testing::temp_dir(&format!("{name}-w"));
+        let witness = Witness::new(
+            Settings {
+                log_id: harness.log_id,
+                accepted_log_pk: harness.log.log_public_key(),
+                state_path: dir.join("state.bin"),
+                evidence_dir: dir.join("evidence"),
+                max_audit_span: 64,
+            },
+            &[WITNESS_SEED; 32],
+            Box::new(WitnessTransport(Arc::clone(&transport))),
+        )
+        .unwrap();
+        Self {
+            setup,
+            harness,
+            transport,
+            witness,
+        }
+    }
+
     /// Register a handle at a fresh identity and publish the epoch carrying it.
     fn register(&self, handle: &str, seed: u8) -> DirectoryEntry {
         let identity = Identity::from_byte(seed);
-        let entry = EntryBuilder::first(self.harness.log_id, handle, &identity)
+        let draft = EntryBuilder::first(self.harness.log_id, handle, &identity)
             .device(seed.wrapping_add(0x40), &identity.isk)
             .endpoint(seed)
             .same_key(&identity.dak);
+        let envelope = self.harness.envelope(&draft, &identity, NOW);
+        let submission =
+            f2z_codec::decode_canonical::<f2z_kt_core::api::SubmissionEnvelope>(&envelope)
+                .unwrap()
+                .into_value();
+        let entry = f2z_codec::decode_canonical::<DirectoryEntry>(submission.entry.as_slice())
+            .unwrap()
+            .into_value();
         self.setup.block_on(async {
-            self.harness
-                .log
-                .submit(&self.harness.envelope(&entry, &identity, NOW), NOW)
-                .await
-                .unwrap();
+            self.harness.log.submit(&envelope, NOW).await.unwrap();
             self.harness.log.publish_epoch(NOW).await.unwrap();
         });
         entry
@@ -463,6 +521,146 @@ fn handle(name: &str) -> Handle {
     Handle::new(name.as_bytes().to_vec()).unwrap()
 }
 
+fn entry_from_envelope(envelope: &[u8]) -> DirectoryEntry {
+    let submission = f2z_codec::decode_canonical::<f2z_kt_core::api::SubmissionEnvelope>(envelope)
+        .unwrap()
+        .into_value();
+    f2z_codec::decode_canonical::<DirectoryEntry>(submission.entry.as_slice())
+        .unwrap()
+        .into_value()
+}
+
+/// Change only the claimed creation time and re-sign the two transcripts that
+/// cover it. The assertion itself remains a genuinely issuer-signed artifact.
+/// This produces a validly signed entry whose asserted creation instant can be
+/// tested independently of the later verifier clock.
+fn signed_entry_at(
+    mut entry: DirectoryEntry,
+    identity: &Identity,
+    log_id: f2z_kt_core::types::LogId,
+    created_at_ms: u64,
+) -> DirectoryEntry {
+    entry.entry.created_at_ms = created_at_ms;
+    let tbs_bytes = entry.entry.signing_bytes().unwrap();
+    let EntryAuthorization::InitialBind {
+        assertion,
+        identity_signature,
+        auth_signature,
+    } = &mut entry.authorization
+    else {
+        panic!("the first-entry artifact must carry InitialBind");
+    };
+    *auth_signature = identity.dak.sign(&tbs_bytes);
+    let assertion =
+        f2z_codec::decode_canonical::<f2z_authority::HandleAssertion>(assertion.as_slice())
+            .unwrap()
+            .into_value();
+    let binding = f2z_authority::InitialBindBindingTBS::new(
+        f2z_authority::types::LogId::new(*log_id.as_bytes()),
+        f2z_authority::types::Handle::parse(entry.entry.handle.as_slice()).unwrap(),
+        entry.entry.identity_pk,
+        assertion.digest().unwrap(),
+        f2z_kt_core::labels::entry_tbs_digest(&tbs_bytes),
+    )
+    .unwrap();
+    *identity_signature = identity.isk.sign(&binding.signing_bytes().unwrap());
+    entry
+}
+
+fn assert_valid_initial_bind_control(name: &str, identity_seed: u8, device_seed: u8) {
+    let mut control = Deployment::new(name);
+    control.cosign(NOW);
+    let identity = Identity::from_byte(identity_seed);
+    let draft = EntryBuilder::first(control.harness.log_id, "alice", &identity)
+        .device(device_seed, &identity.isk)
+        .endpoint(identity_seed)
+        .same_key(&identity.dak);
+    let envelope = control.harness.envelope(&draft, &identity, NOW);
+    let submitted = entry_from_envelope(&envelope);
+    assert_eq!(
+        submitted,
+        control.harness.issued_entry(&draft, &identity, NOW),
+        "the control starts with the exact entry submitted to the real log"
+    );
+    control.setup.block_on(async {
+        control.harness.log.submit(&envelope, NOW).await.unwrap();
+        control.harness.log.publish_epoch(NOW).await.unwrap();
+    });
+    control.cosign(NOW + 1);
+
+    let mut client = control.client(1);
+    let resolved = client.resolve(&handle("alice"), NOW + 2).unwrap();
+    assert_eq!(
+        resolved.resolved().unwrap().authorization(),
+        f2z_kt_client::Authorization::InitialBindChecked
+    );
+    assert!(client.self_audit(&handle("alice"), &[], NOW + 3).is_ok());
+}
+
+fn assert_creation_time_result(name: &str, created_at_ms: u64, accepted: bool) {
+    let mut deployment = Deployment::new(name);
+    deployment.cosign(NOW);
+    let identity = Identity::from_byte(0x34);
+    let draft = EntryBuilder::first(deployment.harness.log_id, "alice", &identity)
+        .device(0x74, &identity.isk)
+        .endpoint(0x34)
+        .same_key(&identity.dak);
+    let envelope = deployment.harness.envelope(&draft, &identity, NOW);
+    let submitted = entry_from_envelope(&envelope);
+    assert_eq!(
+        submitted,
+        deployment.harness.issued_entry(&draft, &identity, NOW),
+        "the timing fixture starts with the exact issued artifact"
+    );
+    let rewritten = signed_entry_at(
+        submitted,
+        &identity,
+        deployment.harness.log_id,
+        created_at_ms,
+    );
+    deployment.setup.block_on(async {
+        deployment.harness.log.submit(&envelope, NOW).await.unwrap();
+        deployment
+            .harness
+            .log
+            .rewrite_pending_entry_for_test(&handle("alice"), rewritten.encode_canonical().unwrap())
+            .await
+            .unwrap();
+        deployment.harness.log.publish_epoch(NOW).await.unwrap();
+    });
+    deployment.cosign(NOW + 1);
+
+    let mut client = deployment.client(1);
+    if accepted {
+        // The verifier is deliberately later than the assertion expiry. The
+        // committed signed creation timestamp, not today's clock, governs.
+        let resolved = client.resolve(&handle("alice"), NOW + 120_000).unwrap();
+        assert_eq!(
+            resolved.resolved().unwrap().authorization(),
+            f2z_kt_client::Authorization::InitialBindChecked
+        );
+        assert!(
+            client
+                .self_audit(&handle("alice"), &[], NOW + 120_001)
+                .is_ok()
+        );
+    } else {
+        let result = client.resolve(&handle("alice"), NOW + 120_000);
+        assert!(
+            matches!(
+                result,
+                Err(ClientError::Protocol(KtError::BadAuthorization))
+            ),
+            "the real Merkle entry must fail specifically on assertion time"
+        );
+        assert!(matches!(
+            client.self_audit(&handle("alice"), &[], NOW + 120_001),
+            Err(ClientError::Protocol(KtError::BadAuthorization))
+        ));
+        assert!(client.pins().get(&handle("alice")).is_none());
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 1. The happy path — and it is the whole product.
 // ---------------------------------------------------------------------------
@@ -491,11 +689,11 @@ fn a_valid_lookup_verifies_against_a_witness_cosigned_root_and_pins() {
     assert_eq!(resolved.standing().independent(), 0);
     assert!(!resolved.standing().is_independently_witnessed());
 
-    // §8.1 step 6, told the truth: a first entry establishes inclusion and not
-    // entitlement, because §4.5's assertion is not committed to the tree.
+    // §8.1 step 6 verifies the committed initial-bind evidence. The authority
+    // key remains a separate trust decision described by the signed policy.
     assert_eq!(
         resolved.authorization(),
-        f2z_kt_client::Authorization::FirstEntryUnverifiable
+        f2z_kt_client::Authorization::InitialBindChecked
     );
 
     // Step 8: the pin is held, and it is the key the peer published.
@@ -507,6 +705,301 @@ fn a_valid_lookup_verifies_against_a_witness_cosigned_root_and_pins() {
     let again = client.resolve(&handle("alice"), NOW + 3).unwrap();
     assert_eq!(again.resolved().unwrap().pin(), PinOutcome::Unchanged);
     assert!(!client.alarms().has_outstanding_critical());
+
+    // The short-lived issuer assertion was valid when the identity signed
+    // this entry. A later audit must not treat its normal expiry as a reason
+    // to forget the committed first-entry authorization.
+    let after_assertion_expiry = client.resolve(&handle("alice"), NOW + 120_000).unwrap();
+    assert_eq!(
+        after_assertion_expiry.resolved().unwrap().authorization(),
+        f2z_kt_client::Authorization::InitialBindChecked
+    );
+}
+
+#[test]
+fn an_unvouched_log_commits_and_client_checks_the_no_authority_initial_bind() {
+    let mut deployment = Deployment::unvouched("client-unvouched-initial-bind");
+    deployment.cosign(NOW);
+    let identity = Identity::from_byte(0x37);
+    let draft = EntryBuilder::first(deployment.harness.log_id, "alice", &identity)
+        .device(0x77, &identity.isk)
+        .endpoint(0x37)
+        .same_key(&identity.dak);
+    let envelope = deployment.harness.envelope(&draft, &identity, NOW);
+    deployment.setup.block_on(async {
+        deployment.harness.log.submit(&envelope, NOW).await.unwrap();
+        deployment.harness.log.publish_epoch(NOW).await.unwrap();
+    });
+    deployment.cosign(NOW + 1);
+
+    let mut client = deployment.client(1);
+    let resolution = client.resolve(&handle("alice"), NOW + 2).unwrap();
+    let resolved = resolution.resolved().unwrap();
+    assert_eq!(
+        resolved.authorization(),
+        f2z_kt_client::Authorization::InitialBindChecked
+    );
+    assert_eq!(resolved.vouching(), f2z_kt_client::Vouching::Unvouched);
+}
+
+#[test]
+fn first_bind_assertion_time_is_checked_at_signed_creation_with_strict_boundaries() {
+    let skew = f2z_authority::authority::DEFAULT_CLOCK_SKEW_MS;
+    let expires = NOW + 60_000;
+
+    // The issuer-skew boundary and the instant immediately before expiry are
+    // inclusive. Both are fully signed and committed into real Merkle trees.
+    assert_creation_time_result("client-bind-time-skew-boundary", NOW - skew, true);
+    assert_creation_time_result("client-bind-time-expiry-boundary", expires - 1, true);
+
+    // One millisecond beyond issuer skew, and the exact expiry instant, are
+    // refused even though the authority, identity, and DAK signatures verify.
+    assert_creation_time_result("client-bind-time-future-issued", NOW - skew - 1, false);
+    assert_creation_time_result("client-bind-time-expired", expires, false);
+}
+
+#[test]
+fn a_cold_client_fails_closed_when_current_policy_evicts_the_original_issuer() {
+    let mut deployment = Deployment::new("client-initial-bind-policy-rotation");
+    deployment.cosign(NOW);
+    let identity = Identity::from_byte(0x39);
+    let draft = EntryBuilder::first(deployment.harness.log_id, "alice", &identity)
+        .device(0x79, &identity.isk)
+        .endpoint(0x39)
+        .same_key(&identity.dak);
+    let envelope = deployment.harness.envelope(&draft, &identity, NOW);
+    let issued = entry_from_envelope(&envelope);
+    assert_eq!(
+        issued,
+        deployment.harness.issued_entry(&draft, &identity, NOW)
+    );
+    deployment.setup.block_on(async {
+        deployment.harness.log.submit(&envelope, NOW).await.unwrap();
+        deployment.harness.log.publish_epoch(NOW).await.unwrap();
+    });
+    deployment.cosign(NOW + 1);
+
+    // Model the log's current, log-signed policy after a normal authority
+    // rotation. The evicted issuer is absent from the active set; no historical
+    // key-membership proof is invented. The log's test fixture remains the
+    // immutable service that admitted the old entry, so this fixture replaces
+    // only the current policy response and performs no later admission.
+    let replacement_authority = Key::from_byte(0xa4).public;
+    let rotated = f2z_authority::authority::AuthorityConfig::with_defaults(
+        f2z_authority::types::LogId::new(*deployment.harness.log_id.as_bytes()),
+        f2z_authority::authority::AuthoritySet::single(replacement_authority).unwrap(),
+    )
+    .unwrap();
+    let signed_policy = f2z_kt::policy::sign_policy(
+        &rotated,
+        deployment.harness.log_id,
+        deployment.harness.log.signer(),
+        NOW + 2,
+    )
+    .unwrap();
+    assert_eq!(
+        signed_policy.policy.authorities.as_slice(),
+        &[replacement_authority]
+    );
+    assert!(
+        !signed_policy
+            .policy
+            .authorities
+            .as_slice()
+            .contains(&deployment.harness.issuer.as_ref().unwrap().public_key())
+    );
+    deployment
+        .transport
+        .serve_authority_policy(Some(signed_policy.encode_canonical().unwrap()));
+
+    // This client has no cached copy of the prior authority policy. The
+    // committed assertion is valid, but its signer is not in the currently
+    // published set, so lookup and complete-history audit both fail closed.
+    let mut cold_client = deployment.client(1);
+    assert!(matches!(
+        cold_client.resolve(&handle("alice"), NOW + 3),
+        Err(ClientError::Protocol(KtError::BadSignature))
+    ));
+    assert!(matches!(
+        cold_client.self_audit(&handle("alice"), &[], NOW + 4),
+        Err(ClientError::Protocol(KtError::BadSignature))
+    ));
+    assert!(cold_client.pins().get(&handle("alice")).is_none());
+}
+
+#[test]
+fn a_malicious_log_cannot_publish_an_admitted_entry_with_a_missing_assertion() {
+    assert_valid_initial_bind_control("client-missing-initial-assertion-control", 0x35, 0x75);
+    let mut deployment = Deployment::new("client-missing-initial-assertion");
+    deployment.cosign(NOW);
+    let identity = Identity::from_byte(0x35);
+    let draft = EntryBuilder::first(deployment.harness.log_id, "alice", &identity)
+        .device(0x75, &identity.isk)
+        .endpoint(0x35)
+        .same_key(&identity.dak);
+    let envelope = deployment.harness.envelope(&draft, &identity, NOW);
+    let submitted_entry = entry_from_envelope(&envelope);
+    assert_eq!(
+        submitted_entry,
+        deployment.harness.issued_entry(&draft, &identity, NOW),
+        "the mutation starts from the exact assertion and binding in the submitted envelope"
+    );
+    deployment.setup.block_on(async {
+        // The log accepts the valid request and returns a receipt first.
+        deployment.harness.log.submit(&envelope, NOW).await.unwrap();
+        // Then a malicious operator removes the assertion and commits the
+        // resulting canonical bytes under their correct Merkle value.
+        let mut tampered = submitted_entry.clone();
+        if let EntryAuthorization::InitialBind { assertion, .. } = &mut tampered.authorization {
+            *assertion = f2z_codec::types::Payload::new(Vec::new()).unwrap();
+        } else {
+            panic!("first-entry builder must produce InitialBind");
+        }
+        deployment
+            .harness
+            .log
+            .rewrite_pending_entry_for_test(&handle("alice"), tampered.encode_canonical().unwrap())
+            .await
+            .unwrap();
+        deployment.harness.log.publish_epoch(NOW).await.unwrap();
+    });
+    deployment.cosign(NOW + 1);
+
+    let mut client = deployment.client(1);
+    let result = client.resolve(&handle("alice"), NOW + 2);
+    assert!(
+        matches!(
+            result,
+            Err(ClientError::Protocol(KtError::BadAuthorization))
+        ),
+        "client must refuse specifically because a vouched first entry has no assertion"
+    );
+    assert!(
+        matches!(
+            client.self_audit(&handle("alice"), &[], NOW + 3),
+            Err(ClientError::Protocol(KtError::BadAuthorization))
+        ),
+        "self-audit must refuse specifically because the assertion is missing"
+    );
+    assert!(client.pins().get(&handle("alice")).is_none());
+}
+
+#[test]
+fn a_malicious_log_cannot_substitute_another_valid_signed_assertion() {
+    assert_valid_initial_bind_control("client-substituted-initial-assertion-control", 0x38, 0x78);
+    let mut deployment = Deployment::new("client-substituted-initial-assertion");
+    deployment.cosign(NOW);
+    let identity = Identity::from_byte(0x38);
+    let draft = EntryBuilder::first(deployment.harness.log_id, "alice", &identity)
+        .device(0x78, &identity.isk)
+        .endpoint(0x38)
+        .same_key(&identity.dak);
+    let envelope = deployment.harness.envelope(&draft, &identity, NOW);
+    let submitted_entry = entry_from_envelope(&envelope);
+    assert_eq!(
+        submitted_entry,
+        deployment.harness.issued_entry(&draft, &identity, NOW),
+        "the mutation starts from the exact assertion and binding in the submitted envelope"
+    );
+    let issuer = deployment.harness.issuer.as_ref().unwrap();
+    let substituted_assertion = f2z_authority::HandleAssertionTBS::new(
+        &issuer.public_key(),
+        f2z_authority::types::LogId::new(*deployment.harness.log_id.as_bytes()),
+        f2z_authority::types::Handle::parse(b"alice").unwrap(),
+        submitted_entry.entry.identity_pk,
+        f2z_authority::types::Intent::Bind,
+        0,
+        NOW,
+        NOW + 60_000,
+        f2z_authority::types::AssertionNonce::new([0x99; 16]),
+    )
+    .unwrap()
+    .sign(issuer)
+    .unwrap()
+    .encode_canonical()
+    .unwrap();
+    deployment.setup.block_on(async {
+        deployment.harness.log.submit(&envelope, NOW).await.unwrap();
+        let mut tampered = submitted_entry.clone();
+        if let EntryAuthorization::InitialBind { assertion, .. } = &mut tampered.authorization {
+            *assertion = f2z_codec::types::Payload::new(substituted_assertion).unwrap();
+        } else {
+            panic!("first-entry builder must produce InitialBind");
+        }
+        deployment
+            .harness
+            .log
+            .rewrite_pending_entry_for_test(&handle("alice"), tampered.encode_canonical().unwrap())
+            .await
+            .unwrap();
+        deployment.harness.log.publish_epoch(NOW).await.unwrap();
+    });
+    deployment.cosign(NOW + 1);
+
+    let mut client = deployment.client(1);
+    assert!(
+        matches!(
+            client.resolve(&handle("alice"), NOW + 2),
+            Err(ClientError::Protocol(KtError::BadSignature))
+        ),
+        "the substituted assertion must fail the identity binding signature"
+    );
+    assert!(matches!(
+        client.self_audit(&handle("alice"), &[], NOW + 3),
+        Err(ClientError::Protocol(KtError::BadSignature))
+    ));
+    assert!(client.pins().get(&handle("alice")).is_none());
+}
+
+#[test]
+fn a_malicious_log_cannot_publish_an_admitted_entry_with_a_bad_binding() {
+    assert_valid_initial_bind_control("client-bad-initial-binding-control", 0x36, 0x76);
+    let mut deployment = Deployment::new("client-bad-initial-binding");
+    deployment.cosign(NOW);
+    let identity = Identity::from_byte(0x36);
+    let draft = EntryBuilder::first(deployment.harness.log_id, "alice", &identity)
+        .device(0x76, &identity.isk)
+        .endpoint(0x36)
+        .same_key(&identity.dak);
+    let envelope = deployment.harness.envelope(&draft, &identity, NOW);
+    let submitted_entry = entry_from_envelope(&envelope);
+    assert_eq!(
+        submitted_entry,
+        deployment.harness.issued_entry(&draft, &identity, NOW),
+        "the mutation starts from the exact assertion and binding in the submitted envelope"
+    );
+    deployment.setup.block_on(async {
+        deployment.harness.log.submit(&envelope, NOW).await.unwrap();
+        let mut tampered = submitted_entry.clone();
+        if let EntryAuthorization::InitialBind {
+            identity_signature, ..
+        } = &mut tampered.authorization
+        {
+            *identity_signature = f2z_codec::types::Signature::new([0; 64]);
+        } else {
+            panic!("first-entry builder must produce InitialBind");
+        }
+        deployment
+            .harness
+            .log
+            .rewrite_pending_entry_for_test(&handle("alice"), tampered.encode_canonical().unwrap())
+            .await
+            .unwrap();
+        deployment.harness.log.publish_epoch(NOW).await.unwrap();
+    });
+    deployment.cosign(NOW + 1);
+
+    let mut client = deployment.client(1);
+    let result = client.resolve(&handle("alice"), NOW + 2);
+    assert!(
+        matches!(result, Err(ClientError::Protocol(KtError::BadSignature))),
+        "the zeroed identity binding must fail its signature check"
+    );
+    assert!(matches!(
+        client.self_audit(&handle("alice"), &[], NOW + 3),
+        Err(ClientError::Protocol(KtError::BadSignature))
+    ));
+    assert!(client.pins().get(&handle("alice")).is_none());
 }
 
 #[test]
@@ -1167,6 +1660,7 @@ fn a_policy_that_cannot_be_fetched_leaves_vouching_unknown() {
     deployment.cosign(NOW + 1);
 
     let mut client = deployment.client(1);
+    deployment.transport.serve_authority_policy(None);
     assert_eq!(client.vouching(), f2z_kt_client::Vouching::Unknown);
     assert!(client.refresh_authority_policy().is_err());
     assert_eq!(
@@ -1176,12 +1670,13 @@ fn a_policy_that_cannot_be_fetched_leaves_vouching_unknown() {
     );
     assert!(!client.vouching().permits_attested_language());
 
-    // And the resolution carries that state rather than omitting it.
-    let resolution = client.resolve(&handle("alice"), NOW + 2).unwrap();
-    assert_eq!(
-        resolution.resolved().unwrap().vouching(),
-        f2z_kt_client::Vouching::Unknown
-    );
+    // The client cannot claim a version-one authorization check without the
+    // signed policy needed to identify the authority key.
+    assert!(matches!(
+        client.resolve(&handle("alice"), NOW + 2),
+        Err(ClientError::Unreachable(_))
+    ));
+    assert_eq!(client.vouching(), f2z_kt_client::Vouching::Unknown);
 }
 
 // ---------------------------------------------------------------------------
