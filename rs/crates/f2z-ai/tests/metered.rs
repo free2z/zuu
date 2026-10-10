@@ -66,6 +66,7 @@ struct Memory {
     lose_hold_replies: usize,
     lose_settle_reply: bool,
     available: u64,
+    cap_remaining_milli_2z: Option<u64>,
     slow_completion: bool,
     /// Mimic a ledger before `ledger.0006_call_features`: its
     /// `gateway_metadata_valid` refuses any key it does not name, so
@@ -77,7 +78,7 @@ struct Memory {
 }
 impl Memory {
     fn context(&self) -> Value {
-        json!({"status":"ok","available_milli_2z":self.available,"cap_remaining_milli_2z":null,"debt_milli_2z":0,"open_holds":0,"frozen":false,"consented_markup_bps":0,"effective_markup_bps":0})
+        json!({"status":"ok","available_milli_2z":self.available,"cap_remaining_milli_2z":self.cap_remaining_milli_2z,"debt_milli_2z":0,"open_holds":0,"frozen":false,"consented_markup_bps":0,"effective_markup_bps":0})
     }
     fn record(&self) -> Value {
         let status = match self.terminal {
@@ -1655,6 +1656,43 @@ fn aha_request(strict: bool) -> Value {
     json!({"model":"m-responses","max_output_tokens":1800,"max_output_tokens_strict":strict,
         "messages":[{"role":"user","content":[{"type":"text","text":"teach me fractions"}]}]})
 }
+fn exact_one_token_hold(request: &Value, catalog: &f2z_ai::catalog::VerifiedCatalog) -> (u64, u64) {
+    use f2z_ai_proto::{
+        chat::{ChatRequest, Usage},
+        pricing::{Bps, apply_safety_factor, metered_cost_nusd, price_nusd},
+    };
+
+    let request: ChatRequest = serde_json::from_value(request.clone()).unwrap();
+    let model = catalog.catalog().callable_model(&request.model).unwrap();
+    let estimate = f2z_ai::estimate::input_tokens(&request, model).unwrap();
+    let input = apply_safety_factor(
+        estimate.tokens + f2z_ai::provider::reserved_overhead_tokens(&request, model),
+        model.safety_factor_bps,
+    )
+    .unwrap();
+    let mut prices = model.prices;
+    prices.input_nusd_per_mtok = prices
+        .input_nusd_per_mtok
+        .max(prices.cached_input_nusd_per_mtok)
+        .max(prices.cache_write_nusd_per_mtok);
+    let usage = Usage {
+        input_tokens: input,
+        output_tokens: 1,
+        tool_calls: if prices.tool_call_nusd > 0 { 8 } else { 0 },
+        ..Usage::default()
+    };
+    let cost = metered_cost_nusd(&usage, &prices).unwrap();
+    let required = price_nusd(
+        cost,
+        catalog.catalog().platform_margin_bps,
+        Bps::ZERO,
+        model.min_charge_2z,
+    )
+    .unwrap()
+    .total_2z()
+    .get();
+    (input, required)
+}
 async fn post(r: &support::Running, path: &str, body: &Value) -> (StatusCode, Value) {
     let mut req = axum::http::Request::post(path)
         .header("host", "gateway")
@@ -1730,6 +1768,118 @@ async fn strict_output_limit_is_refused_before_any_hold_charge_or_provider_reque
     assert_eq!(mock.request_count(), 0);
     mock.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn non_strict_estimate_refusals_report_exact_minimum_and_do_not_reserve_or_start_provider() {
+    let catalog = priced_catalog();
+    let request = aha_request(false);
+    let (input, required) = exact_one_token_hold(&request, &catalog);
+    assert!(required > 0);
+    let required_milli = required * 1_000;
+
+    for (available, cap, expected_code, expected_status) in [
+        (
+            required_milli - 1,
+            None,
+            "insufficient_balance",
+            StatusCode::PAYMENT_REQUIRED,
+        ),
+        (
+            0,
+            None,
+            "insufficient_balance",
+            StatusCode::PAYMENT_REQUIRED,
+        ),
+        (
+            required_milli + 10_000,
+            Some(required_milli - 1),
+            "cap_exceeded",
+            StatusCode::FORBIDDEN,
+        ),
+    ] {
+        let db = Arc::new(Database::new());
+        {
+            let mut state = db.0.lock().unwrap();
+            state.available = available;
+            state.cap_remaining_milli_2z = cap;
+        }
+        let (r, mock) =
+            launch_catalog(db.clone(), Scenario::default(), None, catalog.clone()).await;
+
+        let (status, refusal) = post(&r, "/v1/chat/estimate", &request).await;
+        assert_eq!(status, expected_status, "{refusal}");
+        let details = &refusal["error"]["details"];
+        assert_eq!(refusal["error"]["code"], expected_code, "{refusal}");
+        for key in [
+            "input_tokens_estimate",
+            "required_2z",
+            "available_milli_2z",
+            "min_charge_2z",
+            "cap_remaining_milli_2z",
+        ] {
+            assert!(
+                details
+                    .as_object()
+                    .is_some_and(|details| details.contains_key(key)),
+                "estimate refusal omitted details.{key}: {refusal}"
+            );
+        }
+        assert_eq!(details["input_tokens_estimate"], input, "{refusal}");
+        assert_eq!(details["required_2z"], required, "{refusal}");
+        assert_eq!(details["available_milli_2z"], available, "{refusal}");
+        assert_eq!(details["min_charge_2z"], 1, "{refusal}");
+        assert_eq!(
+            details["cap_remaining_milli_2z"],
+            cap.map_or(Value::Null, |amount| json!(amount)),
+            "{refusal}"
+        );
+        assert!(
+            db.0.lock().unwrap().call.is_none(),
+            "estimate claimed a call"
+        );
+        assert!(db.0.lock().unwrap().hold.is_none());
+        assert_eq!(mock.request_count(), 0);
+
+        let (status, refusal) = post(&r, "/v1/chat", &request).await;
+        assert_eq!(status, expected_status, "{refusal}");
+        let details = &refusal["error"]["details"];
+        assert_eq!(refusal["error"]["code"], expected_code, "{refusal}");
+        for key in [
+            "input_tokens_estimate",
+            "required_2z",
+            "available_milli_2z",
+            "min_charge_2z",
+            "cap_remaining_milli_2z",
+        ] {
+            assert!(
+                details
+                    .as_object()
+                    .is_some_and(|details| details.contains_key(key)),
+                "chat refusal omitted details.{key}: {refusal}"
+            );
+        }
+        assert_eq!(details["input_tokens_estimate"], input, "{refusal}");
+        assert_eq!(details["required_2z"], required, "{refusal}");
+        assert_eq!(details["available_milli_2z"], available, "{refusal}");
+        assert_eq!(details["min_charge_2z"], 1, "{refusal}");
+        assert_eq!(
+            details["cap_remaining_milli_2z"],
+            cap.map_or(Value::Null, |amount| json!(amount)),
+            "{refusal}"
+        );
+        final_state(&db).await;
+        {
+            let state = db.0.lock().unwrap();
+            assert!(state.hold.is_none(), "chat refusal reserved a hold");
+            assert_eq!(state.charges, 0);
+            assert_eq!(state.terminal, Some("released"));
+            assert_eq!(state.claims, 1);
+        }
+        assert_eq!(mock.request_count(), 0, "chat refusal started the provider");
+        mock.shutdown().await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn without_strict_the_same_request_is_clamped_held_and_charged() {
     // Negative control for the test above: identical balance and request,
