@@ -658,14 +658,16 @@ cap the call would run with, after clamping) and `hold_2z` (what
 `EstimateResponse`; the rest are optional on decode. Every step fails **exactly as `/v1/chat`
 would** — `401`, `403 insufficient_scope`, `429`, `404`,
 `400 context_length_exceeded`, and for an unaffordable request
-`402 insufficient_balance` or `403 cap_exceeded` with the same `details`
-(`available_milli_2z`, `required_2z`, `cap_remaining_milli_2z`, …) — so an
-app that handles `/v1/chat`'s errors handles the estimate's with the same
-code, and can show "you need N more 2Z" from `details`. An app that must not
-run a shortened call sends the estimate **with** `max_output_tokens_strict`:
-it then answers exactly as the strict call would (same bounds, and
-affordability at the consented markup), whereas a non-strict estimate prices at
-the current effective markup and can disagree. It sends the call itself with the
+`402 insufficient_balance` or `403 cap_exceeded`. A **non-strict
+minimum-affordability refusal** includes `input_tokens_estimate`,
+`required_2z`, `available_milli_2z`, `min_charge_2z`, and
+`cap_remaining_milli_2z` (explicitly `null` when uncapped), so an app can
+show "you need N more 2Z" from `details`. With
+`max_output_tokens_strict`, the estimate answers exactly as the strict call
+would; its existing details omit `input_tokens_estimate` and include
+`cap_remaining_milli_2z` only when capped (see [errors.md](./errors.md)).
+Strict affordability is judged at the consented markup; a non-strict estimate
+uses the current applied markup and can disagree. It sends the call itself with the
 flag too, so that a balance change between the two cannot shorten it either. An estimate is not
 a quotation: the price is the catalogue's at call time.
 
