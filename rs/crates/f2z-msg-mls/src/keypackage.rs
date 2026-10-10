@@ -24,13 +24,12 @@
 //! [`MlsEngine::add_member`] cannot be called without one of these.
 //! [`VerifiedKeyPackage`] has no public constructor and no public fields; the
 //! only way to obtain one is [`VerifiedKeyPackage::verify`], which takes the
-//! directory entry. That makes the safe first-party wrapper structural rather
-//! than remembered. It does not yet seal the crate's entire public API:
-//! external callers can combine its raw OpenMLS group, provider, and signer
-//! capabilities to invoke OpenMLS directly. [#903][i903] tracks replacing that
-//! escape with an opaque capability boundary. Until then, first-party callers
-//! MUST use the wrapper and this structural claim applies to the wrapper, not
-//! to every operation expressible through the public crate API.
+//! directory entry. The public [`crate::GroupHandle`] keeps OpenMLS's raw
+//! group private, and [`crate::MlsEngine`] keeps its provider private; the only
+//! public Add operation accepts this verified type. MLS storage is namespaced
+//! from the device signer, so a normal provider reconstructed over a retained
+//! backend clone cannot load groups by their public IDs. Callers MUST still use
+//! the engine's opaque handle and verified Add route.
 //!
 //! # What is checked, and what each check stops
 //!
@@ -65,7 +64,6 @@
 //! [tm33]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/THREAT-MODEL.md#33-compromised-relay-operator-third-party-or-ours
 //! [tm412]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/THREAT-MODEL.md
 //! [i133]: https://github.com/free2z/zuu/issues/133
-//! [i903]: https://github.com/free2z/zuu/issues/903
 //! [`MlsEngine::add_member`]: crate::MlsEngine::add_member
 
 use f2z_kt_core::entry::{CredentialValidity, DeviceCredential, DirectoryEntryTBS};
@@ -85,8 +83,8 @@ use crate::error::{CredentialError, EngineError, Result};
 /// Constructible only through [`VerifiedKeyPackage::verify`]. The safe
 /// [`crate::MlsEngine::add_member`] wrapper takes one of these, so there is no
 /// path through that wrapper from *bytes a relay handed us* to *a member of a
-/// group* that does not pass through the directory. See the module-level
-/// disclosure about the still-public raw OpenMLS escape tracked in #903.
+/// group* that does not pass through the directory. [`crate::GroupHandle`]
+/// also prevents bypassing that wrapper through the public engine API.
 #[derive(Clone)]
 pub struct VerifiedKeyPackage {
     key_package: KeyPackage,

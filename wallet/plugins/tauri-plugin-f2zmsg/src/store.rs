@@ -42,14 +42,13 @@
 //! `BackupWrapKey` and cannot be decrypted". This module implements the
 //! **state machine** and seals the device secret key under that wrap key
 //! ([`SealedSecrets`]), so an unenrolled-from-the-seed device cannot sign as
-//! this identity. It does **not** encrypt the SQLite database `f2z-msg-store`
-//! writes, because that crate does not offer at-rest encryption and a plugin
-//! cannot add it from outside. MLS group state and message plaintext are
-//! therefore at rest in the clear, protected by the OS's file permissions and
-//! nothing else. That is a real gap, it belongs to `f2z-msg-store`, and it is
-//! recorded here rather than in a commit message so the next reader finds it.
+//! this identity. `f2z-msg-mls` seals OpenMLS storage rows before they reach
+//! this backend. The plugin's separate application records — including
+//! retained message plaintext — remain at rest in the clear, protected by OS
+//! file permissions. The backend API itself does not provide general at-rest
+//! encryption.
 
-use f2z_msg_store::{Durability, F2zStorageProvider, StorageBackend};
+use f2z_msg_store::{Durability, F2zStorageProvider, RowRewrite, StorageBackend};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
@@ -99,6 +98,15 @@ impl<B: StorageBackend> StorageBackend for SharedBackend<B> {
 
     fn apply(&self, ops: &[f2z_msg_store::Op]) -> f2z_msg_store::Result<()> {
         self.0.apply(ops)
+    }
+
+    fn atomic_rewrite(
+        &self,
+        marker_key: &[u8],
+        marker_value: &[u8],
+        rewrite: &mut RowRewrite<'_>,
+    ) -> f2z_msg_store::Result<()> {
+        self.0.atomic_rewrite(marker_key, marker_value, rewrite)
     }
 
     fn durability(&self) -> Durability {

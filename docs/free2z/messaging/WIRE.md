@@ -2155,14 +2155,21 @@ device unreachable for first contact. In particular, accepting a matching
 `device_pk` instead of the complete published credential would preserve the
 longer lifetime of a stale package after the owner replaced that credential.
 
-The reference implementation's safe first-party route makes this structural:
-`f2z_msg_mls::VerifiedKeyPackage` has no constructor but the verifying one, and
-`MlsEngine::add_member` takes that type instead of bytes. Its crate-level public
-API still exposes enough raw OpenMLS capabilities for an external caller to go
-around that wrapper; [#903](https://github.com/free2z/zuu/issues/903) tracks
-sealing that escape. This is an implementation status disclosure, not a
-weakening of the wire requirement: every client MUST perform all nine checks
-before proposing the Add.
+The reference implementation enforces this in its public API:
+`f2z_msg_mls::VerifiedKeyPackage` has no constructor but the verifying one,
+`MlsEngine::add_member` takes that type instead of bytes, and its opaque
+`GroupHandle` exposes no raw OpenMLS group. It also seals MLS storage keys and
+values before they reach a caller-owned backend and atomically migrates legacy
+OpenMLS rows plus its version and handled-delivery markers when opening the
+store, leaving the plugin's separate application records untouched. A retained
+backend clone reveals ciphertext, sizes, and access patterns, but cannot
+reconstruct a group while the caller holds only the opaque `DeviceSigner`. A
+caller that already holds the raw
+signing secret can derive the storage key and has broader authority; this API
+cannot constrain the owner of that secret. The migration checkpoints SQLite's
+WAL, but cannot erase a backup or database copy captured before upgrade. These
+are implementation guarantees, not a weakening of the wire requirement: every
+client MUST perform all nine checks before proposing the Add.
 
 #### 12.6.6 Exhaustion, and the package of last resort
 

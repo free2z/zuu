@@ -194,6 +194,15 @@ impl StorageBackend for FailOnceBackend {
         self.inner.apply(ops)
     }
 
+    fn atomic_rewrite(
+        &self,
+        marker_key: &[u8],
+        marker_value: &[u8],
+        rewrite: &mut f2z_msg_store::RowRewrite<'_>,
+    ) -> f2z_msg_store::Result<()> {
+        self.inner.atomic_rewrite(marker_key, marker_value, rewrite)
+    }
+
     fn durability(&self) -> Durability {
         // This test exercises the shipping ACK path after recovery. Atomicity
         // comes from MemoryBackend; process durability is intentionally asserted

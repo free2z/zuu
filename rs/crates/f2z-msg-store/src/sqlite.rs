@@ -76,7 +76,7 @@ use std::sync::Mutex;
 
 use rusqlite::{Connection, OpenFlags};
 
-use crate::backend::{Durability, Op, StorageBackend};
+use crate::backend::{Durability, Op, RowRewrite, StorageBackend};
 use crate::error::{Result, StoreError};
 
 /// A durable [`StorageBackend`] over one SQLite database.
@@ -283,9 +283,79 @@ impl StorageBackend for SqliteBackend {
         Ok(())
     }
 
+    fn atomic_rewrite(
+        &self,
+        marker_key: &[u8],
+        marker_value: &[u8],
+        rewrite: &mut RowRewrite<'_>,
+    ) -> Result<()> {
+        use rusqlite::TransactionBehavior;
+
+        let mut connection = self.connection.lock().map_err(|_| StoreError::Poisoned)?;
+        // IMMEDIATE serializes the marker check with another process opening
+        // the same database and attempting this migration.
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let marker_exists = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM mls_kv WHERE k = ?1)",
+            [marker_key],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if marker_exists {
+            transaction.commit()?;
+            // The pre-seal values may still be present in earlier WAL frames
+            // even though their live rows are gone. Retire those frames before
+            // the engine is allowed to use the migrated store. Repeat this
+            // when the marker already exists so a prior interrupted/failed
+            // checkpoint is retried on the next open.
+            checkpoint_truncate(&connection)?;
+            return Ok(());
+        }
+
+        let entries = {
+            let mut statement = transaction.prepare("SELECT k, v FROM mls_kv")?;
+            let mut rows = statement.query([])?;
+            let mut entries = Vec::new();
+            while let Some(row) = rows.next()? {
+                entries.push((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?));
+            }
+            entries
+        };
+
+        for (old_key, old_value) in entries {
+            if let Some((new_key, new_value)) = rewrite(&old_key, &old_value)? {
+                transaction.execute(
+                    "UPDATE mls_kv SET k = ?2, v = ?3 WHERE k = ?1",
+                    rusqlite::params![old_key, new_key, new_value],
+                )?;
+            }
+        }
+        transaction.execute(
+            "INSERT INTO mls_kv (k, v) VALUES (?1, ?2)",
+            rusqlite::params![marker_key, marker_value],
+        )?;
+        transaction.commit()?;
+        checkpoint_truncate(&connection)?;
+        Ok(())
+    }
+
     fn durability(&self) -> Durability {
         self.durability
     }
+}
+
+fn checkpoint_truncate(connection: &rusqlite::Connection) -> Result<()> {
+    // `execute_batch` discards the PRAGMA's result row. A busy checkpoint is
+    // not a SQLite error, so inspect it explicitly and refuse to open the
+    // migrated store while pre-migration plaintext could remain in the WAL.
+    let busy = connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+        row.get::<_, i64>(0)
+    })?;
+    if busy != 0 {
+        return Err(StoreError::Backend(
+            "SQLite WAL checkpoint busy during storage migration",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -377,6 +447,45 @@ mod tests {
         }
         let reopened = SqliteBackend::open(&path).unwrap();
         assert_eq!(reopened.get(b"k").unwrap(), Some(b"v".to_vec()));
+    }
+
+    #[test]
+    fn a_failed_atomic_rewrite_rolls_back_prior_row_updates_and_the_marker() {
+        let backend = SqliteBackend::open_in_memory().unwrap();
+        backend
+            .apply(&[
+                Op::Put {
+                    key: b"legacy/a".to_vec(),
+                    value: b"secret-a".to_vec(),
+                },
+                Op::Put {
+                    key: b"legacy/b".to_vec(),
+                    value: b"secret-b".to_vec(),
+                },
+            ])
+            .unwrap();
+        let mut calls = 0;
+        let result = backend.atomic_rewrite(b"sealed/marker", b"done", &mut |key, value| {
+            calls += 1;
+            if calls == 2 {
+                return Err(StoreError::Backend("injected transform failure"));
+            }
+            Ok(Some((
+                [b"sealed/".as_slice(), key].concat(),
+                value.to_vec(),
+            )))
+        });
+        assert!(result.is_err());
+        assert_eq!(
+            backend.get(b"legacy/a").unwrap(),
+            Some(b"secret-a".to_vec())
+        );
+        assert_eq!(
+            backend.get(b"legacy/b").unwrap(),
+            Some(b"secret-b".to_vec())
+        );
+        assert_eq!(backend.get(b"sealed/marker").unwrap(), None);
+        assert_eq!(backend.get(b"sealed/legacy/a").unwrap(), None);
     }
 
     #[test]

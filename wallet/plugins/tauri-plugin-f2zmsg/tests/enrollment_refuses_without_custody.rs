@@ -9,11 +9,11 @@
 //! # What is actually at stake, restated where the assertions are
 //!
 //! It is *not* the strength of the seal. Per ADR 0016's Fact 6 the seal covers
-//! only the signing key and the queue seed, and the MLS group state and message
-//! plaintext sit unencrypted beside it (`store.rs:40-50`). The thing a refusal
-//! prevents is the other failure: an app that enrolls without durable custody
-//! cannot reopen its seal on the next launch, and the only way forward from
-//! there is to enroll again. Every one of those mints a device, a credential
+//! only the signing key and the queue seed; OpenMLS group state is sealed by
+//! `f2z-msg-mls`, while retained message plaintext remains alongside it. The
+//! thing a refusal prevents is the other failure: an app that enrolls without
+//! durable custody cannot reopen its seal on the next launch, and the only way
+//! forward from there is to enroll again. Every one of those mints a device, a credential
 //! and a directory entry, and `ARCHITECTURE.md:318-322` requires each new
 //! device entry to be surfaced to the user as a possible wiretap. The
 //! notification storm is the visible symptom; the append-only log full of one
