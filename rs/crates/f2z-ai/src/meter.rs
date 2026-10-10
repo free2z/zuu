@@ -92,6 +92,54 @@ fn money(v: &Value, key: &str) -> Result<u64, ApiFailure> {
 fn whole(milli: u64) -> Result<Whole2z, ApiFailure> {
     Milli2z::new(milli).to_whole_exact().ok_or_else(invalid)
 }
+
+/// Read the post-settlement cap reported by the ledger. Keep `null` distinct
+/// from an omitted field: `Some(None)` is an uncapped grant, while `None`
+/// means this ledger response did not report the value.
+fn cap_value(value: &Value) -> Option<Option<Milli2z>> {
+    if value.is_null() {
+        Some(None)
+    } else {
+        let milli = value.as_u64()?;
+        (milli <= SAFE_INTEGER).then_some(Some(Milli2z::new(milli)))
+    }
+}
+
+fn settled_cap(result: &Value) -> Option<Option<Milli2z>> {
+    result.get("cap_remaining").and_then(cap_value)
+}
+
+async fn context_cap(ledger: &dyn Ledger, identity: Identity) -> Option<Option<Milli2z>> {
+    let value = ledger::recover(ledger, &Operation::Context(identity))
+        .await
+        .ok()?;
+    let context = Context::parse(value).ok()?;
+    Some(context.cap_remaining_milli_2z.map(Milli2z::new))
+}
+
+fn attach_cap(record: &mut Value, cap: Option<Option<Milli2z>>) -> Result<(), ApiFailure> {
+    if let Some(cap) = cap {
+        record.as_object_mut().ok_or_else(invalid)?.insert(
+            "cap_remaining_milli_2z".into(),
+            cap.map_or(Value::Null, |milli| json!(milli)),
+        );
+    }
+    Ok(())
+}
+
+async fn settled_cap_with_context(
+    ledger: &dyn Ledger,
+    identity: Identity,
+    result: &Value,
+) -> Option<Option<Milli2z>> {
+    match settled_cap(result) {
+        // A numeric raw settle result is authoritative at settlement time.
+        Some(Some(milli)) => Some(Some(milli)),
+        // Raw NULL is ambiguous: uncapped settlement and idempotent settle
+        // replay both return it. gateway_context distinguishes them.
+        Some(None) | None => context_cap(ledger, identity).await,
+    }
+}
 fn refusal(s: &str) -> ApiFailure {
     let code = match s {
         "revoked" => ErrorCode::TokenRevoked,
@@ -1151,7 +1199,14 @@ async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFail
         && *lock(&active.provider_started)
         && intent.get("usage").is_some();
     if matches!(status(record)?, "settled" | "settled_partial" | "released") && !late_cost {
-        let public = project(record, false)?;
+        let mut public = project(record, false)?;
+        if matches!(status(record)?, "settled" | "settled_partial") {
+            // call_envelope does not persist cap context. During recovery,
+            // take a fresh read-only snapshot; failure leaves the optional
+            // field absent and never changes the completed billing result.
+            let cap = context_cap(ledger, active.identity).await;
+            attach_cap(&mut public, cap)?;
+        }
         *lock(&active.final_record) = Some(public.clone());
         return Ok(public);
     }
@@ -1209,12 +1264,22 @@ async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFail
     let result = ledger::recover(ledger, &operation)
         .await
         .map_err(|_| unavailable())?;
+    let result_status = status(&result)?;
     if !matches!(
-        status(&result)?,
+        result_status,
         "settled" | "released" | "expired" | "not_open"
     ) {
         return Err(invalid());
     }
+    // The raw settle ABI calls this field `cap_remaining`; a numeric value is
+    // exact as of settlement time. NULL is ambiguous with the removed-hold
+    // idempotent replay, so resolve it with a best-effort read-only context.
+    // Failure must never turn a completed charge into an HTTP failure.
+    let cap_remaining = if result_status == "settled" {
+        settled_cap_with_context(ledger, active.identity, &result).await
+    } else {
+        None
+    };
     // A terminal winner (including an expired/released hold) is authoritative;
     // never derive amounts from the operation we hoped would commit.
     let done = ledger::recover(ledger, &complete)
@@ -1223,10 +1288,11 @@ async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFail
     if !matches!(status(&done)?, "recorded" | "replayed") {
         return Err(invalid());
     }
-    let public = project(done.get("record").ok_or_else(invalid)?, false)?;
+    let mut public = project(done.get("record").ok_or_else(invalid)?, false)?;
     if matches!(status(&public)?, "streaming" | "settling") {
         return Err(unavailable());
     }
+    attach_cap(&mut public, cap_remaining)?;
     *lock(&active.final_record) = Some(public.clone());
     Ok(public)
 }
@@ -1271,6 +1337,7 @@ fn terminal_unchecked(active: &Active, record: Option<&Value>) -> Event {
                 .get("shortfall_milli_2z")
                 .and_then(Value::as_u64)
                 .map(Milli2z::new);
+            done.cap_remaining_milli_2z = r.get("cap_remaining_milli_2z").and_then(cap_value);
         }
     }
     done.usage_source = source;
@@ -1556,6 +1623,28 @@ mod tests {
             r#"{"model":"gpt-4.1-mini","messages":[{"role":"user","content":[{"type":"text","text":"JSON"}]}],"tools":[{"name":"b","parameters":{"type":"object","properties":{"q":{},"p":{"type":"array","items":{"z":1,"a":[{"y":0,"b":0}]}}}}},{"name":"a","parameters":{}}],"response_format":{"type":"json_object"}}"#,
         ),
     ];
+
+    #[test]
+    fn settlement_cap_parser_matches_the_raw_ledger_abi() {
+        assert_eq!(
+            settled_cap(&json!({"cap_remaining": 12_345})),
+            Some(Some(Milli2z::new(12_345)))
+        );
+        // Raw NULL is intentionally ambiguous; only context resolution can
+        // distinguish an uncapped first settle from a capped settle replay.
+        assert_eq!(settled_cap(&json!({"cap_remaining": null})), Some(None));
+        assert_eq!(
+            settled_cap(&json!({"cap_remaining_milli_2z": 12_345})),
+            None,
+            "the gateway_context spelling is not the raw settle ABI"
+        );
+        assert_eq!(
+            settled_cap(&json!({"cap_remaining": 9_007_199_254_740_992_u64})),
+            None,
+            "wire amounts above JavaScript's safe integer limit are not projected"
+        );
+        assert_eq!(settled_cap(&json!({})), None);
+    }
 
     #[test]
     fn idempotency_fingerprints_are_unchanged_by_1132() {
