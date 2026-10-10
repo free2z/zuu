@@ -1625,6 +1625,28 @@ mod tests {
     ];
 
     #[test]
+    fn settlement_cap_parser_matches_the_raw_ledger_abi() {
+        assert_eq!(
+            settled_cap(&json!({"cap_remaining": 12_345})),
+            Some(Some(Milli2z::new(12_345)))
+        );
+        // Raw NULL is intentionally ambiguous; only context resolution can
+        // distinguish an uncapped first settle from a capped settle replay.
+        assert_eq!(settled_cap(&json!({"cap_remaining": null})), Some(None));
+        assert_eq!(
+            settled_cap(&json!({"cap_remaining_milli_2z": 12_345})),
+            None,
+            "the gateway_context spelling is not the raw settle ABI"
+        );
+        assert_eq!(
+            settled_cap(&json!({"cap_remaining": 9_007_199_254_740_992_u64})),
+            None,
+            "wire amounts above JavaScript's safe integer limit are not projected"
+        );
+        assert_eq!(settled_cap(&json!({})), None);
+    }
+
+    #[test]
     fn idempotency_fingerprints_are_unchanged_by_1132() {
         for (expected, body) in PRE_1132_FINGERPRINTS {
             let request: ChatRequest = serde_json::from_str(body).unwrap();
