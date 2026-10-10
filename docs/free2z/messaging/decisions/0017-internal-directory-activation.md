@@ -86,9 +86,20 @@ with copy that says this is an internal directory free2z controls.
   free2z. It can issue an assertion binding any handle to a key it holds. The
   seed protects an *existing* entry from routine changes. It does not protect a
   handle from the party that decides who owns it.
-- **First-entry authorization is not auditable by third parties.** The
-  assertion is checked by the log and not committed to the tree (`KT.md` §12,
+- **First-entry authorization evidence is now proposed as auditable, but the
+  extension is not ratified or deployed.** The #649 implementation adds a
+  committed `InitialBind` artifact that clients verify. The authority key still
+  needs an out-of-band pin. Coordinating this future-wire proposal with the
+  external assertion issuer and production log remains a rollout requirement
+  ([`KT.md` §4.7](../KT.md#47-what-a-compromised-authority-can-and-cannot-do),
   [#649](https://github.com/free2z/zuu/issues/649)).
+- **Historical policy is not committed.** A cold client checks old first-entry
+  assertions against the current signed authority set and limits. Evicting the
+  issuer, lowering the validity or skew cap, or switching to no-authority mode
+  can therefore make a legitimate old entry fail closed. There is no historical
+  membership or admission-time proof here. Maintainers must choose this
+  compatibility behavior before rollout; this implementation does not keep an
+  evicted issuer active to make old lookups pass.
 - **Absence is asserted, not proved** (`KT.md` §12, #634).
 - **Credentials attest a KEM key nobody holds** (ADR 0016 §6).
 - **Nothing is permanent.** Every handle, entry, pin and safety number made
@@ -660,7 +671,7 @@ independently in Python while the vectors were written.
 | Signs | the free2z backend (workstream 7) | the authority **private** key, backend-only |
 | Verifies, authoritatively | `f2z-kt` on `/kt/v1/submit` | log config `authority_pk = <hex>` |
 | Pre-checks, advisory | ZUULI before submitting | `handle_authority_pk` in `internal-directory.conf` |
-| Does not verify | resolving clients | the assertion is not in the tree (#649) |
+| Verifies proposed committed artifact | resolving clients and auditors | assertion, identity binding, and directory-auth signature are in the proposed `InitialBind`; issuer trust still requires an out-of-band pin, and old policy membership is not proved (#649) |
 
 The three values must be the same public key. If ZUULI's bundled key disagrees
 with the backend's, the first device that enrolls reports it as a failed

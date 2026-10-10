@@ -34,7 +34,7 @@ use f2z_codec::Canonical as _;
 use f2z_codec::types::{Digest, Signature};
 use f2z_kt::testing::{EntryBuilder, Harness, Identity, entry_bytes, envelope_without_claim};
 use f2z_kt::wire::{Presence, SubmissionEnvelope};
-use f2z_kt_core::entry::EntryKind;
+use f2z_kt_core::entry::{EntryAuthorization, EntryKind};
 use f2z_kt_core::{ErrorCode, labels};
 
 const NOW: u64 = 1_700_000_100_000;
@@ -89,7 +89,7 @@ async fn a_first_entry_with_no_authority_assertion_is_refused() {
     // Structurally perfect under §4.4: every signature verifies, the version is
     // 1, `prev_entry_hash` is all-zero. The only thing missing is the thing
     // §4.4 forgot to require.
-    let envelope = envelope_without_claim(&entry);
+    let envelope = harness.envelope_with(&entry, &alice, NOW, false);
 
     assert_eq!(
         refusal(harness.log.submit(&envelope, NOW).await),
@@ -154,6 +154,7 @@ async fn accepted_revocation_cannot_be_dropped_before_receipt_or_publish() {
     let first = EntryBuilder::first(harness.log_id, "alice", &alice)
         .device(0x10, &alice.isk)
         .same_key(&alice.dak);
+    let first = harness.issued_entry(&first, &alice, NOW);
     harness
         .log
         .submit(&harness.envelope(&first, &alice, NOW), NOW)
@@ -205,25 +206,18 @@ async fn a_first_entry_with_an_assertion_for_a_different_handle_is_refused() {
 
     let alice = Identity::from_byte(1);
     // The assertion is issued for `bob`; the entry claims `alice`.
-    let bob_entry = EntryBuilder::first(harness.log_id, "bob", &alice).same_key(&alice.dak);
     let alice_entry = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
-
-    let bob_envelope = harness.envelope(&bob_entry, &alice, NOW);
-    let decoded = f2z_codec::decode_canonical::<SubmissionEnvelope>(&bob_envelope)
+    let spliced = envelope_with_minted_assertion(&harness, &alice_entry, &alice, |body| {
+        let bob = f2z_authority::Handle::parse(b"bob").unwrap();
+        let issuer = harness.issuer.as_ref().unwrap();
+        f2z_authority::HandleAssertionTBS {
+            handle_id: bob.handle_id(),
+            handle: bob,
+            ..body
+        }
+        .sign(issuer)
         .unwrap()
-        .into_value();
-
-    // Splice bob's assertion onto alice's entry. The identity signature is
-    // re-derived so that only the handle mismatch is wrong.
-    let alice_bytes = entry_bytes(&alice_entry);
-    let spliced = SubmissionEnvelope::new(
-        &alice_bytes,
-        decoded.assertion_bytes(),
-        decoded.identity_signature,
-    )
-    .unwrap()
-    .encode_canonical()
-    .unwrap();
+    });
 
     assert_eq!(
         refusal(harness.log.submit(&spliced, NOW).await),
@@ -273,8 +267,7 @@ fn envelope_with_minted_assertion(
     identity: &Identity,
     mint: impl FnOnce(f2z_authority::HandleAssertionTBS) -> f2z_authority::HandleAssertion,
 ) -> Vec<u8> {
-    let bytes = entry_bytes(entry);
-    let digest = labels::entry_value(&bytes);
+    let mut committed_entry = entry.clone();
     let handle = f2z_authority::Handle::parse(entry.entry.handle.as_slice()).unwrap();
     // The body names the *configured* issuer's id where a test wants it to, and
     // otherwise whatever `mint` puts there; either way the log re-derives
@@ -293,20 +286,45 @@ fn envelope_with_minted_assertion(
     )
     .unwrap();
     let assertion = mint(body);
-    let binding = harness
-        .log
-        .authority()
-        .binding(&handle, &entry.entry.identity_pk, Some(&assertion), &digest)
-        .unwrap();
-    let identity_signature = identity.isk.sign(&binding.signing_bytes().unwrap());
-    SubmissionEnvelope::new(
-        &bytes,
-        Some(&assertion.encode_canonical().unwrap()),
-        identity_signature,
+    let assertion_bytes = assertion.encode_canonical().unwrap();
+    let assertion_digest = assertion.digest().unwrap();
+    let tbs_bytes = committed_entry.entry.signing_bytes().unwrap();
+    let initial_binding = f2z_authority::InitialBindBindingTBS::new(
+        f2z_authority::LogId::new(*harness.log_id.as_bytes()),
+        handle.clone(),
+        entry.entry.identity_pk,
+        assertion_digest,
+        labels::entry_tbs_digest(&tbs_bytes),
     )
-    .unwrap()
-    .encode_canonical()
-    .unwrap()
+    .unwrap();
+    let EntryAuthorization::InitialBind {
+        assertion: committed_assertion,
+        identity_signature: committed_signature,
+        ..
+    } = &mut committed_entry.authorization
+    else {
+        panic!("a first-entry assertion requires InitialBind");
+    };
+    *committed_assertion = f2z_codec::types::Payload::new(assertion_bytes).unwrap();
+    *committed_signature = identity.isk.sign(&initial_binding.signing_bytes().unwrap());
+
+    let bytes = entry_bytes(&committed_entry);
+    let digest = labels::entry_value(&bytes);
+    let envelope_binding = f2z_authority::AssertionBindingTBS::for_assertion(
+        f2z_authority::LogId::new(*harness.log_id.as_bytes()),
+        handle,
+        entry.entry.identity_pk,
+        assertion_digest,
+        digest,
+    )
+    .unwrap();
+    let outer_signature = identity
+        .isk
+        .sign(&envelope_binding.signing_bytes().unwrap());
+    SubmissionEnvelope::new(&bytes, None, outer_signature)
+        .unwrap()
+        .encode_canonical()
+        .unwrap()
 }
 
 #[tokio::test]
@@ -388,6 +406,7 @@ async fn a_platform_assertion_on_a_user_authorized_entry_is_a_category_error() {
 
     let alice = Identity::from_byte(1);
     let first = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
+    let first = harness.issued_entry(&first, &alice, NOW);
     harness
         .log
         .submit(&harness.envelope(&first, &alice, NOW), NOW)
@@ -434,6 +453,7 @@ async fn a_routine_update_carries_its_predecessors_vouch_forward_unchanged() {
 
     let alice = Identity::from_byte(1);
     let first = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
+    let first = harness.issued_entry(&first, &alice, NOW);
     harness
         .log
         .submit(&harness.envelope(&first, &alice, NOW), NOW)
@@ -522,6 +542,7 @@ async fn a_wrong_prev_entry_hash_is_refused() {
 
     let alice = Identity::from_byte(1);
     let first = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
+    let first = harness.issued_entry(&first, &alice, NOW);
     harness
         .log
         .submit(&harness.envelope(&first, &alice, NOW), NOW)
@@ -557,6 +578,7 @@ async fn a_key_change_carrying_only_one_of_the_two_signatures_is_refused() {
 
     let alice = Identity::from_byte(1);
     let first = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
+    let first = harness.issued_entry(&first, &alice, NOW);
     harness
         .log
         .submit(&harness.envelope(&first, &alice, NOW), NOW)
@@ -616,6 +638,7 @@ async fn a_platform_reset_before_its_cooldown_is_refused() {
 
     let alice = Identity::from_byte(1);
     let first = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
+    let first = harness.issued_entry(&first, &alice, NOW);
     harness
         .log
         .submit(&harness.envelope(&first, &alice, NOW), NOW)
@@ -696,6 +719,7 @@ async fn a_reset_signed_by_anyone_but_the_pinned_authority_is_refused() {
 
     let alice = Identity::from_byte(1);
     let first = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
+    let first = harness.issued_entry(&first, &alice, NOW);
     harness
         .log
         .submit(&harness.envelope(&first, &alice, NOW), NOW)
@@ -772,6 +796,7 @@ async fn a_second_entry_for_one_handle_in_one_epoch_is_refused() {
 
     let alice = Identity::from_byte(1);
     let first = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
+    let first = harness.issued_entry(&first, &alice, NOW);
     harness
         .log
         .submit(&harness.envelope(&first, &alice, NOW), NOW)

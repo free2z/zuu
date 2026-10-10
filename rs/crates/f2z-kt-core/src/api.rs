@@ -73,28 +73,30 @@ pub const LABEL_TREE_HEAD_BUNDLE: &[u8] = b"free2z/kt/v1/tree-head-bundle";
 /// `ErrorBody`'s type tag. Not a signing label.
 pub const LABEL_ERROR: &[u8] = b"free2z/kt/v1/error";
 
-/// A submitted `DirectoryEntry`, its handle assertion, and the identity key's
-/// signature binding the two together. **Invented here.**
+/// A submitted `DirectoryEntry`, any envelope-carried assertion, and the
+/// identity key's v1 signature binding the submission to the full entry value.
+/// The proposed #649 `InitialBind` additionally carries its assertion and
+/// first-entry binding inside `DirectoryEntry`.
 ///
 /// # Why this is not just a `DirectoryEntry`
 ///
-/// §9.2 says `POST /kt/v1/submit` carries a `DirectoryEntry`. Taken literally
-/// that is [zuu#594]: `KT.md` §4.4's authorization table has no case for
-/// `entry_version == 1`, so a log that accepts a bare first entry from whoever
-/// sends one is **conforming**, and hands `@alice` to the first stranger who
-/// asks. This crate refuses to ship that. The envelope carries the two fields
-/// `f2z-authority` needs to close the hole, and [`crate::admit`] is where they
-/// are checked.
+/// §9.2 describes the submission envelope. The existing v1 envelope continues
+/// to bind the complete `AkdValue`; under the proposed #649 extension, the
+/// assertion is committed in `EntryAuthorization::InitialBind` and the
+/// envelope assertion field is empty for an initial bind. [`crate::admit`]
+/// verifies both layers before publication. The extension is implemented for
+/// maintainer review and is not ratified wire protocol.
 ///
 /// `identity_signature` is over `tls_codec(AssertionBindingTBS)` by the entry's
 /// own `identity_pk`, and it is **never optional** — not on a log with an
 /// authority, not on one without. It is what makes a stolen assertion useless,
 /// and on a no-authority log it is the whole of the check.
 ///
-/// `assertion` is empty exactly when the log has no authority
-/// (`f2z_authority::AuthoritySet::none`). Presenting one to a log that has no
-/// authority is an error, and omitting one from a log that has an authority is
-/// an error; the log will not quietly do the other thing.
+/// In the ratified v1 request, `assertion` is empty exactly when the log has no
+/// authority (`f2z_authority::AuthoritySet::none`). The proposed `InitialBind`
+/// path also leaves this field empty on a vouched log because the canonical
+/// assertion is carried in the committed entry; `platform_reset` continues to
+/// carry its assertion here. Other presence mismatches are refused.
 ///
 /// [zuu#594]: https://github.com/free2z/zuu/issues/594
 #[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
@@ -110,7 +112,9 @@ pub struct SubmissionEnvelope {
     /// the wire and the rule, which is the parse-versus-verify gap `WIRE.md`
     /// §3.3 exists to close.
     pub entry: Payload,
-    /// `tls_codec(HandleAssertion)`, or empty on a log with no authority.
+    /// `tls_codec(HandleAssertion)` on v1 asserted submissions. Under the
+    /// proposed #649 extension it is empty for `InitialBind` (the assertion is
+    /// committed in the entry) and remains populated for `platform_reset`.
     pub assertion: Payload,
     /// Ed25519 over `tls_codec(AssertionBindingTBS)` by the entry's
     /// `identity_pk`.

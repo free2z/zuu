@@ -1563,6 +1563,7 @@ dependencies = [
 name = "f2z-kt-client"
 version = "0.1.0"
 dependencies = [
+ "f2z-authority",
  "f2z-codec",
  "f2z-kt-core",
  "ureq",

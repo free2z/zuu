@@ -83,6 +83,7 @@ const WITNESS_SEED: u8 = 0xc2;
 struct LogTransport {
     runtime: tokio::runtime::Runtime,
     log: Arc<LogService>,
+    authority_policy: Vec<u8>,
 }
 
 /// A handle onto the transport, so two clients can share one socket to the log
@@ -93,7 +94,7 @@ struct LogTransport {
 struct LogHandle(Arc<LogTransport>);
 
 impl LogTransport {
-    fn new(log: Arc<LogService>) -> Self {
+    fn new(log: Arc<LogService>, authority_policy: Vec<u8>) -> Self {
         Self {
             runtime: tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
@@ -101,6 +102,7 @@ impl LogTransport {
                 .build()
                 .unwrap(),
             log,
+            authority_policy,
         }
     }
 }
@@ -152,9 +154,7 @@ impl Transport for LogHandle {
     }
 
     fn authority_policy(&self) -> f2z_kt_client::Result<Vec<u8>> {
-        Err(ClientError::Unreachable(
-            "this fixture serves no policy".to_owned(),
-        ))
+        Ok(self.0.authority_policy.clone())
     }
 
     fn descriptor(&self) -> f2z_kt_client::Result<Vec<u8>> {
@@ -317,7 +317,19 @@ impl Deployment {
         ));
         setup.block_on(harness.log.publish_epoch(NOW)).unwrap();
 
-        let transport = Arc::new(LogTransport::new(Arc::clone(&harness.log)));
+        let authority_policy = f2z_kt::sign_policy(
+            harness.log.authority(),
+            harness.log_id,
+            harness.log.signer(),
+            NOW,
+        )
+        .unwrap()
+        .encode_canonical()
+        .unwrap();
+        let transport = Arc::new(LogTransport::new(
+            Arc::clone(&harness.log),
+            authority_policy,
+        ));
         let dir = f2z_kt::testing::temp_dir(&format!("{name}-w"));
         let witness = Witness::new(
             Settings {

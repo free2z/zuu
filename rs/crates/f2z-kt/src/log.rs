@@ -8,8 +8,10 @@
 //! function that adds to the pending batch, it takes bytes and returns a
 //! receipt, and the only thing it can put in that batch is what
 //! [`crate::admit::admit_submission`] handed back — a type with no public
-//! constructor. There is no `publish_raw`, no test hook, no bypass flag, and
-//! [`tests/adversarial.rs`] is the test that watches it hold.
+//! constructor. There is no `publish_raw` or bypass flag; a rewrite hook exists
+//! only behind the non-default `testing` feature for malicious-log acceptance
+//! tests and is absent from shipping builds. [`tests/adversarial.rs`] watches
+//! the production admission invariant hold.
 //!
 //! # Heartbeat epochs — an invention, and the reason for it
 //!
@@ -1077,6 +1079,38 @@ impl LogService {
     /// actually drained a batch.
     pub async fn pending_count(&self) -> usize {
         self.state.lock().await.pending.len()
+    }
+
+    /// Rewrite an admitted pending entry before it is committed to the tree.
+    ///
+    /// This exists only for the client acceptance suite: it models a log that
+    /// accepts a valid submission, then publishes different canonical entry
+    /// bytes and a matching Merkle value. The resulting inclusion proof is
+    /// valid, so the client must reject the authorization itself.
+    #[cfg(feature = "testing")]
+    pub async fn rewrite_pending_entry_for_test(
+        &self,
+        handle: &Handle,
+        canonical: Vec<u8>,
+    ) -> Result<()> {
+        let entry = f2z_codec::decode_canonical::<f2z_kt_core::entry::DirectoryEntry>(&canonical)?
+            .into_value();
+        entry.validate().map_err(LogError::Kt)?;
+        if &entry.entry.handle != handle {
+            return Err(LogError::Storage("test rewrite changed handle".to_owned()));
+        }
+        let digest = labels::entry_value(&canonical);
+        let published = PublishedEntry::from_entry(&entry).map_err(LogError::Kt)?;
+        let mut state = self.state.lock().await;
+        let pending = state
+            .pending
+            .iter_mut()
+            .find(|pending| pending.handle == handle.as_slice())
+            .ok_or_else(|| LogError::Storage("no pending entry to rewrite".to_owned()))?;
+        pending.canonical = canonical;
+        pending.akd_value = digest;
+        pending.published = published;
+        Ok(())
     }
 
     /// The current epoch, or 0 before genesis.
