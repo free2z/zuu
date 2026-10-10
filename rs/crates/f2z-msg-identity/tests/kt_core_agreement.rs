@@ -35,19 +35,17 @@
     clippy::arithmetic_side_effects
 )]
 
+use f2z_authority::{AssertionNonce, HandleAssertionTBS, Intent, SigningKey};
 use f2z_codec::canonical::Canonical as _;
-use f2z_codec::types::{Digest, PublicKey, ShortBytes};
-use f2z_codec::vec::VecU16;
-use f2z_kt_core::entry::{
-    DeviceCredential, DirectoryEntry, DirectoryEntryTBS, EntryAuthorization, EntryKind,
-};
-use f2z_kt_core::labels::LABEL_ENTRY;
+use f2z_codec::types::{Digest, ShortBytes};
+use f2z_kt_core::KtError;
+use f2z_kt_core::entry::{DeviceCredential, DirectoryEntry};
 use f2z_kt_core::submit::{LogPolicy, PublishedEntry, SubmissionContext, validate_submission};
 use f2z_kt_core::types::{Handle, KemPublicKey, LogId};
-use f2z_kt_core::{KT_VERSION, KtError};
 use f2z_msg_identity::account::AccountKeys;
 use f2z_msg_identity::credential::DeviceCredentialRequest;
 use f2z_msg_identity::device::DeviceSignatureKey;
+use f2z_msg_identity::directory::SubmissionDraft;
 
 /// BIP-39's published seed for the all-`abandon` mnemonic — the same fixture
 /// `tests/derivation_vectors.rs` pins, so a failure here and a failure there
@@ -90,7 +88,8 @@ impl rand_core::TryCryptoRng for CountingRng {}
 fn policy() -> LogPolicy {
     // The log's identity is not what is under test, so the values are fixtures.
     // `log_id` has to match the entry's, and it does because both read this.
-    LogPolicy::new(LogId::new([0x11; 32]), PublicKey::new([0x22; 32]), 604_800)
+    let authority = SigningKey::from_seed(&[0x22; 32]);
+    LogPolicy::new(LogId::new([0x11; 32]), authority.public_key(), 604_800)
 }
 
 /// Issue a credential for one device of the `alice` account.
@@ -110,38 +109,49 @@ fn credential(keys: &AccountKeys, device: &DeviceSignatureKey) -> DeviceCredenti
         .unwrap()
 }
 
-/// Build and authorize a `same_key` entry carrying `devices`.
+/// Build an entry through the same production signer the app uses.
 fn entry(
     keys: &AccountKeys,
     devices: Vec<DeviceCredential>,
-    entry_version: u32,
-    prev_entry_hash: Digest,
+    predecessor: Option<&DirectoryEntry>,
 ) -> DirectoryEntry {
-    let tbs = DirectoryEntryTBS {
-        label: ShortBytes::new(LABEL_ENTRY.to_vec()).unwrap(),
-        kt_version: KT_VERSION,
-        log_id: LogId::new([0x11; 32]),
-        handle: Handle::new(b"alice".to_vec()).unwrap(),
-        entry_version,
-        kind: EntryKind::SameKey,
-        identity_pk: keys.identity.public(),
-        directory_auth_pk: keys.directory_auth.public(),
-        devices: VecU16::new(devices),
-        revocations: VecU16::new(Vec::new()),
-        contact_endpoints: VecU16::new(Vec::new()),
-        prev_entry_hash,
-        no_reset: 0,
-        created_at_ms: NOW_MS,
+    let assertion = if predecessor.is_none() {
+        let authority = SigningKey::from_seed(&[0x22; 32]);
+        Some(
+            HandleAssertionTBS::new(
+                &authority.public_key(),
+                f2z_authority::types::LogId::new([0x11; 32]),
+                f2z_authority::types::Handle::parse(b"alice").unwrap(),
+                keys.identity.public(),
+                Intent::Bind,
+                0,
+                NOW_MS - 1_000,
+                NOW_MS + 60_000,
+                AssertionNonce::new([0x55; 16]),
+            )
+            .unwrap()
+            .sign(&authority)
+            .unwrap()
+            .encode_canonical()
+            .unwrap(),
+        )
+    } else {
+        None
     };
-    // §4.4: `auth_signature` is Ed25519 over `tls_codec(DirectoryEntryTBS)` by
-    // the `DirectoryAuthKey` — never by the ISK. `DirectoryAuthKey` is the only
-    // key in this crate that can produce it, which is the separation `KT.md`
-    // §4.4 narrows §4.2's overlapping table into.
-    let auth_signature = keys.directory_auth.sign_directory_entry(&tbs).unwrap();
-    DirectoryEntry {
-        entry: tbs,
-        authorization: EntryAuthorization::SameKey { auth_signature },
-    }
+    keys.sign_directory_submission(
+        &SubmissionDraft {
+            log_id: LogId::new([0x11; 32]),
+            handle: Handle::new(b"alice".to_vec()).unwrap(),
+            devices,
+            revocations: Vec::new(),
+            contact_endpoints: Vec::new(),
+            predecessor,
+            created_at_ms: NOW_MS,
+        },
+        assertion.as_deref(),
+    )
+    .unwrap()
+    .entry
 }
 
 /// **The acceptance test.** A credential this crate issued, accepted by the
@@ -150,7 +160,7 @@ fn entry(
 fn a_credential_issued_here_is_accepted_by_the_kt_validator() {
     let keys = AccountKeys::from_seed(&SEED, 0).unwrap();
     let device = DeviceSignatureKey::generate(&mut CountingRng(1));
-    let entry = entry(&keys, vec![credential(&keys, &device)], 1, Digest::zero());
+    let entry = entry(&keys, vec![credential(&keys, &device)], None);
 
     let bytes = entry.encode_canonical().unwrap();
     let policy = policy();
@@ -185,12 +195,7 @@ fn a_credential_signed_by_a_different_identity_is_rejected() {
     let device = DeviceSignatureKey::generate(&mut CountingRng(2));
 
     // Mallory's identity issues the credential; Alice's entry carries it.
-    let entry = entry(
-        &alice,
-        vec![credential(&mallory, &device)],
-        1,
-        Digest::zero(),
-    );
+    let entry = entry(&alice, vec![credential(&mallory, &device)], None);
 
     let bytes = entry.encode_canonical().unwrap();
     let policy = policy();
@@ -223,8 +228,7 @@ fn two_devices_of_one_account_are_accepted_together() {
     let entry = entry(
         &keys,
         vec![credential(&keys, &first), credential(&keys, &second)],
-        1,
-        Digest::zero(),
+        None,
     );
     let bytes = entry.encode_canonical().unwrap();
     let policy = policy();
@@ -256,13 +260,7 @@ fn a_chained_second_entry_is_authorized_by_the_same_seed_derived_key() {
     let first_device = DeviceSignatureKey::generate(&mut rng);
     let second_device = DeviceSignatureKey::generate(&mut rng);
 
-    let first = entry(
-        &keys,
-        vec![credential(&keys, &first_device)],
-        1,
-        Digest::zero(),
-    );
-    let first_bytes = first.encode_canonical().unwrap();
+    let first = entry(&keys, vec![credential(&keys, &first_device)], None);
     let published = PublishedEntry::from_entry(&first).unwrap();
 
     let second = entry(
@@ -271,8 +269,7 @@ fn a_chained_second_entry_is_authorized_by_the_same_seed_derived_key() {
             credential(&keys, &first_device),
             credential(&keys, &second_device),
         ],
-        2,
-        f2z_kt_core::submit::chain_hash_of(&first_bytes),
+        Some(&first),
     );
     let bytes = second.encode_canonical().unwrap();
     let policy = policy();

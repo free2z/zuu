@@ -305,6 +305,11 @@ fn assertion(internal: &Internal, account: &AccountKeys, authority: &SigningKey)
 #[test]
 fn a_seed_signed_enrollment_is_admitted_merged_and_resolvable() {
     let mut internal = Internal::new("seed-submit-happy");
+    serve_policy(
+        &internal,
+        Some(vec![SigningKey::from_seed(&AUTHORITY_SEED).public_key()]),
+        None,
+    );
     let account = account();
     let handle = alice();
     let log_pk = internal.harness.log.log_public_key();

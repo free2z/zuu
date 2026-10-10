@@ -1418,22 +1418,22 @@ deliberate.
   portable evidence rather than a local error dialog are all unspecified.
   `KT.md` defines the evidence structures but deliberately does not invent the
   protocol that exchanges them.
-- **S′. Client verification of a handle's first directory entry.** Opened
-  2026-08-24 by [`KT.md` §4.7](./KT.md#47-what-a-compromised-authority-can-and-cannot-do),
-  as the narrower remainder of **S** below. §4.5 now says what authorizes a first
-  entry, and the log is the only party that checks it: a `HandleAssertion`
-  travels in the submission envelope, is not part of `DirectoryEntry`, is not
-  inside the value the tree commits to, and is not served with a lookup. Every
-  other authorization in §4.4 is the opposite — a `RotationProof` and a
-  `ResetAuthorization` sit inside `EntryAuthorization` and are re-verified by
-  every client on every lookup. So the first-entry hole is closed against a
-  stranger and **not against the log**, `KT.md` §8.1 step 6 still verifies
-  nothing at `entry_version == 1`, and §8.5's table still says so. Closing it
-  means a fourth `EntryAuthorization` case carrying the assertion and the
-  identity countersignature, with the binding committing to
-  `H(tls_codec(DirectoryEntryTBS))` rather than to the whole entry digest —
-  a wire change to a structure two implementations have already frozen, so it is
-  filed rather than made. [#594](https://github.com/free2z/zuu/issues/594).
+- **S′. Client verification of a handle's first directory entry.** The #649
+  implementation proposal adds `initial_bind` as a fourth `EntryAuthorization`
+  case. It commits the assertion, an identity binding over the digest of
+  `DirectoryEntryTBS`, and the entry's directory-auth signature into the value
+  the tree serves. Clients and auditors can check those signatures and expose
+  the artifact as portable evidence. The authority key still needs an
+  out-of-band pin: a log-signed policy alone does not establish that key's
+  identity. This future-wire extension has not been ratified or coordinated
+  with the external assertion issuer. The existing v1 assertion and submission
+  binding remain unchanged. Clients check assertion lifetime against the
+  submitter-signed `created_at_ms`, which is not proof of actual log admission
+  time. They also use the current authority policy: after a cold restart,
+  issuer eviction, a lower validity/skew cap, or a switch to no-authority mode
+  can make a legitimate historical first entry unverifiable. No historical
+  policy-membership proof is specified; maintainers must decide this fail-closed
+  compatibility behavior before rollout. [#649](https://github.com/free2z/zuu/issues/649).
 
 - **T. Proving that a handle is unregistered.** Opened 2026-08-24 by
   [`KT.md` §8.1](./KT.md#81-lookup) and
