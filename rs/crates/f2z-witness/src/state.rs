@@ -37,6 +37,8 @@ use std::path::{Path, PathBuf};
 use f2z_codec::Canonical as _;
 use f2z_codec::decode_canonical;
 use f2z_codec::types::{Digest, PublicKey, ShortBytes};
+use f2z_codec::vec::VecU24;
+use f2z_kt_core::WitnessCosignature;
 use f2z_kt_core::sth::{LogView, SignedTreeHead};
 use f2z_kt_core::types::{LogId, check_label, label_field};
 use f2z_kt_core::{FaultKind, KT_VERSION};
@@ -44,16 +46,21 @@ use tls_codec::{TlsDeserializeBytes, TlsSerializeBytes, TlsSize};
 
 use crate::error::{Result, WitnessError};
 
-/// The state file's type tag. Not a signing label — nothing signs this; it is
-/// the witness's private note to itself.
+/// The legacy state tag, retained only for positively identified migration.
 const LABEL_STATE: &[u8] = b"free2z/kt/v1/witness-state";
+/// The current private state tag. Distinct from the legacy tag so truncation
+/// can never make a current file eligible for the legacy decoder.
+const LABEL_STATE_V2: &[u8] = b"free2z/kt/v1/witness-state/v2";
+const STATE_FORMAT_VERSION: u16 = 2;
 
 /// `KT.md` §7.5's durable state, plus the halt flag §7.1 requires to survive a
 /// restart.
 #[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
 pub struct WitnessState {
-    /// Exactly [`LABEL_STATE`].
+    /// Exactly [`LABEL_STATE_V2`].
     pub label: ShortBytes,
+    /// Private state-file layout version.
+    pub format_version: u16,
     /// `0x0001`.
     pub kt_version: u16,
     /// The log being followed.
@@ -91,6 +98,12 @@ pub struct WitnessState {
     /// operator would find a witness that had quietly resumed cosigning a log
     /// it had already caught equivocating.
     pub halted: u8,
+    /// Whether this state records delivery state: 0 only for migrated legacy
+    /// files, 1 once delivery tracking is active.
+    pub delivery_known: u8,
+    /// The deterministic cosignature that still needs delivery, if any.
+    /// This is staged in the same durable write as the verified head.
+    pub pending_cosignatures: VecU24<WitnessCosignature>,
     /// When this file was last written.
     pub updated_at_ms: u64,
 }
@@ -104,7 +117,8 @@ impl WitnessState {
     pub fn pin(view: &LogView, head: &SignedTreeHead, now_ms: u64) -> Result<Self> {
         let published_at_ms = head.sth.published_at_ms;
         Ok(Self {
-            label: label_field(LABEL_STATE).map_err(|e| WitnessError::Local(e.to_string()))?,
+            label: label_field(LABEL_STATE_V2).map_err(|e| WitnessError::Local(e.to_string()))?,
+            format_version: STATE_FORMAT_VERSION,
             kt_version: KT_VERSION,
             log_id: *view.log_id(),
             accepted_log_pk: *view.accepted_log_pk(),
@@ -116,6 +130,8 @@ impl WitnessState {
             vrf_public_key: *view.vrf_public_key(),
             published_at_ms,
             halted: 0,
+            delivery_known: 1,
+            pending_cosignatures: VecU24::new(Vec::new()),
             updated_at_ms: now_ms,
         })
     }
@@ -195,11 +211,41 @@ impl WitnessState {
     /// [`WitnessError::Local`] if the file is not a witness state file for this
     /// protocol version.
     pub fn validate(&self) -> Result<()> {
-        check_label(&self.label, LABEL_STATE)
+        check_label(&self.label, LABEL_STATE_V2)
             .map_err(|_| WitnessError::Local("state file: wrong label".to_owned()))?;
+        if self.format_version != STATE_FORMAT_VERSION {
+            return Err(WitnessError::Local(
+                "state file: unsupported format_version".to_owned(),
+            ));
+        }
         if self.kt_version != KT_VERSION {
             return Err(WitnessError::Local(
                 "state file: unsupported kt_version".to_owned(),
+            ));
+        }
+        let mut last_pending_epoch = None;
+        for pending in self.pending_cosignatures.as_slice() {
+            if pending.statement.log_id != self.log_id
+                || pending.statement.epoch > self.epoch
+                || (pending.statement.epoch == self.epoch && !pending.covers(&self.head))
+                || pending.verify().is_err()
+                || last_pending_epoch.is_some_and(|epoch| pending.statement.epoch <= epoch)
+            {
+                return Err(WitnessError::Local(
+                    "state file: pending cosignature does not verify for the held log position"
+                        .to_owned(),
+                ));
+            }
+            last_pending_epoch = Some(pending.statement.epoch);
+        }
+        if self.delivery_known > 1 {
+            return Err(WitnessError::Local(
+                "state file: unsupported delivery marker".to_owned(),
+            ));
+        }
+        if self.delivery_known == 0 && !self.pending_cosignatures.is_empty() {
+            return Err(WitnessError::Local(
+                "state file: legacy delivery marker conflicts with pending cosignature".to_owned(),
             ));
         }
         Ok(())
@@ -222,13 +268,84 @@ pub fn load(path: &Path) -> Result<Option<WitnessState>> {
             return Err(WitnessError::Local(format!("{}: {error}", path.display())));
         }
     };
-    let state = decode_canonical::<WitnessState>(&bytes)
-        .map_err(|error| {
-            WitnessError::Local(format!("{}: undecodable state: {error}", path.display()))
-        })?
-        .into_value();
+    let state = if starts_with_encoded_label(&bytes, LABEL_STATE_V2) {
+        decode_canonical::<WitnessState>(&bytes)
+            .map_err(|error| {
+                WitnessError::Local(format!("{}: undecodable state: {error}", path.display()))
+            })?
+            .into_value()
+    } else if starts_with_encoded_label(&bytes, LABEL_STATE) {
+        decode_canonical::<LegacyWitnessState>(&bytes)
+            .map_err(|error| {
+                WitnessError::Local(format!(
+                    "{}: undecodable legacy state: {error}",
+                    path.display()
+                ))
+            })?
+            .into_value()
+            .into_current()?
+    } else {
+        return Err(WitnessError::Local(format!(
+            "{}: unrecognized state format",
+            path.display()
+        )));
+    };
     state.validate()?;
     Ok(Some(state))
+}
+
+/// Identify a TLS `opaque<0..255>` label before selecting a decoder. This is
+/// intentionally checked before decoding so a truncated v2 file cannot fall
+/// through to the shorter legacy layout.
+fn starts_with_encoded_label(bytes: &[u8], label: &[u8]) -> bool {
+    let Some((length, rest)) = bytes.split_first() else {
+        return false;
+    };
+    usize::from(*length) == label.len() && rest.starts_with(label)
+}
+
+/// The state-file shape used before delivery tracking. Decode it only as a
+/// compatibility migration; the first poll reconstructs and durably stages
+/// its deterministic cosignature after re-verifying the held head.
+#[derive(Clone, Debug, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+struct LegacyWitnessState {
+    label: ShortBytes,
+    kt_version: u16,
+    log_id: LogId,
+    accepted_log_pk: PublicKey,
+    head: SignedTreeHead,
+    epoch: u64,
+    tree_size: u64,
+    root_hash: Digest,
+    sth_hash: Digest,
+    vrf_public_key: PublicKey,
+    published_at_ms: u64,
+    halted: u8,
+    updated_at_ms: u64,
+}
+
+impl LegacyWitnessState {
+    fn into_current(self) -> Result<WitnessState> {
+        Ok(WitnessState {
+            label: label_field(LABEL_STATE_V2)
+                .map_err(|error| WitnessError::Local(error.to_string()))?,
+            format_version: STATE_FORMAT_VERSION,
+            kt_version: self.kt_version,
+            log_id: self.log_id,
+            accepted_log_pk: self.accepted_log_pk,
+            head: self.head,
+            epoch: self.epoch,
+            tree_size: self.tree_size,
+            root_hash: self.root_hash,
+            sth_hash: self.sth_hash,
+            vrf_public_key: self.vrf_public_key,
+            published_at_ms: self.published_at_ms,
+            halted: self.halted,
+            delivery_known: 0,
+            pending_cosignatures: VecU24::new(Vec::new()),
+            updated_at_ms: self.updated_at_ms,
+        })
+    }
 }
 
 /// Replace the state file atomically: temp, `fsync`, `rename`, `fsync` the
@@ -278,11 +395,15 @@ pub fn store(path: &Path, state: &WitnessState) -> Result<()> {
 mod tests {
     #![allow(clippy::unwrap_used)]
 
+    use f2z_codec::Canonical as _;
     use f2z_codec::types::{Digest, PublicKey, ShortBytes};
     use f2z_kt_core::FaultKind;
     use f2z_kt_core::types::{LogId, label_field};
 
-    use super::{LABEL_STATE, WitnessState, load, store};
+    use super::{
+        LABEL_STATE, LABEL_STATE_V2, LegacyWitnessState, STATE_FORMAT_VERSION, VecU24,
+        WitnessCosignature, WitnessState, load, store,
+    };
 
     fn head() -> f2z_kt_core::sth::SignedTreeHead {
         f2z_kt_core::sth::SignedTreeHead {
@@ -307,7 +428,8 @@ mod tests {
 
     fn state() -> WitnessState {
         WitnessState {
-            label: label_field(LABEL_STATE).unwrap(),
+            label: label_field(LABEL_STATE_V2).unwrap(),
+            format_version: STATE_FORMAT_VERSION,
             kt_version: f2z_kt_core::KT_VERSION,
             log_id: LogId::new([1u8; 32]),
             accepted_log_pk: PublicKey::new([2u8; 32]),
@@ -319,6 +441,8 @@ mod tests {
             vrf_public_key: PublicKey::new([5u8; 32]),
             published_at_ms: 1_700,
             halted: 0,
+            delivery_known: 1,
+            pending_cosignatures: VecU24::new(Vec::new()),
             updated_at_ms: 1_800,
         }
     }
@@ -358,6 +482,75 @@ mod tests {
         // zero and cosigns a rollback.
         let path = temp("state-corrupt").join("state.bin");
         std::fs::write(&path, b"not a witness state").unwrap();
+        assert!(load(&path).is_err());
+    }
+
+    #[test]
+    fn a_legacy_state_file_is_loaded_with_delivery_recovery_required() {
+        let path = temp("state-legacy").join("state.bin");
+        let current = state();
+        let legacy = LegacyWitnessState {
+            label: label_field(LABEL_STATE).unwrap(),
+            kt_version: current.kt_version,
+            log_id: current.log_id,
+            accepted_log_pk: current.accepted_log_pk,
+            head: current.head,
+            epoch: current.epoch,
+            tree_size: current.tree_size,
+            root_hash: current.root_hash,
+            sth_hash: current.sth_hash,
+            vrf_public_key: current.vrf_public_key,
+            published_at_ms: current.published_at_ms,
+            halted: current.halted,
+            updated_at_ms: current.updated_at_ms,
+        };
+        let bytes = legacy.encode_canonical().unwrap();
+        std::fs::write(&path, bytes).unwrap();
+
+        let migrated = load(&path).unwrap().unwrap();
+        assert_eq!(migrated.delivery_known, 0);
+        assert!(migrated.pending_cosignatures.is_empty());
+        assert_eq!(migrated.epoch, 7);
+    }
+
+    #[test]
+    fn truncated_current_state_never_falls_back_to_legacy_layout() {
+        for (name, halted) in [("active", false), ("halted", true)] {
+            let path = temp(&format!("state-v2-truncated-{name}")).join("state.bin");
+            let mut current = state();
+            if halted {
+                current.halt(FaultKind::Fork, 2_000);
+            }
+            let mut bytes = current.encode_canonical().unwrap();
+            let truncated_len = bytes.len().saturating_sub(4);
+            bytes.truncate(truncated_len);
+            std::fs::write(&path, bytes).unwrap();
+
+            assert!(load(&path).is_err(), "{name} v2 state must fail closed");
+        }
+    }
+
+    #[test]
+    fn a_state_file_with_an_invalid_pending_cosignature_is_refused() {
+        let path = temp("state-pending-invalid").join("state.bin");
+        let mut stored = state();
+        let held = stored.head.clone();
+        stored.pending_cosignatures = VecU24::new(vec![WitnessCosignature {
+            statement: f2z_kt_core::WitnessCosignatureTBS {
+                label: label_field(f2z_kt_core::labels::LABEL_COSIG).unwrap(),
+                kt_version: f2z_kt_core::KT_VERSION,
+                log_id: held.sth.log_id,
+                epoch: held.sth.epoch,
+                tree_size: held.sth.tree_size,
+                root_hash: held.sth.root_hash,
+                witness_pk: PublicKey::new([6u8; 32]),
+                observed_at_ms: 1_800,
+            },
+            signature: f2z_codec::types::Signature::zero(),
+        }]);
+        let bytes = stored.encode_canonical().unwrap();
+        std::fs::write(&path, bytes).unwrap();
+
         assert!(load(&path).is_err());
     }
 
