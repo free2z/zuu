@@ -98,6 +98,15 @@ impl DeviceSigner {
         &self.public
     }
 
+    /// A stable root key for this device's MLS storage sealing.
+    ///
+    /// Keeping it derived inside this crate prevents a caller that retained a
+    /// clone of the shared backend from rebuilding an OpenMLS provider that
+    /// can load this engine's raw groups by their public group ids.
+    pub(crate) fn storage_root_key(&self) -> [u8; 32] {
+        *f2z_codec::hash::hash(b"free2z/mls/storage-root-key/v1", &self.private).as_bytes()
+    }
+
     /// Sign, returning the error type this crate uses rather than OpenMLS's.
     ///
     /// # Errors

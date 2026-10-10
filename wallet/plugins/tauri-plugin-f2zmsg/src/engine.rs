@@ -50,11 +50,11 @@ use chacha20poly1305::aead::{Aead as _, KeyInit as _};
 use f2z_codec::commands::Command;
 use f2z_codec::hash::{hash, hash2};
 use f2z_codec::types::RelayId;
-use f2z_msg_mls::{DeviceSigner, EngineError, MlsEngine, Received, VerifiedKeyPackage};
+use f2z_msg_mls::{
+    DeviceSigner, EngineError, GroupHandle, MlsEngine, Received, VerifiedKeyPackage,
+};
 use f2z_msg_store::{F2zStorageProvider, StorageBackend};
 use f2z_relay_proto::key::SigningKey;
-use openmls::prelude::{GroupId, MlsGroup};
-use openmls_traits::OpenMlsProvider as _;
 use rand::Rng as _;
 
 use crate::directory::{
@@ -234,7 +234,7 @@ struct Inner<B: StorageBackend> {
     /// Present once the device is enrolled **and** unlocked.
     mls: Option<MlsEngine<SharedBackend<B>>>,
     /// Loaded on `start_engine`, keyed by conversation id.
-    groups: HashMap<String, MlsGroup>,
+    groups: HashMap<String, GroupHandle>,
     /// One per relay URL. `WIRE.md` §2.5's session is per connection.
     connections: HashMap<String, RelayConnection>,
     /// Policy for a relay learned from a verified directory entry rather than
@@ -1659,8 +1659,8 @@ impl<B: StorageBackend + Send + Sync + 'static> Engine<B> {
             .ok_or_else(|| Error::engine_not_running("send_message"))?;
         let sealed: Result<(AppMessage, Vec<u8>, u64, u32)> = (|| {
             let mls = inner.mls_ref("send_message")?;
-            let epoch = group.epoch().as_u64();
-            let leaf = group.own_leaf_index().u32();
+            let epoch = group.epoch();
+            let leaf = group.own_leaf_index();
             let framed = envelope::seal(
                 MessageType::CHAT,
                 &parents,
@@ -2199,7 +2199,7 @@ impl<B: StorageBackend + Send + Sync + 'static> Engine<B> {
         let epoch = inner
             .groups
             .get(conversation_id)
-            .map_or(0, |group| group.epoch().as_u64());
+            .map_or(0, |group| group.epoch());
         let hint = EphemeralHintState {
             mode,
             ttl_seconds,
@@ -3368,7 +3368,7 @@ impl<B: StorageBackend> Inner<B> {
         let epoch = self
             .groups
             .get(&stored.conversation_id)
-            .map_or(0, |group| group.epoch().as_u64());
+            .map_or(0, |group| group.epoch());
         let connected = stored
             .queues
             .inbound
@@ -3460,7 +3460,7 @@ impl<B: StorageBackend> Inner<B> {
                 continue;
             };
             let mls = self.mls_ref("load_groups")?;
-            match MlsGroup::load(mls.provider().storage(), &GroupId::from_slice(&group_id)) {
+            match mls.load_group(&group_id) {
                 Ok(Some(group)) => {
                     groups.insert(id, group);
                 }
@@ -3477,16 +3477,13 @@ impl<B: StorageBackend> Inner<B> {
     /// Used on demand after [`EngineError::GroupStateUnavailable`], where the
     /// old in-memory handle is deliberately absent. Failure must propagate so
     /// the queue cursor and ACK boundary remain before the ciphertext.
-    fn reload_group(&self, stored: &StoredConversation) -> Result<MlsGroup> {
+    fn reload_group(&self, stored: &StoredConversation) -> Result<GroupHandle> {
         let group_id = hex::decode(&stored.group_id)
             .map_err(|_| Error::internal("the stored MLS group id is not hexadecimal"))?;
         let mls = self.mls_ref("reload_group")?;
-        MlsGroup::load(
-            mls.provider().storage(),
-            &GroupId::from_slice(group_id.as_slice()),
-        )
-        .map_err(|error| Error::internal(format!("reloading an MLS group: {error:?}")))?
-        .ok_or_else(|| Error::internal("the durable MLS group is missing"))
+        mls.load_group(&group_id)
+            .map_err(|error| Error::internal(format!("reloading an MLS group: {error:?}")))?
+            .ok_or_else(|| Error::internal("the durable MLS group is missing"))
     }
 
     async fn subscribe_all(&mut self) {
@@ -3871,8 +3868,8 @@ impl<B: StorageBackend> Inner<B> {
             .ok_or_else(|| Error::engine_not_running("send_control"))?;
         let sealed: Result<(AppMessage, Vec<u8>, u64, u32)> = (|| {
             let mls = self.mls_ref("send_control")?;
-            let epoch = group.epoch().as_u64();
-            let leaf = group.own_leaf_index().u32();
+            let epoch = group.epoch();
+            let leaf = group.own_leaf_index();
             let framed = envelope::seal(
                 message_type,
                 &parents,
@@ -5981,8 +5978,6 @@ mod tests {
     use f2z_msg_store::{Durability, MemoryBackend, Op, SqliteBackend, StorageBackend, StoreError};
     use f2z_relay_testkit::fake::FakeRelay;
     use f2z_relay_testkit::faults::{Effect, Fault, Trigger};
-    use openmls::prelude::{GroupId, MlsGroup};
-    use openmls_traits::OpenMlsProvider as _;
     use rand::TryRng;
 
     use super::*;
@@ -6314,12 +6309,12 @@ mod tests {
             "authentication refusal must precede the in-memory MLS join"
         );
         assert!(
-            MlsGroup::load(
-                inner.mls_ref("test").unwrap().provider().storage(),
-                &GroupId::from_slice(&group_id),
-            )
-            .expect("load after authentication refusal")
-            .is_none(),
+            inner
+                .mls_ref("test")
+                .unwrap()
+                .load_group(&group_id)
+                .expect("load after authentication refusal")
+                .is_none(),
             "authentication refusal must precede the persisted MLS join"
         );
         assert!(
@@ -6470,12 +6465,9 @@ mod tests {
         assert!(inner.records().conversation(&outer).unwrap().is_none());
         let mls = inner.mls_ref("test").unwrap();
         assert!(
-            MlsGroup::load(
-                mls.provider().storage(),
-                &GroupId::from_slice(&actual_group_id)
-            )
-            .expect("load after refused join")
-            .is_none(),
+            mls.load_group(&actual_group_id)
+                .expect("load after refused join")
+                .is_none(),
             "the checked join must roll the OpenMLS transaction back"
         );
     }
@@ -6495,6 +6487,15 @@ mod tests {
                 return Err(StoreError::Backend("injected pre-bind commit failure"));
             }
             self.inner.apply(ops)
+        }
+
+        fn atomic_rewrite(
+            &self,
+            marker_key: &[u8],
+            marker_value: &[u8],
+            rewrite: &mut f2z_msg_store::RowRewrite<'_>,
+        ) -> f2z_msg_store::Result<()> {
+            self.inner.atomic_rewrite(marker_key, marker_value, rewrite)
         }
 
         fn durability(&self) -> Durability {
@@ -6519,6 +6520,15 @@ mod tests {
                 return Err(StoreError::Backend("injected atomic theft commit failure"));
             }
             self.inner.apply(ops)
+        }
+
+        fn atomic_rewrite(
+            &self,
+            marker_key: &[u8],
+            marker_value: &[u8],
+            rewrite: &mut f2z_msg_store::RowRewrite<'_>,
+        ) -> f2z_msg_store::Result<()> {
+            self.inner.atomic_rewrite(marker_key, marker_value, rewrite)
         }
 
         fn durability(&self) -> Durability {
@@ -8742,6 +8752,15 @@ mod directory_state_tests {
 
         fn apply(&self, ops: &[f2z_msg_store::Op]) -> f2z_msg_store::Result<()> {
             self.0.apply(ops)
+        }
+
+        fn atomic_rewrite(
+            &self,
+            marker_key: &[u8],
+            marker_value: &[u8],
+            rewrite: &mut f2z_msg_store::RowRewrite<'_>,
+        ) -> f2z_msg_store::Result<()> {
+            self.0.atomic_rewrite(marker_key, marker_value, rewrite)
         }
 
         fn durability(&self) -> f2z_msg_store::Durability {
