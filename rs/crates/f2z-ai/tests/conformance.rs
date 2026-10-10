@@ -33,6 +33,7 @@ mod conformance_support;
 mod support;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 
 use axum::http::StatusCode;
 use conformance_support::{
@@ -41,7 +42,10 @@ use conformance_support::{
     usage_mismatches, validate,
 };
 use f2z_ai_proto::Event;
+use f2z_ai_proto::catalog_v2::{CatalogModelV2, CatalogV2, ContextPriceTier};
 use f2z_ai_proto::chat::ChatResponse;
+use f2z_ai_proto::pricing::Bps;
+use f2z_ai_proto::pricing::ModelPrices;
 use serde_json::{Value, json};
 
 use conformance_support::Harness;
@@ -76,6 +80,65 @@ fn expected_reply_events(fixture: &Fixture) -> J {
     J::of(&Value::Array(out))
 }
 
+fn save_artifact(directory: &std::path::Path, name: &str, bytes: &[u8]) {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(directory.join(name))
+        .unwrap()
+        .write_all(bytes)
+        .unwrap();
+}
+
+async fn capture_catalogues(fixture: &Fixture) {
+    let Some(directory) = std::env::var_os("F2Z_RELEASED_SDK_RESPONSE_DIR") else {
+        return;
+    };
+    let directory = std::path::PathBuf::from(directory);
+    let harness = Harness::start(fixture, &fixture.catalog_model.capabilities).await;
+    let (status, body) = harness.get("/v1/models").await;
+    assert_eq!(status, StatusCode::OK, "GET /v1/models: {body}");
+    let models: Value = serde_json::from_str(&body).unwrap();
+    assert!(!models["models"].as_array().unwrap().is_empty());
+    save_artifact(&directory, "models-response.json", body.as_bytes());
+
+    // The schema-2 type is an opt-in producer contract today. Build it from
+    // the same signed catalogue model used by the production route, then let
+    // the current proto serializer produce the bytes the released decoder
+    // consumes. Its tier is deliberately above the model's base rates.
+    let verified = conformance_support::catalog_for(fixture, &fixture.catalog_model.capabilities);
+    let base = verified.catalog().models[0].clone();
+    let tier_prices = ModelPrices {
+        input_nusd_per_mtok: base.prices.input_nusd_per_mtok + 1,
+        cached_input_nusd_per_mtok: base.prices.cached_input_nusd_per_mtok + 1,
+        cache_write_nusd_per_mtok: base.prices.cache_write_nusd_per_mtok + 1,
+        output_nusd_per_mtok: base.prices.output_nusd_per_mtok + 1,
+        ..base.prices
+    };
+    let catalog = CatalogV2 {
+        schema: 2,
+        version: verified.catalog().version,
+        issued_at: verified.catalog().issued_at,
+        expires_at: verified.catalog().expires_at,
+        rate_card_version: verified.catalog().rate_card_version,
+        platform_margin_bps: Bps(verified.catalog().platform_margin_bps.0),
+        disabled_providers: verified.catalog().disabled_providers.clone(),
+        models: vec![CatalogModelV2 {
+            base,
+            long_context_pricing: Some(ContextPriceTier {
+                input_tokens_gt: 100_000,
+                prices: tier_prices,
+            }),
+        }],
+    };
+    save_artifact(
+        &directory,
+        "long-context-catalog.json",
+        &serde_json::to_vec(&catalog).unwrap(),
+    );
+    harness.stop().await;
+}
+
 /// Run one success fixture in one stream mode and assert all of it.
 async fn run(fixture: &Fixture, stream: bool) -> Observed {
     let name = format!("{} (stream: {stream})", fixture.name);
@@ -108,6 +171,39 @@ async fn run(fixture: &Fixture, stream: bool) -> Observed {
 
     let (events, usage, finish_reason) = if stream {
         let events = client_events(&body);
+        if let Some(directory) = std::env::var_os("F2Z_RELEASED_SDK_RESPONSE_DIR") {
+            let mut event_json = Vec::new();
+            for frame in body.split("\n\n") {
+                let mut name = None;
+                let mut data = String::new();
+                for line in frame.lines() {
+                    if let Some(value) = line.strip_prefix("event: ") {
+                        name = Some(value);
+                    } else if let Some(value) = line.strip_prefix("data: ") {
+                        data.push_str(value);
+                    }
+                }
+                if let Some(name) = name {
+                    event_json.push(json!({"name": name, "data": data}));
+                }
+            }
+            assert!(
+                !event_json.is_empty(),
+                "stream emitted no JSON events: {body}"
+            );
+            let safe_name = fixture.name.replace(['/', '\\'], "_");
+            let artifact = event_json
+                .iter()
+                .map(Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n";
+            save_artifact(
+                &std::path::PathBuf::from(directory),
+                &format!("stream-{safe_name}.jsonl"),
+                artifact.as_bytes(),
+            );
+        }
         assert!(
             matches!(events.first(), Some(Event::Meta(_))),
             "{name}: meta first: {body}"
@@ -140,6 +236,20 @@ async fn run(fixture: &Fixture, stream: bool) -> Observed {
         let reply: ChatResponse =
             serde_json::from_str(&body).unwrap_or_else(|e| panic!("{name}: {e}: {body}"));
         reply.check().unwrap();
+
+        // This is the actual typed route body, also consumed by the required
+        // historical SDK decoder check after the producer corpus has run.
+        if let Some(directory) = std::env::var_os("F2Z_RELEASED_SDK_RESPONSE_DIR") {
+            let directory = std::path::PathBuf::from(directory);
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(directory.join(format!("{}.json", fixture.name)))
+                .unwrap()
+                .write_all(body.as_bytes())
+                .unwrap();
+        }
         (
             reply_events(&reply),
             ser(&reply.usage),
@@ -282,18 +392,54 @@ fn the_corpus_is_well_formed_and_covers_every_adapter() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_success_fixture_conforms_streamed_and_not() {
     let corpus = load();
+    if let Some(directory) = std::env::var_os("F2Z_RELEASED_SDK_RESPONSE_DIR") {
+        let directory = std::path::PathBuf::from(directory);
+        if directory.exists() {
+            std::fs::remove_dir_all(&directory).unwrap();
+        }
+        std::fs::create_dir_all(directory).unwrap();
+    }
     let mut ran = 0;
+    let mut tool_replies = 0;
+    let mut ordinary_replies = 0;
+    let mut catalogues_captured = false;
     for fixture in corpus
         .fixtures
         .iter()
         .filter(|f| f.expect.refusal.is_none())
     {
+        if !catalogues_captured {
+            capture_catalogues(fixture).await;
+            catalogues_captured = true;
+        }
         for stream in [true, false] {
-            run(fixture, stream).await;
+            let observed = run(fixture, stream).await;
+            if !stream {
+                if observed
+                    .events
+                    .to_value()
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|e| e["type"] == "tool_call")
+                {
+                    tool_replies += 1;
+                } else {
+                    ordinary_replies += 1;
+                }
+            }
         }
         ran += 1;
     }
     assert!(ran >= 20, "only {ran} success fixtures ran");
+    assert!(
+        ordinary_replies > 0,
+        "no ordinary released-SDK response decodes ran"
+    );
+    assert!(
+        tool_replies > 0,
+        "no tool-call released-SDK response decodes ran"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

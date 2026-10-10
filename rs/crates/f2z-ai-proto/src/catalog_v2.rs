@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::amount::Nusd;
 use crate::catalog::{
-    Catalog, CatalogError, CatalogModel, DetachedSignature, TrustedKey, verify_catalog_tree,
+    Catalog, CatalogError, CatalogModel, DetachedSignature, TrustedKey,
+    validate_signed_price_fields, verify_catalog_tree,
 };
 use crate::chat::Usage;
 use crate::pricing::{Bps, ModelPrices, PricingError, metered_cost_nusd};
@@ -24,8 +25,10 @@ pub const CATALOG_SCHEMA_V2: u32 = 2;
 
 /// The complete table applies when total actual input is strictly above the
 /// threshold, including ALL output, not just the input above the threshold.
+/// Unknown metadata is ignored for response compatibility. Changes to pricing
+/// semantics require a schema revision, which consumers must validate before
+/// using these values to quote a call.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ContextPriceTier {
     /// Ordinary + cache-read + cache-write input tokens; output is excluded.
     pub input_tokens_gt: u64,
@@ -190,6 +193,7 @@ pub fn verify_catalog_v2(
     now_unix: u64,
 ) -> Result<CatalogV2, CatalogError> {
     let tree = verify_catalog_tree(payload, signature, trusted)?;
+    validate_signed_price_fields(&tree, true)?;
     let catalog: CatalogV2 = serde_json::from_value(tree).map_err(CatalogError::Json)?;
     catalog.validate()?;
     if now_unix >= catalog.expires_at {

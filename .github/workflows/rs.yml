@@ -196,10 +196,12 @@ jobs:
           # docs/free2z/sdk/spec/* is read by f2z-ai-proto's spec_conformance test
           # (the error catalogue's statuses and retryability, and every wire
           # example), so a spec-only edit must run it or the two drift apart.
+          # RELEASES.md is the exact supported revision/feature inventory for
+          # the released-SDK response contract.
           rs=false
           while IFS= read -r -d '' file; do
             case "$file" in
-              rust-toolchain.toml|rs/*|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/free2z/messaging/*|docs/free2z/sdk/spec/*|scripts/free2z/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/free2z/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
+              rust-toolchain.toml|rs/*|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/free2z/messaging/*|docs/free2z/sdk/spec/*|docs/free2z/sdk/RELEASES.md|scripts/free2z/check-released-sdk-compat.sh|scripts/free2z/released-sdk-register.mjs|scripts/free2z/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/free2z/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
                 rs=true
                 ;;
             esac
@@ -354,7 +356,16 @@ jobs:
         env:
           F2Z_AI_TEST_REDIS_URL: redis://127.0.0.1:6379
           F2Z_AI_REQUIRE_REDIS: "1"
+          F2Z_RELEASED_SDK_RESPONSE_DIR: ${{ runner.temp }}/f2z-released-sdk-responses
         run: cargo test --locked --all-targets
+
+      # tests/conformance.rs writes ChatResponse and /v1/models route bodies,
+      # typed long-context catalogue output, and actual SSE frames. Compile
+      # immutable released SDK archives and decode registered response paths.
+      - name: Check released Rust SDK response compatibility
+        env:
+          F2Z_RELEASED_SDK_RESPONSE_DIR: ${{ runner.temp }}/f2z-released-sdk-responses
+        run: scripts/free2z/check-released-sdk-compat.sh
 
       - name: Run the rs/ doc tests
         working-directory: rs
