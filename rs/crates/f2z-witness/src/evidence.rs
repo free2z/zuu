@@ -21,11 +21,14 @@
 //! The witness signs its own reports. That is deliberate: §7.3 — *"a witness
 //! that cries wolf is on the record too."*
 
+use std::collections::HashSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use ed25519_dalek::{Signer as _, SigningKey};
 use f2z_codec::Canonical as _;
+use f2z_codec::hash::hash;
 use f2z_codec::types::{Payload, PublicKey, Signature};
 use f2z_codec::vec::VecU24;
 use f2z_kt_core::sth::SignedTreeHead;
@@ -89,6 +92,7 @@ impl fmt::Debug for Finding<'_> {
 #[derive(Clone, Debug)]
 pub struct Evidence {
     directory: PathBuf,
+    cosignature_hashes: Arc<Mutex<HashSet<f2z_codec::types::Digest>>>,
 }
 
 impl Evidence {
@@ -100,8 +104,10 @@ impl Evidence {
     pub fn new(directory: &Path) -> Result<Self> {
         std::fs::create_dir_all(directory)
             .map_err(|error| WitnessError::Local(format!("{}: {error}", directory.display())))?;
+        let cosignature_hashes = load_cosignature_hashes(&directory.join("cosignatures.log"))?;
         Ok(Self {
             directory: directory.to_path_buf(),
+            cosignature_hashes: Arc::new(Mutex::new(cosignature_hashes)),
         })
     }
 
@@ -199,6 +205,16 @@ impl Evidence {
         let length = u32::try_from(bytes.len())
             .map_err(|_| WitnessError::Local("cosignature too large".to_owned()))?;
         let path = self.directory.join("cosignatures.log");
+        let digest = hash(b"free2z/kt/v1/witness-cosig-history", &bytes);
+        let mut known = self.cosignature_hashes.lock().map_err(|_| {
+            WitnessError::Local("cosignature history index lock was poisoned".to_owned())
+        })?;
+        // A crash can happen after this durable append but before the POST is
+        // acknowledged. Retrying the pending statement must not duplicate the
+        // witness's own published history.
+        if known.contains(&digest) {
+            return Ok(());
+        }
         let mut file = std::fs::OpenOptions::new()
             .append(true)
             .create(true)
@@ -210,7 +226,9 @@ impl Evidence {
         file.write_all(&framed)
             .map_err(|error| WitnessError::Local(format!("{}: {error}", path.display())))?;
         file.sync_data()
-            .map_err(|error| WitnessError::Local(format!("{}: {error}", path.display())))
+            .map_err(|error| WitnessError::Local(format!("{}: {error}", path.display())))?;
+        known.insert(digest);
+        Ok(())
     }
 
     /// Every fault report written so far, by path.
@@ -236,4 +254,101 @@ impl Evidence {
         paths.sort();
         Ok(paths)
     }
+}
+
+/// Rebuild the exact-record index once at startup. It avoids reading the full
+/// published history on every retry while still recognizing an append that
+/// reached disk just before a crash.
+fn load_cosignature_hashes(path: &Path) -> Result<HashSet<f2z_codec::types::Digest>> {
+    use std::io::{BufReader, ErrorKind, Read as _};
+
+    let file = match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(HashSet::new()),
+        Err(error) => return Err(WitnessError::Local(format!("{}: {error}", path.display()))),
+    };
+    let mut reader = BufReader::new(file);
+    let mut hashes = HashSet::new();
+    let mut complete_len = 0u64;
+    loop {
+        let mut first = [0u8; 1];
+        if reader
+            .read(&mut first)
+            .map_err(|error| WitnessError::Local(format!("{}: {error}", path.display())))?
+            == 0
+        {
+            break;
+        }
+        let mut prefix = [0u8; 4];
+        *prefix.get_mut(0).ok_or_else(|| {
+            WitnessError::Local("invalid cosignature history prefix".to_owned())
+        })? = first
+            .first()
+            .copied()
+            .ok_or_else(|| WitnessError::Local("empty history prefix".to_owned()))?;
+        if let Err(error) =
+            reader.read_exact(prefix.get_mut(1..).ok_or_else(|| {
+                WitnessError::Local("invalid cosignature history prefix".to_owned())
+            })?)
+        {
+            if error.kind() == ErrorKind::UnexpectedEof {
+                repair_history_tail(&reader, path, complete_len)?;
+                break;
+            }
+            return Err(WitnessError::Local(format!("{}: {error}", path.display())));
+        }
+        let length = usize::try_from(u32::from_be_bytes(prefix))
+            .map_err(|_| WitnessError::Local("cosignature history length overflow".to_owned()))?;
+        if length > 1_024 {
+            return Err(WitnessError::Local(format!(
+                "{}: oversized cosignature history record",
+                path.display()
+            )));
+        }
+        let mut record = vec![0u8; length];
+        if let Err(error) = reader.read_exact(&mut record) {
+            if error.kind() == ErrorKind::UnexpectedEof {
+                repair_history_tail(&reader, path, complete_len)?;
+                break;
+            }
+            return Err(WitnessError::Local(format!("{}: {error}", path.display())));
+        }
+        f2z_codec::decode_canonical::<WitnessCosignature>(&record).map_err(|error| {
+            WitnessError::Local(format!(
+                "{}: invalid history record: {error}",
+                path.display()
+            ))
+        })?;
+        hashes.insert(hash(b"free2z/kt/v1/witness-cosig-history", &record));
+        let record_len = u64::try_from(length)
+            .map_err(|_| WitnessError::Local("cosignature history length overflow".to_owned()))?;
+        complete_len = complete_len
+            .checked_add(4)
+            .and_then(|offset| offset.checked_add(record_len))
+            .ok_or_else(|| WitnessError::Local("cosignature history offset overflow".to_owned()))?;
+    }
+    Ok(hashes)
+}
+
+/// Discard only an incomplete trailing append, retaining every complete frame.
+/// Complete but malformed records remain fatal so corruption cannot be hidden
+/// by startup repair.
+fn repair_history_tail(
+    reader: &std::io::BufReader<std::fs::File>,
+    path: &Path,
+    complete_len: u64,
+) -> Result<()> {
+    let file = reader.get_ref();
+    file.set_len(complete_len)
+        .and_then(|()| file.sync_all())
+        .map_err(|error| {
+            WitnessError::Local(format!(
+                "{}: cannot repair incomplete history tail: {error}",
+                path.display()
+            ))
+        })
 }
