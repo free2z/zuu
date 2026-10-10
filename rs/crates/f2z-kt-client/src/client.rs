@@ -53,9 +53,14 @@
 //! loses progress. [`KtClient::resume`] canonically decodes and verifies those
 //! signed checkpoint bytes, then resumes at exactly the first unverified epoch.
 
+use f2z_authority::assertion::{HandleAssertion, InitialBindBindingTBS};
+use f2z_authority::types::Intent;
+use f2z_codec::Canonical as _;
 use f2z_codec::types::PublicKey;
 use f2z_kt_core::api::{Presence, TreeHeadBundle};
+use f2z_kt_core::entry::EntryAuthorization;
 use f2z_kt_core::entry::EntryKind;
+use f2z_kt_core::labels::entry_tbs_digest;
 use f2z_kt_core::policy::AuthorityPolicyTBS;
 use f2z_kt_core::sth::{LogView, SignedTreeHead};
 use f2z_kt_core::submit::{LogPolicy, PublishedEntry, SubmissionContext};
@@ -673,6 +678,15 @@ impl<T: Transport> KtClient<T> {
             Err(other) => return Err(other),
         };
 
+        if self.authority_policy.is_none() {
+            self.refresh_authority_policy()?;
+        }
+        let initial = entries
+            .iter()
+            .find(|entry| entry.entry.entry_version == 1)
+            .ok_or(ClientError::Protocol(KtError::HistoryIncomplete))?;
+        self.verify_initial_bind_entry(initial)?;
+
         // The pin must be *in* what was shown, at the version it was pinned at
         // and with the same bytes. A log that served a truthful-looking complete
         // history which simply does not contain the entry this client already
@@ -773,6 +787,14 @@ impl<T: Transport> KtClient<T> {
             .iter()
             .map(|entry| entry.entry().clone())
             .collect::<Vec<_>>();
+        if self.authority_policy.is_none() {
+            self.refresh_authority_policy()?;
+        }
+        let initial = entries
+            .iter()
+            .find(|entry| entry.entry.entry_version == 1)
+            .ok_or(ClientError::Protocol(KtError::HistoryIncomplete))?;
+        self.verify_initial_bind_entry(initial)?;
         Self::require_pin_in_history(&entries, &pinned)
             .map_err(|error| self.on_protocol_error(error, now_ms))?;
 
@@ -915,12 +937,11 @@ impl<T: Transport> KtClient<T> {
         now_ms: u64,
     ) -> Result<Authorization> {
         if verified.entry().entry.entry_version == 1 {
-            // §4.7's last paragraph: what authorizes a first entry is checked by
-            // the log at submission and is not committed to the tree, so a
-            // client is served no artefact to check. Running
-            // `validate_submission` here would *succeed* and would mean nothing;
-            // reporting that it succeeded would be the overclaim §8.1 forbids.
-            return Ok(Authorization::FirstEntryUnverifiable);
+            if self.authority_policy.is_none() {
+                self.refresh_authority_policy()?;
+            }
+            self.verify_initial_bind_entry(verified.entry())?;
+            return Ok(Authorization::InitialBindChecked);
         }
         let Some(previous) = self
             .pins
@@ -944,6 +965,118 @@ impl<T: Transport> KtClient<T> {
             })
             .map_err(|error| self.on_protocol_error(error, now_ms))?;
         Ok(Authorization::CheckedAgainstPredecessor)
+    }
+
+    /// Verify every piece of the committed first-entry artifact. Called from
+    /// both lookup and complete-history paths so self-audit does not stop at
+    /// chain continuity.
+    fn verify_initial_bind_entry(&self, entry: &f2z_kt_core::entry::DirectoryEntry) -> Result<()> {
+        let policy = self
+            .authority_policy
+            .as_ref()
+            .ok_or(ClientError::AuthorityPolicyMismatch)?;
+        let EntryAuthorization::InitialBind {
+            assertion,
+            identity_signature,
+            ..
+        } = &entry.authorization
+        else {
+            return Err(ClientError::Protocol(KtError::BadAuthorization));
+        };
+        let assertion = if assertion.as_slice().is_empty() {
+            None
+        } else {
+            Some(
+                f2z_codec::canonical::decode_canonical::<HandleAssertion>(assertion.as_slice())?
+                    .into_value(),
+            )
+        };
+        let assertion_digest = match &assertion {
+            Some(assertion) => {
+                let body = &assertion.assertion;
+                if body.label.as_slice() != f2z_authority::labels::LABEL_ASSERTION_TBS
+                    || body.log_id.as_bytes() != self.config.log_id.as_bytes()
+                    || body.handle.as_bytes() != entry.entry.handle.as_slice()
+                    || body.handle_id != body.handle.handle_id()
+                    || body.identity_pk != entry.entry.identity_pk
+                    || body.intent != Intent::Bind
+                    || body.account_epoch >= f2z_authority::ACCOUNT_EPOCH_CEILING
+                    || body.expires_ms <= body.issued_ms
+                    || body.expires_ms.saturating_sub(body.issued_ms) > policy.max_validity_ms
+                    // Match the issuer's A10 rule against the signed entry
+                    // creation time, not this verifier's later wall clock.
+                    // This checks the assertion's internal relationship to
+                    // the claimed creation instant; it cannot prove when the
+                    // log actually admitted the entry.
+                    || body.issued_ms
+                        > entry
+                            .entry
+                            .created_at_ms
+                            .saturating_add(policy.clock_skew_ms)
+                    // Assertions are unusable at the exact expiry instant.
+                    || entry.entry.created_at_ms >= body.expires_ms
+                    || !policy.asserted_versions.as_slice().contains(&1)
+                {
+                    return Err(ClientError::Protocol(KtError::BadAuthorization));
+                }
+                let authority = policy
+                    .authorities
+                    .as_slice()
+                    .iter()
+                    .find(|key| f2z_authority::authority_id(key) == body.authority_id)
+                    .ok_or(ClientError::Protocol(KtError::BadSignature))?;
+                f2z_kt_core::sig::verify(
+                    authority,
+                    &body
+                        .signing_bytes()
+                        .map_err(|_| ClientError::Protocol(KtError::Malformed))?,
+                    &assertion.signature,
+                )?;
+                assertion
+                    .digest()
+                    .map_err(|_| ClientError::Protocol(KtError::Malformed))?
+            }
+            None if !policy.vouches() => f2z_codec::types::Digest::zero(),
+            None => return Err(ClientError::Protocol(KtError::BadAuthorization)),
+        };
+        if policy.vouches() != assertion.is_some() {
+            return Err(ClientError::Protocol(KtError::BadAuthorization));
+        }
+        let binding = InitialBindBindingTBS::new(
+            f2z_authority::types::LogId::new(*self.config.log_id.as_bytes()),
+            f2z_authority::types::Handle::parse(entry.entry.handle.as_slice())
+                .map_err(|_| ClientError::Protocol(KtError::BadHandle))?,
+            entry.entry.identity_pk,
+            assertion_digest,
+            entry_tbs_digest(&entry.entry.signing_bytes()?),
+        )
+        .map_err(|_| ClientError::Protocol(KtError::Malformed))?;
+        f2z_kt_core::sig::verify(
+            &entry.entry.identity_pk,
+            &binding
+                .signing_bytes()
+                .map_err(|_| ClientError::Protocol(KtError::Malformed))?,
+            identity_signature,
+        )?;
+        let bytes = entry.encode_canonical()?;
+        f2z_kt_core::validate_submission(
+            &bytes,
+            &SubmissionContext {
+                policy: &self.policy(),
+                previous: None,
+                pending_in_epoch: false,
+                // Initial assertions expire. Rechecking an old tree entry
+                // against today's clock would make every honest first bind
+                // unverifiable after its short assertion window. The signed
+                // entry timestamp is the only committed time associated with
+                // its creation; use it to recheck that the assertion was
+                // internally valid at the submitter-claimed creation time.
+                // This is not proof of the log's admission time (the protocol
+                // carries no signed admission timestamp).
+                now_ms: entry.entry.created_at_ms,
+            },
+        )?;
+        Ok(())
     }
 
     /// §8.1 step 8, and `CLIENT-CONTRACT.md` §9 rule 9.
