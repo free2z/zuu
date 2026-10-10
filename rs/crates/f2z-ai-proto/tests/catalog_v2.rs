@@ -92,6 +92,25 @@ fn v2_is_explicit_and_v1_rejects_tier_presence_even_null() {
 }
 
 #[test]
+fn v2_response_price_types_ignore_additive_metadata_but_keep_known_values() {
+    let mut tier_value = payload()["models"][0]["long_context_pricing"].clone();
+    tier_value["published_by"] = json!("gateway");
+    tier_value["prices"]["price_note"] = json!("additive catalogue metadata");
+    let tier: f2z_ai_proto::catalog_v2::ContextPriceTier =
+        serde_json::from_value(tier_value).unwrap();
+    assert_eq!(tier.input_tokens_gt, 100);
+    assert_eq!(tier.prices.output_nusd_per_mtok, 15_000_000_000);
+
+    // A required known amount remains mandatory on signed ingress.
+    let mut bad_known_price = payload();
+    bad_known_price["models"][0]["long_context_pricing"]["prices"]
+        .as_object_mut()
+        .unwrap()
+        .remove("output_nusd_per_mtok");
+    assert!(read(&bad_known_price).is_err());
+}
+
+#[test]
 fn signatures_cover_tier_and_expiry_and_reject_duplicate_members() {
     let v = payload();
     let (bytes, sig, key) = signed(&v);
@@ -126,7 +145,7 @@ fn signatures_cover_tier_and_expiry_and_reject_duplicate_members() {
 }
 
 #[test]
-fn invalid_tiers_fail_closed_but_zero_dimensions_are_valid() {
+fn signed_prices_and_tiers_fail_closed_on_unknown_money_semantics() {
     assert!(read(&payload()).is_ok()); // zero image/tool prices are intentional
     for threshold in [0, 1000, 1001] {
         let mut v = payload();
@@ -151,6 +170,37 @@ fn invalid_tiers_fail_closed_but_zero_dimensions_are_valid() {
     let mut v = payload();
     v["models"][0]["long_context_pricing"]["prices"]["new_money_dimension"] = json!(1);
     assert!(read(&v).is_err());
+    let mut v = payload();
+    v["models"][0]["prices"]["new_money_dimension"] = json!(1);
+    assert!(read(&v).is_err());
+}
+
+#[test]
+fn response_price_types_ignore_additive_metadata_but_signed_prices_do_not() {
+    let extended = json!({
+        "input_nusd_per_mtok": 1,
+        "cached_input_nusd_per_mtok": 2,
+        "cache_write_nusd_per_mtok": 3,
+        "output_nusd_per_mtok": 4,
+        "image_nusd": 5,
+        "tool_call_nusd": 6,
+        "future_price_metadata": true
+    });
+    let parsed: f2z_ai_proto::ModelPrices = serde_json::from_value(extended).unwrap();
+    assert_eq!(parsed.input_nusd_per_mtok, 1);
+    let mut signed_payload = payload();
+    signed_payload["models"][0]["prices"]["future_price_metadata"] = json!(true);
+    assert!(read(&signed_payload).is_err());
+
+    let mut v1 = payload();
+    v1["schema"] = json!(1);
+    v1["models"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("long_context_pricing");
+    v1["models"][0]["prices"]["new_money_dimension"] = json!(1);
+    let (bytes, signature, key) = signed(&v1);
+    assert!(verify_catalog(&bytes, &signature, &[key], 0).is_err());
 }
 
 #[test]
