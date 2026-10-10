@@ -39,7 +39,7 @@
 
 use std::io::{Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
@@ -166,6 +166,7 @@ fn witness_for(harness: &Harness, transport: Box<dyn Transport>, name: &str) -> 
 struct RetryHttpServer {
     url: String,
     stop: Arc<AtomicBool>,
+    post_attempts: Arc<AtomicUsize>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -176,11 +177,18 @@ impl RetryHttpServer {
         let address = listener.local_addr().unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
+        let post_attempts = Arc::new(AtomicUsize::new(0));
+        let thread_post_attempts = Arc::clone(&post_attempts);
         let worker = std::thread::spawn(move || {
             let mut failures_left = failed_posts;
             while !thread_stop.load(Ordering::Acquire) {
                 match listener.accept() {
-                    Ok((stream, _)) => handle_retry_request(stream, &transport, &mut failures_left),
+                    Ok((stream, _)) => handle_retry_request(
+                        stream,
+                        &transport,
+                        &mut failures_left,
+                        &thread_post_attempts,
+                    ),
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         std::thread::sleep(std::time::Duration::from_millis(2));
                     }
@@ -191,8 +199,13 @@ impl RetryHttpServer {
         Self {
             url: format!("http://{address}"),
             stop,
+            post_attempts,
             worker: Some(worker),
         }
+    }
+
+    fn post_attempts(&self) -> usize {
+        self.post_attempts.load(Ordering::Acquire)
     }
 }
 
@@ -210,6 +223,7 @@ fn handle_retry_request(
     mut stream: TcpStream,
     transport: &DirectTransport,
     failures_left: &mut usize,
+    post_attempts: &AtomicUsize,
 ) {
     let mut request = Vec::new();
     let mut scratch = [0u8; 1024];
@@ -268,6 +282,7 @@ fn handle_retry_request(
             .audit(from.parse().unwrap(), to.parse().unwrap())
             .map(|body| (200, body))
     } else if start.starts_with("POST /kt/v1/cosign ") {
+        post_attempts.fetch_add(1, Ordering::AcqRel);
         let body = &request[header_end..header_end.saturating_add(content_length)];
         if *failures_left > 0 {
             *failures_left -= 1;
@@ -347,9 +362,8 @@ fn a_failed_http_cosign_is_retried_on_the_same_epoch() {
     let pending = f2z_witness::state::load(&settings.state_path)
         .unwrap()
         .unwrap()
-        .pending_cosignatures
-        .as_slice()
-        .first()
+        .pending_cosignature
+        .as_ref()
         .cloned()
         .unwrap();
     assert_eq!(pending.statement.epoch, 1);
@@ -361,8 +375,8 @@ fn a_failed_http_cosign_is_retried_on_the_same_epoch() {
         f2z_witness::state::load(&settings.state_path)
             .unwrap()
             .unwrap()
-            .pending_cosignatures
-            .is_empty()
+            .pending_cosignature
+            .is_none()
     );
     let bundle = setup.block_on(harness.log.latest_bundle()).unwrap();
     assert_eq!(
@@ -406,9 +420,8 @@ fn a_pending_http_cosign_survives_restart_and_retries() {
         let pending_before_restart = f2z_witness::state::load(&settings.state_path)
             .unwrap()
             .unwrap()
-            .pending_cosignatures
-            .as_slice()
-            .first()
+            .pending_cosignature
+            .as_ref()
             .cloned()
             .unwrap();
         let history_path = settings.evidence_dir.join("cosignatures.log");
@@ -430,7 +443,7 @@ fn a_pending_http_cosign_survives_restart_and_retries() {
             state.epoch, 1,
             "restart preserves the verified high-water mark"
         );
-        assert!(state.pending_cosignatures.is_empty());
+        assert!(state.pending_cosignature.is_none());
         let bundle = setup.block_on(harness.log.latest_bundle()).unwrap();
         assert_eq!(bundle.cosignatures.len(), 1);
         assert_eq!(
@@ -472,33 +485,66 @@ fn failed_delivery_does_not_block_verified_high_water_advancement() {
     );
 
     register(&setup, &harness, "alice", 3);
+    register(&setup, &harness, "bob", 4);
+    register(&setup, &harness, "carol", 5);
     assert_eq!(
         witness.poll_once(NOW + 1).unwrap(),
         Outcome::Cosigned {
-            epoch: 2,
-            advanced: 1
+            epoch: 4,
+            advanced: 3
         }
     );
     let advanced = f2z_witness::state::load(&settings.state_path)
         .unwrap()
         .unwrap();
-    assert_eq!(advanced.epoch, 2);
-    assert_eq!(advanced.pending_cosignatures.len(), 1);
     assert_eq!(
-        advanced.pending_cosignatures.as_slice()[0].statement.epoch,
-        1
+        advanced.epoch, 4,
+        "proof verification advances through outage"
+    );
+    assert_eq!(
+        advanced
+            .pending_cosignature
+            .as_ref()
+            .unwrap()
+            .statement
+            .epoch,
+        4,
+        "the newest verified head replaces stale delivery"
+    );
+    assert_eq!(
+        server.post_attempts(),
+        2,
+        "one POST for pin and one for advancement"
     );
 
     assert_eq!(
         witness.poll_once(NOW + 2).unwrap(),
-        Outcome::UpToDate { epoch: 2 }
+        Outcome::DeliveryPending { epoch: 4 }
     );
+    assert_eq!(server.post_attempts(), 3, "same-head poll attempts once");
+    assert_eq!(
+        witness.poll_once(NOW + 3).unwrap(),
+        Outcome::UpToDate { epoch: 4 }
+    );
+    assert_eq!(server.post_attempts(), 4, "next poll attempts once again");
     assert!(
         f2z_witness::state::load(&settings.state_path)
             .unwrap()
             .unwrap()
-            .pending_cosignatures
-            .is_empty()
+            .pending_cosignature
+            .is_none()
+    );
+    let bundle = setup.block_on(harness.log.latest_bundle()).unwrap();
+    assert_eq!(bundle.cosignatures.len(), 1);
+    assert_eq!(
+        bundle
+            .cosignatures
+            .as_slice()
+            .first()
+            .unwrap()
+            .statement
+            .epoch,
+        4
     );
 }
 

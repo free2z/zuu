@@ -1849,8 +1849,10 @@ distinguishable from "someone stole the log."
 
 ### 7.1 The loop
 
-A witness holds one piece of durable state — `(log_id, epoch, tree_size,
-root_hash, sth_hash, accepted_log_pk)`, a few hundred bytes — and runs:
+A witness holds one durable state file: `(log_id, epoch, tree_size, root_hash,
+sth_hash, accepted_log_pk)` is the verified high-water mark, and a separate
+pending-delivery record holds the cosignature for that head until the log
+acknowledges it. At most one statement is pending. The witness runs:
 
 1. **Poll.** `GET /kt/v1/sth` over outbound HTTPS (§9.2). No inbound port.
 2. **Verify the tree-head signature** under `accepted_log_pk`, and the `label` /
@@ -1860,10 +1862,15 @@ root_hash, sth_hash, accepted_log_pk)`, a few hundred bytes — and runs:
    `vrf_public_key` → **halt and report (§7.3). Do not advance.**
 4. **Fetch the append-only proof** for `(last.epoch, new.epoch]` and **verify it**
    with `akd::auditor::audit_verify` against the two root hashes. Fail → §7.3.
-5. **Persist** the new state, durably — `fsync` and atomic rename — **before**
-   emitting anything.
-6. **Emit** the `WitnessCosignature` (§7.2): `POST /kt/v1/cosign` to the log, and
-   append it to the witness's own published cosignature history (§7.5).
+5. **Persist** the new verified high-water mark and its deterministic pending
+   `WitnessCosignature`, durably — `fsync` and atomic rename — **before**
+   emitting anything. Pending statements are delivery state, separate from the
+   verified high-water mark.
+6. **Emit** the pending `WitnessCosignature` (§7.2): append it to the witness's
+   own published history (§7.5), then `POST /kt/v1/cosign` to the log. Remove
+   it from pending state only after an acknowledged POST. A poll attempts one
+   statement at most once; after verifying a newer head, that head's statement
+   replaces an older undelivered one.
 
 **Step 5 precedes step 6, and the order is a correctness requirement, not
 hygiene.** A witness that emits first and crashes before persisting comes back
@@ -1872,7 +1879,11 @@ is served for that epoch next — and if the log serves it a *different* root, t
 witness has now signed two contradictory statements for one epoch. That is
 exactly the non-repudiable evidence §7.2 is designed to produce, and the witness
 manufactured it against itself for a fault that was its own crash. Persist first
-and the worst case is a missed cosignature, which is invisible and harmless.
+and a crash or failed POST leaves a retryable statement without losing the
+verified position. Each normal poll retries pending statements using their
+original bytes; delivery failure is a warning, not a log fault or a reason to
+skip later proof verification. The witness checks the served head for rollback
+or a same-epoch fork before retrying, and never advances past a fault.
 
 A witness MUST NOT "catch up" past a fault. Once halted it stays halted until a
 human looks at the evidence. An automatic resync is an automatic way to erase the
@@ -1921,6 +1932,11 @@ all three:
 cosignatures over the same root at different times are not a conflict, they are
 normal. The test is exactly `(log_id, epoch)` equal and `(tree_size, root_hash)`
 differing.
+
+An exact repeat of a cosignature is an idempotent delivery retry. A log MUST
+acknowledge the same statement from the same witness for an epoch without
+storing a duplicate or reporting witness equivocation. This covers the case
+where the log accepted a POST but its acknowledgement was lost.
 
 **What a cosignature does not say.** It does not say the witness verified the
 append-only proof — §7.4. It does not say the root is *correct*, only that this
@@ -2024,9 +2040,19 @@ know. The mitigation for that is the independence of the witness set, not code.
 
 ### 7.5 Witness state and publication
 
-Durable state is `(log_id, accepted_log_pk, epoch, tree_size, root_hash,
-sth_hash)` — a few hundred bytes in a file, per §9.3's promise that a witness
-needs no database. Updates are `fsync` plus atomic rename (§7.1 step 5).
+Durable state includes `(log_id, accepted_log_pk, epoch, tree_size, root_hash,
+sth_hash)` and a separate pending-delivery record containing the exact
+cosignature bytes for the held head when the log has not acknowledged it.
+Updates are `fsync` plus atomic rename (§7.1 step 5). A pending statement never
+lowers or replaces the verified high-water mark; after restart the witness
+re-verifies that mark before retrying delivery. Each normal poll attempts this
+one statement at most once. If a newer head is served, the witness first
+verifies the complete chain and append-only proof, then stages that newest
+verified head's statement, replacing an older undelivered one. Historical
+statements remain in the witness's append-only local history; retrying every
+superseded delivery is not required and cannot delay proof verification.
+Legacy state files without delivery tracking are migrated by staging the
+deterministic statement for their last verified head.
 
 A witness SHOULD publish, at a stable URL of its own choosing:
 

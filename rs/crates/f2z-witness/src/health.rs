@@ -290,7 +290,7 @@ mod tests {
             published_at_ms: 500,
             halted: 0,
             delivery_known: 1,
-            pending_cosignatures: f2z_codec::vec::VecU24::new(Vec::new()),
+            pending_cosignature: None,
             updated_at_ms,
         }
     }

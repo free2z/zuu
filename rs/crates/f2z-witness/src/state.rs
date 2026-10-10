@@ -37,7 +37,6 @@ use std::path::{Path, PathBuf};
 use f2z_codec::Canonical as _;
 use f2z_codec::decode_canonical;
 use f2z_codec::types::{Digest, PublicKey, ShortBytes};
-use f2z_codec::vec::VecU24;
 use f2z_kt_core::WitnessCosignature;
 use f2z_kt_core::sth::{LogView, SignedTreeHead};
 use f2z_kt_core::types::{LogId, check_label, label_field};
@@ -103,7 +102,7 @@ pub struct WitnessState {
     pub delivery_known: u8,
     /// The deterministic cosignature that still needs delivery, if any.
     /// This is staged in the same durable write as the verified head.
-    pub pending_cosignatures: VecU24<WitnessCosignature>,
+    pub pending_cosignature: Option<WitnessCosignature>,
     /// When this file was last written.
     pub updated_at_ms: u64,
 }
@@ -131,7 +130,7 @@ impl WitnessState {
             published_at_ms,
             halted: 0,
             delivery_known: 1,
-            pending_cosignatures: VecU24::new(Vec::new()),
+            pending_cosignature: None,
             updated_at_ms: now_ms,
         })
     }
@@ -223,27 +222,23 @@ impl WitnessState {
                 "state file: unsupported kt_version".to_owned(),
             ));
         }
-        let mut last_pending_epoch = None;
-        for pending in self.pending_cosignatures.as_slice() {
-            if pending.statement.log_id != self.log_id
-                || pending.statement.epoch > self.epoch
-                || (pending.statement.epoch == self.epoch && !pending.covers(&self.head))
-                || pending.verify().is_err()
-                || last_pending_epoch.is_some_and(|epoch| pending.statement.epoch <= epoch)
-            {
-                return Err(WitnessError::Local(
-                    "state file: pending cosignature does not verify for the held log position"
-                        .to_owned(),
-                ));
-            }
-            last_pending_epoch = Some(pending.statement.epoch);
+        if let Some(pending) = &self.pending_cosignature
+            && (pending.statement.log_id != self.log_id
+                || pending.statement.epoch != self.epoch
+                || !pending.covers(&self.head)
+                || pending.verify().is_err())
+        {
+            return Err(WitnessError::Local(
+                "state file: pending cosignature does not verify for the held log position"
+                    .to_owned(),
+            ));
         }
         if self.delivery_known > 1 {
             return Err(WitnessError::Local(
                 "state file: unsupported delivery marker".to_owned(),
             ));
         }
-        if self.delivery_known == 0 && !self.pending_cosignatures.is_empty() {
+        if self.delivery_known == 0 && self.pending_cosignature.is_some() {
             return Err(WitnessError::Local(
                 "state file: legacy delivery marker conflicts with pending cosignature".to_owned(),
             ));
@@ -342,7 +337,7 @@ impl LegacyWitnessState {
             published_at_ms: self.published_at_ms,
             halted: self.halted,
             delivery_known: 0,
-            pending_cosignatures: VecU24::new(Vec::new()),
+            pending_cosignature: None,
             updated_at_ms: self.updated_at_ms,
         })
     }
@@ -401,8 +396,8 @@ mod tests {
     use f2z_kt_core::types::{LogId, label_field};
 
     use super::{
-        LABEL_STATE, LABEL_STATE_V2, LegacyWitnessState, STATE_FORMAT_VERSION, VecU24,
-        WitnessCosignature, WitnessState, load, store,
+        LABEL_STATE, LABEL_STATE_V2, LegacyWitnessState, STATE_FORMAT_VERSION, WitnessCosignature,
+        WitnessState, load, store,
     };
 
     fn head() -> f2z_kt_core::sth::SignedTreeHead {
@@ -442,7 +437,7 @@ mod tests {
             published_at_ms: 1_700,
             halted: 0,
             delivery_known: 1,
-            pending_cosignatures: VecU24::new(Vec::new()),
+            pending_cosignature: None,
             updated_at_ms: 1_800,
         }
     }
@@ -509,7 +504,7 @@ mod tests {
 
         let migrated = load(&path).unwrap().unwrap();
         assert_eq!(migrated.delivery_known, 0);
-        assert!(migrated.pending_cosignatures.is_empty());
+        assert!(migrated.pending_cosignature.is_none());
         assert_eq!(migrated.epoch, 7);
     }
 
@@ -535,7 +530,7 @@ mod tests {
         let path = temp("state-pending-invalid").join("state.bin");
         let mut stored = state();
         let held = stored.head.clone();
-        stored.pending_cosignatures = VecU24::new(vec![WitnessCosignature {
+        stored.pending_cosignature = Some(WitnessCosignature {
             statement: f2z_kt_core::WitnessCosignatureTBS {
                 label: label_field(f2z_kt_core::labels::LABEL_COSIG).unwrap(),
                 kt_version: f2z_kt_core::KT_VERSION,
@@ -547,7 +542,7 @@ mod tests {
                 observed_at_ms: 1_800,
             },
             signature: f2z_codec::types::Signature::zero(),
-        }]);
+        });
         let bytes = stored.encode_canonical().unwrap();
         std::fs::write(&path, bytes).unwrap();
 
