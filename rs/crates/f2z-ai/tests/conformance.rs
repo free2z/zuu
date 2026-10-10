@@ -90,17 +90,16 @@ fn save_artifact(directory: &std::path::Path, name: &str, bytes: &[u8]) {
         .unwrap();
 }
 
-async fn capture_catalogues(fixture: &Fixture) {
-    let Some(directory) = std::env::var_os("F2Z_RELEASED_SDK_RESPONSE_DIR") else {
+async fn capture_catalogues(fixture: &Fixture, directory: Option<&std::path::Path>) {
+    let Some(directory) = directory else {
         return;
     };
-    let directory = std::path::PathBuf::from(directory);
     let harness = Harness::start(fixture, &fixture.catalog_model.capabilities).await;
     let (status, body) = harness.get("/v1/models").await;
     assert_eq!(status, StatusCode::OK, "GET /v1/models: {body}");
     let models: Value = serde_json::from_str(&body).unwrap();
     assert!(!models["models"].as_array().unwrap().is_empty());
-    save_artifact(&directory, "models-response.json", body.as_bytes());
+    save_artifact(directory, "models-response.json", body.as_bytes());
 
     // The schema-2 type is an opt-in producer contract today. Build it from
     // the same signed catalogue model used by the production route, then let
@@ -132,7 +131,7 @@ async fn capture_catalogues(fixture: &Fixture) {
         }],
     };
     save_artifact(
-        &directory,
+        directory,
         "long-context-catalog.json",
         &serde_json::to_vec(&catalog).unwrap(),
     );
@@ -140,7 +139,11 @@ async fn capture_catalogues(fixture: &Fixture) {
 }
 
 /// Run one success fixture in one stream mode and assert all of it.
-async fn run(fixture: &Fixture, stream: bool) -> Observed {
+async fn run(
+    fixture: &Fixture,
+    stream: bool,
+    artifact_directory: Option<&std::path::Path>,
+) -> Observed {
     let name = format!("{} (stream: {stream})", fixture.name);
     let harness = Harness::start(fixture, &fixture.catalog_model.capabilities).await;
     let (status, body) = harness
@@ -171,7 +174,7 @@ async fn run(fixture: &Fixture, stream: bool) -> Observed {
 
     let (events, usage, finish_reason) = if stream {
         let events = client_events(&body);
-        if let Some(directory) = std::env::var_os("F2Z_RELEASED_SDK_RESPONSE_DIR") {
+        if let Some(directory) = artifact_directory {
             let mut event_json = Vec::new();
             for frame in body.split("\n\n") {
                 let mut name = None;
@@ -199,7 +202,7 @@ async fn run(fixture: &Fixture, stream: bool) -> Observed {
                 .join("\n")
                 + "\n";
             save_artifact(
-                &std::path::PathBuf::from(directory),
+                directory,
                 &format!("stream-{safe_name}.jsonl"),
                 artifact.as_bytes(),
             );
@@ -239,9 +242,8 @@ async fn run(fixture: &Fixture, stream: bool) -> Observed {
 
         // This is the actual typed route body, also consumed by the required
         // historical SDK decoder check after the producer corpus has run.
-        if let Some(directory) = std::env::var_os("F2Z_RELEASED_SDK_RESPONSE_DIR") {
-            let directory = std::path::PathBuf::from(directory);
-            std::fs::create_dir_all(&directory).unwrap();
+        if let Some(directory) = artifact_directory {
+            std::fs::create_dir_all(directory).unwrap();
             std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
@@ -392,10 +394,11 @@ fn the_corpus_is_well_formed_and_covers_every_adapter() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_success_fixture_conforms_streamed_and_not() {
     let corpus = load();
-    if let Some(directory) = std::env::var_os("F2Z_RELEASED_SDK_RESPONSE_DIR") {
-        let directory = std::path::PathBuf::from(directory);
+    let artifact_directory =
+        std::env::var_os("F2Z_RELEASED_SDK_RESPONSE_DIR").map(std::path::PathBuf::from);
+    if let Some(directory) = artifact_directory.as_ref() {
         if directory.exists() {
-            std::fs::remove_dir_all(&directory).unwrap();
+            std::fs::remove_dir_all(directory).unwrap();
         }
         std::fs::create_dir_all(directory).unwrap();
     }
@@ -409,11 +412,11 @@ async fn every_success_fixture_conforms_streamed_and_not() {
         .filter(|f| f.expect.refusal.is_none())
     {
         if !catalogues_captured {
-            capture_catalogues(fixture).await;
+            capture_catalogues(fixture, artifact_directory.as_deref()).await;
             catalogues_captured = true;
         }
         for stream in [true, false] {
-            let observed = run(fixture, stream).await;
+            let observed = run(fixture, stream, artifact_directory.as_deref()).await;
             if !stream {
                 if observed
                     .events
@@ -589,7 +592,7 @@ async fn every_mutation_in_the_corpus_is_caught() {
         .iter()
         .filter(|f| f.expect.refusal.is_none())
     {
-        observed.insert(fixture.name.clone(), run(fixture, true).await);
+        observed.insert(fixture.name.clone(), run(fixture, true, None).await);
     }
     let mut caught = 0;
     for (feature, mutations) in &corpus.mutations {
