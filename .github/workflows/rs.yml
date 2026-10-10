@@ -199,7 +199,7 @@ jobs:
           rs=false
           while IFS= read -r -d '' file; do
             case "$file" in
-              rust-toolchain.toml|rs/*|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/free2z/messaging/*|docs/free2z/sdk/spec/*|scripts/free2z/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/free2z/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
+              rust-toolchain.toml|rs/*|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/free2z/messaging/*|docs/free2z/sdk/spec/*|scripts/free2z/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-arm.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/free2z/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
                 rs=true
                 ;;
             esac
@@ -456,6 +456,49 @@ jobs:
       # ordinary `cargo test --all-targets` above and this step would be a
       # second full compile of the same crate for nothing. See #723 and #701.
 
+  # libcrux selects its aarch64 NEON implementation at compile time. This
+  # focused lane executes the same standards suite on GitHub's native ARM64
+  # Linux runner, and is selected by the same rs graph/toolchain detector as
+  # the x86_64 KAT in rs_test. The explicit host probe makes an emulated or
+  # cross-target build in this lane fail closed.
+  rs_crypto_kat_arm:
+    name: rs / crypto KATs (native ARM64)
+    needs: changes
+    if: needs.changes.outputs.rs == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rs
+          key: rs-crypto-kat-arm64
+
+      - name: Prove native ARM64 and NEON backend selection
+        run: scripts/check-crypto-kats.sh --verify-aarch64-neon
+
+      - name: Test ARM backend evidence verifier controls
+        run: node scripts/check-crypto-kat-arm.mjs --self-test
+
+      - name: Prove the crypto KAT suite rejects a corrupted standard vector
+        run: scripts/check-crypto-kats.sh --self-test
+
+      - name: Run the permanent crypto known-answer suite on NEON
+        run: scripts/check-crypto-kats.sh --arm-native
+
   rs_wasm:
     name: rs / wasm32
     needs: changes
@@ -638,7 +681,7 @@ jobs:
   # every job in this file, so adding a job without wiring it here fails.
   gate:
     name: rs / gate
-    needs: [changes, rs_fmt, rs_clippy, rs_deny, rs_test, rs_wasm]
+    needs: [changes, rs_fmt, rs_clippy, rs_deny, rs_test, rs_crypto_kat_arm, rs_wasm]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -676,6 +719,7 @@ jobs:
           RS_CLIPPY: ${{ needs.rs_clippy.result }}
           RS_DENY: ${{ needs.rs_deny.result }}
           RS_TEST: ${{ needs.rs_test.result }}
+          RS_CRYPTO_KAT_ARM: ${{ needs.rs_crypto_kat_arm.result }}
           RS_WASM: ${{ needs.rs_wasm.result }}
         run: |
           set -euo pipefail
@@ -701,7 +745,7 @@ jobs:
               ;;
           esac
 
-          results="rs_fmt=$RS_FMT rs_clippy=$RS_CLIPPY rs_deny=$RS_DENY rs_test=$RS_TEST rs_wasm=$RS_WASM"
+          results="rs_fmt=$RS_FMT rs_clippy=$RS_CLIPPY rs_deny=$RS_DENY rs_test=$RS_TEST rs_crypto_kat_arm=$RS_CRYPTO_KAT_ARM rs_wasm=$RS_WASM"
           for entry in $results; do
             job=${entry%%=*}
             outcome=${entry#*=}
