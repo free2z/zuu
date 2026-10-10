@@ -179,8 +179,9 @@ impl AbuseGuard {
     ///
     /// # Errors
     ///
-    /// A [`Refusal`]. The caller closes the socket without speaking protocol:
-    /// there is no `HELLO` yet, so there is no frame to answer with.
+    /// A [`Refusal`]. No wire frame can be returned because there is no
+    /// `HELLO` yet. The listener sends a constant HTTP 429 for the two
+    /// per-source refusals; the remaining refusals close the socket.
     pub fn accept(
         self: &Arc<Self>,
         key: SourceKey,

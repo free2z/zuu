@@ -67,6 +67,17 @@
 //! the traffic that caused the incident looks like. The ambiguity always falls
 //! the same way: towards the old behaviour, never towards refusing a peer that
 //! might have been a client.
+//!
+//! # What a per-source refusal receives
+//!
+//! §13.1's per-source connection and connection-rate limits run before the
+//! transport is spoken. Once either refuses, the listener sends the same
+//! content-free **429 Too Many Requests** over the configured transport (TLS
+//! first when enabled). This path does not inspect or buffer request bytes. A
+//! fixed number of tasks may write at once, and the accept loop closes further
+//! denied sockets immediately while those slots are occupied. TLS negotiation,
+//! writing and draining client input are all bounded, so a silent or
+//! non-reading peer cannot pin a task indefinitely.
 
 use std::io;
 use std::net::SocketAddr;
@@ -77,7 +88,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::watch;
+use tokio::sync::{Semaphore, watch};
 use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::tungstenite::handshake::server::{
     ErrorResponse, Request as HandshakeRequest, Response as HandshakeResponse,
@@ -141,6 +152,20 @@ const HEAD_TIMEOUT: Duration = Duration::from_secs(10);
 /// `Connection: close` response closes as soon as it has it.
 const LINGER: Duration = Duration::from_millis(250);
 
+/// The number of per-source refusals that may be writing at once. The accept
+/// loop does not wait for a slot: when all are occupied, the new socket is
+/// closed as it was before this response existed. Thus a source that keeps
+/// opening sockets cannot create an unbounded task queue.
+const MAX_RATE_LIMIT_RESPONSES: usize = 16;
+
+/// A TLS peer that does not complete its ClientHello cannot hold one of the
+/// bounded response slots indefinitely.
+const RATE_LIMIT_TLS_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Bound response writes, flushes and TLS close-notify. The response is fixed
+/// and small, but a peer may stop reading as soon as it has connected.
+const RATE_LIMIT_WRITE_TIMEOUT: Duration = Duration::from_millis(250);
+
 /// The whole of the answer to a peer that is not speaking WebSocket, exactly as
 /// it goes on the wire.
 ///
@@ -173,6 +198,19 @@ const LINGER: Duration = Duration::from_millis(250);
 const NOT_A_WEBSOCKET: &str = concat!(
     "HTTP/1.1 426 Upgrade Required\r\n",
     "Upgrade: websocket\r\n",
+    "Connection: close\r\n",
+    "Content-Length: 0\r\n",
+    "Cache-Control: no-store\r\n",
+    "\r\n",
+);
+
+/// The constant answer to a connection refused by the per-source limiter.
+/// Keep this as static bytes: constructing the response must not allocate or
+/// copy data derived from the request or source address. Unlike 426, 429 does
+/// not need an `Upgrade` field: it is an admission refusal, not a protocol
+/// negotiation response.
+const RATE_LIMITED: &str = concat!(
+    "HTTP/1.1 429 Too Many Requests\r\n",
     "Connection: close\r\n",
     "Content-Length: 0\r\n",
     "Cache-Control: no-store\r\n",
@@ -226,6 +264,7 @@ pub async fn serve(
     acceptor: Option<TlsAcceptor>,
     mut shutdown: watch::Receiver<bool>,
 ) {
+    let rate_limit_responses = Arc::new(Semaphore::new(MAX_RATE_LIMIT_RESPONSES));
     loop {
         let accepted = tokio::select! {
             biased;
@@ -250,7 +289,28 @@ pub async fn serve(
             Err(reason) => {
                 Metrics::inc(&metrics.connections_refused);
                 crate::log_debug!("connection refused", "reason" = refusal_code(reason));
-                drop(stream);
+                if matches!(
+                    reason,
+                    Refusal::TooManyFromSource | Refusal::ConnectingTooFast
+                ) {
+                    // Never queue on this semaphore. Saturation must stay a
+                    // cheap close, not turn a refusal flood into task growth.
+                    if let Ok(slot) = Arc::clone(&rate_limit_responses).try_acquire_owned() {
+                        let acceptor = acceptor.clone();
+                        let mut shutdown = shutdown.clone();
+                        tokio::spawn(async move {
+                            let _slot = slot;
+                            let response = answer_rate_limit(stream, acceptor.as_ref());
+                            tokio::select! {
+                                biased;
+                                _ = shutdown.changed() => {}
+                                _ = response => {}
+                            }
+                        });
+                    }
+                } else {
+                    drop(stream);
+                }
                 continue;
             }
         };
@@ -270,6 +330,43 @@ pub async fn serve(
             // failed TLS handshake, a refused upgrade, or a full session.
             drop(permit);
         });
+    }
+}
+
+/// Complete a bounded 429 response on the transport the listener accepted.
+/// TLS refusals have to perform TLS first; writing the response to the raw TCP
+/// stream would be plaintext on a port whose first bytes must be a TLS record.
+async fn answer_rate_limit(stream: TcpStream, acceptor: Option<&TlsAcceptor>) {
+    match acceptor {
+        Some(acceptor) => {
+            if let Ok(Ok(mut tls)) =
+                tokio::time::timeout(RATE_LIMIT_TLS_TIMEOUT, acceptor.accept(stream)).await
+            {
+                write_rate_limit_response(&mut tls).await;
+            }
+        }
+        None => {
+            let mut stream = stream;
+            write_rate_limit_response(&mut stream).await;
+        }
+    }
+}
+
+/// Write the static response, close the write side, then drain a bounded
+/// amount of client input so unread bytes cannot make TCP discard the reply
+/// with a reset. Both the write and drain have fixed deadlines.
+async fn write_rate_limit_response<S>(stream: &mut S)
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let sent = tokio::time::timeout(RATE_LIMIT_WRITE_TIMEOUT, async {
+        stream.write_all(RATE_LIMITED.as_bytes()).await?;
+        stream.flush().await?;
+        stream.shutdown().await
+    })
+    .await;
+    if matches!(sent, Ok(Ok(()))) {
+        discard_body(stream).await;
     }
 }
 
@@ -728,6 +825,85 @@ fn reject(reason: &'static str) -> ErrorResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Clone, Copy)]
+    enum BlockAt {
+        Write,
+        Shutdown,
+    }
+
+    struct BlockedWrite {
+        block_at: BlockAt,
+        write_polls: usize,
+        shutdown_polls: usize,
+    }
+
+    impl AsyncRead for BlockedWrite {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            _buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            Poll::Pending
+        }
+    }
+
+    impl AsyncWrite for BlockedWrite {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            let this = self.get_mut();
+            this.write_polls = this.write_polls.saturating_add(1);
+            match this.block_at {
+                BlockAt::Write => Poll::Pending,
+                BlockAt::Shutdown => Poll::Ready(Ok(buf.len())),
+            }
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            let this = self.get_mut();
+            this.shutdown_polls = this.shutdown_polls.saturating_add(1);
+            Poll::Pending
+        }
+    }
+
+    async fn assert_rate_limit_io_bound(block_at: BlockAt) {
+        let mut stream = BlockedWrite {
+            block_at,
+            write_polls: 0,
+            shutdown_polls: 0,
+        };
+        let started = tokio::time::Instant::now();
+        tokio::time::timeout(
+            RATE_LIMIT_WRITE_TIMEOUT + Duration::from_millis(10),
+            write_rate_limit_response(&mut stream),
+        )
+        .await
+        .expect("the response write/shutdown has its own deadline");
+        assert_eq!(started.elapsed(), RATE_LIMIT_WRITE_TIMEOUT);
+        assert!(stream.write_polls > 0);
+        if matches!(block_at, BlockAt::Shutdown) {
+            assert!(stream.shutdown_polls > 0);
+        } else {
+            assert_eq!(stream.shutdown_polls, 0);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_blocked_refusal_write_is_cancelled_at_its_deadline() {
+        assert_rate_limit_io_bound(BlockAt::Write).await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_blocked_refusal_shutdown_is_cancelled_at_its_deadline() {
+        assert_rate_limit_io_bound(BlockAt::Shutdown).await;
+    }
 
     #[tokio::test]
     async fn a_non_loopback_bind_without_tls_is_refused() {
