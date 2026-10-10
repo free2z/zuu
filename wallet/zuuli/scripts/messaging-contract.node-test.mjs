@@ -319,7 +319,7 @@ const REVIEWED_BIND_CALLER_DIGESTS = {
   // an already-configured connection map. The bind-state ordering and
   // exactly-once reconciliation call this digest still pins are unchanged.
   deliver: "46c1517b1b98b9cb2bee54b5716ecbb10b01d9dee70097a665e905eac9619ae9",
-  send_control: "bb626950ad22adf6d76ccdf776ee0b120697d3bdf17fa46bd31a9448106dce4a",
+  send_control: "986afaaf76de1d1e1085475d1a53dc277ed6ffe5df14f1a8b6a0d0f5a5b3444a",
 };
 
 const REVIEWED_BIND_HELPER_DIGESTS = {
@@ -352,7 +352,7 @@ const REVIEWED_BIND_HELPER_DIGESTS = {
   mark_send_address_stolen_delivery: "3d2495c0d3ce5b117045b37cd798fe839ba9720d7c4b5d9047a0baaa8b1b2283",
   send_address_stolen_alarm: "7f193c76d773a699df1e03823faa3e15a416f6a5bf9f8a9fa297cf2df566c742",
   send_address_stolen_alarm_at: "cf9a5e1f5a88eeb3e5eff3cb7d5112e9cde80a71ff888ce1c4d07f1499ab2c35",
-  view: "b12d419a8645ee07065ab9a9006d3316d5a4f4e003fe6bff44ddda07c3d02200",
+  view: "bd3370c015ead47d3c53a5288f174abc925fcf8ad2cc24efa49d51b7e0955bf7",
 };
 
 const REVIEWED_LIFECYCLE_DIGESTS = {
