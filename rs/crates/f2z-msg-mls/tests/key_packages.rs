@@ -153,7 +153,7 @@ const KEY_PACKAGE_EXHAUSTION_TEXT: &str = "12.6.6 Exhaustion, and the package of
 // endpoints, while replacement creation/publication and overlap/drain remain
 // unautomated. §12.6, and every normative claim in it, is untouched, which the
 // structural and mutation assertions below independently confirm.
-const WIRE_RENDERED_PROSE_DIGEST: u64 = 7_068_997_477_293_534_884;
+const WIRE_RENDERED_PROSE_DIGEST: u64 = 1_422_405_720_327_637_711;
 
 fn wire_rendered_prose_digest(rendered: &markdown::RenderedMarkdown) -> u64 {
     markdown::stable_digest(rendered.paragraphs())
