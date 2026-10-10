@@ -27,8 +27,8 @@
 //! Only what **this** crate can know is wrong without a network: a predecessor
 //! whose keys are not this account's (that is a `key_change` or a
 //! `platform_reset`, neither of which a routine enrollment may perform), a
-//! first entry with no assertion and a routine entry with one (the log refuses
-//! both, `f2z-authority` calls the second a category error), and an assertion
+//! first entry with a malformed assertion and a routine entry with one (the log
+//! refuses both, `f2z-authority` calls the second a category error), and an assertion
 //! that does not decode canonically. Everything else — the authority's
 //! signature, its validity window, its `log_id` — is the log's to decide and
 //! the caller's to pre-check with `f2z_authority::AuthorityConfig`. This crate
@@ -37,17 +37,17 @@
 
 use alloc::vec::Vec;
 
-use f2z_authority::assertion::{AssertionBindingTBS, HandleAssertion};
+use f2z_authority::assertion::{AssertionBindingTBS, HandleAssertion, InitialBindBindingTBS};
 use f2z_authority::types::{Handle as AuthorityHandle, LogId as AuthorityLogId};
 use f2z_codec::canonical::{Canonical as _, decode_canonical, encode};
-use f2z_codec::types::{Digest, PublicKey};
+use f2z_codec::types::{Digest, Payload, PublicKey};
 use f2z_kt_core::KT_VERSION;
 use f2z_kt_core::api::SubmissionEnvelope;
 use f2z_kt_core::entry::{
     ContactEndpoint, DeviceCredential, DeviceRevocation, DirectoryEntry, DirectoryEntryTBS,
     EntryAuthorization, EntryKind, entry_label,
 };
-use f2z_kt_core::labels::entry_value;
+use f2z_kt_core::labels::{entry_tbs_digest, entry_value};
 use f2z_kt_core::types::{Handle, LogId};
 
 use crate::account::{AccountKeys, IdentitySigningKey};
@@ -197,21 +197,32 @@ impl IdentitySigningKey {
             ed25519_dalek::Signer::sign(self.signing_key(), &bytes).to_bytes(),
         ))
     }
+
+    /// Sign the proposed, tree-committed first-entry binding.
+    pub fn sign_initial_bind_binding(
+        &self,
+        binding: &InitialBindBindingTBS,
+    ) -> Result<f2z_codec::types::Signature, IdentityError> {
+        let bytes = encode(binding).map_err(|_| IdentityError::MalformedCredential)?;
+        Ok(f2z_codec::types::Signature::new(
+            ed25519_dalek::Signer::sign(self.signing_key(), &bytes).to_bytes(),
+        ))
+    }
 }
 
 impl AccountKeys {
     /// Build, sign and envelope one directory submission.
     ///
     /// `assertion` is the canonical `tls_codec(HandleAssertion)` the handle
-    /// authority issued, **required** for a first entry and **refused** for a
-    /// routine one — the same boundary `f2z-authority` draws and the log
-    /// enforces.
+    /// authority issued for a vouched first entry, absent for a no-authority
+    /// first entry, and **refused** for a routine one — the same boundary
+    /// `f2z-authority` draws and the log enforces.
     ///
     /// # Errors
     ///
     /// [`IdentityError::MalformedCredential`] when:
     ///
-    /// - a first entry carries no assertion, or a routine one carries one;
+    /// - a routine entry carries an assertion;
     /// - the assertion does not decode canonically;
     /// - the predecessor's `identity_pk` or `directory_auth_pk` is not this
     ///   account's (that change is a `key_change` or a `platform_reset`, and
@@ -256,6 +267,7 @@ impl AccountKeys {
                     .map_err(|_| IdentityError::MalformedCredential)?
                     .into_value(),
             ),
+            (true, None) => None,
             (false, None) => None,
             _ => return Err(IdentityError::MalformedCredential),
         };
@@ -266,7 +278,11 @@ impl AccountKeys {
             log_id: draft.log_id,
             handle: draft.handle.clone(),
             entry_version,
-            kind: EntryKind::SameKey,
+            kind: if entry_version == 1 {
+                EntryKind::InitialBind
+            } else {
+                EntryKind::SameKey
+            },
             identity_pk,
             directory_auth_pk,
             devices: draft.devices.clone().into(),
@@ -280,25 +296,54 @@ impl AccountKeys {
             .map_err(|_| IdentityError::MalformedCredential)?;
 
         let auth_signature = self.directory_auth.sign_directory_entry(&tbs)?;
-        let entry = DirectoryEntry {
-            entry: tbs,
-            authorization: EntryAuthorization::SameKey { auth_signature },
-        };
-        let entry_bytes = entry
-            .encode_canonical()
-            .map_err(|_| IdentityError::MalformedCredential)?;
-        let entry_digest = entry_value(&entry_bytes);
-
         let assertion_digest = match &decoded {
             Some(assertion) => assertion
                 .digest()
                 .map_err(|_| IdentityError::MalformedCredential)?,
             None => Digest::zero(),
         };
+        let handle = AuthorityHandle::parse(draft.handle.as_slice())
+            .map_err(|_| IdentityError::MalformedCredential)?;
+        let log_id = AuthorityLogId::new(*draft.log_id.as_bytes());
+        let entry = if entry_version == 1 {
+            let tbs_digest = entry_tbs_digest(
+                &tbs.encode_canonical()
+                    .map_err(|_| IdentityError::MalformedCredential)?,
+            );
+            let binding = InitialBindBindingTBS::new(
+                log_id,
+                handle.clone(),
+                identity_pk,
+                assertion_digest,
+                tbs_digest,
+            )
+            .map_err(|_| IdentityError::MalformedCredential)?;
+            let identity_signature = self.identity.sign_initial_bind_binding(&binding)?;
+            DirectoryEntry {
+                entry: tbs,
+                authorization: EntryAuthorization::InitialBind {
+                    assertion: Payload::new(assertion.unwrap_or_default().to_vec())
+                        .map_err(|_| IdentityError::MalformedCredential)?,
+                    identity_signature,
+                    auth_signature,
+                },
+            }
+        } else {
+            DirectoryEntry {
+                entry: tbs,
+                authorization: EntryAuthorization::SameKey { auth_signature },
+            }
+        };
+        let entry_bytes = entry
+            .encode_canonical()
+            .map_err(|_| IdentityError::MalformedCredential)?;
+        let entry_digest = entry_value(&entry_bytes);
+
+        // Keep the existing v1 submission binding byte-for-byte intact. The
+        // additional initial-entry binding is separate and lives in the tree.
         let binding = AssertionBindingTBS::for_assertion(
-            AuthorityLogId::new(*draft.log_id.as_bytes()),
-            AuthorityHandle::parse(draft.handle.as_slice())
-                .map_err(|_| IdentityError::MalformedCredential)?,
+            log_id,
+            handle,
             identity_pk,
             assertion_digest,
             entry_digest,
@@ -306,7 +351,7 @@ impl AccountKeys {
         .map_err(|_| IdentityError::MalformedCredential)?;
         let identity_signature = self.identity.sign_assertion_binding(&binding)?;
 
-        let envelope = SubmissionEnvelope::new(&entry_bytes, assertion, identity_signature)
+        let envelope = SubmissionEnvelope::new(&entry_bytes, None, identity_signature)
             .and_then(|envelope| envelope.encode_canonical().map_err(Into::into))
             .map_err(|_| IdentityError::MalformedCredential)?;
 
@@ -440,14 +485,38 @@ mod tests {
         )
         .unwrap();
 
-        // … and the identity key signed a binding over *this* entry and *this*
-        // assertion, which is exactly what the log recomputes.
+        // … and the committed initial authorization contains the assertion and
+        // its additional identity binding; the ratified envelope binding below
+        // remains byte-for-byte unchanged.
         let envelope = decoded_envelope(&signed);
-        assert_eq!(envelope.assertion_bytes(), Some(bytes.as_slice()));
+        assert_eq!(envelope.assertion_bytes(), None);
         assert_eq!(entry_value(envelope.entry.as_slice()), signed.entry_digest);
+        let EntryAuthorization::InitialBind {
+            assertion: committed_assertion,
+            identity_signature: committed_binding_signature,
+            ..
+        } = &signed.entry.authorization
+        else {
+            panic!("first entry must carry InitialBind");
+        };
+        assert_eq!(committed_assertion.as_slice(), bytes.as_slice());
         let assertion = decode_canonical::<HandleAssertion>(&bytes)
             .unwrap()
             .into_value();
+        let binding = InitialBindBindingTBS::new(
+            AuthorityLogId::new(*log_id().as_bytes()),
+            AuthorityHandle::parse(b"alice").unwrap(),
+            account.identity.public(),
+            assertion.digest().unwrap(),
+            entry_tbs_digest(&tbs),
+        )
+        .unwrap();
+        f2z_kt_core::sig::verify(
+            &account.identity.public(),
+            &binding.signing_bytes().unwrap(),
+            committed_binding_signature,
+        )
+        .unwrap();
         let binding = AssertionBindingTBS::for_assertion(
             AuthorityLogId::new(*log_id().as_bytes()),
             AuthorityHandle::parse(b"alice").unwrap(),
@@ -491,12 +560,45 @@ mod tests {
     }
 
     #[test]
-    fn a_first_entry_without_an_assertion_is_refused_before_signing() {
+    fn a_no_authority_first_entry_is_signed_into_the_entry() {
         let account = account();
-        assert_eq!(
-            account.sign_directory_submission(&draft(&account, None), None),
-            Err(IdentityError::MalformedCredential)
-        );
+        let signed = account
+            .sign_directory_submission(&draft(&account, None), None)
+            .unwrap();
+        assert_eq!(signed.entry.entry.kind, EntryKind::InitialBind);
+        let EntryAuthorization::InitialBind { assertion, .. } = &signed.entry.authorization else {
+            panic!("first entry must carry InitialBind");
+        };
+        assert!(assertion.as_slice().is_empty());
+        let envelope = decoded_envelope(&signed);
+        assert_eq!(envelope.assertion_bytes(), None);
+        let tbs = signed.entry.entry.signing_bytes().unwrap();
+        f2z_kt_core::sig::verify(
+            &account.directory_auth.public(),
+            &tbs,
+            signed.entry.authorization.auth_signature(),
+        )
+        .unwrap();
+        let initial_binding = InitialBindBindingTBS::new(
+            AuthorityLogId::new(*log_id().as_bytes()),
+            AuthorityHandle::parse(b"alice").unwrap(),
+            account.identity.public(),
+            Digest::zero(),
+            entry_tbs_digest(&tbs),
+        )
+        .unwrap();
+        let EntryAuthorization::InitialBind {
+            identity_signature, ..
+        } = &signed.entry.authorization
+        else {
+            panic!("first entry must carry InitialBind");
+        };
+        f2z_kt_core::sig::verify(
+            &account.identity.public(),
+            &initial_binding.signing_bytes().unwrap(),
+            identity_signature,
+        )
+        .unwrap();
     }
 
     #[test]

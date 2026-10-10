@@ -336,26 +336,38 @@ impl TestDirectory {
     pub(crate) fn genesis(&self) -> DirectoryEntry {
         let entry = self.contents(
             1,
-            EntryKind::SameKey,
+            EntryKind::InitialBind,
             &self.identity_key,
             &self.auth_key,
             Digest::zero(),
             0,
         );
-        self.authorize_same_key(entry, &self.auth_key)
+        self.authorize_initial(entry, &self.auth_key)
     }
 
     /// A version-1 registration that forecloses the reset path (ADR 0014).
     pub(crate) fn genesis_no_reset(&self) -> DirectoryEntry {
         let entry = self.contents(
             1,
-            EntryKind::SameKey,
+            EntryKind::InitialBind,
             &self.identity_key,
             &self.auth_key,
             Digest::zero(),
             1,
         );
-        self.authorize_same_key(entry, &self.auth_key)
+        self.authorize_initial(entry, &self.auth_key)
+    }
+
+    fn authorize_initial(&self, entry: DirectoryEntryTBS, auth: &SigningKey) -> DirectoryEntry {
+        let auth_signature = sign(auth, &entry.signing_bytes().expect("an entry encodes"));
+        DirectoryEntry {
+            entry,
+            authorization: EntryAuthorization::InitialBind {
+                assertion: f2z_codec::types::Payload::new(vec![1]).expect("short payload"),
+                identity_signature: Signature::new([0; 64]),
+                auth_signature,
+            },
+        }
     }
 
     /// A registration whose device credential is signed by a key that is not the
@@ -363,7 +375,7 @@ impl TestDirectory {
     pub(crate) fn wrong_signer_credential(&self) -> DirectoryEntry {
         let mut entry = self.contents(
             1,
-            EntryKind::SameKey,
+            EntryKind::InitialBind,
             &self.identity_key,
             &self.auth_key,
             Digest::zero(),
@@ -372,7 +384,7 @@ impl TestDirectory {
         entry.devices = VecU16::new(vec![
             self.credential(&self.identity_key, &signing_key(0x77)),
         ]);
-        self.authorize_same_key(entry, &self.auth_key)
+        self.authorize_initial(entry, &self.auth_key)
     }
 
     /// A registration whose device credential names — and is signed by — a
@@ -381,14 +393,14 @@ impl TestDirectory {
         let foreign = signing_key(0x78);
         let mut entry = self.contents(
             1,
-            EntryKind::SameKey,
+            EntryKind::InitialBind,
             &self.identity_key,
             &self.auth_key,
             Digest::zero(),
             0,
         );
         entry.devices = VecU16::new(vec![self.credential(&foreign, &foreign)]);
-        self.authorize_same_key(entry, &self.auth_key)
+        self.authorize_initial(entry, &self.auth_key)
     }
 
     /// A `same_key` successor to `previous`.
@@ -431,7 +443,7 @@ impl TestDirectory {
 
     /// Re-sign a genesis entry a test has edited.
     pub(crate) fn reauthorize_genesis(&self, entry: DirectoryEntry) -> DirectoryEntry {
-        self.authorize_same_key(entry.entry, &self.auth_key)
+        self.authorize_initial(entry.entry, &self.auth_key)
     }
 
     /// Sign a rotation proof.

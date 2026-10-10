@@ -27,8 +27,8 @@ pub type Result<T> = core::result::Result<T, LogError>;
 pub enum LogError {
     /// A rule in `KT.md` §4 rejected a submission.
     Kt(KtError),
-    /// `f2z-authority` refused a handle claim (`KT.md` §4.4's unspecified
-    /// first-entry case; see zuu#594).
+    /// `f2z-authority` refused a handle claim (assertion, policy, or binding
+    /// check for the proposed #649 first-entry case).
     Authority(AuthorityError),
     /// A submission carried an assertion where the log's rules do not admit
     /// one. Distinct from [`LogError::Authority`] because the boundary is

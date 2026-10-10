@@ -33,6 +33,10 @@ pub const LABEL_ASSERTION_TBS: &[u8] = b"free2z/kt/v1/handle-assertion";
 /// [`AssertionBindingTBS`]: crate::assertion::AssertionBindingTBS
 pub const LABEL_ASSERTION_BINDING_TBS: &[u8] = b"free2z/kt/v1/assertion-binding";
 
+/// Proposed second binding carried by a committed initial entry. This new
+/// label leaves the existing v1 assertion-binding contract unchanged.
+pub const LABEL_INITIAL_BINDING_TBS: &[u8] = b"free2z/kt/v1/initial-binding";
+
 /// `authority_id = H("free2z/kt/v1/authority-id", authority_pk)`.
 ///
 /// The same shape as `WIRE.md` §5.2's `relay_id`, and for the same reason: a
@@ -50,9 +54,10 @@ pub const LABEL_HANDLE_ID: &[u8] = b"free2z/kt/v1/handle-id";
 pub const LABEL_ASSERTION_DIGEST: &[u8] = b"free2z/kt/v1/assertion-digest";
 
 /// Every label this crate defines, so a test can hold the set prefix-free.
-pub const LABELS: [&[u8]; 5] = [
+pub const LABELS: [&[u8]; 6] = [
     LABEL_ASSERTION_TBS,
     LABEL_ASSERTION_BINDING_TBS,
+    LABEL_INITIAL_BINDING_TBS,
     LABEL_AUTHORITY_ID,
     LABEL_HANDLE_ID,
     LABEL_ASSERTION_DIGEST,
@@ -66,7 +71,7 @@ pub const LABELS: [&[u8]; 5] = [
 /// property that matters — no label is a prefix of another — is a property of
 /// every label in the `free2z/kt/v1/` namespace at once, and a test that only
 /// sees half of them proves half of it.
-pub const KT_LABELS: [&[u8]; 7] = [
+pub const KT_LABELS: [&[u8]; 8] = [
     b"free2z/kt/v1/entry",
     b"free2z/kt/v1/rotation",
     b"free2z/kt/v1/reset",
@@ -74,6 +79,7 @@ pub const KT_LABELS: [&[u8]; 7] = [
     b"free2z/kt/v1/prev",
     b"free2z/kt/v1/value",
     b"free2z/kt/v1/handle:",
+    b"free2z/kt/v1/initial-entry-digest",
 ];
 
 #[cfg(test)]
