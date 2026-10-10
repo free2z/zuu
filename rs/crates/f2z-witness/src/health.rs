@@ -273,7 +273,8 @@ mod tests {
             successor_log_pk: PublicKey::zero(),
         };
         WitnessState {
-            label: label_field(b"free2z/kt/v1/witness-state").unwrap(),
+            label: label_field(b"free2z/kt/v1/witness-state/v2").unwrap(),
+            format_version: 2,
             kt_version: f2z_kt_core::KT_VERSION,
             log_id: LogId::new([1u8; 32]),
             accepted_log_pk: PublicKey::new([5u8; 32]),
@@ -288,6 +289,8 @@ mod tests {
             vrf_public_key: PublicKey::new([4u8; 32]),
             published_at_ms: 500,
             halted: 0,
+            delivery_known: 1,
+            pending_cosignature: None,
             updated_at_ms,
         }
     }
