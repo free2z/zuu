@@ -66,6 +66,7 @@ struct Memory {
     lose_hold_replies: usize,
     lose_settle_reply: bool,
     available: u64,
+    cap_remaining: Option<u64>,
     slow_completion: bool,
     /// Mimic a ledger before `ledger.0006_call_features`: its
     /// `gateway_metadata_valid` refuses any key it does not name, so
@@ -77,7 +78,7 @@ struct Memory {
 }
 impl Memory {
     fn context(&self) -> Value {
-        json!({"status":"ok","available_milli_2z":self.available,"cap_remaining_milli_2z":null,"debt_milli_2z":0,"open_holds":0,"frozen":false,"consented_markup_bps":0,"effective_markup_bps":0})
+        json!({"status":"ok","available_milli_2z":self.available,"cap_remaining_milli_2z":self.cap_remaining,"debt_milli_2z":0,"open_holds":0,"frozen":false,"consented_markup_bps":0,"effective_markup_bps":0})
     }
     fn record(&self) -> Value {
         let status = match self.terminal {
@@ -1730,6 +1731,67 @@ async fn strict_output_limit_is_refused_before_any_hold_charge_or_provider_reque
     assert_eq!(mock.request_count(), 0);
     mock.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn strict_cap_refusal_pins_supported_details_and_has_no_paid_work() {
+    let db = Arc::new(Database::new());
+    {
+        let mut state = db.0.lock().unwrap();
+        state.available = 10_000_000;
+        state.cap_remaining = Some(5_000);
+    }
+    let (r, mock) = launch_catalog(db.clone(), Scenario::default(), None, priced_catalog()).await;
+
+    // The estimate and real call use the same ledger snapshot. Pin the
+    // request-specific required amount without duplicating the pricing math.
+    let (status, estimate) = post(&r, "/v1/chat/estimate", &aha_request(true)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{estimate}");
+    let expected_required = estimate["error"]["details"]["required_2z"]
+        .as_u64()
+        .unwrap();
+
+    let (status, refused) = post(&r, "/v1/chat", &aha_request(true)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{refused}");
+    assert_eq!(refused["error"]["code"], "cap_exceeded");
+    let details = refused["error"]["details"].as_object().unwrap();
+    let keys: std::collections::BTreeSet<_> = details.keys().map(String::as_str).collect();
+    assert_eq!(
+        keys,
+        [
+            "available_milli_2z",
+            "cap_remaining_milli_2z",
+            "max_output_tokens",
+            "min_charge_2z",
+            "reason",
+            "required_2z",
+        ]
+        .into_iter()
+        .collect()
+    );
+    assert_eq!(details["reason"], "max_output_tokens_strict");
+    assert_eq!(details["max_output_tokens"], 1800);
+    assert_eq!(details["required_2z"], expected_required);
+    assert_eq!(details["available_milli_2z"], 10_000_000);
+    assert_eq!(details["min_charge_2z"], 1);
+    assert_eq!(details["cap_remaining_milli_2z"], 5_000);
+    for unsupported in ["cap_2z", "cap_period", "resets_at"] {
+        assert!(
+            !details.contains_key(unsupported),
+            "the ledger context has no {unsupported} metadata: {details:?}"
+        );
+    }
+
+    final_state(&db).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert!(state.hold.is_none(), "no hold was taken");
+        assert_eq!(state.charges, 0);
+        assert_eq!(state.terminal, Some("released"));
+    }
+    assert_eq!(mock.request_count(), 0, "the provider was never called");
+    mock.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn without_strict_the_same_request_is_clamped_held_and_charged() {
     // Negative control for the test above: identical balance and request,
