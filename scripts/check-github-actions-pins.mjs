@@ -247,6 +247,9 @@ const RUST_ROOT_CONTRACTS = [
         probeRoot: "rs",
         additionalProbePaths: [
           "docs/free2z/sdk/spec/chat-api.md",
+          "docs/free2z/sdk/RELEASES.md",
+          "scripts/free2z/check-released-sdk-compat.sh",
+          "scripts/free2z/released-sdk-register.mjs",
           "docs/free2z/messaging/KT.md",
           "docs/free2z/messaging/decisions/0013-key-transparency-log.md",
           "docs/free2z/messaging/evidence/akd-benchmark.json",

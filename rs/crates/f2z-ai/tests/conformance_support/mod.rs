@@ -1076,6 +1076,16 @@ impl Harness {
         (status, support::text(response).await)
     }
 
+    pub async fn get(&self, path: &str) -> (StatusCode, String) {
+        let request = axum::http::Request::get(path)
+            .header("host", "gateway")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let response = support::send(self.running.public, request).await;
+        let status = response.status();
+        (status, support::text(response).await)
+    }
+
     /// Wait for the call's ledger terminal (settle / release).
     pub async fn settled(&self) -> Option<&'static str> {
         tokio::time::timeout(Duration::from_secs(5), async {

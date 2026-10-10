@@ -41,6 +41,31 @@ they produce `free2z-tauri-plugin-f2z-api-0.2.0.tgz` and `free2z-sdk-0.2.0.tgz`.
 
 ### Gateway compatibility
 
+#### Released Rust response-decoder contract
+
+The required `rs / gate` runs every successful response from the AI gateway's
+documented synthetic conformance corpus through the real `f2z-ai-proto`
+serializer. It also captures the authenticated `/v1/models` route, a current
+typed schema-2 catalogue with a long-context price tier, and streamed event
+frames, then decodes those producer bytes with actual released Rust SDK and
+proto types:
+
+| SDK id | Immutable commit | Supported response features |
+|---|---|---|
+| `aha-preview` | `d63959f9c766258d7ce827e68f4ddd93d2797f99` | `chat-response,models-response,long-context-catalog,stream-meta,stream-delta,stream-tool-call,stream-usage,stream-done` |
+| `sdk-v0.2.0` | `40bfabffb3f765046ceafad213a26a5754dbd6b9` | `chat-response,models-response,long-context-catalog,stream-meta,stream-delta,stream-tool-call,stream-tool-call-delta,stream-usage,stream-done` |
+
+The preview revision is included because ¡AHA! 1.0.0 shipped with that exact
+pin. The compatibility check proves no-tool and complete-tool-call response
+decoding; actual `/v1/models` response decoding; schema-2 `CatalogV2` decoding
+with `ContextPriceTier` and `ModelPrices`; and supported streamed `meta`,
+`delta`, complete `tool_call`, `usage`, and `done` events. The preview never
+supported `tool_call_delta`, so only that event is excluded for its revision.
+Unknown fields are added only to response-shaped producer bytes; required
+members are removed in negative controls and must fail decoding. The register
+is parsed as an exact machine-checked inventory; unknown, missing, duplicate,
+or feature-inconsistent rows fail the required check.
+
 | Gateway (`f2z-ai`, zuu source) | SDK 0.2.0 |
 |---|---|
 | older than `d26c9397` | Not supported. A request that sets a field newer than that gateway (`tool_choice`, `parallel_tool_calls`, `Tool.strict`, …) is refused with `400 invalid_request`, and no `tool_call_delta` is ever streamed |
