@@ -1186,6 +1186,30 @@ jobs:
       - name: Verify isolated package consumer
         run: npm run test:package --prefix ts/free2z/sdk
 
+  # The standalone Svelte workflow is path-filtered and cannot publish a
+  # branch-protected context. Keep its full lockfile audit in this unconditional
+  # job, which `gate` awaits on every pull request.
+  svelte_advisory:
+    name: ts-svelte / security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - name: Test complete-graph audit and scope policy
+        run: node --test scripts/npm-audit-allowlist.node-test.mjs
+      # npm audit reads the complete lockfile graph, including devDependencies;
+      # do not omit dev packages or invoke package-lock-only before this check.
+      - name: Audit Svelte dependencies (high and critical)
+        run: |
+          for attempt in 1 2 3; do
+            node scripts/npm-audit-allowlist.mjs ts/svelte/free2z && exit 0
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep $((attempt * 5))
+          done
+
   # Branch protection requires this stable context. It succeeds only when the
   # change detector and every applicable full-stack job succeeded; legitimate
   # non-ZUULI skips continue to report success instead of remaining pending.
@@ -1273,7 +1297,7 @@ jobs:
         run: python3 scripts/check-f2z-sdk-mobile.py ${{ matrix.platform }}
 
   gate:
-    needs: [changes, frontend, surfaces, rust_fmt, rust_deny, rust_clippy, rust_native_clippy, rust_native_tests, rust_plugin, rust_msg_plugin, rust_android_32, rust_app, zuuallet_schema, rust_crypto_targets, sdk_native, sdk_mobile, free2z_sdk_typescript]
+    needs: [changes, frontend, surfaces, rust_fmt, rust_deny, rust_clippy, rust_native_clippy, rust_native_tests, rust_plugin, rust_msg_plugin, rust_android_32, rust_app, zuuallet_schema, rust_crypto_targets, sdk_native, sdk_mobile, free2z_sdk_typescript, svelte_advisory]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
