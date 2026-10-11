@@ -188,7 +188,7 @@ jobs:
           # rs/crates/*/Cargo.toml, which select rs; a bump that is not correct
           # fails scripts/check-rust-toolchain.sh in this always-running job.
           #
-          # The two wallet manifests and lockfiles are independent shipping
+          # The three wallet manifests and lockfiles are independent shipping
           # consumers/resolutions of the same OpenMLS/libcrux graph. A direct
           # dependency or feature change must run the rs KAT just like resolved
           # package drift; its first check then rejects lock identity skew.
@@ -199,7 +199,7 @@ jobs:
           rs=false
           while IFS= read -r -d '' file; do
             case "$file" in
-              rust-toolchain.toml|rs/*|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/free2z/messaging/*|docs/free2z/sdk/spec/*|scripts/free2z/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/free2z/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
+              rust-toolchain.toml|rs/*|wallet/e2e2z/src-tauri/Cargo.toml|wallet/e2e2z/src-tauri/Cargo.lock|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/free2z/messaging/*|docs/free2z/sdk/spec/*|scripts/free2z/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/check-mls-shipping-compatibility.sh|scripts/free2z/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
                 rs=true
                 ;;
             esac
@@ -384,6 +384,13 @@ jobs:
 
       - name: Run the permanent crypto known-answer suite
         run: scripts/check-crypto-kats.sh
+
+      # Primitive vectors and two upgraded peers cannot detect an HPKE
+      # DeriveKeyPair transition under an unchanged MLS profile identifier.
+      - name: Verify previous shipping clients and queued commits remain compatible
+        env:
+          CARGO_BUILD_JOBS: "2"
+        run: scripts/check-mls-shipping-compatibility.sh
 
       # The normative AKD type, benchmark figures, and audit-scope correction
       # share one falsifiable evidence record. Its self-test first compiles the

@@ -144,8 +144,9 @@ async fn no_delivery_progress_for_the_stall_limit_aborts_delivery_only() {
     let client = stalled_client(running.public).await;
     let upstream = streams.recv().await.unwrap();
     push_fast(&upstream, 1024, 16 * 1024).await;
-    let before = metric(running.admin, "f2z_ai_delivery_buffered_bytes ").await;
-    assert_ne!(before, "0", "nothing was waiting in the buffer");
+    // Sending 16 MiB can itself outlast the one-second stall limit on CI.
+    // The buffer may already have been cleared by the correct stall outcome;
+    // observe that outcome rather than requiring its transient queued state.
     wait_metric(
         running.admin,
         "f2z_ai_delivery_aborted_total{reason=\"stalled\"} ",

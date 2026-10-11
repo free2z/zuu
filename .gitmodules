@@ -20,7 +20,7 @@
 	branch = main
 [submodule "z/zcash/librustzcash"]
 	path = z/zcash/librustzcash
-	# TRANSIENT FORK, and the only submodule that points at one. See
+	# TRANSIENT FORK (registered alongside the OpenMLS bridge). See
 	# AGENTS.md "It's a real upstream regression -> branch, PR, pin, resume".
 	#
 	# free2z/librustzcash `f2z/drop-stale-rustcrypto-rc-pins` is upstream
@@ -148,3 +148,7 @@
 	path = z/zcash/zallet
 	url = https://github.com/zcash/zallet
 	branch = main
+[submodule "z/openmls/openmls"]
+	path = z/openmls/openmls
+	url = https://github.com/free2z/openmls
+	branch = f2z/preserve-mls-draft-hpke-derivation
