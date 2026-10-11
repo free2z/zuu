@@ -17,7 +17,7 @@ Zakura RPC ── full blocks ──► viewing-key decryption
                        JSON on stdin       independent retries
 ```
 
-The executable and crate remain named **`zcash-paymentd`** / **`zcash_paymentd`**.
+The executable is **`zcash-paymentd`**; the Rust library is **`zcash_paymentd`**.
 This is an independent Cargo project. It does not link any wallet or messaging
 application in this repository; no submodules are needed to build it.
 
@@ -78,18 +78,16 @@ viewing authority. This daemon supplies that small receiving layer. Full blocks
 contain ciphertext and memo together, so the observer needs no spending wallet,
 commitment-tree witnesses or lightwalletd synchronization database.
 
-JSON-RPC is today's chain-source implementation, not the project's permanent
-protocol. Zakura's [shared ecosystem direction](https://zakura.com/announcements/zakura-common/)
+The chain source uses JSON-RPC. Zakura's [shared ecosystem direction](https://zakura.com/announcements/zakura-common/)
 separates node and wallet libraries and anticipates new synchronization services.
 The `Chain` observation-source boundary returns decrypted payments and separates
-transport plus decryption from the journal and hooks. Zakura already exposes a
+transport and decryption from the journal and hooks. Zakura exposes a
 [native indexer gRPC contract](https://github.com/zakura-core/zakura/blob/v1.6.0/crates/zakura-rpc/proto/indexer.proto),
 including tip, non-finalized-state and finalized-range streams. This daemon does
-not consume it today. An indexer or PIR-based observation source needs its own
+not consume that API. An indexer or PIR-based observation source needs its own
 scanner, privacy and reorganization acceptance work; this release implements
-neither backend. Viewing keys stay in the private receiving process. Keep integrations
-centered on payment events so replacing chain transport does not rewrite business
-hooks, and contribute missing node/library capabilities upstream where possible.
+neither backend. Viewing keys stay in the private receiving process. Payment-event
+integrations can use a replacement chain source without changing business hooks.
 
 ## Attach a hook
 
@@ -142,13 +140,13 @@ use an appropriate supervisor/cgroup boundary for production isolation.
 See the [event/API contract](../../docs/zcash-payment-hooks/CONTRACT.md) for fields,
 revision rules, proof commands and the library interface. One state directory
 binds one UFVK, network, birthday, automation floor and confirmation policy.
-Several receiving profiles use separate daemon instances today.
+Use a separate daemon instance for each receiving profile.
 
 Keep the journal private and back it up with SQLite's online backup facilities
 or after stopping writers. Restore and verify it before enabling side effects;
 a viewing key alone does not restore acknowledgements or your application's
 idempotency records. Events are retained; this version has no automatic retention
-or compaction policy. Bounded delivery inventory/handoff checks currently support
+or compaction policy. Bounded delivery inventory and consumer-handoff checks support
 10,000 relevant receipts, 50,000 events and 64 MiB of decoded inventory. Monitor
 those counts and plan capacity work before reaching the limits.
 
@@ -164,7 +162,7 @@ They can pass an unrelated paused positive event, preserve order and retry
 backoff among revocations, and leave that positive event's ACK/retry state
 untouched. A reorg explicitly cancels only the superseded positive events for
 that payment. Once scanner readiness returns, normal queue order resumes.
-Application proof checks can still require a fresh node: delivering a correction
+Application proof checks can require a fresh node: delivering a correction
 does not guarantee that an external verifier or hook can act during an outage.
 Full-block trial decryption costs scale with chain traffic; benchmark your
 history and hardware.
@@ -182,12 +180,12 @@ your live node's retained range, backup recovery or application accounting.
 Near-term work should stay small: live-backend acceptance evidence, measured scan
 throughput, bounded retention/compaction, and a well-tested lifecycle contract.
 HTTP delivery can be an external hook; arbitrary application financial policy
-belongs outside this package. `recipient_hex` already supports address-based
-routing independent of memos; creating and backing up invoice intent mappings
-remains the application's responsibility.
+belongs outside this package. `recipient_hex` supports address-based routing
+independent of memos. The application must create and back up its invoice intent
+mappings.
 
 Licensed under [MIT](LICENSE-MIT) **or** [Apache-2.0](LICENSE-APACHE), at your choice.
 CI checks this independent dependency graph against the shared Rust services
 advisory, license and source policy; it does not inherit the wallet policy.
-Dependency licenses remain their own. This package's license is independent of
+Dependencies retain their respective licenses. This package's license is independent of
 other ZUU projects. No crates.io release or security audit is claimed.
