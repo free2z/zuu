@@ -373,7 +373,45 @@ EOF
   fi
   printf 'self-test: yanked = "deny" fails on the same known-yanked crate.\n'
 
-  printf 'self-test: 6 case(s) passed; cargo-deny %s.\n' "$CARGO_DENY_VERSION"
+  # Enable actual third-party packages, not synthetic crates with matching names.
+  # Both shipping policies must reject adding a second messaging crypto core.
+  for forbidden in openmls_rust_crypto openmls_basic_credential; do
+    probe=$fixture/provider-$forbidden
+    mkdir -p "$probe/src"
+    cat > "$probe/Cargo.toml" <<EOF
+[package]
+name = "provider-ban-probe"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+[workspace]
+[dependencies]
+EOF
+    if [[ $forbidden == openmls_rust_crypto ]]; then
+      # Use the actual registered bridge declaration; no second pin to retire.
+      awk '/^openmls_rust_crypto = \{ git/ { print; found=1 } END { if (!found) exit 1 }' \
+        "$REPO_ROOT/rs/Cargo.toml" >> "$probe/Cargo.toml"
+    else
+      printf '%s = "=0.6.0"\n' "$forbidden" >> "$probe/Cargo.toml"
+    fi
+    printf 'pub fn probe() {}\n' > "$probe/src/lib.rs"
+    cargo generate-lockfile --manifest-path "$probe/Cargo.toml"
+    for policy in "$REPO_ROOT/rs/deny.toml" "$REPO_ROOT/wallet/deny.toml"; do
+      log=$probe/$(basename "$(dirname "$policy")").log
+      if "$SELF" --root "$probe" --config "$policy" bans > "$log" 2>&1; then
+        printf 'self-test FAILED: %s enabled under %s.\n' "$forbidden" "$policy" >&2
+        exit 1
+      fi
+      if ! grep -F 'error[banned]' "$log" >/dev/null || ! grep -F "$forbidden" "$log" >/dev/null; then
+        printf 'self-test failed for something other than the provider ban:\n' >&2
+        cat "$log" >&2
+        exit 1
+      fi
+      printf 'self-test: %s rejects enabled %s.\n' "$policy" "$forbidden"
+    done
+  done
+
+  printf 'self-test: 10 case(s) passed; cargo-deny %s.\n' "$CARGO_DENY_VERSION"
   exit 0
 fi
 

@@ -209,8 +209,16 @@ exceptions = [
 [bans]
 multiple-versions = "allow"
 
+# ADR0001: messaging uses one libcrux crypto core. These optional packages may
+# be resolved in lockfiles but must never be enabled in a shipping wallet graph.
+[[bans.deny]]
+name = "openmls_rust_crypto"
+
+[[bans.deny]]
+name = "openmls_basic_credential"
+
 # =============================================================================
-# Sources. Every crate in all three lockfiles resolves to crates.io today; the
+# Sources. Registry packages plus the two registered source bridges; the
 # in-source Zcash dependencies are path dependencies into z/, not git ones. This
 # makes that a rule instead of a coincidence, so a `git = "..."` dependency on a
 # personal fork cannot be introduced without amending this file.
