@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LOCKFILES = [
   "rs/Cargo.lock",
+  "wallet/e2e2z/src-tauri/Cargo.lock",
   "wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock",
   "wallet/zuuli/src-tauri/Cargo.lock",
 ];
@@ -26,6 +27,7 @@ const EXPECTED_PACKAGES = new Set([
   "libcrux-curve25519",
   "libcrux-ecdh",
   "libcrux-ed25519",
+  "libcrux-ecdsa",
   "libcrux-hacl-rs",
   "libcrux-hkdf",
   "libcrux-hmac",
@@ -34,7 +36,9 @@ const EXPECTED_PACKAGES = new Set([
   "libcrux-kem",
   "libcrux-macros",
   "libcrux-ml-kem",
+  "libcrux-ml-dsa",
   "libcrux-p256",
+  "libcrux-p384",
   "libcrux-platform",
   "libcrux-poly1305",
   "libcrux-secrets",
@@ -54,10 +58,21 @@ const EXPECTED_PACKAGES = new Set([
 // Independent of the mutable Set above: removing a reviewed name must change
 // this digest before any lock is parsed. A deliberate graph update therefore
 // has an explicit re-review point instead of laundering a coordinated
-// EXPECTED_PACKAGES + three-lock deletion through a green parity check.
-const REVIEWED_PACKAGE_COUNT = 34;
+// EXPECTED_PACKAGES + four-lock deletion through a green parity check.
+const REVIEWED_PACKAGE_COUNT = 37;
 const REVIEWED_PACKAGE_NAMES_SHA256 =
-  "6489c1c586603d66a599b5a232c4d980b6d71617b7d5d3c6e15fb0afcd8317b2";
+  "5b7a3cdbeb75035bcb5b0b3c541ab57e02cf3e786bb8691f4b1084b6d6ba0838";
+// Only these four upstream PR2261 bridge packages may lack a registry
+// checksum. Both the requested rev and resolved commit must be exact; matching
+// three maliciously edited locks must never authorize an arbitrary Git source.
+const OPENMLS_BRIDGE_SOURCE =
+  "git+https://github.com/openmls/openmls?rev=e0b21a70a55a9014b8de2772b36bf3d638adad51#e0b21a70a55a9014b8de2772b36bf3d638adad51";
+const OPENMLS_BRIDGE_VERSIONS = new Map([
+  ["openmls_libcrux_crypto", "0.4.0"],
+  ["openmls_traits", "0.6.0"],
+  ["openmls_memory_storage", "0.6.0"],
+  ["openmls_rust_crypto", "0.6.0"],
+]);
 const PACKAGE_FAMILIES = [
   ["libcrux", "libcrux-kem", "libcrux-self-test-added"],
   ["hpke-rs", "hpke-rs", "hpke-rs-self-test-added"],
@@ -111,7 +126,14 @@ function cryptoPackages(
     const version = packageField(block, "version");
     const packageSource = packageField(block, "source");
     const checksum = packageField(block, "checksum");
-    if (!version || !packageSource || !checksum) {
+    const bridgeVersion = OPENMLS_BRIDGE_VERSIONS.get(name);
+    if (bridgeVersion) {
+      if (version !== bridgeVersion || packageSource !== OPENMLS_BRIDGE_SOURCE || checksum) {
+        throw new Error(`${relativeFile}: ${name} must retain the exact reviewed upstream bridge identity`);
+      }
+    } else if (!version
+      || packageSource !== "registry+https://github.com/rust-lang/crates.io-index"
+      || !/^[a-f0-9]{64}$/.test(checksum ?? "")) {
       throw new Error(
         `${relativeFile}: ${name} must retain version, registry source, and checksum identity`,
       );
@@ -134,8 +156,8 @@ function parityFailures(
   sources,
   { includePackage, expectedPackages = EXPECTED_PACKAGES } = {},
 ) {
-  if (LOCKFILES.length !== 3 || new Set(LOCKFILES).size !== 3) {
-    return ["crypto lock policy must cover exactly the three independent shipping locks"];
+  if (LOCKFILES.length !== 4 || new Set(LOCKFILES).size !== 4) {
+    return ["crypto lock policy must cover exactly the four independent shipping locks"];
   }
   try {
     validateAuthoritativeInventory(expectedPackages);
@@ -319,6 +341,23 @@ function runSelfTest() {
         `crypto lock self-test: ${relativeFile} rejected ${family} version/source/checksum/add/remove drift`,
       );
     }
+  }
+
+  for (const relativeFile of LOCKFILES) {
+    for (const name of OPENMLS_BRIDGE_VERSIONS.keys()) {
+      const source = baseline.get(relativeFile);
+      for (const [label, mutate] of [
+        ["resolved revision drift", (block) => block.replace(/#e0b21[a-f0-9]+/, `#${"0".repeat(40)}`)],
+        ["requested revision drift", (block) => block.replace(/rev=e0b21[a-f0-9]+/, `rev=${"0".repeat(40)}`)],
+        ["upstream source substitution", (block) => block.replace("github.com/openmls/openmls", "example.invalid/openmls")],
+        ["missing source", (block) => block.replace(/^source = .*\n/m, "")],
+        ["bridge version drift", (block) => block.replace(/^version = .*$/m, 'version = "999.0.0"')],
+        ["spurious registry checksum", (block) => `${block}checksum = "${"0".repeat(64)}"\n`],
+      ]) {
+        requireRejected(label, baseline, relativeFile, replacePackageBlock(source, name, mutate), name);
+      }
+    }
+    console.log(`crypto lock self-test: ${relativeFile} rejected all exact upstream bridge identity mutations`);
   }
 
   const variantSource = baseline.get(LOCKFILES[0]);

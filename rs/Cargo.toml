@@ -216,19 +216,20 @@ openmls_libcrux_crypto = { version = "0.4.0", default-features = false }
 # `f2z-msg-mls` implement `openmls_traits::signatures::Signer` itself instead of
 # taking `openmls_basic_credential`, which is #693.
 #
-# 0.0.9 rather than 0.0.6 because `openmls_libcrux_crypto 0.4.0` requires it,
-# and unifying is the point — a second copy would mean MLS framing signed by one
+# 0.0.10 matches the fixed upstream provider bridge below;
+# unifying is the point — a second copy would mean MLS framing signed by one
 # build of the primitive and verified by another. It is also the release that
 # fixes RUSTSEC-2026-0075: `generate_key_pair` now returns `Error::KeyGen`
 # instead of an all-zero secret key when the CSPRNG fails 100 times running.
 # `sign` is unchanged, which is the only function this tree calls.
-libcrux-ed25519 = { version = "0.0.9", default-features = false }
+libcrux-ed25519 = { version = "0.0.10", default-features = false }
 # Direct dependencies of the permanent known-answer harness. These versions
 # are the same packages already selected beneath openmls_libcrux_crypto; naming
 # them lets the harness exercise the primitives themselves without introducing
 # an implementation outside ADR 0001's single crypto core.
-libcrux-ecdh = { version = "0.0.8", default-features = false }
-libcrux-kem = { version = "0.0.9", default-features = false }
+# The fixed PR2261 train requires ECDH0.0.9/KEM0.0.10 (RUSTSEC-2026-0330/0331).
+libcrux-ecdh = { version = "0.0.9", default-features = false }
+libcrux-kem = { version = "0.0.10", default-features = false }
 # `openmls_basic_credential` is NOT here and must not be added. It signs with
 # `ed25519-dalek` and `p256` outside the libcrux provider (#693), which
 # contradicts ADR 0001's single crypto core; `f2z-msg-mls` implements
@@ -329,3 +330,15 @@ async-trait = { version = "0.1", default-features = false }
 # distro's build flags are not ours to assume. Native only — `rs_wasm` in
 # `.github/workflows/rs.yml` deliberately does not name the crate that uses it.
 rusqlite = { version = "0.37", features = ["bundled"] }
+
+# Temporary upstream source bridge until a provider release includes OpenMLS
+# PR2261. The provider's path dependencies must resolve to the SAME trait and
+# memory-storage source throughout the graph, not duplicate registry identities.
+# The disabled optional RustCrypto provider must also move HPKE off the
+# vulnerable KEM in the full lock; it remains banned in enabled graphs.
+# No local cryptographic algorithm modifications. See docs/DEPENDENCIES.md.
+[patch.crates-io]
+openmls_libcrux_crypto = { git = "https://github.com/openmls/openmls", rev = "e0b21a70a55a9014b8de2772b36bf3d638adad51" }
+openmls_traits = { git = "https://github.com/openmls/openmls", rev = "e0b21a70a55a9014b8de2772b36bf3d638adad51" }
+openmls_memory_storage = { git = "https://github.com/openmls/openmls", rev = "e0b21a70a55a9014b8de2772b36bf3d638adad51" }
+openmls_rust_crypto = { git = "https://github.com/openmls/openmls", rev = "e0b21a70a55a9014b8de2772b36bf3d638adad51" }

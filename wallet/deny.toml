@@ -219,7 +219,7 @@ multiple-versions = "allow"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# TRANSIENT, and the only git source in any shipping lock.
+# TRANSIENT bip32 bridge (alongside the registered OpenMLS bridge below).
 #
 # `wallet/zuuli/src-tauri` carries a rev-pinned `[patch.crates-io]` for `bip32`,
 # because the only published 0.6 release exact-pins three 2024-era RustCrypto
@@ -235,4 +235,6 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # does not admit an arbitrary git dependency — it admits one reviewed commit of
 # one fork we control. Remove the entry with the patch, when `bip32 0.6.0` is
 # published and the Zcash stack moves to secp256k1 0.31.
-allow-git = ["https://github.com/free2z/crates"]
+# Fixed unreleased OpenMLS provider PR2261 bridge; exact packages/revision are
+# enforced by the dependency register and three-lock crypto identity check.
+allow-git = ["https://github.com/free2z/crates", "https://github.com/openmls/openmls"]

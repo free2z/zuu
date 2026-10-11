@@ -57,3 +57,15 @@ opt-level = 3
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# Temporary upstream source bridge until a provider release includes OpenMLS
+# PR2261. The provider's path dependencies must resolve to the SAME trait and
+# memory-storage source throughout the graph, not duplicate registry identities.
+# The disabled optional RustCrypto provider must also move HPKE off the
+# vulnerable KEM in the full lock; it remains banned in enabled graphs.
+# No local cryptographic algorithm modifications. See docs/DEPENDENCIES.md.
+[patch.crates-io]
+openmls_libcrux_crypto = { git = "https://github.com/openmls/openmls", rev = "e0b21a70a55a9014b8de2772b36bf3d638adad51" }
+openmls_traits = { git = "https://github.com/openmls/openmls", rev = "e0b21a70a55a9014b8de2772b36bf3d638adad51" }
+openmls_memory_storage = { git = "https://github.com/openmls/openmls", rev = "e0b21a70a55a9014b8de2772b36bf3d638adad51" }
+openmls_rust_crypto = { git = "https://github.com/openmls/openmls", rev = "e0b21a70a55a9014b8de2772b36bf3d638adad51" }
