@@ -54,7 +54,11 @@ is the checked sum of exclusive ordinary, cache-read and cache-write tokens;
 reasoning is already included in output. Each tier rate must be no lower than
 its base rate; individual zero-price dimensions remain valid. The existing
 signature envelope label stays `free2z/ai-catalog/v1` because schema and tier
-rules are inside its signed payload.
+rules are inside its signed payload. Price response structs ignore additive
+metadata for wire compatibility, while `verify_catalog` and
+`verify_catalog_v2` inspect the signed JSON tree first and reject unknown
+price dimensions or tier members. Tolerant response decoding therefore does
+not relax signed money-policy validation.
 
 Adoption requires authoritative immutable ledger terms and a versioned, typed
 model-list API. Legacy `/v1/models` must omit tier-priced models; adding an

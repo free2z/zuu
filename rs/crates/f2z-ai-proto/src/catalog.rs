@@ -49,9 +49,9 @@ pub const CATALOG_SIGNING_LABEL: &[u8] = b"free2z/ai-catalog/v1";
 /// The schema understood by the original reader and the active gateway.
 ///
 /// Changes an old consumer must not silently misread require a new schema
-/// and an explicitly versioned reader (see [`crate::catalog_v2`]). In
-/// particular, [`ModelPrices`] refuses unknown price dimensions so older
-/// consumers cannot silently price a new dimension at zero.
+/// and an explicitly versioned reader (see [`crate::catalog_v2`]). Signed
+/// ingress validates price dimensions in the verified JSON tree before the
+/// tolerant response-side [`ModelPrices`] can discard unknown members.
 pub const CATALOG_SCHEMA: u32 = 1;
 
 /// The largest platform margin [`Catalog::validate`] accepts: 1 000 %.
@@ -449,6 +449,7 @@ pub fn verify_catalog(
     now_unix: u64,
 ) -> Result<Catalog, CatalogError> {
     let tree = verify_catalog_tree(payload, signature, trusted)?;
+    validate_signed_price_fields(&tree, false)?;
     // Inspect the signed tree before an older typed reader can discard a new
     // money field. Explicit null is presence too, not a schema-1 extension.
     if tree
@@ -470,6 +471,59 @@ pub fn verify_catalog(
         return Err(CatalogError::Expired);
     }
     Ok(catalog)
+}
+
+/// Response-side price structs accept additive metadata, but signed prices
+/// must remain fail-closed: otherwise a new money dimension can be silently
+/// dropped by an older verifier and priced as though it were absent.
+pub(crate) fn validate_signed_price_fields(
+    tree: &Value,
+    allow_context_tier: bool,
+) -> Result<(), CatalogError> {
+    const PRICE_FIELDS: &[&str] = &[
+        "input_nusd_per_mtok",
+        "cached_input_nusd_per_mtok",
+        "cache_write_nusd_per_mtok",
+        "output_nusd_per_mtok",
+        "image_nusd",
+        "tool_call_nusd",
+    ];
+    let Some(models) = tree.get("models").and_then(Value::as_array) else {
+        return Ok(()); // The typed schema validation reports the structural error.
+    };
+    for model in models {
+        if let Some(prices) = model.get("prices") {
+            reject_unknown_members(prices, PRICE_FIELDS, "model prices")?;
+        }
+        if let Some(tier) = model.get("long_context_pricing") {
+            if !allow_context_tier {
+                continue; // schema-1 caller reports the schema mismatch below
+            }
+            reject_unknown_members(
+                tier,
+                &["input_tokens_gt", "prices"],
+                "long-context pricing tier",
+            )?;
+            if let Some(prices) = tier.get("prices") {
+                reject_unknown_members(prices, PRICE_FIELDS, "long-context prices")?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn reject_unknown_members(
+    value: &Value,
+    allowed: &[&str],
+    description: &'static str,
+) -> Result<(), CatalogError> {
+    if value
+        .as_object()
+        .is_some_and(|object| object.keys().any(|key| !allowed.contains(&key.as_str())))
+    {
+        return Err(CatalogError::Invalid(description));
+    }
+    Ok(())
 }
 
 /// Shared signature boundary; version-specific readers use this same tree.
