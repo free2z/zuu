@@ -428,8 +428,36 @@ fn plan_with(
         p.hold = required;
         return Ok(p);
     }
-    if p.worst(1)?.get() > available {
-        return Err(refusal(short()));
+    let minimum_hold = p.worst(1)?;
+    if minimum_hold.get() > available {
+        // A non-strict request may be clamped only after its minimum
+        // one-output-token call is affordable. Keep this pre-hold refusal
+        // useful to clients in exactly the same units as the strict refusal:
+        // the price is the real worst-case one-token price at the current
+        // applied markup, not a guess based on the published rate card.
+        // These are all caller-scoped values from the context read above.
+        if input > SAFE_INTEGER
+            || minimum_hold.get() > SAFE_INTEGER
+            || p.model.min_charge_2z.get() > SAFE_INTEGER
+        {
+            return Err(invalid());
+        }
+        let failure = ApiFailure::new(
+            match short() {
+                "cap_exceeded" => ErrorCode::CapExceeded,
+                _ => ErrorCode::InsufficientBalance,
+            },
+            "the available balance or app cap cannot cover the minimum charge for one output token",
+        )
+        .detail("input_tokens_estimate", input)
+        .detail("required_2z", minimum_hold.get())
+        .detail("available_milli_2z", c.available_milli_2z)
+        .detail("min_charge_2z", p.model.min_charge_2z.get())
+        .detail("cap_remaining_milli_2z", json!(c.cap_remaining_milli_2z));
+        // Keep the context field explicitly nullable: null means this grant
+        // has no app spend cap, while a number is the caller's remaining cap.
+        // (The detail is always from this request's authorized context.)
+        return Err(failure);
     }
     let (mut low, mut high) = (1, ceiling);
     while low < high {
