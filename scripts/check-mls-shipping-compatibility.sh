@@ -2,6 +2,8 @@
 # Real previous shipping locks versus current locks, including a queued commit
 # and on-disk state opened after upgrade. No external service or money IO.
 set -euo pipefail
+# This runs multiple graphs; bound each sequential compile on shared agent hosts.
+export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
 repo=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 candidate=${F2Z_MLS_COMPAT_SOURCE:-$repo}
 baseline=40bfabffb3f765046ceafad213a26a5754dbd6b9
