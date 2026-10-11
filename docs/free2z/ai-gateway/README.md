@@ -80,3 +80,11 @@ teams rather than a file:
   ([metering.md](../sdk/spec/metering.md) §5.3).
 - Never re-counts tokens the provider already counted; settlement is from
   provider-reported usage, and an estimate is labelled as such.
+
+## Economic policy preparation
+
+The PostgreSQL adapter requires `ledger.prepare_economic_policy(integer,integer) RETURNS integer`. It supplies the supported range 0–1 before every context, claim, read, completion, hold, extension, settlement and release, after setting local deadlines and within the same transaction. The database owns the shared policy lock and transaction-local policy tag. A missing ABI, NULL or unsupported result, fence or lock refusal fails closed before the requested ledger operation. Startup checks the same preparation and exact integer return signature. This adds one SQL invocation per operation transaction; no new latency measurement is claimed. Existing TLS, pool bounds, immutable retry instructions and deadlines remain in force.
+
+This gateway source change does not activate policy or select a deployment image. Install and validate the compatible database function and restricted gateway-role grant before selecting the new image. The existing deployed image remains selected independently. Actual Django/restricted-role acceptance is a separate coordinated cutover check.
+
+The opt-in `ledger_policy` test runs the shipping adapter against an invented public ABI fixture, covering supported policies, preparation before all eight operations, transaction-local isolation, a retained shared lock through a blocked metadata operation, cutover contention, fences and missing/NULL/unsupported/wrong-type readiness. It contains no private Django schema or settlement model. Use a fresh disposable loopback database with a name beginning `f2z_ai_policy_fixture_`; the fixture refuses an existing `ledger` schema and retains failed-run evidence. Set `F2Z_AI_POLICY_FIXTURE_URL` to that test database and run `cargo +1.97.1 test --locked -p f2z-ai --test ledger_policy -- --ignored` from `rs/`. Normal CI reports this isolated PostgreSQL case as ignored unless explicitly invoked; ordinary gateway tests still run.
