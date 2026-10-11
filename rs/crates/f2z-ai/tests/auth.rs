@@ -1119,6 +1119,13 @@ impl ChatBackend for PanickingBackend {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_panicking_call_does_not_leak_its_lease() {
     let h = Harness::new().await;
+    // The test is about the call's lease after admission. Load and verify the
+    // real fixture key first so a cold JWKS fetch cannot fail closed with a
+    // 503 before the panicking backend is reached under parallel test load.
+    assert!(matches!(
+        h.keys.lookup(&h.key.kid).await,
+        f2z_ai::auth::jwks::Lookup::Found(_)
+    ));
     let settler = RecordingSettler::default();
     // Concurrency 1: a leaked lease would refuse every later call.
     let gw = h
@@ -1130,11 +1137,11 @@ async fn a_panicking_call_does_not_leak_its_lease() {
         .await;
     for n in 1..=3 {
         let response = call(&gw, Some(&h.token())).await;
-        assert_eq!(
-            response.status(),
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "call {n}"
-        );
+        if response.status() != StatusCode::INTERNAL_SERVER_ERROR {
+            let status = response.status();
+            let error = error_of(response).await;
+            panic!("call {n}: expected 500 after backend panic, got {status}: {error}");
+        }
         let records = wait_records(&settler, n).await;
         assert_eq!(
             records.last().unwrap().upstream,
