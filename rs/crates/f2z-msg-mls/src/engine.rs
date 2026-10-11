@@ -23,12 +23,12 @@
 //! half-applied epoch change is not.
 //!
 //! Rolling back storage is only half of that invariant after OpenMLS has
-//! advanced a private-message receive ratchet or merged a commit into the
-//! caller's [`MlsGroup`]. [`MlsEngine::receive`] reloads the durable
-//! pre-transaction group into that same handle before returning an error, so
-//! redelivery sees the state the store actually holds. If that reload itself
-//! fails, [`EngineError::GroupStateUnavailable`] tells the caller to discard
-//! the possibly advanced handle and attempt a fresh durable load.
+//! advanced a private-message receive ratchet or merged a commit into a
+//! [`GroupHandle`]. [`MlsEngine::receive`] reloads the durable pre-transaction
+//! group into that same opaque handle before returning an error, so redelivery
+//! sees the state the store actually holds. If that reload itself fails,
+//! [`EngineError::GroupStateUnavailable`] tells the caller to discard the
+//! possibly advanced handle and use [`MlsEngine::load_group`].
 //!
 //! # Delete-on-ack, and what `record_key` is for
 //!
@@ -207,6 +207,50 @@ impl Received {
     }
 }
 
+/// Opaque authority to one engine-owned MLS group.
+///
+/// The OpenMLS group is intentionally private. Callers can inspect the stable
+/// group id, epoch, and AAD, while every operation that can mutate group state
+/// remains behind [`MlsEngine`] (including the verified Add path).
+pub struct GroupHandle {
+    inner: MlsGroup,
+}
+
+impl core::fmt::Debug for GroupHandle {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("GroupHandle")
+            .field("group_id_len", &self.inner.group_id().as_slice().len())
+            .field("epoch", &self.inner.epoch().as_u64())
+            .finish_non_exhaustive()
+    }
+}
+
+impl GroupHandle {
+    /// The opaque group identifier.
+    #[must_use]
+    pub fn group_id(&self) -> &[u8] {
+        self.inner.group_id().as_slice()
+    }
+
+    /// The current epoch number.
+    #[must_use]
+    pub fn epoch(&self) -> u64 {
+        self.inner.epoch().as_u64()
+    }
+
+    /// This device's leaf index in the group.
+    #[must_use]
+    pub fn own_leaf_index(&self) -> u32 {
+        self.inner.own_leaf_index().u32()
+    }
+
+    /// The current application-associated data.
+    #[must_use]
+    pub fn aad(&self) -> &[u8] {
+        self.inner.aad()
+    }
+}
+
 /// The MLS engine for one device.
 ///
 /// One instance is one device's whole MLS state: its signing key, its device
@@ -240,12 +284,16 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// device whose credential describes a different key produces a group
     /// nobody else will accept — and the failure would otherwise surface on the
     /// peer's machine rather than on this one.
+    /// Existing pre-seal MLS rows are converted atomically before the engine is
+    /// returned, so a refused migration leaves the original store intact.
     ///
     /// # Errors
     ///
     /// [`EngineError::Credential`] if the credential does not bind this
     /// signer's public key or does not validate at `now_ms`;
-    /// [`EngineError::Mls`] if the crypto provider could not be built.
+    /// [`EngineError::Mls`] if the crypto provider could not be built;
+    /// [`EngineError::Storage`] if the backend refused the atomic storage
+    /// migration or opening the sealed store.
     pub fn new(
         backend: B,
         signer: DeviceSigner,
@@ -255,7 +303,7 @@ impl<B: StorageBackend> MlsEngine<B> {
         validate_for_leaf(&credential, signer.public_key(), now_ms)?;
         let credential_bytes = encode_credential(&credential)?;
         Ok(Self {
-            provider: F2zProvider::new(backend)?,
+            provider: F2zProvider::new(backend, signer.storage_root_key())?,
             signer,
             credential,
             credential_bytes,
@@ -266,12 +314,6 @@ impl<B: StorageBackend> MlsEngine<B> {
     #[must_use]
     pub const fn credential(&self) -> &DeviceCredential {
         &self.credential
-    }
-
-    /// The provider, for callers that need the store or the crypto directly.
-    #[must_use]
-    pub const fn provider(&self) -> &F2zProvider<B> {
-        &self.provider
     }
 
     /// What surviving a crash means for this engine's store.
@@ -517,7 +559,7 @@ impl<B: StorageBackend> MlsEngine<B> {
     ///
     /// [`EngineError::Mls`] if OpenMLS refused, [`EngineError::Storage`] if the
     /// store did.
-    pub fn create_group(&self, group_id: &[u8]) -> Result<MlsGroup> {
+    pub fn create_group(&self, group_id: &[u8]) -> Result<GroupHandle> {
         let transaction = self.provider.store().begin()?;
         let group = MlsGroup::builder()
             .ciphersuite(CIPHERSUITE)
@@ -532,7 +574,29 @@ impl<B: StorageBackend> MlsEngine<B> {
             .map_err(|_| EngineError::Mls("group creation"))?;
         self.write_protocol_version(group.group_id().as_slice())?;
         transaction.commit()?;
-        Ok(group)
+        Ok(GroupHandle { inner: group })
+    }
+
+    /// Load a group previously created or joined by this engine.
+    ///
+    /// The returned handle exposes no OpenMLS provider or raw group, so all
+    /// subsequent mutations still pass through this engine's checked methods.
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Storage`] if the store refused the read.
+    pub fn load_group(&self, group_id: &[u8]) -> Result<Option<GroupHandle>> {
+        MlsGroup::load(self.provider.store(), &GroupId::from_slice(group_id))
+            .map(|group| group.map(|inner| GroupHandle { inner }))
+            .map_err(Into::into)
+    }
+
+    /// Set application-associated data on a group handle.
+    ///
+    /// OpenMLS AAD is intentionally ephemeral and is not part of durable group
+    /// state. Callers that reload a group must restore their AAD explicitly.
+    pub fn set_aad(&self, group: &mut GroupHandle, aad: &[u8]) {
+        group.inner.set_aad(aad.to_vec());
     }
 
     /// Add a member from their published `KeyPackage`, returning the commit and
@@ -545,7 +609,8 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// key-transparency log proved is [#133](https://github.com/free2z/zuu/issues/133)
     /// reintroduced at first contact. There is no constructor for that type
     /// except the one that performs the check — see [`crate::keypackage`]. The
-    /// raw public OpenMLS escape outside this wrapper is tracked in #903.
+    /// Structural enforcement is provided by [`GroupHandle`]: the public API
+    /// exposes neither a raw `MlsGroup` nor the engine's provider.
     ///
     /// The credential is validated again here, against this call's clock, and
     /// **before** the Add is proposed: a device that added a peer and then
@@ -560,7 +625,7 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// [`EngineError::Storage`] if the store did.
     pub fn add_member(
         &self,
-        group: &mut MlsGroup,
+        group: &mut GroupHandle,
         key_package: &VerifiedKeyPackage,
         now_ms: u64,
     ) -> Result<(Vec<u8>, Vec<u8>)> {
@@ -569,6 +634,7 @@ impl<B: StorageBackend> MlsEngine<B> {
 
         let transaction = self.provider.store().begin()?;
         let (commit, welcome, _group_info) = group
+            .inner
             .add_members(
                 &self.provider,
                 &self.signer,
@@ -576,6 +642,7 @@ impl<B: StorageBackend> MlsEngine<B> {
             )
             .map_err(|_| EngineError::Mls("add member"))?;
         group
+            .inner
             .merge_pending_commit(&self.provider)
             .map_err(|_| EngineError::Mls("merge pending commit"))?;
         transaction.commit()?;
@@ -595,7 +662,7 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// [`EngineError::Credential`] if any member's credential does not
     /// validate, [`EngineError::Mls`] if OpenMLS refused,
     /// [`EngineError::Storage`] if the store did.
-    pub fn join_from_welcome(&self, welcome_wire: &[u8], now_ms: u64) -> Result<MlsGroup> {
+    pub fn join_from_welcome(&self, welcome_wire: &[u8], now_ms: u64) -> Result<GroupHandle> {
         self.join_from_welcome_inner(welcome_wire, now_ms, None)
     }
 
@@ -609,7 +676,7 @@ impl<B: StorageBackend> MlsEngine<B> {
         welcome_wire: &[u8],
         now_ms: u64,
         expected_group_id: &[u8],
-    ) -> Result<MlsGroup> {
+    ) -> Result<GroupHandle> {
         self.join_from_welcome_inner(welcome_wire, now_ms, Some(expected_group_id))
     }
 
@@ -618,7 +685,7 @@ impl<B: StorageBackend> MlsEngine<B> {
         welcome_wire: &[u8],
         now_ms: u64,
         expected_group_id: Option<&[u8]>,
-    ) -> Result<MlsGroup> {
+    ) -> Result<GroupHandle> {
         let welcome = parse_welcome(welcome_wire)?;
 
         let transaction = self.provider.store().begin()?;
@@ -640,8 +707,9 @@ impl<B: StorageBackend> MlsEngine<B> {
             return Err(EngineError::GroupIdMismatch);
         }
 
+        let group = GroupHandle { inner: group };
         self.validate_members(&group, now_ms)?;
-        self.write_protocol_version(group.group_id().as_slice())?;
+        self.write_protocol_version(group.group_id())?;
         transaction.commit()?;
         Ok(group)
     }
@@ -659,9 +727,10 @@ impl<B: StorageBackend> MlsEngine<B> {
     ///
     /// [`EngineError::Mls`] if OpenMLS refused, [`EngineError::Storage`] if the
     /// store did.
-    pub fn send(&self, group: &mut MlsGroup, payload: &[u8]) -> Result<Vec<u8>> {
+    pub fn send(&self, group: &mut GroupHandle, payload: &[u8]) -> Result<Vec<u8>> {
         let transaction = self.provider.store().begin()?;
         let message = group
+            .inner
             .create_message(&self.provider, &self.signer, payload)
             .map_err(|_| EngineError::Mls("create message"))?;
         transaction.commit()?;
@@ -687,7 +756,7 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// must discard `group` and load a fresh handle from durable storage.
     pub fn receive(
         &self,
-        group: &mut MlsGroup,
+        group: &mut GroupHandle,
         wire: &[u8],
         record_key: &[u8],
         now_ms: u64,
@@ -700,8 +769,8 @@ impl<B: StorageBackend> MlsEngine<B> {
         }
 
         let protocol_message = parse_protocol_message(wire)?;
-        let group_id = group.group_id().clone();
-        let original_aad = group.aad().to_vec();
+        let group_id = group.inner.group_id().clone();
+        let original_aad = group.inner.aad().to_vec();
         let transaction = self.provider.store().begin()?;
 
         let operation = || -> Result<Received> {
@@ -710,6 +779,7 @@ impl<B: StorageBackend> MlsEngine<B> {
             // failure from this call onward, not only the visibly mutating
             // commit branches below.
             let processed = group
+                .inner
                 .process_message(&self.provider, protocol_message)
                 .map_err(map_process_error)?;
 
@@ -725,7 +795,7 @@ impl<B: StorageBackend> MlsEngine<B> {
             let epoch = processed.epoch().as_u64();
             validate_credential_bytes(
                 basic_credential_identity(processed.credential())?,
-                group_signature_key(group, sender_index)?.as_slice(),
+                group_signature_key(&group.inner, sender_index)?.as_slice(),
                 now_ms,
             )?;
 
@@ -737,25 +807,28 @@ impl<B: StorageBackend> MlsEngine<B> {
                 },
                 ProcessedMessageContent::ProposalMessage(proposal) => {
                     group
+                        .inner
                         .store_pending_proposal(self.provider.store(), *proposal)
                         .map_err(|_| EngineError::Mls("store pending proposal"))?;
                     Received::ProposalQueued
                 }
                 ProcessedMessageContent::ExternalJoinProposalMessage(proposal) => {
                     group
+                        .inner
                         .store_pending_proposal(self.provider.store(), *proposal)
                         .map_err(|_| EngineError::Mls("store external join proposal"))?;
                     Received::ProposalQueued
                 }
                 ProcessedMessageContent::StagedCommitMessage(staged) => {
                     group
+                        .inner
                         .merge_staged_commit(&self.provider, *staged)
                         .map_err(|_| EngineError::Mls("merge staged commit"))?;
                     // Re-validated after the merge, because the commit may have
                     // *added* members whose credentials nobody has looked at.
                     self.validate_members(group, now_ms)?;
                     Received::EpochChanged {
-                        epoch: group.epoch().as_u64(),
+                        epoch: group.epoch(),
                     }
                 }
                 // Both of these are **new in openmls 0.9** and both mean "this
@@ -779,13 +852,14 @@ impl<B: StorageBackend> MlsEngine<B> {
                     // transaction in this method exists to prevent. Merging is the
                     // only correct action when a pending commit exists, and doing
                     // nothing is the only correct action when none does.
-                    if group.pending_commit().is_some() {
+                    if group.inner.pending_commit().is_some() {
                         group
+                            .inner
                             .merge_pending_commit(&self.provider)
                             .map_err(|_| EngineError::Mls("merge pending commit"))?;
                         self.validate_members(group, now_ms)?;
                         Received::EpochChanged {
-                            epoch: group.epoch().as_u64(),
+                            epoch: group.epoch(),
                         }
                     } else {
                         Received::Own
@@ -831,13 +905,15 @@ impl<B: StorageBackend> MlsEngine<B> {
     ///
     /// [`EngineError::Mls`] if OpenMLS refused, [`EngineError::Storage`] if the
     /// store did.
-    pub fn update(&self, group: &mut MlsGroup) -> Result<Vec<u8>> {
+    pub fn update(&self, group: &mut GroupHandle) -> Result<Vec<u8>> {
         let transaction = self.provider.store().begin()?;
         let bundle = group
+            .inner
             .self_update(&self.provider, &self.signer, LeafNodeParameters::default())
             .map_err(|_| EngineError::Mls("self update"))?;
         let commit = serialize(bundle.commit())?;
         group
+            .inner
             .merge_pending_commit(&self.provider)
             .map_err(|_| EngineError::Mls("merge pending commit"))?;
         transaction.commit()?;
@@ -857,12 +933,13 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// refused.
     pub fn export_secret(
         &self,
-        group: &MlsGroup,
+        group: &GroupHandle,
         label: ExportLabel,
         context: &[u8],
         length: usize,
     ) -> Result<Vec<u8>> {
         group
+            .inner
             .export_secret(self.provider.crypto(), label.as_str(), context, length)
             .map_err(|_| EngineError::Mls("export secret"))
     }
@@ -894,8 +971,8 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// # Errors
     ///
     /// [`EngineError::Credential`] naming the first check that failed.
-    pub fn validate_members(&self, group: &MlsGroup, now_ms: u64) -> Result<()> {
-        for member in group.members() {
+    pub fn validate_members(&self, group: &GroupHandle, now_ms: u64) -> Result<()> {
+        for member in group.inner.members() {
             validate_credential_bytes(
                 basic_credential_identity(&member.credential)?,
                 member.signature_key.as_slice(),
@@ -911,7 +988,7 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// it explicitly across the reload.
     fn restore_group_after_rollback(
         &self,
-        group: &mut MlsGroup,
+        group: &mut GroupHandle,
         group_id: &GroupId,
         aad: Vec<u8>,
     ) -> Result<()> {
@@ -919,7 +996,7 @@ impl<B: StorageBackend> MlsEngine<B> {
             return Err(EngineError::Mls("reload group after rollback"));
         };
         restored.set_aad(aad);
-        *group = restored;
+        group.inner = restored;
         Ok(())
     }
 

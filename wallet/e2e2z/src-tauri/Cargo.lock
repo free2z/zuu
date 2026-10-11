@@ -6156,8 +6156,6 @@ dependencies = [
  "futures-util",
  "hex",
  "keyring",
- "openmls",
- "openmls_traits",
  "rand 0.10.2",
  "rusqlite",
  "serde",

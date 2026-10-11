@@ -50,6 +50,18 @@
 //! delete-on-ack a half-applied operation is data loss, not inconvenience. See
 //! [`engine`].
 //!
+//! **The public group boundary is sealed.** [`GroupHandle`] contains the raw
+//! OpenMLS group privately and [`MlsEngine`] does not expose its provider.
+//! Before MLS storage reaches a caller-owned backend, both keys and values are
+//! sealed using a key derived from the device signer; a one-transaction
+//! migration converts pre-seal OpenMLS rows and the engine's version/delivery
+//! markers while retaining their values. Unrelated application records remain
+//! untouched. A backend clone exposes ciphertext, lengths, and access patterns,
+//! not enough to reconstruct usable OpenMLS storage. This guarantee assumes the
+//! caller retains only the opaque [`DeviceSigner`]. A caller who already has the raw signing secret
+//! can derive the storage key and has broader authority; this API cannot
+//! constrain the owner of that secret.
+//!
 //! **4. `PrivateMessage`, always.** §5.3: all application payloads travel as
 //! MLS `PrivateMessage`, which hides the content, the sender's leaf index and
 //! the content type from the relay. There is no public-message path in this
@@ -87,6 +99,30 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! The public API does not hand callers an OpenMLS provider or raw group. The
+//! old direct-mutation shape is therefore rejected at compile time:
+//!
+//! ```compile_fail
+//! use f2z_msg_mls::{DeviceSigner, MlsEngine};
+//! use f2z_msg_store::MemoryBackend;
+//! use openmls::prelude::tls_codec::DeserializeBytes as _;
+//! use openmls::prelude::{MlsMessageBodyIn, MlsMessageIn, ProtocolVersion};
+//! use openmls_traits::OpenMlsProvider as _;
+//!
+//! # fn bypass(alice: &MlsEngine<MemoryBackend>, retained_signer: &DeviceSigner, wire: &[u8]) {
+//! let mut group = alice.create_group(b"public-bypass").unwrap();
+//! let (message, rest) = MlsMessageIn::tls_deserialize_bytes(wire).unwrap();
+//! assert!(rest.is_empty());
+//! let raw = match message.extract() {
+//!     MlsMessageBodyIn::KeyPackage(package) => package
+//!         .validate(alice.provider().crypto(), ProtocolVersion::Mls10)
+//!         .unwrap(),
+//!     _ => panic!("not a key package"),
+//! };
+//! group.add_members(alice.provider(), retained_signer, &[raw]).unwrap();
+//! # }
+//! ```
 
 #![forbid(unsafe_code)]
 // The workspace denies these because a panic inside a crypto core is a crash of
@@ -109,17 +145,16 @@ pub mod engine;
 pub mod error;
 pub mod exporter;
 pub mod keypackage;
-pub mod provider;
+mod provider;
 pub mod signer;
 pub mod version;
 
 pub use credential::{
     DEVICE_CREDENTIAL_TYPE, DeviceCredential, DeviceCredentialTBS, validate_at, validate_for_leaf,
 };
-pub use engine::{CIPHERSUITE, MlsEngine, Received};
+pub use engine::{CIPHERSUITE, GroupHandle, MlsEngine, Received};
 pub use error::{CredentialError, EngineError, Result};
 pub use exporter::ExportLabel;
 pub use keypackage::VerifiedKeyPackage;
-pub use provider::F2zProvider;
 pub use signer::DeviceSigner;
 pub use version::{ProtocolVersion, XWING_CIPHERSUITE_CODEPOINT};

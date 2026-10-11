@@ -352,10 +352,10 @@ user's machine, or physical access to an unlocked device.
   CSPRNG and keeps in the OS secret store
   ([ADR 0016](./decisions/0016-enrollment-sealing-boundary.md) §3). So a copy of
   the store taken without that item cannot sign as this identity. **It is not a
-  claim about message content:** the SQLite database beside the seal — MLS group
-  state and message plaintext — is not encrypted, and this list is about what a
-  compromise does and does not yield, so the narrower true statement belongs
-  here rather than the wider one. Before ADR 0016 the seal's key was the
+  claim about message content:** `f2z-msg-mls` seals OpenMLS group state before
+  it reaches SQLite, while the plugin's retained message plaintext remains in
+  the clear. A pre-upgrade database copy can still contain the former plaintext
+  group state. Before ADR 0016 the seal's key was the
   seed-derived `BackupWrapKey`, which meant one key opened every device of an
   account; §4.2 assigns that key local *history*, which stays unimplemented.
 - **The FROST per-session encryption key is destroyed after part 2**

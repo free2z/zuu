@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-use crate::backend::{Durability, Op, StorageBackend};
+use crate::backend::{Durability, Op, RowRewrite, StorageBackend};
 use crate::error::{Result, StoreError};
 
 /// An in-memory [`StorageBackend`].
@@ -101,6 +101,38 @@ impl StorageBackend for MemoryBackend {
         Ok(())
     }
 
+    fn atomic_rewrite(
+        &self,
+        marker_key: &[u8],
+        marker_value: &[u8],
+        rewrite: &mut RowRewrite<'_>,
+    ) -> Result<()> {
+        let mut values = self.values.write().map_err(|_| StoreError::Poisoned)?;
+        if values.contains_key(marker_key) {
+            return Ok(());
+        }
+
+        // Complete all potentially-failing work before mutating the map. The
+        // single write lock keeps a concurrent apply from changing the source
+        // rows between this snapshot and the replacement.
+        let mut replacements = Vec::new();
+        for (old_key, old_value) in values.iter() {
+            if let Some((new_key, new_value)) = rewrite(old_key, old_value)? {
+                if new_key != *old_key && values.contains_key(&new_key) {
+                    return Err(StoreError::Backend("migration key collision"));
+                }
+                replacements.push((old_key.clone(), new_key, new_value));
+            }
+        }
+
+        for (old_key, new_key, new_value) in replacements {
+            values.remove(&old_key);
+            values.insert(new_key, new_value);
+        }
+        values.insert(marker_key.to_vec(), marker_value.to_vec());
+        Ok(())
+    }
+
     fn durability(&self) -> Durability {
         Durability::None
     }
@@ -174,6 +206,45 @@ mod tests {
     fn the_memory_backend_reports_that_it_survives_nothing() {
         assert_eq!(MemoryBackend::new().durability(), Durability::None);
         assert!(!MemoryBackend::new().durability().may_acknowledge());
+    }
+
+    #[test]
+    fn a_failed_atomic_rewrite_keeps_every_legacy_row_and_the_marker_absent() {
+        let backend = MemoryBackend::new();
+        backend
+            .apply(&[
+                Op::Put {
+                    key: b"legacy/a".to_vec(),
+                    value: b"secret-a".to_vec(),
+                },
+                Op::Put {
+                    key: b"legacy/b".to_vec(),
+                    value: b"secret-b".to_vec(),
+                },
+            ])
+            .unwrap();
+        let mut calls = 0;
+        let result = backend.atomic_rewrite(b"sealed/marker", b"done", &mut |key, value| {
+            calls += 1;
+            if calls == 2 {
+                return Err(StoreError::Backend("injected transform failure"));
+            }
+            Ok(Some((
+                [b"sealed/".as_slice(), key].concat(),
+                value.to_vec(),
+            )))
+        });
+        assert!(result.is_err());
+        assert_eq!(
+            backend.get(b"legacy/a").unwrap(),
+            Some(b"secret-a".to_vec())
+        );
+        assert_eq!(
+            backend.get(b"legacy/b").unwrap(),
+            Some(b"secret-b".to_vec())
+        );
+        assert_eq!(backend.get(b"sealed/marker").unwrap(), None);
+        assert_eq!(backend.get(b"sealed/legacy/a").unwrap(), None);
     }
 
     #[test]
