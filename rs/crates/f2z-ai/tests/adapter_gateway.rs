@@ -22,10 +22,15 @@ mod adapter_support;
 mod support;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use adapter_support::{ANTHROPIC, CHAT, RESPONSES, backend, catalog, tuning};
-use axum::http::StatusCode;
+use axum::Router;
+use axum::body::Bytes;
+use axum::extract::State;
+use axum::http::{StatusCode, header};
+use axum::routing::post;
 use f2z_ai::catalog::Fixed;
 use f2z_ai::provider::{ProviderBackend, UsageReport};
 use f2z_ai::settle::UpstreamEnd;
@@ -34,6 +39,14 @@ use f2z_ai_proto::chat::FinishReason;
 use f2z_ai_testkit::mock::{AnthropicCumulative, MockProvider, ProviderStyle, Scenario};
 use serde_json::json;
 use support::{RecordingSettler, config, deps, post_chat, start, text, wait_records};
+use tokio::sync::{Semaphore, mpsc};
+
+#[derive(Clone)]
+struct ProviderHeadGate {
+    started: mpsc::UnboundedSender<()>,
+    release: Arc<Semaphore>,
+    requests: Arc<AtomicUsize>,
+}
 
 fn chat_body(model: &str) -> serde_json::Value {
     json!({
@@ -167,19 +180,48 @@ async fn the_idle_deadline_fires_under_the_call_tasks_ticks() {
 /// `start` returns, which would let retained requests escape the budget.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_retained_request_keeps_its_upload_reservation_until_the_head() {
-    let mock = MockProvider::start(Scenario::default().with_ttfb(Duration::from_millis(800)))
-        .await
-        .unwrap();
+    // Keep the provider's first response head behind an explicit gate. A
+    // fixed sleep here let a loaded CI worker release the head before the
+    // second request was admitted, turning this into a timing race.
+    let (provider_started, mut provider_requests) = mpsc::unbounded_channel();
+    let provider_gate = ProviderHeadGate {
+        started: provider_started,
+        release: Arc::new(Semaphore::new(0)),
+        requests: Arc::new(AtomicUsize::new(0)),
+    };
+    let app = Router::new()
+        .route(
+            "/v1/chat/completions",
+            post(
+                |State(gate): State<ProviderHeadGate>, _body: Bytes| async move {
+                    if gate.requests.fetch_add(1, Ordering::SeqCst) == 0 {
+                        let _ = gate.started.send(());
+                        let permit = gate.release.acquire().await.unwrap();
+                        permit.forget();
+                    }
+                    (
+                        [(header::CONTENT_TYPE, "text/event-stream")],
+                        "data: [DONE]\n\n",
+                    )
+                },
+            ),
+        )
+        .with_state(provider_gate.clone());
+    let provider_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let provider_addr = provider_listener.local_addr().unwrap();
+    let provider_server = tokio::spawn(async move {
+        axum::serve(provider_listener, app).await.unwrap();
+    });
     let config = config(&[
         ("F2Z_AI_MAX_BODY_BYTES", "1000"),
         ("F2Z_AI_MAX_BODY_BYTES_WITH_IMAGES", "1000"),
-        ("F2Z_AI_MAX_UPLOAD_BUFFER_BYTES", "25000"),
+        ("F2Z_AI_MAX_UPLOAD_BUFFER_BYTES", "20000"),
     ]);
     let running = start(
         &config,
         deps(
             Arc::new(Fixed(catalog(10_000))),
-            Arc::new(backend(&mock.base_url(), tuning(0))),
+            Arc::new(backend(&format!("http://{provider_addr}"), tuning(0))),
             RecordingSettler::default(),
         ),
     )
@@ -193,15 +235,21 @@ async fn a_retained_request_keeps_its_upload_reservation_until_the_head() {
     let first = padded(700);
     assert!(first.to_string().len() >= 690 && first.to_string().len() <= 710);
     let public = running.public;
-    let slow = tokio::spawn(async move { text(post_chat(public, &first).await).await });
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    // The first call is waiting for its head and still holds its raw bytes plus decoded-memory reservation.
+    let slow = tokio::spawn(async move { post_chat(public, &first).await });
+    tokio::time::timeout(Duration::from_secs(5), provider_requests.recv())
+        .await
+        .expect("the first provider request reached the head gate")
+        .expect("the provider request notification channel stays open");
+    // The first call is waiting for its head and still holds its upload reservation.
     let refused = post_chat(running.public, &padded(700)).await;
     assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
-    let body = slow.await.unwrap();
-    assert!(body.contains("event: delta"), "{body}");
-    // After the head the reservation is released.
+    // Releasing the provider head releases the first request's reservation.
+    provider_gate.release.add_permits(1);
+    let first_response = slow.await.unwrap();
+    assert_eq!(first_response.status(), StatusCode::OK);
+    let _ = text(first_response).await;
     let ok = post_chat(running.public, &padded(700)).await;
     assert_eq!(ok.status(), StatusCode::OK);
-    mock.shutdown().await;
+    let _ = text(ok).await;
+    provider_server.abort();
 }
