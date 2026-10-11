@@ -732,11 +732,9 @@ async fn a_stream_cut_after_output_settles_partial_on_the_estimate() {
     }
     mock.shutdown().await;
 }
-// The case that fenced the production shelf to gpt-4o (tuzi#2490): a model
-// that reasons silently past the idle limit produced nothing the gateway
-// could see, yet the provider accepted — and bills — the request. The input
-// estimate is charged; the unseen reasoning is the platform's loss, as
-// metering.md §5.4 says.
+// A nonreasoning idle-timeout control: an accepted provider request that
+// sends no visible output still settles on the input estimate. Reasoning
+// rows additionally reserve their held output ceiling under §5.4.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_idle_timeout_before_any_output_still_charges_the_input_estimate() {
     let db = Arc::new(Database::new());
@@ -767,6 +765,233 @@ async fn an_idle_timeout_before_any_output_still_charges_the_input_estimate() {
         assert_eq!(state.settled_usage["input_tokens"], input);
         assert_eq!(state.settled_usage["output_tokens"], 0);
         assert_eq!(state.record()["completion"]["usage_source"], "estimated");
+    }
+    mock.shutdown().await;
+}
+
+fn interruption_catalog(reasoning: bool) -> f2z_ai::catalog::VerifiedCatalog {
+    let mut catalog = priced_catalog().catalog().clone();
+    let model = catalog
+        .models
+        .iter_mut()
+        .find(|model| model.id == "m-chat")
+        .unwrap();
+    model.capabilities.reasoning = reasoning;
+    f2z_ai::catalog::VerifiedCatalog::from_verified(catalog).unwrap()
+}
+
+fn reasoning_effort_interruption_catalog() -> f2z_ai::catalog::VerifiedCatalog {
+    let mut catalog = interruption_catalog(false).catalog().clone();
+    let model = catalog
+        .models
+        .iter_mut()
+        .find(|model| model.id == "m-chat")
+        .unwrap();
+    model.capabilities.reasoning_effort = true;
+    model.controls.effort_levels = Some(vec!["low".into()]);
+    f2z_ai::catalog::VerifiedCatalog::from_verified(catalog).unwrap()
+}
+
+fn meta_event(text: &str) -> Value {
+    let data = text
+        .lines()
+        .skip_while(|line| *line != "event: meta")
+        .nth(1)
+        .and_then(|line| line.strip_prefix("data: "))
+        .expect("accepted call emits meta before settlement");
+    serde_json::from_str(data).unwrap()
+}
+
+// free2z/zuu#1179: when an accepted reasoning request loses full usage,
+// visible deltas cannot bound its hidden output. Idle and hard deadlines use
+// the provider-sent, affordability-clamped output ceiling. The paired
+// nonreasoning cases pin the old visible-only estimate as the negative
+// control: changing the reasoning estimate back to visible-only makes both
+// reasoning assertions below fail.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reasoning_timeouts_settle_at_the_provider_output_cap() {
+    for (deadline, reasoning, signed_effort, request_effort, expected_visible) in [
+        ("idle", true, false, false, false),
+        ("idle", false, false, false, false),
+        ("hard", true, false, false, true),
+        ("hard", false, false, false, true),
+        // Signed effort metadata qualifies with or without a request value;
+        // the first row also covers an actual request value.
+        ("hard", false, true, true, true),
+        ("hard", false, true, false, true),
+    ] {
+        let db = Arc::new(Database::new());
+        db.0.lock().unwrap().available = 5_000;
+        let scenario = if deadline == "idle" {
+            Scenario::default()
+                .with_output_tokens(64)
+                .with_reasoning_tokens(64)
+                .with_stall(0, Duration::from_secs(2))
+        } else {
+            Scenario::default()
+                .with_output_tokens(64)
+                .with_reasoning_tokens(48)
+                .with_stall(1, Duration::from_secs(2))
+        };
+        let mock = MockProvider::start(scenario.without_usage()).await.unwrap();
+        let mut tuning = adapter_support::tuning(0);
+        tuning.timeouts.idle = if deadline == "idle" {
+            Duration::from_millis(150)
+        } else {
+            Duration::from_secs(5)
+        };
+        tuning.timeouts.hard_limit = if deadline == "hard" {
+            Duration::from_millis(250)
+        } else {
+            Duration::from_secs(5)
+        };
+        let meter = Arc::new(Metered::new(
+            db.clone(),
+            adapter_support::backend(&mock.base_url(), tuning),
+        ));
+        let catalog = if signed_effort {
+            reasoning_effort_interruption_catalog()
+        } else {
+            interruption_catalog(reasoning)
+        };
+        let running = support::start(
+            &support::config(&[]),
+            Deps {
+                gate: Arc::new(Gate),
+                catalog: Arc::new(Fixed(catalog)),
+                backend: meter.clone(),
+                settler: meter,
+            },
+        )
+        .await;
+        support::wait_readyz(running.admin, StatusCode::OK).await;
+        let mut body = request();
+        body["model"] = json!("m-chat");
+        body["max_output_tokens"] = json!(1800);
+        if request_effort {
+            body["reasoning_effort"] = json!("low");
+        }
+        let mut req = support::chat_request(body.to_string());
+        req.headers_mut().insert(
+            "idempotency-key",
+            format!("reasoning-{deadline}-{reasoning}-{signed_effort}-{request_effort}")
+                .parse()
+                .unwrap(),
+        );
+        let text = support::text(support::send(running.public, req).await).await;
+        assert!(
+            text.contains("\"code\":\"provider_timeout\""),
+            "{deadline}: {text}"
+        );
+        assert!(
+            text.contains("\"settlement\":\"settled\""),
+            "{deadline}: {text}"
+        );
+        assert!(
+            text.contains("\"source\":\"estimated\""),
+            "{deadline}: {text}"
+        );
+        final_state(&db).await;
+
+        let meta = meta_event(&text);
+        let output_cap = meta["max_output_tokens"].as_u64().unwrap();
+        assert!(
+            output_cap < 1800,
+            "fixture did not clamp the request: {meta}"
+        );
+        let sent = mock.recorded_requests();
+        assert_eq!(sent.len(), 1, "exactly one request reached provider");
+        assert_eq!(sent[0].body["max_completion_tokens"], output_cap);
+        if signed_effort && !request_effort {
+            assert!(sent[0].body.get("reasoning_effort").is_none());
+        }
+        let expected_output = if reasoning || signed_effort || request_effort {
+            output_cap
+        } else if expected_visible {
+            let visible = delivered_text(&text);
+            let tokens = f2z_ai::estimate::Encoding::O200kBase.count(&visible);
+            (tokens + tokens.div_ceil(10)).min(output_cap)
+        } else {
+            0
+        };
+        {
+            let state = db.0.lock().unwrap();
+            assert_eq!(
+                state.charges, 1,
+                "one charge for {deadline}/{reasoning}/{signed_effort}/{request_effort}"
+            );
+            assert_eq!(state.terminal, Some("settled"));
+            assert_eq!(state.settle_requests, 1);
+            assert!(state.settled_usage["input_tokens"].as_u64().unwrap() > 0);
+            assert_eq!(state.settled_usage["output_tokens"], expected_output);
+            assert!(expected_output <= output_cap);
+            assert_eq!(state.record()["completion"]["usage_source"], "estimated");
+            assert!(
+                state.record()["settlement"]["priced_milli_2z"]
+                    .as_u64()
+                    .unwrap()
+                    <= state.record()["settlement"]["hold_milli_2z"]
+                        .as_u64()
+                        .unwrap()
+            );
+            assert_eq!(state.record()["settlement"]["shortfall_milli_2z"], 0);
+        }
+        if reasoning || signed_effort || request_effort {
+            assert_eq!(
+                expected_output, output_cap,
+                "{deadline}: hidden reasoning is bounded by the held cap"
+            );
+        } else if expected_visible {
+            assert!(
+                expected_output < output_cap,
+                "visible-only control must stay below the cap"
+            );
+        }
+        mock.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reasoning_requests_keep_complete_provider_usage_unchanged() {
+    let db = Arc::new(Database::new());
+    let scenario = Scenario::default()
+        .with_output_tokens(64)
+        .with_reasoning_tokens(48);
+    let mock = MockProvider::start(scenario).await.unwrap();
+    let meter = Arc::new(Metered::new(
+        db.clone(),
+        adapter_support::backend(&mock.base_url(), adapter_support::tuning(0)),
+    ));
+    let running = support::start(
+        &support::config(&[]),
+        Deps {
+            gate: Arc::new(Gate),
+            catalog: Arc::new(Fixed(interruption_catalog(true))),
+            backend: meter.clone(),
+            settler: meter,
+        },
+    )
+    .await;
+    support::wait_readyz(running.admin, StatusCode::OK).await;
+    let mut body = request();
+    body["model"] = json!("m-chat");
+    body["max_output_tokens"] = json!(1800);
+    let mut req = support::chat_request(body.to_string());
+    req.headers_mut().insert(
+        "idempotency-key",
+        "reasoning-provider-usage".parse().unwrap(),
+    );
+    let text = support::text(support::send(running.public, req).await).await;
+    assert!(text.contains("event: done"), "{text}");
+    assert!(text.contains("\"source\":\"provider\""), "{text}");
+    final_state(&db).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert_eq!(state.charges, 1);
+        assert_eq!(state.settle_requests, 1);
+        assert_eq!(state.settled_usage["output_tokens"], 64);
+        assert_eq!(state.settled_usage["reasoning_tokens"], 48);
+        assert_eq!(state.record()["completion"]["usage_source"], "provider");
     }
     mock.shutdown().await;
 }
