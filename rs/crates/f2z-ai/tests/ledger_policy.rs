@@ -1,5 +1,6 @@
 //! Opt-in tests of the actual shipping PostgreSQL adapter against a synthetic ABI.
 //! This is not evidence for private Django settlement or restricted-role grants.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 use f2z_ai::ledger::{Identity, Ledger, Operation, Postgres};
 use secrecy::SecretString;
 use serde_json::json;
