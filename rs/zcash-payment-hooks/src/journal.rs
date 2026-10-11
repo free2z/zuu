@@ -578,6 +578,26 @@ impl Journal {
             _ => Ok(None),
         }
     }
+    /// Positive work pauses when scanner evidence is unavailable. Corrections
+    /// already recorded in this journal must still reach consumers: an unrelated
+    /// positive head cannot hide them. Preserve sequence/backoff among revocations
+    /// and leave paused positive deliveries and their retry/ACK state untouched.
+    pub fn next_for_automation(&self, consumer: &str, time: i64) -> Result<Option<Delivery>> {
+        if self.ready_internal()? {
+            return self.next(consumer, time);
+        }
+        let row: Option<(String, u32, i64)> = self.db.query_row(
+            "SELECT e.body,d.attempts,d.next_attempt FROM deliveries d JOIN events e ON e.id=d.event_id WHERE d.consumer=?1 AND d.acked=0 AND json_extract(e.body,'$.kind')='payment.revoked' ORDER BY d.seq LIMIT 1",
+            [consumer], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).optional()?;
+        match row {
+            Some((body, attempts, due)) if due <= time => Ok(Some(Delivery {
+                event: serde_json::from_str(&body)?,
+                attempts,
+            })),
+            _ => Ok(None),
+        }
+    }
     pub fn acknowledge(&self, consumer: &str, event: &str) -> Result<()> {
         self.db.execute(
             "UPDATE deliveries SET acked=1,last_error=NULL WHERE consumer=?1 AND event_id=?2",

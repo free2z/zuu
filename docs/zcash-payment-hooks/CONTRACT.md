@@ -51,8 +51,18 @@ external effect. Choose a refund, hold or incident policy appropriate to your
 application. Confirmation depth reduces reorganization risk; it cannot eliminate
 it. A canonical proof cannot prevent a fork immediately after the check.
 
-Each consumer's queue is ordered and independently acknowledged. Adding consumers
-to an existing journal is deliberate operator work: stop writers, review existing
+Each consumer has an independently acknowledged queue. With fresh scanner
+evidence, delivery follows queue order. Without it, positive work pauses while
+already-recorded revocations can pass unrelated positive work. Revocations keep
+their own sequence and retry backoff; the bypass does not execute or acknowledge
+the paused positive event. Reorg cancellation explicitly marks the superseded
+positive events for that payment, not unrelated work. Normal queue order resumes
+when scanner readiness returns. Hooks and external proof checks can still fail
+when the node is unavailable or stale; a durable correction is retried until the
+hook succeeds.
+
+Adding consumers to an existing journal is deliberate operator work: stop
+writers, review existing
 payments and application idempotency records, run the bounded handoff preview,
 then enqueue missing work. Replaying old confirmations into a new application
 without checking prior effects can duplicate business actions even though the

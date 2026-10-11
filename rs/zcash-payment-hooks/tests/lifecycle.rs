@@ -1147,3 +1147,131 @@ async fn historical_receipts_have_current_proof_without_bypassing_automation_flo
     assert!(j.events(0, 100)?.is_empty());
     Ok(())
 }
+
+#[test]
+fn paused_positive_head_does_not_hide_ordered_revocations_or_change_ack_state() -> Result<()> {
+    let dir = TempDir::new()?;
+    let mut c = config(&dir);
+    c.automation_start_height = c.birthday_height;
+    let _lock = StateLock::acquire(&c.state_dir)?;
+    let mut j = Journal::open(&c, "key")?;
+    j.append(&block(
+        c.birthday_height,
+        "a",
+        "parent",
+        vec![payment("sapling", 0)],
+    ))?;
+    let positive = j.next("first", i64::MAX)?.unwrap();
+    // Two later notes have already been delivered before this earlier note was replayed.
+    j.acknowledge("first", &positive.event.event_id)?;
+    j.append(&block(
+        c.birthday_height + 1,
+        "b",
+        "a",
+        vec![payment("orchard", 0)],
+    ))?;
+    let credited = j.next("first", i64::MAX)?.unwrap();
+    j.acknowledge("first", &credited.event.event_id)?;
+    j.append(&block(
+        c.birthday_height + 2,
+        "c",
+        "b",
+        vec![payment("ironwood", 0)],
+    ))?;
+    let second_credit = j.next("first", i64::MAX)?.unwrap();
+    j.acknowledge("first", &second_credit.event.event_id)?;
+    j.replay("first", &positive.event.event_id)?;
+    j.rollback_one()?;
+    j.rollback_one()?;
+    j.scanner_health(None, false, false, None)?;
+    assert_eq!(j.next("first", i64::MAX)?.unwrap().event, positive.event);
+    let first_revoke = j.next_for_automation("first", i64::MAX)?.unwrap();
+    assert_eq!(first_revoke.event.kind, "payment.revoked");
+    assert_eq!(
+        first_revoke.event.payment.id,
+        second_credit.event.payment.id
+    );
+    j.failed("first", &first_revoke, "hook unavailable")?;
+    assert!(
+        j.next_for_automation("first", 0)?.is_none(),
+        "oldest revoke backoff must not be bypassed by the next revoke"
+    );
+    drop(j);
+    let j = Journal::open(&c, "key")?;
+    let retry = j.next_for_automation("first", i64::MAX)?.unwrap();
+    assert_eq!(retry.event, first_revoke.event);
+    assert_eq!(retry.attempts, 1);
+    j.acknowledge("first", &retry.event.event_id)?;
+    let second_revoke = j.next_for_automation("first", i64::MAX)?.unwrap();
+    assert_eq!(second_revoke.event.payment.id, credited.event.payment.id);
+    j.acknowledge("first", &second_revoke.event.event_id)?;
+    assert!(
+        j.next_for_automation("first", i64::MAX)?.is_none(),
+        "positive remains paused after corrections"
+    );
+    let still_pending = j.next("first", i64::MAX)?.unwrap();
+    assert_eq!(still_pending.event, positive.event);
+    assert_eq!(still_pending.attempts, 0);
+    j.scanner_health(
+        Some(c.birthday_height),
+        true,
+        true,
+        Some(zcash_paymentd::now() + 300),
+    )?;
+    assert_eq!(
+        j.next_for_automation("first", i64::MAX)?.unwrap().event,
+        positive.event,
+        "normal FIFO resumes on fresh scanner evidence"
+    );
+    Ok(())
+}
+
+#[test]
+fn own_superseded_positive_is_explicitly_cancelled_and_remine_waits_for_revoke() -> Result<()> {
+    let dir = TempDir::new()?;
+    let mut c = config(&dir);
+    c.automation_start_height = c.birthday_height;
+    let _lock = StateLock::acquire(&c.state_dir)?;
+    let mut j = Journal::open(&c, "key")?;
+    j.append(&block(
+        c.birthday_height,
+        "a",
+        "parent",
+        vec![payment("orchard", 0)],
+    ))?;
+    let stale = j.next("first", i64::MAX)?.unwrap();
+    j.rollback_one()?;
+    let db = rusqlite::Connection::open(c.state_dir.join("journal.sqlite"))?;
+    let cancellation: (bool, String) = db.query_row(
+        "SELECT acked,last_error FROM deliveries WHERE consumer='first' AND event_id=?1",
+        [&stale.event.event_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    assert_eq!(cancellation, (true, "superseded by reorg".into()));
+    let revoked = j.next_for_automation("first", i64::MAX)?.unwrap();
+    assert_eq!(revoked.event.kind, "payment.revoked");
+    j.append(&block(
+        c.birthday_height,
+        "b",
+        "parent",
+        vec![payment("orchard", 0)],
+    ))?;
+    j.scanner_health(
+        Some(c.birthday_height),
+        true,
+        true,
+        Some(zcash_paymentd::now() + 300),
+    )?;
+    assert_eq!(
+        j.next_for_automation("first", i64::MAX)?.unwrap().event,
+        revoked.event
+    );
+    j.failed("first", &revoked, "retry")?;
+    assert!(j.next_for_automation("first", 0)?.is_none());
+    j.acknowledge("first", &revoked.event.event_id)?;
+    let remine = j.next_for_automation("first", i64::MAX)?.unwrap();
+    assert_eq!(remine.event.kind, "payment.confirmed");
+    assert_eq!(remine.event.revision, stale.event.revision + 1);
+    assert_ne!(remine.event.event_id, stale.event.event_id);
+    Ok(())
+}

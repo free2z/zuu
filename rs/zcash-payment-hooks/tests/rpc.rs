@@ -46,8 +46,10 @@ fn key() -> String {
         .to_unified_full_viewing_key()
         .encode(&MAIN_NETWORK)
 }
+// Fields consumed from released v1.6.0 GetBlockchainInfoResponse:
+// https://github.com/zakura-core/zakura/blob/v1.6.0/crates/zakura-rpc/src/methods.rs
 fn info() -> Value {
-    json!({"chain":"main","blocks":HEIGHT,"estimatedheight":HEIGHT,"initialblockdownload":false,"consensus":{"chaintip":format!("{:08x}",u32::from(BranchId::for_height(&MAIN_NETWORK,BlockHeight::from(HEIGHT))))}})
+    json!({"chain":"main","blocks":HEIGHT,"estimatedheight":HEIGHT,"headers":HEIGHT,"consensus":{"chaintip":format!("{:08x}",u32::from(BranchId::for_height(&MAIN_NETWORK,BlockHeight::from(HEIGHT))))}})
 }
 fn server(
     response: impl Fn(&Value) -> Value + Send + 'static,
@@ -145,8 +147,8 @@ async fn cookie_rotation_and_fresh_tip() -> Result<()> {
     Ok(())
 }
 #[tokio::test]
-async fn wrong_network_initial_download_lag_unknown_upgrade_and_stale_tip_fail_closed() -> Result<()>
-{
+async fn wrong_network_optional_initial_download_lag_unknown_upgrade_and_stale_tip_fail_closed()
+-> Result<()> {
     let mut cases = vec![];
     let mut v = info();
     v["chain"] = json!("test");
@@ -179,6 +181,37 @@ async fn consensus_valid_future_tip_respects_explicit_clock_policy() -> Result<(
         let d = TempDir::new()?;
         let time = now() + ahead;
         let (url, _, worker) = server(move |r| response(r, info(), time), 3);
+        let c = config(&d, url);
+        private(c.rpc_cookie_file.as_ref().unwrap(), "user:pass")?;
+        assert_eq!(Zakura::new(&c, &key())?.tip().await.is_ok(), valid);
+        worker.join().unwrap();
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn released_zakura_headers_gate_future_tip_and_reject_missing_or_malformed_evidence()
+-> Result<()> {
+    // v1.6.0 has headers/estimatedheight, and no initialblockdownload field.
+    for (headers, valid) in [
+        (Some(json!(HEIGHT + 20)), false),
+        (Some(json!(HEIGHT + 10)), true),
+        (None, false),
+        (Some(json!("3500000")), false),
+        (Some(json!(-1)), false),
+        (Some(json!(3_500_000.5)), false),
+        (Some(Value::Null), false),
+    ] {
+        let d = TempDir::new()?;
+        let mut value = info();
+        assert!(value.get("initialblockdownload").is_none());
+        if let Some(headers) = headers {
+            value["headers"] = headers;
+        } else {
+            value.as_object_mut().unwrap().remove("headers");
+        }
+        let count = if valid { 3 } else { 1 };
+        let (url, _, worker) = server(move |r| response(r, value.clone(), now() + 600), count);
         let c = config(&d, url);
         private(c.rpc_cookie_file.as_ref().unwrap(), "user:pass")?;
         assert_eq!(Zakura::new(&c, &key())?.tip().await.is_ok(), valid);

@@ -82,10 +82,12 @@ JSON-RPC is today's chain-source implementation, not the project's permanent
 protocol. Zakura's [shared ecosystem direction](https://zakura.com/announcements/zakura-common/)
 separates node and wallet libraries and anticipates new synchronization services.
 The `Chain` observation-source boundary returns decrypted payments and separates
-transport plus decryption from the journal and hooks. A future
-supported indexer, streaming interface or PIR-based source needs its own scanner,
-privacy and reorganization acceptance work; this release implements none of those
-backends. Viewing keys stay in the private receiving process. Keep integrations
+transport plus decryption from the journal and hooks. Zakura already exposes a
+[native indexer gRPC contract](https://github.com/zakura-core/zakura/blob/v1.6.0/crates/zakura-rpc/proto/indexer.proto),
+including tip, non-finalized-state and finalized-range streams. This daemon does
+not consume it today. An indexer or PIR-based observation source needs its own
+scanner, privacy and reorganization acceptance work; this release implements
+neither backend. Viewing keys stay in the private receiving process. Keep integrations
 centered on payment events so replacing chain transport does not rewrite business
 hooks, and contribute missing node/library capabilities upstream where possible.
 
@@ -150,11 +152,22 @@ or compaction policy. Bounded delivery inventory/handoff checks currently suppor
 10,000 relevant receipts, 50,000 events and 64 MiB of decoded inventory. Monitor
 those counts and plan capacity work before reaching the limits.
 
-Hooks run only after a fresh canonical scan catches up. Freshness is checked
-against the node's height estimate, tip timestamp and supported network-upgrade
-branch; it is not an independent global chain oracle. Node pruning, outages or
-a future unsupported upgrade gate delivery until corrected. Full-block trial
-decryption costs scale with chain traffic; benchmark your history and hardware.
+Positive payment hooks run after a fresh canonical scan catches up. The node's
+required `headers` and `estimatedheight` fields must stay within the configured
+lag of its loaded block tip; we also check the tip timestamp and supported
+network-upgrade branch. Released Zakura omits `initialblockdownload`, so its
+absence is not synchronization evidence. These checks describe the node's view,
+not an independent global chain oracle.
+
+Already-recorded revocations remain deliverable while scanning is unavailable.
+They can pass an unrelated paused positive event, preserve order and retry
+backoff among revocations, and leave that positive event's ACK/retry state
+untouched. A reorg explicitly cancels only the superseded positive events for
+that payment. Once scanner readiness returns, normal queue order resumes.
+Application proof checks can still require a fresh node: delivering a correction
+does not guarantee that an external verifier or hook can act during an outage.
+Full-block trial decryption costs scale with chain traffic; benchmark your
+history and hardware.
 
 ## Maturity and contribution
 

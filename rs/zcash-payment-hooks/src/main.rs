@@ -175,13 +175,10 @@ async fn run(c: Config) -> Result<()> {
     for consumer in c.consumers.clone() {
         // Consumers have independent tasks/connections: a poisoned hook cannot stop scanning.
         let queue = Journal::open(&c, &ufvk)?;
-        let config = c.clone();
         workers.push(tokio::spawn(async move {
             let hook = ExecAutomation(consumer.clone());
             loop {
-                if queue.ready(&config)?
-                    && let Some(d) = queue.next(&consumer.id, now())?
-                {
+                if let Some(d) = queue.next_for_automation(&consumer.id, now())? {
                     match hook.handle(&d.event).await {
                         Ok(()) => queue.acknowledge(&consumer.id, &d.event.event_id)?,
                         Err(_) => queue.failed(&consumer.id, &d, "hook failed or timed out")?,

@@ -119,9 +119,14 @@ impl Chain for Zakura {
         let estimated = info["estimatedheight"].as_u64().ok_or_else(|| {
             anyhow::anyhow!("node omitted estimated height; freshness cannot be established")
         })?;
+        // Released Zakura reports known headers separately from its timestamp-
+        // based estimate. A future-dated loaded tip must not hide missing bodies.
+        let headers = info["headers"].as_u64().ok_or_else(|| {
+            anyhow::anyhow!("node omitted known header height; freshness cannot be established")
+        })?;
         ensure!(
-            estimated <= h + u64::from(self.max_tip_lag_blocks),
-            "node chain tip is behind estimated network height"
+            estimated.max(headers).saturating_sub(h) <= u64::from(self.max_tip_lag_blocks),
+            "node chain tip is behind known headers or estimated network height"
         );
         let expected_hash = self.hash(u32::try_from(h)?).await?;
         let header = self
