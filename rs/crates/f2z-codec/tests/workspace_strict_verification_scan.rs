@@ -83,22 +83,26 @@
 //!    inside the wrapper itself.
 //!
 //! And the wrapper is not *assumed* safe. [`WORKSPACE_VERIFY_FNS`] registers
-//! every `fn verify…` defined under `rs/crates/*/src/` together with what
-//! makes it strict, and the registration is checked against the source: the
-//! one at the bottom must contain `verify_strict` in its body, and every other
-//! must delegate to a registered one. An unregistered `fn verify…` fails the
-//! scan by name — the #609 shape, where narrowing the list is louder than
-//! leaving it alone, rather than a list that silently covers less.
+//! every `fn verify…` defined under `rs/crates/*/src/` and the pinned OpenMLS
+//! provider source, together with what
+//! makes it strict, and the registration is checked against the source: a
+//! terminal Ed25519 verifier must call `verify_strict` or satisfy the explicit
+//! libcrux weak-point guard contract; every other signature wrapper must
+//! delegate to a registered one. Non-signature proof checks carry their own
+//! concrete call anchors. An unregistered `fn verify…` fails the scan by name
+//! — the #609 shape, where narrowing the list is louder than leaving it alone,
+//! rather than a list that silently covers less.
 //!
 //! # What this cannot catch
 //!
 //! Stated plainly, as `workspace_debug_scan.rs` states its own:
 //!
-//! - **Another crate's non-strict Ed25519.** The rules name `ed25519_dalek`.
-//!   A different Ed25519 implementation, wrapping non-strict verification
-//!   behind its own type, would pass. `ed25519-dalek` is the workspace's only
-//!   signature dependency today and `rs/Cargo.lock` is committed, so this is a
-//!   change a reviewer would see; it is not a change this scan would report.
+//! - **Another crate's non-strict Ed25519.** The rules name `ed25519_dalek`
+//!   plus the specifically reviewed libcrux provider adapter. A different
+//!   Ed25519 implementation, or another unregistered wrapper around either
+//!   implementation, would pass this source census. `rs/Cargo.lock` is
+//!   committed, so the dependency change is visible; this scan does not infer
+//!   crypto semantics from arbitrary dependency names.
 //! - **A macro that generates the call.** Nothing here expands macros.
 //! - **A receiver whose type is inferred through a function return.**
 //!   `let k = decode(bytes); k.verify(…)` where `decode` returns a dalek key
@@ -281,6 +285,34 @@ enum Strictness {
         /// The expression whose strict method must be called.
         receiver: &'static str,
     },
+    /// Rejects the weak-point encodings that libcrux's equation verifier does
+    /// not screen, then delegates the signature equation to libcrux.
+    ///
+    /// This is the exact adapter contract in the tracked OpenMLS provider:
+    /// small-order public keys and `R` are refused as invalid signatures, and
+    /// only then does the approved libcrux implementation run.
+    CallsGuardThenVerifier {
+        algorithm_dispatch: &'static str,
+        guard: &'static str,
+        rejection: &'static str,
+        verifier: &'static str,
+        failure_mapping: &'static str,
+        invalid_signature_mapping: &'static str,
+        other_error_mapping: &'static str,
+        unsupported_rejection: &'static str,
+    },
+    /// Its body dispatches an approved non-Ed25519 signature scheme, rejects
+    /// malformed key/signature lengths, and maps equation failures to
+    /// `InvalidSignature`.
+    CallsApprovedSignatureVerifier {
+        dispatch: &'static str,
+        key_length: &'static str,
+        signature_binding: &'static str,
+        signature_conversion: &'static str,
+        invalid_length_mapping: &'static str,
+        verifier: &'static str,
+        invalid_signature_mapping: &'static str,
+    },
     /// Its body calls a registered strict verifier, named `<file>::<fn>`.
     DelegatesTo {
         /// The registered strict function this call resolves to.
@@ -321,7 +353,8 @@ enum Strictness {
     },
 }
 
-/// A `fn verify…` defined under `rs/crates/*/src/`, and why it is strict.
+/// A `fn verify…` defined under `rs/crates/*/src/` or the pinned provider,
+/// and why it is strict.
 struct VerifyFn {
     /// The `<crate>/<path>` label.
     file: &'static str,
@@ -348,6 +381,41 @@ struct VerifyFn {
 /// (`verify_strict` → `verify` in the wrapper) turns this red from another
 /// crate.
 const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
+    // libcrux's Ed25519 equation verifier accepts small-order A and R. The
+    // pinned OpenMLS provider dispatches the supported scheme, rejects both
+    // points with InvalidSignature, then calls libcrux and maps its errors.
+    VerifyFn {
+        file: "z/openmls/openmls/libcrux_crypto/src/crypto.rs",
+        name: "verify_signature",
+        occurrence: 0,
+        strictness: Strictness::CallsGuardThenVerifier {
+            algorithm_dispatch: "SignatureScheme::ED25519 =>",
+            guard: "rejects_small_order_ed25519_points",
+            rejection: "return Err(CryptoError::InvalidSignature)",
+            verifier: "libcrux_ed25519::verify",
+            failure_mapping: ".map_err(|e| match e {",
+            invalid_signature_mapping: "libcrux_ed25519::Error::InvalidSignature => CryptoError::InvalidSignature",
+            other_error_mapping: "_ => CryptoError::SigningError",
+            unsupported_rejection: "_ => Err(CryptoError::UnsupportedSignatureScheme)",
+        },
+    },
+    // The optional ML-DSA provider has a separate verifier. It is not Ed25519,
+    // but still must dispatch only supported parameter sets, reject malformed
+    // encodings, and refuse failed signature equations.
+    VerifyFn {
+        file: "z/openmls/openmls/libcrux_crypto/src/crypto.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::CallsApprovedSignatureVerifier {
+            dispatch: "with_parameter_set!(alg, m => {",
+            key_length: "pk.try_into().map_err(|_| CryptoError::InvalidLength)",
+            signature_binding: "let signature = signature",
+            signature_conversion: ".try_into()",
+            invalid_length_mapping: "map_err(|_| CryptoError::InvalidLength)",
+            verifier: "m::verify",
+            invalid_signature_mapping: ".map_err(|_| CryptoError::InvalidSignature)",
+        },
+    },
     VerifyFn {
         file: "f2z-relay-proto/src/key.rs",
         name: "verify",
@@ -571,8 +639,9 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
     // (`credential`'s module header states why an MLS peer and the log must
     // agree about a credential). The key package's *own* signature and its
     // leaf's are OpenMLS's, verified inside `KeyPackage::validate` through the
-    // libcrux provider, which is a different crypto core and is deliberately
-    // outside this scan's stated reach.
+    // libcrux provider. That provider's `verify_signature` boundary is
+    // registered below and held to its small-order-point guard followed by
+    // the libcrux equation verifier.
     VerifyFn {
         file: "f2z-msg-mls/src/keypackage.rs",
         name: "verify",
@@ -1065,7 +1134,11 @@ fn delegation_reaches_strict_base(mut target: &str, registry: &[VerifyFn]) -> bo
             return false;
         }
         match entry.strictness {
-            Strictness::CallsVerifyStrict { .. } => return true,
+            Strictness::CallsVerifyStrict { .. }
+            | Strictness::CallsGuardThenVerifier { .. }
+            | Strictness::CallsApprovedSignatureVerifier { .. } => {
+                return true;
+            }
             Strictness::DelegatesTo {
                 target: next_target,
                 ..
@@ -1115,6 +1188,102 @@ fn registered_body_has_required_call(strictness: &Strictness, body: &str) -> boo
         Strictness::CallsVerifyStrict { receiver } => {
             calls_method_on(body, receiver, "verify_strict")
         }
+        Strictness::CallsGuardThenVerifier {
+            algorithm_dispatch,
+            guard,
+            rejection,
+            verifier,
+            failure_mapping,
+            invalid_signature_mapping,
+            other_error_mapping,
+            unsupported_rejection,
+        } => {
+            let algorithm_at = body.find(algorithm_dispatch);
+            let guard_at = path_call_position(body, guard);
+            let rejection_at = body.find(rejection);
+            let verifier_at = path_call_position(body, verifier);
+            let failure_mapping_at = body.find(failure_mapping);
+            let invalid_mapping_at = body.find(invalid_signature_mapping);
+            let other_mapping_at = body.find(other_error_mapping);
+            let unsupported_at = body.find(unsupported_rejection);
+            matches!(
+                (
+                    algorithm_at,
+                    guard_at,
+                    rejection_at,
+                    verifier_at,
+                    failure_mapping_at,
+                    invalid_mapping_at,
+                    other_mapping_at,
+                    unsupported_at,
+                ),
+                (
+                    Some(algorithm_at),
+                    Some(guard_at),
+                    Some(rejection_at),
+                    Some(verifier_at),
+                    Some(failure_mapping_at),
+                    Some(invalid_mapping_at),
+                    Some(other_mapping_at),
+                    Some(unsupported_at),
+                ) if algorithm_at < unsupported_at
+                    && algorithm_at < guard_at
+                    && guard_at < rejection_at
+                    && rejection_at < verifier_at
+                    && verifier_at < failure_mapping_at
+                    && failure_mapping_at < invalid_mapping_at
+                    && invalid_mapping_at < other_mapping_at
+                    && other_mapping_at < unsupported_at
+            )
+        }
+        Strictness::CallsApprovedSignatureVerifier {
+            dispatch,
+            key_length,
+            signature_binding,
+            signature_conversion,
+            invalid_length_mapping,
+            verifier,
+            invalid_signature_mapping,
+        } => {
+            let dispatch_at = body.find(dispatch);
+            let key_length_at = body.find(key_length);
+            let signature_binding_at = body.find(signature_binding);
+            let signature_conversion_at = body
+                .match_indices(signature_conversion)
+                .nth(1)
+                .map(|(at, _)| at);
+            let invalid_length_mapping_at = body
+                .match_indices(invalid_length_mapping)
+                .nth(1)
+                .map(|(at, _)| at);
+            let verifier_at = path_call_position(body, verifier);
+            let failure_at = body.find(invalid_signature_mapping);
+            matches!(
+                (
+                    dispatch_at,
+                    key_length_at,
+                    signature_binding_at,
+                    signature_conversion_at,
+                    invalid_length_mapping_at,
+                    verifier_at,
+                    failure_at,
+                ),
+                (
+                    Some(dispatch_at),
+                    Some(key_length_at),
+                    Some(signature_binding_at),
+                    Some(signature_conversion_at),
+                    Some(invalid_length_mapping_at),
+                    Some(verifier_at),
+                    Some(failure_at),
+                ) if dispatch_at < key_length_at
+                    && key_length_at < signature_binding_at
+                    && signature_binding_at < signature_conversion_at
+                    && signature_conversion_at < invalid_length_mapping_at
+                    && invalid_length_mapping_at < verifier_at
+                    && verifier_at < failure_at
+            )
+        }
         Strictness::DelegatesTo {
             receiver, method, ..
         } => calls_method_on(body, receiver, method),
@@ -1131,11 +1300,15 @@ fn registered_body_has_required_call(strictness: &Strictness, body: &str) -> boo
 /// before it must be the rest of the path. A comment or a same-named local
 /// cannot satisfy it, which the negative controls below assert.
 fn calls_path(body: &str, path: &str) -> bool {
+    path_call_position(body, path).is_some()
+}
+
+fn path_call_position(body: &str, path: &str) -> Option<usize> {
     let (prefix, name) = match path.rsplit_once("::") {
         Some((prefix, name)) => (prefix, name),
         None => ("", path),
     };
-    identifier_positions(body, name).any(|at| {
+    identifier_positions(body, name).find(|&at| {
         let after = body[at + name.len()..].trim_start();
         if !(after.starts_with('(') || after.starts_with("::<")) {
             return false;
@@ -1146,6 +1319,67 @@ fn calls_path(body: &str, path: &str) -> bool {
         let before = &body[..at];
         before.trim_end().ends_with(&format!("{prefix}::"))
     })
+}
+
+#[test]
+fn a_guarded_libcrux_verifier_requires_the_guard_error_and_ordered_dispatch() {
+    let strictness = Strictness::CallsGuardThenVerifier {
+        algorithm_dispatch: "SignatureScheme::ED25519 =>",
+        guard: "rejects_small_order_ed25519_points",
+        rejection: "return Err(CryptoError::InvalidSignature)",
+        verifier: "libcrux_ed25519::verify",
+        failure_mapping: ".map_err(|e| match e {",
+        invalid_signature_mapping: "libcrux_ed25519::Error::InvalidSignature => CryptoError::InvalidSignature",
+        other_error_mapping: "_ => CryptoError::SigningError",
+        unsupported_rejection: "_ => Err(CryptoError::UnsupportedSignatureScheme)",
+    };
+    let guarded = function_body(
+        "fn verify_signature() { match alg { SignatureScheme::ED25519 => { if rejects_small_order_ed25519_points(pk, sig) { return Err(CryptoError::InvalidSignature); } libcrux_ed25519::verify(data, pk, sig).map_err(|e| match e { libcrux_ed25519::Error::InvalidSignature => CryptoError::InvalidSignature, _ => CryptoError::SigningError }) }, _ => Err(CryptoError::UnsupportedSignatureScheme) } }",
+        "verify_signature",
+    )
+    .unwrap();
+    assert!(registered_body_has_required_call(&strictness, &guarded));
+
+    for unsafe_body in [
+        "fn verify_signature() { libcrux_ed25519::verify(data, pk, sig) }",
+        "fn verify_signature() { match alg { SignatureScheme::ED25519 => { libcrux_ed25519::verify(data, pk, sig) }, _ => Err(CryptoError::UnsupportedSignatureScheme) } }",
+        "fn verify_signature() { match alg { SignatureScheme::ED25519 => { if rejects_small_order_ed25519_points(pk, sig) { return Err(CryptoError::InvalidSignature); } libcrux_ed25519::verify(data, pk, sig).map_err(|e| match e { libcrux_ed25519::Error::InvalidSignature => CryptoError::InvalidSignature, _ => CryptoError::SigningError }) }, _ => Err(CryptoError::InvalidSignature) } }",
+        "fn verify_signature() { match alg { SignatureScheme::ED25519 => { if rejects_small_order_ed25519_points(pk, sig) { return Err(CryptoError::SigningError); } libcrux_ed25519::verify(data, pk, sig).map_err(|e| match e { libcrux_ed25519::Error::InvalidSignature => CryptoError::InvalidSignature, _ => CryptoError::SigningError }) }, _ => Err(CryptoError::UnsupportedSignatureScheme) } }",
+        "fn verify_signature() { match alg { SignatureScheme::ED25519 => { if rejects_small_order_ed25519_points(pk, sig) { return Err(CryptoError::InvalidSignature); } libcrux_ed25519::verify(data, pk, sig).map_err(|e| match e { libcrux_ed25519::Error::InvalidSignature => CryptoError::SigningError, _ => CryptoError::SigningError }) }, _ => Err(CryptoError::UnsupportedSignatureScheme) } }",
+        "fn verify_signature() { match alg { SignatureScheme::ED25519 => { libcrux_ed25519::verify(data, pk, sig).map_err(|e| match e { libcrux_ed25519::Error::InvalidSignature => CryptoError::InvalidSignature, _ => CryptoError::SigningError }); if rejects_small_order_ed25519_points(pk, sig) { return Err(CryptoError::InvalidSignature); } }, _ => Err(CryptoError::UnsupportedSignatureScheme) } }",
+    ] {
+        let body = function_body(unsafe_body, "verify_signature").unwrap();
+        assert!(!registered_body_has_required_call(&strictness, &body));
+    }
+}
+
+#[test]
+fn a_post_quantum_signature_verifier_requires_dispatch_lengths_and_failure_mapping() {
+    let strictness = Strictness::CallsApprovedSignatureVerifier {
+        dispatch: "with_parameter_set!(alg, m => {",
+        key_length: "pk.try_into().map_err(|_| CryptoError::InvalidLength)",
+        signature_binding: "let signature = signature",
+        signature_conversion: ".try_into()",
+        invalid_length_mapping: "map_err(|_| CryptoError::InvalidLength)",
+        verifier: "m::verify",
+        invalid_signature_mapping: ".map_err(|_| CryptoError::InvalidSignature)",
+    };
+    let safe = function_body(
+        "pub(super) fn verify() { with_parameter_set!(alg, m => { let pk = pk.try_into().map_err(|_| CryptoError::InvalidLength)?; let signature = signature.try_into().map_err(|_| CryptoError::InvalidLength)?; m::verify(pk, signature).map_err(|_| CryptoError::InvalidSignature) }) }",
+        "verify",
+    )
+    .unwrap();
+    assert!(registered_body_has_required_call(&strictness, &safe));
+
+    for unsafe_body in [
+        "pub(super) fn verify() { Ok(()) }",
+        "pub(super) fn verify() { with_parameter_set!(alg, m => { let pk = pk.try_into().map_err(|_| CryptoError::InvalidLength)?; let signature = signature.try_into().map_err(|_| CryptoError::InvalidLength)?; m::verify(pk, signature).or(Ok(())) }) }",
+        "pub(super) fn verify() { with_parameter_set!(alg, m => { let pk = pk.try_into().map_err(|_| CryptoError::InvalidLength)?; let signature = signature.try_into().map_err(|_| CryptoError::InvalidLength)?; m::verify(pk, signature).map_err(|_| CryptoError::SigningError) }) }",
+        "pub(super) fn verify() { with_parameter_set!(alg, m => { let pk = pk.to_vec(); let signature = signature.to_vec(); m::verify(pk, signature).map_err(|_| CryptoError::InvalidSignature) }) }",
+    ] {
+        let body = function_body(unsafe_body, "verify").unwrap();
+        assert!(!registered_body_has_required_call(&strictness, &body));
+    }
 }
 
 #[test]
@@ -1503,6 +1737,19 @@ fn no_crate_verifies_ed25519_signatures_non_strictly() {
 #[test]
 fn every_verify_function_in_the_workspace_is_registered_as_strict() {
     let sources = source_files();
+    let provider_label = "z/openmls/openmls/libcrux_crypto/src/crypto.rs";
+    let provider_path = common::repo_root().join(provider_label);
+    let provider_source = std::fs::read_to_string(&provider_path).unwrap_or_else(|error| {
+        panic!(
+            "could not read pinned OpenMLS provider source at {provider_path:?}; initialize z/openmls/openmls: {error}"
+        )
+    });
+    let mut verification_sources = sources.clone();
+    verification_sources.push(common::SourceFile {
+        krate: "openmls-provider".to_owned(),
+        label: provider_label.to_owned(),
+        source: provider_source,
+    });
     let mut crates_reached: Vec<String> = Vec::new();
     let mut found: Vec<(String, String, usize, usize)> = Vec::new();
 
@@ -1510,6 +1757,8 @@ fn every_verify_function_in_the_workspace_is_registered_as_strict() {
         if !crates_reached.contains(&file.krate) {
             crates_reached.push(file.krate.clone());
         }
+    }
+    for file in &verification_sources {
         for (name, line, occurrence) in verify_fn_definitions(&file.source) {
             found.push((file.label.clone(), name, line, occurrence));
         }
@@ -1563,7 +1812,7 @@ fn every_verify_function_in_the_workspace_is_registered_as_strict() {
 
     // The bottom of every delegation chain is checked against the source.
     for entry in WORKSPACE_VERIFY_FNS {
-        let file = sources
+        let file = verification_sources
             .iter()
             .find(|source| source.label == entry.file)
             .unwrap_or_else(|| panic!("{} is registered but was not walked", entry.file));
@@ -1586,6 +1835,39 @@ fn every_verify_function_in_the_workspace_is_registered_as_strict() {
             )
         });
         match entry.strictness {
+            Strictness::CallsGuardThenVerifier {
+                algorithm_dispatch,
+                guard,
+                rejection,
+                verifier,
+                failure_mapping,
+                invalid_signature_mapping,
+                other_error_mapping,
+                unsupported_rejection,
+            } => {
+                assert!(
+                    registered_body_has_required_call(&entry.strictness, &body),
+                    "{}::{} must dispatch `{algorithm_dispatch}`, call `{guard}`, reject with `{rejection}`, then call `{verifier}` through `{failure_mapping}` and preserve `{invalid_signature_mapping}`, `{other_error_mapping}`, and `{unsupported_rejection}`",
+                    entry.file,
+                    entry.name
+                );
+            }
+            Strictness::CallsApprovedSignatureVerifier {
+                dispatch,
+                key_length,
+                signature_binding,
+                signature_conversion,
+                invalid_length_mapping,
+                verifier,
+                invalid_signature_mapping,
+            } => {
+                assert!(
+                    registered_body_has_required_call(&entry.strictness, &body),
+                    "{}::{} must dispatch `{dispatch}`, reject malformed encodings via `{key_length}` and the signature conversion `{signature_binding}` `{signature_conversion}` `{invalid_length_mapping}`, call `{verifier}`, and preserve `{invalid_signature_mapping}`",
+                    entry.file,
+                    entry.name
+                );
+            }
             Strictness::CallsVerifyStrict { .. } => {
                 assert!(
                     registered_body_has_required_call(&entry.strictness, &body),

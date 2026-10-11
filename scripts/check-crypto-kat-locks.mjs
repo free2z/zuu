@@ -62,11 +62,11 @@ const EXPECTED_PACKAGES = new Set([
 const REVIEWED_PACKAGE_COUNT = 37;
 const REVIEWED_PACKAGE_NAMES_SHA256 =
   "5b7a3cdbeb75035bcb5b0b3c541ab57e02cf3e786bb8691f4b1084b6d6ba0838";
-// Only these four PR2265 compatibility bridge packages may lack a registry
+// Only these four temporarily forked OpenMLS packages may lack a registry
 // checksum. Both the requested rev and resolved commit must be exact; matching
 // four maliciously edited locks must never authorize an arbitrary Git source.
 const OPENMLS_BRIDGE_SOURCE =
-  "git+https://github.com/free2z/openmls?rev=7ded6597be8ddf7004046c8564fa97090d5e9633#7ded6597be8ddf7004046c8564fa97090d5e9633";
+  "git+https://github.com/0bkevin/openmls?rev=6e96a4411ea2669f05ac22dd0e0424c1c93f5055#6e96a4411ea2669f05ac22dd0e0424c1c93f5055";
 const OPENMLS_BRIDGE_VERSIONS = new Map([
   ["openmls_libcrux_crypto", "0.4.0"],
   ["openmls_traits", "0.6.0"],
@@ -347,9 +347,9 @@ function runSelfTest() {
     for (const name of OPENMLS_BRIDGE_VERSIONS.keys()) {
       const source = baseline.get(relativeFile);
       for (const [label, mutate] of [
-        ["resolved revision drift", (block) => block.replace(/#7ded6597[a-f0-9]+/, `#${"0".repeat(40)}`)],
-        ["requested revision drift", (block) => block.replace(/rev=7ded6597[a-f0-9]+/, `rev=${"0".repeat(40)}`)],
-        ["upstream source substitution", (block) => block.replace("github.com/free2z/openmls", "example.invalid/openmls")],
+        ["resolved revision drift", (block) => block.replace(/#6e96a441[a-f0-9]+/, `#${"0".repeat(40)}`)],
+        ["requested revision drift", (block) => block.replace(/rev=6e96a441[a-f0-9]+/, `rev=${"0".repeat(40)}`)],
+        ["upstream source substitution", (block) => block.replace("github.com/0bkevin/openmls", "example.invalid/openmls")],
         ["missing source", (block) => block.replace(/^source = .*\n/m, "")],
         ["bridge version drift", (block) => block.replace(/^version = .*$/m, 'version = "999.0.0"')],
         ["spurious registry checksum", (block) => `${block}checksum = "${"0".repeat(64)}"\n`],
