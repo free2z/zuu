@@ -18,7 +18,11 @@ if ! git -C "$repo" cat-file -e "$baseline^{commit}"; then
 fi
 mkdir -p "$fixture/old"
 git -C "$repo" archive "$baseline" | tar -x -C "$fixture/old"
-cp "$repo/rs/crates/f2z-msg-mls/tests/shipping_compatibility_peer.rs" "$fixture/old/rs/crates/f2z-msg-mls/tests/"
+# Keep each graph's peer adapter paired with its API: the current API intentionally
+# hides the raw provider, while the historical shipping baseline still exposes it.
+# Both adapters share only the fixture directory, SQLite rows and relay bytes.
+cp "$repo/rs/crates/f2z-msg-mls/tests/fixtures/shipping_compatibility_peer_legacy.rs" \
+  "$fixture/old/rs/crates/f2z-msg-mls/tests/shipping_compatibility_peer.rs"
 # Both binaries build separately; only relay bytes and each device's SQLite
 # store survive a step. A new dependency graph never resolves the old binary.
 compiler_for() {
