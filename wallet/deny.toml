@@ -209,8 +209,16 @@ exceptions = [
 [bans]
 multiple-versions = "allow"
 
+# ADR0001: messaging uses one libcrux crypto core. These optional packages may
+# be resolved in lockfiles but must never be enabled in a shipping wallet graph.
+[[bans.deny]]
+name = "openmls_rust_crypto"
+
+[[bans.deny]]
+name = "openmls_basic_credential"
+
 # =============================================================================
-# Sources. Every crate in all three lockfiles resolves to crates.io today; the
+# Sources. Registry packages plus the two registered source bridges; the
 # in-source Zcash dependencies are path dependencies into z/, not git ones. This
 # makes that a rule instead of a coincidence, so a `git = "..."` dependency on a
 # personal fork cannot be introduced without amending this file.
@@ -219,7 +227,7 @@ multiple-versions = "allow"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# TRANSIENT, and the only git source in any shipping lock.
+# TRANSIENT bip32 bridge (alongside the registered OpenMLS bridge below).
 #
 # `wallet/zuuli/src-tauri` carries a rev-pinned `[patch.crates-io]` for `bip32`,
 # because the only published 0.6 release exact-pins three 2024-era RustCrypto
@@ -235,4 +243,6 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # does not admit an arbitrary git dependency — it admits one reviewed commit of
 # one fork we control. Remove the entry with the patch, when `bip32 0.6.0` is
 # published and the Zcash stack moves to secp256k1 0.31.
-allow-git = ["https://github.com/free2z/crates"]
+# Fixed unreleased OpenMLS provider / PR2265 compatibility bridge; exact packages/revision are
+# enforced by the dependency register and three-lock crypto identity check.
+allow-git = ["https://github.com/free2z/crates", "https://github.com/free2z/openmls"]

@@ -89,13 +89,61 @@ the only evidence the deletion is safe.
   requirement, not the registry's ceiling.)
 
 The fork is **not** drifting: `131d490e` is 1 ahead of, 0 behind,
-`iqlusioninc/crates@main`. This is the only `[patch.crates-io]` in the
-repository, and the check fails if a second appears unregistered, or if any
+`iqlusioninc/crates@main`. This patch is registered alongside the OpenMLS bridge below; the check fails if any additional patch appears unregistered, or if any
 patch is pinned by `branch` instead of `rev`.
 
 ---
 
+## 2a. Fixed OpenMLS provider awaiting a registry release
+
+Verified separately on 2026-10-11. Upstream [PR2261](https://github.com/openmls/openmls/pull/2261)
+merged the fixed libcrux train, but crates.io's latest provider remains 0.4.0
+with DRBG 0.0.1 and HPKE 0.7 (KEM exactly 0.0.9). These requirements cannot
+resolve the fixes for [RUSTSEC-2026-0329](https://rustsec.org/advisories/RUSTSEC-2026-0329.html),
+[0330](https://rustsec.org/advisories/RUSTSEC-2026-0330.html) and
+[0331](https://rustsec.org/advisories/RUSTSEC-2026-0331.html).
+
+All four independent shipping roots carry the same exact registered fork:
+`https://github.com/free2z/openmls` @ `7ded6597be8ddf7004046c8564fa97090d5e9633`,
+vendored in `z/openmls/openmls` on `f2z/preserve-mls-draft-hpke-derivation`.
+This is upstream `e0b21a70a55a9014b8de2772b36bf3d638adad51` plus the two-line
+manifest-only feature selection in [openmls/openmls#2265](https://github.com/openmls/openmls/pull/2265).
+The fixed HPKE 0.8 default changed derivation for an unchanged deployed MLS
+draft suite; actual old/new clients fail update processing. The supported
+`draft-connolly-cfrg-hpke-mlkem` flags retain the old derivation in both HPKE
+frontend and backend. No cryptographic algorithm or fixed library version is edited.
+The executable shipping comparator proves both upgrade directions and a queued
+old commit received after upgrade, with original independently locked old clients
+and actual persisted SQLite state (14 process steps).
+
+The patched packages are `openmls_libcrux_crypto`, `openmls_traits`,
+`openmls_memory_storage` and lock-only `openmls_rust_crypto`: the provider's workspace
+path dependencies require matching Cargo source identities. The disabled
+RustCrypto provider otherwise retains HPKE 0.7 and vulnerable KEM in the lockfile;
+its runtime ban remains.
+
+* `rs/Cargo.toml`
+* `wallet/e2e2z/src-tauri/Cargo.toml`
+* `wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml`
+* `wallet/zuuli/src-tauri/Cargo.toml`
+
+**Retirement:** when openmls/openmls#2265 merges, move `z/openmls/openmls`
+back to upstream `main` and replace the transient fork pins together. The weekly
+checker also flags a stable `openmls_libcrux_crypto` release **0.4.1 or later**;
+verify its published manifest includes the fixed DRBG/KEM requirements **and**
+preserves the deployed draft derivation before removing all four patches from
+all four roots. Update the narrow Git source allowances and exact identity policy,
+then re-run shipping lock parity, standards KATs, real old/new interoperability
+and clean Linux tests. A release version alone is a review trigger, not proof
+that either fix shipped. The existing bip32 bridge is independent.
+
+---
+
 ## 3. Deliberate version holds that look stale but are not
+
+The affected `sha2` and `chacha20poly1305` lock measurements were refreshed
+on 2026-10-11 for the fixed provider bridge; unchanged upstream constraint rows
+retain their earlier verification date.
 
 **Every row names the file that verifies it, and
 `scripts/check-dependency-register.mjs` re-reads exactly that file.** Most are
@@ -120,7 +168,7 @@ same badge as the ones that are checked.
 | `nonempty` | 0.11 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:94`. This one crosses an API boundary rather than merely duplicating: `send/native.rs` returns `nonempty::NonEmpty<TxId>` straight out of a librustzcash call, so a second `nonempty` is a type mismatch, not a bigger binary. Single copy (0.11.0), shared by 9 packages in the wallet lock | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`nonempty` entry) |
 | `base64` | 0.22 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:113`. 0.22.1 is the **shared** copy — 12 packages, including `zcash_client_backend`, `zip321`, `reqwest`, `tonic`, `wry`, `tauri-codegen` and ZUULI itself (ADR 0017's Contract C client). Bumping ours would not retire it; it would move our one crate onto `ureq`'s 0.23 island and lose the alignment for nothing | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`base64` entry) |
 | `bip0039` | 0.12 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:192`. Weaker than the rows above, deliberately: upstream declares it only `optional`, behind `zcash_keys`'s `zcashd-compat` and a `zcash_client_sqlite` feature, and neither is on — so today exactly 1 package resolves `bip0039` in the wallet lock, and it is ours (`tauri-plugin-zcash`). Matching 0.12 is what keeps turning either feature on from adding a second BIP-39 | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`bip0039` entry) |
-| `chacha20poly1305` | 0.10 | **A different upstream.** Not librustzcash's — `z/zcash/zcash_note_encryption/Cargo.toml:24` declares it, under plain `[dependencies]`, because `zcash_note_encryption` is a standalone crate. Every wallet lock carries exactly **one** copy (0.10.1), shared by 5 packages: ours (`tauri-plugin-zcash`, `tauri-plugin-f2zmsg`), `zcash_note_encryption`, `hpke-rs-rust-crypto` and `openmls_rust_crypto`. Bumping ours to 0.11 strands the other three on 0.10 and adds a second AEAD to **all four** wallet locks | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` and `wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml` (`chacha20poly1305` entries) |
+| `chacha20poly1305` | 0.10 | **A different upstream.** Not librustzcash's — `z/zcash/zcash_note_encryption/Cargo.toml:24` declares it, under plain `[dependencies]`, because `zcash_note_encryption` is a standalone crate. The Zcash-only locks carry 0.10.1; the MLS locks also carry 0.11.0 after the fixed upstream bridge. In the shipping ZUULI lock 0.10 is shared by 3 packages: ours (`tauri-plugin-zcash`, `tauri-plugin-f2zmsg`) and `zcash_note_encryption`. Bumping ours leaves the upstream Zcash consumer on 0.10; the MLS optional provider already resolves 0.11 | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` and `wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml` (`chacha20poly1305` entries) |
 | `getrandom` | 0.3 | **A registry crate, not a vendored one.** `tauri 2.11.5` declares `getrandom = "0.3"` unconditionally in its own published manifest, so 0.3 is in the shipping graph whatever we choose; `wallet/zuuli/src-tauri/Cargo.lock` records the edge as `tauri 2.11.5 → getrandom 0.3.4`. Our single call site is `oauth.rs`'s PKCE randomness. Bumping to 0.4 would not retire tauri's copy — the lock already carries 0.2.17, 0.3.4 and 0.4.3 — it would only move us off the copy the framework links. This hold retires when **tauri** moves, not when we decide to | `wallet/zuuli/src-tauri/Cargo.toml` (`getrandom` entry); the edge in `wallet/zuuli/src-tauri/Cargo.lock` |
 | `hkdf` | 0.12 | **Our own choice.** `hkdf` appears in neither constraint source. 0.12 is the line that pairs with `sha2` 0.10 (both on `digest` 0.10), so it moves only when `sha2` does | [`rs/Cargo.toml`](../rs/Cargo.toml) (`hkdf` entry) |
 
@@ -176,13 +224,13 @@ That is the constraint, and it is upstream's, not `akd_core`'s.
 
 The comment in `rs/Cargo.toml` has been corrected to say so.
 
-**Second correction, 2026-08-31 — and it is the same failure again.** This
+**Second correction, 2026-08-31; counts refreshed 2026-10-11.** This
 section used to finish "Moving `f2z-msg-identity` to 0.11 would add a second
 SHA-256 to the shipped wallet." It would not. The wallet lock already carries
 **0.10.9 and 0.11.0**: the MLS half of the graph brought 0.11 in through
 `bip32`, `ed25519-dalek`, `hpke-rs-rust-crypto` and `openmls_rust_crypto`, and
 nothing re-read the sentence that said otherwise. 14 packages resolve `sha2`
-on 0.10 and 4 packages on 0.11. So the real cost of moving `f2z-msg-identity` is
+on 0.10 and 6 packages on 0.11. So the real cost of moving `f2z-msg-identity` is
 *defection* — it would leave the copy every Zcash crate in the binary shares —
 not a new copy. Both numbers, and both edges, are now `evidence` entries in
 `scripts/check-dependency-register.mjs`, so the next time this drifts the check
@@ -194,7 +242,7 @@ says so rather than a reader eventually noticing.
 
 | | |
 |---|---|
-| **Kind** | Not a fork and not a pin — a **linked-but-unreachable** dependency with an open upstream defect |
+| **Kind** | **Linked-but-unreachable** storage dependency; now part of the fixed upstream bridge in §2a |
 | **How it gets here** | a hard, non-optional dependency of `openmls_libcrux_crypto 0.4.0`, whose `Provider` owns a `MemoryStorage` field. Nothing in this tree ever hands it to OpenMLS |
 | **Exit condition** | an `openmls_memory_storage` release **newer than 0.6.0** whose `clear_proposal_queue` carries [openmls/openmls#2163](https://github.com/openmls/openmls/pull/2163) |
 | **Why, in full** | the `openmls_memory_storage` block in [`rs/deny.toml`](../rs/deny.toml), and the module header of `rs/crates/f2z-msg-store/src/storage_impl.rs` |
@@ -203,9 +251,14 @@ Recorded here only because it is an exit condition and exit conditions belong in
 one place. Do not duplicate the prose — `rs/deny.toml` explains why it is
 deliberately *not* banned, and #850 is the PR that wrote it down.
 
-**State on 2026-08-31:** #2163 merged upstream 2026-08-31T07:18:26Z; latest
+**Historical state on 2026-08-31:** #2163 merged upstream 2026-08-31T07:18:26Z; latest
 `openmls_memory_storage` release is 0.6.0, published 2026-08-25 — before the
 fix. No release carries it. Read the release's source, not its version number.
+
+**2026-10-11 update:** the exact upstream bridge in §2a includes #2163's
+fixed storage source. Our runtime continues to use `f2z-msg-store`, not this
+memory provider. Its registry-release retirement observation remains useful
+when dropping the source bridge.
 
 > Two upstream numbers, and they are not alternatives:
 > [openmls/openmls#2188](https://github.com/openmls/openmls/issues/2188) is the
