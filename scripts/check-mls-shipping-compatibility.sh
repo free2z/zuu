@@ -6,6 +6,10 @@ set -euo pipefail
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
 repo=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 candidate=${F2Z_MLS_COMPAT_SOURCE:-$repo}
+# Current builds follow the reviewed compiler source of truth. The historical
+# graph deliberately keeps the compiler used by its frozen shipping baseline.
+candidate_toolchain=$("$candidate/scripts/check-rust-toolchain.sh" --print-channel)
+historical_toolchain=1.97.1
 baseline=40bfabffb3f765046ceafad213a26a5754dbd6b9
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/mls-shipping-compatibility.XXXXXX")
 trap 'rm -rf -- "$fixture"' EXIT
@@ -17,14 +21,21 @@ git -C "$repo" archive "$baseline" | tar -x -C "$fixture/old"
 cp "$repo/rs/crates/f2z-msg-mls/tests/shipping_compatibility_peer.rs" "$fixture/old/rs/crates/f2z-msg-mls/tests/"
 # Both binaries build separately; only relay bytes and each device's SQLite
 # store survive a step. A new dependency graph never resolves the old binary.
+compiler_for() {
+  if [[ $1 == "$fixture/old" ]]; then
+    printf '%s\n' "$historical_toolchain"
+  else
+    printf '%s\n' "$candidate_toolchain"
+  fi
+}
 for graph in "$fixture/old" "$candidate"; do
-  cargo +1.97.1 test --manifest-path "$graph/rs/Cargo.toml" --locked \
+  cargo +"$(compiler_for "$graph")" test --manifest-path "$graph/rs/Cargo.toml" --locked \
     -p f2z-msg-mls --test shipping_compatibility_peer --no-run
  done
 run_peer() {
   local graph=$1 actor=$2 step=$3
   F2Z_MLS_COMPAT_DIR=$state F2Z_MLS_COMPAT_ACTOR=$actor F2Z_MLS_COMPAT_STEP=$step \
-    cargo +1.97.1 test --manifest-path "$graph/rs/Cargo.toml" --locked \
+    cargo +"$(compiler_for "$graph")" test --manifest-path "$graph/rs/Cargo.toml" --locked \
       -p f2z-msg-mls --test shipping_compatibility_peer -- --ignored --exact shipping_compatibility_peer
 }
 for upgraded in alice bob; do
