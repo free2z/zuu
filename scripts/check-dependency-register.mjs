@@ -132,6 +132,7 @@ const TRACKED = [
       forkRev: "e0b21a70a55a9014b8de2772b36bf3d638adad51",
       upstreamRepo: "openmls/openmls",
       upstreamBranch: "main",
+      driftLimit: DEFAULT_DRIFT_LIMIT,
       exitCrate: { name: "openmls_libcrux_crypto", stableAtLeast: "0.4.1" },
       exitInstructions: "Verify the published provider carries PR2261's fixed DRBG/KEM requirements, "
         + "then remove all four source bridges together and re-run shipping lock parity, KATs and MLS tests.",
@@ -1873,6 +1874,17 @@ async function runUpstreamSelfTest() {
       },
       baseline,
       "is an issue, not a pull request",
+    ],
+    [
+      "the fixed OpenMLS bridge drifts before the release trigger",
+      {
+        ...quiet(),
+        githubJson: async (route) => route.includes("repos/openmls/openmls/compare/")
+          ? { status: "behind", ahead_by: 0, behind_by: 100 }
+          : quiet().githubJson(route),
+      },
+      baseline,
+      "openmls_libcrux_crypto: fork is 100 commits behind",
     ],
     [
       "the fork falls behind its upstream base",
