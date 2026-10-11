@@ -381,6 +381,104 @@ function relayErrorContractFailures({
   queueProtoRuntime = queueProto,
 } = {}) {
   const failures = [];
+  const retiredQueueLabel = `free2z/${["queue", "v1"].join("/")}`;
+  for (const [name, source] of [
+    ["WIRE", wireSpec],
+    ["architecture", architectureSpec],
+    ["queue ADR", queueDecision],
+    ["threat model", threatSpec],
+    ["MLS exporter inventory", exporterRuntime],
+    ["relay-proto advert", queueProtoRuntime],
+  ]) {
+    if (source.includes(retiredQueueLabel)) {
+      failures.push(`${name} reintroduces the retired queue exporter label`);
+    }
+  }
+  if (/^\s*Queue,\s*$/m.test(exporterRuntime)) {
+    failures.push("MLS exporter enum exposes the retired queue consumer");
+  }
+  for (const [name, source] of [
+    ["WIRE", wireSpec],
+    ["architecture", architectureSpec],
+    ["queue ADR", queueDecision],
+    ["threat model", threatSpec],
+    ["relay-proto advert", queueProtoRuntime],
+  ]) {
+    if (source.includes("valid_from_epoch")) {
+      failures.push(`${name} retains the retired synchronized advert epoch field`);
+    }
+  }
+  for (const [name, source] of [
+    ["architecture", architectureSpec],
+    ["queue ADR", queueDecision],
+    ["threat model", threatSpec],
+    ["MLS exporter inventory", exporterRuntime],
+  ]) {
+    if (/reserved.{0,100}synchron|synchron.{0,100}reserved/is.test(source)) {
+      failures.push(`${name} retains a reserved synchronized queue schedule`);
+    }
+  }
+  for (const [name, source, required] of [
+    ["WIRE", wireSpec, "The shipping receive path authenticates each MLS application message before it"],
+    ["architecture", architectureSpec, "shipping receive path consumes a distinct authenticated route"],
+    ["queue ADR", queueDecision, "an identical replay\n  preserves the current seed and bind state"],
+    ["threat model", threatSpec, "identical replay\npreserves the current key and bind state"],
+  ]) {
+    if (!source.includes(required)) {
+      failures.push(`${name} omits the retained advert-driven replacement behavior`);
+    }
+  }
+  const shippingAdvertStart = wireSpec.indexOf(
+    "serializes the message body with `serde_json`",
+  );
+  const shippingAdvertEnd = wireSpec.indexOf("### 7.3", shippingAdvertStart);
+  if (shippingAdvertStart < 0 || shippingAdvertEnd <= shippingAdvertStart) {
+    failures.push("WIRE does not delimit the shipping queue-advert payload before §7.3");
+  } else {
+    const shippingAdvert = wireSpec.slice(shippingAdvertStart, shippingAdvertEnd);
+    const json = /```json\s*([\s\S]*?)\s*```/.exec(shippingAdvert);
+    if (!json) {
+      failures.push("WIRE omits the concrete shipping queue-advert JSON body");
+    } else {
+      try {
+        const fields = Object.keys(JSON.parse(json[1])).sort();
+        if (fields.join(",") !== "relay_id,relay_url,send_addr") {
+          failures.push(`WIRE shipping advert JSON fields are ${fields.join(",")}`);
+        }
+      } catch {
+        failures.push("WIRE shipping queue-advert JSON example is invalid JSON");
+      }
+    }
+    for (const required of [
+      "complete payload emitted and consumed by the shipping serializer and",
+      "has no `type`, `endpoints`, `replaces`, or epoch field",
+      "remains a design-only",
+      "`f2z-relay-proto::QueueAdvert` models that proposal",
+      "has no wire/JSON encoding",
+      "does not serialize or deserialize it",
+    ]) {
+      if (!shippingAdvert.includes(required)) {
+        failures.push(`WIRE does not distinguish the shipping advert from design-only shape: ${required}`);
+      }
+    }
+  }
+  const shippingAdvertModel = /pub struct QueueAdvert\s*\{([\s\S]*?)\n\}/.exec(engineRuntime);
+  if (!shippingAdvertModel) {
+    failures.push("shipping plugin QueueAdvert model is missing");
+  } else {
+    const fields = [...shippingAdvertModel[1].matchAll(/^\s*pub\s+(\w+):/gm)]
+      .map(([, field]) => field)
+      .sort();
+    if (fields.join(",") !== "relay_id,relay_url,send_addr") {
+      failures.push(`shipping plugin QueueAdvert fields are ${fields.join(",")}`);
+    }
+  }
+  const designAdvertModel = /pub struct QueueAdvert\s*\{([\s\S]*?)\n\}/.exec(queueProtoRuntime);
+  if (!designAdvertModel || !designAdvertModel[1].includes("pub endpoints:") || !designAdvertModel[1].includes("pub replaces:")) {
+    failures.push("relay-proto design advert no longer identifies its endpoints/replaces model");
+  } else if (/Serialize|Deserialize/.test(designAdvertModel[0])) {
+    failures.push("relay-proto design advert was given a serializer and may be mistaken for shipping wire shape");
+  }
   const code10Rows = clientContract
     .split("\n")
     .filter((line) => /^\| 10 \| `ERR_NO_ACCESS` \|/.test(line));
@@ -851,29 +949,10 @@ function relayErrorContractFailures({
   }
 
   for (const [name, source, required] of [
-    ["WIRE queue schedule", wireSpec, "No\ndurable counter or advert field synchronizes such an exporter schedule in v1"],
-    ["architecture queue schedule", architectureSpec, "no counter or advert field\n> synchronizes such a schedule today"],
-    ["queue ADR", queueDecision, "no durable counter or advert field synchronizes\n  such an exporter schedule in v1"],
-    ["MLS exporter", exporterRuntime, "no durable counter or advert field synchronizes such an\n//! exporter schedule in v1"],
-    ["threat model", threatSpec, "today's path can leave them long-lived"],
-  ]) {
-    if (!source.includes(required)) {
-      failures.push(`${name} does not state the reserved/non-shipping queue schedule limitation`);
-    }
-  }
-  for (const required of [
-    "automated overlapped rotation is not shipping",
-    "current shipping may retain long-term",
-  ]) {
-    if (!threatSpec.includes(required)) {
-      failures.push(`threat model rotation scope is missing ${JSON.stringify(required)}`);
-    }
-  }
-  for (const [name, source, required] of [
-    ["WIRE runtime rotation scope", wireSpec, "does not\nautomate this section's full create/advertise/`valid_from_epoch`/overlap/drain\nflow"],
-    ["architecture runtime rotation scope", architectureSpec, "does not yet automate the full\ncreate/advertise/overlap/drain rotation flow"],
-    ["ADR runtime rotation scope", queueDecision, "does not automate the full\n  create/advertise/overlap/drain rotation flow"],
-    ["threat-model runtime rotation scope", threatSpec, "does not automate\nthe full overlapped rotation flow"],
+    ["WIRE runtime rotation scope", wireSpec, "does not automate replacement queue creation, advert\npublication, keeping both queues live during overlap, or draining/deleting the\nold queue"],
+    ["architecture runtime rotation scope", architectureSpec, "It does not automate replacement queue\ncreation or advert publication, overlapping old and new queues, or draining\nand deleting the old queue"],
+    ["ADR runtime rotation scope", queueDecision, "does not automate replacement queue creation and publication,\n  overlapping queues, or draining and deleting the old queue"],
+    ["threat-model runtime rotation scope", threatSpec, "The engine does not automate replacement queue creation\nand advert publication, overlap, or draining and deletion of the old queue"],
   ]) {
     if (!source.includes(required)) {
       failures.push(`${name} overstates the shipping rotation implementation`);
@@ -884,8 +963,11 @@ function relayErrorContractFailures({
       failures.push("public/runtime documentation still claims queue signing keys are exporter outputs");
     }
   }
-  if (!queueDecision.includes("authenticated advert carries\n  relay/address/rotation intent, never either private key")) {
-    failures.push("queue ADR does not separate authenticated advert intent from private capability keys");
+  if (!queueDecision.includes("shipping authenticated\n  advert carries one relay URL, relay identity and send address; it does not\n  carry replacement metadata or either private key")) {
+    failures.push("queue ADR does not state the shipping advert fields and absence of replacement metadata");
+  }
+  if (!queueDecision.includes("proposed\n  multi-endpoint/`replaces` shape") || !queueDecision.includes("is\n  design-only and has no serializer")) {
+    failures.push("queue ADR does not separate the design-only advert shape from shipping JSON");
   }
   if (!queueProtoRuntime.includes("another or unknown key") || !readmeSpec.includes("rather than the actor")) {
     failures.push("adjacent queue protocol documentation over-attributes the bind actor");
@@ -1629,32 +1711,77 @@ test("relay error binding rejects public-contract, mapper, and call-site mutatio
     [],
   );
 
-  for (const [argument, source, needle, replacement] of [
-    ["wireSpec", wire, "No\ndurable counter or advert field synchronizes such an exporter schedule in v1", "The schedule is shipping"],
-    ["architectureSpec", architecture, "no counter or advert field\n> synchronizes such a schedule today", "a synchronized schedule ships today"],
-    ["queueDecision", queueAdr, "no durable counter or advert field synchronizes\n  such an exporter schedule in v1", "v1 ships a synchronized counter"],
-    ["exporterRuntime", exporter, "no durable counter or advert field synchronizes such an\n//! exporter schedule in v1", "v1 ships a synchronized counter"],
-    ["threatSpec", threatModel, "today's path can leave them long-lived", "today's path makes them short-lived"],
+  const queueLabel = `free2z/${["queue", "v1"].join("/")}`;
+  const exporterLabelMutation = exporter.replace(
+    "    Self::History => \"free2z/history/v1\",",
+    `    Queue => "${queueLabel}",\n    Self::History => "free2z/history/v1",`,
+  );
+  assert.notEqual(exporterLabelMutation, exporter, "exporter-label mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ exporterRuntime: exporterLabelMutation }),
+    [],
+  );
+  const exporterApiMutation = exporter.replace(
+    "    History,\n}",
+    "    Queue,\n    History,\n}",
+  );
+  assert.notEqual(exporterApiMutation, exporter, "exporter API mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ exporterRuntime: exporterApiMutation }),
+    [],
+  );
+  const advertEpochMutation = wire.replace(
+    '  "send_addr": "<hex send address>"',
+    '  "send_addr": "<hex send address>",\n  "valid_from_epoch": 1',
+  );
+  assert.notEqual(advertEpochMutation, wire, "WIRE advert epoch mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ wireSpec: advertEpochMutation }),
+    [],
+  );
+  const shippingReplacesMutation = wire.replace(
+    '  "send_addr": "<hex send address>"',
+    '  "send_addr": "<hex send address>",\n  "replaces": ["<old send address>"]',
+  );
+  assert.notEqual(shippingReplacesMutation, wire, "shipping advert replaces mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ wireSpec: shippingReplacesMutation }),
+    [],
+  );
+  const designOnlyMutation = wire.replace(
+    "The multi-endpoint `endpoints` plus `replaces` object remains a design-only",
+    "The multi-endpoint `endpoints` plus `replaces` object is the shipping advert",
+  );
+  assert.notEqual(designOnlyMutation, wire, "design-only advert mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ wireSpec: designOnlyMutation }),
+    [],
+  );
+  const protoEpochMutation = queueProto.replace(
+    "    pub replaces: Vec<QueueAddress>,",
+    "    pub valid_from_epoch: u64,\n    pub replaces: Vec<QueueAddress>,",
+  );
+  assert.notEqual(protoEpochMutation, queueProto, "relay-proto epoch mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ queueProtoRuntime: protoEpochMutation }),
+    [],
+  );
+  const scheduleMutation = architecture.replace(
+    "No exporter-derived queue key or\n> synchronized epoch schedule is part of v1.",
+    "A reserved synchronized schedule derives queue keys in v1.",
+  );
+  assert.notEqual(scheduleMutation, architecture, "architecture schedule mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ architectureSpec: scheduleMutation }),
+    [],
+  );
+  for (const [argument, source, required] of [
+    ["wireSpec", wire, "The shipping plugin does not automate replacement queue creation, advert\npublication, keeping both queues live during overlap, or draining/deleting the\nold queue."],
+    ["architectureSpec", architecture, "It does not automate replacement queue\ncreation or advert publication, overlapping old and new queues, or draining\nand deleting the old queue"],
+    ["queueDecision", queueAdr, "does not automate replacement queue creation and publication,\n  overlapping queues, or draining and deleting the old queue"],
+    ["threatSpec", threatModel, "The engine does not automate replacement queue creation\nand advert publication, overlap, or draining and deletion of the old queue"],
   ]) {
-    const mutation = source.replace(needle, replacement);
-    assert.notEqual(mutation, source, `${argument} schedule mutation did not apply`);
-    assert.notDeepEqual(relayErrorContractFailures({ [argument]: mutation }), []);
-  }
-  for (const needle of [
-    "automated overlapped rotation is not shipping",
-    "current shipping may retain long-term",
-  ]) {
-    const mutation = threatModel.replace(needle, "addresses rotate automatically");
-    assert.notEqual(mutation, threatModel, "threat-model prevalence mutation did not apply");
-    assert.notDeepEqual(relayErrorContractFailures({ threatSpec: mutation }), []);
-  }
-  for (const [argument, source, needle] of [
-    ["wireSpec", wire, "does not\nautomate this section's full create/advertise/`valid_from_epoch`/overlap/drain\nflow"],
-    ["architectureSpec", architecture, "does not yet automate the full\ncreate/advertise/overlap/drain rotation flow"],
-    ["queueDecision", queueAdr, "does not automate the full\n  create/advertise/overlap/drain rotation flow"],
-    ["threatSpec", threatModel, "does not automate\nthe full overlapped rotation flow"],
-  ]) {
-    const mutation = source.replace(needle, "automates the full rotation flow");
+    const mutation = source.replace(required, "automates the full rotation flow");
     assert.notEqual(mutation, source, `${argument} rotation-scope mutation did not apply`);
     assert.notDeepEqual(relayErrorContractFailures({ [argument]: mutation }), []);
   }

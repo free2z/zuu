@@ -609,11 +609,16 @@ any timing analysis.
 
 What limits the damage is what the addresses are *not*: they are opaque, they
 carry no handle or identity key, they are per device pair and per direction, and
-the protocol can rotate them through authenticated replacement adverts. The
-shipping engine can consume such a replacement safely, but it does not automate
-the full overlapped rotation flow. Rotation would shorten the lifetime of those
-pseudonyms, but the reserved `free2z/queue/v1` synchronized schedule is not yet
-shipping, so today's path can leave them long-lived. Deanonymizing the graph
+the protocol can replace them through authenticated adverts. The shipping
+engine's authenticated MLS receive path consumes a distinct single-endpoint
+advert with a fresh endpoint-owned signing key, while an identical replay
+preserves the current key and bind state. The shipping JSON payload carries
+`relay_url`, `relay_id` and `send_addr`; the proposed multi-endpoint/`replaces`
+object is design-only. The engine does not automate replacement queue creation
+and advert publication, overlap, or draining and deletion of the old queue.
+Without an externally published replacement advert, today's path can leave
+these pseudonyms long-lived.
+Deanonymizing the graph
 still requires
 attaching a queue address to a person by some other means — source IP, timing
 against a known event, or correlation with the platform's own logs when free2z
