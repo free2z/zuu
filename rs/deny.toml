@@ -202,6 +202,12 @@ allow = [
 # unattended for other people, it links a runtime, it is deliberately absent
 # from rs.yml's wasm32 line, and no client links it.
 exceptions = [
+  # Zcash Payment Hooks resolves these CC0 dependencies through the released
+  # Zcash libraries. Measured on this graph; scope to exact crate versions,
+  # without admitting CC0 for every Rust service or changing advisory ignores.
+  { name = "bounded-vec", version = "=0.9.0", allow = ["CC0-1.0"] },
+  { name = "secp256k1", version = "=0.29.1", allow = ["CC0-1.0"] },
+  { name = "secp256k1-sys", version = "=0.10.1", allow = ["CC0-1.0"] },
   # ---------------------------------------------------------------------------
   # MPL-2.0, arriving with HPKE, and **this one needs an owner's eye**.
   #

@@ -52,6 +52,7 @@ TOOLCHAIN_FILE=rust-toolchain.toml
 # invocation, including the bare one the required gate runs, which passes no
 # flags at all and would fail on anything registered only elsewhere.
 MANIFESTS=(
+  rs/zcash-payment-hooks/Cargo.toml
   wallet/zuuli/wasm-spike/Cargo.toml
   wallet/zuuli/crypto-target-spike/Cargo.toml
   wallet/zuuli/src-tauri/Cargo.toml
@@ -109,6 +110,7 @@ MANIFESTS=(
 # check_census
 # holds this array to the tracked tree the same way it holds MANIFESTS.
 TOOLCHAIN_RESTATEMENTS=(
+  rs/zcash-payment-hooks/rust-toolchain.toml
   wallet/rust-toolchain.toml
   rs/rust-toolchain.toml
 )
