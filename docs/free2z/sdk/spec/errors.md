@@ -23,12 +23,11 @@ Every non-2xx response from `ai.free2z.cash/v1/*` and
 ```json
 {
   "error": {
-    "code": "cap_exceeded",
-    "message": "This app's spend cap for the current week is exhausted.",
+    "code": "invalid_request",
+    "message": "A request field is invalid.",
     "details": {
-      "cap_2z": 200,
-      "cap_period": "week",
-      "resets_at": "2026-09-28T00:00:00Z"
+      "field": "max_output_tokens",
+      "reason": "out_of_range"
     }
   }
 }
@@ -78,7 +77,7 @@ Inside an SSE stream, the terminal `error` event carries `code` and
 | 400 | `invalid_request` | no | A field is missing, malformed or out of range; an unknown field was sent; an image part on a model without vision; a `response_format` the model cannot honour (`reason: "response_format_unsupported"`) or of an unknown `type` (`field: "response_format.type"`, `reason: "unsupported"`); a tool feature the model or its adapter cannot honour — `tools` without `capabilities.tools`, `tools[i].strict: true` without `capabilities.strict_tools`, or `tool_choice` / `parallel_tool_calls` where the adapter cannot express them (`reason: "tools_unsupported"`, `field` naming which); a `reasoning_effort` the model or its adapter cannot honour (`field: "reasoning_effort"`, `reason: "reasoning_effort_unsupported"`, `effort_levels` when the level is outside the signed list); with `max_output_tokens_strict`, a `max_output_tokens` above the model's | `field`, `reason`, `max_output_tokens`, `model_max_output_tokens` (strict only), `effort_levels` (reasoning effort only) |
 | 400 | `context_length_exceeded` | no | The input does not fit the model's context window with at least one output token — or, with `max_output_tokens_strict`, with `max_output_tokens` of them | `input_tokens_estimate`, `context_window`, `reason`, `max_output_tokens` (strict only) |
 | 402 | `insufficient_balance` | no (until topped up) | The user's available 2Z cannot cover the model's minimum charge for this request — or, with `max_output_tokens_strict`, the worst case of the full `max_output_tokens` | `available_milli_2z`, `required_2z` (the minimum hold for one output token; with strict, the hold for `max_output_tokens`), `min_charge_2z`, `reason`, `max_output_tokens` (strict only) |
-| 403 | `cap_exceeded` | no (until the period resets or the user raises the cap) | The grant's spend cap for the current period cannot cover the minimum charge — or, with `max_output_tokens_strict`, the worst case of the full `max_output_tokens` | `cap_2z`, `cap_period`, `cap_remaining_milli_2z`, `resets_at` (`null` for `total`), `reason`, `required_2z`, `max_output_tokens` (strict only) |
+| 403 | `cap_exceeded` | no (until the period resets or the user raises the cap) | The grant's spend cap for the current period cannot cover the minimum charge — or, with `max_output_tokens_strict`, the worst case of the full `max_output_tokens` | Optional, producer- and path-specific: `cap_2z`, `cap_period`, `cap_remaining_milli_2z`, `resets_at` (`null` for `total`), `reason`, `input_tokens_estimate`, `available_milli_2z`, `required_2z`, `min_charge_2z`, `max_output_tokens` (strict only) |
 | 403 | `model_disabled` | no | The model exists but is not callable: disabled, its provider disabled by policy, or not available to this app | `model` |
 | 404 | `model_not_found` | no | Unknown model id | `model` |
 | 404 | `call_not_found` | no | No such call for this (user, app) | — |
@@ -88,6 +87,41 @@ Inside an SSE stream, the terminal `error` event carries `code` and
 | 413 | `payload_too_large` | no | Over the 4 MiB / 20 MiB body limit | `limit_bytes` |
 | 429 | `rate_limited` | yes, after `Retry-After` | Requests per minute for this (app, user), or an explicitly configured aggregate application admission limit, exceeded | — |
 | 429 | `concurrency_limit` | yes, after `Retry-After` | A fifth simultaneous stream for this user | `limit` |
+
+`cap_exceeded` details depend on where the refusal occurs. The current
+`f2z-ai` gateway takes the available cap value from the
+`ledger.gateway_context` response. That context exposes only
+`cap_remaining_milli_2z`; it has no cap amount, period, or reset timestamp,
+and the SDK does not infer those values. Its strict
+`max_output_tokens_strict` preflight refusal therefore sends exactly these
+details (the numeric values below are illustrative and depend on the request
+and ledger answer):
+
+```json
+{
+  "reason": "max_output_tokens_strict",
+  "max_output_tokens": 1800,
+  "required_2z": 8,
+  "available_milli_2z": 10000000,
+  "min_charge_2z": 1,
+  "cap_remaining_milli_2z": 5000
+}
+```
+
+It does not send `cap_2z`, `cap_period`, or `resets_at`. In this base snapshot,
+the gateway's non-strict preflight `cap_exceeded` and a refusal returned by the
+ledger during the hold step have no `details`. A producer may also include
+minimum-affordability fields (`input_tokens_estimate`, `available_milli_2z`,
+`required_2z`, `min_charge_2z`) when it has those values; their absence is
+valid. Other conforming producers may provide cap metadata, including
+`cap_2z`, `cap_period`, and `resets_at`; those fields are also optional. SDK
+preflight results keep `resets_at` optional: when it is absent, clients should
+offer the cap or account settings path rather than promise a reset time or a
+wait-until-reset action.
+
+The gateway classifies a shortfall as `cap_exceeded` when the remaining cap is
+less than the available balance. If both cap and balance are too low, raising
+the cap alone may still leave the request refused as `insufficient_balance`.
 
 ## 4. Providers and the stream
 
