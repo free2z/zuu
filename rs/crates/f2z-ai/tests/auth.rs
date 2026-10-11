@@ -19,7 +19,7 @@
 mod support;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -42,7 +42,7 @@ use secrecy::SecretString;
 use serde_json::{Value, json};
 use support::{
     ControlledBackend, RecordingSettler, config, error_of, fixed_catalog, send, valid_chat,
-    wait_records,
+    wait_readyz, wait_records,
 };
 
 const SECRET: &str = "internal-epoch-secret";
@@ -1102,7 +1102,7 @@ async fn the_concurrency_lease_counts_a_disconnected_call_until_it_is_settled() 
     drop(bodies);
 }
 
-struct PanickingBackend;
+struct PanickingBackend(Arc<AtomicUsize>);
 
 #[async_trait]
 impl ChatBackend for PanickingBackend {
@@ -1112,6 +1112,7 @@ impl ChatBackend for PanickingBackend {
         _catalog: Arc<f2z_ai::catalog::VerifiedCatalog>,
         _call: &f2z_ai::admission::CallHandle,
     ) -> Result<Box<dyn f2z_ai::call::Upstream>, f2z_ai::ApiFailure> {
+        self.0.fetch_add(1, Ordering::SeqCst);
         panic!("backend bug");
     }
 }
@@ -1119,22 +1120,20 @@ impl ChatBackend for PanickingBackend {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_panicking_call_does_not_leak_its_lease() {
     let h = Harness::new().await;
-    // The test is about the call's lease after admission. Load and verify the
-    // real fixture key first so a cold JWKS fetch cannot fail closed with a
-    // 503 before the panicking backend is reached under parallel test load.
-    assert!(matches!(
-        h.keys.lookup(&h.key.kid).await,
-        f2z_ai::auth::jwks::Lookup::Found(_)
-    ));
     let settler = RecordingSettler::default();
+    let backend_calls = Arc::new(AtomicUsize::new(0));
     // Concurrency 1: a leaked lease would refuse every later call.
     let gw = h
         .gateway(
             limits_config(100_000, 10_000, 1),
-            Arc::new(PanickingBackend),
+            Arc::new(PanickingBackend(Arc::clone(&backend_calls))),
             settler.clone(),
         )
         .await;
+    // Gateway::bind starts catalogue polling in the background. Wait until
+    // /readyz proves the fresh, validated fixture catalogue was admitted so
+    // this test exercises the panicking backend rather than startup timing.
+    wait_readyz(gw.admin_addr(), StatusCode::OK).await;
     for n in 1..=3 {
         let response = call(&gw, Some(&h.token())).await;
         if response.status() != StatusCode::INTERNAL_SERVER_ERROR {
@@ -1142,6 +1141,7 @@ async fn a_panicking_call_does_not_leak_its_lease() {
             let error = error_of(response).await;
             panic!("call {n}: expected 500 after backend panic, got {status}: {error}");
         }
+        assert_eq!(backend_calls.load(Ordering::SeqCst), n);
         let records = wait_records(&settler, n).await;
         assert_eq!(
             records.last().unwrap().upstream,
@@ -1358,21 +1358,24 @@ async fn the_gate_on_a_real_redis() {
         Limits::new(limits_config(100_000, 10_000, 1), Some(store), ns.clone()),
     );
     let settler = RecordingSettler::default();
+    let backend_calls = Arc::new(AtomicUsize::new(0));
     let gw = Gateway::bind(
         &config(&[]),
         Deps {
             gate: Arc::new(gate),
             catalog: fixed_catalog(),
-            backend: Arc::new(PanickingBackend),
+            backend: Arc::new(PanickingBackend(Arc::clone(&backend_calls))),
             settler: Arc::new(settler.clone()),
         },
     )
     .await
     .unwrap();
+    wait_readyz(gw.admin_addr(), StatusCode::OK).await;
 
     let lease_key = format!("{ns}:ai:cc:{SUB}");
     for n in 1..=3 {
         assert_eq!(call(&gw, Some(&h.token())).await.status(), 500, "call {n}");
+        assert_eq!(backend_calls.load(Ordering::SeqCst), n);
         wait_records(&settler, n).await;
         let mut open = 1;
         for _ in 0..100 {
