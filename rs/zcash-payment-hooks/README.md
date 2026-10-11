@@ -78,7 +78,8 @@ viewing authority. This daemon supplies that small receiving layer. Full blocks
 contain ciphertext and memo together, so the observer needs no spending wallet,
 commitment-tree witnesses or lightwalletd synchronization database.
 
-The chain source uses JSON-RPC. Zakura's [shared ecosystem direction](https://zakura.com/announcements/zakura-common/)
+The chain source uses JSON-RPC.
+[Zakura’s shared ecosystem direction](https://zakura.com/announcements/zakura-common/)
 separates node and wallet libraries and anticipates new synchronization services.
 The `Chain` observation-source boundary returns decrypted payments and separates
 transport and decryption from the journal and hooks. Zakura exposes a
@@ -87,7 +88,8 @@ including tip, non-finalized-state and finalized-range streams. This daemon does
 not consume that API. An indexer or PIR-based observation source needs its own
 scanner, privacy and reorganization acceptance work; this release implements
 neither backend. Viewing keys stay in the private receiving process. Payment-event
-integrations can use a replacement chain source without changing business hooks.
+integrations can use a replacement chain source when it preserves the event
+contract, payment identities and lifecycle semantics.
 
 ## Attach a hook
 
@@ -187,5 +189,5 @@ mappings.
 Licensed under [MIT](LICENSE-MIT) **or** [Apache-2.0](LICENSE-APACHE), at your choice.
 CI checks this independent dependency graph against the shared Rust services
 advisory, license and source policy; it does not inherit the wallet policy.
-Dependencies retain their respective licenses. This package's license is independent of
-other ZUU projects. No crates.io release or security audit is claimed.
+Dependencies retain their respective licenses. This package's license is
+independent of other ZUU projects. No crates.io release or security audit is claimed.
