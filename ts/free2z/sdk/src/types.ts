@@ -478,6 +478,12 @@ export interface SettlementFields extends ObjectData {
   receipt_id?: string;
   collected_milli_2z?: bigint;
   shortfall_milli_2z?: bigint;
+  /** Remaining grant-cap spend in milli-2Z. Settlement reports the ledger's
+   * current period at settlement time; recovery may use a context snapshot
+   * from later if an idempotent replay omitted the value. A period rollover
+   * can change the reported period. `null` means confirmed uncapped; absent
+   * means unknown/unreported. */
+  cap_remaining_milli_2z?: bigint | null;
 }
 export type ChatEvent =
   | ({
