@@ -184,13 +184,13 @@ codegen-units = 1
 [patch.crates-io]
 bip32 = { git = "https://github.com/free2z/crates", rev = "131d490ef75ccd23111cc7f3df91e4a88fc971ae" }
 
-# Temporary upstream source bridge until a provider release includes OpenMLS
-# PR2261. The provider's path dependencies must resolve to the SAME trait and
+# Temporary registered fork for fixed PR2261 libraries plus PR2265 deployed
+# draft derivation compatibility. The provider's path dependencies must resolve to the SAME trait and
 # memory-storage source throughout the graph, not duplicate registry identities.
 # The disabled optional RustCrypto provider must also move HPKE off the
 # vulnerable KEM in the full lock; it remains banned in enabled graphs.
 # No local cryptographic algorithm modifications. See docs/DEPENDENCIES.md.
-openmls_libcrux_crypto = { git = "https://github.com/openmls/openmls", rev = "e0b21a70a55a9014b8de2772b36bf3d638adad51" }
-openmls_traits = { git = "https://github.com/openmls/openmls", rev = "e0b21a70a55a9014b8de2772b36bf3d638adad51" }
-openmls_memory_storage = { git = "https://github.com/openmls/openmls", rev = "e0b21a70a55a9014b8de2772b36bf3d638adad51" }
-openmls_rust_crypto = { git = "https://github.com/openmls/openmls", rev = "e0b21a70a55a9014b8de2772b36bf3d638adad51" }
+openmls_libcrux_crypto = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }
+openmls_traits = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }
+openmls_memory_storage = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }
+openmls_rust_crypto = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }

@@ -121,24 +121,36 @@ const REGISTER_MAX_AGE_DAYS = 90;
 /// what stops the register from being edited into vagueness while the pin stays:
 /// deleting the exit condition from the page fails here.
 const TRACKED = [
-  // Upstream PR2261 is merged; bridge only the unreleased fixed provider.
+  // PR2261 fixes the libraries; PR2265 preserves deployed draft derivation.
   // Its workspace path dependencies must share the same Cargo source identity.
   ...OPENMLS_BRIDGE_MANIFESTS.flatMap((manifest) =>
     ["openmls_libcrux_crypto", "openmls_traits", "openmls_memory_storage", "openmls_rust_crypto"].map((id) => ({
       id,
       kind: "patch",
       manifest,
-      forkUrl: "https://github.com/openmls/openmls",
-      forkRev: "e0b21a70a55a9014b8de2772b36bf3d638adad51",
+      forkUrl: "https://github.com/free2z/openmls",
+      forkRev: "7ded6597be8ddf7004046c8564fa97090d5e9633",
       upstreamRepo: "openmls/openmls",
       upstreamBranch: "main",
       driftLimit: DEFAULT_DRIFT_LIMIT,
       exitCrate: { name: "openmls_libcrux_crypto", stableAtLeast: "0.4.1" },
-      exitInstructions: "Verify the published provider carries PR2261's fixed DRBG/KEM requirements, "
-        + "then remove all four source bridges together and re-run shipping lock parity, KATs and MLS tests.",
-      registerTokens: [manifest, id, "https://github.com/openmls/openmls", "e0b21a70a55a9014b8de2772b36bf3d638adad51", "0.4.1"],
+      exitInstructions: "Verify the published provider carries the fixed DRBG/KEM requirements and preserves deployed draft derivation, "
+        + "then remove all four source bridges together and re-run shipping lock parity, KATs and old/new shipping interoperability tests.",
+      registerTokens: [manifest, id, "https://github.com/free2z/openmls", "7ded6597be8ddf7004046c8564fa97090d5e9633", "0.4.1"],
     })),
   ),
+  {
+    id: "z/openmls/openmls",
+    kind: "submodule",
+    forkUrl: "https://github.com/free2z/openmls",
+    forkBranch: "f2z/preserve-mls-draft-hpke-derivation",
+    upstreamRepo: "openmls/openmls",
+    upstreamBranch: "main",
+    exitPr: 2265,
+    driftLimit: DEFAULT_DRIFT_LIMIT,
+    registerTokens: ["z/openmls/openmls", "https://github.com/free2z/openmls",
+      "f2z/preserve-mls-draft-hpke-derivation", "openmls/openmls#2265"],
+  },
   {
     id: "z/zcash/librustzcash",
     kind: "submodule",
@@ -1755,7 +1767,7 @@ function runSelfTest() {
       if (!line) throw new Error(`self-test lacks actual bridge ${manifest}#${name}`);
       cases.push([
         `${manifest}#${name} changes the reviewed upstream revision`,
-        withManifest(manifest, text.replace(line, line.replace("e0b21a70a55a9014b8de2772b36bf3d638adad51", "0".repeat(40)))),
+        withManifest(manifest, text.replace(line, line.replace("7ded6597be8ddf7004046c8564fa97090d5e9633", "0".repeat(40)))),
         `${manifest}#${name}: registered rev`,
       ], [
         `${manifest}#${name} drops the registered bridge`,

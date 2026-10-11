@@ -373,7 +373,7 @@ name = "openmls_rust_crypto"
 # read the release's source rather than its version number, since nothing else
 # retires the note. Being unreachable here, the leak is not a supply-chain
 # finding: this is a pointer, not a ban.
-# Update 2026-10-11: the exact PR2261 source bridge below includes #2163
+# Update 2026-10-11: the exact PR2261 + PR2265 source bridge below includes #2163
 # already. The released 0.6.0 source and this fixed Git source differ; the
 # shipping locks identify the Git source explicitly, not by version alone.
 
@@ -387,6 +387,6 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 
-# PR2261 fixed provider bridge; exact revision and packages enforced by
+# PR2261 fixed provider / PR2265 compatibility bridge; exact revision and packages enforced by
 # check-dependency-register and check-crypto-kat-locks. Remove with that bridge.
-allow-git = ["https://github.com/openmls/openmls"]
+allow-git = ["https://github.com/free2z/openmls"]
