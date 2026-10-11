@@ -156,7 +156,12 @@ impl Postgres {
         // The same short transaction/deadline policy protects readiness probes.
         tokio::time::timeout(Duration::from_secs(7), async {
             let mut tx=this.pool.begin().await.map_err(|_| Failure)?;
+            sqlx_core::query::query("SET LOCAL lock_timeout = '2s'").persistent(false).execute(&mut *tx).await.map_err(|_| Failure)?;
             sqlx_core::query::query("SET LOCAL statement_timeout = '5s'").persistent(false).execute(&mut *tx).await.map_err(|_| Failure)?;
+            Self::prepare_economic_policy(&mut tx).await?;
+            let abi = sqlx_core::query::query("SELECT prorettype = 'integer'::regtype AS valid FROM pg_proc WHERE oid = $1::text::regprocedure")
+                .bind("ledger.prepare_economic_policy(integer,integer)").persistent(false).fetch_one(&mut *tx).await.map_err(|_| Failure)?;
+            if !abi.try_get::<bool, _>("valid").map_err(|_| Failure)? { return Err(Failure); }
             for signature in [
                 "ledger.gateway_context(uuid,uuid,integer,integer)",
                 "ledger.call_claim(uuid,uuid,integer,integer,uuid,text,text,jsonb)",
@@ -173,6 +178,31 @@ impl Postgres {
         Ok(this)
     }
 
+    /// Pin the supported policy before any call or balance metadata is locked.
+    /// The shared lock and local policy tag belong to this transaction only.
+    async fn prepare_economic_policy(
+        tx: &mut sqlx_core::transaction::Transaction<'_, sqlx_postgres::Postgres>,
+    ) -> Result<(), Failure> {
+        let row = sqlx_core::query::query(
+            "SELECT ledger.prepare_economic_policy($1::integer,$2::integer) AS policy_version",
+        )
+        .bind(0_i32)
+        .bind(1_i32)
+        .persistent(false)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|_| Failure)?;
+        // A NULL, wrong return type or future policy is never a compatibility
+        // default. Preparation refusal reaches no ledger operation.
+        match row
+            .try_get::<i32, _>("policy_version")
+            .map_err(|_| Failure)?
+        {
+            0 | 1 => Ok(()),
+            _ => Err(Failure),
+        }
+    }
+
     async fn call(&self, op: &Operation) -> Result<Value, Failure> {
         let mut tx = self.pool.begin().await.map_err(|_| Failure)?;
         sqlx_core::query::query("SET LOCAL lock_timeout = '2s'")
@@ -185,6 +215,7 @@ impl Postgres {
             .execute(&mut *tx)
             .await
             .map_err(|_| Failure)?;
+        Self::prepare_economic_policy(&mut tx).await?;
         // Dropping a timed-out transaction rolls it back before SQLx reuses it.
         let query = match op {
             Operation::Context(i) => sqlx_core::query::query("SELECT ledger.gateway_context($1::uuid,$2::uuid,$3::int,$4::int) AS result")
