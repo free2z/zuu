@@ -77,10 +77,11 @@ const LIBRUSTZCASH_MANIFEST = "z/zcash/librustzcash/Cargo.toml";
 const NOTE_ENCRYPTION_MANIFEST = "z/zcash/zcash_note_encryption/Cargo.toml";
 const ZUULI_LOCK = "wallet/zuuli/src-tauri/Cargo.lock";
 
-/// The four locks that resolve a shipping wallet binary or the plugins it is
+/// The five locks that resolve a shipping wallet binary or the plugins it is
 /// built from. `rs/Cargo.lock` is deliberately not one of them: it resolves the
 /// server-side workspace, whose graph is a different question.
 const WALLET_LOCKS = [
+  "wallet/e2e2z/src-tauri/Cargo.lock",
   "wallet/plugins/tauri-plugin-zcash/Cargo.lock",
   "wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock",
   "wallet/zuuallet/src-tauri/Cargo.lock",
@@ -358,13 +359,13 @@ const HOLDS = [
     held: "0.10",
     source: { kind: "manifest", path: NOTE_ENCRYPTION_MANIFEST, table: "dependencies", requires: "0.10" },
     registerToken: "z/zcash/zcash_note_encryption/Cargo.toml",
-    /// Re-measured for the fixed OpenMLS source bridge: only the two MLS
+    /// Re-measured for the fixed OpenMLS source bridge: the three wallet MLS
     /// roots add the optional 0.11 line; Zcash-only roots still carry one copy.
     evidence: [
       ...WALLET_LOCKS.map((lockPath) => ({
         kind: "copies",
         path: lockPath,
-        versions: ["0.10.1", ...(lockPath.includes("f2zmsg") || lockPath === ZUULI_LOCK ? ["0.11.0"] : [])],
+        versions: ["0.10.1", ...(lockPath.includes("f2zmsg") || lockPath.includes("e2e2z") || lockPath === ZUULI_LOCK ? ["0.11.0"] : [])],
       })),
       {
         kind: "edge",
