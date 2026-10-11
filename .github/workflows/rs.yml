@@ -45,6 +45,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       rs: ${{ steps.filter.outputs.rs }}
+      payment_hooks: ${{ steps.filter.outputs.payment_hooks }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -169,6 +170,7 @@ jobs:
              ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
             echo "::notice::No usable base commit; running the full rs gate."
             echo "rs=true" >> "$GITHUB_OUTPUT"
+            echo "payment_hooks=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -177,6 +179,7 @@ jobs:
           if ! git diff --name-only -z --no-renames "$BASE_SHA" "$GITHUB_SHA" > "$changed_files"; then
             echo "::warning::Diff failed; running the full rs gate."
             echo "rs=true" >> "$GITHUB_OUTPUT"
+            echo "payment_hooks=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -197,7 +200,19 @@ jobs:
           # (the error catalogue's statuses and retryability, and every wire
           # example), so a spec-only edit must run it or the two drift apart.
           rs=false
+          payment_hooks=false
           while IFS= read -r -d '' file; do
+            case "$file" in
+              rs/zcash-payment-hooks/*|docs/zcash-payment-hooks/*)
+                payment_hooks=true
+                continue
+                ;;
+            esac
+            case "$file" in
+              rust-toolchain.toml|scripts/check-rust-toolchain.sh|scripts/check-rust-deny.sh|rs/deny.toml|.github/workflows/rs.yml)
+                payment_hooks=true
+                ;;
+            esac
             case "$file" in
               rust-toolchain.toml|rs/*|wallet/e2e2z/src-tauri/Cargo.toml|wallet/e2e2z/src-tauri/Cargo.lock|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/free2z/messaging/*|docs/free2z/sdk/spec/*|scripts/free2z/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/check-mls-shipping-compatibility.sh|scripts/free2z/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
                 rs=true
@@ -206,6 +221,34 @@ jobs:
           done < "$changed_files"
 
           echo "rs=$rs" >> "$GITHUB_OUTPUT"
+          echo "payment_hooks=$payment_hooks" >> "$GITHUB_OUTPUT"
+
+  payment_hooks:
+    name: rs / Zcash Payment Hooks
+    needs: changes
+    if: needs.changes.outputs.payment_hooks == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Resolve the shared compiler
+        id: rust_toolchain
+        run: |
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+          components: rustfmt, clippy
+      - name: Check the daemon dependency policy
+        run: scripts/check-rust-deny.sh --root rs/zcash-payment-hooks --config rs/deny.toml
+      - name: Check the independent daemon
+        working-directory: rs/zcash-payment-hooks
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          cargo build --locked --release
 
   rs_fmt:
     name: rs / rustfmt
@@ -645,7 +688,7 @@ jobs:
   # every job in this file, so adding a job without wiring it here fails.
   gate:
     name: rs / gate
-    needs: [changes, rs_fmt, rs_clippy, rs_deny, rs_test, rs_wasm]
+    needs: [changes, rs_fmt, rs_clippy, rs_deny, rs_test, rs_wasm, payment_hooks]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -678,6 +721,8 @@ jobs:
         env:
           POLICY_OUTCOME: ${{ steps.policy.outcome }}
           RS_SELECTED: ${{ needs.changes.outputs.rs }}
+          HOOKS_SELECTED: ${{ needs.changes.outputs.payment_hooks }}
+          PAYMENT_HOOKS: ${{ needs.payment_hooks.result }}
           CHANGES: ${{ needs.changes.result }}
           RS_FMT: ${{ needs.rs_fmt.result }}
           RS_CLIPPY: ${{ needs.rs_clippy.result }}
@@ -714,6 +759,20 @@ jobs:
             outcome=${entry#*=}
             if [[ "$outcome" != "$expected" ]]; then
               echo "::error::required job $job must be $expected, got '$outcome'"
+              exit 1
+            fi
+          done
+
+          case "$HOOKS_SELECTED" in
+            true) hooks_expected=success ;;
+            false) hooks_expected=skipped ;;
+            *) echo "::error::missing payment-hooks selector"; exit 1 ;;
+          esac
+          results="payment_hooks=$PAYMENT_HOOKS"
+          for entry in $results; do
+            outcome=${entry#*=}
+            if [[ "$outcome" != "$hooks_expected" ]]; then
+              echo "::error::payment_hooks must be $hooks_expected, got $outcome"
               exit 1
             fi
           done

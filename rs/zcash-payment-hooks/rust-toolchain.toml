@@ -1,0 +1,5 @@
+# Checked restatement of the repository compiler for isolated builds.
+[toolchain]
+channel = "1.97.1"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

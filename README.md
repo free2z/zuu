@@ -23,6 +23,7 @@ workflow.
 | Free2Z backend scaffold | [`py/free2z/dj/proj/free2z/`](py/free2z/dj/proj/free2z/README.md) |
 | Free2Z public documentation site | [`docs/about-free2z/`](docs/about-free2z/README.md) |
 | Reusable Tauri plugins | [`wallet/plugins/`](wallet/plugins/): named packages with independent consumers and lockfiles |
+| Zcash Payment Hooks | [`rs/zcash-payment-hooks/`](rs/zcash-payment-hooks/README.md): receive-only daemon, private journal, durable executable hooks |
 | Rust libraries and services | [`rs/`](rs/README.md): named `f2z-*` crates and their own workspace |
 | Zcash retrieval experiment | [`py/experiments/zcash-rag/`](py/experiments/zcash-rag/): experimental Python code, independent of the shipping apps |
 | Upstream projects | [`z/`](z/); [`.gitmodules`](.gitmodules) records repository ownership and tracking branches |

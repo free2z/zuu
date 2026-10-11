@@ -243,6 +243,15 @@ const RUST_ROOT_CONTRACTS = [
     selectorOutput: "rs",
     selectorOutputs: [
       {
+        name: "payment_hooks",
+        probeRoot: "rs/zcash-payment-hooks",
+        additionalProbePaths: [
+          "docs/zcash-payment-hooks/CONTRACT.md",
+          "scripts/check-rust-deny.sh",
+          "rs/deny.toml",
+        ],
+      },
+      {
         name: "rs",
         probeRoot: "rs",
         additionalProbePaths: [
@@ -261,6 +270,13 @@ const RUST_ROOT_CONTRACTS = [
           "wallet/zuuli/src-tauri/Cargo.lock",
         ],
       },
+    ],
+    mixedProbePaths: [
+      ["rs/zcash-payment-hooks/src/lib.rs", { rs: "false", payment_hooks: "true" }],
+      ["rs/zcash-payment-hooks/tests/lifecycle.rs", { rs: "false", payment_hooks: "true" }],
+      ["docs/zcash-payment-hooks/CONTRACT.md", { rs: "false", payment_hooks: "true" }],
+      ["rs/crates/f2z-sdk/src/lib.rs", { rs: "true", payment_hooks: "false" }],
+      ["rs/zcash-payment-hooks/src/lib.rs\0rs/crates/f2z-sdk/src/lib.rs", { rs: "true", payment_hooks: "true" }],
     ],
     jobs: [
       [
