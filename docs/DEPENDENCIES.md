@@ -126,6 +126,10 @@ The existing bip32 bridge is independent and remains registered.
 
 ## 3. Deliberate version holds that look stale but are not
 
+The affected `sha2` and `chacha20poly1305` lock measurements were refreshed
+on 2026-10-11 for the fixed provider bridge; unchanged upstream constraint rows
+retain their earlier verification date.
+
 **Every row names the file that verifies it, and
 `scripts/check-dependency-register.mjs` re-reads exactly that file.** Most are
 [`z/zcash/librustzcash/Cargo.toml`](../z/zcash/librustzcash/Cargo.toml)'s
@@ -205,7 +209,7 @@ That is the constraint, and it is upstream's, not `akd_core`'s.
 
 The comment in `rs/Cargo.toml` has been corrected to say so.
 
-**Second correction, 2026-08-31 — and it is the same failure again.** This
+**Second correction, 2026-08-31; counts refreshed 2026-10-11.** This
 section used to finish "Moving `f2z-msg-identity` to 0.11 would add a second
 SHA-256 to the shipped wallet." It would not. The wallet lock already carries
 **0.10.9 and 0.11.0**: the MLS half of the graph brought 0.11 in through
