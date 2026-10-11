@@ -81,11 +81,11 @@ const ZUULI_LOCK = "wallet/zuuli/src-tauri/Cargo.lock";
 /// built from. `rs/Cargo.lock` is deliberately not one of them: it resolves the
 /// server-side workspace, whose graph is a different question.
 const WALLET_LOCKS = [
-  "wallet/e2e2z/src-tauri/Cargo.lock",
   "wallet/plugins/tauri-plugin-zcash/Cargo.lock",
   "wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock",
   "wallet/zuuallet/src-tauri/Cargo.lock",
   ZUULI_LOCK,
+  "wallet/e2e2z/src-tauri/Cargo.lock",
 ];
 
 /// Manifests allowed to carry a `[patch.crates-io]` section. A patch anywhere
@@ -1623,7 +1623,7 @@ function runSelfTest() {
       "no longer resolves zip321 at all",
     ],
     [
-      // The `sha2` correction says 14 packages share 0.10 and 4 are on 0.11.
+      // The `sha2` correction says 14 packages share 0.10 and 6 are on 0.11.
       // Counts are the most quietly-rotting kind of claim there is.
       "a consumer count the register states drifts",
       editSource(ZUULI_LOCK, ' "sha2 0.10.9",\n "zeroize",\n]', ' "zeroize",\n]'),
@@ -1738,6 +1738,14 @@ function runSelfTest() {
       "does not mention `py/experiments/zcash-rag/store.py`",
     ],
   ];
+
+  for (const lock of WALLET_LOCKS) {
+    cases.push([
+      `${lock} loses the upstream-held AEAD copy`,
+      editSource(lock, 'name = "chacha20poly1305"\nversion = "0.10.1"', 'name = "chacha20poly1305"\nversion = "0.99.0"'),
+      `${lock} carries chacha20poly1305`,
+    ]);
+  }
 
   for (const manifest of OPENMLS_BRIDGE_MANIFESTS) {
     const text = baseline.manifests[manifest];
