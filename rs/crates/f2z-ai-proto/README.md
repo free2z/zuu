@@ -15,6 +15,12 @@ integers; balance and charge fields are never floating point. Full u64 values
 can exceed JavaScript's exact Number range: native adapters use decimal-string
 DTOs, while browser clients need lossless parsing before conversion to BigInt.
 
+`Usage::tool_calls` is only for provider-billed **server-side** tool
+invocations that the catalogue prices per call. Client function-tool
+definitions, prior calls and results are ordinary input; generated call names
+and arguments are ordinary output. They are not charged again per call. The
+public `Usage` type does not expose a separate function-call count.
+
 ```rust
 use f2z_ai_proto::{Bps, Milli2z, Nusd, Whole2z, price_nusd};
 
