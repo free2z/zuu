@@ -531,7 +531,7 @@ from `collected_milli_2z` actually taken.
 |---|---|
 | `Error::SignedOut` | Clear signed-in UI and request login; do not continue spending |
 | `Error::StepUpRequired(challenge)` | Sign in with `SignInOptions::step_up(&challenge)` and retry the intended operation once, bound to the same account |
-| `insufficient_balance` | Offer a purchase or the Billing link on [Free2Z connected apps](https://free2z.cash/account/apps); re-read balance after confirmed credit |
+| `insufficient_balance` | Offer a credit purchase or the **Manage balance and purchases** link on [Free2Z connected apps](https://free2z.cash/account/apps); re-read balance after confirmed credit |
 | `cap_exceeded` | Direct the user to [manage this app's budget in Free2Z](https://free2z.cash/account/apps), or wait for its reset period. Topping up account balance does not raise this budget |
 | `account_in_debt` | Show debt separately and direct the user to Free2Z account management; do not automatically retry a charge |
 | `rate_limited`, `concurrency_limit`, `unavailable` | Honor `Retry-After` and explain temporary capacity/availability, not a need to buy credits or raise a budget |
