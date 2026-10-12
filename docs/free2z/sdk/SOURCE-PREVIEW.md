@@ -275,8 +275,9 @@ Handle `SdkError.code` (and terminal stream error codes) distinctly:
   every one of these as `browser_error`, so always handle it
   ([errors.md §5.1](./spec/errors.md#51-sign-in-that-ends-at-the-browser-sdk-local)).
 
-- `insufficient_balance`: offer the SDK purchase flow above, or the Billing link
-  on [Free2Z connected apps](https://free2z.cash/account/apps). Credit only after
+- `insufficient_balance`: offer the SDK credit purchase flow above, or the
+  **Manage balance and purchases** link on
+  [Free2Z connected apps](https://free2z.cash/account/apps). Credit only after
   a purchase is authoritatively `credited`; opening checkout is not a top-up.
 - `cap_exceeded`: explain that this app's user-authorized budget is exhausted.
   Direct the user to [manage the budget in Free2Z](https://free2z.cash/account/apps),
@@ -294,5 +295,5 @@ Handle `SdkError.code` (and terminal stream error codes) distinctly:
 The SDK does not expose a generic webview-to-native URL opener. The app's trusted
 host may open the fixed account-management URL in the system browser; do not pass
 arbitrary model-output URLs to a privileged command. The signed-in account page
-provides its correct Billing link. Never construct that route from an OAuth
-subject, which is not a username.
+provides the **Manage balance and purchases** link for that account. Never
+construct that route from an OAuth subject, which is not a username.
