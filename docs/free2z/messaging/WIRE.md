@@ -255,15 +255,17 @@ Three reasons, in the order that decided it:
    type has exactly one encoding. Canonicalization is not a rule the
    implementation has to remember to apply; it is the absence of any alternative.
    This matters here more than usual because we sign over encoded bytes (§5).
-2. **It is already in the client's dependency graph.** OpenMLS is built on
-   `tls_codec` — RFC 9420 is itself written in the TLS presentation language. The
-   crypto core already contains this decoder, already ships it to WASM, and
-   already has it in whatever audit scope the core has. Adding CBOR would add a
-   second serializer to the WASM bundle and to the audit.
-3. **An auditor reading an MLS system reads TLS presentation syntax without
-   translation.** The reviewer who is checking our framing against RFC 9420 is
-   already fluent in this notation. Presenting the relay protocol in a different
-   notation costs the reviewer a translation step on every structure, for no gain.
+2. **It is now in the shared messaging dependency graph.** RFC 9420 uses the TLS
+   presentation language, and the repository's `f2z-msg-mls` crate uses OpenMLS
+   and `tls_codec`; that crate also has a `wasm32` build path. This supports
+   sharing the codec across the native messaging client and a compatible web
+   build. It does not establish that a WASM artifact is shipped or define an
+   audit scope. Adding CBOR here would still introduce a second serialization
+   implementation into shared protocol code.
+3. **The notation matches the MLS specification.** RFC 9420 uses the TLS
+   presentation language, so the relay structures can be compared directly with
+   the MLS framing vocabulary. A different notation would add a translation
+   step without providing a capability this fixed command set needs.
 
 ### 3.2 Why not CBOR, and why not a hand-rolled codec
 
@@ -281,10 +283,9 @@ our use, in order to gain self-description we do not want. The relay is not an
 extensible document format; it is a fixed command set.
 
 **A hand-rolled codec** was rejected on the plainest grounds available: it is a
-new parser, written by us, on the unauthenticated path, and it would be the only
-component of the relay with no prior review anywhere. `tls_codec` is not
-formally verified either, but it is exercised by every MLS implementation that
-uses it.
+new parser, written by us, on the unauthenticated path. This decision
+establishes no independent review for such a parser. `tls_codec` is not formally
+verified either, but it is exercised by every MLS implementation that uses it.
 
 ### 3.3 The re-encode-equality rule — mandatory
 
@@ -948,7 +949,7 @@ about to learn this by reading. No equivalent is ever disclosed to a sender
 struct {
     uint64 from_index;
     uint16 max_messages;
-    uint32 max_bytes;
+    uint32 max_bytes;        /* sum of ciphertext payload bytes, not wire framing */
 } ReadRequest;
 
 struct {
@@ -970,12 +971,25 @@ that a client recovering from a crash can simply ask for everything it might hav
 missed.
 
 `max_messages` and `max_bytes` are pagination preferences; zero means “no
-preference” for that dimension. The relay returns messages in increasing index
+preference” for that dimension. `max_bytes` counts only the sum of
+`QueuedMessage.payload` ciphertext bytes; it excludes every TLS vector prefix
+and all other response framing. The relay returns messages in increasing index
 order and MUST set `has_more` to 1 exactly when another matching stored message
-remains after the page (0 otherwise). If a positive `max_bytes` is smaller than
-the first eligible encoded message, the relay returns that one message anyway:
-returning an empty page would make the queue impossible to drain. The hard
-`max_frame_bytes` limit still applies to every response.
+remains after the page (0 otherwise). For a positive `max_bytes`, the relay MUST
+stop before adding a later payload would take that sum above the preference. If
+the first eligible payload alone is larger than the preference, the relay
+returns that one message anyway: returning an empty page would make the queue
+impossible to drain.
+
+Separately, `max_frame_bytes` bounds the complete encoded `RelayFrame` response,
+including the response body, vector prefixes, and every message's fields and
+payload. This frame limit takes precedence over both pagination preferences. A
+relay MUST stop before adding a message that would make the complete frame
+larger than `max_frame_bytes`, even if the payload-byte and message-count
+preferences allow it. `has_more` is 1 if a matching message was left out by
+either preference or by the frame cap, and 0 otherwise. A conforming relay MUST
+accept a request whose `max_bytes` is greater than the frame limit; it MUST NOT
+turn that preference into an oversized response or an internal error.
 
 #### `ACK` — `0x0014`
 
@@ -1066,11 +1080,25 @@ cap, relay in global backpressure. See §10.
 Two honest consequences:
 
 - **A sender cannot back off intelligently.** `ERR_UNAVAILABLE` does not say
-  whether to retry in a second or never. The rule is: retry with exponential
-  backoff up to `send_retry_max` attempts, then surface to the application layer,
-  which asks the peer in-band for a fresh advert. Delivery latency in the
-  failure case is worse than it would be with informative errors. That is the
-  price and we are paying it deliberately.
+  whether to retry in a second or never. V1 specifies no retry count, delay, or
+  jitter; `send_retry_max` is not a wire field or a defined constant. `APPEND`
+  is not idempotent: after an unknown outcome, a retry may create a duplicate
+  (§8.3). A client that retries MUST deduplicate end to end by `msg_id`; its
+  retry count and schedule are client policy, not v1 wire behavior. The current
+  client contract exposes a retry operation for a retained message
+  ([`CLIENT-CONTRACT.md` §3.4](./CLIENT-CONTRACT.md#34-sending-and-listing)). Delivery
+  latency in the failure case is worse than it would be with informative
+  errors. That is the price and we are paying it deliberately.
+- **`CREATE_QUEUE` is not idempotent.** Both queue addresses are freshly chosen
+  by the relay for each successful request (§7.1), and v1 has no idempotency key
+  or lookup operation. If the connection is lost after the request may have
+  reached the relay, the result is unknown (§2.5). A client MUST NOT
+  automatically repeat that creation as though it were safe: if the first
+  request succeeded, a retry creates a second queue whose addresses the client
+  may never learn. The unreachable queue is reclaimed only by its idle TTL
+  unless the operator removes it. The client should report the unknown result
+  and let the user or higher-level recovery flow decide whether to create
+  another queue.
 - **§6.2's claim is exactly true for successful appends and approximately true
   for refusals.** A sender that keeps appending until it is refused has learned
   that the queue is at capacity — one bit about queue state. The bit is cheap for
@@ -1453,17 +1481,17 @@ guarantee it never gets adopted.
 
 **But the relay's list is a filter, not the source of truth.** The security
 property comes from the *client* padding to its own configured bucket set before
-the ciphertext ever leaves the device. The relay's rejection is a backstop against
-a sloppy client and against a malicious client trying to use length as a covert
-channel to a colluding relay ([ADR 0004](./decisions/0004-metadata-ambition.md)).
-It follows that:
+the ciphertext ever leaves the device. The relay's rejection is a backstop
+against a client that fails to apply its own padding. It does not prevent a
+colluding client and relay from encoding or accepting covert lengths: the relay
+can simply stop enforcing the check. It follows that:
 
 - A client MUST pad to its **own** set and MUST refuse a relay whose published
   set is not a superset of the sizes the client will emit.
 - A client SHOULD refuse a relay whose published set is implausibly fine-grained
   (v1 rule of thumb: more than 16 entries, or a spacing below 512 bytes between
-  adjacent buckets), because such a set is indistinguishable from an attempt to
-  let a colluding client leak length through size.
+  adjacent buckets), because smaller gaps expose finer length classes to anyone
+  observing payload sizes.
 - A relay that publishes a coarse set and a client that pads to a fine set simply
   fails at `ERR_BAD_SIZE`, loudly, which is the correct direction for the failure
   to point.
@@ -1488,12 +1516,12 @@ a bug report from two years ago must all still mean the same thing.
 | 6 | `ERR_BAD_SIGNATURE` | | Signature verification failed (§5.1 step 4). |
 | 7 | `ERR_STALE_TIMESTAMP` | | Outside `clock_skew_ms` (§5.5). |
 | 8 | `ERR_REPLAY` | | `(signer_key, nonce)` already seen (§5.5). |
-| 9 | `ERR_CHANNEL_BINDING` | | Reserved for a future binding-mode mismatch; unused in v1. |
+| 9 | `ERR_CHANNEL_BINDING` | | Reserved and unused in v1. HELLO mode/value inconsistency is rejected by the client as a local handshake failure (§5.3); a command signature that does not verify against the connection's negotiated transcript is `ERR_BAD_SIGNATURE` (§5.1). |
 | 10 | `ERR_NO_ACCESS` | | **Either** the address does not exist **or** it exists and `signer_key` does not authorize it. See below. |
 | 11 | `ERR_ALREADY_BOUND` | | `BIND_SEND` on an already-bound send address (§7.3). |
 | 12 | `ERR_BAD_SIZE` | | Payload length not in `padding_sizes` (§9). |
 | 13 | `ERR_ACK_TOO_HIGH` | | `up_to_index` above the highest appended index (§8.2). |
-| 14 | `ERR_QUOTA` | | A recv-side quota was exceeded (queue count, creation rate). |
+| 14 | `ERR_QUOTA` | | Queue creation was refused because the relay's configured total queue ceiling was reached (§13.1). V1 publishes no queue-creation rate quota; applicable connection and command rate limits use `ERR_RATE_LIMITED`. |
 | 15 | `ERR_UNAVAILABLE` | | **Send side only.** Absent, deleted, expired, full-by-messages, full-by-bytes, or relay backpressure — collapsed into one code (§6.3). |
 | 16 | `ERR_POW_REQUIRED` | | A stamp is required and was absent (§13.1). |
 | 17 | `ERR_POW_INVALID` | | Stamp invalid, expired, for the wrong challenge, or already consumed. |
@@ -1501,6 +1529,15 @@ a bug report from two years ago must all still mean the same thing.
 | 19 | `ERR_RATE_LIMITED` | | Per-connection or per-source rate limit. |
 | 20 | `ERR_NOT_PERMITTED` | | The command is not valid for this queue kind — e.g. `BIND_SEND` on a contact queue (§12.2). |
 | 21 | `ERR_INTERNAL` | | Relay fault. Carries no detail, ever. |
+
+V1 does not provide a diagnostic code for a command-signing channel-binding
+mismatch. Once HELLO has succeeded, a signature that fails against the
+connection's negotiated transcript returns `ERR_BAD_SIGNATURE`, whether the
+cause is an invalid signature or a client/relay implementation disagreeing
+about the binding bytes. `ERR_CHANNEL_BINDING` remains reserved and MUST NOT be
+used to distinguish those cases in v1. The client can detect a HELLO
+mode/value inconsistency locally (§5.3), but the protocol cannot diagnose a
+binding discrepancy discovered only during command verification.
 
 > **Correction (2026-08-24) — rows 10 and 15 both assigned the send-side
 > “absent” case.** Section 6.3's security rule governs: state-dependent
@@ -1560,9 +1597,18 @@ timing side channel is real and is stated here rather than papered over.**
 
 ### 11.1 What an operator publishes
 
-A relay's entire externally-relevant policy, in one signed structure. It is the
-document a client reads to decide whether to use a relay at all, and the document
-a human reads to decide whether to trust its operator.
+The signed `Capabilities` structure publishes the policy fields listed below.
+It is one input to a client's relay decision and one source of information for a
+human reviewing an operator. It is not the relay's entire externally relevant
+policy. The frozen v1 structure does not publish the total queue ceiling
+(`max_queues`), the global connection ceiling, per-source connection and
+challenge rates, the per-connection command rate, the outbound queue bound, or
+the storage high-water mark that triggers global backpressure. `per_source_limits`
+publishes only whether those source-address limits are enabled, not their values.
+V1 defines no per-queue append-rate limit. These settings are operator-local;
+clients cannot compare their numeric values before connecting. In particular,
+`ERR_QUOTA` can reveal that the local queue ceiling was reached, but its value
+is not published.
 
 ```
 struct {
@@ -1802,6 +1848,21 @@ that is not authenticated by the directory is a server-supplied address, which i
 the MITM of [#133](https://github.com/free2z/zuu/issues/133) reintroduced at the
 point of first contact.
 
+`ContactEndpoint` contains a relay URL, relay identity, and contact address; it
+does not identify a device credential or key package. The directory entry has
+separate device and endpoint lists, with no wire field pairing their elements.
+The current client chooses the first endpoint, while the first release exposes
+one device in the UI and the delivery state tracks one expected device (ADR 0002;
+`DEVICES_EXPECTED = 1`). In that single-device product flow, one `Welcome` is
+delivered to the one device. The directory format alone does not define which
+device owns an endpoint when multiple devices are published, nor how first
+contact or subsequent group traffic fans out to them. Per-device fan-out is the
+accepted architecture direction, not an implemented multi-device first-contact
+protocol. Adding multiple devices requires an explicit endpoint-to-device
+association and a separately specified group fan-out, receipt, and history
+policy. A client MUST NOT infer that the relay or this handshake fans out first
+contact to all directory devices.
+
 ### 12.3 The caps, because anyone can write
 
 A relay MUST enforce all four, and MUST publish all four:
@@ -1873,6 +1934,13 @@ surfaced to Bob as requests, not as messages.
 ### 12.5 The full handshake, end to end
 
 Alice has never spoken to Bob. She knows `@bob`.
+
+This is the current single-device product flow (ADR 0002). The client chooses
+the first published contact endpoint; in the shipped one-device UI there is one
+recipient device and its `KeyPackage` receives the `Welcome`. The wire format
+does not associate an endpoint with one of multiple device credentials or
+specify a fan-out procedure. Other devices, if present in a directory entry,
+are outside this handshake and do not receive or decrypt this `Welcome`.
 
 ```
 1.  Alice → directory:  resolve "@bob"
@@ -2306,9 +2374,10 @@ address; maximum new connections per second per source; `handshake_timeout_ms`
 rate limit yielding `ERR_RATE_LIMITED`. All cheap, all applied before any
 signature verification.
 
-**Layer 2 — per-queue quotas.** `max_queue_messages`, `max_queue_bytes`, and an
-append rate limit, all per queue. Exceeding any of them on the send side is
-`ERR_UNAVAILABLE` (§6.3), never a distinguishable code.
+**Layer 2 — per-queue storage quotas.** `max_queue_messages` and
+`max_queue_bytes`, both published and enforced per queue. Exceeding either on
+the send side is `ERR_UNAVAILABLE` (§6.3), never a distinguishable code. V1
+does not define a separate per-queue append-rate limit.
 
 **Layer 3 — queue-creation control.** Creating a queue is the only command that
 allocates durable state out of nothing, so it is the one that needs a gate.
@@ -2422,7 +2491,13 @@ struct {
 A stamp is valid iff
 `H("free2z/relay/v1/pow", challenge || salt || counter)` has at least
 `difficulty_bits` leading zero bits, the challenge is unconsumed and unexpired,
-and (for `contact_append`) the challenge was issued for that `contact_addr`.
+and its issued purpose matches the command consuming it. A queue-creation stamp
+MUST use a `queue_create` challenge with an empty scope; a contact append stamp
+MUST use a `contact_append` challenge scoped to that exact `contact_addr`; a
+key-package claim uses its command-bound challenge (§12.6). A stamp for one
+purpose MUST NOT authorize another command, even if its hash meets the required
+difficulty. The relay MUST reject a purpose or scope mismatch as
+`ERR_POW_INVALID`.
 At this point of use, `counter` is exactly an eight-byte unsigned `uint64` in
 network (big-endian) order, concatenated directly with no length prefix.
 Verification is one hash; the relay marks the challenge consumed. The choice of a
@@ -2448,8 +2523,9 @@ repeat the same search space. Exhaustion, deadline, cancellation, or challenge
 expiry is `pow-failed`; a caller may obtain one fresh challenge and retry once as
 specified by the client contract.
 
-**Layer 4 — global backpressure.** The relay tracks storage and memory against
-published high-water marks. On crossing them it refuses work in this order:
+**Layer 4 — global backpressure.** The relay tracks storage against an
+operator-configured high-water mark that v1 does not publish. On crossing it
+refuses work in this order:
 
 1. `CREATE_QUEUE` / `CREATE_CONTACT_QUEUE` → `ERR_BACKPRESSURE`
 2. `APPEND` / `CONTACT_APPEND` → `ERR_UNAVAILABLE`
@@ -2915,20 +2991,22 @@ its measurement sub-questions are closed, its policy sub-question is not.
 
 ---
 
-## 15. Clean-room posture toward SimpleX — blocking pre-check, resolved
+## 15. Clean-room posture toward SimpleX — metadata record and current rule
 
 [`ARCHITECTURE.md` §6](./ARCHITECTURE.md#6-delivery-service) adopts SimpleX's
 SMP *protocol design* and flags the licensing question as
 [§13-E](./ARCHITECTURE.md#13-open-questions): *"verify SimpleX's server licensing
 **before** anyone reads their server source."*
 
-**The check was performed on 2026-08-23**, by an agent working on
-[#545](https://github.com/free2z/zuu/issues/545), **using published repository
-metadata only** — GitHub's REST repository endpoint (`GET /repos/{owner}/{repo}`),
+The repository record for the 2026-08-23 check says it used published repository
+metadata only: GitHub's REST repository endpoint (`GET /repos/{owner}/{repo}`),
 whose `license` field GitHub derives from the repository's licence file, and the
-repository contents-listing endpoint for top-level directory names. **No source
-file from that project was fetched, opened or read**, and no source file from that
-project has been read by anyone on this project.
+repository contents-listing endpoint for top-level directory names. The issue
+and commit history associate that record with #545 but do not identify the
+person who made the metadata request. This document makes no claim about what
+any other person has fetched, opened, or read. The current project rule is that
+contributors must not consult SimpleX implementation source as part of this
+design; the metadata record is not evidence of universal compliance.
 
 **Result:**
 
@@ -2937,13 +3015,12 @@ project has been read by anyone on this project.
 | `simplex-chat/simplexmq` — *"a reference implementation of the SimpleX Messaging Protocol"*, i.e. the server | **AGPL-3.0** (`license.spdx_id: "AGPL-3.0"`) |
 | `simplex-chat/simplex-chat` — the client applications | **AGPL-3.0** |
 
-**Confidence: high, with a stated boundary.** GitHub's `license` field is a
-machine-readable statement derived from the project's own licence file. That is
-sufficient to establish the operative fact — *the server implementation is
-copyleft, therefore nobody on this project reads it* — and it is **not** a legal
-opinion. If we ever need to do more than avoid the code (link against it, vendor
-anything from it, or distribute anything derived from it), we obtain actual legal
-advice rather than relying on a metadata field.
+**Scope: a metadata observation, not a legal conclusion.** GitHub's `license`
+field is a machine-readable classification derived from repository materials.
+The reported AGPL-3.0 value is recorded below as the result of that lookup; it is
+not an independent legal review of the project's license or of how the protocol
+documents may be used. Before linking, vendoring, distributing derived material,
+or making another legal determination, obtain appropriate legal advice.
 
 **A nuance we record rather than gloss.** The published protocol documents live
 in the **same repository** as the source: the top-level listing of
@@ -2951,19 +3028,20 @@ in the **same repository** as the source: the top-level listing of
 `protocol/simplex-messaging.md` is the document rendered at
 [simplex.chat/docs/simplex.html](https://simplex.chat/docs/simplex.html) that
 `ARCHITECTURE.md` §3 cites. So "reading the public protocol document" means
-reading a document inside an AGPL-licensed repository. Copyright subsists in the
-*expression* of that document, not in the protocol it describes; an independent
-implementation written from the specification, copying neither its prose nor any
-source file, is clean. We state that as our posture, not as advice, so that a
-reviewer can challenge it rather than discover it.
+reading a document in the same repository as the implementation. This document
+does not make a copyright or licensing conclusion about using that protocol
+description. The project can state its source-consultation rule; questions about
+the legal effect of the repository's license or protocol documentation require
+legal advice.
 
 **The binding rule, recorded here because a rule nobody can find is not a rule:**
 
-1. **Nobody on this project reads `simplexmq` source.** Not to check a detail, not
-   to resolve an ambiguity, not "just to see how they did it".
-2. The design in [`ARCHITECTURE.md` §6](./ARCHITECTURE.md#6-delivery-service) and
-   in this document derives **solely** from the public protocol description and
-   from our own reasoning about the problem.
+1. **Contributors must not consult `simplexmq` implementation source as part of
+   this design.** This is a current work rule, not a statement about what any
+   person has or has not read in the past.
+2. Current design decisions must be justified from the public protocol
+   description and independent reasoning. This document makes no claim that
+   every past design contributor avoided implementation source.
 3. Where this document differs from SMP, it says so. Where it resembles SMP, it
    resembles it because the same problem has the same shape — unidirectional
    queues with split capabilities is the natural answer to "deliver without
@@ -2972,7 +3050,9 @@ reviewer can challenge it rather than discover it.
    action is to write down the question they cannot answer from the specification
    and raise it, so the gap gets fixed in *our* specification.
 
-This closes [`ARCHITECTURE.md` §13-E](./ARCHITECTURE.md#131-closed).
+This records the current contributor rule alongside
+[`ARCHITECTURE.md` §13-E](./ARCHITECTURE.md#131-closed) and the limited
+metadata observation above; it does not establish past individual conduct.
 
 ---
 

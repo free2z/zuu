@@ -275,7 +275,7 @@ struct {
 `DeviceCredential` is **self-contained on purpose**, repeating `identity_pk` and
 `handle` that the enclosing entry also carries. It is carried as the MLS
 `Credential` in a member's `LeafNode`
-([`ARCHITECTURE.md` §4.2](./ARCHITECTURE.md#42-derivation-proposed)), where it is
+([`ARCHITECTURE.md` §4.2](./ARCHITECTURE.md#42-derivation-implemented-in-f2z-msg-identity)), where it is
 validated by peers who have no directory access at all, so it cannot depend on
 its envelope for meaning.
 

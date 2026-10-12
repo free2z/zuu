@@ -182,7 +182,8 @@ pub struct ReadWindow {
     pub from_index: u64,
     /// `ReadRequest.max_messages`.
     pub max_messages: u16,
-    /// `ReadRequest.max_bytes`, counted over payload bytes.
+    /// `ReadRequest.max_bytes`, counted over ciphertext payload bytes only;
+    /// encoded message and response framing are bounded by the relay frame cap.
     pub max_bytes: u32,
 }
 

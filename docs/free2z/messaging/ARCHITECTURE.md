@@ -191,11 +191,14 @@ been replaced by a published assessment with a named auditor and a fixed version
   different key context. (This buys blast-radius separation and clean
   semantics; it does not buy deniability — see §5.6.)
 
-### 4.2 Derivation (proposed)
+### 4.2 Derivation (implemented in `f2z-msg-identity`)
 
-Written in ZIP 32's idiom — BLAKE2b-512 with a 16-byte personalization,
-`(I_L, I_R) = (key, chain code)`, hardened indices only — because ZUULI already
-implements that shape and auditors already know it.
+This is a repository-defined derivation that borrows ZIP 32's hardened-node
+shape: BLAKE2b-512 with a 16-byte personalization, `(I_L, I_R) = (key, chain
+code)`, hardened indices only. It is implemented directly in
+`rs/crates/f2z-msg-identity/src/node.rs`; it does not call `zip32`'s `PrfExpand`
+API, whose public domains do not include these messaging personalizations. The
+implementation and derivation vectors are the source of truth for its bytes.
 See [ZIP 32](https://zips.z.cash/zip-0032).
 
 ```
@@ -220,8 +223,21 @@ CKDh(node, i)         = BLAKE2b-512(personal = "Free2zMsg_CKDv1_",
 
 account_node          = CKDh(CKDh(CKDh(MSK, 32'), 133'), account')
                            purpose' = 32'   (ZIP 32 idiom)
-                           coin'    = 133'  (SLIP-44 Zcash)
+                           coin'    = 133'  (SLIP-44 Zcash; fixed in this crate)
 ```
+
+The messaging identity crate accepts only the seed and account index; it does
+not accept a network parameter. Its `COIN_TYPE` is the fixed value 133. A caller
+must not assume this derivation changes with the active wallet network.
+
+The derivation code accepts seed bytes but does not manage the wallet's seed
+lifecycle. The wallet clears its in-memory seed on window focus loss or exit
+([`tauri-plugin-zcash/src/lib.rs`](../../../wallet/plugins/tauri-plugin-zcash/src/lib.rs#L100)).
+An integrating client must therefore re-derive account keys while the seed is
+available or give the derived messaging keys their own explicit custody and
+zeroization lifecycle. The messaging crate itself derives `AccountKeys` from a
+seed and zeroizes its internal node material; it does not make the wallet seed
+persistently available.
 
 > **Correction (2026-08-25) — `CKDh` did not hash the parent key, and now it
 > does. This changes every key this tree derives.**
@@ -468,16 +484,16 @@ connections, not bandwidth, are the cost driver, and the Django Channels stack
 is dramatically less efficient per connection than a Rust service.
 
 Its design follows SimpleX's SMP: pairwise, unidirectional, opaque queues with
-no user identifiers anywhere. We adopt the *protocol design*; the implementation
-is clean-room.
+no user identifiers anywhere. We implement the protocol design in this
+repository. The current contributor rule for the source is recorded in
+[`WIRE.md` §15](./WIRE.md#15-clean-room-posture-toward-simplex--metadata-record-and-current-rule).
 
-> **§13-E, closed 2026-08-23.** The licence was verified from published
-> repository metadata only, without reading any source file: `simplex-chat/simplexmq`
-> — the reference SMP server — is **AGPL-3.0**. The binding rule and the full
-> clean-room posture are recorded in
-> [`WIRE.md` §15](./WIRE.md#15-clean-room-posture-toward-simplex--blocking-pre-check-resolved):
-> **nobody on this project reads `simplexmq` source**; the design derives solely
-> from the public protocol description.
+> **§13-E, metadata recorded 2026-08-23.** The repository record reports a
+> metadata-only lookup whose result for `simplex-chat/simplexmq` — the reference
+> SMP server — was **AGPL-3.0**. The checked-in history does not name the person
+> who made the request and says nothing about what others have read. The current
+> contributor rule is to avoid consulting implementation source; see
+> [`WIRE.md` §15](./WIRE.md#15-clean-room-posture-toward-simplex--metadata-record-and-current-rule).
 
 The relay's wire protocol — transport, framing, canonical serialization, the
 command set, the signing transcript, anti-replay, queue lifecycle, ACK semantics,
@@ -629,10 +645,11 @@ defined repair path.
 
 Ciphertext is padded to fixed-size buckets before it reaches the relay
 (proposed: 1 KiB / 4 KiB / 16 KiB / 64 KiB, then chunked into 64 KiB units).
-The relay **rejects** non-conforming sizes, so a client cannot leak length by
-being sloppy and a malicious client cannot use length as a covert channel to a
-colluding relay. Real text is ~100 bytes; the padding dominates, which is the
-intent.
+The relay **rejects** non-conforming sizes as a backstop against a client that
+fails to apply its own padding. This check does not constrain a colluding
+client-and-relay pair: a relay that colludes can simply accept the covert
+lengths. Real text is ~100 bytes; the padding dominates when an honest client
+applies its own bucket policy, which is the intent.
 
 > **Open question (§13-F):** bucket sizes need a traffic study. The values above
 > are placeholders chosen for arithmetic convenience, not measurement. Because of
@@ -1523,22 +1540,18 @@ finds the answer instead of a hole.
   This closes the question of whether the library has been audited; it does not
   close the question of auditing *our* use of it, which per #305's economics
   remains the dominant cost of the system.
-- **E. SimpleX licensing — closed 2026-08-23.** The check was performed from
-  **published repository metadata only** (GitHub's REST repository endpoint and a
-  top-level contents listing), by an agent working on
-  [#545](https://github.com/free2z/zuu/issues/545). **No source file from that
-  project was fetched, opened or read.** Result:
+- **E. SimpleX licensing — metadata recorded 2026-08-23.** The repository
+  record for #545 describes a lookup of **published repository metadata only**
+  (GitHub's REST repository endpoint and a top-level contents listing). The
+  checked-in history does not identify the person who made that request, and
+  this page makes no claim about what anyone else has read. Result:
   `simplex-chat/simplexmq` — the reference implementation of SMP, i.e. the
   server — reports **AGPL-3.0**, as does `simplex-chat/simplex-chat`. The
-  operative consequence is recorded as a binding rule in
-  [`WIRE.md` §15](./WIRE.md#15-clean-room-posture-toward-simplex--blocking-pre-check-resolved):
-  **nobody on this project reads `simplexmq` source**, and the design derives
-  solely from the public protocol description. Also recorded there, rather than
-  glossed: the published protocol document lives in that same AGPL repository, so
-  the clean-room posture rests on the distinction between the expression of a
-  specification and the protocol it describes. That is our position, stated so it
-  can be challenged; it is not legal advice, and anything beyond avoiding the code
-  requires actual advice.
+  current contributor rule is to avoid consulting implementation source; see
+  [`WIRE.md` §15](./WIRE.md#15-clean-room-posture-toward-simplex--metadata-record-and-current-rule).
+  The checked-in history does not establish what all contributors have read.
+  Obtain legal advice before making a licensing determination beyond the
+  recorded metadata observation.
 - **J. Retention unanimity — closed 2026-08-08, by removing the premise.** The
   negotiated-unanimity retention model was withdrawn (§8.1). With retention a
   per-user local choice there is no group policy to change unanimously or
