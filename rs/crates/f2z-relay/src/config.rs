@@ -1075,11 +1075,13 @@ impl Config {
                     "must be a non-empty, strictly ascending set of non-zero sizes".to_owned(),
                 )
             })?;
-        if u64::from(self.limits.max_frame_bytes) < u64::from(buckets.largest()) {
+        let minimum_read_frame = u64::from(buckets.largest())
+            .saturating_add(u64::from(f2z_codec::frame::MIN_READ_FRAME_OVERHEAD));
+        if u64::from(self.limits.max_frame_bytes) < minimum_read_frame {
             return Err(ConfigError::Invalid(
                 "limits.max_frame_bytes",
-                "is below this relay's own largest padding bucket, so the set it \
-                 publishes is one no client can use"
+                "cannot fit the largest padding bucket in a one-message READ \
+                 response frame, including protocol framing"
                     .to_owned(),
             ));
         }
@@ -1506,6 +1508,30 @@ fn number_list(key: &'static str, value: &str) -> Result<Vec<u32>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use f2z_codec::canonical::Canonical;
+    use f2z_codec::commands::{QueuedMessage, ReadResponse};
+    use f2z_codec::frame::{RelayFrame, Response};
+    use f2z_codec::types::Payload;
+
+    fn serialized_one_message_read_frame_size(payload_bytes: u32) -> usize {
+        let payload_len = usize::try_from(payload_bytes).unwrap();
+        let payload = Payload::new(vec![0; payload_len]).unwrap();
+        let response_body = ReadResponse {
+            messages: vec![QueuedMessage {
+                index: 0,
+                received_at_ms: 0,
+                payload,
+            }]
+            .into(),
+            has_more: 0,
+        }
+        .encode_canonical()
+        .unwrap();
+        RelayFrame::response(1, Response::ok(response_body).unwrap())
+            .encode_canonical()
+            .unwrap()
+            .len()
+    }
 
     #[test]
     fn the_defaults_pass_their_own_check() {
@@ -1631,6 +1657,19 @@ mod tests {
         let mut config = Config::default();
         config.antiabuse.contact_max_key_packages = 0;
         assert!(config.check().is_err());
+    }
+
+    #[test]
+    fn the_frame_cap_must_carry_a_largest_bucket_read_response() {
+        let mut config = Config::default();
+        let largest = *config.padding.sizes.last().unwrap();
+        let frame_size = serialized_one_message_read_frame_size(largest);
+
+        config.limits.max_frame_bytes = u32::try_from(frame_size - 1).unwrap();
+        assert!(config.check().is_err());
+
+        config.limits.max_frame_bytes = u32::try_from(frame_size).unwrap();
+        assert!(config.check().is_ok());
     }
 
     #[test]

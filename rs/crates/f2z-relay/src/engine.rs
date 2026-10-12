@@ -75,11 +75,6 @@ use crate::transport::{CLOSE_PROTOCOL_ERROR, CLOSE_UNSUPPORTED_DATA};
 /// against one is a hang rather than an alert.
 const ADDRESS_DRAWS: usize = 8;
 
-/// Room reserved inside `max_frame_bytes` for a `READ` response's own framing:
-/// the frame header, the response header, the vector prefixes and one
-/// `QueuedMessage` header per message.
-const READ_FRAME_OVERHEAD: u32 = 4096;
-
 /// One relay, shared by every connection it serves.
 pub struct Relay {
     config: Config,
@@ -896,20 +891,16 @@ impl Relay {
         } else {
             body.max_messages
         };
-        // The byte limit is additionally clamped to what a response frame can
-        // carry: a relay that honoured `max_bytes = u32::MAX` would build a
-        // frame its own §4.1 cap forbids and answer `ERR_INTERNAL` instead of
-        // the page the client asked for.
-        let ceiling = self
-            .published
-            .capabilities()
-            .max_frame_bytes
-            .saturating_sub(READ_FRAME_OVERHEAD)
-            .max(1);
+        // Store pagination counts ciphertext payload bytes only. The complete
+        // encoded response is independently bounded below, after encoding.
+        // ReadWindow uses zero as a literal zero-byte budget; the wire uses it
+        // as no preference. u32::MAX is wider than any payload sum a single
+        // u32-sized response frame can carry, and the complete frame is still
+        // bounded independently by the encoder below.
         let max_bytes = if body.max_bytes == 0 {
-            ceiling
+            u32::MAX
         } else {
-            body.max_bytes.min(ceiling)
+            body.max_bytes
         };
 
         // §13.1 layer 4: `READ` is never refused for backpressure. It is one of
@@ -938,11 +929,12 @@ impl Relay {
                 payload: stored.payload,
             })
             .collect();
-        let response = ReadResponse {
-            messages: messages.into(),
-            has_more: u8::from(page.has_more),
-        };
-        Ok(response.encode_canonical()?)
+        encode_read_response_within_frame(
+            request_id,
+            &messages,
+            page.has_more,
+            self.published.capabilities().max_frame_bytes,
+        )
     }
 
     fn ack(
@@ -1555,6 +1547,56 @@ impl Relay {
     }
 }
 
+/// Encode the largest prefix of a READ page that fits in one complete v1
+/// response frame. `has_more` remains true when either the store reported more
+/// rows or this frame limit left rows for a later READ.
+fn encode_read_response_within_frame(
+    request_id: u32,
+    messages: &[QueuedMessage],
+    store_has_more: bool,
+    max_frame_bytes: u32,
+) -> Result<Vec<u8>, ProtoError> {
+    let encode_candidate = |count: usize, has_more: bool| {
+        let page_messages = messages
+            .get(..count)
+            .ok_or(ProtoError::Wire(ErrorCode::Internal))?
+            .to_vec();
+        let response = ReadResponse {
+            messages: page_messages.into(),
+            has_more: u8::from(has_more),
+        };
+        let body = response.encode_canonical()?;
+        let frame =
+            RelayFrame::response(request_id, Response::ok(body.clone())?).encode_canonical()?;
+        Ok::<_, ProtoError>((body, frame.len()))
+    };
+
+    // Encoded frame length is monotone in the number of messages. Find the
+    // largest prefix with a binary search instead of re-encoding after every
+    // removal from a potentially large page.
+    let mut fits = 0usize;
+    let mut too_many = messages.len().saturating_add(1);
+    while fits.saturating_add(1) < too_many {
+        let middle = fits.saturating_add(too_many.saturating_sub(fits) / 2);
+        match encode_candidate(middle, true) {
+            Ok((_, frame_len)) if frame_len <= max_frame_bytes as usize => fits = middle,
+            // A candidate can also exceed tls_codec's 24-bit vector-length
+            // bound before it reaches the configured frame cap. It is still
+            // too large, so search the smaller prefix.
+            _ => too_many = middle,
+        }
+    }
+
+    let has_more = store_has_more || fits < messages.len();
+    let (body, frame_len) = encode_candidate(fits, has_more)?;
+    if frame_len > max_frame_bytes as usize {
+        // Relay startup validates enough room for one largest-bucket message;
+        // this protects the wire cap if that invariant ever regresses.
+        return Err(ProtoError::Wire(ErrorCode::Internal));
+    }
+    Ok(body)
+}
+
 /// A poisoned in-flight set is not a reason to drop a connection: the guarded
 /// value is a set of `u32`, and the worst case after a panic is one stale id
 /// occupying a slot in §4.3's window until the connection ends.
@@ -1601,6 +1643,33 @@ fn recover_request_id(bytes: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_pages_truncate_to_the_complete_frame_limit_and_set_has_more() {
+        let messages: Vec<_> = (0..4)
+            .map(|index| QueuedMessage {
+                index,
+                received_at_ms: 7,
+                payload: Payload::new(vec![0x5a; 400]).unwrap(),
+            })
+            .collect();
+        let body = encode_read_response_within_frame(9, &messages, false, 500).unwrap();
+        let response = decode_canonical::<ReadResponse>(&body)
+            .unwrap()
+            .into_value();
+        assert_eq!(response.messages.as_slice().len(), 1);
+        assert_eq!(response.has_more, 1);
+
+        let frame = RelayFrame::response(9, Response::ok(body).unwrap())
+            .encode_canonical()
+            .unwrap();
+        assert!(frame.len() <= 500);
+    }
+
+    #[test]
+    fn read_response_fails_closed_if_even_the_empty_frame_exceeds_the_cap() {
+        assert!(encode_read_response_within_frame(9, &[], false, 1).is_err());
+    }
 
     #[test]
     fn a_request_id_survives_a_body_that_does_not_decode() {
