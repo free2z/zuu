@@ -1,4 +1,4 @@
-//! free2z/tuzi#2639: a same-key retry that straddles a `child_directed` flip
+//! A same-key retry that straddles a `child_directed` flip
 //! or a child-directed key rotation replays the call it retries — charged
 //! once — and a child-directed caller never sends or stores the plain key.
 //!

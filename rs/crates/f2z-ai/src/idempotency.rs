@@ -1,6 +1,6 @@
 //! Which form a keyed call was claimed under, so that a same-key retry that
 //! straddles a `child_directed` flip or a key rotation replays that call
-//! instead of becoming a second, paid one (free2z/tuzi#2639).
+//! instead of becoming a second, paid one (tuzi#2639).
 //!
 //! The ledger keeps one form per call. A child-directed app's claim carries
 //! HMACs of the fingerprint and the `Idempotency-Key`
