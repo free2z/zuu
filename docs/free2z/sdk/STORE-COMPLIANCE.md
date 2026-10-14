@@ -75,10 +75,11 @@ Your Application".
 
 So every SDK app is a **consumption-only client**. The user already holds 2Z,
 which they bought from 2Z Inc on the web. The app spends 2Z through the AI
-gateway. Usage is metered in 2Z usage credits, which are never cashed out. A
-developer who has accepted the Free2Z Creator Compensation Agreement
-(cc-2026-10-v2, `sdk_application` schedule) and been activated is compensated
-in USD by 2Z Inc. (see [metering §2.3](./spec/metering.md#23-splits)). The SDK's
+gateway. Usage is metered in 2Z usage credits, which are never cashed out.
+Developer compensation is governed by the Free2Z Creator Compensation Agreement (cc-2026-10-v2, schedule `sdk-application-2026-10-v2`). It is paid in USD by 2Z Inc. from
+its own funds, and it applies only after the developer's authenticated
+acceptance, a verified legal-payee binding and activation (see
+[metering §2.3](./spec/metering.md#23-splits)). The SDK's
 purchase API ([purchase.md](./spec/purchase.md)) is for web and desktop builds.
 A store build must not request `purchase:create` or call `createPurchase`.
 
@@ -125,8 +126,11 @@ or by IP address.
 not required for developers to include buttons, external links, or other calls
 to action in their United States storefront apps". This comes from the
 *Epic v. Apple* injunction. The Ninth Circuit (No. 25-2935, 2025-12-11) held
-that Apple may charge a commission on linked-out purchases limited to its
-genuine costs, and sent the amount back to the district court. Separately, the
+that Apple may charge a commission on linked-out purchases. The commission is
+based on the costs "genuinely and reasonably necessary for its coordination of
+external links", and the court added that Apple "is entitled to some
+compensation for the use of its intellectual property". It sent the amount
+back to the district court. Separately, the
 Supreme Court granted review on 2026-06-30 (No. 25-1311), limited to the
 contempt finding. Keep the US link **behind a remote flag that defaults to off**, so
 you can remove it without an app update if Apple sets a fee.
@@ -384,9 +388,10 @@ see "Do not submit until".]
 
 DEVELOPER COMPENSATION
 Usage is metered in 2Z usage credits, which cannot be cashed out.
-[Only if your participation is accepted and activated: We are compensated in
-USD by 2Z Inc. under the Free2Z Creator Compensation Agreement (cc-2026-10-v2,
-sdk_application schedule), from 2Z Inc.'s own funds.]
+[Only after authenticated acceptance, a verified legal-payee binding and
+activation: We are compensated in USD by 2Z Inc. from its own funds, under
+the Free2Z Creator Compensation Agreement (cc-2026-10-v2, schedule
+sdk-application-2026-10-v2).]
 We do not sell 2Z, set its price or handle payments.
 
 AI AND PRIVACY

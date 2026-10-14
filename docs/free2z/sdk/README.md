@@ -47,7 +47,9 @@ Tauri/TypeScript packages and live-platform prerequisites.
 3. **Call AI.** A low-latency streaming gateway at `https://ai.free2z.cash`
    exposes one unified chat API over several providers, metered in 2Z with
    cost-plus pricing and rounded **up** to a whole 2Z per call. A registered
-   app may add its own markup, which is credited to the developer.
+   app may add its own markup. The developer's allocation from it is
+   compensated under the Free2Z Creator Compensation Agreement
+   ([`spec/metering.md`](./spec/metering.md#23-splits) §2.3).
    → [`spec/chat-api.md`](./spec/chat-api.md), [`spec/metering.md`](./spec/metering.md), and for function
    calling [`TOOLS.md`](./TOOLS.md)
 
