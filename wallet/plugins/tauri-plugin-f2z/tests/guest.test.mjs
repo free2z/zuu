@@ -22,7 +22,20 @@ test('pull and cancel address only their caller-owned operation', async () => {
   assert.deepEqual(sent.at(-1)[1], { operationId: 'op' });
 });
 test('guest exports no token, raw request or URL callback method', () => {
-  assert.deepEqual(Object.keys(nativeBridge).sort(), ['balance','call','cancelChat','createPurchase','estimate','grant','models','nextChat','openCheckout','purchase','session','signIn','signOut','startChat','waitForCall','waitForPurchase'].sort());
+  assert.deepEqual(Object.keys(nativeBridge).sort(), ['balance','call','cancelChat','createPurchase','deleteAccountUrl','estimate','grant','manageAccountUrl','models','nextChat','openCheckout','openDeleteAccount','openManageAccount','purchase','session','signIn','signOut','startChat','waitForCall','waitForPurchase'].sort());
+});
+
+test('account exits take no URL from the webview', async () => {
+  for (const [method, name] of [['manageAccountUrl', 'manage_account_url'], ['openManageAccount', 'open_manage_account'],
+    ['deleteAccountUrl', 'delete_account_url'], ['openDeleteAccount', 'open_delete_account']]) {
+    await nativeBridge[method]('https://evil.example/');
+    assert.deepEqual(sent.pop(), [`plugin:f2z|${name}`, {}, undefined]);
+  }
+});
+
+test('switch-account options reach native unchanged', async () => {
+  await nativeBridge.signIn({ prompt: 'login', ephemeral: true });
+  assert.deepEqual(sent.pop(), ['plugin:f2z|sign_in', { options: { prompt: 'login', ephemeral: true } }, undefined]);
 });
 
 test('grant proof invokes only the bearer-bound native command', async () => {

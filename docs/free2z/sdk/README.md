@@ -20,6 +20,8 @@ New here? Build the [15-minute quickstart](./QUICKSTART.md) first. For
 application work, continue with the [integration handoff](./INTEGRATION.md).
 Shipping to the App Store or Google Play? Follow the
 [store-compliance playbook](./STORE-COMPLIANCE.md): store builds never sell 2Z.
+An app whose users may include children: read
+[child-directed and all-ages apps](./CHILD-DIRECTED.md).
 Where the AI API is going — the gap analysis against OpenAI, Anthropic and
 xAI, the drop-in compatibility encodings and the build order — is in
 [the AI API design](./ai-api-design.md) (proposal, #1128).

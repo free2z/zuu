@@ -343,6 +343,18 @@
           "markdownDescription": "Denies the create_purchase command without any pre-configured scope."
         },
         {
+          "description": "Enables the delete_account_url command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-delete-account-url",
+          "markdownDescription": "Enables the delete_account_url command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the delete_account_url command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-delete-account-url",
+          "markdownDescription": "Denies the delete_account_url command without any pre-configured scope."
+        },
+        {
           "description": "Enables the estimate command without any pre-configured scope.",
           "type": "string",
           "const": "allow-estimate",
@@ -365,6 +377,18 @@
           "type": "string",
           "const": "deny-grant",
           "markdownDescription": "Denies the grant command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the manage_account_url command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-manage-account-url",
+          "markdownDescription": "Enables the manage_account_url command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the manage_account_url command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-manage-account-url",
+          "markdownDescription": "Denies the manage_account_url command without any pre-configured scope."
         },
         {
           "description": "Enables the models command without any pre-configured scope.",
@@ -401,6 +425,30 @@
           "type": "string",
           "const": "deny-open-checkout",
           "markdownDescription": "Denies the open_checkout command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_delete_account command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-delete-account",
+          "markdownDescription": "Enables the open_delete_account command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_delete_account command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-delete-account",
+          "markdownDescription": "Denies the open_delete_account command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_manage_account command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-manage-account",
+          "markdownDescription": "Enables the open_manage_account command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_manage_account command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-manage-account",
+          "markdownDescription": "Denies the open_manage_account command without any pre-configured scope."
         },
         {
           "description": "Enables the purchase command without any pre-configured scope.",

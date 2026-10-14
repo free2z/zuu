@@ -1,3 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-  <queries><intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent></queries>
+  <queries>
+    <intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent>
+    <!-- Lets CustomTabsClient find the browser that would host an ephemeral sign-in tab (API 30+). -->
+    <intent><action android:name="android.support.customtabs.action.CustomTabsService"/></intent>
+  </queries>
 </manifest>

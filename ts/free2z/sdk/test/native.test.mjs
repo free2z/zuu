@@ -831,3 +831,113 @@ test("a release failure after the terminal event never loses the charged round",
   assert.equal(run.rounds[0].charge.state, "charged");
   assert.equal(run.finished, true);
 });
+
+test("native session carries the profile only when native reports one", async () => {
+  const plain = await new NativeTransport(bridge()).session();
+  assert.equal("preferredUsername" in plain, false);
+  assert.equal("name" in plain, false);
+  const named = await new NativeTransport(
+    bridge({
+      session: async () => ({
+        signedIn: true,
+        subject: "alice",
+        grantedScopes: ["openid", "profile"],
+        persistence: "persistent",
+        generation: "2",
+        preferredUsername: "alice_z",
+        name: "Alice",
+      }),
+    }),
+  ).session();
+  assert.equal(named.preferredUsername, "alice_z");
+  assert.equal(named.name, "Alice");
+  for (const bad of [{ preferredUsername: 7 }, { name: null }]) {
+    const transport = new NativeTransport(
+      bridge({
+        session: async () => ({
+          signedIn: true,
+          subject: "alice",
+          grantedScopes: [],
+          persistence: "persistent",
+          generation: "1",
+          ...bad,
+        }),
+      }),
+    );
+    await assert.rejects(transport.session(), { code: "invalid_response" });
+  }
+});
+
+test("native sign-in forwards prompt=login and ephemeral, only when given", async () => {
+  const sent = [];
+  const transport = new NativeTransport(
+    bridge({
+      signIn: async (options) => {
+        sent.push(options);
+        return {
+          signedIn: true,
+          subject: "bob",
+          grantedScopes: [],
+          persistence: "persistent",
+          generation: "3",
+        };
+      },
+    }),
+  );
+  await transport.signIn();
+  await transport.signIn({ prompt: "login", ephemeral: true });
+  assert.deepEqual(sent, [{}, { prompt: "login", ephemeral: true }]);
+  await assert.rejects(transport.signIn({ ephemeral: "yes" }), {
+    code: "invalid_request",
+  });
+});
+
+test("account exits go through native and are refused by an older plugin", async () => {
+  const opened = [];
+  const client = new Client(
+    new NativeTransport(
+      bridge({
+        manageAccountUrl: async () =>
+          "https://free2z.cash/account/apps?client_id=c",
+        deleteAccountUrl: async () => "https://free2z.cash/account/delete",
+        openManageAccount: async (...args) => {
+          opened.push(["manage", args]);
+        },
+        openDeleteAccount: async (...args) => {
+          opened.push(["delete", args]);
+        },
+      }),
+    ),
+  );
+  assert.equal(
+    await client.manageAccountUrl(),
+    "https://free2z.cash/account/apps?client_id=c",
+  );
+  assert.equal(
+    await client.deleteAccountUrl(),
+    "https://free2z.cash/account/delete",
+  );
+  await client.openManageAccount();
+  await client.openDeleteAccount();
+  // No URL crosses to native: it opens what its own configuration names.
+  assert.deepEqual(opened, [
+    ["manage", []],
+    ["delete", []],
+  ]);
+  const old = new Client(new NativeTransport(bridge()));
+  for (const call of [
+    () => old.manageAccountUrl(),
+    () => old.openManageAccount(),
+    () => old.deleteAccountUrl(),
+    () => old.openDeleteAccount(),
+  ])
+    await assert.rejects(call(), { code: "unsupported_operation" });
+  const hostile = new Client(
+    new NativeTransport(
+      bridge({ manageAccountUrl: async () => "javascript:alert(1)" }),
+    ),
+  );
+  await assert.rejects(hostile.manageAccountUrl(), {
+    code: "invalid_response",
+  });
+});

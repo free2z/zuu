@@ -25,6 +25,8 @@ export interface FetchConfig {
   /** Registered browser purchase-return route; defaults to redirectUri. */
   purchaseReturnUri?: string;
   issuer?: string;
+  /** The Free2Z website origin for the account pages; default: the issuer's origin. */
+  webOrigin?: string;
   apiBase?: string;
   aiBase?: string;
   scopes?: readonly string[];
@@ -42,6 +44,38 @@ interface Tokens {
   expires: number;
   subject: string;
   scopes: string[];
+  profile?: { preferredUsername?: string; name?: string };
+}
+/** A display claim worth showing: a bounded string without control characters. */
+function display(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  // Bidi embedding/override/isolate controls can make one name look like another.
+  const trimmed = value
+    .replace(/[\u200E\u200F\u061C\u202A-\u202E\u2066-\u2069]/gu, "")
+    .trim();
+  return trimmed &&
+    new TextEncoder().encode(trimmed).length <= 256 &&
+    !/\p{Cc}/u.test(trimmed)
+    ? trimmed
+    : undefined;
+}
+/**
+ * `prompt=login`: the user authenticated at or after the sign-in began (60 s
+ * of clock skew). Anchored to the start, not to "now", so a long browser step
+ * still passes and an older session never does.
+ */
+export function freshLogin(authTime: unknown, started: number): boolean {
+  return typeof authTime === "number" && authTime + 60 >= started;
+}
+function profileOf(
+  claims: oauth.IDToken | undefined,
+): Tokens["profile"] | undefined {
+  const profile: NonNullable<Tokens["profile"]> = {};
+  const username = display(claims?.preferred_username),
+    name = display(claims?.name);
+  if (username !== undefined) profile.preferredUsername = username;
+  if (name !== undefined) profile.name = name;
+  return username !== undefined || name !== undefined ? profile : undefined;
 }
 function safeError(error: unknown): SdkError {
   if (error instanceof SdkError) return error;
@@ -108,6 +142,7 @@ export class WebSession {
       grantedScopes: [...(this.#tokens?.scopes ?? [])],
       persistence: "memory_only",
       generation: this.generation,
+      ...this.#tokens?.profile,
     };
   }
   #options(
@@ -215,6 +250,7 @@ export class WebSession {
     tokens: oauth.TokenEndpointResponse,
     subject: string,
     previousScopes?: string[],
+    profile?: Tokens["profile"],
   ): void {
     if (tokens.token_type.toLowerCase() !== "bearer")
       failure("invalid_response");
@@ -233,11 +269,16 @@ export class WebSession {
       scopes,
     };
     if (tokens.refresh_token !== undefined) next.refresh = tokens.refresh_token;
+    // Only under `profile`: withdrawn at a refresh, it is no longer shown.
+    if (profile && scopes.includes("profile")) next.profile = profile;
     this.#tokens = next;
   }
   async signIn(options: SignInOptions = {}): Promise<Session> {
     cancelled(options.signal);
+    // A browser page cannot choose the system browser's cookie jar.
+    if (options.ephemeral !== undefined) failure("invalid_request");
     const generation = this.generation;
+    const loginStarted = Math.floor(Date.now() / 1000);
     const attempt = (this.config.authSession ?? new PopupAuthSession()).open();
     let issued: oauth.TokenEndpointResponse | undefined;
     try {
@@ -316,10 +357,25 @@ export class WebSession {
         processOptions,
       );
       const subject = await this.#validate(as, response, issued);
+      // prompt=login (switching accounts): defence in depth, the ID token
+      // must say the user authenticated after this sign-in began.
+      if (
+        options.prompt === "login" &&
+        !freshLogin(
+          oauth.getValidatedIdTokenClaims(issued)?.auth_time,
+          loginStarted,
+        )
+      )
+        failure("invalid_response");
       cancelled(options.signal);
       if (generation !== this.generation) failure("signed_out");
       const old = this.#tokens?.refresh;
-      this.#install(issued, subject);
+      this.#install(
+        issued,
+        subject,
+        undefined,
+        profileOf(oauth.getValidatedIdTokenClaims(issued)),
+      );
       this.#generation++;
       issued = undefined;
       if (old) void this.revoke(old);
@@ -431,7 +487,12 @@ export class WebSession {
           failure("signed_out");
         }
         if (!issued.refresh_token) failure("invalid_response");
-        this.#install(issued, previous.subject, previous.scopes);
+        this.#install(
+          issued,
+          previous.subject,
+          previous.scopes,
+          previous.profile,
+        );
         return issued.access_token;
       } catch (error) {
         const safe = safeError(error);

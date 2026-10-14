@@ -42,10 +42,23 @@ export interface Balance {
 }
 export interface Session {
   signedIn: boolean;
+  /** The stable account id. Key local data by this, never by a display name. */
   subject: string | null;
   grantedScopes: string[];
   persistence: "persistent" | "memory_only";
   generation: string;
+  /**
+   * The Free2Z username to show for the signed-in account, from the verified
+   * ID token of its sign-in. Present only when the `profile` scope was
+   * granted; otherwise absent (also from a native plugin older than it, and
+   * for a native session stored by one until the next sign-in). Free2Z
+   * accounts need no email: show this, never ask for one. Display only: not
+   * unique (usernames compare case-insensitively, so two can look alike) and
+   * not stable (the user can rename the account). Key data by `subject`.
+   */
+  preferredUsername?: string;
+  /** The account's display name, when it has one and `profile` was granted. */
+  name?: string;
 }
 export type CapPeriod = "day" | "week" | "month" | "total";
 /**
@@ -67,6 +80,16 @@ export interface SignInOptions {
   acrValues?: string;
   /** Optional, additive: see {@link SpendCapHint}. */
   spendCap?: SpendCapHint;
+  /**
+   * Native only (`NativeTransport`): sign in without the browser's cookies,
+   * so the page cannot reuse another account's web session (iOS
+   * `prefersEphemeralWebBrowserSession`; Android an ephemeral Custom Tab
+   * where supported; desktop ignores it). Default `false`. Needs a plugin
+   * with this option; an older one refuses the unknown key. The web
+   * transport refuses it (`invalid_request`). To switch accounts on every
+   * platform, pass `prompt: "login"`.
+   */
+  ephemeral?: boolean;
   signal?: AbortSignal;
 }
 /**
@@ -531,4 +554,9 @@ export interface Transport {
   openCheckout(id: string): Promise<void>;
   chat(request: ChatRequest, options: ChatOptions): Promise<ChatStream>;
   call(id: string, signal?: AbortSignal): Promise<CallRecord>;
+  /** Optional so a custom transport keeps compiling; `Client` refuses without it. */
+  manageAccountUrl?(): Promise<string>;
+  openManageAccount?(): Promise<void>;
+  deleteAccountUrl?(): Promise<string>;
+  openDeleteAccount?(): Promise<void>;
 }
