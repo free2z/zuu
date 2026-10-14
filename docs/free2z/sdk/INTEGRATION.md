@@ -540,8 +540,13 @@ https://free2z.cash/account/apps?client_id=<your registered client_id>
   model output.
 - **What the page shows** for that app: the signed-in username, the 2Z
   balance (shown neutrally), this app's budget and a control to change it,
-  **Remove access** for this app, and a link to delete the Free2Z account
-  (`/account/delete`). It works for accounts without an email.
+  and **Remove access** for this app. A link to delete the Free2Z account
+  (`/account/delete`) appears once the deletion page ships
+  ([free2z/tuzi#2630](https://github.com/free2z/tuzi/pull/2630)); until
+  then the page shows no deletion link.
+- **Known gap.** Accounts whose only sign-in is X cannot yet sign in on these
+  pages. X sign-in does not return to the page that asked for it, so the
+  SDK-facing pages hide it until it does.
 - **Signed out.** The page sends the visitor to sign in, then returns them to
   the same URL, `client_id` included.
 - **Unknown or invalid `client_id`.** The page says the app is not connected.
@@ -551,9 +556,12 @@ https://free2z.cash/account/apps?client_id=<your registered client_id>
 
 **The line.** Every Free2Z page that an SDK app opens is **commerce-free**: the
 sign-in and sign-up sheet (`/login` returning to `/oauth/authorize`), the
-consent screen, the Manage page above and account deletion. These pages have:
+consent screen, the Manage page above, and account deletion once it ships.
+These pages have:
 
-- no purchase link, price, "buy 2Z" call to action or checkout;
+- no purchase path or price list, no "buy 2Z" call to action and no checkout.
+  The consent screen and the Manage page still show this app's budget and
+  markup, which describe what the app may spend;
 - no site navigation or footer, because the site's account menu reaches the
   Credits page;
 - no sign-in method that leaves the flow.
@@ -563,7 +571,7 @@ management rather than a payment funnel. Google Play bans sign-up flows that
 lead to payment. Outside the US storefront, Apple bans steering to an outside
 purchase. The rest of free2z.cash sells 2Z normally, and people who use
 Free2Z know where to find it. For the store-by-store rules, wording and
-pre-submission checks, see the store-compliance guide.
+pre-submission checks, see [Store compliance](./STORE-COMPLIANCE.md#2-the-line).
 
 ### Cancellation, receipts and errors
 
