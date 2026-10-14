@@ -810,7 +810,7 @@ lost response is safe. Both carry the receipt; ignore members you do not know:
 | 401 | `invalid_token`, `token_revoked` | As in [errors.md](./errors.md) §2 |
 | 403 | `insufficient_scope` | The token lacks `ai:invoke` |
 | 404 | `not_found` | No such call for this user and app: unknown, another user's or app's, or past the call record's 90-day retention |
-| 429 | `rate_limited` | Too many reports; honour `Retry-After` |
+| 429 | `rate_limited` | Too many reports; honour `Retry-After`. The hourly cap (30 per account per rolling hour) counts new reports and the first escalation of an existing report to `unsafe`; any other repeat is never capped |
 
 The SDKs check `reason` and `detail` before sending, so a value the server would
 refuse never leaves the device: Rust `Error::Config`; TypeScript and the Tauri

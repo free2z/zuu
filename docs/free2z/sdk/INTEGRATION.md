@@ -618,7 +618,9 @@ await nativeBridge.reportCall(callId, "incorrect", "wrong_grade"); // guest-js
 The Tauri window that reports needs the `f2z:allow-report-call` permission. A
 bad reason or `detail` is refused before anything is sent (`invalid_request`
 with `details.field`; Rust `Error::Config`); a call this user and app did not
-make is `404 not_found`; honour `Retry-After` on `429 rate_limited`.
+make is `404 not_found`; honour `Retry-After` on `429 rate_limited` (at most 30
+new reports per account per rolling hour; a repeat that first escalates a report
+to `unsafe` counts too, other repeats do not).
 
 Free2Z keeps the call reference, the reason and `detail` — never the prompt or
 the output. You see your app's reports in the Free2Z developer console
