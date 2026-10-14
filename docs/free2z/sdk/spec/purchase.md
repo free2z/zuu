@@ -16,11 +16,12 @@ purchase rails (§4) exist only in Free2Z's own apps: a store pays the
 proceeds of an in-app product to the account that lists the app, so a
 third-party listing would put the payment and the credit in different
 hands, and the platform does not operate that arrangement in v1. A
-third-party app on iOS or Android opens the card or Zcash surface exactly
-as on desktop. **Before any third-party iOS submission, the app-store
-rules on digital goods bought outside in-app purchase must be revisited
-against that app's own category and jurisdiction**; this contract does not
-settle that question.
+third-party app on desktop or the web opens the card or Zcash surface.
+**An app distributed through the App Store or Google Play sells nothing**:
+it does not request `purchase:create`, open a purchase surface or show a
+buy button, except where the
+[store-compliance playbook](../STORE-COMPLIANCE.md#2-the-line) allows a
+US-storefront link in the external browser.
 
 2Z bought this way are platform credits ([README](../README.md)); a
 purchase buys usage, and the amount of 2Z a given price buys depends on
@@ -179,8 +180,9 @@ the app prefers a hosted page:
 ```
 
 The app opens `checkout_url` in the **system browser** (desktop: the default
-browser; iOS/Android: `SFSafariViewController` / Custom Tabs, or the
-system browser). Apple Pay, Google Pay and the processor's one-click wallet
+browser; iOS/Android builds distributed outside the stores: Custom Tabs or
+the system browser). Store builds do not open checkout at all
+([store compliance](../STORE-COMPLIANCE.md#2-the-line)). Apple Pay, Google Pay and the processor's one-click wallet
 are offered on that page where available. When the user finishes, the page
 redirects to `return_url`; the app then polls the intent. **The redirect is
 a convenience, not the signal**: the platform credits from the processor's
@@ -216,31 +218,28 @@ platform wins re-credits. An app sees these as intent states and as
 `403 account_frozen` or `403 account_in_debt` on spending.
 
 **Developer markup is not reversed automatically in v1.** A refund or
-chargeback moves the user's 2Z as above and leaves the developer's
-credit where it is: credits are fungible, and every automatic rule for
+chargeback moves the user's 2Z as above and leaves the developer
+allocations already recorded for past calls where they are: every automatic rule for
 attributing a reversal to past markup that was reviewed for v1 was
 either unsound or exploitable. What v1 does instead:
 
-- **Markup is gated on manual approval of a value.** An app earns at most
+- **Markup is gated on manual approval of a value.** An app's markup is at most
   `approved_markup_bps` ([oidc.md](./oidc.md) §2), whatever `markup_bps`
   it asks for; an unapproved app is priced as if its markup were `0`,
   and the platform can lower or withdraw the approval, which takes effect
   on everyone's next hold ([metering.md](./metering.md) §2.2). The
-  approval is the platform's chance to know who it is crediting, and the
+  approval is the platform's chance to know who it is compensating, and the
   withdrawal is its first response to abuse.
-- **Earnings are recorded per (user, developer)** — how much markup each
-  developer earned from each user, and when — so that an administrative
-  clawback under the developer terms is possible when a pattern of
-  reversals shows abuse. It is a manual decision, not a ledger rule.
-- **Earnings are 2Z credits only** ([metering.md](./metering.md) §2.3),
-  which bounds the exposure: a clawed-back credit was never cash.
-- **An authorized clawback is an ordinary reversal on the developer's
-  account.** It debits what is available; whatever it cannot cover
-  becomes the developer's debt on the same terms as a user's (§1.1,
-  §3.1) — spending is refused with `403 account_in_debt` and the next
-  credits repay it first — and it never touches the developer's open
-  holds, which settle normally. Spending earnings early therefore does
-  not put them beyond reach.
+- **Developer allocations are recorded per (user, developer)**: how much
+  markup each developer was allocated from each user, and when. That record
+  is what makes an adjustment possible when a pattern of reversals shows
+  abuse. It is a manual decision, not a ledger rule.
+- **Compensation and its adjustment are governed by the Free2Z Creator Compensation Agreement (cc-2026-10-v2, schedule `sdk-application-2026-10-v2`)**, not by this
+  contract ([metering.md](./metering.md) §2.3). Under the agreement's §4, an
+  adjustment needs identifiable event evidence and a contractual or legal
+  basis. It may not consume compensation already reserved for a payment. A
+  disputed recovery beyond available compensation must be separately
+  identified, and it is never displayed as negative earnings.
 
 Automatic reversal is a **v2** item. The review of the v1 candidates
 left the design constraints for it: the ratio's numerator and
@@ -254,10 +253,11 @@ is **consumption**, not lifetime purchases, because unspent credits
 inflate purchases and nothing was earned on them; contributions must be
 computed **per reversal event** with a fixed split at that event, never
 re-derived from a running balance; the target must be **clamped to what
-was earned** and can never go negative or over-claw a won dispute; and a
-**developer credit earned from consumption the reversed purchase did
-not fund must not be clawed** — the attribution has to follow the
-credits, not the app.
+was allocated** and can never go negative or over-claw a won dispute; and a
+**developer allocation from consumption the reversed purchase did not
+fund must not be adjusted** — the attribution has to follow the
+credits, not the app. Any such adjustment remains subject to the
+agreement's §4.
 
 ## 4. In-app purchase — StoreKit 2 and Play Billing, as equals
 
