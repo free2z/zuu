@@ -417,6 +417,10 @@ async fn serve(
     upload.merge(decoded);
     let request = decode(&bytes, state.max_body_bytes)?;
     validate(&request)?;
+    let principal = call
+        .principal()
+        .ok_or_else(|| ApiFailure::new(ErrorCode::Internal, "missing principal"))?;
+    validate_for(principal, &request)?;
     *logged = Some(Logged {
         features: RequestFeatures::of(&request),
         call_id: None,
@@ -897,6 +901,30 @@ fn is_standard_base64(data: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
 }
 
+/// The rules that depend on who is calling, after [`validate`].
+///
+/// A child-directed app (the access token's `child_directed` claim) may not
+/// send `metadata`: it is the only caller-chosen text a call record keeps,
+/// and for such an app the record holds numbers only. Refused, never
+/// dropped, so the developer finds out on the first call.
+///
+/// # Errors
+///
+/// `400 invalid_request`, `field: "metadata"`, `reason: "child_directed"`.
+pub fn validate_for(
+    principal: &crate::auth::Principal,
+    request: &ChatRequest,
+) -> Result<(), ApiFailure> {
+    if principal.child_directed && !request.metadata.is_empty() {
+        return Err(invalid(
+            "metadata",
+            "child_directed",
+            "a child-directed app may not send metadata",
+        ));
+    }
+    Ok(())
+}
+
 /// chat-api.md §2.1's structural rules — the ones that do not need the
 /// catalogue. (A model's existence, its vision capability and its output cap
 /// do, and are Wave 2.)
@@ -1046,6 +1074,55 @@ mod tests {
     #[test]
     fn the_minimal_request_is_valid() {
         validate(&request(minimal())).unwrap();
+    }
+
+    fn principal(child_directed: bool) -> crate::auth::Principal {
+        crate::auth::Principal {
+            sub: "3f0c9b7e-6a2d-4b1f-8e5c-2d9a7c4e1b60".into(),
+            client_id: "app".into(),
+            app_id: "22222222-2222-4222-8222-222222222222".into(),
+            scope: "ai:invoke".into(),
+            aep: 0,
+            agen: 1,
+            exp: 0,
+            jti: "j".into(),
+            child_directed,
+        }
+    }
+
+    #[test]
+    fn no_caller_can_ask_a_provider_to_store_a_call() {
+        // `store: false` is the gateway's own, set in each OpenAI adapter
+        // (tests/adapter_requests.rs). A caller asking for storage — a
+        // child-directed one included — is refused before admission
+        // reaches a provider, never forwarded.
+        for member in [json!(true), json!(false)] {
+            let mut body = minimal();
+            body["store"] = member;
+            let refused = decode(body.to_string().as_bytes(), 1 << 20).unwrap_err();
+            assert_eq!(refused.status().as_u16(), 400, "{refused:?}");
+        }
+        let mut nested = minimal();
+        nested["metadata"] = json!({"store": "true"});
+        // Metadata is never sent to a provider at all; a child-directed app
+        // may not send it in the first place.
+        let nested = request(nested);
+        assert!(validate_for(&principal(true), &nested).is_err());
+    }
+
+    #[test]
+    fn a_child_directed_app_may_not_send_metadata() {
+        let mut with = minimal();
+        with["metadata"] = json!({"lesson": "fractions-2"});
+        let with = request(with);
+        let without = request(minimal());
+
+        validate_for(&principal(false), &with).unwrap();
+        validate_for(&principal(true), &without).unwrap();
+        let refused = validate_for(&principal(true), &with).unwrap_err();
+        let text = reason(&refused);
+        assert!(text.contains("child_directed"), "{text}");
+        assert!(text.contains("metadata"), "{text}");
     }
 
     #[test]

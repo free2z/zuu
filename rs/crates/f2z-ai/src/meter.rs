@@ -1682,6 +1682,7 @@ mod tests {
                 agen: 1,
                 exp: u64::MAX,
                 jti: "t".into(),
+                child_directed: false,
             })
             .unwrap(),
             id: Uuid::now_v7(),

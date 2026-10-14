@@ -240,6 +240,11 @@ pub struct Claims {
     pub exp: u64,
     /// The token id.
     pub jti: String,
+    /// The app is registered as child-directed (or for all ages, children
+    /// included). Absent means `false`. The gateway then accepts no
+    /// caller-defined `metadata`, so a call record holds nothing the app
+    /// chose to send — only numbers.
+    pub child_directed: bool,
 }
 
 impl Claims {
@@ -264,6 +269,7 @@ struct RawClaims {
     jti: Option<Value>,
     aep: Option<Value>,
     agen: Option<Value>,
+    child_directed: Option<Value>,
 }
 
 fn string(value: Option<Value>) -> Result<String, TokenError> {
@@ -279,6 +285,17 @@ fn integer(value: Option<Value>) -> Result<u64, TokenError> {
     match value {
         Some(Value::Number(n)) => n.as_u64().ok_or(TokenError::Malformed),
         _ => Err(TokenError::Malformed),
+    }
+}
+
+/// An optional JSON boolean: absent is `false`; anything but a boolean —
+/// `1`, `"true"` — is malformed rather than guessed at (serde reads a JSON
+/// `null` as absent).
+fn flag(value: Option<Value>) -> Result<bool, TokenError> {
+    match value {
+        None => Ok(false),
+        Some(Value::Bool(b)) => Ok(b),
+        Some(_) => Err(TokenError::Malformed),
     }
 }
 
@@ -355,6 +372,7 @@ pub fn check_claims(
         agen: integer(raw.agen)?,
         exp,
         jti: string(raw.jti)?,
+        child_directed: flag(raw.child_directed)?,
     })
 }
 
@@ -463,6 +481,12 @@ mod tests {
     fn the_claims_rules() {
         let ok = check(&claims(), 1100).unwrap();
         assert_eq!((ok.aep, ok.agen), (4, 2));
+        assert!(!ok.child_directed, "absent means not child-directed");
+        let mut child = claims();
+        child["child_directed"] = json!(true);
+        assert!(check(&child, 1100).unwrap().child_directed);
+        child["child_directed"] = json!(false);
+        assert!(!check(&child, 1100).unwrap().child_directed);
         assert!(ok.has_scope("ai:invoke"));
         assert!(!ok.has_scope("ai"));
 
@@ -505,6 +529,8 @@ mod tests {
                 TokenError::Malformed,
             ),
             (with("nbf", json!(2000)), TokenError::Expired),
+            (with("child_directed", json!(1)), TokenError::Malformed),
+            (with("child_directed", json!("true")), TokenError::Malformed),
         ];
         for (value, want) in cases {
             assert_eq!(check(&value, 1100).unwrap_err(), want, "{value}");
