@@ -46,6 +46,7 @@ export class FetchTransport implements Transport {
   #purchaseReturn: string;
   #api: string;
   #ai: string;
+  #web: string;
   #streams = new Set<AbortController>();
   #checkouts = new Map<string, { generation: string; url: string }>();
   #catalog:
@@ -72,6 +73,17 @@ export class FetchTransport implements Transport {
     ).href.replace(/\/$/, "");
     if (new URL(this.#api).search || new URL(this.#ai).search)
       failure("invalid_config");
+    // The issuer is the Free2Z website; an explicit origin has no path.
+    const web =
+      config.webOrigin === undefined
+        ? this.#auth.issuer
+        : secureUrl(config.webOrigin, config.allowInsecureLoopback);
+    if (
+      config.webOrigin !== undefined &&
+      (web.pathname !== "/" || web.search || web.hash)
+    )
+      failure("invalid_config");
+    this.#web = web.origin;
     const idle = config.streamIdleTimeoutMs ?? 45_000;
     if (!Number.isSafeInteger(idle) || idle <= 0 || idle > 3_600_000)
       failure("invalid_config");
@@ -310,6 +322,23 @@ export class FetchTransport implements Transport {
       ),
       generation,
     );
+  }
+  async manageAccountUrl(): Promise<string> {
+    const url = new URL("/account/apps", this.#web);
+    url.searchParams.set("client_id", this.config.clientId);
+    return url.href;
+  }
+  async deleteAccountUrl(): Promise<string> {
+    return new URL("/account/delete", this.#web).href;
+  }
+  /** Through `config.openExternal`, like checkout: a new top-level browsing context, never an iframe. */
+  async openManageAccount(): Promise<void> {
+    if (!this.config.openExternal) failure("external_opener_required");
+    await this.config.openExternal(await this.manageAccountUrl());
+  }
+  async openDeleteAccount(): Promise<void> {
+    if (!this.config.openExternal) failure("external_opener_required");
+    await this.config.openExternal(await this.deleteAccountUrl());
   }
   async openCheckout(id: string): Promise<void> {
     if (!this.config.openExternal) failure("external_opener_required");

@@ -118,6 +118,32 @@ Denies the create_purchase command without any pre-configured scope.
 <tr>
 <td>
 
+`f2z:allow-delete-account-url`
+
+</td>
+<td>
+
+Enables the delete_account_url command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`f2z:deny-delete-account-url`
+
+</td>
+<td>
+
+Denies the delete_account_url command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `f2z:allow-estimate`
 
 </td>
@@ -163,6 +189,32 @@ Enables the grant command without any pre-configured scope.
 <td>
 
 Denies the grant command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`f2z:allow-manage-account-url`
+
+</td>
+<td>
+
+Enables the manage_account_url command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`f2z:deny-manage-account-url`
+
+</td>
+<td>
+
+Denies the manage_account_url command without any pre-configured scope.
 
 </td>
 </tr>
@@ -241,6 +293,58 @@ Enables the open_checkout command without any pre-configured scope.
 <td>
 
 Denies the open_checkout command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`f2z:allow-open-delete-account`
+
+</td>
+<td>
+
+Enables the open_delete_account command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`f2z:deny-open-delete-account`
+
+</td>
+<td>
+
+Denies the open_delete_account command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`f2z:allow-open-manage-account`
+
+</td>
+<td>
+
+Enables the open_manage_account command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`f2z:deny-open-manage-account`
+
+</td>
+<td>
+
+Denies the open_manage_account command without any pre-configured scope.
 
 </td>
 </tr>

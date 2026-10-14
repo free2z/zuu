@@ -4,6 +4,24 @@
 
 ### Added
 
+- `Client::profile()` and `SignedIn::profile`: the signed-in account's
+  `preferred_username` and `name` (`f2z_sdk::Profile`), from the verified ID
+  token, only when `profile` was granted. Stored with the session (additive
+  members of the stored blob, ignored by older SDKs), so it survives a restart;
+  a refresh that no longer grants `profile` drops it; sign-out clears it.
+- `Client::manage_account_url()` (`{web origin}/account/apps?client_id=…`),
+  `Client::delete_account_url()` (`{web origin}/account/delete`) and
+  `Client::web_origin()`. The origin is the issuer's unless
+  `Config::with_web_origin` sets one (`Config::web_origin`).
+- Sign-out and sign-in also drop the cached model catalogue, and a catalogue
+  read under one session is never revalidated or installed for another.
+- A `prompt=login` sign-in requires the ID token's `auth_time` to be at or
+  after the sign-in's start (60 s skew); otherwise `Error::IdToken`, nothing is
+  installed, and the issued refresh token is revoked.
+- `prompt=login` requires the `openid` scope (`Error::Config` before the
+  browser opens), and its ID token must be present.
+- Display names drop bidi controls and marks (U+200E, U+200F, U+061C,
+  U+202A–U+202E, U+2066–U+2069).
 - `Ai::report_call(call_id, ReportReason, Option<&str>) -> CallReport`: the
   user reports a call's AI output in the app (Google Play AI-Generated Content
   policy, App Store 4.7). Free2Z keeps the reference and reason, never the

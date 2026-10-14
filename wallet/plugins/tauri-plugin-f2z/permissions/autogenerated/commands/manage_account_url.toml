@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-manage-account-url"
+description = "Enables the manage_account_url command without any pre-configured scope."
+commands.allow = ["manage_account_url"]
+
+[[permission]]
+identifier = "deny-manage-account-url"
+description = "Denies the manage_account_url command without any pre-configured scope."
+commands.deny = ["manage_account_url"]

@@ -44,6 +44,10 @@ pub struct Config {
     pub api_base: String,
     /// The AI gateway root (`…/v1`).
     pub ai_base: String,
+    /// The Free2Z website's origin, where the account pages live
+    /// (`/account/apps`, `/account/delete`). `None`, the default: the
+    /// issuer's origin, which is the website for every Free2Z deployment.
+    pub web_origin: Option<String>,
     /// The limit on one non-streaming request and on waiting for a token-store
     /// operation. A store timeout is `Error::Storage`; its blocking operation
     /// may finish later, so durability is uncertain until it completes. Each
@@ -76,6 +80,7 @@ impl Config {
             scopes: DEFAULT_SCOPES.iter().map(|s| (*s).to_owned()).collect(),
             api_base: DEFAULT_API_BASE.to_owned(),
             ai_base: DEFAULT_AI_BASE.to_owned(),
+            web_origin: None,
             request_timeout: Duration::from_secs(30),
             callback_timeout: Duration::from_secs(600),
             stream_idle_timeout: Duration::from_secs(90),
@@ -112,6 +117,14 @@ impl Config {
     #[must_use]
     pub fn with_ai_base(mut self, base: impl Into<String>) -> Self {
         self.ai_base = base.into();
+        self
+    }
+
+    /// Another website origin for the account pages (`https://host[:port]`,
+    /// no path). Only for a deployment whose website is not its issuer.
+    #[must_use]
+    pub fn with_web_origin(mut self, origin: impl Into<String>) -> Self {
+        self.web_origin = Some(origin.into());
         self
     }
 
@@ -159,12 +172,18 @@ impl Config {
         server_url(&api_base, "api_base")?;
         let ai_base = self.ai_base.trim_end_matches('/').to_owned();
         server_url(&ai_base, "ai_base")?;
+        let web_origin = crate::account::web_origin(&issuer_url, self.web_origin.as_deref())?;
+        let manage_account_url = crate::account::manage_url(&web_origin, &self.client_id)?;
+        let delete_account_url = crate::account::delete_url(&web_origin);
         Ok(Validated {
             issuer,
             client_id: self.client_id.clone(),
             scopes: self.scopes.clone(),
             api_base,
             ai_base,
+            web_origin,
+            manage_account_url,
+            delete_account_url,
             request_timeout: self.request_timeout,
             callback_timeout: self.callback_timeout,
             stream_idle_timeout: self.stream_idle_timeout,
@@ -181,6 +200,10 @@ pub(crate) struct Validated {
     pub scopes: Vec<String>,
     pub api_base: String,
     pub ai_base: String,
+    /// `scheme://host[:port]`, no trailing slash.
+    pub web_origin: String,
+    pub manage_account_url: String,
+    pub delete_account_url: String,
     pub request_timeout: Duration,
     pub callback_timeout: Duration,
     pub stream_idle_timeout: Duration,
@@ -240,6 +263,7 @@ mod tests {
     fn production_defaults_validate() {
         let v = Config::new("app_1").validate().unwrap();
         assert_eq!(v.issuer, "https://free2z.cash");
+        assert_eq!(v.web_origin, "https://free2z.cash");
         assert!(v.wants("ai:invoke"));
     }
 
@@ -253,6 +277,9 @@ mod tests {
             .with_issuer("http://127.0.0.1:9/")
             .with_api_base("http://[::1]:9/api/sdk/v1");
         assert_eq!(ok.validate().unwrap().issuer, "http://127.0.0.1:9");
+        assert_eq!(ok.validate().unwrap().web_origin, "http://127.0.0.1:9");
+        let bad = Config::new("app_1").with_web_origin("http://free2z.cash");
+        assert!(matches!(bad.validate(), Err(Error::Config(_))));
     }
 
     #[test]

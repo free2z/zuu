@@ -289,6 +289,31 @@ pub fn key(input: &str) -> Result<()> {
     }
     Ok(())
 }
+/// What `session` reports. Profile members are omitted, not `null`, when
+/// absent: an app on an older guest API never sees a new key's `null`.
+pub struct SessionView {
+    pub signed_in: bool,
+    pub subject: Option<String>,
+    pub scopes: Vec<String>,
+    pub profile: Option<f2z_sdk::Profile>,
+    pub persistent: bool,
+    pub generation: u64,
+}
+pub fn session(view: &SessionView) -> Value {
+    let mut result = json!({"signedIn":view.signed_in,"subject":view.subject,
+        "grantedScopes":view.scopes,
+        "persistence":if view.persistent { "persistent" } else { "memory_only" },
+        "generation":view.generation.to_string()});
+    if let Some(profile) = view.profile.as_ref().filter(|_| view.signed_in) {
+        if let Some(username) = &profile.preferred_username {
+            result["preferredUsername"] = Value::String(username.clone());
+        }
+        if let Some(name) = &profile.name {
+            result["name"] = Value::String(name.clone());
+        }
+    }
+    result
+}
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SignInOptions {
@@ -301,6 +326,11 @@ pub struct SignInOptions {
     pub spend_cap: Option<String>,
     /// `day` | `week` | `month` | `total`; only with `spend_cap`.
     pub spend_period: Option<String>,
+    /// iOS: `prefersEphemeralWebBrowserSession`; Android: an ephemeral Custom
+    /// Tab where the browser supports one. No shared browser cookies, so the
+    /// sign-in page never reuses another account's web session. Not an OIDC
+    /// parameter; desktop ignores it.
+    pub ephemeral: Option<bool>,
 }
 impl SignInOptions {
     pub fn into_core(self) -> Result<f2z_sdk::SignInOptions> {
@@ -715,6 +745,49 @@ mod tests {
         }
         // An older guest that knows nothing of the hint is unaffected.
         assert!(parse(json!({"prompt":"consent","maxAge":"0"})).is_ok());
+    }
+    #[test]
+    fn session_reports_the_profile_only_when_signed_in_with_one() {
+        let mut profile = f2z_sdk::Profile::default();
+        profile.preferred_username = Some("ada".into());
+        let view = |signed_in, profile| SessionView {
+            signed_in,
+            subject: signed_in.then(|| "sub".to_owned()),
+            scopes: vec!["openid".into(), "profile".into()],
+            profile,
+            persistent: true,
+            generation: 3,
+        };
+        let full = session(&view(true, Some(profile.clone())));
+        assert_eq!(
+            full,
+            json!({"signedIn":true,"subject":"sub","grantedScopes":["openid","profile"],
+                "persistence":"persistent","generation":"3","preferredUsername":"ada"})
+        );
+        // `name` absent: the key is absent too, never `null`.
+        assert!(full.get("name").is_none());
+        profile.name = Some("Ada L.".into());
+        assert_eq!(
+            session(&view(true, Some(profile.clone())))["name"],
+            "Ada L."
+        );
+        // The pre-profile shape, byte for byte, without one.
+        for none in [view(true, None), view(false, Some(profile))] {
+            let value = session(&none);
+            assert_eq!(value.as_object().unwrap().len(), 5, "{value}");
+        }
+    }
+    #[test]
+    fn ephemeral_is_an_optional_boolean_that_is_not_sent_to_the_issuer() {
+        let parse = |v: Value| serde_json::from_value::<SignInOptions>(v);
+        assert_eq!(parse(json!({})).unwrap().ephemeral, None);
+        let options = parse(json!({"prompt":"login","ephemeral":true})).unwrap();
+        assert_eq!(options.ephemeral, Some(true));
+        let core = options.into_core().unwrap();
+        assert_eq!(core.prompt, Some(f2z_sdk::oauth::Prompt::Login));
+        for bad in [json!({"ephemeral":"true"}), json!({"ephemeral":1})] {
+            assert!(parse(bad).is_err());
+        }
     }
     #[test]
     fn raw_errors_never_cross_ipc() {

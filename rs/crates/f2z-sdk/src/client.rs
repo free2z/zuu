@@ -59,7 +59,9 @@ pub(crate) struct Inner {
     account: String,
     discovery: OnceCell<Discovery>,
     session: Arc<Mutex<SessionState>>,
-    pub(crate) models_cache: std::sync::Mutex<Option<(String, crate::ai::Models)>>,
+    /// The last `/v1/models` answer with its ETag, and the session
+    /// generation it was read under: never reused across sessions.
+    pub(crate) models_cache: std::sync::Mutex<Option<(u64, String, crate::ai::Models)>>,
 }
 
 type StoreResult = Result<Option<Secret>, String>;
@@ -91,6 +93,8 @@ struct SessionState {
     refresh: Option<Secret>,
     scope: Option<String>,
     subject: Option<String>,
+    /// The display identity from the sign-in's ID token, with `profile`.
+    profile: Option<crate::account::Profile>,
     /// Which session this is. Moves on every sign-in, sign-out and forced
     /// sign-out — never on a refresh, which keeps the same user and grant.
     /// An operation that started under one generation never continues under
@@ -131,6 +135,12 @@ struct Stored {
     scope: Option<String>,
     #[serde(default)]
     sub: Option<String>,
+    // Additive: an older SDK ignores these, and a blob from one restores
+    // without a profile until the next sign-in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    preferred_username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -160,6 +170,22 @@ impl fmt::Debug for Client {
             .field("issuer", &self.inner.config.issuer)
             .field("client_id", &self.inner.config.client_id)
             .finish_non_exhaustive()
+    }
+}
+
+/// Clock skew tolerated between this device and the IdP on `auth_time`.
+const AUTH_TIME_LEEWAY_SECS: u64 = 60;
+
+/// Defence in depth for `prompt=login`: the ID token must say the user
+/// authenticated after this sign-in began (within clock skew). The IdP
+/// enforces this itself; a token that disagrees is not installed.
+fn check_fresh_login(auth_time: Option<u64>, started: u64) -> Result<(), Error> {
+    match auth_time {
+        Some(t) if t.saturating_add(AUTH_TIME_LEEWAY_SECS) >= started => Ok(()),
+        Some(_) => Err(Error::IdToken(
+            "prompt=login: auth_time predates this sign-in".into(),
+        )),
+        None => Err(Error::IdToken("prompt=login: no auth_time".into())),
     }
 }
 
@@ -304,6 +330,15 @@ impl Client {
             url,
             redirect_uri: redirect_uri.clone(),
         };
+        // `prompt=login` (switching accounts, step-up): the IdP must have
+        // authenticated the user afresh. Checked against the ID token below.
+        let login_started = (options.prompt == Some(oauth::Prompt::Login)).then(now_unix);
+        if login_started.is_some() && !wants_openid {
+            // Without an ID token nothing can show who signed in, or when.
+            return Err(Error::Config(
+                "prompt=login (switching accounts) requires the openid scope".into(),
+            ));
+        }
         let callback = tokio::time::timeout(config.callback_timeout, session.authorize(&request))
             .await
             .map_err(|_| Error::Timeout("the sign-in redirect"))??;
@@ -345,7 +380,20 @@ impl Client {
             }
             (None, false) => None,
         };
+        if let Some(started) = login_started
+            && let Err(error) = id_token
+                .as_ref()
+                .ok_or_else(|| Error::IdToken("prompt=login: no ID token".into()))
+                .and_then(|claims| check_fresh_login(claims.auth_time, started))
+        {
+            // Never installed: retire the family it would have started.
+            if let Some(rt) = &tokens.refresh_token {
+                let _ = self.revoke(&discovery, &Secret::new(rt.clone())).await;
+            }
+            return Err(error);
+        }
         let subject = id_token.as_ref().map(|c| c.sub.clone());
+        let profile = crate::account::profile(&granted, id_token.as_ref());
         let refreshable = tokens.refresh_token.is_some();
 
         // Once validated, replacing a session is one cancellation-independent
@@ -353,6 +401,7 @@ impl Client {
         // Sign-out queues behind its owned guard and clears the installed state.
         let client = self.clone();
         let transition_subject = subject.clone();
+        let transition_profile = profile.clone();
         let transition_granted = granted.clone();
         tokio::spawn(async move {
             let revoked = {
@@ -381,6 +430,7 @@ impl Client {
                 }
                 s.loaded = true;
                 s.generation = s.generation.wrapping_add(1);
+                client.forget_cached_reads();
                 // The previous account must never survive a failed or cancelled
                 // account switch in durable storage. Start revocation before the
                 // first persistence await and let it finish independently.
@@ -390,6 +440,7 @@ impl Client {
                     tokio::spawn(async move { client.revoke(&discovery, &old).await })
                 });
                 s.subject = transition_subject;
+                s.profile = transition_profile;
                 let persisted = client.install(&mut s, tokens, &transition_granted).await;
                 if !refreshable {
                     // No refresh token: nothing to keep across runs, and nothing
@@ -414,6 +465,7 @@ impl Client {
                 .map(str::to_owned)
                 .collect(),
             id_token,
+            profile,
             refreshable,
             persistence: self.token_persistence(),
         })
@@ -439,6 +491,7 @@ impl Client {
         }
         let refresh = s.refresh.take();
         s.reset();
+        self.forget_cached_reads();
         // Start remote cleanup before awaiting the independently ordered local
         // delete. Neither operation depends on the caller staying alive.
         let client = self.clone();
@@ -473,6 +526,40 @@ impl Client {
     /// The signed-in user's `sub`, when known.
     pub async fn subject(&self) -> Option<String> {
         self.inner.session.lock().await.subject.clone()
+    }
+
+    /// The signed-in account's display identity (username, name), when the
+    /// `profile` scope was granted. No network: it is what the verified ID
+    /// token said at sign-in, kept with the session. `None` with no session,
+    /// without `profile`, and for a session stored by an SDK older than this
+    /// field until the user signs in again.
+    pub async fn profile(&self) -> Option<crate::account::Profile> {
+        self.inner.session.lock().await.profile.clone()
+    }
+
+    /// The Free2Z website origin (`https://free2z.cash`): the configured
+    /// [`Config::web_origin`], or the issuer's origin.
+    #[must_use]
+    pub fn web_origin(&self) -> &str {
+        &self.inner.config.web_origin
+    }
+
+    /// `{web origin}/account/apps?client_id=<this app>`: where the user
+    /// manages this app's access and budget, and their Free2Z account and
+    /// balance. Open it in the **system browser**, never a webview. It is
+    /// account management, not a checkout: link it as "Manage Free2Z
+    /// account", with no purchase wording.
+    #[must_use]
+    pub fn manage_account_url(&self) -> &str {
+        &self.inner.config.manage_account_url
+    }
+
+    /// `{web origin}/account/delete`: where the user deletes their Free2Z
+    /// account. The in-app deletion path both app stores require for an app
+    /// whose flow can create an account. Open it in the **system browser**.
+    #[must_use]
+    pub fn delete_account_url(&self) -> &str {
+        &self.inner.config.delete_account_url
     }
 
     /// Read this account/app's current grant policy. Requires `ai:invoke`.
@@ -596,6 +683,16 @@ impl Client {
             match serde_json::from_str::<Stored>(blob.expose()) {
                 Ok(stored) if stored.v == STORED_VERSION => {
                     s.refresh = Some(Secret::new(stored.refresh_token));
+                    s.profile = stored
+                        .scope
+                        .as_deref()
+                        .filter(|scope| crate::account::has_profile_scope(scope))
+                        .and_then(|_| {
+                            crate::account::restored(
+                                stored.preferred_username.as_deref(),
+                                stored.name.as_deref(),
+                            )
+                        });
                     s.scope = stored.scope;
                     s.subject = stored.sub;
                 }
@@ -615,6 +712,11 @@ impl Client {
             refresh_token: refresh.expose().to_owned(),
             scope: s.scope.clone(),
             sub: s.subject.clone(),
+            preferred_username: s
+                .profile
+                .as_ref()
+                .and_then(|p| p.preferred_username.clone()),
+            name: s.profile.as_ref().and_then(|p| p.name.clone()),
         };
         let blob = Secret::new(
             serde_json::to_string(&stored).map_err(|e| Error::Internal(e.to_string()))?,
@@ -752,6 +854,10 @@ impl Client {
         if let Some(rt) = tokens.refresh_token {
             s.refresh = Some(Secret::new(rt));
         }
+        if !crate::account::has_profile_scope(granted) {
+            // The user withdrew `profile` (at /account/apps): stop showing it.
+            s.profile = None;
+        }
         s.scope = Some(granted.to_owned());
         self.store_save(s).await
     }
@@ -792,8 +898,26 @@ impl Client {
         }
     }
 
+    /// Run `install` only while the session is still `generation`, holding
+    /// the session lock so a sign-out or account switch (which clears cached
+    /// reads under the same lock) cannot interleave.
+    pub(crate) async fn install_if_current(&self, generation: u64, install: impl FnOnce()) {
+        let s = self.inner.session.lock().await;
+        if s.generation == generation {
+            install();
+        }
+    }
+
+    /// Drop data read under a session (the model catalogue and its ETag).
+    fn forget_cached_reads(&self) {
+        if let Ok(mut cache) = self.inner.models_cache.lock() {
+            *cache = None;
+        }
+    }
+
     async fn clear_locked(&self, s: &mut SessionState) -> Result<(), Error> {
         s.reset();
+        self.forget_cached_reads();
         self.store_delete().await
     }
 
@@ -1014,5 +1138,28 @@ mod refresh_tests {
         assert!(matches!(result, Err(Error::Transport(_))));
         assert_eq!(attempts, 2);
         assert!(started.elapsed() < Duration::from_secs(60));
+    }
+}
+
+#[cfg(test)]
+mod fresh_login_tests {
+    use super::*;
+
+    /// Anchored to when the sign-in began, not to "now": a user who spends
+    /// minutes in the browser still passes, and a sign-in older than the
+    /// switch fails however recent it is.
+    #[test]
+    fn a_fresh_login_is_judged_against_the_switch_start() {
+        let started = 1_000_000;
+        // Authenticated during a long browser step: by the time the token
+        // arrives (say started + 600) that is far older than now - 60 s, and
+        // still fresh for this switch.
+        assert!(check_fresh_login(Some(started + 5), started).is_ok());
+        assert!(check_fresh_login(Some(started), started).is_ok());
+        // Within clock skew of the start.
+        assert!(check_fresh_login(Some(started - AUTH_TIME_LEEWAY_SECS), started).is_ok());
+        // Before the switch began (a remembered session), however recent.
+        assert!(check_fresh_login(Some(started - AUTH_TIME_LEEWAY_SECS - 1), started).is_err());
+        assert!(check_fresh_login(None, started).is_err());
     }
 }

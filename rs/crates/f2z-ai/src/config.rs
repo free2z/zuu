@@ -66,7 +66,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use secrecy::SecretString;
+use secrecy::{ExposeSecret as _, SecretString};
 use serde::Deserialize;
 
 /// 4 MiB: the body limit for a request without image parts (chat-api.md §1).
@@ -108,6 +108,8 @@ pub const ENV_AUTH_EPOCH_TOKEN: &str = "F2Z_AI_AUTH_EPOCH_TOKEN";
 pub const ENV_REDIS_URL: &str = "F2Z_AI_REDIS_URL";
 /// Ledger connection URL; accepted only as a secret.
 pub const ENV_LEDGER_URL: &str = "F2Z_AI_LEDGER_URL";
+/// The child-directed HMAC key ([`crate::meter::ChildDirectedKey`]).
+pub const ENV_CHILD_DIRECTED_KEY: &str = "F2Z_AI_CHILD_DIRECTED_KEY";
 
 /// Authentication, revocation and limits ([`crate::auth`]).
 #[derive(Clone)]
@@ -341,6 +343,10 @@ pub struct Config {
     /// migration is live. The `response` log line carries the features
     /// either way.
     pub ledger_features_meta: bool,
+    /// Server secret for child-directed call claims (at least 32 bytes),
+    /// from `child_directed_key_file` or `F2Z_AI_CHILD_DIRECTED_KEY`; never
+    /// inline. Absent: child-directed calls are refused with `503`.
+    pub child_directed_key: Option<SecretString>,
 }
 
 impl Default for Config {
@@ -380,6 +386,7 @@ impl Default for Config {
             ledger_max_connections: 4,
             allowed_models: None,
             ledger_features_meta: false,
+            child_directed_key: None,
         }
     }
 }
@@ -441,6 +448,7 @@ struct Raw {
     ledger_url_file: Option<PathBuf>,
     ledger_max_connections: Option<u64>,
     ledger_features_meta: Option<bool>,
+    child_directed_key_file: Option<PathBuf>,
     allowed_models: Option<BTreeSet<String>>,
     listen: Option<String>,
     admin_listen: Option<String>,
@@ -510,6 +518,7 @@ const KEYS: &[(&str, Kind)] = &[
     ("ledger_url_file", Kind::Text),
     ("ledger_max_connections", Kind::Integer),
     ("ledger_features_meta", Kind::Boolean),
+    ("child_directed_key_file", Kind::Text),
     ("listen", Kind::Text),
     ("admin_listen", Kind::Text),
     ("max_concurrent_calls", Kind::Integer),
@@ -620,7 +629,11 @@ impl Config {
                 env_secret = Some(SecretString::from(value));
                 continue;
             }
-            if name == ENV_AUTH_EPOCH_TOKEN || name == ENV_REDIS_URL || name == ENV_LEDGER_URL {
+            if name == ENV_AUTH_EPOCH_TOKEN
+                || name == ENV_REDIS_URL
+                || name == ENV_LEDGER_URL
+                || name == ENV_CHILD_DIRECTED_KEY
+            {
                 env_secrets.insert(name, SecretString::from(value));
                 continue;
             }
@@ -690,6 +703,20 @@ impl Config {
             "ledger_url_file",
             raw.ledger_url_file.take(),
         )?;
+        let child_directed_key = secret(
+            ENV_CHILD_DIRECTED_KEY,
+            env_secrets.remove(ENV_CHILD_DIRECTED_KEY),
+            "child_directed_key_file",
+            raw.child_directed_key_file.take(),
+        )?;
+        if let Some(key) = &child_directed_key
+            && key.expose_secret().len() < crate::meter::MIN_CHILD_DIRECTED_KEY_BYTES
+        {
+            return Err(err(format!(
+                "the child-directed key must be at least {} bytes",
+                crate::meter::MIN_CHILD_DIRECTED_KEY_BYTES
+            )));
+        }
         let defaults = Self::default();
         let addr = |key: &str, value: Option<String>, default: SocketAddr| match value {
             Some(text) => text
@@ -797,6 +824,7 @@ impl Config {
             auth,
             allowed_models: raw.allowed_models,
             ledger_features_meta: raw.ledger_features_meta.unwrap_or(false),
+            child_directed_key,
             catalog_url: raw.catalog_url,
             catalog_keys_file: raw.catalog_keys_file,
             ledger_url,
@@ -1164,6 +1192,24 @@ mod tests {
                 "{invalid}"
             );
         }
+    }
+
+    #[test]
+    fn the_child_directed_key_is_a_secret_of_at_least_32_bytes() {
+        assert!(
+            Config::load(None, env(&[]))
+                .unwrap()
+                .child_directed_key
+                .is_none()
+        );
+        let long = "k".repeat(32);
+        let ok = Config::load(None, env(&[("F2Z_AI_CHILD_DIRECTED_KEY", &long)])).unwrap();
+        assert!(ok.child_directed_key.is_some());
+        assert!(!format!("{ok:?}").contains(&long), "redacted in Debug");
+        let short = "k".repeat(31);
+        assert!(Config::load(None, env(&[("F2Z_AI_CHILD_DIRECTED_KEY", &short)])).is_err());
+        // Never inline in the file: only the path of a file holding it.
+        assert!(Config::load(Some(file("child_directed_key = \"x\"").path()), env(&[])).is_err());
     }
 
     fn env(pairs: &[(&str, &str)]) -> Vec<(String, String)> {

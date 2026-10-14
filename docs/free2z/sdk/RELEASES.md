@@ -15,6 +15,63 @@ separate, owner-authorized step ([RELEASING.md](./RELEASING.md#publication-seque
 
 Per-package detail lives in each package's `CHANGELOG.md`.
 
+## Unreleased
+
+On `main`, not tagged: no app can pin this yet. It ships in the next
+coordinated release once the Free2Z pages it links to are live.
+Account identity, switching accounts, and the manage/delete account exits a
+store-listed app needs. Additive: an app that does not use them sees the
+0.2.0 behaviour, with one exception noted under Breaking. Move all three Tauri
+pieces together: a newer guest API or facade talking to an older plugin
+refuses `ephemeral` as an unknown sign-in option, and the account exits reject
+because that plugin has no such command.
+
+### Gateway and Free2Z compatibility
+
+- Gateway: unchanged from 0.2.0 (minimum `d26c9397`).
+- `{web origin}/account/apps` is live on Free2Z. `{web origin}/account/delete`
+  is the contract this release links to; it is served once the Free2Z
+  deployment ships its self-service deletion page. Until then the link lands
+  on Free2Z's not-found page. The `client_id` query on `/account/apps` is a
+  hint the page may use to select the app; a page that ignores it still
+  shows every connected app.
+
+### Breaking
+
+- The release that carries this will bump all five packages; under 0.x
+  semver `@free2z/sdk`'s optional peer then excludes the 0.2.0 guest-js.
+- Android: the plugin depends on `androidx.browser` 1.9.0 (was 1.8.0), and its
+  library manifest adds a `CustomTabsService` `<queries>` entry, which merges
+  into the app manifest.
+
+### What's in it
+
+- **Who is signed in.** With the `profile` scope granted, `session()` carries
+  `preferredUsername` and `name` (Rust `Client::profile()`, `SignedIn::profile`)
+  from the verified ID token. Absent without `profile`; dropped when a refresh
+  no longer grants it; stored with the session (additive blob members, ignored
+  by 0.2.0) so it survives a restart; cleared by sign-out.
+- **Switching accounts.** `signIn({ prompt: "login" })` is the documented
+  switch-account path. New opt-in `ephemeral` sign-in option: iOS
+  `prefersEphemeralWebBrowserSession`, Android an ephemeral Custom Tab where
+  the browser supports one; desktop ignores it; default `false`.
+- **Account exits.** `manageAccountUrl()` / `openManageAccount()`
+  (`{web origin}/account/apps?client_id=…`) and `deleteAccountUrl()` /
+  `openDeleteAccount()` (`{web origin}/account/delete`), on the plugin guest
+  API and the `@free2z/sdk` `Client`; Rust `Client::manage_account_url()`,
+  `delete_account_url()`, `web_origin()`. URLs are built natively from the
+  configured issuer origin (override: `Config::with_web_origin`,
+  `FetchConfig.webOrigin`); the `open…` commands take no URL from JavaScript
+  and open the system browser (Android `ACTION_VIEW`, not a Custom Tab).
+  New plugin permissions: `f2z:allow-manage-account-url`,
+  `f2z:allow-open-manage-account`, `f2z:allow-delete-account-url`,
+  `f2z:allow-open-delete-account`.
+- **Sign-out** also drops the cached model catalogue; a catalogue read under
+  one session is never used for another.
+- **Defence in depth:** a `prompt=login` sign-in is refused unless the ID
+  token's `auth_time` is at or after its start (60 s skew) and requires the
+  `openid` scope; display names drop bidi controls and marks.
+
 ## sdk-v0.2.0 — 2026-10-06
 
 The first tagged, stable SDK release, cut for the ¡AHA! app's initial release.

@@ -315,13 +315,18 @@ export function session(value: unknown): Session {
     (d.persistence !== "persistent" && d.persistence !== "memory_only")
   )
     failure("invalid_response");
-  return {
+  const result: Session = {
     signedIn: d.signedIn,
     subject: d.subject === null ? null : string(d.subject),
     grantedScopes: d.grantedScopes.map(string),
     persistence: d.persistence,
     generation: string(d.generation),
   };
+  // Additive: absent from older plugins and without `profile`.
+  if (d.preferredUsername !== undefined)
+    result.preferredUsername = string(d.preferredUsername);
+  if (d.name !== undefined) result.name = string(d.name);
+  return result;
 }
 export function purchase(value: unknown): Purchase {
   const d = validated(value),

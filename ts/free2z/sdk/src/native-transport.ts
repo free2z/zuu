@@ -64,6 +64,8 @@ export interface NativeBridge {
     /** Needs a plugin with spend-cap support; an older one refuses unknown keys. */
     spendCap?: string;
     spendPeriod?: string;
+    /** Needs a plugin with this option; an older one refuses unknown keys. */
+    ephemeral?: boolean;
   }): Promise<unknown>;
   signOut(): Promise<{ revoked: boolean; generation: string }>;
   balance(): Promise<unknown>;
@@ -89,6 +91,11 @@ export interface NativeBridge {
   nextChat(operationId: string): Promise<unknown | null>;
   cancelChat(operationId: string): Promise<void>;
   call(callId: string): Promise<unknown>;
+  /** Absent from plugins older than the account exits. */
+  manageAccountUrl?(): Promise<string>;
+  openManageAccount?(): Promise<void>;
+  deleteAccountUrl?(): Promise<string>;
+  openDeleteAccount?(): Promise<void>;
   /** Needs a plugin with reporting; `unsupported_operation` without it. */
   reportCall?(
     callId: string,
@@ -217,6 +224,27 @@ async function invoke<T>(
     throw nativeError(error);
   }
 }
+/** An account page URL from native: absolute `https` (or loopback for tests), no credentials. */
+function accountUrl(value: unknown): string {
+  if (typeof value !== "string") failure("invalid_response");
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    failure("invalid_response");
+  }
+  const loopback =
+    url.protocol === "http:" &&
+    (url.hostname === "127.0.0.1" || url.hostname === "[::1]");
+  if (
+    (url.protocol !== "https:" && !loopback) ||
+    url.username ||
+    url.password ||
+    url.hash
+  )
+    failure("invalid_response");
+  return value;
+}
 export class NativeTransport implements Transport {
   #epoch = 0;
   #streams = new Set<() => void>();
@@ -246,6 +274,10 @@ export class NativeTransport implements Transport {
       native.spendCap = hint.f2z_spend_cap;
       if (hint.f2z_spend_period !== undefined)
         native.spendPeriod = hint.f2z_spend_period;
+    }
+    if (options.ephemeral !== undefined) {
+      if (typeof options.ephemeral !== "boolean") failure("invalid_request");
+      native.ephemeral = options.ephemeral;
     }
     const session = decode.session(
       await invoke(() => this.bridge.signIn(native)),
@@ -319,6 +351,26 @@ export class NativeTransport implements Transport {
   }
   async openCheckout(id: string) {
     await invoke(() => this.bridge.openCheckout(identifier(id)));
+  }
+  async manageAccountUrl() {
+    const read = this.bridge.manageAccountUrl;
+    if (!read) failure("unsupported_operation");
+    return accountUrl(await invoke(() => read.call(this.bridge)));
+  }
+  async openManageAccount() {
+    const open = this.bridge.openManageAccount;
+    if (!open) failure("unsupported_operation");
+    await invoke(() => open.call(this.bridge));
+  }
+  async deleteAccountUrl() {
+    const read = this.bridge.deleteAccountUrl;
+    if (!read) failure("unsupported_operation");
+    return accountUrl(await invoke(() => read.call(this.bridge)));
+  }
+  async openDeleteAccount() {
+    const open = this.bridge.openDeleteAccount;
+    if (!open) failure("unsupported_operation");
+    await invoke(() => open.call(this.bridge));
   }
   async call(id: string, signal?: AbortSignal) {
     return decode.callRecord(

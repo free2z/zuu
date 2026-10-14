@@ -4,6 +4,21 @@
 
 ### Added
 
+- `Session.preferredUsername` / `Session.name`: present only when `profile`
+  was granted (native: when the plugin reports them; web: from the verified ID
+  token, dropped when a refresh no longer grants `profile`).
+- Web `prompt: "login"` sign-in requires a fresh `auth_time` in the ID token
+  (`invalid_response` otherwise; the issued family is revoked). Display names
+  drop bidi controls and marks.
+- `SignInOptions.ephemeral` for `NativeTransport` (needs a plugin with it);
+  `FetchTransport` refuses it with `invalid_request`.
+- `Client.manageAccountUrl()`, `openManageAccount()`, `deleteAccountUrl()`,
+  `openDeleteAccount()`. `unsupported_operation` from a transport or native
+  bridge without them; against a Rust plugin without these commands the call
+  rejects with that plugin's native error. `FetchConfig.webOrigin` (default: the issuer's origin); the
+  web `open…` methods use `openExternal`.
+- `Transport` gained the four as optional members, so custom transports keep
+  compiling.
 - `Client.reportCall(callId, reason, detail?, signal?)` → `CallReport`, on
   `FetchTransport` and `NativeTransport` (which needs a plugin with
   `reportCall`; `unsupported_operation` without it). `Transport.reportCall`

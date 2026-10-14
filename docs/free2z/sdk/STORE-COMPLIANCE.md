@@ -23,7 +23,8 @@ Every rule below is written so you can test it before you submit. The
    (`ASWebAuthenticationSession`, Custom Tabs). Never open a Free2Z page in a
    WebView.
 4. **When credits run out, stay calm.** Show "No credits" and a
-   **Manage Free2Z account** button that opens the system browser.
+   **Manage Free2Z account** button that opens the system browser
+   (`client.openManageAccount()`, in the next SDK release).
 5. **List the app as Education (or another fitting category) at 4+.** Do not
    use the Kids Category, and never write "for kids" in the metadata.
 6. **Ask before sending anything to AI.** Name Free2Z and the AI provider, and
@@ -263,8 +264,8 @@ it is "not available to persons under the age of 13", which is exactly the
 clause Google flags. The posture being built is an **adult-held Free2Z account
 that a child-directed app may use**, chosen by a `child_directed` flag on the
 app's client registration. Use that registration for any app whose audience
-includes children, and follow the SDK's child-directed integration notes when
-they are published. Until the posture is live, an app whose content requires
+includes children, and follow the SDK's
+[child-directed integration notes](./CHILD-DIRECTED.md). Until the posture is live, an app whose content requires
 Free2Z cannot declare a child audience on Google Play.
 
 ### Consent before any data reaches AI
@@ -338,7 +339,9 @@ Apple: "If your app supports account creation, you must also offer account
 deletion within the app" (5.1.1(v)).
 
 - **In the app:** add **Delete Free2Z account** in Settings, next to Sign out.
-  It opens `https://free2z.cash/account/delete` in the system browser. Apple accepts "a link directly to the page on your website where
+  It opens `https://free2z.cash/account/delete` in the system browser
+  (`client.openDeleteAccount()`, in the next SDK release; see
+  [account exits](./INTEGRATION.md#manage-and-delete-the-free2z-account)). Apple accepts "a link directly to the page on your website where
   they can complete the process". Apple also says apps outside regulated
   industries "should not require people to […] send an email". That is why
   Free2Z is replacing deletion by email with this self-service page.

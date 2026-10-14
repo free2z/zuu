@@ -122,6 +122,36 @@ export class Client {
   openCheckout(id: string) {
     return this.transport.openCheckout(id);
   }
+  /**
+   * `{web origin}/account/apps?client_id=<this app>`: where the user manages
+   * this app's access and budget, and their Free2Z account and balance.
+   * Account management, not a checkout: label it "Manage Free2Z account",
+   * with no purchase wording. `unsupported_operation` from a transport or
+   * native bridge without the method; a Rust plugin without the command
+   * rejects with its native error instead.
+   */
+  async manageAccountUrl(): Promise<string> {
+    if (!this.transport.manageAccountUrl) failure("unsupported_operation");
+    return this.transport.manageAccountUrl();
+  }
+  /** Opens {@link manageAccountUrl} in the system browser, never a webview. */
+  async openManageAccount(): Promise<void> {
+    if (!this.transport.openManageAccount) failure("unsupported_operation");
+    return this.transport.openManageAccount();
+  }
+  /** `{web origin}/account/delete`: where the user deletes their Free2Z account. */
+  async deleteAccountUrl(): Promise<string> {
+    if (!this.transport.deleteAccountUrl) failure("unsupported_operation");
+    return this.transport.deleteAccountUrl();
+  }
+  /**
+   * Opens {@link deleteAccountUrl} in the system browser: the in-app account
+   * deletion path the App Store and Google Play require.
+   */
+  async openDeleteAccount(): Promise<void> {
+    if (!this.transport.openDeleteAccount) failure("unsupported_operation");
+    return this.transport.openDeleteAccount();
+  }
   chat(request: ChatRequest, options: ChatOptions) {
     return this.transport.chat(request, options);
   }

@@ -66,6 +66,7 @@
     )
 )]
 
+pub mod account;
 pub mod ai;
 mod balance;
 mod client;
@@ -78,6 +79,7 @@ pub mod purchase;
 mod random;
 mod secret;
 
+pub use account::Profile;
 pub use client::Client;
 pub use config::{Config, DEFAULT_AI_BASE, DEFAULT_API_BASE, DEFAULT_ISSUER, DEFAULT_SCOPES};
 pub use error::{ApiError, Error, OAuthError, SignedOutReason, StepUp, TransportError};

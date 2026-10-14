@@ -7,7 +7,7 @@ import {
   ToolCallAccumulator,
   runTools,
 } from "../dist/index.js";
-import { WebSession } from "../dist/oauth.js";
+import { WebSession, freshLogin } from "../dist/oauth.js";
 import { issuer, deferred } from "./issuer.mjs";
 const options = { operationId: "operation-1", idempotencyKey: "durable-key" };
 const request = { model: "test", messages: [] };
@@ -1268,4 +1268,133 @@ test("a round that fails after output keeps its charge, and handlers get the run
   assert.equal(run.finished, false);
   // Its partial output is not history.
   assert.equal(run.messages.at(-1).role, "tool");
+});
+
+test("web session shows the profile only under the profile scope, and forgets it on sign-out", async () => {
+  const mock = issuer({
+      claims: { preferred_username: "alice_z", name: "Ali\u0007ce" },
+    }),
+    auth = new WebSession(mock.config);
+  const session = await auth.signIn();
+  assert.equal(session.preferredUsername, "alice_z");
+  // A control character is not display text.
+  assert.equal("name" in session, false);
+  // Withdrawn at /account/apps: a refresh without `profile` stops showing it.
+  mock.refresh = () =>
+    mock.json({
+      access_token: "access-narrowed",
+      refresh_token: "refresh-narrowed",
+      token_type: "Bearer",
+      expires_in: 300,
+      scope: "openid offline_access ai:invoke",
+    });
+  assert.equal(
+    await auth.token("ai:invoke", auth.generation, undefined, true),
+    "access-narrowed",
+  );
+  assert.equal("preferredUsername" in auth.snapshot(), false);
+  await auth.signOut();
+  assert.equal("preferredUsername" in auth.snapshot(), false);
+  const plain = new WebSession(issuer().config);
+  assert.equal("preferredUsername" in (await plain.signIn()), false);
+  await assert.rejects(
+    new WebSession(issuer().config).signIn({ ephemeral: true }),
+    {
+      code: "invalid_request",
+    },
+  );
+});
+
+test("web account exits are on the issuer origin and open only through openExternal", async () => {
+  const opened = [];
+  const base = issuer().config;
+  const client = new Client(
+    new FetchTransport({
+      ...base,
+      openExternal: async (url) => {
+        opened.push(url);
+      },
+    }),
+  );
+  const origin = new URL(base.issuer ?? "https://free2z.cash").origin;
+  assert.equal(
+    await client.manageAccountUrl(),
+    `${origin}/account/apps?client_id=${encodeURIComponent(base.clientId)}`,
+  );
+  assert.equal(await client.deleteAccountUrl(), `${origin}/account/delete`);
+  await client.openManageAccount();
+  await client.openDeleteAccount();
+  assert.deepEqual(opened, [
+    await client.manageAccountUrl(),
+    await client.deleteAccountUrl(),
+  ]);
+  const silent = new Client(
+    new FetchTransport({ ...base, openExternal: undefined }),
+  );
+  await assert.rejects(silent.openManageAccount(), {
+    code: "external_opener_required",
+  });
+  const staged = new Client(
+    new FetchTransport({ ...base, webOrigin: "https://www.example/" }),
+  );
+  assert.equal(
+    await staged.deleteAccountUrl(),
+    "https://www.example/account/delete",
+  );
+  assert.throws(
+    () => new FetchTransport({ ...base, webOrigin: "https://www.example/x" }),
+    { code: "invalid_config" },
+  );
+});
+
+test("web display names lose bidi controls", async () => {
+  const mock = issuer({
+    claims: { preferred_username: "‮resu‬_ada⁦x⁩" },
+  });
+  const session = await new WebSession(mock.config).signIn();
+  assert.equal(session.preferredUsername, "resu_adax");
+});
+
+test("web prompt=login needs a fresh auth_time; the refused family is revoked", async () => {
+  const now = Math.floor(Date.now() / 1000);
+  for (const claims of [{ auth_time: now - 3600 }, {}]) {
+    const mock = issuer({ claims }),
+      auth = new WebSession(mock.config);
+    await assert.rejects(auth.signIn({ prompt: "login" }), {
+      code: "invalid_response",
+    });
+    assert.equal(auth.snapshot().signedIn, false);
+    // The refused sign-in's refresh token is revoked, not left live.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(mock.revocations, ["refresh-1"]);
+  }
+  // Without prompt=login an old auth_time is a remembered session.
+  const old = issuer({ claims: { auth_time: now - 3600 } });
+  assert.equal((await new WebSession(old.config).signIn()).signedIn, true);
+  const fresh = issuer({ claims: { auth_time: now - 5 } });
+  assert.equal(
+    (await new WebSession(fresh.config).signIn({ prompt: "login" })).signedIn,
+    true,
+  );
+});
+
+test("prompt=login freshness is judged against the switch start, not now", () => {
+  const started = 1_000_000;
+  // A long browser step: older than now - 60 s on arrival, still fresh.
+  assert.equal(freshLogin(started + 5, started), true);
+  assert.equal(freshLogin(started - 60, started), true);
+  // Before the switch began, however recent.
+  assert.equal(freshLogin(started - 61, started), false);
+  assert.equal(freshLogin(undefined, started), false);
+  assert.equal(freshLogin("1000000", started), false);
+});
+
+test("web display names lose bidi marks too", async () => {
+  const mock = issuer({
+    claims: { preferred_username: "\u200Fada\u200E\u061C" },
+  });
+  assert.equal(
+    (await new WebSession(mock.config).signIn()).preferredUsername,
+    "ada",
+  );
 });

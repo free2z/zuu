@@ -32,6 +32,7 @@ pub async fn sign_in<R: Runtime>(
     options: wire::SignInOptions,
 ) -> Result<Value> {
     authorized(&webview, &state)?;
+    let ephemeral = options.ephemeral.unwrap_or(false);
     let options = options.into_core()?;
     let state = Arc::clone(state.inner());
     // Keep the transition guard alive even if the invoking webview disappears.
@@ -44,7 +45,7 @@ pub async fn sign_in<R: Runtime>(
         let (owner, generation, cancel) = state.engine.begin_auth(webview.window().label())?;
         let result = tokio::select! { biased;
             () = cancel.cancelled() => Err(NativeError::new("cancelled")),
-            value = state.platform.sign_in(&state.engine.client, options) => value
+            value = state.platform.sign_in(&state.engine.client, options, ephemeral) => value
         };
         if cancel.is_cancelled() {
             // Core installation may already be detached. Queue clearing behind
@@ -275,6 +276,45 @@ pub async fn open_checkout<R: Runtime>(
             state.platform.open(url.into()).await
         })
         .await
+}
+/// `{web origin}/account/apps?client_id=…`, built from native configuration.
+#[tauri::command]
+pub async fn manage_account_url<R: Runtime>(
+    webview: Webview<R>,
+    state: State<'_, Arc<PluginState<R>>>,
+) -> Result<String> {
+    authorized(&webview, &state)?;
+    Ok(state.engine.client.manage_account_url().to_owned())
+}
+/// `{web origin}/account/delete`.
+#[tauri::command]
+pub async fn delete_account_url<R: Runtime>(
+    webview: Webview<R>,
+    state: State<'_, Arc<PluginState<R>>>,
+) -> Result<String> {
+    authorized(&webview, &state)?;
+    Ok(state.engine.client.delete_account_url().to_owned())
+}
+/// Open the manage-account page in the system browser, never a webview. The
+/// URL comes from native configuration: JavaScript cannot choose what opens.
+#[tauri::command]
+pub async fn open_manage_account<R: Runtime>(
+    webview: Webview<R>,
+    state: State<'_, Arc<PluginState<R>>>,
+) -> Result<()> {
+    authorized(&webview, &state)?;
+    let url = state.engine.client.manage_account_url().to_owned();
+    state.platform.open_external(url).await
+}
+/// Open the delete-account page in the system browser, never a webview.
+#[tauri::command]
+pub async fn open_delete_account<R: Runtime>(
+    webview: Webview<R>,
+    state: State<'_, Arc<PluginState<R>>>,
+) -> Result<()> {
+    authorized(&webview, &state)?;
+    let url = state.engine.client.delete_account_url().to_owned();
+    state.platform.open_external(url).await
 }
 #[tauri::command]
 pub async fn start_chat<R: Runtime>(
