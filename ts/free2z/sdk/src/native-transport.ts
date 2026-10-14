@@ -7,6 +7,7 @@ import {
   type ErrorContext,
 } from "./error.js";
 import { identifier, key, withOperation } from "./http.js";
+import { reportBody } from "./report.js";
 import { spendCapParams } from "./spend-cap.js";
 import {
   object,
@@ -23,6 +24,7 @@ import type {
   ChatStream,
   OperationOptions,
   PurchaseRequest,
+  ReportReason,
   SignInOptions,
   Transport,
 } from "./types.js";
@@ -87,6 +89,12 @@ export interface NativeBridge {
   nextChat(operationId: string): Promise<unknown | null>;
   cancelChat(operationId: string): Promise<void>;
   call(callId: string): Promise<unknown>;
+  /** Needs a plugin with reporting; `unsupported_operation` without it. */
+  reportCall?(
+    callId: string,
+    reason: ReportReason,
+    detail?: string,
+  ): Promise<unknown>;
 }
 function parameters(value: unknown, depth = 0): NativeJson {
   if (depth > 64) failure("invalid_request");
@@ -317,6 +325,28 @@ export class NativeTransport implements Transport {
       decode.nativeData(
         await invoke(() => this.bridge.call(identifier(id)), signal),
       ),
+    );
+  }
+  async reportCall(
+    callId: string,
+    reason: ReportReason,
+    detail?: string,
+    signal?: AbortSignal,
+  ) {
+    cancelled(signal);
+    const body = reportBody(callId, reason, detail);
+    if (!this.bridge.reportCall) failure("unsupported_operation");
+    return decode.callReport(
+      decode.nativeData(
+        await invoke(
+          () =>
+            body.detail === undefined
+              ? this.bridge.reportCall!(callId, body.reason)
+              : this.bridge.reportCall!(callId, body.reason, body.detail),
+          signal,
+        ),
+      ),
+      callId,
     );
   }
   async chat(value: ChatRequest, options: ChatOptions): Promise<ChatStream> {

@@ -52,10 +52,14 @@ capability with **local content only**:
     "f2z:allow-create-purchase", "f2z:allow-purchase",
     "f2z:allow-wait-for-purchase", "f2z:allow-open-checkout",
     "f2z:allow-start-chat", "f2z:allow-next-chat", "f2z:allow-cancel-chat",
-    "f2z:allow-call", "f2z:allow-wait-for-call"
+    "f2z:allow-call", "f2z:allow-wait-for-call", "f2z:allow-report-call"
   ]
 }
 ```
+
+`report_call` (guest-js `reportCall`) lets the user report an AI output in
+the app, as the Play and App Store AI-content policies require; see the SDK's
+`INTEGRATION.md`, "Reporting AI output".
 
 `f2z:default` grants nothing. Never give these permissions to remote pages or a
 window containing untrusted frames. Render generated text as text or sanitized

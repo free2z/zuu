@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `report` module: `ReportReason` (`incorrect`, `inappropriate`, `unsafe`,
+  `other`; `Unknown` for a newer reason in a response), `CallReportRequest`
+  with `check()`, `check_detail` (1–200 characters, one line) and the
+  `CallReport` receipt of `POST /api/sdk/v1/calls/{id}/report`
+  (`docs/free2z/sdk/spec/chat-api.md` §7.1).
+
 ## 0.2.0 — 2026-10-06
 
 First tagged release, `sdk-v0.2.0`, versioned together with the other Free2Z

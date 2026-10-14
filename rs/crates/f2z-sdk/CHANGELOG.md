@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `Ai::report_call(call_id, ReportReason, Option<&str>) -> CallReport`: the
+  user reports a call's AI output in the app (Google Play AI-Generated Content
+  policy, App Store 4.7). Free2Z keeps the reference and reason, never the
+  content; the developer console and Free2Z moderation see it, `unsafe`
+  alerts Free2Z staff. A bad reason or `detail` is `Error::Config` before
+  anything is sent. `f2z_sdk::ai::{ReportReason, CallReport}` re-exported.
+
 ## 0.2.0 — 2026-10-06
 
 First tagged release, `sdk-v0.2.0`, versioned together with the other Free2Z

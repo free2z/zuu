@@ -2,6 +2,7 @@ import { failure } from "./error.js";
 import { object, string, uint } from "./json.js";
 import type {
   Balance,
+  CallReport,
   EnforcementReason,
   Grant,
   CallRecord,
@@ -277,6 +278,23 @@ export function grant(value: unknown): Grant {
     enforced: d.enforced,
     ...(reason === undefined ? {} : { enforcement_reason: reason }),
     as_of: asOf,
+  };
+}
+export function callReport(value: unknown, callId: string): CallReport {
+  const d = validated(value);
+  const report = string(d.report_id),
+    call = string(d.call_id),
+    created = string(d.created_at),
+    reason = string(d.reason);
+  if (!report || call !== callId || !utcTimestamp(created))
+    failure("invalid_response");
+  return {
+    report_id: report,
+    call_id: call,
+    reason: ["incorrect", "inappropriate", "unsafe", "other"].includes(reason)
+      ? (reason as CallReport["reason"])
+      : "unknown",
+    created_at: created,
   };
 }
 export function balance(value: unknown): Balance {

@@ -8,6 +8,7 @@ import type {
   Preflight,
   Purchase,
   PurchaseRequest,
+  ReportReason,
   SignInOptions,
   Transport,
 } from "./types.js";
@@ -126,6 +127,29 @@ export class Client {
   }
   call(id: string, signal?: AbortSignal) {
     return this.transport.call(id, signal);
+  }
+  /**
+   * Report a call's AI output (`POST /api/sdk/v1/calls/{id}/report`): one
+   * tap on the output, preset reasons, never leaving the app. Free2Z keeps
+   * the call id, reason and `detail` — never the AI content; the app's
+   * developer (Free2Z developer console) and Free2Z moderation see it, and
+   * `unsafe` alerts Free2Z staff. Reporting the same call again replaces the
+   * reason and returns the same `report_id`.
+   *
+   * `detail` is optional: 1–200 characters, one line. Prefer an app-defined
+   * preset (`"wrong_grade"`); apps that children may use should not offer a
+   * free-text box. A bad argument throws `invalid_request`
+   * (`details.field`) before anything is sent; a call this user and app did
+   * not make is the server's 404.
+   */
+  reportCall(
+    callId: string,
+    reason: ReportReason,
+    detail?: string,
+    signal?: AbortSignal,
+  ) {
+    if (!this.transport.reportCall) failure("unsupported_operation");
+    return this.transport.reportCall(callId, reason, detail, signal);
   }
   /** Returns the last observed intent at the deadline, including pending/paid. */
   waitForPurchase(id: string, options?: PollOptions): Promise<Purchase> {

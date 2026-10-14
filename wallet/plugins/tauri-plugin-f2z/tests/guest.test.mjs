@@ -22,7 +22,14 @@ test('pull and cancel address only their caller-owned operation', async () => {
   assert.deepEqual(sent.at(-1)[1], { operationId: 'op' });
 });
 test('guest exports no token, raw request or URL callback method', () => {
-  assert.deepEqual(Object.keys(nativeBridge).sort(), ['balance','call','cancelChat','createPurchase','estimate','grant','models','nextChat','openCheckout','purchase','session','signIn','signOut','startChat','waitForCall','waitForPurchase'].sort());
+  assert.deepEqual(Object.keys(nativeBridge).sort(), ['balance','call','cancelChat','createPurchase','estimate','grant','models','nextChat','openCheckout','purchase','reportCall','session','signIn','signOut','startChat','waitForCall','waitForPurchase'].sort());
+});
+
+test('reportCall sends the call, reason and only a present detail', async () => {
+  await nativeBridge.reportCall('019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c', 'unsafe');
+  assert.deepEqual(sent.pop(), ['plugin:f2z|report_call', { callId: '019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c', reason: 'unsafe' }, undefined]);
+  await nativeBridge.reportCall('c', 'incorrect', 'wrong_grade');
+  assert.deepEqual(sent.pop()[1], { callId: 'c', reason: 'incorrect', detail: 'wrong_grade' });
 });
 
 test('grant proof invokes only the bearer-bound native command', async () => {

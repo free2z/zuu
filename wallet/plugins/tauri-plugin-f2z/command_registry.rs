@@ -17,6 +17,7 @@ macro_rules! with_commands {
             cancel_chat,
             call,
             wait_for_call,
+            report_call,
         }
     };
 }

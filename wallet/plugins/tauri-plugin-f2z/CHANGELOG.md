@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `report_call` command (permission `f2z:allow-report-call`) and guest-js
+  `nativeBridge.reportCall(callId, reason, detail?)` with the `ReportReason`
+  and `CallReport` types. Arguments are checked natively first:
+  `invalid_request` with `details.field` (`call_id`, `reason`, `detail`).
+
 ## 0.2.0 — 2026-10-06
 
 First tagged release, `sdk-v0.2.0`, versioned together with the other Free2Z

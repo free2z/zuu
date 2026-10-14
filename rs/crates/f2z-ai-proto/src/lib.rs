@@ -15,7 +15,8 @@
 //!   retryability ([`error`]; `tests/spec_conformance.rs` parses its tables);
 //! * `docs/free2z/sdk/spec/metering.md` — the catalogue, the pricing formula and the
 //!   rounding rule ([`catalog`], [`canonical`], [`pricing`], [`amount`]);
-//! * `docs/free2z/sdk/spec/purchase.md` §1.1 — the balance ([`balance`]).
+//! * `docs/free2z/sdk/spec/purchase.md` §1.1 — the balance ([`balance`]);
+//! * `docs/free2z/sdk/spec/chat-api.md` §7.1 — reporting a call's output ([`report`]).
 //!
 //! The prose spec (zuu #1048) and this crate (zuu #1049, #1052) are
 //! reconciled; where the two disagree the disagreement is a bug in one of
@@ -35,6 +36,7 @@
 //! | [`canonical`] | The canonical JSON the catalogue signature covers |
 //! | [`json`] | [`json::OrderedJson`]: caller-supplied JSON (tool parameters, response schemas) that keeps its member order |
 //! | [`pricing`] | [`pricing::price_2z`]: meter to nano-USD, price to milli-2Z, integers only, one rounding of the 2Z total |
+//! | [`report`] | `POST /api/sdk/v1/calls/{call_id}/report`: [`report::ReportReason`], the request and the receipt |
 //!
 //! # What is not
 //!
@@ -83,6 +85,7 @@ pub mod event;
 pub mod grant;
 pub mod json;
 pub mod pricing;
+pub mod report;
 pub mod settlement;
 
 pub use amount::{Milli2z, Nusd, Whole2z};
