@@ -288,6 +288,16 @@ async fn launch_meta(
     catalog: f2z_ai::catalog::VerifiedCatalog,
     features_meta: bool,
 ) -> (support::Running, MockProvider) {
+    launch_keyed(db, scenario, allowed, catalog, features_meta, true).await
+}
+async fn launch_keyed(
+    db: Arc<Database>,
+    scenario: Scenario,
+    allowed: Option<Vec<&str>>,
+    catalog: f2z_ai::catalog::VerifiedCatalog,
+    features_meta: bool,
+    child_directed_key: bool,
+) -> (support::Running, MockProvider) {
     let mock = MockProvider::start(scenario).await.unwrap();
     let meter = Arc::new(
         Metered::new(
@@ -295,7 +305,10 @@ async fn launch_meta(
             adapter_support::backend(&mock.base_url(), adapter_support::tuning(0)),
         )
         .with_allowed_models(allowed.map(|ids| ids.into_iter().map(str::to_owned).collect()))
-        .with_features_meta(features_meta),
+        .with_features_meta(features_meta)
+        .with_child_directed_key(
+            child_directed_key.then(|| f2z_ai::meter::ChildDirectedKey::new(&[7; 32]).unwrap()),
+        ),
     );
     let running = support::start(
         &support::config(&[]),
@@ -2253,9 +2266,31 @@ async fn a_child_directed_call_record_keeps_no_caller_chosen_text() {
     assert_eq!(db.0.lock().unwrap().request, Value::Null, "nothing claimed");
     assert_eq!(mock.request_count(), 0, "no provider request");
 
+    // Only providers sent `store: false` (OpenAI); m-anthropic is not.
+    let mut other = structured_request("m-anthropic");
+    other.as_object_mut().unwrap().remove("metadata");
+    other.as_object_mut().unwrap().remove("response_format");
+    let refused = support::send(r.public, child(&other)).await;
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    let body = support::text(refused).await;
+    assert!(body.contains("child_directed"), "{body}");
+    // ... nor as a fallback behind an OpenAI model.
+    let mut fallback = structured_request("m-chat");
+    fallback.as_object_mut().unwrap().remove("metadata");
+    fallback["fallback"] = json!(["m-anthropic"]);
+    let refused = support::send(r.public, child(&fallback)).await;
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    let _ = support::text(refused).await;
+    assert_eq!(db.0.lock().unwrap().request, Value::Null, "nothing claimed");
+    assert_eq!(mock.request_count(), 0, "no provider request");
+
     let mut request = structured_request("m-chat");
     request.as_object_mut().unwrap().remove("metadata");
-    let response = support::send(r.public, child(&request)).await;
+    let mut keyed = child(&request);
+    keyed
+        .headers_mut()
+        .insert("idempotency-key", "lesson-for-alice-smith".parse().unwrap());
+    let response = support::send(r.public, keyed).await;
     assert_eq!(response.status(), StatusCode::OK);
     let _ = support::text(response).await;
     final_state(&db).await;
@@ -2267,6 +2302,62 @@ async fn a_child_directed_call_record_keeps_no_caller_chosen_text() {
     );
     assert!(!claimed.to_string().contains("activity_spec"), "{claimed}");
     assert!(!claimed.to_string().contains("hello tutor"), "{claimed}");
+    // Keyed (HMAC) fingerprint and Idempotency-Key: the caller's key text is
+    // not stored, and the fingerprint is not the unkeyed SHA-256.
+    {
+        let state = db.0.lock().unwrap();
+        let key = state.key.clone().unwrap();
+        assert_eq!(key.len(), 64, "{key}");
+        assert!(key.bytes().all(|b| b.is_ascii_hexdigit()), "{key}");
+        assert!(!key.contains("alice"), "{key}");
+        assert_eq!(state.fingerprint.len(), 64);
+    }
+    // A same-key retry replays: the derivation is deterministic.
+    let mut retry = child(&request);
+    retry
+        .headers_mut()
+        .insert("idempotency-key", "lesson-for-alice-smith".parse().unwrap());
+    let replay = support::send(r.public, retry).await;
+    assert_eq!(replay.status(), StatusCode::OK);
+    assert_eq!(replay.headers()["x-f2z-replayed"], "true");
+    let _ = support::text(replay).await;
+    assert_eq!(db.0.lock().unwrap().charges, 1, "one charge");
+    mock.shutdown().await;
+}
+
+// Without the server secret a child-directed call is refused before any
+// claim: failing closed, never storing the plain fingerprint or key.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn without_its_key_the_gateway_refuses_child_directed_calls() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch_keyed(
+        db.clone(),
+        Scenario::default(),
+        None,
+        structured_catalog(),
+        false,
+        false,
+    )
+    .await;
+    let mut request = structured_request("m-chat");
+    request.as_object_mut().unwrap().remove("metadata");
+    let mut req = support::chat_request(request.to_string());
+    req.headers_mut()
+        .insert("test-child-directed", "1".parse().unwrap());
+    let refused = support::send(r.public, req).await;
+    assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = support::text(refused).await;
+    assert!(body.contains("child_directed_unconfigured"), "{body}");
+    assert_eq!(db.0.lock().unwrap().claims, 0, "no claim");
+    assert_eq!(mock.request_count(), 0);
+    // An ordinary call on the same gateway is unaffected.
+    let ok = support::send(
+        r.public,
+        support::chat_request(structured_request("m-chat").to_string()),
+    )
+    .await;
+    assert_eq!(ok.status(), StatusCode::OK);
+    let _ = support::text(ok).await;
     mock.shutdown().await;
 }
 

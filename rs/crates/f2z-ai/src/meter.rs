@@ -57,6 +57,60 @@ fn unavailable() -> ApiFailure {
 /// schema replays the first call rather than conflicting. JSON object member
 /// order is not data (RFC 8259 §4); the replay is the call the key named.
 fn request_fingerprint(request: &ChatRequest) -> Result<String, ApiFailure> {
+    Ok(hex(ring::digest::digest(
+        &ring::digest::SHA256,
+        &canonical_request(request)?,
+    )
+    .as_ref()))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The smallest child-directed key accepted: the HMAC-SHA256 output size.
+pub const MIN_CHILD_DIRECTED_KEY_BYTES: usize = 32;
+
+/// What a child-directed call's ledger claim carries instead of the
+/// caller's text (CHILD-DIRECTED.md): an HMAC-SHA256 under a server secret
+/// of the canonical request — so a short, guessable prompt cannot be
+/// confirmed against the stored fingerprint without the key — and of the
+/// `Idempotency-Key`, so the caller's key text is not stored either. Both
+/// are 64 lowercase hex characters, the shapes `ledger.call_claim` checks.
+///
+/// Only child-directed calls use it, and no child-directed call was ever
+/// claimed before it existed, so no stored row has another format to match.
+/// Rotating the key changes both values: a keyed retry that spans a
+/// rotation is a new call (README, "Child-directed keys").
+pub struct ChildDirectedKey(ring::hmac::Key);
+
+impl ChildDirectedKey {
+    /// # Errors
+    ///
+    /// A key shorter than [`MIN_CHILD_DIRECTED_KEY_BYTES`].
+    pub fn new(secret: &[u8]) -> Result<Self, String> {
+        if secret.len() < MIN_CHILD_DIRECTED_KEY_BYTES {
+            return Err(format!(
+                "the child-directed HMAC key must be at least {MIN_CHILD_DIRECTED_KEY_BYTES} bytes"
+            ));
+        }
+        Ok(Self(ring::hmac::Key::new(ring::hmac::HMAC_SHA256, secret)))
+    }
+    fn mac(&self, domain: &[u8], data: &[u8]) -> String {
+        let mut ctx = ring::hmac::Context::with_key(&self.0);
+        ctx.update(domain);
+        ctx.update(data);
+        hex(ctx.sign().as_ref())
+    }
+    fn fingerprint(&self, request: &ChatRequest) -> Result<String, ApiFailure> {
+        Ok(self.mac(b"f2z-ai fingerprint v1\0", &canonical_request(request)?))
+    }
+    fn idempotency_key(&self, key: &str) -> String {
+        self.mac(b"f2z-ai idempotency-key v1\0", key.as_bytes())
+    }
+}
+
+fn canonical_request(request: &ChatRequest) -> Result<Vec<u8>, ApiFailure> {
     let mut canonical = request.clone();
     for tool in &mut canonical.tools {
         tool.parameters = tool.parameters.with_sorted_keys();
@@ -66,12 +120,7 @@ fn request_fingerprint(request: &ChatRequest) -> Result<String, ApiFailure> {
     {
         json_schema.schema = json_schema.schema.with_sorted_keys();
     }
-    let body = serde_json::to_vec(&canonical).map_err(|_| invalid())?;
-    Ok(ring::digest::digest(&ring::digest::SHA256, &body)
-        .as_ref()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect())
+    serde_json::to_vec(&canonical).map_err(|_| invalid())
 }
 
 fn invalid() -> ApiFailure {
@@ -496,6 +545,7 @@ pub struct Metered {
     configured: Option<std::collections::BTreeSet<String>>,
     allowed_models: Option<std::collections::BTreeSet<String>>,
     features_meta: bool,
+    child_directed_key: Option<Arc<ChildDirectedKey>>,
 }
 impl Metered {
     /// Share this same instance between gateway backend and detached settler.
@@ -515,7 +565,16 @@ impl Metered {
             configured: None,
             allowed_models: None,
             features_meta: false,
+            child_directed_key: None,
         }
+    }
+    /// The server secret for child-directed claims ([`ChildDirectedKey`]).
+    /// Without it, a child-directed call is refused before any claim
+    /// (`503 unavailable`): failing closed, never storing the plain form.
+    #[must_use]
+    pub fn with_child_directed_key(mut self, key: Option<ChildDirectedKey>) -> Self {
+        self.child_directed_key = key.map(Arc::new);
+        self
     }
     /// Store the content-free request `features` on the ledger call claim
     /// (`Config::ledger_features_meta`). Off by default: a ledger without
@@ -617,7 +676,24 @@ impl ChatBackend for Metered {
     ) -> Result<Box<dyn Upstream>, ApiFailure> {
         let principal = call.principal().ok_or_else(invalid)?;
         let identity = Identity::try_from(principal).map_err(|_| invalid())?;
-        let fingerprint = request_fingerprint(&request)?;
+        let (fingerprint, key) = if principal.child_directed {
+            let Some(secret) = &self.child_directed_key else {
+                return Err(ApiFailure::new(
+                    ErrorCode::Unavailable,
+                    "this gateway is not configured for child-directed apps",
+                )
+                .detail("reason", "child_directed_unconfigured"));
+            };
+            (
+                secret.fingerprint(&request)?,
+                call.idempotency_key().map(|k| secret.idempotency_key(k)),
+            )
+        } else {
+            (
+                request_fingerprint(&request)?,
+                call.idempotency_key().map(str::to_owned),
+            )
+        };
         let id = Uuid::now_v7();
         let provider = catalog
             .catalog()
@@ -642,7 +718,7 @@ impl ChatBackend for Metered {
         let claim = Operation::Claim {
             identity,
             call: id,
-            key: call.idempotency_key().map(str::to_owned),
+            key,
             fingerprint,
             request: request_meta.clone(),
         };
@@ -1535,6 +1611,42 @@ impl Upstream for Replay {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn child_directed_claims_are_keyed_deterministic_and_change_with_the_key() {
+        let request: ChatRequest = serde_json::from_value(serde_json::json!({
+            "model": "m", "messages": [{"role": "user", "content": [{"type": "text", "text": "2+2?"}]}]
+        }))
+        .unwrap();
+        let a = ChildDirectedKey::new(&[1; 32]).unwrap();
+        let b = ChildDirectedKey::new(&[2; 32]).unwrap();
+        let plain = request_fingerprint(&request).unwrap();
+        let keyed = a.fingerprint(&request).unwrap();
+        // The ledger's shape: 64 lowercase hex characters.
+        for value in [&keyed, &a.idempotency_key("lesson-alice")] {
+            assert_eq!(value.len(), 64);
+            assert!(
+                value
+                    .bytes()
+                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+            );
+        }
+        assert_ne!(
+            keyed, plain,
+            "not the unkeyed SHA-256 a guess could confirm"
+        );
+        assert_eq!(keyed, a.fingerprint(&request).unwrap(), "a retry matches");
+        assert_eq!(a.idempotency_key("k"), a.idempotency_key("k"));
+        // Rotation: a different key derives different values, so a keyed
+        // retry spanning a rotation is a new call (README).
+        assert_ne!(keyed, b.fingerprint(&request).unwrap());
+        assert_ne!(a.idempotency_key("k"), b.idempotency_key("k"));
+        // Domain separation: a key equal to the request bytes does not
+        // collide with the fingerprint.
+        let body = String::from_utf8(canonical_request(&request).unwrap()).unwrap();
+        assert_ne!(a.idempotency_key(&body), keyed);
+        assert!(ChildDirectedKey::new(&[0; 31]).is_err());
+    }
 
     /// zuu#1132: the idempotency fingerprint is byte-identical to the
     /// pre-#1132 gateway's for the same request bytes, so a same-key retry

@@ -441,10 +441,19 @@ async fn serve(
     if principal_child_directed(&call) {
         // The call claim records the requested model id before the backend
         // checks it, and an id is caller-chosen text. A child-directed app's
-        // record keeps catalogue ids only (CHILD-DIRECTED.md).
-        let known = |id: &str| catalog.catalog().models.iter().any(|m| m.id == id);
-        if request.attempts().any(|id| !known(id)) {
-            return Err(ApiFailure::new(ErrorCode::ModelNotFound, "no such model"));
+        // record keeps catalogue ids only (CHILD-DIRECTED.md). And its calls
+        // go only to a provider the gateway sends `store: false` to: OpenAI.
+        for id in request.attempts() {
+            let Some(model) = catalog.catalog().models.iter().find(|m| m.id == id) else {
+                return Err(ApiFailure::new(ErrorCode::ModelNotFound, "no such model"));
+            };
+            if !CHILD_DIRECTED_PROVIDERS.contains(&model.provider.as_str()) {
+                return Err(ApiFailure::new(
+                    ErrorCode::ModelDisabled,
+                    "this model is not available to a child-directed app",
+                )
+                .detail("reason", "child_directed"));
+            }
         }
     }
 
@@ -909,6 +918,10 @@ fn is_standard_base64(data: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
 }
+
+/// Providers a child-directed call may reach: those the gateway sends an
+/// explicit no-store instruction to (`store: false`, both OpenAI adapters).
+pub const CHILD_DIRECTED_PROVIDERS: &[&str] = &["openai"];
 
 fn principal_child_directed(call: &CallHandle) -> bool {
     call.principal().is_some_and(|p| p.child_directed)

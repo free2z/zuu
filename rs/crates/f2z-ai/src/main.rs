@@ -158,7 +158,17 @@ fn serve(config: &Config) -> Result<ExitCode, String> {
             let backend = std::sync::Arc::new(
                 f2z_ai::meter::Metered::new(ledger, provider)
                     .with_allowed_models(config.allowed_models.clone())
-                    .with_features_meta(config.ledger_features_meta),
+                    .with_features_meta(config.ledger_features_meta)
+                    .with_child_directed_key(
+                        config
+                            .child_directed_key
+                            .as_ref()
+                            .map(|k| {
+                                use secrecy::ExposeSecret as _;
+                                f2z_ai::meter::ChildDirectedKey::new(k.expose_secret().as_bytes())
+                            })
+                            .transpose()?,
+                    ),
             );
             Deps {
                 gate: f2z_ai::auth::from_config(&config.auth)?,
