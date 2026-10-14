@@ -626,7 +626,12 @@ impl ChatBackend for Metered {
     ) -> Result<Value, ApiFailure> {
         let (_, c) = self.context(principal).await?;
         let cat = catalog.catalog();
-        let models=cat.models.iter().filter(|m| self.model_allowed(&m.id) && cat.callable_model(&m.id).is_some() && self.configured.as_ref().is_none_or(|providers|providers.contains(&m.provider))).map(|m| {
+        // A child-directed app is shown only what it may call (chat.rs,
+        // CHILD_DIRECTED_PROVIDERS); the ETag hashes this body, so it differs.
+        let audience_allows = |provider: &str| {
+            !principal.child_directed || crate::chat::CHILD_DIRECTED_PROVIDERS.contains(&provider)
+        };
+        let models=cat.models.iter().filter(|m| self.model_allowed(&m.id) && cat.callable_model(&m.id).is_some() && self.configured.as_ref().is_none_or(|providers|providers.contains(&m.provider)) && audience_allows(&m.provider)).map(|m| {
             let mut prices=serde_json::Map::new();
             for (name, rate) in [("input_milli_2z_per_mtok",m.prices.input_nusd_per_mtok),("cached_input_milli_2z_per_mtok",m.prices.cached_input_nusd_per_mtok),("cache_write_milli_2z_per_mtok",m.prices.cache_write_nusd_per_mtok),("output_milli_2z_per_mtok",m.prices.output_nusd_per_mtok),("image_milli_2z",m.prices.image_nusd),("tool_call_milli_2z",m.prices.tool_call_nusd)] {
                 let numerator=u128::from(rate).checked_mul(u128::from(cat.platform_margin_bps.0)+10_000).and_then(|n| n.checked_mul(u128::from(c.markup().0)+10_000)).ok_or_else(invalid)?;

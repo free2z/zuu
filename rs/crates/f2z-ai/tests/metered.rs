@@ -2325,6 +2325,42 @@ async fn a_child_directed_call_record_keeps_no_caller_chosen_text() {
     mock.shutdown().await;
 }
 
+// Discovery matches invocation: a child-directed app is shown only the
+// models it may call (OpenAI), and so gets its own ETag.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_child_directed_app_is_shown_only_models_it_may_call() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch_catalog(db, Scenario::default(), None, structured_catalog()).await;
+    let list = |child: bool| {
+        let mut req = axum::http::Request::get("/v1/models").header("host", "gateway");
+        if child {
+            req = req.header("test-child-directed", "1");
+        }
+        req.body(axum::body::Body::empty()).unwrap()
+    };
+    let all: Value =
+        serde_json::from_str(&support::text(support::send(r.public, list(false)).await).await)
+            .unwrap();
+    let response = support::send(r.public, list(true)).await;
+    let etag = response.headers()["etag"].clone();
+    let child: Value = serde_json::from_str(&support::text(response).await).unwrap();
+    let providers = |v: &Value| -> Vec<String> {
+        v["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["provider"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert!(providers(&all).iter().any(|p| p != "openai"), "{all}");
+    assert!(!providers(&child).is_empty());
+    assert!(providers(&child).iter().all(|p| p == "openai"), "{child}");
+    let ordinary = support::send(r.public, list(false)).await;
+    assert_ne!(ordinary.headers()["etag"], etag);
+    let _ = support::text(ordinary).await;
+    mock.shutdown().await;
+}
+
 // Without the server secret a child-directed call is refused before any
 // claim: failing closed, never storing the plain fingerprint or key.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
