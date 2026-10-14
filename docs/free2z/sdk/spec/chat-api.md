@@ -789,7 +789,11 @@ the four reasons as choices. For more precision pass an app-defined code in
 `detail` (`wrong_grade`, `off_topic`), not text the user types. Apps that
 children may use should not offer a free-text box at all: Free2Z stores
 `detail` as sent. A child-directed app must omit `detail`: the server refuses
-it there with `400 invalid_request` (`details.field: "detail"`).
+it there with `400 invalid_request` (`details.field: "detail"`). Declare the
+app child-directed to the SDK — Rust `Config::with_child_directed(true)` (which
+the Tauri plugin inherits), web `FetchConfig.childDirected: true`, matching the
+app's Free2Z registration — and the SDK refuses a `detail` locally with the
+same error, before any network call.
 
 `201 Created` for a new report; `200 OK` when this user already reported this
 call. There is **one report per call and user**: a repeat replaces `reason` and

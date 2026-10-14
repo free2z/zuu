@@ -10,6 +10,8 @@
   is optional, so custom transports keep compiling. A bad argument is
   `invalid_request` with `details.field` before anything is sent.
   `REPORT_DETAIL_MAX_CHARS` exported; `not_found` added to `ServerErrorCode`.
+  `FetchConfig.childDirected`: a child-directed web app's `reportCall` refuses
+  any `detail` locally.
 
 ## 0.2.0 — 2026-10-06
 

@@ -7,7 +7,8 @@
 - `report_call` command (permission `f2z:allow-report-call`) and guest-js
   `nativeBridge.reportCall(callId, reason, detail?)` with the `ReportReason`
   and `CallReport` types. Arguments are checked natively first:
-  `invalid_request` with `details.field` (`call_id`, `reason`, `detail`).
+  `invalid_request` with `details.field` (`call_id`, `reason`, `detail`);
+  with a child-directed core `Config`, any `detail` is refused the same way.
 
 ## 0.2.0 — 2026-10-06
 

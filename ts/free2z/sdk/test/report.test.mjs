@@ -110,3 +110,24 @@ test("native reportCall forwards only a present detail and checks the receipt", 
     code: "unsupported_operation",
   });
 });
+
+test("a child-directed web client never sends a report detail", async () => {
+  const mock = issuer({ config: { childDirected: true } }),
+    client = new Client(new FetchTransport(mock.config));
+  await client.signIn();
+  const bodies = [];
+  mock.api = (path, init) => {
+    bodies.push(JSON.parse(init.body));
+    return mock.json(receipt("unsafe"), 201);
+  };
+  await assert.rejects(
+    client.reportCall(CALL, "incorrect", "wrong_grade"),
+    (e) => {
+      assert.equal(e.code, "invalid_request");
+      assert.deepEqual(e.details, { field: "detail" });
+      return true;
+    },
+  );
+  assert.equal((await client.reportCall(CALL, "unsafe")).reason, "unsafe");
+  assert.deepEqual(bodies, [{ reason: "unsafe" }]);
+});

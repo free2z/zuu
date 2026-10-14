@@ -251,11 +251,13 @@ pub fn decimal(input: &str) -> Result<u64> {
         .map_err(|_| NativeError::new("invalid_integer"))
 }
 /// A report's arguments, checked before the network: an unknown reason or a
-/// `detail` the server would refuse is `invalid_request` naming the field.
+/// `detail` the server would refuse — including any `detail` from a
+/// child-directed app — is `invalid_request` naming the field.
 pub fn report_request(
     call_id: &str,
     reason: &str,
     detail: Option<&str>,
+    child_directed: bool,
 ) -> Result<f2z_sdk::ai::ReportReason> {
     use f2z_sdk::ai::ReportReason;
     let invalid = |field: &str| {
@@ -274,6 +276,9 @@ pub fn report_request(
         _ => return Err(invalid("reason")),
     };
     if let Some(detail) = detail {
+        if child_directed {
+            return Err(invalid("detail"));
+        }
         f2z_sdk::proto::report::check_detail(detail).map_err(|_| invalid("detail"))?;
     }
     Ok(reason)
@@ -404,7 +409,7 @@ mod tests {
     fn a_report_is_refused_before_the_network_naming_the_field() {
         let call = "019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c";
         assert_eq!(
-            report_request(call, "unsafe", Some("wrong_grade")).unwrap(),
+            report_request(call, "unsafe", Some("wrong_grade"), false).unwrap(),
             f2z_sdk::ai::ReportReason::Unsafe
         );
         for (call_id, reason, detail, field) in [
@@ -418,12 +423,16 @@ mod tests {
             ("", "other", None, "call_id"),
             ("../grant", "other", None, "call_id"),
         ] {
-            let error = report_request(call_id, reason, detail).unwrap_err();
+            let error = report_request(call_id, reason, detail, false).unwrap_err();
             assert_eq!(error.code, "invalid_request");
             assert_eq!(error.details, Some(json!({ "field": field })));
         }
         let long = "x".repeat(201);
-        assert!(report_request(call, "other", Some(&long)).is_err());
+        assert!(report_request(call, "other", Some(&long), false).is_err());
+        // A child-directed app sends no detail at all; the reason alone is fine.
+        let error = report_request(call, "other", Some("wrong_grade"), true).unwrap_err();
+        assert_eq!(error.details, Some(json!({ "field": "detail" })));
+        assert!(report_request(call, "unsafe", None, true).is_ok());
     }
     #[test]
     fn strict_output_flag_passes_through_as_a_boolean_only() {

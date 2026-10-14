@@ -204,6 +204,13 @@ impl Client {
         self.inner.store.persistence()
     }
 
+    /// Whether this client was configured child-directed
+    /// ([`Config::child_directed`]).
+    #[must_use]
+    pub fn child_directed(&self) -> bool {
+        self.inner.config.child_directed
+    }
+
     /// The IdP's discovery document, fetched once and validated against the
     /// configured issuer.
     ///

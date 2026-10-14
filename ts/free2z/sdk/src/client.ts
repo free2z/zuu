@@ -138,7 +138,9 @@ export class Client {
    *
    * `detail` is optional: 1–200 characters, one line. Prefer an app-defined
    * preset (`"wrong_grade"`); apps that children may use should not offer a
-   * free-text box. A bad argument throws `invalid_request`
+   * free-text box, and a child-directed app (`FetchConfig.childDirected`, or
+   * the Rust `Config::child_directed` under a native plugin) sends none. A
+   * bad argument throws `invalid_request`
    * (`details.field`) before anything is sent; a call this user and app did
    * not make is the server's 404.
    */

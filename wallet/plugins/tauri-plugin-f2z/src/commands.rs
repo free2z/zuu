@@ -370,7 +370,12 @@ pub async fn report_call<R: Runtime>(
     detail: Option<String>,
 ) -> Result<Value> {
     authorized(&webview, &state)?;
-    let reason = wire::report_request(&call_id, &reason, detail.as_deref())?;
+    let reason = wire::report_request(
+        &call_id,
+        &reason,
+        detail.as_deref(),
+        state.engine.client.child_directed(),
+    )?;
     state
         .engine
         .read(async {

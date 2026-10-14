@@ -23,6 +23,7 @@ export function reportBody(
   callId: string,
   reason: ReportReason,
   detail?: string,
+  childDirected = false,
 ): { reason: ReportReason; detail?: string } {
   // The gateway's call_id is a UUID; anything else never reaches a URL.
   if (
@@ -35,6 +36,8 @@ export function reportBody(
   if (typeof reason !== "string" || !REASONS.includes(reason))
     invalid("reason");
   if (detail === undefined) return { reason };
+  // A child-directed app sends no detail at all.
+  if (childDirected) invalid("detail");
   if (
     typeof detail !== "string" ||
     detail.length === 0 ||

@@ -328,3 +328,29 @@ async fn report_call_posts_the_reason_and_detail_and_reads_both_receipts() {
     ));
     assert_eq!(fake.report_bodies.lock().unwrap().len(), sent);
 }
+
+#[tokio::test]
+async fn a_child_directed_client_never_sends_a_report_detail() {
+    use f2z_sdk::ai::ReportReason;
+    let fake = Fake::start().await;
+    let client = signed_in(fake.config().with_child_directed(true)).await;
+    assert!(client.child_directed());
+    let call = "019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c";
+    assert!(matches!(
+        client
+            .ai()
+            .report_call(call, ReportReason::Incorrect, Some("wrong_grade"))
+            .await,
+        Err(Error::Config(_))
+    ));
+    assert!(fake.report_bodies.lock().unwrap().is_empty());
+    client
+        .ai()
+        .report_call(call, ReportReason::Unsafe, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        *fake.report_bodies.lock().unwrap(),
+        vec![serde_json::json!({"reason": "unsafe"})]
+    );
+}

@@ -475,7 +475,10 @@ impl Ai {
     ///
     /// `detail` is optional: at most 200 characters on one line. Prefer an
     /// app-defined preset (`"wrong_grade"`) to text a user types — apps that
-    /// children may use should not offer a free-text box.
+    /// children may use should not offer a free-text box. A child-directed
+    /// app ([`crate::Config::child_directed`]) sends none: the SDK refuses a
+    /// `detail` locally, and the server would answer `400 invalid_request`
+    /// (`details.field: "detail"`).
     ///
     /// ```no_run
     /// # async fn run(client: f2z_sdk::Client, call_id: &str) -> Result<(), f2z_sdk::Error> {
@@ -499,6 +502,11 @@ impl Ai {
     ) -> Result<CallReport, Error> {
         f2z_ai_proto::report::check_call_id(call_id)
             .map_err(|reason| Error::Config(reason.into()))?;
+        if detail.is_some() && self.client.inner.config.child_directed {
+            return Err(Error::Config(
+                "a child-directed app sends no report detail (Config::child_directed)".into(),
+            ));
+        }
         let request = CallReportRequest {
             reason,
             detail: detail.map(str::to_owned),

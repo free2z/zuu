@@ -334,7 +334,12 @@ export class FetchTransport implements Transport {
     detail?: string,
     signal?: AbortSignal,
   ): Promise<CallReport> {
-    const body = reportBody(callId, reason, detail);
+    const body = reportBody(
+      callId,
+      reason,
+      detail,
+      this.config.childDirected === true,
+    );
     return decode.callReport(
       await this.#json(
         `${this.#api}/calls/${callId}/report`,
