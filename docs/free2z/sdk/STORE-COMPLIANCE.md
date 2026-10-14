@@ -129,7 +129,16 @@ page […] as long as the webpage does not eventually lead to an alternate
 payment method". So the page that **Manage Free2Z account** opens
 (`/account/apps?client_id=`) must show no purchase link, price or sales pitch
 when it is opened with a `client_id`. It may show grants, this app's budget,
-sign-out and deletion. The rest of free2z.cash may sell 2Z normally. **As of
+sign-out and deletion. The same rule covers every hosted Free2Z page that an
+SDK app opens (sign-in, sign-up, consent, account, deletion):
+
+- **Commerce-free, including the navigation and footer the page inherits.** A
+  "Buy 2Z" item in a shared header or footer is a path to payment.
+- **For apps used by children, no third-party analytics or embeds** on those
+  pages. Load only first-party scripts, with no trackers, no social widgets and
+  no third-party media.
+
+The rest of free2z.cash may sell 2Z normally. **As of
 2026-10-14 this is not built.** `/account/apps` currently links to
 **Manage balance and purchases**. Until the store-safe view ships, the exit is
 not compliant on Google Play, or for Apple outside the US.
@@ -159,7 +168,10 @@ those is a sales pitch in any store.
       SDK's platform auth session, and **Manage** uses the OS browser opener.
 - [ ] The **Manage** URL is the fixed `/account/apps?client_id=<id>`. It is
       never built from an OAuth subject or from model output.
-- [ ] With the app's real `client_id`, the landing page has no purchase path.
+- [ ] With the app's real `client_id`, every Free2Z page the app opens
+      (sign-in, consent, **Manage**, deletion) has no purchase path, including
+      in its header and footer. For an app used by children, the browser's
+      network log shows no third-party requests.
 
 ## 3. Age and audience
 
