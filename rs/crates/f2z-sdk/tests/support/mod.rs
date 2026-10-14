@@ -51,6 +51,9 @@ use serde_json::{Value, json};
 pub const CLIENT_ID: &str = "app_test";
 pub const SUBJECT: &str = "3f0c9b7e-6a2d-4b1f-8e5c-2d9a7c4e1b60";
 pub const KID: &str = "test-rs-1";
+/// The profile claims the fake IdP issues under `profile`.
+pub const PREFERRED_USERNAME: &str = "tutor_user";
+pub const DISPLAY_NAME: &str = "Tutor User";
 
 /// A 2048-bit RSA key (PKCS#1 DER, base64) generated for this test suite
 /// only. It signs the fake issuer's ID tokens and nothing else; it has never
@@ -145,6 +148,18 @@ pub struct Fake {
     pub declined_scopes: Mutex<Vec<String>>,
     /// Sign ID tokens with this nonce instead of the request's.
     pub id_token_nonce_override: Mutex<Option<String>>,
+    /// Sign ID tokens with this `auth_time` (`Some(None)`: none at all).
+    pub id_token_auth_time: Mutex<Option<Option<u64>>>,
+    /// Sign the next ID tokens for this `(sub, preferred_username)` instead
+    /// of `SUBJECT` / `PREFERRED_USERNAME`: another account.
+    pub account_override: Mutex<Option<(String, String)>>,
+    /// Delay before `/v1/models` answers, and the `If-None-Match` each
+    /// request carried.
+    pub models_delay: Mutex<Duration>,
+    pub models_if_none_match: Mutex<Vec<Option<String>>>,
+    /// The scope a refresh reports, as after the user narrowed the grant at
+    /// `/account/apps`. `None`: the family's own scope.
+    pub refresh_scope: Mutex<Option<String>>,
     /// The balance endpoint demands step-up.
     pub require_step_up: AtomicBool,
     /// The first purchase create sleeps this long before answering.
@@ -250,6 +265,11 @@ impl Fake {
             broken_chat_replay: AtomicBool::new(false),
             declined_scopes: Mutex::default(),
             id_token_nonce_override: Mutex::default(),
+            refresh_scope: Mutex::default(),
+            account_override: Mutex::default(),
+            id_token_auth_time: Mutex::default(),
+            models_delay: Mutex::new(Duration::ZERO),
+            models_if_none_match: Mutex::default(),
             require_step_up: AtomicBool::new(false),
             create_delay_first: Mutex::new(Duration::ZERO),
             revoke_delay: Mutex::new(Duration::ZERO),
@@ -583,12 +603,28 @@ async fn token(State(f): State<Arc<Fake>>, body: Bytes) -> Response<Body> {
                     .clone()
                     .or(grant.nonce.clone());
                 let now = now_unix();
-                let claims = json!({
+                let mut claims = json!({
                     "iss": f.issuer, "sub": SUBJECT, "aud": CLIENT_ID,
                     "exp": now + 3600, "iat": now, "auth_time": now - 10,
-                    "nonce": nonce, "acr": "urn:f2z:acr:1fa", "amr": ["pwd"],
-                    "preferred_username": "tutor_user"
+                    "nonce": nonce, "acr": "urn:f2z:acr:1fa", "amr": ["pwd"]
                 });
+                if let Some(auth_time) = *f.id_token_auth_time.lock().unwrap() {
+                    claims["auth_time"] = json!(auth_time);
+                }
+                let other = f.account_override.lock().unwrap().clone();
+                if let Some((sub, _)) = &other {
+                    claims["sub"] = json!(sub);
+                }
+                // As the IdP does: profile claims only under `profile`.
+                if grant.scope.split(' ').any(|x| x == "profile") {
+                    match &other {
+                        Some((_, username)) => claims["preferred_username"] = json!(username),
+                        None => {
+                            claims["preferred_username"] = json!(PREFERRED_USERNAME);
+                            claims["name"] = json!(DISPLAY_NAME);
+                        }
+                    }
+                }
                 body["id_token"] =
                     json!(f.sign_jwt(&json!({"alg": "RS256", "kid": KID, "typ": "JWT"}), &claims));
             }
@@ -626,9 +662,15 @@ async fn token(State(f): State<Arc<Fake>>, body: Bytes) -> Response<Body> {
                     if f.break_refresh_response_once.swap(false, Ordering::SeqCst) {
                         return broken_json(StatusCode::OK);
                     }
+                    let scope = f
+                        .refresh_scope
+                        .lock()
+                        .unwrap()
+                        .clone()
+                        .unwrap_or_else(|| entry.scope.clone());
                     delayed_json(
                         json!({"token_type": "Bearer", "access_token": access, "expires_in": 300,
-                               "refresh_token": refresh, "scope": entry.scope}),
+                               "refresh_token": refresh, "scope": scope}),
                         *f.refresh_body_delay.lock().unwrap(),
                     )
                 }
@@ -1239,6 +1281,16 @@ async fn call_record(State(f): State<Arc<Fake>>, headers: HeaderMap, uri: Uri) -
 async fn models(State(f): State<Arc<Fake>>, headers: HeaderMap) -> Response<Body> {
     if let Err(r) = f.check_bearer(&headers) {
         return r;
+    }
+    f.models_if_none_match.lock().unwrap().push(
+        headers
+            .get(header::IF_NONE_MATCH)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned),
+    );
+    let delay = *f.models_delay.lock().unwrap();
+    if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
     }
     if headers
         .get(header::IF_NONE_MATCH)
