@@ -16,8 +16,9 @@ semver a 0.2.0 guest-js build no longer satisfies it.
 - `SignInOptions.ephemeral` for `NativeTransport` (needs a plugin with it);
   `FetchTransport` refuses it with `invalid_request`.
 - `Client.manageAccountUrl()`, `openManageAccount()`, `deleteAccountUrl()`,
-  `openDeleteAccount()`. `unsupported_operation` from a transport or plugin
-  without them. `FetchConfig.webOrigin` (default: the issuer's origin); the
+  `openDeleteAccount()`. `unsupported_operation` from a transport or native
+  bridge without them; against a Rust plugin older than 0.3.0 the command does
+  not exist and the call rejects with that native error. `FetchConfig.webOrigin` (default: the issuer's origin); the
   web `open…` methods use `openExternal`.
 - `Transport` gained the four as optional members, so custom transports keep
   compiling.

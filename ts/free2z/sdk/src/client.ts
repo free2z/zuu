@@ -125,8 +125,9 @@ export class Client {
    * `{web origin}/account/apps?client_id=<this app>`: where the user manages
    * this app's access and budget, and their Free2Z account and balance.
    * Account management, not a checkout: label it "Manage Free2Z account",
-   * with no purchase wording. `unsupported_operation` from a transport (or
-   * native plugin) without it.
+   * with no purchase wording. `unsupported_operation` from a transport or
+   * native bridge without the method; a Rust plugin older than 0.3.0 has no
+   * such command, and the call rejects with its native error instead.
    */
   async manageAccountUrl(): Promise<string> {
     if (!this.transport.manageAccountUrl) failure("unsupported_operation");

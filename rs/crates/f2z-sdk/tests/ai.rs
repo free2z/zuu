@@ -829,20 +829,23 @@ async fn the_model_cache_never_crosses_a_session_change() {
             .await
             .unwrap();
     };
-    client.ai().models().await.unwrap();
+    let seen = || fake.models_if_none_match.lock().unwrap().len();
     client.ai().models().await.unwrap();
     switch().await;
-    client.ai().models().await.unwrap();
-    // A slow answer for the old session lands after an account switch.
-    *fake.models_delay.lock().unwrap() = Duration::from_millis(400);
+    // A slow 200 (with an ETag) read under this session...
+    *fake.models_delay.lock().unwrap() = Duration::from_millis(1500);
     let slow = tokio::spawn({
         let ai = client.ai();
         async move { ai.models().await }
     });
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    while seen() < 2 {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
     *fake.models_delay.lock().unwrap() = Duration::ZERO;
+    // ...lands after the next session has cached its own catalogue.
     switch().await;
-    let _ = slow.await.unwrap();
+    client.ai().models().await.unwrap();
+    slow.await.unwrap().unwrap();
     client.ai().models().await.unwrap();
     // Sign-out forgets it too.
     client.sign_out().await.unwrap();
@@ -852,12 +855,11 @@ async fn the_model_cache_never_crosses_a_session_change() {
     assert_eq!(
         *fake.models_if_none_match.lock().unwrap(),
         vec![
-            None,         // first read
-            etag.clone(), // same session: revalidated
-            None,         // after a switch: fresh
-            etag,         // the slow read, still under its own session
-            None,         // its late answer was not installed for the new one
-            None,         // after sign-out and a new sign-in
+            None, // first session
+            None, // after a switch: fresh (the slow one)
+            None, // after the next switch: fresh, caches its own
+            etag, // the late answer did not replace it
+            None, // after sign-out and a new sign-in
         ]
     );
 }
