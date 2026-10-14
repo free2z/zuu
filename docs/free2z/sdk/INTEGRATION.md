@@ -600,7 +600,8 @@ app has no backend, so Free2Z receives it. You do not build a server for this.
   call ID next to each output you show so the control can find it.
 - For more precision, pass an app-defined preset as `detail` (`wrong_grade`,
   `off_topic`); at most 200 characters on one line. **If children may use the
-  app, do not offer a free-text box**: Free2Z stores `detail` as sent.
+  app, do not offer a free-text box**: Free2Z stores `detail` as sent. A
+  child-directed app omits `detail` entirely; the reason alone is the report.
 - Confirm calmly ("Thanks — reported") and let the user carry on. Reporting the
   same output again is safe: it replaces the reason and keeps one report.
 
@@ -623,8 +624,8 @@ new reports per account per rolling hour; a repeat that first escalates a report
 to `unsafe` counts too, other repeats do not).
 
 Free2Z keeps the call reference, the reason and `detail` — never the prompt or
-the output. You see your app's reports in the Free2Z developer console
-(`GET https://free2z.cash/api/oauth/apps/{app_id}/reports/`) without who made
+the output. You read your app's reports via
+`GET https://free2z.cash/api/oauth/apps/{app_id}/reports/`, without who made
 them; Free2Z moderation reviews every report, and `unsafe` alerts Free2Z staff.
 The contract is [chat-api.md §7.1](./spec/chat-api.md#71-reporting-a-calls-output--post-free2zcashapisdkv1callsidreport).
 

@@ -132,7 +132,7 @@ export class Client {
    * Report a call's AI output (`POST /api/sdk/v1/calls/{id}/report`): one
    * tap on the output, preset reasons, never leaving the app. Free2Z keeps
    * the call id, reason and `detail` — never the AI content; the app's
-   * developer (Free2Z developer console) and Free2Z moderation see it, and
+   * developer (`GET /api/oauth/apps/{app_id}/reports/`) and Free2Z moderation see it, and
    * `unsafe` alerts Free2Z staff. Reporting the same call again replaces the
    * reason and returns the same `report_id`.
    *

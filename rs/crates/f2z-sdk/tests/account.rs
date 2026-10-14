@@ -285,7 +285,11 @@ async fn report_call_posts_the_reason_and_detail_and_reads_both_receipts() {
     // Not this user's call: the server's 404 envelope, typed.
     match client
         .ai()
-        .report_call("unknown-call", ReportReason::Other, None)
+        .report_call(
+            "019a2f1c-0000-7000-8000-000000000404",
+            ReportReason::Other,
+            None,
+        )
         .await
     {
         Err(Error::Api(e)) => assert_eq!((e.status, e.code.as_str()), (404, "not_found")),
@@ -293,7 +297,13 @@ async fn report_call_posts_the_reason_and_detail_and_reads_both_receipts() {
     }
     // Refused locally: nothing reaches the server.
     let sent = fake.report_bodies.lock().unwrap().len();
-    for detail in ["", "two\nlines", &"x".repeat(201)] {
+    for detail in [
+        "",
+        "two\nlines",
+        "bidi\u{202E}",
+        "para\u{2029}",
+        &"x".repeat(201),
+    ] {
         assert!(matches!(
             client
                 .ai()
@@ -306,6 +316,13 @@ async fn report_call_posts_the_reason_and_detail_and_reads_both_receipts() {
         client
             .ai()
             .report_call(call, ReportReason::Unknown, None)
+            .await,
+        Err(Error::Config(_))
+    ));
+    assert!(matches!(
+        client
+            .ai()
+            .report_call("../grant", ReportReason::Other, None)
             .await,
         Err(Error::Config(_))
     ));

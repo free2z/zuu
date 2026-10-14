@@ -468,8 +468,8 @@ impl Ai {
     /// the AI output, with preset reasons, and never leave the app for it.
     ///
     /// Free2Z keeps the call reference, the reason and `detail` — never the
-    /// AI content. The app's developer sees the report in the Free2Z
-    /// developer console; Free2Z moderation sees it too, and `unsafe`
+    /// AI content. The app's developer reads it via
+    /// `GET /api/oauth/apps/{app_id}/reports/`; Free2Z moderation sees it too, and `unsafe`
     /// alerts Free2Z staff. One report per call and user: repeating it
     /// replaces the reason and detail and returns the same `report_id`.
     ///
@@ -497,9 +497,8 @@ impl Ai {
         reason: ReportReason,
         detail: Option<&str>,
     ) -> Result<CallReport, Error> {
-        if call_id.is_empty() {
-            return Err(Error::Config("call_id is empty".into()));
-        }
+        f2z_ai_proto::report::check_call_id(call_id)
+            .map_err(|reason| Error::Config(reason.into()))?;
         let request = CallReportRequest {
             reason,
             detail: detail.map(str::to_owned),

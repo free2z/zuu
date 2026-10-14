@@ -263,12 +263,7 @@ pub fn report_request(
         error.details = Some(json!({ "field": field }));
         error
     };
-    if call_id.is_empty()
-        || call_id.len() > 128
-        || !call_id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-    {
+    if f2z_sdk::proto::report::check_call_id(call_id).is_err() {
         return Err(invalid("call_id"));
     }
     let reason = match reason {
@@ -417,6 +412,9 @@ mod tests {
             (call, "unknown", None, "reason"),
             (call, "other", Some(""), "detail"),
             (call, "other", Some("two\nlines"), "detail"),
+            (call, "other", Some("rtl\u{202E}"), "detail"),
+            (call, "other", Some("para\u{2029}"), "detail"),
+            ("not-a-uuid", "other", None, "call_id"),
             ("", "other", None, "call_id"),
             ("../grant", "other", None, "call_id"),
         ] {

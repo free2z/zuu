@@ -64,6 +64,10 @@ test("a refused report never leaves the device; a 404 is the server's code", asy
     [[CALL, "other", ""], "detail"],
     [[CALL, "other", "two\nlines"], "detail"],
     [[CALL, "other", "\u0085"], "detail"],
+    [[CALL, "other", "rtl\u202e"], "detail"],
+    [[CALL, "other", "iso\u2066"], "detail"],
+    [[CALL, "other", "line\u2028"], "detail"],
+    [["not-a-uuid", "other"], "call_id"],
     [[CALL, "other", "é".repeat(201)], "detail"],
     [["../grant", "other"], "call_id"],
   ]) {
@@ -74,10 +78,13 @@ test("a refused report never leaves the device; a 404 is the server's code", asy
     });
   }
   assert.equal(calls, 0);
-  await assert.rejects(client.reportCall(CALL, "other", "é".repeat(200)), {
-    code: "not_found",
-    status: 404,
-  });
+  await assert.rejects(
+    client.reportCall(CALL, "other", "é".repeat(199) + "\u200d"),
+    {
+      code: "not_found",
+      status: 404,
+    },
+  );
   assert.equal(calls, 1);
 });
 test("native reportCall forwards only a present detail and checks the receipt", async () => {

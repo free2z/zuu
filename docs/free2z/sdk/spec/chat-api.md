@@ -782,13 +782,13 @@ never the prompt or the output.
 | Field | Rule |
 |---|---|
 | `reason` | Required. `incorrect` (a wrong answer or grade, nonsense), `inappropriate` (not suitable for the audience), `unsafe` (harmful or dangerous; alerts Free2Z staff), or `other` |
-| `detail` | Optional. 1–200 Unicode characters on one line: no control characters (C0 or C1, so no newline or tab). Omit it rather than send `""` |
+| `detail` | Optional. 1–200 Unicode characters on one line: no C0 or C1 control characters (so no newline or tab), no U+2028/U+2029 separators, no bidi controls (U+202A–U+202E, U+2066–U+2069); ZWJ/ZWNJ are fine. Omit it rather than send `""`. A child-directed app should always omit it |
 
 **Prefer presets to free text.** Show the report as one tap on the output with
 the four reasons as choices. For more precision pass an app-defined code in
 `detail` (`wrong_grade`, `off_topic`), not text the user types. Apps that
 children may use should not offer a free-text box at all: Free2Z stores
-`detail` as sent.
+`detail` as sent. A child-directed app omits `detail` entirely.
 
 `201 Created` for a new report; `200 OK` when this user already reported this
 call. There is **one report per call and user**: a repeat replaces `reason` and
@@ -809,7 +809,7 @@ lost response is safe. Both carry the receipt; ignore members you do not know:
 | 400 | `invalid_request` | An unknown `reason`, or `detail` outside the rule above |
 | 401 | `invalid_token`, `token_revoked` | As in [errors.md](./errors.md) §2 |
 | 403 | `insufficient_scope` | The token lacks `ai:invoke` |
-| 404 | `not_found` | No such call for this user and app: unknown, another user's or app's, or past the call record's 90-day retention |
+| 404 | `not_found` | No such call for this user and app: unknown, another user's or app's, or past the call record's 90-day retention. This endpoint answers the account API's generic `not_found`, not §7's `call_not_found`; treat the two alike |
 | 429 | `rate_limited` | Too many reports; honour `Retry-After`. The hourly cap (30 per account per rolling hour) counts new reports and the first escalation of an existing report to `unsafe`; any other repeat is never capped |
 
 The SDKs check `reason` and `detail` before sending, so a value the server would
@@ -818,8 +818,8 @@ plugin `invalid_request` with `details.field`.
 
 **What Free2Z keeps, and who sees it.** The reference — call id, app, user —
 plus `reason`, `detail` and the time; never the AI content. The app's developer
-sees their app's reports in the Free2Z developer console
-(`GET https://free2z.cash/api/oauth/apps/{app_id}/reports/`) — the call, reason,
+reads their app's reports via
+`GET https://free2z.cash/api/oauth/apps/{app_id}/reports/` — the call, reason,
 `detail` and time, never who reported it. Free2Z moderation sees every report in
 its review queue, and `unsafe` alerts Free2Z staff.
 

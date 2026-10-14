@@ -323,7 +323,7 @@ Every AI-generated item needs a **Report** control. A tap hides the item at
 once and sends a preset reason with the item's `call_id` through the SDK's
 `reportCall(callId, reason, detail?)` (Rust `ai().report_call`); reasons are
 `incorrect`, `inappropriate`, `unsafe` and `other`. You need no backend: Free2Z
-receives the report, shows it to you in the developer console, puts it in its
+receives the report, lets you read it via `GET /api/oauth/apps/{app_id}/reports/`, puts it in its
 moderation queue, and alerts its staff on `unsafe`. It stores the reference and
 reason, never the AI content. Offer no free-text box in an app children may
 use. See [Reporting AI output](./INTEGRATION.md#reporting-ai-output). A

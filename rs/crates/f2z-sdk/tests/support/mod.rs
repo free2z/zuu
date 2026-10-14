@@ -158,7 +158,7 @@ pub struct Fake {
     pub grant_body: Mutex<Value>,
     pub grant_calls: AtomicU32,
     /// `POST /api/sdk/v1/calls/{id}/report`: every body received, and the
-    /// reports on record (call id -> report id). `unknown-call` is a 404.
+    /// reports on record (call id -> report id). Call `…-000000000404` is a 404.
     pub report_bodies: Mutex<Vec<Value>>,
     pub reports: Mutex<HashMap<String, String>>,
     /// A purchase is credited after this many polls.
@@ -757,7 +757,7 @@ async fn report_call(
         return envelope(StatusCode::BAD_REQUEST, "invalid_request", None);
     };
     f.report_bodies.lock().unwrap().push(request.clone());
-    if id == "unknown-call" {
+    if id == "019a2f1c-0000-7000-8000-000000000404" {
         return envelope(StatusCode::NOT_FOUND, "not_found", None);
     }
     let mut reports = f.reports.lock().unwrap();

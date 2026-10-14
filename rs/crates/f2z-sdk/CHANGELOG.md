@@ -7,7 +7,7 @@
 - `Ai::report_call(call_id, ReportReason, Option<&str>) -> CallReport`: the
   user reports a call's AI output in the app (Google Play AI-Generated Content
   policy, App Store 4.7). Free2Z keeps the reference and reason, never the
-  content; the developer console and Free2Z moderation see it, `unsafe`
+  content; the developer (`GET /api/oauth/apps/{app_id}/reports/`) and Free2Z moderation see it, `unsafe`
   alerts Free2Z staff. A bad reason or `detail` is `Error::Config` before
   anything is sent. `f2z_sdk::ai::{ReportReason, CallReport}` re-exported.
 
