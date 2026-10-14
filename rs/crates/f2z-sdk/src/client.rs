@@ -59,7 +59,9 @@ pub(crate) struct Inner {
     account: String,
     discovery: OnceCell<Discovery>,
     session: Arc<Mutex<SessionState>>,
-    pub(crate) models_cache: std::sync::Mutex<Option<(String, crate::ai::Models)>>,
+    /// The last `/v1/models` answer with its ETag, and the session
+    /// generation it was read under: never reused across sessions.
+    pub(crate) models_cache: std::sync::Mutex<Option<(u64, String, crate::ai::Models)>>,
 }
 
 type StoreResult = Result<Option<Secret>, String>;
@@ -849,6 +851,16 @@ impl Client {
                 Err(Error::SignedOut(SignedOutReason::RefreshRejected))
             }
             Err(e) => Err(e),
+        }
+    }
+
+    /// Run `install` only while the session is still `generation`, holding
+    /// the session lock so a sign-out or account switch (which clears cached
+    /// reads under the same lock) cannot interleave.
+    pub(crate) async fn install_if_current(&self, generation: u64, install: impl FnOnce()) {
+        let s = self.inner.session.lock().await;
+        if s.generation == generation {
+            install();
         }
     }
 

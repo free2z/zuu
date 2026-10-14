@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 — 2026-10-14
+
+Tagged `sdk-v0.3.0` with the other Free2Z SDK packages. Not on a registry:
+pin the Git tag. Consolidated notes: [RELEASES.md](https://github.com/free2z/zuu/blob/sdk-v0.3.0/docs/free2z/sdk/RELEASES.md#sdk-v030--2026-10-14).
+
+No change to the wire contract: versioned together with the SDK.
+
 ## 0.2.0 — 2026-10-06
 
 First tagged release, `sdk-v0.2.0`, versioned together with the other Free2Z

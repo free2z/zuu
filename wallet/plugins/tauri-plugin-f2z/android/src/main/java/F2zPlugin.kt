@@ -90,16 +90,17 @@ class F2zPlugin(private val activity: Activity): Plugin(activity) {
      * what guarantees a fresh sign-in.
      */
     private fun authTab(ephemeral: Boolean): CustomTabsIntent {
-        val builder = CustomTabsIntent.Builder()
-        if (ephemeral) {
-            val provider = CustomTabsClient.getPackageName(activity, null)
-            if (provider != null && CustomTabsClient.isEphemeralBrowsingSupported(activity, provider)) {
-                builder.setEphemeralBrowsingEnabled(true)
-            } else {
-                android.util.Log.w("F2zPlugin", "ephemeral Custom Tabs unsupported by ${provider ?: "no provider"}; using a regular tab")
-            }
+        if (!ephemeral) return CustomTabsIntent.Builder().build()
+        // Requested on every launch: a browser without the feature ignores it.
+        val tab = CustomTabsIntent.Builder().setEphemeralBrowsingEnabled(true).build()
+        val provider = CustomTabsClient.getPackageName(activity, null)
+        if (provider != null && CustomTabsClient.isEphemeralBrowsingSupported(activity, provider)) {
+            // Open the browser that was checked, not whichever else is default.
+            tab.intent.setPackage(provider)
+        } else {
+            android.util.Log.w("F2zPlugin", "no Custom Tabs provider reports ephemeral browsing (${provider ?: "none"}); the tab may share cookies")
         }
-        return builder.build()
+        return tab
     }
     /** [ending] says why, when no callback [uri] arrived. */
     private fun finish(id: String, uri: Uri?, ending: AuthRejection.Ending = AuthRejection.Ending.ABANDONED) {

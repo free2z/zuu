@@ -1353,6 +1353,61 @@ async fn switching_accounts_with_prompt_login_replaces_the_previous_session() {
     assert_eq!(fake.live_refresh_tokens(), 1);
 }
 
+/// Nothing of account A survives a switch to B: not in memory, not in the
+/// stored session, not after a restart — with or without `profile` for B.
+#[tokio::test]
+async fn a_switched_account_carries_none_of_the_previous_identity() {
+    let fake = Fake::start().await;
+    let (client, store) = signed_in(&fake).await;
+    assert_eq!(
+        client
+            .profile()
+            .await
+            .unwrap()
+            .preferred_username
+            .as_deref(),
+        Some(PREFERRED_USERNAME)
+    );
+    let mut login = SignInOptions::default();
+    login.prompt = Some(Prompt::Login);
+
+    *fake.account_override.lock().unwrap() = Some(("account-b".into(), "second_user".into()));
+    let signed = client
+        .sign_in(&ScriptedBrowser::new(MOBILE_REDIRECT), login.clone())
+        .await
+        .unwrap();
+    assert_eq!(signed.subject.as_deref(), Some("account-b"));
+    let profile = client.profile().await.unwrap();
+    assert_eq!(profile.preferred_username.as_deref(), Some("second_user"));
+    // B has no display name: A's must not linger in its place.
+    assert_eq!(profile.name, None);
+    let blob = stored_blob(&store, &fake).unwrap().to_string();
+    assert!(!blob.contains(PREFERRED_USERNAME) && !blob.contains(DISPLAY_NAME));
+    assert!(!blob.contains(SUBJECT), "{blob}");
+    let restored = Client::new(fake.config(), store.clone()).unwrap();
+    assert!(restored.is_signed_in().await.unwrap());
+    assert_eq!(restored.subject().await.as_deref(), Some("account-b"));
+    assert_eq!(restored.profile().await, Some(profile));
+
+    // C declines `profile`: no profile at all, not B's.
+    *fake.account_override.lock().unwrap() = Some(("account-c".into(), "third_user".into()));
+    *fake.declined_scopes.lock().unwrap() = vec!["profile".into()];
+    client
+        .sign_in(&ScriptedBrowser::new(MOBILE_REDIRECT), login)
+        .await
+        .unwrap();
+    assert_eq!(client.subject().await.as_deref(), Some("account-c"));
+    assert_eq!(client.profile().await, None);
+    let blob = stored_blob(&store, &fake).unwrap().to_string();
+    assert!(
+        !blob.contains("second_user") && !blob.contains("account-b"),
+        "{blob}"
+    );
+    let restored = Client::new(fake.config(), store).unwrap();
+    assert!(restored.is_signed_in().await.unwrap());
+    assert_eq!(restored.profile().await, None);
+}
+
 #[test]
 fn the_account_pages_are_on_the_web_origin() {
     let client = Client::new(

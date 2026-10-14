@@ -148,6 +148,13 @@ pub struct Fake {
     pub declined_scopes: Mutex<Vec<String>>,
     /// Sign ID tokens with this nonce instead of the request's.
     pub id_token_nonce_override: Mutex<Option<String>>,
+    /// Sign the next ID tokens for this `(sub, preferred_username)` instead
+    /// of `SUBJECT` / `PREFERRED_USERNAME`: another account.
+    pub account_override: Mutex<Option<(String, String)>>,
+    /// Delay before `/v1/models` answers, and the `If-None-Match` each
+    /// request carried.
+    pub models_delay: Mutex<Duration>,
+    pub models_if_none_match: Mutex<Vec<Option<String>>>,
     /// The scope a refresh reports, as after the user narrowed the grant at
     /// `/account/apps`. `None`: the family's own scope.
     pub refresh_scope: Mutex<Option<String>>,
@@ -257,6 +264,9 @@ impl Fake {
             declined_scopes: Mutex::default(),
             id_token_nonce_override: Mutex::default(),
             refresh_scope: Mutex::default(),
+            account_override: Mutex::default(),
+            models_delay: Mutex::new(Duration::ZERO),
+            models_if_none_match: Mutex::default(),
             require_step_up: AtomicBool::new(false),
             create_delay_first: Mutex::new(Duration::ZERO),
             revoke_delay: Mutex::new(Duration::ZERO),
@@ -595,10 +605,19 @@ async fn token(State(f): State<Arc<Fake>>, body: Bytes) -> Response<Body> {
                     "exp": now + 3600, "iat": now, "auth_time": now - 10,
                     "nonce": nonce, "acr": "urn:f2z:acr:1fa", "amr": ["pwd"]
                 });
+                let other = f.account_override.lock().unwrap().clone();
+                if let Some((sub, _)) = &other {
+                    claims["sub"] = json!(sub);
+                }
                 // As the IdP does: profile claims only under `profile`.
                 if grant.scope.split(' ').any(|x| x == "profile") {
-                    claims["preferred_username"] = json!(PREFERRED_USERNAME);
-                    claims["name"] = json!(DISPLAY_NAME);
+                    match &other {
+                        Some((_, username)) => claims["preferred_username"] = json!(username),
+                        None => {
+                            claims["preferred_username"] = json!(PREFERRED_USERNAME);
+                            claims["name"] = json!(DISPLAY_NAME);
+                        }
+                    }
                 }
                 body["id_token"] =
                     json!(f.sign_jwt(&json!({"alg": "RS256", "kid": KID, "typ": "JWT"}), &claims));
@@ -1256,6 +1275,16 @@ async fn call_record(State(f): State<Arc<Fake>>, headers: HeaderMap, uri: Uri) -
 async fn models(State(f): State<Arc<Fake>>, headers: HeaderMap) -> Response<Body> {
     if let Err(r) = f.check_bearer(&headers) {
         return r;
+    }
+    f.models_if_none_match.lock().unwrap().push(
+        headers
+            .get(header::IF_NONE_MATCH)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned),
+    );
+    let delay = *f.models_delay.lock().unwrap();
+    if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
     }
     if headers
         .get(header::IF_NONE_MATCH)

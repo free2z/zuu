@@ -813,3 +813,51 @@ async fn a_tool_loop_round_bound_outside_the_ceiling_sends_nothing() {
     assert!(!run.rounds.is_empty());
     assert!(!fake.chat_calls().is_empty());
 }
+
+/// The catalogue (and its ETag) read under one session is never revalidated
+/// or installed for the next, even when its answer arrives after the switch.
+#[tokio::test]
+async fn the_model_cache_never_crosses_a_session_change() {
+    let fake = Fake::start().await;
+    let client = signed_in(&fake).await;
+    let switch = || async {
+        client
+            .sign_in(
+                &ScriptedBrowser::new("com.example.tutor:/oauth/callback"),
+                SignInOptions::default(),
+            )
+            .await
+            .unwrap();
+    };
+    client.ai().models().await.unwrap();
+    client.ai().models().await.unwrap();
+    switch().await;
+    client.ai().models().await.unwrap();
+    // A slow answer for the old session lands after an account switch.
+    *fake.models_delay.lock().unwrap() = Duration::from_millis(400);
+    let slow = tokio::spawn({
+        let ai = client.ai();
+        async move { ai.models().await }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    *fake.models_delay.lock().unwrap() = Duration::ZERO;
+    switch().await;
+    let _ = slow.await.unwrap();
+    client.ai().models().await.unwrap();
+    // Sign-out forgets it too.
+    client.sign_out().await.unwrap();
+    switch().await;
+    client.ai().models().await.unwrap();
+    let etag = Some("\"v7\"".to_owned());
+    assert_eq!(
+        *fake.models_if_none_match.lock().unwrap(),
+        vec![
+            None,         // first read
+            etag.clone(), // same session: revalidated
+            None,         // after a switch: fresh
+            etag,         // the slow read, still under its own session
+            None,         // its late answer was not installed for the new one
+            None,         // after sign-out and a new sign-in
+        ]
+    );
+}

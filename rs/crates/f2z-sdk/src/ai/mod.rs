@@ -307,17 +307,22 @@ impl Ai {
     pub async fn models(&self) -> Result<Models, Error> {
         let url = self.url("/models");
         let timeout = self.client.inner.config.request_timeout;
+        // Pin the request, and the cache, to one session: a catalogue read
+        // under a previous account is never revalidated or installed for
+        // the next one.
+        let current = self.client.session_generation().await?;
         let cached = self
             .client
             .inner
             .models_cache
             .lock()
             .ok()
-            .and_then(|c| c.clone());
-        let etag = cached.as_ref().map(|(e, _)| e.clone());
+            .and_then(|c| c.clone())
+            .filter(|(generation, _, _)| *generation == current);
+        let etag = cached.as_ref().map(|(_, e, _)| e.clone());
         let response = self
             .client
-            .send_authorized(|http, token| {
+            .send_authorized_in(&mut Some(current), |http, token| {
                 let r = http.get(&url).bearer_auth(token).timeout(timeout);
                 match &etag {
                     Some(e) => r.header(reqwest::header::IF_NONE_MATCH, e),
@@ -326,15 +331,23 @@ impl Ai {
             })
             .await?;
         if response.status() == StatusCode::NOT_MODIFIED
-            && let Some((_, models)) = cached
+            && let Some((_, _, models)) = cached
         {
             return Ok(models);
         }
         let response = http::expect_success(response).await?;
         let etag = http::header_string(response.headers(), "etag");
         let models: Models = http::read_json(response).await?;
-        if let (Some(etag), Ok(mut cache)) = (etag, self.client.inner.models_cache.lock()) {
-            *cache = Some((etag, models.clone()));
+        if let Some(etag) = etag {
+            let cache = &self.client.inner.models_cache;
+            let value = models.clone();
+            self.client
+                .install_if_current(current, || {
+                    if let Ok(mut cache) = cache.lock() {
+                        *cache = Some((current, etag, value));
+                    }
+                })
+                .await;
         }
         Ok(models)
     }
