@@ -605,7 +605,8 @@ app has no backend, so Free2Z receives it. You do not build a server for this.
   `400 invalid_request`, `details.field: "detail"`); the reason alone is the
   report. Set `Config::with_child_directed(true)` (Rust and the Tauri plugin) or
   `FetchConfig.childDirected: true` (web) to match the app's Free2Z
-  registration, and the SDK refuses a `detail` locally with that same error.
+  registration, and the SDK refuses a `detail` locally (`invalid_request`, field
+  `detail`; Rust `Error::Config`).
 - Confirm calmly ("Thanks — reported") and let the user carry on. Reporting the
   same output again is safe: it replaces the reason and keeps one report.
 

@@ -792,8 +792,9 @@ children may use should not offer a free-text box at all: Free2Z stores
 it there with `400 invalid_request` (`details.field: "detail"`). Declare the
 app child-directed to the SDK — Rust `Config::with_child_directed(true)` (which
 the Tauri plugin inherits), web `FetchConfig.childDirected: true`, matching the
-app's Free2Z registration — and the SDK refuses a `detail` locally with the
-same error, before any network call.
+app's Free2Z registration — and the SDK refuses a `detail` locally, before any
+network call (`invalid_request` with `details.field: "detail"`; Rust
+`Error::Config`).
 
 `201 Created` for a new report; `200 OK` when this user already reported this
 call. There is **one report per call and user**: a repeat replaces `reason` and
