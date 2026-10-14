@@ -199,9 +199,12 @@ crash between the claim and the record write.
 
 The records carry a TTL, so a `volatile-*` eviction policy would drop them
 first and an `allkeys-*` one could; the shared Redis must run with no
-`maxmemory` limit or `noeviction`. One record is about 300 bytes with Redis's
-per-key overhead, so the bound is keyed calls per day × ~300 B, each held
-23 h 50 m (100 000 keyed calls a day ≈ 30 MB).
+`maxmemory` limit or `noeviction`. Without a limit Redis grows until its
+container's memory limit OOM-kills it, which loses every record at once (with
+the limits' state), so size that limit for this keyspace. A record measured
+313 bytes on the platform's Redis 8.10.1 image (`INFO memory`, 100 000
+records with TTLs), so the bound is keyed calls per 23 h 50 m × ~320 B:
+1 M keyed calls a day ≈ 320 MB.
 
 **Rotation.** Set the new key as `child_directed_key` and the old one as
 `child_directed_key_previous` for at least 24 hours, then drop the previous
