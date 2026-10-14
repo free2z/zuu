@@ -152,9 +152,15 @@ The `platform_milli ≥ 0` property holds only when `collected_milli_2z =
 total_milli`; a shortfall is the one case where it does not, and the call
 record says so.
 
-The developer's `developer_milli` is credited to the developer's own Free2Z
-account **as 2Z platform credits, and nothing else in v1**: there is no
-cash-out, and the credit is spendable exactly as any other 2Z. A markup
+The developer's `developer_milli` is the per-call **developer allocation**.
+How the developer is compensated for it is defined by the **Free2Z Creator
+Compensation Agreement** (cc-2026-10-v2, `sdk_application` schedule), which
+is canonical and which this contract does not restate. Under that agreement
+2Z Inc. owes compensation in USD from its own funds, and it is not a
+redemption of usage credits. It applies only after the developer's
+authenticated acceptance, a verified legal-payee binding and activation;
+publication alone does not activate it. 2Z remain usage credits throughout:
+there is no cash-out of a 2Z balance. A markup
 above `0` is only ever applied for an app the platform has **manually
 approved** for markup, and never above the approved value: `b` is
 bounded by `approved_markup_bps` at every hold ([oidc.md](./oidc.md)

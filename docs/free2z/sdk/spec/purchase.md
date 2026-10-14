@@ -16,11 +16,12 @@ purchase rails (§4) exist only in Free2Z's own apps: a store pays the
 proceeds of an in-app product to the account that lists the app, so a
 third-party listing would put the payment and the credit in different
 hands, and the platform does not operate that arrangement in v1. A
-third-party app on iOS or Android opens the card or Zcash surface exactly
-as on desktop. **Before any third-party iOS submission, the app-store
-rules on digital goods bought outside in-app purchase must be revisited
-against that app's own category and jurisdiction**; this contract does not
-settle that question.
+third-party app on desktop or the web opens the card or Zcash surface.
+**An app distributed through the App Store or Google Play sells nothing**:
+it does not request `purchase:create`, open a purchase surface or show a
+buy button, except where the
+[store-compliance playbook](../STORE-COMPLIANCE.md#2-the-line) allows a
+US-storefront link in the external browser.
 
 2Z bought this way are platform credits ([README](../README.md)); a
 purchase buys usage, and the amount of 2Z a given price buys depends on
@@ -179,8 +180,9 @@ the app prefers a hosted page:
 ```
 
 The app opens `checkout_url` in the **system browser** (desktop: the default
-browser; iOS/Android: `SFSafariViewController` / Custom Tabs, or the
-system browser). Apple Pay, Google Pay and the processor's one-click wallet
+browser; iOS/Android builds distributed outside the stores: Custom Tabs or
+the system browser). Store builds do not open checkout at all
+([store compliance](../STORE-COMPLIANCE.md#2-the-line)). Apple Pay, Google Pay and the processor's one-click wallet
 are offered on that page where available. When the user finishes, the page
 redirects to `return_url`; the app then polls the intent. **The redirect is
 a convenience, not the signal**: the platform credits from the processor's

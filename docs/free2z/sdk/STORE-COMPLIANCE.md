@@ -36,6 +36,15 @@ Every rule below is written so you can test it before you submit. The
    the app and in Play Console.
 10. **Tell App Review the truth.** Use the [notes template](#6-app-review-notes-template).
 
+> **Do not submit until** each of these Free2Z pages exists and passes its
+> check. As of 2026-10-14, none of them does:
+>
+> - the store-safe **Manage** view: `/account/apps?client_id=` with no
+>   purchase path ([§2](#2-the-line));
+> - the deletion page `/account/delete` ([§4](#4-account-deletion));
+> - for apps used by children, a hosted sign-in page with no third-party
+>   scripts. Today's sign-in loads Google reCAPTCHA ([§2](#2-the-line)).
+
 ## 1. Why an SDK app never sells 2Z
 
 2Z are platform credits that work in every Free2Z app. Neither store lets an
@@ -66,8 +75,10 @@ Your Application".
 
 So every SDK app is a **consumption-only client**. The user already holds 2Z,
 which they bought from 2Z Inc on the web. The app spends 2Z through the AI
-gateway, and 2Z Inc credits the developer's share (the markup approved on its
-registration; see [metering §2.3](./spec/metering.md#23-splits)). The SDK's
+gateway. Usage is metered in 2Z usage credits, which are never cashed out. A
+developer who has accepted the Free2Z Creator Compensation Agreement
+(cc-2026-10-v2, `sdk_application` schedule) and been activated is compensated
+in USD by 2Z Inc. (see [metering §2.3](./spec/metering.md#23-splits)). The SDK's
 purchase API ([purchase.md](./spec/purchase.md)) is for web and desktop builds.
 A store build must not request `purchase:create` or call `createPurchase`.
 
@@ -80,10 +91,12 @@ Google says plainly that this model is allowed:
 **Apple is the gray zone.** 3.1.1: "If you want to unlock features or
 functionality within your app, […] you must use in-app purchase." 3.1.3(b) lets an app use items bought elsewhere "provided
 those items are also available as in-app purchases", which §2.2 makes
-impossible for 2Z. The closest fit is 3.1.3(f), for free companion apps,
+impossible for 2Z. The nearest rule is 3.1.3(f), for free companion apps,
 "provided there is no purchasing inside the app, or calls to action for
-purchase outside of the app". Build to that standard and explain it in your
-review notes (§6). There is precedent:
+purchase outside of the app". It is a **weak fit**: its examples are "VoIP,
+Cloud Storage, Email Services, Web Hosting", not an app that spends AI
+credits. Build to its standard anyway, and explain the model in your review
+notes (§6). There is precedent:
 [RouterChat](https://apps.apple.com/app/id6776368852) is on the App Store as a
 client that signs in to OpenRouter and shows that account's credits. Precedent
 is not a promise.
@@ -101,20 +114,21 @@ or by IP address.
 | **Connect / Sign in with Free2Z** (system auth session) | ✅ | ✅ | ✅ |
 | Balance shown neutrally ("1,240 2Z") | ✅ | ✅ | ✅ |
 | Calm **No credits** state | ✅ | ✅ | ✅ |
-| **Manage Free2Z account** → `https://free2z.cash/account/apps?client_id=<id>` in the **system browser** | ✅ | ✅ | ✅ |
+| **Manage Free2Z account** → `https://free2z.cash/account/apps?client_id=<id>` in the **system browser** | ✅ once the store-safe view ships | ✅ | ✅ once the store-safe view ships |
 | Plain text with no link: "Add 2Z at free2z.cash" | ❌ (3.1.3: may not "encourage") | ✅ | ✅ |
 | Buy or top-up button, or link to purchase, in the **external browser** | ❌ | ✅, optional | ❌, unless enrolled in the US external content links program |
-| Prices, exchange rates ("1 2Z = $0.01"), "buy 2Z", "top up" | ❌ | ✅ only beside a US link | ❌ |
+| Prices ("500 2Z for $5"), "buy 2Z", "top up" | ❌ | ✅ only beside a US link | ❌ |
 | Any Free2Z page in an in-app WebView | ❌ | ❌ | ❌ |
 | The same purchase wording in the name, description, screenshots or keywords | ❌ | ❌ (metadata is per language, not per storefront) | ❌ |
 
 **US storefront, Apple.** Guideline 3.1.1(a) says that link entitlements "are
 not required for developers to include buttons, external links, or other calls
 to action in their United States storefront apps". This comes from the
-*Epic v. Apple* injunction. The commission is still in court. The Ninth
-Circuit (December 2025) said Apple may charge a cost-based commission on
-linked-out purchases. The Supreme Court granted review on 2026-06-30 (No.
-25-1311). Keep the US link **behind a remote flag that defaults to off**, so
+*Epic v. Apple* injunction. The Ninth Circuit (No. 25-2935, 2025-12-11) held
+that Apple may charge a commission on linked-out purchases limited to its
+genuine costs, and sent the amount back to the district court. Separately, the
+Supreme Court granted review on 2026-06-30 (No. 25-1311), limited to the
+contempt finding. Keep the US link **behind a remote flag that defaults to off**, so
 you can remove it without an app update if Apple sets a fee.
 
 **Google, any country.** You may write purchasing information without a link.
@@ -138,10 +152,14 @@ SDK app opens (sign-in, sign-up, consent, account, deletion):
   pages. Load only first-party scripts, with no trackers, no social widgets and
   no third-party media.
 
-The rest of free2z.cash may sell 2Z normally. **As of
-2026-10-14 this is not built.** `/account/apps` currently links to
-**Manage balance and purchases**. Until the store-safe view ships, the exit is
-not compliant on Google Play, or for Apple outside the US.
+The rest of free2z.cash may sell 2Z normally.
+
+**Gaps as of 2026-10-14** (see "Do not submit until" above):
+
+- `/account/apps` ignores `client_id` and links to **Manage balance and
+  purchases**. The shared navigation's user menu also reaches billing.
+- The hosted sign-in loads Google reCAPTCHA, which is a third-party script.
+  That fails the rule above for apps used by children.
 
 ### Copy
 
@@ -208,8 +226,10 @@ Category." Guideline 5.1.4 adds: "Apps not in the Kids Category cannot include
 any terms in app name, subtitle, icon, screenshots or description that imply
 the main audience for the app is children." Describe the **subject and the
 skill** ("fractions, step by step"), not the audience. Don't use child mascots
-in screenshot captions, and don't say "for your child". No third-party
-analytics or ads (5.1.4).
+in screenshot captions, and don't say "for your child". Also leave out
+third-party analytics and ads. 5.1.4 bans them only for "apps intended
+primarily for kids", but leaving them out is the safe course for an all-ages
+app.
 
 ### Google: an honest target audience brings in Families
 
@@ -219,15 +239,18 @@ against your imagery and wording, and "misrepresentation […] may result in
 removal or suspension". Families requires:
 
 - **Content** that is appropriate for children.
-- **Identifiers:** do not transmit the advertising ID, SIM or build serial,
-  MAC, SSID, BSSID, IMEI or IMSI "from children or users of unknown age". The
-  SDK reads none of these. Your own code must not read them either.
+- **Identifiers:** an app that targets only children must not transmit the
+  advertising ID, SIM or build serial, MAC, SSID, BSSID, IMEI or IMSI at all.
+  A mixed-audience app must not transmit them "from children or users of
+  unknown age". The SDK reads none of these, and your own code must not read
+  them either.
 - **APIs and SDKs approved for child-directed services.** Google names this
   exact case: "an API Service using OAuth technology […] whose terms of
   service states that it is not approved for use in child-directed services".
   A mixed-audience app may use such an API only "behind a neutral age screen"
-  or without collecting data from children, and "must not require users to
-  access app content through" it.
+  or without collecting data from children. Google's Families data-practices
+  page adds that such apps "must not require users to sign-in or access app
+  content through" it.
 - **Legal compliance** with COPPA, GDPR and other applicable law, including
   through the APIs and SDKs you call.
 
@@ -257,6 +280,13 @@ What to build: before the first AI call, show one screen that names
 device IDs). The person agrees with an explicit tap. Store the consent on the
 device, and let them withdraw it in Settings. In apps for children,
 this screen is part of the adult step below.
+
+**A tap is not COPPA verifiable parental consent.** Neither is a neutral age
+screen. Neither is one of the 312.5(b) methods. So design child-facing AI
+requests to carry **no personal information from the child**: preset choices
+and the problem only, never a name or free text. If an app must send a child's
+personal information to AI, it needs a 312.5(b) method. That is a question for
+counsel, not for this playbook.
 
 ### The one-time adult step
 
@@ -294,21 +324,21 @@ not count.
 
 ## 4. Account deletion
 
-Both stores treat signing in through an outside account-creation flow as
-account creation. Google: the app "directs the user to an app account creation
-flow outside of the app". Apple: "If your app supports account creation, you
-must also offer account deletion within the app" (5.1.1(v)).
+Google counts directing users to an outside sign-up as account creation: the
+app "directs the user to an app account creation flow outside of the app".
+Apple doesn't say either way, so treat it as account creation there too.
+Apple: "If your app supports account creation, you must also offer account
+deletion within the app" (5.1.1(v)).
 
 - **In the app:** add **Delete Free2Z account** in Settings, next to Sign out.
-  It opens `https://free2z.cash/account/delete?client_id=<id>` in the system
-  browser. Apple accepts "a link directly to the page on your website where
+  It opens `https://free2z.cash/account/delete` in the system browser. Apple accepts "a link directly to the page on your website where
   they can complete the process". Apple also says apps outside regulated
   industries "should not require people to […] send an email". That is why
   Free2Z is replacing deletion by email with this self-service page.
 - **Play Console:** enter the same URL in the Data safety form's deletion
   field. Google requires a page that loads without error, "reference[s] the
   app or developer name", and lets users delete without reinstalling the app.
-  The `client_id` lets the page name your app.
+  Check that the page meets the naming requirement before you rely on it.
 - **Your local data:** when the account is deleted or the user signs out,
   delete everything stored under that `subject`. Withdrawing consent and
   revoking the app's grant (`/account/apps`) are different actions from
@@ -347,13 +377,17 @@ independent apps, so it cannot be sold through in-app purchase (DPLA
 Attachment 2 §2.2). 2Z Inc sells 2Z on its website. Outside the US storefront
 the app shows no purchase buttons, links, prices or calls to action. When the
 balance is zero, it shows "No credits" and a "Manage Free2Z account" link to
-an account page with no purchase path.
+an account page with no purchase path. [Only once the store-safe view ships;
+see "Do not submit until".]
 [US storefront only: an optional link opens free2z.cash in Safari to add 2Z
 (3.1.1(a)).]
 
-HOW WE ARE PAID
-2Z Inc credits us a share of each AI charge (our registered markup). We do not
-sell 2Z, set its price or handle payments.
+DEVELOPER COMPENSATION
+Usage is metered in 2Z usage credits, which cannot be cashed out.
+[Only if your participation is accepted and activated: We are compensated in
+USD by 2Z Inc. under the Free2Z Creator Compensation Agreement (cc-2026-10-v2,
+sdk_application schedule), from 2Z Inc.'s own funds.]
+We do not sell 2Z, set its price or handle payments.
 
 AI AND PRIVACY
 AI requests are structured (preset choices in, validated data out); there is
@@ -391,7 +425,9 @@ Steps: Connect Free2Z > sign in > <first exercise>.
 
 **Texas SB 2420** (App Store Accountability Act) has been **in effect since
 2026-06-04**. A federal injunction stopped it on 2025-12-23, and the Fifth
-Circuit stayed that injunction (*CCIA v. Paxton*, No. 25-51073). For new Texas
+Circuit stayed that injunction (*CCIA v. Paxton*, 5th Cir. No. 25-50001). On
+2026-07-06 the Supreme Court denied the application to vacate that stay
+(No. 25A1390). For new Texas
 accounts, the stores verify age and get parental consent for minors'
 downloads. Developers take on three duties:
 
@@ -426,6 +462,8 @@ All accessed **2026-10-14**.
 - Google Play, Families policies — <https://support.google.com/googleplay/android-developer/answer/9893335>
 - Google Play, AI-Generated Content — <https://support.google.com/googleplay/android-developer/answer/13985936>
 - Google Play, Account deletion requirements — <https://support.google.com/googleplay/android-developer/answer/13327111>; Data safety section — <https://support.google.com/googleplay/android-developer/answer/10787469>
-- Android, Play Age Signals overview (updated 2026-08-06) — <https://developer.android.com/google/play/age-signals/v3/overview>
+- Android, Play Age Signals overview (updated 2026-07-20) — <https://developer.android.com/google/play/age-signals/overview>
+- Google Play, Data practices in Families apps — <https://support.google.com/googleplay/android-developer/answer/11043825>
+- *CCIA v. Paxton*, 5th Cir. No. 25-50001; Supreme Court application 25A1390 (denied 2026-07-06) — <https://www.supremecourt.gov/docket/docketfiles/html/public/25A1390.html>
 - COPPA, 16 CFR 312.5 — <https://www.ecfr.gov/current/title-16/part-312/section-312.5>
 - *Epic Games v. Apple*, 9th Cir. No. 25-2935 (2025-12-11) — <https://law.justia.com/cases/federal/appellate-courts/ca9/25-2935/25-2935-2025-12-11.html>; Supreme Court No. 25-1311 (cert. granted 2026-06-30) — <https://www.supremecourt.gov/search.aspx?filename=/docket/docketfiles/html/public/25-1311.html>
