@@ -163,7 +163,26 @@ SDK app opens (sign-in, sign-up, consent, account, deletion):
   children opens Free2Z sign-in only after its one-time adult step, for the
   adult account holder, in the system browser. In v1 that page keeps Google
   reCAPTCHA, an anti-abuse check rather than analytics or ads. A first-party
-  replacement for it is planned.
+  replacement for it is planned. The exception holds only when all of these
+  are true:
+  1. **The adult gate is real.** It asks a question or sets a task a young
+     child cannot trivially pass, with no answer hint on screen. A tap or an
+     "I'm a grown-up" button is not enough, and no gate of this kind is
+     COPPA verifiable parental consent.
+  2. **Every Free2Z browser exit is behind the gate**, not just the first
+     sign-in: connect, switch account (`prompt=login`), **Manage**,
+     **Delete**, and any re-authentication after expiry or for a step-up.
+     Signed out, **Manage** and **Delete** lead to the sign-in page, so a
+     deep link or a token-expiry path that skips the gate breaks the
+     exception.
+  3. **It is disclosed.** The app's App Store privacy label and Google Play
+     Data safety form disclose Google reCAPTCHA on the sign-in page, as does
+     the Free2Z Privacy Policy.
+  4. **The app is not in Apple's Kids Category.** An app in the Kids
+     Category needs the first-party replacement first.
+
+  The exception covers **only** the sign-in and sign-up page (`/login`).
+  Consent, **Manage** and `/account/delete` load no third-party script.
 
 The rest of free2z.cash may sell 2Z normally.
 
@@ -209,8 +228,16 @@ those is a sales pitch in any store.
 - [ ] With the app's real `client_id`, every Free2Z page the app opens
       (sign-in, consent, **Manage**, deletion) has no purchase path, including
       in its header and footer. For an app used by children, the browser's
-      network log shows no third-party requests on any page a child sees (the
-      adult-gated sign-in page's reCAPTCHA is the v1 exception).
+      network log shows no third-party requests on any page a child sees.
+      The only v1 exception is reCAPTCHA on the sign-in and sign-up page
+      (`/login`), never on consent, **Manage** or `/account/delete`.
+- [ ] If your app is used by children: the adult gate is a real one (no
+      on-screen hint; not a tap or an "I'm a grown-up" button), and every
+      Free2Z browser exit sits behind it (connect, switch account,
+      **Manage**, **Delete**, expiry and step-up re-authentication).
+- [ ] Your App Store privacy label and Google Play Data safety form
+      disclose Google reCAPTCHA on the Free2Z sign-in page, and the app is
+      not in Apple's Kids Category.
 
 ## 3. Age and audience
 
