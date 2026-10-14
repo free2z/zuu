@@ -1486,3 +1486,27 @@ async fn prompt_login_requires_a_fresh_auth_time() {
         .await
         .unwrap();
 }
+
+/// Switching accounts needs an ID token to prove who signed in, and when.
+#[tokio::test]
+async fn prompt_login_without_openid_is_refused_before_the_browser_opens() {
+    let fake = Fake::start().await;
+    let config = fake
+        .config()
+        .with_scopes(["offline_access", "balance:read", "ai:invoke"]);
+    let client = Client::new(config, Arc::new(MemoryStore::new())).unwrap();
+    let browser = ScriptedBrowser::new(MOBILE_REDIRECT);
+    let mut login = SignInOptions::default();
+    login.prompt = Some(Prompt::Login);
+    assert!(matches!(
+        client.sign_in(&browser, login).await,
+        Err(Error::Config(_))
+    ));
+    assert!(browser.seen.lock().unwrap().is_empty());
+    assert_eq!(fake.authorize_calls.load(Ordering::SeqCst), 0);
+    // Without prompt=login such an app still signs in as before.
+    client
+        .sign_in(&browser, SignInOptions::default())
+        .await
+        .unwrap();
+}

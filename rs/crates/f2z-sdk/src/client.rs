@@ -326,6 +326,12 @@ impl Client {
         // `prompt=login` (switching accounts, step-up): the IdP must have
         // authenticated the user afresh. Checked against the ID token below.
         let login_started = (options.prompt == Some(oauth::Prompt::Login)).then(now_unix);
+        if login_started.is_some() && !wants_openid {
+            // Without an ID token nothing can show who signed in, or when.
+            return Err(Error::Config(
+                "prompt=login (switching accounts) requires the openid scope".into(),
+            ));
+        }
         let callback = tokio::time::timeout(config.callback_timeout, session.authorize(&request))
             .await
             .map_err(|_| Error::Timeout("the sign-in redirect"))??;
@@ -367,8 +373,11 @@ impl Client {
             }
             (None, false) => None,
         };
-        if let (Some(started), Some(claims)) = (login_started, &id_token)
-            && let Err(error) = check_fresh_login(claims.auth_time, started)
+        if let Some(started) = login_started
+            && let Err(error) = id_token
+                .as_ref()
+                .ok_or_else(|| Error::IdToken("prompt=login: no ID token".into()))
+                .and_then(|claims| check_fresh_login(claims.auth_time, started))
         {
             // Never installed: retire the family it would have started.
             if let Some(rt) = &tokens.refresh_token {
@@ -1122,5 +1131,28 @@ mod refresh_tests {
         assert!(matches!(result, Err(Error::Transport(_))));
         assert_eq!(attempts, 2);
         assert!(started.elapsed() < Duration::from_secs(60));
+    }
+}
+
+#[cfg(test)]
+mod fresh_login_tests {
+    use super::*;
+
+    /// Anchored to when the sign-in began, not to "now": a user who spends
+    /// minutes in the browser still passes, and a sign-in older than the
+    /// switch fails however recent it is.
+    #[test]
+    fn a_fresh_login_is_judged_against_the_switch_start() {
+        let started = 1_000_000;
+        // Authenticated during a long browser step: by the time the token
+        // arrives (say started + 600) that is far older than now - 60 s, and
+        // still fresh for this switch.
+        assert!(check_fresh_login(Some(started + 5), started).is_ok());
+        assert!(check_fresh_login(Some(started), started).is_ok());
+        // Within clock skew of the start.
+        assert!(check_fresh_login(Some(started - AUTH_TIME_LEEWAY_SECS), started).is_ok());
+        // Before the switch began (a remembered session), however recent.
+        assert!(check_fresh_login(Some(started - AUTH_TIME_LEEWAY_SECS - 1), started).is_err());
+        assert!(check_fresh_login(None, started).is_err());
     }
 }

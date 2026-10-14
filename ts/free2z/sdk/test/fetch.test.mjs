@@ -7,7 +7,7 @@ import {
   ToolCallAccumulator,
   runTools,
 } from "../dist/index.js";
-import { WebSession } from "../dist/oauth.js";
+import { WebSession, freshLogin } from "../dist/oauth.js";
 import { issuer, deferred } from "./issuer.mjs";
 const options = { operationId: "operation-1", idempotencyKey: "durable-key" };
 const request = { model: "test", messages: [] };
@@ -1375,5 +1375,26 @@ test("web prompt=login needs a fresh auth_time; the refused family is revoked", 
   assert.equal(
     (await new WebSession(fresh.config).signIn({ prompt: "login" })).signedIn,
     true,
+  );
+});
+
+test("prompt=login freshness is judged against the switch start, not now", () => {
+  const started = 1_000_000;
+  // A long browser step: older than now - 60 s on arrival, still fresh.
+  assert.equal(freshLogin(started + 5, started), true);
+  assert.equal(freshLogin(started - 60, started), true);
+  // Before the switch began, however recent.
+  assert.equal(freshLogin(started - 61, started), false);
+  assert.equal(freshLogin(undefined, started), false);
+  assert.equal(freshLogin("1000000", started), false);
+});
+
+test("web display names lose bidi marks too", async () => {
+  const mock = issuer({
+    claims: { preferred_username: "\u200Fada\u200E\u061C" },
+  });
+  assert.equal(
+    (await new WebSession(mock.config).signIn()).preferredUsername,
+    "ada",
   );
 });

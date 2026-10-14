@@ -69,8 +69,8 @@ because that plugin has no such command.
 - **Sign-out** also drops the cached model catalogue; a catalogue read under
   one session is never used for another.
 - **Defence in depth:** a `prompt=login` sign-in is refused unless the ID
-  token's `auth_time` is at or after its start (60 s skew), and display names
-  drop bidi controls.
+  token's `auth_time` is at or after its start (60 s skew) and requires the
+  `openid` scope; display names drop bidi controls and marks.
 
 ## sdk-v0.2.0 — 2026-10-06
 

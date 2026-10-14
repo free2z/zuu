@@ -50,12 +50,22 @@ interface Tokens {
 function display(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   // Bidi embedding/override/isolate controls can make one name look like another.
-  const trimmed = value.replace(/[\u202A-\u202E\u2066-\u2069]/gu, "").trim();
+  const trimmed = value
+    .replace(/[\u200E\u200F\u061C\u202A-\u202E\u2066-\u2069]/gu, "")
+    .trim();
   return trimmed &&
     new TextEncoder().encode(trimmed).length <= 256 &&
     !/\p{Cc}/u.test(trimmed)
     ? trimmed
     : undefined;
+}
+/**
+ * `prompt=login`: the user authenticated at or after the sign-in began (60 s
+ * of clock skew). Anchored to the start, not to "now", so a long browser step
+ * still passes and an older session never does.
+ */
+export function freshLogin(authTime: unknown, started: number): boolean {
+  return typeof authTime === "number" && authTime + 60 >= started;
 }
 function profileOf(
   claims: oauth.IDToken | undefined,
@@ -349,11 +359,14 @@ export class WebSession {
       const subject = await this.#validate(as, response, issued);
       // prompt=login (switching accounts): defence in depth, the ID token
       // must say the user authenticated after this sign-in began.
-      if (options.prompt === "login") {
-        const authTime = oauth.getValidatedIdTokenClaims(issued)?.auth_time;
-        if (typeof authTime !== "number" || authTime + 60 < loginStarted)
-          failure("invalid_response");
-      }
+      if (
+        options.prompt === "login" &&
+        !freshLogin(
+          oauth.getValidatedIdTokenClaims(issued)?.auth_time,
+          loginStarted,
+        )
+      )
+        failure("invalid_response");
       cancelled(options.signal);
       if (generation !== this.generation) failure("signed_out");
       const old = this.#tokens?.refresh;

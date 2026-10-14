@@ -33,10 +33,14 @@ pub struct Profile {
     pub name: Option<String>,
 }
 
-/// Bidirectional embedding, override and isolate controls (U+202A–U+202E,
-/// U+2066–U+2069): they can make one name render as another.
+/// Bidirectional controls: the marks (U+200E, U+200F, U+061C) and the
+/// embedding, override and isolate controls (U+202A–U+202E, U+2066–U+2069).
+/// They can make one name render as another.
 fn is_bidi_control(c: char) -> bool {
-    matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+    matches!(
+        c,
+        '\u{200E}' | '\u{200F}' | '\u{061C}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+    )
 }
 
 /// A display claim worth keeping: bidi controls stripped, non-empty after
@@ -166,6 +170,10 @@ mod tests {
             Some("resu_adax")
         );
         assert_eq!(display(Some("\u{202A}\u{202B} \u{2067}\u{2068}")), None);
+        assert_eq!(
+            display(Some("\u{200F}ada\u{200E}\u{061C}")).as_deref(),
+            Some("ada")
+        );
         assert!(display(Some(&long[..MAX_DISPLAY_BYTES])).is_some());
         assert_eq!(
             profile("profile", Some(&claims(Some(""), Some("\n")))),

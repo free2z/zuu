@@ -9,7 +9,7 @@
   token, dropped when a refresh no longer grants `profile`).
 - Web `prompt: "login"` sign-in requires a fresh `auth_time` in the ID token
   (`invalid_response` otherwise; the issued family is revoked). Display names
-  drop bidi controls.
+  drop bidi controls and marks.
 - `SignInOptions.ephemeral` for `NativeTransport` (needs a plugin with it);
   `FetchTransport` refuses it with `invalid_request`.
 - `Client.manageAccountUrl()`, `openManageAccount()`, `deleteAccountUrl()`,

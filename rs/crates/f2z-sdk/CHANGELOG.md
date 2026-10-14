@@ -18,7 +18,10 @@
 - A `prompt=login` sign-in requires the ID token's `auth_time` to be at or
   after the sign-in's start (60 s skew); otherwise `Error::IdToken`, nothing is
   installed, and the issued refresh token is revoked.
-- Display names drop bidi controls (U+202A–U+202E, U+2066–U+2069).
+- `prompt=login` requires the `openid` scope (`Error::Config` before the
+  browser opens), and its ID token must be present.
+- Display names drop bidi controls and marks (U+200E, U+200F, U+061C,
+  U+202A–U+202E, U+2066–U+2069).
 
 ## 0.2.0 — 2026-10-06
 

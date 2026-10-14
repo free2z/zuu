@@ -224,8 +224,9 @@ const label = session.preferredUsername ?? "Free2Z account";
 
 - Both come from the **verified ID token** of the sign-in that started the
   session, and are stored with it, so they survive a restart without a
-  network call. Bidirectional-text controls are stripped and control
-  characters refused, so a name cannot render as a different one.
+  network call. Bidirectional-text controls and marks (U+200E, U+200F,
+  U+061C, U+202A–U+202E, U+2066–U+2069) are stripped and control characters
+  refused, so a name cannot render as a different one.
 - They are **display-only, non-unique and mutable**: the user can rename the
   account, and usernames compare case-insensitively, so two accounts can look
   alike (tuzi#1348). Key local data, caches and recovery records by
@@ -256,9 +257,13 @@ deleted before the new one is installed, and every in-flight operation of the
 old session ends with `session_changed`. As defence in depth, the SDK also
 checks the new ID token's `auth_time`: a `prompt: "login"` sign-in whose
 token says the user did not authenticate after the sign-in began (beyond 60 s
-of clock skew), or carries no `auth_time`, is refused
+of clock skew; judged against the sign-in's start, not the current time), or
+carries no `auth_time`, is refused
 (`invalid_authentication_response` from the plugin, `invalid_response` on the
-web) and its tokens are revoked; the previous session stays. Re-read `session()` afterwards and
+web) and its tokens are revoked; the previous session stays. Switching
+therefore requires the `openid` scope: without it, a `prompt: "login"`
+sign-in fails with a configuration error before the browser opens (this also
+applies to step-up, which uses `prompt=login`). Re-read `session()` afterwards and
 switch local data to the new `subject`.
 
 On iOS and Android, `ephemeral: true` additionally keeps the sign-in out of
