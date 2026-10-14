@@ -168,6 +168,27 @@ fn serve(config: &Config) -> Result<ExitCode, String> {
                                 f2z_ai::meter::ChildDirectedKey::new(k.expose_secret().as_bytes())
                             })
                             .transpose()?,
+                    )
+                    .with_child_directed_key_previous(
+                        config
+                            .child_directed_key_previous
+                            .as_ref()
+                            .map(|k| {
+                                use secrecy::ExposeSecret as _;
+                                f2z_ai::meter::ChildDirectedKey::new(k.expose_secret().as_bytes())
+                            })
+                            .transpose()?,
+                    )
+                    .with_form_store(
+                        std::sync::Arc::new(f2z_ai::auth::store::RedisStore::new(
+                            config
+                                .auth
+                                .redis_url
+                                .as_ref()
+                                .ok_or("configure shared Redis admission for metered service")?,
+                            config.auth.redis_timeout,
+                        )?),
+                        config.auth.redis_namespace.clone(),
                     ),
             );
             Deps {

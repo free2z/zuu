@@ -160,20 +160,57 @@ caller's key text can be confirmed from the record.
 
 ```toml
 child_directed_key_file = "/run/secrets/child-directed-key"   # or F2Z_AI_CHILD_DIRECTED_KEY
+# child_directed_key_previous_file = "/run/secrets/child-directed-key-previous"
+#   # or F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS; only during a rotation
 ```
 
 At least 32 bytes, never inline. Without it, child-directed calls are refused
 with `503` (`reason: "child_directed_unconfigured"`) and nothing is claimed;
 other calls are unaffected. Other apps keep the unkeyed SHA-256 fingerprint and
-the key as sent, byte for byte, so no stored row changes format. No
-child-directed call was claimed before this existed, so there is no legacy
-form to accept.
+the key as sent, byte for byte, so no stored row changes format.
 
-**Rotation.** The ledger column holds 64 hex characters and no key id, so
-rotating the key changes every derived value at once: a keyed retry of a call
-made under the old key is a new call. Idempotency keys live 24 hours; rotate
-only when that exposure is acceptable (for example, after an incident), and
-treat any double charge in that window as a refund case.
+**Retries across a flip or a rotation (`src/idempotency.rs`, tuzi#2639).**
+Which form a call was claimed in depends on the token's `child_directed` claim
+and on the key, so a same-key retry that straddles a flag flip or a rotation
+derives the other form. After every keyed claim that inserts a call, the
+gateway writes a form record to the shared Redis:
+`<ns>:ai:idem:<sub>:<app>:<hmac>` → `v1:plain:<call>` or
+`v1:keyed:<key id>:<call>`, for 23 h 50 m (just under the ledger key's 24 h).
+The `<hmac>` is an HMAC of the `Idempotency-Key` under the current key, for
+every app, so the key text reaches neither Redis nor, for a child-directed
+app, the ledger. A keyed request reads the record (under the current key, then
+the previous one). If it names a form this request does not derive, the claim
+names the **recorded call id** with the fingerprint in that call's form, and
+`ledger.call_claim` resolves the existing call by id — replayed, pending, or a
+conflict — inserting nothing. The key the claim carries is always this
+request's canonical form. The key id is 16 hex characters of an HMAC of a
+fixed label under the key (`ChildDirectedKey::id`).
+
+Records need the key configured: without it (before the key is deployed)
+every claim takes its canonical form, as before. Anything that loses a record
+falls back to the canonical form, so a straddling retry can again be charged
+twice. Counted in `f2z_ai_idempotency_forms_total{outcome}` — alert on any
+increase of these four: Redis unavailable (`unavailable`), a record write that
+failed (`write_failed`), a record naming a key no longer configured
+(`unknown_record`), a ledger that no longer holds the recorded call
+(`orphaned`). Not distinguishable from a first request (`miss`), so accepted
+as residual risk: a record evicted or lost to a Redis restart or flush, and a
+crash between the claim and the record write.
+
+The records carry a TTL, so a `volatile-*` eviction policy would drop them
+first and an `allkeys-*` one could; the shared Redis must run with no
+`maxmemory` limit or `noeviction`. One record is about 300 bytes with Redis's
+per-key overhead, so the bound is keyed calls per day × ~300 B, each held
+23 h 50 m (100 000 keyed calls a day ≈ 30 MB).
+
+**Rotation.** Set the new key as `child_directed_key` and the old one as
+`child_directed_key_previous` for at least 24 hours, then drop the previous
+key. While both are set, a keyed retry of a call claimed under the old key
+replays it. A retry after the previous key is dropped is a new call. The
+previous key must differ from the current one and needs it.
+`F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS` is a new `F2Z_AI_*` variable, and an
+image older than this one refuses to start on it: set it only once an image
+with this support is the rollback target too.
 
 ## Authentication and limits (`src/auth`)
 
