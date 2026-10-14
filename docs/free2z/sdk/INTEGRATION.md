@@ -601,7 +601,8 @@ app has no backend, so Free2Z receives it. You do not build a server for this.
 - For more precision, pass an app-defined preset as `detail` (`wrong_grade`,
   `off_topic`); at most 200 characters on one line. **If children may use the
   app, do not offer a free-text box**: Free2Z stores `detail` as sent. A
-  child-directed app omits `detail` entirely; the reason alone is the report.
+  child-directed app must omit `detail` (the server refuses it there with
+  `400 invalid_request`, `details.field: "detail"`); the reason alone is the report.
 - Confirm calmly ("Thanks — reported") and let the user carry on. Reporting the
   same output again is safe: it replaces the reason and keeps one report.
 
@@ -619,9 +620,10 @@ await nativeBridge.reportCall(callId, "incorrect", "wrong_grade"); // guest-js
 The Tauri window that reports needs the `f2z:allow-report-call` permission. A
 bad reason or `detail` is refused before anything is sent (`invalid_request`
 with `details.field`; Rust `Error::Config`); a call this user and app did not
-make is `404 not_found`; honour `Retry-After` on `429 rate_limited` (at most 30
-new reports per account per rolling hour; a repeat that first escalates a report
-to `unsafe` counts too, other repeats do not).
+make is `404 not_found`; honour `Retry-After` on `429 rate_limited` (per account
+per rolling hour: at most 30 reports, and at most 5 of them `unsafe`; a repeat
+that first escalates a report to `unsafe` counts toward both, other repeats do
+not).
 
 Free2Z keeps the call reference, the reason and `detail` — never the prompt or
 the output. You read your app's reports via

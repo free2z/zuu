@@ -788,7 +788,8 @@ never the prompt or the output.
 the four reasons as choices. For more precision pass an app-defined code in
 `detail` (`wrong_grade`, `off_topic`), not text the user types. Apps that
 children may use should not offer a free-text box at all: Free2Z stores
-`detail` as sent. A child-directed app omits `detail` entirely.
+`detail` as sent. A child-directed app must omit `detail`: the server refuses
+it there with `400 invalid_request` (`details.field: "detail"`).
 
 `201 Created` for a new report; `200 OK` when this user already reported this
 call. There is **one report per call and user**: a repeat replaces `reason` and
@@ -806,11 +807,11 @@ lost response is safe. Both carry the receipt; ignore members you do not know:
 
 | Status | `code` | When |
 |---|---|---|
-| 400 | `invalid_request` | An unknown `reason`, or `detail` outside the rule above |
+| 400 | `invalid_request` | An unknown `reason`, or `detail` outside the rule above; also any non-empty `detail` sent by a child-directed app (`details.field: "detail"`) |
 | 401 | `invalid_token`, `token_revoked` | As in [errors.md](./errors.md) §2 |
 | 403 | `insufficient_scope` | The token lacks `ai:invoke` |
 | 404 | `not_found` | No such call for this user and app: unknown, another user's or app's, or past the call record's 90-day retention. This endpoint answers the account API's generic `not_found`, not §7's `call_not_found`; treat the two alike |
-| 429 | `rate_limited` | Too many reports; honour `Retry-After`. The hourly cap (30 per account per rolling hour) counts new reports and the first escalation of an existing report to `unsafe`; any other repeat is never capped |
+| 429 | `rate_limited` | Too many reports; honour `Retry-After`. Two rolling-hour caps per account: 30 reports (new reports plus the first escalation of an existing report to `unsafe`) and, separately, 5 `unsafe` reports (new `unsafe` reports plus first escalations to `unsafe`). Any other repeat is never capped |
 
 The SDKs check `reason` and `detail` before sending, so a value the server would
 refuse never leaves the device: Rust `Error::Config`; TypeScript and the Tauri
