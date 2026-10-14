@@ -123,7 +123,7 @@ If the app requires a policy (for example, an enforced `total` cap no higher
 than some amount), register that default, optionally suggest it at sign-in,
 and **verify it from `grant()`** before spending — the user may have chosen
 otherwise, and an existing grant keeps its own period. Direct users whose
-grant does not qualify to [manage this app's budget](https://free2z.cash/account/apps)
+grant does not qualify to manage this app's budget at `https://free2z.cash/account/apps?client_id=<client_id>` (see [the URL contract](#manage-free2z-account-the-url-contract))
 or sign in again with `prompt: "consent"`.
 
 **Version requirement.** The spend-cap hint is in `sdk-v0.2.0` and later; the
@@ -587,8 +587,8 @@ from `collected_milli_2z` actually taken.
 | `Error::SignedOut` | Clear signed-in UI and request login; do not continue spending |
 | `Error::StepUpRequired(challenge)` | Sign in with `SignInOptions::step_up(&challenge)` and retry the intended operation once, bound to the same account |
 | `insufficient_balance` | Offer a credit purchase or the **Manage balance and purchases** link on [Free2Z connected apps](https://free2z.cash/account/apps); re-read balance after confirmed credit. A store build shows only "No credits" and **Manage Free2Z account** ([store compliance](./STORE-COMPLIANCE.md#2-the-line)) |
-| `cap_exceeded` | Direct the user to [manage this app's budget in Free2Z](https://free2z.cash/account/apps), or wait for its reset period. Topping up account balance does not raise this budget |
-| `account_in_debt` | Show debt separately and direct the user to Free2Z account management; do not automatically retry a charge |
+| `cap_exceeded` | Direct the user to manage this app's budget at `https://free2z.cash/account/apps?client_id=<client_id>` ([URL contract](#manage-free2z-account-the-url-contract)), or wait for its reset period. Topping up account balance does not raise this budget |
+| `account_in_debt` | Show debt separately and direct the user to Free2Z account management at `https://free2z.cash/account/apps?client_id=<client_id>` ([URL contract](#manage-free2z-account-the-url-contract)); do not automatically retry a charge |
 | `rate_limited`, `concurrency_limit`, `unavailable` | Honor `Retry-After` and explain temporary capacity/availability, not a need to buy credits or raise a budget |
 | `Error::Unconfirmed { idempotency_key, .. }` | Retain the exact request and key; recover with the same key under the same user |
 | `Error::Replayed(record)` | Display the existing call's receipt; no new completion or charge was produced |
