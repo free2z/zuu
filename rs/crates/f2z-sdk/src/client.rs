@@ -173,6 +173,22 @@ impl fmt::Debug for Client {
     }
 }
 
+/// Clock skew tolerated between this device and the IdP on `auth_time`.
+const AUTH_TIME_LEEWAY_SECS: u64 = 60;
+
+/// Defence in depth for `prompt=login`: the ID token must say the user
+/// authenticated after this sign-in began (within clock skew). The IdP
+/// enforces this itself; a token that disagrees is not installed.
+fn check_fresh_login(auth_time: Option<u64>, started: u64) -> Result<(), Error> {
+    match auth_time {
+        Some(t) if t.saturating_add(AUTH_TIME_LEEWAY_SECS) >= started => Ok(()),
+        Some(_) => Err(Error::IdToken(
+            "prompt=login: auth_time predates this sign-in".into(),
+        )),
+        None => Err(Error::IdToken("prompt=login: no auth_time".into())),
+    }
+}
+
 pub(crate) fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -307,6 +323,9 @@ impl Client {
             url,
             redirect_uri: redirect_uri.clone(),
         };
+        // `prompt=login` (switching accounts, step-up): the IdP must have
+        // authenticated the user afresh. Checked against the ID token below.
+        let login_started = (options.prompt == Some(oauth::Prompt::Login)).then(now_unix);
         let callback = tokio::time::timeout(config.callback_timeout, session.authorize(&request))
             .await
             .map_err(|_| Error::Timeout("the sign-in redirect"))??;
@@ -348,6 +367,15 @@ impl Client {
             }
             (None, false) => None,
         };
+        if let (Some(started), Some(claims)) = (login_started, &id_token)
+            && let Err(error) = check_fresh_login(claims.auth_time, started)
+        {
+            // Never installed: retire the family it would have started.
+            if let Some(rt) = &tokens.refresh_token {
+                let _ = self.revoke(&discovery, &Secret::new(rt.clone())).await;
+            }
+            return Err(error);
+        }
         let subject = id_token.as_ref().map(|c| c.sub.clone());
         let profile = crate::account::profile(&granted, id_token.as_ref());
         let refreshable = tokens.refresh_token.is_some();

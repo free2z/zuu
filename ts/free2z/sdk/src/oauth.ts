@@ -49,7 +49,8 @@ interface Tokens {
 /** A display claim worth showing: a bounded string without control characters. */
 function display(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
+  // Bidi embedding/override/isolate controls can make one name look like another.
+  const trimmed = value.replace(/[\u202A-\u202E\u2066-\u2069]/gu, "").trim();
   return trimmed &&
     new TextEncoder().encode(trimmed).length <= 256 &&
     !/\p{Cc}/u.test(trimmed)
@@ -267,6 +268,7 @@ export class WebSession {
     // A browser page cannot choose the system browser's cookie jar.
     if (options.ephemeral !== undefined) failure("invalid_request");
     const generation = this.generation;
+    const loginStarted = Math.floor(Date.now() / 1000);
     const attempt = (this.config.authSession ?? new PopupAuthSession()).open();
     let issued: oauth.TokenEndpointResponse | undefined;
     try {
@@ -345,6 +347,13 @@ export class WebSession {
         processOptions,
       );
       const subject = await this.#validate(as, response, issued);
+      // prompt=login (switching accounts): defence in depth, the ID token
+      // must say the user authenticated after this sign-in began.
+      if (options.prompt === "login") {
+        const authTime = oauth.getValidatedIdTokenClaims(issued)?.auth_time;
+        if (typeof authTime !== "number" || authTime + 60 < loginStarted)
+          failure("invalid_response");
+      }
       cancelled(options.signal);
       if (generation !== this.generation) failure("signed_out");
       const old = this.#tokens?.refresh;

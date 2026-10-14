@@ -1443,3 +1443,46 @@ fn the_account_pages_are_on_the_web_origin() {
         .is_err()
     );
 }
+
+/// Defence in depth on the switch-account path: a `prompt=login` sign-in
+/// whose ID token says the user did not authenticate afresh is refused and
+/// installs nothing; the same token without `prompt=login` is accepted.
+#[tokio::test]
+async fn prompt_login_requires_a_fresh_auth_time() {
+    let fake = Fake::start().await;
+    let (client, store) = signed_in(&fake).await;
+    let before = stored_blob(&store, &fake).unwrap();
+    let mut login = SignInOptions::default();
+    login.prompt = Some(Prompt::Login);
+    let stale = support::now_unix() - 3600;
+    for auth_time in [Some(stale), None] {
+        *fake.id_token_auth_time.lock().unwrap() = Some(auth_time);
+        *fake.account_override.lock().unwrap() = Some(("account-b".into(), "second_user".into()));
+        let error = client
+            .sign_in(&ScriptedBrowser::new(MOBILE_REDIRECT), login.clone())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, Error::IdToken(_)), "{error:?}");
+        // The refused sign-in's own refresh family is revoked, not left live.
+        assert_eq!(fake.live_refresh_tokens(), 1);
+        // The previous account is untouched.
+        assert_eq!(client.subject().await.as_deref(), Some(SUBJECT));
+        assert_eq!(stored_blob(&store, &fake).unwrap(), before);
+    }
+    // Without prompt=login an old auth_time is ordinary (a remembered session).
+    *fake.id_token_auth_time.lock().unwrap() = Some(Some(stale));
+    client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(client.subject().await.as_deref(), Some("account-b"));
+    // And a fresh one passes with it.
+    *fake.id_token_auth_time.lock().unwrap() = None;
+    client
+        .sign_in(&ScriptedBrowser::new(MOBILE_REDIRECT), login)
+        .await
+        .unwrap();
+}

@@ -1,9 +1,6 @@
 # Changelog
 
-## 0.3.0 — 2026-10-14
-
-Tagged `sdk-v0.3.0` with the other Free2Z SDK packages. Not on a registry:
-pin the Git tag. Consolidated notes: [RELEASES.md](https://github.com/free2z/zuu/blob/sdk-v0.3.0/docs/free2z/sdk/RELEASES.md#sdk-v030--2026-10-14).
+## Unreleased
 
 ### Added
 
@@ -16,7 +13,12 @@ pin the Git tag. Consolidated notes: [RELEASES.md](https://github.com/free2z/zuu
   `Client::delete_account_url()` (`{web origin}/account/delete`) and
   `Client::web_origin()`. The origin is the issuer's unless
   `Config::with_web_origin` sets one (`Config::web_origin`).
-- Sign-out and sign-in also drop the cached model catalogue.
+- Sign-out and sign-in also drop the cached model catalogue, and a catalogue
+  read under one session is never revalidated or installed for another.
+- A `prompt=login` sign-in requires the ID token's `auth_time` to be at or
+  after the sign-in's start (60 s skew); otherwise `Error::IdToken`, nothing is
+  installed, and the issued refresh token is revoked.
+- Display names drop bidi controls (U+202A–U+202E, U+2066–U+2069).
 
 ## 0.2.0 — 2026-10-06
 

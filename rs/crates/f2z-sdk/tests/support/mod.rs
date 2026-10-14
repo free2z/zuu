@@ -148,6 +148,8 @@ pub struct Fake {
     pub declined_scopes: Mutex<Vec<String>>,
     /// Sign ID tokens with this nonce instead of the request's.
     pub id_token_nonce_override: Mutex<Option<String>>,
+    /// Sign ID tokens with this `auth_time` (`Some(None)`: none at all).
+    pub id_token_auth_time: Mutex<Option<Option<u64>>>,
     /// Sign the next ID tokens for this `(sub, preferred_username)` instead
     /// of `SUBJECT` / `PREFERRED_USERNAME`: another account.
     pub account_override: Mutex<Option<(String, String)>>,
@@ -265,6 +267,7 @@ impl Fake {
             id_token_nonce_override: Mutex::default(),
             refresh_scope: Mutex::default(),
             account_override: Mutex::default(),
+            id_token_auth_time: Mutex::default(),
             models_delay: Mutex::new(Duration::ZERO),
             models_if_none_match: Mutex::default(),
             require_step_up: AtomicBool::new(false),
@@ -605,6 +608,9 @@ async fn token(State(f): State<Arc<Fake>>, body: Bytes) -> Response<Body> {
                     "exp": now + 3600, "iat": now, "auth_time": now - 10,
                     "nonce": nonce, "acr": "urn:f2z:acr:1fa", "amr": ["pwd"]
                 });
+                if let Some(auth_time) = *f.id_token_auth_time.lock().unwrap() {
+                    claims["auth_time"] = json!(auth_time);
+                }
                 let other = f.account_override.lock().unwrap().clone();
                 if let Some((sub, _)) = &other {
                     claims["sub"] = json!(sub);

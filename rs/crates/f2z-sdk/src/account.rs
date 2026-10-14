@@ -18,9 +18,11 @@ const MAX_DISPLAY_BYTES: usize = 256;
 /// the sign-in that started the session. Present only when the `profile`
 /// scope was granted.
 ///
-/// For display only: it is what the account was called **at sign-in**, and a
-/// user may rename it on Free2Z. Key local data by
-/// [`Client::subject`](crate::Client::subject), never by these.
+/// For display only. Neither member is unique or stable: a user may rename the
+/// account, and usernames compare case-insensitively, so two accounts can
+/// look alike (tuzi#1348). It is what the account was called **at sign-in**.
+/// Key local data by [`Client::subject`](crate::Client::subject), never by
+/// these.
 #[non_exhaustive]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Profile {
@@ -31,10 +33,18 @@ pub struct Profile {
     pub name: Option<String>,
 }
 
-/// A display claim worth keeping: non-empty after trimming, bounded, and
-/// free of control characters (a verified token is still not UI-safe text).
+/// Bidirectional embedding, override and isolate controls (U+202A–U+202E,
+/// U+2066–U+2069): they can make one name render as another.
+fn is_bidi_control(c: char) -> bool {
+    matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
+/// A display claim worth keeping: bidi controls stripped, non-empty after
+/// trimming, bounded, and free of control characters (a verified token is
+/// still not UI-safe text).
 fn display(value: Option<&str>) -> Option<String> {
-    let value = value?.trim();
+    let stripped: String = value?.chars().filter(|c| !is_bidi_control(*c)).collect();
+    let value = stripped.trim();
     (!value.is_empty() && value.len() <= MAX_DISPLAY_BYTES && !value.chars().any(char::is_control))
         .then(|| value.to_owned())
 }
@@ -150,6 +160,12 @@ mod tests {
             assert_eq!(display(Some(bad)), None, "{bad:?}");
         }
         assert_eq!(display(Some(&long)), None);
+        // Bidi controls are removed, not rejected: the visible name remains.
+        assert_eq!(
+            display(Some("\u{202E}resu\u{202C}_ada\u{2066}x\u{2069}")).as_deref(),
+            Some("resu_adax")
+        );
+        assert_eq!(display(Some("\u{202A}\u{202B} \u{2067}\u{2068}")), None);
         assert!(display(Some(&long[..MAX_DISPLAY_BYTES])).is_some());
         assert_eq!(
             profile("profile", Some(&claims(Some(""), Some("\n")))),

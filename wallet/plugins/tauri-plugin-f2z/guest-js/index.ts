@@ -76,7 +76,8 @@ export interface Session {
    * The Free2Z username to show for the signed-in account, from the verified
    * ID token of its sign-in. Present only when the `profile` scope was
    * granted (and the session was signed in by a plugin that reports it);
-   * otherwise absent. Display only: the user may rename the account.
+   * otherwise absent. Display only: not unique (usernames compare
+   * case-insensitively) and not stable (the user may rename the account).
    */
   preferredUsername?: string;
   /** The account's display name, when it has one and `profile` was granted. */

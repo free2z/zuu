@@ -11,7 +11,7 @@ requirements. Start with the public
 
 ## Constructing a client
 
-The current release is `0.3.0`, Git tag `sdk-v0.3.0`; it is not available on
+The current release is `0.2.0`, Git tag `sdk-v0.2.0`; it is not available on
 crates.io yet, so pin the tag. The preview requires the repository's Rust 1.97.1 toolchain.
 
 ```rust

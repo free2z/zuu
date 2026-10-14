@@ -6,8 +6,8 @@ Start with [the pinned source-preview installation and Tauri adapter guide](./SO
 Registry publication and live end-to-end acceptance are still pending; building
 the real SDK does not establish availability of every service or payment rail.
 
-The Rust examples below target the tagged release `sdk-v0.3.0`
-([release notes](./RELEASES.md#sdk-v030--2026-10-14)), which includes the reviewed grant API alongside login, balance, purchase and
+The Rust examples below target the tagged release `sdk-v0.2.0`
+([release notes](./RELEASES.md#sdk-v020--2026-10-06)), which includes the reviewed grant API alongside login, balance, purchase and
 AI operations. Local fake-service regressions and native builds are not live
 service acceptance evidence.
 
@@ -57,7 +57,7 @@ tag, without a private repository or a path into this workspace:
 
 ```toml
 [dependencies]
-f2z-sdk = { git = "https://github.com/free2z/zuu", tag = "sdk-v0.3.0" }
+f2z-sdk = { git = "https://github.com/free2z/zuu", tag = "sdk-v0.2.0" }
 ```
 
 This is not the supported published-package installation and does not establish
@@ -69,7 +69,7 @@ initializing them and run the SDK's own fake example:
 ```sh
 git clone --filter=blob:none https://github.com/free2z/zuu.git zuu-sdk-preview
 cd zuu-sdk-preview
-git checkout sdk-v0.3.0
+git checkout sdk-v0.2.0
 cd rs
 cargo +1.97.1 run --locked -p f2z-sdk --example full_flow
 cargo +1.97.1 test --locked -p f2z-sdk --all-targets
@@ -201,8 +201,10 @@ session. Keep the exact request and key when restart recovery is required.
 
 ## Identity, switching accounts and account exits
 
-These need `sdk-v0.3.0` or later in all three packages a Tauri app pins (the
-Rust plugin crate, `@free2z/tauri-plugin-f2z-api` and `@free2z/sdk`). A newer
+These are on `main` and not in a tagged release yet (see
+[RELEASES.md](./RELEASES.md#unreleased)); they will need the next release in
+all three packages a Tauri app pins (the Rust plugin crate,
+`@free2z/tauri-plugin-f2z-api` and `@free2z/sdk`). A newer
 TypeScript or guest API talking to an older Rust plugin refuses `ephemeral` as
 an unknown sign-in option, and the account exits reject because the plugin
 has no such command (as they do when the capability does not grant them);
@@ -222,12 +224,16 @@ const label = session.preferredUsername ?? "Free2Z account";
 
 - Both come from the **verified ID token** of the sign-in that started the
   session, and are stored with it, so they survive a restart without a
-  network call. They are display-only: the user can rename the account. Key
-  local data by `subject`, never by a username.
+  network call. Bidirectional-text controls are stripped and control
+  characters refused, so a name cannot render as a different one.
+- They are **display-only, non-unique and mutable**: the user can rename the
+  account, and usernames compare case-insensitively, so two accounts can look
+  alike (tuzi#1348). Key local data, caches and recovery records by
+  `subject` (the OIDC `sub`), never by a username or name.
 - Without `profile` granted, both are **absent** (not `null`). That includes a
   user who declined it on the consent screen, and one who later withdrew it at
   `/account/apps`: the next token refresh drops it. A native session stored by
-  an SDK older than `sdk-v0.3.0` restores without them until the next sign-in.
+  an SDK without this field restores without them until the next sign-in.
 - Free2Z accounts need no email, and the SDK never requests one. Do not ask
   for an email to identify the user.
 - An app that does not show the account can leave `profile` out of its scopes,
@@ -247,7 +253,12 @@ and shows the full sign-in form, where the user can choose any account (tuzi
 `test_login_freshness.py`). The new session replaces the old one atomically:
 the previous account's refresh token is revoked and its stored session
 deleted before the new one is installed, and every in-flight operation of the
-old session ends with `session_changed`. Re-read `session()` afterwards and
+old session ends with `session_changed`. As defence in depth, the SDK also
+checks the new ID token's `auth_time`: a `prompt: "login"` sign-in whose
+token says the user did not authenticate after the sign-in began (beyond 60 s
+of clock skew), or carries no `auth_time`, is refused
+(`invalid_authentication_response` from the plugin, `invalid_response` on the
+web) and its tokens are revoked; the previous session stays. Re-read `session()` afterwards and
 switch local data to the new `subject`.
 
 On iOS and Android, `ephemeral: true` additionally keeps the sign-in out of

@@ -1346,3 +1346,34 @@ test("web account exits are on the issuer origin and open only through openExter
     { code: "invalid_config" },
   );
 });
+
+test("web display names lose bidi controls", async () => {
+  const mock = issuer({
+    claims: { preferred_username: "‮resu‬_ada⁦x⁩" },
+  });
+  const session = await new WebSession(mock.config).signIn();
+  assert.equal(session.preferredUsername, "resu_adax");
+});
+
+test("web prompt=login needs a fresh auth_time; the refused family is revoked", async () => {
+  const now = Math.floor(Date.now() / 1000);
+  for (const claims of [{ auth_time: now - 3600 }, {}]) {
+    const mock = issuer({ claims }),
+      auth = new WebSession(mock.config);
+    await assert.rejects(auth.signIn({ prompt: "login" }), {
+      code: "invalid_response",
+    });
+    assert.equal(auth.snapshot().signedIn, false);
+    // The refused sign-in's refresh token is revoked, not left live.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(mock.revocations, ["refresh-1"]);
+  }
+  // Without prompt=login an old auth_time is a remembered session.
+  const old = issuer({ claims: { auth_time: now - 3600 } });
+  assert.equal((await new WebSession(old.config).signIn()).signedIn, true);
+  const fresh = issuer({ claims: { auth_time: now - 5 } });
+  assert.equal(
+    (await new WebSession(fresh.config).signIn({ prompt: "login" })).signedIn,
+    true,
+  );
+});

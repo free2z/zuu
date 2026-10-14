@@ -1,24 +1,21 @@
 # Changelog
 
-## 0.3.0 — 2026-10-14
-
-Tagged `sdk-v0.3.0` with the other Free2Z SDK packages. Not on a registry:
-pin the Git tag. Consolidated notes: [RELEASES.md](https://github.com/free2z/zuu/blob/sdk-v0.3.0/docs/free2z/sdk/RELEASES.md#sdk-v030--2026-10-14).
-
-The optional peer is `@free2z/tauri-plugin-f2z-api@^0.3.0`; under 0.x
-semver a 0.2.0 guest-js build no longer satisfies it.
+## Unreleased
 
 ### Added
 
 - `Session.preferredUsername` / `Session.name`: present only when `profile`
   was granted (native: when the plugin reports them; web: from the verified ID
   token, dropped when a refresh no longer grants `profile`).
+- Web `prompt: "login"` sign-in requires a fresh `auth_time` in the ID token
+  (`invalid_response` otherwise; the issued family is revoked). Display names
+  drop bidi controls.
 - `SignInOptions.ephemeral` for `NativeTransport` (needs a plugin with it);
   `FetchTransport` refuses it with `invalid_request`.
 - `Client.manageAccountUrl()`, `openManageAccount()`, `deleteAccountUrl()`,
   `openDeleteAccount()`. `unsupported_operation` from a transport or native
-  bridge without them; against a Rust plugin older than 0.3.0 the command does
-  not exist and the call rejects with that native error. `FetchConfig.webOrigin` (default: the issuer's origin); the
+  bridge without them; against a Rust plugin without these commands the call
+  rejects with that plugin's native error. `FetchConfig.webOrigin` (default: the issuer's origin); the
   web `open…` methods use `openExternal`.
 - `Transport` gained the four as optional members, so custom transports keep
   compiling.

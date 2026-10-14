@@ -6,7 +6,7 @@ on npm or crates.io yet; build from source and test against mocks.
 
 > **Version requirement.** This guide uses `preflight`, `formatMilli2z`,
 > typed error codes, `ChatRequest::new` and `Milli2z::display_2z`, which are
-> in the `sdk-v0.2.0` release and later (this guide's tag: `sdk-v0.3.0`), not in the older `534d2a58` preview.
+> in the `sdk-v0.2.0` release and later, not in the older `534d2a58` preview.
 > Follow the [source-install guide](./SOURCE-PREVIEW.md) with that tag, and
 > move all three Tauri pieces — `@free2z/sdk`, `@free2z/tauri-plugin-f2z-api`
 > and `tauri-plugin-f2z` — to the same tag together.

@@ -24,7 +24,7 @@ Every rule below is written so you can test it before you submit. The
    WebView.
 4. **When credits run out, stay calm.** Show "No credits" and a
    **Manage Free2Z account** button that opens the system browser
-   (`client.openManageAccount()`, `sdk-v0.3.0`).
+   (`client.openManageAccount()`, in the next SDK release).
 5. **List the app as Education (or another fitting category) at 4+.** Do not
    use the Kids Category, and never write "for kids" in the metadata.
 6. **Ask before sending anything to AI.** Name Free2Z and the AI provider, and
@@ -337,7 +337,7 @@ deletion within the app" (5.1.1(v)).
 
 - **In the app:** add **Delete Free2Z account** in Settings, next to Sign out.
   It opens `https://free2z.cash/account/delete` in the system browser
-  (`client.openDeleteAccount()`, `sdk-v0.3.0`; see
+  (`client.openDeleteAccount()`, in the next SDK release; see
   [account exits](./INTEGRATION.md#manage-and-delete-the-free2z-account)). Apple accepts "a link directly to the page on your website where
   they can complete the process". Apple also says apps outside regulated
   industries "should not require people to […] send an email". That is why

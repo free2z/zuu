@@ -52,7 +52,9 @@ export interface Session {
    * ID token of its sign-in. Present only when the `profile` scope was
    * granted; otherwise absent (also from a native plugin older than it, and
    * for a native session stored by one until the next sign-in). Free2Z
-   * accounts need no email: show this, never ask for one. Display only.
+   * accounts need no email: show this, never ask for one. Display only: not
+   * unique (usernames compare case-insensitively, so two can look alike) and
+   * not stable (the user can rename the account). Key data by `subject`.
    */
   preferredUsername?: string;
   /** The account's display name, when it has one and `profile` was granted. */
