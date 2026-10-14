@@ -415,6 +415,18 @@
           "markdownDescription": "Denies the purchase command without any pre-configured scope."
         },
         {
+          "description": "Enables the report_call command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-report-call",
+          "markdownDescription": "Enables the report_call command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the report_call command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-report-call",
+          "markdownDescription": "Denies the report_call command without any pre-configured scope."
+        },
+        {
           "description": "Enables the session command without any pre-configured scope.",
           "type": "string",
           "const": "allow-session",
