@@ -269,7 +269,14 @@ struct RawClaims {
     jti: Option<Value>,
     aep: Option<Value>,
     agen: Option<Value>,
+    // `present`: an explicit `null` is a member, so it is malformed rather
+    // than read as absent (and so as `false`).
+    #[serde(default, deserialize_with = "present")]
     child_directed: Option<Value>,
+}
+
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(d).map(Some)
 }
 
 fn string(value: Option<Value>) -> Result<String, TokenError> {
@@ -289,8 +296,7 @@ fn integer(value: Option<Value>) -> Result<u64, TokenError> {
 }
 
 /// An optional JSON boolean: absent is `false`; anything but a boolean —
-/// `1`, `"true"` — is malformed rather than guessed at (serde reads a JSON
-/// `null` as absent).
+/// `1`, `"true"`, `null` — is malformed rather than guessed at.
 fn flag(value: Option<Value>) -> Result<bool, TokenError> {
     match value {
         None => Ok(false),
@@ -531,6 +537,7 @@ mod tests {
             (with("nbf", json!(2000)), TokenError::Expired),
             (with("child_directed", json!(1)), TokenError::Malformed),
             (with("child_directed", json!("true")), TokenError::Malformed),
+            (with("child_directed", json!(null)), TokenError::Malformed),
         ];
         for (value, want) in cases {
             assert_eq!(check(&value, 1100).unwrap_err(), want, "{value}");

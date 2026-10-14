@@ -30,9 +30,9 @@ What changes when it is set:
   changed keeps its old value until it expires (at most five minutes).
 - **The AI gateway refuses `metadata`** on `/v1/chat` and `/v1/chat/estimate`
   (`400 invalid_request`, `field: "metadata"`, `reason: "child_directed"`;
-  [`spec/chat-api.md`](./spec/chat-api.md) §2.1). `metadata` is the only
-  caller-chosen text a call record keeps, so a child-directed app's call
-  records hold numbers only.
+  [`spec/chat-api.md`](./spec/chat-api.md) §2.1), and does not record the
+  `response_format` schema name. Apart from the `Idempotency-Key` (use a
+  random value), a child-directed app's call records then hold numbers only.
 - **Debug capture** of prompts and completions is never available to a
   child-directed app. (It is not implemented for any app today.)
 
@@ -42,7 +42,7 @@ What changes when it is set:
 |---|---|
 | Prompts, images, tool definitions and completions | **No.** They pass through the gateway to the model provider and are not written to the call record, the ledger or any log |
 | Call record: model, provider, token counts, charge, finish reason, error code, times, catalogue version | Yes, as a ledger record; the app can read it for 90 days ([`spec/chat-api.md`](./spec/chat-api.md) §7). This is what metering and receipts need |
-| Content-free request features (whether structured output or tools were used, their counts and sizes) | Yes, with the call record when enabled. Never a schema body or a prompt |
+| Content-free request features (whether structured output or tools were used, their counts and sizes) | Yes, with the call record when enabled. Never a schema body or a prompt; for a child-directed app, not the schema name either |
 | Caller `metadata` | Refused for a child-directed app; otherwise stored with the call record |
 | Gateway logs | Route, status, timing, counts and sizes only. Never a prompt, a completion, a header value or a peer address (`rs/crates/f2z-ai/tests/redaction.rs`) |
 | Device identifiers, advertising IDs | **Never collected.** The SDK identifies itself only as `f2z-sdk/<version>`, and sign-in runs in the system browser |

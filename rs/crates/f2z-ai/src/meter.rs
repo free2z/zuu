@@ -631,10 +631,13 @@ impl ChatBackend for Metered {
         {
             // Content-free (crate::features). Gated: an older ledger refuses
             // the key, and a refused claim fails the paid call.
-            meta.insert(
-                "features".into(),
-                crate::features::RequestFeatures::of(&request).to_json(),
-            );
+            let mut features = crate::features::RequestFeatures::of(&request);
+            // The schema name is caller-chosen text, like `metadata`; a
+            // child-directed app's call record keeps none (CHILD-DIRECTED.md).
+            if principal.child_directed {
+                features.response_format_schema_name = None;
+            }
+            meta.insert("features".into(), features.to_json());
         }
         let claim = Operation::Claim {
             identity,

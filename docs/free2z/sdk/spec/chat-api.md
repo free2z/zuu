@@ -726,7 +726,7 @@ app ([CHILD-DIRECTED.md](../CHILD-DIRECTED.md)).
 
 **`features`** (optional, additive). A record may carry a content-free
 description of which request features the call asked for — never what they
-contained:
+contained (for a child-directed app, not even the schema name):
 
 ```json
 "features": {

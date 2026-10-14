@@ -42,7 +42,7 @@ impl Gatekeeper for Gate {
                 agen: 1,
                 exp: u64::MAX,
                 jti: "test".into(),
-                child_directed: false,
+                child_directed: headers.contains_key("test-child-directed"),
             },
             lease: None,
         })
@@ -2211,6 +2211,52 @@ async fn features_are_recorded_on_the_claim_and_the_receipt_when_enabled() {
     let record: Value =
         serde_json::from_str(&support::text(support::send(r.public, read).await).await).unwrap();
     assert_eq!(record["features"], expected, "{record}");
+    mock.shutdown().await;
+}
+
+// A child-directed app (CHILD-DIRECTED.md): the call record keeps no
+// caller-chosen text. `metadata` is refused before any paid work, and the
+// schema's name is not recorded even with `features` on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_child_directed_call_record_keeps_no_caller_chosen_text() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch_meta(
+        db.clone(),
+        Scenario::default(),
+        None,
+        structured_catalog(),
+        true,
+    )
+    .await;
+    let child = |body: &Value| {
+        let mut req = support::chat_request(body.to_string());
+        req.headers_mut()
+            .insert("test-child-directed", "1".parse().unwrap());
+        req
+    };
+
+    let with_metadata = structured_request("m-chat");
+    let refused = support::send(r.public, child(&with_metadata)).await;
+    assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+    let body = support::text(refused).await;
+    assert!(body.contains("child_directed"), "{body}");
+    assert!(db.0.lock().unwrap().hold.is_none(), "no hold");
+    assert_eq!(mock.request_count(), 0, "no provider request");
+
+    let mut request = structured_request("m-chat");
+    request.as_object_mut().unwrap().remove("metadata");
+    let response = support::send(r.public, child(&request)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = support::text(response).await;
+    final_state(&db).await;
+    let claimed = db.0.lock().unwrap().request.clone();
+    assert_eq!(claimed["features"]["response_format"], "json_schema");
+    assert_eq!(
+        claimed["features"]["response_format_schema_name"],
+        Value::Null
+    );
+    assert!(!claimed.to_string().contains("activity_spec"), "{claimed}");
+    assert!(!claimed.to_string().contains("hello tutor"), "{claimed}");
     mock.shutdown().await;
 }
 
