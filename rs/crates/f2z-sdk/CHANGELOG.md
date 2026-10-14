@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `Client::profile()` and `SignedIn::profile`: the signed-in account's
+  `preferred_username` and `name` (`f2z_sdk::Profile`), from the verified ID
+  token, only when `profile` was granted. Stored with the session (additive
+  members of the stored blob, ignored by older SDKs), so it survives a restart;
+  a refresh that no longer grants `profile` drops it; sign-out clears it.
+- `Client::manage_account_url()` (`{web origin}/account/apps?client_id=…`),
+  `Client::delete_account_url()` (`{web origin}/account/delete`) and
+  `Client::web_origin()`. The origin is the issuer's unless
+  `Config::with_web_origin` sets one (`Config::web_origin`).
+- Sign-out and sign-in also drop the cached model catalogue.
+
 ## 0.2.0 — 2026-10-06
 
 First tagged release, `sdk-v0.2.0`, versioned together with the other Free2Z

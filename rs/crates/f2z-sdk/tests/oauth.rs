@@ -24,8 +24,8 @@ use f2z_sdk::{
     Client, Error, MemoryStore, Persistence, SignInOptions, SignedOutReason, TokenStore,
 };
 use support::{
-    CLIENT_ID, Fake, SUBJECT, ScriptedBrowser, follow_authorize, get_param, loopback_browser,
-    set_param,
+    CLIENT_ID, DISPLAY_NAME, Fake, PREFERRED_USERNAME, SUBJECT, ScriptedBrowser, follow_authorize,
+    get_param, loopback_browser, set_param,
 };
 
 const MOBILE_REDIRECT: &str = "com.example.tutor:/oauth/callback";
@@ -1215,5 +1215,176 @@ async fn hung_initial_read_does_not_block_sign_out_deletion() {
     assert!(
         !restarted.is_signed_in().await.unwrap(),
         "deleted session restored after restart"
+    );
+}
+
+fn stored_blob(store: &MemoryStore, fake: &Fake) -> Option<serde_json::Value> {
+    let blob = store.load(&account(fake)).unwrap()?;
+    Some(serde_json::from_str(blob.expose()).unwrap())
+}
+
+#[tokio::test]
+async fn the_profile_reaches_the_session_and_survives_a_restart() {
+    let fake = Fake::start().await;
+    let store = Arc::new(MemoryStore::new());
+    let client = Client::new(fake.config(), store.clone()).unwrap();
+    assert_eq!(client.profile().await, None);
+    let signed = client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    let profile = signed.profile.clone().unwrap();
+    assert_eq!(
+        profile.preferred_username.as_deref(),
+        Some(PREFERRED_USERNAME)
+    );
+    assert_eq!(profile.name.as_deref(), Some(DISPLAY_NAME));
+    assert_eq!(client.profile().await, signed.profile);
+    // Kept with the refresh token, so a restart shows it without network.
+    let blob = stored_blob(&store, &fake).unwrap();
+    assert_eq!(blob["preferred_username"], PREFERRED_USERNAME);
+    let second = Client::new(fake.config(), store.clone()).unwrap();
+    assert!(second.is_signed_in().await.unwrap());
+    assert_eq!(second.profile().await, signed.profile);
+    assert_eq!(fake.refresh_calls.load(Ordering::SeqCst), 0);
+    // A refresh keeps it while `profile` stays granted.
+    second.balance().await.unwrap();
+    assert_eq!(second.profile().await, signed.profile);
+    // Sign-out forgets it, in memory and in the store.
+    second.sign_out().await.unwrap();
+    assert_eq!(second.profile().await, None);
+    assert_eq!(second.subject().await, None);
+    assert!(stored_blob(&store, &fake).is_none());
+}
+
+#[tokio::test]
+async fn without_the_profile_scope_there_is_no_profile() {
+    // The app never asked for it.
+    let fake = Fake::start().await;
+    let store = Arc::new(MemoryStore::new());
+    let config =
+        fake.config()
+            .with_scopes(["openid", "offline_access", "balance:read", "ai:invoke"]);
+    let client = Client::new(config, store.clone()).unwrap();
+    let signed = client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(signed.subject.as_deref(), Some(SUBJECT));
+    assert_eq!(signed.profile, None);
+    assert_eq!(client.profile().await, None);
+    let blob = stored_blob(&store, &fake).unwrap();
+    assert!(blob.get("preferred_username").is_none(), "{blob}");
+    assert!(blob.get("name").is_none(), "{blob}");
+
+    // The app asked, and the user declined it.
+    let fake = Fake::start().await;
+    *fake.declined_scopes.lock().unwrap() = vec!["profile".into()];
+    let client = Client::new(fake.config(), Arc::new(MemoryStore::new())).unwrap();
+    let signed = client
+        .sign_in(
+            &ScriptedBrowser::new(MOBILE_REDIRECT),
+            SignInOptions::default(),
+        )
+        .await
+        .unwrap();
+    assert!(!signed.scopes.contains(&"profile".to_owned()));
+    assert_eq!(client.profile().await, None);
+}
+
+#[tokio::test]
+async fn withdrawing_profile_at_a_refresh_forgets_the_profile() {
+    let fake = Fake::start().await;
+    let (client, store) = signed_in(&fake).await;
+    assert!(client.profile().await.is_some());
+    *fake.refresh_scope.lock().unwrap() =
+        Some("openid offline_access balance:read purchase:create ai:invoke".into());
+    fake.expire_access_tokens();
+    client.balance().await.unwrap();
+    assert_eq!(fake.refresh_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(client.profile().await, None);
+    assert!(
+        !client
+            .granted_scopes()
+            .await
+            .contains(&"profile".to_owned())
+    );
+    let blob = stored_blob(&store, &fake).unwrap();
+    assert!(blob.get("preferred_username").is_none(), "{blob}");
+}
+
+#[tokio::test]
+async fn a_session_stored_by_an_older_sdk_restores_without_a_profile() {
+    let fake = Fake::start().await;
+    let (_first, store) = signed_in(&fake).await;
+    // Rewrite the blob as 0.2.0 wrote it: no profile members.
+    let mut blob = stored_blob(&store, &fake).unwrap();
+    let object = blob.as_object_mut().unwrap();
+    object.remove("preferred_username");
+    object.remove("name");
+    store
+        .save(&account(&fake), &f2z_sdk::Secret::new(blob.to_string()))
+        .unwrap();
+    let restored = Client::new(fake.config(), store.clone()).unwrap();
+    assert!(restored.is_signed_in().await.unwrap());
+    assert_eq!(restored.subject().await.as_deref(), Some(SUBJECT));
+    assert_eq!(restored.profile().await, None);
+    restored.balance().await.unwrap();
+}
+
+#[tokio::test]
+async fn switching_accounts_with_prompt_login_replaces_the_previous_session() {
+    let fake = Fake::start().await;
+    let (client, _) = signed_in(&fake).await;
+    let browser = ScriptedBrowser::new(MOBILE_REDIRECT);
+    let mut options = SignInOptions::default();
+    options.prompt = Some(Prompt::Login);
+    client.sign_in(&browser, options).await.unwrap();
+    let url = browser.seen.lock().unwrap()[0].clone();
+    assert_eq!(get_param(&url, "prompt").as_deref(), Some("login"));
+    // The previous account's refresh family is revoked, not kept beside it.
+    assert_eq!(fake.revoke_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(fake.live_refresh_tokens(), 1);
+}
+
+#[test]
+fn the_account_pages_are_on_the_web_origin() {
+    let client = Client::new(
+        f2z_sdk::Config::new("iVhrb5Jk"),
+        Arc::new(MemoryStore::new()),
+    )
+    .unwrap();
+    assert_eq!(client.web_origin(), "https://free2z.cash");
+    assert_eq!(
+        client.manage_account_url(),
+        "https://free2z.cash/account/apps?client_id=iVhrb5Jk"
+    );
+    assert_eq!(
+        client.delete_account_url(),
+        "https://free2z.cash/account/delete"
+    );
+    let staged = Client::new(
+        f2z_sdk::Config::new("c")
+            .with_issuer("https://id.staging.example")
+            .with_web_origin("https://www.staging.example/"),
+        Arc::new(MemoryStore::new()),
+    )
+    .unwrap();
+    assert_eq!(
+        staged.manage_account_url(),
+        "https://www.staging.example/account/apps?client_id=c"
+    );
+    assert!(
+        Client::new(
+            f2z_sdk::Config::new("c").with_web_origin("https://free2z.cash/account"),
+            Arc::new(MemoryStore::new()),
+        )
+        .is_err()
     );
 }

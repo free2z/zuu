@@ -1269,3 +1269,80 @@ test("a round that fails after output keeps its charge, and handlers get the run
   // Its partial output is not history.
   assert.equal(run.messages.at(-1).role, "tool");
 });
+
+test("web session shows the profile only under the profile scope, and forgets it on sign-out", async () => {
+  const mock = issuer({
+      claims: { preferred_username: "alice_z", name: "Ali\u0007ce" },
+    }),
+    auth = new WebSession(mock.config);
+  const session = await auth.signIn();
+  assert.equal(session.preferredUsername, "alice_z");
+  // A control character is not display text.
+  assert.equal("name" in session, false);
+  // Withdrawn at /account/apps: a refresh without `profile` stops showing it.
+  mock.refresh = () =>
+    mock.json({
+      access_token: "access-narrowed",
+      refresh_token: "refresh-narrowed",
+      token_type: "Bearer",
+      expires_in: 300,
+      scope: "openid offline_access ai:invoke",
+    });
+  assert.equal(
+    await auth.token("ai:invoke", auth.generation, undefined, true),
+    "access-narrowed",
+  );
+  assert.equal("preferredUsername" in auth.snapshot(), false);
+  await auth.signOut();
+  assert.equal("preferredUsername" in auth.snapshot(), false);
+  const plain = new WebSession(issuer().config);
+  assert.equal("preferredUsername" in (await plain.signIn()), false);
+  await assert.rejects(
+    new WebSession(issuer().config).signIn({ ephemeral: true }),
+    {
+      code: "invalid_request",
+    },
+  );
+});
+
+test("web account exits are on the issuer origin and open only through openExternal", async () => {
+  const opened = [];
+  const base = issuer().config;
+  const client = new Client(
+    new FetchTransport({
+      ...base,
+      openExternal: async (url) => {
+        opened.push(url);
+      },
+    }),
+  );
+  const origin = new URL(base.issuer ?? "https://free2z.cash").origin;
+  assert.equal(
+    await client.manageAccountUrl(),
+    `${origin}/account/apps?client_id=${encodeURIComponent(base.clientId)}`,
+  );
+  assert.equal(await client.deleteAccountUrl(), `${origin}/account/delete`);
+  await client.openManageAccount();
+  await client.openDeleteAccount();
+  assert.deepEqual(opened, [
+    await client.manageAccountUrl(),
+    await client.deleteAccountUrl(),
+  ]);
+  const silent = new Client(
+    new FetchTransport({ ...base, openExternal: undefined }),
+  );
+  await assert.rejects(silent.openManageAccount(), {
+    code: "external_opener_required",
+  });
+  const staged = new Client(
+    new FetchTransport({ ...base, webOrigin: "https://www.example/" }),
+  );
+  assert.equal(
+    await staged.deleteAccountUrl(),
+    "https://www.example/account/delete",
+  );
+  assert.throws(
+    () => new FetchTransport({ ...base, webOrigin: "https://www.example/x" }),
+    { code: "invalid_config" },
+  );
+});

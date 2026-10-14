@@ -51,6 +51,9 @@ use serde_json::{Value, json};
 pub const CLIENT_ID: &str = "app_test";
 pub const SUBJECT: &str = "3f0c9b7e-6a2d-4b1f-8e5c-2d9a7c4e1b60";
 pub const KID: &str = "test-rs-1";
+/// The profile claims the fake IdP issues under `profile`.
+pub const PREFERRED_USERNAME: &str = "tutor_user";
+pub const DISPLAY_NAME: &str = "Tutor User";
 
 /// A 2048-bit RSA key (PKCS#1 DER, base64) generated for this test suite
 /// only. It signs the fake issuer's ID tokens and nothing else; it has never
@@ -145,6 +148,9 @@ pub struct Fake {
     pub declined_scopes: Mutex<Vec<String>>,
     /// Sign ID tokens with this nonce instead of the request's.
     pub id_token_nonce_override: Mutex<Option<String>>,
+    /// The scope a refresh reports, as after the user narrowed the grant at
+    /// `/account/apps`. `None`: the family's own scope.
+    pub refresh_scope: Mutex<Option<String>>,
     /// The balance endpoint demands step-up.
     pub require_step_up: AtomicBool,
     /// The first purchase create sleeps this long before answering.
@@ -250,6 +256,7 @@ impl Fake {
             broken_chat_replay: AtomicBool::new(false),
             declined_scopes: Mutex::default(),
             id_token_nonce_override: Mutex::default(),
+            refresh_scope: Mutex::default(),
             require_step_up: AtomicBool::new(false),
             create_delay_first: Mutex::new(Duration::ZERO),
             revoke_delay: Mutex::new(Duration::ZERO),
@@ -583,12 +590,16 @@ async fn token(State(f): State<Arc<Fake>>, body: Bytes) -> Response<Body> {
                     .clone()
                     .or(grant.nonce.clone());
                 let now = now_unix();
-                let claims = json!({
+                let mut claims = json!({
                     "iss": f.issuer, "sub": SUBJECT, "aud": CLIENT_ID,
                     "exp": now + 3600, "iat": now, "auth_time": now - 10,
-                    "nonce": nonce, "acr": "urn:f2z:acr:1fa", "amr": ["pwd"],
-                    "preferred_username": "tutor_user"
+                    "nonce": nonce, "acr": "urn:f2z:acr:1fa", "amr": ["pwd"]
                 });
+                // As the IdP does: profile claims only under `profile`.
+                if grant.scope.split(' ').any(|x| x == "profile") {
+                    claims["preferred_username"] = json!(PREFERRED_USERNAME);
+                    claims["name"] = json!(DISPLAY_NAME);
+                }
                 body["id_token"] =
                     json!(f.sign_jwt(&json!({"alg": "RS256", "kid": KID, "typ": "JWT"}), &claims));
             }
@@ -626,9 +637,15 @@ async fn token(State(f): State<Arc<Fake>>, body: Bytes) -> Response<Body> {
                     if f.break_refresh_response_once.swap(false, Ordering::SeqCst) {
                         return broken_json(StatusCode::OK);
                     }
+                    let scope = f
+                        .refresh_scope
+                        .lock()
+                        .unwrap()
+                        .clone()
+                        .unwrap_or_else(|| entry.scope.clone());
                     delayed_json(
                         json!({"token_type": "Bearer", "access_token": access, "expires_in": 300,
-                               "refresh_token": refresh, "scope": entry.scope}),
+                               "refresh_token": refresh, "scope": scope}),
                         *f.refresh_body_delay.lock().unwrap(),
                     )
                 }

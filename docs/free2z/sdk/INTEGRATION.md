@@ -175,7 +175,8 @@ rather than reimplementing authentication or invoking guessed command names.
 
 | Native guest operation | Native responsibility | Safe UI result |
 |---|---|---|
-| `session` / `signIn` / `signOut` | Own `Client`, authentication session and keychain | Signed-in state, subject, granted scopes, persistence mode, revocation confirmation |
+| `session` / `signIn` / `signOut` | Own `Client`, authentication session and keychain | Signed-in state, subject, granted scopes, display username (with `profile`), persistence mode, revocation confirmation |
+| `manageAccountUrl` / `openManageAccount` / `deleteAccountUrl` / `openDeleteAccount` | Build the account-page URLs from native configuration; open them in the system browser | A URL string, or nothing |
 | `balance` | Call `Client::balance` | Available, held, total and debt milli-2Z plus `as_of` |
 | `createPurchase` / `purchase` / `waitForPurchase` | Create intent, open validated hosted checkout, poll | Intent ID and status; refreshed balance once credited |
 | `models` / `estimate` | Call the corresponding AI methods when live support is ready | Capabilities and provisional hold estimate |
@@ -195,6 +196,99 @@ operation too. Bound native event buffering and remove operation entries on
 completion, error, window close and sign-out. Associate each operation with the
 signed-in subject and session generation; discard late UI events from a replaced
 session. Keep the exact request and key when restart recovery is required.
+
+## Identity, switching accounts and account exits
+
+These need `sdk-v0.3.0` or later in all three packages a Tauri app pins (the
+Rust plugin crate, `@free2z/tauri-plugin-f2z-api` and `@free2z/sdk`). A newer
+TypeScript or guest API talking to an older Rust plugin refuses `ephemeral` as
+an unknown sign-in option, and the account exits reject with
+`unsupported_operation`; `session()` simply has no `preferredUsername`.
+
+### Showing who is signed in
+
+Request the `profile` scope (it is in the core's defaults) to show the account.
+`session()` then carries `preferredUsername` (the Free2Z username) and `name`
+(its display name, when it has one):
+
+```ts
+const session = await client.session();
+const label = session.preferredUsername ?? "Free2Z account";
+```
+
+- Both come from the **verified ID token** of the sign-in that started the
+  session, and are stored with it, so they survive a restart without a
+  network call. They are display-only: the user can rename the account. Key
+  local data by `subject`, never by a username.
+- Without `profile` granted, both are **absent** (not `null`). That includes a
+  user who declined it on the consent screen, and one who later withdrew it at
+  `/account/apps`: the next token refresh drops it. A native session stored by
+  an SDK older than `sdk-v0.3.0` restores without them until the next sign-in.
+- Free2Z accounts need no email, and the SDK never requests one. Do not ask
+  for an email to identify the user.
+- An app that does not show the account can leave `profile` out of its scopes,
+  as before.
+
+### "Use a different account"
+
+Sign in again with `prompt: "login"`:
+
+```ts
+await client.signIn({ prompt: "login" }); // the switch-account path
+```
+
+`prompt=login` makes the Free2Z authorization page demand a fresh sign-in
+even when the browser is already signed in: it signs the old web session out
+and shows the full sign-in form, where the user can choose any account (tuzi
+`test_login_freshness.py`). The new session replaces the old one atomically:
+the previous account's refresh token is revoked and its stored session
+deleted before the new one is installed, and every in-flight operation of the
+old session ends with `session_changed`. Re-read `session()` afterwards and
+switch local data to the new `subject`.
+
+On iOS and Android, `ephemeral: true` additionally keeps the sign-in out of
+the system browser's cookies (iOS `prefersEphemeralWebBrowserSession`; Android
+an ephemeral Custom Tab, on browsers that support one, otherwise an ordinary
+tab). iOS then also skips its "wants to use free2z.cash to sign in" prompt,
+but the user must type their credentials every time, so it is opt-in and
+defaults to `false`. Desktop ignores it, and `@free2z/sdk`'s web transport
+refuses it. `prompt: "login"` is what works everywhere.
+
+`signOut()` forgets everything the SDK keeps for the account: the tokens in
+memory and the OS keychain entry, the subject, the profile, the cached model
+catalogue, and the plugin's open chat operations. It revokes the refresh token
+at Free2Z, and returns whether that revocation was confirmed. App data keyed
+by `subject` is the app's to clear or keep.
+
+### Manage and delete the Free2Z account
+
+Two pages on the Free2Z website are part of the SDK contract:
+
+| Method | URL | Use it for |
+|---|---|---|
+| `manageAccountUrl()` / `openManageAccount()` | `{web origin}/account/apps?client_id=<this app>` | "Manage Free2Z account": this app's access and budget, and the account and its balance. The exit to show when credits run out (`insufficient_balance`, `cap_exceeded`) |
+| `deleteAccountUrl()` / `openDeleteAccount()` | `{web origin}/account/delete` | Account deletion. The App Store and Google Play require an in-app path to it for an app whose flow can create an account; a link to this page satisfies that |
+
+```ts
+<button onClick={() => client.openManageAccount()}>Manage Free2Z account</button>
+<button onClick={() => client.openDeleteAccount()}>Delete Free2Z account</button>
+```
+
+- The **web origin** is the issuer's origin (`https://free2z.cash`) unless
+  the Rust `Config::with_web_origin` (web: `FetchConfig.webOrigin`) sets
+  another. The plugin builds both URLs from its native configuration: no
+  command takes a URL from JavaScript, so an untrusted page cannot use them to
+  open anything else.
+- The `open…` methods use the **system browser**, never a webview: Safari on
+  iOS, the default browser app (`ACTION_VIEW`) on Android, the default browser
+  on desktop. The web transport calls `FetchConfig.openExternal`, like
+  checkout. The user signs in to Free2Z there if needed.
+- These are account management, not a checkout. Label them plainly ("Manage
+  Free2Z account", "Delete Free2Z account"), with no price, "buy" or "top up"
+  wording in the app. Outside the US App Store an app may not encourage
+  purchasing elsewhere.
+- Rust: `Client::web_origin()`, `Client::manage_account_url()` and
+  `Client::delete_account_url()`.
 
 ## Rust API examples
 
@@ -531,8 +625,8 @@ from `collected_milli_2z` actually taken.
 |---|---|
 | `Error::SignedOut` | Clear signed-in UI and request login; do not continue spending |
 | `Error::StepUpRequired(challenge)` | Sign in with `SignInOptions::step_up(&challenge)` and retry the intended operation once, bound to the same account |
-| `insufficient_balance` | Offer a credit purchase or the **Manage balance and purchases** link on [Free2Z connected apps](https://free2z.cash/account/apps); re-read balance after confirmed credit |
-| `cap_exceeded` | Direct the user to [manage this app's budget in Free2Z](https://free2z.cash/account/apps), or wait for its reset period. Topping up account balance does not raise this budget |
+| `insufficient_balance` | Offer a credit purchase or the **Manage balance and purchases** link on [Free2Z connected apps](https://free2z.cash/account/apps) (`openManageAccount()`); re-read balance after confirmed credit. An app without in-app purchasing shows a calm "no credits" state with only that exit |
+| `cap_exceeded` | Direct the user to [manage this app's budget in Free2Z](https://free2z.cash/account/apps) (`openManageAccount()`), or wait for its reset period. Topping up account balance does not raise this budget |
 | `account_in_debt` | Show debt separately and direct the user to Free2Z account management; do not automatically retry a charge |
 | `rate_limited`, `concurrency_limit`, `unavailable` | Honor `Retry-After` and explain temporary capacity/availability, not a need to buy credits or raise a budget |
 | `Error::Unconfirmed { idempotency_key, .. }` | Retain the exact request and key; recover with the same key under the same user |
@@ -592,7 +686,10 @@ memory-only persistence and step-up states. Represent balances as integer
 milli-2Z with debt separate; represent purchases by intent ID/status and streams
 by operation ID, call ID, text, terminal event and settlement state. Include
 mock cases for insufficient balance, partial charged failure, cancellation,
-pending settlement, lost-response same-key recovery and account switching.
+pending settlement, lost-response same-key recovery and account switching
+(`signIn({ prompt: "login" })`, then a new `subject`). Show the account by
+`session().preferredUsername` and give it the "Manage Free2Z account" and
+"Delete Free2Z account" exits.
 
 Own no Free2Z passwords, client secrets or provider keys. Keep credentials in
 native code, keep untrusted content outside privileged Tauri capabilities, and

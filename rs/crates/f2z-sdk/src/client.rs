@@ -91,6 +91,8 @@ struct SessionState {
     refresh: Option<Secret>,
     scope: Option<String>,
     subject: Option<String>,
+    /// The display identity from the sign-in's ID token, with `profile`.
+    profile: Option<crate::account::Profile>,
     /// Which session this is. Moves on every sign-in, sign-out and forced
     /// sign-out — never on a refresh, which keeps the same user and grant.
     /// An operation that started under one generation never continues under
@@ -131,6 +133,12 @@ struct Stored {
     scope: Option<String>,
     #[serde(default)]
     sub: Option<String>,
+    // Additive: an older SDK ignores these, and a blob from one restores
+    // without a profile until the next sign-in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    preferred_username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -339,6 +347,7 @@ impl Client {
             (None, false) => None,
         };
         let subject = id_token.as_ref().map(|c| c.sub.clone());
+        let profile = crate::account::profile(&granted, id_token.as_ref());
         let refreshable = tokens.refresh_token.is_some();
 
         // Once validated, replacing a session is one cancellation-independent
@@ -346,6 +355,7 @@ impl Client {
         // Sign-out queues behind its owned guard and clears the installed state.
         let client = self.clone();
         let transition_subject = subject.clone();
+        let transition_profile = profile.clone();
         let transition_granted = granted.clone();
         tokio::spawn(async move {
             let revoked = {
@@ -374,6 +384,7 @@ impl Client {
                 }
                 s.loaded = true;
                 s.generation = s.generation.wrapping_add(1);
+                client.forget_cached_reads();
                 // The previous account must never survive a failed or cancelled
                 // account switch in durable storage. Start revocation before the
                 // first persistence await and let it finish independently.
@@ -383,6 +394,7 @@ impl Client {
                     tokio::spawn(async move { client.revoke(&discovery, &old).await })
                 });
                 s.subject = transition_subject;
+                s.profile = transition_profile;
                 let persisted = client.install(&mut s, tokens, &transition_granted).await;
                 if !refreshable {
                     // No refresh token: nothing to keep across runs, and nothing
@@ -407,6 +419,7 @@ impl Client {
                 .map(str::to_owned)
                 .collect(),
             id_token,
+            profile,
             refreshable,
             persistence: self.token_persistence(),
         })
@@ -432,6 +445,7 @@ impl Client {
         }
         let refresh = s.refresh.take();
         s.reset();
+        self.forget_cached_reads();
         // Start remote cleanup before awaiting the independently ordered local
         // delete. Neither operation depends on the caller staying alive.
         let client = self.clone();
@@ -466,6 +480,40 @@ impl Client {
     /// The signed-in user's `sub`, when known.
     pub async fn subject(&self) -> Option<String> {
         self.inner.session.lock().await.subject.clone()
+    }
+
+    /// The signed-in account's display identity (username, name), when the
+    /// `profile` scope was granted. No network: it is what the verified ID
+    /// token said at sign-in, kept with the session. `None` with no session,
+    /// without `profile`, and for a session stored by an SDK older than this
+    /// field until the user signs in again.
+    pub async fn profile(&self) -> Option<crate::account::Profile> {
+        self.inner.session.lock().await.profile.clone()
+    }
+
+    /// The Free2Z website origin (`https://free2z.cash`): the configured
+    /// [`Config::web_origin`], or the issuer's origin.
+    #[must_use]
+    pub fn web_origin(&self) -> &str {
+        &self.inner.config.web_origin
+    }
+
+    /// `{web origin}/account/apps?client_id=<this app>`: where the user
+    /// manages this app's access and budget, and their Free2Z account and
+    /// balance. Open it in the **system browser**, never a webview. It is
+    /// account management, not a checkout: link it as "Manage Free2Z
+    /// account", with no purchase wording.
+    #[must_use]
+    pub fn manage_account_url(&self) -> &str {
+        &self.inner.config.manage_account_url
+    }
+
+    /// `{web origin}/account/delete`: where the user deletes their Free2Z
+    /// account. The in-app deletion path both app stores require for an app
+    /// whose flow can create an account. Open it in the **system browser**.
+    #[must_use]
+    pub fn delete_account_url(&self) -> &str {
+        &self.inner.config.delete_account_url
     }
 
     /// Read this account/app's current grant policy. Requires `ai:invoke`.
@@ -589,6 +637,16 @@ impl Client {
             match serde_json::from_str::<Stored>(blob.expose()) {
                 Ok(stored) if stored.v == STORED_VERSION => {
                     s.refresh = Some(Secret::new(stored.refresh_token));
+                    s.profile = stored
+                        .scope
+                        .as_deref()
+                        .filter(|scope| crate::account::has_profile_scope(scope))
+                        .and_then(|_| {
+                            crate::account::restored(
+                                stored.preferred_username.as_deref(),
+                                stored.name.as_deref(),
+                            )
+                        });
                     s.scope = stored.scope;
                     s.subject = stored.sub;
                 }
@@ -608,6 +666,11 @@ impl Client {
             refresh_token: refresh.expose().to_owned(),
             scope: s.scope.clone(),
             sub: s.subject.clone(),
+            preferred_username: s
+                .profile
+                .as_ref()
+                .and_then(|p| p.preferred_username.clone()),
+            name: s.profile.as_ref().and_then(|p| p.name.clone()),
         };
         let blob = Secret::new(
             serde_json::to_string(&stored).map_err(|e| Error::Internal(e.to_string()))?,
@@ -745,6 +808,10 @@ impl Client {
         if let Some(rt) = tokens.refresh_token {
             s.refresh = Some(Secret::new(rt));
         }
+        if !crate::account::has_profile_scope(granted) {
+            // The user withdrew `profile` (at /account/apps): stop showing it.
+            s.profile = None;
+        }
         s.scope = Some(granted.to_owned());
         self.store_save(s).await
     }
@@ -785,8 +852,16 @@ impl Client {
         }
     }
 
+    /// Drop data read under a session (the model catalogue and its ETag).
+    fn forget_cached_reads(&self) {
+        if let Ok(mut cache) = self.inner.models_cache.lock() {
+            *cache = None;
+        }
+    }
+
     async fn clear_locked(&self, s: &mut SessionState) -> Result<(), Error> {
         s.reset();
+        self.forget_cached_reads();
         self.store_delete().await
     }
 

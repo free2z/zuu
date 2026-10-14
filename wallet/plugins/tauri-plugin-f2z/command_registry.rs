@@ -17,6 +17,10 @@ macro_rules! with_commands {
             cancel_chat,
             call,
             wait_for_call,
+            manage_account_url,
+            delete_account_url,
+            open_manage_account,
+            open_delete_account,
         }
     };
 }

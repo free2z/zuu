@@ -145,12 +145,19 @@ impl Engine {
             .map_err(NativeError::from)?;
         let subject = self.client.subject().await;
         let scopes = self.client.granted_scopes().await;
+        let profile = self.client.profile().await;
         self.check(generation)?;
-        Ok(
-            json!({"signedIn":signed_in,"subject":subject,"grantedScopes":scopes,
-            "persistence":match self.client.token_persistence() { f2z_sdk::Persistence::Persistent => "persistent", _ => "memory_only" },
-            "generation":generation.to_string()}),
-        )
+        Ok(wire::session(&wire::SessionView {
+            signed_in,
+            subject,
+            scopes,
+            profile,
+            persistent: matches!(
+                self.client.token_persistence(),
+                f2z_sdk::Persistence::Persistent
+            ),
+            generation,
+        }))
     }
     pub async fn read<T, F>(&self, future: F) -> Result<T>
     where

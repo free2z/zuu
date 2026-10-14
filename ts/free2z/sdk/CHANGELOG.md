@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `Session.preferredUsername` / `Session.name`: present only when `profile`
+  was granted (native: when the plugin reports them; web: from the verified ID
+  token, dropped when a refresh no longer grants `profile`).
+- `SignInOptions.ephemeral` for `NativeTransport` (needs a plugin with it);
+  `FetchTransport` refuses it with `invalid_request`.
+- `Client.manageAccountUrl()`, `openManageAccount()`, `deleteAccountUrl()`,
+  `openDeleteAccount()`. `unsupported_operation` from a transport or plugin
+  without them. `FetchConfig.webOrigin` (default: the issuer's origin); the
+  web `open…` methods use `openExternal`.
+- `Transport` gained the four as optional members, so custom transports keep
+  compiling.
+
 ## 0.2.0 — 2026-10-06
 
 First tagged release, `sdk-v0.2.0`, versioned together with the other Free2Z
