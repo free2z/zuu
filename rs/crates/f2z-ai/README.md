@@ -147,6 +147,34 @@ Without backend configuration the diagnostic skeleton remains closed and unready
 Setting any backend key requires complete configuration and a configured provider.
 `Deps::skeleton` and trait injection remain test seams, not billable service modes.
 
+## Child-directed calls
+
+A token with `"child_directed": true` (`docs/free2z/sdk/CHILD-DIRECTED.md`)
+may name only catalogue models whose provider is in
+`chat::CHILD_DIRECTED_PROVIDERS` (OpenAI: the providers sent `store: false`),
+may not send `metadata`, and its claim carries no schema name. Its request
+fingerprint and `Idempotency-Key` reach the ledger only as HMAC-SHA256 under a
+server secret (`meter::ChildDirectedKey`, 64 hex characters — the shapes
+`ledger.call_claim` checks), so neither a short, guessable prompt nor the
+caller's key text can be confirmed from the record.
+
+```toml
+child_directed_key_file = "/run/secrets/child-directed-key"   # or F2Z_AI_CHILD_DIRECTED_KEY
+```
+
+At least 32 bytes, never inline. Without it, child-directed calls are refused
+with `503` (`reason: "child_directed_unconfigured"`) and nothing is claimed;
+other calls are unaffected. Other apps keep the unkeyed SHA-256 fingerprint and
+the key as sent, byte for byte, so no stored row changes format. No
+child-directed call was claimed before this existed, so there is no legacy
+form to accept.
+
+**Rotation.** The ledger column holds 64 hex characters and no key id, so
+rotating the key changes every derived value at once: a keyed retry of a call
+made under the old key is a new call. Idempotency keys live 24 hours; rotate
+only when that exposure is acceptable (for example, after an incident), and
+treat any double charge in that window as a refund case.
+
 ## Authentication and limits (`src/auth`)
 
 chat-api.md §2.2 steps 1–2, against the IdP of tuzi #2238

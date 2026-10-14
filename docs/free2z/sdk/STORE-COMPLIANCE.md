@@ -263,8 +263,8 @@ it is "not available to persons under the age of 13", which is exactly the
 clause Google flags. The posture being built is an **adult-held Free2Z account
 that a child-directed app may use**, chosen by a `child_directed` flag on the
 app's client registration. Use that registration for any app whose audience
-includes children, and follow the SDK's child-directed integration notes when
-they are published. Until the posture is live, an app whose content requires
+includes children, and follow the SDK's
+[child-directed integration notes](./CHILD-DIRECTED.md). Until the posture is live, an app whose content requires
 Free2Z cannot declare a child audience on Google Play.
 
 ### Consent before any data reaches AI
