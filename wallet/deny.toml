@@ -108,6 +108,21 @@ ignore = [
   { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.101.7: wildcard name constraints incorrectly accepted; fix series starts at 0.103.12, no fix exists on the 0.101 line. Sole consumer is minreq 2.14.1 via zcash_proofs 0.30.0's `download-params`; needs zcash_proofs on minreq 3 (blocked on zcash/librustzcash#2334)" },
   { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.101.7: reachable panic parsing a CRL; fix series starts at 0.103.13, no fix exists on the 0.101 line. Not reachable — minreq, the sole consumer, enables no CRL validation. Cleared by the same zcash_proofs -> minreq 3 bump (blocked on zcash/librustzcash#2334)" },
 
+  # The same rustls 0.21.12 island, hit by the 2026-10-14 rustls advisories.
+  # Every rustls 0.23 copy in every lockfile was bumped to 0.23.46, which clears
+  # RUSTSEC-2026-0346..0349 there; 0347 and 0348 never applied to 0.21 at all.
+  # These two DO list 0.21 as affected and their only fix is `>= 0.23.46` —
+  # there is no 0.21.x release to move to, so `cargo update` cannot clear them.
+  # Neither is reachable through minreq 2.14.1 (checked against its source):
+  # it builds a default ClientConfig with the built-in session cache, which
+  # 0346 states is unaffected, and rustls 0.21 implements no post-quantum
+  # group, so 0349's hybrid->classical downgrade has nothing to downgrade.
+  # The fix is still the zcash_proofs -> minreq 3 bump above. NOTE:
+  # zcash/librustzcash#2334 was closed by upstream on 2026-10-02 without that
+  # bump, so the follow-up is tracked in #351. Re-check by 2027-01-14.
+  { id = "RUSTSEC-2026-0346", reason = "rustls 0.21.12 only (all 0.23 copies are on the fixed 0.23.46): Debug of client session values leaks TLS secrets via a custom ClientSessionStore; no 0.21.x fix exists. Not reachable — sole consumer minreq 2.14.1 (zcash_proofs `download-params`) uses the built-in cache. Follow-up #351; re-check by 2027-01-14" },
+  { id = "RUSTSEC-2026-0349", reason = "rustls 0.21.12 only (all 0.23 copies are on the fixed 0.23.46): ServerHello key-share hint downgrades post-quantum to classical; no 0.21.x fix exists. Not reachable — 0.21 has no post-quantum group to downgrade from. Sole consumer minreq 2.14.1 (zcash_proofs `download-params`). Follow-up #351; re-check by 2027-01-14" },
+
   # ---------------------------------------------------------------------------
   # Unmaintained. None of these has a fixed version to move to — the advisory is
   # that the crate is no longer developed. Clearing them means the *dependent*
