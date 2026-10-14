@@ -20,6 +20,13 @@ Set `child_directed` on the registration in the developer console (or
 `PATCH https://free2z.cash/api/oauth/apps/{app_id}/` with `{"child_directed": true}`). Set it
 when the app is directed to children or to all ages, children included.
 
+**Status.** The gateway enforces the claim below. It takes effect for an app
+only once the identity provider issues it: the Free2Z registration attribute
+and the token claim ship separately from the gateway, and until they are live
+every token reads as not child-directed. After the setting is saved, tokens
+are re-minted within five minutes (the access-token lifetime). Until then, do
+not rely on these protections; the rest of this page applies either way.
+
 What changes when it is set:
 
 - **Consent screen.** It tells the account holder that the app may be used by
@@ -52,7 +59,9 @@ What changes when it is set:
 What the model provider receives: the messages, images, tools and output
 format of the call, and nothing that identifies the user — no Free2Z account
 id, no app id, no `metadata`. For OpenAI, the gateway sets `store: false` on
-every call (Responses and Chat Completions); the caller cannot change it.
+every call (Responses and Chat Completions), for every app; the caller cannot
+change it. `store: false` keeps the response out of OpenAI's stored
+completions. It is **not** zero retention.
 
 Model providers act as Free2Z's service providers. Their API terms say API
 inputs and outputs are not used to train models by default, and allow them to
