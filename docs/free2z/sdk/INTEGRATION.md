@@ -518,6 +518,51 @@ not certify a live payment rail for the tutor. The plugin uses its registered
 HTTPS purchase-return URL. Third-party apps do not use Free2Z's first-party
 Apple/Google IAP rails.
 
+### Manage Free2Z account: the URL contract
+
+An app never sells 2Z and never shows a purchase flow. When the account needs
+attention, for example no credits, a used-up budget or account deletion, the app shows a calm
+state and one exit: **Manage Free2Z account**. That exit opens this URL in the
+**system browser**, never in a WebView:
+
+```text
+https://free2z.cash/account/apps?client_id=<your registered client_id>
+```
+
+- **Origin.** `https://free2z.cash` is the canonical web origin and the OIDC
+  issuer. `https://free2z.com/...` answers with a 301 to the same path and
+  query on `free2z.cash`, so an older link still lands on the focused page.
+  New code should use `free2z.cash` directly.
+- **`client_id`.** Your registration's public `client_id`, as a constant
+  configured in the app. Never build it from an OAuth subject, a username or
+  model output.
+- **What the page shows** for that app: the signed-in username, the 2Z
+  balance (shown neutrally), this app's budget and a control to change it,
+  **Remove access** for this app, and a link to delete the Free2Z account
+  (`/account/delete`). It works for accounts without an email.
+- **Signed out.** The page sends the visitor to sign in, then returns them to
+  the same URL, `client_id` included.
+- **Unknown or invalid `client_id`.** The page says the app is not connected.
+  This is not an error, and the page does not show the other connected apps.
+- **The URL only selects what is shown.** Nothing is granted, revoked or
+  changed by opening it. Changes need the user's click on the page.
+
+**The line.** Every Free2Z page that an SDK app opens is **commerce-free**: the
+sign-in and sign-up sheet (`/login` returning to `/oauth/authorize`), the
+consent screen, the Manage page above and account deletion. These pages have:
+
+- no purchase link, price, "buy 2Z" call to action or checkout;
+- no site navigation or footer, because the site's account menu reaches the
+  Credits page;
+- no sign-in method that leaves the flow.
+
+This is what lets an app's sign-in and its Manage exit count as account
+management rather than a payment funnel. Google Play bans sign-up flows that
+lead to payment. Outside the US storefront, Apple bans steering to an outside
+purchase. The rest of free2z.cash sells 2Z normally, and people who use
+Free2Z know where to find it. For the store-by-store rules, wording and
+pre-submission checks, see the store-compliance guide.
+
 ### Cancellation, receipts and errors
 
 “Stop” ends delivery. Generation and settlement can continue, so never show
