@@ -31,7 +31,9 @@ What changes when it is set:
 - **The AI gateway refuses `metadata`** on `/v1/chat` and `/v1/chat/estimate`
   (`400 invalid_request`, `field: "metadata"`, `reason: "child_directed"`;
   [`spec/chat-api.md`](./spec/chat-api.md) §2.1), and does not record the
-  `response_format` schema name. Apart from the `Idempotency-Key` (use a
+  `response_format` schema name, and refuses a model id the catalogue does
+  not hold (`404 model_not_found`) before anything is recorded. Apart from
+  the `Idempotency-Key` (use a
   random value), a child-directed app's call records then hold numbers only.
 - **Debug capture** of prompts and completions is never available to a
   child-directed app. (It is not implemented for any app today.)

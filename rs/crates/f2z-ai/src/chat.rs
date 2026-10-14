@@ -438,6 +438,15 @@ async fn serve(
             "no verified, unexpired catalogue is loaded; the gateway will not price blind",
         ));
     };
+    if principal_child_directed(&call) {
+        // The call claim records the requested model id before the backend
+        // checks it, and an id is caller-chosen text. A child-directed app's
+        // record keeps catalogue ids only (CHILD-DIRECTED.md).
+        let known = |id: &str| catalog.catalog().models.iter().any(|m| m.id == id);
+        if request.attempts().any(|id| !known(id)) {
+            return Err(ApiFailure::new(ErrorCode::ModelNotFound, "no such model"));
+        }
+    }
 
     if estimating {
         let principal = call
@@ -899,6 +908,10 @@ fn is_standard_base64(data: &str) -> bool {
         && body
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
+}
+
+fn principal_child_directed(call: &CallHandle) -> bool {
+    call.principal().is_some_and(|p| p.child_directed)
 }
 
 /// The rules that depend on who is calling, after [`validate`].

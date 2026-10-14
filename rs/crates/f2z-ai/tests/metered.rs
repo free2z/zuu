@@ -2243,6 +2243,16 @@ async fn a_child_directed_call_record_keeps_no_caller_chosen_text() {
     assert!(db.0.lock().unwrap().hold.is_none(), "no hold");
     assert_eq!(mock.request_count(), 0, "no provider request");
 
+    // A model id is caller-chosen text too: one the catalogue does not hold
+    // is refused before the claim would record it.
+    let mut unknown = structured_request("Alice_Smith_age_8");
+    unknown.as_object_mut().unwrap().remove("metadata");
+    let refused = support::send(r.public, child(&unknown)).await;
+    assert_eq!(refused.status(), StatusCode::NOT_FOUND);
+    let _ = support::text(refused).await;
+    assert_eq!(db.0.lock().unwrap().request, Value::Null, "nothing claimed");
+    assert_eq!(mock.request_count(), 0, "no provider request");
+
     let mut request = structured_request("m-chat");
     request.as_object_mut().unwrap().remove("metadata");
     let response = support::send(r.public, child(&request)).await;
