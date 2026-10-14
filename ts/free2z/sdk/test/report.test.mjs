@@ -31,7 +31,11 @@ test("web reportCall posts the reason to the call's report path and reads 201 an
   const first = await client.reportCall(CALL, "incorrect", "wrong_grade");
   assert.deepEqual(first, receipt("incorrect"));
   status = 200;
-  assert.equal((await client.reportCall(CALL, "unsafe")).reason, "unsafe");
+  // An uppercase UUID is sent in the server's lowercase form.
+  assert.equal(
+    (await client.reportCall(CALL.toUpperCase(), "unsafe")).reason,
+    "unsafe",
+  );
   assert.deepEqual(seen, [
     {
       path: `/api/sdk/v1/calls/${CALL}/report`,
@@ -96,7 +100,10 @@ test("native reportCall forwards only a present detail and checks the receipt", 
     },
   };
   const transport = new NativeTransport(bridge);
-  assert.equal((await transport.reportCall(CALL, "unsafe")).reason, "unsafe");
+  assert.equal(
+    (await transport.reportCall(CALL.toUpperCase(), "unsafe")).reason,
+    "unsafe",
+  );
   await transport.reportCall(CALL, "incorrect", "wrong_grade");
   assert.deepEqual(sent, [
     [CALL, "unsafe"],

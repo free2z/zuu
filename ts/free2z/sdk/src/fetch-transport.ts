@@ -369,6 +369,8 @@ export class FetchTransport implements Transport {
       detail,
       this.config.childDirected === true,
     );
+    // The server routes the canonical lowercase UUID only.
+    callId = callId.toLowerCase();
     return decode.callReport(
       await this.#json(
         `${this.#api}/calls/${callId}/report`,

@@ -773,7 +773,8 @@ Served by the **account API** (`https://free2z.cash/api/sdk/v1`), not the
 gateway. Accepts an OAuth access token with audience `f2z-api` and scope
 `ai:invoke`, the session the call was made with; the standard error envelope;
 `Cache-Control: no-store`. `{id}` is the gateway's `call_id` (§3.2, the
-`X-F2Z-Call-Id` header, or §7's record). Nothing else about the call is sent —
+`X-F2Z-Call-Id` header, or §7's record) in its lowercase hyphenated UUID form;
+the SDKs lowercase it. Nothing else about the call is sent —
 never the prompt or the output.
 
 ```json

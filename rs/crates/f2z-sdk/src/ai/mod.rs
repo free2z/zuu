@@ -515,6 +515,10 @@ impl Ai {
     ) -> Result<CallReport, Error> {
         f2z_ai_proto::report::check_call_id(call_id)
             .map_err(|reason| Error::Config(reason.into()))?;
+        // The server routes the canonical lowercase form; an uppercase UUID
+        // would miss the route and get a generic 404.
+        let call_id = call_id.to_ascii_lowercase();
+        let call_id = call_id.as_str();
         if detail.is_some() && self.client.inner.config.child_directed {
             return Err(Error::Config(
                 "a child-directed app sends no report detail (Config::child_directed)".into(),

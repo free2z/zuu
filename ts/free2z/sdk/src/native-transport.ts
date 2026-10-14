@@ -388,6 +388,8 @@ export class NativeTransport implements Transport {
     cancelled(signal);
     const body = reportBody(callId, reason, detail);
     if (!this.bridge.reportCall) failure("unsupported_operation");
+    // The server routes the canonical lowercase UUID only.
+    callId = callId.toLowerCase();
     return decode.callReport(
       decode.nativeData(
         await invoke(

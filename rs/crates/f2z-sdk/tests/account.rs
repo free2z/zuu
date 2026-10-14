@@ -327,6 +327,14 @@ async fn report_call_posts_the_reason_and_detail_and_reads_both_receipts() {
         Err(Error::Config(_))
     ));
     assert_eq!(fake.report_bodies.lock().unwrap().len(), sent);
+    // An uppercase UUID is sent in the server's lowercase form.
+    let upper = client
+        .ai()
+        .report_call(&call.to_ascii_uppercase(), ReportReason::Other, None)
+        .await
+        .unwrap();
+    assert_eq!(upper.call_id, call);
+    assert_eq!(upper.report_id, first.report_id);
 }
 
 #[tokio::test]
