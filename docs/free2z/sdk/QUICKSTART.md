@@ -229,6 +229,10 @@ retry is always a **new** idempotency key.
 - **Persistence.** `session.persistence === "memory_only"` means the OS
   keychain was unavailable: a restart will ask the user to sign in again;
   tell them.
+- **Account deletion.** Link `https://free2z.cash/account/delete` from
+  your settings, opened in the system browser; the App Store and Google Play
+  require it, and it is the URL to give Play Console. A deleted account's
+  session ends like any revoked one ([spec/oidc.md §5.2](./spec/oidc.md#52-account-deletion-httpsfree2zcashaccountdelete)).
 
 ## 7. Where next
 

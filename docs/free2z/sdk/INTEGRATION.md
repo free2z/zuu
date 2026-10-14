@@ -198,6 +198,17 @@ completion, error, window close and sign-out. Associate each operation with the
 signed-in subject and session generation; discard late UI events from a replaced
 session. Keep the exact request and key when restart recovery is required.
 
+### Account deletion (App Store and Google Play)
+
+Free2Z sign-in can create a Free2Z account inside your app, so both stores
+require your app to offer deleting it. Link
+`https://free2z.cash/account/delete` from a settings or account screen,
+opened in the system browser, and enter the same URL as the account-deletion
+URL in Google Play Console. Free2Z handles the confirmation and needs no
+email. After a user deletes their account, the SDK reports them signed out:
+treat it like any revocation. The full contract is
+[spec/oidc.md §5.2](./spec/oidc.md#52-account-deletion-httpsfree2zcashaccountdelete).
+
 ## Rust API examples
 
 A complete, CI-compiled version of these steps — preflight, structured
