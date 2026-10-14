@@ -84,7 +84,9 @@ fakes, not a live platform deployment.
 
 Register a **public native client**; a Tauri app cannot protect a client secret.
 Request `openid profile offline_access balance:read purchase:create ai:invoke`
-(the Rust core's defaults). Read the granted scopes after sign-in: the user can
+(the Rust core's defaults). An App Store or Google Play build must drop
+`purchase:create` and never open a purchase surface; follow the
+[store-compliance playbook](./STORE-COMPLIANCE.md#2-the-line). Read the granted scopes after sign-in: the user can
 decline permissions. Do not enable purchase or AI actions merely because the
 app asked for them. `client_id` is public configuration.
 
@@ -627,7 +629,7 @@ from `collected_milli_2z` actually taken.
 |---|---|
 | `Error::SignedOut` | Clear signed-in UI and request login; do not continue spending |
 | `Error::StepUpRequired(challenge)` | Sign in with `SignInOptions::step_up(&challenge)` and retry the intended operation once, bound to the same account |
-| `insufficient_balance` | Offer a credit purchase or the **Manage balance and purchases** link on [Free2Z connected apps](https://free2z.cash/account/apps) (`openManageAccount()`); re-read balance after confirmed credit. An app without in-app purchasing shows a calm "no credits" state with only that exit |
+| `insufficient_balance` | Offer a credit purchase or the **Manage balance and purchases** link on [Free2Z connected apps](https://free2z.cash/account/apps) (`openManageAccount()`); re-read balance after confirmed credit. A store build shows only "No credits" and **Manage Free2Z account** ([store compliance](./STORE-COMPLIANCE.md#2-the-line)) |
 | `cap_exceeded` | Direct the user to [manage this app's budget in Free2Z](https://free2z.cash/account/apps) (`openManageAccount()`), or wait for its reset period. Topping up account balance does not raise this budget |
 | `account_in_debt` | Show debt separately and direct the user to Free2Z account management; do not automatically retry a charge |
 | `rate_limited`, `concurrency_limit`, `unavailable` | Honor `Retry-After` and explain temporary capacity/availability, not a need to buy credits or raise a budget |
