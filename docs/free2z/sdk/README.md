@@ -18,6 +18,8 @@ targets alongside desktop and web**; nothing in this contract is desktop-first.
 
 New here? Build the [15-minute quickstart](./QUICKSTART.md) first. For
 application work, continue with the [integration handoff](./INTEGRATION.md).
+Shipping to the App Store or Google Play? Follow the
+[store-compliance playbook](./STORE-COMPLIANCE.md): store builds never sell 2Z.
 An app whose users may include children: read
 [child-directed and all-ages apps](./CHILD-DIRECTED.md).
 Where the AI API is going — the gap analysis against OpenAI, Anthropic and
@@ -41,11 +43,15 @@ Tauri/TypeScript packages and live-platform prerequisites.
    purchase by card or by Zcash. (Apple and Google in-app purchase exist
    only in Free2Z's own apps in v1.) The purchase is completed and credited
    by Free2Z; the app only opens the right surface and polls for the
-   result. → [`spec/purchase.md`](./spec/purchase.md)
+   result. → [`spec/purchase.md`](./spec/purchase.md). An app distributed
+   through the App Store or Google Play sells nothing and only spends 2Z →
+   [`STORE-COMPLIANCE.md`](./STORE-COMPLIANCE.md)
 3. **Call AI.** A low-latency streaming gateway at `https://ai.free2z.cash`
    exposes one unified chat API over several providers, metered in 2Z with
    cost-plus pricing and rounded **up** to a whole 2Z per call. A registered
-   app may add its own markup, which is credited to the developer.
+   app may add its own markup. The developer's allocation from it is
+   compensated under the Free2Z Creator Compensation Agreement
+   ([`spec/metering.md`](./spec/metering.md#23-splits) §2.3).
    → [`spec/chat-api.md`](./spec/chat-api.md), [`spec/metering.md`](./spec/metering.md), and for function
    calling [`TOOLS.md`](./TOOLS.md)
 
@@ -170,7 +176,8 @@ Consequences that follow directly:
 | [`spec/chat-api.md`](./spec/chat-api.md) | Anyone calling or implementing the gateway. `POST /v1/chat` and the full SSE grammar with examples |
 | [`spec/metering.md`](./spec/metering.md) | Anyone who needs to explain a charge. Hold → stream → settle, the formula, worked examples, the edge cases |
 | [`spec/grant.md`](./spec/grant.md) | Apps verifying the current original consented limit, period and enforcement status |
-| [`spec/purchase.md`](./spec/purchase.md) | Anyone selling 2Z in an app. Card and Zcash for every app; StoreKit 2 and Play Billing in Free2Z's own apps |
+| [`spec/purchase.md`](./spec/purchase.md) | Anyone selling 2Z in a web or desktop app. Card and Zcash; StoreKit 2 and Play Billing in Free2Z's own apps |
+| [`STORE-COMPLIANCE.md`](./STORE-COMPLIANCE.md) | Anyone shipping to the App Store or Google Play. What a store build may show, age rating, consent, deletion, review notes |
 | [`spec/errors.md`](./spec/errors.md) | Everyone. The error catalogue: every status, code, whether to retry |
 | [`../ai-gateway/`](../ai-gateway/README.md) | Gateway implementers. The ADRs and the operational contract |
 

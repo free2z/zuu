@@ -44,7 +44,7 @@ platform's own apps register the same way. Registration fixes:
 | `redirect_uris` | The exact set of allowed redirect URIs (§3). Matching is exact, except the port of a loopback URI |
 | `allowed_scopes` | The subset of §4 the app may request. Requesting a scope outside it fails with `invalid_scope` |
 | `markup_bps` | The developer markup in basis points the developer *asks* for on every AI call made through this app. `0` to the platform cap (v1: **5000**, i.e. 50 %). What is actually applied is the **effective markup** below; changing it re-prompts consent when the effective markup rises (§5) |
-| `approved_markup_bps` | Set by the platform, manually: the largest markup it has approved for this app (`0` until any approval). **Effective markup = `min(markup_bps, approved_markup_bps)`.** Raising `markup_bps` above the approved value changes nothing until re-approval — the excess is `pending` — and the platform can lower or withdraw the approval at any time, which takes effect on the next hold for every user ([metering.md](./metering.md) §2.2). Approval is what makes markup earnings — 2Z credits recorded per (user, developer) — administrable ([purchase.md](./purchase.md) §3.1) |
+| `approved_markup_bps` | Set by the platform, manually: the largest markup it has approved for this app (`0` until any approval). **Effective markup = `min(markup_bps, approved_markup_bps)`.** Raising `markup_bps` above the approved value changes nothing until re-approval — the excess is `pending` — and the platform can lower or withdraw the approval at any time, which takes effect on the next hold for every user ([metering.md](./metering.md) §2.2). Approval is what makes markup allocations — recorded per (user, developer) — administrable ([purchase.md](./purchase.md) §3.1) |
 | `markup_approval` | Derived, for the console and the consent screen: `none` (`markup_bps = 0`), `pending` (`markup_bps > approved_markup_bps`, so some or all of the requested markup is not yet in effect) or `approved` (`markup_bps ≤ approved_markup_bps`). The consent screen shows the *effective* markup, and no line at all when it is `0` |
 | `default_spend_cap_2z`, `default_cap_period` | An optional per-user suggestion for AI consent: a nullable whole number of 2Z and a period (§5). This is not a shared application quota |
 | `allow_zcash_assertion` | Whether the app may use the Zcash sign-in grant (§9.4). Off by default |
@@ -52,8 +52,9 @@ platform's own apps register the same way. Registration fixes:
 | Name, logo, privacy URL, terms URL | Shown at consent |
 
 A registration has a **developer account** — an ordinary Free2Z account —
-and that account is where markup is credited, as 2Z platform credits
-([metering.md](./metering.md) §2.3).
+and the developer allocation from its markup is recorded against it.
+Compensation for that allocation is governed by the Free2Z Creator
+Compensation Agreement ([metering.md](./metering.md) §2.3).
 
 ## 3. Redirect URIs
 
