@@ -38,13 +38,16 @@ Every rule below is written so you can test it before you submit. The
 10. **Tell App Review the truth.** Use the [notes template](#6-app-review-notes-template).
 
 > **Do not submit until** each of these Free2Z pages exists and passes its
-> check. As of 2026-10-14, none of them does:
+> check. As of 2026-10-14:
 >
-> - the store-safe **Manage** view: `/account/apps?client_id=` with no
->   purchase path ([§2](#2-the-line));
-> - the deletion page `/account/delete` ([§4](#4-account-deletion));
-> - for apps used by children, a hosted sign-in page with no third-party
->   scripts. Today's sign-in loads Google reCAPTCHA ([§2](#2-the-line)).
+> - ✅ the store-safe **Manage** view: `/account/apps?client_id=` with no
+>   purchase path ([§2](#2-the-line)). Built and on stage; it reaches
+>   free2z.cash with the next production release. Check it there before you
+>   submit;
+> - ⏳ the deletion page `/account/delete` ([§4](#4-account-deletion));
+> - ⏳ X-only accounts able to sign in on these pages, which deletion and
+>   revoking an app depend on: X sign-in has to return to the page it
+>   started from.
 
 ## 1. Why an SDK app never sells 2Z
 
@@ -153,18 +156,30 @@ SDK app opens (sign-in, sign-up, consent, account, deletion):
 
 - **Commerce-free, including the navigation and footer the page inherits.** A
   "Buy 2Z" item in a shared header or footer is a path to payment.
-- **For apps used by children, no third-party analytics or embeds** on those
-  pages. Load only first-party scripts, with no trackers, no social widgets and
-  no third-party media.
+- **For apps used by children, no third-party analytics or embeds** on pages a
+  child sees. Load only first-party scripts, with no trackers, no social
+  widgets and no third-party media.
+- **The sign-in page is adult-gated, not child-facing.** An app used by
+  children opens Free2Z sign-in only after its one-time adult step, for the
+  adult account holder, in the system browser. In v1 that page keeps Google
+  reCAPTCHA, an anti-abuse check rather than analytics or ads. A first-party
+  replacement for it is planned.
 
 The rest of free2z.cash may sell 2Z normally.
 
-**Gaps as of 2026-10-14** (see "Do not submit until" above):
+**Status as of 2026-10-14** (see "Do not submit until" above):
 
-- `/account/apps` ignores `client_id` and links to **Manage balance and
-  purchases**. The shared navigation's user menu also reaches billing.
-- The hosted sign-in loads Google reCAPTCHA, which is a third-party script.
-  That fails the rule above for apps used by children.
+- Built and on stage, reaching free2z.cash with the next production release:
+  `/account/apps?client_id=` focuses on the one app with no purchase link. Every SDK-facing page (consent, the sign-in
+  and sign-up before it, Manage, deletion) renders without the site
+  navigation and footer, and shows no purchase toasts. The sign-up Terms link
+  opens a plain rendering of the legal documents (`/docs/plain/legal/`)
+  without the docs navigation.
+- Gap: X-only accounts cannot sign in on these pages until X sign-in returns
+  to the page it started from.
+- Gap: the deletion page `/account/delete` has not shipped.
+- By design in v1: the adult-gated sign-in page loads Google reCAPTCHA (see
+  above).
 
 ### Copy
 
@@ -194,7 +209,8 @@ those is a sales pitch in any store.
 - [ ] With the app's real `client_id`, every Free2Z page the app opens
       (sign-in, consent, **Manage**, deletion) has no purchase path, including
       in its header and footer. For an app used by children, the browser's
-      network log shows no third-party requests.
+      network log shows no third-party requests on any page a child sees (the
+      adult-gated sign-in page's reCAPTCHA is the v1 exception).
 
 ## 3. Age and audience
 
