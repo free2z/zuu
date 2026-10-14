@@ -541,9 +541,8 @@ https://free2z.cash/account/apps?client_id=<your registered client_id>
 - **What the page shows** for that app: the signed-in username, the 2Z
   balance (shown neutrally), this app's budget and a control to change it,
   and **Remove access** for this app. A link to delete the Free2Z account
-  (`/account/delete`) appears once the deletion page ships
-  ([free2z/tuzi#2630](https://github.com/free2z/tuzi/pull/2630)); until
-  then the page shows no deletion link.
+  (`/account/delete`) appears once the deletion page ships; until then the
+  page shows no deletion link.
 - **Known gap.** Accounts whose only sign-in is X cannot yet sign in on these
   pages. X sign-in does not return to the page that asked for it, so the
   SDK-facing pages hide it until it does.
