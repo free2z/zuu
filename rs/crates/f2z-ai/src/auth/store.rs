@@ -7,7 +7,7 @@
 //! | [`Store::counters`] | `<ns>:aep:<sub>`, `<ns>:agen:<client_id>:<sub>` (`MGET`) | Revocation. Written by the IdP (`dj.apps.oidc.epoch_publish`): plain decimal strings, raised only by compare-and-set, 300 s TTL |
 //! | [`Store::admit`] | `<ns>:ai:rl:u:<client_id>:<sub>`, `<ns>:ai:rl:a:<client_id>`, `<ns>:ai:cc:<sub>` (one Lua script) | The per-(app, user) and per-app token buckets and the per-user concurrency lease |
 //! | [`Store::release`] | `<ns>:ai:cc:<sub>` (`ZREM`) | Ending a lease |
-//! | [`FormStore`](crate::idempotency::FormStore) | `<ns>:ai:idem:<sub>:<app>:<hmac>` (`MGET`, `SET … PX`) | The form a keyed call was claimed in (`crate::idempotency`), 23 h 50 m TTL |
+//! | [`FormStore`](crate::idempotency::FormStore) | `<ns>:ai:idem:<sub>:<app>:<hmac>` (`MGET`, `SET … PX`) | The form a keyed call was claimed in (`crate::idempotency`), a 24 h 10 m TTL ([`RECORD_TTL`](crate::idempotency::RECORD_TTL): the ledger key's 24 h plus a margin) |
 //!
 //! [`RedisStore`] is the implementation. Every call is bounded by a short
 //! timeout, and after a failure the store is skipped for [`BACKOFF`] so that

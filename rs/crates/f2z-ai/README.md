@@ -175,7 +175,16 @@ and on the key, so a same-key retry that straddles a flag flip or a rotation
 derives the other form. After every keyed claim that inserts a call, the
 gateway writes a form record to the shared Redis:
 `<ns>:ai:idem:<sub>:<app>:<hmac>` → `v1:plain:<call>` or
-`v1:keyed:<key id>:<call>`, for 23 h 50 m (just under the ledger key's 24 h).
+`v1:keyed:<key id>:<call>`, for 24 h 10 m (`idempotency::RECORD_TTL`): the
+ledger key's 24 h (`ledger::IDEMPOTENCY_KEY_LIFETIME`, which restates
+`ledger.call_claim`'s `now() + interval '24 hours'` in tuzi
+`py/dj/apps/ledger/migrations/_call_recovery.py`) plus a 10-minute margin for
+skew between Postgres's and Redis's clocks. A record must outlive its key row:
+a straddling retry that finds the key row but no record is charged twice and
+counted only as `miss` (tuzi#2670). Outliving it is harmless — a straddling
+retry in the margin names the recorded call, which the ledger keeps 90 days,
+and is replayed rather than charged; a same-form retry after 24 h is a new call
+as the contract says.
 The `<hmac>` is an HMAC of the `Idempotency-Key` under the current key, for
 every app, so the key text reaches neither Redis nor, for a child-directed
 app, the ledger. A keyed request reads the record (under the current key, then
@@ -209,8 +218,13 @@ first and an `allkeys-*` one could; the shared Redis must run with no
 container's memory limit OOM-kills it, which loses every record at once (with
 the limits' state), so size that limit for this keyspace. A record measured
 313 bytes on the platform's Redis 8.10.1 image (`INFO memory`, 100 000
-records with TTLs), so the bound is keyed calls per 23 h 50 m × ~320 B:
-1 M keyed calls a day ≈ 320 MB.
+records with TTLs), so the bound is keyed calls per 24 h 10 m × 313 B:
+1 M keyed calls a day leaves ≈ 1.007 M records live, ≈ 315 MB (301 MiB), 29 %
+of the redis container's 1 GiB limit (`k8s/free2z/redis.yaml` in tuzi).
+Records alone would fill that 1 GiB at ≈ 3.43 M live records, ≈ 3.4 M keyed
+calls a day (≈ 39 a second, sustained) — less in practice, since the limits'
+and revocation keys and Redis's own baseline share it. Raise the limit before
+keyed traffic approaches that.
 
 **Rotation.** Two deploys, so no pod in a rolling update lacks the other
 pod's key: first add the new key B as `child_directed_key_previous` (current
