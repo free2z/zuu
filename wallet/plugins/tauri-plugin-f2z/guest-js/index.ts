@@ -52,6 +52,10 @@ export interface ChatRequest {
   max_output_tokens?: Decimal;
   /** `true`: refuse up front rather than lower `max_output_tokens` (requires it). */
   max_output_tokens_strict?: boolean;
+  /**
+   * @deprecated The gateway refuses a non-empty `metadata` for every app
+   * since zuu#1225 (`400 invalid_request`, `reason: "privacy_baseline"`). Send none.
+   */
   metadata?: Record<string, string>;
   fallback?: string[];
   /** Opt-in structured output; omit for prose. Plain JSON, not decimal strings. */

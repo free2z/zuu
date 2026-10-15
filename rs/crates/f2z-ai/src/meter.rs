@@ -587,7 +587,7 @@ enum Admitted {
     Recorded(Uuid),
     /// The record names a call claimed in another form: claim that call id
     /// with this request's fingerprint in that form.
-    Straddle(Uuid, String),
+    Straddle(Uuid, String, Form),
 }
 
 /// Production backend and settler share a bounded map: one entry per admitted
@@ -758,7 +758,7 @@ impl Metered {
             "idempotency key claimed in another form; claiming by its recorded call id"
         );
         outcome(Outcome::Straddle);
-        Ok(Admitted::Straddle(record.call, fingerprint))
+        Ok(Admitted::Straddle(record.call, fingerprint, record.form))
     }
     /// Point the form record at `id`, the call this request's canonical
     /// claim resolved to, under every key name the reservation writes, so
@@ -913,7 +913,7 @@ impl ChatBackend for Metered {
             .admit_form(call, identity, &request, &form, fresh)
             .await?;
         let (id, fingerprint) = match &admitted {
-            Admitted::Straddle(recorded, fingerprint) => (*recorded, fingerprint.clone()),
+            Admitted::Straddle(recorded, fingerprint, _) => (*recorded, fingerprint.clone()),
             Admitted::Recorded(recorded) => (*recorded, fingerprint),
             Admitted::Reserved | Admitted::Canonical => (fresh, fingerprint),
         };
@@ -961,9 +961,22 @@ impl ChatBackend for Metered {
             final_record: Mutex::new(None),
         });
         lock(&self.active).insert(call.id(), Arc::clone(&active));
-        let row = ledger::recover(self.ledger.as_ref(), &claim)
-            .await
-            .map_err(|_| unavailable().detail("call_id", id.to_string()))?;
+        let row = match ledger::recover(self.ledger.as_ref(), &claim).await {
+            Ok(row) => row,
+            Err(_) => {
+                // A request that named a recorded call did not create it and
+                // never held for it: its settlement guard must not finalize
+                // that call — a no-hold completion would release another
+                // request's live call and make the key replay this error
+                // (zuu#1226 review, B2). If this claim did land unseen, the
+                // ledger's hold-less expiry releases it. A fresh id is this
+                // request's own, and its completion stays as before.
+                if matches!(admitted, Admitted::Recorded(_) | Admitted::Straddle(..)) {
+                    lock(&self.active).remove(&call.id());
+                }
+                return Err(unavailable().detail("call_id", id.to_string()));
+            }
+        };
         let existing = row.get("call_id").and_then(Value::as_str);
         if status(&row)? != "claimed" {
             // This request did not win admission. Its settlement guard must not
@@ -1002,7 +1015,7 @@ impl ChatBackend for Metered {
             return Err(invalid());
         }
         match admitted {
-            Admitted::Straddle(..) => {
+            Admitted::Straddle(_, _, recorded) => {
                 // The ledger did not hold the recorded call, so this claim
                 // inserted it under that id. Either the ledger lost it, or
                 // the request that reserved the record (in another form, on
@@ -1015,9 +1028,16 @@ impl ChatBackend for Metered {
                 call.inflight()
                     .metrics()
                     .record_idempotency_form(Outcome::Orphaned);
+                // The record may be older than this insert (a reservation
+                // whose own claim failed): renew it, unchanged, under every
+                // key name, so it outlives this call's key row by the full
+                // margin (zuu#1226 review, B1).
+                self.record_form(call, identity, recorded, id).await;
             }
-            // The record already names this call.
-            Admitted::Reserved | Admitted::Recorded(_) => {}
+            // Likewise for a recorded id in this request's own form.
+            Admitted::Recorded(_) => self.record_form(call, identity, form, id).await,
+            // The reservation was written just now, for this claim.
+            Admitted::Reserved => {}
             Admitted::Canonical => self.record_form(call, identity, form, id).await,
         }
         call.set_durable_call_id(id);

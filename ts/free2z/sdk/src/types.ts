@@ -199,6 +199,11 @@ export interface ChatRequest {
    * `max_output_tokens`. `false`/absent is the default and is never sent.
    */
   max_output_tokens_strict?: boolean;
+  /**
+   * @deprecated The gateway refuses a non-empty `metadata` for every app
+   * since zuu#1225 (`400 invalid_request`, `reason: "privacy_baseline"`):
+   * call records keep no caller-chosen text. Send none.
+   */
   metadata?: Record<string, string>;
   fallback?: string[];
   /**

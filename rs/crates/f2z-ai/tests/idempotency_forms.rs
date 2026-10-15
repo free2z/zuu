@@ -118,6 +118,8 @@ struct Book {
     charges: usize,
     /// Claims still to fail like an outage (each request tries twice).
     fail_claims: u32,
+    /// Every `Complete` the ledger received: `(call, no_hold)`.
+    completes: Vec<(Uuid, bool)>,
     /// Claims this holds back 300 ms before they reach the book, to fix
     /// which of two racing claims the ledger sees first.
     slow: Option<Slow>,
@@ -282,8 +284,12 @@ impl Ledger for Ledgerish {
                 json!({"status":"held","state":"open","amount":100_000,"available":100_000,"cap_remaining":null,"expires_at":"2026-10-14T00:05:00Z"}),
             ),
             Operation::Complete {
-                call, completion, ..
+                call,
+                completion,
+                no_hold,
+                ..
             } => {
+                book.completes.push((*call, *no_hold));
                 // A request whose claim failed never inserted its call.
                 let Some(c) = book.calls.get_mut(call) else {
                     return Ok(json!({"status":"not_found","record":null}));
@@ -1086,4 +1092,77 @@ async fn concurrent_requests_across_a_child_directed_flip_are_admitted_once() {
     assert_eq!(ledger.charges(), 1, "one charge");
     assert_every_claim_keyed(&ledger.claims());
     g.shutdown().await;
+}
+
+// zuu#1226 review, B1. A reservation whose claim failed is claimed later by
+// a retry that inserts the call under the recorded id. The record must then
+// live a full `RECORD_TTL` from that insert, not from the reservation:
+// otherwise, across a rotation, a retry after the reservation's record
+// expired but inside the inserted key row's 24 h derives the other key's
+// form, finds no record, and is charged a second time.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_late_insert_under_a_recorded_id_keeps_its_record_for_a_full_ttl() {
+    let clock = Clock::default();
+    let ledger = Arc::new(Ledgerish::on(&clock));
+    let forms = Arc::new(Forms::on(&clock));
+    let a = gateway(&ledger, Some(&forms), KEY_A, Some(KEY_B)).await;
+    ledger.0.lock().unwrap().fail_claims = 2;
+    assert_eq!(a.call(false).await.0, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(ledger.inserted().len(), 0);
+
+    clock.set(Duration::from_secs(3600));
+    assert_eq!(a.call(false).await, (StatusCode::OK, false));
+    ledger.settled(1).await;
+    a.shutdown().await;
+
+    // Swapped: current B, previous A. 24 h 15 m after the reservation, 23 h
+    // 15 m after the insert: the key row (under A) lives, and so must the
+    // record that maps B's form onto it.
+    let b = gateway(&ledger, Some(&forms), KEY_B, Some(KEY_A)).await;
+    clock.set(LEDGER_KEY_LIFETIME + Duration::from_secs(15 * 60));
+    assert_eq!(b.call(false).await, (StatusCode::OK, true), "replayed");
+    assert_eq!(ledger.inserted().len(), 1, "one call");
+    assert_eq!(ledger.charges(), 1, "one charge");
+    b.shutdown().await;
+}
+
+// zuu#1226 review, B2. A retry that names a recorded call (its own form, or
+// another) and whose claim then fails did not create that call and never
+// held for it: it must not hand the call to the settler, whose no-hold
+// completion would release another request's live call and make the key
+// replay this request's error for 24 h.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_retry_whose_claim_fails_never_finalizes_the_call_it_named() {
+    for rotated in [false, true] {
+        let ledger = Arc::new(Ledgerish::default());
+        let forms = Arc::new(Forms::default());
+        let first = gateway(&ledger, Some(&forms), KEY_A, Some(KEY_B)).await;
+        assert_eq!(first.call(false).await, (StatusCode::OK, false));
+        ledger.settled(1).await;
+        let call = ledger.inserted()[0].call;
+        let completes = |ledger: &Ledgerish| {
+            ledger
+                .0
+                .lock()
+                .unwrap()
+                .completes
+                .iter()
+                .filter(|(c, _)| *c == call)
+                .count()
+        };
+        let before = completes(&ledger);
+
+        // The same form (a recorded id), or the other key's (a straddle).
+        let retry = if rotated {
+            gateway(&ledger, Some(&forms), KEY_B, Some(KEY_A)).await
+        } else {
+            first
+        };
+        ledger.0.lock().unwrap().fail_claims = 2;
+        assert_eq!(retry.call(false).await.0, StatusCode::SERVICE_UNAVAILABLE);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(completes(&ledger), before, "rotated={rotated}");
+        assert_eq!(ledger.charges(), 1);
+        retry.shutdown().await;
+    }
 }

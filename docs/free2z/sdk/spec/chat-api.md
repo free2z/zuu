@@ -225,6 +225,13 @@ hours** returns the *same* call — the same `call_id`, and:
   and that is a new call;
 - if the body differs from the original, `409 idempotency_conflict`. "Differs" is judged on the decoded request with every `parameters` and `response_format` schema object's members sorted by name: a retry that only reorders a schema's members is the same call, and is replayed.
 
+The window's edge is soft by up to 10 minutes: a key reused between 24 h
+and 24 h 10 m after its call may still be resolved to that call — replayed,
+or `409` if the body differs — rather than start a new one (the gateway's
+retry record outlives the 24-hour key by that margin, zuu#1225). From
+24 h 10 m on it is always a new call. Reuse a key for a new call never;
+generate a new one.
+
 Without a key, every request is a new call. SDKs generate a key per logical
 call so that a retried request after a network failure never double-charges.
 The two uses are distinct and an SDK keeps them so: **re-sending with the

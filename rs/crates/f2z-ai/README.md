@@ -208,8 +208,13 @@ skew between Postgres's and Redis's clocks. A record must outlive its key row:
 a straddling retry that finds the key row but no record is charged twice and
 counted only as `miss` (tuzi#2670). Outliving it is harmless — a straddling
 retry in the margin names the recorded call, which the ledger keeps 90 days,
-and is replayed rather than charged; a same-form retry after 24 h is a new call
-as the contract says.
+and is replayed rather than charged. Since a same-form retry also claims the
+recorded id (below), a key reused between 24 h and 24 h 10 m resolves to the
+old call too — replayed, or `409` if the body differs — instead of starting
+a new one; from 24 h 10 m on it is a new call (chat-api.md §2.5). A retry
+that inserts a call under a recorded id renews the record under every key
+name for a full `RECORD_TTL` from that insert, and one whose claim fails
+never hands the named call to the settler (zuu#1226 review B1, B2).
 The `<hmac>` is an HMAC of the `Idempotency-Key` under the current key,
 derived identically by both images (pinned by
 `claim_key_derivations_match_the_deployed_image`), so the key text never
