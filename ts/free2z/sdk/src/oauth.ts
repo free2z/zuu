@@ -37,6 +37,13 @@ export interface FetchConfig {
   fetch?: typeof globalThis.fetch;
   authSession?: BrowserAuthSession;
   openExternal?: (url: string) => Promise<void>;
+  /**
+   * The app is child-directed: set it exactly when the app's Free2Z
+   * registration is `child_directed`. `reportCall` then refuses any `detail`
+   * locally (the server would answer `invalid_request`, field `detail`).
+   * A native app sets the same flag on the Rust `Config`.
+   */
+  childDirected?: boolean;
 }
 interface Tokens {
   access: string;

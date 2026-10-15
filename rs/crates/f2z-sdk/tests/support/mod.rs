@@ -172,6 +172,10 @@ pub struct Fake {
     pub grant_delay: Mutex<Duration>,
     pub grant_body: Mutex<Value>,
     pub grant_calls: AtomicU32,
+    /// `POST /api/sdk/v1/calls/{id}/report`: every body received, and the
+    /// reports on record (call id -> report id). Call `…-000000000404` is a 404.
+    pub report_bodies: Mutex<Vec<Value>>,
+    pub reports: Mutex<HashMap<String, String>>,
     /// A purchase is credited after this many polls.
     pub credit_after_polls: AtomicU32,
     /// `error-before-meta` fails this many calls before succeeding.
@@ -277,6 +281,8 @@ impl Fake {
             balance_delay: Mutex::new(Duration::ZERO),
             grant_delay: Mutex::new(Duration::ZERO),
             grant_calls: AtomicU32::new(0),
+            report_bodies: Mutex::default(),
+            reports: Mutex::default(),
             grant_body: Mutex::new(json!({"sub": SUBJECT, "client_id": CLIENT_ID,
                 "account_epoch": 4, "grant_generation": 2, "scopes":["ai:invoke"],
                 "spend_cap_2z": 500, "cap_period":"total", "enforced":true,
@@ -313,6 +319,7 @@ impl Fake {
             .route("/api/oauth/revoke", post(revoke))
             .route("/api/sdk/v1/balance", get(balance))
             .route("/api/sdk/v1/grant", get(grant))
+            .route("/api/sdk/v1/calls/{id}/report", post(report_call))
             .route("/api/sdk/v1/purchases", post(create_purchase))
             .route("/api/sdk/v1/purchases/{id}", get(get_purchase))
             .with_state(Arc::clone(&fake));
@@ -763,6 +770,51 @@ async fn grant(State(f): State<Arc<Fake>>, headers: HeaderMap) -> Response<Body>
     let delay = *f.grant_delay.lock().unwrap();
     tokio::time::sleep(delay).await;
     json_response(StatusCode::OK, body)
+}
+
+async fn report_call(
+    State(f): State<Arc<Fake>>,
+    headers: HeaderMap,
+    uri: Uri,
+    body: String,
+) -> Response<Body> {
+    let id = uri
+        .path()
+        .strip_prefix("/api/sdk/v1/calls/")
+        .and_then(|rest| rest.strip_suffix("/report"))
+        .unwrap_or("")
+        .to_owned();
+    let scope = match f.check_bearer(&headers) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    if !has_scope(&scope, "ai:invoke") {
+        return envelope(
+            StatusCode::FORBIDDEN,
+            "insufficient_scope",
+            Some(json!({"scope":"ai:invoke"})),
+        );
+    }
+    let Ok(request) = serde_json::from_str::<Value>(&body) else {
+        return envelope(StatusCode::BAD_REQUEST, "invalid_request", None);
+    };
+    f.report_bodies.lock().unwrap().push(request.clone());
+    if id == "019a2f1c-0000-7000-8000-000000000404" {
+        return envelope(StatusCode::NOT_FOUND, "not_found", None);
+    }
+    let mut reports = f.reports.lock().unwrap();
+    let status = if reports.contains_key(&id) {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
+    let next = format!("0199c0de-0000-7000-8000-{:012}", reports.len() + 1);
+    let report_id = reports.entry(id.clone()).or_insert(next).clone();
+    json_response(
+        status,
+        json!({"report_id": report_id, "call_id": id, "reason": request["reason"],
+            "created_at": "2026-10-14T12:00:00Z", "unknown_member": true}),
+    )
 }
 
 async fn balance(State(f): State<Arc<Fake>>, headers: HeaderMap) -> Response<Body> {

@@ -12,6 +12,16 @@ use sqlx_postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use std::time::Duration;
 use uuid::Uuid;
 
+/// How long `ledger.call_claim` keeps an `Idempotency-Key` row:
+/// `expires_at = now() + interval '24 hours'`, set by the claim that inserts
+/// the call, and only a row with `expires_at > now()` is found. The ABI never
+/// returns the expiry, so this restates the ledger's literal (tuzi
+/// `py/dj/apps/ledger/migrations/_call_recovery.py`, the `call_claim` body
+/// installed by `ledger.0005_call_recovery`) and the public contract's 24-hour
+/// window (`docs/free2z/sdk/spec/chat-api.md` §2.5). Change it only together
+/// with that SQL; [`crate::idempotency::RECORD_TTL`] is derived from it.
+pub const IDEMPOTENCY_KEY_LIFETIME: Duration = Duration::from_secs(24 * 3600);
+
 /// Epochs captured at admission; completion continues with these after revocation.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Identity {

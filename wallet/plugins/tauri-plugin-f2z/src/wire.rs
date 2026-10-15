@@ -250,6 +250,39 @@ pub fn decimal(input: &str) -> Result<u64> {
         .parse()
         .map_err(|_| NativeError::new("invalid_integer"))
 }
+/// A report's arguments, checked before the network: an unknown reason or a
+/// `detail` the server would refuse — including any `detail` from a
+/// child-directed app — is `invalid_request` naming the field.
+pub fn report_request(
+    call_id: &str,
+    reason: &str,
+    detail: Option<&str>,
+    child_directed: bool,
+) -> Result<f2z_sdk::ai::ReportReason> {
+    use f2z_sdk::ai::ReportReason;
+    let invalid = |field: &str| {
+        let mut error = NativeError::new("invalid_request");
+        error.details = Some(json!({ "field": field }));
+        error
+    };
+    if f2z_sdk::proto::report::check_call_id(call_id).is_err() {
+        return Err(invalid("call_id"));
+    }
+    let reason = match reason {
+        "incorrect" => ReportReason::Incorrect,
+        "inappropriate" => ReportReason::Inappropriate,
+        "unsafe" => ReportReason::Unsafe,
+        "other" => ReportReason::Other,
+        _ => return Err(invalid("reason")),
+    };
+    if let Some(detail) = detail {
+        if child_directed {
+            return Err(invalid("detail"));
+        }
+        f2z_sdk::proto::report::check_detail(detail).map_err(|_| invalid("detail"))?;
+    }
+    Ok(reason)
+}
 pub fn key(input: &str) -> Result<()> {
     if input.is_empty() || input.len() > 128 || !input.bytes().all(|b| (33..=126).contains(&b)) {
         return Err(NativeError::new("invalid_operation_key"));
@@ -402,6 +435,35 @@ pub fn chat_request(mut input: Value) -> Result<f2z_sdk::proto::ChatRequest> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_report_is_refused_before_the_network_naming_the_field() {
+        let call = "019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c";
+        assert_eq!(
+            report_request(call, "unsafe", Some("wrong_grade"), false).unwrap(),
+            f2z_sdk::ai::ReportReason::Unsafe
+        );
+        for (call_id, reason, detail, field) in [
+            (call, "spam", None, "reason"),
+            (call, "unknown", None, "reason"),
+            (call, "other", Some(""), "detail"),
+            (call, "other", Some("two\nlines"), "detail"),
+            (call, "other", Some("rtl\u{202E}"), "detail"),
+            (call, "other", Some("para\u{2029}"), "detail"),
+            ("not-a-uuid", "other", None, "call_id"),
+            ("", "other", None, "call_id"),
+            ("../grant", "other", None, "call_id"),
+        ] {
+            let error = report_request(call_id, reason, detail, false).unwrap_err();
+            assert_eq!(error.code, "invalid_request");
+            assert_eq!(error.details, Some(json!({ "field": field })));
+        }
+        let long = "x".repeat(201);
+        assert!(report_request(call, "other", Some(&long), false).is_err());
+        // A child-directed app sends no detail at all; the reason alone is fine.
+        let error = report_request(call, "other", Some("wrong_grade"), true).unwrap_err();
+        assert_eq!(error.details, Some(json!({ "field": "detail" })));
+        assert!(report_request(call, "unsafe", None, true).is_ok());
+    }
     #[test]
     fn strict_output_flag_passes_through_as_a_boolean_only() {
         let base = json!({"model":"m","messages":[],"max_output_tokens":"1800"});

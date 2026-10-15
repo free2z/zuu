@@ -19,10 +19,12 @@ import {
   uint,
 } from "./json.js";
 import { WebSession, type FetchConfig } from "./oauth.js";
+import { reportBody } from "./report.js";
 import { frames } from "./sse.js";
 import type {
   Balance,
   CallRecord,
+  CallReport,
   ChatEvent,
   ChatOptions,
   ChatRequest,
@@ -33,6 +35,7 @@ import type {
   OperationOptions,
   Purchase,
   PurchaseRequest,
+  ReportReason,
   Session,
   SignInOptions,
   Transport,
@@ -352,6 +355,30 @@ export class FetchTransport implements Transport {
         "ai:invoke",
         signal,
       ),
+    );
+  }
+  async reportCall(
+    callId: string,
+    reason: ReportReason,
+    detail?: string,
+    signal?: AbortSignal,
+  ): Promise<CallReport> {
+    const body = reportBody(
+      callId,
+      reason,
+      detail,
+      this.config.childDirected === true,
+    );
+    // The server routes the canonical lowercase UUID only.
+    callId = callId.toLowerCase();
+    return decode.callReport(
+      await this.#json(
+        `${this.#api}/calls/${callId}/report`,
+        "ai:invoke",
+        signal,
+        body,
+      ),
+      callId,
     );
   }
   async chat(request: ChatRequest, options: ChatOptions): Promise<ChatStream> {

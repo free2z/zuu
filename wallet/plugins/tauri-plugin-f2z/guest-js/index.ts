@@ -236,6 +236,19 @@ export interface Grant {
   enforcement_reason?: 'ok' | 'platform_disabled' | 'ledger_cutover_pending' | 'ledger_cap_pending' | 'unknown';
   as_of: string;
 }
+/**
+ * Why the user reports an AI output. Offer these as preset choices: apps that
+ * children may use should not offer a free-text box.
+ */
+export type ReportReason = 'incorrect' | 'inappropriate' | 'unsafe' | 'other';
+/** The report receipt; the same `report_id` when the user reports the call again. */
+export interface CallReport {
+  report_id: string; call_id: string;
+  /** A reason newer than the native core arrives as `'unknown'`. */
+  reason: ReportReason | 'unknown';
+  created_at: string;
+  [key: string]: unknown;
+}
 export interface NativeBridge {
   session(): Promise<Session>;
   /** Rejects with a `NativeError`; see `SignInErrorCode` for why the browser step ended. */
@@ -265,6 +278,14 @@ export interface NativeBridge {
   deleteAccountUrl(): Promise<string>;
   /** Opens `deleteAccountUrl()` in the system browser: the stores' in-app deletion path. */
   openDeleteAccount(): Promise<void>;
+  /**
+   * Report a call's AI output, in the app (Play's AI-Generated Content policy,
+   * App Store 4.7). Free2Z keeps the call id, reason and `detail`, never the
+   * content; the app's developer and Free2Z moderation see it. `detail`: at most
+   * 200 characters, one line, prefer an app-defined preset. Rejects with
+   * `invalid_request` (`details.field`) before any network call.
+   */
+  reportCall(callId: string, reason: ReportReason, detail?: string): Promise<CallReport>;
 }
 const command = <T>(name: string, args?: Record<string, unknown>): Promise<T> => invoke<T>(`plugin:f2z|${name}`, args);
 export const nativeBridge: NativeBridge = {
@@ -288,4 +309,6 @@ export const nativeBridge: NativeBridge = {
   openManageAccount: () => command('open_manage_account'),
   deleteAccountUrl: () => command('delete_account_url'),
   openDeleteAccount: () => command('open_delete_account'),
+  reportCall: (callId, reason, detail) =>
+    command('report_call', detail === undefined ? { callId, reason } : { callId, reason, detail }),
 };

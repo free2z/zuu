@@ -38,9 +38,24 @@ use uuid::Uuid;
 
 use crate::auth::store::StoreError;
 
-/// How long a record lives: just under the ledger's 24-hour idempotency key
-/// expiry, so a record never outlives the key row it describes.
-pub const RECORD_TTL: Duration = Duration::from_secs(23 * 3600 + 50 * 60);
+/// How long a record lives: the ledger's idempotency key lifetime
+/// ([`crate::ledger::IDEMPOTENCY_KEY_LIFETIME`], 24 h) plus
+/// [`RECORD_TTL_MARGIN`], so 24 h 10 m. A record must outlive the key row it
+/// describes: while the key row lives, a straddling retry with no record
+/// claims in its canonical form and is charged a second time, counted only as
+/// a `miss` (tuzi#2670 — the 23 h 50 m this replaced left the window's last
+/// 10 minutes exposed). Outliving the key row is harmless: the retry names the
+/// recorded call id, and call rows live 90 days, so it replays the call
+/// instead of charging.
+pub const RECORD_TTL: Duration =
+    crate::ledger::IDEMPOTENCY_KEY_LIFETIME.saturating_add(RECORD_TTL_MARGIN);
+
+/// How much longer a record lives than the ledger key. The key's expiry is
+/// read on Postgres's clock from the claim's transaction start; the record's
+/// `PX` runs on Redis's clock from its write, which follows the claim. The
+/// margin absorbs skew between those two clocks and a slow claim-to-write
+/// path, and costs 10 / 1440 ≈ 0.7 % more record memory.
+pub const RECORD_TTL_MARGIN: Duration = Duration::from_secs(10 * 60);
 
 /// The Redis operations the form records need.
 #[async_trait]

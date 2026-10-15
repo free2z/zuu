@@ -399,3 +399,35 @@ pub async fn wait_for_call<R: Runtime>(
         })
         .await
 }
+/// Report a call's AI output (`spec/chat-api.md` §7.1). The reason and detail are
+/// checked here first, so a refused value never reaches the network.
+#[tauri::command]
+pub async fn report_call<R: Runtime>(
+    webview: Webview<R>,
+    state: State<'_, Arc<PluginState<R>>>,
+    call_id: String,
+    reason: String,
+    detail: Option<String>,
+) -> Result<Value> {
+    authorized(&webview, &state)?;
+    let reason = wire::report_request(
+        &call_id,
+        &reason,
+        detail.as_deref(),
+        state.engine.client.child_directed(),
+    )?;
+    state
+        .engine
+        .read(async {
+            wire::value(
+                &state
+                    .engine
+                    .client
+                    .ai()
+                    .report_call(&call_id, reason, detail.as_deref())
+                    .await
+                    .map_err(NativeError::from)?,
+            )
+        })
+        .await
+}

@@ -6,6 +6,10 @@
 //! `ledger.call_claim` does: an existing call by id first, then a live
 //! idempotency key, comparing the fingerprint; otherwise it inserts the call
 //! and its key. Real gateway, real provider adapter, mock provider.
+//!
+//! The ledger's key rows and the Redis records expire on one simulated
+//! [`Clock`] the tests advance, so a record's TTL is tested against the key
+//! row it must outlive (tuzi#2670), not just its size.
 #![allow(
     missing_docs,
     clippy::unwrap_used,
@@ -23,14 +27,14 @@ use f2z_ai::{
     ApiFailure, Deps,
     auth::{Admitted, Gatekeeper, Principal, store::StoreError},
     catalog::Fixed,
-    idempotency::FormStore,
+    idempotency::{FormStore, RECORD_TTL},
     ledger::{Failure, Ledger, Operation},
     meter::{ChildDirectedKey, Metered},
 };
 use f2z_ai_testkit::mock::{MockProvider, Scenario};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use uuid::Uuid;
@@ -38,6 +42,30 @@ use uuid::Uuid;
 const SUBJECT: &str = "11111111-1111-4111-8111-111111111111";
 const APP: &str = "22222222-2222-4222-8222-222222222222";
 const RAW_KEY: &str = "lesson-for-alice-smith";
+
+/// `ledger.call_claim`'s key lifetime, `now() + interval '24 hours'` (tuzi
+/// `py/dj/apps/ledger/migrations/_call_recovery.py`), written out here rather
+/// than read from the gateway so the fake ledger models the SQL.
+const LEDGER_KEY_LIFETIME: Duration = Duration::from_secs(24 * 3600);
+
+/// Simulated time, in milliseconds since the test began, shared by the
+/// ledger's key rows and the Redis records. It moves only when a test moves it.
+#[derive(Clone, Default)]
+struct Clock(Arc<AtomicU64>);
+impl Clock {
+    fn now(&self) -> u64 {
+        self.0.load(Ordering::SeqCst)
+    }
+    fn set(&self, since_start: Duration) {
+        self.0.store(
+            u64::try_from(since_start.as_millis()).unwrap(),
+            Ordering::SeqCst,
+        );
+    }
+    fn after(&self, d: Duration) -> u64 {
+        self.now() + u64::try_from(d.as_millis()).unwrap()
+    }
+}
 
 struct Gate;
 #[async_trait]
@@ -81,7 +109,9 @@ struct Claim {
 #[derive(Default)]
 struct Book {
     calls: BTreeMap<Uuid, Call>,
-    keys: BTreeMap<String, Uuid>,
+    /// key → (call, expires at); found only while `expires > now`.
+    keys: BTreeMap<String, (Uuid, u64)>,
+    clock: Clock,
     holds: BTreeMap<Uuid, Uuid>,
     claims: Vec<Claim>,
     charges: usize,
@@ -108,6 +138,12 @@ fn envelope(id: Uuid, c: &Call) -> Value {
 struct Ledgerish(Mutex<Book>);
 
 impl Ledgerish {
+    fn on(clock: &Clock) -> Self {
+        Self(Mutex::new(Book {
+            clock: clock.clone(),
+            ..Book::default()
+        }))
+    }
     fn charges(&self) -> usize {
         self.0.lock().unwrap().charges
     }
@@ -161,7 +197,11 @@ impl Ledger for Ledgerish {
                 let existing = if book.calls.contains_key(call) {
                     Some(*call)
                 } else {
-                    key.as_ref().and_then(|k| book.keys.get(k).copied())
+                    let now = book.clock.now();
+                    key.as_ref()
+                        .and_then(|k| book.keys.get(k))
+                        .filter(|(_, expires)| *expires > now)
+                        .map(|(id, _)| *id)
                 };
                 let (status, id) = match existing {
                     Some(id) => {
@@ -191,7 +231,9 @@ impl Ledger for Ledgerish {
                             },
                         );
                         if let Some(k) = key {
-                            book.keys.insert(k.clone(), *call);
+                            // ON CONFLICT DO UPDATE: an expired row is replaced.
+                            let expires = book.clock.after(LEDGER_KEY_LIFETIME);
+                            book.keys.insert(k.clone(), (*call, expires));
                         }
                         ("claimed", *call)
                     }
@@ -254,11 +296,40 @@ impl Ledger for Ledgerish {
     }
 }
 
-/// Redis, in memory; `down` makes every call fail like an outage.
+/// Redis, in memory, expiring each value at its `PX` on the [`Clock`];
+/// `down` makes every call fail like an outage. `ttl_override` replaces the
+/// TTL the gateway asks for — only the negative control sets it.
 #[derive(Default)]
 struct Forms {
-    values: Mutex<BTreeMap<String, String>>,
+    /// key → (value, expires at).
+    values: Mutex<BTreeMap<String, (String, u64)>>,
     down: AtomicBool,
+    clock: Clock,
+    ttl_override: Option<Duration>,
+}
+impl Forms {
+    fn on(clock: &Clock) -> Self {
+        Self {
+            clock: clock.clone(),
+            ..Self::default()
+        }
+    }
+    /// The live records' values.
+    fn live(&self) -> Vec<String> {
+        let now = self.clock.now();
+        self.values
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|(_, expires)| *expires > now)
+            .map(|(v, _)| v.clone())
+            .collect()
+    }
+    fn rewrite(&self, f: impl Fn(&str) -> String) {
+        for (value, _) in self.values.lock().unwrap().values_mut() {
+            *value = f(value);
+        }
+    }
 }
 #[async_trait]
 impl FormStore for Forms {
@@ -266,21 +337,27 @@ impl FormStore for Forms {
         if self.down.load(Ordering::SeqCst) {
             return Err(StoreError);
         }
+        let now = self.clock.now();
         let values = self.values.lock().unwrap();
-        Ok(keys.iter().map(|k| values.get(k).cloned()).collect())
+        Ok(keys
+            .iter()
+            .map(|k| {
+                values
+                    .get(k)
+                    .filter(|(_, expires)| *expires > now)
+                    .map(|(v, _)| v.clone())
+            })
+            .collect())
     }
     async fn put(&self, key: &str, value: &str, ttl: Duration) -> Result<(), StoreError> {
         if self.down.load(Ordering::SeqCst) {
             return Err(StoreError);
         }
-        assert!(
-            ttl < Duration::from_secs(24 * 3600),
-            "outlives the ledger key"
-        );
+        let expires = self.clock.after(self.ttl_override.unwrap_or(ttl));
         self.values
             .lock()
             .unwrap()
-            .insert(key.to_owned(), value.to_owned());
+            .insert(key.to_owned(), (value.to_owned(), expires));
         Ok(())
     }
 }
@@ -371,7 +448,7 @@ fn assert_no_plain_key_from(claims: &[Claim]) {
 }
 
 fn assert_redis_holds_no_key_text(forms: &Forms) {
-    for (name, value) in forms.values.lock().unwrap().iter() {
+    for (name, (value, _)) in forms.values.lock().unwrap().iter() {
         assert!(
             !name.contains("alice") && !value.contains("alice"),
             "{name} {value}"
@@ -519,10 +596,10 @@ async fn a_record_naming_an_unknown_key_falls_back_and_is_counted() {
     let g = gateway(&ledger, Some(&forms), KEY_A, None).await;
     assert_eq!(g.call(true).await, (StatusCode::OK, false));
     ledger.settled(1).await;
-    for value in forms.values.lock().unwrap().values_mut() {
-        let call = value.rsplit(':').next().unwrap().to_owned();
-        *value = format!("v1:keyed:0000000000000000:{call}");
-    }
+    forms.rewrite(|value| {
+        let call = value.rsplit(':').next().unwrap();
+        format!("v1:keyed:0000000000000000:{call}")
+    });
     assert_eq!(g.call(false).await, (StatusCode::OK, false));
     assert_eq!(g.forms_metric("unknown_record").await, "1");
     g.shutdown().await;
@@ -538,13 +615,109 @@ async fn a_record_naming_a_call_the_ledger_lost_is_counted_as_orphaned() {
     assert_eq!(g.call(true).await, (StatusCode::OK, false));
     ledger.settled(1).await;
     let lost = Uuid::now_v7();
-    for value in forms.values.lock().unwrap().values_mut() {
+    forms.rewrite(|value| {
         let (form, _) = value.rsplit_once(':').unwrap();
-        *value = format!("{form}:{lost}");
-    }
+        format!("{form}:{lost}")
+    });
     assert_eq!(g.call(false).await, (StatusCode::OK, false));
     assert_eq!(g.forms_metric("orphaned").await, "1");
     let last = ledger.claims().last().cloned().unwrap();
     assert_eq!((last.call, last.status), (lost, "claimed"));
+    g.shutdown().await;
+}
+
+/// A child-directed flip straddled by a retry `age` after the first call,
+/// on a ledger and Redis sharing one clock: the charges, and the gateway
+/// for its metrics. The first call's own lookup counts one `miss`.
+async fn straddle_at(child_first: bool, age: Duration, forms: Forms) -> (usize, Gateway) {
+    let clock = forms.clock.clone();
+    let ledger = Arc::new(Ledgerish::on(&clock));
+    let forms = Arc::new(forms);
+    let g = gateway(&ledger, Some(&forms), KEY_A, None).await;
+    assert_eq!(g.call(child_first).await, (StatusCode::OK, false));
+    ledger.settled(1).await;
+    clock.set(age);
+    let (status, replayed) = g.call(!child_first).await;
+    assert_eq!(status, StatusCode::OK);
+    if !replayed {
+        ledger.settled(2).await;
+    }
+    (ledger.charges(), g)
+}
+
+// tuzi#2670: the ledger's key row lives 24 h, so a straddling retry in its
+// last minutes must still find the record and replay. With the old
+// 23 h 50 m TTL this retry, at 23 h 55 m, found nothing and was charged.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_straddling_retry_in_the_last_minutes_of_the_key_window_replays() {
+    let age = LEDGER_KEY_LIFETIME - Duration::from_secs(5 * 60);
+    for child_first in [false, true] {
+        let clock = Clock::default();
+        let (charges, g) = straddle_at(child_first, age, Forms::on(&clock)).await;
+        assert_eq!(charges, 1, "child_first={child_first}: charged once");
+        assert_eq!(g.forms_metric("straddle").await, "1");
+        g.shutdown().await;
+    }
+}
+
+// The negative control for the test above: the same retry against records
+// that live 23 h 50 m — the TTL this replaced — is charged twice and counted
+// only as a miss. So the clock above really expires records and key rows,
+// and the replay there is the TTL's doing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn with_records_shorter_lived_than_the_key_the_last_minutes_are_charged_twice() {
+    let age = LEDGER_KEY_LIFETIME - Duration::from_secs(5 * 60);
+    for child_first in [false, true] {
+        let clock = Clock::default();
+        let forms = Forms {
+            ttl_override: Some(Duration::from_secs(23 * 3600 + 50 * 60)),
+            ..Forms::on(&clock)
+        };
+        let (charges, g) = straddle_at(child_first, age, forms).await;
+        assert_eq!(charges, 2, "child_first={child_first}: the bug");
+        assert_eq!(
+            g.forms_metric("miss").await,
+            "2",
+            "the first call's and the retry's"
+        );
+        assert_eq!(g.forms_metric("straddle").await, "0");
+        g.shutdown().await;
+    }
+}
+
+// The record outlives the ledger key row it describes. At the instant the
+// key row dies the record is still live; a straddling retry after that, in
+// the margin, replays the recorded call (call rows live 90 days) rather than
+// charging; once the record expires too, a retry is the new call the
+// contract promises after 24 hours.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_record_outlives_the_ledger_key_and_then_expires() {
+    assert!(RECORD_TTL > LEDGER_KEY_LIFETIME, "{RECORD_TTL:?}");
+    let clock = Clock::default();
+    let ledger = Arc::new(Ledgerish::on(&clock));
+    let forms = Arc::new(Forms::on(&clock));
+    let g = gateway(&ledger, Some(&forms), KEY_A, None).await;
+    assert_eq!(g.call(false).await, (StatusCode::OK, false));
+    ledger.settled(1).await;
+
+    clock.set(LEDGER_KEY_LIFETIME);
+    assert_eq!(forms.live().len(), 1, "live when the key row expires");
+    let margin = RECORD_TTL - LEDGER_KEY_LIFETIME;
+    clock.set(LEDGER_KEY_LIFETIME + margin / 2);
+    assert_eq!(g.call(true).await, (StatusCode::OK, true), "replayed");
+    assert_eq!(ledger.charges(), 1);
+    assert_eq!(ledger.inserted().len(), 1, "nothing newly stored");
+
+    clock.set(RECORD_TTL);
+    assert!(forms.live().is_empty(), "expired at its TTL");
+    assert_eq!(g.call(true).await, (StatusCode::OK, false), "a new call");
+    ledger.settled(2).await;
+    assert_eq!(ledger.charges(), 2);
+    assert_eq!(
+        g.forms_metric("miss").await,
+        "2",
+        "the first call's and this one's"
+    );
+    assert_eq!(g.forms_metric("straddle").await, "1");
     g.shutdown().await;
 }

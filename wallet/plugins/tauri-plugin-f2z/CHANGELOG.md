@@ -15,6 +15,11 @@
   `openManageAccount()`, `openDeleteAccount()`). URLs come from native
   configuration; the `open_*` commands use the system browser (Android
   `ACTION_VIEW`, not a Custom Tab). Grant `f2z:allow-…` for each one used.
+- `report_call` command (permission `f2z:allow-report-call`) and guest-js
+  `nativeBridge.reportCall(callId, reason, detail?)` with the `ReportReason`
+  and `CallReport` types. Arguments are checked natively first:
+  `invalid_request` with `details.field` (`call_id`, `reason`, `detail`);
+  with a child-directed core `Config`, any `detail` is refused the same way.
 
 ### Changed
 

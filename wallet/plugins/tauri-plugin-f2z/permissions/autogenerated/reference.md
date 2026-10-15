@@ -378,6 +378,32 @@ Denies the purchase command without any pre-configured scope.
 <tr>
 <td>
 
+`f2z:allow-report-call`
+
+</td>
+<td>
+
+Enables the report_call command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`f2z:deny-report-call`
+
+</td>
+<td>
+
+Denies the report_call command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `f2z:allow-session`
 
 </td>

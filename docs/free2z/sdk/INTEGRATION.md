@@ -757,6 +757,57 @@ should await sign-out when requested. Never expose the raw SDK error's debug
 output to the webview as a universal error DTO: map stable classifications and
 approved fields explicitly.
 
+### Reporting AI output
+
+Every app that shows AI output needs an in-app way to report it. Google Play's
+AI-Generated Content policy requires users to be able to report or flag
+generated content **without leaving the app**, and App Store Review Guideline
+4.7 expects the same. The report has to reach someone who can act on it; an SDK
+app has no backend, so Free2Z receives it. You do not build a server for this.
+
+- Put one small report control on each AI output: a flag icon or a "Report"
+  menu item. Tapping it shows the four reasons as **preset choices**:
+  `incorrect`, `inappropriate`, `unsafe`, `other`. It never opens a browser.
+- Send the `call_id` of the output (from `meta`, `ChatStream::call_id`, the
+  `X-F2Z-Call-Id` header or the call record) with the chosen reason. Keep the
+  call ID next to each output you show so the control can find it.
+- For more precision, pass an app-defined preset as `detail` (`wrong_grade`,
+  `off_topic`); at most 200 characters on one line. **If children may use the
+  app, do not offer a free-text box**: Free2Z stores `detail` as sent. A
+  child-directed app must omit `detail` (the server refuses it there with
+  `400 invalid_request`, `details.field: "detail"`); the reason alone is the
+  report. Set `Config::with_child_directed(true)` (Rust and the Tauri plugin) or
+  `FetchConfig.childDirected: true` (web) to match the app's Free2Z
+  registration, and the SDK refuses a `detail` locally (`invalid_request`, field
+  `detail`; Rust `Error::Config`).
+- Confirm calmly ("Thanks — reported") and let the user carry on. Reporting the
+  same output again is safe: it replaces the reason and keeps one report.
+
+```rust
+use f2z_sdk::ai::ReportReason;
+
+client.ai().report_call(&call_id, ReportReason::Incorrect, Some("wrong_grade")).await?;
+```
+
+```ts
+await client.reportCall(callId, "unsafe"); // @free2z/sdk
+await nativeBridge.reportCall(callId, "incorrect", "wrong_grade"); // guest-js
+```
+
+The Tauri window that reports needs the `f2z:allow-report-call` permission. A
+bad reason or `detail` is refused before anything is sent (`invalid_request`
+with `details.field`; Rust `Error::Config`); a call this user and app did not
+make is `404 not_found`; honour `Retry-After` on `429 rate_limited` (per account
+per rolling hour: at most 30 reports, and at most 5 of them `unsafe`; a repeat
+that first escalates a report to `unsafe` counts toward both, other repeats do
+not).
+
+Free2Z keeps the call reference, the reason and `detail` — never the prompt or
+the output. You read your app's reports via
+`GET https://free2z.cash/api/oauth/apps/{app_id}/reports/`, without who made
+them; Free2Z moderation reviews every report, and `unsafe` alerts Free2Z staff.
+The contract is [chat-api.md §7.1](./spec/chat-api.md#71-reporting-a-calls-output--post-free2zcashapisdkv1callsidreport).
+
 ## Copyable tutor-worker handoff
 
 Build the tutor UI behind an app-owned adapter using the real pinned

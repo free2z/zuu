@@ -22,6 +22,15 @@
   browser opens), and its ID token must be present.
 - Display names drop bidi controls and marks (U+200E, U+200F, U+061C,
   U+202A–U+202E, U+2066–U+2069).
+- `Ai::report_call(call_id, ReportReason, Option<&str>) -> CallReport`: the
+  user reports a call's AI output in the app (Google Play AI-Generated Content
+  policy, App Store 4.7). Free2Z keeps the reference and reason, never the
+  content; the developer (`GET /api/oauth/apps/{app_id}/reports/`) and Free2Z moderation see it, `unsafe`
+  alerts Free2Z staff. A bad reason or `detail` is `Error::Config` before
+  anything is sent. `f2z_sdk::ai::{ReportReason, CallReport}` re-exported.
+- `Config::child_directed` / `with_child_directed` and `Client::child_directed()`:
+  match the app's Free2Z registration; `report_call` then refuses any `detail`
+  locally.
 
 ## 0.2.0 — 2026-10-06
 

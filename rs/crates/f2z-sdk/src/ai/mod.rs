@@ -136,10 +136,12 @@ use std::time::{Duration, Instant};
 
 use f2z_ai_proto::chat::EstimateResponse;
 use f2z_ai_proto::event::ErrorEvent;
+use f2z_ai_proto::report::CallReportRequest;
 use f2z_ai_proto::{ChatRequest, ErrorCode, Milli2z, Whole2z};
 use reqwest::StatusCode;
 use url::Url;
 
+pub use f2z_ai_proto::report::{CallReport, ReportReason};
 pub use record::{
     CallError, CallRecord, CallStatus, Capabilities, Charge, Controls, ModelInfo, Models,
 };
@@ -472,6 +474,89 @@ impl Ai {
             }
             delay = delay.saturating_mul(2).min(Duration::from_secs(10));
         }
+    }
+
+    /// `POST /api/sdk/v1/calls/{id}/report`: the user flags what a call
+    /// produced (`docs/free2z/sdk/spec/chat-api.md` §7.1). Show it as one tap on
+    /// the AI output, with preset reasons, and never leave the app for it.
+    ///
+    /// Free2Z keeps the call reference, the reason and `detail` — never the
+    /// AI content. The app's developer reads it via
+    /// `GET /api/oauth/apps/{app_id}/reports/`; Free2Z moderation sees it too, and `unsafe`
+    /// alerts Free2Z staff. One report per call and user: repeating it
+    /// replaces the reason and detail and returns the same `report_id`.
+    ///
+    /// `detail` is optional: at most 200 characters on one line. Prefer an
+    /// app-defined preset (`"wrong_grade"`) to text a user types — apps that
+    /// children may use should not offer a free-text box. A child-directed
+    /// app ([`crate::Config::child_directed`]) sends none: the SDK refuses a
+    /// `detail` locally, and the server would answer `400 invalid_request`
+    /// (`details.field: "detail"`).
+    ///
+    /// ```no_run
+    /// # async fn run(client: f2z_sdk::Client, call_id: &str) -> Result<(), f2z_sdk::Error> {
+    /// use f2z_sdk::proto::report::ReportReason;
+    ///
+    /// client.ai().report_call(call_id, ReportReason::Incorrect, Some("wrong_grade")).await?;
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Config`] for a reason or `detail` the server would refuse,
+    /// before anything is sent; [`Error::Api`] with `404 not_found` for a
+    /// call this user and app did not make (or one past its 90-day record),
+    /// `429 rate_limited`, and the usual token refusals.
+    pub async fn report_call(
+        &self,
+        call_id: &str,
+        reason: ReportReason,
+        detail: Option<&str>,
+    ) -> Result<CallReport, Error> {
+        f2z_ai_proto::report::check_call_id(call_id)
+            .map_err(|reason| Error::Config(reason.into()))?;
+        // The server routes the canonical lowercase form; an uppercase UUID
+        // would miss the route and get a generic 404.
+        let call_id = call_id.to_ascii_lowercase();
+        let call_id = call_id.as_str();
+        if detail.is_some() && self.client.inner.config.child_directed {
+            return Err(Error::Config(
+                "a child-directed app sends no report detail (Config::child_directed)".into(),
+            ));
+        }
+        let request = CallReportRequest {
+            reason,
+            detail: detail.map(str::to_owned),
+        };
+        request
+            .check()
+            .map_err(|reason| Error::Config(reason.into()))?;
+        let mut url = Url::parse(&self.client.inner.config.api_base)
+            .map_err(|e| Error::Config(format!("api_base: {e}")))?;
+        url.path_segments_mut()
+            .map_err(|()| Error::Config("api_base cannot be a base".into()))?
+            .pop_if_empty()
+            .extend(["calls", call_id, "report"]);
+        let body = serde_json::to_vec(&request).map_err(|e| Error::Internal(e.to_string()))?;
+        let timeout = self.client.inner.config.request_timeout;
+        let response = self
+            .client
+            .send_authorized(|http, token| {
+                http.post(url.clone())
+                    .bearer_auth(token)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+                    .timeout(timeout)
+                    .body(body.clone())
+            })
+            .await?;
+        let response = http::expect_success(response).await?;
+        let report: CallReport = http::read_json(response).await?;
+        if report.call_id != call_id || report.report_id.is_empty() {
+            return Err(Error::Protocol(
+                "report receipt does not name the reported call".into(),
+            ));
+        }
+        Ok(report)
     }
 }
 

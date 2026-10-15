@@ -19,6 +19,14 @@
   web `open…` methods use `openExternal`.
 - `Transport` gained the four as optional members, so custom transports keep
   compiling.
+- `Client.reportCall(callId, reason, detail?, signal?)` → `CallReport`, on
+  `FetchTransport` and `NativeTransport` (which needs a plugin with
+  `reportCall`; `unsupported_operation` without it). `Transport.reportCall`
+  is optional, so custom transports keep compiling. A bad argument is
+  `invalid_request` with `details.field` before anything is sent.
+  `REPORT_DETAIL_MAX_CHARS` exported; `not_found` added to `ServerErrorCode`.
+  `FetchConfig.childDirected`: a child-directed web app's `reportCall` refuses
+  any `detail` locally.
 
 ## 0.2.0 — 2026-10-06
 
