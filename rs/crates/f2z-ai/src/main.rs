@@ -154,6 +154,13 @@ fn serve(config: &Config) -> Result<ExitCode, String> {
                 .await
                 .map_err(|e| e.to_string())?,
             );
+            if config.child_directed_key.is_none() {
+                tracing::warn!(
+                    "no child-directed key configured: child-directed calls are refused, and \
+                     idempotency form records are off, so a same-key retry across a \
+                     child_directed flip is not protected"
+                );
+            }
             let provider = f2z_ai::provider::ProviderBackend::from_config(config)?;
             let backend = std::sync::Arc::new(
                 f2z_ai::meter::Metered::new(ledger, provider)

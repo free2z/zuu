@@ -187,7 +187,13 @@ request's canonical form. The key id is 16 hex characters of an HMAC of a
 fixed label under the key (`ChildDirectedKey::id`).
 
 Records need the key configured: without it (before the key is deployed)
-every claim takes its canonical form, as before. Anything that loses a record
+every claim takes its canonical form, as before, uncounted (the gateway logs
+that once at startup). So a call claimed before the key is live has no record:
+**flag an app child-directed only once the key has been live for 24 hours**,
+or a plain-form call retried after the flip is charged twice, silently. A
+plain-form call that carried `metadata` cannot be replayed by a child-directed
+retry, which may not send `metadata`: the ledger answers `409
+idempotency_conflict` (no charge). Anything that loses a record
 falls back to the canonical form, so a straddling retry can again be charged
 twice. Counted in `f2z_ai_idempotency_forms_total{outcome}` — alert on any
 increase of these four: Redis unavailable (`unavailable`), a record write that
@@ -206,9 +212,10 @@ the limits' state), so size that limit for this keyspace. A record measured
 records with TTLs), so the bound is keyed calls per 23 h 50 m × ~320 B:
 1 M keyed calls a day ≈ 320 MB.
 
-**Rotation.** Set the new key as `child_directed_key` and the old one as
-`child_directed_key_previous` for at least 24 hours, then drop the previous
-key. While both are set, a keyed retry of a call claimed under the old key
+**Rotation.** Two deploys, so no pod in a rolling update lacks the other
+pod's key: first add the new key B as `child_directed_key_previous` (current
+A, previous B), then swap (current B, previous A) and keep that for at least
+24 hours, then drop the previous key. While both are set, a keyed retry of a call claimed under the old key
 replays it. A retry after the previous key is dropped is a new call. The
 previous key must differ from the current one and needs it.
 `F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS` is a new `F2Z_AI_*` variable, and an
