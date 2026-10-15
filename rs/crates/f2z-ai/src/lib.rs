@@ -36,6 +36,7 @@ pub mod config;
 pub mod error;
 pub mod estimate;
 pub mod features;
+pub mod idempotency;
 pub mod ledger;
 pub mod meter;
 pub mod metrics;

@@ -54,7 +54,9 @@ What changes when it is set:
     `response_format` schema name;
   - stores the request fingerprint and the `Idempotency-Key` only as keyed
     HMACs under a server secret, so neither a guessable prompt nor the key
-    text can be read back from the record.
+    text can be read back from the record. A same-key retry that spans the
+    setting changing, in either direction, replays the original call rather
+    than charging again.
 
   A child-directed app's call records then hold numbers only.
 - **Debug capture** of prompts and completions is never available to a
