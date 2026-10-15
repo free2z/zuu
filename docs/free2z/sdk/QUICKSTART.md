@@ -109,7 +109,8 @@ export async function firstApp(): Promise<void> {
     case "needs_top_up": // balance too low
       return offerPurchase(check.required2z);
     case "needs_budget": // this app's budget is used up; buying 2Z will not help
-      return linkToBudget("https://free2z.cash/account/apps", check.resetsAt);
+      // CLIENT_ID: your registration's public client_id, an app constant.
+      return linkToBudget(`https://free2z.cash/account/apps?client_id=${CLIENT_ID}`, check.resetsAt);
     case "too_large": // can never run as asked
       return askToShorten();
   }
@@ -184,8 +185,8 @@ it is a developer hint, not user copy, and not stable.
 
 | What happened | TypeScript `code` | Rust | Show the user |
 |---|---|---|---|
-| Not enough 2Z | `insufficient_balance` (402) | `ErrorCode::InsufficientBalance` | "You need N more 2Z" → purchase; re-read the balance after `credited`. In a store build, show no purchase call to action (the one exception is Apple's US storefront, per §2): use the neutral **Manage Free2Z account** exit ([store compliance](./STORE-COMPLIANCE.md#2-the-line)) |
-| App budget used up | `cap_exceeded` (403) | `ErrorCode::CapExceeded` | "Raise this app's budget" → `https://free2z.cash/account/apps`, or wait for `details.resets_at` |
+| Not enough 2Z | `insufficient_balance` (402) | `ErrorCode::InsufficientBalance` | "You need N more 2Z" → purchase; re-read the balance after `credited`. In a store build, show no purchase call to action (the one exception is Apple's US storefront, per §2): use the neutral **Manage Free2Z account** exit, `https://free2z.cash/account/apps?client_id=<client_id>` ([store compliance](./STORE-COMPLIANCE.md#2-the-line)) |
+| App budget used up | `cap_exceeded` (403) | `ErrorCode::CapExceeded` | "Raise this app's budget" → `https://free2z.cash/account/apps?client_id=<client_id>` ([URL contract](./INTEGRATION.md#manage-free2z-account-the-url-contract)), or wait for `details.resets_at` |
 | Debt after a refund | `account_in_debt` (403) | `ErrorCode::AccountInDebt` | Show `debt_milli_2z` and the buy surface; never auto-retry. In a store build, show no purchase call to action (the one exception is Apple's US storefront, per §2): use the neutral **Manage Free2Z account** exit ([store compliance](./STORE-COMPLIANCE.md#2-the-line)) |
 | Too long | `context_length_exceeded` (400) | `ErrorCode::ContextLengthExceeded` | Shorten the input or lower `max_output_tokens` |
 | Busy | `rate_limited`, `concurrency_limit` (429), `unavailable` (503) | same codes; `retry_after` | "Busy, retrying" — honour `retryAfterSeconds`; never suggest buying 2Z |

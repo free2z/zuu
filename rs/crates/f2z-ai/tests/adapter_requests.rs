@@ -91,6 +91,35 @@ fn openai_standard_processing_cannot_be_overridden_by_caller_metadata() {
     }
 }
 
+#[test]
+fn openai_never_stores_a_call_whichever_adapter_and_whatever_the_metadata() {
+    use f2z_ai::provider::{for_style, openai_chat::UsageConvention};
+    use f2z_ai_proto::catalog::ApiStyle;
+
+    let catalog = catalog(10_000);
+    let mut model = catalog.catalog().callable_model(CHAT.id).unwrap().clone();
+    let mut request = rich(CHAT.id);
+    request.metadata.insert("store".into(), "true".into());
+    model.provider = "openai".into();
+    for style in [ApiStyle::OpenaiChat, ApiStyle::OpenaiResponses] {
+        let adapter = for_style(style, UsageConvention::CompletionIncludesReasoning).unwrap();
+        let body = adapter.body(&request, &model, 16).unwrap().to_value();
+        assert_eq!(body["store"], false, "{style:?}");
+    }
+    // Chat Completions sends it to OpenAI only; other compatible providers
+    // do not document the member.
+    let chat = for_style(
+        ApiStyle::OpenaiChat,
+        UsageConvention::CompletionIncludesReasoning,
+    )
+    .unwrap();
+    for provider in ["xai", "chatco"] {
+        model.provider = provider.into();
+        let body = chat.body(&request, &model, 16).unwrap().to_value();
+        assert!(body.get("store").is_none(), "{provider}");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn each_adapter_translates_the_unified_request() {
     let mock = MockProvider::start(Scenario::default()).await.unwrap();

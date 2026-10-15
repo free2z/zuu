@@ -67,10 +67,21 @@ export interface ChatRequest {
 }
 export interface Session {
   signedIn: boolean;
+  /** The stable account id. Key local data by this, never by a display name. */
   subject: string | null;
   grantedScopes: string[];
   persistence: 'persistent' | 'memory_only';
   generation: string;
+  /**
+   * The Free2Z username to show for the signed-in account, from the verified
+   * ID token of its sign-in. Present only when the `profile` scope was
+   * granted (and the session was signed in by a plugin that reports it);
+   * otherwise absent. Display only: not unique (usernames compare
+   * case-insensitively) and not stable (the user may rename the account).
+   */
+  preferredUsername?: string;
+  /** The account's display name, when it has one and `profile` was granted. */
+  name?: string;
 }
 /** Scopes are configured in the Rust Builder; inspect the actual grantedScopes. */
 export interface SignInOptions {
@@ -88,6 +99,15 @@ export interface SignInOptions {
   spendCap?: Decimal;
   /** The period of `spendCap`; absent keeps the screen's own. */
   spendPeriod?: 'day' | 'week' | 'month' | 'total';
+  /**
+   * Sign in without the browser's cookies, so the page cannot reuse another
+   * account's web session: iOS `prefersEphemeralWebBrowserSession`, Android
+   * an ephemeral Custom Tab where the browser supports one; desktop ignores
+   * it. Default `false`. iOS then also skips its "wants to use … to sign in"
+   * prompt, and the user always types their credentials. For "use a different
+   * account", pass `prompt: 'login'`, which works on every platform.
+   */
+  ephemeral?: boolean;
 }
 export interface Balance {
   available_milli_2z: Decimal;
@@ -237,6 +257,14 @@ export interface NativeBridge {
   cancelChat(operationId: string): Promise<void>;
   call(callId: string): Promise<CallRecord>;
   waitForCall(callId: string, options?: PollOptions): Promise<CallRecord>;
+  /** `{web origin}/account/apps?client_id=<this app>`: this app's access and budget, and the account. */
+  manageAccountUrl(): Promise<string>;
+  /** Opens `manageAccountUrl()` in the system browser (never a webview). Label it "Manage Free2Z account". */
+  openManageAccount(): Promise<void>;
+  /** `{web origin}/account/delete`: the account deletion page. */
+  deleteAccountUrl(): Promise<string>;
+  /** Opens `deleteAccountUrl()` in the system browser: the stores' in-app deletion path. */
+  openDeleteAccount(): Promise<void>;
 }
 const command = <T>(name: string, args?: Record<string, unknown>): Promise<T> => invoke<T>(`plugin:f2z|${name}`, args);
 export const nativeBridge: NativeBridge = {
@@ -256,4 +284,8 @@ export const nativeBridge: NativeBridge = {
   cancelChat: (operationId) => command('cancel_chat', { operationId }),
   call: (callId) => command('call', { callId }),
   waitForCall: (callId, options = {}) => command('wait_for_call', { callId, options }),
+  manageAccountUrl: () => command('manage_account_url'),
+  openManageAccount: () => command('open_manage_account'),
+  deleteAccountUrl: () => command('delete_account_url'),
+  openDeleteAccount: () => command('open_delete_account'),
 };

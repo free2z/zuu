@@ -23,7 +23,8 @@ Every rule below is written so you can test it before you submit. The
    (`ASWebAuthenticationSession`, Custom Tabs). Never open a Free2Z page in a
    WebView.
 4. **When credits run out, stay calm.** Show "No credits" and a
-   **Manage Free2Z account** button that opens the system browser.
+   **Manage Free2Z account** button that opens the system browser
+   (`client.openManageAccount()`, in the next SDK release).
 5. **List the app as Education (or another fitting category) at 4+.** Do not
    use the Kids Category, and never write "for kids" in the metadata.
 6. **Ask before sending anything to AI.** Name Free2Z and the AI provider, and
@@ -37,13 +38,16 @@ Every rule below is written so you can test it before you submit. The
 10. **Tell App Review the truth.** Use the [notes template](#6-app-review-notes-template).
 
 > **Do not submit until** each of these Free2Z pages exists and passes its
-> check. As of 2026-10-14, none of them does:
+> check. As of 2026-10-14:
 >
-> - the store-safe **Manage** view: `/account/apps?client_id=` with no
->   purchase path ([§2](#2-the-line));
-> - the deletion page `/account/delete` ([§4](#4-account-deletion));
-> - for apps used by children, a hosted sign-in page with no third-party
->   scripts. Today's sign-in loads Google reCAPTCHA ([§2](#2-the-line)).
+> - ✅ the store-safe **Manage** view: `/account/apps?client_id=` with no
+>   purchase path ([§2](#2-the-line)). Built and on stage; it reaches
+>   free2z.cash with the next production release. Check it there before you
+>   submit;
+> - ⏳ the deletion page `/account/delete` ([§4](#4-account-deletion));
+> - ⏳ X-only accounts able to sign in on these pages, which deletion and
+>   revoking an app depend on: X sign-in has to return to the page it
+>   started from.
 
 ## 1. Why an SDK app never sells 2Z
 
@@ -152,18 +156,49 @@ SDK app opens (sign-in, sign-up, consent, account, deletion):
 
 - **Commerce-free, including the navigation and footer the page inherits.** A
   "Buy 2Z" item in a shared header or footer is a path to payment.
-- **For apps used by children, no third-party analytics or embeds** on those
-  pages. Load only first-party scripts, with no trackers, no social widgets and
-  no third-party media.
+- **For apps used by children, no third-party analytics or embeds** on pages a
+  child sees. Load only first-party scripts, with no trackers, no social
+  widgets and no third-party media.
+- **The sign-in page is adult-gated, not child-facing.** An app used by
+  children opens Free2Z sign-in only after its one-time adult step, for the
+  adult account holder, in the system browser. In v1 that page keeps Google
+  reCAPTCHA, an anti-abuse check rather than analytics or ads. A first-party
+  replacement for it is planned. The exception holds only when all of these
+  are true:
+  1. **The adult gate is real.** It asks a question or sets a task a young
+     child cannot trivially pass, with no answer hint on screen. A tap or an
+     "I'm a grown-up" button is not enough, and no gate of this kind is
+     COPPA verifiable parental consent.
+  2. **Every Free2Z browser exit is behind the gate**, not just the first
+     sign-in: connect, switch account (`prompt=login`), **Manage**,
+     **Delete**, and any re-authentication after expiry or for a step-up.
+     Signed out, **Manage** and **Delete** lead to the sign-in page, so a
+     deep link or a token-expiry path that skips the gate breaks the
+     exception.
+  3. **It is disclosed.** The app's App Store privacy label and Google Play
+     Data safety form disclose Google reCAPTCHA on the sign-in page, as does
+     the Free2Z Privacy Policy.
+  4. **The app is not in Apple's Kids Category.** An app in the Kids
+     Category needs the first-party replacement first.
+
+  The exception covers **only** the sign-in and sign-up page (`/login`).
+  Consent, **Manage** and `/account/delete` load no third-party script.
 
 The rest of free2z.cash may sell 2Z normally.
 
-**Gaps as of 2026-10-14** (see "Do not submit until" above):
+**Status as of 2026-10-14** (see "Do not submit until" above):
 
-- `/account/apps` ignores `client_id` and links to **Manage balance and
-  purchases**. The shared navigation's user menu also reaches billing.
-- The hosted sign-in loads Google reCAPTCHA, which is a third-party script.
-  That fails the rule above for apps used by children.
+- Built and on stage, reaching free2z.cash with the next production release:
+  `/account/apps?client_id=` focuses on the one app with no purchase link. Every SDK-facing page (consent, the sign-in
+  and sign-up before it, Manage, deletion) renders without the site
+  navigation and footer, and shows no purchase toasts. The sign-up Terms link
+  opens a plain rendering of the legal documents (`/docs/plain/legal/`)
+  without the docs navigation.
+- Gap: X-only accounts cannot sign in on these pages until X sign-in returns
+  to the page it started from.
+- Gap: the deletion page `/account/delete` has not shipped.
+- By design in v1: the adult-gated sign-in page loads Google reCAPTCHA (see
+  above).
 
 ### Copy
 
@@ -193,7 +228,16 @@ those is a sales pitch in any store.
 - [ ] With the app's real `client_id`, every Free2Z page the app opens
       (sign-in, consent, **Manage**, deletion) has no purchase path, including
       in its header and footer. For an app used by children, the browser's
-      network log shows no third-party requests.
+      network log shows no third-party requests on any page a child sees.
+      The only v1 exception is reCAPTCHA on the sign-in and sign-up page
+      (`/login`), never on consent, **Manage** or `/account/delete`.
+- [ ] If your app is used by children: the adult gate is a real one (no
+      on-screen hint; not a tap or an "I'm a grown-up" button), and every
+      Free2Z browser exit sits behind it (connect, switch account,
+      **Manage**, **Delete**, expiry and step-up re-authentication).
+- [ ] Your App Store privacy label and Google Play Data safety form
+      disclose Google reCAPTCHA on the Free2Z sign-in page, and the app is
+      not in Apple's Kids Category.
 
 ## 3. Age and audience
 
@@ -263,8 +307,8 @@ it is "not available to persons under the age of 13", which is exactly the
 clause Google flags. The posture being built is an **adult-held Free2Z account
 that a child-directed app may use**, chosen by a `child_directed` flag on the
 app's client registration. Use that registration for any app whose audience
-includes children, and follow the SDK's child-directed integration notes when
-they are published. Until the posture is live, an app whose content requires
+includes children, and follow the SDK's
+[child-directed integration notes](./CHILD-DIRECTED.md). Until the posture is live, an app whose content requires
 Free2Z cannot declare a child audience on Google Play.
 
 ### Consent before any data reaches AI
@@ -335,7 +379,9 @@ Apple: "If your app supports account creation, you must also offer account
 deletion within the app" (5.1.1(v)).
 
 - **In the app:** add **Delete Free2Z account** in Settings, next to Sign out.
-  It opens `https://free2z.cash/account/delete` in the system browser. Apple accepts "a link directly to the page on your website where
+  It opens `https://free2z.cash/account/delete` in the system browser
+  (`client.openDeleteAccount()`, in the next SDK release; see
+  [account exits](./INTEGRATION.md#manage-and-delete-the-free2z-account)). Apple accepts "a link directly to the page on your website where
   they can complete the process". Apple also says apps outside regulated
   industries "should not require people to […] send an email". That is why
   Free2Z is replacing deletion by email with this self-service page.

@@ -180,9 +180,73 @@ mod tests {
         assert_eq!(error.code, "window_not_allowed");
     }
     #[test]
+    fn account_urls_come_from_native_configuration_for_trusted_windows_only() {
+        let app = tauri::test::mock_builder()
+            .plugin(
+                Builder::new(
+                    f2z_sdk::Config::new("public-client"),
+                    "https://app.example/return",
+                )
+                .token_store(Arc::new(f2z_sdk::MemoryStore::new()))
+                .build(),
+            )
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let main = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let other = tauri::WebviewWindowBuilder::new(&app, "untrusted", Default::default())
+            .build()
+            .unwrap();
+        let state = app.state::<Arc<PluginState<tauri::test::MockRuntime>>>();
+        let manage = tauri::async_runtime::block_on(commands::manage_account_url(
+            main.as_ref().clone(),
+            state.clone(),
+        ))
+        .unwrap();
+        assert_eq!(
+            manage,
+            "https://free2z.cash/account/apps?client_id=public-client"
+        );
+        let delete = tauri::async_runtime::block_on(commands::delete_account_url(
+            main.as_ref().clone(),
+            state.clone(),
+        ))
+        .unwrap();
+        assert_eq!(delete, "https://free2z.cash/account/delete");
+        for result in [
+            tauri::async_runtime::block_on(commands::manage_account_url(
+                other.as_ref().clone(),
+                state.clone(),
+            )),
+            tauri::async_runtime::block_on(commands::delete_account_url(
+                other.as_ref().clone(),
+                state.clone(),
+            )),
+        ] {
+            assert_eq!(result.unwrap_err().code, "window_not_allowed");
+        }
+        for result in [
+            tauri::async_runtime::block_on(commands::open_manage_account(
+                other.as_ref().clone(),
+                state.clone(),
+            )),
+            tauri::async_runtime::block_on(commands::open_delete_account(
+                other.as_ref().clone(),
+                state.clone(),
+            )),
+        ] {
+            assert_eq!(result.unwrap_err().code, "window_not_allowed");
+        }
+    }
+    #[test]
     fn command_registry_has_no_credential_or_arbitrary_network_escape() {
-        assert_eq!(COMMANDS.len(), 16);
+        assert_eq!(COMMANDS.len(), 20);
         assert!(COMMANDS.contains(&"grant"));
+        // Account exits open a URL built natively; none takes a URL argument.
+        for exit in ["open_manage_account", "open_delete_account"] {
+            assert!(COMMANDS.contains(&exit));
+        }
         for forbidden in [
             "token",
             "access_token",

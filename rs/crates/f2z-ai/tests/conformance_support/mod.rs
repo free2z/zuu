@@ -266,6 +266,7 @@ pub fn baseline_members(api_style: &str) -> &'static [&'static str] {
         "openai_chat" => &[
             "model",
             "service_tier",
+            "store",
             "messages",
             "max_completion_tokens",
             "stream",
@@ -910,6 +911,7 @@ impl Gatekeeper for Gate {
                 agen: 1,
                 exp: u64::MAX,
                 jti: "conformance".into(),
+                child_directed: false,
             },
             lease: None,
         })

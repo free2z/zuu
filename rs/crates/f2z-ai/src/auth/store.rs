@@ -7,6 +7,7 @@
 //! | [`Store::counters`] | `<ns>:aep:<sub>`, `<ns>:agen:<client_id>:<sub>` (`MGET`) | Revocation. Written by the IdP (`dj.apps.oidc.epoch_publish`): plain decimal strings, raised only by compare-and-set, 300 s TTL |
 //! | [`Store::admit`] | `<ns>:ai:rl:u:<client_id>:<sub>`, `<ns>:ai:rl:a:<client_id>`, `<ns>:ai:cc:<sub>` (one Lua script) | The per-(app, user) and per-app token buckets and the per-user concurrency lease |
 //! | [`Store::release`] | `<ns>:ai:cc:<sub>` (`ZREM`) | Ending a lease |
+//! | [`FormStore`](crate::idempotency::FormStore) | `<ns>:ai:idem:<sub>:<app>:<hmac>` (`MGET`, `SET … PX`) | The form a keyed call was claimed in (`crate::idempotency`), 23 h 50 m TTL |
 //!
 //! [`RedisStore`] is the implementation. Every call is bounded by a short
 //! timeout, and after a failure the store is skipped for [`BACKOFF`] so that
@@ -354,5 +355,41 @@ impl Store for RedisStore {
             Ok(Ok(_)) => Ok(()),
             _ => Err(StoreError),
         }
+    }
+}
+
+#[async_trait]
+impl crate::idempotency::FormStore for RedisStore {
+    async fn get(&self, keys: &[String]) -> Result<Vec<Option<String>>, StoreError> {
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut connection = self.connection.clone();
+        let mut command = redis::cmd("MGET");
+        for key in keys {
+            command.arg(key);
+        }
+        let values: Vec<Option<String>> = self
+            .run(async move { command.query_async(&mut connection).await })
+            .await?;
+        if values.len() == keys.len() {
+            Ok(values)
+        } else {
+            Err(StoreError)
+        }
+    }
+
+    async fn put(&self, key: &str, value: &str, ttl: Duration) -> Result<(), StoreError> {
+        let mut connection = self.connection.clone();
+        let mut command = redis::cmd("SET");
+        command
+            .arg(key)
+            .arg(value)
+            .arg("PX")
+            .arg(u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX));
+        let _: redis::Value = self
+            .run(async move { command.query_async(&mut connection).await })
+            .await?;
+        Ok(())
     }
 }

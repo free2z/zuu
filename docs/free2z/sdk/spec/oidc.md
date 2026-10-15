@@ -249,6 +249,8 @@ https://free2z.cash/account/delete
   "Delete Free2Z account" — and open it in the **system browser**, never an
   embedded web view (§11). Both stores accept a link to a web deletion page
   as the in-app path. No parameters are needed and none change what happens.
+  The SDK builds and opens it: `deleteAccountUrl()` / `openDeleteAccount()`
+  ([INTEGRATION.md](../INTEGRATION.md#manage-and-delete-the-free2z-account)).
 - **List it in Google Play Console** as the app's account-deletion URL. It
   works signed out: the page says what deletion does and offers sign-in, so a
   reviewer without an account can read it.
@@ -309,6 +311,7 @@ payload: {
 | `aep` | **Account epoch** (§6.2) | Every resource server |
 | `agen` | **Grant generation** (§6.3) | Every resource server |
 | `auth_time`, `acr`, `amr` | When and how the user last authenticated (§10) | Endpoints that require recent or strong authentication |
+| `child_directed` | `true` when the app is registered as child-directed ([CHILD-DIRECTED.md](../CHILD-DIRECTED.md)). Present only when `true`; absent means `false`; any non-boolean value is `401 invalid_token` | The AI gateway, which then applies the child-directed rules: OpenAI models only, no `metadata`, keyed fingerprints ([chat-api.md](./chat-api.md) §2.1) |
 
 The gateway requires a canonical lowercase UUID `app_id` in the verified access
 token. It never derives an application UUID from `client_id` or a request header.

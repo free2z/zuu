@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `session` reports `preferredUsername` and `name` when `profile` was granted
+  (omitted otherwise, never `null`).
+- Sign-in option `ephemeral` (default `false`): iOS
+  `prefersEphemeralWebBrowserSession`; Android an ephemeral Custom Tab where
+  the browser supports one; ignored on desktop. An older plugin refuses it as
+  an unknown option.
+- Commands `manage_account_url`, `delete_account_url`, `open_manage_account`
+  and `open_delete_account` (guest `manageAccountUrl()`, `deleteAccountUrl()`,
+  `openManageAccount()`, `openDeleteAccount()`). URLs come from native
+  configuration; the `open_*` commands use the system browser (Android
+  `ACTION_VIEW`, not a Custom Tab). Grant `f2z:allow-…` for each one used.
+
+### Changed
+
+- Android: `androidx.browser` 1.8.0 → 1.9.0 (ephemeral Custom Tabs), and the
+  library manifest queries `CustomTabsService` so the provider can be found on
+  API 30+.
+
 ## 0.2.0 — 2026-10-06
 
 First tagged release, `sdk-v0.2.0`, versioned together with the other Free2Z
