@@ -241,9 +241,11 @@ pub struct Claims {
     /// The token id.
     pub jti: String,
     /// The app is registered as child-directed (or for all ages, children
-    /// included). Absent means `false`. The gateway then accepts no
-    /// caller-defined `metadata`, so a call record holds nothing the app
-    /// chose to send — only numbers.
+    /// included). Absent means `false`. An **audience classification only**
+    /// since zuu#1225: it is still verified (a malformed claim is refused),
+    /// but it selects no storage or routing tier — every app gets the
+    /// baseline that was once child-directed only (keyed claims, no caller
+    /// `metadata`, no schema name, one provider standard).
     pub child_directed: bool,
 }
 

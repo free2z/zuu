@@ -411,6 +411,12 @@ sending an app's id to the provider adds nothing and leaks).
 `safety_identifier`, `service_tier`, `prompt_cache_key` (OpenAI) are
 accepted where the catalogue says so, else refused.
 
+**Superseded for `metadata` (zuu#1225):** call records keep no caller-chosen
+text for any app, so the gateway refuses a non-empty `metadata`
+(`reason: "privacy_baseline"`). The compat mapping of `metadata` / `user` /
+`metadata.user_id` above is withdrawn with it; a compat layer must refuse them
+too rather than drop them silently.
+
 ### 2.22 Ranking by developer impact
 
 | # | Gap | Who it blocks today | Slice |

@@ -42,9 +42,14 @@ fn unavailable() -> ApiFailure {
     )
     .retry_after(1)
 }
-/// The idempotency fingerprint: SHA-256, lowercase hex, of the request
-/// serialized with every caller-supplied JSON object's members **sorted by
-/// name**. The ledger compares it when a key is reused (`Operation::Claim`).
+/// The **plain-form** idempotency fingerprint: SHA-256, lowercase hex, of the
+/// request serialized with every caller-supplied JSON object's members
+/// **sorted by name** ([`canonical_request`]). Since zuu#1225 no claim is
+/// made in this form — every claim carries [`ClaimKey::fingerprint`], an
+/// HMAC of the same bytes — but a retry of a call the previous image claimed
+/// in it must present it again, so the ledger's comparison matches
+/// ([`crate::idempotency`]). It goes with the plain-form record path in the
+/// release after the transition window (zuu#1225 step 3).
 ///
 /// Sorted, not as sent, on purpose (zuu#1132). Before #1132 tool `parameters`
 /// and the `response_format` schema were `serde_json::Value`s, which sort
@@ -69,36 +74,42 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// The smallest child-directed key accepted: the HMAC-SHA256 output size.
-pub const MIN_CHILD_DIRECTED_KEY_BYTES: usize = 32;
+/// The smallest claim key accepted: the HMAC-SHA256 output size.
+pub const MIN_CLAIM_KEY_BYTES: usize = 32;
 
-/// What a child-directed call's ledger claim carries instead of the
-/// caller's text (CHILD-DIRECTED.md): an HMAC-SHA256 under a server secret
-/// of the canonical request — so a short, guessable prompt cannot be
-/// confirmed against the stored fingerprint without the key — and of the
-/// `Idempotency-Key`, so the caller's key text is not stored either. Both
-/// are 64 lowercase hex characters, the shapes `ledger.call_claim` checks.
+/// What every call's ledger claim carries instead of the caller's text
+/// (zuu#1225; first for child-directed apps only, CHILD-DIRECTED.md): an
+/// HMAC-SHA256 under a server secret of the canonical request — so a short,
+/// guessable prompt cannot be confirmed against the stored fingerprint
+/// without the key — and of the `Idempotency-Key`, so the caller's key text
+/// is not stored either. Both are 64 lowercase hex characters, the shapes
+/// `ledger.call_claim` checks. Configured as `child_directed_key_file` /
+/// `F2Z_AI_CHILD_DIRECTED_KEY`, a name kept from when only child-directed
+/// apps used it (renaming an `F2Z_AI_*` variable is its own two-release
+/// change); a metered gateway does not start without it
+/// ([`crate::config::Config::metered`]).
 ///
 /// Rotating the key changes both values, and the ledger column has no room
 /// for a key id, so which key (if any) a call was claimed under is kept in
 /// the form record instead ([`crate::idempotency`]): a keyed retry that
-/// spans a rotation or a `child_directed` flip replays the call it names.
+/// spans a rotation, or a call the previous image claimed in the plain form,
+/// replays the call it names.
 ///
-/// The current key also derives every form record's Redis key, for all
-/// apps, so the `Idempotency-Key` text never reaches Redis either.
-pub struct ChildDirectedKey {
+/// The current key also derives every form record's Redis key, so the
+/// `Idempotency-Key` text never reaches Redis either.
+pub struct ClaimKey {
     key: ring::hmac::Key,
     id: String,
 }
 
-impl ChildDirectedKey {
+impl ClaimKey {
     /// # Errors
     ///
-    /// A key shorter than [`MIN_CHILD_DIRECTED_KEY_BYTES`].
+    /// A key shorter than [`MIN_CLAIM_KEY_BYTES`].
     pub fn new(secret: &[u8]) -> Result<Self, String> {
-        if secret.len() < MIN_CHILD_DIRECTED_KEY_BYTES {
+        if secret.len() < MIN_CLAIM_KEY_BYTES {
             return Err(format!(
-                "the child-directed HMAC key must be at least {MIN_CHILD_DIRECTED_KEY_BYTES} bytes"
+                "the claim HMAC key must be at least {MIN_CLAIM_KEY_BYTES} bytes"
             ));
         }
         let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, secret);
@@ -560,6 +571,25 @@ struct Produced {
     upstream_fragments: Vec<String>,
 }
 
+/// How a keyed request was admitted across forms ([`Metered::admit_form`]).
+enum Admitted {
+    /// This request reserved the form record for its canonical form and its
+    /// fresh call id: it claims that id.
+    Reserved,
+    /// Claim in the canonical form with a fresh id: no store or no key, or
+    /// a degraded lookup.
+    Canonical,
+    /// The record names a call in this same form: claim **that** id, in the
+    /// canonical form. Never a fresh one — if the reserving request's claim
+    /// never landed, or has not landed yet, this claim inserts the call
+    /// under the id every key name records, so a later retry in any form
+    /// finds it.
+    Recorded(Uuid),
+    /// The record names a call claimed in another form: claim that call id
+    /// with this request's fingerprint in that form.
+    Straddle(Uuid, String, Form),
+}
+
 /// Production backend and settler share a bounded map: one entry per admitted
 /// call, removed only by the existing detached settlement owner.
 pub struct Metered {
@@ -569,21 +599,29 @@ pub struct Metered {
     configured: Option<std::collections::BTreeSet<String>>,
     allowed_models: Option<std::collections::BTreeSet<String>>,
     features_meta: bool,
-    child_directed_key: Option<Arc<ChildDirectedKey>>,
-    child_directed_key_previous: Option<Arc<ChildDirectedKey>>,
+    /// Keys every claim ([`ClaimKey`]). Required: there is no unkeyed
+    /// claim path.
+    key: Arc<ClaimKey>,
+    key_previous: Option<Arc<ClaimKey>>,
     forms: Option<(Arc<dyn FormStore>, String)>,
 }
 impl Metered {
     /// Share this same instance between gateway backend and detached settler.
-    pub fn new(ledger: Arc<dyn Ledger>, provider: ProviderBackend) -> Self {
+    /// Every call it claims is keyed under `key` ([`ClaimKey`]), whatever
+    /// the app's audience (zuu#1225).
+    pub fn new(ledger: Arc<dyn Ledger>, provider: ProviderBackend, key: ClaimKey) -> Self {
         crate::estimate::warm();
         let configured = provider.configured_providers();
-        let mut backend = Self::with_provider(ledger, Arc::new(provider));
+        let mut backend = Self::with_provider(ledger, Arc::new(provider), key);
         backend.configured = Some(configured);
         backend
     }
     /// Injectable provider seam for bounded fault tests.
-    pub fn with_provider(ledger: Arc<dyn Ledger>, provider: Arc<dyn ChatBackend>) -> Self {
+    pub fn with_provider(
+        ledger: Arc<dyn Ledger>,
+        provider: Arc<dyn ChatBackend>,
+        key: ClaimKey,
+    ) -> Self {
         Self {
             ledger,
             provider,
@@ -591,54 +629,47 @@ impl Metered {
             configured: None,
             allowed_models: None,
             features_meta: false,
-            child_directed_key: None,
-            child_directed_key_previous: None,
+            key: Arc::new(key),
+            key_previous: None,
             forms: None,
         }
     }
-    /// The server secret for child-directed claims ([`ChildDirectedKey`]).
-    /// Without it, a child-directed call is refused before any claim
-    /// (`503 unavailable`): failing closed, never storing the plain form.
+    /// The key [`Self::new`]'s replaced, for the 24 hours after a rotation:
+    /// a call claimed under it is still found and replayed.
     #[must_use]
-    pub fn with_child_directed_key(mut self, key: Option<ChildDirectedKey>) -> Self {
-        self.child_directed_key = key.map(Arc::new);
-        self
-    }
-    /// The key [`Self::with_child_directed_key`]'s replaced, for the 24 hours
-    /// after a rotation: a call claimed under it is still found and replayed.
-    #[must_use]
-    pub fn with_child_directed_key_previous(mut self, key: Option<ChildDirectedKey>) -> Self {
-        self.child_directed_key_previous = key.map(Arc::new);
+    pub fn with_key_previous(mut self, key: Option<ClaimKey>) -> Self {
+        self.key_previous = key.map(Arc::new);
         self
     }
     /// Where form records live ([`crate::idempotency`]), under the Redis
-    /// `namespace` the limits use. Without a store, or without the current
-    /// child-directed key, every keyed claim takes its canonical form.
+    /// `namespace` the limits use. Without a store every keyed claim takes
+    /// its canonical form, and a retry of a call claimed in another form
+    /// (the previous image's plain form, or under a rotated key) is a new
+    /// call.
     #[must_use]
     pub fn with_form_store(mut self, store: Arc<dyn FormStore>, namespace: String) -> Self {
         self.forms = Some((store, namespace));
         self
     }
-    fn keys(&self) -> impl Iterator<Item = &ChildDirectedKey> {
-        self.child_directed_key
-            .iter()
-            .chain(self.child_directed_key_previous.iter())
+    fn keys(&self) -> impl Iterator<Item = &ClaimKey> {
+        std::iter::once(&self.key)
+            .chain(self.key_previous.iter())
             .map(AsRef::as_ref)
     }
-    /// Where a keyed request's retry must claim: `Some((call, fingerprint))`
-    /// when a form record names a call claimed in another form than
-    /// `canonical` — the recorded call's id and this request's fingerprint
-    /// in that call's form. `None` claims in the canonical form. Counts its
-    /// outcome; never fails the request.
-    async fn straddled(
+    /// Admit a keyed request across forms (zuu#1225): atomically reserve a
+    /// form record naming `canonical` and `id` under every key this gateway
+    /// holds, or read the record another request already holds
+    /// ([`FormStore::reserve`]). Counts its outcome; never fails the request.
+    async fn admit_form(
         &self,
         call: &CallHandle,
         identity: Identity,
         request: &ChatRequest,
         canonical: &Form,
-    ) -> Result<Option<(Uuid, String)>, ApiFailure> {
+        id: Uuid,
+    ) -> Result<Admitted, ApiFailure> {
         let (Some((store, namespace)), Some(raw)) = (&self.forms, call.idempotency_key()) else {
-            return Ok(None);
+            return Ok(Admitted::Canonical);
         };
         let names: Vec<String> = self
             .keys()
@@ -651,25 +682,30 @@ impl Metered {
                 )
             })
             .collect();
-        if names.is_empty() {
-            return Ok(None);
-        }
         let outcome = |o: Outcome| call.inflight().metrics().record_idempotency_form(o);
-        let values = match store.get(&names).await {
-            Ok(values) => values,
+        let proposed = idempotency::Record {
+            form: canonical.clone(),
+            call: id,
+        }
+        .encode();
+        let text = match store
+            .reserve(&names, &proposed, idempotency::RECORD_TTL)
+            .await
+        {
+            Ok(None) => {
+                outcome(Outcome::Miss);
+                return Ok(Admitted::Reserved);
+            }
+            Ok(Some(text)) => text,
             Err(_) => {
                 tracing::error!(
                     outcome = Outcome::Unavailable.label(),
-                    "idempotency form lookup failed; claiming in the canonical form, so a retry \
-                     across a child_directed flip or key rotation may be charged twice"
+                    "idempotency form reservation failed; claiming in the canonical form, so a \
+                     retry of a plain-form call or across a key rotation may be charged twice"
                 );
                 outcome(Outcome::Unavailable);
-                return Ok(None);
+                return Ok(Admitted::Canonical);
             }
-        };
-        let Some(text) = values.into_iter().flatten().next() else {
-            outcome(Outcome::Miss);
-            return Ok(None);
         };
         let unknown = || {
             tracing::error!(
@@ -677,17 +713,41 @@ impl Metered {
                 "idempotency form record names no configured key; claiming in the canonical form"
             );
             outcome(Outcome::UnknownRecord);
-            Ok(None)
+            Ok(Admitted::Canonical)
         };
         let Some(record) = idempotency::Record::parse(&text) else {
             return unknown();
         };
         if &record.form == canonical {
             outcome(Outcome::Same);
-            return Ok(None);
+            return Ok(Admitted::Recorded(record.call));
         }
         let fingerprint = match &record.form {
-            Form::Plain => request_fingerprint(request)?,
+            Form::Plain => {
+                // The previous image wrote a plain record only after its
+                // claim inserted the call, so the call exists. Confirm it
+                // first: a claim by its id that inserted afresh would store
+                // the unkeyed fingerprint, which no new row may hold.
+                let found = ledger::recover(
+                    self.ledger.as_ref(),
+                    &Operation::Read {
+                        identity,
+                        call: record.call,
+                    },
+                )
+                .await
+                .map_err(|_| unavailable())?;
+                if status(&found)? != "found" {
+                    tracing::error!(
+                        outcome = Outcome::Orphaned.label(),
+                        "a plain form record names a call the ledger does not hold; claiming in \
+                         the canonical form"
+                    );
+                    outcome(Outcome::Orphaned);
+                    return Ok(Admitted::Canonical);
+                }
+                request_fingerprint(request)?
+            }
             Form::Keyed(kid) => match self.keys().find(|k| k.id() == kid) {
                 Some(key) => key.fingerprint(request)?,
                 None => return unknown(),
@@ -695,36 +755,37 @@ impl Metered {
         };
         tracing::info!(
             outcome = Outcome::Straddle.label(),
-            "idempotency key claimed in another form; replaying by its recorded call id"
+            "idempotency key claimed in another form; claiming by its recorded call id"
         );
         outcome(Outcome::Straddle);
-        Ok(Some((record.call, fingerprint)))
+        Ok(Admitted::Straddle(record.call, fingerprint, record.form))
     }
-    /// Record the form a newly claimed keyed call took. Never fails it.
+    /// Point the form record at `id`, the call this request's canonical
+    /// claim resolved to, under every key name the reservation writes, so
+    /// the names never disagree. Never fails it.
     async fn record_form(&self, call: &CallHandle, identity: Identity, form: Form, id: Uuid) {
-        let (Some((store, namespace)), Some(raw), Some(current)) = (
-            &self.forms,
-            call.idempotency_key(),
-            &self.child_directed_key,
-        ) else {
+        let (Some((store, namespace)), Some(raw)) = (&self.forms, call.idempotency_key()) else {
             return;
         };
-        let name = idempotency::record_key(
-            namespace,
-            identity.subject,
-            identity.app,
-            &current.form_record(raw),
-        );
         let record = idempotency::Record { form, call: id }.encode();
-        if store
-            .put(&name, &record, idempotency::RECORD_TTL)
-            .await
-            .is_err()
-        {
+        let mut failed = false;
+        for key in self.keys() {
+            let name = idempotency::record_key(
+                namespace,
+                identity.subject,
+                identity.app,
+                &key.form_record(raw),
+            );
+            failed |= store
+                .put(&name, &record, idempotency::RECORD_TTL)
+                .await
+                .is_err();
+        }
+        if failed {
             tracing::error!(
                 outcome = Outcome::WriteFailed.label(),
-                "idempotency form record not written; a retry of this call across a \
-                 child_directed flip or key rotation may be charged twice"
+                "idempotency form record not written; a retry of this call across a key \
+                 rotation or a rollback may be charged twice"
             );
             call.inflight()
                 .metrics()
@@ -781,12 +842,10 @@ impl ChatBackend for Metered {
     ) -> Result<Value, ApiFailure> {
         let (_, c) = self.context(principal).await?;
         let cat = catalog.catalog();
-        // A child-directed app is shown only what it may call (chat.rs,
-        // CHILD_DIRECTED_PROVIDERS); the ETag hashes this body, so it differs.
-        let audience_allows = |provider: &str| {
-            !principal.child_directed || crate::chat::CHILD_DIRECTED_PROVIDERS.contains(&provider)
-        };
-        let models=cat.models.iter().filter(|m| self.model_allowed(&m.id) && cat.callable_model(&m.id).is_some() && self.configured.as_ref().is_none_or(|providers|providers.contains(&m.provider)) && audience_allows(&m.provider)).map(|m| {
+        // Every app is shown the same models: the configured providers are
+        // the privacy standard's (config::Config::validate), whatever the
+        // app's audience (zuu#1225).
+        let models=cat.models.iter().filter(|m| self.model_allowed(&m.id) && cat.callable_model(&m.id).is_some() && self.configured.as_ref().is_none_or(|providers|providers.contains(&m.provider))).map(|m| {
             let mut prices=serde_json::Map::new();
             for (name, rate) in [("input_milli_2z_per_mtok",m.prices.input_nusd_per_mtok),("cached_input_milli_2z_per_mtok",m.prices.cached_input_nusd_per_mtok),("cache_write_milli_2z_per_mtok",m.prices.cache_write_nusd_per_mtok),("output_milli_2z_per_mtok",m.prices.output_nusd_per_mtok),("image_milli_2z",m.prices.image_nusd),("tool_call_milli_2z",m.prices.tool_call_nusd)] {
                 let numerator=u128::from(rate).checked_mul(u128::from(cat.platform_margin_bps.0)+10_000).and_then(|n| n.checked_mul(u128::from(c.markup().0)+10_000)).ok_or_else(invalid)?;
@@ -836,36 +895,27 @@ impl ChatBackend for Metered {
     ) -> Result<Box<dyn Upstream>, ApiFailure> {
         let principal = call.principal().ok_or_else(invalid)?;
         let identity = Identity::try_from(principal).map_err(|_| invalid())?;
-        // The canonical form: what this request's own token derives. The
-        // `key` is always canonical — a child-directed caller's claim never
-        // carries the key text, even when it replays a plain-form call.
-        let (form, fingerprint, key) = if principal.child_directed {
-            let Some(secret) = &self.child_directed_key else {
-                return Err(ApiFailure::new(
-                    ErrorCode::Unavailable,
-                    "this gateway is not configured for child-directed apps",
-                )
-                .detail("reason", "child_directed_unconfigured"));
-            };
-            (
-                Form::Keyed(secret.id().to_owned()),
-                secret.fingerprint(&request)?,
-                call.idempotency_key().map(|k| secret.idempotency_key(k)),
-            )
-        } else {
-            (
-                Form::Plain,
-                request_fingerprint(&request)?,
-                call.idempotency_key().map(str::to_owned),
-            )
-        };
-        // A retry across a flip or rotation names the call it retries, with
-        // the fingerprint in that call's form; `call_claim` resolves an
-        // existing call by id before it looks at the key (tuzi#2639).
-        let straddle = self.straddled(call, identity, &request, &form).await?;
-        let (id, fingerprint) = match &straddle {
-            Some((recorded, fingerprint)) => (*recorded, fingerprint.clone()),
-            None => (Uuid::now_v7(), fingerprint),
+        // The canonical form, the same for every app whatever its audience
+        // (zuu#1225): HMACs under the current key. The `key` the claim
+        // carries is always canonical — never the caller's text, even when
+        // it replays a call the previous image claimed in the plain form.
+        let form = Form::Keyed(self.key.id().to_owned());
+        let fingerprint = self.key.fingerprint(&request)?;
+        let key = call.idempotency_key().map(|k| self.key.idempotency_key(k));
+        // A request whose key is already held in another form — a call the
+        // image before zuu#1225 claimed in the plain form, one under a
+        // rotated key, or a concurrent request on a pod either side of a
+        // rotation — names that call, with the fingerprint in its form;
+        // `call_claim` resolves an existing call by id before it looks at
+        // the key (tuzi#2639). The reservation makes that choice atomic.
+        let fresh = Uuid::now_v7();
+        let admitted = self
+            .admit_form(call, identity, &request, &form, fresh)
+            .await?;
+        let (id, fingerprint) = match &admitted {
+            Admitted::Straddle(recorded, fingerprint, _) => (*recorded, fingerprint.clone()),
+            Admitted::Recorded(recorded) => (*recorded, fingerprint),
+            Admitted::Reserved | Admitted::Canonical => (fresh, fingerprint),
         };
         let provider = catalog
             .catalog()
@@ -873,18 +923,20 @@ impl ChatBackend for Metered {
             .iter()
             .find(|m| m.id == request.model)
             .map_or("unavailable", |m| m.provider.as_str());
-        let mut request_meta = json!({"model":request.model,"requested_model":request.model,"provider":provider,"catalog_version":catalog.catalog().version,"metadata":request.metadata});
+        // `metadata` is refused before this point (chat::validate_retained)
+        // and recorded as `{}`, the shape the ledger requires: no caller text
+        // in any call record. The model id is a catalogue id (chat.rs checks
+        // it before the claim).
+        let mut request_meta = json!({"model":request.model,"requested_model":request.model,"provider":provider,"catalog_version":catalog.catalog().version,"metadata":{}});
         if self.features_meta
             && let Some(meta) = request_meta.as_object_mut()
         {
             // Content-free (crate::features). Gated: an older ledger refuses
             // the key, and a refused claim fails the paid call.
             let mut features = crate::features::RequestFeatures::of(&request);
-            // The schema name is caller-chosen text, like `metadata`; a
-            // child-directed app's call record keeps none (CHILD-DIRECTED.md).
-            if principal.child_directed {
-                features.response_format_schema_name = None;
-            }
+            // The schema name is caller-chosen text, like `metadata`: no call
+            // record keeps it (zuu#1225).
+            features.response_format_schema_name = None;
             meta.insert("features".into(), features.to_json());
         }
         let claim = Operation::Claim {
@@ -908,15 +960,35 @@ impl ChatBackend for Metered {
             produced: Mutex::new(Produced::default()),
             final_record: Mutex::new(None),
         });
-        lock(&self.active).insert(call.id(), Arc::clone(&active));
+        // Settlement authority (the `active` entry, which this request's
+        // settlement guard finalizes however the request ends) goes only to
+        // the request whose claim inserted the call, and only once the
+        // ledger says so (zuu#1226 review, B2–B4). No id can be assumed
+        // unseen before then: a reserved or adopted id is in Redis by
+        // design, and even a `Canonical` one may be — a reservation whose
+        // reply was lost after Redis ran it. So a claim that fails, times
+        // out, or is dropped by a drain holds no authority: its no-hold
+        // completion can never release another request's live call, and the
+        // ledger's hold-less expiry owns any row it inserted unseen.
         let row = ledger::recover(self.ledger.as_ref(), &claim)
             .await
             .map_err(|_| unavailable().detail("call_id", id.to_string()))?;
         let existing = row.get("call_id").and_then(Value::as_str);
         if status(&row)? != "claimed" {
-            // This request did not win admission. Its settlement guard must not
-            // complete/release the already-running call owned by another request.
-            lock(&self.active).remove(&call.id());
+            // This request did not win admission, and registered nothing:
+            // its settlement guard cannot complete or release the call that
+            // another request owns.
+            // It reserved a record naming a call it did not insert (the
+            // record had been lost while the key row lived): point the
+            // record at the call the ledger resolved, so a retry in another
+            // form finds that one.
+            if let (Admitted::Reserved | Admitted::Recorded(_), Some(found)) = (
+                &admitted,
+                existing.and_then(|text| text.parse::<Uuid>().ok()),
+            ) && found != id
+            {
+                self.record_form(call, identity, form.clone(), found).await;
+            }
             return match status(&row)? {
                 "replayed" => Ok(Box::new(Replay(project(
                     row.get("record").ok_or_else(invalid)?,
@@ -938,18 +1010,34 @@ impl ChatBackend for Metered {
         if existing != Some(id.to_string().as_str()) {
             return Err(invalid());
         }
-        if straddle.is_some() {
-            // The ledger no longer held the recorded call, so this claim
-            // inserted it afresh. It proceeds as a new call.
-            tracing::error!(
-                outcome = Outcome::Orphaned.label(),
-                "a recorded call id was not found by the ledger; claimed as a new call"
-            );
-            call.inflight()
-                .metrics()
-                .record_idempotency_form(Outcome::Orphaned);
-        } else {
-            self.record_form(call, identity, form, id).await;
+        // Inserted by this claim: now, and with no await since the status
+        // was read, this request owns the call.
+        lock(&self.active).insert(call.id(), Arc::clone(&active));
+        match admitted {
+            Admitted::Straddle(_, _, recorded) => {
+                // The ledger did not hold the recorded call, so this claim
+                // inserted it under that id. Either the ledger lost it, or
+                // the request that reserved the record (in another form, on
+                // another pod) has not claimed yet — it will find this call
+                // by id and be refused as pending. One call either way.
+                tracing::error!(
+                    outcome = Outcome::Orphaned.label(),
+                    "a recorded call id was not found by the ledger; claimed under that id"
+                );
+                call.inflight()
+                    .metrics()
+                    .record_idempotency_form(Outcome::Orphaned);
+                // The record may be older than this insert (a reservation
+                // whose own claim failed): renew it, unchanged, under every
+                // key name, so it outlives this call's key row by the full
+                // margin (zuu#1226 review, B1).
+                self.record_form(call, identity, recorded, id).await;
+            }
+            // Likewise for a recorded id in this request's own form.
+            Admitted::Recorded(_) => self.record_form(call, identity, form, id).await,
+            // The reservation was written just now, for this claim.
+            Admitted::Reserved => {}
+            Admitted::Canonical => self.record_form(call, identity, form, id).await,
         }
         call.set_durable_call_id(id);
         // Replay precedes spendability: a completed call remains readable even
@@ -1798,13 +1886,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn child_directed_claims_are_keyed_deterministic_and_change_with_the_key() {
+    fn claims_are_keyed_deterministic_and_change_with_the_key() {
         let request: ChatRequest = serde_json::from_value(serde_json::json!({
             "model": "m", "messages": [{"role": "user", "content": [{"type": "text", "text": "2+2?"}]}]
         }))
         .unwrap();
-        let a = ChildDirectedKey::new(&[1; 32]).unwrap();
-        let b = ChildDirectedKey::new(&[2; 32]).unwrap();
+        let a = ClaimKey::new(&[1; 32]).unwrap();
+        let b = ClaimKey::new(&[2; 32]).unwrap();
         let plain = request_fingerprint(&request).unwrap();
         let keyed = a.fingerprint(&request).unwrap();
         // The ledger's shape: 64 lowercase hex characters.
@@ -1827,7 +1915,7 @@ mod tests {
         assert_ne!(keyed, b.fingerprint(&request).unwrap());
         assert_ne!(a.idempotency_key("k"), b.idempotency_key("k"));
         assert_eq!(a.id().len(), 16);
-        assert_eq!(a.id(), ChildDirectedKey::new(&[1; 32]).unwrap().id());
+        assert_eq!(a.id(), ClaimKey::new(&[1; 32]).unwrap().id());
         assert_ne!(a.id(), b.id());
         // The record's Redis key is its own domain: never a ledger value.
         assert_ne!(a.form_record("k"), a.idempotency_key("k"));
@@ -1836,7 +1924,27 @@ mod tests {
         // collide with the fingerprint.
         let body = String::from_utf8(canonical_request(&request).unwrap()).unwrap();
         assert_ne!(a.idempotency_key(&body), keyed);
-        assert!(ChildDirectedKey::new(&[0; 31]).is_err());
+        assert!(ClaimKey::new(&[0; 31]).is_err());
+    }
+
+    /// zuu#1225: the derivations are pinned to the values the deployed
+    /// image computes (HMAC-SHA256, checked independently of this crate).
+    /// The previous image writes the form record a keyed retry of its
+    /// plain-form calls must find; a changed record key derivation would
+    /// miss every one of them, and a changed key id would orphan every keyed
+    /// record across the deploy — both silent double charges.
+    #[test]
+    fn claim_key_derivations_match_the_deployed_image() {
+        let key = ClaimKey::new(&[7; 32]).unwrap();
+        assert_eq!(
+            key.form_record("lesson-for-alice"),
+            "572c42adaf8e6a3ee439ae54b157aaa0de5306229468c63f8b3ca05dd394f7b0"
+        );
+        assert_eq!(
+            key.idempotency_key("lesson-for-alice"),
+            "a6eb1c5da24f66a4e5d1b5e2631a2ffc8833c0adbab9c84694ba4962339361d5"
+        );
+        assert_eq!(key.id(), "c3c7b9e3e45cf64d");
     }
 
     /// zuu#1132: the idempotency fingerprint is byte-identical to the

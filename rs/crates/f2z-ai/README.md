@@ -109,8 +109,9 @@ log line carries a content-free description of what the request asked for:
 one is known. Never a schema body, a prompt, a tool definition — nor the
 schema's client-chosen *name*, which like `metadata` never reaches a log line
 (`src/features.rs`). With `ledger_features_meta = true`
-(`F2Z_AI_LEDGER_FEATURES_META=true`) the same object, name included, is stored
-on the ledger call claim as `features` and returned on `GET /v1/calls/{id}`. It is **off by default**: a ledger without tuzi migration
+(`F2Z_AI_LEDGER_FEATURES_META=true`) the same object is stored on the ledger
+call claim as `features` and returned on `GET /v1/calls/{id}` — with the schema
+name `null`, for every app (zuu#1225). It is **off by default**: a ledger without tuzi migration
 `ledger.0006_call_features` refuses the unknown key and would fail every paid
 call, so the flag is flipped only after that migration is live.
 
@@ -147,16 +148,29 @@ Without backend configuration the diagnostic skeleton remains closed and unready
 Setting any backend key requires complete configuration and a configured provider.
 `Deps::skeleton` and trait injection remain test seams, not billable service modes.
 
-## Child-directed calls
+## The privacy baseline (every app, zuu#1225)
 
-A token with `"child_directed": true` (`docs/free2z/sdk/CHILD-DIRECTED.md`)
-may name only catalogue models whose provider is in
-`chat::CHILD_DIRECTED_PROVIDERS` (OpenAI: the providers sent `store: false`),
-may not send `metadata`, and its claim carries no schema name. Its request
-fingerprint and `Idempotency-Key` reach the ledger only as HMAC-SHA256 under a
-server secret (`meter::ChildDirectedKey`, 64 hex characters — the shapes
-`ledger.call_claim` checks), so neither a short, guessable prompt nor the
-caller's key text can be confirmed from the record.
+One baseline for every call, whatever the app's audience. The token's
+`child_directed` claim (`docs/free2z/sdk/CHILD-DIRECTED.md`) is an audience
+classification only: it is still verified, and it selects nothing here.
+
+- **No caller text in a call record.** `metadata` is refused on `/v1/chat`
+  and `/v1/chat/estimate` (`400 invalid_request`, `field: "metadata"`,
+  `reason: "privacy_baseline"`; `chat::validate_retained`) and recorded as
+  `{}`, the shape the ledger requires. A model id the catalogue does not
+  hold — fallbacks included — is refused (`404 model_not_found`) before the
+  claim would record it. The `response_format` schema name is recorded as
+  `null`.
+- **Keyed fingerprints and retry keys.** The request fingerprint and the
+  `Idempotency-Key` reach the ledger only as HMAC-SHA256 under a server
+  secret (`meter::ClaimKey`, 64 hex characters — the shapes
+  `ledger.call_claim` checks), so neither a short, guessable prompt nor the
+  caller's key text can be confirmed from the record.
+- **One provider standard.** A metered gateway holds keys only for
+  `chat::PRIVACY_PROVIDERS` — the providers it sends an explicit
+  `store: false` to (OpenAI, both adapters). A configuration naming any
+  other provider is refused at load, so no caller, and no fallback, has a
+  weaker route. Every app is shown the same `/v1/models`.
 
 ```toml
 child_directed_key_file = "/run/secrets/child-directed-key"   # or F2Z_AI_CHILD_DIRECTED_KEY
@@ -164,53 +178,119 @@ child_directed_key_file = "/run/secrets/child-directed-key"   # or F2Z_AI_CHILD_
 #   # or F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS; only during a rotation
 ```
 
-At least 32 bytes, never inline. Without it, child-directed calls are refused
-with `503` (`reason: "child_directed_unconfigured"`) and nothing is claimed;
-other calls are unaffected. Other apps keep the unkeyed SHA-256 fingerprint and
-the key as sent, byte for byte, so no stored row changes format.
+At least 32 bytes, never inline. The names are kept from when only
+child-directed apps were keyed; renaming an `F2Z_AI_*` variable is its own
+two-release change (an older image refuses an unknown one). **A metered
+gateway does not start without the key** (`Config::metered`,
+`config::Config::validate`): a rollout that lost it is a failed rollout —
+the new pod exits, and with tuzi's `maxUnavailable: 0` the old pods keep
+serving — never a gateway that serves and fails every call, and never one
+that falls back to the raw form. The diagnostic skeleton claims nothing and
+needs no key.
 
-**Retries across a flip or a rotation (`src/idempotency.rs`, tuzi#2639).**
-Which form a call was claimed in depends on the token's `child_directed` claim
-and on the key, so a same-key retry that straddles a flag flip or a rotation
-derives the other form. After every keyed claim that inserts a call, the
-gateway writes a form record to the shared Redis:
-`<ns>:ai:idem:<sub>:<app>:<hmac>` → `v1:plain:<call>` or
-`v1:keyed:<key id>:<call>`, for 24 h 10 m (`idempotency::RECORD_TTL`): the
-ledger key's 24 h (`ledger::IDEMPOTENCY_KEY_LIFETIME`, which restates
-`ledger.call_claim`'s `now() + interval '24 hours'` in tuzi
+**Retries across a change of form (`src/idempotency.rs`, tuzi#2639).** Every
+claim is now keyed under the current key, but two other forms are still in
+the ledger for a while: the **plain** form (the unkeyed SHA-256 and the key
+as sent) that the image before zuu#1225 stored for every app not flagged
+child-directed, and a call claimed under a key since rotated away. A same-key
+retry of either derives the current form. **Before** a keyed request claims,
+the gateway atomically reserves a form record in the shared Redis — one Lua
+script that checks the record key under every server key it holds and, only
+if none is held, sets them all (`FormStore::reserve`):
+`<ns>:ai:idem:<sub>:<app>:<hmac>` → `v1:keyed:<key id>:<call>`, naming the
+call id it is about to claim (the previous image wrote `v1:plain:<call>`
+**after** its plain-form claims, whenever the key was configured), for
+24 h 10 m (`idempotency::RECORD_TTL`): the ledger key's
+24 h (`ledger::IDEMPOTENCY_KEY_LIFETIME`, which restates `ledger.call_claim`'s
+`now() + interval '24 hours'` in tuzi
 `py/dj/apps/ledger/migrations/_call_recovery.py`) plus a 10-minute margin for
 skew between Postgres's and Redis's clocks. A record must outlive its key row:
 a straddling retry that finds the key row but no record is charged twice and
 counted only as `miss` (tuzi#2670). Outliving it is harmless — a straddling
 retry in the margin names the recorded call, which the ledger keeps 90 days,
-and is replayed rather than charged; a same-form retry after 24 h is a new call
-as the contract says.
-The `<hmac>` is an HMAC of the `Idempotency-Key` under the current key, for
-every app, so the key text reaches neither Redis nor, for a child-directed
-app, the ledger. A keyed request reads the record (under the current key, then
-the previous one). If it names a form this request does not derive, the claim
-names the **recorded call id** with the fingerprint in that call's form, and
-`ledger.call_claim` resolves the existing call by id — replayed, pending, or a
-conflict — inserting nothing. The key the claim carries is always this
-request's canonical form. The key id is 16 hex characters of an HMAC of a
-fixed label under the key (`ChildDirectedKey::id`).
+and is replayed rather than charged. Since a same-form retry also claims the
+recorded id (below), a key reused between 24 h and 24 h 10 m resolves to the
+old call too — replayed, or `409` if the body differs — instead of starting
+a new one; from 24 h 10 m on it is a new call (chat-api.md §2.5). A retry
+that inserts a call under a recorded id renews the record under every key
+name for a full `RECORD_TTL` from that insert. Settlement authority over a
+call (the in-flight entry the settlement guard finalizes) is registered only
+once the ledger says this request's claim inserted it, for every admission:
+no id can be assumed unseen before then — a reserved or adopted id is in
+Redis by design, and even a fresh one may be, when a reservation's reply is
+lost after Redis ran it. So a claim that fails, times out or is dropped by a
+drain can never release another request's call; the ledger's hold-less
+expiry (300 s) owns any row such a claim inserted unseen (zuu#1226 review
+B1–B4).
+The `<hmac>` is an HMAC of the `Idempotency-Key` under the current key,
+derived identically by both images (pinned by
+`claim_key_derivations_match_the_deployed_image`), so the key text never
+reaches Redis. A keyed request reads the record (under the current key, then
+the previous one). If one is held and names a form this request does not
+derive, the claim names the **recorded call id** with the fingerprint in that
+call's form, and `ledger.call_claim` resolves the existing call by id —
+replayed, pending, or a conflict — inserting nothing.
 
-Records need the key configured: without it (before the key is deployed)
-every claim takes its canonical form, as before, uncounted (the gateway logs
-that once at startup). So a call claimed before the key is live has no record:
-**flag an app child-directed only once the key has been live for 24 hours**,
-or a plain-form call retried after the flip is charged twice, silently. A
-plain-form call that carried `metadata` cannot be replayed by a child-directed
-retry, which may not send `metadata`: the ledger answers `409
-idempotency_conflict` (no charge). Anything that loses a record
+**Cross-form admission is atomic.** Because the reservation precedes the
+claim and is one step, two concurrent same-key requests that derive
+different forms — pods either side of a rotation, or of this image's rollout
+when this image's pod goes first — cannot both miss: one reserves, the other
+names its call, and the ledger admits one call
+(`concurrent_requests_in_two_forms_are_admitted_and_charged_once`; the
+read-then-write negative control is charged twice). Same-form requests are
+decided by the ledger's own key row. Since `child_directed` no longer selects
+a form, the developer-flip window (tokens from either side of a flip racing
+in different forms, tuzi#2683) no longer exists
+(`concurrent_requests_across_a_child_directed_flip_are_admitted_once`). One
+race remains, once: during this image's own rollout, a previous-image pod
+looks up the record before its plain-form claim and writes its own only
+after it; a same-key request on a new pod between that lookup and that write
+finds nothing and is a second call. The previous image cannot be changed;
+the window is that pod's lookup-claim-write span, only while both images
+serve. Same-form requests whose reserving request never claimed (its
+claim failed or has not landed) claim the **recorded** call id, never a
+fresh one, and a request whose claim resolved to another call re-points
+the record under every key name — so the record names agree and name the
+call that exists
+(`a_reservation_whose_claim_failed_becomes_one_call_in_either_form`,
+`a_same_form_race_then_a_retry_in_the_other_form_is_one_call`). The key the claim carries is always the keyed
+form: a retry never sends the key text, even when it replays a plain-form
+call. The key id is 16 hex characters of an HMAC of a fixed label under the
+key (`ClaimKey::id`).
+
+**Deploy order (exactly-once across the transition).** The previous image
+writes a `v1:plain` record only while it holds the key, so a plain-form call
+it claimed before the key was live has no record, and a keyed retry of it on
+this image is a new, paid call — silently, as a `miss`
+(`without_a_form_record_a_plain_form_call_retried_keyed_is_charged_twice`).
+So **deploy this image only once the key has been live on the previous image
+for at least 24 h 10 m**: every plain-form key row still live then was
+claimed with a record. A plain-form call that carried `metadata` cannot be
+replayed by a retry here, which may not send `metadata`: it is refused
+(`400`), or, without it, its fingerprint differs and the ledger answers `409
+idempotency_conflict` — never a charge. Anything that loses a record
 falls back to the canonical form, so a straddling retry can again be charged
 twice. Counted in `f2z_ai_idempotency_forms_total{outcome}` — alert on any
-increase of these four: Redis unavailable (`unavailable`), a record write that
-failed (`write_failed`), a record naming a key no longer configured
-(`unknown_record`), a ledger that no longer holds the recorded call
-(`orphaned`). Not distinguishable from a first request (`miss`), so accepted
+increase of these three: Redis unavailable (`unavailable`), a record write
+that failed (`write_failed`), a record naming a key no longer configured
+(`unknown_record`). `orphaned` is no longer one of them: it counts a record
+naming a call the ledger did not hold, which with reservations is the benign
+half of a cross-form race or a reservation whose claim failed — one call
+either way; a plain record naming a lost call is confirmed by a read and
+claimed in the keyed form, never under its id, so no new row holds an
+unkeyed fingerprint. (tuzi's `ai-idempotency-form-degraded` alert still
+matches `orphaned`; drop it there.) Not distinguishable from a first request (`miss`), so accepted
 as residual risk: a record evicted or lost to a Redis restart or flush, and a
 crash between the claim and the record write.
+
+**Rollback.** An image older than this one starts with the key env present
+(every image since zuu#1216 reads it) and, sharing the Redis records, replays
+the keyed calls this image claimed. It also resumes storing ordinary apps'
+raw keys, unkeyed fingerprints, `metadata` and schema names: a privacy
+regression to roll back to, not a billing one. The same holds after the
+plain-form path is deleted (zuu#1225 step 3, at least 24 h 10 m after this
+image is live): rolling back past **this** image is a raw-form regression for
+every ordinary app, so roll back no further than this image.
 
 The records carry a TTL, so a `volatile-*` eviction policy would drop them
 first and an `allkeys-*` one could; the shared Redis must run with no
@@ -229,11 +309,11 @@ keyed traffic approaches that.
 **Rotation.** Two deploys, so no pod in a rolling update lacks the other
 pod's key: first add the new key B as `child_directed_key_previous` (current
 A, previous B), then swap (current B, previous A) and keep that for at least
-24 hours, then drop the previous key. While both are set, a keyed retry of a call claimed under the old key
+24 h 10 m (`RECORD_TTL`), then drop the previous key. While both are set, a keyed retry of a call claimed under the old key
 replays it. A retry after the previous key is dropped is a new call. The
 previous key must differ from the current one and needs it.
-`F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS` is a new `F2Z_AI_*` variable, and an
-image older than this one refuses to start on it: set it only once an image
+`F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS` is an `F2Z_AI_*` variable that an image
+older than zuu#1222 refuses to start on: set it only once an image
 with this support is the rollback target too.
 
 ## Authentication and limits (`src/auth`)

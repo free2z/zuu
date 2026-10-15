@@ -17,9 +17,9 @@
 //! `0006_call_features`) refuses any other shape.
 //!
 //! The name is client-chosen text, in the same class as `metadata`: it is
-//! stored only on the user's own call record and returned to the same app,
-//! and — like `metadata` — it is **never logged** (`crate::server`). For a
-//! child-directed app it is not stored either (`crate::meter`).
+//! **never logged** (`crate::server`), and since zuu#1225 never stored on a
+//! call record either, for any app (`crate::meter` records it as `null`).
+//! It is kept here because the ledger's `features` shape requires the member.
 
 use f2z_ai_proto::chat::{ChatRequest, MAX_RESPONSE_SCHEMA_NAME_CHARS, ResponseFormat};
 use serde::{Deserialize, Serialize};

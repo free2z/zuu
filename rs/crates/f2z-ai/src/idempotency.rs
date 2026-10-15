@@ -1,35 +1,61 @@
 //! Which form a keyed call was claimed under, so that a same-key retry that
-//! straddles a `child_directed` flip or a key rotation replays that call
-//! instead of becoming a second, paid one (tuzi#2639).
+//! straddles a change of form replays that call instead of becoming a
+//! second, paid one (tuzi#2639).
 //!
-//! The ledger keeps one form per call. A child-directed app's claim carries
-//! HMACs of the fingerprint and the `Idempotency-Key`
-//! ([`crate::meter::ChildDirectedKey`]); every other app's carries the
-//! unkeyed SHA-256 and the key as sent. When the app's flag flips, or the
-//! HMAC key rotates, a retry derives the other form, and `ledger.call_claim`
-//! — which has no lookup-only mode — would insert a new call for it.
+//! The ledger keeps one form per call. Since zuu#1225 every app's claim
+//! carries HMACs of the fingerprint and the `Idempotency-Key` under the
+//! current server key ([`crate::meter::ClaimKey`]). Two other forms are
+//! still live in the ledger: the **plain** form — the unkeyed SHA-256 and
+//! the key as sent — that the image before zuu#1225 stored for every app
+//! not flagged `child_directed`, for 24 hours after this image is deployed;
+//! and a call claimed under a key since rotated away. A retry of either
+//! derives the current form, and `ledger.call_claim` — which has no
+//! lookup-only mode — would insert a new call for it.
 //!
-//! So after every keyed claim that inserts a call, the gateway writes a
-//! [`Record`] to Redis: the form the call was claimed under and its call id.
-//! The record's Redis key is an HMAC of the `Idempotency-Key` under the
-//! current server key, computed the same way whatever the app's flag says,
-//! so the caller's key text is never stored. A keyed request reads it first.
-//! If the record names a form other than the one this request derives, the
-//! claim names the **recorded call id** with the fingerprint in the recorded
-//! form; `call_claim` then resolves the existing call by id (call rows live
-//! 90 days, longer than a record) and replays it, reports it pending, or
-//! refuses a changed request — and inserts nothing. The canonical
-//! `Idempotency-Key` form is what the claim carries, so a child-directed
-//! caller never sends the key text even when it replays a call claimed in
+//! So before a keyed request claims, the gateway **reserves** a [`Record`]
+//! in Redis — the form it is about to claim in and the call id it will
+//! claim — under the record key of every server key it holds, in one atomic
+//! step ([`FormStore::reserve`]): if any of those keys already holds a
+//! record, nothing is written and that record is read instead. Two
+//! concurrent same-key requests that derive different forms (two pods
+//! either side of a rotation, or of this image's rollout) therefore cannot
+//! both miss: exactly one reserves, the other names the reserved call, and
+//! `ledger.call_claim` admits that one call once (zuu#1225; before it the
+//! record was written only after the claim, and such a pair could both be
+//! charged). The previous image wrote its record — `v1:plain:` for a
+//! plain-form call — after its claim, whenever the key was configured, and
+//! reads ours. The record's Redis key is an HMAC of the `Idempotency-Key`
+//! under a server key, derived the same way by both images, so the
+//! caller's key text is never stored. If the record names a form other than the one
+//! this request derives, the claim names the **recorded call id** with the
+//! fingerprint in the recorded form; `call_claim` then resolves the existing
+//! call by id (call rows live 90 days, longer than a record) and replays it,
+//! reports it pending, or refuses a changed request — and inserts nothing.
+//! The canonical `Idempotency-Key` form is what the claim carries, so a
+//! retry never sends the key text even when it replays a call claimed in
 //! the plain form.
+//!
+//! One race this image cannot close alone: during its own rollout, a
+//! previous-image pod reads the record (`MGET`) before its plain-form claim
+//! and writes its own only after it; a same-key request on a pod of this
+//! image between that read and that write, finding nothing, is a second
+//! call. The window is that pod's lookup-claim-write span, and exists only
+//! while both images serve.
 //!
 //! What it does not cover falls back to the canonical form, the behaviour
 //! before this existed. Counted under `f2z_ai_idempotency_forms_total`
 //! (`crate::metrics`): Redis unavailable, a failed record write, a record
-//! naming a key no longer configured, a recorded call the ledger no longer
-//! holds. Not countable, because they look like a first request: a record
-//! evicted or lost to a Redis restart or flush, and a crash between the
-//! claim and the record write.
+//! naming a key no longer configured. Not countable, because they look like a first request: a record
+//! evicted or lost to a Redis restart or flush, a crash between the claim
+//! and the record write, and a plain-form call the previous image claimed
+//! while it ran **without** the key (it wrote no record) — which is why this
+//! image is deployed only once the key has been live on the previous one
+//! for at least [`RECORD_TTL`] (rs/crates/f2z-ai/README.md).
+//!
+//! [`Form::Plain`] is read, never written, by this image. Once this image
+//! has run for [`RECORD_TTL`], no live plain-form key row remains and the
+//! plain path can be deleted (zuu#1225 step 3); the keyed records stay, for
+//! rotations.
 
 use std::time::Duration;
 
@@ -64,15 +90,27 @@ pub trait FormStore: Send + Sync + 'static {
     async fn get(&self, keys: &[String]) -> Result<Vec<Option<String>>, StoreError>;
     /// `SET key value PX ttl`.
     async fn put(&self, key: &str, value: &str, ttl: Duration) -> Result<(), StoreError>;
+    /// **Atomically**: the first of `keys` that holds a value, in order, and
+    /// change nothing; or, when none does, `SET` every key to `value` with
+    /// `PX ttl` and answer `None`. One step, so of two requests that race
+    /// for the same keys exactly one reserves and the other reads its record
+    /// (zuu#1225: cross-form admission).
+    async fn reserve(
+        &self,
+        keys: &[String],
+        value: &str,
+        ttl: Duration,
+    ) -> Result<Option<String>, StoreError>;
 }
 
 /// The form a call's fingerprint and `Idempotency-Key` were claimed in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Form {
-    /// The unkeyed SHA-256 fingerprint and the key as sent.
+    /// The unkeyed SHA-256 fingerprint and the key as sent: written only by
+    /// the image before zuu#1225, read by this one.
     Plain,
-    /// HMACs under the child-directed key with this id
-    /// ([`crate::meter::ChildDirectedKey::id`]).
+    /// HMACs under the claim key with this id
+    /// ([`crate::meter::ClaimKey::id`]).
     Keyed(String),
 }
 
@@ -116,7 +154,7 @@ impl Record {
 }
 
 /// The Redis key of a record: `<ns>:ai:idem:<sub>:<app>:<mac>`, where `mac`
-/// is [`crate::meter::ChildDirectedKey`]'s record HMAC of the
+/// is [`crate::meter::ClaimKey`]'s record HMAC of the
 /// `Idempotency-Key`. Scoped like the ledger's key: per account and app.
 #[must_use]
 pub fn record_key(namespace: &str, subject: Uuid, app: Uuid, mac: &str) -> String {
@@ -127,7 +165,8 @@ pub fn record_key(namespace: &str, subject: Uuid, app: Uuid, mac: &str) -> Strin
 /// the `outcome` label values of `f2z_ai_idempotency_forms_total`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
-    /// No record: a first request, or one whose record expired.
+    /// No record: a first request, or one whose record expired. This
+    /// request reserved one.
     Miss,
     /// The record names the form this request derives anyway.
     Same,
@@ -140,8 +179,12 @@ pub enum Outcome {
     UnknownRecord,
     /// Degraded: the record for a new call could not be written.
     WriteFailed,
-    /// Degraded: a claim by a recorded call id inserted a call, so the
-    /// ledger no longer held the call the record named.
+    /// The ledger did not hold the call a record named. A keyed record:
+    /// the claim inserted the call under that id — the request that
+    /// reserved it had not claimed yet (it then finds this call by id), or
+    /// its claim failed. One call either way. A plain record (the previous
+    /// image's, always written after its call was inserted): the call was
+    /// lost, and the request claimed in the canonical form instead.
     Orphaned,
 }
 
@@ -172,12 +215,14 @@ impl Outcome {
     }
 
     /// Whether this outcome left a straddling retry exposed to a second
-    /// charge (the alert's numerator).
+    /// charge (the alert's numerator). Not [`Self::Orphaned`] since
+    /// zuu#1225: with reservations it is mostly the benign half of a
+    /// cross-form race — one call either way.
     #[must_use]
     pub const fn degraded(self) -> bool {
         matches!(
             self,
-            Self::Unavailable | Self::UnknownRecord | Self::WriteFailed | Self::Orphaned
+            Self::Unavailable | Self::UnknownRecord | Self::WriteFailed
         )
     }
 

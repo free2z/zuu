@@ -35,6 +35,11 @@
 //! # completion_tokens_include_reasoning = false   # the default for xai only
 //! ```
 //!
+//! A metered gateway accepts only the providers on
+//! [`crate::chat::PRIVACY_PROVIDERS`] (zuu#1225: OpenAI, at its own API host);
+//! the `anthropic` and `xai` tables above load only for the diagnostic
+//! skeleton and for tests of their adapters.
+//!
 //! A provider is configured by its table or by its key variable alone
 //! (`F2Z_AI_PROVIDER_<NAME>_API_KEY`, the name upper-cased); either way it
 //! must end up with exactly one key. An inline `api_key` is refused like
@@ -108,9 +113,11 @@ pub const ENV_AUTH_EPOCH_TOKEN: &str = "F2Z_AI_AUTH_EPOCH_TOKEN";
 pub const ENV_REDIS_URL: &str = "F2Z_AI_REDIS_URL";
 /// Ledger connection URL; accepted only as a secret.
 pub const ENV_LEDGER_URL: &str = "F2Z_AI_LEDGER_URL";
-/// The child-directed HMAC key ([`crate::meter::ChildDirectedKey`]).
+/// The claim HMAC key ([`crate::meter::ClaimKey`]), for every app since
+/// zuu#1225. The name predates that: renaming an `F2Z_AI_*` variable is its
+/// own two-release change, because an older image refuses an unknown one.
 pub const ENV_CHILD_DIRECTED_KEY: &str = "F2Z_AI_CHILD_DIRECTED_KEY";
-/// The child-directed HMAC key in force before the last rotation.
+/// The claim HMAC key in force before the last rotation.
 pub const ENV_CHILD_DIRECTED_KEY_PREVIOUS: &str = "F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS";
 
 /// Authentication, revocation and limits ([`crate::auth`]).
@@ -345,9 +352,12 @@ pub struct Config {
     /// migration is live. The `response` log line carries the features
     /// either way.
     pub ledger_features_meta: bool,
-    /// Server secret for child-directed call claims (at least 32 bytes),
-    /// from `child_directed_key_file` or `F2Z_AI_CHILD_DIRECTED_KEY`; never
-    /// inline. Absent: child-directed calls are refused with `503`.
+    /// Server secret that keys every call claim (at least 32 bytes;
+    /// [`crate::meter::ClaimKey`]), from `child_directed_key_file` or
+    /// `F2Z_AI_CHILD_DIRECTED_KEY`; never inline. **Required** to serve
+    /// metered calls ([`Config::metered`]): without it the configuration is
+    /// refused, so a rollout that lost the key fails at startup instead of
+    /// serving (zuu#1225).
     pub child_directed_key: Option<SecretString>,
     /// The key `child_directed_key` replaced, kept for the 24 hours after a
     /// rotation (`child_directed_key_previous_file` or
@@ -581,6 +591,14 @@ const INLINE_SECRETS: &[&str] = &[
 ];
 
 impl Config {
+    /// Whether this configuration serves metered (paid) calls: any of the
+    /// catalogue, its keys, or the ledger is set. Otherwise `serve` runs the
+    /// closed, unready diagnostic skeleton, which claims nothing.
+    #[must_use]
+    pub const fn metered(&self) -> bool {
+        self.catalog_url.is_some() || self.catalog_keys_file.is_some() || self.ledger_url.is_some()
+    }
+
     /// Load `file` (if any), apply the `F2Z_AI_*` members of `env`, validate.
     ///
     /// `env` is passed in rather than read here so that a test can supply one
@@ -731,10 +749,10 @@ impl Config {
             .into_iter()
             .flatten()
         {
-            if key.expose_secret().len() < crate::meter::MIN_CHILD_DIRECTED_KEY_BYTES {
+            if key.expose_secret().len() < crate::meter::MIN_CLAIM_KEY_BYTES {
                 return Err(err(format!(
-                    "the child-directed key must be at least {} bytes",
-                    crate::meter::MIN_CHILD_DIRECTED_KEY_BYTES
+                    "the claim key (F2Z_AI_CHILD_DIRECTED_KEY) must be at least {} bytes",
+                    crate::meter::MIN_CLAIM_KEY_BYTES
                 )));
             }
         }
@@ -878,6 +896,33 @@ impl Config {
 
     /// The cross-field rules.
     fn validate(&self) -> Result<(), ConfigError> {
+        // zuu#1225: one privacy baseline for every metered call. Every claim
+        // is keyed, so there is no serving without the key; and the gateway
+        // holds keys only for providers on the one standard list, so no app
+        // and no fallback can reach a weaker route.
+        if self.metered() {
+            if self.child_directed_key.is_none() {
+                return Err(err(
+                    "a metered gateway needs its claim key (F2Z_AI_CHILD_DIRECTED_KEY or \
+                     `child_directed_key_file`): every call's fingerprint and Idempotency-Key \
+                     are stored only as HMACs under it",
+                ));
+            }
+            for (name, provider) in &self.providers {
+                let host = crate::provider::client::base_url(&provider.base_url)
+                    .ok()
+                    .and_then(|url| url.host_str().map(str::to_owned))
+                    .unwrap_or_default();
+                if !crate::chat::privacy_route(name, &host) {
+                    return Err(err(format!(
+                        "provider `{name}` at `{host}` is not on the privacy standard \
+                         (chat::PRIVACY_PROVIDERS: {:?}); a metered gateway routes only to \
+                         providers it sends `store: false` to, at their own API host",
+                        crate::chat::PRIVACY_PROVIDERS
+                    )));
+                }
+            }
+        }
         if self.allowed_models.as_ref().is_some_and(|models| {
             models.iter().any(|id| {
                 id.is_empty()
@@ -1248,6 +1293,88 @@ mod tests {
         assert!(Config::load(None, env(&[("F2Z_AI_CHILD_DIRECTED_KEY", &short)])).is_err());
         // Never inline in the file: only the path of a file holding it.
         assert!(Config::load(Some(file("child_directed_key = \"x\"").path()), env(&[])).is_err());
+    }
+
+    /// zuu#1225: every metered call's claim is keyed, so a metered
+    /// configuration without the key is a failed rollout at startup — never
+    /// a gateway that comes up and refuses (or, worse, stores the raw key
+    /// for) every call. The diagnostic skeleton claims nothing and needs none.
+    #[test]
+    fn a_metered_gateway_refuses_to_start_without_the_claim_key() {
+        let key = "k".repeat(32);
+        let catalog = file("catalog_url = \"https://free2z.cash/api/ai/catalog/v1\"");
+        let none: Vec<(&str, &str)> = vec![];
+        for (file, vars) in [
+            (Some(catalog.path()), none),
+            (
+                None,
+                vec![("F2Z_AI_LEDGER_URL", "postgres://gateway@ledger/db")],
+            ),
+            (None, vec![("F2Z_AI_CATALOG_KEYS_FILE", "/etc/keys.json")]),
+        ] {
+            let error = Config::load(file, env(&vars)).unwrap_err().to_string();
+            assert!(error.contains("F2Z_AI_CHILD_DIRECTED_KEY"), "{error}");
+            let mut with_key = vars.clone();
+            with_key.push(("F2Z_AI_CHILD_DIRECTED_KEY", key.as_str()));
+            let config = Config::load(file, env(&with_key)).unwrap();
+            assert!(config.metered());
+        }
+        let skeleton = Config::load(None, env(&[])).unwrap();
+        assert!(!skeleton.metered());
+        assert!(skeleton.child_directed_key.is_none());
+    }
+
+    /// zuu#1225: one provider standard for every app. A metered gateway
+    /// holds keys only for providers it sends an explicit no-store
+    /// instruction to (`chat::PRIVACY_PROVIDERS`), so there is no route to a
+    /// weaker provider for any caller — including as a fallback.
+    #[test]
+    fn a_metered_gateway_refuses_a_provider_outside_the_privacy_standard() {
+        let key = "k".repeat(32);
+        let metered = |provider: &str| {
+            let variable = format!("F2Z_AI_PROVIDER_{}_API_KEY", provider.to_ascii_uppercase());
+            Config::load(
+                None,
+                env(&[
+                    ("F2Z_AI_LEDGER_URL", "postgres://gateway@ledger/db"),
+                    ("F2Z_AI_CHILD_DIRECTED_KEY", &key),
+                    (&variable, "sk-canary"),
+                ]),
+            )
+        };
+        assert!(metered("openai").is_ok());
+        for provider in ["anthropic", "xai"] {
+            let error = metered(provider).unwrap_err().to_string();
+            assert!(error.contains(provider), "{error}");
+            assert!(!error.contains("sk-canary"), "{error}");
+        }
+        // The standard names the endpoint too: OpenAI's own API host or a
+        // regional subdomain of it — never a proxy or another vendor's
+        // OpenAI-compatible endpoint under the name `openai`.
+        let at = |base_url: &str| {
+            let f = file(&format!("[providers.openai]\nbase_url = {base_url:?}\n"));
+            Config::load(
+                Some(f.path()),
+                env(&[
+                    ("F2Z_AI_LEDGER_URL", "postgres://gateway@ledger/db"),
+                    ("F2Z_AI_CHILD_DIRECTED_KEY", &key),
+                    ("F2Z_AI_PROVIDER_OPENAI_API_KEY", "sk-canary"),
+                ]),
+            )
+        };
+        assert!(at("https://api.openai.com").is_ok());
+        assert!(at("https://eu.api.openai.com/").is_ok());
+        for weaker in [
+            "https://api.x.ai/v1",
+            "https://openai-proxy.example.com",
+            "https://evilapi.openai.com",
+            "https://api.openai.com.example.com",
+            "http://127.0.0.1:8080",
+        ] {
+            assert!(at(weaker).is_err(), "{weaker}");
+        }
+        // The skeleton routes nothing; a provider key there is inert.
+        assert!(Config::load(None, env(&[("F2Z_AI_PROVIDER_XAI_API_KEY", "x")])).is_ok());
     }
 
     #[test]

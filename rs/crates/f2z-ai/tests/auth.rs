@@ -1296,6 +1296,117 @@ async fn the_redis_store_against_a_real_redis() {
         .unwrap();
 }
 
+/// zuu#1225: the form reservation's Lua against a real Redis — atomic
+/// check-all-then-set-all, first holder returned in key order, TTL applied —
+/// and many concurrent reservations of overlapping keys: exactly one wins.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_form_reservation_against_a_real_redis() {
+    let Ok(url) = std::env::var("F2Z_AI_TEST_REDIS_URL") else {
+        skip_without_redis(
+            "SKIPPED: F2Z_AI_TEST_REDIS_URL is not set; the reservation Lua was not exercised",
+        );
+        return;
+    };
+    use f2z_ai::auth::store::RedisStore;
+    use f2z_ai::idempotency::FormStore;
+    let store = Arc::new(
+        RedisStore::new(&SecretString::from(url.clone()), Duration::from_secs(2)).unwrap(),
+    );
+    let ns = format!("f2zaiform{}", std::process::id());
+    let (a, b) = (format!("{ns}:a"), format!("{ns}:b"));
+    let ttl = Duration::from_secs(60);
+
+    let keys = [a.clone(), b.clone()];
+    assert_eq!(store.reserve(&keys, "v1", ttl).await.unwrap(), None);
+    assert_eq!(
+        store.get(&keys).await.unwrap(),
+        [Some("v1".to_owned()), Some("v1".to_owned())]
+    );
+    // Held: nothing is written, and the holder is returned — in either
+    // key order.
+    assert_eq!(
+        store
+            .reserve(&[b.clone(), a.clone()], "v2", ttl)
+            .await
+            .unwrap(),
+        Some("v1".to_owned())
+    );
+    store.put(&b, "v3", ttl).await.unwrap();
+    assert_eq!(
+        store
+            .reserve(&[b.clone(), a.clone()], "v4", ttl)
+            .await
+            .unwrap(),
+        Some("v3".to_owned())
+    );
+    assert_eq!(
+        store.get(std::slice::from_ref(&a)).await.unwrap(),
+        [Some("v1".to_owned())]
+    );
+    // One held key is enough to refuse the reservation of all of them.
+    let c = format!("{ns}:c");
+    assert_eq!(
+        store
+            .reserve(&[c.clone(), a.clone()], "v5", ttl)
+            .await
+            .unwrap(),
+        Some("v1".to_owned())
+    );
+    assert_eq!(store.get(std::slice::from_ref(&c)).await.unwrap(), [None]);
+
+    // The TTL is set, in milliseconds.
+    let client = redis::Client::open(url).unwrap();
+    let mut raw = client.get_multiplexed_async_connection().await.unwrap();
+    let pttl: i64 = redis::cmd("PTTL")
+        .arg(&a)
+        .query_async(&mut raw)
+        .await
+        .unwrap();
+    assert!((50_000..=60_000).contains(&pttl), "{pttl}");
+
+    // A race: 32 concurrent reservations of the same two keys, half in
+    // each order. Exactly one reserves; every other reads its value.
+    let (x, y) = (format!("{ns}:x"), format!("{ns}:y"));
+    let tasks: Vec<_> = (0..32)
+        .map(|i| {
+            let store = Arc::clone(&store);
+            let keys = if i % 2 == 0 {
+                [x.clone(), y.clone()]
+            } else {
+                [y.clone(), x.clone()]
+            };
+            tokio::spawn(async move {
+                let mine = format!("r{i}");
+                (
+                    mine.clone(),
+                    store.reserve(&keys, &mine, ttl).await.unwrap(),
+                )
+            })
+        })
+        .collect();
+    let mut winners = Vec::new();
+    let mut seen = Vec::new();
+    for task in tasks {
+        let (mine, found) = task.await.unwrap();
+        match found {
+            None => winners.push(mine),
+            Some(value) => seen.push(value),
+        }
+    }
+    assert_eq!(winners.len(), 1, "{winners:?}");
+    assert!(seen.iter().all(|v| *v == winners[0]), "{seen:?}");
+
+    let _: i64 = redis::cmd("DEL")
+        .arg(&a)
+        .arg(&b)
+        .arg(&c)
+        .arg(&x)
+        .arg(&y)
+        .query_async(&mut raw)
+        .await
+        .unwrap();
+}
+
 /// The whole gate on a real Redis (same opt-in as above): revocation read
 /// from the keys `epoch_publish` writes, and a panicking call's lease removed
 /// from the real sorted set.
