@@ -347,6 +347,9 @@ struct Forms {
     ttl_override: Option<Duration>,
     race: Mutex<Option<Arc<tokio::sync::Barrier>>>,
     split: bool,
+    /// The next reservation executes (it writes) but its reply is lost: the
+    /// caller sees an error, as when Redis answers after the timeout.
+    lose_reply: AtomicBool,
 }
 impl Forms {
     fn on(clock: &Clock) -> Self {
@@ -439,6 +442,9 @@ impl FormStore for Forms {
         let found = first(&values);
         if found.is_none() {
             write(&mut values);
+        }
+        if self.lose_reply.swap(false, Ordering::SeqCst) {
+            return Err(StoreError);
         }
         Ok(found)
     }
@@ -1284,4 +1290,48 @@ async fn a_late_straddle_insert_keeps_its_record_for_a_full_ttl() {
     assert_eq!(ledger.inserted().len(), 1, "one call");
     assert_eq!(ledger.charges(), 1, "one charge");
     a.shutdown().await;
+}
+
+// zuu#1226 review round 3, B4. A reservation whose reply is lost (Redis ran
+// the script, the answer missed the timeout) leaves this request's fresh id
+// in Redis although the request saw an error and claims in the canonical
+// form. That id is published like any other: a concurrent retry reads the
+// record and claims it. While A's claim is stalled past its start deadline,
+// B inserts the call and streams it; A must hold no settlement authority
+// over it, so the call never sees a no-hold `Complete`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_lost_reservation_reply_never_finalizes_the_call_a_retry_inserts() {
+    let ledger = Arc::new(Ledgerish::default());
+    let forms = Arc::new(Forms::default());
+    let g = gateway_with(
+        &ledger,
+        Some(&forms),
+        KEY_A,
+        None,
+        &[("F2Z_AI_REQUEST_TIMEOUT_SECS", "1")],
+    )
+    .await;
+    forms.lose_reply.store(true, Ordering::SeqCst);
+    let first = Arc::new(AtomicBool::new(true));
+    {
+        let mut book = ledger.0.lock().unwrap();
+        let first = Arc::clone(&first);
+        book.slow = Some(Arc::new(move |op| {
+            matches!(op, Operation::Claim { .. }) && first.swap(false, Ordering::SeqCst)
+        }));
+        book.slow_for = Some(Duration::from_secs(3));
+    }
+    let later = async {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        g.call(false).await
+    };
+    let (a, b) = tokio::join!(g.call(false), later);
+    assert_ne!(a.0, StatusCode::OK, "A's start deadline passed");
+    assert_eq!(b, (StatusCode::OK, false), "B inserted the call");
+    ledger.settled(1).await;
+    let call = ledger.inserted()[0].call;
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    assert_eq!(no_hold_completes_of(&ledger, call), 0, "nothing from A");
+    assert_eq!(ledger.charges(), 1);
+    g.shutdown().await;
 }

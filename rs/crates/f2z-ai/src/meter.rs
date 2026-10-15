@@ -962,27 +962,22 @@ impl ChatBackend for Metered {
         });
         // Settlement authority (the `active` entry, which this request's
         // settlement guard finalizes however the request ends) goes only to
-        // the request that owns the call. A fresh id nobody else has seen
-        // (`Canonical`) is this request's alone, so it registers before the
-        // claim, as always. Any other id is in Redis for other requests to
-        // claim too — the one this request reserved, or one it adopted — so
-        // it registers only once the ledger says this claim inserted it.
-        // Then a claim that fails, times out, or is dropped by a drain holds
-        // no authority: its no-hold completion can never release another
-        // request's live call (zuu#1226 review, B2 and B3), and the
+        // the request whose claim inserted the call, and only once the
+        // ledger says so (zuu#1226 review, B2–B4). No id can be assumed
+        // unseen before then: a reserved or adopted id is in Redis by
+        // design, and even a `Canonical` one may be — a reservation whose
+        // reply was lost after Redis ran it. So a claim that fails, times
+        // out, or is dropped by a drain holds no authority: its no-hold
+        // completion can never release another request's live call, and the
         // ledger's hold-less expiry owns any row it inserted unseen.
-        let published = !matches!(admitted, Admitted::Canonical);
-        if !published {
-            lock(&self.active).insert(call.id(), Arc::clone(&active));
-        }
         let row = ledger::recover(self.ledger.as_ref(), &claim)
             .await
             .map_err(|_| unavailable().detail("call_id", id.to_string()))?;
         let existing = row.get("call_id").and_then(Value::as_str);
         if status(&row)? != "claimed" {
-            // This request did not win admission. Its settlement guard must not
-            // complete/release the already-running call owned by another request.
-            lock(&self.active).remove(&call.id());
+            // This request did not win admission, and registered nothing:
+            // its settlement guard cannot complete or release the call that
+            // another request owns.
             // It reserved a record naming a call it did not insert (the
             // record had been lost while the key row lived): point the
             // record at the call the ledger resolved, so a retry in another
@@ -1017,9 +1012,7 @@ impl ChatBackend for Metered {
         }
         // Inserted by this claim: now, and with no await since the status
         // was read, this request owns the call.
-        if published {
-            lock(&self.active).insert(call.id(), Arc::clone(&active));
-        }
+        lock(&self.active).insert(call.id(), Arc::clone(&active));
         match admitted {
             Admitted::Straddle(_, _, recorded) => {
                 // The ledger did not hold the recorded call, so this claim
