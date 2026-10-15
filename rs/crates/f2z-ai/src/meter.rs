@@ -960,23 +960,24 @@ impl ChatBackend for Metered {
             produced: Mutex::new(Produced::default()),
             final_record: Mutex::new(None),
         });
-        lock(&self.active).insert(call.id(), Arc::clone(&active));
-        let row = match ledger::recover(self.ledger.as_ref(), &claim).await {
-            Ok(row) => row,
-            Err(_) => {
-                // A request that named a recorded call did not create it and
-                // never held for it: its settlement guard must not finalize
-                // that call — a no-hold completion would release another
-                // request's live call and make the key replay this error
-                // (zuu#1226 review, B2). If this claim did land unseen, the
-                // ledger's hold-less expiry releases it. A fresh id is this
-                // request's own, and its completion stays as before.
-                if matches!(admitted, Admitted::Recorded(_) | Admitted::Straddle(..)) {
-                    lock(&self.active).remove(&call.id());
-                }
-                return Err(unavailable().detail("call_id", id.to_string()));
-            }
-        };
+        // Settlement authority (the `active` entry, which this request's
+        // settlement guard finalizes however the request ends) goes only to
+        // the request that owns the call. A fresh id nobody else has seen
+        // (`Canonical`) is this request's alone, so it registers before the
+        // claim, as always. Any other id is in Redis for other requests to
+        // claim too — the one this request reserved, or one it adopted — so
+        // it registers only once the ledger says this claim inserted it.
+        // Then a claim that fails, times out, or is dropped by a drain holds
+        // no authority: its no-hold completion can never release another
+        // request's live call (zuu#1226 review, B2 and B3), and the
+        // ledger's hold-less expiry owns any row it inserted unseen.
+        let published = !matches!(admitted, Admitted::Canonical);
+        if !published {
+            lock(&self.active).insert(call.id(), Arc::clone(&active));
+        }
+        let row = ledger::recover(self.ledger.as_ref(), &claim)
+            .await
+            .map_err(|_| unavailable().detail("call_id", id.to_string()))?;
         let existing = row.get("call_id").and_then(Value::as_str);
         if status(&row)? != "claimed" {
             // This request did not win admission. Its settlement guard must not
@@ -1013,6 +1014,11 @@ impl ChatBackend for Metered {
         }
         if existing != Some(id.to_string().as_str()) {
             return Err(invalid());
+        }
+        // Inserted by this claim: now, and with no await since the status
+        // was read, this request owns the call.
+        if published {
+            lock(&self.active).insert(call.id(), Arc::clone(&active));
         }
         match admitted {
             Admitted::Straddle(_, _, recorded) => {

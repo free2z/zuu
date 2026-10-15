@@ -120,9 +120,11 @@ struct Book {
     fail_claims: u32,
     /// Every `Complete` the ledger received: `(call, no_hold)`.
     completes: Vec<(Uuid, bool)>,
-    /// Claims this holds back 300 ms before they reach the book, to fix
-    /// which of two racing claims the ledger sees first.
+    /// Claims this holds back (`slow_for`, default 300 ms) before they
+    /// reach the book, to fix which of two racing claims the ledger sees
+    /// first, or to outlast a request's start deadline.
     slow: Option<Slow>,
+    slow_for: Option<Duration>,
 }
 
 type Slow = Arc<dyn Fn(&Operation) -> bool + Send + Sync>;
@@ -193,9 +195,12 @@ impl Ledgerish {
 impl Ledger for Ledgerish {
     async fn execute(&self, op: &Operation) -> Result<Value, Failure> {
         if let Operation::Claim { .. } = op {
-            let slow = self.0.lock().unwrap().slow.clone();
+            let (slow, slow_for) = {
+                let book = self.0.lock().unwrap();
+                (book.slow.clone(), book.slow_for)
+            };
             if slow.is_some_and(|slow| slow(op)) {
-                tokio::time::sleep(Duration::from_millis(300)).await;
+                tokio::time::sleep(slow_for.unwrap_or(Duration::from_millis(300))).await;
             }
             let mut book = self.0.lock().unwrap();
             if book.fail_claims > 0 {
@@ -467,6 +472,17 @@ async fn gateway(
     current: [u8; 32],
     previous: Option<[u8; 32]>,
 ) -> Gateway {
+    gateway_with(ledger, forms, current, previous, &[]).await
+}
+
+/// [`gateway`], with configuration overrides.
+async fn gateway_with(
+    ledger: &Arc<Ledgerish>,
+    forms: Option<&Arc<Forms>>,
+    current: [u8; 32],
+    previous: Option<[u8; 32]>,
+    overrides: &[(&str, &str)],
+) -> Gateway {
     let mock = MockProvider::start(Scenario::default()).await.unwrap();
     let mut meter = Metered::new(
         Arc::clone(ledger) as Arc<dyn Ledger>,
@@ -479,7 +495,7 @@ async fn gateway(
     }
     let meter = Arc::new(meter);
     let running = support::start(
-        &support::config(&[]),
+        &support::config(overrides),
         Deps {
             gate: Arc::new(Gate),
             catalog: Arc::new(Fixed(adapter_support::catalog(10_000))),
@@ -1165,4 +1181,107 @@ async fn a_retry_whose_claim_fails_never_finalizes_the_call_it_named() {
         assert_eq!(ledger.charges(), 1);
         retry.shutdown().await;
     }
+}
+
+/// The no-hold `Complete`s the ledger received for `call`: what a request
+/// that never held sends from its settlement guard, and what releases a call
+/// that is between its claim and its hold.
+fn no_hold_completes_of(ledger: &Ledgerish, call: Uuid) -> usize {
+    ledger
+        .0
+        .lock()
+        .unwrap()
+        .completes
+        .iter()
+        .filter(|(c, no_hold)| *c == call && *no_hold)
+        .count()
+}
+
+// zuu#1226 review round 2, B3 (1). The reserver's fresh id is published in
+// Redis the moment it reserves, so it is no longer this request's alone. Its
+// claim fails; a retry then claims that id and inserts the call. The failed
+// reserver must hold no settlement authority over it: the only `Complete`
+// the call ever sees is its winner's own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reserver_whose_claim_fails_never_finalizes_the_call_another_inserts() {
+    let ledger = Arc::new(Ledgerish::default());
+    let forms = Arc::new(Forms::default());
+    let g = gateway(&ledger, Some(&forms), KEY_A, None).await;
+    ledger.0.lock().unwrap().fail_claims = 2;
+    assert_eq!(g.call(false).await.0, StatusCode::SERVICE_UNAVAILABLE);
+    let (_, reserved) = reserver(&forms).unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    assert_eq!(g.call(false).await, (StatusCode::OK, false));
+    ledger.settled(1).await;
+    assert_eq!(ledger.inserted()[0].call, reserved);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        no_hold_completes_of(&ledger, reserved),
+        0,
+        "none from the reserver"
+    );
+    assert_eq!(ledger.charges(), 1);
+    g.shutdown().await;
+}
+
+// zuu#1226 review round 2, B3 (2). A claim of a recorded call that is still
+// in flight when the request's start deadline passes is dropped, not
+// failed: no error branch runs. It must still leave nothing that could
+// finalize the named call.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_claim_cancelled_mid_flight_finalizes_nothing() {
+    let ledger = Arc::new(Ledgerish::default());
+    let forms = Arc::new(Forms::default());
+    let g = gateway_with(
+        &ledger,
+        Some(&forms),
+        KEY_A,
+        None,
+        &[("F2Z_AI_REQUEST_TIMEOUT_SECS", "1")],
+    )
+    .await;
+    assert_eq!(g.call(false).await, (StatusCode::OK, false));
+    ledger.settled(1).await;
+    let call = ledger.inserted()[0].call;
+    assert_eq!(no_hold_completes_of(&ledger, call), 0);
+    {
+        let mut book = ledger.0.lock().unwrap();
+        book.slow = Some(Arc::new(|op| matches!(op, Operation::Claim { .. })));
+        book.slow_for = Some(Duration::from_secs(3));
+    }
+    let (status, _) = g.call(false).await;
+    assert_ne!(status, StatusCode::OK, "the start deadline passed");
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    assert_eq!(no_hold_completes_of(&ledger, call), 0, "nothing finalized");
+    assert_eq!(ledger.charges(), 1);
+    g.shutdown().await;
+}
+
+// zuu#1226 review round 2, N6: B1's renewal on the straddle path. A
+// reservation under key A fails its claim; a pod on key B straddles and
+// inserts the call (its key row under B). 24 h 15 m after the reservation a
+// pod back on key A must still find the record, or its retry derives A's
+// form, finds no key row under A, and is charged twice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_late_straddle_insert_keeps_its_record_for_a_full_ttl() {
+    let clock = Clock::default();
+    let ledger = Arc::new(Ledgerish::on(&clock));
+    let forms = Arc::new(Forms::on(&clock));
+    let a = gateway(&ledger, Some(&forms), KEY_A, Some(KEY_B)).await;
+    ledger.0.lock().unwrap().fail_claims = 2;
+    assert_eq!(a.call(false).await.0, StatusCode::SERVICE_UNAVAILABLE);
+
+    clock.set(Duration::from_secs(3600));
+    let b = gateway(&ledger, Some(&forms), KEY_B, Some(KEY_A)).await;
+    assert_eq!(b.call(false).await, (StatusCode::OK, false));
+    ledger.settled(1).await;
+    assert_eq!(b.forms_metric("straddle").await, "1");
+    b.shutdown().await;
+
+    clock.set(LEDGER_KEY_LIFETIME + Duration::from_secs(15 * 60));
+    assert_eq!(a.call(false).await, (StatusCode::OK, true), "replayed");
+    assert_eq!(ledger.inserted().len(), 1, "one call");
+    assert_eq!(ledger.charges(), 1, "one charge");
+    a.shutdown().await;
 }

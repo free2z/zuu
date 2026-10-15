@@ -213,8 +213,12 @@ recorded id (below), a key reused between 24 h and 24 h 10 m resolves to the
 old call too — replayed, or `409` if the body differs — instead of starting
 a new one; from 24 h 10 m on it is a new call (chat-api.md §2.5). A retry
 that inserts a call under a recorded id renews the record under every key
-name for a full `RECORD_TTL` from that insert, and one whose claim fails
-never hands the named call to the settler (zuu#1226 review B1, B2).
+name for a full `RECORD_TTL` from that insert. Settlement authority over a
+call (the in-flight entry the settlement guard finalizes) is registered
+before the claim only for a fresh id no other request has seen; for any id
+published in Redis — reserved or adopted — only once the ledger says this
+claim inserted it, so a claim that fails, times out or is dropped by a drain
+can never release another request's call (zuu#1226 review B1–B3).
 The `<hmac>` is an HMAC of the `Idempotency-Key` under the current key,
 derived identically by both images (pinned by
 `claim_key_derivations_match_the_deployed_image`), so the key text never
