@@ -231,10 +231,17 @@ a form, the developer-flip window (tokens from either side of a flip racing
 in different forms, tuzi#2683) no longer exists
 (`concurrent_requests_across_a_child_directed_flip_are_admitted_once`). One
 race remains, once: during this image's own rollout, a previous-image pod
-that has claimed in the plain form but not yet written its record and a
-same-key request on a new pod inside that claim round trip are two calls.
-The previous image cannot be changed; the window lasts only while both
-images serve. The key the claim carries is always the keyed
+looks up the record before its plain-form claim and writes its own only
+after it; a same-key request on a new pod between that lookup and that write
+finds nothing and is a second call. The previous image cannot be changed;
+the window is that pod's lookup-claim-write span, only while both images
+serve. Same-form requests whose reserving request never claimed (its
+claim failed or has not landed) claim the **recorded** call id, never a
+fresh one, and a request whose claim resolved to another call re-points
+the record under every key name — so the record names agree and name the
+call that exists
+(`a_reservation_whose_claim_failed_becomes_one_call_in_either_form`,
+`a_same_form_race_then_a_retry_in_the_other_form_is_one_call`). The key the claim carries is always the keyed
 form: a retry never sends the key text, even when it replays a plain-form
 call. The key id is 16 hex characters of an HMAC of a fixed label under the
 key (`ClaimKey::id`).
@@ -252,12 +259,15 @@ replayed by a retry here, which may not send `metadata`: it is refused
 idempotency_conflict` — never a charge. Anything that loses a record
 falls back to the canonical form, so a straddling retry can again be charged
 twice. Counted in `f2z_ai_idempotency_forms_total{outcome}` — alert on any
-increase of these four: Redis unavailable (`unavailable`), a record write that
-failed (`write_failed`), a record naming a key no longer configured
-(`unknown_record`), a ledger that no longer holds the recorded call
-(`orphaned` — which also counts the benign half of a cross-form race, where
-the request that reserved the record had not yet claimed: one call either
-way). Not distinguishable from a first request (`miss`), so accepted
+increase of these three: Redis unavailable (`unavailable`), a record write
+that failed (`write_failed`), a record naming a key no longer configured
+(`unknown_record`). `orphaned` is no longer one of them: it counts a record
+naming a call the ledger did not hold, which with reservations is the benign
+half of a cross-form race or a reservation whose claim failed — one call
+either way; a plain record naming a lost call is confirmed by a read and
+claimed in the keyed form, never under its id, so no new row holds an
+unkeyed fingerprint. (tuzi's `ai-idempotency-form-degraded` alert still
+matches `orphaned`; drop it there.) Not distinguishable from a first request (`miss`), so accepted
 as residual risk: a record evicted or lost to a Redis restart or flush, and a
 crash between the claim and the record write.
 
@@ -287,7 +297,7 @@ keyed traffic approaches that.
 **Rotation.** Two deploys, so no pod in a rolling update lacks the other
 pod's key: first add the new key B as `child_directed_key_previous` (current
 A, previous B), then swap (current B, previous A) and keep that for at least
-24 hours, then drop the previous key. While both are set, a keyed retry of a call claimed under the old key
+24 h 10 m (`RECORD_TTL`), then drop the previous key. While both are set, a keyed retry of a call claimed under the old key
 replays it. A retry after the previous key is dropped is a new call. The
 previous key must differ from the current one and needs it.
 `F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS` is an `F2Z_AI_*` variable that an image

@@ -1340,7 +1340,7 @@ async fn the_form_reservation_against_a_real_redis() {
         Some("v3".to_owned())
     );
     assert_eq!(
-        store.get(&[a.clone()]).await.unwrap(),
+        store.get(std::slice::from_ref(&a)).await.unwrap(),
         [Some("v1".to_owned())]
     );
     // One held key is enough to refuse the reservation of all of them.
@@ -1352,7 +1352,7 @@ async fn the_form_reservation_against_a_real_redis() {
             .unwrap(),
         Some("v1".to_owned())
     );
-    assert_eq!(store.get(&[c.clone()]).await.unwrap(), [None]);
+    assert_eq!(store.get(std::slice::from_ref(&c)).await.unwrap(), [None]);
 
     // The TTL is set, in milliseconds.
     let client = redis::Client::open(url).unwrap();

@@ -910,11 +910,26 @@ fn is_standard_base64(data: &str) -> bool {
 
 /// The providers a metered gateway may hold keys for, for every app
 /// (zuu#1225): those it sends an explicit no-store instruction to
-/// (`store: false`, both OpenAI adapters). One list for everyone; no caller
-/// can widen it, and there is no fallback outside it. Enforced when the
-/// configuration loads (`config::Config::validate`), so a gateway that could
-/// route elsewhere does not start.
-pub const PRIVACY_PROVIDERS: &[&str] = &["openai"];
+/// (`store: false`, both OpenAI adapters), each with the API host it must be
+/// reached at — the host itself or a regional subdomain of it (OpenAI's
+/// `eu.api.openai.com`), never a proxy or another vendor's compatible
+/// endpoint under the same name. One list for everyone; no caller can widen
+/// it, and there is no fallback outside it. Enforced when the configuration
+/// loads (`config::Config::validate`), so a gateway that could route
+/// elsewhere does not start.
+pub const PRIVACY_PROVIDERS: &[(&str, &str)] = &[("openai", "api.openai.com")];
+
+/// Whether `provider` reached at `host` is on [`PRIVACY_PROVIDERS`].
+#[must_use]
+pub fn privacy_route(provider: &str, host: &str) -> bool {
+    PRIVACY_PROVIDERS.iter().any(|(name, api)| {
+        *name == provider
+            && (host == *api
+                || host
+                    .strip_suffix(api)
+                    .is_some_and(|prefix| prefix.ends_with('.') && prefix.len() > 1))
+    })
+}
 
 /// The rule that keeps caller text out of every call record, after
 /// [`validate`] (zuu#1225; first for child-directed apps only).

@@ -35,6 +35,11 @@
 //! # completion_tokens_include_reasoning = false   # the default for xai only
 //! ```
 //!
+//! A metered gateway accepts only the providers on
+//! [`crate::chat::PRIVACY_PROVIDERS`] (zuu#1225: OpenAI, at its own API host);
+//! the `anthropic` and `xai` tables above load only for the diagnostic
+//! skeleton and for tests of their adapters.
+//!
 //! A provider is configured by its table or by its key variable alone
 //! (`F2Z_AI_PROVIDER_<NAME>_API_KEY`, the name upper-cased); either way it
 //! must end up with exactly one key. An inline `api_key` is refused like
@@ -903,16 +908,19 @@ impl Config {
                      are stored only as HMACs under it",
                 ));
             }
-            if let Some(name) = self
-                .providers
-                .keys()
-                .find(|name| !crate::chat::PRIVACY_PROVIDERS.contains(&name.as_str()))
-            {
-                return Err(err(format!(
-                    "provider `{name}` is not on the privacy standard (chat::PRIVACY_PROVIDERS: \
-                     {:?}); a metered gateway routes only to providers it sends `store: false` to",
-                    crate::chat::PRIVACY_PROVIDERS
-                )));
+            for (name, provider) in &self.providers {
+                let host = crate::provider::client::base_url(&provider.base_url)
+                    .ok()
+                    .and_then(|url| url.host_str().map(str::to_owned))
+                    .unwrap_or_default();
+                if !crate::chat::privacy_route(name, &host) {
+                    return Err(err(format!(
+                        "provider `{name}` at `{host}` is not on the privacy standard \
+                         (chat::PRIVACY_PROVIDERS: {:?}); a metered gateway routes only to \
+                         providers it sends `store: false` to, at their own API host",
+                        crate::chat::PRIVACY_PROVIDERS
+                    )));
+                }
             }
         }
         if self.allowed_models.as_ref().is_some_and(|models| {
@@ -1339,6 +1347,31 @@ mod tests {
             let error = metered(provider).unwrap_err().to_string();
             assert!(error.contains(provider), "{error}");
             assert!(!error.contains("sk-canary"), "{error}");
+        }
+        // The standard names the endpoint too: OpenAI's own API host or a
+        // regional subdomain of it — never a proxy or another vendor's
+        // OpenAI-compatible endpoint under the name `openai`.
+        let at = |base_url: &str| {
+            let f = file(&format!("[providers.openai]\nbase_url = {base_url:?}\n"));
+            Config::load(
+                Some(f.path()),
+                env(&[
+                    ("F2Z_AI_LEDGER_URL", "postgres://gateway@ledger/db"),
+                    ("F2Z_AI_CHILD_DIRECTED_KEY", &key),
+                    ("F2Z_AI_PROVIDER_OPENAI_API_KEY", "sk-canary"),
+                ]),
+            )
+        };
+        assert!(at("https://api.openai.com").is_ok());
+        assert!(at("https://eu.api.openai.com/").is_ok());
+        for weaker in [
+            "https://api.x.ai/v1",
+            "https://openai-proxy.example.com",
+            "https://evilapi.openai.com",
+            "https://api.openai.com.example.com",
+            "http://127.0.0.1:8080",
+        ] {
+            assert!(at(weaker).is_err(), "{weaker}");
         }
         // The skeleton routes nothing; a provider key there is inert.
         assert!(Config::load(None, env(&[("F2Z_AI_PROVIDER_XAI_API_KEY", "x")])).is_ok());

@@ -36,16 +36,16 @@
 //! the plain form.
 //!
 //! One race this image cannot close alone: during its own rollout, a
-//! previous-image pod that has claimed in the plain form but not yet written
-//! its record (it writes after the claim), and a same-key request on a pod
-//! of this image in that gap, are two calls. The window is that pod's claim
-//! round trip, and exists only while both images serve.
+//! previous-image pod reads the record (`MGET`) before its plain-form claim
+//! and writes its own only after it; a same-key request on a pod of this
+//! image between that read and that write, finding nothing, is a second
+//! call. The window is that pod's lookup-claim-write span, and exists only
+//! while both images serve.
 //!
 //! What it does not cover falls back to the canonical form, the behaviour
 //! before this existed. Counted under `f2z_ai_idempotency_forms_total`
 //! (`crate::metrics`): Redis unavailable, a failed record write, a record
-//! naming a key no longer configured, a recorded call the ledger no longer
-//! holds. Not countable, because they look like a first request: a record
+//! naming a key no longer configured. Not countable, because they look like a first request: a record
 //! evicted or lost to a Redis restart or flush, a crash between the claim
 //! and the record write, and a plain-form call the previous image claimed
 //! while it ran **without** the key (it wrote no record) — which is why this
@@ -179,10 +179,12 @@ pub enum Outcome {
     UnknownRecord,
     /// Degraded: the record for a new call could not be written.
     WriteFailed,
-    /// Degraded: a claim by a recorded call id inserted a call, so the
-    /// ledger no longer held the call the record named — or, benignly, the
-    /// request that reserved the record (in another form) had not claimed
-    /// yet; it then finds this call by id. One call either way.
+    /// The ledger did not hold the call a record named. A keyed record:
+    /// the claim inserted the call under that id — the request that
+    /// reserved it had not claimed yet (it then finds this call by id), or
+    /// its claim failed. One call either way. A plain record (the previous
+    /// image's, always written after its call was inserted): the call was
+    /// lost, and the request claimed in the canonical form instead.
     Orphaned,
 }
 
@@ -213,12 +215,14 @@ impl Outcome {
     }
 
     /// Whether this outcome left a straddling retry exposed to a second
-    /// charge (the alert's numerator).
+    /// charge (the alert's numerator). Not [`Self::Orphaned`] since
+    /// zuu#1225: with reservations it is mostly the benign half of a
+    /// cross-form race — one call either way.
     #[must_use]
     pub const fn degraded(self) -> bool {
         matches!(
             self,
-            Self::Unavailable | Self::UnknownRecord | Self::WriteFailed | Self::Orphaned
+            Self::Unavailable | Self::UnknownRecord | Self::WriteFailed
         )
     }
 

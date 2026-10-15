@@ -116,7 +116,14 @@ struct Book {
     holds: BTreeMap<Uuid, Uuid>,
     claims: Vec<Claim>,
     charges: usize,
+    /// Claims still to fail like an outage (each request tries twice).
+    fail_claims: u32,
+    /// Claims this holds back 300 ms before they reach the book, to fix
+    /// which of two racing claims the ledger sees first.
+    slow: Option<Slow>,
 }
+
+type Slow = Arc<dyn Fn(&Operation) -> bool + Send + Sync>;
 
 fn context() -> Value {
     json!({"status":"ok","available_milli_2z":100_000,"cap_remaining_milli_2z":null,"debt_milli_2z":0,"open_holds":0,"frozen":false,"consented_markup_bps":0,"effective_markup_bps":0})
@@ -183,6 +190,17 @@ impl Ledgerish {
 #[async_trait]
 impl Ledger for Ledgerish {
     async fn execute(&self, op: &Operation) -> Result<Value, Failure> {
+        if let Operation::Claim { .. } = op {
+            let slow = self.0.lock().unwrap().slow.clone();
+            if slow.is_some_and(|slow| slow(op)) {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
+            let mut book = self.0.lock().unwrap();
+            if book.fail_claims > 0 {
+                book.fail_claims -= 1;
+                return Err(Failure);
+            }
+        }
         let mut book = self.0.lock().unwrap();
         match op {
             Operation::Context(_) => Ok(context()),
@@ -266,7 +284,10 @@ impl Ledger for Ledgerish {
             Operation::Complete {
                 call, completion, ..
             } => {
-                let c = book.calls.get_mut(call).unwrap();
+                // A request whose claim failed never inserted its call.
+                let Some(c) = book.calls.get_mut(call) else {
+                    return Ok(json!({"status":"not_found","record":null}));
+                };
                 if c.completion.is_null() {
                     c.completion = completion.clone();
                 }
@@ -313,7 +334,7 @@ struct Forms {
     down: AtomicBool,
     clock: Clock,
     ttl_override: Option<Duration>,
-    race: Option<Arc<tokio::sync::Barrier>>,
+    race: Mutex<Option<Arc<tokio::sync::Barrier>>>,
     split: bool,
 }
 impl Forms {
@@ -322,6 +343,17 @@ impl Forms {
             clock: clock.clone(),
             ..Self::default()
         }
+    }
+    /// Hold reservations until two have arrived; `split` as documented.
+    fn racing(split: bool) -> Self {
+        Self {
+            race: Mutex::new(Some(Arc::new(tokio::sync::Barrier::new(2)))),
+            split,
+            ..Self::default()
+        }
+    }
+    fn barrier(&self) -> Option<Arc<tokio::sync::Barrier>> {
+        self.race.lock().unwrap().clone()
     }
     /// The live records' values.
     fn live(&self) -> Vec<String> {
@@ -381,7 +413,7 @@ impl FormStore for Forms {
         };
         if self.split {
             let found = first(&self.values.lock().unwrap());
-            if let Some(race) = &self.race {
+            if let Some(race) = self.barrier() {
                 race.wait().await;
             }
             if found.is_none() {
@@ -389,7 +421,7 @@ impl FormStore for Forms {
             }
             return Ok(found);
         }
-        if let Some(race) = &self.race {
+        if let Some(race) = self.barrier() {
             race.wait().await;
         }
         let mut values = self.values.lock().unwrap();
@@ -719,10 +751,35 @@ async fn a_record_naming_an_unknown_key_falls_back_and_is_counted() {
     g.shutdown().await;
 }
 
-// A record whose call the ledger no longer holds: the claim by that id
-// inserts a call afresh. The request still succeeds, and it is counted.
+// A keyed record whose call the ledger does not hold — in practice a
+// reservation whose request has not claimed yet, or never did: the claim by
+// that id inserts the call under it, keyed. Counted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_record_naming_a_call_the_ledger_lost_is_counted_as_orphaned() {
+async fn a_keyed_record_naming_a_call_the_ledger_lacks_is_claimed_under_that_id() {
+    let ledger = Arc::new(Ledgerish::default());
+    let forms = Arc::new(Forms::default());
+    let g = gateway(&ledger, Some(&forms), KEY_A, Some(KEY_B)).await;
+    assert_eq!(g.call(false).await, (StatusCode::OK, false));
+    ledger.settled(1).await;
+    ledger.0.lock().unwrap().keys.clear();
+    let lost = Uuid::now_v7();
+    let kid_b = ClaimKey::new(&KEY_B).unwrap().id().to_owned();
+    forms.rewrite(|_| format!("v1:keyed:{kid_b}:{lost}"));
+    assert_eq!(g.call(false).await, (StatusCode::OK, false));
+    assert_eq!(g.forms_metric("orphaned").await, "1");
+    let last = ledger.claims().last().cloned().unwrap();
+    assert_eq!((last.call, last.status), (lost, "claimed"));
+    assert_every_claim_keyed(&[last]);
+    g.shutdown().await;
+}
+
+// A plain record whose call the ledger does not hold (the previous image
+// writes one only after its claim inserted, so this means the call was
+// lost): confirmed by a read first, and never claimed by that id — which
+// would store the unkeyed fingerprint on a new row. The canonical, keyed
+// form instead. Counted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_plain_record_naming_a_lost_call_never_inserts_an_unkeyed_fingerprint() {
     let ledger = Arc::new(Ledgerish::default());
     let forms = Arc::new(Forms::default());
     let g = gateway(&ledger, Some(&forms), KEY_A, None).await;
@@ -737,7 +794,9 @@ async fn a_record_naming_a_call_the_ledger_lost_is_counted_as_orphaned() {
     assert_eq!(g.call(false).await, (StatusCode::OK, false));
     assert_eq!(g.forms_metric("orphaned").await, "1");
     let last = ledger.claims().last().cloned().unwrap();
-    assert_eq!((last.call, last.status), (lost, "claimed"));
+    assert_ne!(last.call, lost);
+    assert_eq!(last.status, "claimed");
+    assert_ne!(last.fingerprint, plain_fingerprint(&call_body()));
     assert_every_claim_keyed(&[last]);
     g.shutdown().await;
 }
@@ -841,35 +900,151 @@ fn admitted_once(outcomes: [(StatusCode, bool); 2]) {
     );
 }
 
+/// One outcome's count, summed over `gateways`.
+async fn total(gateways: &[&Gateway], outcome: &str) -> u32 {
+    let mut sum = 0;
+    for g in gateways {
+        sum += g.forms_metric(outcome).await.parse::<u32>().unwrap();
+    }
+    sum
+}
+
+/// The `Idempotency-Key` HMAC a claim carries under `secret`, computed
+/// here independently (pinned in `meter`'s unit tests).
+fn keyed_key(secret: [u8; 32]) -> String {
+    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &secret);
+    let mut ctx = ring::hmac::Context::with_key(&key);
+    ctx.update(b"f2z-ai idempotency-key v1\0");
+    ctx.update(RAW_KEY.as_bytes());
+    ctx.sign()
+        .as_ref()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// The `(key HMAC, call)` of the request that reserved the live record:
+/// it claims the recorded call under the server key the record names.
+fn reserver(forms: &Forms) -> Option<(String, Uuid)> {
+    let value = forms.live().into_iter().next()?;
+    let record = f2z_ai::idempotency::Record::parse(&value)?;
+    let f2z_ai::idempotency::Form::Keyed(kid) = record.form else {
+        return None;
+    };
+    let secret = [KEY_A, KEY_B]
+        .into_iter()
+        .find(|k| ClaimKey::new(k).unwrap().id() == kid)?;
+    Some((keyed_key(secret), record.call))
+}
+
+fn claim_of(op: &Operation) -> Option<(&str, Uuid)> {
+    match op {
+        Operation::Claim {
+            key: Some(key),
+            call,
+            ..
+        } => Some((key.as_str(), *call)),
+        _ => None,
+    }
+}
+
 // Cross-form admission is atomic (zuu#1225). Two pods either side of step 2
 // of a rotation — one with current key A, one with current key B, each
 // holding the other as previous — derive different forms for the same key.
 // Sent at once, both reach Redis before either has claimed; the reservation
-// lets exactly one through, the other names its call, and the ledger admits
-// and charges one call. Repeated, so both ledger orders are exercised.
+// lets exactly one through and the other names its call. Both ledger orders
+// are forced: the reserver's claim first (the other is refused as pending or
+// replayed), and the other's first (it inserts the reserved call, counted
+// `orphaned`; the reserver is then refused). One call, one charge, each way.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_requests_in_two_forms_are_admitted_and_charged_once() {
-    for round in 0..8 {
+    for reserver_first in [true, false, true, false] {
         let ledger = Arc::new(Ledgerish::default());
-        let forms = Arc::new(Forms {
-            race: Some(Arc::new(tokio::sync::Barrier::new(2))),
-            ..Forms::default()
+        let forms = Arc::new(Forms::racing(false));
+        let f = Arc::clone(&forms);
+        let slow: Slow = Arc::new(move |op| {
+            let (Some((key, _)), Some((reserver_key, _))) = (claim_of(op), reserver(&f)) else {
+                return false;
+            };
+            (key == reserver_key) == !reserver_first
         });
+        ledger.0.lock().unwrap().slow = Some(slow);
         let a = gateway(&ledger, Some(&forms), KEY_A, Some(KEY_B)).await;
         let b = gateway(&ledger, Some(&forms), KEY_B, Some(KEY_A)).await;
-        admitted_once(race(&a, &b, false, round % 2 == 1).await);
+        admitted_once(race(&a, &b, false, false).await);
         ledger.settled(1).await;
-        assert_eq!(ledger.inserted().len(), 1, "round {round}: one call");
-        assert_eq!(ledger.charges(), 1, "round {round}: one charge");
+        let order = format!("reserver_first={reserver_first}");
+        assert_eq!(ledger.inserted().len(), 1, "{order}: one call");
+        assert_eq!(ledger.charges(), 1, "{order}: one charge");
         assert_every_claim_keyed(&ledger.claims());
+        assert_eq!(total(&[&a, &b], "straddle").await, 1, "{order}");
         assert_eq!(
-            a.forms_metric("straddle").await.parse::<u32>().unwrap()
-                + b.forms_metric("straddle").await.parse::<u32>().unwrap(),
-            1
+            total(&[&a, &b], "orphaned").await,
+            u32::from(!reserver_first),
+            "{order}"
         );
         a.shutdown().await;
         b.shutdown().await;
     }
+}
+
+// A reservation whose claim never landed (the ledger failed it) names a call
+// that does not exist. Whichever form retries next claims that very id, and
+// every later retry, in either form, finds that one call: one charge.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reservation_whose_claim_failed_becomes_one_call_in_either_form() {
+    let ledger = Arc::new(Ledgerish::default());
+    let forms = Arc::new(Forms::default());
+    let a = gateway(&ledger, Some(&forms), KEY_A, Some(KEY_B)).await;
+    let b = gateway(&ledger, Some(&forms), KEY_B, Some(KEY_A)).await;
+    ledger.0.lock().unwrap().fail_claims = 2;
+    assert_eq!(a.call(false).await.0, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(ledger.inserted().len(), 0);
+    let (_, reserved) = reserver(&forms).unwrap();
+
+    assert_eq!(b.call(false).await, (StatusCode::OK, false));
+    ledger.settled(1).await;
+    assert_eq!(ledger.inserted()[0].call, reserved, "the reserved id");
+    assert_eq!(a.call(false).await, (StatusCode::OK, true), "replayed");
+    assert_eq!(b.call(false).await, (StatusCode::OK, true), "replayed");
+    assert_eq!(ledger.inserted().len(), 1);
+    assert_eq!(ledger.charges(), 1, "one charge");
+    a.shutdown().await;
+    b.shutdown().await;
+}
+
+// Two same-form requests at once on a pod holding keys A and B; the one that
+// did not reserve reaches the ledger first. It claims the reserved call id —
+// not a fresh one — so the record under every key name still names the call
+// that exists, and a retry on a pod whose current key is B replays it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_same_form_race_then_a_retry_in_the_other_form_is_one_call() {
+    let ledger = Arc::new(Ledgerish::default());
+    let forms = Arc::new(Forms::racing(false));
+    let f = Arc::clone(&forms);
+    let slowed = Arc::new(AtomicBool::new(false));
+    let once = Arc::clone(&slowed);
+    // Hold back the first claim of the reserved call: the reserver's.
+    let slow: Slow = Arc::new(move |op| {
+        let (Some((_, call)), Some((_, reserved))) = (claim_of(op), reserver(&f)) else {
+            return false;
+        };
+        call == reserved && !once.swap(true, Ordering::SeqCst)
+    });
+    ledger.0.lock().unwrap().slow = Some(slow);
+    let a = gateway(&ledger, Some(&forms), KEY_A, Some(KEY_B)).await;
+    admitted_once(race(&a, &a, false, false).await);
+    ledger.settled(1).await;
+    assert!(slowed.load(Ordering::SeqCst));
+    *forms.race.lock().unwrap() = None;
+    ledger.0.lock().unwrap().slow = None;
+
+    let b = gateway(&ledger, Some(&forms), KEY_B, Some(KEY_A)).await;
+    assert_eq!(b.call(false).await, (StatusCode::OK, true), "replayed");
+    assert_eq!(ledger.inserted().len(), 1, "one call");
+    assert_eq!(ledger.charges(), 1, "one charge");
+    a.shutdown().await;
+    b.shutdown().await;
 }
 
 // The negative control: the same race against a form store whose
@@ -880,11 +1055,7 @@ async fn concurrent_requests_in_two_forms_are_admitted_and_charged_once() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn without_an_atomic_reservation_a_two_form_race_is_charged_twice() {
     let ledger = Arc::new(Ledgerish::default());
-    let forms = Arc::new(Forms {
-        race: Some(Arc::new(tokio::sync::Barrier::new(2))),
-        split: true,
-        ..Forms::default()
-    });
+    let forms = Arc::new(Forms::racing(true));
     let a = gateway(&ledger, Some(&forms), KEY_A, Some(KEY_B)).await;
     let b = gateway(&ledger, Some(&forms), KEY_B, Some(KEY_A)).await;
     assert_eq!(
@@ -907,11 +1078,7 @@ async fn without_an_atomic_reservation_a_two_form_race_is_charged_twice() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_requests_across_a_child_directed_flip_are_admitted_once() {
     let ledger = Arc::new(Ledgerish::default());
-    let forms = Arc::new(Forms {
-        race: Some(Arc::new(tokio::sync::Barrier::new(2))),
-        split: true,
-        ..Forms::default()
-    });
+    let forms = Arc::new(Forms::racing(true));
     let g = gateway(&ledger, Some(&forms), KEY_A, None).await;
     admitted_once(race(&g, &g, false, true).await);
     ledger.settled(1).await;

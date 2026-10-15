@@ -576,10 +576,15 @@ enum Admitted {
     /// This request reserved the form record for its canonical form and its
     /// fresh call id: it claims that id.
     Reserved,
-    /// Claim in the canonical form with a fresh id: no store or no key, a
-    /// record in this same form (the ledger's key row decides), or a
-    /// degraded lookup.
+    /// Claim in the canonical form with a fresh id: no store or no key, or
+    /// a degraded lookup.
     Canonical,
+    /// The record names a call in this same form: claim **that** id, in the
+    /// canonical form. Never a fresh one — if the reserving request's claim
+    /// never landed, or has not landed yet, this claim inserts the call
+    /// under the id every key name records, so a later retry in any form
+    /// finds it.
+    Recorded(Uuid),
     /// The record names a call claimed in another form: claim that call id
     /// with this request's fingerprint in that form.
     Straddle(Uuid, String),
@@ -714,12 +719,35 @@ impl Metered {
             return unknown();
         };
         if &record.form == canonical {
-            // The ledger's own key row decides between same-form requests.
             outcome(Outcome::Same);
-            return Ok(Admitted::Canonical);
+            return Ok(Admitted::Recorded(record.call));
         }
         let fingerprint = match &record.form {
-            Form::Plain => request_fingerprint(request)?,
+            Form::Plain => {
+                // The previous image wrote a plain record only after its
+                // claim inserted the call, so the call exists. Confirm it
+                // first: a claim by its id that inserted afresh would store
+                // the unkeyed fingerprint, which no new row may hold.
+                let found = ledger::recover(
+                    self.ledger.as_ref(),
+                    &Operation::Read {
+                        identity,
+                        call: record.call,
+                    },
+                )
+                .await
+                .map_err(|_| unavailable())?;
+                if status(&found)? != "found" {
+                    tracing::error!(
+                        outcome = Outcome::Orphaned.label(),
+                        "a plain form record names a call the ledger does not hold; claiming in \
+                         the canonical form"
+                    );
+                    outcome(Outcome::Orphaned);
+                    return Ok(Admitted::Canonical);
+                }
+                request_fingerprint(request)?
+            }
             Form::Keyed(kid) => match self.keys().find(|k| k.id() == kid) {
                 Some(key) => key.fingerprint(request)?,
                 None => return unknown(),
@@ -733,23 +761,27 @@ impl Metered {
         Ok(Admitted::Straddle(record.call, fingerprint))
     }
     /// Point the form record at `id`, the call this request's canonical
-    /// claim resolved to. Never fails it.
+    /// claim resolved to, under every key name the reservation writes, so
+    /// the names never disagree. Never fails it.
     async fn record_form(&self, call: &CallHandle, identity: Identity, form: Form, id: Uuid) {
         let (Some((store, namespace)), Some(raw)) = (&self.forms, call.idempotency_key()) else {
             return;
         };
-        let name = idempotency::record_key(
-            namespace,
-            identity.subject,
-            identity.app,
-            &self.key.form_record(raw),
-        );
         let record = idempotency::Record { form, call: id }.encode();
-        if store
-            .put(&name, &record, idempotency::RECORD_TTL)
-            .await
-            .is_err()
-        {
+        let mut failed = false;
+        for key in self.keys() {
+            let name = idempotency::record_key(
+                namespace,
+                identity.subject,
+                identity.app,
+                &key.form_record(raw),
+            );
+            failed |= store
+                .put(&name, &record, idempotency::RECORD_TTL)
+                .await
+                .is_err();
+        }
+        if failed {
             tracing::error!(
                 outcome = Outcome::WriteFailed.label(),
                 "idempotency form record not written; a retry of this call across a key \
@@ -882,6 +914,7 @@ impl ChatBackend for Metered {
             .await?;
         let (id, fingerprint) = match &admitted {
             Admitted::Straddle(recorded, fingerprint) => (*recorded, fingerprint.clone()),
+            Admitted::Recorded(recorded) => (*recorded, fingerprint),
             Admitted::Reserved | Admitted::Canonical => (fresh, fingerprint),
         };
         let provider = catalog
@@ -940,7 +973,7 @@ impl ChatBackend for Metered {
             // record had been lost while the key row lived): point the
             // record at the call the ledger resolved, so a retry in another
             // form finds that one.
-            if let (Admitted::Reserved, Some(found)) = (
+            if let (Admitted::Reserved | Admitted::Recorded(_), Some(found)) = (
                 &admitted,
                 existing.and_then(|text| text.parse::<Uuid>().ok()),
             ) && found != id
@@ -983,8 +1016,8 @@ impl ChatBackend for Metered {
                     .metrics()
                     .record_idempotency_form(Outcome::Orphaned);
             }
-            // The reservation already names this call.
-            Admitted::Reserved => {}
+            // The record already names this call.
+            Admitted::Reserved | Admitted::Recorded(_) => {}
             Admitted::Canonical => self.record_form(call, identity, form, id).await,
         }
         call.set_durable_call_id(id);
