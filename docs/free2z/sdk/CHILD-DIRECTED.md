@@ -3,7 +3,10 @@
 An app whose users may include children can use the Free2Z SDK. This page says
 what Free2Z does for such an app and what the app must still do itself.
 
-> **Status (2026-10-14).** The gateway side below is implemented. The
+> **Status (2026-10-15).** The gateway side below is implemented; the
+> baseline for every app (zuu#1225) applies once the gateway image carrying
+> it is deployed — until then ordinary apps' records still keep `metadata`,
+> schema names and unkeyed fingerprints. The
 > registration setting, its consent-screen line and the access-token claim are
 > **pending** on the Free2Z identity provider, and until they ship every token
 > reads as not child-directed. Free2Z's published terms still say the service
@@ -43,22 +46,25 @@ What changes when it is set:
   "What your app must still do".
 - **Access tokens** (pending) carry `"child_directed": true`
   ([`spec/oidc.md`](./spec/oidc.md) §6.1).
-- **The AI gateway**, for a token that carries the claim:
-  - sends the call only to a provider it sends `store: false` to — today
-    OpenAI. Any other model, or fallback, is refused (`403 model_disabled`,
-    `reason: "child_directed"`), as is a model id the catalogue does not hold
-    (`404 model_not_found`), before anything is recorded;
-  - refuses `metadata` on `/v1/chat` and `/v1/chat/estimate`
-    (`400 invalid_request`, `field: "metadata"`, `reason: "child_directed"`;
-    [`spec/chat-api.md`](./spec/chat-api.md) §2.1) and does not record the
-    `response_format` schema name;
-  - stores the request fingerprint and the `Idempotency-Key` only as keyed
-    HMACs under a server secret, so neither a guessable prompt nor the key
-    text can be read back from the record. A same-key retry that spans the
-    setting changing, in either direction, replays the original call rather
-    than charging again.
+- **The AI gateway** does nothing different for it. Since zuu#1225 the
+  protections below, once applied only to child-directed apps, are the
+  baseline for **every** app; the setting is an audience classification
+  (the consent line above, adult gates on account exits, the developer
+  obligations below), not a privacy tier:
+  - calls go only to a provider the gateway sends `store: false` to — today
+    OpenAI. A gateway configured with any other provider does not start, so
+    there is no other model or fallback route; a model id the catalogue does
+    not hold is refused (`404 model_not_found`) before anything is recorded;
+  - `metadata` is refused on `/v1/chat` and `/v1/chat/estimate`
+    (`400 invalid_request`, `field: "metadata"`, `reason: "privacy_baseline"`;
+    [`spec/chat-api.md`](./spec/chat-api.md) §2.1), and the
+    `response_format` schema name is not recorded;
+  - the request fingerprint and the `Idempotency-Key` are stored only as
+    keyed HMACs under a server secret, so neither a guessable prompt nor the
+    key text can be read back from the record. A gateway without that
+    secret does not start.
 
-  A child-directed app's call records then hold numbers only.
+  Every call record then holds catalogue ids and numbers only.
 - **Debug capture** of prompts and completions is never available to a
   child-directed app. (It is not implemented for any app today.)
 
@@ -68,9 +74,9 @@ What changes when it is set:
 |---|---|
 | Prompts, images, tool definitions and completions | **No.** They pass through the gateway to the model provider and are not written to the call record, the ledger or any log |
 | Call record: model, provider, token counts, charge, finish reason, error code, times, catalogue version | Yes, as a ledger record; the app can read it for 90 days ([`spec/chat-api.md`](./spec/chat-api.md) §7). This is what metering and receipts need |
-| Content-free request features (whether structured output or tools were used, their counts and sizes) | Yes, with the call record when enabled. Never a schema body or a prompt; for a child-directed app, not the schema name either |
-| Caller `metadata` | Refused for a child-directed app; otherwise stored with the call record |
-| Request fingerprint and `Idempotency-Key` (for same-key retries; keys expire after 24 hours) | For a child-directed app, only as keyed HMACs. For other apps, an unkeyed SHA-256 of the request and the key as sent |
+| Content-free request features (whether structured output or tools were used, their counts and sizes) | Yes, with the call record when enabled. Never a schema body, a prompt or the schema name |
+| Caller `metadata` | **No.** Refused for every app |
+| Request fingerprint and `Idempotency-Key` (for same-key retries; keys expire after 24 hours) | Only as keyed HMACs, for every app |
 | Gateway logs | Route, status, timing, counts and sizes only. Never a prompt, a completion, a header value or a peer address (`rs/crates/f2z-ai/tests/redaction.rs`) |
 | Device identifiers, advertising IDs | **Never collected.** The SDK identifies itself only as `f2z-sdk/<version>`, and sign-in runs in the system browser |
 
@@ -85,7 +91,7 @@ Model providers act as Free2Z's service providers. Their API terms say API
 inputs and outputs are not used to train models by default, and allow them to
 keep that data for abuse and safety monitoring: up to 30 days, unless the law
 requires them to keep it longer. Some keep flagged content longer — Anthropic
-up to two years — which is one reason child-directed calls go to OpenAI only.
+up to two years — which is one reason every call goes to OpenAI only.
 **Zero Data Retention with OpenAI is not yet in place** for Free2Z; this page
 will say so when it is. OpenAI's guidance is not to send personal information
 of users under 13 without it, so for a child-directed app that is a hard rule

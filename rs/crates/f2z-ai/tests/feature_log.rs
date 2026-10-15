@@ -124,9 +124,8 @@ async fn response_log_lines_carry_request_features_and_call_id_never_content() {
         "response_format": {"type": "json_schema", "json_schema":
             {"name": CANARY, "strict": true, "schema": schema}},
         "tools": [{"name": "f", "description": CANARY, "parameters": {"type": "object"}}],
-        "fallback": ["example-small"],
+        "fallback": ["example-mini"],
         "max_output_tokens": 100, "max_output_tokens_strict": true,
-        "metadata": {"lesson": CANARY},
     });
     let response = post_chat(running.public, &structured).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -156,10 +155,18 @@ async fn response_log_lines_carry_request_features_and_call_id_never_content() {
     assert_eq!(refused_after_claim.status(), StatusCode::BAD_REQUEST);
     let _ = text(refused_after_claim).await;
 
+    // `metadata` is refused for every app (zuu#1225), and its text is not
+    // logged on the way out either (the CANARY check below).
+    let mut with_metadata = plain.clone();
+    with_metadata["metadata"] = json!({"lesson": CANARY});
+    let refused_metadata = post_chat(running.public, &with_metadata).await;
+    assert_eq!(refused_metadata.status(), StatusCode::BAD_REQUEST);
+    let _ = text(refused_metadata).await;
+
     let log = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
     assert!(!log.contains(CANARY), "content reached the log:\n{log}");
     let lines = response_lines(&log);
-    assert_eq!(lines.len(), 4, "{log}");
+    assert_eq!(lines.len(), 5, "{log}");
 
     let chat = &lines[0];
     assert_eq!(chat["route"], "chat");
@@ -202,4 +209,8 @@ async fn response_log_lines_carry_request_features_and_call_id_never_content() {
     assert_eq!(after_claim["status"], 400);
     assert_eq!(after_claim["call_id"], REFUSED_ID);
     assert_eq!(after_claim["response_format"], "json_object");
+
+    let metadata = &lines[4];
+    assert_eq!(metadata["route"], "chat");
+    assert_eq!(metadata["status"], 400);
 }

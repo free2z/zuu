@@ -305,11 +305,17 @@ removal or suspension". Families requires:
 **The SDK's child-directed posture.** As of 2026-10-14, Free2Z's terms say
 it is "not available to persons under the age of 13", which is exactly the
 clause Google flags. The posture being built is an **adult-held Free2Z account
-that a child-directed app may use**, chosen by a `child_directed` flag on the
+that a child-directed app may use**, declared by a `child_directed` flag on the
 app's client registration. Use that registration for any app whose audience
 includes children, and follow the SDK's
-[child-directed integration notes](./CHILD-DIRECTED.md). Until the posture is live, an app whose content requires
-Free2Z cannot declare a child audience on Google Play.
+[child-directed integration notes](./CHILD-DIRECTED.md). The flag is an
+**audience classification**: it drives the consent wording, the adult gates
+on account exits and your obligations, but it does not buy a stronger privacy
+tier — since zuu#1225 every app's AI calls get the same baseline (no caller
+`metadata` kept, keyed retry identifiers, OpenAI with `store: false` only).
+Declare it honestly; it is not a setting to tune. Until the posture is live,
+an app whose content requires Free2Z cannot declare a child audience on
+Google Play.
 
 ### Consent before any data reaches AI
 

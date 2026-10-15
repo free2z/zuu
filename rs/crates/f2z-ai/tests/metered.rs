@@ -288,27 +288,15 @@ async fn launch_meta(
     catalog: f2z_ai::catalog::VerifiedCatalog,
     features_meta: bool,
 ) -> (support::Running, MockProvider) {
-    launch_keyed(db, scenario, allowed, catalog, features_meta, true).await
-}
-async fn launch_keyed(
-    db: Arc<Database>,
-    scenario: Scenario,
-    allowed: Option<Vec<&str>>,
-    catalog: f2z_ai::catalog::VerifiedCatalog,
-    features_meta: bool,
-    child_directed_key: bool,
-) -> (support::Running, MockProvider) {
     let mock = MockProvider::start(scenario).await.unwrap();
     let meter = Arc::new(
         Metered::new(
             db,
             adapter_support::backend(&mock.base_url(), adapter_support::tuning(0)),
+            adapter_support::claim_key(),
         )
         .with_allowed_models(allowed.map(|ids| ids.into_iter().map(str::to_owned).collect()))
-        .with_features_meta(features_meta)
-        .with_child_directed_key(
-            child_directed_key.then(|| f2z_ai::meter::ChildDirectedKey::new(&[7; 32]).unwrap()),
-        ),
+        .with_features_meta(features_meta),
     );
     let running = support::start(
         &support::config(&[]),
@@ -324,7 +312,7 @@ async fn launch_keyed(
     (running, mock)
 }
 fn request() -> Value {
-    json!({"model":"m-responses","max_output_tokens":100,"messages":[{"role":"user","content":[{"type":"text","text":"hello tutor"}]}],"metadata":{"hold_2z":"essay"}})
+    json!({"model":"m-responses","max_output_tokens":100,"messages":[{"role":"user","content":[{"type":"text","text":"hello tutor"}]}]})
 }
 async fn send(r: &support::Running) -> axum::http::Response<hyper::body::Incoming> {
     let mut req = support::chat_request(request().to_string());
@@ -370,7 +358,7 @@ async fn paid_stream_lost_settle_response_replay_and_account_scoped_receipt() {
     assert_eq!(replay.headers()["x-f2z-replayed"], "true");
     let record: Value = serde_json::from_str(&support::text(replay).await).unwrap();
     assert_eq!(record["status"], "settled");
-    assert_eq!(record["metadata"]["hold_2z"], "essay");
+    assert_eq!(record["metadata"], json!({}), "no caller text (zuu#1225)");
     assert!(!record.to_string().contains("private_debug"));
     assert_eq!(db.0.lock().unwrap().charges, 1);
     let foreign = axum::http::Request::get(format!("/v1/calls/{id}"))
@@ -425,6 +413,7 @@ async fn launch_keepalive(
     let meter = Arc::new(Metered::new(
         db,
         adapter_support::backend(&mock.base_url(), tuning),
+        adapter_support::claim_key(),
     ));
     let mut config = support::config(&[]);
     config.stream_keepalive = keepalive;
@@ -834,6 +823,7 @@ async fn a_tool_stream_cut_mid_call_bills_the_generated_arguments_from_its_fragm
         let meter = Arc::new(Metered::new(
             db.clone(),
             adapter_support::backend(&base, adapter_support::tuning(0)),
+            adapter_support::claim_key(),
         ));
         let r = support::start(
             &support::config(&[]),
@@ -893,6 +883,7 @@ async fn a_drain_that_cuts_a_silent_accepted_stream_settles_on_the_input_estimat
     let meter = Arc::new(Metered::new(
         db.clone(),
         adapter_support::backend(&mock.base_url(), tuning),
+        adapter_support::claim_key(),
     ));
     let running = support::start(
         &support::config(&[
@@ -1049,6 +1040,7 @@ async fn a_drain_after_anthropic_message_start_settles_on_its_reported_input() {
     let meter = Arc::new(Metered::new(
         db.clone(),
         adapter_support::backend(&mock.base_url(), tuning),
+        adapter_support::claim_key(),
     ));
     let running = support::start(
         &support::config(&[
@@ -1156,6 +1148,7 @@ async fn a_head_then_silence_past_ttfb_is_charged_the_input_estimate_after_meta(
     let meter = Arc::new(Metered::new(
         db.clone(),
         adapter_support::backend(&base, adapter_support::tuning(0)),
+        adapter_support::claim_key(),
     ));
     let r = support::start(
         &support::config(&[]),
@@ -1250,6 +1243,7 @@ async fn a_responses_error_event_then_silence_is_still_a_refusal() {
     let meter = Arc::new(Metered::new(
         db.clone(),
         adapter_support::backend(&base, adapter_support::tuning(0)),
+        adapter_support::claim_key(),
     ));
     let r = support::start(
         &support::config(&[]),
@@ -1297,6 +1291,7 @@ async fn unrelayed_tool_fragments_still_commit_a_nonstreamed_call() {
         let meter = Arc::new(Metered::new(
             db.clone(),
             adapter_support::backend(&base, adapter_support::tuning(0)),
+            adapter_support::claim_key(),
         ));
         let r = support::start(
             &support::config(&[]),
@@ -1450,6 +1445,7 @@ async fn metered_tool_turn(stream: bool) {
     let meter = Arc::new(Metered::new(
         db.clone(),
         adapter_support::backend(&base, adapter_support::tuning(0)),
+        adapter_support::claim_key(),
     ));
     let r = support::start(
         &support::config(&[]),
@@ -2209,8 +2205,9 @@ async fn features_are_recorded_on_the_claim_and_the_receipt_when_enabled() {
     let schema_bytes = serde_json::to_vec(&request["response_format"]["json_schema"]["schema"])
         .unwrap()
         .len();
+    // The schema name is caller-chosen text: never recorded (zuu#1225).
     let expected = json!({"response_format":"json_schema","response_format_strict":true,
-        "response_format_schema_name":"activity_spec","response_format_schema_bytes":schema_bytes,
+        "response_format_schema_name":null,"response_format_schema_bytes":schema_bytes,
         "tools":0,"max_output_tokens_strict":false,"stream":false,"fallback":0});
     let claimed = db.0.lock().unwrap().request.clone();
     assert_eq!(claimed["features"], expected);
@@ -2227,11 +2224,19 @@ async fn features_are_recorded_on_the_claim_and_the_receipt_when_enabled() {
     mock.shutdown().await;
 }
 
-// A child-directed app (CHILD-DIRECTED.md): the call record keeps no
-// caller-chosen text. `metadata` is refused before any paid work, and the
-// schema's name is not recorded even with `features` on.
+// zuu#1225: the baseline is the same for every app, whatever its
+// audience: the call record keeps no caller-chosen text. `metadata` is
+// refused before any paid work, an unknown model id before the claim would
+// record it, the schema name is not recorded, and the `Idempotency-Key` and
+// fingerprint are stored only as keyed HMACs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_child_directed_call_record_keeps_no_caller_chosen_text() {
+async fn no_apps_call_record_keeps_caller_chosen_text() {
+    for child in [false, true] {
+        call_record_keeps_no_caller_chosen_text(child).await;
+    }
+}
+
+async fn call_record_keeps_no_caller_chosen_text(child: bool) {
     let db = Arc::new(Database::new());
     let (r, mock) = launch_meta(
         db.clone(),
@@ -2241,60 +2246,55 @@ async fn a_child_directed_call_record_keeps_no_caller_chosen_text() {
         true,
     )
     .await;
-    let child = |body: &Value| {
+    let as_app = |body: &Value| {
         let mut req = support::chat_request(body.to_string());
-        req.headers_mut()
-            .insert("test-child-directed", "1".parse().unwrap());
+        if child {
+            req.headers_mut()
+                .insert("test-child-directed", "1".parse().unwrap());
+        }
         req
     };
 
-    let with_metadata = structured_request("m-chat");
-    let refused = support::send(r.public, child(&with_metadata)).await;
-    assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
-    let body = support::text(refused).await;
-    assert!(body.contains("child_directed"), "{body}");
+    let mut with_metadata = structured_request("m-chat");
+    with_metadata["metadata"] = json!({"lesson": "alice-smith-fractions"});
+    for route in ["/v1/chat", "/v1/chat/estimate"] {
+        let mut req = as_app(&with_metadata);
+        *req.uri_mut() = route.parse().unwrap();
+        let refused = support::send(r.public, req).await;
+        assert_eq!(refused.status(), StatusCode::BAD_REQUEST, "{route}");
+        let body = support::text(refused).await;
+        assert!(body.contains("\"metadata\""), "{body}");
+        assert!(body.contains("privacy_baseline"), "{body}");
+    }
     assert!(db.0.lock().unwrap().hold.is_none(), "no hold");
-    assert_eq!(mock.request_count(), 0, "no provider request");
-
-    // A model id is caller-chosen text too: one the catalogue does not hold
-    // is refused before the claim would record it.
-    let mut unknown = structured_request("Alice_Smith_age_8");
-    unknown.as_object_mut().unwrap().remove("metadata");
-    let refused = support::send(r.public, child(&unknown)).await;
-    assert_eq!(refused.status(), StatusCode::NOT_FOUND);
-    let _ = support::text(refused).await;
     assert_eq!(db.0.lock().unwrap().request, Value::Null, "nothing claimed");
     assert_eq!(mock.request_count(), 0, "no provider request");
 
-    // Only providers sent `store: false` (OpenAI); m-anthropic is not.
-    let mut other = structured_request("m-anthropic");
-    other.as_object_mut().unwrap().remove("metadata");
-    other.as_object_mut().unwrap().remove("response_format");
-    let refused = support::send(r.public, child(&other)).await;
-    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
-    let body = support::text(refused).await;
-    assert!(body.contains("child_directed"), "{body}");
-    // ... nor as a fallback behind an OpenAI model.
+    // A model id is caller-chosen text too, fallbacks included.
+    let unknown = structured_request("Alice_Smith_age_8");
     let mut fallback = structured_request("m-chat");
-    fallback.as_object_mut().unwrap().remove("metadata");
-    fallback["fallback"] = json!(["m-anthropic"]);
-    let refused = support::send(r.public, child(&fallback)).await;
-    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
-    let _ = support::text(refused).await;
+    fallback["fallback"] = json!(["Alice_Smith_age_8"]);
+    for body in [unknown, fallback] {
+        let refused = support::send(r.public, as_app(&body)).await;
+        assert_eq!(refused.status(), StatusCode::NOT_FOUND, "{body}");
+        let _ = support::text(refused).await;
+    }
     assert_eq!(db.0.lock().unwrap().request, Value::Null, "nothing claimed");
     assert_eq!(mock.request_count(), 0, "no provider request");
 
-    let mut request = structured_request("m-chat");
-    request.as_object_mut().unwrap().remove("metadata");
-    let mut keyed = child(&request);
-    keyed
-        .headers_mut()
-        .insert("idempotency-key", "lesson-for-alice-smith".parse().unwrap());
-    let response = support::send(r.public, keyed).await;
+    let request = structured_request("m-chat");
+    let keyed = || {
+        let mut req = as_app(&request);
+        req.headers_mut()
+            .insert("idempotency-key", "lesson-for-alice-smith".parse().unwrap());
+        req
+    };
+    let response = support::send(r.public, keyed()).await;
     assert_eq!(response.status(), StatusCode::OK);
     let _ = support::text(response).await;
     final_state(&db).await;
     let claimed = db.0.lock().unwrap().request.clone();
+    assert_eq!(claimed["metadata"], json!({}), "{claimed}");
     assert_eq!(claimed["features"]["response_format"], "json_schema");
     assert_eq!(
         claimed["features"]["response_format_schema_name"],
@@ -2302,22 +2302,41 @@ async fn a_child_directed_call_record_keeps_no_caller_chosen_text() {
     );
     assert!(!claimed.to_string().contains("activity_spec"), "{claimed}");
     assert!(!claimed.to_string().contains("hello tutor"), "{claimed}");
-    // Keyed (HMAC) fingerprint and Idempotency-Key: the caller's key text is
-    // not stored, and the fingerprint is not the unkeyed SHA-256.
     {
         let state = db.0.lock().unwrap();
         let key = state.key.clone().unwrap();
         assert_eq!(key.len(), 64, "{key}");
         assert!(key.bytes().all(|b| b.is_ascii_hexdigit()), "{key}");
         assert!(!key.contains("alice"), "{key}");
+        let unkeyed: String = ring::digest::digest(
+            &ring::digest::SHA256,
+            &serde_json::to_vec(
+                &serde_json::from_value::<f2z_ai_proto::chat::ChatRequest>(request.clone())
+                    .unwrap(),
+            )
+            .unwrap(),
+        )
+        .as_ref()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
         assert_eq!(state.fingerprint.len(), 64);
+        assert_ne!(state.fingerprint, unkeyed, "not the unkeyed SHA-256");
     }
-    // A same-key retry replays: the derivation is deterministic.
-    let mut retry = child(&request);
-    retry
-        .headers_mut()
-        .insert("idempotency-key", "lesson-for-alice-smith".parse().unwrap());
-    let replay = support::send(r.public, retry).await;
+    // The receipt shows the same: no caller text to read back.
+    let call = db.0.lock().unwrap().call.unwrap();
+    let mut read = axum::http::Request::get(format!("/v1/calls/{call}"))
+        .header("host", "gateway")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    if child {
+        read.headers_mut()
+            .insert("test-child-directed", "1".parse().unwrap());
+    }
+    let receipt = support::text(support::send(r.public, read).await).await;
+    assert!(receipt.contains("\"metadata\":{}"), "{receipt}");
+    assert!(!receipt.contains("activity_spec"), "{receipt}");
+    let replay = support::send(r.public, keyed()).await;
     assert_eq!(replay.status(), StatusCode::OK);
     assert_eq!(replay.headers()["x-f2z-replayed"], "true");
     let _ = support::text(replay).await;
@@ -2325,10 +2344,10 @@ async fn a_child_directed_call_record_keeps_no_caller_chosen_text() {
     mock.shutdown().await;
 }
 
-// Discovery matches invocation: a child-directed app is shown only the
-// models it may call (OpenAI), and so gets its own ETag.
+// zuu#1225: discovery no longer depends on the audience — a child-directed
+// and an ordinary app see the same models, under the same ETag.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_child_directed_app_is_shown_only_models_it_may_call() {
+async fn every_app_is_shown_the_same_models() {
     let db = Arc::new(Database::new());
     let (r, mock) = launch_catalog(db, Scenario::default(), None, structured_catalog()).await;
     let list = |child: bool| {
@@ -2338,62 +2357,12 @@ async fn a_child_directed_app_is_shown_only_models_it_may_call() {
         }
         req.body(axum::body::Body::empty()).unwrap()
     };
-    let all: Value =
-        serde_json::from_str(&support::text(support::send(r.public, list(false)).await).await)
-            .unwrap();
-    let response = support::send(r.public, list(true)).await;
-    let etag = response.headers()["etag"].clone();
-    let child: Value = serde_json::from_str(&support::text(response).await).unwrap();
-    let providers = |v: &Value| -> Vec<String> {
-        v["models"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|m| m["provider"].as_str().unwrap().to_owned())
-            .collect()
-    };
-    assert!(providers(&all).iter().any(|p| p != "openai"), "{all}");
-    assert!(!providers(&child).is_empty());
-    assert!(providers(&child).iter().all(|p| p == "openai"), "{child}");
     let ordinary = support::send(r.public, list(false)).await;
-    assert_ne!(ordinary.headers()["etag"], etag);
-    let _ = support::text(ordinary).await;
-    mock.shutdown().await;
-}
-
-// Without the server secret a child-directed call is refused before any
-// claim: failing closed, never storing the plain fingerprint or key.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn without_its_key_the_gateway_refuses_child_directed_calls() {
-    let db = Arc::new(Database::new());
-    let (r, mock) = launch_keyed(
-        db.clone(),
-        Scenario::default(),
-        None,
-        structured_catalog(),
-        false,
-        false,
-    )
-    .await;
-    let mut request = structured_request("m-chat");
-    request.as_object_mut().unwrap().remove("metadata");
-    let mut req = support::chat_request(request.to_string());
-    req.headers_mut()
-        .insert("test-child-directed", "1".parse().unwrap());
-    let refused = support::send(r.public, req).await;
-    assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
-    let body = support::text(refused).await;
-    assert!(body.contains("child_directed_unconfigured"), "{body}");
-    assert_eq!(db.0.lock().unwrap().claims, 0, "no claim");
-    assert_eq!(mock.request_count(), 0);
-    // An ordinary call on the same gateway is unaffected.
-    let ok = support::send(
-        r.public,
-        support::chat_request(structured_request("m-chat").to_string()),
-    )
-    .await;
-    assert_eq!(ok.status(), StatusCode::OK);
-    let _ = support::text(ok).await;
+    let ordinary_etag = ordinary.headers()["etag"].clone();
+    let ordinary = support::text(ordinary).await;
+    let child = support::send(r.public, list(true)).await;
+    assert_eq!(child.headers()["etag"], ordinary_etag);
+    assert_eq!(support::text(child).await, ordinary);
     mock.shutdown().await;
 }
 
@@ -2613,6 +2582,7 @@ async fn a_chat_completions_tool_turn_streams_fragments_then_the_call() {
         let meter = Arc::new(Metered::new(
             db.clone(),
             adapter_support::backend(&base, adapter_support::tuning(0)),
+            adapter_support::claim_key(),
         ));
         let r = support::start(
             &support::config(&[]),

@@ -137,6 +137,12 @@ pub fn tuning(max_retries: u32) -> Tuning {
     }
 }
 
+/// The claim key every test gateway keys its claims under (zuu#1225: a
+/// metering backend does not exist without one).
+pub fn claim_key() -> f2z_ai::meter::ClaimKey {
+    f2z_ai::meter::ClaimKey::new(&[7; 32]).unwrap()
+}
+
 /// A backend with every provider at `base_url`.
 pub fn backend(base_url: &str, tuning: Tuning) -> ProviderBackend {
     let mut providers = BTreeMap::new();

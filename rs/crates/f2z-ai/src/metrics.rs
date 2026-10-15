@@ -20,7 +20,7 @@
 //! | `f2z_ai_calls_settled_total{upstream}` | counter | Calls handed to the settler, by how the upstream read ended: `finished`, `drained`, `not_started`, `panicked` (a bug, never operational) |
 //! | `f2z_ai_ready` / `f2z_ai_draining` | gauge | 1 or 0 |
 //! | `f2z_ai_catalog_version` | gauge | The verified catalogue in use; 0 when there is none |
-//! | `f2z_ai_idempotency_forms_total{outcome}` | counter | Keyed `/v1/chat` claims by what the form lookup found (`crate::idempotency::Outcome`): `miss`, `same`, `straddle` (a retry across a `child_directed` flip or key rotation, replayed by its recorded call id), and the degraded `unavailable`, `unknown_record`, `write_failed`, `orphaned` — each a retry that could have been charged twice, so **alert on any increase** of those four |
+//! | `f2z_ai_idempotency_forms_total{outcome}` | counter | Keyed `/v1/chat` claims by what the form lookup found (`crate::idempotency::Outcome`): `miss`, `same`, `straddle` (a retry of a call claimed in another form — the plain form of the image before zuu#1225, or under a rotated key — replayed by its recorded call id), and the degraded `unavailable`, `unknown_record`, `write_failed`, `orphaned` — each a retry that could have been charged twice, so **alert on any increase** of those four |
 //! | `f2z_ai_catalog_replays_total` | counter | Catalogues refused as a replay: `issued_at` more than `catalog_version_regression_bound_secs` (420, the producer's bound) below the newest catalogue installed (`catalog::State::install`). The platform's own version dips stay inside the bound and never count, so **alert on any increase** — it means a replay, or a producer that broke its bound |
 
 use std::fmt::Write as _;

@@ -118,10 +118,7 @@ fn serve(config: &Config) -> Result<ExitCode, String> {
                 }
             });
         };
-        let deps = if config.catalog_url.is_none()
-            && config.catalog_keys_file.is_none()
-            && config.ledger_url.is_none()
-        {
+        let deps = if !config.metered() {
             Deps {
                 gate: f2z_ai::auth::from_config(&config.auth)?,
                 ..Deps::skeleton()
@@ -154,50 +151,39 @@ fn serve(config: &Config) -> Result<ExitCode, String> {
                 .await
                 .map_err(|e| e.to_string())?,
             );
-            if config.child_directed_key.is_none() {
-                tracing::warn!(
-                    "no child-directed key configured: child-directed calls are refused, and \
-                     idempotency form records are off, so a same-key retry across a \
-                     child_directed flip is not protected"
-                );
-            }
+            // Config::validate already refused a metered configuration
+            // without it; this is the same rule, stated where it is used.
+            let key = config
+                .child_directed_key
+                .as_ref()
+                .ok_or("a metered gateway needs its claim key (F2Z_AI_CHILD_DIRECTED_KEY)")?;
+            let claim_key = |k: &secrecy::SecretString| {
+                use secrecy::ExposeSecret as _;
+                f2z_ai::meter::ClaimKey::new(k.expose_secret().as_bytes())
+            };
             let provider = f2z_ai::provider::ProviderBackend::from_config(config)?;
-            let backend = std::sync::Arc::new(
-                f2z_ai::meter::Metered::new(ledger, provider)
-                    .with_allowed_models(config.allowed_models.clone())
-                    .with_features_meta(config.ledger_features_meta)
-                    .with_child_directed_key(
-                        config
-                            .child_directed_key
-                            .as_ref()
-                            .map(|k| {
-                                use secrecy::ExposeSecret as _;
-                                f2z_ai::meter::ChildDirectedKey::new(k.expose_secret().as_bytes())
-                            })
-                            .transpose()?,
-                    )
-                    .with_child_directed_key_previous(
-                        config
-                            .child_directed_key_previous
-                            .as_ref()
-                            .map(|k| {
-                                use secrecy::ExposeSecret as _;
-                                f2z_ai::meter::ChildDirectedKey::new(k.expose_secret().as_bytes())
-                            })
-                            .transpose()?,
-                    )
-                    .with_form_store(
-                        std::sync::Arc::new(f2z_ai::auth::store::RedisStore::new(
+            let backend =
+                std::sync::Arc::new(
+                    f2z_ai::meter::Metered::new(ledger, provider, claim_key(key)?)
+                        .with_allowed_models(config.allowed_models.clone())
+                        .with_features_meta(config.ledger_features_meta)
+                        .with_key_previous(
                             config
-                                .auth
-                                .redis_url
+                                .child_directed_key_previous
                                 .as_ref()
-                                .ok_or("configure shared Redis admission for metered service")?,
-                            config.auth.redis_timeout,
-                        )?),
-                        config.auth.redis_namespace.clone(),
-                    ),
-            );
+                                .map(claim_key)
+                                .transpose()?,
+                        )
+                        .with_form_store(
+                            std::sync::Arc::new(f2z_ai::auth::store::RedisStore::new(
+                                config.auth.redis_url.as_ref().ok_or(
+                                    "configure shared Redis admission for metered service",
+                                )?,
+                                config.auth.redis_timeout,
+                            )?),
+                            config.auth.redis_namespace.clone(),
+                        ),
+                );
             Deps {
                 gate: f2z_ai::auth::from_config(&config.auth)?,
                 catalog: std::sync::Arc::new(source),

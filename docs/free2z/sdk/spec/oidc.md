@@ -311,7 +311,7 @@ payload: {
 | `aep` | **Account epoch** (§6.2) | Every resource server |
 | `agen` | **Grant generation** (§6.3) | Every resource server |
 | `auth_time`, `acr`, `amr` | When and how the user last authenticated (§10) | Endpoints that require recent or strong authentication |
-| `child_directed` | `true` when the app is registered as child-directed ([CHILD-DIRECTED.md](../CHILD-DIRECTED.md)). Present only when `true`; absent means `false`; any non-boolean value is `401 invalid_token` | The AI gateway, which then applies the child-directed rules: OpenAI models only, no `metadata`, keyed fingerprints ([chat-api.md](./chat-api.md) §2.1) |
+| `child_directed` | `true` when the app is registered as child-directed ([CHILD-DIRECTED.md](../CHILD-DIRECTED.md)). Present only when `true`; absent means `false`; any non-boolean value is `401 invalid_token` | An audience classification. The AI gateway verifies it but, since zuu#1225, applies the same privacy baseline to every app whatever it says: OpenAI models only, no `metadata`, keyed fingerprints ([chat-api.md](./chat-api.md) §2.1) |
 
 The gateway requires a canonical lowercase UUID `app_id` in the verified access
 token. It never derives an application UUID from `client_id` or a request header.
