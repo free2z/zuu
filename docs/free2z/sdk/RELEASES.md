@@ -15,31 +15,42 @@ separate, owner-authorized step ([RELEASING.md](./RELEASING.md#publication-seque
 
 Per-package detail lives in each package's `CHANGELOG.md`.
 
-## Unreleased
+## sdk-v0.3.0 — 2026-10-15
 
-On `main`, not tagged: no app can pin this yet. It ships in the next
-coordinated release once the Free2Z pages it links to are live.
-Account identity, switching accounts, and the manage/delete account exits a
-store-listed app needs. Additive: an app that does not use them sees the
-0.2.0 behaviour, with one exception noted under Breaking. Move all three Tauri
-pieces together: a newer guest API or facade talking to an older plugin
-refuses `ephemeral` as an unknown sign-in option, and the account exits reject
-because that plugin has no such command.
+The store-compliance release for SDK apps: who is signed in, switching
+accounts, the **Manage** / **Delete Free2Z account** exits, and in-app
+reporting of AI output. Additive: an app that uses none of it sees the 0.2.0
+behaviour, apart from the items under Breaking. Covers #1217, #1218 and #1219.
+
+### Pinning
+
+```toml
+# src-tauri/Cargo.toml — the plugin already links the matching core
+tauri-plugin-f2z = { git = "https://github.com/free2z/zuu", tag = "sdk-v0.3.0" }
+# or, for a non-Tauri Rust app
+f2z-sdk = { git = "https://github.com/free2z/zuu", tag = "sdk-v0.3.0" }
+```
+
+Build the two npm packages from the same tag (`npm pack` in
+`wallet/plugins/tauri-plugin-f2z` and `ts/free2z/sdk`) as
+[SOURCE-PREVIEW.md](./SOURCE-PREVIEW.md#versions-and-installation) describes:
+they produce `free2z-tauri-plugin-f2z-api-0.3.0.tgz` and `free2z-sdk-0.3.0.tgz`.
+Move all three Tauri pieces together: a newer guest API or facade talking to
+an older plugin refuses `ephemeral` as an unknown sign-in option, and the
+account exits and `reportCall` reject because that plugin has no such command.
 
 ### Gateway and Free2Z compatibility
 
 - Gateway: unchanged from 0.2.0 (minimum `d26c9397`).
-- `{web origin}/account/apps` is live on Free2Z. `{web origin}/account/delete`
-  is the contract this release links to; it is served once the Free2Z
-  deployment ships its self-service deletion page. Until then the link lands
-  on Free2Z's not-found page. The `client_id` query on `/account/apps` is a
-  hint the page may use to select the app; a page that ignores it still
-  shows every connected app.
+- Free2Z (verified on `free2z.cash` on 2026-10-15, deployment `9145deec`):
+  `/account/apps?client_id=` (the store-safe Manage view; signed out it
+  redirects to sign-in and keeps the query), `/account/delete` (200) and
+  `POST /api/sdk/v1/calls/{id}/report` (401 without a token) are live.
 
 ### Breaking
 
-- The release that carries this will bump all five packages; under 0.x
-  semver `@free2z/sdk`'s optional peer then excludes the 0.2.0 guest-js.
+- `@free2z/sdk` declares `@free2z/tauri-plugin-f2z-api@^0.3.0` as its optional
+  peer, so a 0.2.0 guest-js tarball no longer satisfies it.
 - Android: the plugin depends on `androidx.browser` 1.9.0 (was 1.8.0), and its
   library manifest adds a `CustomTabsService` `<queries>` entry, which merges
   into the app manifest.
@@ -66,6 +77,15 @@ because that plugin has no such command.
   New plugin permissions: `f2z:allow-manage-account-url`,
   `f2z:allow-open-manage-account`, `f2z:allow-delete-account-url`,
   `f2z:allow-open-delete-account`.
+- **Reporting AI output** (#1217). `Client.reportCall(callId, reason,
+  detail?)` (Rust `Ai::report_call`, guest `nativeBridge.reportCall`, plugin
+  permission `f2z:allow-report-call`) → `CallReport`: the in-app report Google
+  Play's AI-Generated Content policy and App Store 4.7 ask for. Reasons
+  `incorrect`, `inappropriate`, `unsafe`, `other`; Free2Z keeps the reference
+  and reason, never the content. A child-directed configuration
+  (`Config::with_child_directed`, `FetchConfig.childDirected`) refuses any
+  free-text `detail` locally. Wire types in `f2z_ai_proto::report`.
+- **Account-deletion URL contract** documented for SDK apps (#1218).
 - **Sign-out** also drops the cached model catalogue; a catalogue read under
   one session is never used for another.
 - **Defence in depth:** a `prompt=login` sign-in is refused unless the ID

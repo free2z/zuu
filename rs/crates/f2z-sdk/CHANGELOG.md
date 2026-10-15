@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-15
+
+Tagged `sdk-v0.3.0` with the other Free2Z SDK packages. Not on a registry:
+pin the Git tag. Consolidated notes and compatibility: [RELEASES.md](https://github.com/free2z/zuu/blob/sdk-v0.3.0/docs/free2z/sdk/RELEASES.md#sdk-v030--2026-10-15).
+
+Links `f2z-ai-proto` 0.3.0.
 
 ### Added
 
