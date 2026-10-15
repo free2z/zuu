@@ -111,6 +111,11 @@ key and known call ID in `SdkError`. Reconcile using `call()`/`waitForCall()` or
 resubmit the **same request and key** when the call ID is unknown. A completed
 idempotent replay yields a `replay` event containing the call record.
 
+Give every AI output an in-app report control (Play's AI-Generated Content
+policy, App Store 4.7): `client.reportCall(callId, "incorrect" | "inappropriate"
+| "unsafe" | "other", detail?)`. Offer preset reasons, not free text; see
+`docs/free2z/sdk/INTEGRATION.md`, "Reporting AI output".
+
 `charge.state === 'pending'` means the final amount is unknown; never display it
 as zero. `charged` includes a receipt ID and charged whole-2Z amount; optional
 collection/shortfall fields are milli-2Z. `released` means a confirmed zero

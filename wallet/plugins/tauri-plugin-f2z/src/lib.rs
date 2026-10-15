@@ -241,8 +241,9 @@ mod tests {
     }
     #[test]
     fn command_registry_has_no_credential_or_arbitrary_network_escape() {
-        assert_eq!(COMMANDS.len(), 20);
+        assert_eq!(COMMANDS.len(), 21);
         assert!(COMMANDS.contains(&"grant"));
+        assert!(COMMANDS.contains(&"report_call"));
         // Account exits open a URL built natively; none takes a URL argument.
         for exit in ["open_manage_account", "open_delete_account"] {
             assert!(COMMANDS.contains(&exit));

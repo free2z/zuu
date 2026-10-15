@@ -538,6 +538,22 @@ export interface PollOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
 }
+/**
+ * Why the user reports an AI output. Offer these as preset choices: apps that
+ * children may use should not offer a free-text box.
+ */
+export type ReportReason = "incorrect" | "inappropriate" | "unsafe" | "other";
+/**
+ * The receipt of `Client.reportCall`. Reporting the same call again returns
+ * the same `report_id` with the latest reason.
+ */
+export interface CallReport {
+  report_id: string;
+  call_id: string;
+  /** A reason newer than this SDK decodes as `"unknown"`. */
+  reason: ReportReason | "unknown";
+  created_at: string;
+}
 export interface Transport {
   session(): Promise<Session>;
   signIn(options?: SignInOptions): Promise<Session>;
@@ -559,4 +575,11 @@ export interface Transport {
   openManageAccount?(): Promise<void>;
   deleteAccountUrl?(): Promise<string>;
   openDeleteAccount?(): Promise<void>;
+  /** Optional so a custom transport predating it still compiles. */
+  reportCall?(
+    callId: string,
+    reason: ReportReason,
+    detail?: string,
+    signal?: AbortSignal,
+  ): Promise<CallReport>;
 }

@@ -68,6 +68,11 @@ reconcile through `ai().call()`/`wait_for_call()`. A broken success response
 keeps its operation key in the error. A browser checkout return does not prove
 payment: poll the purchase and refresh the balance.
 
+Give every AI output an in-app report control (Play's AI-Generated Content
+policy, App Store 4.7): `client.ai().report_call(call_id, ReportReason::Unsafe,
+None)`. Offer preset reasons, not free text; see
+`docs/free2z/sdk/INTEGRATION.md`, "Reporting AI output".
+
 ## Source verification
 
 From the repository's `rs` directory:

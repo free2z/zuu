@@ -253,3 +253,112 @@ async fn grant_reply_cannot_survive_sign_out() {
     client.sign_out().await.unwrap();
     assert!(matches!(task.await.unwrap(), Err(Error::SignedOut(_))));
 }
+
+#[tokio::test]
+async fn report_call_posts_the_reason_and_detail_and_reads_both_receipts() {
+    use f2z_sdk::ai::ReportReason;
+    let fake = Fake::start().await;
+    let client = signed_in(fake.config()).await;
+    let call = "019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c";
+    let first = client
+        .ai()
+        .report_call(call, ReportReason::Incorrect, Some("wrong_grade"))
+        .await
+        .unwrap();
+    assert_eq!(first.call_id, call);
+    assert_eq!(first.reason, ReportReason::Incorrect);
+    // A repeat is a 200 for the same report, with the latest reason.
+    let again = client
+        .ai()
+        .report_call(call, ReportReason::Unsafe, None)
+        .await
+        .unwrap();
+    assert_eq!(again.report_id, first.report_id);
+    assert_eq!(again.reason, ReportReason::Unsafe);
+    assert_eq!(
+        *fake.report_bodies.lock().unwrap(),
+        vec![
+            serde_json::json!({"reason": "incorrect", "detail": "wrong_grade"}),
+            serde_json::json!({"reason": "unsafe"}),
+        ]
+    );
+    // Not this user's call: the server's 404 envelope, typed.
+    match client
+        .ai()
+        .report_call(
+            "019a2f1c-0000-7000-8000-000000000404",
+            ReportReason::Other,
+            None,
+        )
+        .await
+    {
+        Err(Error::Api(e)) => assert_eq!((e.status, e.code.as_str()), (404, "not_found")),
+        other => panic!("expected a 404 not_found, got {other:?}"),
+    }
+    // Refused locally: nothing reaches the server.
+    let sent = fake.report_bodies.lock().unwrap().len();
+    for detail in [
+        "",
+        "two\nlines",
+        "bidi\u{202E}",
+        "para\u{2029}",
+        &"x".repeat(201),
+    ] {
+        assert!(matches!(
+            client
+                .ai()
+                .report_call(call, ReportReason::Other, Some(detail))
+                .await,
+            Err(Error::Config(_))
+        ));
+    }
+    assert!(matches!(
+        client
+            .ai()
+            .report_call(call, ReportReason::Unknown, None)
+            .await,
+        Err(Error::Config(_))
+    ));
+    assert!(matches!(
+        client
+            .ai()
+            .report_call("../grant", ReportReason::Other, None)
+            .await,
+        Err(Error::Config(_))
+    ));
+    assert_eq!(fake.report_bodies.lock().unwrap().len(), sent);
+    // An uppercase UUID is sent in the server's lowercase form.
+    let upper = client
+        .ai()
+        .report_call(&call.to_ascii_uppercase(), ReportReason::Other, None)
+        .await
+        .unwrap();
+    assert_eq!(upper.call_id, call);
+    assert_eq!(upper.report_id, first.report_id);
+}
+
+#[tokio::test]
+async fn a_child_directed_client_never_sends_a_report_detail() {
+    use f2z_sdk::ai::ReportReason;
+    let fake = Fake::start().await;
+    let client = signed_in(fake.config().with_child_directed(true)).await;
+    assert!(client.child_directed());
+    let call = "019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c";
+    assert!(matches!(
+        client
+            .ai()
+            .report_call(call, ReportReason::Incorrect, Some("wrong_grade"))
+            .await,
+        Err(Error::Config(_))
+    ));
+    assert!(fake.report_bodies.lock().unwrap().is_empty());
+    client
+        .ai()
+        .report_call(call, ReportReason::Unsafe, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        *fake.report_bodies.lock().unwrap(),
+        vec![serde_json::json!({"reason": "unsafe"})]
+    );
+}

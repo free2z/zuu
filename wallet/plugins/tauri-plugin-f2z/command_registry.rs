@@ -21,6 +21,7 @@ macro_rules! with_commands {
             delete_account_url,
             open_manage_account,
             open_delete_account,
+            report_call,
         }
     };
 }

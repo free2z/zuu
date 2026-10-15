@@ -21,6 +21,7 @@ export type ServerErrorCode =
   | "model_disabled"
   | "model_not_found"
   | "call_not_found"
+  | "not_found"
   | "purchase_not_found"
   | "idempotency_conflict"
   | "too_many_holds"

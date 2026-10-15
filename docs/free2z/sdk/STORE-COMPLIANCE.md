@@ -364,11 +364,14 @@ or flagging features that allow users to report or flag offensive content to
 developers without needing to exit the app."
 
 Every AI-generated item needs a **Report** control. A tap hides the item at
-once and sends the reason with the item's `call_id`. **There is a platform
-gap:** Free2Z has no report endpoint today, and an SDK app has no backend.
-Until Free2Z provides one, deliver reports to a hosted form endpoint that you
-control, without leaving the app. A `mailto:` link leaves the app, so it does
-not count.
+once and sends a preset reason with the item's `call_id` through the SDK's
+`reportCall(callId, reason, detail?)` (Rust `ai().report_call`); reasons are
+`incorrect`, `inappropriate`, `unsafe` and `other`. You need no backend: Free2Z
+receives the report, lets you read it via `GET /api/oauth/apps/{app_id}/reports/`, puts it in its
+moderation queue, and alerts its staff on `unsafe`. It stores the reference and
+reason, never the AI content. Offer no free-text box in an app children may
+use. See [Reporting AI output](./INTEGRATION.md#reporting-ai-output). A
+`mailto:` link leaves the app, so it does not count.
 
 ## 4. Account deletion
 

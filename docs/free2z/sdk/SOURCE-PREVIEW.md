@@ -122,7 +122,7 @@ include `free2z-tutor` there. Keep existing application capabilities as needed.
     "f2z:allow-balance", "f2z:allow-grant", "f2z:allow-models", "f2z:allow-estimate",
     "f2z:allow-create-purchase", "f2z:allow-purchase", "f2z:allow-open-checkout",
     "f2z:allow-start-chat", "f2z:allow-next-chat", "f2z:allow-cancel-chat",
-    "f2z:allow-call"
+    "f2z:allow-call", "f2z:allow-report-call"
   ]
 }
 ```

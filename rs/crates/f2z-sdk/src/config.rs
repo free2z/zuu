@@ -63,6 +63,11 @@ pub struct Config {
     /// treated as interrupted. The gateway sends a `: ping` every 15 s while
     /// it waits on a provider, so this is a dead-connection detector.
     pub stream_idle_timeout: Duration,
+    /// The app is child-directed: set it exactly when the app's Free2Z
+    /// registration is `child_directed`. The SDK then refuses, locally,
+    /// what the server refuses for such an app — today a report's `detail`
+    /// ([`crate::ai::Ai::report_call`]). Default `false`.
+    pub child_directed: bool,
 }
 
 impl Config {
@@ -79,6 +84,7 @@ impl Config {
             request_timeout: Duration::from_secs(30),
             callback_timeout: Duration::from_secs(600),
             stream_idle_timeout: Duration::from_secs(90),
+            child_directed: false,
         }
     }
 
@@ -143,6 +149,13 @@ impl Config {
         self
     }
 
+    /// Mark the app child-directed, matching its Free2Z registration.
+    #[must_use]
+    pub fn with_child_directed(mut self, child_directed: bool) -> Self {
+        self.child_directed = child_directed;
+        self
+    }
+
     pub(crate) fn validate(&self) -> Result<Validated, Error> {
         if self.client_id.trim().is_empty() {
             return Err(Error::Config("client_id is empty".into()));
@@ -174,6 +187,7 @@ impl Config {
             request_timeout: self.request_timeout,
             callback_timeout: self.callback_timeout,
             stream_idle_timeout: self.stream_idle_timeout,
+            child_directed: self.child_directed,
         })
     }
 }
@@ -193,6 +207,7 @@ pub(crate) struct Validated {
     pub request_timeout: Duration,
     pub callback_timeout: Duration,
     pub stream_idle_timeout: Duration,
+    pub child_directed: bool,
 }
 
 impl Validated {

@@ -760,6 +760,83 @@ know.
 `404 call_not_found` for an id that does not exist or belongs to another
 (user, app).
 
+### 7.1 Reporting a call's output — `POST free2z.cash/api/sdk/v1/calls/{id}/report`
+
+The user flags what one call produced as wrong or harmful, **from inside the
+app**. Google Play's AI-Generated Content policy requires in-app reporting or
+flagging of AI output that does not make the user leave the app, and App Store
+Review Guideline 4.7 expects the same. SDK apps run no backend, so the report
+goes to Free2Z: the app's developer sees it, Free2Z moderation sees it, and an
+`unsafe` report alerts Free2Z staff.
+
+Served by the **account API** (`https://free2z.cash/api/sdk/v1`), not the
+gateway. Accepts an OAuth access token with audience `f2z-api` and scope
+`ai:invoke`, the session the call was made with; the standard error envelope;
+`Cache-Control: no-store`. `{id}` is the gateway's `call_id` (§3.2, the
+`X-F2Z-Call-Id` header, or §7's record) in its lowercase hyphenated UUID form;
+the SDKs lowercase it. Nothing else about the call is sent —
+never the prompt or the output.
+
+```json
+{ "reason": "incorrect", "detail": "wrong_grade" }
+```
+
+| Field | Rule |
+|---|---|
+| `reason` | Required. `incorrect` (a wrong answer or grade, nonsense), `inappropriate` (not suitable for the audience), `unsafe` (harmful or dangerous; alerts Free2Z staff), or `other` |
+| `detail` | Optional. 1–200 Unicode characters on one line: no C0 or C1 control characters (so no newline or tab), no U+2028/U+2029 separators, no bidi controls (U+202A–U+202E, U+2066–U+2069); ZWJ/ZWNJ are fine. Omit it rather than send `""`. A child-directed app should always omit it |
+
+**Prefer presets to free text.** Show the report as one tap on the output with
+the four reasons as choices. For more precision pass an app-defined code in
+`detail` (`wrong_grade`, `off_topic`), not text the user types. Apps that
+children may use should not offer a free-text box at all: Free2Z stores
+`detail` as sent. A child-directed app must omit `detail`: the server refuses
+it there with `400 invalid_request` (`details.field: "detail"`). Declare the
+app child-directed to the SDK — Rust `Config::with_child_directed(true)` (which
+the Tauri plugin inherits), web `FetchConfig.childDirected: true`, matching the
+app's Free2Z registration — and the SDK refuses a `detail` locally, before any
+network call (`invalid_request` with `details.field: "detail"`; Rust
+`Error::Config`).
+
+`201 Created` for a new report; `200 OK` when this user already reported this
+call. There is **one report per call and user**: a repeat replaces `reason` and
+`detail` with the latest and returns the same `report_id`, so a retry after a
+lost response is safe. Both carry the receipt; ignore members you do not know:
+
+```json
+{
+  "report_id": "0199c0de-4b1f-7e21-8a3d-4b5e6f7a8b9c",
+  "call_id": "019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c",
+  "reason": "incorrect",
+  "created_at": "2026-10-14T12:00:00Z"
+}
+```
+
+| Status | `code` | When |
+|---|---|---|
+| 400 | `invalid_request` | An unknown `reason`, or `detail` outside the rule above; also any non-empty `detail` sent by a child-directed app (`details.field: "detail"`) |
+| 401 | `invalid_token`, `token_revoked` | As in [errors.md](./errors.md) §2 |
+| 403 | `insufficient_scope` | The token lacks `ai:invoke` |
+| 404 | `not_found` | No such call for this user and app: unknown, another user's or app's, or past the call record's 90-day retention. This endpoint answers the account API's generic `not_found`, not §7's `call_not_found`; treat the two alike |
+| 429 | `rate_limited` | Too many reports; honour `Retry-After`. Two rolling-hour caps per account: 30 reports (new reports plus the first escalation of an existing report to `unsafe`) and, separately, 5 `unsafe` reports (new `unsafe` reports plus first escalations to `unsafe`). Any other repeat is never capped |
+
+The SDKs check `reason` and `detail` before sending, so a value the server would
+refuse never leaves the device: Rust `Error::Config`; TypeScript and the Tauri
+plugin `invalid_request` with `details.field`.
+
+**What Free2Z keeps, and who sees it.** The reference — call id, app, user —
+plus `reason`, `detail` and the time; never the AI content. The app's developer
+reads their app's reports via
+`GET https://free2z.cash/api/oauth/apps/{app_id}/reports/` — the call, reason,
+`detail` and time, never who reported it. Free2Z moderation sees every report in
+its review queue, and `unsafe` alerts Free2Z staff.
+
+| SDK | Call |
+|---|---|
+| Rust `f2z-sdk` | `client.ai().report_call(call_id, ReportReason::Incorrect, Some("wrong_grade")).await?` → `CallReport` (wire types: `f2z_ai_proto::report`) |
+| Tauri plugin guest-js | `nativeBridge.reportCall(callId, 'incorrect', 'wrong_grade')` → `CallReport`; the window needs `f2z:allow-report-call` |
+| TypeScript `@free2z/sdk` | `client.reportCall(callId, "incorrect", "wrong_grade")` → `CallReport` |
+
 ## 8. Rate-limit and concurrency responses
 
 ```http
