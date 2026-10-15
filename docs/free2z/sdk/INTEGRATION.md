@@ -309,6 +309,12 @@ Two pages on the Free2Z website are part of the SDK contract:
   purchasing elsewhere.
 - Rust: `Client::web_origin()`, `Client::manage_account_url()` and
   `Client::delete_account_url()`.
+- **Deletion, for the stores.** Enter `https://free2z.cash/account/delete` as
+  the account-deletion URL in Google Play Console too. Free2Z handles the
+  confirmation and needs no email. After a user deletes their account, the
+  SDK reports them signed out: treat it like any revocation. The full
+  contract is
+  [spec/oidc.md §5.2](./spec/oidc.md#52-account-deletion-httpsfree2zcashaccountdelete).
 
 ## Rust API examples
 

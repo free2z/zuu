@@ -233,6 +233,44 @@ user re-consents, the existing grant continues on its old terms; nothing
 about a registration
 change invalidates tokens.
 
+### 5.2 Account deletion: `https://free2z.cash/account/delete`
+
+Apple (App Review Guideline 5.1.1(v)) and Google Play require an app in
+which people can create an account to let them delete it. Free2Z sign-in can
+create a Free2Z account inside your app's flow, so **every SDK app that
+offers Free2Z sign-in must offer account deletion**, and Free2Z provides it.
+The contract is one fixed URL:
+
+```text
+https://free2z.cash/account/delete
+```
+
+- **Link it from your app** — a settings or account screen entry such as
+  "Delete Free2Z account" — and open it in the **system browser**, never an
+  embedded web view (§11). Both stores accept a link to a web deletion page
+  as the in-app path. No parameters are needed and none change what happens.
+  The SDK builds and opens it: `deleteAccountUrl()` / `openDeleteAccount()`
+  ([INTEGRATION.md](../INTEGRATION.md#manage-and-delete-the-free2z-account)).
+- **List it in Google Play Console** as the app's account-deletion URL. It
+  works signed out: the page says what deletion does and offers sign-in, so a
+  reviewer without an account can read it.
+- **No email is required.** The holder proves it is them with a fresh sign-in
+  (any method their account uses: password, provider or Zcash wallet) and by
+  typing their username. Burner accounts with no email delete like any other.
+- **What it does to your app:** deletion revokes every grant of the account
+  (`agen` moves, §6.3) and moves the account epoch (`aep`, §6.2). Every
+  access and refresh token your app holds for that user stops working at
+  once; the next call answers `401 token_revoked` or `invalid_grant`.
+  Handle it as any revocation: clear the session and show sign-in. Do not
+  keep the user's `sub` as a live account afterwards; any data you keep for
+  that user is yours to delete under your own privacy policy.
+- **What Free2Z keeps:** payment, 2Z ledger and tax records stay, attached
+  to a pseudonymous account, as law and accounting require. Remaining 2Z
+  credits can no longer be used. The page and
+  [the user guide](https://free2z.cash/docs/privacy-and-security/delete-account)
+  state the details; link either, and do not restate them as your own terms.
+- The URL is stable. `https://free2z.com/account/delete` redirects to it.
+
 ## 6. Access tokens
 
 ### 6.1 Format
@@ -289,7 +327,8 @@ an unknown `kid` (at most once per minute) before refusing the token.
 
 Every account has an integer epoch that starts at `1` and **increments on a
 security event**: password reset or change, email change, disabling MFA,
-removing a passkey, unlinking an identity, merging accounts. It does **not**
+removing a passkey, unlinking an identity, merging accounts, deleting the
+account (§5.2). It does **not**
 change when a method is *added*. Every token carries the epoch at issue time.
 
 A resource server compares the token's `aep` with the account's current
@@ -610,6 +649,8 @@ suite exercises the same list from the other side.
   the user out.
 - Opens the system browser or the platform's authentication session for
   sign-in; never an embedded web view.
+- Links `https://free2z.cash/account/delete` from the app, opened in the
+  system browser (§5.2).
 - Reports why a sign-in ended without a callback — the user cancelled, no
   browser could be shown, or the deadline passed — distinctly from any other
   browser failure ([errors.md](./errors.md) §5.1).
