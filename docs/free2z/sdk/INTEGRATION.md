@@ -6,8 +6,8 @@ Start with [the pinned source-preview installation and Tauri adapter guide](./SO
 Registry publication and live end-to-end acceptance are still pending; building
 the real SDK does not establish availability of every service or payment rail.
 
-The Rust examples below target the tagged release `sdk-v0.2.0`
-([release notes](./RELEASES.md#sdk-v020--2026-10-06)), which includes the reviewed grant API alongside login, balance, purchase and
+The Rust examples below target the tagged release `sdk-v0.3.0`
+([release notes](./RELEASES.md#sdk-v030--2026-10-15)), which includes the reviewed grant API alongside login, balance, purchase and
 AI operations. Local fake-service regressions and native builds are not live
 service acceptance evidence.
 
@@ -57,7 +57,7 @@ tag, without a private repository or a path into this workspace:
 
 ```toml
 [dependencies]
-f2z-sdk = { git = "https://github.com/free2z/zuu", tag = "sdk-v0.2.0" }
+f2z-sdk = { git = "https://github.com/free2z/zuu", tag = "sdk-v0.3.0" }
 ```
 
 This is not the supported published-package installation and does not establish
@@ -69,7 +69,7 @@ initializing them and run the SDK's own fake example:
 ```sh
 git clone --filter=blob:none https://github.com/free2z/zuu.git zuu-sdk-preview
 cd zuu-sdk-preview
-git checkout sdk-v0.2.0
+git checkout sdk-v0.3.0
 cd rs
 cargo +1.97.1 run --locked -p f2z-sdk --example full_flow
 cargo +1.97.1 test --locked -p f2z-sdk --all-targets
@@ -201,10 +201,8 @@ session. Keep the exact request and key when restart recovery is required.
 
 ## Identity, switching accounts and account exits
 
-These are on `main` and not in a tagged release yet (see
-[RELEASES.md](./RELEASES.md#unreleased)); they will need the next release in
-all three packages a Tauri app pins (the Rust plugin crate,
-`@free2z/tauri-plugin-f2z-api` and `@free2z/sdk`). A newer
+These need `sdk-v0.3.0` or later in all three packages a Tauri app pins (the
+Rust plugin crate, `@free2z/tauri-plugin-f2z-api` and `@free2z/sdk`). A newer
 TypeScript or guest API talking to an older Rust plugin refuses `ephemeral` as
 an unknown sign-in option, and the account exits reject because the plugin
 has no such command (as they do when the capability does not grant them);
