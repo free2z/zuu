@@ -16,7 +16,8 @@ Every rule below is written so you can test it before you submit. The
 ## The short version
 
 1. **Never sell 2Z in the app.** No in-app purchase of 2Z, no checkout, and no
-   `purchase:create` scope in a store build. 2Z Inc sells 2Z on the web.
+   `purchase:create` scope in any build. 2Z Inc sells 2Z on the web, on the
+   user's Free2Z billing page.
 2. **Never put a buy button, a price or "buy 2Z" copy in the app or its store
    listing**, except where the [table in §2](#2-the-line) allows it.
 3. **Sign in through the system authentication session**
@@ -24,7 +25,10 @@ Every rule below is written so you can test it before you submit. The
    WebView.
 4. **When credits run out, stay calm.** Show "No credits" and a
    **Manage Free2Z account** button that opens the system browser
-   (`client.openManageAccount()`, `sdk-v0.3.0`).
+   (`client.openManageAccount()`, `sdk-v0.3.0`). A Google Play build, or an
+   iOS build outside the US storefront, **must not** show a billing link
+   (`openBilling()`, SDK 0.4.0) or grant the plugin permission
+   `f2z:allow-open-billing` ([§2](#2-the-line)).
 5. **List the app as Education (or another fitting category) at 4+.** Do not
    use the Kids Category, and never write "for kids" in the metadata.
 6. **Ask before sending anything to AI.** Name Free2Z and the AI provider, and
@@ -83,9 +87,14 @@ gateway. Usage is metered in 2Z usage credits, which are never cashed out.
 Developer compensation is governed by the Free2Z Creator Compensation Agreement (cc-2026-10-v2, schedule `sdk-application-2026-10-v2`). It is paid in USD by 2Z Inc. from
 its own funds, and it applies only after the developer's authenticated
 acceptance, a verified legal-payee binding and activation (see
-[metering §2.3](./spec/metering.md#23-splits)). The SDK's
-purchase API ([purchase.md](./spec/purchase.md)) is for web and desktop builds.
-A store build must not request `purchase:create` or call `createPurchase`.
+[metering §2.3](./spec/metering.md#23-splits)). Apps don't sell 2Z: the
+SDK's purchase API ([purchase.md](./spec/purchase.md)) is deprecated for apps
+since 0.4.0, and the SDK's default scopes no longer request `purchase:create`.
+A web, direct-download desktop or Apple-US-storefront build that wants a "get
+2Z" link opens the user's Free2Z billing page with `openBilling()`
+([the billing URL contract](./INTEGRATION.md#get-2z--the-billing-url-contract)).
+A store build must not request `purchase:create`, call `createPurchase` or
+call `openBilling()`.
 
 Google says plainly that this model is allowed:
 
@@ -122,9 +131,21 @@ or by IP address.
 | **Manage Free2Z account** → `https://free2z.cash/account/apps?client_id=<id>` in the **system browser** | ✅ once the store-safe view ships | ✅ | ✅ once the store-safe view ships |
 | Plain text with no link: "Add 2Z at free2z.cash" | ❌ (3.1.3: may not "encourage") | ✅ | ✅ |
 | Buy or top-up button, or link to purchase, in the **external browser** | ❌ | ✅, optional | ❌, unless enrolled in the US external content links program |
+| **Get 2Z on Free2Z** → `openBilling()` (`https://free2z.cash/buy-2z?client_id=<id>`), and the plugin permissions `f2z:allow-open-billing` / `f2z:allow-billing-url` | ❌ | ✅, optional, behind the remote flag below | ❌ |
 | Prices ("500 2Z for $5"), "buy 2Z", "top up" | ❌ | ✅ only beside a US link | ❌ |
 | Any Free2Z page in an in-app WebView | ❌ | ❌ | ❌ |
 | The same purchase wording in the name, description, screenshots or keywords | ❌ | ❌ (metadata is per language, not per storefront) | ❌ |
+
+**The billing link is opt-in, per build.** From SDK 0.4.0, `billingUrl()` /
+`openBilling()` open the user's Free2Z billing page, where they pay with
+Zcash or by card. It is a link to purchase, so it follows the "link to
+purchase" row above. A **Google Play build**, or an **iOS build outside the
+US storefront**, must not show billing links or grant
+`f2z:allow-open-billing` (or `f2z:allow-billing-url`) in any Tauri
+capability. A capability is fixed when the app is built, not per storefront:
+grant the permission only in a build that ships to the US storefront alone,
+or keep it out of the iOS build entirely. Web apps and directly downloaded
+desktop apps are outside the stores and may use it freely.
 
 **US storefront, Apple.** Guideline 3.1.1(a) says that link entitlements "are
 not required for developers to include buttons, external links, or other calls
@@ -152,7 +173,10 @@ payment method". So the page that **Manage Free2Z account** opens
 (`/account/apps?client_id=`) must show no purchase link, price or sales pitch
 when it is opened with a `client_id`. It may show grants, this app's budget,
 sign-out and deletion. The same rule covers every hosted Free2Z page that an
-SDK app opens (sign-in, sign-up, consent, account, deletion):
+SDK app opens by default (sign-in, sign-up, consent, account, deletion). The
+billing page (`/buy-2z`) is the one exception: it sells 2Z, so only a build
+allowed to link to purchase opens it, with `openBilling()`. **Manage never
+points at billing**, in any build:
 
 - **Commerce-free, including the navigation and footer the page inherits.** A
   "Buy 2Z" item in a shared header or footer is a path to payment.
@@ -209,6 +233,7 @@ The rest of free2z.cash may sell 2Z normally.
 | "This app's budget is used up · Manage Free2Z account" | "Top up to keep learning" |
 | "Connect Free2Z" | "Buy 2Z to unlock AI" |
 | (US storefront, Apple only) "Add 2Z on free2z.cash ↗" | "Upgrade" / "Go Premium" / "Unlock" |
+| (web, direct-download desktop, US storefront only) "Get 2Z on Free2Z ↗" (`openBilling()`) | "Manage Free2Z account" that opens billing |
 
 Don't add urgency, a countdown, a discount or "keep going" pressure. Each of
 those is a sales pitch in any store.
@@ -224,7 +249,14 @@ those is a sales pitch in any store.
 - [ ] No code path loads a free2z.cash URL into a WebView. Sign-in uses the
       SDK's platform auth session, and **Manage** uses the OS browser opener.
 - [ ] The **Manage** URL is the fixed `/account/apps?client_id=<id>`. It is
-      never built from an OAuth subject or from model output.
+      never built from an OAuth subject or from model output, and never
+      points at the billing page (`/buy-2z`).
+- [ ] **Google Play builds, and iOS builds available outside the US
+      storefront:** no capability file grants `f2z:allow-open-billing` or
+      `f2z:allow-billing-url`
+      (`grep -rnE "allow-(open-)?billing" src-tauri/capabilities`
+      prints nothing), and no code path calls `openBilling()` or
+      `billingUrl()`. The app shows "Manage Free2Z account" only.
 - [ ] With the app's real `client_id`, every Free2Z page the app opens
       (sign-in, consent, **Manage**, deletion) has no purchase path, including
       in its header and footer. For an app used by children, the browser's
@@ -432,8 +464,8 @@ the app shows no purchase buttons, links, prices or calls to action. When the
 balance is zero, it shows "No credits" and a "Manage Free2Z account" link to
 an account page with no purchase path. [Only once the store-safe view ships;
 see "Do not submit until".]
-[US storefront only: an optional link opens free2z.cash in Safari to add 2Z
-(3.1.1(a)).]
+[US storefront only: an optional "Get 2Z on Free2Z" link opens the user's
+Free2Z billing page (free2z.cash/buy-2z) in Safari (3.1.1(a)).]
 
 DEVELOPER COMPENSATION
 Usage is metered in 2Z usage credits, which cannot be cashed out.

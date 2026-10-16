@@ -7,8 +7,10 @@ Registry publication and live end-to-end acceptance are still pending; building
 the real SDK does not establish availability of every service or payment rail.
 
 The Rust examples below target the tagged release `sdk-v0.3.0`
-([release notes](./RELEASES.md#sdk-v030--2026-10-15)), which includes the reviewed grant API alongside login, balance, purchase and
-AI operations. Local fake-service regressions and native builds are not live
+([release notes](./RELEASES.md#sdk-v030--2026-10-15)), which includes the reviewed grant API alongside login, balance and
+AI operations. The "get 2Z" billing link (`billingUrl()` / `openBilling()`,
+below) and the deprecation of the app-facing purchase API land in SDK 0.4.0,
+which is not tagged yet ([release notes](./RELEASES.md#sdk-v040--unreleased)). Local fake-service regressions and native builds are not live
 service acceptance evidence.
 
 ## What can run today
@@ -76,19 +78,23 @@ cargo +1.97.1 test --locked -p f2z-sdk --all-targets
 ```
 
 `full_flow` starts local fakes of the issuer, account API and gateway. It needs
-no real account, payment or provider key, and performs no real purchase. Its
-checkout URL is illustrative. Passing it proves the client flow against those
+no real account, payment or provider key, and performs no purchase: apps don't
+sell 2Z, so from 0.4.0 on it prints the Free2Z billing URL instead. Passing it proves the client flow against those
 fakes, not a live platform deployment.
 
 ## Registration and the native boundary
 
 Register a **public native client**; a Tauri app cannot protect a client secret.
-Request `openid profile offline_access balance:read purchase:create ai:invoke`
-(the Rust core's defaults). An App Store or Google Play build must drop
-`purchase:create` and never open a purchase surface; follow the
+Request `openid profile offline_access balance:read ai:invoke` (the SDK's
+defaults since 0.4.0). Apps don't sell 2Z, so no app requests
+`purchase:create`: a user who needs 2Z gets them on their Free2Z billing page
+([the billing URL contract](#get-2z--the-billing-url-contract)). SDK 0.3.0 and
+earlier included `purchase:create` in the defaults; an app that still calls the
+deprecated purchase API must now list it explicitly. A store build must never
+request it or open a purchase surface; follow the
 [store-compliance playbook](./STORE-COMPLIANCE.md#2-the-line). Read the granted scopes after sign-in: the user can
-decline permissions. Do not enable purchase or AI actions merely because the
-app asked for them. `client_id` is public configuration.
+decline permissions. Do not enable AI actions merely because the app asked for
+them. `client_id` is public configuration.
 
 ### A per-user spending budget
 
@@ -180,7 +186,8 @@ rather than reimplementing authentication or invoking guessed command names.
 | `session` / `signIn` / `signOut` | Own `Client`, authentication session and keychain | Signed-in state, subject, granted scopes, display username (with `profile`), persistence mode, revocation confirmation |
 | `manageAccountUrl` / `openManageAccount` / `deleteAccountUrl` / `openDeleteAccount` | Build the account-page URLs from native configuration; open them in the system browser | A URL string, or nothing |
 | `balance` | Call `Client::balance` | Available, held, total and debt milli-2Z plus `as_of` |
-| `createPurchase` / `purchase` / `waitForPurchase` | Create intent, open validated hosted checkout, poll | Intent ID and status; refreshed balance once credited |
+| `billingUrl` / `openBilling` (0.4.0, opt-in) | Open the user's Free2Z billing page in the system browser | Nothing; re-read the balance on foreground. Store builds use `openManageAccount` instead |
+| `createPurchase` / `purchase` / `waitForPurchase` | **Deprecated since 0.4.0**: apps don't sell 2Z. Kept working for 0.3.0 apps that request `purchase:create` explicitly | Intent ID and status |
 | `models` / `estimate` | Call the corresponding AI methods when live support is ready | Capabilities and provisional hold estimate |
 | `startChat` / `nextChat` / `cancelChat` | Own stream task and cancel handle, correlate by app operation ID | Text/tool events, call ID, receipt/settlement state and classified errors |
 
@@ -280,12 +287,13 @@ by `subject` is the app's to clear or keep.
 
 ### Manage and delete the Free2Z account
 
-Two pages on the Free2Z website are part of the SDK contract:
+Three pages on the Free2Z website are part of the SDK contract:
 
 | Method | URL | Use it for |
 |---|---|---|
-| `manageAccountUrl()` / `openManageAccount()` | `{web origin}/account/apps?client_id=<this app>` | "Manage Free2Z account": this app's access and budget, and the account and its balance. The exit to show when credits run out (`insufficient_balance`, `cap_exceeded`) |
+| `manageAccountUrl()` / `openManageAccount()` | `{web origin}/account/apps?client_id=<this app>` | "Manage Free2Z account": this app's access and budget, and the account and its balance. Purchase-free. The exit for `cap_exceeded`, and in a store build the only exit when credits run out |
 | `deleteAccountUrl()` / `openDeleteAccount()` | `{web origin}/account/delete` | Account deletion. The App Store and Google Play require an in-app path to it for an app whose flow can create an account; a link to this page satisfies that |
+| `billingUrl()` / `openBilling()` (0.4.0) | `{web origin}/buy-2z?client_id=<this app>` | **Opt-in.** "Get 2Z on Free2Z": the user's billing page, Zcash first, card second. Only for web, direct-download desktop and Apple-US-storefront builds; see [the billing URL contract](#get-2z--the-billing-url-contract) |
 
 ```ts
 <button onClick={() => client.openManageAccount()}>Manage Free2Z account</button>
@@ -294,19 +302,20 @@ Two pages on the Free2Z website are part of the SDK contract:
 
 - The **web origin** is the issuer's origin (`https://free2z.cash`) unless
   the Rust `Config::with_web_origin` (web: `FetchConfig.webOrigin`) sets
-  another. The plugin builds both URLs from its native configuration: no
-  command takes a URL from JavaScript, so an untrusted page cannot use them to
-  open anything else.
+  another. The plugin builds every one of these URLs from its native
+  configuration: no command takes a URL from JavaScript, so an untrusted page
+  cannot use them to open anything else.
 - The `open…` methods use the **system browser**, never a webview: Safari on
   iOS, the default browser app (`ACTION_VIEW`) on Android, the default browser
   on desktop. The web transport calls `FetchConfig.openExternal`, like
   checkout. The user signs in to Free2Z there if needed.
-- These are account management, not a checkout. Label them plainly ("Manage
-  Free2Z account", "Delete Free2Z account"), with no price, "buy" or "top up"
-  wording in the app. Outside the US App Store an app may not encourage
-  purchasing elsewhere.
-- Rust: `Client::web_origin()`, `Client::manage_account_url()` and
-  `Client::delete_account_url()`.
+- Manage and Delete are account management, not a checkout. Label them
+  plainly ("Manage Free2Z account", "Delete Free2Z account"), with no price,
+  "buy" or "top up" wording in the app. Outside the US App Store an app may
+  not encourage purchasing elsewhere. Billing is the one exit that leads to
+  payment, which is why it is opt-in and absent from store builds.
+- Rust: `Client::web_origin()`, `Client::manage_account_url()`,
+  `Client::delete_account_url()` and `Client::billing_url()`.
 - **Deletion, for the stores.** Enter `https://free2z.cash/account/delete` as
   the account-deletion URL in Google Play Console too. Free2Z handles the
   confirmation and needs no email. After a user deletes their account, the
@@ -328,14 +337,12 @@ keys belong to the app.
 
 ```rust
 use std::sync::Arc;
-use std::time::Duration;
 use f2z_sdk::{Client, Config, Error, SignInOptions, TokenStore};
 use f2z_sdk::ai::{CancelHandle, Charge, ChatOptions};
 use f2z_sdk::oauth::{LoopbackSession, SignedIn, UrlOpener};
-use f2z_sdk::proto::{ChatRequest, Event, Whole2z};
+use f2z_sdk::proto::{ChatRequest, Event};
 use f2z_sdk::proto::balance::Balance;
 use f2z_sdk::proto::chat::Message;
-use f2z_sdk::purchase::{Platform, PollOptions, PurchaseIntent, PurchaseRequest};
 
 pub fn make_client(client_id: &str, store: Arc<dyn TokenStore>) -> Result<Client, Error> {
     Client::new(Config::new(client_id), store)
@@ -353,26 +360,13 @@ pub async fn read_balance(client: &Client) -> Result<Balance, Error> {
     client.balance().await
 }
 
-// Keep the same key AND return URL when retrying this intent creation.
-// Open the checkout only after the user chooses to purchase.
-pub async fn create_card_checkout(
-    client: &Client,
-    platform: Platform,
-    return_url: &str,
-    operation_key: &str,
-    opener: &dyn UrlOpener,
-) -> Result<PurchaseIntent, Error> {
-    let request = PurchaseRequest::card(Whole2z::new(500), platform, return_url)
-        .with_idempotency_key(operation_key);
-    let intent = client.create_purchase(&request).await?;
-    let checkout = intent.checkout_url()
-        .ok_or_else(|| Error::Protocol("missing HTTPS checkout URL".into()))?;
-    opener.open(checkout).map_err(Error::Browser)?;
-    Ok(intent)
-}
-
-pub async fn poll_purchase(client: &Client, id: &str) -> Result<PurchaseIntent, Error> {
-    client.wait_for_purchase(id, PollOptions::max_wait(Duration::from_secs(60))).await
+// Apps don't sell 2Z (0.4.0). When the balance is too low, a build that may
+// link to payment opens the user's Free2Z billing page; a store build opens
+// only "Manage Free2Z account". Re-read the balance when the app returns to
+// the foreground: there is no return redirect.
+pub fn open_get_2z(client: &Client, opener: &dyn UrlOpener, store_build: bool) -> Result<(), Error> {
+    let url = if store_build { client.manage_account_url() } else { client.billing_url() };
+    opener.open(url).map_err(Error::Browser)
 }
 
 pub fn tutor_request(model: &str, prompt: &str) -> ChatRequest {
@@ -557,7 +551,8 @@ yourself with the **same request, flag included**. A strict estimate runs exactl
 would — same bounds, same consented-markup affordability — without a hold or a
 charge: it answers `200` if the call would run at the full limit, or the same
 `402 insufficient_balance` / `403 cap_exceeded` / `400` refusal (with the same
-`details`) the call would get. Show "top up or raise this app's budget" from
+`details`) the call would get. Show "get 2Z on Free2Z" (billing, or Manage in
+a store build) or "raise this app's budget" from
 that refusal instead of starting the call. Do **not** pre-check with a
 non-strict estimate: it prices at the app's current effective markup, while a
 strict call is judged at the consented markup (below), so the two can disagree.
@@ -576,7 +571,9 @@ try {
   await client.estimate(request); // 200: the call would run at 1800 tokens
 } catch (e) {
   // insufficient_balance / cap_exceeded (details.reason ===
-  // "max_output_tokens_strict"): offer a purchase or budget change instead.
+  // "max_output_tokens_strict"): send the user to Free2Z billing
+  // (openBilling(), or openManageAccount() in a store build) or to the
+  // budget on Manage, instead of starting the call.
 }
 const stream = await client.chat(request, { idempotencyKey, operationId });
 // A refusal here still cost nothing and ran nothing.
@@ -601,13 +598,14 @@ A strict call can still end with `length` if the model itself uses every
 token you allowed — that is your limit, not the gateway's, and is charged
 like any other completed call.
 
-### Balance precision and purchase completion
+### Balance precision and getting 2Z
 
 Show `available_milli_2z`; show a nonzero `debt_milli_2z` separately.
 `balance_milli_2z` includes the held portion. Re-read the authoritative balance
-after credited purchases, finalized calls and app foregrounding. Do not add
-purchase quantities locally or subtract `done` hints as if they were a ledger.
-Other devices and calls can change the balance concurrently.
+after finalized calls and app foregrounding — in particular when the user
+comes back from the Free2Z billing page. Do not subtract `done` hints as if
+they were a ledger. Other devices and calls can change the balance
+concurrently.
 
 The service uses JSON integer amounts. Although the metering specification
 requires a JavaScript-safe bound, the current Rust amount types accept `u64`
@@ -621,27 +619,32 @@ to `bigint` cannot recover
 its original value. Keep `_2z` and `_milli_2z` names distinct. Format 41,500
 milli-2Z as 41.500 2Z only at the display boundary.
 
-For desktop purchases, `purchase::ReturnListener::bind("/purchase-done")`
-provides a loopback `return_url`; keep the listener alive through checkout.
-Mobile must use an app-registered return URL supported by the purchase contract
-and the platform browser. The redirect is a wake-up hint, **not evidence of
-credit**. Poll even if the browser is closed without a callback.
+Apps don't sell 2Z. A user gets them on their Free2Z billing page, paying with
+Zcash (preferred, shown first) or by card; Zcash is credited after
+confirmations, so there is nothing for the app to poll — re-read the balance
+when the app returns to the foreground.
 
-`wait_for_purchase` returns the last observed intent when its wait budget ends;
-that intent may still be `created`, `pending` or `paid`. Only `credited` means
-credits reached the account. Retain the intent ID, continue polling on resume,
-and handle expiration, failure, refunds, disputes and unknown statuses.
-The reviewed native/facade preview can create card or Zcash intents; this does
-not certify a live payment rail for the tutor. The plugin uses its registered
-HTTPS purchase-return URL. Third-party apps do not use Free2Z's first-party
-Apple/Google IAP rails.
+**Deprecated purchase API.** `create_purchase` / `purchase` /
+`wait_for_purchase`, `PurchaseRequest` and `ReturnListener` (TS
+`createPurchase`, `purchase`, `waitForPurchase`, `openCheckout`,
+`FetchConfig.purchaseReturnUri`) are deprecated since 0.4.0 and keep working
+for apps built on 0.3.0 that request `purchase:create` explicitly. They take
+**card payments only**: Zcash is paid on Free2Z's billing page, never through
+this API, which refuses a `zcash` intent (`rail_unavailable`). The redirect
+back from a checkout is a wake-up hint, **not evidence of credit**;
+`wait_for_purchase` may return an intent still `created`, `pending` or `paid`,
+and only `credited` means 2Z reached the account. Third-party apps never use
+Free2Z's first-party Apple/Google IAP rails. See
+[spec/purchase.md](./spec/purchase.md).
 
 ### Manage Free2Z account: the URL contract
 
 An app never sells 2Z and never shows a purchase flow. When the account needs
-attention, for example no credits, a used-up budget or account deletion, the app shows a calm
-state and one exit: **Manage Free2Z account**. That exit opens this URL in the
-**system browser**, never in a WebView:
+attention, for example a used-up budget or account deletion, the app shows a calm
+state and one exit: **Manage Free2Z account**. For no credits, a store build
+shows the same exit; a web, direct-download desktop or US-storefront build may
+instead link [Free2Z billing](#get-2z--the-billing-url-contract). Manage opens
+this URL in the **system browser**, never in a WebView:
 
 ```text
 https://free2z.cash/account/apps?client_id=<your registered client_id>
@@ -672,10 +675,12 @@ The SDK builds and opens it for you: `manageAccountUrl()` / `openManageAccount()
 - **The URL only selects what is shown.** Nothing is granted, revoked or
   changed by opening it. Changes need the user's click on the page.
 
-**The line.** Every Free2Z page that an SDK app opens is **commerce-free**: the
-sign-in and sign-up sheet (`/login` returning to `/oauth/authorize`), the
-consent screen, the Manage page above, and account deletion once it ships.
-These pages have:
+**The line.** Every Free2Z page that an SDK app opens by default is
+**commerce-free**: the sign-in and sign-up sheet (`/login` returning to
+`/oauth/authorize`), the consent screen, the Manage page above, and account
+deletion once it ships. The billing page is the one exception, and an app
+reaches it only by opting in with `openBilling()` in a build that may link to
+payment. The commerce-free pages have:
 
 - no purchase path or price list, no "buy 2Z" call to action and no checkout.
   The consent screen and the Manage page still show this app's budget and
@@ -691,6 +696,53 @@ purchase. The rest of free2z.cash sells 2Z normally, and people who use
 Free2Z know where to find it. For the store-by-store rules, wording and
 pre-submission checks, see [Store compliance](./STORE-COMPLIANCE.md#2-the-line).
 
+### Get 2Z — the billing URL contract
+
+Apps don't sell 2Z. A user who needs 2Z gets them on **their Free2Z billing
+page**, where they pay with Zcash (preferred, shown first) or by card. From SDK
+0.4.0 an app that may link to payment opens it with `billingUrl()` /
+`openBilling()` (Rust `Client::billing_url()`):
+
+```text
+https://free2z.cash/buy-2z?client_id=<your registered client_id>
+```
+
+- **Opt-in, per build.** Web apps, directly downloaded desktop apps and
+  builds for **Apple's US storefront** may show it. A **Google Play** build, or
+  an **iOS build outside the US storefront**, must not show it or grant its
+  plugin permission: it shows "Manage Free2Z account" only
+  ([store compliance](./STORE-COMPLIANCE.md#2-the-line)). Decide this per
+  build, not at runtime.
+- **Native permission.** The Tauri plugin's `billing_url` and `open_billing`
+  commands are reachable only through the explicit permissions
+  `f2z:allow-billing-url` and `f2z:allow-open-billing`. The plugin's default
+  grants nothing; a store build's capability never lists either.
+- **Built natively, opened in the system browser.** Like the account exits,
+  the URL comes from the native configuration (the issuer's origin, or
+  `Config::with_web_origin` / `FetchConfig.webOrigin`) and the `client_id` is
+  percent-encoded. No command takes a URL from JavaScript. The page opens in
+  the system browser, never a webview.
+- **What the page does.** Signed out, it sends the visitor to sign in and
+  back, `client_id` included. Signed in, it shows the user's balance and the
+  ways to get 2Z: Zcash first (a shielded address and the account's memo),
+  card second. `client_id` only says which app sent the user; nothing is
+  granted, charged or changed by opening the URL.
+- **No return redirect.** v1 has no return-URL parameter: Zcash credits after
+  confirmations, so the app re-reads `balance()` when it comes back to the
+  foreground.
+- **Label it** "Get 2Z on Free2Z" or similar. The app shows no price and no
+  checkout of its own; the price is on Free2Z's page.
+- **Billing is not Manage.** `openManageAccount()` and its URL stay a
+  purchase-free account page: never point it, or a "Manage" label, at billing.
+
+```ts
+const STORE_BUILD = false; // true for Google Play, and iOS outside the US storefront
+async function getMore2z() {
+  if (STORE_BUILD) await client.openManageAccount(); // "Manage Free2Z account"
+  else await client.openBilling(); // "Get 2Z on Free2Z"
+}
+```
+
 ### Cancellation, receipts and errors
 
 “Stop” ends delivery. Generation and settlement can continue, so never show
@@ -704,9 +756,9 @@ from `collected_milli_2z` actually taken.
 |---|---|
 | `Error::SignedOut` | Clear signed-in UI and request login; do not continue spending |
 | `Error::StepUpRequired(challenge)` | Sign in with `SignInOptions::step_up(&challenge)` and retry the intended operation once, bound to the same account |
-| `insufficient_balance` | Offer a credit purchase or the **Manage balance and purchases** link on [Free2Z connected apps](https://free2z.cash/account/apps) (`openManageAccount()`); re-read balance after confirmed credit. A store build shows only "No credits" and **Manage Free2Z account** ([store compliance](./STORE-COMPLIANCE.md#2-the-line)) |
+| `insufficient_balance` | Web, direct-download desktop and Apple-US-storefront builds may call `openBilling()` ([billing URL contract](#get-2z--the-billing-url-contract)); store builds (Google Play, iOS outside the US storefront) show "Manage Free2Z account" (`openManageAccount()`) only ([store compliance](./STORE-COMPLIANCE.md#2-the-line)). Re-read the balance on foreground; never sell 2Z in the app |
 | `cap_exceeded` | Direct the user to manage this app's budget with `openManageAccount()`, which opens `https://free2z.cash/account/apps?client_id=<client_id>` ([URL contract](#manage-free2z-account-the-url-contract)), or wait for its reset period. Topping up account balance does not raise this budget |
-| `account_in_debt` | Show debt separately and direct the user to Free2Z account management with `openManageAccount()` ([URL contract](#manage-free2z-account-the-url-contract)); do not automatically retry a charge |
+| `account_in_debt` | Show debt separately. Web, direct-download desktop and Apple-US-storefront builds may call `openBilling()` ([billing URL contract](#get-2z--the-billing-url-contract)); store builds show "Manage Free2Z account" (`openManageAccount()`) only ([URL contract](#manage-free2z-account-the-url-contract)). Do not automatically retry a charge |
 | `rate_limited`, `concurrency_limit`, `unavailable` | Honor `Retry-After` and explain temporary capacity/availability, not a need to buy credits or raise a budget |
 | `Error::Unconfirmed { idempotency_key, .. }` | Retain the exact request and key; recover with the same key under the same user |
 | `Error::Replayed(record)` | Display the existing call's receipt; no new completion or charge was produced |
@@ -727,7 +779,7 @@ use the reason only for messaging. Re-read grant and
 balance after account management. See [the concrete budget recovery flow](./SOURCE-PREVIEW.md#user-owned-budgets-and-recovery).
 
 Same-key recovery must use the identical request body, same app and same user.
-For purchases this includes the original return URL: allocating a new loopback
+For the deprecated purchase API this includes the original return URL: allocating a new loopback
 port and changing that URL during recovery changes the body. Persist the key,
 intent/call ID and required request data deliberately if restart recovery is
 needed; do not log prompts, completions, tokens or callback URLs. Scope recovery
@@ -811,10 +863,11 @@ The contract is [chat-api.md §7.1](./spec/chat-api.md#71-reporting-a-calls-outp
 Build the tutor UI behind an app-owned adapter using the real pinned
 `Client(new NativeTransport(nativeBridge))` preview, with a mock implementation
 for deterministic tests and service flows not yet confirmed live.
-Use the six scopes listed above. Model signed-out, signing-in, signed-in,
+Use the five default scopes listed above (no `purchase:create`). Model signed-out, signing-in, signed-in,
 memory-only persistence and step-up states. Represent balances as integer
-milli-2Z with debt separate; represent purchases by intent ID/status and streams
-by operation ID, call ID, text, terminal event and settlement state. Include
+milli-2Z with debt separate; represent "get 2Z" as the billing exit (Manage
+in a store build) plus a balance re-read on foreground, and streams by
+operation ID, call ID, text, terminal event and settlement state. Include
 mock cases for insufficient balance, partial charged failure, cancellation,
 pending settlement, lost-response same-key recovery and account switching
 (`signIn({ prompt: "login" })`, then a new `subject`). Show the account by
@@ -826,6 +879,6 @@ native code, keep untrusted content outside privileged Tauri capabilities, and
 keep package versions pinned through the preview merge/release process. Source
 integration can begin now; live acceptance requires confirmed client registration,
 payment and metering readiness. Acceptance then
-requires one real registered-user sign-in, authoritative balance read, approved
-test purchase through credited, and metered chat whose final receipt reconciles
+requires one real registered-user sign-in, authoritative balance read, a
+top-up on the Free2Z billing page reflected in the re-read balance, and metered chat whose final receipt reconciles
 with the refreshed balance, on each supported platform.

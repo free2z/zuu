@@ -1,9 +1,10 @@
 //! Who is signed in, for display, and the Free2Z web pages where the user
-//! manages that account.
+//! manages that account and gets 2Z.
 //!
 //! The pages are part of the SDK contract (`docs/free2z/sdk/INTEGRATION.md`,
-//! "Account exits"): an app opens them in the **system browser**, never in a
-//! webview, and never builds them itself.
+//! "Account exits" and "Get 2Z — the billing URL contract"): an app opens them
+//! in the **system browser**, never in a webview, and never builds them
+//! itself.
 
 use url::Url;
 
@@ -104,6 +105,17 @@ pub(crate) fn web_origin(issuer: &Url, configured: Option<&str>) -> Result<Strin
 pub(crate) fn manage_url(origin: &str, client_id: &str) -> Result<String, Error> {
     let mut url = Url::parse(&format!("{origin}/account/apps"))
         .map_err(|e| Error::Internal(format!("manage-account URL: {e}")))?;
+    url.query_pairs_mut().append_pair("client_id", client_id);
+    Ok(url.into())
+}
+
+/// `{origin}/buy-2z?client_id=…`: the user's Free2Z billing page, where they
+/// get 2Z (Zcash first, card second). Apps do not sell 2Z; an app that may
+/// link to payment sends the user here. Kept apart from [`manage_url`], which
+/// is purchase-free account management.
+pub(crate) fn billing_url(origin: &str, client_id: &str) -> Result<String, Error> {
+    let mut url = Url::parse(&format!("{origin}/buy-2z"))
+        .map_err(|e| Error::Internal(format!("billing URL: {e}")))?;
     url.query_pairs_mut().append_pair("client_id", client_id);
     Ok(url.into())
 }
@@ -221,6 +233,23 @@ mod tests {
         assert_eq!(
             delete_url("https://free2z.cash"),
             "https://free2z.cash/account/delete"
+        );
+    }
+
+    #[test]
+    fn the_billing_url_is_on_the_web_origin_and_encodes_the_client_id() {
+        assert_eq!(
+            billing_url("https://free2z.cash", "iVhrb5Jk").unwrap(),
+            "https://free2z.cash/buy-2z?client_id=iVhrb5Jk"
+        );
+        assert_eq!(
+            billing_url("http://127.0.0.1:8000", "a b&c=d/é#x").unwrap(),
+            "http://127.0.0.1:8000/buy-2z?client_id=a+b%26c%3Dd%2F%C3%A9%23x"
+        );
+        // Billing is its own page: never the purchase-free Manage page.
+        assert_ne!(
+            billing_url("https://free2z.cash", "c").unwrap(),
+            manage_url("https://free2z.cash", "c").unwrap()
         );
     }
 }

@@ -4,6 +4,22 @@
 **Refs:** [#1047](https://github.com/free2z/zuu/issues/1047),
 [#1048](https://github.com/free2z/zuu/issues/1048)
 
+> **Legacy for apps: apps don't sell 2Z.** Since SDK 0.4.0 an app never
+> creates a purchase. A user who needs 2Z gets them on **their Free2Z
+> billing page**, paying with Zcash (preferred, shown first) or by card; a
+> web, direct-download desktop or Apple-US-storefront build links it with
+> `billingUrl()` / `openBilling()`
+> ([the billing URL contract](../INTEGRATION.md#get-2z--the-billing-url-contract)),
+> and a store build shows only "Manage Free2Z account". The SDK's purchase
+> methods are deprecated and its default scopes no longer request
+> `purchase:create`. This endpoint is **not** removed: it stays for
+> Free2Z's own apps and for SDK 0.3.0 clients, which keep working
+> unchanged. **Zcash is paid on Free2Z's billing page, never through this
+> API by a third-party app:** the platform refuses `rail: zcash` from an app
+> (`400 rail_unavailable`), so §5 describes the platform's own rail, not
+> something an app can open. Read the rest of this page as the contract
+> those existing clients rely on.
+
 An app lets a user buy 2Z without ever handling a payment itself. The app
 creates a **purchase intent** on the account API, opens the surface the
 rail returns (a hosted checkout page, the platform's store sheet, or a
@@ -11,12 +27,13 @@ Zcash payment URI), and polls the intent until it is `credited`. The
 platform does the verifying and the crediting; the app never sees a card
 number, a store account or a Zcash key.
 
-**Third-party apps sell 2Z by card and by Zcash in v1.** The in-app
+**Third-party apps don't sell 2Z** (see the notice above). An SDK 0.3.0
+client may still create a **card** intent; Zcash is paid on Free2Z's
+billing page, not through this API. The in-app
 purchase rails (§4) exist only in Free2Z's own apps: a store pays the
 proceeds of an in-app product to the account that lists the app, so a
 third-party listing would put the payment and the credit in different
-hands, and the platform does not operate that arrangement in v1. A
-third-party app on desktop or the web opens the card or Zcash surface.
+hands, and the platform does not operate that arrangement in v1.
 **An app distributed through the App Store or Google Play sells nothing**:
 it does not request `purchase:create`, open a purchase surface or show a
 buy button, except where the
@@ -153,7 +170,7 @@ The `hello-ai` reference app polls; a push channel is not part of v1.
 
 | Field | Rules |
 |---|---|
-| `rail` | `card` or `zcash` for every app; `apple_iap` and `google_iap` only from Free2Z's own apps (§4), otherwise `400 rail_unavailable` |
+| `rail` | `card` for an existing third-party client; `zcash` is refused (`400 rail_unavailable`): a user pays Zcash on Free2Z's billing page. `apple_iap` and `google_iap` only from Free2Z's own apps (§4), otherwise `400 rail_unavailable` |
 | `quantity_2z` | Whole 2Z. **Card:** any amount from **100** ($1.00) to **10,000**. **IAP:** must equal a pack in `GET /purchases/packs` (§4.1). **Zcash:** any amount from **100** to **1,000,000** |
 | `platform` | `desktop`, `ios`, `android`, `web`. Decides which surface the rail returns, and `apple_iap` / `google_iap` are refused off their platform with `400 rail_unavailable` |
 | `return_url` | Card only. Where the hosted checkout sends the browser afterwards. Must be one of the app's registered redirect URIs or a loopback URI; the platform appends `?purchase_id=…&status=…` |
@@ -429,6 +446,10 @@ the store already took the payment.
 
 ## 5. Zcash
 
+> **Not an app rail.** Free2Z's billing page is where a user pays with Zcash.
+> A third-party app's `POST /purchases` with `rail: zcash` is refused
+> (`400 rail_unavailable`); this section describes the platform rail only.
+
 A Zcash purchase is a payment to a **per-purchase address**. Every intent
 gets its own unified address, so the platform matches a payment by *where
 it arrived*, not by a memo; the user need not type anything.
@@ -512,5 +533,6 @@ includes a spread; it is quoted, not negotiated, and the intent shows it.
   down.
 - **The app never sets a price** and never holds a payment credential.
 - **iOS and Android are symmetric.** Any behaviour available on one store
-  rail is available on the other; a difference is a defect. For a
-  third-party app that symmetry is card and Zcash on both.
+  rail is available on the other; a difference is a defect. A third-party
+  app sells nothing on either: both link Free2Z billing, or show only
+  "Manage Free2Z account" in a store build.

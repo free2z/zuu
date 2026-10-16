@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0 — unreleased
+
+Apps don't sell 2Z (free2z/tuzi#2705). Not tagged yet. Links `f2z-sdk`
+0.4.0; guest-js is `@free2z/tauri-plugin-f2z-api` 0.4.0.
+`Builder::new(config, checkout_return)` is unchanged.
+
+### Added
+
+- Commands `billing_url` and `open_billing` (guest `billingUrl()`,
+  `openBilling()`): the user's Free2Z billing page,
+  `{web origin}/buy-2z?client_id=…`, built from native configuration and
+  opened in the system browser; neither takes a URL from JavaScript.
+  **Opt-in:** reachable only through the explicit permissions
+  `f2z:allow-billing-url` / `f2z:allow-open-billing`, which `f2z:default`
+  does not include. A Google Play build, or an iOS build outside the US
+  storefront, must not grant them.
+
+### Deprecated
+
+- `create_purchase`, `purchase`, `wait_for_purchase` and `open_checkout`
+  (guest `createPurchase`, `purchase`, `waitForPurchase`, `openCheckout`):
+  apps don't sell 2Z. They keep working for apps whose session holds
+  `purchase:create`.
+
 ## 0.3.0 — 2026-10-15
 
 Tagged `sdk-v0.3.0` with the other Free2Z SDK packages. Not on a registry:

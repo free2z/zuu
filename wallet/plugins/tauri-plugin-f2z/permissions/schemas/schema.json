@@ -307,6 +307,18 @@
           "markdownDescription": "Denies the balance command without any pre-configured scope."
         },
         {
+          "description": "Enables the billing_url command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-billing-url",
+          "markdownDescription": "Enables the billing_url command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the billing_url command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-billing-url",
+          "markdownDescription": "Denies the billing_url command without any pre-configured scope."
+        },
+        {
           "description": "Enables the call command without any pre-configured scope.",
           "type": "string",
           "const": "allow-call",
@@ -413,6 +425,18 @@
           "type": "string",
           "const": "deny-next-chat",
           "markdownDescription": "Denies the next_chat command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_billing command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-billing",
+          "markdownDescription": "Enables the open_billing command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_billing command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-billing",
+          "markdownDescription": "Denies the open_billing command without any pre-configured scope."
         },
         {
           "description": "Enables the open_checkout command without any pre-configured scope.",

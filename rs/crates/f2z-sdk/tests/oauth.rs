@@ -1424,6 +1424,10 @@ fn the_account_pages_are_on_the_web_origin() {
         client.delete_account_url(),
         "https://free2z.cash/account/delete"
     );
+    assert_eq!(
+        client.billing_url(),
+        "https://free2z.cash/buy-2z?client_id=iVhrb5Jk"
+    );
     let staged = Client::new(
         f2z_sdk::Config::new("c")
             .with_issuer("https://id.staging.example")
@@ -1434,6 +1438,10 @@ fn the_account_pages_are_on_the_web_origin() {
     assert_eq!(
         staged.manage_account_url(),
         "https://www.staging.example/account/apps?client_id=c"
+    );
+    assert_eq!(
+        staged.billing_url(),
+        "https://www.staging.example/buy-2z?client_id=c"
     );
     assert!(
         Client::new(

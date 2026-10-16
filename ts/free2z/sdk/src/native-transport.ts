@@ -96,6 +96,9 @@ export interface NativeBridge {
   openManageAccount?(): Promise<void>;
   deleteAccountUrl?(): Promise<string>;
   openDeleteAccount?(): Promise<void>;
+  /** Absent from plugins older than 0.4.0; the plugin also needs its explicit permission. */
+  billingUrl?(): Promise<string>;
+  openBilling?(): Promise<void>;
   /** Needs a plugin with reporting; `unsupported_operation` without it. */
   reportCall?(
     callId: string,
@@ -325,6 +328,7 @@ export class NativeTransport implements Transport {
       ),
     );
   }
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see `billingUrl`. */
   async createPurchase(value: PurchaseRequest, options: OperationOptions) {
     key(options.idempotencyKey);
     try {
@@ -369,6 +373,16 @@ export class NativeTransport implements Transport {
   }
   async openDeleteAccount() {
     const open = this.bridge.openDeleteAccount;
+    if (!open) failure("unsupported_operation");
+    await invoke(() => open.call(this.bridge));
+  }
+  async billingUrl() {
+    const read = this.bridge.billingUrl;
+    if (!read) failure("unsupported_operation");
+    return accountUrl(await invoke(() => read.call(this.bridge)));
+  }
+  async openBilling() {
+    const open = this.bridge.openBilling;
     if (!open) failure("unsupported_operation");
     await invoke(() => open.call(this.bridge));
   }

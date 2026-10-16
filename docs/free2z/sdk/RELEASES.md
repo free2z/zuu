@@ -15,6 +15,68 @@ separate, owner-authorized step ([RELEASING.md](./RELEASING.md#publication-seque
 
 Per-package detail lives in each package's `CHANGELOG.md`.
 
+## sdk-v0.4.0 — unreleased
+
+**Apps don't sell 2Z** (free2z/tuzi#2705). A user who needs 2Z gets them on
+their Free2Z billing page, paying with Zcash (preferred, shown first) or by
+card. This release adds an **opt-in** helper that links that page and
+deprecates the app-facing purchase API. No gateway change. **Not tagged yet:**
+`sdk-v0.4.0` is cut once Free2Z's `/buy-2z?client_id=` deep link is live in
+production.
+
+### Breaking
+
+- **Default scopes no longer include `purchase:create`** (Rust
+  `DEFAULT_SCOPES` / `Config::new`, TypeScript `DEFAULT_SCOPES`). An app that
+  relied on the default scopes **and still calls `createPurchase` /
+  `create_purchase`** gets `insufficient_scope` (TypeScript refuses locally;
+  the account API answers `403`). Fix: list `purchase:create` explicitly
+  (`Config::with_scopes`, `FetchConfig.scopes`) — or, better, drop the
+  purchase and link Free2Z billing. Apps that never bought 2Z through the SDK
+  are unaffected; a user's existing grant is unchanged until the next sign-in.
+- `@free2z/sdk` declares `@free2z/tauri-plugin-f2z-api@^0.4.0` as its optional
+  peer. Move all three Tauri pieces together.
+
+### Added
+
+- **The billing link.** Rust `Client::billing_url()`; TypeScript
+  `Client.billingUrl()` / `openBilling()`; plugin commands `billing_url` /
+  `open_billing` (guest `billingUrl()` / `openBilling()`). The URL is
+  `{web origin}/buy-2z?client_id=<percent-encoded id>`, built natively from
+  the configured web origin; no command takes a URL from JavaScript, and the
+  page opens in the system browser.
+- **Opt-in, per build.** The plugin commands need the explicit permissions
+  `f2z:allow-billing-url` / `f2z:allow-open-billing`, which no default grants.
+  Web, direct-download desktop and Apple-US-storefront builds may use them; a
+  Google Play build, or an iOS build outside the US storefront, must not
+  ([store compliance](./STORE-COMPLIANCE.md#2-the-line)).
+- **Manage is unchanged.** `openManageAccount()` and
+  `/account/apps?client_id=` stay a purchase-free account page.
+
+### Deprecated
+
+- Rust `Client::create_purchase`, `purchase`, `wait_for_purchase`,
+  `purchase::PurchaseRequest`, `purchase::ReturnListener`; TypeScript
+  `createPurchase`, `purchase`, `waitForPurchase`, `openCheckout`,
+  `PurchaseRequest`, `FetchConfig.purchaseReturnUri`; plugin
+  `create_purchase`, `purchase`, `wait_for_purchase`, `open_checkout`. All keep
+  working for SDK 0.3.0-style apps that hold `purchase:create`; they are card
+  only. Zcash is paid on Free2Z's billing page, never through the purchase API.
+  The endpoint itself is not removed.
+
+### Versions
+
+`f2z-sdk`, `tauri-plugin-f2z`, `@free2z/tauri-plugin-f2z-api` and
+`@free2z/sdk` are 0.4.0. `f2z-ai-proto` stays 0.3.0: the wire contract did not
+change, and bumping it would also require editing the gateway crates that pin
+it.
+
+### Gateway and Free2Z compatibility
+
+- Gateway: unchanged from 0.3.0.
+- Free2Z: needs `/buy-2z?client_id=` (the deep link and Zcash-first billing
+  page) live before the tag.
+
 ## sdk-v0.3.0 — 2026-10-15
 
 The store-compliance release for SDK apps: who is signed in, switching

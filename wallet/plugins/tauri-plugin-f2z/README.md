@@ -1,13 +1,15 @@
 # Free2Z for Tauri 2
 
-Native sign-in, exact 2Z balances, card/Zcash purchase intents, and metered AI.
+Native sign-in, exact 2Z balances, the Free2Z account and billing exits, and
+metered AI. Apps don't sell 2Z: since 0.4.0 the purchase commands are
+deprecated.
 This package is the native transport for `@free2z/sdk`; it can also be used
 through its small `nativeBridge` API. The Rust core owns all bearer credentials.
-The webview receives session metadata, purchase instructions and AI output only.
+The webview receives session metadata, account/billing exits and AI output only.
 
 This is a pre-release integration. Package publication and live provider/device
 smoke testing are separate release steps; building this plugin does not register
-an OAuth client, enable a purchase rail, or configure an app link.
+an OAuth client or configure an app link.
 
 ## Native setup
 
@@ -35,8 +37,9 @@ input into it. `Config` uses Free2Z production defaults; local test endpoints
 also belong exclusively in Rust. Desktop sign-in opens the system browser and
 binds an ephemeral loopback callback; register the SDK's loopback callback path
 for the client. The checkout return above must be registered HTTPS, without a
-query, fragment or user information. Its page is a navigation destination, never
-proof that a purchase was credited.
+query, fragment or user information; `Builder::new` still requires it, though
+only the deprecated purchase commands use it. Its page is a navigation
+destination, never proof that a purchase was credited.
 
 The plugin defaults to the trusted window label `main`. `Builder::windows`
 can explicitly select other labels. Grant only necessary commands in a Tauri
@@ -49,8 +52,6 @@ capability with **local content only**:
   "permissions": [
     "f2z:allow-session", "f2z:allow-sign-in", "f2z:allow-sign-out",
     "f2z:allow-balance", "f2z:allow-grant", "f2z:allow-models", "f2z:allow-estimate",
-    "f2z:allow-create-purchase", "f2z:allow-purchase",
-    "f2z:allow-wait-for-purchase", "f2z:allow-open-checkout",
     "f2z:allow-start-chat", "f2z:allow-next-chat", "f2z:allow-cancel-chat",
     "f2z:allow-call", "f2z:allow-wait-for-call",
     "f2z:allow-manage-account-url", "f2z:allow-open-manage-account",
@@ -59,6 +60,20 @@ capability with **local content only**:
   ]
 }
 ```
+
+No purchase command is granted: apps don't sell 2Z.
+
+**Billing is opt-in.** `billing_url` / `open_billing` (guest `billingUrl()`,
+`openBilling()`) open the user's Free2Z billing page,
+`{web origin}/buy-2z?client_id=…` (Zcash first, card second), in the system
+browser, from native configuration; neither takes a URL from JavaScript. They
+are reachable only through the explicit permissions `f2z:allow-open-billing`
+and `f2z:allow-billing-url`, which are in no default. A web-distributed,
+direct-download desktop or Apple-US-storefront build may add them to its
+capability. A **Google Play build, or an iOS build outside the US
+storefront, must not grant them** and shows only "Manage Free2Z account"
+(`openManageAccount()`), which stays a purchase-free page; see the SDK's
+`STORE-COMPLIANCE.md`.
 
 `report_call` (guest-js `reportCall`) lets the user report an AI output in
 the app, as the Play and App Store AI-content policies require; see the SDK's
@@ -138,9 +153,9 @@ if (opened.replay) {
 ```
 
 All unsigned integers in native response DTOs are canonical decimal strings,
-including prices, balances, usage counts and nested purchase quantities. Never
-convert money through `Number`. `max_output_tokens`, purchase `quantity2z` and
-sign-in `maxAge` also use canonical strings. `max_output_tokens_strict: true`
+including prices, balances and usage counts. Never convert amounts through
+`Number`. `max_output_tokens` and sign-in `maxAge` (and the deprecated purchase
+`quantity2z`) also use canonical strings. `max_output_tokens_strict: true`
 (a plain boolean) makes the gateway refuse before any hold or charge instead of
 lowering `max_output_tokens` when the balance or app budget is short; see
 `docs/free2z/sdk/INTEGRATION.md`. Tool parameters and a `response_format`
@@ -148,20 +163,24 @@ schema remain ordinary JSON, not a special integer codec. Opaque tool-call
 arguments remain JSON text. `models()` capabilities are plain booleans: send
 `response_format` only when `capabilities.structured_output === true`.
 
-Persist purchase idempotency keys before `createPurchase` as well. Re-send the
-same request/key after an ambiguous outcome; do not create a new key merely
+Re-send the same request/key after an ambiguous outcome; do not create a new key merely
 because IPC or the network failed. The bridge disables core retries that would
 create a new chat key; same-key transport retries remain safe. Structured errors
 carry recovery keys/call IDs when known and omit raw transport/storage/provider
 messages. `retryable` never means that an ambiguous billable call can safely be
 replaced with a new one.
 
-Use `openCheckout(purchaseId)` to open a server-supplied HTTPS card checkout in
-the native browser; JavaScript receives no checkout URL. Zcash `rail_data`
-includes address, ZIP-321 URI, exact zatoshi amount, rate, confirmation and
-payment details for a QR/instructions UI. Validate any external wallet navigation
-in the consuming app. `waitForPurchase` polls authoritative server state;
-redirects are not receipts. Poll timeouts are bounded to five minutes.
+A user who needs 2Z gets them on Free2Z: `openBilling()` where the build may
+link to payment, otherwise `openManageAccount()`. Re-read `balance()` when the
+app returns to the foreground; there is no return redirect.
+
+**Deprecated since 0.4.0:** `createPurchase`, `purchase`, `waitForPurchase`
+and `openCheckout`. They keep working for an app whose session holds
+`purchase:create` (no longer in the SDK's default scopes): `openCheckout`
+opens a server-supplied HTTPS card checkout in the native browser, JavaScript
+receives no checkout URL, redirects are not receipts, and `waitForPurchase`
+polls for at most five minutes. They are card only: Zcash is paid on Free2Z's
+billing page, never through these commands.
 
 Chat delivery permits eight registered operations, one outstanding reader per
 operation and a 1 MiB request/event limit. There is no background IPC event queue.

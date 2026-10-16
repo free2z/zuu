@@ -188,6 +188,7 @@ export interface Purchase {
   rail_data: Record<string, unknown>;
   [key: string]: unknown;
 }
+/** @deprecated Since 0.4.0: apps don't sell 2Z; see `NativeBridge.openBilling`. */
 export interface PurchaseRequest { rail: 'card' | 'zcash'; quantity2z: Decimal; idempotencyKey: string }
 /** `sessionGeneration`: refuse (`session_changed`) unless the session is still this one. */
 export interface ChatOperation { operationId: string; idempotencyKey: string; sessionGeneration?: Decimal }
@@ -258,9 +259,13 @@ export interface NativeBridge {
   grant(): Promise<Grant>;
   models(): Promise<ModelCatalog>;
   estimate(request: ChatRequest): Promise<Estimate>;
+  /** @deprecated Since 0.4.0: apps don't sell 2Z. Link users to Free2Z billing with `openBilling()` (or Manage in store builds). Kept working for apps built on 0.3.0. */
   createPurchase(request: PurchaseRequest): Promise<Purchase>;
+  /** @deprecated Since 0.4.0: apps don't sell 2Z. Link users to Free2Z billing with `openBilling()` (or Manage in store builds). Kept working for apps built on 0.3.0. */
   purchase(id: string): Promise<Purchase>;
+  /** @deprecated Since 0.4.0: apps don't sell 2Z. Link users to Free2Z billing with `openBilling()` (or Manage in store builds). Kept working for apps built on 0.3.0. */
   waitForPurchase(id: string, options?: PollOptions): Promise<Purchase>;
+  /** @deprecated Since 0.4.0: apps don't sell 2Z. Link users to Free2Z billing with `openBilling()` (or Manage in store builds). Kept working for apps built on 0.3.0. */
   openCheckout(id: string): Promise<void>;
   /** Persist both caller-owned keys BEFORE this call. No automatic retry with a new key. */
   startChat(request: ChatRequest, operation: ChatOperation): Promise<ChatOpened>;
@@ -278,6 +283,20 @@ export interface NativeBridge {
   deleteAccountUrl(): Promise<string>;
   /** Opens `deleteAccountUrl()` in the system browser: the stores' in-app deletion path. */
   openDeleteAccount(): Promise<void>;
+  /**
+   * `{web origin}/buy-2z?client_id=<this app>`: the user's Free2Z billing page
+   * (Zcash first, card second). Apps don't sell 2Z; this is where a user who
+   * needs 2Z gets them. Opt-in: needs the explicit `f2z:allow-billing-url`
+   * permission, which no default grants.
+   */
+  billingUrl(): Promise<string>;
+  /**
+   * Opens `billingUrl()` in the system browser (never a webview); takes no URL
+   * from JavaScript. Opt-in: needs the explicit `f2z:allow-open-billing`
+   * permission. A Google Play build, or an iOS build outside the US
+   * storefront, must not grant it: show `openManageAccount()` instead.
+   */
+  openBilling(): Promise<void>;
   /**
    * Report a call's AI output, in the app (Play's AI-Generated Content policy,
    * App Store 4.7). Free2Z keeps the call id, reason and `detail`, never the
@@ -309,6 +328,8 @@ export const nativeBridge: NativeBridge = {
   openManageAccount: () => command('open_manage_account'),
   deleteAccountUrl: () => command('delete_account_url'),
   openDeleteAccount: () => command('open_delete_account'),
+  billingUrl: () => command('billing_url'),
+  openBilling: () => command('open_billing'),
   reportCall: (callId, reason, detail) =>
     command('report_call', detail === undefined ? { callId, reason } : { callId, reason, detail }),
 };

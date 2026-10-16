@@ -113,12 +113,21 @@ export class Client {
       }
     }
   }
+  /**
+   * @deprecated Since 0.4.0: apps don't sell 2Z. Link users to Free2Z billing
+   * with {@link billingUrl} / {@link openBilling}, or "Manage Free2Z account"
+   * in store builds. Kept working for apps built on 0.3.0; it needs the
+   * `purchase:create` scope, which `DEFAULT_SCOPES` no longer requests. Card
+   * only: Zcash is paid on Free2Z's billing page, never through this API.
+   */
   createPurchase(request: PurchaseRequest, options: OperationOptions) {
     return this.transport.createPurchase(request, options);
   }
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see {@link billingUrl}. */
   purchase(id: string, signal?: AbortSignal) {
     return this.transport.purchase(id, signal);
   }
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see {@link openBilling}. */
   openCheckout(id: string) {
     return this.transport.openCheckout(id);
   }
@@ -138,6 +147,34 @@ export class Client {
   async openManageAccount(): Promise<void> {
     if (!this.transport.openManageAccount) failure("unsupported_operation");
     return this.transport.openManageAccount();
+  }
+  /**
+   * `{web origin}/buy-2z?client_id=<this app>`: the user's Free2Z billing
+   * page, where they get 2Z — Zcash first, card second. Apps don't sell 2Z;
+   * this is the "get 2Z" link for `insufficient_balance`, `account_in_debt`
+   * and `needs_top_up`. There is no return redirect: re-read `balance()`
+   * when the app returns to the foreground.
+   *
+   * Opt-in, and not for every build: web apps, directly downloaded desktop
+   * apps and Apple-US-storefront builds may show it. A Google Play build, or
+   * an iOS build outside the US storefront, must not link to payment: show
+   * {@link openManageAccount} ("Manage Free2Z account") instead. Under a
+   * native plugin it also needs the explicit `f2z:allow-billing-url`
+   * permission. `unsupported_operation` from a transport or native bridge
+   * without the method.
+   */
+  async billingUrl(): Promise<string> {
+    if (!this.transport.billingUrl) failure("unsupported_operation");
+    return this.transport.billingUrl();
+  }
+  /**
+   * Opens {@link billingUrl} in the system browser, never a webview. Under a
+   * native plugin it needs the explicit `f2z:allow-open-billing` permission,
+   * which a store build that must not link to payment never grants.
+   */
+  async openBilling(): Promise<void> {
+    if (!this.transport.openBilling) failure("unsupported_operation");
+    return this.transport.openBilling();
   }
   /** `{web origin}/account/delete`: where the user deletes their Free2Z account. */
   async deleteAccountUrl(): Promise<string> {
@@ -183,7 +220,10 @@ export class Client {
     if (!this.transport.reportCall) failure("unsupported_operation");
     return this.transport.reportCall(callId, reason, detail, signal);
   }
-  /** Returns the last observed intent at the deadline, including pending/paid. */
+  /**
+   * Returns the last observed intent at the deadline, including pending/paid.
+   * @deprecated Since 0.4.0: apps don't sell 2Z; see {@link billingUrl}.
+   */
   waitForPurchase(id: string, options?: PollOptions): Promise<Purchase> {
     return this.#poll(
       (signal) => this.purchase(id, signal),

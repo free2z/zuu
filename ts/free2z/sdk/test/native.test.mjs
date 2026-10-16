@@ -941,3 +941,50 @@ test("account exits go through native and are refused by an older plugin", async
     code: "invalid_response",
   });
 });
+
+test("billing goes through native, takes no URL from JavaScript and is refused by an older plugin", async () => {
+  const opened = [];
+  const client = new Client(
+    new NativeTransport(
+      bridge({
+        billingUrl: async (...args) => {
+          opened.push(["read", args]);
+          return "https://free2z.cash/buy-2z?client_id=c";
+        },
+        openBilling: async (...args) => {
+          opened.push(["open", args]);
+        },
+      }),
+    ),
+  );
+  assert.equal(
+    await client.billingUrl(),
+    "https://free2z.cash/buy-2z?client_id=c",
+  );
+  await client.openBilling();
+  // Native opens what its own configuration names.
+  assert.deepEqual(opened, [
+    ["read", []],
+    ["open", []],
+  ]);
+  const old = new Client(new NativeTransport(bridge()));
+  for (const call of [() => old.billingUrl(), () => old.openBilling()])
+    await assert.rejects(call(), { code: "unsupported_operation" });
+  const hostile = new Client(
+    new NativeTransport(
+      bridge({ billingUrl: async () => "javascript:alert(1)" }),
+    ),
+  );
+  await assert.rejects(hostile.billingUrl(), { code: "invalid_response" });
+  // A plugin that refuses for want of the permission: the native error reaches the app.
+  const denied = new Client(
+    new NativeTransport(
+      bridge({
+        openBilling: async () => {
+          throw "f2z.open_billing not allowed. Permissions associated with this command: f2z:allow-open-billing";
+        },
+      }),
+    ),
+  );
+  await assert.rejects(denied.openBilling());
+});
