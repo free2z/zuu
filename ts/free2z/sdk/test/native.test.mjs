@@ -986,5 +986,5 @@ test("billing goes through native, takes no URL from JavaScript and is refused b
       }),
     ),
   );
-  await assert.rejects(denied.openBilling());
+  await assert.rejects(denied.openBilling(), { code: "native_error" });
 });

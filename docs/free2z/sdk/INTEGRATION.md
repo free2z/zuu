@@ -8,9 +8,10 @@ the real SDK does not establish availability of every service or payment rail.
 
 The Rust examples below target the tagged release `sdk-v0.3.0`
 ([release notes](./RELEASES.md#sdk-v030--2026-10-15)), which includes the reviewed grant API alongside login, balance and
-AI operations. The "get 2Z" billing link (`billingUrl()` / `openBilling()`,
-below) and the deprecation of the app-facing purchase API land in SDK 0.4.0,
-which is not tagged yet ([release notes](./RELEASES.md#sdk-v040--unreleased)). Local fake-service regressions and native builds are not live
+AI operations. The `billing_url()` / `billingUrl()` / `openBilling()`
+snippets below need **SDK 0.4.0**, not `sdk-v0.3.0`: the billing link and the
+deprecation of the app-facing purchase API land there, and 0.4.0 is not tagged
+yet ([release notes](./RELEASES.md#sdk-v040--unreleased)). Local fake-service regressions and native builds are not live
 service acceptance evidence.
 
 ## What can run today
@@ -708,7 +709,8 @@ https://free2z.cash/buy-2z?client_id=<your registered client_id>
 ```
 
 - **Opt-in, per build.** Web apps, directly downloaded desktop apps and
-  builds for **Apple's US storefront** may show it. A **Google Play** build, or
+  **Apple US-storefront-only builds** (behind a remote flag that defaults to
+  off) may show it. A **Google Play** build, or
   an **iOS build outside the US storefront**, must not show it or grant its
   plugin permission: it shows "Manage Free2Z account" only
   ([store compliance](./STORE-COMPLIANCE.md#2-the-line)). Decide this per

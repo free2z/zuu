@@ -52,6 +52,9 @@ dated `CHANGELOG.md` section in each), a consolidated entry in
 [RELEASES.md](./RELEASES.md) with the gateway compatibility matrix, then the
 annotated tag `sdk-v<version>` on the squash-merge commit and a GitHub release
 whose notes are that entry. Consumers pin the tag. Neither step publishes.
+`f2z-ai-proto` may stay on its own version when its wire format did not change
+(0.4.0 ships with `f2z-ai-proto` 0.3.0); [RELEASES.md](./RELEASES.md) says so
+in that release's entry.
 
 ## Publication sequence
 

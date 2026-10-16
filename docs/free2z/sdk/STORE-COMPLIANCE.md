@@ -26,7 +26,7 @@ Every rule below is written so you can test it before you submit. The
 4. **When credits run out, stay calm.** Show "No credits" and a
    **Manage Free2Z account** button that opens the system browser
    (`client.openManageAccount()`, `sdk-v0.3.0`). A Google Play build, or an
-   iOS build outside the US storefront, **must not** show a billing link
+   iOS build available outside the US storefront, **must not** show a billing link
    (`openBilling()`, SDK 0.4.0) or grant the plugin permission
    `f2z:allow-open-billing` ([§2](#2-the-line)).
 5. **List the app as Education (or another fitting category) at 4+.** Do not
@@ -118,33 +118,36 @@ is not a promise.
 ## 2. The line
 
 The line separates **account management**, which is allowed everywhere, from
-a **purchase funnel**, which is allowed only where noted. Choose the column by
-the **store storefront**: on Apple that is StoreKit `Storefront.current`, where
-`countryCode == "USA"` means the US storefront. Do not decide by device locale
-or by IP address.
+a **purchase funnel**, which is allowed only where noted. Choose the column
+**when you build**, by where that build is distributed — never at runtime, and
+never by device locale or IP address. A build available in **any** App Store
+storefront other than the US uses the "outside the US" column, even if it is
+also sold in the US. Only a build whose App Store availability is limited to
+the US storefront alone uses the "US-storefront-only build" column.
 
-| In the app or its listing | Apple, outside the US | Apple, US storefront | Google Play |
+| In the app or its listing | Apple, any build available outside the US | Apple, US-storefront-only build | Google Play |
 |---|---|---|---|
 | **Connect / Sign in with Free2Z** (system auth session) | ✅ | ✅ | ✅ |
 | Balance shown neutrally ("1,240 2Z") | ✅ | ✅ | ✅ |
 | Calm **No credits** state | ✅ | ✅ | ✅ |
 | **Manage Free2Z account** → `https://free2z.cash/account/apps?client_id=<id>` in the **system browser** | ✅ once the store-safe view ships | ✅ | ✅ once the store-safe view ships |
 | Plain text with no link: "Add 2Z at free2z.cash" | ❌ (3.1.3: may not "encourage") | ✅ | ✅ |
-| Buy or top-up button, or link to purchase, in the **external browser** | ❌ | ✅, optional | ❌, unless enrolled in the US external content links program |
-| **Get 2Z on Free2Z** → `openBilling()` (`https://free2z.cash/buy-2z?client_id=<id>`), and the plugin permissions `f2z:allow-open-billing` / `f2z:allow-billing-url` | ❌ | ✅, optional, behind the remote flag below | ❌ |
-| Prices ("500 2Z for $5"), "buy 2Z", "top up" | ❌ | ✅ only beside a US link | ❌ |
+| Buy or top-up button, or link to purchase, in the **external browser** | ❌ | ✅, optional, behind a remote flag that defaults to off | ❌, unless enrolled in the US external content links program |
+| **Get 2Z on Free2Z** → `openBilling()` (`https://free2z.cash/buy-2z?client_id=<id>`), and the plugin permissions `f2z:allow-open-billing` / `f2z:allow-billing-url` | ❌ | ✅, optional: the permissions may be granted in this build, and the link stays behind a remote flag that defaults to off | ❌ |
+| Prices ("500 2Z for $5"), "buy 2Z", "top up" | ❌ | ✅ only beside that flagged link | ❌ |
 | Any Free2Z page in an in-app WebView | ❌ | ❌ | ❌ |
 | The same purchase wording in the name, description, screenshots or keywords | ❌ | ❌ (metadata is per language, not per storefront) | ❌ |
 
 **The billing link is opt-in, per build.** From SDK 0.4.0, `billingUrl()` /
 `openBilling()` open the user's Free2Z billing page, where they pay with
 Zcash or by card. It is a link to purchase, so it follows the "link to
-purchase" row above. A **Google Play build**, or an **iOS build outside the
-US storefront**, must not show billing links or grant
+purchase" row above. A **Google Play build**, or an **iOS build available in
+any storefront outside the US**, must not show billing links or grant
 `f2z:allow-open-billing` (or `f2z:allow-billing-url`) in any Tauri
-capability. A capability is fixed when the app is built, not per storefront:
-grant the permission only in a build that ships to the US storefront alone,
-or keep it out of the iOS build entirely. Web apps and directly downloaded
+capability. A capability is fixed when the app is built, not per storefront,
+so only a **US-storefront-only build** may grant the permissions — and even
+then the link stays behind a remote flag that defaults to off (below).
+Otherwise keep them out of the iOS build entirely. Web apps and directly downloaded
 desktop apps are outside the stores and may use it freely.
 
 **US storefront, Apple.** Guideline 3.1.1(a) says that link entitlements "are
@@ -157,8 +160,9 @@ external links", and the court added that Apple "is entitled to some
 compensation for the use of its intellectual property". It sent the amount
 back to the district court. Separately, the
 Supreme Court granted review on 2026-06-30 (No. 25-1311), limited to the
-contempt finding. Keep the US link **behind a remote flag that defaults to off**, so
-you can remove it without an app update if Apple sets a fee.
+contempt finding. Even in a US-storefront-only build, keep the link **behind a
+remote flag that defaults to off**, so you can remove it without an app update
+if Apple sets a fee.
 
 **Google, any country.** You may write purchasing information without a link.
 A link to purchase needs the
@@ -232,8 +236,8 @@ The rest of free2z.cash may sell 2Z normally.
 | "Free2Z balance: 1,240 2Z" | "Only $4.99 for 500 2Z" |
 | "This app's budget is used up · Manage Free2Z account" | "Top up to keep learning" |
 | "Connect Free2Z" | "Buy 2Z to unlock AI" |
-| (US storefront, Apple only) "Add 2Z on free2z.cash ↗" | "Upgrade" / "Go Premium" / "Unlock" |
-| (web, direct-download desktop, US storefront only) "Get 2Z on Free2Z ↗" (`openBilling()`) | "Manage Free2Z account" that opens billing |
+| (Apple US-storefront-only build, flag on) "Add 2Z on free2z.cash ↗" | "Upgrade" / "Go Premium" / "Unlock" |
+| (web, direct-download desktop, Apple US-storefront-only build with the flag on) "Get 2Z on Free2Z ↗" (`openBilling()`) | "Manage Free2Z account" that opens billing |
 
 Don't add urgency, a countdown, a discount or "keep going" pressure. Each of
 those is a sales pitch in any store.
@@ -245,7 +249,8 @@ those is a sales pitch in any store.
       `purchase:create`.
 - [ ] Search the built UI strings and store metadata in every locale for
       *buy, purchase, top up, price, $, €, upgrade, premium, unlock*. Each hit
-      is either removed or gated to the US storefront on Apple.
+      is either removed or, on Apple, present only in a US-storefront-only
+      build behind the default-off remote flag.
 - [ ] No code path loads a free2z.cash URL into a WebView. Sign-in uses the
       SDK's platform auth session, and **Manage** uses the OS browser opener.
 - [ ] The **Manage** URL is the fixed `/account/apps?client_id=<id>`. It is
@@ -459,13 +464,15 @@ ASWebAuthenticationSession. The app is a client for that service
 NO PURCHASES IN THE APP
 The app sells nothing and contains no in-app purchase. 2Z works across many
 independent apps, so it cannot be sold through in-app purchase (DPLA
-Attachment 2 §2.2). 2Z Inc sells 2Z on its website. Outside the US storefront
-the app shows no purchase buttons, links, prices or calls to action. When the
+Attachment 2 §2.2). 2Z Inc sells 2Z on its website. [Any build available
+outside the US storefront:] The app shows no purchase buttons, links, prices
+or calls to action. When the
 balance is zero, it shows "No credits" and a "Manage Free2Z account" link to
 an account page with no purchase path. [Only once the store-safe view ships;
 see "Do not submit until".]
-[US storefront only: an optional "Get 2Z on Free2Z" link opens the user's
-Free2Z billing page (free2z.cash/buy-2z) in Safari (3.1.1(a)).]
+[US-storefront-only build only: an optional "Get 2Z on Free2Z" link, behind
+a remote flag that defaults to off, opens the user's Free2Z billing page
+(free2z.cash/buy-2z) in Safari (3.1.1(a)).]
 
 DEVELOPER COMPENSATION
 Usage is metered in 2Z usage credits, which cannot be cashed out.
