@@ -4,6 +4,10 @@
 //! request, stream it, parse the JSON, read the receipt, sign out — against
 //! local fakes of the issuer, the account API and the gateway.
 //!
+//! The app never sells 2Z. When the balance is too low it sends the user to
+//! their Free2Z billing page (`Client::billing_url`) — or, in a store build
+//! that must not link to payment, to "Manage Free2Z account".
+//!
 //! ```text
 //! cargo run -p f2z-sdk --example first_app
 //! ```
@@ -33,6 +37,13 @@ use f2z_sdk::oauth::LoopbackSession;
 use f2z_sdk::proto::chat::{FinishReason, JsonSchemaFormat, Message, ResponseFormat};
 use f2z_sdk::proto::{ChatRequest, ErrorCode, Event};
 use f2z_sdk::{Client, Error, MemoryStore, SignInOptions, SpendCapHint};
+
+/// Whether this build ships through Google Play, or the App Store outside the
+/// US storefront. Such a build must not link to payment at all
+/// (`docs/free2z/sdk/STORE-COMPLIANCE.md`): it shows "Manage Free2Z account"
+/// where a web, direct-download desktop or US-storefront build may link to
+/// Free2Z billing. Decide it per build, never at runtime from the user.
+const STORE_BUILD: bool = false;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -113,7 +124,7 @@ async fn main() -> Result<(), Error> {
     match client.ai().preflight(&request).await? {
         Preflight::Ready(estimate) => println!("ready: holds {} now", estimate.hold_2z),
         other => {
-            println!("{}", recovery_copy(&other));
+            println!("{}", recovery_copy(&client, &other));
             return Ok(());
         }
     }
@@ -124,7 +135,7 @@ async fn main() -> Result<(), Error> {
         probe.model = refusing.into();
         println!(
             "  {refusing}: {}",
-            recovery_copy(&client.ai().preflight(&probe).await?)
+            recovery_copy(&client, &client.ai().preflight(&probe).await?)
         );
     }
 
@@ -146,7 +157,7 @@ async fn main() -> Result<(), Error> {
             return Ok(());
         }
         Err(e) => {
-            println!("{}", error_copy(&e));
+            println!("{}", error_copy(&client, &e));
             return Ok(());
         }
     };
@@ -172,7 +183,7 @@ async fn main() -> Result<(), Error> {
             Ok(Some(_)) => {} // skip events this app does not know
             Ok(None) => break,
             Err(e) => {
-                println!("{}", error_copy(&e)); // keep the partial text
+                println!("{}", error_copy(&client, &e)); // keep the partial text
                 break;
             }
         }
@@ -208,8 +219,20 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
+/// Where a user whose balance is too low gets 2Z. Apps don't sell 2Z: a build
+/// that may link to payment opens the Free2Z billing page in the system
+/// browser; a store build shows only the purchase-free Manage page. Either
+/// way, re-read the balance when the app returns to the foreground.
+fn get_2z_link(client: &Client) -> String {
+    if STORE_BUILD {
+        format!("Manage Free2Z account: {}", client.manage_account_url())
+    } else {
+        format!("Get 2Z on Free2Z: {}", client.billing_url())
+    }
+}
+
 /// Developer-facing copy for each preflight outcome; write your own UI text.
-fn recovery_copy(preflight: &Preflight) -> String {
+fn recovery_copy(client: &Client, preflight: &Preflight) -> String {
     match preflight {
         Preflight::Ready(_) => "ready".into(),
         Preflight::NeedsTopUp {
@@ -217,12 +240,14 @@ fn recovery_copy(preflight: &Preflight) -> String {
             available_milli_2z,
             ..
         } => format!(
-            "needs {} 2Z, has {} 2Z: offer a purchase",
+            "needs {} 2Z, has {} 2Z: {}",
             required_2z.map_or("?".into(), |v| v.get().to_string()),
             available_milli_2z.map_or("?".into(), |v| v.display_2z().to_string()),
+            get_2z_link(client),
         ),
         Preflight::NeedsBudget { resets_at, .. } => format!(
-            "this app's budget is used up: link to https://free2z.cash/account/apps{}",
+            "this app's budget is used up: Manage Free2Z account: {}{}",
+            client.manage_account_url(),
             resets_at
                 .as_deref()
                 .map_or(String::new(), |r| format!(" (resets {r})"))
@@ -234,13 +259,15 @@ fn recovery_copy(preflight: &Preflight) -> String {
 
 /// The recovery each error class needs. Switch on variants and codes, never
 /// on messages.
-fn error_copy(error: &Error) -> String {
+fn error_copy(client: &Client, error: &Error) -> String {
     match error {
         Error::SignedOut(_) => "signed out: show sign-in".into(),
         Error::StepUpRequired(_) => "sign in again with SignInOptions::step_up, retry once".into(),
         Error::Api(e) => match e.error_code() {
-            ErrorCode::InsufficientBalance => "offer a purchase".into(),
-            ErrorCode::CapExceeded => "link to https://free2z.cash/account/apps".into(),
+            ErrorCode::InsufficientBalance | ErrorCode::AccountInDebt => get_2z_link(client),
+            ErrorCode::CapExceeded => {
+                format!("Manage Free2Z account: {}", client.manage_account_url())
+            }
             ErrorCode::RateLimited | ErrorCode::ConcurrencyLimit | ErrorCode::Unavailable => {
                 format!("busy; retry after {:?}", e.retry_after)
             }

@@ -68,7 +68,7 @@ Inside an SSE stream, the terminal `error` event carries `code` and
 | 403 | `insufficient_scope` | no | The token lacks the scope this endpoint requires (RFC 6750) | Re-authorize requesting the scope in `details.scope` | `scope` |
 | 403 | `app_disabled` | no | The app's registration is suspended | Nothing the client can do; surface to the developer | — |
 | 403 | `account_frozen` | no | The user's account cannot spend (for example a payment dispute is open) | Tell the user to visit their account | — |
-| 403 | `account_in_debt` | no (until repaid) | A refund or chargeback took back 2Z already spent; the account owes the difference and cannot spend until future credits repay it ([purchase.md](./purchase.md) §3.1) | Show the debt from `GET /balance` and the buy surface. In a store build, show no purchase call to action (the one exception is Apple's US storefront, per §2): use the neutral **Manage Free2Z account** exit ([store compliance](../STORE-COMPLIANCE.md#2-the-line)) | `debt_milli_2z` |
+| 403 | `account_in_debt` | no (until repaid) | A refund or chargeback took back 2Z already spent; the account owes the difference and cannot spend until future credits repay it ([purchase.md](./purchase.md) §3.1) | Show the debt from `GET /balance`. Web, direct-download desktop and Apple-US-storefront builds may send the user to Free2Z billing (`openBilling()`, [the billing URL contract](../INTEGRATION.md#get-2z--the-billing-url-contract)); a store build (Google Play, iOS outside the US storefront) shows no purchase call to action, only the neutral **Manage Free2Z account** exit ([store compliance](../STORE-COMPLIANCE.md#2-the-line)). Apps never sell 2Z themselves | `debt_milli_2z` |
 | 503 | `unavailable` | yes | The server cannot serve the request right now and fails closed: it could not confirm the token's `aep`/`agen`, it has no signing keys to verify the token with (the issuer's JWKS has not loaded, or verification is not configured), shared admission cannot be confirmed, it is draining, or (gateway) the provider's circuit breaker is open or nonstreaming response memory cannot be reserved before a call | Retry with backoff; do **not** sign the user out | `reason` ∈ `revocation_check`, `token_keys`, `shared_admission`, `draining`, `provider_circuit_open`, `response_budget` |
 
 ## 3. Requests, limits and balances
@@ -163,12 +163,15 @@ The Rust SDK's equivalents are `Error::UserCancelled`,
 
 ## 6. Purchases
 
-Codes specific to [purchase.md](./purchase.md); the envelope is §1.
+Codes specific to [purchase.md](./purchase.md); the envelope is §1. Apps
+don't sell 2Z: since SDK 0.4.0 the purchase API is legacy for apps (see
+purchase.md's notice), and these codes matter only to clients that still call
+it.
 
 | Status | `code` | Retry | Meaning | `details` |
 |---|---|---|---|---|
 | 400 | `invalid_quantity` | no | Below the rail's minimum, above its maximum, not a whole 2Z, or not one of the rail's fixed packs | `min_2z`, `max_2z`, `packs` |
-| 400 | `rail_unavailable` | no | The rail is not offered to this app or on this platform (`apple_iap` / `google_iap` from any third-party app in v1, or from the wrong platform) | `rail` |
+| 400 | `rail_unavailable` | no | The rail is not offered to this app or on this platform (`apple_iap` / `google_iap` from any third-party app in v1, or from the wrong platform; `zcash` from an app, because Zcash is paid on Free2Z's billing page) | `rail` |
 | 409 | `intent_not_pending` | no | The intent is `failed`; the operation does not apply. (A receipt resubmitted for an intent that is already `credited`, `expired` or in a reversal state is **not** an error: it answers `200` with the intent — [purchase.md](./purchase.md) §4.4) | `status` |
 | 409 | `receipt_already_used` | no | This store transaction already credited a **different** purchase intent | `purchase_id` |
 | 422 | `receipt_invalid` | no | The store receipt did not verify, names a different product or app, is not a production transaction, was revoked, or its account token does not match this intent | `reason` ∈ `signature`, `product`, `app`, `environment`, `revoked`, `account_token` |
@@ -185,7 +188,9 @@ Codes specific to [purchase.md](./purchase.md); the envelope is §1.
   ([chat-api.md](./chat-api.md) §4).
 - **Balance errors are never retryable by the client alone.** `402`,
   `403 cap_exceeded` and `403 account_in_debt` say what would have to change
-  (`details`); an SDK shows the buy or cap surface rather than retrying.
+  (`details`); an app shows the "get 2Z" exit (Free2Z billing via
+  `openBilling()`, or **Manage Free2Z account** in a store build) or the
+  cap on Manage, rather than retrying. It never sells 2Z itself.
 - **Nothing is charged for a refused request.** Every `4xx` before `meta`
   means no hold was taken or the hold was released.
 - **Re-sending with the same `Idempotency-Key` never does new work**: it

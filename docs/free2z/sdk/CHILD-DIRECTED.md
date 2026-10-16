@@ -127,8 +127,11 @@ your app, not only to Free2Z.
    from inside the app, without leaving it, and act on the reports.
 5. **No ads and no third-party analytics.** Do not collect or send hardware
    identifiers or advertising IDs, and do not add SDKs that do.
-6. **No purchase funnel.** Do not sell 2Z or link to a purchase. When credits
-   run out, show a calm state and a neutral "Manage Free2Z account" link that
+6. **No purchase funnel.** Do not sell 2Z or link to a purchase — in any
+   build, including web and desktop. Never call `openBilling()` /
+   `billingUrl()` (SDK 0.4.0) and never grant `f2z:allow-open-billing` or
+   `f2z:allow-billing-url`: the Free2Z billing page sells 2Z. When credits run
+   out, show a calm state and a neutral "Manage Free2Z account" link that
    opens the system browser. Never open Free2Z pages in a WebView.
 7. **Account deletion.** Link to how the account holder deletes their Free2Z
    account.

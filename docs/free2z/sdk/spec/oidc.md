@@ -48,7 +48,7 @@ platform's own apps register the same way. Registration fixes:
 | `markup_approval` | Derived, for the console and the consent screen: `none` (`markup_bps = 0`), `pending` (`markup_bps > approved_markup_bps`, so some or all of the requested markup is not yet in effect) or `approved` (`markup_bps ≤ approved_markup_bps`). The consent screen shows the *effective* markup, and no line at all when it is `0` |
 | `default_spend_cap_2z`, `default_cap_period` | An optional per-user suggestion for AI consent: a nullable whole number of 2Z and a period (§5). This is not a shared application quota |
 | `allow_zcash_assertion` | Whether the app may use the Zcash sign-in grant (§9.4). Off by default |
-| `rails` | Which purchase rails the app offers: `card` and `zcash`, both on for every app. The in-app-purchase rails exist only in Free2Z's own apps in v1 ([purchase.md](./purchase.md) §4) and are not a registration option |
+| `rails` | Legacy: which purchase rails the purchase API accepts from the app. Apps don't sell 2Z (SDK 0.4.0): a user pays with Zcash or by card on their Free2Z billing page, and the purchase API refuses `zcash` from an app (`rail_unavailable`), so only `card` matters, and only to SDK 0.3.0 clients. The in-app-purchase rails exist only in Free2Z's own apps in v1 ([purchase.md](./purchase.md) §4) and are not a registration option |
 | Name, logo, privacy URL, terms URL | Shown at consent |
 
 A registration has a **developer account** — an ordinary Free2Z account —
@@ -110,8 +110,11 @@ does not have. So that a page can complete the flow with `fetch` alone:
 | `email` | `email`, `email_verified` | `f2z-id` |
 | `offline_access` | A refresh token (§8). Without it, the session ends when the access token expires | — |
 | `balance:read` | `GET /api/sdk/v1/balance` | `f2z-api` |
-| `purchase:create` | `POST /api/sdk/v1/purchases`, the receipt endpoint, reading the intents this app created, and the packs list ([purchase.md](./purchase.md)) | `f2z-api` |
+| `purchase:create` | `POST /api/sdk/v1/purchases`, the receipt endpoint, reading the intents this app created, and the packs list ([purchase.md](./purchase.md)). **Legacy for apps:** apps don't sell 2Z, so the SDK's default scopes no longer request it (0.4.0); a user gets 2Z on their Free2Z billing page ([INTEGRATION.md](../INTEGRATION.md#get-2z--the-billing-url-contract)). The IdP keeps issuing it to existing clients that ask | `f2z-api` |
 | `ai:invoke` | Every `ai.free2z.cash/v1/*` endpoint ([chat-api.md](./chat-api.md)). Requesting it makes the spend cap part of consent (§5) | `f2z-ai` |
+
+The SDK's default request (0.4.0) is
+`openid profile offline_access balance:read ai:invoke` — the request in §9.2.
 
 Scopes are space-separated in the `scope` parameter. The IdP returns the
 granted set in the token response's `scope` field; a client MUST read it and

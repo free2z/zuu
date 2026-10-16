@@ -1,7 +1,12 @@
 //! `/api/sdk/v1/balance` and `/api/sdk/v1/purchases` against the fake
 //! account API.
+//!
+//! The purchase API is deprecated for apps since 0.4.0 but must keep working
+//! for apps built on 0.3.0 that ask for `purchase:create` explicitly: these
+//! tests pin that.
 
 #![allow(
+    deprecated,
     missing_docs,
     clippy::unwrap_used,
     clippy::expect_used,
@@ -20,6 +25,18 @@ use f2z_sdk::proto::{Milli2z, Whole2z};
 use f2z_sdk::purchase::{Platform, PollOptions, PurchaseRequest, PurchaseStatus, ReturnListener};
 use f2z_sdk::{Client, Error, MemoryStore, SignInOptions};
 use support::{Fake, ScriptedBrowser};
+
+/// The 0.3.0 default scopes: a pre-0.4.0 app that still buys 2Z by card.
+fn purchasing(fake: &Fake) -> f2z_sdk::Config {
+    fake.config().with_scopes([
+        "openid",
+        "profile",
+        "offline_access",
+        "balance:read",
+        "purchase:create",
+        "ai:invoke",
+    ])
+}
 
 async fn signed_in(config: f2z_sdk::Config) -> Client {
     let client = Client::new(config, Arc::new(MemoryStore::new())).unwrap();
@@ -61,9 +78,41 @@ async fn a_missing_scope_is_the_envelope() {
 }
 
 #[tokio::test]
-async fn a_card_purchase_is_created_opened_and_polled_to_credited() {
+async fn the_default_scopes_cannot_create_a_purchase_any_more() {
     let fake = Fake::start().await;
     let client = signed_in(fake.config()).await;
+    assert!(
+        !client
+            .granted_scopes()
+            .await
+            .contains(&"purchase:create".to_owned())
+    );
+    let err = client
+        .create_purchase(&PurchaseRequest::card(
+            Whole2z::new(500),
+            Platform::Desktop,
+            "http://127.0.0.1:1/r",
+        ))
+        .await
+        .unwrap_err();
+    let api = err.api().unwrap();
+    assert_eq!((api.status, api.code.as_str()), (403, "insufficient_scope"));
+    assert_eq!(fake.intents(), 0);
+    // What such an app links instead: billing, on the website's origin.
+    assert_eq!(
+        client.billing_url(),
+        format!(
+            "{}/buy-2z?client_id={}",
+            client.web_origin(),
+            support::CLIENT_ID
+        )
+    );
+}
+
+#[tokio::test]
+async fn a_card_purchase_is_created_opened_and_polled_to_credited() {
+    let fake = Fake::start().await;
+    let client = signed_in(purchasing(&fake)).await;
     let ret = ReturnListener::bind("/purchase-done").await.unwrap();
     assert!(ret.return_url().starts_with("http://127.0.0.1:"));
 
@@ -114,9 +163,7 @@ async fn a_card_purchase_is_created_opened_and_polled_to_credited() {
 async fn a_lost_create_response_is_recovered_with_the_same_key() {
     let fake = Fake::start().await;
     *fake.create_delay_first.lock().unwrap() = Duration::from_millis(1500);
-    let config = fake
-        .config()
-        .with_request_timeout(Duration::from_millis(500));
+    let config = purchasing(&fake).with_request_timeout(Duration::from_millis(500));
     let client = signed_in(config).await;
     let intent = client
         .create_purchase(
@@ -133,7 +180,7 @@ async fn a_lost_create_response_is_recovered_with_the_same_key() {
 #[tokio::test]
 async fn purchase_refusals_carry_their_details_and_are_not_retried() {
     let fake = Fake::start().await;
-    let client = signed_in(fake.config()).await;
+    let client = signed_in(purchasing(&fake)).await;
     let err = client
         .create_purchase(&PurchaseRequest::card(
             Whole2z::new(5),
@@ -174,7 +221,7 @@ async fn purchase_refusals_carry_their_details_and_are_not_retried() {
 #[tokio::test]
 async fn broken_purchase_body_retries_the_same_intent() {
     let fake = Fake::start().await;
-    let client = signed_in(fake.config()).await;
+    let client = signed_in(purchasing(&fake)).await;
     fake.broken_purchase_bodies.store(1, Ordering::SeqCst);
     let intent = client
         .create_purchase(&PurchaseRequest::card(
@@ -191,7 +238,7 @@ async fn broken_purchase_body_retries_the_same_intent() {
 #[tokio::test]
 async fn exhausted_purchase_body_retries_return_the_generated_recovery_key() {
     let fake = Fake::start().await;
-    let client = signed_in(fake.config()).await;
+    let client = signed_in(purchasing(&fake)).await;
     fake.broken_purchase_bodies.store(2, Ordering::SeqCst);
     let request = PurchaseRequest::card(Whole2z::new(100), Platform::Web, "http://127.0.0.1:1/r");
     let err = client.create_purchase(&request).await.unwrap_err();

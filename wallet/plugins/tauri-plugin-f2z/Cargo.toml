@@ -1,11 +1,11 @@
 [package]
 name = "tauri-plugin-f2z"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.97"
 license = "MIT"
 repository = "https://github.com/free2z/zuu"
-description = "Native Tauri 2 bridge for the Free2Z SDK: sign-in, balance, purchases and metered AI"
+description = "Native Tauri 2 bridge for the Free2Z SDK: sign-in, balance, the Free2Z billing link and metered AI"
 links = "tauri-plugin-f2z"
 include = ["src/**", "build.rs", "command_registry.rs", "permissions/**", "android/src/**", "android/build.gradle.kts", "android/consumer-rules.pro", "ios/Sources/**", "ios/Tests/**", "ios/Package.swift", "README.md", "CHANGELOG.md", "LICENSE", "Cargo.toml", "Cargo.lock"]
 
@@ -13,7 +13,7 @@ include = ["src/**", "build.rs", "command_registry.rs", "permissions/**", "andro
 tauri-plugin = { version = "2", features = ["build"] }
 
 [dependencies]
-f2z-sdk = { version = "0.3.0", path = "../../../rs/crates/f2z-sdk" }
+f2z-sdk = { version = "0.4.0", path = "../../../rs/crates/f2z-sdk" }
 tauri = { version = "2.5", default-features = false }
 serde = { version = "1", features = ["derive"] }
 # `preserve_order`: a Tauri command receives its arguments as a
@@ -45,6 +45,9 @@ open = "5"
 
 [dev-dependencies]
 axum = "0.8"
+# Parses the plugin's own permission files so a test can resolve the Tauri ACL
+# exactly as an app would (`acl_tests` in src/lib.rs).
+toml = "0.8"
 tauri = { version = "2.5", default-features = false, features = ["test"] }
 tokio = { version = "1", features = ["rt-multi-thread", "test-util"] }
 

@@ -168,6 +168,9 @@ pub async fn estimate<R: Runtime>(
         })
         .await
 }
+// Deprecated in the core since 0.4.0 (apps don't sell 2Z), kept working for
+// apps built on 0.3.0.
+#[allow(deprecated)]
 #[tauri::command]
 pub async fn create_purchase<R: Runtime>(
     webview: Webview<R>,
@@ -210,6 +213,9 @@ pub async fn create_purchase<R: Runtime>(
         .await
         .map_err(|e| e.key(&request.idempotency_key))
 }
+// Deprecated in the core since 0.4.0 (apps don't sell 2Z), kept working for
+// apps built on 0.3.0.
+#[allow(deprecated)]
 #[tauri::command]
 pub async fn purchase<R: Runtime>(
     webview: Webview<R>,
@@ -231,6 +237,9 @@ pub async fn purchase<R: Runtime>(
         })
         .await
 }
+// Deprecated in the core since 0.4.0 (apps don't sell 2Z), kept working for
+// apps built on 0.3.0.
+#[allow(deprecated)]
 #[tauri::command]
 pub async fn wait_for_purchase<R: Runtime>(
     webview: Webview<R>,
@@ -254,6 +263,9 @@ pub async fn wait_for_purchase<R: Runtime>(
         })
         .await
 }
+// Deprecated in the core since 0.4.0 (apps don't sell 2Z), kept working for
+// apps built on 0.3.0.
+#[allow(deprecated)]
 #[tauri::command]
 pub async fn open_checkout<R: Runtime>(
     webview: Webview<R>,
@@ -314,6 +326,31 @@ pub async fn open_delete_account<R: Runtime>(
 ) -> Result<()> {
     authorized(&webview, &state)?;
     let url = state.engine.client.delete_account_url().to_owned();
+    state.platform.open_external(url).await
+}
+/// `{web origin}/buy-2z?client_id=…`: the user's Free2Z billing page, built
+/// from native configuration. Opt-in: only reachable through the explicit
+/// `f2z:allow-billing-url` permission, which no default grants.
+#[tauri::command]
+pub async fn billing_url<R: Runtime>(
+    webview: Webview<R>,
+    state: State<'_, Arc<PluginState<R>>>,
+) -> Result<String> {
+    authorized(&webview, &state)?;
+    Ok(state.engine.client.billing_url().to_owned())
+}
+/// Open the Free2Z billing page in the system browser, never a webview. The
+/// URL comes from native configuration: JavaScript cannot choose what opens.
+/// Opt-in: only reachable through the explicit `f2z:allow-open-billing`
+/// permission, which no default grants. A store build that must not link to
+/// payment (Google Play; iOS outside the US storefront) never grants it.
+#[tauri::command]
+pub async fn open_billing<R: Runtime>(
+    webview: Webview<R>,
+    state: State<'_, Arc<PluginState<R>>>,
+) -> Result<()> {
+    authorized(&webview, &state)?;
+    let url = state.engine.client.billing_url().to_owned();
     state.platform.open_external(url).await
 }
 #[tauri::command]

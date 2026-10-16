@@ -554,6 +554,25 @@ impl Client {
         &self.inner.config.manage_account_url
     }
 
+    /// `{web origin}/buy-2z?client_id=<this app>`: the user's Free2Z billing
+    /// page, where they get 2Z — Zcash first, card second. Apps don't sell 2Z:
+    /// this is the "get 2Z" link for a balance that is too low
+    /// (`insufficient_balance`, `account_in_debt`,
+    /// [`crate::ai::Preflight::NeedsTopUp`]). Open it in the **system
+    /// browser**, never a webview, and re-read [`Client::balance`] when the
+    /// app returns to the foreground: there is no return redirect, and Zcash
+    /// is credited after confirmations.
+    ///
+    /// **Opt-in, and not for every build.** Web apps, directly downloaded
+    /// desktop apps and builds for Apple's US storefront may show it. A
+    /// Google Play build, or an iOS build outside the US storefront, must not
+    /// link to payment at all: show [`Client::manage_account_url`] as
+    /// "Manage Free2Z account" instead (`docs/free2z/sdk/STORE-COMPLIANCE.md`).
+    #[must_use]
+    pub fn billing_url(&self) -> &str {
+        &self.inner.config.billing_url
+    }
+
     /// `{web origin}/account/delete`: where the user deletes their Free2Z
     /// account. The in-app deletion path both app stores require for an app
     /// whose flow can create an account. Open it in the **system browser**.

@@ -237,6 +237,7 @@ export interface ChatOptions extends OperationOptions {
   sessionGeneration?: string;
 }
 export type PurchaseRail = "card" | "zcash";
+/** @deprecated Since 0.4.0: apps don't sell 2Z; link users to Free2Z billing with `billingUrl()`. */
 export interface PurchaseRequest {
   rail: PurchaseRail;
   quantity2z: bigint;
@@ -472,7 +473,10 @@ export interface Estimate extends ObjectData {
 export type Preflight =
   | { kind: "ready"; estimate: Estimate }
   | {
-      /** Balance too low: offer a purchase (`createPurchase`). */
+      /** Balance too low: send the user to Free2Z billing
+       * (`openBilling()`), or "Manage Free2Z account" in store builds that
+       * must not link to payment. Re-read `balance()` when the app returns
+       * to the foreground. */
       kind: "needs_top_up";
       required2z?: bigint;
       availableMilli2z?: bigint;
@@ -562,11 +566,14 @@ export interface Transport {
   grant(signal?: AbortSignal): Promise<Grant>;
   models(signal?: AbortSignal): Promise<Models>;
   estimate(request: ChatRequest, signal?: AbortSignal): Promise<Estimate>;
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see `billingUrl`. */
   createPurchase(
     request: PurchaseRequest,
     options: OperationOptions,
   ): Promise<Purchase>;
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see `billingUrl`. */
   purchase(id: string, signal?: AbortSignal): Promise<Purchase>;
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see `openBilling`. */
   openCheckout(id: string): Promise<void>;
   chat(request: ChatRequest, options: ChatOptions): Promise<ChatStream>;
   call(id: string, signal?: AbortSignal): Promise<CallRecord>;
@@ -575,6 +582,9 @@ export interface Transport {
   openManageAccount?(): Promise<void>;
   deleteAccountUrl?(): Promise<string>;
   openDeleteAccount?(): Promise<void>;
+  /** Optional so a custom transport predating 0.4.0 keeps compiling; `Client` refuses without it. */
+  billingUrl?(): Promise<string>;
+  openBilling?(): Promise<void>;
   /** Optional so a custom transport predating it still compiles. */
   reportCall?(
     callId: string,

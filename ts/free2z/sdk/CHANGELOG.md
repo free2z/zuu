@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.4.0 — unreleased
+
+Apps don't sell 2Z. Not tagged yet. Consolidated notes:
+[RELEASES.md](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASES.md#sdk-v040--unreleased).
+
+### Breaking
+
+- `DEFAULT_SCOPES` no longer includes `purchase:create`. A web app that
+  relied on the default scopes and still calls `createPurchase` now gets
+  `insufficient_scope`: list `purchase:create` in `FetchConfig.scopes`, or
+  move to `openBilling()`.
+- The optional peer is `@free2z/tauri-plugin-f2z-api@^0.4.0`.
+
+### Added
+
+- `Client.billingUrl()` / `Client.openBilling()`:
+  `{web origin}/buy-2z?client_id=<percent-encoded id>`, the user's Free2Z
+  billing page (Zcash first, card second), opened through
+  `FetchConfig.openExternal` on the web and the plugin's `open_billing`
+  natively. Opt-in: web, direct-download desktop and Apple-US-storefront
+  builds only. `unsupported_operation` from a transport or bridge without
+  them. `Transport` and `NativeBridge` gained them as optional members.
+- `manageAccountUrl()` / `openManageAccount()` are unchanged and stay
+  purchase-free.
+
+### Deprecated
+
+- `Client.createPurchase`, `purchase`, `waitForPurchase`, `openCheckout`,
+  the `PurchaseRequest` type and `FetchConfig.purchaseReturnUri`. They keep
+  working for apps that request `purchase:create`; card only.
+
+### Changed
+
+- The `insufficient_balance` and `account_in_debt` hints, and the
+  `needs_top_up` docs, send the user to Free2Z billing, or Manage in store
+  builds.
+
 ## 0.3.0 — 2026-10-15
 
 Tagged `sdk-v0.3.0` with the other Free2Z SDK packages. Not on a registry:

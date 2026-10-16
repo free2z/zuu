@@ -1157,7 +1157,7 @@ dependencies = [
 
 [[package]]
 name = "f2z-sdk"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "f2z-ai-proto",
@@ -4093,7 +4093,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-f2z"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "android-native-keyring-store",
  "apple-native-keyring-store",
@@ -4107,6 +4107,7 @@ dependencies = [
  "tauri-plugin",
  "tokio",
  "tokio-util",
+ "toml 0.8.2",
  "url",
  "windows-native-keyring-store",
  "zbus-secret-service-keyring-store",

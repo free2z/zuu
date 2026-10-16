@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.4.0 — unreleased
+
+Apps don't sell 2Z. Not tagged yet: `sdk-v0.4.0` follows
+once Free2Z's `/buy-2z` deep link is live. Consolidated notes:
+[RELEASES.md](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASES.md#sdk-v040--unreleased).
+
+Links `f2z-ai-proto` 0.3.0 (the wire contract is unchanged).
+
+### Breaking
+
+- `DEFAULT_SCOPES` (and so `Config::new`) no longer includes
+  `purchase:create`. An app that relied on the default scopes and still calls
+  `create_purchase` now gets `403 insufficient_scope`: list `purchase:create`
+  with `Config::with_scopes`, or move to `Client::billing_url()`.
+
+### Added
+
+- `Client::billing_url()`: `{web origin}/buy-2z?client_id=…` with the
+  `client_id` percent-encoded, precomputed by `Config` like
+  `manage_account_url`. The user's Free2Z billing page (Zcash first, card
+  second). Opt-in: web, direct-download desktop and Apple-US-storefront builds
+  only; store builds show `manage_account_url()`, which is unchanged and stays
+  purchase-free.
+
+### Deprecated
+
+- `Client::create_purchase`, `Client::purchase`, `Client::wait_for_purchase`,
+  `purchase::PurchaseRequest` and `purchase::ReturnListener`
+  (`#[deprecated(since = "0.4.0")]`). They keep working for apps that request
+  `purchase:create`; card only.
+
+### Changed
+
+- The `Preflight::NeedsTopUp` and AI docs, and `examples/first_app.rs` /
+  `full_flow.rs`, send the user to Free2Z billing (or Manage in a store
+  build) instead of presenting a card purchase.
+
 ## 0.3.0 — 2026-10-15
 
 Tagged `sdk-v0.3.0` with the other Free2Z SDK packages. Not on a registry:

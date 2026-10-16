@@ -14,14 +14,18 @@ pub const DEFAULT_API_BASE: &str = "https://free2z.cash/api/sdk/v1";
 pub const DEFAULT_AI_BASE: &str = "https://ai.free2z.cash/v1";
 
 /// The scopes a new [`Config`] asks for: sign-in, a refresh token, the
-/// balance, purchases and AI. Narrow them with [`Config::with_scopes`] to what
-/// the app actually uses — the user sees each one on the consent screen.
+/// balance and AI. Narrow them with [`Config::with_scopes`] to what the app
+/// actually uses — the user sees each one on the consent screen.
+///
+/// Since 0.4.0 this no longer includes `purchase:create`: apps don't sell 2Z,
+/// they send the user to Free2Z billing ([`crate::Client::billing_url`]). An
+/// app that still calls the deprecated purchase API must ask for
+/// `purchase:create` explicitly with [`Config::with_scopes`].
 pub const DEFAULT_SCOPES: &[&str] = &[
     "openid",
     "profile",
     "offline_access",
     "balance:read",
-    "purchase:create",
     "ai:invoke",
 ];
 
@@ -45,7 +49,7 @@ pub struct Config {
     /// The AI gateway root (`…/v1`).
     pub ai_base: String,
     /// The Free2Z website's origin, where the account pages live
-    /// (`/account/apps`, `/account/delete`). `None`, the default: the
+    /// (`/account/apps`, `/account/delete`, `/buy-2z`). `None`, the default: the
     /// issuer's origin, which is the website for every Free2Z deployment.
     pub web_origin: Option<String>,
     /// The limit on one non-streaming request and on waiting for a token-store
@@ -175,6 +179,7 @@ impl Config {
         let web_origin = crate::account::web_origin(&issuer_url, self.web_origin.as_deref())?;
         let manage_account_url = crate::account::manage_url(&web_origin, &self.client_id)?;
         let delete_account_url = crate::account::delete_url(&web_origin);
+        let billing_url = crate::account::billing_url(&web_origin, &self.client_id)?;
         Ok(Validated {
             issuer,
             client_id: self.client_id.clone(),
@@ -184,6 +189,7 @@ impl Config {
             web_origin,
             manage_account_url,
             delete_account_url,
+            billing_url,
             request_timeout: self.request_timeout,
             callback_timeout: self.callback_timeout,
             stream_idle_timeout: self.stream_idle_timeout,
@@ -204,6 +210,7 @@ pub(crate) struct Validated {
     pub web_origin: String,
     pub manage_account_url: String,
     pub delete_account_url: String,
+    pub billing_url: String,
     pub request_timeout: Duration,
     pub callback_timeout: Duration,
     pub stream_idle_timeout: Duration,
@@ -265,6 +272,48 @@ mod tests {
         assert_eq!(v.issuer, "https://free2z.cash");
         assert_eq!(v.web_origin, "https://free2z.cash");
         assert!(v.wants("ai:invoke"));
+        assert_eq!(v.billing_url, "https://free2z.cash/buy-2z?client_id=app_1");
+    }
+
+    #[test]
+    fn default_scopes_no_longer_ask_to_create_purchases() {
+        assert!(!DEFAULT_SCOPES.contains(&"purchase:create"));
+        let v = Config::new("app_1").validate().unwrap();
+        assert!(!v.wants("purchase:create"));
+        assert_eq!(
+            v.scope_string(),
+            "openid profile offline_access balance:read ai:invoke"
+        );
+        // An app that still uses the deprecated purchase API asks for it.
+        let explicit = Config::new("app_1")
+            .with_scopes(["openid", "purchase:create"])
+            .validate()
+            .unwrap();
+        assert!(explicit.wants("purchase:create"));
+    }
+
+    #[test]
+    fn the_billing_url_follows_the_configured_web_origin() {
+        let v = Config::new("a b&c")
+            .with_issuer("https://id.staging.example/realm")
+            .validate()
+            .unwrap();
+        assert_eq!(
+            v.billing_url,
+            "https://id.staging.example/buy-2z?client_id=a+b%26c"
+        );
+        let v = Config::new("c")
+            .with_web_origin("https://www.staging.example/")
+            .validate()
+            .unwrap();
+        assert_eq!(
+            v.billing_url,
+            "https://www.staging.example/buy-2z?client_id=c"
+        );
+        assert_eq!(
+            v.manage_account_url,
+            "https://www.staging.example/account/apps?client_id=c"
+        );
     }
 
     #[test]

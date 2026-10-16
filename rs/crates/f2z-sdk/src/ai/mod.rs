@@ -394,7 +394,10 @@ impl Ai {
     ///     .strict();
     /// match client.ai().preflight(&request).await? {
     ///     Preflight::Ready(_) => { /* enable Generate; send `request` as is */ }
-    ///     Preflight::NeedsTopUp { required_2z, .. } => { /* offer a purchase */ }
+    ///     Preflight::NeedsTopUp { required_2z, .. } => {
+    ///         /* send the user to Free2Z billing (`client.billing_url()`),
+    ///            or "Manage Free2Z account" in store builds */
+    ///     }
     ///     Preflight::NeedsBudget { resets_at, .. } => { /* link free2z.cash/account/apps */ }
     ///     Preflight::TooLarge(_) => { /* shorten input or lower max_output_tokens */ }
     ///     _ => {}
@@ -569,8 +572,10 @@ impl Ai {
 pub enum Preflight {
     /// It would run now with exactly `max_output_tokens`.
     Ready(EstimateResponse),
-    /// `402 insufficient_balance`: the balance cannot cover it. Offer a
-    /// purchase, then re-read the balance once the purchase is `credited`.
+    /// `402 insufficient_balance`: the balance cannot cover it. Send the user
+    /// to Free2Z billing ([`crate::Client::billing_url`]), or show "Manage
+    /// Free2Z account" ([`crate::Client::manage_account_url`]) in store
+    /// builds; re-read the balance when the app returns to the foreground.
     NeedsTopUp {
         /// The hold the call needs.
         required_2z: Option<Whole2z>,

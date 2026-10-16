@@ -11,21 +11,31 @@ import { deadline, readBytes, secureUrl } from "./http.js";
 import { spendCapParams } from "./spend-cap.js";
 import type { Session, SignInOptions } from "./types.js";
 
+/**
+ * The scopes requested by default: sign-in, a refresh token, the balance and
+ * AI. Since 0.4.0 this no longer includes `purchase:create`: apps don't sell
+ * 2Z, they link users to Free2Z billing (`Client.billingUrl()`). An app that
+ * still calls the deprecated `createPurchase` must list `purchase:create` in
+ * `FetchConfig.scopes` itself.
+ */
 export const DEFAULT_SCOPES = [
   "openid",
   "profile",
   "offline_access",
   "balance:read",
-  "purchase:create",
   "ai:invoke",
 ] as const;
 export interface FetchConfig {
   clientId: string;
   redirectUri: string;
-  /** Registered browser purchase-return route; defaults to redirectUri. */
+  /**
+   * Registered browser purchase-return route; defaults to redirectUri.
+   * @deprecated Since 0.4.0: only the deprecated `createPurchase` uses it.
+   * Apps don't sell 2Z; link users to Free2Z billing with `billingUrl()`.
+   */
   purchaseReturnUri?: string;
   issuer?: string;
-  /** The Free2Z website origin for the account pages; default: the issuer's origin. */
+  /** The Free2Z website origin for the account and billing pages; default: the issuer's origin. */
   webOrigin?: string;
   apiBase?: string;
   aiBase?: string;

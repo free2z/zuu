@@ -1,7 +1,7 @@
 [package]
 name = "f2z-sdk"
-version = "0.3.0"
-description = "The Free2Z Rust SDK core: OAuth 2.0 / OpenID Connect sign-in (PKCE S256, RFC 8252 loopback or a platform auth session, RFC 9207 iss check, rotating refresh tokens with single-flight refresh), a pluggable token store, the 2Z balance, card purchases, and the metered AI gateway's /v1/chat SSE client"
+version = "0.4.0"
+description = "The Free2Z Rust SDK core: OAuth 2.0 / OpenID Connect sign-in (PKCE S256, RFC 8252 loopback or a platform auth session, RFC 9207 iss check, rotating refresh tokens with single-flight refresh), a pluggable token store, the 2Z balance, the Free2Z billing link (the card purchase API is deprecated for apps), and the metered AI gateway's /v1/chat SSE client"
 edition.workspace = true
 # A restatement of rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered in `scripts/check-rust-toolchain.sh`'s `MANIFESTS` so it cannot

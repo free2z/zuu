@@ -57,6 +57,9 @@ import {
 import { nativeBridge } from "@free2z/tauri-plugin-f2z-api";
 
 const client = new Client(new NativeTransport(nativeBridge));
+// Google Play, or iOS outside the US storefront: no payment links in this
+// build, and its capability does not grant f2z:allow-open-billing.
+const STORE_BUILD = false;
 
 export async function firstApp(): Promise<void> {
   // 1. Sign in, suggesting a lifetime budget. The user decides.
@@ -106,8 +109,10 @@ export async function firstApp(): Promise<void> {
   switch (check.kind) {
     case "ready":
       break;
-    case "needs_top_up": // balance too low
-      return offerPurchase(check.required2z);
+    case "needs_top_up": // balance too low. Apps don't sell 2Z:
+      // STORE_BUILD (Google Play; iOS outside the US storefront) shows only
+      // "Manage Free2Z account"; other builds may open Free2Z billing (0.4.0).
+      return STORE_BUILD ? client.openManageAccount() : client.openBilling();
     case "needs_budget": // this app's budget is used up; buying 2Z will not help
       // CLIENT_ID: your registration's public client_id, an app constant.
       return linkToBudget(`https://free2z.cash/account/apps?client_id=${CLIENT_ID}`, check.resetsAt);
@@ -185,9 +190,9 @@ it is a developer hint, not user copy, and not stable.
 
 | What happened | TypeScript `code` | Rust | Show the user |
 |---|---|---|---|
-| Not enough 2Z | `insufficient_balance` (402) | `ErrorCode::InsufficientBalance` | "You need N more 2Z" → purchase; re-read the balance after `credited`. In a store build, show no purchase call to action (the one exception is Apple's US storefront, per §2): use the neutral **Manage Free2Z account** exit, `https://free2z.cash/account/apps?client_id=<client_id>` ([store compliance](./STORE-COMPLIANCE.md#2-the-line)) |
+| Not enough 2Z | `insufficient_balance` (402) | `ErrorCode::InsufficientBalance` | "You need N more 2Z". Web, direct-download desktop and Apple-US-storefront builds may call `openBilling()` (Rust `client.billing_url()`, SDK 0.4.0): the user's Free2Z billing page ([billing URL contract](./INTEGRATION.md#get-2z--the-billing-url-contract)). Store builds (Google Play, iOS outside the US storefront) show "Manage Free2Z account" (`openManageAccount()`) only ([store compliance](./STORE-COMPLIANCE.md#2-the-line)). Re-read the balance on foreground; never sell 2Z in the app |
 | App budget used up | `cap_exceeded` (403) | `ErrorCode::CapExceeded` | "Raise this app's budget" → `https://free2z.cash/account/apps?client_id=<client_id>` ([URL contract](./INTEGRATION.md#manage-free2z-account-the-url-contract)), or wait for `details.resets_at` |
-| Debt after a refund | `account_in_debt` (403) | `ErrorCode::AccountInDebt` | Show `debt_milli_2z` and the buy surface; never auto-retry. In a store build, show no purchase call to action (the one exception is Apple's US storefront, per §2): use the neutral **Manage Free2Z account** exit ([store compliance](./STORE-COMPLIANCE.md#2-the-line)) |
+| Debt after a refund | `account_in_debt` (403) | `ErrorCode::AccountInDebt` | Show `debt_milli_2z`; never auto-retry. Web, direct-download desktop and Apple-US-storefront builds may call `openBilling()`; store builds show "Manage Free2Z account" (`openManageAccount()`) only ([store compliance](./STORE-COMPLIANCE.md#2-the-line)) |
 | Too long | `context_length_exceeded` (400) | `ErrorCode::ContextLengthExceeded` | Shorten the input or lower `max_output_tokens` |
 | Busy | `rate_limited`, `concurrency_limit` (429), `unavailable` (503) | same codes; `retry_after` | "Busy, retrying" — honour `retryAfterSeconds`; never suggest buying 2Z |
 | Session over | `signed_out`, `token_revoked`, `invalid_token` | `Error::SignedOut` | Sign-in screen; stop spending |
@@ -237,9 +242,10 @@ retry is always a **new** idempotency key.
 
 ## 7. Where next
 
-- [Integration handoff](./INTEGRATION.md) — the Tauri boundary, purchases,
-  cancellation and receipts in depth.
+- [Integration handoff](./INTEGRATION.md) — the Tauri boundary, the account
+  and billing exits, cancellation and receipts in depth.
 - [Chat API](./spec/chat-api.md) — every event and field on the wire.
 - [Metering](./spec/metering.md) — how a charge is computed, with worked
   examples.
-- [Purchases](./spec/purchase.md) — card and Zcash checkout and polling.
+- [Purchases](./spec/purchase.md) — legacy for apps: apps don't sell 2Z.
+  The contract the deprecated purchase API (SDK 0.3.0 clients) relies on.
