@@ -2361,6 +2361,163 @@ async fn a_child_directed_app_is_shown_only_models_it_may_call() {
     mock.shutdown().await;
 }
 
+/// `GET /v1/models` for an ordinary (`child == false`) or a child-directed
+/// app, revalidating with `if_none_match` when given.
+fn list_models(
+    child: bool,
+    if_none_match: Option<&axum::http::HeaderValue>,
+) -> axum::http::Request<axum::body::Body> {
+    let mut req = axum::http::Request::get("/v1/models").header("host", "gateway");
+    if child {
+        req = req.header("test-child-directed", "1");
+    }
+    if let Some(etag) = if_none_match {
+        req = req.header("if-none-match", etag);
+    }
+    req.body(axum::body::Body::empty()).unwrap()
+}
+fn model_ids(v: &Value) -> Vec<String> {
+    v["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["id"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+// The child-directed narrowing is the child-directed app's alone: an ordinary
+// app is shown every callable model, whatever its provider, and a
+// child-directed app is shown exactly the ordinary projection's OpenAI entries.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_child_directed_catalogue_is_the_ordinary_one_narrowed_to_openai() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch_catalog(db, Scenario::default(), None, structured_catalog()).await;
+    let ordinary: Value = serde_json::from_str(
+        &support::text(support::send(r.public, list_models(false, None)).await).await,
+    )
+    .unwrap();
+    assert_eq!(
+        model_ids(&ordinary),
+        ["m-responses", "m-anthropic", "m-chat", "m-xai"],
+        "an ordinary app sees every callable model: {ordinary}"
+    );
+    let child: Value = serde_json::from_str(
+        &support::text(support::send(r.public, list_models(true, None)).await).await,
+    )
+    .unwrap();
+    let mut expected = ordinary.clone();
+    expected["models"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|m| m["provider"] == "openai");
+    assert_eq!(child, expected, "same projection, OpenAI models only");
+    assert_eq!(model_ids(&child), ["m-responses", "m-chat"]);
+    assert_eq!(child["catalog_version"], ordinary["catalog_version"]);
+    mock.shutdown().await;
+}
+
+// Both projections carry one `catalog_version`, so nothing keyed by the
+// version alone may serve one audience's list to the other. The ETag hashes
+// the body actually served, so an ETag learnt under one audience never earns
+// a `304` under the other: each gets `200` and its own list. And the answer
+// is `private` and varies by `Authorization`, the header that carries the
+// `child_directed` claim, so a shared cache cannot hand it across either.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_models_etag_never_revalidates_across_the_child_directed_line() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch_catalog(db, Scenario::default(), None, structured_catalog()).await;
+    let first = |child: bool| {
+        let addr = r.public;
+        async move {
+            let response = support::send(addr, list_models(child, None)).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()["cache-control"], "private, max-age=60");
+            assert_eq!(response.headers()["vary"], "Authorization");
+            let etag = response.headers()["etag"].clone();
+            let body: Value = serde_json::from_str(&support::text(response).await).unwrap();
+            (etag, body)
+        }
+    };
+    let (ordinary_etag, ordinary) = first(false).await;
+    let (child_etag, child) = first(true).await;
+    assert_ne!(ordinary_etag, child_etag);
+
+    for (child_caller, presented, served_etag, served) in [
+        (false, &child_etag, &ordinary_etag, &ordinary),
+        (true, &ordinary_etag, &child_etag, &child),
+    ] {
+        let response = support::send(r.public, list_models(child_caller, Some(presented))).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "child_directed={child_caller}: the other audience's ETag must not revalidate"
+        );
+        assert_eq!(&response.headers()["etag"], served_etag);
+        let body: Value = serde_json::from_str(&support::text(response).await).unwrap();
+        assert_eq!(&body, served, "child_directed={child_caller}");
+    }
+    // Each audience's own ETag still revalidates.
+    for (child_caller, own) in [(false, &ordinary_etag), (true, &child_etag)] {
+        let response = support::send(r.public, list_models(child_caller, Some(own))).await;
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(response.headers()["vary"], "Authorization");
+    }
+    mock.shutdown().await;
+}
+
+// `/v1/chat/estimate` refuses what `/v1/chat` refuses: a child-directed app
+// cannot price a model it may not call, as the primary or as a fallback, and
+// learns why exactly as `/v1/chat` would tell it. An ordinary app estimates
+// the same request.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_child_directed_estimate_is_refused_for_a_model_it_may_not_call() {
+    let db = Arc::new(Database::new());
+    let (r, mock) =
+        launch_catalog(db.clone(), Scenario::default(), None, structured_catalog()).await;
+    let estimate = |child: bool, body: &Value| {
+        let mut req = axum::http::Request::post("/v1/chat/estimate")
+            .header("host", "gateway")
+            .header("content-type", "application/json");
+        if child {
+            req = req.header("test-child-directed", "1");
+        }
+        req.body(axum::body::Body::from(body.to_string())).unwrap()
+    };
+    let body = |model: &str, fallback: &[&str]| {
+        let mut request = request();
+        request["model"] = json!(model);
+        request.as_object_mut().unwrap().remove("metadata");
+        if !fallback.is_empty() {
+            request["fallback"] = json!(fallback);
+        }
+        request
+    };
+    for refused in [body("m-anthropic", &[]), body("m-chat", &["m-anthropic"])] {
+        let response = support::send(r.public, estimate(true, &refused)).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{refused}");
+        let error: Value = serde_json::from_str(&support::text(response).await).unwrap();
+        assert_eq!(error["error"]["code"], "model_disabled", "{error}");
+        assert_eq!(
+            error["error"]["details"]["reason"], "child_directed",
+            "{error}"
+        );
+    }
+    for allowed in [body("m-chat", &[]), body("m-responses", &[])] {
+        let response = support::send(r.public, estimate(true, &allowed)).await;
+        assert_eq!(response.status(), StatusCode::OK, "{allowed}");
+        let _ = support::text(response).await;
+    }
+    let response = support::send(r.public, estimate(false, &body("m-anthropic", &[]))).await;
+    assert_eq!(response.status(), StatusCode::OK, "an ordinary app may");
+    let _ = support::text(response).await;
+    assert!(
+        db.0.lock().unwrap().call.is_none(),
+        "an estimate claims nothing"
+    );
+    assert_eq!(mock.request_count(), 0, "no provider request");
+    mock.shutdown().await;
+}
+
 // Without the server secret a child-directed call is refused before any
 // claim: failing closed, never storing the plain fingerprint or key.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

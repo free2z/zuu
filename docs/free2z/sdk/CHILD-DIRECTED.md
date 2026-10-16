@@ -47,7 +47,12 @@ What changes when it is set:
   - sends the call only to a provider it sends `store: false` to — today
     OpenAI. Any other model, or fallback, is refused (`403 model_disabled`,
     `reason: "child_directed"`), as is a model id the catalogue does not hold
-    (`404 model_not_found`), before anything is recorded;
+    (`404 model_not_found`), before anything is recorded. `/v1/chat/estimate`
+    refuses the same models the same way;
+  - lists, on `GET /v1/models`, only the models the token may call — today
+    OpenAI's — so an app that picks from the catalogue is never offered a
+    model the gateway would refuse. That list has its own `ETag`
+    ([`spec/chat-api.md`](./spec/chat-api.md) §5);
   - refuses `metadata` on `/v1/chat` and `/v1/chat/estimate`
     (`400 invalid_request`, `field: "metadata"`, `reason: "child_directed"`;
     [`spec/chat-api.md`](./spec/chat-api.md) §2.1) and does not record the
