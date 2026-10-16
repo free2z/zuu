@@ -6,12 +6,11 @@ Start with [the pinned source-preview installation and Tauri adapter guide](./SO
 Registry publication and live end-to-end acceptance are still pending; building
 the real SDK does not establish availability of every service or payment rail.
 
-The Rust examples below target the tagged release `sdk-v0.3.0`
-([release notes](./RELEASES.md#sdk-v030--2026-10-15)), which includes the reviewed grant API alongside login, balance and
+The Rust examples below target the tagged release `sdk-v0.4.0`
+([release notes](./RELEASES.md#sdk-v040--2026-10-16)), which includes the reviewed grant API alongside login, balance and
 AI operations. The `billing_url()` / `billingUrl()` / `openBilling()`
 snippets below need **SDK 0.4.0**, not `sdk-v0.3.0`: the billing link and the
-deprecation of the app-facing purchase API land there, and 0.4.0 is not tagged
-yet ([release notes](./RELEASES.md#sdk-v040--unreleased)). Local fake-service regressions and native builds are not live
+deprecation of the app-facing purchase API land there. Local fake-service regressions and native builds are not live
 service acceptance evidence.
 
 ## What can run today
@@ -60,7 +59,7 @@ tag, without a private repository or a path into this workspace:
 
 ```toml
 [dependencies]
-f2z-sdk = { git = "https://github.com/free2z/zuu", tag = "sdk-v0.3.0" }
+f2z-sdk = { git = "https://github.com/free2z/zuu", tag = "sdk-v0.4.0" }
 ```
 
 This is not the supported published-package installation and does not establish
@@ -72,7 +71,7 @@ initializing them and run the SDK's own fake example:
 ```sh
 git clone --filter=blob:none https://github.com/free2z/zuu.git zuu-sdk-preview
 cd zuu-sdk-preview
-git checkout sdk-v0.3.0
+git checkout sdk-v0.4.0
 cd rs
 cargo +1.97.1 run --locked -p f2z-sdk --example full_flow
 cargo +1.97.1 test --locked -p f2z-sdk --all-targets

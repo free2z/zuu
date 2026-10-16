@@ -1,9 +1,10 @@
 # Changelog
 
-## 0.4.0 — unreleased
+## 0.4.0 — 2026-10-16
 
-Apps don't sell 2Z. Not tagged yet. Consolidated notes:
-[RELEASES.md](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASES.md#sdk-v040--unreleased).
+Apps don't sell 2Z. Tagged `sdk-v0.4.0` with the other Free2Z SDK packages.
+Not on a registry: pin the Git tag. Consolidated notes:
+[RELEASES.md](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASES.md#sdk-v040--2026-10-16).
 
 ### Breaking
 

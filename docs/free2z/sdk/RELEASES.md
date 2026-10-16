@@ -15,14 +15,28 @@ separate, owner-authorized step ([RELEASING.md](./RELEASING.md#publication-seque
 
 Per-package detail lives in each package's `CHANGELOG.md`.
 
-## sdk-v0.4.0 — unreleased
+## sdk-v0.4.0 — 2026-10-16
 
 **Apps don't sell 2Z**. A user who needs 2Z gets them on
 their Free2Z billing page, paying with Zcash (preferred, shown first) or by
 card. This release adds an **opt-in** helper that links that page and
-deprecates the app-facing purchase API. No gateway change. **Not tagged yet:**
-`sdk-v0.4.0` is cut once Free2Z's `/buy-2z?client_id=` deep link is live in
-production.
+deprecates the app-facing purchase API. No gateway change. The receiving page
+is live in production (verified 2026-10-16, below).
+
+### Pinning
+
+```toml
+# src-tauri/Cargo.toml — the plugin already links the matching core
+tauri-plugin-f2z = { git = "https://github.com/free2z/zuu", tag = "sdk-v0.4.0" }
+# or, for a non-Tauri Rust app
+f2z-sdk = { git = "https://github.com/free2z/zuu", tag = "sdk-v0.4.0" }
+```
+
+Build the two npm packages from the same tag (`npm pack` in
+`wallet/plugins/tauri-plugin-f2z` and `ts/free2z/sdk`) as
+[SOURCE-PREVIEW.md](./SOURCE-PREVIEW.md#versions-and-installation) describes:
+they produce `free2z-tauri-plugin-f2z-api-0.4.0.tgz` and `free2z-sdk-0.4.0.tgz`.
+Move all three Tauri pieces together.
 
 ### Breaking
 
@@ -73,9 +87,21 @@ it.
 
 ### Gateway and Free2Z compatibility
 
-- Gateway: unchanged from 0.3.0.
-- Free2Z: needs `/buy-2z?client_id=` (the deep link and Zcash-first billing
-  page) live before the tag.
+- Gateway: unchanged from 0.3.0 (minimum `d26c9397`); no gateway change is
+  needed for this release.
+- Free2Z (verified on `free2z.cash` on 2026-10-16): the receiving page
+  `https://free2z.cash/buy-2z` is live in production. A signed-out request
+  redirects through login, keeps only `client_id` and drops every other
+  parameter.
+
+| Gateway (`f2z-ai`, zuu source) | SDK 0.4.0 |
+|---|---|
+| older than `d26c9397` | Not supported, as for 0.3.0. |
+| `d26c9397` (#1142) — minimum | Everything except `reasoning_effort`, as for 0.3.0. |
+| `b8e0c814` (#1170) and later | Adds `reasoning_effort` on models whose signed catalogue entry declares it, as for 0.3.0. |
+
+The billing link is client-side only (a URL the SDK builds natively and opens
+in the system browser), so no gateway version is newer-than-required for it.
 
 ## sdk-v0.3.0 — 2026-10-15
 
