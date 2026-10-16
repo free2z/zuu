@@ -619,6 +619,14 @@ the same models, with provider prices replaced by marked-up 2Z rates, and
 only callable models listed. The catalogue's internal fields (provider
 model ids, API styles, safety factors) are not projected.
 
+For a **child-directed** app (access-token claim `child_directed`,
+[CHILD-DIRECTED.md](../CHILD-DIRECTED.md)) the list holds only the models
+that token may call: those whose `provider` is sent `store: false` — OpenAI
+today. Every other model is absent rather than listed and then refused, so
+the list is exactly what `/v1/chat` and `/v1/chat/estimate` will accept from
+it (anything else answers `403 model_disabled`, `reason: "child_directed"`).
+`catalog_version` is the same for both audiences; the list is not.
+
 | Field | Meaning |
 |---|---|
 | `catalog_version` | The signed catalogue's `version`: an integer that only increases. A `meta` event does not carry it; `GET /v1/calls/{id}` does |
@@ -631,7 +639,12 @@ model ids, API styles, safety factors) are not projected.
 | `controls` | Signed narrowing of what a capability admits; always an object, `{}` when nothing is narrowed (absent in an older gateway's answer: read as `{}`). `effort_levels`: the `reasoning_effort` levels the model takes, as strings, present only where `capabilities.reasoning_effort` is `true` and the catalogue lists them; absent means any level is forwarded and one the provider rejects fails before any output, uncharged. A level string a client does not know is ignored |
 
 Responses carry `ETag`; `If-None-Match` → `304`. Clients SHOULD cache for
-the `Cache-Control: max-age` given (60 s).
+the `Cache-Control: max-age` given (60 s). The `ETag` is a hash of the body
+served to that caller, so it revalidates only an identical list: an `ETag`
+read by a child-directed app never earns a `304` for a list that differs
+from the one it was read from, nor the reverse. The
+response is `Cache-Control: private` with `Vary: Authorization`: a cache
+keys it by the token, never by `catalog_version` alone.
 
 ## 6. `POST /v1/chat/estimate`
 
