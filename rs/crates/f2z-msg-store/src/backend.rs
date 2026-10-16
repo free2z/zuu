@@ -8,7 +8,8 @@
 //! label and this key"* — so implementing the whole trait per backend would be
 //! 57 methods of identical transcription per backend, and the second copy would
 //! be the one with the bug in it. [`StorageBackend`] is the part that actually
-//! differs: three methods, no generics, no serde.
+//! differs: four methods, no generics, no serde. The fourth is the atomic
+//! one-shot rewrite required when an on-disk format changes.
 //!
 //! The provider ([`crate::F2zStorageProvider`]) implements all 57 once, over
 //! any backend.
@@ -34,12 +35,12 @@
 //!
 //! # What a backend is NOT asked to do
 //!
-//! No iteration, no prefix scan, no key enumeration, no schema. The trait's
-//! access pattern is exact-key lookup and exact-key write, and a backend that
-//! offered more would invite a provider method to depend on it — which would
-//! then have to be re-implemented by the IndexedDB backend the browser needs
-//! ([ADR 0001][adr1]), where a prefix scan over an object store is a different
-//! shape entirely.
+//! No general iteration, prefix scan, or schema API. Normal reads and writes
+//! remain exact-key operations. [`StorageBackend::atomic_rewrite`] is the
+//! narrowly scoped exception: it visits all rows only while applying a
+//! one-shot storage-format migration under the backend's atomicity boundary.
+//! This keeps the ordinary API suitable for the IndexedDB backend the browser
+//! needs ([ADR 0001][adr1]) without exposing a standing enumeration capability.
 //!
 //! [`apply`]: StorageBackend::apply
 //! [s64]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
@@ -68,6 +69,9 @@ pub enum Op {
         key: Vec<u8>,
     },
 }
+
+/// Callback used by a backend's one-shot atomic row migration.
+pub type RowRewrite<'a> = dyn FnMut(&[u8], &[u8]) -> Result<Option<(Vec<u8>, Vec<u8>)>> + 'a;
 
 impl core::fmt::Debug for Op {
     /// Hand-written, and the reason is the one `f2z-codec` documents: a derived
@@ -122,6 +126,27 @@ pub trait StorageBackend {
     /// [`MemoryBackend`]: crate::MemoryBackend
     /// [`SqliteBackend`]: crate::SqliteBackend
     fn apply(&self, ops: &[Op]) -> Result<()>;
+
+    /// Atomically rewrite every stored row once, then record a marker.
+    ///
+    /// This exists for format migrations where applying a prefix of converted
+    /// rows would make the old data unreadable. The backend must hold the same
+    /// serialization boundary as [`StorageBackend::apply`] while it checks the
+    /// marker, visits the snapshot, and installs all returned replacements.
+    /// Returning `None` leaves a row alone; returning `(key, value)` replaces
+    /// that row. The marker is written in the same atomic operation. If the
+    /// marker already exists, the rewrite callback is not called.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error without changing any row if reading, transforming, or
+    /// committing the rewrite fails.
+    fn atomic_rewrite(
+        &self,
+        marker_key: &[u8],
+        marker_value: &[u8],
+        rewrite: &mut RowRewrite<'_>,
+    ) -> Result<()>;
 
     /// What surviving a crash means for this backend.
     fn durability(&self) -> Durability;

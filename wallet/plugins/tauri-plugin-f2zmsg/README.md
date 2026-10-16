@@ -314,13 +314,14 @@ independent path to the same conclusion — see ADR 0015's rejected alternative 
 for why using `device_kem_pk` as an init key would be worse than having no
 second path.
 
-**The local store is not encrypted at rest.** §6.1's `locked` is implemented as
-a state machine, and the device signing key is sealed under the seed-derived
-`BackupWrapKey` — so a copy of the store taken without the mnemonic cannot sign
-as this identity. The SQLite database beside it is not encrypted, because
-`f2z-msg-store` offers no at-rest encryption and a plugin cannot add it from
-outside. MLS group state and message plaintext are protected by file
-permissions and nothing else.
+**The plugin's local application records are not encrypted at rest.** §6.1's
+`locked` is implemented as a state machine, and the device signing key is
+sealed under the seed-derived `BackupWrapKey` — so a copy of the store taken
+without the mnemonic cannot sign as this identity. `f2z-msg-mls` seals its
+OpenMLS storage keys and values before they reach the SQLite backend. The
+plugin's separate records, including retained message plaintext, remain
+protected by file permissions and nothing else. A pre-upgrade database copy or
+backup may still contain the former plaintext MLS rows.
 
 ## Dependencies worth a second look
 

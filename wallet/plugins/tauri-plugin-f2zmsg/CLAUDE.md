@@ -49,10 +49,15 @@ model assumes is hostile. `Inner::claim_key_package` claims **and verifies** in
 one function on purpose: the verification is what stops the relay choosing whose
 init key the `Welcome` is encrypted to, which is #133 at first contact. The
 plugin must use the checked `MlsEngine::add_member` route, which takes a
-`VerifiedKeyPackage` with no constructor but the verifying one. The crate's raw
-OpenMLS capabilities are not yet a complete public API seal; #903 tracks that
-boundary. Until it lands, treating those capabilities as an alternate Add path
-would bypass the first-contact authentication this plugin requires. Don't.
+`VerifiedKeyPackage` with no constructor but the verifying one. `MlsEngine`
+returns an opaque `GroupHandle`, keeps its OpenMLS provider private, encrypts
+storage keys and values before they reach the caller-owned backend, atomically
+migrates legacy rows, and exposes no raw group accessor; its only Add method
+accepts a `VerifiedKeyPackage`. A retained backend clone reveals ciphertext
+and access patterns. A caller that already holds the raw signing secret can
+derive the storage key and has broader authority than a caller holding only a
+`DeviceSigner`. Do not add a raw OpenMLS escape hatch here, since that would
+bypass the first-contact authentication this plugin requires.
 
 `start_engine` publishes this device's own pool and tops it up whenever
 something lands on the contact queue. A device with no published pool is one
