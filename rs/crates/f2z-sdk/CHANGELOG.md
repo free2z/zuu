@@ -2,7 +2,7 @@
 
 ## 0.4.0 — unreleased
 
-Apps don't sell 2Z (free2z/tuzi#2705). Not tagged yet: `sdk-v0.4.0` follows
+Apps don't sell 2Z. Not tagged yet: `sdk-v0.4.0` follows
 once Free2Z's `/buy-2z` deep link is live. Consolidated notes:
 [RELEASES.md](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASES.md#sdk-v040--unreleased).
 

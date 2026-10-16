@@ -17,7 +17,7 @@ Per-package detail lives in each package's `CHANGELOG.md`.
 
 ## sdk-v0.4.0 — unreleased
 
-**Apps don't sell 2Z** (free2z/tuzi#2705). A user who needs 2Z gets them on
+**Apps don't sell 2Z**. A user who needs 2Z gets them on
 their Free2Z billing page, paying with Zcash (preferred, shown first) or by
 card. This release adds an **opt-in** helper that links that page and
 deprecates the app-facing purchase API. No gateway change. **Not tagged yet:**

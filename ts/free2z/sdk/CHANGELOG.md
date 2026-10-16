@@ -2,7 +2,7 @@
 
 ## 0.4.0 — unreleased
 
-Apps don't sell 2Z (free2z/tuzi#2705). Not tagged yet. Consolidated notes:
+Apps don't sell 2Z. Not tagged yet. Consolidated notes:
 [RELEASES.md](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASES.md#sdk-v040--unreleased).
 
 ### Breaking
