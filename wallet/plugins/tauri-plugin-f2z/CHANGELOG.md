@@ -1,8 +1,9 @@
 # Changelog
 
-## 0.4.0 — unreleased
+## 0.4.0 — 2026-10-16
 
-Apps don't sell 2Z. Not tagged yet. Links `f2z-sdk`
+Apps don't sell 2Z. Tagged `sdk-v0.4.0` with the other Free2Z SDK packages.
+Not on a registry: pin the Git tag. Links `f2z-sdk`
 0.4.0; guest-js is `@free2z/tauri-plugin-f2z-api` 0.4.0.
 `Builder::new(config, checkout_return)` is unchanged.
 

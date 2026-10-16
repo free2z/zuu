@@ -12,9 +12,9 @@ requirements. Start with the public
 
 ## Constructing a client
 
-The current release is `0.3.0`, Git tag `sdk-v0.3.0`; it is not available on
-crates.io yet, so pin the tag. This source is `0.4.0` (untagged): the billing
-link and the purchase deprecations below. The preview requires the repository's Rust 1.97.1 toolchain.
+The current release is `0.4.0`, Git tag `sdk-v0.4.0`; it is not available on
+crates.io yet, so pin the tag. 0.4.0 adds the billing link and the purchase
+deprecations below. The preview requires the repository's Rust 1.97.1 toolchain.
 
 ```rust
 use std::sync::Arc;
