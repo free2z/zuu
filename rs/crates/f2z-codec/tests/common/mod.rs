@@ -33,6 +33,7 @@
 )]
 
 /// One `.rs` file under some workspace crate's `src/`.
+#[derive(Clone)]
 pub struct SourceFile {
     /// The crate directory name under `rs/crates/`.
     pub krate: String,
@@ -53,6 +54,16 @@ pub fn crates_root() -> std::path::PathBuf {
         "{root:?} is not rs/crates/; this test's idea of the workspace layout is stale"
     );
     root
+}
+
+/// Repository root containing the pinned OpenMLS provider submodule.
+pub fn repo_root() -> std::path::PathBuf {
+    crates_root()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 /// Every crate directory under `rs/crates/`, by name.

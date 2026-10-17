@@ -102,7 +102,7 @@ const PATCHABLE_MANIFESTS = [...OPENMLS_BRIDGE_MANIFESTS];
 
 /// GitHub owners whose repositories are *ours*. A `.gitmodules` `url` under one
 /// of these is by definition a fork we are carrying, and must be registered.
-const FORK_OWNERS = new Set(["free2z"]);
+const FORK_OWNERS = new Set(["free2z", "0bkevin"]);
 
 /// How far behind its upstream base a fork branch may fall before this is a
 /// finding. Ten is the drift that was discovered by hand — rebasing a one-commit
@@ -121,35 +121,37 @@ const REGISTER_MAX_AGE_DAYS = 90;
 /// what stops the register from being edited into vagueness while the pin stays:
 /// deleting the exit condition from the page fails here.
 const TRACKED = [
-  // PR2261 fixes the libraries; PR2265 preserves deployed draft derivation.
-  // Its workspace path dependencies must share the same Cargo source identity.
+  // PR2261 fixes the libraries; PR2265 preserves deployed draft derivation;
+  // PR2266 adds strict Ed25519 small-order screening. Their workspace path
+  // dependencies must share the same Cargo source identity.
   ...OPENMLS_BRIDGE_MANIFESTS.flatMap((manifest) =>
     ["openmls_libcrux_crypto", "openmls_traits", "openmls_memory_storage", "openmls_rust_crypto"].map((id) => ({
       id,
       kind: "patch",
       manifest,
-      forkUrl: "https://github.com/free2z/openmls",
-      forkRev: "7ded6597be8ddf7004046c8564fa97090d5e9633",
+      forkUrl: "https://github.com/0bkevin/openmls",
+      forkRev: "6e96a4411ea2669f05ac22dd0e0424c1c93f5055",
       upstreamRepo: "openmls/openmls",
       upstreamBranch: "main",
       driftLimit: DEFAULT_DRIFT_LIMIT,
+      exitPrs: [2265, 2266],
       exitCrate: { name: "openmls_libcrux_crypto", stableAtLeast: "0.4.1" },
-      exitInstructions: "Verify the published provider carries the fixed DRBG/KEM requirements and preserves deployed draft derivation, "
-        + "then remove all four source bridges together and re-run shipping lock parity, KATs and old/new shipping interoperability tests.",
-      registerTokens: [manifest, id, "https://github.com/free2z/openmls", "7ded6597be8ddf7004046c8564fa97090d5e9633", "0.4.1"],
+      exitInstructions: "Verify the published provider carries the fixed DRBG/KEM requirements, preserves deployed draft derivation, and rejects small-order Ed25519 points, "
+        + "then remove all four source pins together and re-run shipping lock parity, KATs and old/new shipping interoperability tests.",
+      registerTokens: [manifest, id, "https://github.com/0bkevin/openmls", "6e96a4411ea2669f05ac22dd0e0424c1c93f5055", "0.4.1", "openmls/openmls#2266"],
     })),
   ),
   {
     id: "z/openmls/openmls",
     kind: "submodule",
-    forkUrl: "https://github.com/free2z/openmls",
-    forkBranch: "f2z/preserve-mls-draft-hpke-derivation",
+    forkUrl: "https://github.com/0bkevin/openmls",
+    forkBranch: "f2z/strict-ed25519-small-order",
     upstreamRepo: "openmls/openmls",
     upstreamBranch: "main",
-    exitPr: 2265,
+    exitPrs: [2265, 2266],
     driftLimit: DEFAULT_DRIFT_LIMIT,
-    registerTokens: ["z/openmls/openmls", "https://github.com/free2z/openmls",
-      "f2z/preserve-mls-draft-hpke-derivation", "openmls/openmls#2265"],
+    registerTokens: ["z/openmls/openmls", "https://github.com/0bkevin/openmls",
+      "f2z/strict-ed25519-small-order", "openmls/openmls#2265", "openmls/openmls#2266"],
   },
   {
     id: "z/zcash/librustzcash",
@@ -1203,7 +1205,8 @@ export async function upstreamFindings(snapshot, deps = {}) {
 
   for (const tracked of TRACKED) {
     // 2. Exit conditions.
-    if (tracked.exitPr) {
+    const exitPrs = tracked.exitPrs ?? (tracked.exitPr ? [tracked.exitPr] : []);
+    if (exitPrs.length > 0) {
       // RESOLVE VIA `/issues/{n}`, NEVER `/pulls/{n}`.
       //
       // On GitHub every pull request is also an issue, but not every issue is
@@ -1218,45 +1221,39 @@ export async function upstreamFindings(snapshot, deps = {}) {
       // confusing the two is what `/pulls/2188` 404ing already caused once.
       // `/issues/{n}` resolves both shapes, and the `pull_request` key is what
       // distinguishes them.
-      const reference = `${tracked.upstreamRepo}#${tracked.exitPr}`;
-      const issue = await api(
-        `repos/${tracked.upstreamRepo}/issues/${tracked.exitPr}`,
-      );
-      const isPullRequest = issue.pull_request != null;
-      if (!isPullRequest) {
-        // An issue closing says the maintainers consider it handled; it does
-        // not say a release carries the fix, which is what retires a pin. So
-        // this is a finding about the *registration*, not about upstream.
-        note(
-          "drift",
-          `${tracked.id}: registered exit reference ${reference} is an issue, not a pull request`,
-          "An issue's state does not tell you whether the fix shipped. Register the pull " +
-            "request that closes it, so `merged` is the signal.",
-        );
-      } else if (issue.pull_request.merged_at) {
-        note(
-          "exit",
-          `${tracked.id}: ${reference} MERGED (${issue.pull_request.merged_at}) — drop the fork`,
-          `Move the submodule back to https://github.com/${tracked.upstreamRepo} + \`${tracked.upstreamBranch}\`, ` +
-            `drop the pin, and retire section for \`${tracked.id}\` in ${REGISTER_PATH}.`,
-        );
-      } else if (issue.state === "closed") {
-        note(
-          "drift",
-          `${tracked.id}: ${reference} was CLOSED without merging`,
-          "The exit condition can never fire. Either reopen it upstream or the fork needs a new plan.",
-        );
-      }
+      const exitStates = [];
+      for (const exitPr of exitPrs) {
+        const reference = `${tracked.upstreamRepo}#${exitPr}`;
+        const issue = await api(`repos/${tracked.upstreamRepo}/issues/${exitPr}`);
+        const isPullRequest = issue.pull_request != null;
+        if (!isPullRequest) {
+          // An issue closing says the maintainers consider it handled; it does
+          // not say a release carries the fix, which is what retires a pin.
+          note(
+            "drift",
+            `${tracked.id}: registered exit reference ${reference} is an issue, not a pull request`,
+            "An issue's state does not tell you whether the fix shipped. Register the pull " +
+              "request that closes it, so `merged` is the signal.",
+          );
+          exitStates.push("not-pr");
+          continue;
+        }
 
-      // Upstream gates fork-PR workflows behind maintainer approval, so this
-      // is expected to be zero. It is recorded rather than asserted: the point
-      // is that "wait for green upstream" is not a signal available here.
-      //
-      // Only a pull request has a head commit to ask about.
-      if (isPullRequest) {
-        const pull = await api(
-          `repos/${tracked.upstreamRepo}/pulls/${tracked.exitPr}`,
-        );
+        const merged = Boolean(issue.pull_request.merged_at);
+        const state = merged ? "merged" : issue.state === "closed" ? "closed" : "open";
+        exitStates.push(state);
+        if (state === "closed") {
+          note(
+            "drift",
+            `${tracked.id}: ${reference} was CLOSED without merging`,
+            "The exit condition can never fire. Either reopen it upstream or the fork needs a new plan.",
+          );
+        }
+
+        // Upstream gates fork-PR workflows behind maintainer approval, so this
+        // is expected to be zero. Record it rather than asserting: the point
+        // is that waiting for green upstream is not a signal available here.
+        const pull = await api(`repos/${tracked.upstreamRepo}/pulls/${exitPr}`);
         const checks = await api(
           `repos/${tracked.upstreamRepo}/commits/${pull.head.sha}/check-runs`,
         );
@@ -1267,6 +1264,16 @@ export async function upstreamFindings(snapshot, deps = {}) {
             "`check-runs` total_count is 0. Our own `gate` / `rs / gate` remain the only evidence.",
           );
         }
+      }
+
+      if (exitStates.length === exitPrs.length && exitStates.every((state) => state === "merged")) {
+        const references = exitPrs.map((exitPr) => `${tracked.upstreamRepo}#${exitPr}`).join(" and ");
+        note(
+          "exit",
+          `${tracked.id}: all upstream pull requests ${references} MERGED — verify release criteria and retire the fork`,
+          tracked.exitInstructions ?? `Move the submodule back to https://github.com/${tracked.upstreamRepo} + \`${tracked.upstreamBranch}\`, ` +
+            `drop the pin, and retire section for \`${tracked.id}\` in ${REGISTER_PATH}.`,
+        );
       }
     }
     if (tracked.exitCrate) {
@@ -1767,7 +1774,7 @@ function runSelfTest() {
       if (!line) throw new Error(`self-test lacks actual bridge ${manifest}#${name}`);
       cases.push([
         `${manifest}#${name} changes the reviewed upstream revision`,
-        withManifest(manifest, text.replace(line, line.replace("7ded6597be8ddf7004046c8564fa97090d5e9633", "0".repeat(40)))),
+        withManifest(manifest, text.replace(line, line.replace("6e96a4411ea2669f05ac22dd0e0424c1c93f5055", "0".repeat(40)))),
         `${manifest}#${name}: registered rev`,
       ], [
         `${manifest}#${name} drops the registered bridge`,

@@ -214,7 +214,7 @@ jobs:
                 ;;
             esac
             case "$file" in
-              rust-toolchain.toml|rs/*|wallet/e2e2z/src-tauri/Cargo.toml|wallet/e2e2z/src-tauri/Cargo.lock|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/free2z/messaging/*|docs/free2z/sdk/spec/*|scripts/free2z/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/check-mls-shipping-compatibility.sh|scripts/free2z/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
+              rust-toolchain.toml|rs/*|z/openmls/openmls|wallet/e2e2z/src-tauri/Cargo.toml|wallet/e2e2z/src-tauri/Cargo.lock|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/free2z/messaging/*|docs/free2z/sdk/spec/*|scripts/free2z/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/check-mls-shipping-compatibility.sh|scripts/free2z/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
                 rs=true
                 ;;
             esac
@@ -370,6 +370,9 @@ jobs:
           --health-retries 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Initialize the pinned OpenMLS provider source for strict-verification census
+        run: git submodule update --init z/openmls/openmls
 
       - name: Resolve the pinned Rust toolchain
         id: rust_toolchain

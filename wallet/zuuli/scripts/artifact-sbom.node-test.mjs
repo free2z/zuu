@@ -1293,7 +1293,7 @@ test("the runtime SBOM binder accepts only exact reviewed Git identities", () =>
       for (const mutated of [
         source.replace(/rev=[0-9a-f]{40}/, `rev=${"0".repeat(40)}`),
         source.replace(/#[0-9a-f]{40}$/, `#${"0".repeat(40)}`),
-        source.replace("github.com/free2z/", "github.com/unreviewed/"),
+        source.replace(/github\.com\/[^/]+\//, "github.com/unreviewed/"),
         source.replace("https://", "http://"),
         source.replace(/#[0-9a-f]{40}$/, ""),
         `${source}-suffix`,

@@ -104,14 +104,18 @@ resolve the fixes for [RUSTSEC-2026-0329](https://rustsec.org/advisories/RUSTSEC
 [0331](https://rustsec.org/advisories/RUSTSEC-2026-0331.html).
 
 All four independent shipping roots carry the same exact registered fork:
-`https://github.com/free2z/openmls` @ `7ded6597be8ddf7004046c8564fa97090d5e9633`,
-vendored in `z/openmls/openmls` on `f2z/preserve-mls-draft-hpke-derivation`.
+`https://github.com/0bkevin/openmls` @ `6e96a4411ea2669f05ac22dd0e0424c1c93f5055`,
+vendored in `z/openmls/openmls` on `f2z/strict-ed25519-small-order`.
 This is upstream `e0b21a70a55a9014b8de2772b36bf3d638adad51` plus the two-line
-manifest-only feature selection in [openmls/openmls#2265](https://github.com/openmls/openmls/pull/2265).
+manifest-only feature selection from [openmls/openmls#2265](https://github.com/openmls/openmls/pull/2265)
+and the strict Ed25519 provider guard under upstream review in
+[openmls/openmls#2266](https://github.com/openmls/openmls/pull/2266).
 The fixed HPKE 0.8 default changed derivation for an unchanged deployed MLS
 draft suite; actual old/new clients fail update processing. The supported
 `draft-connolly-cfrg-hpke-mlkem` flags retain the old derivation in both HPKE
-frontend and backend. No cryptographic algorithm or fixed library version is edited.
+frontend and backend. The provider also rejects small-order Ed25519 public keys
+and signature `R` points as `InvalidSignature` before equation verification;
+its error mapping and supported-scheme dispatch are bound by the source census.
 The executable shipping comparator proves both upgrade directions and a queued
 old commit received after upgrade, with original independently locked old clients
 and actual persisted SQLite state (14 process steps).
@@ -127,15 +131,16 @@ its runtime ban remains.
 * `wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml`
 * `wallet/zuuli/src-tauri/Cargo.toml`
 
-**Retirement:** when openmls/openmls#2265 merges, move `z/openmls/openmls`
-back to upstream `main` and replace the transient fork pins together. The weekly
-checker also flags a stable `openmls_libcrux_crypto` release **0.4.1 or later**;
-verify its published manifest includes the fixed DRBG/KEM requirements **and**
-preserves the deployed draft derivation before removing all four patches from
-all four roots. Update the narrow Git source allowances and exact identity policy,
-then re-run shipping lock parity, standards KATs, real old/new interoperability
-and clean Linux tests. A release version alone is a review trigger, not proof
-that either fix shipped. The existing bip32 bridge is independent.
+**Retirement:** both openmls/openmls#2265 and #2266 must merge before the
+provider-source security bridge can retire. The weekly checker also flags a
+stable `openmls_libcrux_crypto` release **0.4.1 or later**; verify its published
+manifest includes the fixed DRBG/KEM requirements, preserves deployed draft
+derivation, and rejects small-order Ed25519 inputs before removing all four
+patches and returning `z/openmls/openmls` to upstream `main`. Update the narrow
+Git source allowances and exact identity policy, then re-run shipping lock
+parity, standards KATs, real old/new interoperability and clean Linux tests.
+A release version alone is a review trigger, not proof that these fixes shipped.
+The existing bip32 bridge is independent.
 
 ---
 

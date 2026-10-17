@@ -393,6 +393,6 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 
-# PR2261 fixed provider / PR2265 compatibility bridge; exact revision and packages enforced by
+# PR2261 fixed provider / PR2265 compatibility / PR2266 strictness bridge; exact revision and packages enforced by
 # check-dependency-register and check-crypto-kat-locks. Remove with that bridge.
-allow-git = ["https://github.com/free2z/openmls"]
+allow-git = ["https://github.com/0bkevin/openmls"]

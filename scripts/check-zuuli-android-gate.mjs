@@ -15,8 +15,9 @@ const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 // Re-derived after #1072 adds SDK/proto/mobile-check selectors.
 // Re-derived for #1084: root canonical toolchain added; wallet restatement remains.
-// Re-derived for #984's distinct Rust output. The broad selecting arm, native
-// configuration inputs, and existing prose/test exclusions are unchanged.
+// Re-derived for #984's distinct Rust output and the tracked OpenMLS provider
+// submodule. The broad selecting arm, native configuration inputs, and
+// existing prose/test exclusions are unchanged.
 // Only TS/TSX/CSS beneath the three app src/ trees can leave rust=false, with
 // the embedded messaging bridge explicitly retained. Both missing-base and
 // failed-diff paths set rust=true. Android now consumes this Rust output.
@@ -26,7 +27,7 @@ const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 // changed. This digest remains the exact selector tripwire; changing it alone
 // cannot bypass the independent executable selector and required-job controls.
 const changeDetectorDigest =
-  "c5a293405ab6fae81f95ccea6a158519bf82bb12794545050788e2b72dd2c010";
+  "87cf6fef4ac30d5eb8ab50535b766c4c197441b7dc008090bab19b25f99859ca";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
@@ -69,7 +70,8 @@ function namedStep(jobContents, name) {
 ///
 /// Read off the manifests rather than listed, because a list is what rots. The
 /// messaging plugin links six of these and takes a seventh as a
-/// dev-dependency; a change to any of them changes the wallet's own build, and
+/// dev-dependency; MLS shipping roots patch the OpenMLS libcrux provider
+/// source, tracked as a submodule. A change to any of them changes the wallet's own build, and
 /// before the selector named them an `rs/` change that broke the wallet would
 /// have skipped the entire ZUULI suite. ZUULI names `f2z-authority` directly
 /// since ADR 0017 (it pre-checks handle assertions, and `f2z-msg-identity`

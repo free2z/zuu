@@ -258,6 +258,6 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # does not admit an arbitrary git dependency — it admits one reviewed commit of
 # one fork we control. Remove the entry with the patch, when `bip32 0.6.0` is
 # published and the Zcash stack moves to secp256k1 0.31.
-# Fixed unreleased OpenMLS provider / PR2265 compatibility bridge; exact packages/revision are
-# enforced by the dependency register and three-lock crypto identity check.
-allow-git = ["https://github.com/free2z/crates", "https://github.com/free2z/openmls"]
+# Fixed unreleased OpenMLS provider / PR2265 compatibility and PR2266 strictness bridge; exact packages/revision are
+# enforced by the dependency register and four-lock crypto identity check.
+allow-git = ["https://github.com/free2z/crates", "https://github.com/0bkevin/openmls"]
