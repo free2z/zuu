@@ -39,7 +39,7 @@
     const timeout = window.setTimeout(() => controller.abort(), 15_000);
 
     try {
-      await tuzisSubscribeCreate(creator.username, undefined, controller.signal);
+      await tuzisSubscribeCreate(creator.username, { signal: controller.signal });
       authStore.setSubscription(creator.username, true);
       toast.success(`Subscribed to ${creator.username}!`);
       onOpenChange(false);

@@ -19,7 +19,11 @@ export default defineConfig({
       target: 'src/lib/api',
       client: 'svelte-query',
       mode: 'tags-split',
+      formatter: 'prettier',
       override: {
+        fetch: {
+          includeHttpResponseReturnType: false
+        },
         mutator: {
           path: 'src/lib/api/mutator.ts',
           name: 'customInstance'

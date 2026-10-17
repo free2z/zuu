@@ -4,6 +4,16 @@
 // Exit 0 = nothing high/critical outside the live allowlist; 1 = finding or expired entry;
 // 2 = audit could not be run/parsed (callers may retry; never a pass).
 import { spawnSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const LEGACY_ALLOWLIST_SCOPES = new Set([
+  "wallet/zuuallet",
+  "wallet/zuuli",
+  "wallet/free2z",
+  "wallet/e2e2z",
+]);
 
 // Each entry: exact GHSA id, hard expiry (UTC date), tracking issue, reason. Never wildcard.
 export const ALLOWLIST = [
@@ -73,8 +83,20 @@ export function evaluate(report, allowlist = ALLOWLIST, now = new Date()) {
   return { problems, waived: [...waived], unparseable: false };
 }
 
+export function allowlistForScope(scope, allowlist = ALLOWLIST) {
+  const scoped = allowlist.filter((entry) => entry.scope === scope);
+  if (scoped.length) return scoped;
+  return LEGACY_ALLOWLIST_SCOPES.has(scope) ? allowlist.filter((entry) => !entry.scope) : [];
+}
+
 function main() {
-  const r = spawnSync("npm", ["audit", "--json"], { cwd: process.argv[2] || process.cwd(), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const packageDirectory = path.resolve(process.argv[2] || process.cwd());
+  const scope = path.relative(REPO_ROOT, packageDirectory).split(path.sep).join("/");
+  const r = spawnSync("npm", ["audit", "--json", "--include=prod", "--include=dev", "--include=optional", "--include=peer"], { cwd: packageDirectory, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  if (r.error) {
+    console.error("npm-audit-allowlist: could not run `npm audit --json`:", r.error.message);
+    process.exit(2);
+  }
   let report;
   try {
     report = JSON.parse(r.stdout);
@@ -86,9 +108,14 @@ function main() {
     console.error("npm-audit-allowlist: npm audit error:", JSON.stringify(report.error));
     process.exit(2);
   }
-  const { problems, waived, unparseable } = evaluate(report);
+  if (r.status !== 0 && r.status !== 1) {
+    console.error(`npm-audit-allowlist: npm audit exited unexpectedly (${r.status ?? r.signal ?? "unknown"})`);
+    process.exit(2);
+  }
+  const selectedAllowlist = allowlistForScope(scope);
+  const { problems, waived, unparseable } = evaluate(report, selectedAllowlist);
   for (const id of waived) {
-    const e = ALLOWLIST.find((x) => x.id === id);
+    const e = selectedAllowlist.find((x) => x.id === id);
     console.log(`npm-audit-allowlist: WAIVED ${id} until ${e.expires} (${e.issue}): ${e.reason}`);
   }
   if (problems.length) {
