@@ -2831,9 +2831,16 @@ will succeed, and copy built on top of it must not imply otherwise.
 
 **Accepted product cost, stated plainly.** Existing accounts whose username
 contains `.`, `@`, `+` or `-`, contains any non-ASCII character, or exceeds 30
-characters after lowercasing are **not eligible for a messaging handle in v1**.
-Those users can use free2z exactly as they do today; they cannot be discovered by
-handle in the messenger until they have a compliant handle.
+characters after lowercasing are **not eligible for automatic reservation from
+their username**. For the internal phase defined in
+[#1022](https://github.com/free2z/zuu/issues/1022), an account without a bound
+handle can claim one eligible handle permanently. Later accounts in a
+case-variant group claim a different handle. The backend refuses reserved or
+taken handles, including names that fold to another account's username, and
+refuses a second claim. Claiming does not rename the platform account or resolve
+its legacy username exception. The disposable-directory and public-launch
+requirements in [ADR 0017](./decisions/0017-internal-directory-activation.md)
+apply independently of this claim policy.
 
 **How large is that population? Measured 2026-08-23: approximately 10% of
 existing accounts.** The first revision of this section said the number "MUST be
@@ -2849,11 +2856,10 @@ repository, and whoever plans the work has to read it there.
 What the share *does* settle is the part the design turns on. This is **about
 one account in ten**, not a fringe, and **every ineligible account has logged in
 at least once, with all but one still active** — they are real users, not
-abandoned rows (§14.2). That is enough to force a *product* decision: exclude
-that ~10% from messaging discovery in v1, or serve them with the separate opt-in
-messaging handle deferred in §14.4. That decision is not made here, so
-[`ARCHITECTURE.md` §13-O](./ARCHITECTURE.md#13-open-questions) **stays open** —
-its measurement sub-questions are closed, its policy sub-question is not.
+abandoned rows (§14.2). The internal-phase decision serves accounts without a
+bound handle through the one-time claim described above. This historical share
+does not measure claim uptake, current eligibility, or public-launch readiness;
+see [`ARCHITECTURE.md` §13-O](./ARCHITECTURE.md#13-open-questions).
 
 > **Correction (2026-08-23) — the "neither a rounding error nor a migration
 > project" answer is withdrawn.** The first published version of the paragraph
@@ -2880,11 +2886,11 @@ its measurement sub-questions are closed, its policy sub-question is not.
   precisely the homograph attack surface we set out to remove, relocated into our
   own code.
 - **A separate, opt-in messaging handle decoupled from the platform username.**
-  Not rejected — **deferred.** It is the cleanest answer for the excluded
-  population and it is directory design: it needs a second namespace, a claim
-  protocol, and a rule for what happens when the two diverge. It touches
-  [`ARCHITECTURE.md` §13-K](./ARCHITECTURE.md#13-open-questions) (handle rename
-  and transfer) and belongs with `KT.md`.
+  **Selected for the internal phase** in
+  [#1022](https://github.com/free2z/zuu/issues/1022): an account without a bound
+  handle claims an eligible one permanently (§14.3). This does not provide
+  rename or transfer; those are separate questions under
+  [`ARCHITECTURE.md` §13-K](./ARCHITECTURE.md#13-open-questions).
 - **Allow up to 150 characters.** Rejected as a UI and verification concern
   rather than a security one: handles appear in safety-number confirmations and
   in contact-request UI, where a 150-character string is unreadable and therefore
@@ -2986,12 +2992,10 @@ Deliberately, and listed rather than invented:
 - **Proof-of-work function and calibration** —
   [§13-N](./ARCHITECTURE.md#13-open-questions), opened by §12.4.
 - **Messaging-handle eligibility for existing accounts** —
-  [§13-O](./ARCHITECTURE.md#13-open-questions), opened by §14.3. **Measured
-  2026-08-23 and still open**: the measurement is in (approximately 10% of
-  existing accounts are ineligible, and all of them are real users), so the
-  measurement sub-question is closed; whether those users are simply excluded
-  from messaging discovery in v1 or given a separate opt-in messaging handle is a
-  product decision nobody has made.
+  [§13-O](./ARCHITECTURE.md#13-open-questions), opened by §14.3. The historical
+  census is dated 2026-08-23. The internal-phase one-time claim policy is decided
+  in [#1022](https://github.com/free2z/zuu/issues/1022); broader rename/transfer
+  policy and public-launch requirements are separate.
 
 ---
 

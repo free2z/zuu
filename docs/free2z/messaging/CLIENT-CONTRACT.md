@@ -2007,7 +2007,7 @@ should be designed around speculatively.
 | **Groups larger than 2** | 1:1 is one MLS group like any other, so the model generalizes; fan-out is O(members × devices) and the scale limit is unanswered ([§13-M](./ARCHITECTURE.md#13-open-questions)). `Conversation` deliberately carries `peerHandle` rather than a member list — that is the v1 shape, and it will change. |
 | **Handle rename and transfer** | A change of *owner* rather than of *key*, creating a MITM window of a different shape. Still open ([§13-K](./ARCHITECTURE.md#13-open-questions)); [ADR 0014](./decisions/0014-directory-key-rotation.md) settles key rotation only. |
 | **Client gossip** | The only anti-equivocation that functions before independent witnesses exist, and **its wire format does not exist** ([`KT.md` §8.4](./KT.md#84-gossip), [§13-R](./ARCHITECTURE.md#13-open-questions)). No UI for it in v1. |
-| **A separate opt-in messaging handle** | The clean answer for the ~10% of real, active accounts the charset rule excludes (§11.3), deferred as directory design ([`WIRE.md` §14.4](./WIRE.md#144-alternatives-rejected)). Whether v1 simply excludes them or serves them this way is **an undecided product question**, not a settled omission ([§13-O](./ARCHITECTURE.md#13-open-questions)) — the one row in this table that may still move before v1. |
+| **Messaging-handle rename or transfer** | The internal phase allows an account without a bound handle to claim one eligible handle permanently ([#1022](https://github.com/free2z/zuu/issues/1022), `WIRE.md` §14.3). Changing or transferring that binding is a separate policy question ([§13-K](./ARCHITECTURE.md#13-open-questions)); the one-time claim does not provide it. |
 | **P2P (WebRTC) transport for messages** | An optimization, not a dependency ([`ARCHITECTURE.md` §10](./ARCHITECTURE.md#10-p2p-webrtc--an-optimization-not-a-dependency)). Not in the v1 command surface. |
 
 ---
@@ -2152,8 +2152,12 @@ guarantee that enrollment will succeed — only as "this string is well-formed."
 
 free2z usernames are considerably broader — Django's `^[\w.@+-]+$` up to 150
 characters — so **existing accounts containing `.`, `@`, `+`, `-`, any non-ASCII
-character, or exceeding 30 characters after lowercasing are not eligible for a
-messaging handle in v1.**
+character, or exceeding 30 characters after lowercasing are not eligible for
+automatic handle reservation from their username.** In the internal phase,
+accounts without a bound handle can claim an eligible one once; later accounts
+in a case-variant group claim a different handle
+([#1022](https://github.com/free2z/zuu/issues/1022), `WIRE.md` §14.3). This is not a
+platform username rename or a promise of public-launch readiness.
 
 **How many accounts that is, is now measured, and the answer is the reason this
 screen matters.** Measured against production on 2026-08-23
@@ -2181,11 +2185,11 @@ Three things the frontend must not infer from that number:
   can change the eligible share without updating this table. The conditional
   index and stored binding described in `WIRE.md` §14.3 do not refresh it. Treat it as the evidence that motivated the design below, not as
   a number to cite as current.
-- **It is not a temporary gap awaiting a migration.** Whether that ~10% is
-  excluded from messaging discovery in v1 or served by a separate opt-in
-  messaging handle is an **undecided product question**
-  ([§13-O](./ARCHITECTURE.md#13-open-questions), §13-K). Do not write copy that
-  promises either outcome.
+- **It does not measure access after claiming.** The internal-phase policy
+  permits an account without a bound handle to claim one eligible handle
+  permanently ([§13-O](./ARCHITECTURE.md#13-open-questions)). The census predates
+  that choice; it says nothing about claim uptake. Rename/transfer policy and
+  public-launch readiness must not be inferred from it.
 - **`ascii_lower(username)` is not a globally unique account key.** The
   conditional database index retains legacy exceptions
   ([`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted)).
@@ -2214,7 +2218,10 @@ So the ineligible state is **a first-class screen, not an error dialog**:
   *specifically* disqualifies the username (`reason` distinguishes
   `punctuation` from `non-ascii` from `too-long`), and that the account works
   exactly as it does today —
-  it simply cannot be discovered by handle in the messenger yet.
+  discovery requires a bound eligible handle. The internal-phase one-time claim
+  is available to accounts without one; do not describe username ineligibility
+  as a permanent account-wide exclusion. A client must read the backend binding
+  rather than infer claim status from the username predicate.
 - It must **not** be apologetic-and-empty, must not offer a rename flow (handle
   rename and transfer are unsolved — [§13-K](./ARCHITECTURE.md#13-open-questions)),
   and must not imply the restriction is temporary or arbitrary. Say what it buys,
@@ -2284,9 +2291,9 @@ transfer ([§13-K](./ARCHITECTURE.md#13-open-questions)), group scale
 ([§13-M](./ARCHITECTURE.md#13-open-questions)), proof-of-work calibration
 ([§13-N](./ARCHITECTURE.md#13-open-questions)) — which directly sets how slow
 first contact feels on a phone — messaging-handle eligibility
-([§13-O](./ARCHITECTURE.md#13-open-questions): the *measurement* is closed as of
-2026-08-23 and is in §11.3, but the **product** question of whether the ~10% is
-excluded in v1 or served by a separate opt-in handle is not), KT epoch cadence
+([§13-O](./ARCHITECTURE.md#13-open-questions): the census is historical,
+2026-08-23; #1022 selects one-time claims for internal testing, while
+public-launch requirements are separate), KT epoch cadence
 ([§13-P](./ARCHITECTURE.md#13-open-questions)), witness independence and the
 default *t* ([§13-Q](./ARCHITECTURE.md#13-open-questions)), the client gossip
 wire format ([§13-R](./ARCHITECTURE.md#13-open-questions)), and MLS `KeyPackage`

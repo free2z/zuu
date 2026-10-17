@@ -1348,8 +1348,10 @@ deliberate.
   ([`THREAT-MODEL.md` §4.10](./THREAT-MODEL.md#410-the-platform-username-space-contains-homographs-messaging-handles-do-not)).
   free2z usernames are broader
   (`^[\w.@+-]+$`, up to 150 characters), so some existing accounts are not
-  eligible. **Measured 2026-08-23 — and still open**, because measurement was
-  never the whole question. What the measurement settled:
+  eligible for automatic reservation from their username. The census below is
+  dated **2026-08-23**; the internal-phase claim policy is recorded separately
+  under [#1022](https://github.com/free2z/zuu/issues/1022). What the measurement
+  settled:
   - **What share, closed.** **Approximately 90% of existing accounts are eligible
     after case-folding and approximately 10% are not** — overwhelmingly because
     the username contains `.` `@` `+` or `-`; non-ASCII characters and
@@ -1370,10 +1372,14 @@ deliberate.
     tense, as a property of the shipped product rather than a risk of a future one
     ([`WIRE.md` §14.2](./WIRE.md#142-checked-against-free2zs-real-username-rules--measured),
     [`THREAT-MODEL.md` §4.10](./THREAT-MODEL.md#410-the-platform-username-space-contains-homographs-messaging-handles-do-not)).
-  - **Still open — and it is a product decision, not a measurement.** Is that
-    ~10% of real users simply excluded from messaging discovery in v1, or are
-    they served by a separate opt-in messaging handle? The latter is directory
-    design and touches §13-K. Nobody has decided, so this stays open.
+  - **Internal-phase policy: one permanent claim.** Under
+    [#1022](https://github.com/free2z/zuu/issues/1022), an account whose username
+    is ineligible can claim an eligible handle once. Later accounts in a
+    case-variant group must claim a different handle. This is a separate
+    messaging name, not a platform username rename. Public-launch readiness
+    and broader rename/transfer policy (§13-K) are separate from this internal
+    choice; [ADR 0017](./decisions/0017-internal-directory-activation.md) states
+    the disposable-directory scope.
   - **Database protection with legacy exceptions.** The backend enforces a
     conditional unique index on `LOWER(username)`. Ordinary new accounts and
     renamed accounts enter the index; pre-existing duplicate accounts are

@@ -697,7 +697,10 @@ accounts have been resolved. The exception cases are documented in
 Two accounts folding to the same string must not be treated as one identity.
 The backend's stored binding and signed assertion, rather than client-side
 string eligibility, establish handle ownership under
-[Contract C](./decisions/0017-internal-directory-activation.md).
+[Contract C](./decisions/0017-internal-directory-activation.md). In that internal
+phase, ineligible usernames and later case-colliding accounts can use a separate,
+once-claimed eligible handle; a claim does not resolve a legacy username
+collision or establish public-launch readiness.
 
 ### 4.11 An unregistered handle is asserted, not proved
 
