@@ -126,7 +126,12 @@ test.describe("enroll with ZUULI", () => {
     await startEnrollment(page);
 
     // ADR 0017 §4.1: the queue is opened before the request leaves, and the
-    // request carries the address the relay issued.
+    // request carries the address the relay issued. The waiting screen is
+    // rendered before the async key read and native dispatch finish, so wait
+    // for the host to observe the request before inspecting its bytes.
+    await expect
+      .poll(async () => (await hostRecord(page)).dispatched.length)
+      .toBe(1);
     const { dispatched } = await hostRecord(page);
     expect(dispatched[0]).toContain(hexOf("wss://relay.free2z.com/relay/v1"));
     expect(dispatched[0]).toContain("44".repeat(32));
