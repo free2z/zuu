@@ -842,9 +842,10 @@ this paragraph be restated without its scope.
 > must survive a restart. Each is a case where the weaker behaviour leaves a
 > field or a rule in place that looks like it is doing work it is not.
 
-> **Correction (2026-08-24) — neither of those two is still a gap between this
-> document and the Rust log, and the `account_epoch` rule has grown a rule a
-> verifier can actually apply.**
+> **Correction (2026-08-24; amended for #656, 2026-10-12) — A17 is no longer a
+> gap between this document and the Rust log. A18's absolute ceiling is
+> implemented; its former relative bound was removed because it could lock out
+> dormant handles.**
 > [#650](https://github.com/free2z/zuu/issues/650),
 > [#651](https://github.com/free2z/zuu/issues/651).
 >
@@ -855,13 +856,13 @@ this paragraph be restated without its scope.
 >   must not do that. It now restores each admitted
 >   `(authority_id, nonce, expires_ms)` into the live ledger during journal
 >   replay. §4.5.5's sentence is unchanged because it was right.
-> - **`account_epoch`'s rule is now checkable, within a stated limit.** §4.5.4
+> - **`account_epoch`'s ceiling is checkable, within a stated limit.** §4.5.4
 >   carries **A18** and says exactly which clocks it still cannot see and what the
 >   issuer must therefore guarantee. The issuing endpoint operated by the party
 >   that runs the user directory still derives the value from Unix seconds where
 >   no counter is supplied and remains **non-conforming**; that is tracked on
->   their side, and A18 means a log now refuses those assertions rather than
->   publishing entries authorized by a rule that could not fail.
+>   their side. A18 refuses Unix-second values but cannot refuse every
+>   clock-derived value without also refusing valid dormant-handle recoveries.
 
 An assertion is a short-lived, single-use, log-pinned statement by a configured
 authority that a named handle belongs to a named identity key. It is **not** part
@@ -1024,8 +1025,8 @@ baseline the handle's first `reset` must exceed.
 > event. A `u32` seconds counter also exhausts the field in 2106, which is a
 > second reason not to put a clock in it.
 
-> **Correction (2026-08-24) — the MUST above is now a rule a log applies, and
-> the honest limit of that rule is stated with it.**
+> **Correction (2026-08-24; A18 amended for #656, 2026-10-12) — the MUST above
+> is now partly checkable by a log, and the honest limit is stated with it.**
 > [#651](https://github.com/free2z/zuu/issues/651). As first published this
 > section stated the issuer's obligation and stopped there, which left A15 in the
 > position the paragraph above describes: a rule that **cannot fail** against a
@@ -1033,8 +1034,15 @@ baseline the handle's first `reset` must exceed.
 > checks is a requirement, not a rule, and this one had already been disregarded
 > by a shipped issuer.
 >
-> A log therefore now applies **A18** (§4.5.5), and it has two halves because one
-> is not enough:
+> A log applies **A18** (§4.5.5). The original relative half of A18 is removed
+> by the proposed semantic amendment in [#656](https://github.com/free2z/zuu/issues/656),
+> pending maintainer review. It compared an account-wide issuer counter with a
+> per-handle retained value, so a conforming account with multiple handles
+> could eventually lock a dormant handle out of recovery. A relative cap cannot
+> be repaired from the log's per-handle state without changing the issuer's
+> counter domain or adding protocol state. This amendment preserves the
+> per-account issuer contract and removes the unsound cap; it does not claim
+> that a value below the ceiling proves durable provenance:
 >
 > - **A18a — a ceiling.** `account_epoch` **MUST** be less than `2^20`
 >   (1,048,576). This is what a count of account-ownership events can plausibly
@@ -1044,26 +1052,14 @@ baseline the handle's first `reset` must exceed.
 >   named above is refused **on the value's face** — including at a first `bind`,
 >   where there is no retained value and A15 has nothing to compare against at
 >   all.
-> - **A18b — a step bound.** Where a value is retained for the handle,
->   `account_epoch` **MUST NOT** exceed it by more than **16**. A counter
->   increments once per ownership event, and only events whose assertion never
->   reached the log accumulate slack, so the gap between two admitted assertions
->   is a handful. A clock's gap is however much time passed. This is what catches
->   a clock too coarse to trip the ceiling — days since the epoch is about
->   20,700.
 >
-> Both are **fixed constants, not published policy numbers**, unlike A9's
-> validity cap: the same bound on every log is one a client can apply without
-> first fetching §4.6's document, and there is no operational reason for two logs
-> to disagree about a counter's shape.
->
-> **What A18 cannot do, said plainly.** No check on a single `uint32` can prove
-> the value came from durable storage. A clock fine enough to tick between two
-> issuances but coarse enough to tick at most sixteen times, and small enough in
-> absolute terms to stay under the ceiling, is indistinguishable from a counter
-> in the value alone. A18 is therefore **necessary and not sufficient**, and the
-> MUST above is not weakened to match what a verifier can see. What the issuer
-> must guarantee instead, and what this document requires of it:
+> **What A18 cannot do, said plainly.** The ceiling catches Unix seconds and
+> milliseconds, including at a first bind, but a coarser clock such as days
+> since the epoch (~20,700) is below it. No check on a single `uint32` can prove
+> the value came from durable storage, and comparing against a per-handle value
+> cannot safely close that gap while the issuer counter is per-account. A18 is
+> therefore **necessary and not sufficient**; the MUST above remains normative.
+> The issuer must guarantee:
 >
 > - `account_epoch` is read from and written to a **per-account column that
 >   survives a process restart**;
@@ -1144,12 +1140,10 @@ a log MUST apply all of them.
     replay, while the pair also catches an issuer that reused a nonce across two
     *different* assertions — an issuer bug, or a compromised issuer trying to
     make two claims look like one, which is the case worth failing on.
-18. **A18 — `account_epoch` moved like a counter, not like a clock.** It is
-    below `2^20`, and where a value is retained for this handle it exceeds that
-    value by at most 16. §4.5.4 states both bounds, why they are fixed rather
-    than published, and exactly what they cannot prove. Applied **with A15**
-    rather than after A17: it costs nothing, and a submission that fails it must
-    not burn a nonce. Numbered last because it was added last
+18. **A18 — `account_epoch` is below `2^20`.** §4.5.4 states the absolute
+    ceiling and why a per-handle relative cap is unsound for a per-account
+    counter. Applied **with A15** rather than after A17: a submission that fails
+    it must not burn a nonce. Numbered last because it was added last
     ([#651](https://github.com/free2z/zuu/issues/651)); it is not run last.
 
 **On A17's ledger.** A log MUST refuse rather than evict: discarding an unexpired
@@ -2717,9 +2711,10 @@ Deliberately, and listed rather than invented.
   not invent one, and it is a real gap rather than a tidy deferral. The two
   conformance rules §4.5 states more strictly than a shipped implementation were
   tracked as [#651](https://github.com/free2z/zuu/issues/651) (`account_epoch`)
-  and [#650](https://github.com/free2z/zuu/issues/650) (A17's ledger); **both
-  are closed on the log side** — A17's ledger now survives a restart, and A18
-  refuses a clock-shaped `account_epoch`. What is left is not a specification
+  and [#650](https://github.com/free2z/zuu/issues/650) (A17's ledger); A17's
+  ledger now survives a restart. A18 refuses values at or above its ceiling,
+  but a lower clock-derived value remains a specification violation the log
+  cannot identify. What is left is not a specification
   gap but an issuer that must hold a durable per-account counter, which A18 can
   bound but cannot verify (§4.5.4).
 - **A lighter-weight rotation for a compromised `directory_auth_pk` alone.**
