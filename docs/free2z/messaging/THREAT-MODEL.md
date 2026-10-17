@@ -688,19 +688,16 @@ space. Nothing here should be read as asserting that free2z's username space
 resists homograph or mixed-script impersonation. It does not, that is the
 finding, and no part of this design changes it.
 
-**The same mapping carries a second directory-integrity failure, and it involves
-no confusable at all.** Eligibility is evaluated on the *lowercased* username,
-platform case-insensitive uniqueness turns out to be an application convention in
-two serializers rather than a database constraint, and production holds
-case-variant duplicate accounts today. Within each colliding group, two distinct
-real accounts map to one messaging handle and the directory would have to pick a
-winner — the same outcome a successful homograph produces, reached without one.
-It is **blocking**: those accounts must be resolved before the mapping ships. The
-correction, the evidence and the intended end state (a database-level
-`UniqueConstraint(Lower("username"))`) are in
-[`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted), and the
-open question is
-[`ARCHITECTURE.md` §13-O](./ARCHITECTURE.md#13-open-questions).
+**Case folding also needs authoritative account binding.** The 2026-08-23
+census found case-variant duplicate accounts without any confusable characters.
+The backend's conditional unique index on `LOWER(username)` prevents ordinary
+new collisions, but retains legacy exceptions; it does not prove all historical
+accounts have been resolved. The exception cases are documented in
+[`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted).
+Two accounts folding to the same string must not be treated as one identity.
+The backend's stored binding and signed assertion, rather than client-side
+string eligibility, establish handle ownership under
+[Contract C](./decisions/0017-internal-directory-activation.md).
 
 ### 4.11 An unregistered handle is asserted, not proved
 

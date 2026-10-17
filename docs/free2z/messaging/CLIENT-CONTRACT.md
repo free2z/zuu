@@ -2133,21 +2133,20 @@ The argument originally given for folding case — that platform uniqueness is
 already enforced case-insensitively, so folding *cannot* collide two distinct
 existing accounts — **is false, and was retracted on the record**
 ([`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted)).
-Case-insensitive uniqueness is an application convention living in two
-serializers, not a property of the database, and folding case does collide real
-accounts today. The eligibility *rule* is unchanged and uppercase still
-disqualifies nobody; what does not hold is that the mapping is injective, and
-the client consequences of that are spelled out below.
+The backend's conditional database constraint prevents ordinary new collisions
+but exempts pre-existing duplicate accounts under their recorded legacy names.
+It does not make the username-to-handle string mapping globally injective.
+The eligibility rule accepts uppercase through ASCII folding; ownership requires
+the separate backend binding described in §14.3 of `WIRE.md`.
 
 **What this predicate answers, and what it does not.** `ascii_lower(username)
 matches the pattern` is candidate derivation: a pure function of the string,
 implemented and safe to ship as
 `tauri-plugin-f2zmsg`'s `handle.rs::eligibility`, exposed as
 `check_handle_eligibility` below. It asserts nothing about who owns a handle in
-the directory — that is authoritative publication, and it remains blocked on
-backend work this contract does not do (the corrected census below, the
-collision groups §14.3 of `WIRE.md` found in production, and a database-level
-uniqueness invariant that does not exist yet). A client MUST NOT treat
+the directory. Authoritative publication uses the backend binding and signed
+assertion under [Contract C](./decisions/0017-internal-directory-activation.md).
+A client MUST NOT treat
 `check_handle_eligibility` returning `eligible: true` as a reservation or a
 guarantee that enrollment will succeed — only as "this string is well-formed."
 
@@ -2178,24 +2177,21 @@ Three things the frontend must not infer from that number:
 
 - **It is not a live guarantee about today's account population.** This is a
   historical figure from one query against production on 2026-08-23, and this
-  repository cannot re-run it: registrations continue, and `WIRE.md` §14.3's
-  collision groups — found by the same query — are expected to be resolved
-  before the mapping ships, which moves the eligible share without updating
-  this table. Treat it as the evidence that motivated the design below, not as
+  repository cannot re-run it: registrations and legacy-account resolutions
+  can change the eligible share without updating this table. The conditional
+  index and stored binding described in `WIRE.md` §14.3 do not refresh it. Treat it as the evidence that motivated the design below, not as
   a number to cite as current.
 - **It is not a temporary gap awaiting a migration.** Whether that ~10% is
   excluded from messaging discovery in v1 or served by a separate opt-in
   messaging handle is an **undecided product question**
   ([§13-O](./ARCHITECTURE.md#13-open-questions), §13-K). Do not write copy that
   promises either outcome.
-- **`ascii_lower(username)` is not yet a unique key.** Case-insensitive username
-  uniqueness lives in two serializers and **not in the database**, and
-  production holds case-variant duplicate accounts today, in more than one
-  group ([`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted)).
-  Those must be resolved before the mapping ships — backend work, tracked
-  elsewhere — but the client consequence is now: never derive a messaging handle
-  from a username locally, and never assume two accounts that fold to the same
-  string are the same account. Always ask `check_handle_eligibility`.
+- **`ascii_lower(username)` is not a globally unique account key.** The
+  conditional database index retains legacy exceptions
+  ([`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted)).
+  Never assume two accounts that fold to the same string are the same account.
+  Use `check_handle_eligibility` for string eligibility and the authoritative
+  backend binding for ownership; the predicate cannot prove that binding.
 
 Note also that the platform's *own* username space already contains the
 homograph surface — `UnicodeUsernameValidator` is the validator actually

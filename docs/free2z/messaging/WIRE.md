@@ -2690,10 +2690,10 @@ figures behind every proportion below are recorded in the deployment repository.
 |---|---|
 | `py/free2z/dj/free2z/openapi/f2z.yaml` — `Registration`, `CreatorDetail`, `CreatorList`, `CommentAuthor` | `username` is `type: string`, **`pattern: ^[\w.@+-]+$`**, **`maxLength: 150`**, described as *"Letters, digits and @/./+/-/_ only."* This is Django's `AbstractUser.username` contract. |
 | `py/free2z/dj/free2z/settings.py:29` | `AUTH_USER_MODEL = 'g12f.Creator'`. The `Creator` model itself is not present in this repository — only serializers and views are — so the validator cannot be read *here*. **Determined out of band, 2026-08-23:** `Creator(AbstractUser)` does **not** override `username`; the initial migration records the field as `max_length=150, unique=True, validators=[django.contrib.auth.validators.UnicodeUsernameValidator()]`. **The Unicode validator is the one in use.** |
-| `py/free2z/dj/apps/g12f/serializers/creator.py` | Uniqueness is enforced **case-insensitively at the application layer only** (`Creator.objects.filter(username__iexact=...)`, in `RegistrationSerializer.validate_username` and `CreatorProfileUpdateSerializer.validate_username`). `FORBIDDEN_USERNAMES` additionally reserves route-shadowing names. **Determined out of band, 2026-08-23:** nothing backs this in the database — see the correction in §14.3. |
+| `py/free2z/dj/apps/g12f/serializers/creator.py` | The serializers check `Creator.objects.filter(username__iexact=...)`. `FORBIDDEN_USERNAMES` additionally reserves route-shadowing names. The 2026-08-23 finding that this had no database backing is historical; §14.3 describes the conditional database constraint and its legacy exceptions. |
 | `py/free2z/dj/apps/g12f/views/creator.py` | Reads are `username__iexact` (`lookup_field = "username__iexact"`; `get_object_or_404(Creator, username__iexact=...)`). |
 | `ts/svelte/free2z/src/routes/[username]/+page.svelte` | Handles are rendered verbatim as `@{creator.username}` and URL-encoded into paths. The front end applies **no** narrower rule. |
-| `ts/svelte/free2z/src/routes/[username]/dashboard/billing/+page.server.ts` | Contains `USERNAME_PATTERN = /^[a-zA-Z0-9_]{1,64}$/`, but this validates a subscription-target parameter in one dashboard action — it is not the registration rule, and it is already **narrower than what registration accepts**, so accounts with `.`/`@`/`+`/`-` in their name cannot use that page today. |
+| `ts/svelte/free2z/src/routes/[username]/dashboard/billing/+page.server.ts` | Validates subscription targets with `isSubscriptionUsername`, matching the Django username contract. This dashboard validation does not define the messaging charset. |
 | Production database, 2026-08-23 | The eligibility proportions below. |
 
 Two things follow, and the second is the one that matters most:
@@ -2725,9 +2725,9 @@ document does not claim they still hold.** Every share below is evidence
 gathered against production on 2026-08-23, under a predicate this repository
 cannot re-run: it required a query against a live database this repository
 does not have access to, at a point in time that has since passed. New
-accounts have registered since, and §14.3's collision groups — found by the
-same query — are expected to be *resolved* by the time the mapping ships,
-which changes the count of eligible accounts without changing this table. Read
+accounts can register and legacy collisions can be resolved without changing
+this table. The conditional index and stored binding contract in §14.3 do not
+refresh this census. Read
 these numbers as what motivated the v1 design decision below, not as a
 guarantee about today's account population; whoever plans the collision-cleanup
 or migration work must re-query production rather than cite this table as
@@ -2778,62 +2778,40 @@ avoid needing one — but the word alone does not say so, which is the
 terminology #820 corrects. No decision below changes; the two steps described
 here are the one mapping this section has always meant.
 
-The lowercase mapping is included deliberately: because platform uniqueness is
-already enforced case-insensitively, folding case **cannot** introduce a
-collision between two distinct existing accounts — so uppercase costs nobody
-their handle and there is no reason to exclude it. — **This argument is false as
-written; see the correction below.**
+Case folding does not establish account ownership. The production census on
+2026-08-23 found case-variant duplicate accounts, disproving the assumption
+that the serializers' case-insensitive validation made the mapping unique.
+Those historical observations do not establish the current duplicate count.
 
-**Caveat, and it must be checked before this is relied on:** that argument holds
-only if case-insensitive uniqueness actually holds *in the database*. It is
-enforced in the two serializers reachable from this repository, but the `Creator`
-model is not here, so whether a database-level constraint backs it — and whether
-any account predates the check, or was created through admin, a data migration or
-a social-login path that bypasses the serializer — **cannot be established from
-this repository and must be settled with a query.** Any colliding pair must be
-resolved by hand before the mapping ships.
+**The backend enforces a conditional database constraint.** The implementation
+supporting [#1022](https://github.com/free2z/zuu/issues/1022) adds a unique index
+on `LOWER(username)` for rows whose `username_ci_legacy` is null or differs
+from their current username. Within each pre-existing case-variant group, the
+earliest-created account is indexed; the others are exempt only while using
+their recorded legacy name. New accounts enter the index. Renaming an exempt
+account to a different name brings it into the index. This prevents ordinary
+concurrent signup/rename collisions without deleting or merging legacy accounts.
 
-> **Correction (2026-08-23) — the case-folding argument above is false, and the
-> property it rests on does not hold.** The two paragraphs above are left
-> standing rather than edited away, so an auditor can see exactly what was
-> claimed and what replaced it. The claim was that folding case *"cannot
-> introduce a collision between two distinct existing accounts"* **because**
-> platform uniqueness is already enforced case-insensitively. The caveat was
-> right to flag it and the query has now been run. It settles the question the
-> other way.
->
-> **Case-insensitive uniqueness is not a database property.** The `username`
-> column carries a plain, case-**sensitive** `unique=True` and nothing else: no
-> migration adds a `Lower("username")` functional index, no `UniqueConstraint`,
-> no `citext` column. The case-insensitive check exists **only** in
-> `RegistrationSerializer.validate_username` and
-> `CreatorProfileUpdateSerializer.validate_username`. It is therefore an
-> application convention, not an invariant — any path that does not pass through
-> those two serializers (the admin, a data migration, a management command, a
-> social-login flow) can create a case-variant duplicate, and the database will
-> accept it.
->
-> **And it has.** Measured on production 2026-08-23: **case-variant duplicate
-> accounts exist today, in more than one group.** The count is small and is
-> recorded in the deployment repository rather than here; the count is not the
-> finding. **The existence is the finding**, because a single colliding pair is
-> enough to make the claim above false. Folding case *does* collide two distinct
-> existing accounts.
->
-> **What survives and what does not.** The *decision* is unchanged: messaging
-> handles use the restricted charset and eligibility is evaluated on the
-> lowercased username. Uppercase on its own still disqualifies nobody — a little
-> over half of all accounts carry an uppercase letter and none is excluded for
-> that reason (§14.2). What does not survive is the claim that the mapping is
-> free. It is not: **every account in those collision groups must be resolved by
-> hand before the mapping ships**, because within each group two distinct
-> accounts map to one messaging handle and the directory would otherwise have to
-> pick a winner — in the one mapping whose integrity the whole system rests on.
-> The clean end state is a database-level `UniqueConstraint(Lower("username"))`,
-> so that the property the serializers already assume is actually enforced where
-> it can be relied on. That constraint and the resolution of the colliding
-> accounts are tracked in the deployment repository; they are backend work and
-> are not specified here.
+The exception has two limits:
+
+- If the indexed account leaves its folded name, the index permits one new
+  indexed account at that name alongside any exempt accounts.
+- An exempt account that renames away and back to its recorded legacy name
+  becomes exempt again.
+
+Application validation still checks these legacy cases, but cannot guarantee
+uniqueness under concurrent writes. An unconditional
+`UniqueConstraint(Lower("username"))` requires resolving the legacy exceptions
+first. Neither this conditional index nor the historical census proves that
+those accounts have been merged or renamed.
+
+**Username uniqueness and messaging-handle ownership are separate.** The
+backend stores authoritative handle bindings; for pre-existing case-variant
+groups, the earliest-created account keeps the handle under the decision in
+[#1022](https://github.com/free2z/zuu/issues/1022). A client's string predicate
+cannot substitute for that binding or for the signed assertion used by
+[Contract C](./decisions/0017-internal-directory-activation.md). This describes
+the binding contract, not new evidence of a client or deployment's readiness.
 
 **Two different claims share the word "eligibility," and this document makes
 only one of them (#820).** "Given this username string, what handle would it
@@ -2844,10 +2822,8 @@ to ship exactly as specified in §14.1:
 client as `check_handle_eligibility` (`CLIENT-CONTRACT.md` §3.2), does this and
 only this — no network call, no account lookup, no ownership claim. "This
 account is the authoritative holder of that handle in the directory" is a
-different claim, and nothing in this document authorizes publishing it yet:
-that requires the corrected census above, resolution of every collision group
-the query already found, and the database-level `UniqueConstraint` becoming
-real, none of which is done. A client MUST NOT read a `true` from
+different claim, established through the backend binding and signed assertion,
+not through this predicate. A client MUST NOT read a `true` from
 `check_handle_eligibility` as anything more than "this string could become a
 handle" — it is not a reservation, a claim, or a promise that submitting it
 will succeed, and copy built on top of it must not imply otherwise.

@@ -1374,23 +1374,21 @@ deliberate.
     ~10% of real users simply excluded from messaging discovery in v1, or are
     they served by a separate opt-in messaging handle? The latter is directory
     design and touches §13-K. Nobody has decided, so this stays open.
-  - **Surfaced by the measurement, and blocking.** Case-insensitive username
-    uniqueness is enforced only in two serializers, not in the database, and
-    **production holds case-variant duplicate accounts today, in more than one
-    group**. Those must
-    be resolved before the handle mapping ships; the correction and the intended
-    end state (a database-level `UniqueConstraint(Lower("username"))`) are in
-    [`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted). The
-    backend work is tracked in the deployment repository.
-  - **Candidate derivation and authoritative binding are two different claims,
-    and only the first ships (2026-08-31, #820).** "What handle would this
-    username become, and is it well-formed" is a pure, already-implemented,
-    already-safe function of the string
-    ([`WIRE.md` §14.1](./WIRE.md#141-proposed-rule),
-    `check_handle_eligibility`). "This account authoritatively owns that handle"
-    is what the census, collision resolution and database invariant above are
-    blocking, and this document does not treat the first as evidence for the
-    second.
+  - **Database protection with legacy exceptions.** The backend enforces a
+    conditional unique index on `LOWER(username)`. Ordinary new accounts and
+    renamed accounts enter the index; pre-existing duplicate accounts are
+    exempt while using their recorded legacy names. The two exception cases
+    and the unresolved work needed for unconditional uniqueness are in
+    [`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted).
+    The historical census does not prove those accounts have been resolved.
+  - **Candidate derivation and authoritative binding are different claims.**
+    `check_handle_eligibility` answers whether a string could be a handle; it
+    does not reserve one or identify its owner. The backend stores the binding
+    and issues the signed assertion used by
+    [Contract C](./decisions/0017-internal-directory-activation.md). Under the
+    decision in [#1022](https://github.com/free2z/zuu/issues/1022), the
+    earliest-created account in a legacy case-variant group keeps the handle.
+    This does not merge the group's accounts or establish a client's readiness.
 - **P. KT epoch cadence and maximum merge delay.** Opened 2026-08-23 by
   [`KT.md` §5](./KT.md#5-epochs-and-the-merge-promise). The values there — a
   600-second epoch published whether or not there is work, and a 3,600-second
