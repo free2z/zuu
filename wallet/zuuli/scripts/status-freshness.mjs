@@ -2,6 +2,7 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { TextDecoder } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -20,10 +21,24 @@ const releasingPath = "wallet/zuuli/docs/releasing.md";
 // enumerated dynamic field: the canonical audit SHA/date marker replaced below
 // before hashing. The semantic section/table checks remain independent so a
 // reviewer gets a precise diagnostic rather than an opaque digest alone.
-const RELEASING_DOCUMENT_SHA256 =
-  "eeaed2febad3e0a9a217dda0d5e64017f72d6f875568b0d753020f8d784781f8";
-const STATUS_DOCUMENT_SHA256 =
-  "f235c7fff1e4cfddb31203fcca17672bb94e73951507a0e95100f0a01ff30ad5";
+//
+// The two digests live in their own file, not in this script (#987). A
+// re-derivation must update them, and this script is release-impacting code:
+// with the seals inside it, the commit that re-derives STATUS.md changed a
+// release-impacting path after its own recorded audit SHA, so the audit was
+// stale the moment it merged. The seal file is excluded from the surface
+// below, exactly as STATUS.md is, and only it — the checker's logic stays in.
+export const statusEvidenceSealsPath =
+  "wallet/zuuli/scripts/status-evidence-seals.json";
+
+// A missing or malformed digest needs no check of its own: it can never equal
+// a real SHA-256, so verifyReleaseEvidencePolicy refuses the document.
+const {
+  releasing: RELEASING_DOCUMENT_SHA256,
+  status: STATUS_DOCUMENT_SHA256,
+} = JSON.parse(
+  readFileSync(resolve(scriptDirectory, "status-evidence-seals.json"), "utf8"),
+);
 const statusSourceMarkerPattern =
   /^Last re-derived from `origin\/main` at\n`[0-9a-f]{40}` on \d{4}-\d{2}-\d{2}\. Before a release,\nupdate the evidence and disposition for every non-ready row; do not carry this\ncommit or date forward mechanically\.$/gm;
 const canonicalStatusSourceMarker = "<STATUS_SOURCE_MARKER>";
@@ -702,6 +717,9 @@ export const releaseBumpPaths = new Set(
 );
 
 export function isReleaseImpactingPath(path) {
+  // Two digests of two documents: changing it changes nothing that ships, and
+  // a wrong value is refused by verifyReleaseEvidencePolicy on its own.
+  if (path === statusEvidenceSealsPath) return false;
   return (
     releaseImpactingPaths.has(path) ||
     releaseImpactingPrefixes.some((prefix) => path.startsWith(prefix)) ||
