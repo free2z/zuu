@@ -1,17 +1,31 @@
 //! Handle-ownership assertions for the free2z key-transparency log.
 //!
-//! **Experimental proposal.** `KT.md` v1 does not define `HandleAssertion`,
-//! its binding transcript, or the no-authority behavior implemented here.
-//! Issue #594 keeps first-entry authorization explicitly unresolved. This
-//! crate is an implementation candidate for review, not a claim that those
-//! choices are ratified protocol.
+//! **The current v1 assertion wire format is ratified as-implemented.**
+//! [`HandleAssertionTBS`], [`HandleAssertion`], and
+//! [`AssertionBindingTBS`] are specified in `KT.md` §4.5, including their
+//! encoding, signing transcripts, and admission rules. That ratification binds
+//! the current v1 wire shape; it does not make a change to where these bytes
+//! are carried a source-compatible refactor. The existing shape is frozen in
+//! two implementations, and [issue #649] proposes a coordinated wire change to
+//! make first-entry authorization client-verifiable. That issue remains open;
+//! its proposed move and the additional encoding decisions are not ratified.
 //!
-//! **One exception, and it is scoped.** ADR 0017 ratifies this crate's
+//! The crate checks only the assertion layer, not the complete directory
+//! authorization described by `KT.md` §4.4. In particular, its
+//! [`EntryKind::InitialBind`] is an internal model, not a `KT.md` v1
+//! `EntryKind`. Whether a distinct wire discriminator should represent
+//! first-entry authorization is an unresolved #649 choice; any such wire
+//! change remains unratified.
+//!
+//! [issue #649]: https://github.com/free2z/zuu/issues/649
+//!
+//! **Deployment-specific contract.** ADR 0017 also binds this crate's
 //! `HandleAssertion` bytes as Contract C for the *disposable internal*
 //! directory: the free2z backend issues them, and the shared vectors in
 //! `tests/fixtures/handle-assertion-v1.vectors` are what that issuer is held
 //! to. A format change is therefore a wire change for the backend, and
-//! `tests/contract_c_vectors.rs` fails until the vectors are regenerated.
+//! `tests/contract_c_vectors.rs` detects a mismatch. This deployment decision
+//! does not settle the open public-log questions in `KT.md` §12.
 //!
 //! # Why this is a crate and not a module
 //!
