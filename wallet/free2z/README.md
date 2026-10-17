@@ -220,27 +220,33 @@ running app; `tests/profile-kyc.pw.ts` asserts the fourth.
    mints no `free2z/intent/v1/` label, and re-implements no encoder, version
    gate or response matcher.
 
-   **No deep link was invented.** `@/lib/bridge/intent-transport.ts` is one
-   interface with one shipped implementation, and that implementation rejects
-   with a typed error naming #461. Custom-scheme links are not an authenticated
-   channel, so the request is built, validated — and not sent. A txid is
-   rendered only from a response that decoded, correlated to that request, named
-   this family, arrived inside its window, carried status 0 and held exactly 32
-   bytes.
+   **No custom scheme.** `@/lib/bridge/intent-transport.ts` is one interface,
+   and `installedIntentTransport()` is the one place a transport is chosen: in
+   the iOS and Android apps, `@/lib/bridge/appLinkTransport.ts` opens
+   `https://free2z.com/bridge/zuuli/#req=…` through `tauri-plugin-opener` and
+   reads ZUULI's answer from this app's own verified App Link
+   (`/bridge/free2z/`); on desktop and in a browser there is no association, so
+   the request is built, validated — and refused with a typed error, not sent.
+   A txid is rendered only from a response that decoded, correlated to that
+   request, named this family, arrived inside its window, carried status 0 and
+   held exactly 32 bytes.
 
    What the payer is told is decided in one exhaustive map,
    `features/creator/tip-copy.ts`, organised around **what this app can prove**
    rather than around success and failure. Only three outcomes may say nothing
    was sent: no transport, a request that could not be built, and an explicit
-   `INTENT_NOT_CONFIRMED` from the wallet. A lost answer or an
-   `INTENT_UNAVAILABLE` — which covers `BroadcastStatus::Unknown`, where a
-   transaction exists locally and may or may not have been broadcast — sends the
-   payer to ZUULI to look instead of reassuring them.
+   `INTENT_NOT_CONFIRMED` from the wallet. A lost or late answer — once the
+   link has opened, ZUULI may already have paid — or an `INTENT_UNAVAILABLE`,
+   which covers `BroadcastStatus::Unknown`, where a transaction exists locally
+   and may or may not have been broadcast, sends the payer to ZUULI to look
+   instead of reassuring them.
 
    What the correlation proves is that the responder saw the request.
    `docs/free2z/intent-bridge/CALLER-AUTHENTICATION.md` §5 records what it does not:
    there is **no signature over responses**, so nothing in the bytes proves
-   ZUULI wrote them. That is a property of the transport, which is #461.
+   ZUULI wrote them. That is a property of the transport: the answer arrives on
+   this app's own verified App Link, which only the app that owns the
+   association receives.
 2. **Login with Zcash.** Password and linked accounts work. The Zcash method is
    absent rather than stubbed behind a button that cannot work, and the login
    screen says so. Signing a login challenge is an attestation, not a spend —

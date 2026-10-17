@@ -21,7 +21,7 @@ committed bytes differ, so the record and these documents cannot drift.
 
 ## Why they exist here at all
 
-[`PROTOCOL.md` §7](../PROTOCOL.md#7-what-is-blocked-on-461) refuses to ship the
+[`PROTOCOL.md` §7](../PROTOCOL.md#7-the-transport-and-what-461-made-possible) refuses to ship the
 intent bridge over a custom scheme: any app can register
 `cash.free2z.zuuli://`, so a hostile app can impersonate the sender of an intent
 and intercept the response. A **verified** App Link / Universal Link is
