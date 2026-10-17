@@ -2005,9 +2005,8 @@ should be designed around speculatively.
 | **Push notifications** | An **unresolved metadata leak**: push tokens are stable identifiers and notification timing goes to Apple and Google. There is no position yet and it must not be described as solved ([§13-H](./ARCHITECTURE.md#13-open-questions), [`THREAT-MODEL.md` §4.7](./THREAT-MODEL.md#47-push-notifications-are-an-unresolved-metadata-leak)). The protocol assumes a held WebSocket ([`WIRE.md` §16](./WIRE.md#16-what-this-document-leaves-open)). |
 | **Nostr fallback transport** | Nostr relays retain by default and NIP-40 expiration is advisory, so it trades away the delete-on-ack property. Per conversation, opt-in, and the UI must state that ciphertext may be retained indefinitely by third parties ([`ARCHITECTURE.md` §6.7](./ARCHITECTURE.md#67-nostr-as-fallback-transport), [`THREAT-MODEL.md` §4.8](./THREAT-MODEL.md#48-nostr-fallback-means-accepting-retention)). |
 | **Groups larger than 2** | 1:1 is one MLS group like any other, so the model generalizes; fan-out is O(members × devices) and the scale limit is unanswered ([§13-M](./ARCHITECTURE.md#13-open-questions)). `Conversation` deliberately carries `peerHandle` rather than a member list — that is the v1 shape, and it will change. |
-| **Handle rename and transfer** | A change of *owner* rather than of *key*, creating a MITM window of a different shape. Still open ([§13-K](./ARCHITECTURE.md#13-open-questions)); [ADR 0014](./decisions/0014-directory-key-rotation.md) settles key rotation only. |
+| **Handle rename and transfer** | The internal phase permits one permanent claim for an account without a bound handle ([#1022](https://github.com/free2z/zuu/issues/1022), `WIRE.md` §14.3). Changing or transferring that binding is separate ([§13-K](./ARCHITECTURE.md#13-open-questions)); [ADR 0014](./decisions/0014-directory-key-rotation.md) settles key rotation only. |
 | **Client gossip** | The only anti-equivocation that functions before independent witnesses exist, and **its wire format does not exist** ([`KT.md` §8.4](./KT.md#84-gossip), [§13-R](./ARCHITECTURE.md#13-open-questions)). No UI for it in v1. |
-| **Messaging-handle rename or transfer** | The internal phase allows an account without a bound handle to claim one eligible handle permanently ([#1022](https://github.com/free2z/zuu/issues/1022), `WIRE.md` §14.3). Changing or transferring that binding is a separate policy question ([§13-K](./ARCHITECTURE.md#13-open-questions)); the one-time claim does not provide it. |
 | **P2P (WebRTC) transport for messages** | An optimization, not a dependency ([`ARCHITECTURE.md` §10](./ARCHITECTURE.md#10-p2p-webrtc--an-optimization-not-a-dependency)). Not in the v1 command surface. |
 
 ---
@@ -2183,8 +2182,9 @@ Three things the frontend must not infer from that number:
   historical figure from one query against production on 2026-08-23, and this
   repository cannot re-run it: registrations and legacy-account resolutions
   can change the eligible share without updating this table. The conditional
-  index and stored binding described in `WIRE.md` §14.3 do not refresh it. Treat it as the evidence that motivated the design below, not as
-  a number to cite as current.
+  index and stored binding described in `WIRE.md` §14.3 do not refresh it. Treat
+  it as the evidence that motivated the design below, not as a number to cite
+  as current.
 - **It does not measure access after claiming.** The internal-phase policy
   permits an account without a bound handle to claim one eligible handle
   permanently ([§13-O](./ARCHITECTURE.md#13-open-questions)). The census predates
