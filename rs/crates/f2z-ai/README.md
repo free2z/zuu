@@ -26,6 +26,14 @@ Function tools and tool-result history require `capabilities.tools` in the
 signed model catalogue. Missing capability metadata conservatively disables
 tools; model names never imply support. The gateway relays calls but never runs
 a client tool. Tool definitions, arguments and results enter the input hold.
+Client function calls are billed through ordinary input/output token usage;
+they do not increment the per-call `usage.tool_calls` dimension. That
+dimension and `tool_call_nusd` apply only to provider-billed server-side tool
+invocations. On an interrupted stream, generated function-call names and
+argument fragments are part of the output-token estimate, without a second
+per-call charge. The provider outcome keeps an internal
+`function_tool_calls` count for client function calls; this is not a public
+wire field.
 `tool_choice` and `parallel_tool_calls` are passed through by the Chat
 Completions adapter (OpenAI, xAI) and refused elsewhere; a tool's `strict: true`
 needs `capabilities.strict_tools` (absent: provider `openai` only — xAI does
