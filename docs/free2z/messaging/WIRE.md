@@ -2693,7 +2693,7 @@ figures behind every proportion below are recorded in the deployment repository.
 | `py/free2z/dj/apps/g12f/serializers/creator.py` | The serializers check `Creator.objects.filter(username__iexact=...)`. `FORBIDDEN_USERNAMES` additionally reserves route-shadowing names. The 2026-08-23 finding that this had no database backing is historical; §14.3 describes the conditional database constraint and its legacy exceptions. |
 | `py/free2z/dj/apps/g12f/views/creator.py` | Reads are `username__iexact` (`lookup_field = "username__iexact"`; `get_object_or_404(Creator, username__iexact=...)`). |
 | `ts/svelte/free2z/src/routes/[username]/+page.svelte` | Handles are rendered verbatim as `@{creator.username}` and URL-encoded into paths. The front end applies **no** narrower rule. |
-| `ts/svelte/free2z/src/routes/[username]/dashboard/billing/+page.server.ts` | Validates subscription targets with `isSubscriptionUsername`, matching the Django username contract. This dashboard validation does not define the messaging charset. |
+| `ts/svelte/free2z/src/routes/[username]/dashboard/billing/+page.server.ts` | Validates subscription targets with `isSubscriptionUsername`, following the Django username character and length rules while rejecting the URL dot segments `.` and `..`. This dashboard validation does not define the messaging charset. |
 | Production database, 2026-08-23 | The eligibility proportions below. |
 
 Two things follow, and the second is the one that matters most:
@@ -2787,7 +2787,8 @@ Those historical observations do not establish the current duplicate count.
 supporting [#1022](https://github.com/free2z/zuu/issues/1022) adds a unique index
 on `LOWER(username)` for rows whose `username_ci_legacy` is null or differs
 from their current username. Within each pre-existing case-variant group, the
-earliest-created account is indexed; the others are exempt only while using
+earliest-created account (ordered by `date_joined`, then account ID) is indexed;
+the others are exempt only while using
 their recorded legacy name. New accounts enter the index. Renaming an exempt
 account to a different name brings it into the index. This prevents ordinary
 concurrent signup/rename collisions without deleting or merging legacy accounts.
@@ -2810,8 +2811,8 @@ backend stores authoritative handle bindings; for pre-existing case-variant
 groups, the earliest-created account keeps the handle under the decision in
 [#1022](https://github.com/free2z/zuu/issues/1022). A client's string predicate
 cannot substitute for that binding or for the signed assertion used by
-[Contract C](./decisions/0017-internal-directory-activation.md). This describes
-the binding contract, not new evidence of a client or deployment's readiness.
+[Contract C](./decisions/0017-internal-directory-activation.md). Enrollment
+requires that assertion and the configured directory trust checks in ADR 0017.
 
 **Two different claims share the word "eligibility," and this document makes
 only one of them (#820).** "Given this username string, what handle would it
