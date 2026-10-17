@@ -1246,7 +1246,10 @@ function selfTest() {
   );
   expectSlug("`rs/` — the free2z Rust workspace", "rs--the-free2z-rust-workspace"); // rs/README.md:1
   expectSlug("Verifying before you push", "verifying-before-you-push"); // AGENTS.md
-  expectSlug("4.2 Derivation (proposed)", "42-derivation-proposed"); // docs/e2ee/ARCHITECTURE.md:194
+  expectSlug(
+    "4.2 Derivation (implemented in `f2z-msg-identity`)",
+    "42-derivation-implemented-in-f2z-msg-identity", // docs/free2z/messaging/ARCHITECTURE.md
+  );
   expectSlug("⭐ Star the Project", "-star-the-project"); // ts/react/free2z/README.md:9
   expectSlug(
     "6. `device_kem_pk` is not resolved here", // docs/e2ee/decisions/0016-…:501

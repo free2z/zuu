@@ -15,15 +15,14 @@
 //! 2. **The relay's list is a filter, not the source of truth.** The security
 //!    property comes from the *client* padding to its own configured set before
 //!    the ciphertext ever leaves the device. The relay's rejection is a backstop
-//!    against a sloppy client and against a malicious client trying to use
-//!    length as a covert channel to a colluding relay. Hence
+//!    against a client that fails to pad; a colluding client and relay can bypass
+//!    it. Hence
 //!    [`PaddingBuckets::is_superset_of`]: a client MUST refuse a relay whose set
 //!    is not a superset of what the client will emit.
 //! 3. **An implausibly fine-grained set is itself the attack.** §9's v1 rule of
 //!    thumb — more than 16 entries, or a spacing below 512 bytes between
-//!    adjacent buckets — is [`PaddingBuckets::is_plausible`]. Such a set is
-//!    indistinguishable from an attempt to let a colluding client leak length
-//!    through size.
+//!    adjacent buckets — is [`PaddingBuckets::is_plausible`]. Smaller gaps
+//!    expose finer length classes to anyone observing payload sizes.
 
 use alloc::vec::Vec;
 

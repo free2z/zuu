@@ -10,7 +10,7 @@ mod markdown;
 const KT: &str = include_str!("../../../../docs/free2z/messaging/KT.md");
 const DIRECTORY_ENTRY_HEADING: &str = "4. `DirectoryEntry`";
 const STRUCTURE_HEADING: &str = "4.1 Structure";
-const STRUCTURE_POLICY_DIGEST: u64 = 2_518_136_126_776_171_893;
+const STRUCTURE_POLICY_DIGEST: u64 = 13_638_946_560_119_505_443;
 
 const LIFETIME_POLICY: &str = r#"The interval MUST be non-empty: `not_before_ms < not_after_ms`. The v1
 credential-clock tolerance is a fixed protocol constant,

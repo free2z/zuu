@@ -110,7 +110,7 @@ the same list in `invoke_handler`, `src/models.rs` carries
 Enrollment is the one operation that needs the **wallet seed**. The messaging
 identity is seed-derived:
 `S → MSK → account_node → IdentitySigningKey / DirectoryAuthKey / BackupWrapKey`
-([`ARCHITECTURE.md` §4.2](./ARCHITECTURE.md#42-derivation-proposed)), so that
+([`ARCHITECTURE.md` §4.2](./ARCHITECTURE.md#42-derivation-implemented-in-f2z-msg-identity)), so that
 restoring the mnemonic restores the identity. Device keys are generated
 on-device from the OS CSPRNG and are deliberately **not** seed-derivable.
 
@@ -2273,7 +2273,7 @@ files) are settled.
 | `Conversation.peerHandle` (singular) | v1 is 1:1. Groups > 2 will replace this with a member list (§10). |
 | `DeliveryStatus.devicesExpected` | Always 1 in single-device v1 ([ADR 0002](./decisions/0002-multi-device.md)); the field exists so the UI does not have to be rebuilt. |
 | `SafetyNumber.zcashMemoPayload` | Verification over a shielded Zcash memo is described in [`ARCHITECTURE.md` §9.2](./ARCHITECTURE.md#92-the-directory) and has no specified payload format. |
-| Retry budgets and backoff constants | Not specified anywhere yet; `send_retry_max` is named in [`WIRE.md` §6.3](./WIRE.md#63-commands-signed-by-the-send-side-queue-key) without a value. |
+| Retry budgets and backoff constants | V1 sets no backoff schedule. A client MUST NOT automatically retry an `APPEND` after an unknown outcome because it may duplicate a committed message ([`WIRE.md` §6.3](./WIRE.md#63-commands-signed-by-the-send-side-queue-key), §8.3). `CREATE_QUEUE` is also non-idempotent; an unknown result must be surfaced rather than automatically retried. |
 | Enrollment merge latency | Depends on the KT epoch cadence, whose values are placeholders ([§13-P](./ARCHITECTURE.md#13-open-questions)). |
 | PoW algorithm 1 / 20-bit / 60000 ms default | An interoperability value, not calibration evidence. The 20-bit acceptance ceiling, 16,777,216-candidate budget and 30000 ms search deadline are safety bounds pending §13-N's supported-device and attacker measurements. |
 

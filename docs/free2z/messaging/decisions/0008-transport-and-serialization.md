@@ -100,14 +100,15 @@ error.**
   non-minimal integer widths, map key ordering, duplicate keys, tags — and its
   canonical form is a *profile*: a rule an implementation must remember to apply
   and that a decoder will happily let it skip. We would be adding a serializer
-  whose default behaviour is unsafe for our use, plus a second decoder in the
-  WASM bundle and in the audit scope, to gain self-description we do not want.
+  whose default behaviour is unsafe for our use, plus a separate serializer
+  and decoder to review for each supported target, to gain self-description we
+  do not want.
   The relay is a fixed command set, not an extensible document format.
 - **A hand-rolled binary codec.** Rejected on the plainest grounds available: it
-  would be a new parser, written by us, on the unauthenticated path, and the only
-  component of the relay with no prior review anywhere. `tls_codec` is not
-  formally verified either, but it is exercised by every MLS implementation built
-  on it, including ours.
+  would be a new parser, written by us, on the unauthenticated path, with no
+  independent review established by this decision. `tls_codec` is not formally
+  verified either, but it is exercised by every MLS implementation built on it,
+  including the repository's OpenMLS-based messaging implementation.
 - **Protocol Buffers / FlatBuffers.** Rejected: same canonicality problem as CBOR
   (field ordering, unknown-field preservation, default-vs-absent), plus a code
   generator and a schema toolchain in the build.

@@ -2,11 +2,10 @@
 //! checking it against itself, and deciding whether to talk to the relay that
 //! published it.
 //!
-//! §11.1 calls this "a relay's entire externally-relevant policy, in one signed
-//! structure … the document a client reads to decide whether to use a relay at
-//! all, and the document a human reads to decide whether to trust its
-//! operator." Both of those readers are served here, and they are separated on
-//! purpose:
+//! §11.1 defines the policy fields this signed structure publishes. It is one
+//! input to client and operator decisions; some admission limits and backpressure
+//! thresholds remain local and are not published. The two readers are served
+//! here, and their checks are separated on purpose:
 //!
 //! - [`validate`] asks whether the document is a *valid* one — whether it
 //!   contradicts itself or claims a policy the architecture forbids. Every
@@ -296,10 +295,11 @@ pub fn validate(capabilities: &Capabilities) -> Result<()> {
     // refuses anything else, including duplicates and a zero-length bucket.
     let buckets = PaddingBuckets::new(capabilities.padding_sizes.as_slice().to_vec())
         .map_err(|_| inconsistent)?;
-    // A relay whose frame cap cannot carry its own largest bucket has published
-    // a set no client can use. This is a necessary condition, not a sufficient
-    // one — the frame also carries an auth block and a body prefix.
-    if u64::from(capabilities.max_frame_bytes) < u64::from(buckets.largest()) {
+    // A relay must be able to return its largest accepted payload in the
+    // smallest useful READ response, including all protocol framing.
+    let minimum_read_frame = u64::from(buckets.largest())
+        .saturating_add(u64::from(f2z_codec::frame::MIN_READ_FRAME_OVERHEAD));
+    if u64::from(capabilities.max_frame_bytes) < minimum_read_frame {
         return Err(inconsistent);
     }
 
@@ -574,6 +574,9 @@ pub fn defaults(relay_identity_pk: &PublicKey, published_at_ms: u64) -> Result<C
 mod tests {
     use super::*;
     use alloc::vec;
+    use f2z_codec::commands::{QueuedMessage, ReadResponse};
+    use f2z_codec::frame::{RelayFrame, Response};
+    use f2z_codec::types::Payload;
 
     fn identity() -> SigningKey {
         SigningKey::from_seed(&[0x21; 32])
@@ -581,6 +584,26 @@ mod tests {
 
     fn document() -> Capabilities {
         defaults(&identity().public_key(), 1_800_000_000_000).unwrap()
+    }
+
+    fn serialized_one_message_read_frame_size(payload_bytes: u32) -> usize {
+        let payload_len = usize::try_from(payload_bytes).unwrap();
+        let payload = Payload::new(vec![0; payload_len]).unwrap();
+        let response_body = ReadResponse {
+            messages: vec![QueuedMessage {
+                index: 0,
+                received_at_ms: 0,
+                payload,
+            }]
+            .into(),
+            has_more: 0,
+        }
+        .encode_canonical()
+        .unwrap();
+        RelayFrame::response(1, Response::ok(response_body).unwrap())
+            .encode_canonical()
+            .unwrap()
+            .len()
     }
 
     #[derive(Clone, Copy, Debug)]
@@ -788,32 +811,20 @@ mod tests {
     }
 
     #[test]
-    fn a_frame_cap_below_the_relays_own_largest_bucket_is_refused() {
-        // A relay advertising a bucket its frame cap cannot carry has
-        // published a size no client can ever send it: the padding is the
-        // §9 privacy mechanism, so a client that trims to fit is a client
-        // whose message length is informative again.
-        //
-        // The boundary is asserted from `largest()` rather than from a
-        // literal, so the test cannot drift away from the default bucket set
-        // it is describing.
-        let largest = PaddingBuckets::new(document().padding_sizes.as_slice().to_vec())
+    fn a_frame_cap_must_fit_the_largest_bucket_in_a_read_response() {
+        let mut capabilities = document();
+        let largest = PaddingBuckets::new(capabilities.padding_sizes.as_slice().to_vec())
             .unwrap()
             .largest();
+        let frame_size = serialized_one_message_read_frame_size(largest);
 
-        let mut capabilities = document();
-        capabilities.max_frame_bytes = largest - 1;
+        capabilities.max_frame_bytes = u32::try_from(frame_size - 1).unwrap();
         assert_eq!(
             validate(&capabilities),
             Err(ProtoError::Refused(Refusal::CapabilitiesInconsistent))
         );
 
-        // Equality is the accepted edge: the check is `<`, and a frame that
-        // is exactly one bucket long is the necessary condition. It is not a
-        // sufficient one — the frame also carries an auth block and a body
-        // length prefix — which is why this is the boundary the document
-        // states and not the one a relay should actually publish.
-        capabilities.max_frame_bytes = largest;
+        capabilities.max_frame_bytes = u32::try_from(frame_size).unwrap();
         assert!(validate(&capabilities).is_ok());
     }
 

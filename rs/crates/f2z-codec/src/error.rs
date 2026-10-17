@@ -47,7 +47,7 @@ pub enum ErrorCode {
     BadSize,
     /// `up_to_index` above the highest appended index (§8.2).
     AckTooHigh,
-    /// A recv-side quota was exceeded (queue count, creation rate).
+    /// Queue creation was refused because the relay's total queue ceiling was reached.
     Quota,
     /// Send side only. Absent, deleted, expired, full-by-messages,
     /// full-by-bytes, or relay backpressure — collapsed into one code (§6.3).

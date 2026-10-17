@@ -36,7 +36,7 @@ from the master seed, then generate messaging keys from that.
   hardened derivation with no extended public key at any level, so it **cannot
   collide with the Sapling or Orchard key trees even at identical indices**, and
   the seed is not recoverable from any messaging key. See
-  [`../ARCHITECTURE.md` §4.2](../ARCHITECTURE.md#42-derivation-proposed).
+  [`../ARCHITECTURE.md` §4.2](../ARCHITECTURE.md#42-derivation-implemented-in-f2z-msg-identity).
 - Cross-protocol key reuse is exactly what an auditor will (correctly) fail us on,
   so the domain-separation table is part of the specification, not an
   implementation detail.
