@@ -27,12 +27,9 @@
 
 use std::sync::Arc;
 
-use f2z_authority::types::{AssertionNonce, Handle as AuthorityHandle, Intent, LogId};
-use f2z_codec::Canonical as _;
-use f2z_kt::testing::{EntryBuilder, Harness, Identity, entry_bytes};
-use f2z_kt::wire::SubmissionEnvelope;
+use f2z_authority::types::AssertionNonce;
+use f2z_kt::testing::{AssertionOverrides, EntryBuilder, Harness, Identity};
 use f2z_kt_core::entry::DirectoryEntry;
-use f2z_kt_core::labels;
 use f2z_kt_core::types::Handle;
 
 const NOW: u64 = 1_700_000_100_000;
@@ -64,38 +61,12 @@ fn envelope_with_nonce(
     identity: &Identity,
     nonce: AssertionNonce,
 ) -> Vec<u8> {
-    let bytes = entry_bytes(entry);
-    let digest = labels::entry_value(&bytes);
-    let handle = AuthorityHandle::parse(entry.entry.handle.as_slice()).unwrap();
-    let issuer = harness.issuer.as_ref().unwrap();
-    let assertion = f2z_authority::HandleAssertionTBS::new(
-        &issuer.public_key(),
-        LogId::new(*harness.log_id.as_bytes()),
-        handle.clone(),
-        entry.entry.identity_pk,
-        Intent::Bind,
-        0,
+    harness.envelope_overriding(
+        entry,
+        identity,
         NOW,
-        NOW + 60_000,
-        nonce,
+        AssertionOverrides::nonce(*nonce.as_bytes()),
     )
-    .unwrap()
-    .sign(issuer)
-    .unwrap();
-    let binding = harness
-        .log
-        .authority()
-        .binding(&handle, &entry.entry.identity_pk, Some(&assertion), &digest)
-        .unwrap();
-    let identity_signature = identity.isk.sign(&binding.signing_bytes().unwrap());
-    SubmissionEnvelope::new(
-        &bytes,
-        Some(&assertion.encode_canonical().unwrap()),
-        identity_signature,
-    )
-    .unwrap()
-    .encode_canonical()
-    .unwrap()
 }
 
 #[tokio::test]

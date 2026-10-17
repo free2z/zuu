@@ -1,10 +1,10 @@
 //! Handle-ownership assertions for the free2z key-transparency log.
 //!
-//! **Experimental proposal.** `KT.md` v1 does not define `HandleAssertion`,
-//! its binding transcript, or the no-authority behavior implemented here.
-//! Issue #594 keeps first-entry authorization explicitly unresolved. This
-//! crate is an implementation candidate for review, not a claim that those
-//! choices are ratified protocol.
+//! The v1 `HandleAssertion` and `AssertionBindingTBS` encodings are the
+//! ratified Contract C. The additional `InitialBindBindingTBS` used to commit
+//! first-entry evidence into `DirectoryEntry` is a #649 future-wire proposal
+//! for maintainer review and is not yet ratified. The no-authority behavior
+//! remains the existing implementation contract.
 //!
 //! **One exception, and it is scoped.** ADR 0017 ratifies this crate's
 //! `HandleAssertion` bytes as Contract C for the *disposable internal*
@@ -196,7 +196,9 @@ pub mod labels;
 pub mod nonce;
 pub mod types;
 
-pub use assertion::{AssertionBindingTBS, HandleAssertion, HandleAssertionTBS};
+pub use assertion::{
+    AssertionBindingTBS, HandleAssertion, HandleAssertionTBS, InitialBindBindingTBS,
+};
 pub use authority::{
     ACCOUNT_EPOCH_CEILING, AssertionLayerCheck, AuthorityConfig, AuthorityKey, AuthoritySet,
     DEFAULT_CLOCK_SKEW_MS, DEFAULT_MAX_VALIDITY_MS, EntryKind, MAX_ACCOUNT_EPOCH_STEP, Submission,

@@ -108,6 +108,17 @@ pub const LABEL_LOG_ID: &[u8] = b"free2z/kt/v1/log-id";
 /// `AkdValue = H("free2z/kt/v1/value", tls_codec(DirectoryEntry))` (§3.3).
 pub const LABEL_VALUE: &[u8] = b"free2z/kt/v1/value";
 
+/// Digest committed by an initial assertion binding. It commits to the
+/// complete signed entry body without including the authorization that holds
+/// the binding itself.
+pub const LABEL_ENTRY_TBS_DIGEST: &[u8] = b"free2z/kt/v1/initial-entry-digest";
+
+/// `H(LABEL_ENTRY_TBS_DIGEST, tls_codec(DirectoryEntryTBS))`.
+#[must_use]
+pub fn entry_tbs_digest(canonical_tbs: &[u8]) -> Digest {
+    hash(LABEL_ENTRY_TBS_DIGEST, canonical_tbs)
+}
+
 /// `prev_entry_hash = H("free2z/kt/v1/prev", tls_codec(previous DirectoryEntry))`
 /// (§4.2).
 pub const LABEL_PREV: &[u8] = b"free2z/kt/v1/prev";
@@ -118,7 +129,13 @@ pub const LABEL_TREE_HEAD_HASH: &[u8] = b"free2z/kt/v1/tree-head-hash";
 
 /// Every label this crate hands to `H`, so a test can assert the set is
 /// prefix-free. See the module note on `H`'s missing separator.
-pub const HASH_LABELS: [&[u8]; 4] = [LABEL_LOG_ID, LABEL_VALUE, LABEL_PREV, LABEL_TREE_HEAD_HASH];
+pub const HASH_LABELS: [&[u8]; 5] = [
+    LABEL_LOG_ID,
+    LABEL_VALUE,
+    LABEL_PREV,
+    LABEL_TREE_HEAD_HASH,
+    LABEL_ENTRY_TBS_DIGEST,
+];
 
 /// The `AkdLabel` prefix: `"free2z/kt/v1/handle:" || handle` (§3.3).
 ///
