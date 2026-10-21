@@ -57,6 +57,14 @@ ARG RUST_CHANNEL
 SHELL ["/bin/sh", "-euc"]
 WORKDIR /src
 
+# Publish the distro's eMudhra distrust bundle alongside the embedded Rust
+# verifier update. The same bundle protects build-time system TLS clients.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20250419~deb12u2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /etc/ssl/verified-certs
+
 # The whole rs/ workspace: one [workspace], one Cargo.lock. `--locked` below
 # only means something if the lockfile present is the one in the repository.
 COPY . /src
@@ -105,6 +113,12 @@ RUN set -eu; \
 # KT.md §9.3 promises a witness has no inbound listener, so an `exec` probe on
 # this binary is the only probe shape that exists. See f2z-witness/src/health.rs.
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f AS runtime
+
+# Exclude hashed certificate files inherited from the runtime base as well as
+# its old bundle: native-store consumers can read both independently.
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/verified-ca.pem
+COPY --from=build /etc/ssl/verified-certs /etc/ssl/verified-certs
+ENV SSL_CERT_FILE=/etc/ssl/verified-ca.pem SSL_CERT_DIR=/etc/ssl/verified-certs
 
 # Restated rather than inherited. The base sets it today; a base bump that
 # stopped setting it would otherwise return these images to root without a
