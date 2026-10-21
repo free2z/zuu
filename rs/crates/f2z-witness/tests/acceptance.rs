@@ -37,7 +37,11 @@
     clippy::arithmetic_side_effects
 )]
 
+use std::io::{Read as _, Write as _};
+use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 
 use f2z_codec::Canonical as _;
 use f2z_kt::LogService;
@@ -46,7 +50,7 @@ use f2z_kt_core::api::TreeHeadBundle;
 use f2z_kt_core::types::Handle;
 use f2z_kt_core::{ConfiguredWitness, FaultKind, WitnessSet, verify_threshold};
 use f2z_witness::witness::{Outcome, Settings, Witness};
-use f2z_witness::{Transport, WitnessError};
+use f2z_witness::{HttpTransport, Transport, WitnessError};
 
 const NOW: u64 = 1_700_000_100_000;
 
@@ -157,6 +161,158 @@ fn witness_for(harness: &Harness, transport: Box<dyn Transport>, name: &str) -> 
     .unwrap()
 }
 
+/// A loopback HTTP server that serves a real log's poll responses and can
+/// reject a chosen number of cosign POSTs before forwarding them to that log.
+struct RetryHttpServer {
+    url: String,
+    stop: Arc<AtomicBool>,
+    post_attempts: Arc<AtomicUsize>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl RetryHttpServer {
+    fn start(transport: Arc<DirectTransport>, failed_posts: usize) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_stop = Arc::clone(&stop);
+        let post_attempts = Arc::new(AtomicUsize::new(0));
+        let thread_post_attempts = Arc::clone(&post_attempts);
+        let worker = std::thread::spawn(move || {
+            let mut failures_left = failed_posts;
+            while !thread_stop.load(Ordering::Acquire) {
+                match listener.accept() {
+                    Ok((stream, _)) => handle_retry_request(
+                        stream,
+                        &transport,
+                        &mut failures_left,
+                        &thread_post_attempts,
+                    ),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(2));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        Self {
+            url: format!("http://{address}"),
+            stop,
+            post_attempts,
+            worker: Some(worker),
+        }
+    }
+
+    fn post_attempts(&self) -> usize {
+        self.post_attempts.load(Ordering::Acquire)
+    }
+}
+
+impl Drop for RetryHttpServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        let _ = TcpStream::connect(&self.url[7..]);
+        if let Some(worker) = self.worker.take() {
+            worker.join().unwrap();
+        }
+    }
+}
+
+fn handle_retry_request(
+    mut stream: TcpStream,
+    transport: &DirectTransport,
+    failures_left: &mut usize,
+    post_attempts: &AtomicUsize,
+) {
+    let mut request = Vec::new();
+    let mut scratch = [0u8; 1024];
+    let header_end = loop {
+        let count = stream.read(&mut scratch).unwrap();
+        if count == 0 {
+            return;
+        }
+        request.extend_from_slice(&scratch[..count]);
+        if let Some(end) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+            break end + 4;
+        }
+    };
+    let headers = String::from_utf8_lossy(&request[..header_end]);
+    let content_length = headers
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse::<usize>().unwrap())
+        })
+        .unwrap_or(0);
+    while request.len() < header_end.saturating_add(content_length) {
+        let count = stream.read(&mut scratch).unwrap();
+        if count == 0 {
+            return;
+        }
+        request.extend_from_slice(&scratch[..count]);
+    }
+    let start = String::from_utf8_lossy(&request[..header_end]);
+    let result = if start.starts_with("GET /kt/v1/sth ") {
+        transport.latest_sth().map(|body| (200, body))
+    } else if start.starts_with("GET /kt/v1/audit?") {
+        let query = start
+            .lines()
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .nth(1)
+            .unwrap();
+        let from = query
+            .split("from=")
+            .nth(1)
+            .unwrap()
+            .split('&')
+            .next()
+            .unwrap();
+        let to = query
+            .split("to=")
+            .nth(1)
+            .unwrap()
+            .split('&')
+            .next()
+            .unwrap();
+        transport
+            .audit(from.parse().unwrap(), to.parse().unwrap())
+            .map(|body| (200, body))
+    } else if start.starts_with("POST /kt/v1/cosign ") {
+        post_attempts.fetch_add(1, Ordering::AcqRel);
+        let body = &request[header_end..header_end.saturating_add(content_length)];
+        if *failures_left > 0 {
+            *failures_left -= 1;
+            Ok((503, Vec::new()))
+        } else {
+            transport.cosign(body).map(|()| (204, Vec::new()))
+        }
+    } else {
+        Ok((404, Vec::new()))
+    };
+    let (status, body) = result.unwrap_or_else(|_| (500, Vec::new()));
+    let reason = if status == 204 {
+        "No Content"
+    } else if status == 200 {
+        "OK"
+    } else if status == 503 {
+        "Service Unavailable"
+    } else if status == 404 {
+        "Not Found"
+    } else {
+        "Internal Server Error"
+    };
+    let response = format!(
+        "HTTP/1.1 {status} {reason}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(response.as_bytes());
+    let _ = stream.write_all(&body);
+}
+
 /// Register a handle and publish the epoch that carries it.
 fn register(runtime: &tokio::runtime::Runtime, harness: &Harness, handle: &str, seed: u8) {
     runtime.block_on(async {
@@ -177,6 +333,220 @@ fn register(runtime: &tokio::runtime::Runtime, harness: &Harness, handle: &str, 
 // ---------------------------------------------------------------------------
 // The happy path, end to end.
 // ---------------------------------------------------------------------------
+
+#[test]
+fn a_failed_http_cosign_is_retried_on_the_same_epoch() {
+    let setup = tokio::runtime::Runtime::new().unwrap();
+    let harness = setup.block_on(log_for("accept-http-retry-same"));
+    setup.block_on(harness.log.publish_epoch(NOW)).unwrap();
+    let direct = Arc::new(DirectTransport::new(Arc::clone(&harness.log)));
+    let server = RetryHttpServer::start(Arc::clone(&direct), 1);
+    let dir = f2z_kt::testing::temp_dir("accept-http-retry-same-state");
+    let settings = Settings {
+        log_id: harness.log_id,
+        accepted_log_pk: harness.log.log_public_key(),
+        state_path: dir.join("state.bin"),
+        evidence_dir: dir.join("evidence"),
+        max_audit_span: 64,
+    };
+    let http = || {
+        HttpTransport::insecure_loopback(&server.url, std::time::Duration::from_secs(2)).unwrap()
+    };
+    let mut witness =
+        Witness::new(settings.clone(), &[WITNESS_SEED; 32], Box::new(http())).unwrap();
+
+    assert_eq!(
+        witness.poll_once(NOW).unwrap(),
+        Outcome::Pinned { epoch: 1 }
+    );
+    let pending = f2z_witness::state::load(&settings.state_path)
+        .unwrap()
+        .unwrap()
+        .pending_cosignature
+        .as_ref()
+        .cloned()
+        .unwrap();
+    assert_eq!(pending.statement.epoch, 1);
+    assert_eq!(
+        witness.poll_once(NOW + 1).unwrap(),
+        Outcome::UpToDate { epoch: 1 }
+    );
+    assert!(
+        f2z_witness::state::load(&settings.state_path)
+            .unwrap()
+            .unwrap()
+            .pending_cosignature
+            .is_none()
+    );
+    let bundle = setup.block_on(harness.log.latest_bundle()).unwrap();
+    assert_eq!(
+        bundle.cosignatures.len(),
+        1,
+        "retry is idempotent at the log"
+    );
+}
+
+#[test]
+fn a_pending_http_cosign_survives_restart_and_retries() {
+    let setup = tokio::runtime::Runtime::new().unwrap();
+    for (case, incomplete_tail) in [
+        ("prefix", vec![0x00, 0x00]),
+        ("payload", vec![0x00, 0x00, 0x00, 0x40, 0x12, 0x34]),
+    ] {
+        let harness = setup.block_on(log_for(&format!("accept-http-retry-restart-{case}")));
+        setup.block_on(harness.log.publish_epoch(NOW)).unwrap();
+        let direct = Arc::new(DirectTransport::new(Arc::clone(&harness.log)));
+        let server = RetryHttpServer::start(Arc::clone(&direct), 1);
+        let dir = f2z_kt::testing::temp_dir(&format!("accept-http-retry-restart-{case}-state"));
+        let settings = Settings {
+            log_id: harness.log_id,
+            accepted_log_pk: harness.log.log_public_key(),
+            state_path: dir.join("state.bin"),
+            evidence_dir: dir.join("evidence"),
+            max_audit_span: 64,
+        };
+        let http = || {
+            HttpTransport::insecure_loopback(&server.url, std::time::Duration::from_secs(2))
+                .unwrap()
+        };
+        {
+            let mut witness =
+                Witness::new(settings.clone(), &[WITNESS_SEED; 32], Box::new(http())).unwrap();
+            assert_eq!(
+                witness.poll_once(NOW).unwrap(),
+                Outcome::Pinned { epoch: 1 }
+            );
+        }
+        let pending_before_restart = f2z_witness::state::load(&settings.state_path)
+            .unwrap()
+            .unwrap()
+            .pending_cosignature
+            .as_ref()
+            .cloned()
+            .unwrap();
+        let history_path = settings.evidence_dir.join("cosignatures.log");
+        let complete_history = std::fs::read(&history_path).unwrap();
+        let mut history_with_incomplete_tail = complete_history.clone();
+        history_with_incomplete_tail.extend_from_slice(&incomplete_tail);
+        std::fs::write(&history_path, history_with_incomplete_tail).unwrap();
+
+        let mut restarted =
+            Witness::new(settings.clone(), &[WITNESS_SEED; 32], Box::new(http())).unwrap();
+        assert_eq!(
+            restarted.poll_once(NOW + 2).unwrap(),
+            Outcome::UpToDate { epoch: 1 }
+        );
+        let state = f2z_witness::state::load(&settings.state_path)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            state.epoch, 1,
+            "restart preserves the verified high-water mark"
+        );
+        assert!(state.pending_cosignature.is_none());
+        let bundle = setup.block_on(harness.log.latest_bundle()).unwrap();
+        assert_eq!(bundle.cosignatures.len(), 1);
+        assert_eq!(
+            bundle.cosignatures.as_slice().first(),
+            Some(&pending_before_restart),
+            "restart retries the exact deterministic statement"
+        );
+        assert_eq!(
+            std::fs::read(&history_path).unwrap(),
+            complete_history,
+            "{case}: repair preserves the complete frame and avoids duplicate history"
+        );
+    }
+}
+
+#[test]
+fn failed_delivery_does_not_block_verified_high_water_advancement() {
+    let setup = tokio::runtime::Runtime::new().unwrap();
+    let harness = setup.block_on(log_for("accept-http-retry-advance"));
+    setup.block_on(harness.log.publish_epoch(NOW)).unwrap();
+    let direct = Arc::new(DirectTransport::new(Arc::clone(&harness.log)));
+    let server = RetryHttpServer::start(Arc::clone(&direct), 3);
+    let dir = f2z_kt::testing::temp_dir("accept-http-retry-advance-state");
+    let settings = Settings {
+        log_id: harness.log_id,
+        accepted_log_pk: harness.log.log_public_key(),
+        state_path: dir.join("state.bin"),
+        evidence_dir: dir.join("evidence"),
+        max_audit_span: 64,
+    };
+    let http = || {
+        HttpTransport::insecure_loopback(&server.url, std::time::Duration::from_secs(2)).unwrap()
+    };
+    let mut witness =
+        Witness::new(settings.clone(), &[WITNESS_SEED; 32], Box::new(http())).unwrap();
+    assert_eq!(
+        witness.poll_once(NOW).unwrap(),
+        Outcome::Pinned { epoch: 1 }
+    );
+
+    register(&setup, &harness, "alice", 3);
+    register(&setup, &harness, "bob", 4);
+    register(&setup, &harness, "carol", 5);
+    assert_eq!(
+        witness.poll_once(NOW + 1).unwrap(),
+        Outcome::Cosigned {
+            epoch: 4,
+            advanced: 3
+        }
+    );
+    let advanced = f2z_witness::state::load(&settings.state_path)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        advanced.epoch, 4,
+        "proof verification advances through outage"
+    );
+    assert_eq!(
+        advanced
+            .pending_cosignature
+            .as_ref()
+            .unwrap()
+            .statement
+            .epoch,
+        4,
+        "the newest verified head replaces stale delivery"
+    );
+    assert_eq!(
+        server.post_attempts(),
+        2,
+        "one POST for pin and one for advancement"
+    );
+
+    assert_eq!(
+        witness.poll_once(NOW + 2).unwrap(),
+        Outcome::DeliveryPending { epoch: 4 }
+    );
+    assert_eq!(server.post_attempts(), 3, "same-head poll attempts once");
+    assert_eq!(
+        witness.poll_once(NOW + 3).unwrap(),
+        Outcome::UpToDate { epoch: 4 }
+    );
+    assert_eq!(server.post_attempts(), 4, "next poll attempts once again");
+    assert!(
+        f2z_witness::state::load(&settings.state_path)
+            .unwrap()
+            .unwrap()
+            .pending_cosignature
+            .is_none()
+    );
+    let bundle = setup.block_on(harness.log.latest_bundle()).unwrap();
+    assert_eq!(bundle.cosignatures.len(), 1);
+    assert_eq!(
+        bundle
+            .cosignatures
+            .as_slice()
+            .first()
+            .unwrap()
+            .statement
+            .epoch,
+        4
+    );
+}
 
 #[test]
 fn a_witness_verifies_real_proofs_and_the_log_serves_its_cosignature() {
