@@ -267,7 +267,7 @@ codegen-units = 1
 # vulnerable KEM in the full lock; it remains banned in enabled graphs.
 # No local cryptographic algorithm modifications. See docs/DEPENDENCIES.md.
 [patch.crates-io]
-openmls_libcrux_crypto = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }
-openmls_traits = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }
-openmls_memory_storage = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }
-openmls_rust_crypto = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }
+openmls_libcrux_crypto = { git = "https://github.com/0bkevin/openmls", rev = "6e96a4411ea2669f05ac22dd0e0424c1c93f5055" }
+openmls_traits = { git = "https://github.com/0bkevin/openmls", rev = "6e96a4411ea2669f05ac22dd0e0424c1c93f5055" }
+openmls_memory_storage = { git = "https://github.com/0bkevin/openmls", rev = "6e96a4411ea2669f05ac22dd0e0424c1c93f5055" }
+openmls_rust_crypto = { git = "https://github.com/0bkevin/openmls", rev = "6e96a4411ea2669f05ac22dd0e0424c1c93f5055" }

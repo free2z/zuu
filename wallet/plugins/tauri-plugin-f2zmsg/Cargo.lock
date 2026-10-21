@@ -4007,8 +4007,9 @@ dependencies = [
 [[package]]
 name = "openmls_libcrux_crypto"
 version = "0.4.0"
-source = "git+https://github.com/free2z/openmls?rev=7ded6597be8ddf7004046c8564fa97090d5e9633#7ded6597be8ddf7004046c8564fa97090d5e9633"
+source = "git+https://github.com/0bkevin/openmls?rev=6e96a4411ea2669f05ac22dd0e0424c1c93f5055#6e96a4411ea2669f05ac22dd0e0424c1c93f5055"
 dependencies = [
+ "curve25519-dalek 5.0.0",
  "hpke-rs",
  "hpke-rs-crypto",
  "hpke-rs-libcrux",
@@ -4030,7 +4031,7 @@ dependencies = [
 [[package]]
 name = "openmls_memory_storage"
 version = "0.6.0"
-source = "git+https://github.com/free2z/openmls?rev=7ded6597be8ddf7004046c8564fa97090d5e9633#7ded6597be8ddf7004046c8564fa97090d5e9633"
+source = "git+https://github.com/0bkevin/openmls?rev=6e96a4411ea2669f05ac22dd0e0424c1c93f5055#6e96a4411ea2669f05ac22dd0e0424c1c93f5055"
 dependencies = [
  "hex",
  "log",
@@ -4043,7 +4044,7 @@ dependencies = [
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.6.0"
-source = "git+https://github.com/free2z/openmls?rev=7ded6597be8ddf7004046c8564fa97090d5e9633#7ded6597be8ddf7004046c8564fa97090d5e9633"
+source = "git+https://github.com/0bkevin/openmls?rev=6e96a4411ea2669f05ac22dd0e0424c1c93f5055#6e96a4411ea2669f05ac22dd0e0424c1c93f5055"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305 0.11.0",
@@ -4107,7 +4108,7 @@ dependencies = [
 [[package]]
 name = "openmls_traits"
 version = "0.6.0"
-source = "git+https://github.com/free2z/openmls?rev=7ded6597be8ddf7004046c8564fa97090d5e9633#7ded6597be8ddf7004046c8564fa97090d5e9633"
+source = "git+https://github.com/0bkevin/openmls?rev=6e96a4411ea2669f05ac22dd0e0424c1c93f5055#6e96a4411ea2669f05ac22dd0e0424c1c93f5055"
 dependencies = [
  "serde",
  "tls_codec",
