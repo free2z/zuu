@@ -18,19 +18,31 @@ See [`vectors/README.md`](vectors/README.md) for provenance and licensing.
 
 ## What CI proves, and what it does not
 
-The required `rs / tests` job executes this suite on GitHub's Ubuntu x86_64
-host with the repository's pinned Rust toolchain and lockfile. It first requires
-the openmls/libcrux package versions, sources, and checksums in `rs/Cargo.lock`
-to match the independent messaging-plugin and ZUULI shipping lockfiles. Both
-wallet lockfiles select this required job, so a wallet-only graph refresh cannot
-leave the KAT running against an old graph. Before trusting
-the live result, it copies the committed vectors, corrupts one X-Wing combiner
-output, and requires the same test binary to fail for that exact mismatch.
+The required `rs / tests` job runs this suite on Ubuntu x86_64 with the
+repository's pinned Rust toolchain and lockfile. A second required lane runs it
+on GitHub's native Ubuntu ARM64 runner. Both lanes first require the
+openmls/libcrux package versions, sources, and checksums in `rs/Cargo.lock` to
+match the independent messaging-plugin and ZUULI shipping lockfiles. The shared
+change selector includes both wallet lockfiles and all relevant manifests,
+source, and toolchain pins, so a wallet-only graph refresh cannot leave either
+KAT lane testing an old graph. Each lane corrupts one X-Wing combiner output
+and requires the test binary to reject that exact mismatch before running all
+committed vectors.
 
-That host run catches dependency-version regressions in the x86_64 path selected
-on the runner. It does **not** execute the compile-time-selected NEON backend
-shipped on aarch64 Android and iOS, and the workspace's wasm job does not run
-Rust tests in a browser. A cross-compile would establish type and link
-compatibility, not cryptographic execution, so this PR does not present one as
-target KAT evidence. The permanent host gate closes the reproducibility hole;
-runtime KATs on phone targets remain additional evidence when device CI exists.
+The ARM lane fails unless the runner and rustc host are Linux aarch64, rustc
+reports its default `neon` target feature, and every runtime CPU feature row
+reports ASIMD or NEON. The lane also runs a focused verifier self-test covering
+missing NEON, wrong host/target, feature overrides, malformed or absent current
+build evidence, stale test executables, and valid ARM evidence. Before the live
+KAT run, it clears only the selected `libcrux-ml-kem` package artifacts. That
+run emits Cargo JSON which binds the selected, locked libcrux package's current
+`simd128` build-script event to the rebuilt `f2z-crypto-kat` test executable.
+The verifier checks that executable's ELF machine is AArch64 and locates it
+under Cargo's active target directory, including when Cargo target-directory
+configuration is used. A stale `simd128` marker from another package or an old
+build cannot satisfy the check.
+
+This verifies the compile-time-selected ARM backend and its execution on a
+native ARM host; it is not an Android or iOS device run. The workspace's wasm
+job builds client libraries but does not execute these Rust tests in a browser.
+Browser/WASM and on-device Android/iOS KAT execution remain uncovered.
