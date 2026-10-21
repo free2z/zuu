@@ -135,6 +135,8 @@ jobs:
           distribution: temurin
           java-version: "21.0.12"
           cache: gradle
+      - name: Remove distrusted Java CA roots
+        run: java "$GITHUB_WORKSPACE/.github/scripts/RemoveDistrustedRoots.java" "$JAVA_HOME/lib/security/cacerts"
       # dtolnay/rust-toolchain's version branches hardcode the compiler in
       # action.yml, so this commit is itself the version pin and the trailing
       # comment is its only readable record. Bumping the toolchain means moving

@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url';
 import { chromium } from '@playwright/test';
 import { PNG } from 'pngjs';
 import { CAPTURE_PUBLIC_REQUESTS, computeFeedCaptureScroll } from './store-screenshot-capture.mjs';
+import { captureTlsDockerArguments, CAPTURE_TLS_BOOTSTRAP, assertCaptureTlsRuntime } from "./capture-tls.mjs";
 import { CAPTURE_NPM_CI_ARGUMENTS, CAPTURE_NPM_ENVIRONMENT, readCanonicalJson, validateCaptureConfig } from './store-screenshot-contract.mjs';
 import { walletRoot, BROWSER, SHOTS, RUNTIME_EVIDENCE, FORBIDDEN_TEXT, canonical, sha256, captureDigests, assertSourceCommit, assertCaptureEnvironment, validateSurfaceCaptureConfig, validateSurfaceCaptureRecord, validateRecordMatrix } from './surface-store-capture-contract.mjs';
 import { validateSurfaceCatalog } from './surface-store-catalogs.mjs';
@@ -223,8 +224,8 @@ export async function main(argv = process.argv.slice(2)) {
   if (process.env.SURFACE_STORE_CAPTURE_WORKER !== '1') {
     await assertSourceCommit(app, config.sourceSha);
     assert(typeof process.getuid === 'function', 'capture requires Docker on macOS or Linux');
-    const install = `node -e 'require("fs").writeFileSync(process.env.NPM_CONFIG_USERCONFIG, "");require("fs").writeFileSync(process.env.NPM_CONFIG_GLOBALCONFIG, "")' && npm ${CAPTURE_NPM_CI_ARGUMENTS.join(' ')} --prefix /work/zuuli && npm ${CAPTURE_NPM_CI_ARGUMENTS.join(' ')} --prefix /work/${app} && node /work/zuuli/scripts/surface-store-capture.mjs ${app} ${mode}`;
-    await command('docker', ['run', '--rm', '--platform', BROWSER.platform, '--ipc=host', '--env', 'CI=1', '--env', 'SURFACE_STORE_CAPTURE_WORKER=1', '--env', `SURFACE_STORE_EXPECTED_DIGESTS=${JSON.stringify(digests)}`, ...Object.entries(CAPTURE_NPM_ENVIRONMENT).flatMap(([k, v]) => ['--env', `${k}=${v}`]), '--volume', `${walletRoot}:/work`, '--volume', '/work/zuuli/node_modules', '--volume', `/work/${app}/node_modules`, '--workdir', '/work', BROWSER.containerImage, 'bash', '-c', install]);
+    const install = `${CAPTURE_TLS_BOOTSTRAP} && node /work/zuuli/scripts/capture-tls.mjs --verify-runtime && node -e 'require("fs").writeFileSync(process.env.NPM_CONFIG_USERCONFIG, "");require("fs").writeFileSync(process.env.NPM_CONFIG_GLOBALCONFIG, "")' && npm ${CAPTURE_NPM_CI_ARGUMENTS.join(' ')} --prefix /work/zuuli && npm ${CAPTURE_NPM_CI_ARGUMENTS.join(' ')} --prefix /work/${app} && node /work/zuuli/scripts/surface-store-capture.mjs ${app} ${mode}`;
+    await command('docker', ['run', '--rm', '--platform', BROWSER.platform, '--ipc=host', '--env', 'CI=1', '--env', 'SURFACE_STORE_CAPTURE_WORKER=1', '--env', `SURFACE_STORE_EXPECTED_DIGESTS=${JSON.stringify(digests)}`, ...await captureTlsDockerArguments(resolve(walletRoot, 'zuuli')), ...Object.entries(CAPTURE_NPM_ENVIRONMENT).flatMap(([k, v]) => ['--env', `${k}=${v}`]), '--volume', `${walletRoot}:/work`, '--volume', '/work/zuuli/node_modules', '--volume', `/work/${app}/node_modules`, '--workdir', '/work', BROWSER.containerImage, 'bash', '-c', install]);
     assert.deepEqual(await captureDigests(app), digests, 'capture inputs changed');
     await assertSourceCommit(app, config.sourceSha);
     await assertCaptureEnvironment(app);
@@ -232,6 +233,7 @@ export async function main(argv = process.argv.slice(2)) {
     await validateSurfaceCatalog({ app });
     return;
   }
+  await assertCaptureTlsRuntime();
   assert.equal(process.platform, 'linux'); assert.equal(process.arch, 'x64'); await access('/.dockerenv');
   assert(chromium.executablePath().startsWith('/ms-playwright/'), 'browser must come from pinned image');
   assert.deepEqual(digests, JSON.parse(process.env.SURFACE_STORE_EXPECTED_DIGESTS ?? 'null'), 'host/worker digest mismatch');

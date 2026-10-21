@@ -31,6 +31,7 @@ export function renderInputs(app) {
 }
 export function contractInputs(app) {
   return [`${app}/${CONFIG}`, 'zuuli/package.json', 'zuuli/package-lock.json',
+    'zuuli/scripts/capture-tls.mjs', 'zuuli/scripts/tls/ca-certificates.pem',
     'zuuli/scripts/surface-store-capture.mjs', 'zuuli/scripts/surface-store-capture-contract.mjs',
     'zuuli/scripts/surface-store-catalogs.mjs', 'zuuli/scripts/store-contract.mjs',
     'zuuli/scripts/store-screenshot-contract.mjs', 'zuuli/scripts/store-screenshot-capture.mjs',

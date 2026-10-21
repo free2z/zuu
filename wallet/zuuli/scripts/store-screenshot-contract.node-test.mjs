@@ -464,3 +464,6 @@ test("dependency-free preflight requires the exact host digests", async () => {
   await preflight(env);
   await assert.rejects(() => preflight({ ...env, ZUULI_STORE_EXPECTED_SOURCE_DIGEST: "0".repeat(64) }), /capture preflight failed/);
 });
+
+// Exercise the trust-data guard alongside the capture contract.
+import "./capture-tls.node-test.mjs";

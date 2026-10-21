@@ -151,7 +151,7 @@
     "runtimeEvidence": "linux-chromium-fixture-render-not-physical-android-device",
     "sourceSha": "a03eb47bddd3a5da36956f040da0e36c53623b97",
     "sourceDigest": "0fb9f6c2df2577c1a68710013f213bb4bb99059c0b5de1f59f7cf01048c4e84a",
-    "contractDigest": "fb7020eca5cf23c3e3d5830d51578f881974a4a51a0d94b67890e1b89c8fabd7",
+    "contractDigest": "7ae1dde9451818763798ed5205eb86696e3a394bebfe76a67abc0f9418df5234",
     "captureConfig": "store/capture.json",
     "captureRecord": "store/capture-record.json"
   }

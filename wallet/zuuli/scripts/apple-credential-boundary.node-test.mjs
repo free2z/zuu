@@ -1906,3 +1906,6 @@ test("canonical member inventory rejects a symlink in place of an expected file"
   await symlink("source-record.json", join(payload.directory, "ExportOptions.plist"));
   assert.equal(await hasExactMembers(payload.directory, expected), false);
 });
+
+// JVM trust and source-execution ordering are part of the release boundary.
+import "./java-trust.node-test.mjs";

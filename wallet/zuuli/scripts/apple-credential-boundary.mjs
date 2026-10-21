@@ -110,7 +110,7 @@ const CREDENTIAL_JOB_SHA256 = new Map([
 // compile happen in separate steps, so an unreviewed command between them
 // could otherwise build stale bytes while attesting the requested source SHA.
 const ANDROID_BUILD_JOB_SHA256 =
-  "5daa68172264e99494d9014114a45713d3b3e436067c8a71eff9c034fface96a";
+  "bd93c3bd6ed51ebe925f41412eded3d24b447944ad5280312ab6f1d9beef5cac";
 const ANDROID_FINALIZER_JOB_SHA256 =
   "9571bb82e1fa0ba6b0749fbbb9487f72e9c495fb0c6877f64747f0c3eff2f794";
 const RELEASE_INDEX_JOB_SHA256 =
