@@ -14,7 +14,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use serde_json::Value;
 use tokio::net::{TcpListener, TcpSocket};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Semaphore, mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use super::render::{Plan, RenderContext, plan};
@@ -71,6 +71,7 @@ pub struct RecordedRequest {
 
 struct Shared {
     default: RwLock<Scenario>,
+    head_gate: RwLock<Option<Arc<Semaphore>>>,
     named: RwLock<HashMap<String, Scenario>>,
     seq: AtomicU64,
     backpressured: AtomicU64,
@@ -107,6 +108,7 @@ impl MockProvider {
         let addr = listener.local_addr()?;
         let shared = Arc::new(Shared {
             default: RwLock::new(default),
+            head_gate: RwLock::new(None),
             named: RwLock::new(HashMap::new()),
             seq: AtomicU64::new(0),
             backpressured: AtomicU64::new(0),
@@ -174,6 +176,20 @@ impl MockProvider {
             .default
             .write()
             .unwrap_or_else(PoisonError::into_inner) = scenario;
+    }
+
+    /// Pause response headers until the returned gate has a permit.
+    /// Install before sending requests; adding one permit resumes this and
+    /// later responses. Request recording happens before the gate is awaited.
+    #[must_use]
+    pub fn pause_response_headers(&self) -> Arc<Semaphore> {
+        let gate = Arc::new(Semaphore::new(0));
+        *self
+            .shared
+            .head_gate
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = Some(Arc::clone(&gate));
+        gate
     }
 
     /// Register a scenario that a request selects with [`SCENARIO_HEADER`].
@@ -326,6 +342,18 @@ async fn handle(
         request_seq,
     };
     let plan = plan(style, &scenario, &ctx);
+
+    let head_gate = shared
+        .head_gate
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    if let Some(gate) = head_gate {
+        let Ok(permit) = gate.acquire().await else {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        };
+        drop(permit);
+    }
 
     if !scenario.ttfb.is_zero() {
         tokio::time::sleep(scenario.ttfb).await;
