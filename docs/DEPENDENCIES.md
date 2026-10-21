@@ -38,31 +38,25 @@ Every row in §3 now names the file that verifies it and every number in it is a
 
 | | |
 |---|---|
-| **Kind** | Submodule fork — the only one in `z/` pointing at a repository **we control**. (`z/QED-it/librustzcash` is also a librustzcash fork, but a third party's, vendored reference-only like the rest of `z/`.) |
-| **Points at** | `https://github.com/free2z/librustzcash`, branch `f2z/drop-stale-rustcrypto-rc-pins` |
+| **Kind** | Reviewed submodule source bridge |
+| **Points at** | `https://github.com/free2z/librustzcash`, branch `fix/parameter-download-tls-trust`, commit `473543ce227332b8afd82a9edbf655c4bc4d7c50` |
 | **Upstream** | `zcash/librustzcash`, `main` |
-| **Delta** | one 4-line deletion (the `block-buffer = "=0.11.0-rc.3"` / `crypto-common = "=0.2.0-rc.1"` workspace pins and the two `zcash_primitives` lines consuming them), plus the lockfile |
-| **Exit condition** | **`zcash/librustzcash#3010` merges** → move `.gitmodules` back to `https://github.com/zcash/librustzcash` + `main`, drop the pin |
-| **Why** | [`.gitmodules`](../.gitmodules) and the header of [`scripts/check-librustzcash-compat.mjs`](../scripts/check-librustzcash-compat.mjs) |
+| **Base** | Reviewed shipping fork `a2b8c95210046eb59ee71dd10fd2ad1e9329b238` |
+| **Delta** | Remove two stale RustCrypto workspace pins; move proving-parameter downloads to minreq 3 and adapt the lazy response reader, with loopback tests. |
+| **Exit condition** | Upstream carries both the compatible RustCrypto pin removal tracked by **`zcash/librustzcash#3010`** and a maintained parameter-download TLS client. Verify all incident chains and shipping wallet builds before returning to upstream. |
+| **Security tracking** | `free2z/zuu#1235` |
 
-**State on 2026-08-31:** #3010 open, not merged. Fork branch head
-`a2b8c95210`, 1 ahead of and 2 behind `zcash/librustzcash@main` (`aed0fdda`).
-Upstream still carries both pins on `main`.
+The security overlay changes the downloader dependency and reader only. Zcash
+package versions, spend adapters, and wallet schema code are unchanged. HTTPS
+parameter downloads use the patched modern verifier; parameter size and content
+hash checks are preserved. Installed applications require new builds.
 
-### Two traps this entry exists to remember
-
-**Two branches on the same fork.** #3010's head is
-`f2z/upstream-drop-stale-rustcrypto-rc-pins`, a *different* branch from the
-`f2z/drop-stale-rustcrypto-rc-pins` that `.gitmodules` tracks. They are both at
-`a2b8c95210` today, and nothing but this check keeps them that way: rebasing one
-and not the other means the thing we build is not the thing under review
-upstream. `--upstream` compares the two heads and fails when they differ.
-
-**Upstream has never run CI on #3010.** `check-runs` for `a2b8c95210` in
-`zcash/librustzcash` reports `total_count: 0` — upstream gates fork-PR workflows
-behind maintainer approval, so no workflow has ever started. "Wait for green
-upstream" is not a signal that exists here; our own `gate` and `rs / gate` are
-the only evidence the deletion is safe.
+Upstream PR #3010 uses `f2z/upstream-drop-stale-rustcrypto-rc-pins` and covers
+only the RustCrypto deletion. Its head is not the security overlay we build;
+merging that PR alone does not retire this bridge. The upstream minreq proposal
+was discussed in issue #2334, which closed without the port. No upstream PR for
+the port is claimed. The source bridge and immutable identity are reviewed and
+checked in this repository. This row was verified on 2026-10-21.
 
 ---
 
