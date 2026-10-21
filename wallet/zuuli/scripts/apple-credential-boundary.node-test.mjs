@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
+import { bootstrapStep } from "../../../scripts/ci-trust-bootstrap.mjs";
 
 import {
   androidBuildJobDigest,
@@ -319,7 +320,9 @@ ${finalizeJob("macos-finalize")}
           path: release-downloads
           if-no-files-found: error
           retention-days: 90
-`;
+`.replaceAll('    steps:\n', '    steps:\n' + bootstrapStep)
+  .replace('    steps: []\n', '    steps:\n' + bootstrapStep)
+  .replace('  release-index:\n', '    steps:\n' + bootstrapStep + '  release-index:\n');
 
 const credentialEscapeWorkflow = `name: Credential escape fixture
 on:
@@ -354,6 +357,33 @@ const verifyFixtureWithReanchoredReleaseIndex = (source) => verifyAppleCredentia
   expectedAndroidBuildDigest: fixtureAndroidBuildJobDigest,
   expectedAndroidFinalizerDigest: fixtureAndroidFinalizerJobDigest,
   expectedReleaseIndexDigest: releaseIndexJobDigest(source),
+});
+
+test("credential bootstrap semantics survive recomputed whole-job seals", () => {
+  for (const name of ['android-sign-upload', 'ios-sign', 'ios-upload', 'macos-sign']) {
+    const node = parseDocument(validWorkflow).getIn(['jobs', name], true);
+    const before = validWorkflow.slice(node.range[0], node.range[2]);
+    const controls = [
+      ['second scripts path', before.replace(bootstrapStep, bootstrapStep + '      - run: echo scripts/extra\n'), 'single scripts/ URL'],
+      ['altered bootstrap', before.replace(bootstrapStep, bootstrapStep.replace('Unexpected CI helper redirect', 'Ignored redirect')), 'exact immutable CI trust bootstrap'],
+      ['moved bootstrap', before.replace(bootstrapStep, '      - run: echo before-bootstrap\n' + bootstrapStep), 'exact immutable CI trust bootstrap'],
+      ['removed bootstrap', before.replace(bootstrapStep, ''), 'exact immutable CI trust bootstrap'],
+      ['disabled bootstrap', before.replace(bootstrapStep, bootstrapStep.replace('        shell: bash', '        if: false\n        shell: bash')), 'exact immutable CI trust bootstrap'],
+    ];
+    for (const [label, after, expected] of controls) {
+      assert.notEqual(after, before, name + ': mutation target missing');
+      const changed = validWorkflow.slice(0, node.range[0]) + after + validWorkflow.slice(node.range[2]);
+      const failures = verifyAppleCredentialBoundary(changed, {
+        credentialJobDigests: credentialJobDigests(changed),
+        rootAuthorityDigests: releaseAuthorityDigests(changed),
+        expectedAndroidBuildDigest: androidBuildJobDigest(changed),
+        expectedAndroidFinalizerDigest: androidFinalizerJobDigest(changed),
+        expectedReleaseIndexDigest: releaseIndexJobDigest(changed),
+      });
+      assert.ok(failures.some(failure => failure.includes(expected)), name + ': ' + label + ' escaped semantic policy');
+      assert.ok(!failures.some(failure => failure.includes('execution program changed')), 'Test must not rely on opaque source seals');
+    }
+  }
 });
 
 test("accepts separated source, credential, and finalization jobs", () => {
@@ -433,7 +463,7 @@ test("rejects deletion of the release-index target binding", () => {
   );
   const failures = verifyFixture(mutated);
   assert.ok(
-    failures.some((failure) => failure.includes("exactly the reviewed checkout")),
+    failures.some((failure) => failure.includes("exactly the immutable bootstrap and reviewed checkout")),
     failures.join("\n"),
   );
 });
@@ -445,7 +475,7 @@ test("rejects a soft-failing release-index verifier step", () => {
   );
   const failures = verifyFixture(mutated);
   assert.ok(
-    failures.some((failure) => failure.includes("exactly the reviewed checkout")),
+    failures.some((failure) => failure.includes("exactly the immutable bootstrap and reviewed checkout")),
     failures.join("\n"),
   );
 });
@@ -460,7 +490,7 @@ test("rejects a decorative release-index command with a no-op verifier", () => {
     );
   const failures = verifyFixture(mutated);
   assert.ok(
-    failures.some((failure) => failure.includes("exactly the reviewed checkout")),
+    failures.some((failure) => failure.includes("exactly the immutable bootstrap and reviewed checkout")),
     failures.join("\n"),
   );
 });
@@ -481,7 +511,7 @@ test("rejects release-index verification after draft publication", () => {
     );
   const failures = verifyFixture(mutated);
   assert.ok(
-    failures.some((failure) => failure.includes("exactly the reviewed checkout")),
+    failures.some((failure) => failure.includes("exactly the immutable bootstrap and reviewed checkout")),
     failures.join("\n"),
   );
 });
@@ -508,7 +538,7 @@ for (const [name, step] of [
     assert.notEqual(mutated, validWorkflow);
     const failures = verifyFixtureWithReanchoredReleaseIndex(mutated);
     assert.ok(
-      failures.some((failure) => failure.includes("exactly the reviewed checkout")),
+      failures.some((failure) => failure.includes("exactly the immutable bootstrap and reviewed checkout")),
       failures.join("\n"),
     );
     assert.ok(
@@ -954,8 +984,8 @@ const androidProtectedMutations = [
   [
     "unpinned protected signing JVM",
     (source) => source.replace(
-      "    steps:\n      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5\n",
-      "    steps:\n      - uses: actions/setup-java@main\n",
+      bootstrapStep + "      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5\n",
+      bootstrapStep + "      - uses: actions/setup-java@main\n",
     ),
   ],
   [
@@ -1525,16 +1555,16 @@ for (const [name, mutate, expected] of [
   [
     "rejects the Linux pull token in an npm step",
     (source) => source.replace(
-      "        password: ${{ secrets.GITHUB_TOKEN }}\n",
-      "        password: ${{ secrets.GITHUB_TOKEN }}\n    steps:\n      - run: npm ci\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n",
+      "        password: ${{ secrets.GITHUB_TOKEN }}\n    steps:\n" + bootstrapStep,
+      "        password: ${{ secrets.GITHUB_TOKEN }}\n    steps:\n" + bootstrapStep + "      - run: npm ci\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n",
     ),
     "linux contains unauthorized secrets-context expression",
   ],
   [
     "rejects moving the Linux pull token out of container credentials",
     (source) => source.replace(
-      "    container:\n      credentials:\n        password: ${{ secrets.GITHUB_TOKEN }}\n",
-      "    steps:\n      - run: npm ci\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n",
+      "    container:\n      credentials:\n        password: ${{ secrets.GITHUB_TOKEN }}\n    steps:\n" + bootstrapStep,
+      "    steps:\n" + bootstrapStep + "      - run: npm ci\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n",
     ),
     "linux container pull password must be exactly secrets.GITHUB_TOKEN",
   ],

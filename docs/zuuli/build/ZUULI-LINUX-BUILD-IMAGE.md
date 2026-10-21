@@ -5,8 +5,8 @@ development libraries that are not part of GitHub's Ubuntu runner image. The
 repo-owned `ghcr.io/free2z/zuuli-linux-ci` image turns that mutable apt setup
 into a reviewed, content-addressed OS dependency layer.
 
-This document records the two-phase rollout tracked in #407. The application,
-Rust dependency graph and release credentials never belong in this image.
+The application, Rust dependency graph and release credentials do not belong
+in this image. Source changes and registry-digest promotion use separate PRs.
 
 ## Phase A: published and attested
 
@@ -26,13 +26,6 @@ Wednesday schedule, or a manual run from `main` publishes two convenience tags
 and records the immutable digest. BuildKit attaches an OCI SBOM and maximal
 provenance; GitHub also publishes a registry attestation for that digest.
 
-The first published image was built from `da58e6567698a173db6cf8bf64c8dcab23f9c5fa`.
-[GitHub attestation 41577363](https://github.com/free2z/zuu/attestations/41577363)
-binds the untagged subject
-`ghcr.io/free2z/zuuli-linux-ci` to digest
-`sha256:bc66315a17723a6a828a8d3c91733ff2e06f164d18a17de72acf199cc27381d1`,
-the main-branch image workflow, and a GitHub-hosted runner.
-
 The current promoted image was built from main commit
 `7f26cad2d9dfdbf2467f51af38c51412a5fa62dc` by [workflow run
 32642217313](https://github.com/free2z/zuu/actions/runs/32642217313). [GitHub
@@ -42,17 +35,26 @@ binds the subject `ghcr.io/free2z/zuuli-linux-ci` to digest
 The same main-branch run pulled that exact digest and passed its embedded
 inventory before promotion; the signed transparency entry is Rekor log index 2571737098.
 
-This #434 rebuild replaces an unsafe `ldconfig | grep -q` inventory pipeline.
-Under `pipefail`, an early successful match could close the pipe and turn
-`ldconfig`'s SIGPIPE into a false missing-`libxdo` result. The promoted verifier
-captures the complete linker cache before matching it and dynamically tests an
-early match followed by output larger than a pipe buffer. It also retains a
-negative case for a genuinely absent library.
+The candidate source installs a checksum-verified public CA bundle before any
+package downloads and restores that store after package installation. It removes
+hashed fallback certificates, selects an exclusive empty directory, and configures
+Node to use the verified OpenSSL store. The base OS and native toolchain versions are unchanged by this trust
+selection. Python 3 is an explicit OS dependency for the pre-checkout trust
+bootstrap. `CA-NOTICE.md` records the
+bundle's source, checksum and license.
+
+The image inventory verifies the default and selected CA files and empty
+fallback directories. Candidate and published-digest jobs also run
+`verify-tls-network.sh`: all twelve incident chains must fail with an issuer or
+revocation error, and both valid controls must connect. A timeout, certificate
+expiration, hostname error or failed control fails verification. These probes
+exercise curl's actual runtime verification; they do not establish the state of
+GitHub's earlier runner downloads or job-container image pull.
 
 ## Phase B: digest-pinned consumers
 
-Exactly seven Linux consumer jobs use the promoted digest: the required lint,
-standalone plugin, ZUULI backend, and Zuuallet schema jobs; the Linux packaging
+Exactly eight Linux consumer jobs use the promoted digest: the required lint,
+standalone Zcash and messaging plugins, ZUULI backend, and Zuuallet schema jobs; the Linux packaging
 smoke matrix entry; the protected Linux release job; and Zuuallet's required
 locked Rust build/test job. Zuuallet's lightweight jobs and separately scoped
 upstream canary remain outside this focused consumer set. macOS, Android, iOS,
@@ -75,7 +77,7 @@ comes exclusively from the pinned toolchain action and
 `wallet/rust-toolchain.toml`.
 
 `scripts/check-zuuli-linux-image.mjs` enforces the consumed lock state, exactly
-six identical digest references, pull-time credentials, packages-read scope,
+eight identical digest references, pull-time credentials, packages-read scope,
 the inventory-first contract, explicit Bash, and absence of live apt commands.
 Its negative tests reject mutable tags, digest skew, missing credentials,
 reordered inventory, missing or broad Git ownership trust, and policy paths
