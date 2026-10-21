@@ -11,29 +11,17 @@ const SUBMODULE_PATH = "z/zcash/librustzcash";
 // This is an independently reviewed identity decision. Never derive it from
 // the index or working tree: doing so would make a stale pin self-approving.
 //
-// TRANSIENT FORK. This commit is upstream `main` at
-// 91f448b5b1eacba09607faefd39e2204e4bb342d — the fork branch rebased forward
-// from its previous base 330e4c0aa9e25199acdb93a56bf70126d0d3f2b9 — plus
-// one 4-line deletion, and `.gitmodules` points at free2z/librustzcash for as
-// long as that deletion is unmerged. It removes the workspace's
-// `block-buffer = "=0.11.0-rc.3"` / `crypto-common = "=0.2.0-rc.1"` pins and
-// the two `zcash_primitives` lines that consume them; both carry upstream's own
-// "later RCs require edition2024" / "remove after edition2024 upgrade" comments,
-// that upgrade has landed, and neither crate is named anywhere in
-// zcash_primitives' source. `=0.2.0-rc.1` and the `^0.2` that `digest 0.11`
-// requires cannot both be satisfied, which is what stopped
-// `wallet/zuuli/src-tauri` linking `tauri-plugin-f2zmsg` at all.
+// TRANSIENT FORK. The reviewed a2b8c95210 shipping source removes two stale
+// RustCrypto workspace pins. The security overlay moves zcash_proofs parameter
+// downloads to minreq 3 and adapts its lazy response reader, retaining real
+// loopback tests. No Zcash package version, spend code, wallet schema, or protected
+// send adapter changes. EXPECTED_PACKAGES and REVIEWED_SCOPE_DIGEST are unchanged.
 //
-// Because the delta is a dependency-requirement deletion and not a version
-// bump, EXPECTED_PACKAGES below is unchanged and so is REVIEWED_SCOPE_DIGEST.
-// The ten upstream commits this rebase pulls in (NuTachyon/V7 behind
-// `cfg(zcash_unstable)`, transparent-output persistence, a P2PKH
-// `finalize_spends` fix) published no new crate versions and changed no
-// workspace dependency requirement, so all three shipping locks re-resolved
-// byte-identically. Move both this literal and `.gitmodules` back to upstream
-// the moment the PR merges.
+// Retire both deltas only when upstream carries the compatible pin removal and
+// the maintained parameter-download TLS path; verify all incident chains and
+// shipping native builds before dropping the bridge. See docs/DEPENDENCIES.md.
 const EXPECTED_LIBRUSTZCASH_SHA =
-  "a2b8c95210046eb59ee71dd10fd2ad1e9329b238";
+  "473543ce227332b8afd82a9edbf655c4bc4d7c50";
 const SEND_SOURCE =
   "wallet/plugins/tauri-plugin-zcash/src/wallet/send.rs";
 const NATIVE_SEND_POLICY_SOURCE =

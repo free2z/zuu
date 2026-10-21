@@ -45,7 +45,7 @@
 	# *different* branch on the same fork, and the register says why that
 	# matters. scripts/check-dependency-register.mjs enforces both.
 	url = https://github.com/free2z/librustzcash
-	branch = f2z/drop-stale-rustcrypto-rc-pins
+	branch = fix/parameter-download-tls-trust
 [submodule "z/zcash/orchard"]
 	path = z/zcash/orchard
 	url = https://github.com/zcash/orchard

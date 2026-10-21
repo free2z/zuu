@@ -106,7 +106,7 @@ channel/schema drift. Version and build remain exclusively owned by
 `release.json`, while each artifact's full source SHA distinguishes its exact
 bytes.
 
-The train pins Node `24.18.0`, Rust `1.97.1`, Java `21.0.12`, Xcode `26.6`,
+The train pins Node `24.22.1`, Rust `1.97.1`, Java `21.0.12`, Xcode `26.6`,
 Android SDK/build tools `36`/`36.0.0`, Android NDK `27.0.12077973`, Gradle
 `8.14.3` with its distribution checksum, Bundletool `1.18.3` by its published
 SHA-256 digest, Fastlane `2.237.0` through a checksum-bearing Bundler `4.0.3`

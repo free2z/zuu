@@ -153,7 +153,7 @@ concurrency:
   cancel-in-progress: false
 env:
   CI: true
-  ZUULI_NODE_VERSION: "24.18.0"
+  ZUULI_NODE_VERSION: "24.22.1"
   ZUULI_RUST_VERSION: "1.97.1"
   ZUULI_JAVA_VERSION: "21.0.12"
   ZUULI_XCODE_VERSION: "26.6"
@@ -1906,3 +1906,6 @@ test("canonical member inventory rejects a symlink in place of an expected file"
   await symlink("source-record.json", join(payload.directory, "ExportOptions.plist"));
   assert.equal(await hasExactMembers(payload.directory, expected), false);
 });
+
+// JVM trust and source-execution ordering are part of the release boundary.
+import "./java-trust.node-test.mjs";

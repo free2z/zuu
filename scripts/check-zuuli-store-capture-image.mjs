@@ -95,6 +95,17 @@ export function validateStoreCaptureImage(documents) {
     1,
     "Dockerfile must install the exact WASM target",
   );
+  for (const policy of [
+    "COPY ca-certificates.pem /run/capture-ca.pem",
+    "RUN echo '796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe  /run/capture-ca.pem' | sha256sum -c - \\",
+    "    && rm -rf /etc/ssl/certs /etc/ssl/verified-empty \\",
+    "    && mkdir -p /etc/ssl/certs /etc/ssl/verified-empty \\",
+    "    && install -m 0644 /run/capture-ca.pem /etc/ssl/certs/ca-certificates.crt",
+    "ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
+    "ENV SSL_CERT_DIR=/etc/ssl/verified-empty",
+  ]) requireExactBlock(failures, dockerfile, policy, 2, `both image stages require reviewed CA trust: ${policy}`);
+  requireExactBlock(failures, dockerfile, "ENV NODE_OPTIONS=--use-openssl-ca", 1, "Node must use the verified OpenSSL trust store");
+  if (dockerfile.indexOf("ENV SSL_CERT_DIR=") > dockerfile.indexOf("RUN rustup target add")) failures.push("CA isolation must precede the Rust target download");
   for (const copy of [
     "COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo",
     "COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup",
@@ -291,7 +302,8 @@ function assertValid(documents) {
 function selfTest(documents) {
   assertValid(documents);
   const mutants = [
-    ["unpinned Rust base", "dockerfile", rustImage, "rust:1.97.1-slim-bookworm"],
+        ["Node reverts to bundled roots", "dockerfile", "ENV NODE_OPTIONS=--use-openssl-ca", "ENV NODE_OPTIONS="],
+        ["unpinned Rust base", "dockerfile", rustImage, "rust:1.97.1-slim-bookworm"],
     ["wrong Rust target toolchain", "dockerfile", "--toolchain 1.97.1", "--toolchain 1.97.0"],
     ["missing WASM target", "dockerfile", "wasm32-unknown-unknown", "wasm32-wasi"],
     ["unpinned Playwright base", "dockerfile", playwrightImage, "mcr.microsoft.com/playwright:latest"],

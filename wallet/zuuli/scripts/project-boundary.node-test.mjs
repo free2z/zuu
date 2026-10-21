@@ -606,7 +606,13 @@ test("rejects a Vite alias only after a real build proves the app crossing", asy
       );
       await assert.rejects(
         () => assertProjectBoundaries(root),
-        /Vite alias classic escapes wallet\/zuuli/,
+        (error) => {
+          // The restricted evaluator can refuse before the static alias report;
+          // both real Vite resolutions must still identify the sibling crossing.
+          assert.match(error.message, /Vite build resolution of classic\/classic-only escapes wallet\/zuuli/);
+          assert.match(error.message, /Vite serve resolution of classic\/classic-only escapes wallet\/zuuli/);
+          return true;
+        },
       );
     },
   );
