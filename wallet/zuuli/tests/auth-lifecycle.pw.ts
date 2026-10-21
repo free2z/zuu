@@ -117,7 +117,7 @@ test("an unmounted recovery cannot continue into challenge verification", async 
   ).toBeDisabled();
 
   await unmountLoginWithoutReload(page);
-  await expect(page.locator("textarea")).toHaveCount(0);
+  await expect(page.getByLabel("Recovery phrase")).toHaveCount(0);
   await expectNoInvisibleLogin(page);
   expect(
     await page.evaluate(
