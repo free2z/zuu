@@ -33,7 +33,7 @@ use f2z_ai::provider::sse::Decoder;
 use f2z_ai::provider::{Content, Step, for_style};
 use f2z_ai_proto::catalog::ApiStyle;
 use f2z_ai_proto::chat::{ChatRequest, ChatResponse, FinishReason, ToolCall};
-use f2z_ai_proto::event::{Done, Meta};
+use f2z_ai_proto::event::{Done, Meta, ToolCallDelta};
 use f2z_ai_proto::{Event, Whole2z};
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -136,6 +136,9 @@ fn finish(name: &str) -> FinishReason {
 #[test]
 fn recorded_streams_yield_the_openai_shaped_reply() {
     for case in cases("streams.json") {
+        if case.get("cut_after_argument_events").is_some() {
+            continue;
+        }
         let name = case["name"].as_str().unwrap();
         let request: ChatRequest = serde_json::from_value(case["request"].clone()).unwrap();
         let parsed = parse(&request, &fixture(case["fixture"].as_str().unwrap()));
@@ -232,6 +235,70 @@ fn a_second_forced_block_is_not_a_stream_this_request_produces() {
     };
     parser.feed(&block(0), &mut out).unwrap();
     assert!(parser.feed(&block(1), &mut out).is_err());
+}
+
+#[test]
+fn a_cut_after_two_argument_events_keeps_the_tool_name_and_partial_json() {
+    let case = cases("streams.json")
+        .into_iter()
+        .find(|case| {
+            case["name"] == "interrupted tool call: stream cut after two input_json_delta events"
+        })
+        .unwrap();
+    let request: ChatRequest = serde_json::from_value(case["request"].clone()).unwrap();
+    let sse = fixture(case["fixture"].as_str().unwrap());
+    let mut adapter = for_style(
+        ApiStyle::AnthropicMessages,
+        UsageConvention::CompletionIncludesReasoning,
+    )
+    .unwrap();
+    adapter.bind(&request);
+    let mut parser = adapter.parser();
+    let mut events = Vec::new();
+    Decoder::new().push(sse.as_bytes(), &mut events).unwrap();
+    let argument_events = events
+        .iter()
+        .filter(|event| {
+            serde_json::from_str::<Value>(&event.data)
+                .ok()
+                .and_then(|data| data["delta"]["type"].as_str().map(str::to_owned))
+                .as_deref()
+                == Some("input_json_delta")
+        })
+        .count();
+    assert_eq!(
+        argument_events as u64,
+        case["cut_after_argument_events"].as_u64().unwrap()
+    );
+    let mut content = Vec::new();
+    for event in &events {
+        assert_eq!(parser.feed(event, &mut content).unwrap(), Step::Continue);
+    }
+    let ending = parser.end(false);
+    assert_eq!(
+        ending.failure.as_ref().map(|failure| failure.reason),
+        case["expect"]["failure"].as_str()
+    );
+    assert!(matches!(
+        ending.usage,
+        f2z_ai::provider::UsageReport::Missing { partial: Some(_) }
+    ));
+
+    let deltas: Vec<ToolCallDelta> = content
+        .iter()
+        .filter_map(|item| match item {
+            Content::ToolCallDelta(delta) => Some(delta.clone()),
+            _ => None,
+        })
+        .collect();
+    let expected: Vec<ToolCallDelta> =
+        serde_json::from_value(case["expect"]["tool_deltas"].clone()).unwrap();
+    assert_eq!(deltas, expected);
+    assert!(
+        !content
+            .iter()
+            .any(|item| matches!(item, Content::ToolCall(_)))
+    );
 }
 
 #[test]
