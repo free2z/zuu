@@ -929,7 +929,7 @@ jobs:
           java-version: '21.0.12'
 
       - name: Remove distrusted Java CA roots
-        run: java "$GITHUB_WORKSPACE/.github/scripts/RemoveDistrustedRoots.java" "$JAVA_HOME/lib/security/cacerts"
+        run: sudo "$JAVA_HOME/bin/java" "$GITHUB_WORKSPACE/.github/scripts/RemoveDistrustedRoots.java" "$JAVA_HOME/lib/security/cacerts"
       - name: Install the pinned Android NDK
         run: |
           set -euo pipefail
@@ -1269,7 +1269,7 @@ jobs:
           java-version: '21.0.12'
       - name: Remove distrusted Java CA roots
         if: matrix.platform == 'android'
-        run: java "$GITHUB_WORKSPACE/.github/scripts/RemoveDistrustedRoots.java" "$JAVA_HOME/lib/security/cacerts"
+        run: sudo "$JAVA_HOME/bin/java" "$GITHUB_WORKSPACE/.github/scripts/RemoveDistrustedRoots.java" "$JAVA_HOME/lib/security/cacerts"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: wallet/plugins/tauri-plugin-f2z

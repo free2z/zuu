@@ -29,8 +29,9 @@ test('JVM network jobs repair trust before SDK or Gradle; signers keep repositor
         repairs++;
         const repair = steps[index + 1];
         assert.equal(repair.name, 'Remove distrusted Java CA roots', name + '/' + jobName);
-        assert.equal(repair.run, 'java "$GITHUB_WORKSPACE/.github/scripts/RemoveDistrustedRoots.java" "$JAVA_HOME/lib/security/cacerts"');
+        assert.equal(repair.run, 'sudo "$JAVA_HOME/bin/java" "$GITHUB_WORKSPACE/.github/scripts/RemoveDistrustedRoots.java" "$JAVA_HOME/lib/security/cacerts"');
         assert.equal(repair.if, step.if);
+        assert(['ubuntu-latest', 'ubuntu-24.04'].includes(job['runs-on']) || (jobName === 'sdk_mobile' && job.strategy.matrix.include.find(m => m.platform === 'android').os === 'ubuntu-latest'), 'privileged repair must run on the reviewed Linux builder');
       }
     }
   }
