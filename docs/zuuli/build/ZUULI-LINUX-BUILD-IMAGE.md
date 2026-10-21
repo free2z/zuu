@@ -27,15 +27,15 @@ and records the immutable digest. BuildKit attaches an OCI SBOM and maximal
 provenance; GitHub also publishes a registry attestation for that digest.
 
 The current promoted image was built from main commit
-`7f26cad2d9dfdbf2467f51af38c51412a5fa62dc` by [workflow run
-32642217313](https://github.com/free2z/zuu/actions/runs/32642217313). [GitHub
-attestation 42422072](https://github.com/free2z/zuu/attestations/42422072)
+`d3a2b6b502c4194a0336adf54088b8c21afb9fbb` by [workflow run
+39693000496](https://github.com/free2z/zuu/actions/runs/39693000496). [GitHub
+attestation 58431098](https://github.com/free2z/zuu/attestations/58431098)
 binds the subject `ghcr.io/free2z/zuuli-linux-ci` to digest
-`sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406`.
+`sha256:bb07838e6e6c4a138943e1254a7f1613c4860e4bfabc87fd1e0d18073de1015f`.
 The same main-branch run pulled that exact digest and passed its embedded
-inventory before promotion; the signed transparency entry is Rekor log index 2571737098.
+inventory before promotion; the signed transparency entry is Rekor log index 3367845952.
 
-The candidate source installs a checksum-verified public CA bundle before any
+The image build installs a checksum-verified public CA bundle before any
 package downloads and restores that store after package installation. It removes
 hashed fallback certificates, selects an exclusive empty directory, and configures
 Node to use the verified OpenSSL store. The base OS and native toolchain versions are unchanged by this trust

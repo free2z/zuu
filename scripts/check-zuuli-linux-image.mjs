@@ -38,12 +38,12 @@ const consumerWorkflows = [
   ".github/workflows/zuuallet.yml",
 ];
 const imageRepository = "ghcr.io/free2z/zuuli-linux-ci";
-const lockedImageDigest = "sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406";
-const lockedImageSourceHash = "9a8236c68bcd1b740200b03aeb5b92a521da9c5095ff4075603f41e2ab6b9ba4";
-const lockedImageSourceCommit = "7f26cad2d9dfdbf2467f51af38c51412a5fa62dc";
-const lockedImagePublicationRun = "32642217313";
-const lockedImageAttestation = "42422072";
-const lockedImageRekorIndex = "2571737098";
+const lockedImageDigest = "sha256:bb07838e6e6c4a138943e1254a7f1613c4860e4bfabc87fd1e0d18073de1015f";
+const lockedImageSourceHash = "c98652088f45faddf23634079a5661e016e20ede36f4a52f1c47dc7911bc70c6";
+const lockedImageSourceCommit = "d3a2b6b502c4194a0336adf54088b8c21afb9fbb";
+const lockedImagePublicationRun = "39693000496";
+const lockedImageAttestation = "58431098";
+const lockedImageRekorIndex = "3367845952";
 const lockedImage = `${imageRepository}@${lockedImageDigest}`;
 const expectedConsumerCount = 8;
 const requiredConsumerJobs = new Set([
