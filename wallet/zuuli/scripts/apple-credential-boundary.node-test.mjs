@@ -153,7 +153,7 @@ concurrency:
   cancel-in-progress: false
 env:
   CI: true
-  ZUULI_NODE_VERSION: "24.18.0"
+  ZUULI_NODE_VERSION: "24.22.1"
   ZUULI_RUST_VERSION: "1.97.1"
   ZUULI_JAVA_VERSION: "21.0.12"
   ZUULI_XCODE_VERSION: "26.6"

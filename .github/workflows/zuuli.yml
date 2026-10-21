@@ -272,7 +272,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version: '24.22.1'
           cache: npm
           cache-dependency-path: |
             wallet/zuuli/package-lock.json
@@ -414,7 +414,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version: '24.22.1'
           cache: npm
           cache-dependency-path: wallet/${{ matrix.app }}/package-lock.json
 
@@ -829,7 +829,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version: '24.22.1'
 
       # No submodule fetch. This plugin depends on rs/crates by path and on
       # librustzcash not at all, and a job that fetched it anyway would hide the
@@ -1069,7 +1069,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version: '24.22.1'
 
       - name: Fetch librustzcash submodule
         run: git submodule update --init z/zcash/librustzcash
@@ -1174,7 +1174,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22'
+          node-version: '22.23.4'
           cache: npm
           cache-dependency-path: ts/free2z/sdk/package-lock.json
       - name: Install pinned SDK dependencies
@@ -1224,7 +1224,7 @@ jobs:
       - run: cargo test --locked --all-targets --manifest-path wallet/plugins/tauri-plugin-f2z/Cargo.toml
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version: '24.22.1'
       - name: Guest API
         run: |
           cd wallet/plugins/tauri-plugin-f2z

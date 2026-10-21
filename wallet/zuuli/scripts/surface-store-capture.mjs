@@ -38,7 +38,27 @@ async function serverFor(root) {
 export function allowedPublicRequest(app, action, request) {
   return app === 'free2z' && (CAPTURE_PUBLIC_REQUESTS[action] ?? []).includes(request);
 }
-export const NATIVE_CALLS = ['plugin:f2zmsg|get_engine_status', 'plugin:f2zmsg|get_device_info', 'plugin:event|listen', 'plugin:event|unlisten'];
+export const NATIVE_CALLS = ['plugin:f2zmsg|get_engine_status', 'plugin:f2zmsg|get_device_info', 'e2e2z_enrollment_status', 'plugin:deep-link|get_current', 'plugin:event|listen', 'plugin:event|unlisten'];
+export function installUnenrolledNativeFixture() {
+  // Faithful unenrolled production contract, also exercised by enrollment-gap.pw.ts.
+  // No mock build flag, device identity, credential, conversation or network transport.
+  window.__STORE_NATIVE_CALLS__ = [];
+  let callbackId = 1;
+  window.__TAURI_INTERNALS__ = {
+    transformCallback(callback, once) { const id = callbackId++; Object.defineProperty(window, `_${id}`, { configurable: true, value: (...args) => { if (once) Reflect.deleteProperty(window, `_${id}`); return callback(...args); } }); return id; },
+    unregisterCallback(id) { Reflect.deleteProperty(window, `_${id}`); },
+    async invoke(cmd) {
+      window.__STORE_NATIVE_CALLS__.push(cmd);
+      if (cmd === 'plugin:f2zmsg|get_engine_status') return { state: 'stopped', enrolled: false, handle: null, relaysConnected: 0, relaysConfigured: 1, witnessThresholdMet: false, independentWitnesses: 1, pendingInbound: 0, unacknowledgedAlarms: 0, lastError: null };
+      if (cmd === 'e2e2z_enrollment_status') return { enrolled: false, handle: null, eligibility: { eligible: false, candidate: null, reason: 'not-signed-in' }, directoryEntryVersion: null, submittedAt: null, mergedAtEpoch: null, blocked: null };
+      if (cmd === 'plugin:deep-link|get_current') return [];
+      if (cmd === 'plugin:f2zmsg|get_device_info') throw 'not-enrolled';
+      if (cmd === 'plugin:event|listen') return callbackId++;
+      if (cmd === 'plugin:event|unlisten') return null;
+      throw new Error(`Unexpected native command: ${cmd}`);
+    },
+  };
+}
 async function preparePage(context, { app, origin, config, target, shot, fixture }) {
   const page = await context.newPage();
   const requests = [], refused = [], failures = [];
@@ -68,24 +88,8 @@ async function preparePage(context, { app, origin, config, target, shot, fixture
     const applySafeArea = () => { for (const [edge, value] of Object.entries(safeArea)) document.documentElement.style.setProperty(`--safe-area-${edge}`, `${value}px`); };
     if (document.documentElement) applySafeArea();
     else document.addEventListener('DOMContentLoaded', applySafeArea, { once: true });
-    if (app !== 'e2e2z') return;
-    // Faithful unenrolled production contract, also exercised by enrollment-gap.pw.ts.
-    // No mock build flag, device identity, credential, conversation or network transport.
-    window.__STORE_NATIVE_CALLS__ = [];
-    let callbackId = 1;
-    window.__TAURI_INTERNALS__ = {
-      transformCallback(callback, once) { const id = callbackId++; Object.defineProperty(window, `_${id}`, { configurable: true, value: (...args) => { if (once) Reflect.deleteProperty(window, `_${id}`); return callback(...args); } }); return id; },
-      unregisterCallback(id) { Reflect.deleteProperty(window, `_${id}`); },
-      async invoke(cmd) {
-        window.__STORE_NATIVE_CALLS__.push(cmd);
-        if (cmd === 'plugin:f2zmsg|get_engine_status') return { state: 'stopped', enrolled: false, handle: null, relaysConnected: 0, relaysConfigured: 1, witnessThresholdMet: false, independentWitnesses: 1, pendingInbound: 0, unacknowledgedAlarms: 0, lastError: null };
-        if (cmd === 'plugin:f2zmsg|get_device_info') throw 'not-enrolled';
-        if (cmd === 'plugin:event|listen') return callbackId++;
-        if (cmd === 'plugin:event|unlisten') return null;
-        throw new Error(`Unexpected native command: ${cmd}`);
-      },
-    };
   }, { app, fixedTime: config.fixedTime, safeArea: target.safeArea });
+  if (app === 'e2e2z') await page.addInitScript(installUnenrolledNativeFixture);
   await page.goto(`${origin}${shot.route}`, { waitUntil: 'networkidle' });
   await page.addStyleTag({ content: '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important;scroll-behavior:auto!important}' });
   if (app === 'free2z') {
@@ -138,8 +142,8 @@ async function preparePage(context, { app, origin, config, target, shot, fixture
     const bounds = await focus.boundingBox();
     assert(bounds && bounds.y >= target.safeArea.top - 1 && bounds.y + bounds.height <= target.cssHeight - target.safeArea.bottom + 1, `capture focus is clipped: ${target.setId}/${shot.id} ${JSON.stringify(bounds)}`);
     const calls = await page.evaluate(() => window.__STORE_NATIVE_CALLS__);
-    assert(calls.includes('plugin:f2zmsg|get_device_info') && calls.includes('plugin:f2zmsg|get_engine_status'));
-    assert(calls.every((cmd) => NATIVE_CALLS.includes(cmd)), 'undeclared native call');
+    assert(calls.includes('plugin:f2zmsg|get_device_info') && calls.includes('plugin:f2zmsg|get_engine_status') && calls.includes('e2e2z_enrollment_status') && calls.includes('plugin:deep-link|get_current'));
+    assert(calls.every((cmd) => NATIVE_CALLS.includes(cmd)), `undeclared native call: ${calls.filter((cmd) => !NATIVE_CALLS.includes(cmd)).join(', ')}`);
   }
   await page.evaluate(() => document.fonts.ready);
   assert.deepEqual(refused, [], 'unexpected network request');

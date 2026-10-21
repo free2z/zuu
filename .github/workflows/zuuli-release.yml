@@ -38,7 +38,7 @@ concurrency:
 
 env:
   CI: true
-  ZUULI_NODE_VERSION: "24.18.0"
+  ZUULI_NODE_VERSION: "24.22.1"
   # Restates rust-toolchain.toml because GitHub cannot compute a
   # workflow-level `env:` from a file. scripts/check-rust-toolchain.sh fails
   # the pull request if this ever stops matching the source of truth.
@@ -72,7 +72,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.1"
           cache: npm
           cache-dependency-path: wallet/zuuli/package-lock.json
       - run: npm ci
@@ -217,7 +217,7 @@ jobs:
         working-directory: .
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.1"
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
@@ -815,7 +815,7 @@ jobs:
           xcodebuild -version | grep -Fx 'Xcode 26.6'
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.1"
       - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
         with:
           toolchain: ${{ env.ZUULI_RUST_VERSION }}
@@ -920,7 +920,7 @@ jobs:
       # like the upload job's, and the job still installs no dependencies.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.1"
       - name: Verify source-bound artifact
         env:
           EXPECTED_ARCHIVE_SHA256: ${{ needs.ios-build.outputs.artifact_sha256 }}
@@ -1165,7 +1165,7 @@ jobs:
           path: verified-ios
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.1"
       - name: Verify source-bound artifact
         env:
           EXPECTED_IPA_SHA256: ${{ needs.ios-verify.outputs.artifact_sha256 }}
@@ -1260,7 +1260,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.1"
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: internal-zuuli-ios-uploaded-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
@@ -1360,7 +1360,7 @@ jobs:
         run: git submodule update --init z/zcash/librustzcash
         working-directory: .
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with: { node-version: "24.18.0" }
+        with: { node-version: "24.22.1" }
       - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
         with: { toolchain: "${{ env.ZUULI_RUST_VERSION }}" }
       - name: Restore reviewed Linux Rust dependencies
@@ -1510,7 +1510,7 @@ jobs:
           sudo xcode-select --switch /Applications/Xcode_26.6.app
           xcodebuild -version | grep -Fx 'Xcode 26.6'
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with: { node-version: "24.18.0" }
+        with: { node-version: "24.22.1" }
       - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
         with:
           {
@@ -1615,7 +1615,7 @@ jobs:
       # like the upload job's, and the job still installs no dependencies.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.1"
       - name: Verify source-bound artifact
         env:
           EXPECTED_APP_SHA256: ${{ needs.macos-build.outputs.artifact_sha256 }}
@@ -1982,7 +1982,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.1"
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: internal-zuuli-macos-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}

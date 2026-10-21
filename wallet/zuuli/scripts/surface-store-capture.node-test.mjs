@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { captureConfig, RUNTIME_EVIDENCE, sha256, validateRecordMatrix, inputDigest, renderInputs, assertCaptureEnvironment, FORBIDDEN_TEXT } from './surface-store-capture-contract.mjs';
-import { proveIdenticalPasses, allowedPublicRequest } from './surface-store-capture.mjs';
+import { proveIdenticalPasses, allowedPublicRequest, installUnenrolledNativeFixture } from './surface-store-capture.mjs';
 
 function example(app = 'e2e2z') {
   const config = captureConfig(app, 'a'.repeat(40));
@@ -77,4 +77,22 @@ test('new implicit Vite config and public inputs fail closed until registered', 
   await rm(resolve(root, 'e2e2z/vite.config.mjs'));
   await mkdir(resolve(root, 'e2e2z/public'));
   await assert.rejects(assertCaptureEnvironment('e2e2z', root), /register the new public assets/);
+});
+
+// Exercise the same self-contained function Playwright installs in the page.
+test('native capture fixture permits seed-free reads and rejects identity or mutation commands', async (t) => {
+  const original = globalThis.window;
+  globalThis.window = {};
+  t.after(() => { if (original === undefined) delete globalThis.window; else globalThis.window = original; });
+  installUnenrolledNativeFixture();
+  const { invoke } = window.__TAURI_INTERNALS__;
+  assert.deepEqual(await invoke('e2e2z_enrollment_status'), {
+    enrolled: false, handle: null, eligibility: { eligible: false, candidate: null, reason: 'not-signed-in' },
+    directoryEntryVersion: null, submittedAt: null, mergedAtEpoch: null, blocked: null,
+  });
+  assert.deepEqual(await invoke('plugin:deep-link|get_current'), []);
+  await assert.rejects(invoke('plugin:f2zmsg|get_device_info'), (error) => error === 'not-enrolled');
+  for (const cmd of ['unexpected', 'e2e2z_dispatch_intent', 'f2zmsg_enroll', 'f2zmsg_unenroll', 'e2e2z_install_device_credential', 'plugin:f2zmsg|install_identity', 'plugin:zcash|export_seed', 'plugin:f2zmsg|send_message']) {
+    await assert.rejects(invoke(cmd), /Unexpected native command/);
+  }
 });
