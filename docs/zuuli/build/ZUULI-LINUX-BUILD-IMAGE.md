@@ -64,21 +64,24 @@ native runners.
 The image-policy workflow also runs its validator and negative suite whenever
 the Zuuallet workflow changes. This is merge-time policy coverage, not a claim
 that PR-authored workflow code is an immutable pre-execution sandbox; the
-reviewed digest and inventory-first runtime check remain the execution boundary.
+reviewed digest, canonical bootstrap and early inventory check define the
+execution boundary.
 
 GHCR keeps the package private. Each consumer therefore grants only
 `packages: read` and supplies `github.actor` plus `secrets.GITHUB_TOKEN` as
 job-level `container.credentials`; the runner must authenticate before any
-step exists. The image inventory and Bash smoke are the first step, followed by
-checkout, an immediate exact-workspace Git ownership exception, and setup
-actions. This proves the runner-provided JavaScript action runtime works inside
-the minimal image without granting broad `safe.directory` trust. Rust still
-comes exclusively from the pinned toolchain action and
+step exists. The canonical trust bootstrap runs first; the image inventory and
+Bash smoke follow immediately, before checkout, an exact-workspace Git ownership
+exception, and setup actions. The bootstrap cannot protect the earlier container
+authentication or pull. The subsequent checks prove the runner-provided JavaScript
+action runtime works inside the minimal image without granting broad
+`safe.directory` trust. Rust still comes exclusively from the pinned toolchain
+action and
 `wallet/rust-toolchain.toml`.
 
 `scripts/check-zuuli-linux-image.mjs` enforces the consumed lock state, exactly
 eight identical digest references, pull-time credentials, packages-read scope,
-the inventory-first contract, explicit Bash, and absence of live apt commands.
+the bootstrap and inventory order, explicit Bash, and absence of live apt commands.
 Its negative tests reject mutable tags, digest skew, missing credentials,
 reordered inventory, missing or broad Git ownership trust, and policy paths
 that no longer select the full required gate.
