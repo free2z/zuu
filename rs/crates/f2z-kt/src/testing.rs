@@ -778,10 +778,9 @@ impl Harness {
                 };
                 let issued_ms = overrides.issued_ms.unwrap_or(now_ms);
                 // Built field by field rather than through
-                // `HandleAssertionTBS::new`, which refuses a clock-shaped
-                // `account_epoch` outright — a real issuer should, and a test
-                // standing in for a non-conforming one must be able to mint
-                // what that issuer mints.
+                // `HandleAssertionTBS::new`, which refuses an epoch at or above
+                // the ceiling. A test standing in for a non-conforming issuer
+                // must be able to mint what that issuer mints.
                 let tbs = f2z_authority::HandleAssertionTBS {
                     label: ShortBytes::new(f2z_authority::labels::LABEL_ASSERTION_TBS.to_vec())
                         .unwrap(),

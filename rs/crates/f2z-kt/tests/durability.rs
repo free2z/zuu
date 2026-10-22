@@ -31,7 +31,7 @@ use f2z_authority::types::{AssertionNonce, Handle as AuthorityHandle, Intent, Lo
 use f2z_codec::Canonical as _;
 use f2z_kt::testing::{EntryBuilder, Harness, Identity, entry_bytes};
 use f2z_kt::wire::SubmissionEnvelope;
-use f2z_kt_core::entry::DirectoryEntry;
+use f2z_kt_core::entry::{DirectoryEntry, EntryKind};
 use f2z_kt_core::labels;
 use f2z_kt_core::types::Handle;
 
@@ -432,4 +432,204 @@ async fn the_log_refuses_a_clock_derived_account_epoch_end_to_end() {
         )
         .await
         .unwrap();
+    assert_eq!(harness.log.pending_count().await, 1);
+}
+
+#[tokio::test]
+async fn another_handle_cannot_lock_a_dormant_handle_out_of_account_recovery() {
+    use f2z_kt::testing::AssertionOverrides;
+
+    // Both handles belong to one account, so their assertions read the same
+    // durable per-account counter. The log retains that counter separately by
+    // handle. Twenty-five resets through `active` advance the shared counter
+    // while `dormant` sits at 5; its next legitimate reset at 30 must succeed.
+    let harness = Harness::vouched("dur-dormant-handle").await;
+    harness.log.publish_epoch(NOW).await.unwrap();
+
+    let original = Identity::from_byte(1);
+    let active_first = EntryBuilder::first(harness.log_id, "active", &original)
+        .created_at_ms(NOW)
+        .same_key(&original.dak);
+    harness
+        .log
+        .submit(
+            &harness.envelope_overriding(
+                &active_first,
+                &original,
+                NOW,
+                AssertionOverrides::account_epoch(5),
+            ),
+            NOW,
+        )
+        .await
+        .unwrap();
+    harness.log.publish_epoch(NOW).await.unwrap();
+
+    let dormant_identity = Identity::from_byte(2);
+    let dormant_first = EntryBuilder::first(harness.log_id, "dormant", &dormant_identity)
+        .created_at_ms(NOW)
+        .same_key(&dormant_identity.dak);
+    harness
+        .log
+        .submit(
+            &harness.envelope_overriding(
+                &dormant_first,
+                &dormant_identity,
+                NOW,
+                AssertionOverrides::account_epoch(5),
+            ),
+            NOW,
+        )
+        .await
+        .unwrap();
+    harness.log.publish_epoch(NOW).await.unwrap();
+
+    let mut active_identity = original;
+    let mut active_entry = active_first;
+    let mut now = NOW;
+    for event in 1u8..=25 {
+        now += 120_000;
+        let next_identity = Identity::from_byte(event + 10);
+        let version = u32::from(event) + 1;
+        let next_entry = EntryBuilder::first(harness.log_id, "active", &active_identity)
+            .version(version)
+            .kind(EntryKind::PlatformReset)
+            .identity_pk(next_identity.isk.public)
+            .directory_auth_pk(next_identity.dak.public)
+            .prev_entry_hash(labels::prev_entry_hash(&entry_bytes(&active_entry)))
+            .created_at_ms(now)
+            .platform_reset(
+                &harness.reset_authority,
+                active_identity.isk.public,
+                now + 60_000,
+                &next_identity.dak,
+            );
+        let effective_at = now + 60_000;
+        harness
+            .log
+            .submit(
+                &harness.envelope_overriding(
+                    &next_entry,
+                    &next_identity,
+                    effective_at,
+                    AssertionOverrides::account_epoch(5 + u32::from(event)),
+                ),
+                effective_at,
+            )
+            .await
+            .unwrap();
+        harness.log.publish_epoch(effective_at).await.unwrap();
+        active_identity = next_identity;
+        active_entry = next_entry;
+        now = effective_at;
+    }
+
+    // `dormant` still retains 5, but the shared account counter has reached
+    // 30 via another handle. This valid reset is 25 steps beyond its retained
+    // value and must not be rejected by a per-handle distance cap.
+    let recovered = Identity::from_byte(99);
+    let dormant_reset = EntryBuilder::first(harness.log_id, "dormant", &dormant_identity)
+        .version(2)
+        .kind(EntryKind::PlatformReset)
+        .identity_pk(recovered.isk.public)
+        .directory_auth_pk(recovered.dak.public)
+        .prev_entry_hash(labels::prev_entry_hash(&entry_bytes(&dormant_first)))
+        .created_at_ms(now)
+        .platform_reset(
+            &harness.reset_authority,
+            dormant_identity.isk.public,
+            now + 60_000,
+            &recovered.dak,
+        );
+    let effective_at = now + 60_000;
+    harness
+        .log
+        .submit(
+            &harness.envelope_overriding(
+                &dormant_reset,
+                &recovered,
+                effective_at,
+                AssertionOverrides::account_epoch(30),
+            ),
+            effective_at,
+        )
+        .await
+        .unwrap();
+    assert_eq!(harness.log.pending_count().await, 1);
+    harness.log.publish_epoch(effective_at).await.unwrap();
+
+    // The first recovery is now part of durable history. Reopening rebuilds
+    // both the tree and its per-handle retained authority state.
+    let reopened = reopen(&harness).await.unwrap();
+    let dormant_handle = Handle::new(b"dormant".to_vec()).unwrap();
+    let lookup = reopened.lookup(&dormant_handle).await.unwrap();
+    lookup.validate().unwrap();
+    assert_eq!(
+        f2z_kt::Presence::from_code(lookup.presence).unwrap(),
+        f2z_kt::Presence::Present
+    );
+    let recovered_entry = f2z_codec::decode_canonical::<DirectoryEntry>(lookup.entry.as_slice())
+        .unwrap()
+        .into_value();
+    assert_eq!(recovered_entry.entry.entry_version, 2);
+    assert_eq!(recovered_entry.entry.identity_pk, recovered.isk.public);
+
+    // Retry one otherwise-valid version-3 reset. The equal account epoch must
+    // be refused against the recovered, persisted value 30. It and the valid
+    // retry deliberately share a fresh nonce, proving this validation refusal
+    // did not consume it.
+    let next_identity = Identity::from_byte(100);
+    let next_entry = EntryBuilder::first(harness.log_id, "dormant", &recovered)
+        .version(3)
+        .kind(EntryKind::PlatformReset)
+        .identity_pk(next_identity.isk.public)
+        .directory_auth_pk(next_identity.dak.public)
+        .prev_entry_hash(labels::prev_entry_hash(&entry_bytes(&dormant_reset)))
+        .created_at_ms(now + 120_000)
+        .platform_reset(
+            &harness.reset_authority,
+            recovered.isk.public,
+            now + 180_000,
+            &next_identity.dak,
+        );
+    let retry_now = now + 180_000;
+    let retry_nonce = [0x9f; 16];
+    let stale_retry = harness.envelope_overriding(
+        &next_entry,
+        &next_identity,
+        retry_now,
+        AssertionOverrides::account_epoch(30).with_nonce(retry_nonce),
+    );
+    let stale_error = reopened.submit(&stale_retry, retry_now).await.unwrap_err();
+    assert!(matches!(
+        stale_error,
+        f2z_kt::LogError::Authority(f2z_authority::AuthorityError::AccountEpochRegression)
+    ));
+    assert_eq!(reopened.pending_count().await, 0);
+
+    // One real account event later, the same correctly signed entry and nonce
+    // is valid at 31. The reset authority, cooldown, predecessor hash and
+    // identity signatures are all unchanged from the refused candidate.
+    let valid_retry = harness.envelope_overriding(
+        &next_entry,
+        &next_identity,
+        retry_now,
+        AssertionOverrides::account_epoch(31).with_nonce(retry_nonce),
+    );
+    reopened.submit(&valid_retry, retry_now).await.unwrap();
+    assert_eq!(reopened.pending_count().await, 1);
+    reopened.publish_epoch(retry_now).await.unwrap();
+
+    let reopened_again = reopen(&harness).await.unwrap();
+    let lookup = reopened_again.lookup(&dormant_handle).await.unwrap();
+    lookup.validate().unwrap();
+    let next_published_entry =
+        f2z_codec::decode_canonical::<DirectoryEntry>(lookup.entry.as_slice())
+            .unwrap()
+            .into_value();
+    assert_eq!(next_published_entry.entry.entry_version, 3);
+    assert_eq!(
+        next_published_entry.entry.identity_pk,
+        next_identity.isk.public
+    );
 }

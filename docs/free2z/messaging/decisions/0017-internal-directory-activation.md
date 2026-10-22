@@ -645,13 +645,15 @@ struct {
 Here `H(label, x)` is unkeyed BLAKE2b-256 over `label || x`. That was checked
 independently in Python while the vectors were written.
 
-**Issuer obligations**, all enforced by the log:
+**Issuer obligations; the log enforces what it can observe:**
 
 - `issued_ms` may be at most 2 minutes ahead of the log's clock.
 - The validity window may be at most 15 minutes.
 - An `(authority_id, nonce)` pair is never reused.
-- `account_epoch` is a counter, never a clock (below 2^20, and at most 16 above
-  its predecessor).
+- `account_epoch` is the authority's durable per-account counter, never a
+  clock; the log enforces the exclusive `2^20` ceiling and strict increase per
+  handle. A per-handle step cap was removed by the proposed #656 amendment
+  because other handles can advance the shared account counter.
 
 ### 5.3 Who signs, who verifies, and where the key is configured
 
