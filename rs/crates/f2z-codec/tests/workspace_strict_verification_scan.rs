@@ -599,6 +599,19 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
             call: "sig::verify",
         },
     },
+    // A client independently rechecks the committed first-entry assertion
+    // and identity binding. Its Ed25519 signature checks call the same core
+    // strict verifier directly; the remaining checks bind those signatures to
+    // the signed directory entry and the current authority policy.
+    VerifyFn {
+        file: "f2z-kt-client/src/client.rs",
+        name: "verify_initial_bind_entry",
+        occurrence: 0,
+        strictness: Strictness::DelegatesToFn {
+            target: "f2z-kt-core/src/sig.rs::verify",
+            call: "f2z_kt_core::sig::verify",
+        },
+    },
     // ---- f2z-ai-proto -------------------------------------------------------
     //
     // The AI gateway's signed model catalogue (#1049). Both versioned readers

@@ -81,6 +81,7 @@ const CALLER: &str = "cash.free2z.e2e2z";
 struct LogTransport {
     runtime: tokio::runtime::Runtime,
     log: Arc<LogService>,
+    authority_policy: Vec<u8>,
 }
 
 impl LogTransport {
@@ -121,7 +122,7 @@ impl Transport for LogHandle {
     }
 
     fn authority_policy(&self) -> f2z_kt_client::Result<Vec<u8>> {
-        Err(ClientError::Unreachable("not served here".to_owned()))
+        Ok(self.0.authority_policy.clone())
     }
 
     fn descriptor(&self) -> f2z_kt_client::Result<Vec<u8>> {
@@ -188,9 +189,19 @@ impl Internal {
             vec![Key::from_byte(WITNESS_SEED).public],
         ));
         runtime.block_on(harness.log.publish_epoch(NOW)).unwrap();
+        let authority_policy = f2z_kt::sign_policy(
+            harness.log.authority(),
+            harness.log_id,
+            harness.log.signer(),
+            NOW,
+        )
+        .unwrap()
+        .encode_canonical()
+        .unwrap();
         let transport = Arc::new(LogTransport {
             runtime,
             log: Arc::clone(&harness.log),
+            authority_policy,
         });
         let dir = f2z_kt::testing::temp_dir(&format!("{name}-w"));
         let witness = Witness::new(

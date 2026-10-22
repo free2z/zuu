@@ -18,33 +18,25 @@
 //!
 //! | Layer | What it decides | What it explicitly does **not** |
 //! |---|---|---|
-//! | [`f2z_kt_core::validate_submission`] | every rule in `KT.md` §4.4 — the chain, the signatures, the rotation proof, the reset cooldown, the device credentials, §4.3's uniqueness | who is allowed to claim a handle that has no previous entry (zuu#594) |
-//! | [`f2z_authority::AuthorityConfig::check_assertion_layer`] | the handle-ownership assertion, its authority, validity window, intent, nonce, and the identity key's signature over the binding | §4.4 itself — the crate's own documentation calls its result *"deliberately **not** an authorization-to-publish token"* |
+//! | [`f2z_kt_core::validate_submission`] | every rule in `KT.md` §4.4 — the chain, the signatures, the rotation proof, the reset cooldown, the device credentials, §4.3's uniqueness | authority membership, assertion lifetime, nonce single-use, and first-entry binding |
+//! | [`f2z_authority::AuthorityConfig::check_assertion_layer`] | the handle-ownership assertion, its authority, validity window, intent, nonce, and the identity key's binding | §4.4 itself — the crate's own documentation calls its result *"deliberately **not** an authorization-to-publish token"* |
 //!
 //! [`AdmittedSubmission`] is the conjunction, and it is the only thing
 //! [`crate::log::LogService`] will publish. Running one check without the other
 //! is not a state this server can reach by omission.
 //!
-//! # zuu#594 — what authorizes a handle's *first* entry
+//! # zuu#594 and the proposed #649 committed first-entry artifact
 //!
-//! §4.4's table authorizes `same_key` by *"the `directory_auth_pk` published in
-//! the previous entry"*. At `entry_version == 1` there is no previous entry,
-//! rule 3 explicitly permits that version, and **nothing in the numbered rules,
-//! the table, or the prose says what authorizes it**. A literal implementation
-//! of the merged specification therefore hands `@alice` to whoever submits a
-//! first entry for it — first-come-first-served handle claiming, in the
-//! document whose entire purpose is that the server cannot lie about who you
-//! are talking to. That is [zuu#594], it is unresolved, and **this log does not
-//! ship it.**
-//!
-//! [`admit_submission`] requires a `HandleAssertion` from a configured
-//! authority for a first entry. That is `f2z-authority`'s **unratified
-//! candidate**, offered against #594 rather than merged protocol — the crate
-//! says so of its own `EntryKind::InitialBind`, and this server says so too, in
-//! the signed policy document [`crate::policy`] serves. Self-hosters who have
-//! no authority configure [`f2z_authority::AuthoritySet::none`], and that mode
-//! is **reported**, so a client connecting to such a log can see that handles
-//! there are unvouched rather than having to infer it.
+//! This implementation requires `EntryKind::InitialBind` at version 1. A
+//! vouched entry carries the authority assertion, identity binding, and
+//! directory-auth signature inside its committed authorization; a no-authority
+//! entry carries the same signatures with an empty assertion. The admission
+//! path still verifies the existing v1 submission envelope and all authority
+//! admission rules. Clients can independently check the committed artifact
+//! against the current signed policy, subject to the authority-key trust and
+//! historical-policy limits in `KT.md` §4.7. This fourth authorization case is
+//! implemented as a future-wire proposal and has not been ratified or
+//! coordinated with the external issuer and production log.
 //!
 //! # Where an assertion is required, and where it is a category error
 //!
@@ -53,12 +45,13 @@
 //!
 //! | Entry | Assertion on a vouched log |
 //! |---|---|
-//! | first entry (`entry_version == 1`) | **required** — zuu#594's gap |
+//! | first entry (`entry_version == 1`) | required on a vouched log; committed in `InitialBind` by the proposed #649 extension |
 //! | `same_key`, `key_change` | **refused.** These are user-authorized under §4.4 by the previous `directory_auth_pk` and, for a rotation, the outgoing identity key. Admitting a platform assertion here would give the platform a second way to authorize a change to a live handle — the power ADR 0014 spent a cooldown, an alarm and a per-epoch counter to constrain. |
 //! | `platform_reset` | **required**, alongside §4.4's `ResetAuthorization`. |
 //!
 //! [zuu#594]: https://github.com/free2z/zuu/issues/594
 
+use f2z_authority::assertion::{HandleAssertion, InitialBindBindingTBS};
 use f2z_authority::authority::{
     AuthorityConfig, EntryKind as AuthorityEntryKind, Submission, Vouch,
 };
@@ -66,7 +59,8 @@ use f2z_authority::nonce::NonceSeen;
 use f2z_codec::decode_canonical;
 use f2z_codec::types::PublicKey;
 use f2z_kt_core::api::SubmissionEnvelope;
-use f2z_kt_core::entry::EntryKind;
+use f2z_kt_core::entry::{EntryAuthorization, EntryKind};
+use f2z_kt_core::labels::entry_tbs_digest;
 use f2z_kt_core::submit::{
     AcceptedSubmission, PublishedEntry, SubmissionContext, validate_submission,
 };
@@ -197,8 +191,9 @@ pub fn admit_submission<S: NonceSeen + ?Sized>(
     }
 
     // 3. The assertion layer. The kind it is told is the kind §4.4 validated,
-    //    and `entry_version == 1` is what makes it an initial bind — the case
-    //    KT.md does not specify (zuu#594).
+    //    and `entry_version == 1` is what makes it an initial bind. The
+    //    proposed #649 entry encoding commits the assertion here and the
+    //    client rechecks it against the current signed authority policy.
     let kind = if entry.entry.entry_version == 1 {
         AuthorityEntryKind::InitialBind
     } else {
@@ -217,17 +212,61 @@ pub fn admit_submission<S: NonceSeen + ?Sized>(
     let handle = f2z_authority::types::Handle::parse(entry.entry.handle.as_slice())
         .map_err(|_| LogError::Kt(KtError::BadHandle))?;
     let identity_pk = entry.entry.identity_pk;
-    let entry_digest = *accepted.akd_value();
+    let (assertion_bytes, identity_signature, entry_digest) = match &entry.authorization {
+        EntryAuthorization::InitialBind {
+            assertion,
+            identity_signature,
+            ..
+        } => {
+            if envelope.assertion_bytes().is_some() {
+                return Err(LogError::Malformed);
+            }
+            let tbs = entry.entry.signing_bytes().map_err(LogError::Kt)?;
+            let assertion_digest = match assertion.as_slice().is_empty() {
+                true => f2z_codec::types::Digest::zero(),
+                false => decode_canonical::<HandleAssertion>(assertion.as_slice())?
+                    .value()
+                    .digest()?,
+            };
+            let initial_binding = InitialBindBindingTBS::new(
+                f2z_authority::types::LogId::new(*entry.entry.log_id.as_bytes()),
+                f2z_authority::types::Handle::parse(entry.entry.handle.as_slice())
+                    .map_err(|_| LogError::Kt(KtError::BadHandle))?,
+                entry.entry.identity_pk,
+                assertion_digest,
+                entry_tbs_digest(&tbs),
+            )?;
+            f2z_kt_core::sig::verify(
+                &entry.entry.identity_pk,
+                &initial_binding.signing_bytes()?,
+                identity_signature,
+            )?;
+            (
+                if assertion.as_slice().is_empty() {
+                    None
+                } else {
+                    Some(assertion.as_slice())
+                },
+                &envelope.identity_signature,
+                *accepted.akd_value(),
+            )
+        }
+        _ => (
+            envelope.assertion_bytes(),
+            &envelope.identity_signature,
+            *accepted.akd_value(),
+        ),
+    };
     let previous_identity_pk = context.kt.previous.map(PublishedEntry::identity_pk);
 
     let submission = Submission {
-        assertion: envelope.assertion_bytes(),
+        assertion: assertion_bytes,
         kind,
         handle: &handle,
         identity_pk: &identity_pk,
         entry_version: entry.entry.entry_version,
         entry_digest: &entry_digest,
-        identity_signature: &envelope.identity_signature,
+        identity_signature,
         previous_identity_pk,
         previous_vouch: context.retained.map(|retained| retained.vouch),
         previous_account_epoch: context.retained.map(|retained| retained.account_epoch),

@@ -45,11 +45,12 @@ said this."
 
 ### 1.1 What this document fixes
 
-The `DirectoryEntry` structure and its authorization — including, since
-2026-08-24, a handle's **first** entry: the `HandleAssertion` and its binding
-signature (§4.5), the no-authority mode and its mandatory reporting (§4.6), and
-an accounting of what trusting an authority costs (§4.7). An earlier revision
-said this document fixed authorization "from the second entry onward" and
+The `DirectoryEntry` structure and its authorization — including a handle's
+**first** entry: the ratified v1 `HandleAssertion` and its submission binding
+(§4.5), plus the proposed #649 committed `InitialBindBindingTBS`; the
+no-authority mode and its mandatory reporting (§4.6); and an accounting of what
+trusting an authority costs (§4.7). An earlier revision said this document
+fixed authorization "from the second entry onward" and
 deferred the first to §1.2; §4.4's **closing** correction — the last of the four
 that section carries — records the closure and what
 an implementer working from that revision must add. The `SignedTreeHead` format
@@ -83,10 +84,11 @@ surface and its stable error codes; and where `akd`'s types sit underneath ours.
   and requires it to be reported, and §4.7 states what the trust root costs —
   including the part §4.5 does **not** close, which is the log itself.
   [#594](https://github.com/free2z/zuu/issues/594).
-- **Client verification of a first entry's authorization.** §4.5 is checked by
-  the log and is not committed to the tree, so a client cannot verify it. §4.7's
-  last paragraph states the property as not holding and names the wire change
-  that would close it. This is a narrower gap than the one above and it is real.
+- **Trusting the handle authority key.** The proposed #649 `initial_bind`
+  artifact makes a first-entry claim independently checkable and portable, but
+  an authority key learned only from the log is not an out-of-band trust root.
+  Clients needing that assurance must pin the key independently. The proposed
+  wire extension remains unratified pending maintainer review.
 - **The client gossip protocol.** §9.3 and
   [#311](https://github.com/free2z/zuu/issues/311) make gossip load-bearing — it
   is the only anti-equivocation that functions before independent witnesses
@@ -148,7 +150,7 @@ surface and its stable error codes; and where `akd`'s types sit underneath ours.
 
 | Role | Holds | Reachability | Fails how |
 |---|---|---|---|
-| **Log** | The tree, every entry, the log signing key, the VRF key | Public HTTPS listener | Can equivocate, can withhold, can refuse. Cannot forge an entry for a handle that **already has one** (§4.4), and cannot forge a cosignature. **Can still publish a handle's first entry unchecked** — §4.5 authorizes a first entry against a third party, but it is a rule the log applies to itself and is not committed to the tree (§4.7). |
+| **Log** | The tree, every entry, the log signing key, the VRF key | Public HTTPS listener | Can equivocate, can withhold, can refuse. Cannot forge an entry for a handle that **already has one** (§4.4), and cannot forge a cosignature. The proposed `initial_bind` lets clients check committed first-entry signatures, but does not prove actual admission time or historical policy membership; the authority key still needs an out-of-band pin (§4.7). |
 | **Authority** | An assertion signing key, and the record of who owns which handle | Issues to authenticated users; not part of the log | Compromise claims **unregistered** handles. Cannot swap a live key, cannot reset alone, cannot use a stolen assertion (§4.7). A log MAY run with none, and MUST report it (§4.6). |
 | **Witness** | Its own signing key, and its last accepted tree head — a few hundred bytes | **Outbound only.** No inbound port, no TLS certificate, no domain, no database | Can refuse to sign, can sign falsely, can cosign without checking (§7.4). Cannot make a client accept a root alone unless *t* = 1. |
 | **Client** | Its own keys, its pinned view of handles it has resolved, its witness policy | Outbound only | Can be lied to if the witness set is not independent. |
@@ -303,7 +305,8 @@ struct {
     opaque contact_addr[32];    /* WIRE.md §12.2    */
 } ContactEndpoint;
 
-enum { same_key(1), key_change(2), platform_reset(3), (255) } EntryKind;
+enum { same_key(1), key_change(2), platform_reset(3), initial_bind(4), (255) }
+    EntryKind; /* initial_bind is the proposed #649 extension */
 
 struct {
     opaque            label<0..255>;      /* exactly "free2z/kt/v1/entry" */
@@ -464,6 +467,12 @@ struct {
             struct { RotationProof rotation; opaque auth_signature[64]; };
         case platform_reset:
             struct { ResetAuthorization reset; opaque auth_signature[64]; };
+        case initial_bind: /* proposed #649 extension; wire value 4 */
+            struct {
+                opaque assertion<0..2^24-1>; /* empty only on no-authority logs */
+                opaque identity_signature[64]; /* InitialBindBindingTBS */
+                opaque auth_signature[64]; /* this entry's directory_auth_pk */
+            };
     } body;
 } EntryAuthorization;
 ```
@@ -472,17 +481,25 @@ struct {
 
 | `kind` | `auth_signature` by | Plus |
 |---|---|---|
-| `same_key`, `entry_version == 1` — a handle's **first** entry | the `directory_auth_pk` **in this entry** | a `HandleAssertion` and an `AssertionBinding` signature (§4.5). On a log that declares itself no-authority (§4.6), the `AssertionBinding` signature alone. |
+| `initial_bind`, `entry_version == 1` — a handle's **first** entry | the `directory_auth_pk` **in this entry** | the committed `InitialBindBindingTBS` signature and, on a vouched log, a `HandleAssertion` (§4.5) |
 | `same_key`, `entry_version >= 2` | the `directory_auth_pk` **published in the previous entry** | — |
 | `key_change` | the `directory_auth_pk` **in this entry** (the new key) | a `RotationProof` signed by the **outgoing `identity_pk`** |
 | `platform_reset` | the `directory_auth_pk` **in this entry** | a `ResetAuthorization` signed by the pinned reset authority key, **and** a `HandleAssertion` with `intent = reset` (§4.5) |
 
-**The first row's middle column authorizes nothing on its own and must not be
-read as though it did.** A version-1 entry signed by the `directory_auth_pk` it
-itself publishes proves that whoever wrote the entry also wrote the entry. It
-authenticates the submitter's *key*; it says nothing about the submitter's claim
-to the handle. What authorizes a first entry is the third column, and it is
-§4.5.
+**The initial-bind row's middle column authorizes nothing on its own and must
+not be read as though it did.** A version-1 entry signed by the
+`directory_auth_pk` it itself publishes proves that whoever wrote the entry
+also wrote the entry. It authenticates the submitter's *key*; it says nothing
+about the submitter's claim to the handle. What authorizes a first entry is the
+third column, and it is §4.5.
+
+The candidate encoding increases a first `DirectoryEntry` by
+`327 + len(handle)` bytes versus the frozen v1 `same_key` form: the
+`260 + len(handle)`-byte assertion, its three-byte opaque length, and the
+additional 64-byte identity binding signature. The existing directory-auth
+signature remains. `SubmissionEnvelope` carries an empty assertion on this
+path, so the assertion is moved into the committed value rather than sent
+twice. A no-authority entry uses the same fixed fields with an empty assertion.
 
 > **Invented here — a narrowing of `ARCHITECTURE.md` §4.2 that a reader should
 > notice.** §4.2's key table says the `IdentitySigningKey` "signs device
@@ -571,8 +588,8 @@ Verification rules the log MUST apply, in order, before an entry enters a batch:
     - **`entry_version == 1`.** This is the rule that authorizes a handle's first
       entry. Rules 1–10 above establish only that the entry is well-formed,
       self-consistent and signed by the key it publishes — never that the
-      submitter is entitled to the handle. §4.5's assertion carries `intent =
-      bind`.
+      submitter is entitled to the handle. It MUST use `kind == initial_bind`;
+      §4.5's assertion carries `intent = bind` when the log is vouched.
     - **`platform_reset`.** §4.5's assertion carries `intent = reset`, **in
       addition to** rule 8's `ResetAuthorization` and never instead of it. A log
       with no configured authority (§4.6) therefore cannot admit a
@@ -583,7 +600,8 @@ Verification rules the log MUST apply, in order, before an entry enters a batch:
 
     On a log that declares itself no-authority under §4.6, A16 is the whole of
     §4.5 that runs at `entry_version == 1`, and the rest does not.
-12. **`entry_version == 1` MUST carry `kind == same_key`.** `key_change` needs an
+12. **`entry_version == 1` MUST carry `kind == initial_bind` under the proposed
+    #649 extension.** `key_change` needs an
     outgoing `identity_pk` and `platform_reset` needs a key to displace; a handle
     with no previous entry has neither, so rules 7 and 8 cannot be satisfied at
     version 1 and both cases MUST be rejected with `ERR_BAD_AUTHORIZATION`
@@ -632,14 +650,12 @@ target in the system for our own testing.
 *can* do is refuse a legitimate submission, or publish a
 `platform_reset` — which by [ADR 0014](./decisions/0014-directory-key-rotation.md)
 is loud, delayed and permanently counted, and is a real weakening announced
-rather than hidden. **Read "a live key" strictly**: everything in this paragraph
-is scoped to a handle that already has an entry in the log, and the second
-correction below is why that scope is doing work. §4.5 now says what authorizes
-a first entry, and it does **not** widen this paragraph: §4.5 is a rule the log
-applies to submissions it receives, not a signature a client can check on an
-entry it is served, so the log remains able to publish a first entry for a
-handle nobody enrolled. §4.7 states that residual plainly rather than letting
-this paragraph be restated without its scope.
+rather than hidden. **Read "a live key" strictly**: this paragraph concerns a
+handle that already has an entry. The proposed #649 `InitialBind` puts the
+first-entry assertion and binding in the committed entry, so a client can
+detect omission or substitution. A client still cannot establish the
+authority's identity from the log-signed policy alone; §4.7 records that trust
+limit and the proposal remains subject to protocol ratification.
 
 > **Correction (2026-08-24) — rule 6 is new, and the list above was incomplete
 > without it.** As first published, this section's numbered rules never required
@@ -718,7 +734,8 @@ this paragraph be restated without its scope.
 > log leaves a handle's directory-write authority transferable on one signature
 > — this document specifies the rule; it does not enforce it.
 
-> **Correction (2026-08-24) — nothing in this section authorizes a handle's
+> **Historical correction (2026-08-24; superseded by the unratified #649
+> proposal below) — nothing in this section authorized a handle's
 > *first* entry, and the section read as though the table above were
 > exhaustive.** It is not, and the gap is **open and blocking** (§12).
 >
@@ -808,23 +825,20 @@ this paragraph be restated without its scope.
 > distinction is the whole reason §4.5 exists as encoding-and-rules and §4.7
 > exists as an honest accounting of what the decision costs.
 >
-> **The candidate is now ratified, and it is ratified as-implemented.** The
-> structures, transcripts and rules in §4.5 are not an invention of this
-> revision. They are what two independent implementations already agreed on
-> byte-for-byte — the Rust verification crate offered against
-> [#593](https://github.com/free2z/zuu/issues/593)/[#626](https://github.com/free2z/zuu/pull/626)
-> and the issuing endpoint operated by the party that runs the user directory —
-> and this section's job is to write down what they agreed on so a third
-> implementer is not left to infer it. Where the two disagreed on a *default*
-> rather than on a rule, §4.5 fixes the rule and says the default is not one.
+> **The existing v1 assertion and binding are ratified Contract C.** The
+> `HandleAssertion` and `AssertionBindingTBS` structures and their v1
+> transcripts remain unchanged by #649. The `initial_bind` authorization and
+> `InitialBindBindingTBS` below are a separate future-wire proposal implemented
+> for maintainer review; they are not ratified and must not be treated as a
+> production protocol until the versioning and issuer rollout are coordinated.
 >
-> **Rules 11 and 12 are new, and the `auth_signature` table's first row is a
-> split.** As first published the table had one `same_key` row, authorized by
-> "the `directory_auth_pk` published in the previous entry", which at
-> `entry_version == 1` names nothing. It is now two rows, and the version-1 row
-> states in the table itself that its middle column authorizes nothing on its
-> own. Rule 12 — that a first entry must be `same_key` — was never written down
-> and both implementations inferred it.
+> **The `initial_bind` row is a proposed future-wire change.** Existing v1
+> implementations use the frozen `same_key(1)`, `key_change(2)` and
+> `platform_reset(3)` values and cannot decode `initial_bind(4)`. The candidate
+> implementation in this repository requires `initial_bind(4)` at version 1
+> and commits its evidence into the entry. A maintainer must decide the
+> protocol-versioning/rollout boundary before any production deployment; the
+> candidate does not silently reinterpret existing v1 entries.
 > [#594](https://github.com/free2z/zuu/issues/594).
 
 ---
@@ -864,9 +878,9 @@ this paragraph be restated without its scope.
 >   publishing entries authorized by a rule that could not fail.
 
 An assertion is a short-lived, single-use, log-pinned statement by a configured
-authority that a named handle belongs to a named identity key. It is **not** part
-of the `DirectoryEntry`; it accompanies one, in the submission envelope of §9.2,
-and §4.7 states what that costs.
+authority that a named handle belongs to a named identity key. The existing v1
+assertion and `AssertionBindingTBS` remain unchanged. The proposed #649 wire
+extension additionally commits first-entry authorization inside the tree value.
 
 #### 4.5.1 Structures
 
@@ -901,6 +915,17 @@ struct {
                                      this submission — §4.6 */
     opaque entry_digest[32];      /* == AkdValue, §3.3 */
 } AssertionBindingTBS;
+
+/* Proposed #649 transcript; the existing AssertionBindingTBS is unchanged. */
+struct {
+    opaque label<0..255>;         /* exactly "free2z/kt/v1/initial-binding" */
+    opaque log_id[32];
+    opaque handle<1..30>;
+    opaque identity_pk[32];
+    opaque assertion_digest[32]; /* zero only on a no-authority log */
+    opaque entry_tbs_digest[32];  /* H("free2z/kt/v1/initial-entry-digest",
+                                        tls_codec(DirectoryEntryTBS)) */
+} InitialBindBindingTBS;
 ```
 
 `AssertionBinding` has no structure of its own: the signature over
@@ -927,25 +952,31 @@ by 64 signature bytes with no separator, no outer length and no trailing slack.
 
 #### 4.5.2 The signing transcripts
 
-Two signatures, over two structures, and **both are required**:
+On a vouched first entry, ratified v1 uses the authority signature and the
+identity's `AssertionBinding` signature in the submission. The proposed
+`initial_bind` adds a third, committed transcript for that first entry:
 
 | Signature | Over | By | Carried in |
 |---|---|---|---|
 | `HandleAssertion.signature` | `tls_codec(HandleAssertionTBS)`, in full and nothing else | the configured authority key whose digest is `authority_id` | the assertion |
-| the `AssertionBinding` signature | `tls_codec(AssertionBindingTBS)` | the submission's own `identity_pk` | the submission envelope, §9.2 |
+| existing `AssertionBinding` signature | `tls_codec(AssertionBindingTBS)` | the submission's own `identity_pk` | the submission envelope, §9.2 |
+| proposed `InitialBind` signature | `tls_codec(InitialBindBindingTBS)` | the submission's own `identity_pk` | `EntryAuthorization::InitialBind` |
 
-Both are Ed25519 over the structure **signed directly, not prehashed**, and both
-are verified over the **re-encoded** bytes rather than the bytes that arrived —
+Each signature is Ed25519 over its structure **directly, not prehashed**, and
+each is verified over the **re-encoded** bytes rather than the bytes that arrived —
 §6.2's reasoning and [ADR 0008](./decisions/0008-transport-and-serialization.md)'s
 rule, unchanged. Domain separation is the `label` field, first, inside the signed
 bytes, as it is for every other structure this document signs; §6.2's table is
 extended accordingly.
 
-**The identity self-signature is normative, required on every submission, and
-there is no path without it** — including `same_key` and `key_change`, which
-carry no assertion and set `assertion_digest` to 32 zero bytes so that the
-submitter still answers for this exact entry. §4.4's key-separation note carries
-a dated correction because that is stricter than the rationale it gave.
+**The existing `AssertionBinding` identity signature is normative, required on
+every submission, and there is no path without it** — including `same_key` and
+`key_change`, which carry no assertion in the envelope and set
+`assertion_digest` to 32 zero bytes so that the submitter still answers for this
+exact entry. A proposed `initial_bind` carries that existing envelope signature
+plus the additional `InitialBindBindingTBS` signature inside the committed
+entry. §4.4's key-separation note carries a dated correction because that is
+stricter than the rationale it gave.
 An assertion is a **bearer document**: it is bytes an authority signed, sent over
 a network, sitting in a submission queue and in whatever archive an operator
 kept. Anyone who obtains a copy holds everything the authority said. If holding
@@ -968,6 +999,15 @@ should notice both:
   on §4.2's reasoning for `prev_entry_hash`: committing to the authorization as
   well as the contents means an assertion cannot be re-signed after the subject
   has bound itself to it.
+
+The proposed `InitialBindBindingTBS` uses a separate label and
+`entry_tbs_digest`, so the existing v1 `AssertionBindingTBS.entry_digest ==
+AkdValue` contract does not change. `DirectoryEntryTBS` fixes the handle,
+identity key, log, version, devices, credentials, endpoints and every other
+entry field. Its digest excludes the authorization that contains this new
+signature, avoiding a circular reference. The entry's separate
+`auth_signature` verifies under the `directory_auth_pk` already included in the
+hashed TBS.
 
 #### 4.5.3 `intent`, and where each value is legal
 
@@ -1259,12 +1299,15 @@ one that never had one, and from one that still has one.
 
 **Two honest limits on the reporting, both real.**
 
-- **The policy is log-wide, not per-handle.** Nothing in the log records whether
-  a *particular* handle was vouched when it was registered. A log that ran
-  unvouched and later configured an authority serves a policy saying "vouched"
-  while the handles registered before the change were not, and a client cannot
-  tell which is which. A log SHOULD NOT make that transition on a directory that
-  already has entries; nothing in this document can stop it.
+- **The policy is log-wide, not historical.** Under the proposed #649 encoding,
+  a first entry carries either its authority assertion or the empty assertion
+  used by a no-authority log. A client can inspect that committed artifact, but
+  it checks it against the current policy; if the old entry and current policy
+  disagree, it fails closed. Because no historical policy is committed, the
+  client cannot determine which policy was active when the entry was admitted
+  or verify old authority membership after rotation. Maintainers must decide
+  this compatibility behavior before rollout; a log SHOULD NOT switch between
+  vouched and unvouched mode on a directory with existing entries.
 - **The policy is signed by the log**, so it is a statement by the party a
   client is trying to hold at arm's length. It is exactly as strong as the log's
   other signed statements and no stronger: it makes a downgrade a **documented,
@@ -1341,29 +1384,42 @@ trusting that something costs, in the manner of
   ceremony would be a second trust root guarding the first), and it takes effect
   only when the log's configuration is changed.
 
-**And the limit that constrains all of the above, stated because it is the one a
-reader is most likely to assume away.** A `HandleAssertion` is **not committed to
-the tree and not served to clients**. It travels in §9.2's submission envelope,
-which is not part of `DirectoryEntry`, so it is not inside
-`AkdValue = H("free2z/kt/v1/value", tls_codec(DirectoryEntry))` and it does not
-come back with a lookup. Every other row of §4.4's table is different in exactly
-this respect: a `RotationProof` and a `ResetAuthorization` live inside
-`EntryAuthorization`, are hashed into the value the tree commits to, and are
-re-verified by every client on every lookup. §4.5 is not. **It is admission
-control the log performs on itself, and no client, auditor or witness can check
-that it happened.** A log that skipped §4.5 entirely would produce entries
-indistinguishable from ones that passed it.
+The proposed #649 `initial_bind` case carries the canonical assertion, the
+identity's `InitialBindBindingTBS` signature, and this entry's directory-auth
+signature inside `EntryAuthorization`. These bytes are therefore part of
+`AkdValue` and are returned by lookup. A client or auditor can independently
+check the authority signature, assertion fields, identity binding, and
+directory-auth signature. The client checks assertion lifetime at the signed
+entry creation time because the protocol carries no signed admission time; the
+log's admission path continues to enforce current validity and its nonce,
+account-epoch, and intent rules. The existing v1 `AssertionBindingTBS` remains
+in the submission envelope and continues to bind the complete `AkdValue`
+exactly as before.
 
-So state the property precisely: §4.5 closes the first-entry hole **against third
-parties** — a stranger cannot claim `@alice` — and does **not** close it against
-the log. §8.1 step 6 still verifies nothing at `entry_version == 1`, and §8.5's
-table still says so. Making the first-entry authorization client-verifiable means
-moving the assertion and the binding signature inside `EntryAuthorization` as a
-fourth case, with the binding committing to `H(tls_codec(DirectoryEntryTBS))`
-rather than to the full entry digest to avoid the circularity that would
-otherwise create. That is a wire change to a structure two implementations have
-already frozen, it is filed rather than done here, and until it lands this
-section describes a property that does not hold.
+This closes the evidence gap against a log that publishes a first entry without
+an authority assertion: a third party can show the missing or substituted
+artifact from the committed value. It does not make the authority key a trust
+root. Unless a verifier pins the authority key out of band, it learns the key
+from the log-signed authority policy, so the log can still choose which
+authority it asks clients to trust. The signature is nevertheless portable and
+gossipable for verifiers that do hold the key. The extension is implemented as
+a proposal for maintainer review; it has not been ratified or coordinated with
+the external assertion issuer.
+
+**Historical policy limitation.** A client verifies a committed first-entry
+assertion against the authority set, validity cap, and clock-skew allowance in
+the current signed policy it fetches. The tree contains no proof of which
+historical policy was active when the log admitted that entry. Therefore a cold
+client may fail closed on an otherwise valid old first entry after the log
+removes its issuing key, lowers `max_validity_ms` or `clock_skew_ms`, or changes
+to no-authority mode. Keeping an evicted key in the current admission set just
+to preserve old lookups would defeat authority rotation. This proposal defines
+no policy-history or historical-membership proof. Maintainers must decide before
+rollout whether such policy changes invalidate old first-entry verification or
+whether a separately reviewed historical-policy mechanism is required; no
+implementation here claims historical authority membership or admission-time
+validity. Even when the assertion passes against current policy, `created_at_ms`
+is signed by the submitter and is not proof of the log's actual admission time.
 [#649](https://github.com/free2z/zuu/issues/649),
 [§13-S′](./ARCHITECTURE.md#13-open-questions), §12.
 
@@ -1572,21 +1628,16 @@ the correction below.**
 > identify it.
 >
 > For `entry_version == 1` — a handle with **no** entry at all — there is nothing
-> to prove against: `akd` 0.13 has no proof for an unregistered label, so the
-> complaint degrades to the same unproved assertion §8.1's correction describes,
-> and a receipt for a handle's **first** entry cannot be turned into portable
-> evidence. The victim can still publish the receipt, which is signed by the log
-> and shows the promise; what they cannot supply is the other half — a checkable
-> demonstration that the entry is absent.
+> to prove against: `akd` 0.13 has no proof for an unregistered label, so a
+> complaint about a missing first entry remains an unproved assertion (§8.1).
+> This is independent of #649: the proposed `InitialBind` artifact lets a
+> verifier check authorization for a first entry that exists, but a receipt
+> alone still cannot prove that the entry is absent.
 >
-> This lands on the same case as
-> [§13-S′](./ARCHITECTURE.md#13-open-questions): a handle's first entry is the one
-> whose authorization a *client* cannot check (§4.7) **and** the one whose
-> non-inclusion cannot be proved. Both are recorded rather than reconciled,
-> because they close by different means. (This paragraph named §13-S until
-> 2026-08-24, when §4.5 answered what authorizes a first entry and §13-S moved to
-> [§13.1 Closed](./ARCHITECTURE.md#131-closed); what remains open is the narrower
-> §13-S′, and it is still the same handle-with-no-entry case.)
+> This is still the unregistered-handle case in
+> [§13-T](./ARCHITECTURE.md#13-open-questions). The #649 proposal addresses
+> authorization evidence for a first entry that is present; it does not add
+> non-membership proofs.
 
 **What it does not prove, stated because a receipt looks stronger than it is.**
 
@@ -2065,18 +2116,23 @@ To resolve `@alice`:
    value in `lookup_verify` — never a value the log asserts.
 5. `akd_core::verify::lookup::lookup_verify` against `root_hash` and
    `vrf_public_key` from the verified tree head.
-6. Verify the entry's own authorization (§4.4) — the log's proof says the entry
-   is *in the tree*, not that it was *authorized*. **At `entry_version == 1`
-   there is still nothing here to verify.** §4.5 now says what authorizes a first
-   entry, but it is checked by the log at submission and is not committed to the
-   tree, so a client is served no artifact to check (§4.7's last paragraph). This
-   step therefore establishes nothing about a handle being resolved for the first
-   time, and a client MUST NOT present it as though it did.
-7. Fetch §4.6's `SignedAuthorityPolicy` for this `log_id` and verify it under the
-   log key already accepted in step 2. If the log reports itself **unvouched**,
-   every handle on it means "whoever got there first" and the client MUST
-   surface that — §4.6, and §8.3's rule about not displaying a reassuring number
-   for a property the system does not have.
+6. Fetch §4.6's `SignedAuthorityPolicy` for this `log_id` and verify it under
+   the log key already accepted in step 2. If the log reports itself
+   **unvouched**, every handle on it means "whoever got there first" and the
+   client MUST surface that — §4.6, and §8.3's rule about not displaying a
+   reassuring number for a property the system does not have.
+7. Verify the entry's own authorization (§4.4) — the log's proof says the entry
+   is *in the tree*, not that it was *authorized*. At `entry_version == 1`, the
+   proposed `initial_bind` case carries the assertion and both entry signatures
+   in the committed value. A client MUST check these bytes and MUST NOT return a
+   resolved first entry if it cannot obtain and verify the signed authority
+   policy needed to identify the assertion key. A log-signed policy identifies
+   the keys to check, but does not make them a trust root; clients that need
+   that guarantee pin the authority key out of band. The assertion's lifetime
+   is checked against the entry's signed `created_at_ms`, not the verifier's
+   current clock, so a short-lived assertion remains auditable after expiry.
+   That timestamp is identity-authenticated but is not a signed log admission
+   time; the tree does not prove when the log accepted the submission.
 8. Pin `(handle, identity_pk, entry_version, prev_entry_hash, epoch)`.
 9. For lookup-driven first contact, select only `devices` whose credential is
    valid at verifier-local time under §4.1's fixed skew rule and whose
@@ -2241,9 +2297,9 @@ Stated at the point of use, and it is the correction
 | Non-membership of a handle at a root | That a witness actually ran the append-only check (§7.4) |
 | Its own key history, unbroken by version and by hash chain (~2.6 ms) | That the witness set is independent — a social fact ([`THREAT-MODEL.md` §3.9](./THREAT-MODEL.md#39-malicious-directory-witness)) |
 | Monotonicity and the tree-head chain across roots **it has seen** (§6.3) | That the roots it has seen are the roots everyone else was shown |
-| That an entry **after the first** was authorized under §4.4 | That the log did not refuse someone else's submission |
-| Whether the log **claims** to vouch for handles at all (§4.6's signed policy) | That a handle's **first** entry came from whoever is entitled to the handle. §4.5 now says what authorizes `entry_version == 1`, and the log checks it; it is not committed to the tree and not served, so there is nothing for a client to verify (§4.7) |
-| — | That a log which reports itself vouched actually applied §4.5 — or that a handle registered while it was unvouched was later re-vouched. The policy is log-wide, not per-handle (§4.6) |
+| Whether an entry was authorized under §4.4, including the first entry's committed assertion and binding (§4.4–§4.5) | That the log did not refuse someone else's submission |
+| Whether the log **claims** to vouch for handles at all (§4.6's signed policy) | That an authority key learned only from the log is trustworthy; a client needs an out-of-band pin for that claim |
+| — | That the log actually applied §4.5's admission-time rules, including nonce single-use, or what authority policy was active then. First-entry signatures are checked against the current signed policy; policy changes can make old entries fail closed (§4.7) |
 | That a `SubmissionReceipt`'s deadline was met, for its own submissions | That a log which met the deadline did so on the branch everyone else sees |
 
 Long dormancy makes the cheap check latency-heavy rather than proof-heavy. At
@@ -2371,20 +2427,16 @@ struct {
     opaque label<0..255>;         /* exactly "free2z/kt/v1/submission" */
     uint16 kt_version;            /* 0x0001 */
     opaque entry<0..2^24-1>;      /* tls_codec(DirectoryEntry) */
-    opaque assertion<0..2^24-1>;  /* tls_codec(HandleAssertion); empty where
-                                     §4.5 A1 says none is carried */
+    opaque assertion<0..2^24-1>;  /* tls_codec(HandleAssertion); reset only;
+                                     initial_bind carries it in EntryAuthorization */
     opaque identity_signature[64];/* the AssertionBinding signature, §4.5.2 */
 } SubmissionEnvelope;
 ```
 
-> **Correction (2026-08-24) — `/kt/v1/submit` takes a `SubmissionEnvelope`, not
-> a bare `DirectoryEntry`.** The table said `DirectoryEntry` as first published,
-> which was accurate for the rules that existed then and is not a shape §4.5 can
-> be carried in: an assertion and its binding signature have nowhere to live
-> inside a `DirectoryEntry`, and putting them there would have been a change to
-> the structure the tree commits to (§4.7's last paragraph explains why that
-> change is the *better* one and why it is filed rather than made here). An
-> implementer working from the first revision must change the request body.
+> `/kt/v1/submit` takes a `SubmissionEnvelope`, not a bare `DirectoryEntry`.
+> For the proposed #649 extension, `assertion` is empty for an `initial_bind`
+> because its canonical bytes and the additional identity binding are inside
+> `EntryAuthorization`; `assertion` remains in the envelope for `platform_reset`.
 >
 > `entry` is carried as **bytes rather than as a decoded structure**, so that
 > §4.4's rule 1 applies re-encode equality to the bytes that arrived rather than
@@ -2401,7 +2453,10 @@ struct {
 > cheaper than one that infers the type from the shape.
 >
 > An **empty `assertion` field and an absent one are the same thing**, and §4.5's
-> A1 decides which is correct for a given submission. `identity_signature` is
+> A1 decides which is correct for a given submission. For a first entry the
+> inner `InitialBindBindingTBS` signature is in the committed value, while the
+> existing envelope signature remains mandatory to preserve the v1 binding.
+> `identity_signature` is
 > **never optional on any path** — not on a vouched log, not on an unvouched one,
 > where it is the whole of the check (§4.6).
 
@@ -2697,14 +2752,21 @@ Deliberately, and listed rather than invented.
   [#634](https://github.com/free2z/zuu/issues/634),
   [§13-T](./ARCHITECTURE.md#13-open-questions),
   [`THREAT-MODEL.md` §4.11](./THREAT-MODEL.md#411-an-unregistered-handle-is-asserted-not-proved).
-- **Client verification of a first entry's authorization — open, and narrower
-  than what it replaces.** A `HandleAssertion` is checked by the log and is not
-  committed to the tree, so unlike every other row of §4.4's table it is not
-  something a client, auditor or witness can check. §4.5 therefore closes the
-  first-entry hole against third parties and not against the log (§4.7). Closing
-  it means moving the assertion and its binding signature into
-  `EntryAuthorization`, which is a wire change to a structure two
-  implementations have frozen. Filed, not invented here.
+- **Protocol ratification and coordinated rollout of the #649 first-entry
+  artifact — pending.** This implementation adds `InitialBind` as wire kind 4,
+  commits the assertion and identity binding in `EntryAuthorization`, and has
+  clients verify them. It preserves the already-ratified v1 assertion and
+  envelope-binding transcripts. The new entry encoding is incompatible with
+  implementations that froze the existing `DirectoryEntry` authorization
+  cases: old readers reject it, and these clients reject legacy version-1
+  `same_key` entries. Before deployment, maintainers must ratify the transcript
+  and settle whether this pre-launch change remains `kt_version = 1` or uses a
+  separately versioned directory protocol, then coordinate every issuer,
+  server and client. The in-tree `directory_publish` caller still consumes the
+  same canonical assertion response; this wire proposal requires no issuer
+  endpoint schema change, but the external issuer deployment is not part of
+  this repository and has not been exercised. The log-advertised authority key
+  is still not an out-of-band trust root (§4.7).
   [#649](https://github.com/free2z/zuu/issues/649),
   [#594](https://github.com/free2z/zuu/issues/594).
 - **What authorizes the *issuance* of a `HandleAssertion`.** §4.5 fixes
