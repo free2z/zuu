@@ -5,7 +5,7 @@
 
 import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
-import { isExternalEmbedDomain } from '$lib/utils/embed-domains';
+import { isExternalEmbedDomain, isFirstPartyUrl } from '$lib/utils/embed-domains';
 
 const TRUSTED_DOMAINS_KEY = 'trustedEmbedDomains';
 const GLOBAL_CONSENT_KEY = 'globalEmbedConsent';
@@ -32,6 +32,7 @@ export function extractDomain(url: string): string {
  * Uses the centralized domain list from embed-domains.ts
  */
 export function isExternalEmbed(url: string): boolean {
+  if (isFirstPartyUrl(url)) return false;
   if (isExternalEmbedDomain(url)) return true;
 
   try {
@@ -84,6 +85,7 @@ function createPrivacyStore() {
      * Check if a URL should be loaded (global consent or domain trusted)
      */
     canLoadUrl: (url: string): boolean => {
+      if (isFirstPartyUrl(url)) return true;
       const domain = extractDomain(url);
       if (!domain) return false;
 
