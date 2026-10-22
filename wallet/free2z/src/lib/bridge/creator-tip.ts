@@ -30,9 +30,9 @@
  *
  * ## The three things this file will not do
  *
- * 1. **Invent a transport.** `docs/free2z/intent-bridge/PROTOCOL.md` §7 gates every
- *    authority-carrying dispatch on #461, so the request goes to
- *    `installedIntentTransport`, which refuses. See `./intent-transport`.
+ * 1. **Choose a transport.** The request goes to `installedIntentTransport()`,
+ *    which is the verified App Link in a native mobile build and a refusal
+ *    everywhere else. See `./intent-transport` and `./appLinkTransport`.
  * 2. **Re-implement the protocol.** It declares none of the five
  *    single-implementation names `wallet/zuuli/scripts/project-boundary.mjs`
  *    reserves, mints no label in the `free2z/intent/v1/` namespace, and writes
@@ -50,7 +50,8 @@
  * that **there is no signature over responses**: an app that *received* the
  * request holds the identifier and could answer, and nothing in these bytes
  * proves ZUULI wrote them. Response authenticity is a property of the
- * transport, and the transport is #461.
+ * transport: the answer arrives on this app's own verified App Link, which only
+ * the app that owns the association receives (§4, #929).
  *
  * The snapshot map lives in module memory only. Reloads lose it and fail
  * closed; creator payment details never enter web storage.
@@ -63,6 +64,7 @@ import {
   decodeExecutePaymentResult,
   encodeExecutePaymentPayload,
   intentErrorName,
+  intentFamilyName,
   newRequestId,
   toHex,
 } from "@free2z/wallet-shared";
@@ -197,7 +199,7 @@ export function creatorTipPurpose(username: string): string {
 export type CreatorTipFailure =
   /** This app could not build a sendable request. Nothing left the process. */
   | { readonly kind: "unsendable"; readonly error: IntentErrorCode }
-  /** There is no channel to the wallet. See #461 and `./intent-transport`. */
+  /** This runtime has no channel to the wallet. See `./intent-transport`. */
   | { readonly kind: "no-transport"; readonly reason: string }
   /** A channel existed and failed. No response was judged. */
   | { readonly kind: "transport-failed"; readonly detail: string }
@@ -299,7 +301,7 @@ export async function requestCreatorTipPayment(
   source: CreatorTipIntent,
   amountZatoshis: number,
   {
-    transport = installedIntentTransport,
+    transport = installedIntentTransport(),
     now = Date.now(),
   }: { transport?: IntentTransport; now?: number } = {},
 ): Promise<CreatorTipOutcome> {
@@ -339,7 +341,11 @@ export async function requestCreatorTipPayment(
 
   let answer: Uint8Array;
   try {
-    answer = await transport.exchange(issued.value);
+    answer = await transport.exchange(issued.value, {
+      family: intentFamilyName(request.intent),
+      requestId: toHex(request.requestId),
+      expiresAtMs: request.expiresAtMs,
+    });
   } catch (error) {
     if (error instanceof IntentTransportUnavailableError) {
       return { kind: "no-transport", reason: error.reason };
