@@ -189,44 +189,18 @@ CAPTCHA_GRANT_ARMING_EVENT = "captcha_grant_not_yet_armed"
 #continuously. A per-process warm-up would instead have re-opened the hole on
 #every deploy and every pod restart, several times a day, forever.
 #
-#RESIDUAL, AND THE RUNBOOK LINE FOR IT. Rolling BACK to a pre- revision
-#more than 30 minutes after this ships re-creates the mixed fleet with
-#enforcement already armed, and correct logins then fail intermittently for
-#the length of the rollback (up to two 600s drains). The automatic
-#``prod-healthcheck`` rollback fires within minutes of a deploy, i.e. inside
-#the window, so this is the *manual* late-rollback case only.
+# Rolling back to code without grant support can require disarming the shared
+# enforcement stamp. Delete its logical key through Django so the configured
+# cache prefix and version are applied correctly:
+# from django.core.cache import cache
+# from dj.apps.g12f.captcha import _enforcement_stamp_key
+# cache.delete(_enforcement_stamp_key())
 #
-#Raising ``CAPTCHA_GRANT_MIXED_FLEET_SECONDS`` does NOT fix it and it is
-#worth being exact about why: the pods still running this code already read
-#the old value from their own environment, and the pre- pods replacing
-#them do not read it at all. The operation that works is deleting the stamp
-#from the shared store before the rollback, which re-opens exactly one
-#window and disarms every enforcing pod at once. Use Django, so the key
-#cannot be hand-derived wrongly::
-#
-#kubectl -n prod exec deploy/free2z -c free2z-gunicorn -- \
-#python dj/free2z/manage.py shell -c \
-#'from django.core.cache import cache; \
-#from dj.apps.g12f.captcha import _enforcement_stamp_key; \
-#print(cache.delete(_enforcement_stamp_key()))'
-#
-#If you must reach Redis directly, the WIRE key is not the logical one and
-#an earlier draft of this comment got it wrong (codex adversarial review,
-#round 3). Django's ``default_key_func`` is ``"%s:%s:%s" % (key_prefix,
-#version, key)``; the prod cache sets ``OPTIONS["PREFIX"]``, which
-#django-redis IGNORES (it is not the top-level ``KEY_PREFIX``), so the
-#prefix is EMPTY and the version segment is ``1``::
-#
-#DEL:1:captcha-grant:<DBNAME>:writer-since
-#
-#Note ``<DBNAME>`` appears once, from:func:`_namespace`, not twice.
-#``test_the_documented_rollback_key_is_the_key_redis_actually_holds`` pins
-#that string against ``cache.make_key`` so this cannot drift into being
-#wrong again -- a runbook line that deletes nothing is worse than none,
-#because it is run at 3am and believed.
-#
-#Losing the stamp to a Redis eviction or flush has the same effect as the
-#delete, which is the safe direction.
+# With an empty KEY_PREFIX and cache version 1, the equivalent Redis wire key
+# is below. <DBNAME> denotes CAPTCHA_GRANT_NAMESPACE, not a second cache prefix.
+#: DEL :1:captcha-grant:<DBNAME>:writer-since
+# A custom KEY_PREFIX or VERSION changes this key; use cache.make_key to inspect
+# it. Deleting or evicting the stamp reopens the mixed-fleet grace window.
 CAPTCHA_GRANT_MIXED_FLEET_SECONDS = 1800
 
 #Google's error code for "already redeemed, or expired". One code, two

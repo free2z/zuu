@@ -2854,6 +2854,7 @@ for (const aggregate of [1, 2]) {
       created_at: "2026-10-06T15:00:00Z",
     });
     let recovering = false,
+      writeSettled = false,
       aggregateReads = 0;
     let heldWrite: Route | undefined, heldHistory: Route | undefined;
     await page.route("**/api/events/**", async (route) => {
@@ -2887,10 +2888,12 @@ for (const aggregate of [1, 2]) {
       }
       if (url.pathname === "/api/events/unread_count/") {
         if (!recovering) return route.fulfill({ json: ownedUnreadCount(2) });
-        if (++aggregateReads === 1)
+        aggregateReads += 1;
+        if (!writeSettled)
           return route.fulfill({ json: ownedUnreadCount(aggregate) });
-        // For aggregate1 the first query already has truth; a failed follow-up
-        // must never hide B. For stale aggregate2, a successful follow-up repairs it.
+        // Precommit reads share the selected aggregate, including background
+        // refreshes. After commit, failure must not hide B for aggregate1;
+        // a successful follow-up repairs stale aggregate2.
         return aggregate === 1
           ? route.fulfill({ status: 503, json: {} })
           : route.fulfill({ json: ownedUnreadCount(1) });
@@ -2942,6 +2945,7 @@ for (const aggregate of [1, 2]) {
     await expect
       .poll(() => Boolean(heldHistory) && aggregateReads > 0)
       .toBe(true);
+    writeSettled = true;
     await heldWrite!.fulfill({ json: {} });
     await page.evaluate(() => (window as any).heldRead);
     await heldHistory!.fulfill({

@@ -295,7 +295,7 @@ def test_expired_real_knox_cannot_accept(creator_factory):
 def test_legal_mirrors_have_exact_canonical_resources():
     from pathlib import Path
     root = Path(__file__).resolve().parents[6]
-    for relative in ('docs/about-free2z/docs/legal/06-revenue-share-agreement.md', 'new-docs/legal/creator-compensation.md'):
+    for relative in ('docs/about-free2z/docs/legal/06-revenue-share-agreement.md', 'docs/free2z/website/legal/creator-compensation.md'):
         document = (root/relative).read_text()
         if '(https://free2z.cash/api/economy/agreement/)' not in document:
             assert '```text\n'+contracts.CREATOR_CONTRACT_TEXT+'```' in document

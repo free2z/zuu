@@ -519,7 +519,7 @@ def test_scan_covers_the_tree():
     assert "dj/apps/comments/views.py" in files
     assert "dj/apps/tuzis/zec.py" in files
     assert "dj/apps/g12f/management/commands/credit_creators.py" in files
-    assert "zcash/verify_test_payment.py" in files
+    assert "zcashrpc/nodewatch.py" in files
     assert str(LEDGER) in files
     assert not any(Path(f).name.startswith("test_") for f in files)
 

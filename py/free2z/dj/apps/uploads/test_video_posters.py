@@ -24,6 +24,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from io import BytesIO, StringIO
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -921,7 +922,7 @@ def test_the_child_is_not_handed_the_worker_s_secrets():
     # PYTHONPATH is deliberately INHERITED (prepended, not replaced): it is
     # how `av` and Pillow resolve where site-packages is not the only source,
     # and replacing it outright broke eight tests.
-    assert env["PYTHONPATH"].split(os.pathsep)[0].endswith("py")
+    assert Path(env["PYTHONPATH"].split(os.pathsep)[0]) == Path(video_utils.__file__).resolve().parents[3]
 
 
 @pytest.mark.django_db(transaction=True)

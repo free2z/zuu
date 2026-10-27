@@ -39,6 +39,7 @@ def _local_media(settings, tmp_path):
         },
     }
     settings.MEDIA_ROOT = str(tmp_path)
+    settings.GS_BUCKET_NAME = "synthetic-content-types-bucket"
 
 
 def _run(*args, **kwargs):

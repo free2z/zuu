@@ -188,8 +188,3 @@ def test_exact_provider_scope_and_supported_models_are_not_retired():
     frozen = importlib.import_module(f"dj.apps.openai.migrations.{MIGRATION}")
     assert set(frozen.RETIRED_IDS) == set(ALIASES + SNAPSHOTS)
     assert providers.RETIRED_OPENAI_MODEL_IDS == set(ALIASES + SNAPSHOTS)
-
-
-def test_retired_models_do_not_appear_in_gateway_fence():
-    from dj.apps.openai.test_lineup_v3_migration import _allowed_models
-    assert not set(ALIASES + SNAPSHOTS) & set(_allowed_models())

@@ -120,7 +120,7 @@ def test_current_scope_preserves_previous_versions_without_offering_them():
 
 def test_public_legal_documents_match_exact_current_resources_and_retain_v1():
     root = Path(__file__).resolve().parents[6]
-    for name in ('docs/about-free2z/docs/legal/06-revenue-share-agreement.md', 'new-docs/legal/creator-compensation.md'):
+    for name in ('docs/about-free2z/docs/legal/06-revenue-share-agreement.md', 'docs/free2z/website/legal/creator-compensation.md'):
         document = (root/name).read_text()
         links_to_current_terms = '(https://free2z.cash/api/economy/agreement/)' in document
         if not links_to_current_terms:
@@ -129,16 +129,16 @@ def test_public_legal_documents_match_exact_current_resources_and_retain_v1():
                 assert f"```text\n{schedule['text']}```" in document
         assert 'subscription-access-2026-10-v1' not in document
     previous = contracts.creator_contract('cc-2026-10-v1', '6d4d6ad368ad9971be9b5a714ed25ab028c5a40caeb6b7ad47880bfd2efc3478')
-    retained = (root/'docs/legal/history/canonical-cc-2026-10-v1.md').read_text()
+    retained = (root/'docs/free2z/website/legal/history/canonical-cc-2026-10-v1.md').read_text()
     assert f"```text\n{previous['text']}```" in retained
     assert contracts.published_schedule('subscription_access', 'subscription-access-2026-10-v1')['text'] in retained
 
 
 def test_unavailable_retail_method_is_retained_without_public_purchase_offer():
     root = Path(__file__).resolve().parents[6]
-    archive = (root/'docs/legal/history/usage-retail-v1.md').read_text()
+    archive = (root/'docs/free2z/website/legal/history/usage-retail-v1.md').read_text()
     assert f'```text\n{contracts.USAGE_RETAIL_TEXT}```' in archive
-    for name in ('docs/about-free2z/docs/legal/05-token-sale-and-usage-terms.md', 'new-docs/legal/usage-credits.md'):
+    for name in ('docs/about-free2z/docs/legal/05-token-sale-and-usage-terms.md', 'docs/free2z/website/legal/usage-credits.md'):
         public = (root/name).read_text()
         assert contracts.USAGE_RETAIL_TEXT not in public
         assert 'Buying platform usage credits is an independent purchase' in public
@@ -164,12 +164,12 @@ def test_funding_matching_method_preserves_original_signed_method_history():
 
 def test_public_funding_method_mirrors_current_bytes_and_archives_original():
     root = Path(__file__).resolve().parents[6]
-    for name in ('docs/about-free2z/docs/legal/05-token-sale-and-usage-terms.md', 'new-docs/legal/usage-credits.md'):
+    for name in ('docs/about-free2z/docs/legal/05-token-sale-and-usage-terms.md', 'docs/free2z/website/legal/usage-credits.md'):
         document = (root/name).read_text()
         assert f'```text\n{contracts.ZEC_FUNDING_TEXT}```' in document
         assert contracts.ZEC_FUNDING_DIGEST in document
     old = contracts.zec_funding_method('zec-funding-v1')
-    retained = (root/'docs/legal/history/zec-funding-v1.md').read_text()
+    retained = (root/'docs/free2z/website/legal/history/zec-funding-v1.md').read_text()
     assert f"```text\n{old['text']}```" in retained
     assert old['digest'] in retained
 
@@ -177,4 +177,4 @@ def test_public_funding_method_mirrors_current_bytes_and_archives_original():
 def test_retired_v2_funding_terms_remain_byte_exact():
     root = Path(__file__).resolve().parents[6]
     record = contracts.zec_funding_method('zec-funding-v2')
-    assert f"```text\n{record['text']}```" in (root/'docs/legal/history/zec-funding-v2.md').read_text()
+    assert f"```text\n{record['text']}```" in (root/'docs/free2z/website/legal/history/zec-funding-v2.md').read_text()

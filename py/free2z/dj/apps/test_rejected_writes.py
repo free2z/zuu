@@ -88,6 +88,7 @@ def _raw(caplog):
 
 @pytest.mark.django_db
 @probe_urls
+@override_settings(PROJECT_ID="synthetic-log-project")
 def test_a_field_error_is_logged_with_names_and_codes_but_not_values(
         client, caplog):
     caplog.set_level(logging.INFO)
@@ -118,7 +119,7 @@ def test_a_field_error_is_logged_with_names_and_codes_but_not_values(
         "email": ["invalid"],
     }
     assert payload["logging.googleapis.com/trace"] == (
-        f"projects/free2z/traces/{TRACE}")
+        f"projects/synthetic-log-project/traces/{TRACE}")
     assert "user_id" not in payload
 
     raw = _raw(caplog)
