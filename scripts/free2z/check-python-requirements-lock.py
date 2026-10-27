@@ -28,9 +28,11 @@ def docker_image(path: Path) -> str:
     return matches[0]
 
 
-def check(source_path: Path, lock_path: Path, dockerfile: Path) -> int:
-    source = parse_source(source_path)
-    records = parse_lock(lock_path)
+def check(source_path: Path, lock_path: Path, dockerfile: Path, *, kind: str = "main") -> int:
+    if kind not in {"main", "test"}:
+        raise RequirementsError(f"unsupported lock kind: {kind}")
+    source = parse_source(source_path, test_constraint=kind == "test")
+    records = parse_lock(lock_path, source_name=f"{kind}.in")
     target = docker_image(dockerfile)
     try:
         first_line = lock_path.read_text(encoding="utf-8").splitlines()[0]
@@ -83,8 +85,21 @@ def check(source_path: Path, lock_path: Path, dockerfile: Path) -> int:
         if any(direct for _version, _extras, _marker, direct in entries) and name not in source_names:
             raise RequirementsError(f"{name} has stale direct provenance in {lock_path}")
 
+    if kind == "test":
+        runtime_path = source_path.parent / "main.txt"
+        runtime_versions: dict[str, set[str]] = {}
+        for record in parse_lock(runtime_path):
+            name = package_name(record.requirement.name)
+            runtime_versions.setdefault(name, set()).add(
+                exact_version(record.requirement, runtime_path, record.line)
+            )
+        for name in set(by_name) & set(runtime_versions):
+            versions = {version for version, _extras, _marker, _direct in by_name[name]}
+            if versions != runtime_versions[name]:
+                raise RequirementsError(f"{name} test lock version differs from runtime constraint")
+
     print(
-        f"Python production lock is hash-complete for {len(records)} records and "
+        f"Python {kind} lock is hash-complete for {len(records)} records and "
         f"matches {len(source)} direct pins and {target}."
     )
     return 0
@@ -92,12 +107,15 @@ def check(source_path: Path, lock_path: Path, dockerfile: Path) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, default=Path("py/free2z/requirements/main.in"))
-    parser.add_argument("--lock", type=Path, default=Path("py/free2z/requirements/main.txt"))
+    parser.add_argument("--kind", choices=("main", "test"), default="main")
+    parser.add_argument("--source", type=Path)
+    parser.add_argument("--lock", type=Path)
     parser.add_argument("--dockerfile", type=Path, default=Path("build/free2z/backend.Dockerfile"))
     args = parser.parse_args(argv)
+    source = args.source or Path(f"py/free2z/requirements/{args.kind}.in")
+    lock = args.lock or Path(f"py/free2z/requirements/{args.kind}.txt")
     try:
-        return check(args.source, args.lock, args.dockerfile)
+        return check(source, lock, args.dockerfile, kind=args.kind)
     except RequirementsError as error:
         print(f"INVALID PYTHON PRODUCTION LOCK: {error}", file=sys.stderr)
         return 1

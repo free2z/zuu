@@ -30,7 +30,7 @@
 <div
   bind:this={mentionMenuRef}
   onpointerdown={(event) => event.preventDefault()}
-  class="fixed z-[100] flex max-h-[320px] w-[320px] animate-in flex-col overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md fade-in slide-in-from-bottom-2"
+  class="fixed z-[100] flex max-h-[min(320px,var(--editor-menu-space,320px))] w-[min(320px,calc(100vw-16px))] animate-in flex-col overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md fade-in slide-in-from-bottom-2"
   style={positionStyle}
 >
   <div
@@ -40,10 +40,13 @@
       >{$t("editor.mentionMenu.title", "Mention a creator")}</span
     >
     <span class="font-mono text-[10px] text-muted-foreground opacity-70"
-      >↑↓ Navigate · ↵ Select · Esc Close</span
+      >{$t(
+        "editor.menuInstructions",
+        "↑↓ Navigate · ↵ Select · Esc Close",
+      )}</span
     >
   </div>
-  <div class="mention-menu-items max-h-[260px] overflow-y-auto p-1">
+  <div class="mention-menu-items max-h-[260px] min-h-0 overflow-y-auto p-1">
     {#each mentionResults as creator, index (creator.username)}
       {@const isSelected = index === selectedMention}
       <button

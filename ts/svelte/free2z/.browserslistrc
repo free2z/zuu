@@ -1,0 +1,51 @@
+# Browser support baseline for the free2z SvelteKit app.
+#
+# This file is the SINGLE SOURCE OF TRUTH for "which browsers do we support".
+# Two things read it:
+#
+#   1. autoprefixer (postcss.config.cjs) — decides which CSS prefixes to emit.
+#   2. vite.config.ts — DERIVES esbuild's `build.target` from these lines, so
+#      the JS syntax floor and the CSS floor cannot drift apart. Only
+#      `<browser> >= <version>` entries are accepted; see vite.config.ts.
+#
+# Every floor below is a fact about code we already ship, not a guess:
+#
+#   Tailwind CSS v4 (@tailwindcss/vite ^4.3.3) is documented as targeting
+#   Safari 16.4+, Chrome 111+, Firefox 128+, and the app's own CSS agrees:
+#     - `@property`   — Chrome 85,  Safari 16.4, Firefox 128  <- sets the
+#                       Safari and Firefox floors
+#     - `color-mix()` — Chrome 111, Safari 16.2, Firefox 113  <- sets the
+#                       Chrome/Edge floor (21 uses in src/)
+#     - `oklch()`     — Chrome 111, Safari 15.4, Firefox 113
+#     - cascade layers, `dvh`, `backdrop-filter` — all below the above
+#
+#   Below these versions the stylesheet does not degrade gracefully: unresolved
+#   `@property` custom properties and `color-mix()` make the page unreadable,
+#   not merely unstyled. So there is no honest baseline lower than this, and
+#   nothing is gained by pretending to support one.
+#
+# Chromium forks (Android Chrome, Samsung Internet, Opera, Brave) are covered
+# by the `chrome` floor and are deliberately not listed separately: esbuild has
+# no engine name for them, so listing them would create browserslist entries
+# the JS target could not honor. Samsung Internet 22 == Chromium 111.
+#
+# LIMIT — read before trusting this file:
+# browserslist + build.target constrain *syntax* only. Runtime APIs newer than
+# the baseline are invisible to esbuild and to this file. `npm run lint` adds a
+# best-effort runtime check, not a complete browser-baseline guarantee:
+# eslint-plugin-compat is strongest for global member chains, but its metadata
+# and typed-variable/instance-method analysis have gaps. The local rule adds
+# seven verified runtime-floor gaps when a built-in identity is proven; unknown
+# values and arbitrary object-property wrappers remain no-report.
+#
+# Browser search uses `createAbortSignalWithTimeout` rather than
+# `AbortSignal.any()` or `AbortSignal.timeout()`. The helper combines a
+# baseline-supported AbortController, abort listeners, and timers, so the
+# browser path does not depend on either newer static AbortSignal API. Those
+# APIs remain confined to SSR-only code where they are explicitly annotated.
+
+chrome >= 111
+edge >= 111
+firefox >= 128
+safari >= 16.4
+ios_saf >= 16.4

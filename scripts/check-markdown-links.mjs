@@ -109,6 +109,13 @@ const VENDOR_ROOT = "z/";
 /// router and where `/docs/free2z/app-suite/architecture.md` is simply wrong.
 const SITE_ROUTE_ROOTS = [
   {
+    root: "docs/free2z/website/",
+    reason:
+      "VitePress site: `/`-rooted targets are page routes resolved by the site's router. " +
+      "The required docs job in .github/workflows/free2z-web-ci.yml builds this site " +
+      "and validates its internal links; these are not repository-root paths.",
+  },
+  {
     root: "docs/about-free2z/",
     reason:
       "Docusaurus site: `/`-rooted targets are static-asset and page routes resolved by the " +
@@ -1297,6 +1304,6 @@ console.log(
   `Every relative Markdown link resolves: ${result.relativeLinks} link(s) and ` +
     `${result.anchorsChecked} heading anchor(s) across ${result.scanned} tracked document(s) ` +
     `(${result.external} external URL(s) never fetched, ` +
-    `${result.siteRoutes} site route(s) left to the Docusaurus build, ` +
+    `${result.siteRoutes} site route(s) left to their documentation builds, ` +
     `${result.submoduleTargets} target(s) inside vendored submodules).`,
 );

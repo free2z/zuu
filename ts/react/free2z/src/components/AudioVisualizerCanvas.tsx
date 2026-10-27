@@ -19,7 +19,7 @@ const AMPLITUDE_NORMALIZER = 256.0; // Normalizes the amplitude values
 const HALF_BARS = NUM_BARS / 2;
 
 type VisualizerProps = {
-    dataArrayRef: React.RefObject<Uint8Array>;
+    dataArrayRef: React.RefObject<Uint8Array<ArrayBuffer>>;
     analyserRef: React.RefObject<AnalyserNode>;
 };
 

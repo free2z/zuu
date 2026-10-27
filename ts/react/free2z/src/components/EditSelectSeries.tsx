@@ -210,8 +210,11 @@ const EditSelectSeries: React.FC<Props> = ({ page }) => {
         reason: AutocompleteInputChangeReason,
     ) {
         if (reason === 'clear') {
+            // The target lives in the path: it identifies the resource this
+            // DELETE mutates. The `?free2zaddr=` form still works but is
+            // deprecated.
             axios.delete(
-                `/api/g12f/series/clear-zpage/?free2zaddr=${page.free2zaddr}`
+                `/api/g12f/series/clear-zpage/${encodeURIComponent(page.free2zaddr)}/`
             ).then(resp => {
                 // console.log("clear-zpage", resp)
                 if (resp.data.status === 'success') {

@@ -16,7 +16,7 @@ export default function BoostPageButton(props: EditFundPageProps) {
 
     return (
         <>
-            <Tooltip title="Boost page with 2Zs or Zcash">
+            <Tooltip title="Boost page with 2Z">
                 <IconButton
                     onClick={() => setOpenDialog(true)}
                 >

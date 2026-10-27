@@ -20,195 +20,18 @@ import { useGlobalState } from './state/global';
 import { useTransitionNavigate } from './hooks/useTransitionNavigate';
 import SimpleNavRight from './components/SimpleNavRight';
 import AIPersonalityDialogButton from "./components/AIPersonalityDialogButton";
-import { PublicCreator } from "./CreatorDetail";
 import AIPublicFeedButton from "./components/AIPublicFeedButton";
 import NeedTuziDialog from "./components/NeedTuziDialog";
+import { generationIsCurrent, reducer, type PromptResponseAPI } from "./aiState";
 
-
-export interface AIPersonality {
-    id: string;
-    display_name: string;
-    creator: string;
-    system_message: string;
-}
-
-
-export interface AIModel {
-    id: string;
-    display_name: string;
-    // input_cost, output_cost, markup
-    // price: number;
-}
-
-export interface PromptResponse {
-    id: string;
-    user_input: string;
-    response: string;
-    created_at?: string;
-    // can be used for both live response and API response
-    personality?: AIPersonality;
-    user?: PublicCreator;
-    ai_model?: AIModel;
-}
-
-export interface PromptResponseAPI {
-    count: number;
-    next: string | null;
-    previous: string | null;
-    results: PromptResponse[];
-}
-
-export type AIState = {
-    currentConversation: AIConversation;
-    promptResponses: PromptResponse[];
-    currentResponse: string;
-    currentInput: string;
-    selectedModel: string;
-    selectedPersonality: string;
-    websocket: WebSocket | null;
-    autoScroll: boolean;
-    textAreaHeight: number;
-}
-
-
-export type AIAction =
-    // This adds a word
-    | { type: 'addMessage', message: string }
-    // This completes the response
-    | { type: 'completeResponse' }
-    | { type: 'clearPromptResponses' }
-    // This loads an entire conversation
-    | { type: 'loadConversation', promptResponses: PromptResponse[] }
-    // This loads more prompt responses
-    | { type: 'loadPromptResponses', promptResponses: PromptResponse[] }
-    // | { type: 'updateCurrentInput', currentInput: string }
-    | { type: 'storeCurrentInput', userInput: string }
-    | { type: 'setSelectedModel', selectedModel: string }
-    | { type: 'setSelectedPersonality', selectedPersonality: string }
-    | { type: 'setConversation', conversation: AIConversation }
-    | { type: 'startConversation' }
-    | { type: 'setWebsocket', websocket: WebSocket | null }
-    | { type: 'startAutoScroll' }
-    | { type: 'stopAutoScroll' }
-    | { type: 'setTextAreaHeight', textAreaHeight: number }
-    | { type: 'clearCurrent' }
-
-
-const reducer = (state: AIState, action: AIAction): AIState => {
-    switch (action.type) {
-        case 'addMessage':
-            // console.log('addMessage', action.message, new Date().toISOString())
-            return { ...state, currentResponse: state.currentResponse + action.message };
-        // case 'updateCurrentInput':
-        //     // console.log('updateCrruentInput')
-        //     return { ...state, currentInput: action.currentInput }
-        case 'clearPromptResponses':
-            // console.log('clearPromptResponses')
-            return { ...state, promptResponses: [] }
-        case 'completeResponse':
-            // console.log('completeResponse', new Date().toISOString())
-            if (!state.currentInput || !state.currentResponse) {
-                return state;
-            }
-            return {
-                ...state,
-                promptResponses: [
-                    ...state.promptResponses, {
-                        id: '',
-                        user_input: state.currentInput,
-                        response: state.currentResponse,
-                    }],
-                currentResponse: '',
-                currentInput: '',
-            };
-        case 'loadConversation':
-            // console.log('loadConversation')
-            return {
-                ...state,
-                promptResponses: action.promptResponses,
-                currentResponse: "",
-            };
-        case 'loadPromptResponses':
-            // console.log('loadPromptResponses')
-            return {
-                ...state,
-                promptResponses: [
-                    ...state.promptResponses,
-                    ...action.promptResponses,
-                ],
-            }
-        case 'storeCurrentInput':
-            // console.log('storeCurrentInput')
-            return {
-                ...state,
-                currentInput: action.userInput,
-            }
-        case 'setSelectedModel':
-            // console.log('setSelectedModel')
-            return {
-                ...state,
-                selectedModel: action.selectedModel,
-            }
-        case 'setSelectedPersonality':
-            // console.log('setSelectedPersonality')
-            return {
-                ...state,
-                selectedPersonality: action.selectedPersonality,
-            }
-        case 'setConversation':
-            // console.log('setConversation', action.conversation)
-            return {
-                ...state,
-                currentConversation: action.conversation,
-            }
-        case 'startConversation':
-            // console.log('startConversation')
-            state.websocket &&
-                state.websocket.readyState === WebSocket.OPEN &&
-                state.websocket.close();
-            return {
-                promptResponses: [],
-                currentResponse: '',
-                currentInput: '',
-                selectedModel: '',
-                selectedPersonality: '',
-                currentConversation: {} as AIConversation,
-                websocket: null,
-                autoScroll: true,
-                textAreaHeight: 0,
-            }
-        case 'setWebsocket':
-            return {
-                ...state,
-                websocket: action.websocket,
-            }
-        case 'startAutoScroll':
-            // console.log('startAutoScroll')
-            return {
-                ...state,
-                autoScroll: true,
-            }
-        case 'stopAutoScroll':
-            // console.log('stopAutoScroll')
-            return {
-                ...state,
-                autoScroll: false,
-            }
-        case 'setTextAreaHeight':
-            return {
-                ...state,
-                textAreaHeight: action.textAreaHeight,
-            }
-        case 'clearCurrent':
-            return {
-                ...state,
-                currentResponse: '',
-                // currentInput: '',
-            }
-        default:
-            throw new Error();
-    }
-}
+export type {
+    AIAction,
+    AIModel,
+    AIPersonality,
+    AIState,
+    PromptResponse,
+    PromptResponseAPI,
+} from "./aiState";
 
 
 export default function AI() {
@@ -232,7 +55,21 @@ export default function AI() {
         websocket: null,
         autoScroll: true,
         textAreaHeight: 0,
+        activeGenerationId: null,
     })
+    const latestState = useRef(state);
+    latestState.current = state;
+    const latestRouteConversationId = useRef(conversationId);
+    latestRouteConversationId.current = conversationId;
+    const isCurrentGeneration = (
+        targetConversationId: string,
+        streamId: string,
+    ) => generationIsCurrent(
+        latestState.current,
+        latestRouteConversationId.current,
+        targetConversationId,
+        streamId,
+    );
 
     const loadPromptResponses = (url: string) => {
         axios.get<PromptResponseAPI>(url)
@@ -279,7 +116,16 @@ export default function AI() {
         ws.current.onmessage = (event) => {
             const data = JSON.parse(event.data);
             // console.log("MESSAGE", data)
-            dispatch({ type: 'addMessage', message: data.message });
+            if (latestRouteConversationId.current
+                && latestRouteConversationId.current !== conversationId) {
+                return;
+            }
+            dispatch({
+                type: 'addMessage',
+                conversationId,
+                message: data.message,
+                streamId: data.stream_id ?? null,
+            });
         };
         ws.current.onerror = (error) => {
             console.error('WebSocket error:', error);
@@ -526,6 +372,7 @@ export default function AI() {
                             connect={connect}
                             state={state}
                             dispatch={dispatch}
+                            isCurrentGeneration={isCurrentGeneration}
                             selectedModel={state.selectedModel}
                             conversationId={conversationId}
                         />

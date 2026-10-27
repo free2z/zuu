@@ -91,6 +91,7 @@ jobs:
           set -euo pipefail
           case "$KIND" in backend|web|static) ;; *) exit 1;; esac
           docker load -i image-bundle/image.tar
+          test "$(docker image inspect "free2z-$KIND:candidate" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
           repository="ghcr.io/free2z/free2z-$KIND"
           tag="$repository:build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           docker tag "free2z-$KIND:candidate" "$tag"
@@ -110,7 +111,13 @@ jobs:
           set -euo pipefail
           anonymous_config=$(mktemp -d)
           trap 'rm -rf "$anonymous_config"' EXIT
-          DOCKER_CONFIG="$anonymous_config" docker manifest inspect "$IMAGE" >/dev/null
+          DOCKER_CONFIG="$anonymous_config" docker manifest inspect "$IMAGE" > "$anonymous_config/manifest.json"
+          python3 - "$anonymous_config/manifest.json" <<'PYMANIFEST'
+          import json, sys
+          value = json.load(open(sys.argv[1]))
+          if value.get('mediaType') not in ('application/vnd.oci.image.manifest.v1+json', 'application/vnd.docker.distribution.manifest.v2+json') or 'manifests' in value:
+              raise SystemExit('Release digest must identify one linux/amd64 image manifest')
+          PYMANIFEST
       - name: Attest published image provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # reviewed immutable repository pin
         with:
@@ -175,6 +182,10 @@ jobs:
           pattern: free2z-published-*-${{ github.sha }}-${{ github.run_attempt }}
           path: published
           merge-multiple: true
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # reviewed immutable repository pin
+        with:
+          name: free2z-task-registry-${{ github.sha }}-${{ github.run_attempt }}
+          path: task-registry
       - name: Create immutable release selection document
         run: |
           set -euo pipefail
@@ -186,7 +197,7 @@ jobs:
           values={k:Path('published',k+'.digest').read_text().strip() for k in ('backend','web','static')}
           Path('digests.json').write_text(json.dumps(values))
           PY
-          python3 scripts/free2z/release-manifest.py create --commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --digests digests.json --inventory release/static-assets.json --output release/release.json
+          python3 scripts/free2z/release-manifest.py create --commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --digests digests.json --inventory release/static-assets.json --task-registry task-registry/task-registry.json --output release/release.json
       - name: Attest release manifest
         id: manifest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # reviewed immutable repository pin

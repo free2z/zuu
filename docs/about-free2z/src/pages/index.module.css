@@ -1,13 +1,104 @@
-/**
- * CSS files with the .module.css suffix will be treated as CSS modules
- * and scoped locally.
- */
-
-.buttons {
-  display: flex;
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
   align-items: center;
-  justify-content: center;
-  /* min-width: 300px; */
-  /* color: #CF3BAB; */
-  /* background-color: #CF3BAB; */
+  gap: 2rem;
+  padding-top: clamp(2rem, 6vw, 5rem);
+  padding-bottom: 3rem;
+}
+.heroContent {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+.accessibleHeading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.title {
+  font-size: clamp(2.8rem, 6vw, 5rem);
+  line-height: 1.12;
+  letter-spacing: -0.045em;
+}
+.verb {
+  display: block;
+  color: var(--ifm-color-primary);
+  min-height: 1.15em;
+}
+.artwork {
+  position: relative;
+  min-width: 0;
+  border-radius: 2rem;
+  background: radial-gradient(ellipse, #55358040, transparent 70%);
+}
+.cloud {
+  height: 340px;
+  pointer-events: none;
+  border-radius: 2rem;
+  background: radial-gradient(ellipse at 50% 40%, #35214f, #161426 80%);
+}
+.staticWords {
+  display: grid;
+  place-content: center;
+  height: 100%;
+  text-align: center;
+  font-size: clamp(1.1rem, 2vw, 1.5rem);
+  line-height: 2.5;
+  color: #dec7ff;
+}
+.motionControl {
+  display: block;
+  min-height: 44px;
+  margin: 0 auto;
+  padding: 0.5rem 1rem;
+  background: transparent;
+  color: var(--ifm-font-color-base);
+  border: 1px solid var(--ifm-color-emphasis-400);
+  border-radius: 2rem;
+  cursor: pointer;
+}
+.motionControl:focus-visible {
+  outline: 3px solid var(--ifm-color-primary);
+  outline-offset: 4px;
+}
+.credits {
+  padding-top: 2rem;
+  padding-bottom: 3rem;
+}
+.credits h2 {
+  max-width: 28ch;
+  font-size: clamp(1.75rem, 3vw, 2.5rem);
+}
+.credits p {
+  max-width: 72ch;
+  line-height: 1.8;
+}
+.promise {
+  padding-top: 2rem;
+  padding-bottom: 4rem;
+  border-top: 1px solid var(--ifm-color-emphasis-300);
+}
+.promise p {
+  max-width: 65ch;
+  font-size: 1.125rem;
+  line-height: 1.8;
+}
+@media (max-width: 760px) {
+  .hero {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+    padding-bottom: 1rem;
+  }
+  .cloud {
+    height: 230px;
+  }
+  .title {
+    font-size: clamp(2.8rem, 12vw, 4.5rem);
+  }
 }

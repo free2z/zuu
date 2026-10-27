@@ -191,6 +191,7 @@ const StyledMenu = styled((props: MenuProps) => (
 }));
 
 const sortByLabel = {
+    '-published_at': 'Published',
     '-updated_at': 'Recent',
     '-created_at': 'Created At',
     '-f2z_score': 'Boosted',
@@ -288,7 +289,10 @@ export const SuggestedSearchFiltersRow = ({
                                     label={(isXS && ['video', 'verified', 'tags'].includes(id))
                                         ? undefined
                                         : (id === 'sort_by'
-                                            ? sortByLabel[pageQuery.sort as KeysOfType<typeof sortByLabel> || '-updated_at'] || label
+                                            ? sortByLabel[
+                                                pageQuery.sort as KeysOfType<typeof sortByLabel> ||
+                                                (pageQuery.mine ? '-updated_at' : '-published_at')
+                                            ] || label
                                             : label || (chip.name ? chip.name : undefined))}
                                     icon={{
                                         sort_by: <ExpandMoreIcon />,
@@ -369,7 +373,7 @@ export const SuggestedSearchFiltersRow = ({
                                     open={sortByIsOpen}
                                     onClose={handleSortByClose}
                                 >
-                                    {['-updated_at', '-created_at', '-f2z_score'].map((id) => (
+                                    {['-published_at', '-updated_at', '-created_at', '-f2z_score'].map((id) => (
                                         <MenuItem
                                             key={id}
                                             onClick={() => {
@@ -377,7 +381,7 @@ export const SuggestedSearchFiltersRow = ({
                                                 handleSortByClose()
                                             }}
                                             sx={{
-                                                ...((pageQuery.sort || '-updated_at') === id && { backgroundColor: theme.palette.primary.main, color: theme.palette.primary.contrastText, '&:hover': { opacity: 0.7, backgroundColor: theme.palette.primary.main } })
+                                                ...((pageQuery.sort || (pageQuery.mine ? '-updated_at' : '-published_at')) === id && { backgroundColor: theme.palette.primary.main, color: theme.palette.primary.contrastText, '&:hover': { opacity: 0.7, backgroundColor: theme.palette.primary.main } })
                                             }}
                                             disableRipple
                                         >
@@ -430,7 +434,7 @@ export const SuggestedSearchFiltersRow = ({
                                             noExpand={false}
                                         />
                                     </Stack>
-                                    {/* {[{ label: 'Recently Posted', value: '-created_at' }, { label: 'Recently Updated', value: '-updated_at' }, { label: 'F2Z Score', value: '-f2z_score' }, { label: 'Total Donated', value: '-total' }].map(({ label, value }, i) => ( */}
+                                    {/* {[{ label: 'Recently Posted', value: '-created_at' }, { label: 'Recently Updated', value: '-updated_at' }, { label: 'F2Z Score', value: '-f2z_score' }, { label: 'Usage Credits Received', value: '-total' }].map(({ label, value }, i) => ( */}
                                     {/* <> */}
                                     {/* {i === 0 && <TextField id="standard-basic" label="Standard" variant="standard" />} */}
                                     {/* <CustomIcon /> */}
@@ -531,10 +535,13 @@ export const SearchFilterModal = ({ initialValues = { tags: [] }, open, handleEx
                                             F2Z Score
                                         </MenuItem>
                                         <MenuItem value="-total">
-                                            Total Donated
+                                            Usage Credits Received
                                         </MenuItem>
                                         <MenuItem value="-created_at">
                                             Recently Created
+                                        </MenuItem>
+                                        <MenuItem value="-published_at">
+                                            Recently Published
                                         </MenuItem>
                                         <MenuItem value="-updated_at">
                                             Recently Updated
@@ -611,10 +618,13 @@ export const AdvancedOptions: React.FC<AdvancedOptionsProps> = ({ pageQuery, set
                             F2Z Score
                         </MenuItem>
                         <MenuItem value="-total">
-                            Total Donated
+                            Usage Credits Received
                         </MenuItem>
                         <MenuItem value="-created_at">
                             Recently Created
+                        </MenuItem>
+                        <MenuItem value="-published_at">
+                            Recently Published
                         </MenuItem>
                         <MenuItem value="-updated_at">
                             Recently Updated

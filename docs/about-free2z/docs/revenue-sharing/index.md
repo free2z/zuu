@@ -2,98 +2,62 @@
 sidebar_position: 0
 ---
 
-# A Revolution in Revenue Sharing
+# Apply to earn from the services you deliver
 
-Our in-app token, the 2Z, is an innovative aspect of our Free2Z platform.
-It's a versatile tool for a variety of in-app activities and functionalities.
+Host a paid live experience or build an application people use. Apply and get approved to earn money from 2Z Inc. for qualifying delivered **pay-per-view livestream and SDK services** under accepted agreements and service terms.
 
-## What can you do with the 2Z token?
+People use 2Zs to unlock a paid livestream or use a supported app service. For qualifying services you deliver as an approved creator, Free2Z records your agreed compensation in the separate USD earnings balance.
 
-2Zs can be used for diverse functionalities in our app:
+Your earnings are tracked in **USD** and paid in **shielded Zcash**. Your 2Z credits stay separate.
 
-1. Livestreams
-2. AI prompts
-3. Comments
-4. Votes
-5. Boosts
-6. Subscriptions and Pay-per-view
-7. Donations and Tips
+## Set up creator earnings
 
-In the future, 2Zs may be used for purchasing digital goods and providing
-a way for creators to monetize their content with paywalls.
-We also use 2Zs as a way to prevent spam and abuse on the platform,
-making sure all interactions are valuable. Because they can be used
-for donations, they serve as a sort of granular invite code to the platform.
+1. Sign in and open the creator verification application from your dashboard. You can apply with zero 2Z credits.
+2. Complete the requested identity information and follow the review instructions. The team reviews your application and confirms approval. Verification identifies the person or organization that receives payment.
+3. Once approved, in **Credits & Earnings**, read the compensation agreement and the service terms for PPV and SDK activities. Check the verified payee displayed beside them.
+4. Accept the terms explicitly if you want to participate. A verification or tax-form signature does not accept the compensation agreement.
+5. Check Credits & Earnings to confirm that your account is eligible for compensated services before offering them. Follow the applicable delivery and pricing terms.
 
-:::tip
-Keep in mind that transferring 2Zs is not the same as transferring funds.
-2Zs are a way of keeping score of the revenue generated on Free2Z.
-:::
+Payment review can require tax information. If you need help completing verification or cannot access your account, contact [help@free2z.com](mailto:help@free2z.com).
 
-## Partnering with Free2Z
+## What earns money?
 
-We offer users the opportunity to become valued partners in our rewards program.
-Once accepted, partners may be eligible for discretionary rewards based on their accumulated 2Zs. The value of these rewards is determined by Free2Z and may vary.
+| Activity | How it works |
+| --- | --- |
+| Qualifying paid livestream PPV | Deliver the live service under the accepted PPV terms; compensation follows the recorded service allocation |
+| Qualifying SDK application service | Deliver the application's service under the accepted SDK terms; compensation follows the recorded service allocation |
 
-:::tip
-Entry into the partner program requires a formal application and subsequent acceptance by Free2Z.
-:::
+Purchasing, holding, sharing, or receiving credits does not earn USD. Subscriptions and memberships provide credit-based benefits; they are not USD earnings. Starting a stream or registering an application alone does not earn money.
 
-## Rewards Program Limits
+## Credits and earnings stay separate
 
-- Free2Z may set certain thresholds for eligible rewards under the program. These limits are subject to change and are at Free2Z’s discretion.
+When you buy or receive 100 2Zs, you have credits to use on Free2Z. Sharing them gives another user credits; it does not create USD earnings.
 
-## Reward Options
+For qualifying delivered PPV or SDK services, Credits & Earnings records the USD earnings owed under your accepted service terms. If it shows $10 available, you can request payment of that USD amount in shielded Zcash. The payment does not use up your credits.
 
-- Rewards may be offered in various forms, which could include Zcash among other options. Free2Z reserves the right to determine the most suitable reward method.
+## Follow your earnings
 
-These limits are designed to ensure effective management of the revenue share program. The specifics of these limits are subject to change, and the most current information can always be found in this section.
+Open **Credits & Earnings** to see:
 
-:::info
-Remember, 2Zs aren't an investment opportunity.
-They are a way of quantifying your share of the revenue on Free2Z.
-:::
+- **Owed:** your recorded USD earnings.
+- **Held:** amounts reserved for payment requests.
+- **Available:** the amount available for a payment request.
+- **Recent activity:** recorded PPV and SDK earnings.
+- **Payment history:** the status and details of your requests.
 
-## Not a Money Service
+Credits & Earnings displays small positive earnings. If your account needs setup or a feature is unavailable, follow the displayed guidance rather than treating that message as a balance.
 
-Remember, Free2Z is not a financial transaction or fund transfer service. The 2Z token is a unique digital unit for use within our platform.
+## Request a shielded Zcash payment
 
-:::caution
-Remember, only selected partners will be able to claim their share
-of the revenue generated on Free2Z.
-:::
+1. Open the earnings section in Credits & Earnings.
+2. Enter the available USD amount you want to request and an authorized shielded Zcash address you control.
+3. Read the payment method beside the submit button, then submit once.
+4. Follow the request's status in Credits & Earnings. A request or broadcast is not a confirmed payment.
 
-## Zcash and 2Zs: Two Tools, Different Purposes
+The company converts the requested USD to Zcash at an external market spot rate when signing, using a quote no more than five minutes old and no company payout exchange spread. The company covers network fees and upward settlement rounding. Your receipt shows the actual rate, quote time, Zcash amount, and USD settled.
 
-While Zcash and 2Zs are both integral to our economy,
-they serve different purposes and come with their own unique traits.
-Understanding the differences and knowing when to use each is crucial.
+If a request is pending or its outcome is unclear, check the original request instead of creating another one. Recorded earnings remain owed if further earning participation ends. Read the [compensation agreement](/docs/legal/revenue-share-agreement/) and [payment terms](/docs/legal/token-redemption-policy/) for the full conditions.
 
-Zcash is your go-to for direct and immediate peer-to-peer support.
-As a decentralized, private, and unintermediated cryptocurrency,
-Zcash offers swift transfers, giving you the ability to directly support
-your favorite creators almost instantly.
+## Direct support is separate
 
-:::tip
-Zcash excels at facilitating larger transactions and direct donations while offering the privacy and decentralization prized within our digital community.
-:::
-
-2Zs, on the other hand, shine for small, atomic transactions —
-micro-metered "burns" as low as one 2Z (representing 1 penny of revenue).
-You can purchase 2Zs using credit cards or Zcash,
-and you can also earn them by participating in the Free2Z community,
-making them accessible and straightforward to acquire.
-With 2Zs, you can pay for comments, AI prompts, pay-per-views, and more,
-while enjoying the reliable and instant performance of a top-tier web app.
-
-:::info
-2Zs are designed for convenience and ease of use, delivering a smooth
-experience for micro-metering of usage within the Free2Z platform.
-Imagine 10,000 users paying 10 2Zs ($0.10) for your interactive livestream webinar.
-That would be $1,000 in revenue for you.
-:::
-
-Both Zcash and 2Zs have their own distinctive benefits,
-making them both valuable tools in the Free2Z ecosystem.
-Deciding on when to use each comes down to understanding their
-features and your particular imperatives.
+A supporter can also [send Zcash directly](../for-supporters/donating-with-zcash.md) to the address displayed on your profile or page. That wallet-to-wallet transfer does not go through your company earnings balance.

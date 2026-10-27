@@ -27,7 +27,24 @@ class Participant(models.Model):
         unique=True, null=True, blank=True,
         help_text="A unique identifier for the WebAuthn credential, ensuring secure reference to the participant's credential."
     )
-    sign_count = models.PositiveIntegerField(default=0)
+    # WebAuthn's signature counter is a **uint32** (authenticatorData bytes
+    # 33-36, WebAuthn L2 6.1), so it ranges up to 4294967295. A
+    # PositiveIntegerField is a Postgres `integer`, which tops out at
+    # 2147483647 -- fine while nothing ever wrote this column, but now that
+    # the verified counter is persisted  a device reporting a counter
+    # in the top half of the uint32 range would raise on save and turn a
+    # perfectly valid authentication into a 500. Some authenticators do
+    # report implausibly large counters. Big enough to hold the whole domain.
+    sign_count = models.PositiveBigIntegerField(
+        default=0,
+        help_text=(
+            "The WebAuthn signature counter (uint32) last reported by this "
+            "participant's authenticator. Only ever moves forward; an "
+            "assertion whose counter fails to advance is rejected. A "
+            "permanent 0 means the authenticator does not implement the "
+            "counter, which is normal and is not a clone."
+        ),
+    )
 
     class Meta:
         verbose_name = "Participant"

@@ -4,8 +4,9 @@
     type CarouselProps,
     type EmblaContext,
     setEmblaContext,
-  } from './context.js';
-  import { cn, type WithElementRef } from '$lib/utils.js';
+  } from "./context.js";
+  import { cn, type WithElementRef } from "$lib/utils.js";
+  import { tStore as t } from "$lib/i18n";
 
   // Keep a runtime fallback for legacy `childrenProp` and accept loose prop typing.
   let {
@@ -13,14 +14,13 @@
     opts = {},
     plugins = [],
     setApi = () => {},
-    orientation = 'horizontal',
+    orientation = "horizontal",
     class: className,
     childrenProp,
     ...restProps
   } = $props() as unknown as Record<string, any>;
 
-  const renderChildren = () =>
-    childrenProp?.() || (restProps as any)?.children?.();
+  const renderChildren = $derived(childrenProp ?? restProps.children);
 
   let carouselState = $state<EmblaContext>({
     api: undefined,
@@ -59,11 +59,16 @@
     carouselState.canScrollPrev = carouselState.api.canScrollPrev();
   }
 
+  function onReInit() {
+    carouselState.scrollSnaps = carouselState.api?.scrollSnapList() ?? [];
+    onSelect();
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === 'ArrowLeft') {
+    if (e.key === "ArrowLeft") {
       e.preventDefault();
       scrollPrev();
-    } else if (e.key === 'ArrowRight') {
+    } else if (e.key === "ArrowRight") {
       e.preventDefault();
       scrollNext();
     }
@@ -73,14 +78,15 @@
     carouselState.api = event.detail;
     setApi(carouselState.api);
 
-    carouselState.scrollSnaps = carouselState.api.scrollSnapList();
-    carouselState.api.on('select', onSelect);
-    onSelect();
+    carouselState.api.on("select", onSelect);
+    carouselState.api.on("reInit", onReInit);
+    onReInit();
   }
 
   $effect(() => {
     return () => {
-      carouselState.api?.off('select', onSelect);
+      carouselState.api?.off("select", onSelect);
+      carouselState.api?.off("reInit", onReInit);
     };
   });
 </script>
@@ -88,10 +94,10 @@
 <div
   bind:this={ref}
   data-slot="carousel"
-  class={cn('relative', className)}
+  class={cn("relative", className)}
   role="region"
-  aria-roledescription="carousel"
+  aria-roledescription={$t("carousel.label", "carousel")}
   {...restProps}
 >
-  {@render renderChildren()}
+  {@render renderChildren?.()}
 </div>

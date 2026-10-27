@@ -1,37 +1,55 @@
----
-sidebar_position: 3
----
+# Make Free2Z your creative space
 
-# Key Features
+Write, talk, experiment, and build. Free2Z gives you more ways to bring an idea to your community.
 
-Free2Z offers a range of features designed to connect creators and their supporters. These features enable content monetization, direct tipping, and various other functionalities that will enrich your experience on the platform.
+## zPages: a home for your work
 
-## Creative Tools
+Publish an article with text, images, and media. Choose public or subscriber access, share a link, and keep your work together on your profile. Readers can use the page's language and translation options to explore content in another language.
 
-Express yourself with a variety of creative tools that allow for interactive live streams, personalized webpages (zPages), and much more.
+[Create a zPage](../for-creators/02-creating-a-zpage.md) · [Explore public pages](https://free2z.com/)
 
-- [zPages](/docs/for-creators/creating-a-zpage)
-- [Free2Z Live](/docs/for-creators/free2z-live)
-- [AI Content Generation](/docs/for-creators/AI-content-generation)
+![Free2Z's discovery page](../../static/img/product-2026-10/discover.png)
 
-## In-app Token (2Zs)
+## Converse: small posts, real conversations
 
-The multi-functional 2Z token, also known as Tuzis, serves multiple purposes—from content monetization to facilitating micro-metered utilities within the app (AI, Livestreams, comments, boosts, donations, etc.).
+Share a short update, ask a question, or join a thread. Converse brings posts and replies into a public community feed with search, tags, and layout controls. Sign in when you want to post or reply; paid actions show their credit cost.
 
-<!-- TODO -->
+[Explore Converse](https://free2z.com/converse)
 
-[Learn More about In-app Tokens >>](/docs/getting-started/tuzis)
+![The Converse community feed](../../static/img/product-2026-10/converse.png)
 
-## Revenue Sharing
+## Livestreams: bring people into the room
 
-Our revenue-sharing model provides a transparent and fair way for qualified partners to earn a share of the revenue generated on the platform.
+Broadcast publicly, meet your subscribers, invite people privately, or offer a pay-per-view experience. Viewers check access and the displayed price before joining. Hosts need at least 150 2Zs in their credit balance and pay the hosting costs shown in the app.
 
-[Learn More about Revenue Sharing >>](/docs/revenue-sharing)
+[Host a livestream](../for-creators/03-free2z-live.md) · [Watch a room](../for-supporters/free2z-live.md)
 
-## Peer-to-Peer Donations
+## AI: move an idea forward
 
-Support your favorite creators directly and privately using Zcash or other cryptocurrencies.
+Use the available AI tools to explore a question, shape a draft, or create content. Choose your model and spending controls, pay with 2Zs, and review the output before publishing it.
 
-<!-- <a href="/docs/privacy-and-security/zcash" class="button float-right">Learn More about Peer-to-Peer Donations with Zcash >></a> -->
+[Create with AI](../for-creators/AI-content-generation.md)
 
-[Learn More about Peer-to-Peer Donations with Zcash >>](/docs/privacy-and-security/zcash)
+## Your profile and memberships
+
+Bring your pages and biography together, offer subscriber benefits, and display an address for direct Zcash support. Memberships use credits; direct support goes to your wallet.
+
+[Set up your profile](../for-creators/01-creating-a-profile.md) · [Join a membership](../for-supporters/subscriptions.md)
+
+![The official Free2Z profile](../../static/img/product-2026-10/creator-profile.png)
+
+## SDK: build your own experience
+
+The **open-source SDK preview** connects applications to Free2Z sign-in, AI services, and credit spending. Build a tutor, a writing partner, or a tool for your community. Users authorize their own spending budgets. You build and host your application; the gateway handles supported AI requests and credit charges.
+
+[Explore the SDK preview](../for-creators/sdk-applications.md)
+
+## Digital goods — coming soon
+
+Explore the publishing, memberships, livestreams, and application tools you can use today.
+
+## Credits to use. Services to earn from.
+
+[Buy 2Zs with Zcash](../getting-started/03-tuzis.md) for platform tools and experiences. You can share credits, comment, vote, boost pages, and unlock larger uploads by holding credits.
+
+Apply and get approved to [earn as a creator](../revenue-sharing/index.md) from qualifying delivered PPV or SDK services under accepted terms. Those earnings are recorded in USD and paid in shielded Zcash, separately from credits.

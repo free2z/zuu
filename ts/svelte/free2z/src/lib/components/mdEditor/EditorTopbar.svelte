@@ -1,9 +1,12 @@
 <script lang="ts">
+  import { afterNavigate } from "$app/navigation";
+  import { scrollTopbar } from "$lib/actions/scrollTopbar";
+  import { formatDateTime } from "$lib/utils/date";
   import { Button } from "$lib/components/ui/button";
   import * as Tooltip from "$lib/components/ui/tooltip";
   import PublishSheet from "$lib/components/mdEditor/PublishSheet.svelte";
   import AuthUserDropdown from "$lib/components/auth/AuthUserDropdown.svelte";
-  import { tStore as t } from "$lib/i18n";
+  import { locale, tStore as t } from "$lib/i18n";
   import type {
     EditorCurrentUser,
     EditorMode,
@@ -19,10 +22,12 @@
     CalendarClock,
     Check,
     CloudUpload,
+    Trash2,
   } from "@lucide/svelte";
 
   interface Props {
     currentUser: EditorCurrentUser;
+    canSchedule: boolean;
     mode: EditorMode;
     isSaving: boolean;
     saveError: string | null;
@@ -33,8 +38,13 @@
     content: string;
     handleSave: () => Promise<boolean>;
     description: string;
+    canonicalUrl: string;
     vanity: string;
-    selectedCategories: string[];
+    tags: string[];
+    /** Saved article identifier; empty until the first save. */
+    free2zaddr?: string;
+    /** The tag-suggestion endpoint just rewrote this article's tags. */
+    onTagSuggestionWrite?: () => void;
     zcashAddress: string;
     isSubscriberOnly: boolean;
     publishAt: string;
@@ -42,12 +52,25 @@
     resetKey: string;
     viewHref: string | null;
     onMetadataChange?: () => void;
-    onPublish: () => Promise<boolean>;
+    onVanityChange?: () => void;
+    onCanonicalUrlChange?: (value: string) => void;
+    onCanonicalUrlBlur?: (value: string) => void;
+    onPublish: (publishAt: string) => Promise<boolean>;
+    /**
+     * The translation review loop has its own Publish; a second one
+     * up here would be a duplicate with different rules ( review).
+     */
+    hidePublish?: boolean;
+    onPublishNow: () => Promise<boolean>;
+    onCancelSchedule: () => Promise<boolean>;
     onUnpublish: () => Promise<boolean>;
+    onDelete?: () => Promise<boolean>;
+    isDeleting?: boolean;
   }
 
   let {
     currentUser,
+    canSchedule,
     mode = $bindable(),
     isSaving,
     saveError,
@@ -58,8 +81,11 @@
     content,
     handleSave,
     description = $bindable(),
+    canonicalUrl = $bindable(),
     vanity = $bindable(),
-    selectedCategories = $bindable(),
+    tags = $bindable(),
+    free2zaddr = "",
+    onTagSuggestionWrite = undefined,
     zcashAddress = $bindable(),
     isSubscriberOnly = $bindable(),
     publishAt = $bindable(),
@@ -67,8 +93,16 @@
     resetKey,
     viewHref,
     onMetadataChange,
+    onVanityChange,
+    onCanonicalUrlChange,
+    onCanonicalUrlBlur,
     onPublish,
+    onPublishNow,
+    onCancelSchedule,
     onUnpublish,
+    onDelete = undefined,
+    isDeleting = false,
+    hidePublish = false,
   }: Props = $props();
 
   let publishSheetOpen = $state(false);
@@ -76,16 +110,25 @@
   const canSave = $derived(Boolean(title.trim() && content.trim()));
 
   const isScheduled = $derived(
-    !isPublished &&
-      Boolean(publishAt) &&
-      new Date(publishAt).getTime() > Date.now(),
+    canSchedule && !isPublished && Boolean(publishAt),
   );
 
-  const modeOptions = [
-    { value: "write", icon: Edit3, label: "Write" },
-    { value: "split", icon: SplitSquareHorizontal, label: "Split" },
-    { value: "preview", icon: Eye, label: "Preview" },
-  ] as const;
+  const modeOptions = $derived.by(
+    () =>
+      [
+        { value: "write", icon: Edit3, label: $t("editor.write", "Write") },
+        {
+          value: "split",
+          icon: SplitSquareHorizontal,
+          label: $t("editor.split", "Split"),
+        },
+        {
+          value: "preview",
+          icon: Eye,
+          label: $t("editor.preview", "Preview"),
+        },
+      ] as const,
+  );
 
   async function runSheetAction(action: () => Promise<boolean>) {
     const succeeded = await action();
@@ -93,34 +136,24 @@
     if (succeeded) {
       publishSheetOpen = false;
     }
+
+    return succeeded;
   }
 
-  let lastScrollY = $state(0);
-  let visible = $state(true);
-  const threshold = 20;
-  const upThreshold = 10;
+  let navigationRevision = $state(0);
+  afterNavigate(() => {
+    navigationRevision += 1;
+  });
 
-  function handleScroll() {
-    const currentScrollY = window.scrollY;
-    const delta = currentScrollY - lastScrollY;
-
-    if (Math.abs(delta) < 5) return;
-
-    if (delta > 0 && currentScrollY > threshold) {
-      visible = false;
-    } else if (delta < -upThreshold || currentScrollY < threshold) {
-      visible = true;
-    }
-    lastScrollY = currentScrollY;
-  }
+  let profileOpen = $state(false);
 </script>
 
-<svelte:window onscroll={handleScroll} />
-
 <header
-  class="sticky top-0 z-50 shrink-0 border-b border-border/60 bg-background/90 backdrop-blur-md transition-transform duration-300 {visible
-    ? 'translate-y-0'
-    : '-translate-y-full'}"
+  use:scrollTopbar={{
+    pinned: publishSheetOpen || profileOpen,
+    resetKey: navigationRevision,
+  }}
+  class="scroll-topbar sticky top-0 z-50 shrink-0 border-b border-border/60 bg-background/96"
 >
   <div
     class="mx-auto flex h-auto flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2 md:h-16 md:px-6 md:py-0"
@@ -207,7 +240,7 @@
               {$t("editor.saving", "Saving...")}
             {:else if saveError}
               <AlertCircle class="h-3.5 w-3.5" />
-              {$t("editor.saveError", "Couldn't save")}
+              {$t("editor.saveError", "Failed to save article")}
             {:else if isDirty}
               <CloudUpload class="h-3.5 w-3.5" />
               {$t("editor.unsaved", "Unsaved changes")}
@@ -222,17 +255,25 @@
         </Tooltip.Trigger>
         <Tooltip.Content>
           {#if saveError}
+            <!-- The chip has room for a label; this has room for the reason.
+                 Rendering the generic key here threw away the one sentence
+                 that says which field was refused and what to do. -->
             <p>{saveError}</p>
           {:else if !isDirty && lastSavedAt}
             <p>
-              {$t("editor.lastSaved", "Last saved")}
-              {new Date(lastSavedAt).toLocaleTimeString([], {
+              {$t("editor.lastSaved", "Last saved:")}
+              {formatDateTime(lastSavedAt, $locale, {
                 hour: "2-digit",
                 minute: "2-digit",
               })}
             </p>
           {:else}
-            <p>Your work is automatically saved as you type</p>
+            <p>
+              {$t(
+                "editor.autosaveDescription",
+                "Your work is automatically saved as you type.",
+              )}
+            </p>
           {/if}
         </Tooltip.Content>
       </Tooltip.Root>
@@ -265,7 +306,9 @@
         {/each}
       </div>
 
-      {#if isPublished}
+      {#if hidePublish}
+        <!-- Reviewing a translation: its Publish is in the review bar. -->
+      {:else if isPublished}
         <Button
           variant="outline"
           size="sm"
@@ -302,8 +345,22 @@
         </Tooltip.Root>
       {/if}
 
+      {#if free2zaddr && onDelete}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+          onclick={() => void onDelete?.()}
+          disabled={isDeleting}
+          aria-label={$t("editor.deletePage", "Delete page")}
+          title={$t("editor.deletePage", "Delete page")}
+        >
+          <Trash2 class="size-4" />
+        </Button>
+      {/if}
+
       <div class="ml-1">
-        <AuthUserDropdown />
+        <AuthUserDropdown bind:open={profileOpen} />
       </div>
     </div>
   </div>
@@ -312,18 +369,28 @@
 <PublishSheet
   bind:open={publishSheetOpen}
   {currentUser}
+  {canSchedule}
   {isPublished}
   {isSaving}
+  {content}
   bind:description
+  bind:canonicalUrl
   bind:vanity
-  bind:selectedCategories
+  bind:tags
+  {free2zaddr}
+  {onTagSuggestionWrite}
   bind:zcashAddress
   bind:isSubscriberOnly
-  bind:publishAt
+  {publishAt}
   {validationErrors}
   {resetKey}
   onChange={onMetadataChange}
-  onPublish={() => runSheetAction(onPublish)}
+  {onVanityChange}
+  onCanonicalChange={onCanonicalUrlChange}
+  onCanonicalBlur={onCanonicalUrlBlur}
+  onPublish={(value) => runSheetAction(() => onPublish(value))}
+  onPublishNow={() => runSheetAction(onPublishNow)}
+  onCancelSchedule={() => runSheetAction(onCancelSchedule)}
   onUnpublish={() => runSheetAction(onUnpublish)}
   onSaveSettings={() => runSheetAction(handleSave)}
 />

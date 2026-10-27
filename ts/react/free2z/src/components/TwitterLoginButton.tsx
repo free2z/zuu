@@ -22,10 +22,13 @@ export default function TwitterLoginButton() {
             .then(response => {
                 const state = response.data.state
                 const code_challenge = response.data.code_challenge
+                // The server names the PKCE method (S256 since ). A
+                // backend that predates the field only ever issued `plain`.
+                const code_challenge_method = response.data.code_challenge_method || 'plain'
 
                 // Construct the authorize URL
                 // https://developer.twitter.com/en/docs/authentication/oauth-2-0/authorization-code
-                const authorizeUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${TWITTER_CLIENT_ID}&redirect_uri=${CALLBACK_URL}&scope=users.read%20follows.read%20tweet.read&state=${state}&code_challenge=${code_challenge}&code_challenge_method=plain&intent=authenticate`;
+                const authorizeUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${TWITTER_CLIENT_ID}&redirect_uri=${CALLBACK_URL}&scope=users.read%20follows.read%20tweet.read&state=${state}&code_challenge=${code_challenge}&code_challenge_method=${code_challenge_method}&intent=authenticate`;
                 // Redirect the user to the authorize URL
                 window.location.href = authorizeUrl;
                 // console.log(authorizeUrl)

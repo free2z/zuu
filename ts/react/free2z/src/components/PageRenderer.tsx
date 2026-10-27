@@ -8,7 +8,6 @@ import {
 } from "@mui/material"
 import PageMetaFund from "./PageMetaFund"
 import MathMarkdown from "./MathMarkdown"
-import MakePageComment from "./MakePageComment"
 import { PageComment } from "../PageDetail"
 import DisplayComments from "./DisplayComments"
 import DisplayThreadedComments from "./DisplayThreadedComments"
@@ -192,23 +191,13 @@ export default function PageDetail(props: PageDetailProps) {
                 <SeriesCarousel free2zaddr={page.free2zaddr} />
             </Grid>
 
-            <Grid item xs={12}>
-                <Divider style={{ margin: "1em 0" }}>
-                    <Chip color="primary" label="Comment with Zcash"
-                        variant="outlined"
-                    />
-                </Divider>
-            </Grid>
-
-            <Grid item xs={12}
-                style={{
-                    maxWidth: "768px",
-                    margin: "0 auto",
-                }}
-            >
-                <MakePageComment free2zaddr={page.free2zaddr} />
-            </Grid>
-
+            {/*
+              "Comment with Zcash" used to render here: a QR paying ZEC to a
+              Free2Z wallet with a `page_comment` memo. That memo
+              protocol is retired (#863, #1654): comments are a 2Z action
+              (below), and ZEC sent to Free2Z is only ever for buying 2Z.
+              Historical Zcash comments still display.
+            */}
             <Grid item xs={12}>
                 {page.comments.length > 0 && (
                     <>

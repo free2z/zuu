@@ -1,0 +1,1557 @@
+/**
+ * Free2Z Docs theme
+ * Mirrors the new-ui design system from ts/svelte/free2z/src/styles/globals.css
+ *
+ * Neutral warm-gray surfaces — NO green tint.
+ * Lime accent is the star. Glass cards, soft glow, tight tracking.
+ */
+
+:root {
+  /* Free2Z Design System - Light Mode */
+  --f2z-bg-primary: #fafafa;
+  --f2z-bg-secondary: #f0f0f2;
+  --f2z-bg-tertiary: #e4e4e7;
+  --f2z-bg-input: #ffffff;
+
+  --f2z-text-primary: #18181b;
+  --f2z-text-secondary: #27272a;
+  --f2z-text-muted: #71717a;
+  --f2z-text-tertiary: #a1a1aa;
+
+  --f2z-accent-primary: #65a30d; /* Lime-600 */
+  --f2z-accent-hover: #4d7c0f; /* Lime-700 */
+  --f2z-accent-light: #84cc16; /* Lime-500 */
+  --f2z-accent-secondary: #4d7c0f;
+
+  --f2z-border-primary: rgba(0, 0, 0, 0.1);
+  --f2z-border-secondary: rgba(0, 0, 0, 0.05);
+
+  --f2z-radius-sm: 4px;
+  --f2z-radius-md: 6px;
+  --f2z-radius-lg: 8px;
+  --f2z-radius-xl: 12px;
+  --f2z-radius-2xl: 16px;
+  --f2z-radius-3xl: 24px;
+
+  --f2z-transition-fast: 0.15s ease;
+  --f2z-transition-normal: 0.2s ease;
+  --f2z-transition-slow: 0.3s ease;
+
+  --f2z-shadow-glow: 0 0 40px -10px color-mix(in srgb, var(--f2z-accent-primary) 18%, transparent);
+  --f2z-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.04);
+
+  /* VitePress / VP brand mapping */
+  --vp-c-brand-1: var(--f2z-accent-primary);
+  --vp-c-brand-2: var(--f2z-accent-hover);
+  --vp-c-brand-3: var(--f2z-accent-secondary);
+  --vp-c-brand-soft: color-mix(in srgb, var(--f2z-accent-primary) 14%, transparent);
+
+  --vp-c-bg: var(--f2z-bg-primary);
+  --vp-c-bg-alt: var(--f2z-bg-secondary);
+  --vp-c-bg-elv: var(--f2z-bg-input);
+  --vp-c-bg-soft: var(--f2z-bg-secondary);
+
+  --vp-c-text-1: var(--f2z-text-primary);
+  --vp-c-text-2: var(--f2z-text-secondary);
+  --vp-c-text-3: var(--f2z-text-muted);
+
+  --vp-c-border: var(--f2z-border-primary);
+  --vp-c-divider: var(--f2z-border-primary);
+  --vp-c-gutter: var(--f2z-border-secondary);
+
+  --vp-c-default-1: var(--f2z-bg-tertiary);
+  --vp-c-default-2: var(--f2z-bg-secondary);
+  --vp-c-default-3: var(--f2z-bg-tertiary);
+  --vp-c-default-soft: var(--f2z-bg-secondary);
+
+  --vp-c-tip-1: var(--f2z-accent-primary);
+  --vp-c-tip-2: var(--f2z-accent-hover);
+  --vp-c-tip-3: var(--f2z-accent-secondary);
+  --vp-c-tip-soft: color-mix(in srgb, var(--f2z-accent-primary) 12%, transparent);
+
+  --vp-c-warning-1: #ca8a04;
+  --vp-c-warning-2: #a16207;
+  --vp-c-warning-3: #854d0e;
+  --vp-c-warning-soft: rgba(202, 138, 4, 0.12);
+
+  --vp-c-danger-1: #dc2626;
+  --vp-c-danger-2: #b91c1c;
+  --vp-c-danger-3: #991b1b;
+  --vp-c-danger-soft: rgba(220, 38, 38, 0.12);
+
+  --vp-c-success-1: var(--f2z-accent-primary);
+  --vp-c-success-2: var(--f2z-accent-hover);
+  --vp-c-success-3: var(--f2z-accent-secondary);
+  --vp-c-success-soft: color-mix(in srgb, var(--f2z-accent-primary) 12%, transparent);
+
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-bg: var(--f2z-accent-primary);
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-hover-bg: var(--f2z-accent-hover);
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-text: #ffffff;
+  --vp-button-brand-active-bg: var(--f2z-accent-secondary);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(
+    120deg,
+    var(--f2z-accent-primary) 10%,
+    var(--f2z-accent-light) 80%
+  );
+  --vp-home-hero-image-background-image: radial-gradient(
+    ellipse 80% 60% at 50% 40%,
+    color-mix(in srgb, var(--f2z-accent-primary) 28%, transparent),
+    transparent 70%
+  );
+  --vp-home-hero-image-filter: blur(44px);
+
+  --vp-c-indigo-1: var(--f2z-accent-primary);
+  --vp-c-indigo-2: var(--f2z-accent-hover);
+  --vp-c-indigo-3: var(--f2z-accent-secondary);
+
+  --vp-font-family-base:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+  --vp-font-family-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+
+  --vp-nav-height: 64px;
+  --vp-sidebar-width: 280px;
+  --vp-radius: var(--f2z-radius-lg);
+}
+
+.dark {
+  /* Free2Z Design System - Dark Mode */
+  --f2z-bg-primary: #0a0a0c;
+  --f2z-bg-secondary: #141417;
+  --f2z-bg-tertiary: #1c1c20;
+  --f2z-bg-input: #252529;
+
+  --f2z-text-primary: #f4f4f5;
+  --f2z-text-secondary: #d4d4d8;
+  --f2z-text-muted: #a1a1aa;
+  --f2z-text-tertiary: #71717a;
+
+  --f2z-accent-primary: #84cc16; /* Lime-500 */
+  --f2z-accent-hover: #a3e635; /* Lime-400 */
+  --f2z-accent-light: #bef264; /* Lime-300 */
+  --f2z-accent-secondary: #65a30d;
+
+  --f2z-border-primary: rgba(255, 255, 255, 0.08);
+  --f2z-border-secondary: rgba(255, 255, 255, 0.04);
+
+  --f2z-shadow-glow: 0 0 40px -10px color-mix(in srgb, var(--f2z-accent-primary) 22%, transparent);
+  --f2z-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.2), 0 12px 32px rgba(0, 0, 0, 0.24);
+
+  --vp-c-brand-1: var(--f2z-accent-primary);
+  --vp-c-brand-2: var(--f2z-accent-hover);
+  --vp-c-brand-3: var(--f2z-accent-light);
+  --vp-c-brand-soft: color-mix(in srgb, var(--f2z-accent-primary) 16%, transparent);
+
+  --vp-c-bg: var(--f2z-bg-primary);
+  --vp-c-bg-alt: var(--f2z-bg-secondary);
+  --vp-c-bg-elv: var(--f2z-bg-tertiary);
+  --vp-c-bg-soft: var(--f2z-bg-secondary);
+
+  --vp-c-text-1: var(--f2z-text-primary);
+  --vp-c-text-2: var(--f2z-text-secondary);
+  --vp-c-text-3: var(--f2z-text-muted);
+
+  --vp-c-border: var(--f2z-border-primary);
+  --vp-c-divider: var(--f2z-border-primary);
+  --vp-c-gutter: var(--f2z-border-secondary);
+
+  --vp-c-default-1: var(--f2z-bg-tertiary);
+  --vp-c-default-2: var(--f2z-bg-secondary);
+  --vp-c-default-3: var(--f2z-bg-input);
+  --vp-c-default-soft: var(--f2z-bg-secondary);
+
+  --vp-c-tip-1: var(--f2z-accent-primary);
+  --vp-c-tip-2: var(--f2z-accent-hover);
+  --vp-c-tip-3: var(--f2z-accent-light);
+  --vp-c-tip-soft: color-mix(in srgb, var(--f2z-accent-primary) 14%, transparent);
+
+  --vp-button-brand-text: var(--f2z-bg-primary);
+  --vp-button-brand-bg: var(--f2z-accent-primary);
+  --vp-button-brand-hover-text: var(--f2z-bg-primary);
+  --vp-button-brand-hover-bg: var(--f2z-accent-hover);
+  --vp-button-brand-active-text: var(--f2z-bg-primary);
+  --vp-button-brand-active-bg: var(--f2z-accent-light);
+
+  --vp-home-hero-name-background: linear-gradient(
+    120deg,
+    var(--f2z-accent-primary) 10%,
+    var(--f2z-accent-light) 90%
+  );
+  --vp-home-hero-image-background-image: radial-gradient(
+    ellipse 80% 60% at 50% 40%,
+    color-mix(in srgb, var(--f2z-accent-primary) 32%, transparent),
+    transparent 70%
+  );
+}
+
+/* ─── Global polish ─── */
+
+html {
+  scroll-behavior: smooth;
+}
+
+.Layout {
+  background-color: var(--f2z-bg-primary);
+  background-image:
+    radial-gradient(at 0% 0%, color-mix(in srgb, var(--f2z-accent-primary) 6%, transparent) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, color-mix(in srgb, var(--f2z-accent-primary) 4%, transparent) 0px, transparent 45%);
+  background-attachment: fixed;
+}
+
+/* ─── Navbar (mirrors ui Navbar) ─── */
+
+/*
+ * VitePress only fixes .VPNav from 960px up.
+ * Force fixed/sticky behavior at all sizes so hide-on-scroll works on mobile too.
+ */
+.VPNav {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--vp-z-index-nav, 30);
+  width: 100%;
+  transform: translateY(0);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  will-change: transform;
+  pointer-events: none;
+}
+
+html.f2z-nav-hidden .VPNav {
+  transform: translateY(-100%);
+}
+
+/*
+ * Desktop already pads .VPContent for fixed nav (>=960px).
+ * Mobile needs the same offset once we force fixed nav.
+ */
+@media (max-width: 959.98px) {
+  .VPContent {
+    padding-top: var(--vp-nav-height) !important;
+  }
+}
+
+.VPNavBar {
+  border-bottom: 1px solid var(--f2z-border-primary) !important;
+  background: color-mix(in srgb, var(--f2z-bg-primary) 92%, transparent) !important;
+  backdrop-filter: blur(16px) saturate(1.25);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+  height: var(--vp-nav-height) !important;
+  pointer-events: auto;
+  transition:
+    background-color 0.25s ease,
+    border-color 0.25s ease,
+    box-shadow 0.25s ease !important;
+}
+
+/* Stronger surface once scrolled (not at page top) */
+.VPNavBar:not(.top) {
+  background: color-mix(in srgb, var(--f2z-bg-primary) 96%, transparent) !important;
+  box-shadow:
+    0 1px 0 var(--f2z-border-secondary),
+    0 8px 24px color-mix(in srgb, #000 12%, transparent);
+}
+
+.dark .VPNavBar:not(.top) {
+  box-shadow:
+    0 1px 0 var(--f2z-border-secondary),
+    0 10px 28px color-mix(in srgb, #000 45%, transparent);
+}
+
+/* Kill VitePress dual-tone content-body backgrounds that fight our glass bar */
+.VPNavBar .content-body,
+.VPNavBar:not(.home.top) .content-body,
+.VPNavBar:not(.has-sidebar):not(.home.top) .content-body {
+  background: transparent !important;
+}
+
+.VPNavBar .wrapper {
+  padding-left: 12px !important;
+  padding-right: 10px !important;
+}
+
+@media (min-width: 768px) {
+  .VPNavBar .wrapper {
+    padding-left: 20px !important;
+    padding-right: 20px !important;
+  }
+}
+
+/* Brand mark — large, tight, lime (matches /ui logo button) */
+.VPNavBarTitle .title {
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  font-size: 1.35rem;
+  color: var(--f2z-accent-secondary) !important;
+  transition: color var(--f2z-transition-fast);
+  gap: 0.55rem;
+  text-decoration: none !important;
+}
+
+@media (min-width: 768px) {
+  .VPNavBarTitle .title {
+    font-size: 1.55rem;
+  }
+}
+
+.dark .VPNavBarTitle .title {
+  color: var(--f2z-accent-primary) !important;
+}
+
+.VPNavBarTitle:hover .title {
+  color: var(--f2z-accent-primary) !important;
+}
+
+.dark .VPNavBarTitle:hover .title {
+  color: var(--f2z-accent-hover) !important;
+}
+
+/* No logo image — wordmark only */
+.VPNavBarTitle .logo {
+  display: none !important;
+}
+
+/* Desktop menu links */
+.VPNavBar .VPNavBarMenuLink {
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: color var(--f2z-transition-fast);
+  border-radius: var(--f2z-radius-md);
+}
+
+.VPNavBar .VPNavBarMenuLink.active,
+.VPNavBar .VPNavBarMenuLink:hover {
+  color: var(--vp-c-brand-1) !important;
+}
+
+.VPNavBarMenuGroup .button {
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+/* ── Search ── */
+/* Mobile: compact rounded icon button (matches screenshot language) */
+.VPNavBarSearch {
+  display: flex;
+  align-items: center;
+}
+
+.VPNavBarSearch .DocSearch-Button,
+.VPNavBar .VPNavBarSearch button.DocSearch-Button {
+  margin: 0 !important;
+  border: 1px solid var(--f2z-border-primary) !important;
+  background: var(--f2z-bg-secondary) !important;
+  box-shadow: none !important;
+  transition:
+    border-color var(--f2z-transition-fast),
+    background var(--f2z-transition-fast),
+    color var(--f2z-transition-fast),
+    box-shadow var(--f2z-transition-fast),
+    transform var(--f2z-transition-fast) !important;
+}
+
+@media (max-width: 767px) {
+  .VPNavBarSearch .DocSearch-Button,
+  .VPNavBar .VPNavBarSearch button.DocSearch-Button {
+    width: 38px !important;
+    height: 38px !important;
+    min-width: 38px !important;
+    padding: 0 !important;
+    border-radius: 10px !important;
+    justify-content: center !important;
+  }
+
+  .VPNavBarSearch .DocSearch-Button .DocSearch-Search-Icon {
+    width: 16px !important;
+    height: 16px !important;
+    color: var(--f2z-text-muted) !important;
+    margin: 0 !important;
+    top: 0 !important;
+  }
+
+  .VPNavBarSearch .DocSearch-Button:hover {
+    border-color: color-mix(in srgb, var(--f2z-accent-primary) 40%, transparent) !important;
+    background: color-mix(in srgb, var(--f2z-accent-primary) 8%, var(--f2z-bg-secondary)) !important;
+  }
+
+  .VPNavBarSearch .DocSearch-Button:hover .DocSearch-Search-Icon {
+    color: var(--f2z-accent-primary) !important;
+  }
+
+  .VPNavBarSearch .DocSearch-Button:focus-visible {
+    outline: none !important;
+    border-color: var(--f2z-accent-primary) !important;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--f2z-accent-primary) 25%, transparent) !important;
+  }
+}
+
+/* Desktop / tablet: full search field like /ui */
+@media (min-width: 768px) {
+  .VPNavBar .content-body {
+    gap: 0.35rem;
+  }
+
+  /* Pull search toward the left; keep menu/actions on the right */
+  .VPNavBarSearch {
+    flex: 1 1 auto;
+    max-width: 420px;
+    min-width: 180px;
+    margin-right: auto;
+    margin-left: 0.75rem;
+  }
+
+  .VPNavBarSearch .DocSearch-Button,
+  .VPNavBar .VPNavBarSearch button.DocSearch-Button {
+    width: 100% !important;
+    height: 40px !important;
+    padding: 0 12px 0 14px !important;
+    border-radius: 10px !important;
+    justify-content: flex-start !important;
+    background: var(--f2z-bg-secondary) !important;
+  }
+
+  .VPNavBarSearch .DocSearch-Button:hover {
+    border-color: color-mix(in srgb, var(--f2z-accent-primary) 45%, transparent) !important;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--f2z-accent-primary) 18%, transparent);
+  }
+
+  .VPNavBarSearch .DocSearch-Button:focus-visible {
+    outline: none !important;
+    border-color: var(--f2z-accent-primary) !important;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--f2z-accent-primary) 22%, transparent) !important;
+  }
+
+  .VPNavBarSearch .DocSearch-Button .DocSearch-Search-Icon {
+    color: var(--f2z-text-muted) !important;
+  }
+
+  .VPNavBarSearch .DocSearch-Button-Placeholder {
+    color: var(--f2z-text-muted) !important;
+    font-weight: 500;
+  }
+
+  .VPNavBarSearch .DocSearch-Button-Key {
+    border-color: var(--f2z-border-primary) !important;
+    background: var(--f2z-bg-tertiary) !important;
+    color: var(--f2z-text-muted) !important;
+    font-size: 11px !important;
+    height: 20px !important;
+    line-height: 20px !important;
+  }
+}
+
+/* ── Hamburger ── */
+.VPNavBarHamburger {
+  width: 42px !important;
+  height: 38px !important;
+  margin-left: 2px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  transition:
+    background var(--f2z-transition-fast),
+    border-color var(--f2z-transition-fast);
+}
+
+.VPNavBarHamburger:hover,
+.VPNavBarHamburger.active {
+  background: color-mix(in srgb, var(--f2z-accent-primary) 10%, transparent);
+  border-color: color-mix(in srgb, var(--f2z-accent-primary) 20%, transparent);
+}
+
+.VPNavBarHamburger .top,
+.VPNavBarHamburger .middle,
+.VPNavBarHamburger .bottom {
+  background-color: var(--f2z-text-secondary) !important;
+  border-radius: 1px;
+}
+
+.VPNavBarHamburger:hover .top,
+.VPNavBarHamburger:hover .middle,
+.VPNavBarHamburger:hover .bottom,
+.VPNavBarHamburger.active .top,
+.VPNavBarHamburger.active .middle,
+.VPNavBarHamburger.active .bottom {
+  background-color: var(--f2z-accent-primary) !important;
+}
+
+/* Mobile action cluster spacing */
+@media (max-width: 767px) {
+  .VPNavBar .content-body {
+    gap: 0.35rem !important;
+    column-gap: 0.35rem !important;
+  }
+}
+
+/* Appearance / extra icon buttons — soft hover like /ui ghost icons */
+.VPNavBarAppearance .VPSwitch,
+.VPNavBarExtra {
+  border-radius: 10px;
+}
+
+/* Reduced motion: never hide the bar */
+@media (prefers-reduced-motion: reduce) {
+  .VPNav {
+    transition: none !important;
+  }
+
+  html.f2z-nav-hidden .VPNav {
+    transform: none;
+  }
+}
+
+/* ─── Sidebar ─── */
+
+.VPSidebar {
+  background: color-mix(in srgb, var(--f2z-bg-secondary) 92%, transparent) !important;
+  border-right: 1px solid var(--f2z-border-secondary) !important;
+  backdrop-filter: blur(8px);
+  padding-top: 1rem !important;
+}
+
+.VPSidebarItem.level-0 > .item > .text,
+.VPSidebarItem.level-0 > .item > .link > .text {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  color: var(--f2z-text-muted) !important;
+  letter-spacing: 0.04em;
+}
+
+.VPSidebarItem.level-1 .text {
+  font-size: 0.925rem;
+}
+
+.VPSidebarItem .item {
+  border-radius: var(--f2z-radius-md);
+  transition: background var(--f2z-transition-fast);
+}
+
+.VPSidebarItem .link {
+  border-radius: var(--f2z-radius-md);
+  padding-left: 0.65rem !important;
+  transition:
+    background var(--f2z-transition-fast),
+    color var(--f2z-transition-fast);
+}
+
+.VPSidebarItem .link:hover {
+  background: color-mix(in srgb, var(--f2z-accent-primary) 8%, transparent);
+}
+
+.VPSidebarItem.is-active > .item .link {
+  background: color-mix(in srgb, var(--f2z-accent-primary) 12%, transparent);
+}
+
+.VPSidebarItem.is-active > .item .link > .text {
+  color: var(--vp-c-brand-1) !important;
+  font-weight: 600;
+}
+
+.VPSidebarItem .indicator {
+  background-color: var(--vp-c-brand-1) !important;
+  width: 2.5px !important;
+  border-radius: 2px;
+}
+
+.VPSidebarItem.collapsible .caret {
+  opacity: 0.55;
+  transition: opacity var(--f2z-transition-fast), transform var(--f2z-transition-fast);
+}
+
+.VPSidebarItem.collapsible:hover .caret {
+  opacity: 1;
+}
+
+/* ─── Hero / home ─── */
+
+.VPHome {
+  position: relative;
+  margin-bottom: 2rem;
+}
+
+.VPHome::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--f2z-text-muted) 8%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--f2z-text-muted) 8%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(ellipse 60% 50% at 50% 0%, #000 70%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 0%, #000 70%, transparent 100%);
+  opacity: 0.7;
+  z-index: 0;
+}
+
+.VPHome > * {
+  position: relative;
+  z-index: 1;
+}
+
+.VPHero {
+  padding-top: calc(var(--vp-nav-height) + 2rem) !important;
+}
+
+.VPHero .name {
+  letter-spacing: -0.04em;
+  font-weight: 800;
+}
+
+.VPHero .text {
+  color: var(--f2z-text-secondary);
+  letter-spacing: -0.025em;
+  font-weight: 650;
+}
+
+.VPHero .tagline {
+  color: var(--f2z-text-muted);
+  max-width: 38rem;
+  line-height: 1.65;
+}
+
+.VPHero .image-src {
+  max-width: 200px;
+  filter: drop-shadow(0 12px 40px color-mix(in srgb, var(--f2z-accent-primary) 35%, transparent));
+}
+
+.VPHero .actions {
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.VPFeature {
+  border: 1px solid color-mix(in srgb, var(--f2z-accent-primary) 12%, var(--f2z-border-primary)) !important;
+  background: color-mix(in srgb, var(--f2z-bg-secondary) 90%, transparent) !important;
+  backdrop-filter: blur(10px);
+  border-radius: var(--f2z-radius-2xl) !important;
+  transition:
+    border-color var(--f2z-transition-slow),
+    transform var(--f2z-transition-slow),
+    box-shadow var(--f2z-transition-slow);
+  overflow: hidden;
+}
+
+.VPFeature:hover {
+  border-color: color-mix(in srgb, var(--f2z-accent-primary) 40%, transparent) !important;
+  transform: translateY(-3px);
+  box-shadow: var(--f2z-shadow-glow);
+}
+
+.VPFeature .icon {
+  background: color-mix(in srgb, var(--f2z-accent-primary) 14%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--f2z-accent-primary) 18%, transparent);
+  font-size: 1.25rem;
+  border-radius: var(--f2z-radius-lg) !important;
+}
+
+.VPFeature .title {
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.VPFeature .details {
+  color: var(--f2z-text-muted);
+  line-height: 1.55;
+}
+
+/* ─── Doc content ─── */
+
+.VPDoc {
+  position: relative;
+}
+
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3 {
+  letter-spacing: -0.025em;
+  font-weight: 700;
+}
+
+.vp-doc h1 {
+  font-size: clamp(1.85rem, 3vw, 2.35rem);
+  line-height: 1.15;
+}
+
+.vp-doc h2 {
+  border-top-color: var(--f2z-border-primary);
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+}
+
+.vp-doc p,
+.vp-doc li {
+  line-height: 1.7;
+  color: var(--f2z-text-secondary);
+}
+
+.vp-doc a {
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--vp-c-brand-1) 35%, transparent);
+  transition: border-color var(--f2z-transition-fast), color var(--f2z-transition-fast);
+}
+
+.vp-doc a:hover {
+  border-bottom-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+}
+
+/* Don't underline custom card links */
+.vp-doc .f2z-nav-card,
+.vp-doc .f2z-path__item,
+.vp-doc .f2z-link-row__item,
+.vp-doc .f2z-cta a,
+.vp-doc .f2z-btn,
+.vp-doc .f2z-steps__title {
+  border-bottom: none !important;
+}
+
+.vp-doc :not(pre) > code {
+  background: var(--f2z-bg-tertiary);
+  color: var(--f2z-text-primary);
+  border-radius: var(--f2z-radius-sm);
+  padding: 0.15em 0.4em;
+  font-size: 0.9em;
+  border: 1px solid var(--f2z-border-secondary);
+}
+
+.vp-doc div[class*='language-'] {
+  border: 1px solid var(--f2z-border-primary);
+  border-radius: var(--f2z-radius-xl);
+  background: var(--f2z-bg-secondary) !important;
+}
+
+.vp-doc table {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  border-radius: var(--f2z-radius-xl);
+  border: 1px solid var(--f2z-border-primary);
+  margin: 1.25rem 0;
+}
+
+.vp-doc tr {
+  border-top: 1px solid var(--f2z-border-primary);
+  background: transparent;
+}
+
+.vp-doc tr:nth-child(2n) {
+  background: var(--f2z-bg-secondary);
+}
+
+.vp-doc th,
+.vp-doc td {
+  border: none;
+  border-right: 1px solid var(--f2z-border-secondary);
+  padding: 0.75rem 1rem;
+}
+
+.vp-doc th {
+  background: var(--f2z-bg-secondary);
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--f2z-text-muted);
+}
+
+.vp-doc .custom-block {
+  border-radius: var(--f2z-radius-xl);
+  border-width: 1px;
+  padding: 1rem 1.15rem;
+}
+
+.vp-doc .custom-block.tip {
+  border-color: color-mix(in srgb, var(--f2z-accent-primary) 35%, transparent);
+  background: color-mix(in srgb, var(--f2z-accent-primary) 8%, transparent);
+}
+
+.vp-doc .custom-block.tip .custom-block-title {
+  color: var(--f2z-accent-primary);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* ─── Footer ─── */
+
+.VPFooter {
+  border-top: 1px solid var(--f2z-border-primary) !important;
+  background: var(--f2z-bg-secondary) !important;
+}
+
+.VPFooter .message {
+  color: var(--f2z-accent-primary);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+/* ─── Local search polish ─── */
+
+.VPLocalSearchBox .result.selected {
+  background: color-mix(in srgb, var(--f2z-accent-primary) 12%, transparent) !important;
+}
+
+.VPLocalSearchBox .titles {
+  border-radius: var(--f2z-radius-md);
+}
+
+/* ─── Buttons ─── */
+
+.VPButton {
+  border-radius: 999px !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.01em;
+  transition:
+    transform var(--f2z-transition-fast),
+    box-shadow var(--f2z-transition-normal),
+    background var(--f2z-transition-fast),
+    border-color var(--f2z-transition-fast) !important;
+}
+
+.VPButton.brand {
+  box-shadow: 0 0 20px color-mix(in srgb, var(--f2z-accent-primary) 28%, transparent);
+}
+
+.VPButton.brand:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--f2z-accent-primary) 42%, transparent);
+}
+
+.VPButton.alt {
+  border-color: var(--f2z-border-primary) !important;
+  background: color-mix(in srgb, var(--f2z-bg-secondary) 90%, transparent) !important;
+  color: var(--f2z-text-primary) !important;
+  backdrop-filter: blur(8px);
+}
+
+.VPButton.alt:hover {
+  border-color: color-mix(in srgb, var(--f2z-accent-primary) 45%, transparent) !important;
+  color: var(--f2z-accent-primary) !important;
+  transform: translateY(-1px);
+}
+
+/* Outline active */
+.VPDocAsideOutline .outline-link.active {
+  color: var(--vp-c-brand-1) !important;
+  font-weight: 600;
+}
+
+.VPDocAsideOutline .outline-link:hover {
+  color: var(--vp-c-brand-1) !important;
+}
+
+/* Social icons */
+.VPSocialLink {
+  width: 30px !important;
+  height: 30px !important;
+  border-radius: 999px !important;
+  transition: background var(--f2z-transition-fast), color var(--f2z-transition-fast);
+}
+
+.VPSocialLink:hover {
+  background: color-mix(in srgb, var(--f2z-accent-primary) 12%, transparent) !important;
+  color: var(--f2z-accent-primary) !important;
+}
+
+.VPSocialLink > svg,
+.VPSocialLink > [class^='vpi-social-'] {
+  width: 15px !important;
+  height: 15px !important;
+}
+
+/* Doc footer prev/next */
+.VPDocFooter .pager-link {
+  border: 1px solid var(--f2z-border-primary) !important;
+  border-radius: var(--f2z-radius-xl) !important;
+  background: var(--f2z-bg-secondary) !important;
+  transition:
+    border-color var(--f2z-transition-normal),
+    transform var(--f2z-transition-normal),
+    box-shadow var(--f2z-transition-normal);
+}
+
+.VPDocFooter .pager-link:hover {
+  border-color: color-mix(in srgb, var(--f2z-accent-primary) 40%, transparent) !important;
+  transform: translateY(-2px);
+  box-shadow: var(--f2z-shadow-glow);
+}
+
+.VPDocFooter .pager-link .title {
+  color: var(--f2z-accent-primary) !important;
+  font-weight: 650;
+}
+
+/* Edit link */
+.VPDocFooter .edit-link-button {
+  color: var(--f2z-text-muted) !important;
+}
+
+.VPDocFooter .edit-link-button:hover {
+  color: var(--f2z-accent-primary) !important;
+}
+
+/* ═══════════════════════════════════════
+   Custom components — match /ui cards
+   ═══════════════════════════════════════ */
+
+/* Badge */
+.f2z-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--f2z-accent-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--f2z-accent-primary) 8%, transparent);
+  color: var(--f2z-accent-primary);
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+
+.f2z-badge[data-tone='muted'] {
+  border-color: var(--f2z-border-primary);
+  background: var(--f2z-bg-secondary);
+  color: var(--f2z-text-muted);
+}
+
+.f2z-badge[data-tone='live'] {
+  border-color: color-mix(in srgb, var(--f2z-accent-primary) 40%, transparent);
+}
+
+.f2z-badge__dot {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--f2z-accent-primary);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--f2z-accent-primary) 50%, transparent);
+  animation: f2z-pulse 1.8s ease infinite;
+}
+
+@keyframes f2z-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--f2z-accent-primary) 45%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* Card grid */
+.f2z-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 1.25rem 0 1.75rem;
+}
+
+.f2z-card-grid[data-cols='2'] {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.f2z-card-grid[data-cols='3'] {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.f2z-card-grid[data-cols='4'] {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+/* Nav card (glass, like ZpageCard) */
+.f2z-nav-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 1.15rem 1.2rem 1.25rem;
+  border-radius: var(--f2z-radius-2xl);
+  border: 1px solid color-mix(in srgb, var(--f2z-accent-primary) 12%, var(--f2z-border-primary));
+  background: color-mix(in srgb, var(--f2z-bg-secondary) 92%, transparent);
+  backdrop-filter: blur(10px);
+  text-decoration: none !important;
+  color: inherit !important;
+  transition:
+    border-color var(--f2z-transition-slow),
+    transform var(--f2z-transition-slow),
+    box-shadow var(--f2z-transition-slow);
+  min-height: 100%;
+}
+
+.f2z-nav-card:hover {
+  border-color: color-mix(in srgb, var(--f2z-accent-primary) 40%, transparent);
+  transform: translateY(-3px);
+  box-shadow: var(--f2z-shadow-glow);
+}
+
+.f2z-nav-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 1.5rem;
+  margin-bottom: 0.15rem;
+}
+
+.f2z-nav-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--f2z-radius-lg);
+  background: color-mix(in srgb, var(--f2z-accent-primary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--f2z-accent-primary) 16%, transparent);
+  font-size: 1rem;
+}
+
+.f2z-nav-card__badge {
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--f2z-accent-primary);
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--f2z-radius-md);
+  border: 1px solid color-mix(in srgb, var(--f2z-accent-primary) 25%, transparent);
+  background: color-mix(in srgb, var(--f2z-accent-primary) 8%, transparent);
+}
+
+.f2z-nav-card__title {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  font-size: 1.05rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em;
+  color: var(--f2z-text-primary) !important;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  line-height: 1.3 !important;
+}
+
+.f2z-nav-card__arrow {
+  opacity: 0;
+  transform: translateX(-4px);
+  color: var(--f2z-accent-primary);
+  transition:
+    opacity var(--f2z-transition-fast),
+    transform var(--f2z-transition-fast);
+  font-weight: 500;
+}
+
+.f2z-nav-card:hover .f2z-nav-card__arrow {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.f2z-nav-card__desc {
+  margin: 0 !important;
+  color: var(--f2z-text-muted) !important;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* Path picker (role-based) */
+.f2z-path {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin: 1.25rem 0 1.75rem;
+}
+
+.f2z-path__item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.15rem;
+  border-radius: var(--f2z-radius-2xl);
+  border: 1px solid var(--f2z-border-primary);
+  background: color-mix(in srgb, var(--f2z-bg-secondary) 90%, transparent);
+  text-decoration: none !important;
+  color: inherit !important;
+  transition:
+    border-color var(--f2z-transition-normal),
+    background var(--f2z-transition-normal),
+    transform var(--f2z-transition-normal),
+    box-shadow var(--f2z-transition-normal);
+}
+
+.f2z-path__item:hover {
+  border-color: color-mix(in srgb, var(--f2z-accent-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--f2z-accent-primary) 6%, var(--f2z-bg-secondary));
+  transform: translateX(3px);
+  box-shadow: var(--f2z-shadow-glow);
+}
+
+.f2z-path__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--f2z-radius-xl);
+  background: color-mix(in srgb, var(--f2z-accent-primary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--f2z-accent-primary) 18%, transparent);
+  font-size: 1.15rem;
+  flex-shrink: 0;
+}
+
+.f2z-path__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+  margin-bottom: 0.2rem;
+}
+
+.f2z-path__badge {
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--f2z-accent-primary);
+}
+
+.f2z-path__title {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  font-size: 1.05rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em;
+  color: var(--f2z-text-primary) !important;
+  line-height: 1.25 !important;
+}
+
+.f2z-path__desc {
+  margin: 0 !important;
+  color: var(--f2z-text-muted) !important;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.f2z-path__chevron {
+  color: var(--f2z-text-tertiary);
+  font-size: 1.1rem;
+  transition: color var(--f2z-transition-fast), transform var(--f2z-transition-fast);
+}
+
+.f2z-path__item:hover .f2z-path__chevron {
+  color: var(--f2z-accent-primary);
+  transform: translateX(3px);
+}
+
+/* Steps */
+.f2z-steps {
+  list-style: none;
+  margin: 1.25rem 0 1.75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--f2z-border-primary);
+  border-radius: var(--f2z-radius-2xl);
+  overflow: hidden;
+  background: var(--f2z-bg-secondary);
+}
+
+.f2z-steps__item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1rem;
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid var(--f2z-border-primary);
+  margin: 0 !important;
+}
+
+.f2z-steps__item:last-child {
+  border-bottom: none;
+}
+
+.f2z-steps__index {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--f2z-accent-primary) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--f2z-accent-primary) 28%, transparent);
+  color: var(--f2z-accent-primary);
+  font-weight: 750;
+  font-size: 0.8rem;
+  font-family: var(--vp-font-family-mono);
+  flex-shrink: 0;
+}
+
+.f2z-steps__title {
+  display: inline-block;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: var(--f2z-text-primary) !important;
+  font-size: 0.98rem;
+  margin-bottom: 0.15rem;
+}
+
+.f2z-steps__title:hover {
+  color: var(--f2z-accent-primary) !important;
+}
+
+.f2z-steps__title--plain {
+  color: var(--f2z-text-primary);
+}
+
+.f2z-steps__desc {
+  margin: 0 !important;
+  color: var(--f2z-text-muted) !important;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+/* Link rows (compact guide lists) */
+.f2z-link-row {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--f2z-border-primary);
+  border-radius: var(--f2z-radius-2xl);
+  overflow: hidden;
+  margin: 1rem 0 1.5rem;
+  background: var(--f2z-bg-secondary);
+}
+
+.f2z-link-row__item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--f2z-border-primary);
+  text-decoration: none !important;
+  color: inherit !important;
+  transition: background var(--f2z-transition-fast);
+}
+
+.f2z-link-row__item:last-child {
+  border-bottom: none;
+}
+
+.f2z-link-row__item:hover {
+  background: color-mix(in srgb, var(--f2z-accent-primary) 7%, transparent);
+}
+
+.f2z-link-row__title {
+  display: block;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--f2z-text-primary);
+  font-size: 0.95rem;
+}
+
+.f2z-link-row__desc {
+  display: block;
+  color: var(--f2z-text-muted);
+  font-size: 0.82rem;
+  margin-top: 0.1rem;
+}
+
+.f2z-link-row__meta {
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.72rem;
+  color: var(--f2z-text-tertiary);
+  white-space: nowrap;
+}
+
+.f2z-link-row__arrow {
+  color: var(--f2z-text-tertiary);
+  transition: color var(--f2z-transition-fast), transform var(--f2z-transition-fast);
+}
+
+.f2z-link-row__item:hover .f2z-link-row__arrow {
+  color: var(--f2z-accent-primary);
+  transform: translateX(2px);
+}
+
+.f2z-link-row__item:hover .f2z-link-row__title {
+  color: var(--f2z-accent-primary);
+}
+
+/* CTA banner */
+.f2z-cta {
+  position: relative;
+  overflow: hidden;
+  margin: 2rem 0;
+  padding: 2rem 1.5rem;
+  border-radius: var(--f2z-radius-3xl);
+  border: 1px solid color-mix(in srgb, var(--f2z-accent-primary) 22%, transparent);
+  background: color-mix(in srgb, var(--f2z-bg-secondary) 85%, transparent);
+  text-align: center;
+}
+
+.f2z-cta__glow {
+  position: absolute;
+  top: -180px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 420px;
+  height: 420px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--f2z-accent-primary) 18%, transparent);
+  filter: blur(100px);
+  pointer-events: none;
+}
+
+.f2z-cta__grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--f2z-text-muted) 10%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--f2z-text-muted) 10%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 50%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 50%, transparent 100%);
+  opacity: 0.55;
+}
+
+.f2z-cta__body {
+  position: relative;
+  z-index: 1;
+  max-width: 36rem;
+  margin: 0 auto;
+}
+
+.f2z-cta__title {
+  margin: 0 0 0.65rem !important;
+  padding: 0 !important;
+  border: none !important;
+  font-size: 1.55rem !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.03em;
+  line-height: 1.2 !important;
+  color: var(--f2z-text-primary) !important;
+}
+
+.f2z-cta__desc {
+  margin: 0 0 1.25rem !important;
+  color: var(--f2z-text-muted) !important;
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.f2z-cta__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.65rem;
+}
+
+/* Shared buttons for custom components */
+.f2z-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.65rem 1.25rem;
+  border-radius: 999px;
+  font-weight: 650;
+  font-size: 0.92rem;
+  letter-spacing: -0.01em;
+  text-decoration: none !important;
+  transition:
+    transform var(--f2z-transition-fast),
+    box-shadow var(--f2z-transition-normal),
+    background var(--f2z-transition-fast),
+    border-color var(--f2z-transition-fast),
+    color var(--f2z-transition-fast);
+}
+
+.f2z-btn--primary {
+  background: var(--f2z-accent-primary);
+  color: var(--f2z-bg-primary) !important;
+  box-shadow: 0 0 20px color-mix(in srgb, var(--f2z-accent-primary) 28%, transparent);
+}
+
+.dark .f2z-btn--primary {
+  color: var(--f2z-bg-primary) !important;
+}
+
+:root:not(.dark) .f2z-btn--primary {
+  color: #ffffff !important;
+}
+
+.f2z-btn--primary:hover {
+  background: var(--f2z-accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--f2z-accent-primary) 40%, transparent);
+}
+
+.f2z-btn--ghost {
+  border: 1px solid var(--f2z-border-primary);
+  background: color-mix(in srgb, var(--f2z-bg-primary) 50%, transparent);
+  color: var(--f2z-text-primary) !important;
+}
+
+.f2z-btn--ghost:hover {
+  border-color: color-mix(in srgb, var(--f2z-accent-primary) 45%, transparent);
+  color: var(--f2z-accent-primary) !important;
+  transform: translateY(-1px);
+}
+
+/* Section intro helper */
+.f2z-section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--f2z-accent-primary);
+}
+
+.f2z-section-label::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--f2z-accent-primary);
+}
+
+/* Home content spacing after VP features */
+.VPHome .VPHomeContent {
+  max-width: 1152px;
+  margin: 0 auto;
+  padding: 0 24px 48px;
+}
+
+.VPHome .VPHomeContent .vp-doc {
+  padding: 0;
+}
+
+.VPHome .VPHomeContent h2 {
+  border-top: none;
+  margin-top: 2.75rem;
+  padding-top: 0;
+  font-size: 1.45rem;
+  letter-spacing: -0.03em;
+}
+
+.VPHome .VPHomeContent h2:first-child {
+  margin-top: 0.5rem;
+}
+
+/* Responsive tweaks */
+@media (max-width: 640px) {
+  .f2z-path__item {
+    grid-template-columns: auto 1fr;
+  }
+
+  .f2z-path__chevron {
+    display: none;
+  }
+
+  .f2z-link-row__item {
+    grid-template-columns: 1fr auto;
+  }
+
+  .f2z-link-row__meta {
+    display: none;
+  }
+
+  .f2z-cta {
+    padding: 1.5rem 1.1rem;
+  }
+}
+
+/* Kbd helper */
+.f2z-kbd {
+  display: inline-block;
+  padding: 0.1em 0.45em;
+  font-size: 0.85em;
+  font-family: var(--vp-font-family-mono);
+  border: 1px solid var(--f2z-border-primary);
+  border-bottom-width: 2px;
+  border-radius: var(--f2z-radius-sm);
+  background: var(--f2z-bg-secondary);
+  color: var(--f2z-text-secondary);
+}
+
+/* Legacy card helpers (kept for existing markdown) */
+.f2z-card-grid > .f2z-card {
+  /* handled by new components; keep fallback */
+}
+
+.f2z-card {
+  border: 1px solid var(--f2z-border-primary);
+  background: var(--f2z-bg-secondary);
+  border-radius: var(--f2z-radius-xl);
+  padding: 1.25rem;
+  transition: border-color var(--f2z-transition-normal);
+}
+
+.f2z-card:hover {
+  border-color: color-mix(in srgb, var(--f2z-accent-primary) 40%, transparent);
+}
+
+.f2z-card h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  border: none;
+  padding: 0;
+}
+
+.f2z-card p {
+  margin: 0;
+  color: var(--f2z-text-muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+/* Keep task comparisons readable on narrow screens, including the docs home. */
+.vp-doc table {
+  table-layout: fixed;
+  max-width: 100%;
+}
+.vp-doc th,
+.vp-doc td {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+@media (max-width: 480px) {
+  .vp-doc th,
+  .vp-doc td { padding: 0.6rem 0.45rem; }
+}
+
+/* The fixed mobile navbar must not cover the first hero heading. */
+@media (max-width: 767px) {
+  .VPHome .VPHero { padding-top: calc(var(--vp-nav-height) + 2rem) !important; }
+}
+
+/* Current product screenshots keep their complete browser capture. */
+.f2z-product-shot { margin: 2rem 0; }
+.f2z-product-shot img { width: 100%; height: auto; border: 1px solid var(--f2z-border-primary); border-radius: 16px; }
+.f2z-product-shot figcaption { margin-top: .65rem; color: var(--f2z-text-muted); font-size: .85rem; line-height: 1.5; }

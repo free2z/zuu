@@ -1,356 +1,753 @@
 <script lang="ts">
-  import { page } from '$app/stores';
-  import { goto } from '$app/navigation';
-  import { onMount } from 'svelte';
-  import { browser } from '$app/environment';
-  import { tStore as t } from '$lib/i18n';
-  import SearchResultCard from '$lib/components/SearchResultCard.svelte';
-  import { Input } from '$lib/components/ui/input';
-  import { Button } from '$lib/components/ui/button';
-  import { Search } from '@lucide/svelte';
-  import SeoHead from '$lib/components/SeoHead.svelte';
+  import { page } from "$lib/kit-stores";
+  import { goto } from "$app/navigation";
+  import { onMount } from "svelte";
+  import { browser } from "$app/env";
+  import { locale, tStore as t } from "$lib/i18n";
+  import ZpageCard from "$lib/components/ZpageCard.svelte";
+  import CreatorSearchResultCard from "$lib/components/CreatorSearchResultCard.svelte";
+  import SeriesSearchResultCard from "$lib/components/SeriesSearchResultCard.svelte";
+  import type { CreatorList } from "$lib/api/f2z.schemas";
+  import type { PublicSeries } from "$lib/types/search";
+  import { findSeriesForPages } from "$lib/search/series";
+  import { Button } from "$lib/components/ui/button";
+  import * as Accordion from "$lib/components/ui/accordion";
+  import {
+    AlertCircle,
+    ArrowLeft,
+    ArrowRight,
+    Clock3,
+    RotateCcw,
+    Search,
+    X,
+  } from "@lucide/svelte";
+  import SeoHead from "$lib/components/SeoHead.svelte";
 
-  let searchQuery = '';
+  const PAGE_SIZE = 10;
+
+  let searchQuery = "";
+  let searchDraft = "";
   let searchInput: HTMLInputElement;
   let isSearching = false;
   let searchResults: any[] = [];
+  let creatorResults: CreatorList[] = [];
+  let seriesResults: PublicSeries[] = [];
   let totalResults = 0;
+  let totalCreators = 0;
+  let totalSeries = 0;
+  let searchFailures: string[] = [];
+  // Whether the last request actually asked for creators. A tag-only visit
+  // does not, and the fatal-outage test below must not require a failure from
+  // a request that was never sent.
+  let searchIncludedCreators = true;
   let currentPage = 1;
   let recentSearches: string[] = [];
   let abortController: AbortController | null = null;
+  let requestGeneration = 0;
+  let lastRequestedSearch = "";
+  let lastSectionsQuery = "";
+  let openSections = ["creators", "series", "pages"];
 
-  // Get query from URL params
-  $: searchQuery = $page.url.searchParams.get('q') || '';
-  $: currentPage = parseInt($page.url.searchParams.get('page') || '1');
+  $: searchQuery = $page.url.searchParams.get("q") || "";
+  // `?tag=` is a tag filter, not a text query: it maps onto the API's
+  // long-standing `?tags=` parameter (now declared in `f2z.yaml`, ) and
+  // matches whole tag names case-insensitively. It is deliberately NOT folded
+  // into `q` — a full-text search for "zcash" also returns every article that
+  // merely says the word, which is why the article page's tag links used to go
+  // somewhere almost right and never exactly right.
+  $: tagFilter = ($page.url.searchParams.get("tag") || "").trim();
+  $: pageParam = $page.url.searchParams.get("page");
+  $: currentPage = normalizePage(pageParam);
+  $: requestLanguage = $locale;
+  $: requestKey = `${searchQuery}:${tagFilter}:${currentPage}:${requestLanguage}`;
 
-  // Perform search when query or page changes from URL
-  $: if (searchQuery && browser) {
-    performSearch(searchQuery, currentPage);
-  } else if (!searchQuery) {
-    // Clear results when no query
-    searchResults = [];
-    totalResults = 0;
+  $: if (
+    browser &&
+    pageParam !== null &&
+    (currentPage === 1 || pageParam !== String(currentPage))
+  ) {
+    replacePageInUrl(currentPage);
   }
 
-  // Load recent searches from localStorage
-  onMount(() => {
-    if (browser) {
-      const stored = localStorage.getItem('recentSearches');
-      if (stored) {
-        try {
-          recentSearches = JSON.parse(stored);
-        } catch (e) {
-          recentSearches = [];
-        }
-      }
+  $: if (browser && requestKey !== lastRequestedSearch) {
+    lastRequestedSearch = requestKey;
+    if (searchQuery !== lastSectionsQuery) {
+      lastSectionsQuery = searchQuery;
+      openSections = ["creators", "series", "pages"];
     }
+    searchDraft = searchQuery;
+    if (searchQuery || tagFilter) {
+      performSearch(searchQuery, currentPage, requestLanguage, tagFilter);
+    } else {
+      requestGeneration += 1;
+      abortController?.abort();
+      abortController = null;
+      resetSearchState();
+    }
+  }
 
-    // Set initial search value
-    if (searchInput && searchQuery) {
-      searchInput.value = searchQuery;
+  onMount(() => {
+    try {
+      const stored = localStorage.getItem("recentSearches");
+      recentSearches = stored ? JSON.parse(stored) : [];
+    } catch {
+      recentSearches = [];
     }
+    searchDraft = searchQuery;
   });
 
-  // Search function with request cancellation
-  async function performSearch(query: string, page: number = 1) {
-    if (abortController) {
-      abortController.abort();
-    }
+  async function performSearch(
+    query: string,
+    pageNumber = 1,
+    language = $locale,
+    tag = "",
+  ) {
+    abortController?.abort();
     const currentController = new AbortController();
     abortController = currentController;
-
-    if (!query.trim()) {
-      // For now, if no query, clear results
-      searchResults = [];
-      totalResults = 0;
-      return;
-    }
-
-    // Set loading state
+    const generation = ++requestGeneration;
+    const isCurrent = () =>
+      generation === requestGeneration &&
+      abortController === currentController &&
+      !currentController.signal.aborted &&
+      $locale === language &&
+      ($page.url.searchParams.get("q") || "") === query &&
+      ($page.url.searchParams.get("tag") || "").trim() === tag &&
+      normalizePage($page.url.searchParams.get("page")) === pageNumber;
     isSearching = true;
+    searchFailures = [];
+    searchIncludedCreators = Boolean(query.trim());
 
     try {
-      // Use the correct backend search parameter that triggers VectorSearchFilter
-      const searchParams = new URLSearchParams();
-      searchParams.set('search', query.trim());
-      searchParams.set('page', page.toString());
-      searchParams.set('page_size', '10'); // Backend handles pagination
+      const pageParams = new URLSearchParams({
+        page: pageNumber.toString(),
+        page_size: PAGE_SIZE.toString(),
+        lang: language,
+      });
+      if (query.trim()) pageParams.set("search", query.trim());
+      if (tag) pageParams.set("tags", tag);
+      const relatedSeriesParams = new URLSearchParams(pageParams);
+      relatedSeriesParams.set("page", "1");
 
-      const response = await fetch(
-        `/api/zpage/?${searchParams.toString()}`,
-        { signal: currentController.signal }
+      const pageRequest = fetchCollection(
+        `/api/zpage/?${pageParams}`,
+        currentController,
       );
-      const data = await response.json();
+      const relatedSeriesSeedRequest =
+        pageNumber === 1
+          ? pageRequest
+          : fetchCollection(
+              `/api/zpage/?${relatedSeriesParams}`,
+              currentController,
+            );
 
-      // Only apply results if this is still the active search
-      if (abortController === currentController) {
-        searchResults = data.results || [];
-        totalResults = data.count || 0;
+      // Creators have no tags, so a tag-only visit must not ask for them: an
+      // empty `?search=` matches every creator on the platform and would fill
+      // a tag page with people who have nothing to do with the tag. The
+      // substitute below is a *fulfilled* empty result, which is why
+      // `searchIncludedCreators` exists — without it a tag-only search can
+      // never report the "search is unavailable" state, and a `/api/zpage/`
+      // outage renders as "no results for this tag" instead.
+      const includeCreators = Boolean(query.trim());
+      const creatorRequest = includeCreators
+        ? fetchCollection(
+            `/api/creator/?${new URLSearchParams({
+              search: query.trim(),
+              page: "1",
+              page_size: "4",
+            })}`,
+            currentController,
+          )
+        : Promise.resolve({ count: 0, results: [] });
+
+      const [pages, creators, relatedSeriesSeeds] = await Promise.allSettled([
+        pageRequest,
+        creatorRequest,
+        relatedSeriesSeedRequest,
+      ]);
+
+      if (!isCurrent()) return;
+      const pageData =
+        pages.status === "fulfilled" ? pages.value : { count: 0, results: [] };
+      const creatorData =
+        creators.status === "fulfilled"
+          ? creators.value
+          : { count: 0, results: [] };
+      const relatedSeriesSeedData =
+        relatedSeriesSeeds.status === "fulfilled"
+          ? relatedSeriesSeeds.value
+          : { count: 0, results: [] };
+      const lastAvailablePage = Math.max(
+        1,
+        Math.ceil(pageData.count / PAGE_SIZE),
+      );
+      if (pageNumber > lastAvailablePage) {
+        await replacePageInUrl(
+          pages.status === "fulfilled" ? lastAvailablePage : 1,
+        );
+        return;
       }
+      const discoveredSeries = await findSeriesForPages(
+        relatedSeriesSeedData.results,
+        currentController.signal,
+        4,
+        language,
+      );
+      if (!isCurrent()) return;
+
+      const failures = new Set<string>();
+      if (pages.status === "rejected") failures.add("pages");
+      if (includeCreators && creators.status === "rejected")
+        failures.add("creators");
+      if (
+        relatedSeriesSeeds.status === "rejected" ||
+        discoveredSeries.hadFailures
+      ) {
+        failures.add("related series");
+      }
+
+      searchResults = rankPages(pageData.results, query);
+      creatorResults = rankCreators(creatorData.results, query).slice(0, 4);
+      seriesResults = rankSeries(discoveredSeries.results, query);
+      totalResults = pageData.count;
+      totalCreators = creatorData.count;
+      totalSeries = discoveredSeries.results.length;
+      searchFailures = Array.from(failures);
     } catch (error: any) {
-      if (error.name === 'AbortError') return;
-      if (abortController === currentController) {
-        console.error('Search failed:', error);
+      if (error.name === "AbortError") return;
+      if (isCurrent()) {
+        console.error("Search failed:", error);
         searchResults = [];
+        creatorResults = [];
+        seriesResults = [];
         totalResults = 0;
+        totalCreators = 0;
+        totalSeries = 0;
+        searchFailures = searchIncludedCreators
+          ? ["pages", "creators", "related series"]
+          : ["pages", "related series"];
       }
     } finally {
-      if (abortController === currentController) {
-        isSearching = false;
-      }
+      if (isCurrent()) isSearching = false;
     }
   }
 
-  // Handle search form submission
+  function textRank(value: string | undefined, query: string): number {
+    const candidate = (value || "").trim().toLocaleLowerCase();
+    const term = query.trim().toLocaleLowerCase();
+    if (!candidate || !term) return 4;
+    if (candidate === term) return 0;
+    if (candidate.startsWith(term)) return 1;
+    if (candidate.includes(term)) return 2;
+    return 4;
+  }
+
+  function normalizePage(value: string | null): number {
+    if (value === null) return 1;
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 1;
+  }
+
+  function replacePageInUrl(pageNumber: number) {
+    const url = new URL(window.location.href);
+    if (pageNumber <= 1) url.searchParams.delete("page");
+    else url.searchParams.set("page", String(pageNumber));
+    return goto(url.pathname + url.search + url.hash, {
+      replace: true,
+      reset: false,
+    });
+  }
+
+  function rankCreators(results: CreatorList[], query: string): CreatorList[] {
+    return [...results].sort((a, b) => {
+      const aRank = Math.min(
+        textRank(a.username, query),
+        textRank(a.full_name, query),
+      );
+      const bRank = Math.min(
+        textRank(b.username, query),
+        textRank(b.full_name, query),
+      );
+      if (aRank !== bRank) return aRank - bRank;
+      if (Boolean(a.is_verified) !== Boolean(b.is_verified))
+        return a.is_verified ? -1 : 1;
+      return (b.zpages || 0) - (a.zpages || 0);
+    });
+  }
+
+  function rankSeries(results: PublicSeries[], query: string): PublicSeries[] {
+    return [...results].sort((a, b) => {
+      const seriesRank = (series: PublicSeries) =>
+        Math.min(
+          textRank(series.name, query),
+          ...series.pageorder_set.map((item) =>
+            textRank(item.page.title, query),
+          ),
+        );
+      return seriesRank(a) - seriesRank(b);
+    });
+  }
+
+  function rankPages(results: any[], query: string): any[] {
+    return [...results].sort((a, b) => {
+      const pageRank = (item: any) =>
+        Math.min(
+          textRank(item?.title, query),
+          textRank(item?.creator?.username, query),
+          ...(item?.tags || []).map((tag: string) => textRank(tag, query)),
+        );
+      return pageRank(a) - pageRank(b);
+    });
+  }
+
+  async function fetchCollection(url: string, controller: AbortController) {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Search failed: ${response.status}`);
+    const data = await response.json();
+    return {
+      count: Number(data?.count || 0),
+      results: Array.isArray(data?.results) ? data.results : [],
+    };
+  }
+
   function handleSearch() {
-    const query = searchInput?.value?.trim() || '';
+    const query = searchDraft.trim();
+    const url = new URL(window.location.href);
+    url.searchParams.delete("page");
 
     if (query) {
-      // Save to recent searches
       saveRecentSearch(query);
-
-      // Update URL
-      const url = new URL(window.location.href);
-      url.searchParams.set('q', query);
-      url.searchParams.delete('page'); // Reset to page 1
-      goto(url.pathname + url.search, { replaceState: false });
+      url.searchParams.set("q", query);
     } else {
-      // Clear search
-      const url = new URL(window.location.href);
-      url.searchParams.delete('q');
-      url.searchParams.delete('page');
-      goto(url.pathname + url.search, { replaceState: false });
+      url.searchParams.delete("q");
     }
+
+    goto(url.pathname + url.search);
+  }
+
+  function resetSearchState() {
+    searchResults = [];
+    creatorResults = [];
+    seriesResults = [];
+    totalResults = 0;
+    totalCreators = 0;
+    totalSeries = 0;
+    searchFailures = [];
+    isSearching = false;
+  }
+
+  function retrySearch() {
+    if (searchQuery || tagFilter) {
+      performSearch(searchQuery, currentPage, requestLanguage, tagFilter);
+    }
+  }
+
+  function clearTagFilter() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("tag");
+    url.searchParams.delete("page");
+    goto(url.pathname + url.search + url.hash, {
+      reset: false,
+    });
+  }
+
+  async function clearSearch() {
+    requestGeneration += 1;
+    abortController?.abort();
+    abortController = null;
+    searchDraft = "";
+    resetSearchState();
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete("q");
+    url.searchParams.delete("page");
+    await goto(url.pathname + url.search + url.hash, {
+      reset: false,
+    });
+    searchInput?.focus();
   }
 
   function saveRecentSearch(query: string) {
     if (!browser) return;
-
-    // Remove if already exists
-    recentSearches = recentSearches.filter((s) => s !== query);
-    // Add to beginning
-    recentSearches.unshift(query);
-    // Keep only last 10
-    recentSearches = recentSearches.slice(0, 10);
-
-    localStorage.setItem('recentSearches', JSON.stringify(recentSearches));
+    recentSearches = [
+      query,
+      ...recentSearches.filter((item) => item !== query),
+    ].slice(0, 6);
+    localStorage.setItem("recentSearches", JSON.stringify(recentSearches));
   }
 
   function selectRecentSearch(query: string) {
-    if (searchInput) {
-      searchInput.value = query;
-      handleSearch();
-    }
+    searchDraft = query;
+    saveRecentSearch(query);
+    const url = new URL(window.location.href);
+    url.searchParams.set("q", query);
+    url.searchParams.delete("page");
+    goto(url.pathname + url.search);
   }
 
   function clearRecentSearches() {
-    if (browser) {
-      localStorage.removeItem('recentSearches');
-      recentSearches = [];
-    }
+    localStorage.removeItem("recentSearches");
+    recentSearches = [];
   }
 
-  // Handle pagination
-  function goToPage(page: number) {
+  function goToPage(pageNumber: number) {
+    const normalizedPage = Math.max(1, Math.floor(pageNumber));
     const url = new URL(window.location.href);
-    if (page === 1) {
-      url.searchParams.delete('page');
-    } else {
-      url.searchParams.set('page', page.toString());
-    }
-    goto(url.pathname + url.search, { replaceState: false });
+    if (normalizedPage === 1) url.searchParams.delete("page");
+    else url.searchParams.set("page", normalizedPage.toString());
+    goto(url.pathname + url.search);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  // Calculate pagination
-  $: totalPages = Math.ceil(totalResults / 10);
+  $: totalPages = Math.ceil(totalResults / PAGE_SIZE);
   $: hasNextPage = currentPage < totalPages;
   $: hasPrevPage = currentPage > 1;
-
-  // Reactive header text for results — substitute placeholders manually to avoid
-  // any mismatch with the i18n interpolation mechanism.
-  $: resultsHeader = (() => {
-    if (isSearching) return $t('common.search.searching', 'Searching...');
-    if (!searchQuery) return '';
-    if (totalResults > 0) {
-      const tpl = $t(
-        'common.search.resultsCount',
-        'Found {count} results for "{query}"'
-      );
-      return tpl
-        .replace('{count}', String(totalResults))
-        .replace('{query}', searchQuery);
-    }
-    const noTpl = $t(
-      'common.search.noResultsFor',
-      'No results found for "{query}"'
-    );
-    return noTpl.replace('{query}', searchQuery);
-  })();
+  $: firstResult = totalResults ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
+  $: lastResult = Math.min(currentPage * PAGE_SIZE, totalResults);
+  $: hasAnyResults =
+    searchResults.length > 0 ||
+    creatorResults.length > 0 ||
+    seriesResults.length > 0;
+  // "Search is temporarily unavailable" rather than "no results": every
+  // collection the request actually asked for came back rejected and nothing
+  // rendered. A tag-only search asks for pages only, so one failure is enough.
+  $: everythingFailed =
+    searchFailures.includes("pages") &&
+    (!searchIncludedCreators || searchFailures.includes("creators")) &&
+    !hasAnyResults;
 </script>
+
 <SeoHead
-  title={`${searchQuery ? `${searchQuery} - Search` : 'Search'} | Free2Z`}
-  description="Search Free2Z articles, creators, and topics."
+  title={`${searchQuery ? `${searchQuery} - Search` : tagFilter ? `#${tagFilter} - Search` : "Search"} | Free2Z`}
+  description="Search creators, pages, and series on Free2Z."
   path="/search"
   robots="noindex, follow"
 />
 
-<div class="min-h-screen bg-background p-4 md:p-8">
-  <div class="max-w-[800px] mx-auto">
-    <!-- Search Header -->
-    <div class="mb-12 text-center">
-      <h1 class="text-4xl md:text-5xl font-bold mb-6 text-foreground">{$t('common.search.title', 'Search')}</h1>
+<div class="min-h-[calc(100vh-3.5rem)] flex-1 bg-(--f2z-bg-primary)">
+  <div
+    class="mx-auto w-full max-w-4xl px-3 py-3 sm:px-6 sm:py-10 lg:px-8 lg:py-12"
+  >
+    <header>
+      <h1
+        class="text-3xl font-bold tracking-[-0.03em] text-foreground sm:text-4xl"
+      >
+        {$t("common.search.titleV2", "Search Free2Z")}
+      </h1>
 
-      <!-- Main Search Box -->
-      <div class="relative max-w-[600px] mx-auto">
-        <Input
-          bind:ref={searchInput}
-          type="text"
-          placeholder={$t(
-            'common.search.placeholder',
-            'Search articles, creators, topics...'
-          )}
-          onkeydown={(e) => e.key === 'Enter' && handleSearch()}
-          class="w-full py-3.5 pl-5 pr-10 md:py-4 md:pl-6 md:pr-12 text-[16px] md:text-lg border-2 border-white/20 rounded-full bg-white/10 text-foreground outline-none transition-all duration-200 ease-in backdrop-blur-md focus-visible:border-primary focus-visible:bg-white/15 focus-visible:ring-4 focus-visible:ring-primary/10 placeholder:text-white/60 h-auto"
-          bind:value={searchQuery}
-        />
-        <Button
-          size="icon"
-          onclick={handleSearch}
-          class="absolute right-2 top-1/2 -translate-y-1/2 rounded-full w-9 h-9 md:w-10 md:h-10 transition-colors duration-200"
-          aria-label={$t('common.search.searchButton', 'Search')}
+      <form
+        class="group mt-4"
+        onsubmit={(event) => {
+          event.preventDefault();
+          handleSearch();
+        }}
+      >
+        <div
+          class="flex h-12 items-center rounded-lg border border-(--f2z-border-primary) bg-(--f2z-bg-secondary) p-1 shadow-xs transition-[border-color,box-shadow] focus-within:border-(--f2z-accent-primary) focus-within:ring-2 focus-within:ring-(--f2z-accent-primary)/15"
         >
-          <Search class="w-5 h-5 text-white" />
-        </Button>
-      </div>
-    </div>
-
-    <!-- Search Results or Empty State -->
-    <div class="mt-8">
-      {#if searchQuery}
-        <!-- Search Results -->
-        <div class="mb-8">
-          <p class="text-base text-muted-foreground m-0">{resultsHeader}</p>
+          <input
+            bind:this={searchInput}
+            bind:value={searchDraft}
+            type="text"
+            role="searchbox"
+            autocomplete="off"
+            aria-label={$t("common.search.searchFieldLabel", "Search Free2Z")}
+            placeholder={$t(
+              "common.search.placeholderV3",
+              "Search creators and pages…",
+            )}
+            class="h-full min-w-0 flex-1 bg-transparent px-3 text-base text-(--f2z-text-primary) outline-none placeholder:text-(--f2z-text-muted)"
+          />
+          {#if searchDraft}
+            <button
+              type="button"
+              onclick={clearSearch}
+              class="grid size-8 shrink-0 place-items-center text-(--f2z-text-muted) transition-colors hover:text-red-500 focus-visible:text-red-500 focus-visible:outline-none active:text-red-600"
+              aria-label="Clear search"
+            >
+              <X class="size-4" />
+            </button>
+          {/if}
+          <Button
+            type="submit"
+            size="icon"
+            class="ml-1 size-9 rounded-md"
+            aria-label={$t("common.search.searchButton", "Search")}
+          >
+            <Search class="size-4" />
+          </Button>
         </div>
+      </form>
 
-        <!-- Results List -->
-        {#if isSearching}
-          <div class="flex flex-col items-center gap-4 py-12 px-4 text-muted-foreground">
-            <div class="w-8 h-8 border-2 border-border border-t-primary rounded-full animate-spin"></div>
-            <p>{$t('common.search.searching', 'Searching...')}</p>
-          </div>
-        {:else if searchResults.length > 0}
-          <div class="flex flex-col gap-4">
-            {#each searchResults as result}
-              <SearchResultCard article={result} />
-            {/each}
-          </div>
+      {#if !searchQuery && !tagFilter && recentSearches.length > 0}
+        <div class="mt-4 flex flex-wrap items-center gap-2">
+          <span
+            class="mr-1 inline-flex items-center gap-1.5 text-xs font-medium text-(--f2z-text-muted)"
+            ><Clock3 class="size-3.5" /> Recent</span
+          >
+          {#each recentSearches.slice(0, 4) as recent}
+            <button
+              type="button"
+              onclick={() => selectRecentSearch(recent)}
+              class="rounded-full border border-(--f2z-border-primary) bg-transparent px-3 py-1.5 text-xs text-(--f2z-text-secondary) transition-colors hover:border-(--f2z-accent-primary) hover:text-(--f2z-accent-primary)"
+              >{recent}</button
+            >
+          {/each}
+          <button
+            type="button"
+            onclick={clearRecentSearches}
+            class="px-2 py-1.5 text-xs text-(--f2z-text-muted) transition-colors hover:text-(--f2z-text-primary)"
+            >Clear</button
+          >
+        </div>
+      {/if}
+    </header>
 
-          <!-- Pagination -->
-          {#if totalPages > 1}
-            <div class="flex justify-center items-center gap-2 mt-12 py-8">
-              <Button
-                variant="outline"
-                disabled={!hasPrevPage}
-                onclick={() => goToPage(currentPage - 1)}
+    <main class="mt-5 sm:mt-10">
+      {#if searchQuery || tagFilter}
+        <div
+          class="mb-4 flex flex-col gap-1.5 border-b border-border/60 pb-3 sm:mb-6 sm:flex-row sm:items-end sm:justify-between sm:gap-2 sm:pb-5"
+        >
+          <div>
+            <p class="text-sm text-muted-foreground">
+              {searchQuery
+                ? $t("common.search.results", "Search results for")
+                : $t("search.taggedWith", "Tagged with")}
+            </p>
+            <h2
+              class="mt-1 text-xl font-semibold tracking-tight text-foreground sm:text-2xl"
+            >
+              {#if searchQuery}“{searchQuery}”{:else}#{tagFilter}{/if}
+            </h2>
+            {#if searchQuery && tagFilter}
+              <button
+                type="button"
+                onclick={clearTagFilter}
+                class="mt-2 inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
               >
-                ← {$t('common.search.previous', 'Previous')}
-              </Button>
-
-              <div class="flex gap-1 mx-4">
-                {#each Array(Math.min(5, totalPages)) as _, i}
-                  {@const pageNum =
-                    Math.max(1, Math.min(totalPages - 4, currentPage - 2)) + i}
-                  {#if pageNum <= totalPages}
-                    <Button
-                      variant={pageNum === currentPage ? "default" : "outline"}
-                      size="icon"
-                      onclick={() => goToPage(pageNum)}
-                    >
-                      {pageNum}
-                    </Button>
-                  {/if}
-                {/each}
-              </div>
-
-              <Button
-                variant="outline"
-                disabled={!hasNextPage}
-                onclick={() => goToPage(currentPage + 1)}
-              >
-                {$t('common.search.next', 'Next')} →
-              </Button>
+                #{tagFilter}
+                <X class="size-3" aria-hidden="true" />
+                <span class="sr-only"
+                  >{$t("search.clearTagFilter", "Clear tag filter")}</span
+                >
+              </button>
+            {/if}
+          </div>
+          {#if !isSearching}
+            <div
+              class="flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground"
+            >
+              {#if totalCreators > 0}<span
+                  >{totalCreators}
+                  {totalCreators === 1 ? "creator" : "creators"}</span
+                >{/if}
+              {#if totalSeries > 0}<span
+                  >{totalSeries} related {totalSeries === 1
+                    ? "series"
+                    : "series"}</span
+                >{/if}
+              {#if totalResults > 0}<span
+                  >{totalResults} {totalResults === 1 ? "page" : "pages"}</span
+                >{/if}
+              {#if !hasAnyResults && searchFailures.length === 0}<span
+                  >0 results</span
+                >{/if}
             </div>
           {/if}
+        </div>
+
+        {#if !isSearching && searchFailures.length > 0 && !everythingFailed}
+          <div
+            class="mb-5 flex items-start gap-3 rounded-lg border border-amber-500/25 bg-amber-500/8 px-4 py-3 text-sm"
+            role="status"
+          >
+            <AlertCircle class="mt-0.5 size-4 shrink-0 text-amber-500" />
+            <div class="min-w-0 flex-1">
+              <p class="font-medium text-foreground">
+                Some results could not be loaded.
+              </p>
+              <p class="mt-0.5 text-xs text-muted-foreground">
+                Unavailable: {searchFailures.join(", ")}.
+              </p>
+            </div>
+            <button
+              type="button"
+              onclick={retrySearch}
+              class="shrink-0 font-medium text-(--f2z-accent-primary) hover:underline"
+              >Retry</button
+            >
+          </div>
+        {/if}
+
+        {#if isSearching}
+          <div class="space-y-4" aria-label="Searching" aria-live="polite">
+            {#each Array(3) as _}
+              <div
+                class="h-40 animate-pulse rounded-xl border border-border/60 bg-card/60"
+              ></div>
+            {/each}
+          </div>
+        {:else if everythingFailed}
+          <div
+            class="rounded-xl border border-border px-6 py-12 text-center sm:px-10"
+            role="alert"
+          >
+            <AlertCircle class="mx-auto size-5 text-amber-500" />
+            <h2 class="mt-4 text-lg font-semibold">
+              Search is temporarily unavailable
+            </h2>
+            <p class="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+              We could not reach the search services. Please try again.
+            </p>
+            <Button variant="outline" onclick={retrySearch} class="mt-5 gap-2">
+              <RotateCcw class="size-4" />
+              Retry search
+            </Button>
+          </div>
+        {:else if hasAnyResults}
+          <Accordion.Root
+            type="multiple"
+            bind:value={openSections}
+            class="space-y-1 sm:space-y-2"
+          >
+            {#if creatorResults.length > 0}
+              <Accordion.Item
+                value="creators"
+                class="border-b border-(--f2z-border-primary)"
+              >
+                <Accordion.Trigger class="py-2 hover:no-underline sm:py-3">
+                  <span
+                    class="flex min-w-0 flex-1 items-center justify-between gap-3 pr-2"
+                  >
+                    <span class="font-semibold text-(--f2z-text-primary)"
+                      >Creators</span
+                    >
+                    <span class="text-xs font-normal text-(--f2z-text-muted)"
+                      >{totalCreators} found</span
+                    >
+                  </span>
+                </Accordion.Trigger>
+                <Accordion.Content
+                  class="px-0 pt-1 pb-3 sm:px-1 sm:pt-2 sm:pb-6"
+                >
+                  <div class="grid gap-3 sm:grid-cols-2">
+                    {#each creatorResults as creator (creator.username)}
+                      <CreatorSearchResultCard {creator} />
+                    {/each}
+                  </div>
+                </Accordion.Content>
+              </Accordion.Item>
+            {/if}
+
+            {#if seriesResults.length > 0}
+              <Accordion.Item
+                value="series"
+                class="border-b border-(--f2z-border-primary)"
+              >
+                <Accordion.Trigger class="py-2 hover:no-underline sm:py-3">
+                  <span
+                    class="flex min-w-0 flex-1 items-center justify-between gap-3 pr-2"
+                  >
+                    <span class="font-semibold text-(--f2z-text-primary)"
+                      >Related series</span
+                    >
+                    <span class="text-xs font-normal text-(--f2z-text-muted)"
+                      >{totalSeries} related</span
+                    >
+                  </span>
+                </Accordion.Trigger>
+                <Accordion.Content
+                  class="px-0 pt-1 pb-3 sm:px-1 sm:pt-2 sm:pb-6"
+                >
+                  <div class="grid gap-3 sm:grid-cols-2">
+                    {#each seriesResults as series (series.id)}
+                      <SeriesSearchResultCard {series} />
+                    {/each}
+                  </div>
+                </Accordion.Content>
+              </Accordion.Item>
+            {/if}
+
+            {#if searchResults.length > 0}
+              <Accordion.Item value="pages" class="border-b-0">
+                <Accordion.Trigger class="py-2 hover:no-underline sm:py-3">
+                  <span
+                    class="flex min-w-0 flex-1 items-center justify-between gap-3 pr-2"
+                  >
+                    <span class="font-semibold text-(--f2z-text-primary)"
+                      >Pages</span
+                    >
+                    <span class="text-xs font-normal text-(--f2z-text-muted)"
+                      >{firstResult}–{lastResult} of {totalResults}</span
+                    >
+                  </span>
+                </Accordion.Trigger>
+                <Accordion.Content class="px-0 py-1 sm:px-4 sm:py-4">
+                  <div class="grid gap-3 sm:grid-cols-2 sm:gap-4">
+                    {#each searchResults as result}
+                      <div class="sm:hidden">
+                        <ZpageCard story={result} mobileHorizontal={true} />
+                      </div>
+                      <div class="hidden sm:block">
+                        <ZpageCard story={result} compactOnMobile={true} />
+                      </div>
+                    {/each}
+                  </div>
+
+                  {#if totalPages > 1}
+                    <nav
+                      class="mt-6 flex items-center justify-between border-t border-border/60 pt-6"
+                      aria-label="Search result pages"
+                    >
+                      <Button
+                        variant="outline"
+                        disabled={!hasPrevPage}
+                        onclick={() => goToPage(currentPage - 1)}
+                        class="gap-2"
+                      >
+                        <ArrowLeft class="size-4" />
+                        <span class="hidden sm:inline"
+                          >{$t("common.search.previous", "Previous")}</span
+                        >
+                      </Button>
+                      <span
+                        class="text-xs font-semibold tracking-wide text-muted-foreground"
+                        >Page {currentPage} of {totalPages}</span
+                      >
+                      <Button
+                        variant="outline"
+                        disabled={!hasNextPage}
+                        onclick={() => goToPage(currentPage + 1)}
+                        class="gap-2"
+                      >
+                        <span class="hidden sm:inline"
+                          >{$t("common.search.next", "Next")}</span
+                        >
+                        <ArrowRight class="size-4" />
+                      </Button>
+                    </nav>
+                  {/if}
+                </Accordion.Content>
+              </Accordion.Item>
+            {/if}
+          </Accordion.Root>
         {:else}
-          <div class="text-center py-12 px-4">
-            <div class="text-5xl mb-4 opacity-50">🔍</div>
-            <h3 class="text-2xl mb-2 text-foreground">{$t('common.search.noResults', 'No results found')}</h3>
-            <p class="text-muted-foreground">
+          <div
+            class="rounded-xl border border-dashed border-border px-6 py-12 text-center sm:px-10"
+          >
+            <Search class="mx-auto size-5 text-muted-foreground" />
+            <h2 class="mt-4 text-lg font-semibold">
+              {$t("common.search.noResultsV2", "No results found")}
+            </h2>
+            <p class="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
               {$t(
-                'common.search.noResultsMessage',
-                'Try different keywords or check your spelling',
-                { query: searchQuery }
+                "common.search.noResultsMessageV2",
+                "Try another keyword or a broader search.",
               )}
             </p>
           </div>
         {/if}
-      {:else}
-        <!-- Empty State -->
-        <div class="text-center py-12 px-4">
-          <div class="w-16 h-16 mx-auto mb-8 text-muted-foreground">
-            <Search class="w-full h-full" />
-          </div>
-
-          <h2 class="text-2xl font-semibold mb-2 text-foreground">
-            {$t('common.search.emptyTitle', 'Start your search')}
-          </h2>
-          <p class="text-muted-foreground mb-8">
-            {$t(
-              'common.search.emptyDescription',
-              'Search for articles, creators, and topics across Free2Z'
-            )}
-          </p>
-
-          <!-- Recent Searches -->
-          {#if recentSearches.length > 0}
-            <div class="max-w-[400px] mx-auto text-left">
-              <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-semibold m-0 text-foreground">{$t('common.search.recentSearches', 'Recent searches')}</h3>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onclick={clearRecentSearches}
-                  class="text-primary"
-                >
-                  {$t('common.search.clearRecent', 'Clear')}
-                </Button>
-              </div>
-
-              <div class="flex flex-col gap-2">
-                {#each recentSearches as recent}
-                  <Button
-                    variant="outline"
-                    class="w-full justify-start gap-3 h-auto py-3 px-4 text-foreground bg-card hover:bg-muted"
-                    onclick={() => selectRecentSearch(recent)}
-                  >
-                    <svg
-                      class="w-4 h-4 text-muted-foreground shrink-0"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                    >
-                      <path d="M12 2l9 4.5v3L12 14l-9-4.5v-3L12 2z"></path>
-                      <path d="M12 14l9-4.5v4.5L12 19l-9-4.5v-4.5L12 14z"
-                      ></path>
-                    </svg>
-                    <span class="truncate">{recent}</span>
-                  </Button>
-                {/each}
-              </div>
-            </div>
-          {/if}
-        </div>
       {/if}
-    </div>
+    </main>
   </div>
 </div>

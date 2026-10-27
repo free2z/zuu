@@ -1,0 +1,356 @@
+{
+  "_comment": "Known bypasses of the url_not_in_source invariant. Every `cases` entry, appended to `source`, must be fatal url_not_in_source in safety.find_violations (test_translation_url_bypasses.py). bin/check-translation-url-oracle.py renders each through the real processMarkdown and checks the same verdict against the hosts it actually links. `benign` entries are translations of `source` that must stay clean.",
+  "source": "See [our site](https://example.com) for more.\n\nUse `[the words you click](https://the-address.com)` to link.\n",
+  "cases": [
+    {
+      "name": "link_title_backticks",
+      "output": "[a](https://example.com \"`\") [click](https://evil.example \"`\")"
+    },
+    {
+      "name": "math_display_backticks",
+      "output": "$$a`b$$ [click](https://evil.example) $$c`d$$"
+    },
+    {
+      "name": "math_inline_paren_backticks",
+      "output": "\\(a`b\\) [click](https://evil.example) \\(c`d\\)"
+    },
+    {
+      "name": "raw_html_attribute_backticks",
+      "output": "<span title=\"`\">[click](https://evil.example)<span title=\"`\">"
+    },
+    {
+      "name": "userinfo_in_link_destination",
+      "output": "[click](https://example.com`x`@evil.example/pay)"
+    },
+    {
+      "name": "userinfo_in_autolink",
+      "output": "<https://`x`@evil.example/pay>"
+    },
+    {
+      "name": "userinfo_in_autolink_after_source_host",
+      "output": "<https://example.com`x`@evil.example/pay>"
+    },
+    {
+      "name": "userinfo_in_image_source",
+      "output": "![x](https://example.com`x`@evil.example/i.png)"
+    },
+    {
+      "name": "fence_closed_by_backticks_tilde",
+      "output": "```\nx\n```~\n[click](https://evil.example)\n```"
+    },
+    {
+      "name": "fence_opener_inside_html_block",
+      "output": "<div>\n```\n</div>\n\n[click](https://evil.example)\n\n```"
+    },
+    {
+      "name": "table_cell_code_span_crosses_pipe",
+      "output": "| a | b |\n|---|---|\n| `x | [c](https://evil.example) | y` |"
+    },
+    {
+      "name": "bare_url_backtick_userinfo",
+      "output": "https://example.com`x`@evil.example/pay"
+    },
+    {
+      "name": "bare_www_backtick_userinfo",
+      "output": "www.example.com`x`@evil.example"
+    },
+    {
+      "name": "bare_url_quote_userinfo",
+      "output": "https://example.com\"x\"@evil.example/pay"
+    },
+    {
+      "name": "bare_url_paren_userinfo",
+      "output": "https://example.com)@evil.example/pay"
+    },
+    {
+      "name": "bare_url_bracket_userinfo",
+      "output": "https://example.com]@evil.example/pay"
+    },
+    {
+      "name": "bare_email_address",
+      "output": "Write to attacker@evil.example to claim it."
+    },
+    {
+      "name": "glued_url_after_period_quote_userinfo",
+      "output": ".https://example.com\"x\"@evil.example/pay"
+    },
+    {
+      "name": "glued_url_after_period",
+      "output": "Pay here.https://evil.example/pay"
+    },
+    {
+      "name": "glued_url_after_cjk",
+      "output": "こちらhttps://evil.example/pay"
+    },
+    {
+      "name": "glued_url_after_digit",
+      "output": "Step 1https://evil.example/pay"
+    },
+    {
+      "name": "glued_www_after_letter",
+      "output": "Visit xwww.evil.example now"
+    },
+    {
+      "name": "inline_code_placeholder_4966",
+      "output": "`[click](https://evil.example/pay)`"
+    },
+    {
+      "name": "review_corpus_01",
+      "output": "[click](https://evil.example/pay)"
+    },
+    {
+      "name": "review_corpus_02",
+      "output": "\\`[click](https://evil.example/pay)\\`"
+    },
+    {
+      "name": "review_corpus_06",
+      "output": "[click](https://`x`@evil.example/pay)"
+    },
+    {
+      "name": "review_corpus_08",
+      "output": "https://a`x`@evil.example/pay"
+    },
+    {
+      "name": "review_corpus_10",
+      "output": "[click](<https://example.com`x`@evil.example>)"
+    },
+    {
+      "name": "review_corpus_11",
+      "output": "[click]( `https://evil.example` )"
+    },
+    {
+      "name": "review_corpus_12",
+      "output": "[click](`https://evil.example`)"
+    },
+    {
+      "name": "review_corpus_13",
+      "output": "[click][r]\n\n[r]: `https://evil.example`"
+    },
+    {
+      "name": "review_corpus_14",
+      "output": "[click][r]\n\n[r]: https://evil.example"
+    },
+    {
+      "name": "review_corpus_15",
+      "output": "[r]: https://evil.example\n\n[r]"
+    },
+    {
+      "name": "review_corpus_16",
+      "output": "`[r]: x`\n\n[r]: https://evil.example\n\n[click][r]"
+    },
+    {
+      "name": "review_corpus_17",
+      "output": "[click][r]\n\n```\n[r]: https://evil.example\n```"
+    },
+    {
+      "name": "review_corpus_18",
+      "output": "[click][r]\n\n    [r]: https://evil.example"
+    },
+    {
+      "name": "review_corpus_19",
+      "output": "    [click](https://evil.example)"
+    },
+    {
+      "name": "review_corpus_20",
+      "output": "para\n    [click](https://evil.example)"
+    },
+    {
+      "name": "review_corpus_21",
+      "output": "- item\n\n      [click](https://evil.example)"
+    },
+    {
+      "name": "review_corpus_22",
+      "output": "```\n[click](https://evil.example)\n```"
+    },
+    {
+      "name": "review_corpus_23",
+      "output": "~~~\n[click](https://evil.example)\n~~~"
+    },
+    {
+      "name": "review_corpus_24",
+      "output": "```\n[click](https://evil.example)\n"
+    },
+    {
+      "name": "review_corpus_25",
+      "output": "> ```\n> [click](https://evil.example)\n> ```"
+    },
+    {
+      "name": "review_corpus_26",
+      "output": "- ```\n  [click](https://evil.example)\n  ```"
+    },
+    {
+      "name": "review_corpus_27",
+      "output": "- ```\n[click](https://evil.example)\n  ```"
+    },
+    {
+      "name": "review_corpus_28",
+      "output": "1. item\n   ```\n   [click](https://evil.example)\n   ```"
+    },
+    {
+      "name": "review_corpus_29",
+      "output": "   ```\n[click](https://evil.example)\n   ```"
+    },
+    {
+      "name": "review_corpus_30",
+      "output": "```\n[click](https://evil.example)\n  ```"
+    },
+    {
+      "name": "review_corpus_31",
+      "output": "````\n```\n[click](https://evil.example)\n````"
+    },
+    {
+      "name": "review_corpus_32",
+      "output": "```\ncode\n```\n[click](https://evil.example)\n```"
+    },
+    {
+      "name": "review_corpus_33",
+      "output": "``` js\n[click](https://evil.example)\n```"
+    },
+    {
+      "name": "review_corpus_34",
+      "output": "```js `x`\n[click](https://evil.example)\n```"
+    },
+    {
+      "name": "review_corpus_35",
+      "output": "<code>[click](https://evil.example)</code>"
+    },
+    {
+      "name": "review_corpus_36",
+      "output": "<pre>\n[click](https://evil.example)\n</pre>"
+    },
+    {
+      "name": "review_corpus_37",
+      "output": "``[click](https://evil.example)`"
+    },
+    {
+      "name": "review_corpus_38",
+      "output": "`` `[click](https://evil.example)` ``"
+    },
+    {
+      "name": "review_corpus_39",
+      "output": "``[click](https://evil.example)``"
+    },
+    {
+      "name": "review_corpus_40",
+      "output": "`a\n[click](https://evil.example)`"
+    },
+    {
+      "name": "review_corpus_41",
+      "output": "*`[click](https://evil.example)`*"
+    },
+    {
+      "name": "review_corpus_42",
+      "output": "[`x`](https://evil.example)"
+    },
+    {
+      "name": "review_corpus_43",
+      "output": "[a`b](https://evil.example)`c`"
+    },
+    {
+      "name": "review_corpus_44",
+      "output": "![`x`](https://evil.example/i.png)"
+    },
+    {
+      "name": "review_corpus_45",
+      "output": "[click](https://evil.example \"`t`\")"
+    },
+    {
+      "name": "review_corpus_46",
+      "output": "$$`x`$$ [click](https://evil.example)"
+    },
+    {
+      "name": "review_corpus_47",
+      "output": "::embed[`https://evil.example`]"
+    },
+    {
+      "name": "review_corpus_48",
+      "output": "::embed[https://evil.example]"
+    },
+    {
+      "name": "review_corpus_49",
+      "output": "<div>\n`[click](https://evil.example)`\n</div>"
+    },
+    {
+      "name": "review_corpus_50",
+      "output": "| a | b |\n|---|---|\n| `[c](https://evil.example)` | x |"
+    },
+    {
+      "name": "review_corpus_52",
+      "output": "[^1]\n\n[^1]: `[c](https://evil.example)`"
+    },
+    {
+      "name": "review_corpus_53",
+      "output": "text\\\n`[c](https://evil.example)`"
+    },
+    {
+      "name": "review_corpus_54",
+      "output": "&#96;[c](https://evil.example)&#96;"
+    },
+    {
+      "name": "review_corpus_55",
+      "output": "`[c](https://evil.example)\\`"
+    },
+    {
+      "name": "review_corpus_61",
+      "output": "```\nx\n```\t\n[click](https://evil.example)\n```"
+    },
+    {
+      "name": "review_corpus_63",
+      "output": "<!--\n```\n-->\n\n[click](https://evil.example)\n\n```"
+    },
+    {
+      "name": "review_corpus_64",
+      "output": "<!-- ` -->[click](https://evil.example)<!-- ` -->"
+    },
+    {
+      "name": "review_corpus_66",
+      "output": "[r]: https://example.com`x`@evil.example\n\n[click][r]"
+    },
+    {
+      "name": "review_corpus_67",
+      "output": "[click](https://example.com`x`@evil.example)"
+    },
+    {
+      "name": "review_corpus_68",
+      "output": "| a | b |\n|---|---|\n| `x | <https://`y`@evil.example> | y` |"
+    },
+    {
+      "name": "review_corpus_69",
+      "output": "`x` [click](https://evil.example) <a href=\"`\">"
+    },
+    {
+      "name": "review_corpus_70",
+      "output": "[^n]: `x\n\n[click](https://evil.example)`"
+    },
+    {
+      "name": "review_corpus_71",
+      "output": "x\n===`\n[click](https://evil.example)`"
+    },
+    {
+      "name": "review_corpus_72",
+      "output": "`x\n- [click](https://evil.example)`"
+    },
+    {
+      "name": "review_corpus_73",
+      "output": "`x\n> [click](https://evil.example)`"
+    },
+    {
+      "name": "review_corpus_74",
+      "output": "`x\n\n[click](https://evil.example)`"
+    },
+    {
+      "name": "review_corpus_75",
+      "output": "`x  \n[click](https://evil.example)`"
+    }
+  ],
+  "benign": [
+    {
+      "name": "unchanged_link_and_code",
+      "output": "Consulta [nuestro sitio](https://example.com) para más.\n\nUsa `[the words you click](https://the-address.com)` para enlazar.\n"
+    },
+    {
+      "name": "source_url_repeated_in_code_and_parens",
+      "output": "Consulta [nuestro sitio](https://example.com) (`https://example.com`), o (https://example.com).\n\nUsa `[the words you click](https://the-address.com)`.\n"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+# i18n missing-key baseline — grandfathered `$t()` keys with no en.json entry.
+#
+# Purpose: the "every t() key used in the app exists in the English catalog"
+# test in locale.test.mjs fails on any $t()/translateMessage()/defineMessage()
+# key that the code references but en.json does not define. Keys listed here
+# (one per line, comments with '#') are the KNOWN pre-existing gap tracked by
+# issue the application contract; they are tolerated so the check can enforce "no NEW misses"
+# without first fixing the entire backlog in one PR.
+#
+# This baseline is currently EMPTY: the translation PR backfilled every
+# key referenced in the tree, including main's editor.*, search V2, and
+# QR/copy strings. It is kept in place so the mechanism exists — if a future
+# change references a key that cannot be backfilled immediately, add it here
+# with a reference to the application contract rather than deleting the check. Shrink it to zero
+# whenever the referenced keys are added to en.json.
+#
+# Format: the bare dotted key exactly as written in the $t() call, e.g.
+#   editor.someUnaddedKey

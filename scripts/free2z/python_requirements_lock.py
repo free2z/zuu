@@ -86,11 +86,15 @@ def _logical_lines(path: Path) -> list[tuple[int, str]]:
     return records
 
 
-def parse_source(path: Path) -> dict[str, tuple[str, Requirement]]:
+def parse_source(path: Path, *, test_constraint: bool = False) -> dict[str, tuple[str, Requirement]]:
     """Read the small direct input; it contains exact pins, not pip options."""
 
     result: dict[str, tuple[str, Requirement]] = {}
+    constraints = 0
     for line, text in _logical_lines(path):
+        if test_constraint and text == "-c main.txt":
+            constraints += 1
+            continue
         if text.startswith(("-", "@")):
             raise RequirementsError(f"{path}:{line} is not a direct package pin: {text!r}")
         try:
@@ -104,12 +108,16 @@ def parse_source(path: Path) -> dict[str, tuple[str, Requirement]]:
         result[name] = (version, requirement)
     if not result:
         raise RequirementsError(f"{path} has no direct package pins")
+    if test_constraint and constraints != 1:
+        raise RequirementsError(f"{path} must contain exactly one -c main.txt constraint")
     return result
 
 
-def parse_lock(path: Path) -> list[Record]:
+def parse_lock(path: Path, *, source_name: str = "main.in") -> list[Record]:
     """Parse exact pins and SHA-256 hashes from a pip-compile lock."""
 
+    if source_name not in {"main.in", "test.in"}:
+        raise RequirementsError(f"unsupported direct source: {source_name}")
     logical = _logical_lines(path)
     records: list[Record] = []
     seen_records: set[tuple[str, str, tuple[str, ...], str]] = set()
@@ -168,11 +176,11 @@ def parse_lock(path: Path) -> list[Record]:
             continue
         provenance = raw.strip()
         if provenance in {
-            "# via -r requirements/main.in",
-            "#   -r requirements/main.in",
+            f"# via -r requirements/{source_name}",
+            f"#   -r requirements/{source_name}",
             # Dependabot compiles from /py/free2z/requirements rather than /py.
-            "# via -r main.in",
-            "#   -r main.in",
+            f"# via -r {source_name}",
+            f"#   -r {source_name}",
         }:
             previous.direct_source = True
     return records

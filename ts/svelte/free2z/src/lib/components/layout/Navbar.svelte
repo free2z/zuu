@@ -1,36 +1,75 @@
 <script lang="ts">
-  import { goto } from "$app/navigation";
+  import { afterNavigate } from "$app/navigation";
+  import { scrollTopbar } from "$lib/actions/scrollTopbar";
   import { page } from "$app/state";
-  import { tStore as t, loading } from "$lib/i18n";
+  import { locale, tStore as t, loading } from "$lib/i18n";
   import AuthButton from "$lib/components/auth/AuthButton.svelte";
+  import AuthPendingPlaceholder from "$lib/components/auth/AuthPendingPlaceholder.svelte";
   import AuthUserDropdown from "$lib/components/auth/AuthUserDropdown.svelte";
-  import { isAuthenticated } from "$lib/stores/auth";
-  import { eventNotifications } from "$lib/stores/eventNotifications";
+  import { authStatus, isAuthenticated } from "$lib/stores/auth";
   import { Button } from "$lib/components/ui/button";
-  import { Bell, MessagesSquare, Search } from "@lucide/svelte";
+  import { MessagesSquare, Search, SquarePen } from "@lucide/svelte";
   import LiveIndicator from "$lib/components/stream/LiveIndicator.svelte";
   import { currentUser } from "$lib/stores/auth";
   import SearchCommand from "$lib/components/layout/SearchCommand.svelte";
-  import * as Tooltip from "$lib/components/ui/tooltip";
-  import { CLASSIC_UI_PATH, classicUiAvailable } from "$lib/utils/classic-ui";
+  import MobileNavMenu from "$lib/components/layout/MobileNavMenu.svelte";
+  import NotificationBell from "$lib/components/layout/NotificationBell.svelte";
 
   // Icon buttons recolor on hover only — no background/ring chrome around them.
   const iconButtonClass =
     "text-(--f2z-text-secondary) hover:bg-transparent dark:hover:bg-transparent hover:text-(--f2z-accent-primary) focus-visible:text-(--f2z-accent-primary)";
 
+  // Auth is three-state here, not two. `!$isAuthenticated` is also
+  // true for the ~200ms before `/api/auth/user/` answers, and rendering
+  // "Sign In" in that window tells a signed-in creator the site logged them
+  // out. Only `anonymous` may render a signed-out affordance.
+  //
+  // The store always reads `unknown` during SSR — it is module-scoped and
+  // shared by every concurrent request, so nothing writes to it on the server
+  //. `page.data.hasSession` is the per-request server signal that
+  // resolves the anonymous case without a client round-trip: no `sessionid`
+  // cookie means Django cannot authenticate this request, full stop. It is
+  // only ever consulted as a fallback, so a client-side login (which leaves
+  // the already-loaded `page.data` stale) can never demote a signed-in user.
+  const resolvedAuthStatus = $derived(
+    $authStatus !== "unknown"
+      ? $authStatus
+      : page.data.hasSession === false
+        ? "anonymous"
+        : "unknown",
+  );
+  const isAuthUnresolved = $derived(resolvedAuthStatus === "unknown");
   let searchOpen = $state(false);
   let shortcutLabel = $state("");
   const isConverseRoute = $derived(page.url.pathname.startsWith("/converse"));
-  const showClassicLink = classicUiAvailable();
+  const isSearchPage = $derived(page.url.pathname === "/search");
+  // Below md the homepage is the vertical feed, which carries its own search
+  // field at the top — so the icon here would be a second, redundant control
+  // for the same thing. Desktop keeps its search trigger: the magazine layout
+  // has no search field of its own.
+  const isHomePage = $derived(page.url.pathname === "/");
+  const isEditorRoute = $derived(page.url.pathname === "/edit");
 
   $effect(() => {
     const updateShortcutLabel = () => {
       shortcutLabel = getSearchShortcutLabel();
     };
 
+    // `resize` never fires for a pointer change (docking a tablet, plugging in
+    // a mouse), so listen to the media queries themselves rather than to the
+    // window: both inputs to the label are media queries.
+    const queries = [
+      window.matchMedia("(max-width: 767px)"),
+      window.matchMedia("(pointer: coarse)"),
+    ];
+
     updateShortcutLabel();
-    window.addEventListener("resize", updateShortcutLabel);
-    return () => window.removeEventListener("resize", updateShortcutLabel);
+    for (const query of queries)
+      query.addEventListener("change", updateShortcutLabel);
+    return () => {
+      for (const query of queries)
+        query.removeEventListener("change", updateShortcutLabel);
+    };
   });
 
   function getSearchShortcutLabel() {
@@ -40,6 +79,9 @@
     const userAgent = nav.userAgent || "";
     const platform = nav.userAgentData?.platform || nav.platform || "";
     const isNarrowViewport = window.matchMedia("(max-width: 767px)").matches;
+    // A coarse primary pointer means touch/stylus: there is no physical ⌘/Ctrl
+    // key to press, so the hint is noise.
+    const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
     const isMobile =
       Boolean(nav.userAgentData?.mobile) ||
       /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini|mobile/i.test(
@@ -47,19 +89,11 @@
       ) ||
       (/macintosh/i.test(userAgent) && nav.maxTouchPoints > 1);
 
-    if (isNarrowViewport || isMobile) return "";
+    if (isNarrowViewport || isCoarsePointer || isMobile) return "";
 
     return /mac/i.test(platform) || /macintosh/i.test(userAgent)
       ? "⌘K"
       : "Ctrl K";
-  }
-
-  function handleNotificationsClick() {
-    if ($currentUser?.username) {
-      goto(`/${$currentUser.username}/dashboard/notifications`);
-      return;
-    }
-    goto("/?login=true");
   }
 
   // Global shortcuts: ⌘K / Ctrl+K toggles search anywhere; "/" opens it
@@ -81,120 +115,150 @@
     }
   }
 
-  // Hide-on-scroll-down, reveal-on-scroll-up.
-  let lastScrollY = $state(0);
-  let visible = $state(true);
-  // Transparent at the page top so the hero glow/grid flow up into the bar;
-  // a translucent surface fades in only once scrolled, for legibility.
-  let scrolled = $state(false);
-  const threshold = 20;
-  const upThreshold = 10;
+  let navigationRevision = $state(0);
+  afterNavigate(() => {
+    navigationRevision += 1;
+  });
 
-  function handleScroll() {
-    const currentScrollY = window.scrollY;
-    scrolled = currentScrollY > 8;
-    const delta = currentScrollY - lastScrollY;
-    if (Math.abs(delta) < 5) return;
-
-    if (delta > 0 && currentScrollY > threshold) {
-      visible = false;
-    } else if (delta < -upThreshold || currentScrollY < threshold) {
-      visible = true;
-    }
-    lastScrollY = currentScrollY;
-  }
+  let profileOpen = $state(false);
+  let mobileMenuOpen = $state(false);
 </script>
 
-<svelte:window on:scroll={handleScroll} on:keydown={handleGlobalKeydown} />
+<svelte:window on:keydown={handleGlobalKeydown} />
 
+<!-- `lang` on the chrome, because `<html lang>` now names the language of the
+     PAGE's content — an article variant's own language on a zPage.
+     The navbar's text comes from the UI catalogs, so it says which language it
+     is in rather than inheriting the article's. -->
 <nav
-  class="sticky top-0 z-50 border-b transition-all duration-300 {visible
-    ? 'translate-y-0'
-    : '-translate-y-full'} {scrolled
-    ? 'border-(--f2z-border-primary) bg-(--f2z-bg-primary)/80 backdrop-blur-md'
-    : 'border-transparent bg-transparent'}"
+  lang={$locale}
+  use:scrollTopbar={{
+    pinned: searchOpen || profileOpen || mobileMenuOpen,
+    resetKey: navigationRevision,
+  }}
+  class="scroll-topbar sticky top-0 z-50 border-b-0 border-(--f2z-border-primary)/70 bg-(--f2z-bg-primary)/96 shadow-[0_4px_12px_rgba(0,0,0,0.12)] md:border-b md:shadow-sm"
 >
-  <div class="mx-auto flex h-14 items-center gap-3 px-4 md:px-6">
-    <!-- Left: brand -->
-    <div class="flex flex-1 items-center justify-start">
+  <div
+    class="relative mx-auto flex h-[3.25rem] items-center gap-2 px-3 md:h-14 md:gap-3 md:px-6"
+  >
+    <!-- Left: menu + brand -->
+    <div
+      class="flex min-w-0 flex-1 items-center justify-start md:flex-initial md:gap-1 lg:flex-1"
+    >
+      <!-- Mobile only: the feed makes the footer unreachable, so these links
+           need a home in the header. -->
+      <MobileNavMenu
+        bind:open={mobileMenuOpen}
+        triggerClass="md:hidden size-10 rounded-none border-0 p-0 {iconButtonClass} focus-visible:border-transparent focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-(--f2z-accent-primary)"
+      />
       <Button
         href="/"
         size="sm"
         variant="link"
-        class="px-0 text-xl font-bold tracking-tight text-(--f2z-accent-secondary) no-underline transition-colors hover:text-(--f2z-accent-primary) hover:no-underline sm:text-2xl md:text-3xl"
-        aria-label="Go to homepage"
+        class="static ml-1 translate-x-0 px-0 text-xl font-bold tracking-tight text-(--f2z-accent-secondary) no-underline transition-colors hover:text-(--f2z-accent-primary) hover:no-underline sm:text-2xl md:ml-0 md:text-3xl"
+        aria-label={$t("common.navigation.homeAria", "Go to homepage")}
+        data-testid="navbar-brand"
       >
         {!$loading ? $t("common.navigation.logo") : "Free2Z"}
       </Button>
     </div>
 
     <!-- Center: search trigger (desktop) -->
-    <button
-      type="button"
-      onclick={() => (searchOpen = true)}
-      class="group hidden h-9 w-full max-w-md cursor-pointer items-center gap-2 rounded-md border border-(--f2z-border-primary) bg-(--f2z-bg-secondary) pr-2 pl-3 text-sm text-(--f2z-text-muted) shadow-xs transition-colors hover:border-(--f2z-accent-primary) focus-visible:border-(--f2z-accent-primary) focus-visible:ring-2 focus-visible:ring-(--f2z-accent-primary)/30 focus-visible:outline-none sm:flex"
-      aria-label="Search"
-    >
-      <Search
-        class="size-4 shrink-0 transition-colors group-hover:text-(--f2z-accent-primary)"
-      />
-      <span class="flex-1 truncate text-left">Search creators and pages…</span>
-      {#if shortcutLabel}
-        <kbd
-          class="hidden h-5 items-center gap-0.5 rounded border border-(--f2z-border-primary) bg-(--f2z-bg-primary) px-1.5 font-sans text-[11px] font-medium text-(--f2z-text-muted) md:inline-flex"
+    {#if !isSearchPage}
+      <button
+        type="button"
+        onclick={() => (searchOpen = true)}
+        class="group hidden h-9 max-w-md min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md border border-(--f2z-border-primary) bg-(--f2z-bg-secondary) pr-2 pl-3 text-sm text-(--f2z-text-muted) shadow-xs transition-colors hover:border-(--f2z-accent-primary) focus-visible:border-(--f2z-accent-primary) focus-visible:ring-2 focus-visible:ring-(--f2z-accent-primary)/30 focus-visible:outline-none md:flex"
+        aria-label={$t("common.search.title", "Search")}
+      >
+        <Search
+          class="size-4 shrink-0 transition-colors group-hover:text-(--f2z-accent-primary)"
+        />
+        <span class="flex-1 truncate text-left"
+          >{$t(
+            "common.navigation.searchPlaceholder",
+            "Search creators and pages…",
+          )}</span
         >
-          {shortcutLabel}
-        </kbd>
-      {/if}
-    </button>
+        {#if shortcutLabel}
+          <!-- pointer-coarse belt-and-braces: the label is already blanked in
+               JS on touch devices, this keeps it hidden even if a UA
+               reports a desktop-width viewport with a touch-only pointer. -->
+          <kbd
+            class="hidden h-5 items-center gap-0.5 rounded border border-(--f2z-border-primary) bg-(--f2z-bg-primary) px-1.5 font-sans text-[11px] font-medium text-(--f2z-text-muted) md:inline-flex pointer-coarse:hidden!"
+          >
+            {shortcutLabel}
+          </kbd>
+        {/if}
+      </button>
+    {/if}
 
     <!-- Right: actions -->
-    <div class="flex flex-1 items-center justify-end gap-1">
-      <!-- Search trigger (mobile) -->
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        class="sm:hidden {iconButtonClass}"
-        aria-label="Search"
-        onclick={() => (searchOpen = true)}
-      >
-        <Search class="size-5" />
-      </Button>
-
-      <Button
-        href="/converse"
-        variant="ghost"
-        size="icon-sm"
-        class="{iconButtonClass} {isConverseRoute
-          ? 'text-(--f2z-accent-primary)'
-          : ''}"
-        aria-label="Converse"
-        aria-current={isConverseRoute ? "page" : undefined}
-        title="Converse"
-      >
-        <MessagesSquare class="size-4" />
-      </Button>
-
-      {#if $isAuthenticated}
+    <div
+      class="flex shrink-0 items-center justify-end gap-0 min-[360px]:gap-1 md:gap-2 lg:flex-1"
+    >
+      <!-- Search trigger (mobile). Hidden on the homepage, where the feed
+           below md already shows a search field. -->
+      {#if !isSearchPage && !isHomePage}
         <Button
           variant="ghost"
           size="icon-sm"
-          class="relative {iconButtonClass}"
-          aria-label="Notifications"
-          title="Notifications"
-          onclick={handleNotificationsClick}
+          class="md:hidden {iconButtonClass}"
+          aria-label={$t("common.search.title", "Search")}
+          data-testid="navbar-mobile-search"
+          onclick={() => (searchOpen = true)}
         >
-          <Bell class="size-4" />
-          {#if $eventNotifications.unreadCount > 0}
-            <span
-              class="absolute -top-1 -right-1 h-5 min-w-5 rounded-full bg-primary px-1 text-center text-[10px] leading-5 font-bold text-primary-foreground"
-            >
-              {$eventNotifications.unreadCount > 99
-                ? "99+"
-                : $eventNotifications.unreadCount}
-            </span>
-          {/if}
+          <Search class="size-[1.125rem]" />
         </Button>
+      {/if}
+
+      <!-- Primary create affordance: one click to the editor from anywhere
+           . Icon-only on small screens, labelled from lg up. -->
+      {#if $isAuthenticated}
+        <Button
+          href="/edit"
+          variant="ghost"
+          size="sm"
+          data-testid="nav-create"
+          class="size-8 p-0 md:h-8 md:w-auto md:px-2.5 {iconButtonClass} {isEditorRoute
+            ? 'text-(--f2z-accent-primary)'
+            : ''}"
+          aria-label={$t("common.navigation.create", "Create")}
+          aria-current={isEditorRoute ? "page" : undefined}
+          title={$t("common.navigation.create", "Create")}
+        >
+          <SquarePen class="size-4" />
+          <span class="hidden lg:inline"
+            >{$t("common.navigation.create", "Create")}</span
+          >
+        </Button>
+      {/if}
+
+      <!-- Labeled, not a bare glyph. An icon-only entrance was the ONLY way
+           into the microblog stream, at any breakpoint, which is most of why
+           nobody found it. Same `hidden lg:inline` treatment as Create, so the
+           narrow navbar still gets an icon and desktop gets a word. -->
+      <Button
+        href="/converse"
+        variant="ghost"
+        size="sm"
+        class="inline-flex size-8 p-0 md:h-8 md:w-auto md:px-2.5 {iconButtonClass} {isConverseRoute
+          ? 'text-(--f2z-accent-primary)'
+          : ''}"
+        aria-label={$t("converse.title", "Converse")}
+        aria-current={isConverseRoute ? "page" : undefined}
+        title={$t("converse.title", "Converse")}
+        data-testid="navbar-converse"
+      >
+        <MessagesSquare class="size-[0.9375rem] sm:size-4" />
+        <span class="hidden lg:inline">{$t("converse.title", "Converse")}</span>
+      </Button>
+
+      {#if $isAuthenticated}
+        <!-- Carries its own "live notifications are offline" state.
+             It lives inside the bell rather than beside it because a second
+             control overflows a 320px navbar on any non-home route. -->
+        <NotificationBell class={iconButtonClass} />
       {/if}
 
       {#if $isAuthenticated && $currentUser?.username}
@@ -207,38 +271,11 @@
         </div>
       {/if}
 
-      {#if showClassicLink && !$isAuthenticated}
-        <Tooltip.Provider delayDuration={180}>
-          <Tooltip.Root>
-            <Tooltip.Trigger>
-              {#snippet child({ props })}
-                <Button
-                  {...props}
-                  href={CLASSIC_UI_PATH}
-                  data-sveltekit-reload
-                  variant="ghost"
-                  size="icon-sm"
-                  class="group rounded-full bg-transparent hover:bg-transparent dark:hover:bg-transparent"
-                  aria-label="Switch to the classic Free2Z site"
-                >
-                  <img
-                    src="/favicon.ico"
-                    alt=""
-                    class="size-5 object-contain opacity-60 grayscale transition-all duration-200 group-hover:scale-110 group-hover:opacity-100 group-hover:grayscale-0 group-focus-visible:scale-110 group-focus-visible:opacity-100 group-focus-visible:grayscale-0"
-                  />
-                </Button>
-              {/snippet}
-            </Tooltip.Trigger>
-            <Tooltip.Content side="bottom" sideOffset={8}>
-              Switch back to classic site
-            </Tooltip.Content>
-          </Tooltip.Root>
-        </Tooltip.Provider>
-      {/if}
-
-      <div class="ml-1">
+      <div class="ml-3 flex shrink-0 items-center">
         {#if $isAuthenticated}
-          <AuthUserDropdown />
+          <AuthUserDropdown bind:open={profileOpen} />
+        {:else if isAuthUnresolved}
+          <AuthPendingPlaceholder />
         {:else}
           <AuthButton />
         {/if}

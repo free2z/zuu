@@ -1,5 +1,5 @@
 import type { Component } from "svelte";
-import { t } from "$lib/i18n";
+import type { TranslationFunction } from "$lib/i18n";
 import {
   AudioLines,
   Bold,
@@ -18,14 +18,21 @@ import {
   Sigma,
   Strikethrough,
   Table,
+  Video,
 } from "@lucide/svelte";
 import { editorShortcuts, type PlatformShortcut } from "./shortcuts";
+import {
+  CONVERSE_SLASH_COMMAND_IDS,
+  pickSlashCommands,
+} from "./textareaCommands";
 
 export type SlashCommand = {
+  /** Stable, untranslated identity — what a host's command subset names. */
+  id: string;
   name: string;
   icon: Component;
   insert?: string;
-  action?: "open-image-picker";
+  action?: "open-image-picker" | "open-video-picker";
   description: string;
   shortcut?: PlatformShortcut;
   keywords?: string[];
@@ -33,10 +40,33 @@ export type SlashCommand = {
   selectionEndOffset?: number;
 };
 
-export function createSlashCommands(): SlashCommand[] {
+export function createSlashCommands(t: TranslationFunction): SlashCommand[] {
+  const boldText = t("editor.insertTemplates.boldText", "bold text");
+  const italicText = t("editor.insertTemplates.italicText", "italic text");
+  const struckText = t("editor.insertTemplates.struckText", "struck text");
+  const codeText = t("editor.insertTemplates.code", "code");
+  const linkText = t("editor.insertTemplates.linkText", "link text");
+  const mermaidStart = t("editor.insertTemplates.mermaidStart", "Start");
+  const mermaidFinish = t("editor.insertTemplates.mermaidFinish", "Finish");
+  const columnOne = t("editor.insertTemplates.columnOne", "Column 1");
+  const columnTwo = t("editor.insertTemplates.columnTwo", "Column 2");
+  const cellOne = t("editor.insertTemplates.cellOne", "Cell 1");
+  const cellTwo = t("editor.insertTemplates.cellTwo", "Cell 2");
+  const boldInsert = `**${boldText}**`;
+  const italicInsert = `*${italicText}*`;
+  const struckInsert = `~~${struckText}~~`;
+  const inlineCodeInsert = `\`${codeText}\``;
+  const codeBlockPrefix = "```txt\n";
+  const codeBlockInsert = `${codeBlockPrefix}${codeText}\n\`\`\``;
+  const mermaidPrefix = "```mermaid\n";
+  const mermaidBody = `graph TD\n  A[${mermaidStart}] --> B[${mermaidFinish}]`;
+  const mermaidInsert = `${mermaidPrefix}${mermaidBody}\n\`\`\``;
+  const linkInsert = `[${linkText}](url)`;
+
   return [
     {
-      name: "Heading 1",
+      id: "heading1",
+      name: t("editor.commandNames.heading1", "Heading 1"),
       icon: Heading1,
       insert: "# ",
       description: t("editor.slashCommands.heading1", "Large heading"),
@@ -44,7 +74,8 @@ export function createSlashCommands(): SlashCommand[] {
       keywords: ["h1", "title"],
     },
     {
-      name: "Heading 2",
+      id: "heading2",
+      name: t("editor.commandNames.heading2", "Heading 2"),
       icon: Heading2,
       insert: "## ",
       description: t("editor.slashCommands.heading2", "Medium heading"),
@@ -52,7 +83,8 @@ export function createSlashCommands(): SlashCommand[] {
       keywords: ["h2", "subtitle"],
     },
     {
-      name: "Heading 3",
+      id: "heading3",
+      name: t("editor.commandNames.heading3", "Heading 3"),
       icon: Heading3,
       insert: "### ",
       description: t("editor.slashCommands.heading3", "Small heading"),
@@ -60,7 +92,8 @@ export function createSlashCommands(): SlashCommand[] {
       keywords: ["h3"],
     },
     {
-      name: "Heading 4",
+      id: "heading4",
+      name: t("editor.commandNames.heading4", "Heading 4"),
       icon: Heading3,
       insert: "#### ",
       description: t("editor.slashCommands.heading4", "Section heading"),
@@ -68,7 +101,8 @@ export function createSlashCommands(): SlashCommand[] {
       keywords: ["h4"],
     },
     {
-      name: "Heading 5",
+      id: "heading5",
+      name: t("editor.commandNames.heading5", "Heading 5"),
       icon: Heading3,
       insert: "##### ",
       description: t("editor.slashCommands.heading5", "Minor heading"),
@@ -76,7 +110,8 @@ export function createSlashCommands(): SlashCommand[] {
       keywords: ["h5"],
     },
     {
-      name: "Heading 6",
+      id: "heading6",
+      name: t("editor.commandNames.heading6", "Heading 6"),
       icon: Heading3,
       insert: "###### ",
       description: t("editor.slashCommands.heading6", "Smallest heading"),
@@ -84,27 +119,30 @@ export function createSlashCommands(): SlashCommand[] {
       keywords: ["h6"],
     },
     {
-      name: "Bold",
+      id: "bold",
+      name: t("editor.commandNames.bold", "Bold"),
       icon: Bold,
-      insert: "**bold text**",
+      insert: boldInsert,
       description: t("editor.slashCommands.bold", "Make text bold"),
       shortcut: editorShortcuts.bold,
       selectionStartOffset: 2,
-      selectionEndOffset: 11,
+      selectionEndOffset: 2 + boldText.length,
     },
     {
-      name: "Italic",
+      id: "italic",
+      name: t("editor.commandNames.italic", "Italic"),
       icon: Italic,
-      insert: "*italic text*",
+      insert: italicInsert,
       description: t("editor.slashCommands.italic", "Make text italic"),
       shortcut: editorShortcuts.italic,
       selectionStartOffset: 1,
-      selectionEndOffset: 12,
+      selectionEndOffset: 1 + italicText.length,
     },
     {
-      name: "Strikethrough",
+      id: "strikethrough",
+      name: t("editor.commandNames.strikethrough", "Strikethrough"),
       icon: Strikethrough,
-      insert: "~~struck text~~",
+      insert: struckInsert,
       description: t(
         "editor.slashCommands.strikethrough",
         "Strike through text",
@@ -112,20 +150,22 @@ export function createSlashCommands(): SlashCommand[] {
       shortcut: editorShortcuts.strikethrough,
       keywords: ["strike", "delete"],
       selectionStartOffset: 2,
-      selectionEndOffset: 13,
+      selectionEndOffset: 2 + struckText.length,
     },
     {
-      name: "Inline Code",
+      id: "inlineCode",
+      name: t("editor.commandNames.inlineCode", "Inline code"),
       icon: Code,
-      insert: "`code`",
+      insert: inlineCodeInsert,
       description: t("editor.slashCommands.inlineCode", "Insert inline code"),
       shortcut: editorShortcuts.code,
       keywords: ["code", "snippet"],
       selectionStartOffset: 1,
-      selectionEndOffset: 5,
+      selectionEndOffset: 1 + codeText.length,
     },
     {
-      name: "Inline Math",
+      id: "inlineMath",
+      name: t("editor.commandNames.inlineMath", "Inline math"),
       icon: Sigma,
       insert: "$$x^2$$",
       description: t("editor.slashCommands.inlineMath", "Insert inline LaTeX"),
@@ -134,7 +174,8 @@ export function createSlashCommands(): SlashCommand[] {
       selectionEndOffset: 5,
     },
     {
-      name: "Math Block",
+      id: "mathBlock",
+      name: t("editor.commandNames.mathBlock", "Math block"),
       icon: Sigma,
       insert: "$$\n\\frac{a}{b}\n$$",
       description: t(
@@ -146,16 +187,18 @@ export function createSlashCommands(): SlashCommand[] {
       selectionEndOffset: 14,
     },
     {
-      name: "Code Block",
+      id: "codeBlock",
+      name: t("editor.commandNames.codeBlock", "Code block"),
       icon: Code,
-      insert: "```txt\ncode\n```",
+      insert: codeBlockInsert,
       description: t("editor.slashCommands.code", "Insert code block"),
       keywords: ["fenced", "pre", "block"],
-      selectionStartOffset: 7,
-      selectionEndOffset: 11,
+      selectionStartOffset: codeBlockPrefix.length,
+      selectionEndOffset: codeBlockPrefix.length + codeText.length,
     },
     {
-      name: "Numbered Code Block",
+      id: "numberedCode",
+      name: t("editor.commandNames.numberedCode", "Numbered code block"),
       icon: Code,
       insert:
         "```js {1,3} showLineNumbers\nconst example = true;\nconsole.log(example);\nreturn example;\n```",
@@ -168,19 +211,21 @@ export function createSlashCommands(): SlashCommand[] {
       selectionEndOffset: 11,
     },
     {
-      name: "Mermaid Diagram",
+      id: "mermaid",
+      name: t("editor.commandNames.mermaid", "Mermaid diagram"),
       icon: Code,
-      insert: "```mermaid\ngraph TD\n  A[Start] --> B[Finish]\n```",
+      insert: mermaidInsert,
       description: t(
         "editor.slashCommands.mermaid",
         "Insert Mermaid diagram block",
       ),
       keywords: ["mermaid", "diagram", "flowchart", "graph"],
-      selectionStartOffset: 11,
-      selectionEndOffset: 44,
+      selectionStartOffset: mermaidPrefix.length,
+      selectionEndOffset: mermaidPrefix.length + mermaidBody.length,
     },
     {
-      name: "Quote",
+      id: "quote",
+      name: t("editor.commandNames.quote", "Quote"),
       icon: Quote,
       insert: "> ",
       description: t("editor.slashCommands.quote", "Insert quote"),
@@ -188,7 +233,8 @@ export function createSlashCommands(): SlashCommand[] {
       keywords: ["blockquote"],
     },
     {
-      name: "Bullet List",
+      id: "bulletList",
+      name: t("editor.commandNames.bulletList", "Bullet list"),
       icon: List,
       insert: "- ",
       description: t("editor.slashCommands.bulletList", "Create bullet list"),
@@ -196,7 +242,8 @@ export function createSlashCommands(): SlashCommand[] {
       keywords: ["unordered", "ul"],
     },
     {
-      name: "Numbered List",
+      id: "numberedList",
+      name: t("editor.commandNames.numberedList", "Numbered list"),
       icon: ListOrdered,
       insert: "1. ",
       description: t(
@@ -207,34 +254,35 @@ export function createSlashCommands(): SlashCommand[] {
       keywords: ["ordered", "ol"],
     },
     {
-      name: "Task List",
+      id: "taskList",
+      name: t("editor.commandNames.taskList", "Task list"),
       icon: List,
       insert: "- [ ] ",
       description: t("editor.slashCommands.taskList", "Create task list"),
       keywords: ["todo", "checkbox", "checklist"],
     },
     {
-      name: "Link",
+      id: "link",
+      name: t("editor.commandNames.link", "Link"),
       icon: Link2,
-      insert: "[link text](url)",
+      insert: linkInsert,
       description: t("editor.slashCommands.link", "Insert link"),
       shortcut: editorShortcuts.link,
       keywords: ["url", "href"],
       selectionStartOffset: 1,
-      selectionEndOffset: 10,
+      selectionEndOffset: 1 + linkText.length,
     },
     {
-      name: "Image",
+      id: "image",
+      name: t("editor.commandNames.image", "Image"),
       icon: ImageIcon,
       action: "open-image-picker",
-      description: t(
-        "editor.slashCommands.image",
-        "Upload from device or choose from your cloud",
-      ),
+      description: t("editor.slashCommands.image", "Insert image"),
       keywords: ["media", "photo", "upload", "cloud", "free2z"],
     },
     {
-      name: "Embed",
+      id: "embed",
+      name: t("editor.commandNames.embed", "Embed"),
       icon: Link2,
       insert: "::embed[https://example.com]",
       description: t("editor.slashCommands.embed", "Insert external embed"),
@@ -243,7 +291,8 @@ export function createSlashCommands(): SlashCommand[] {
       selectionEndOffset: 27,
     },
     {
-      name: "Audio Embed",
+      id: "audioEmbed",
+      name: t("editor.commandNames.audioEmbed", "Audio embed"),
       icon: AudioLines,
       insert: "::embed[/uploadz/path/to/audio.mp3]",
       description: t(
@@ -255,7 +304,8 @@ export function createSlashCommands(): SlashCommand[] {
       selectionEndOffset: 34,
     },
     {
-      name: "Iframe",
+      id: "iframe",
+      name: t("editor.commandNames.iframe", "Iframe"),
       icon: Link2,
       insert: "::iframe[https://example.com]",
       description: t("editor.slashCommands.iframe", "Insert an iframe embed"),
@@ -264,7 +314,8 @@ export function createSlashCommands(): SlashCommand[] {
       selectionEndOffset: 28,
     },
     {
-      name: "QR Code",
+      id: "qrCode",
+      name: t("editor.commandNames.qrCode", "QR code"),
       icon: QrCode,
       insert: "::qrcode[zcash address or content]",
       description: t(
@@ -276,7 +327,8 @@ export function createSlashCommands(): SlashCommand[] {
       selectionEndOffset: 33,
     },
     {
-      name: "Footnote",
+      id: "footnote",
+      name: t("editor.commandNames.footnote", "Footnote"),
       icon: ListOrdered,
       insert: "Text with a footnote[^1].\n\n[^1]: Footnote content",
       description: t(
@@ -288,19 +340,42 @@ export function createSlashCommands(): SlashCommand[] {
       selectionEndOffset: 49,
     },
     {
-      name: "Table",
+      id: "table",
+      name: t("editor.commandNames.table", "Table"),
       icon: Table,
-      insert:
-        "| Column 1 | Column 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |",
+      insert: `| ${columnOne} | ${columnTwo} |\n|----------|----------|\n| ${cellOne} | ${cellTwo} |`,
       description: t("editor.slashCommands.table", "Insert table"),
       keywords: ["gfm", "columns", "grid"],
     },
     {
-      name: "Divider",
+      id: "divider",
+      name: t("editor.commandNames.divider", "Divider"),
       icon: Minus,
       insert: "\n---\n",
       description: t("editor.slashCommands.divider", "Insert horizontal line"),
       keywords: ["hr", "rule", "separator"],
     },
   ];
+}
+
+/**
+ * The short-post subset Converse offers. Same command objects as the
+ * zPage editor — the subset is chosen by id, never re-declared.
+ */
+export function createConverseSlashCommands(
+  t: TranslationFunction,
+): SlashCommand[] {
+  const commands = pickSlashCommands(
+    createSlashCommands(t),
+    CONVERSE_SLASH_COMMAND_IDS,
+  );
+  commands.splice(1, 0, {
+    id: "video",
+    name: t("editor.videoPicker.addImage", "Add Video"),
+    icon: Video,
+    action: "open-video-picker",
+    description: t("editor.insertVideo", "Insert video"),
+    keywords: ["video", "upload", "movie"],
+  });
+  return commands;
 }

@@ -1,36 +1,26 @@
-# Free2Z Live
+# Bring your community live
 
-Free2Z Live is our livestreaming feature that opens up new avenues for
-real-time engagement and monetization.
+Host a broadcast, meet your subscribers, offer a pay-per-view experience, or invite people to a private room.
 
-![Go Live](https://free2z.com/uploadz/public/free2z/go-live.png)
+## Prepare your room
 
-[Learn more about Free2Z Live features >](../for-creators/free2z-live)
+You need at least **150 2Z credits** in your usage balance to start a livestream. Check the hosting costs and access settings shown in the app before starting.
 
+1. Sign in to your own account and open the stream controls from your dashboard or creator tools.
+2. Choose the room's access type. For pay-per-view, review the displayed credit price per minute.
+3. Test your microphone and camera and allow the device permissions you want to use.
+4. Start the room and share its link. Keep a private invitation link private.
+5. Use the room's end controls to finish the session for everyone when you are done.
 
-## Host Requirements
+| Access type | Who can join |
+| --- | --- |
+| Public broadcast | Viewers with the public room link, subject to the room's controls |
+| Subscriber-only | Members with access to your subscriber benefits |
+| Pay-per-view | Signed-in viewers with credits at the displayed price |
+| Private invitation | People with your invitation link |
 
-- The host must have a balance of at least 150 2Zs to start a livestream
+## Earn from qualifying PPV
 
-:::success Spam and Abuse
-Ask us for some 2Zs if you're interested in trying out Free2Z Live.
-The 150 2Z limit functions to eliminate spam and abuse.
-Explain in a zPage why you want to try it out and we'll send you
-some 2Zs to get started.
-:::
+Verified creators with accepted agreements and PPV service terms can earn USD owed by 2Z Inc. for qualifying delivered paid live services. Earnings appear separately from credits in Credits & Earnings and are paid in shielded Zcash. Starting a room or receiving a credit gift does not itself earn money.
 
-
-## Types of Livestreams
-
-![Types of Livestreams](https://free2z.com/uploadz/public/free2z/stream-types.png)
-
-:::info
-The following table outlines our pricing model for Free2Z Live:
-
-| Livestream Model | Cost to Host             | Cost to Viewer               | Note                                                                 |
-| ---------------- | ------------------------ | ---------------------------- | -------------------------------------------------------------------- |
-| Broadcaster Pays | 30 tuzis per viewer hour | FREE!                        | Good for maximum engagement. Participants don't even need to log in! |
-| Subscribers-Only | FREE!                    | FREE!                        | Free! Participants must be subscribed.                               |
-| PPV              | FREE!                    | 30 tuzis per hour + host fee | Host sets and receives 100% of their PPV fee.                        |
-:::
-
+[Set up creator earnings](../revenue-sharing/index.md) before offering compensated services. Subscriber memberships use credits for access benefits.

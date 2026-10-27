@@ -1,45 +1,21 @@
 ---
-title: Risk Disclosure Statements
+title: Zcash and Payment Risks
 ---
 
-## Introduction
+Zcash payments need care. Check the address, amount, network, and required memo before sending, and protect your wallet's recovery information. A mistaken transfer may be difficult or impossible to recover.
 
-This document contains Risk Disclosure Statements for users of the Free2Z platform (the "Platform"). It aims to inform users about the inherent risks associated with cryptocurrency transactions and participation in the revenue share program. By using the Platform, users acknowledge and accept these risks.
+## Market prices and confirmation
 
-## General Risk Statement
+Zcash's market price can change quickly. Buying [2Z credits](./05-token-sale-and-usage-terms.md) uses the rate when Free2Z processes your confirmed payment; the displayed estimate does not reserve a price. [Creator payments](./07-token-redemption-policy.md) use the conversion method accepted in your creator agreement. The two transactions have different pricing and fee terms.
 
-- The use of the Platform, including participation in the revenue share program and engaging in cryptocurrency transactions, involves significant risks. Users should understand these risks and consider them in relation to their personal circumstances before using the Platform.
+A wallet send is not proof that Free2Z has received or credited a purchase. Payments can take time to confirm or require review. If the outcome is uncertain, keep the original reference and check that transaction before sending again.
 
-## Cryptocurrency Transaction Risks
+## Creator earnings
 
-1. **Market Risk**: Cryptocurrency markets are extremely volatile. Users acknowledge that the value of cryptocurrencies can fluctuate dramatically within a short period.
-2. **Regulatory Risk**: The legal status of cryptocurrencies can be subject to change and varies by jurisdiction. Users should be aware that regulatory changes, restrictions, or bans may impact the value or legality of their cryptocurrency activities, which are conducted independently and not facilitated by Free2Z.
-3. **Technology Risk**: Cryptocurrencies operate on digital platforms. Users are exposed to risks including operational failures, cyberattacks, and loss of funds due to technical vulnerabilities.
+You earn only for qualifying completed services under the accepted [creator agreement and service terms](./06-revenue-share-agreement.md). Demand, usage, and service earnings can vary; no future income is guaranteed. Amounts already owed remain obligations even if future participation ends.
 
-## Revenue Share Program Risks
+Identity, tax, address, and sanctions review can delay payment. A required withholding or lawful hold does not cancel the amount owed. Your own tax and other legal duties depend on your circumstances and applicable law.
 
-1. **Earnings Variability**: Free2Z does not guarantee any fixed earnings through the revenue share program. The amount a user may earn can vary based on several factors, including user engagement and changes in the Platform's policies or algorithms.
-2. **Regulatory Compliance**: Contractors eligible for financial rewards through our rewards program are subject to AML/KYC compliance checks. These checks are a standard part of our due diligence for the rewards program, ensuring compliance with legal standards. They do not reflect typical activities associated with financial service operations, as Free2Z does not operate as a financial institution.
-3. **Tax Liability**: Participation in the revenue share program may create tax liabilities for users. Users are responsible for understanding and complying with their tax obligations.
+## Getting help
 
-## No Liability
-
-- Free2Z is not liable for any losses or damages incurred as a result of using the Platform, participating in the revenue share program, or engaging in cryptocurrency transactions. This includes, but is not limited to, losses or damages resulting from market volatility, regulatory changes, technological issues, or individual user actions.
-
-## User Responsibility
-
-- Users are solely responsible for their decisions and actions on the Platform. They are advised to seek independent financial, legal, or tax advice as appropriate.
-
-## Amendments to Risk Disclosures
-
-- The Company reserves the right to modify these Risk Disclosure Statements at any time. Continued use of the Platform after changes signifies acceptance of the new terms.
-
-## Governing Law
-
-- These Risk Disclosure Statements are governed by the laws of the jurisdiction where Free2Z is established.
-
-## Contact Information
-
-- For any inquiries related to these Risk Disclosure Statements, please contact us at [insert email/contact method].
-
-By using the Free2Z platform, users acknowledge and agree to these Risk Disclosure Statements.
+Contact [help@free2z.com](mailto:help@free2z.com) with the purchase, service, or payment reference. Never send spending keys or recovery phrases. The general terms' limitations of liability remain subject to mandatory rights and our contractual payment and delivery obligations.

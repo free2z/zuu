@@ -1,0 +1,7 @@
+{
+  "key_id": "fixture-rfc8032-test1",
+  "public_key_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+  "signature_hex": "b6693f7d310048c0fe5988cc8e733e9b5ac2a5f81d88d960401d9e4c1b11b3028fea14b0c95c2f85dbc9ce9d2b45d34a24de656dd4fad6f468ce6a7dbcc23d03",
+  "signing_label": "free2z/ai-catalog/v1",
+  "note": "RFC 8032 TEST 1 key. Public. Fixtures only; never a production key."
+}

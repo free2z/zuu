@@ -1,16 +1,21 @@
 <script lang="ts">
-  import type { PageData } from './$types';
-  import { goto } from '$app/navigation';
-  import { onMount, onDestroy } from 'svelte';
-  import { Button } from '$lib/components/ui/button';
-  import * as Select from '$lib/components/ui/select';
-  import { Skeleton } from '$lib/components/ui/skeleton';
+  import type { PageData } from "./$types";
+  import { goto } from "$app/navigation";
+  import { onMount, onDestroy } from "svelte";
+  import { Button } from "$lib/components/ui/button";
+  import * as Select from "$lib/components/ui/select";
+  import { Skeleton } from "$lib/components/ui/skeleton";
   import {
     eventNotifications,
     type EventReadFilter,
     type EventSortOrder,
-  } from '$lib/stores/eventNotifications';
-  import { formatRelativeTime } from '$lib/utils/date';
+  } from "$lib/stores/eventNotifications";
+  import { currentUser } from "$lib/stores/auth";
+  import { formatRelativeTime, toTimestamp } from "$lib/utils/date";
+  import { formatEventNotification } from "$lib/utils/event-notifications";
+  import { isSingularCount, locale, tStore as t } from "$lib/i18n";
+  import { toast, captureAccountToast } from "$lib/toast.js";
+  import { isApiTimeoutError } from "$lib/api/request-timeout.js";
   import {
     ArrowUpDown,
     Bell,
@@ -19,54 +24,81 @@
     Coins,
     Loader2,
     RefreshCcw,
-  } from '@lucide/svelte';
+  } from "@lucide/svelte";
 
   export let data: PageData;
 
+  /**
+   * "Mark all as read" used to fail silently and snap the list back.
+   * The store now undoes only its own optimistic flip, re-reads the server and
+   * re-throws; this says so, with the server's reason when it gave one.
+   */
+  async function markAllRead() {
+    const operationNotice = captureAccountToast();
+    try {
+      await eventNotifications.markAllRead();
+    } catch (error: any) {
+      operationNotice.error(
+        error?.serverMessage ||
+          (isApiTimeoutError(error) ? error.message : "") ||
+          $t(
+            "dashboard.notifications.markAllReadFailed",
+            "Could not mark your notifications as read. Try again.",
+          ),
+      );
+    }
+  }
+
+  let mounted = false;
   let sentinel: HTMLDivElement | null = null;
   let observer: IntersectionObserver | null = null;
+  let view: ReturnType<
+    typeof eventNotifications.enterNotificationsView
+  > | null = null;
 
   $: state = $eventNotifications;
-  $: showAllEvents = state.filter === 'all';
+  $: showAllEvents = state.filter === "all";
   $: unreadCount = Math.max(
     state.unreadCount,
     state.events.filter((event) => !event.read).length,
   );
   $: visibleEvents = state.events
     .filter((event) => {
-      if (state.readFilter === 'unread') return !event.read;
-      if (state.readFilter === 'read') return event.read;
+      if (state.readFilter === "unread") return !event.read;
+      if (state.readFilter === "read") return event.read;
       return true;
     })
     .sort((a, b) => {
-      const difference =
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-      return state.sortOrder === 'oldest' ? difference : -difference;
+      const difference = toTimestamp(a.created_at) - toTimestamp(b.created_at);
+      return state.sortOrder === "oldest" ? difference : -difference;
     });
 
   const SENT_OR_SPEND_TYPES = [
-    'DONATION_SENT',
-    'SUBSCRIPTION_SENT',
-    'PAY_PER_VIEW_SPEND',
+    "DONATION_SENT",
+    "SUBSCRIPTION_SENT",
+    "PAY_PER_VIEW_SPEND",
   ];
 
-  const EVENT_TYPE_LABELS: Record<string, string> = {
-    AISCORE_COMMENT: 'AI Score',
-    MADE_COMMENT: 'Comment',
-    VOTE_COMMENT_RECEIVED: 'Comment Vote In',
-    VOTE_COMMENT_SENT: 'Comment Vote Out',
-    NEW_REPLY: 'Reply',
-    PAGE_UPDATE: 'Page Update',
-    PAGE_VOTE: 'Page Vote',
-    DONATION_RECEIVED: 'Donation In',
-    DONATION_SENT: 'Donation Out',
-    SUBSCRIPTION_RECEIVED: 'Subscription In',
-    SUBSCRIPTION_SENT: 'Subscription Out',
-    BOUGHT_TUZI: 'Bought Tuzi',
-    CHAT2Z: 'Chat2Z',
-    PLATFORM_FEE: 'Platform Fee',
-    PAY_PER_VIEW_REVENUE: 'PPV Revenue',
-    PAY_PER_VIEW_SPEND: 'PPV Spend',
+  // key suffix under dashboard.notifications.eventTypes.* -> English fallback
+  const EVENT_TYPE_LABELS: Record<string, [string, string]> = {
+    AISCORE_COMMENT: ["aiScoreComment", "AI Score"],
+    MADE_COMMENT: ["comment", "Comment"],
+    VOTE_COMMENT_RECEIVED: ["commentVoteReceived", "Comment Vote In"],
+    VOTE_COMMENT_SENT: ["commentVoteSent", "Comment Vote Out"],
+    NEW_REPLY: ["reply", "Reply"],
+    PAGE_UPDATE: ["pageUpdate", "Page Update"],
+    PAGE_VOTE: ["pageVote", "Page Vote"],
+    PAGE_MENTION: ["pageMention", "Page Mention"],
+    DONATION_RECEIVED: ["donationReceived", "Donation In"],
+    DONATION_SENT: ["donationSent", "Donation Out"],
+    SUBSCRIPTION_RECEIVED: ["subscriptionReceived", "Subscription In"],
+    SUBSCRIPTION_SENT: ["subscriptionSent", "Subscription Out"],
+    BOUGHT_TUZI: ["bought2Z", "Bought 2Z"],
+    ZEC_PENDING: ["zecPending", "Payment Seen"],
+    PLATFORM_FEE: ["platformFee", "Platform Fee"],
+    PAY_PER_VIEW_REVENUE: ["ppvRevenue", "PPV credits received"],
+    PAY_PER_VIEW_SPEND: ["ppvSpend", "PPV Spend"],
+    ENCRYPTED_CHAT_REQUEST: ["encryptedChatRequest", "Encrypted Chat"],
   };
 
   function isSentOrSpendType(type: string | undefined): boolean {
@@ -74,8 +106,12 @@
   }
 
   function eventTypeLabel(type: string | undefined): string {
-    if (!type) return 'Event';
-    return EVENT_TYPE_LABELS[type] || type.replaceAll('_', ' ');
+    if (!type) return $t("dashboard.notifications.eventTypes.event", "Event");
+    // Brand name, deliberately not translated.
+    if (type === "CHAT2Z") return "Chat2Z";
+    const entry = EVENT_TYPE_LABELS[type];
+    if (!entry) return type.replaceAll("_", " ");
+    return $t(`dashboard.notifications.eventTypes.${entry[0]}`, entry[1]);
   }
 
   function contributorAvatar(event: any): string | null {
@@ -88,22 +124,33 @@
 
   function contributorInitial(event: any): string {
     return (
-      event?.contributor?.username?.trim()?.charAt(0)?.toUpperCase() || '?'
+      event?.contributor?.username?.trim()?.charAt(0)?.toUpperCase() || "?"
     );
   }
 
   function counterparty(event: any): string {
     if (isSentOrSpendType(event?.type) && event?.payee?.username) {
-      return `To ${event.payee.username}`;
+      return $t("dashboard.notifications.toUser", "To: {username}", {
+        username: event.payee.username,
+      });
     }
     if (event?.contributor?.username) {
-      return `From ${event.contributor.username}`;
+      return $t("dashboard.notifications.fromUser", "From: {username}", {
+        username: event.contributor.username,
+      });
     }
-    return '';
+    return "";
   }
 
   function amountLabel(amount: number): string {
-    return `${amount.toLocaleString()} ${amount === 1 ? 'tuzi' : 'tuzis'}`;
+    const formatted = amount.toLocaleString($locale);
+    return isSingularCount(amount, $locale)
+      ? $t("dashboard.notifications.amount2ZOne", "{amount} 2Z", {
+          amount: formatted,
+        })
+      : $t("dashboard.notifications.amount2Z", "{amount} 2Z", {
+          amount: formatted,
+        });
   }
 
   async function openEvent(event: any) {
@@ -117,7 +164,7 @@
       return;
     }
 
-    if (event.content_url.startsWith('/')) {
+    if (event.content_url.startsWith("/")) {
       goto(event.content_url);
       return;
     }
@@ -126,7 +173,7 @@
   }
 
   async function onFilterChange(nextShowAll: boolean) {
-    const nextFilter = nextShowAll ? 'all' : 'social';
+    const nextFilter = nextShowAll ? "all" : "social";
     if (nextFilter === state.filter) {
       return;
     }
@@ -143,27 +190,54 @@
     await eventNotifications.setSortOrder(value as EventSortOrder);
   }
 
-  onMount(async () => {
-    await eventNotifications.refreshMeta();
+  // Initial authentication may reset the shared feed after this page mounts.
+  // Reacquire only for this mounted recipient; logout never revives its lease.
+  $: if (
+    mounted &&
+    state &&
+    $currentUser?.username === data.username &&
+    !view?.isCurrent()
+  ) {
+    void activateView();
+  }
+
+  async function activateView() {
+    observer?.disconnect();
+    observer = null;
+    const lease = eventNotifications.enterNotificationsView(data.username);
+    view = lease;
+    await eventNotifications.refreshMeta(data.username);
+    if (!lease.isCurrent()) return;
     await eventNotifications.loadInitial();
+    if (!lease.isCurrent()) return;
+    // Install scrolling once the head is ready; oldest traversal must not
+    // hold the page's controls/observer behind a slow older-page response.
+    void lease.resume().catch(() => {});
 
     observer = new IntersectionObserver(
       (entries) => {
         const [entry] = entries;
-        if (!entry?.isIntersecting) {
+        if (!lease.isCurrent() || !entry?.isIntersecting) {
           return;
         }
-        eventNotifications.loadMore();
+        if (state.sortOrder === "oldest") void lease.resume();
+        else void eventNotifications.loadMore();
       },
-      { rootMargin: '200px 0px 200px 0px' },
+      { rootMargin: "200px 0px 200px 0px" },
     );
 
     if (sentinel) {
       observer.observe(sentinel);
     }
+  }
+
+  onMount(() => {
+    mounted = true;
   });
 
   onDestroy(() => {
+    mounted = false;
+    view?.release();
     if (observer && sentinel) {
       observer.unobserve(sentinel);
     }
@@ -173,10 +247,17 @@
 </script>
 
 <svelte:head>
-  <title>Notifications • {data.username}</title>
+  <title
+    >{$t("dashboard.notifications.metaTitle", "Notifications • {username}", {
+      username: data.username,
+    })}</title
+  >
   <meta
     name="description"
-    content="Review and manage your Free2z notifications."
+    content={$t(
+      "dashboard.notifications.metaDescription",
+      "Review and manage your Free2Z notifications.",
+    )}
   />
 </svelte:head>
 
@@ -185,12 +266,25 @@
     <header>
       <div class="space-y-1">
         <h1 class="flex items-center gap-2 text-3xl font-bold tracking-tight">
-          <Bell class="size-7 text-primary" /> Notifications
+          <Bell class="size-7 text-primary" />
+          {$t("navigation.notifications", "Notifications")}
         </h1>
         <p class="text-sm text-muted-foreground">
-          {unreadCount === 0
-            ? 'You’re all caught up.'
-            : `${unreadCount} unread ${unreadCount === 1 ? 'notification' : 'notifications'}`}
+          {#if unreadCount === 0}
+            {$t("dashboard.notifications.allCaughtUp", "You’re all caught up.")}
+          {:else if isSingularCount(unreadCount, $locale)}
+            {$t(
+              "dashboard.notifications.unreadCountOne",
+              "{count} unread notification",
+              { count: unreadCount.toLocaleString($locale) },
+            )}
+          {:else}
+            {$t(
+              "dashboard.notifications.unreadCountMany",
+              "{count} unread notifications",
+              { count: unreadCount.toLocaleString($locale) },
+            )}
+          {/if}
         </p>
       </div>
     </header>
@@ -203,7 +297,8 @@
             ? 'text-muted-foreground hover:text-foreground'
             : 'bg-background text-foreground shadow-xs'}"
           aria-pressed={!showAllEvents}
-          onclick={() => onFilterChange(false)}>Social</button
+          onclick={() => onFilterChange(false)}
+          >{$t("dashboard.notifications.social", "Social")}</button
         >
         <button
           type="button"
@@ -211,7 +306,8 @@
             ? 'bg-background text-foreground shadow-xs'
             : 'text-muted-foreground hover:text-foreground'}"
           aria-pressed={showAllEvents}
-          onclick={() => onFilterChange(true)}>All</button
+          onclick={() => onFilterChange(true)}
+          >{$t("dashboard.notifications.all", "All")}</button
         >
       </div>
 
@@ -222,12 +318,17 @@
           class="size-8 bg-transparent p-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground sm:w-auto sm:px-3"
           onclick={() => eventNotifications.loadInitial({ force: true })}
           disabled={state.loadingInitial}
-          aria-label="Refresh notifications"
+          aria-label={$t(
+            "dashboard.notifications.refreshLabel",
+            "Refresh notifications",
+          )}
         >
           <RefreshCcw
             class="size-4 {state.loadingInitial ? 'animate-spin' : ''}"
           />
-          <span class="hidden sm:inline">Refresh</span>
+          <span class="hidden sm:inline"
+            >{$t("dashboard.notifications.refresh", "Refresh")}</span
+          >
         </Button>
 
         {#if unreadCount > 0 || state.markingAllRead}
@@ -235,16 +336,23 @@
             variant="outline"
             size="sm"
             class="bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-            onclick={() => eventNotifications.markAllRead()}
+            onclick={markAllRead}
             disabled={state.markingAllRead}
           >
             {#if state.markingAllRead}
               <Loader2 class="size-4 animate-spin" />
-              Marking…
+              {$t("dashboard.notifications.marking", "Marking…")}
             {:else}
               <CheckCheck class="size-4" />
-              <span class="sm:hidden">Mark all</span>
-              <span class="hidden sm:inline">Mark all read</span>
+              <span class="sm:hidden"
+                >{$t("dashboard.notifications.markAllShort", "Mark all")}</span
+              >
+              <span class="hidden sm:inline"
+                >{$t(
+                  "dashboard.notifications.markAllRead",
+                  "Mark all as read",
+                )}</span
+              >
             {/if}
           </Button>
         {/if}
@@ -260,22 +368,38 @@
         >
           <Select.Trigger
             class="w-full bg-background sm:w-40"
-            aria-label="Filter notifications by read status"
+            aria-label={$t(
+              "dashboard.notifications.readFilterLabel",
+              "Filter notifications by read status",
+            )}
             disabled={state.loadingInitial}
           >
             <CheckCheck class="size-3.5" />
-            {state.readFilter === 'all'
-              ? 'All statuses'
-              : state.readFilter === 'unread'
-                ? 'Unread'
-                : 'Read'}
+            {state.readFilter === "all"
+              ? $t("dashboard.notifications.allStatuses", "All statuses")
+              : state.readFilter === "unread"
+                ? $t("dashboard.notifications.unread", "Unread")
+                : $t("dashboard.notifications.read", "Read")}
           </Select.Trigger>
           <Select.Content>
-            <Select.Item value="all" label="All statuses"
-              >All statuses</Select.Item
+            <Select.Item
+              value="all"
+              label={$t("dashboard.notifications.allStatuses", "All statuses")}
+              >{$t(
+                "dashboard.notifications.allStatuses",
+                "All statuses",
+              )}</Select.Item
             >
-            <Select.Item value="unread" label="Unread">Unread</Select.Item>
-            <Select.Item value="read" label="Read">Read</Select.Item>
+            <Select.Item
+              value="unread"
+              label={$t("dashboard.notifications.unread", "Unread")}
+              >{$t("dashboard.notifications.unread", "Unread")}</Select.Item
+            >
+            <Select.Item
+              value="read"
+              label={$t("dashboard.notifications.read", "Read")}
+              >{$t("dashboard.notifications.read", "Read")}</Select.Item
+            >
           </Select.Content>
         </Select.Root>
 
@@ -286,18 +410,33 @@
         >
           <Select.Trigger
             class="w-full bg-background sm:w-40"
-            aria-label="Sort notifications"
+            aria-label={$t(
+              "dashboard.notifications.sortLabel",
+              "Sort notifications",
+            )}
             disabled={state.loadingInitial}
           >
             <ArrowUpDown class="size-3.5" />
-            {state.sortOrder === 'newest' ? 'Newest' : 'Oldest'}
+            {state.sortOrder === "newest"
+              ? $t("profile.sort.newest", "Newest")
+              : $t("profile.sort.oldest", "Oldest")}
           </Select.Trigger>
           <Select.Content>
-            <Select.Item value="newest" label="Newest first"
-              >Newest first</Select.Item
+            <Select.Item
+              value="newest"
+              label={$t("dashboard.notifications.newestFirst", "Newest first")}
+              >{$t(
+                "dashboard.notifications.newestFirst",
+                "Newest first",
+              )}</Select.Item
             >
-            <Select.Item value="oldest" label="Oldest first"
-              >Oldest first</Select.Item
+            <Select.Item
+              value="oldest"
+              label={$t("dashboard.notifications.oldestFirst", "Oldest first")}
+              >{$t(
+                "dashboard.notifications.oldestFirst",
+                "Oldest first",
+              )}</Select.Item
             >
           </Select.Content>
         </Select.Root>
@@ -333,24 +472,44 @@
         <Bell class="mx-auto size-6 text-muted-foreground" />
         <h2 class="text-base font-semibold">
           {state.hasEvents
-            ? 'No matching notifications'
-            : 'No notifications yet'}
+            ? $t(
+                "dashboard.notifications.emptyFilteredTitle",
+                "No matching notifications",
+              )
+            : $t("dashboard.notifications.emptyTitle", "No notifications yet")}
         </h2>
         <p class="text-sm text-muted-foreground">
           {state.hasEvents
-            ? 'Try another activity or status filter.'
-            : 'New activity will appear here.'}
+            ? $t(
+                "dashboard.notifications.emptyFilteredBody",
+                "Try another activity or status filter.",
+              )
+            : $t(
+                "dashboard.notifications.emptyBody",
+                "New activity will appear here.",
+              )}
         </p>
       </div>
     {:else}
       <div class="space-y-3">
         {#if visibleEvents.length === 0}
           <div class="px-5 py-10 text-center">
-            <p class="font-medium">No notifications match this status.</p>
+            <p class="font-medium">
+              {$t(
+                "dashboard.notifications.noStatusMatch",
+                "No notifications match this status.",
+              )}
+            </p>
             <p class="mt-1 text-sm text-muted-foreground">
               {state.nextPageUrl
-                ? 'Keep scrolling to load more, or choose another status.'
-                : 'Choose another status to see more notifications.'}
+                ? $t(
+                    "dashboard.notifications.noStatusMatchMore",
+                    "Keep scrolling to load more, or choose another status.",
+                  )
+                : $t(
+                    "dashboard.notifications.noStatusMatchEnd",
+                    "Choose another status to see more notifications.",
+                  )}
             </p>
           </div>
         {/if}
@@ -368,7 +527,11 @@
               {#if avatar}
                 <img
                   src={avatar}
-                  alt={event?.contributor?.username || 'contributor avatar'}
+                  alt={event?.contributor?.username ||
+                    $t(
+                      "dashboard.notifications.contributorAvatarAlt",
+                      "Contributor avatar",
+                    )}
                   class="size-9 shrink-0 rounded-full border border-border object-cover sm:size-10"
                   loading="lazy"
                 />
@@ -376,8 +539,12 @@
                 <span
                   class="flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-sm font-semibold text-muted-foreground sm:size-10"
                   aria-label={event?.contributor?.username
-                    ? `${event.contributor.username} avatar`
-                    : 'Notification'}
+                    ? $t(
+                        "dashboard.notifications.userAvatarLabel",
+                        "{username} avatar",
+                        { username: event.contributor.username },
+                      )
+                    : $t("dashboard.notifications.eventTypes.event", "Event")}
                 >
                   {contributorInitial(event)}
                 </span>
@@ -396,7 +563,8 @@
                       <span
                         class="size-1.5 rounded-full bg-primary"
                         aria-hidden="true"
-                      ></span> New
+                      ></span>
+                      {$t("dashboard.notifications.new", "New")}
                     </span>
                   {/if}
                   <span class="min-w-2 flex-1"></span>
@@ -407,13 +575,15 @@
                       class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
                       onclick={() => eventNotifications.markRead(event.id)}
                     >
-                      <CheckCheck class="size-4" /> Mark read
+                      <CheckCheck class="size-4" />
+                      {$t("dashboard.notifications.markRead", "Mark read")}
                     </Button>
                   {:else}
                     <span
                       class="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground"
                     >
-                      <CheckCheck class="size-4 text-primary" /> Read
+                      <CheckCheck class="size-4 text-primary" />
+                      {$t("dashboard.notifications.read", "Read")}
                     </span>
                   {/if}
                 </div>
@@ -423,13 +593,13 @@
                     class="block w-full min-w-0 text-left text-sm leading-6 font-semibold [overflow-wrap:anywhere] break-words whitespace-normal text-foreground hover:text-primary sm:text-base"
                     onclick={() => openEvent(event)}
                   >
-                    {event.message}
+                    {formatEventNotification(event, $t, $locale)}
                   </button>
                 {:else}
                   <p
                     class="min-w-0 text-sm leading-6 font-semibold [overflow-wrap:anywhere] break-words whitespace-normal sm:text-base"
                   >
-                    {event.message}
+                    {formatEventNotification(event, $t, $locale)}
                   </p>
                 {/if}
 
@@ -444,7 +614,7 @@
                       {counterparty(event)}
                     </span>
                   {/if}
-                  {#if typeof event?.amount === 'number'}
+                  {#if typeof event?.amount === "number"}
                     <span
                       class="inline-flex items-center gap-1 font-medium text-foreground/80"
                     >
@@ -459,7 +629,7 @@
                       title={event.created_at}
                     >
                       <Clock3 class="size-3.5" />
-                      {formatRelativeTime(event.created_at)}
+                      {formatRelativeTime(event.created_at, $locale)}
                     </time>
                   {/if}
                 </div>

@@ -6,6 +6,7 @@
 /docsbuild
 
 # Generated files
+/legal-plain-generated
 .docusaurus
 .cache-loader
 

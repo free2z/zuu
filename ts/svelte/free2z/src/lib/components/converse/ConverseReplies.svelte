@@ -1,11 +1,17 @@
 <script lang="ts">
-  import { env } from "$env/dynamic/public";
-  import { browser } from "$app/environment";
+  import * as env from "$app/env/public";
+  import { browser } from "$app/env";
   import { Button } from "$lib/components/ui/button";
   import { AlertCircle, ChevronRight, Loader2 } from "@lucide/svelte";
-  import { tStore as t } from "$lib/i18n";
+  import {
+    formatLocalizedNumber,
+    isSingularCount,
+    locale,
+    tStore as t,
+  } from "$lib/i18n";
   import ConversePost from "./ConversePost.svelte";
   import type { ConversePostData } from "./types";
+  import { CANONICAL_CONTENT_URL_HEADERS } from "$lib/api/canonical-content-url";
 
   export let parent: ConversePostData;
   export let rootUuid: string;
@@ -53,7 +59,9 @@
         if (visited.has(relative)) break;
         visited.add(relative);
 
-        const response = await fetch(`${apiBase}${relative}`);
+        const response = await fetch(`${apiBase}${relative}`, {
+          headers: CANONICAL_CONTENT_URL_HEADERS,
+        });
         if (!response.ok) throw new Error("Failed to load replies");
         const data = await response.json();
         loaded.push(...(data.results || []));
@@ -127,10 +135,19 @@
         size="sm"
         class="h-8 bg-transparent text-muted-foreground hover:bg-transparent hover:text-primary dark:hover:bg-transparent"
       >
-        {$t("converse.moreReplies", "View all {count} replies").replace(
-          "{count}",
-          String(parent.num_children),
-        )}
+        {isSingularCount(Number(parent.num_children), $locale)
+          ? $t("converse.moreRepliesOne", "View {count} reply", {
+              count: formatLocalizedNumber(
+                Number(parent.num_children),
+                $locale,
+              ),
+            })
+          : $t("converse.moreReplies", "View all {count} replies", {
+              count: formatLocalizedNumber(
+                Number(parent.num_children),
+                $locale,
+              ),
+            })}
         <ChevronRight strokeWidth={1.5} class="size-4" />
       </Button>
     {/if}

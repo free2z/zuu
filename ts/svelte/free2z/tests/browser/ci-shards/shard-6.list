@@ -1,0 +1,24 @@
+creator-ai-cover-disclosure.spec.ts
+legacy-route-redirects.spec.ts
+live-route-ssr.spec.ts
+locale-concurrency.spec.ts
+login-return-path.spec.ts
+login-unavailable.spec.ts
+logout-stay-put.spec.ts
+markdown-image-lightbox.spec.ts
+media-pdf.spec.ts
+mermaid-invalid-axis.spec.ts
+nav-create-and-search.spec.ts
+navbar-notification-active.spec.ts
+notification-socket-offline.spec.ts
+notifications-timezone.spec.ts
+oauth-apps.spec.ts
+oauth-consent.spec.ts
+outbound-link.spec.ts
+zpage-hero.spec.ts › a panorama is cropped rather than letterboxed on a phone
+zpage-hero.spec.ts › a subscriber-only zPage keeps its hero and withholds its body
+zpage-hero.spec.ts › even a normal landscape photograph is shown whole
+zpage-hero.spec.ts › expanding the outline re-measures the reading progress
+zpage-hero.spec.ts › recomputes the image fit when hero geometry settles late
+zpage-hero.spec.ts › the blurred layer costs no extra bytes and LCP stays the hero image
+zpage-hero.spec.ts › the contain-fit headline paints nothing over the cover › no band, no backdrop filter, and the photograph is whole

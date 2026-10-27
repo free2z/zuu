@@ -1,9 +1,15 @@
 <script lang="ts">
-  import { env } from "$env/dynamic/public";
+  import * as env from "$app/env/public";
   import type { CommentData } from "./types";
   import DisplayThreadedComment from "./DisplayThreadedComment.svelte";
   import { ChevronDown } from "@lucide/svelte";
-  import { tStore as t } from "$lib/i18n";
+  import {
+    formatLocalizedNumber,
+    isSingularCount,
+    locale,
+    tStore as t,
+  } from "$lib/i18n";
+  import { CANONICAL_CONTENT_URL_HEADERS } from "$lib/api/canonical-content-url";
 
   export let comment: CommentData;
   export let object_type: "zpage" | "ai_conversation" | undefined = undefined;
@@ -35,7 +41,9 @@
       }
       visitedUrls.add(fullUrl);
 
-      const res = await fetch(fullUrl);
+      const res = await fetch(fullUrl, {
+        headers: CANONICAL_CONTENT_URL_HEADERS,
+      });
       if (!res.ok) throw new Error("Failed to fetch replies");
 
       const data = await res.json();
@@ -93,12 +101,23 @@
           ? 'rotate-180'
           : ''}"
       />
-      {showAll
-        ? $t("comments.showFewer", "Show fewer replies")
-        : $t("comments.showMore", "Show {count} more replies").replace(
-            "{count}",
-            String(children.length - VISIBLE_REPLIES),
-          )}
+      {#if showAll}
+        {$t("comments.showFewer", "Show fewer replies")}
+      {:else if isSingularCount(children.length - VISIBLE_REPLIES, $locale)}
+        {$t("comments.showMoreOne", "Show {count} more reply", {
+          count: formatLocalizedNumber(
+            children.length - VISIBLE_REPLIES,
+            $locale,
+          ),
+        })}
+      {:else}
+        {$t("comments.showMore", "Show {count} more replies", {
+          count: formatLocalizedNumber(
+            children.length - VISIBLE_REPLIES,
+            $locale,
+          ),
+        })}
+      {/if}
     </button>
   {/if}
 {/if}

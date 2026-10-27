@@ -9,16 +9,44 @@ import subprocess
 import time
 
 
+class ServiceFailure(RuntimeError):
+    """An operation diagnosis composed only from approved static labels."""
+
+
+def docker_failure_reason(stderr):
+    # Never echo daemon output: it can contain command arguments or credentials.
+    text = stderr[:8192].lower()
+    categories = (
+        ('port unavailable', ('port is already allocated', 'address already in use')),
+        ('daemon unavailable', ('cannot connect to the docker daemon', 'is the docker daemon running')),
+        ('permission denied', ('permission denied',)),
+        ('certificate verification failed', ('x509:', 'certificate verify failed')),
+        ('registry rate limited', ('toomanyrequests', 'too many requests', 'rate limit')),
+        ('registry authorization failed', ('unauthorized:', 'authentication required', 'pull access denied')),
+        ('image unavailable', ('manifest unknown', 'no such image')),
+        ('network failure', ('i/o timeout', 'connection refused', 'context deadline exceeded', 'no such host')),
+        ('storage exhausted', ('no space left on device',)),
+    )
+    return next((label for label, patterns in categories if any(p in text for p in patterns)), 'unclassified failure')
+
+
 def checked_id(value):
     if not re.fullmatch(r'[0-9a-f]{64}', value):
-        raise RuntimeError('CI service did not supply a full container ID')
+        raise ServiceFailure('Docker run did not supply a full container ID')
     return value
 
 
 def docker(arguments):
-    result = subprocess.run(['docker', *arguments], capture_output=True, text=True, timeout=60)
+    operation = arguments[0] if arguments and arguments[0] in {'run', 'inspect', 'rm'} else 'unsupported'
+    try:
+        result = subprocess.run(['docker', *arguments], capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        raise ServiceFailure(f'Docker {operation} timed out after 60 seconds') from None
+    except OSError:
+        raise ServiceFailure(f'Docker {operation} could not start') from None
     if result.returncode:
-        raise RuntimeError('Owned CI service Docker command failed')
+        reason = docker_failure_reason(result.stderr)
+        raise ServiceFailure(f'Docker {operation} exited {result.returncode}: {reason}')
     return result.stdout
 
 
@@ -41,12 +69,12 @@ def start(postgres, redis, environment=os.environ, execute=docker, sleep=time.sl
                 state = json.loads(execute(['inspect', '--format', '{{json .State}}', identifier]))
                 health = state.get('Health', {}).get('Status')
                 if state.get('Status') != 'running' or health == 'unhealthy':
-                    raise RuntimeError('Owned CI service exited or is unhealthy')
+                    raise ServiceFailure(f'{name} exited or is unhealthy')
                 if health == 'healthy':
                     break
                 sleep(1)
             else:
-                raise RuntimeError('Owned CI service health check timed out')
+                raise ServiceFailure(f'{name} health check timed out')
         return created
     except BaseException:
         cleanup(created, execute)
@@ -62,7 +90,7 @@ def service_arguments(postgres, redis, environment):
         for source, target in (('DBUSER', 'POSTGRES_USER'), ('DBPASS', 'POSTGRES_PASSWORD'), ('DBNAME', 'POSTGRES_DB')):
             value = environment.get(source)
             if not value or '\n' in value or '\r' in value:
-                raise RuntimeError('Missing CI PostgreSQL fixture setting')
+                raise ServiceFailure('Missing CI PostgreSQL fixture setting')
             arguments += ['--env', target + '=' + value]
         services.append(('postgres', 'pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a', arguments))
     if redis:
@@ -70,7 +98,7 @@ def service_arguments(postgres, redis, environment):
                          '--health-cmd', 'redis-cli ping', '--health-interval', '5s',
                          '--health-timeout', '5s', '--health-retries', '10']))
     if not services:
-        raise RuntimeError('No owned CI services requested')
+        raise ServiceFailure('No owned CI services requested')
     return services
 
 
@@ -86,5 +114,6 @@ if __name__ == '__main__':
         else:
             cleanup([os.environ.get('CI_POSTGRES_CONTAINER_ID', ''), os.environ.get('CI_REDIS_CONTAINER_ID', '')])
     except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
-        print('::error::CI service operation failed: ' + type(error).__name__)
+        diagnosis = str(error) if isinstance(error, ServiceFailure) else type(error).__name__
+        print('::error::CI service operation failed: ' + diagnosis)
         raise SystemExit(1)

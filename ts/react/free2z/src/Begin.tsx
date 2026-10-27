@@ -26,6 +26,7 @@ export interface Creator extends PublicCreator {
     tuzis: string
     fans: string[]
     stars: string[]
+    star_ids?: number[]
     twitter?: TwitterProfile
     // full_name: string
     // description: string

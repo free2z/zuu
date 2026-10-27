@@ -32,7 +32,7 @@ export const TITLE_DESCRIPTION: Record<StreamType, TitleDescription> = {
     private: {
         title: 'Private (Beta)',
         description: 'Private meetings are free to start and free for participants. You will get a link to send to participants.',
-        confirmText: 'You pay 1 tuzi per 2 minutes for each participant. Participants pay nothing and can join anonymously by visiting your link.',
+        confirmText: 'Private meetings currently have no 2Z participant charge. Participants must log in to join through your private link.',
         joinText: (price) => '',
     },
     broadcast: {

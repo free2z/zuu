@@ -13,6 +13,7 @@ import {
   Login,
   HelpOutline,
   Code,
+  AutoAwesome,
 } from "@mui/icons-material";
 import {
   IconButton,
@@ -33,6 +34,7 @@ import TransitionLink from "./TransitionLink";
 import DarkMode from "./DarkMode";
 import DarkModeMenuItem from "./DarkModeMenuItem";
 import StartLiveStreamDialog from "./StartLiveStreamDialog";
+import { switchToNewUi } from "../utils/uiSwitch";
 
 const menuItemStyle = {
   padding: "0.5em 1em",
@@ -245,14 +247,20 @@ export default function AvatarMenu() {
         />
         <MenuItemWithIcon
           onClick={() => {
-            window.open(
-              "https://github.com/free2z/zuu/blob/main/ts/react/free2z",
-              "_blank"
-            );
+            window.open("https://github.com/free2z/zuu", "_blank");
           }}
           icon={<Code color="success" />}
           label="Contribute"
           tip="Get involved"
+        />
+        <MenuItemWithIcon
+          onClick={() => {
+            handleMenuClose();
+            switchToNewUi();
+          }}
+          icon={<AutoAwesome color="primary" />}
+          label="Switch to new site"
+          tip="Try the new Free2z experience"
         />
         <LogoutButton
           onClick={() => {

@@ -8,6 +8,7 @@ import { useWebSocket } from "../hooks/useWebSocket";
 import { useTransitionNavigate } from "../hooks/useTransitionNavigate";
 import { EventAPIResponse } from "./EventFeed";
 import { useMarkAsRead } from "../hooks/useMarkAsRead";
+import { openEventContentUrl } from "../eventContentUrl";
 
 
 export default function CreatorSnackSocket() {
@@ -41,7 +42,7 @@ export default function CreatorSnackSocket() {
                                 onClick={() => {
                                     closeSnackbar(key)
                                     markRead.mutate(lastEvent.id);
-                                    navigate(lastEvent.content_url);
+                                    openEventContentUrl(lastEvent.content_url, navigate);
                                 }}
                                 size="small"
                             >

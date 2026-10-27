@@ -39,6 +39,17 @@ fail_configuration() {
   exit 2
 }
 
+npm_project="${NPM_AUDIT_PROJECT:-ts/svelte/free2z}"
+npm_only="${DEPENDENCY_AUDIT_NPM_ONLY:-0}"
+case "$npm_project" in
+  ts/svelte/free2z | ts/react/free2z | docs/about-free2z | docs/free2z/website) ;;
+  *) fail_configuration "unregistered application npm project: $npm_project" ;;
+esac
+case "$npm_only" in
+  0 | 1) ;;
+  *) fail_configuration 'DEPENDENCY_AUDIT_NPM_ONLY must be 0 or 1' ;;
+esac
+
 case "$max_attempts" in
   '' | *[!0-9]*)
     fail_configuration "DEPENDENCY_AUDIT_ATTEMPTS must be a positive integer, got '$max_attempts'"
@@ -100,19 +111,23 @@ run_bounded() {
 
 scan_npm() {
   (
-    cd "$repo_root/ts/svelte/free2z"
+    cd "$repo_root/$npm_project"
     run_bounded npm audit --json
   )
 }
 
 scan_pip() {
-  # main.txt is a complete hash-locked graph, not a set of roots to resolve.
-  # Require hashes and skip resolver expansion so this audit checks advisory
-  # data for the locked package versions installed by Docker.
+  # Audit runtime, tests, lock compilers, and language-data generators.
+  # Read frozen pins directly: a temporary pip environment can omit tools that
+  # its bootstrap already installed. The checker verifies complete lock coverage.
   run_bounded "$python_bin" -m pip_audit \
     -r "$repo_root/py/free2z/requirements/main.txt" \
+    -r "$repo_root/py/free2z/requirements/test.txt" \
+    -r "$repo_root/py/free2z/requirements/lock-tools.txt" \
+    -r "$repo_root/py/free2z/requirements/language-data.txt" \
     --require-hashes \
     --no-deps \
+    --disable-pip \
     --format json
 }
 
@@ -199,10 +214,9 @@ report_resolution_failure() {
   echo "the same requirements file read by the same interpreter (${interpreter_version:-unknown})" >&2
   echo "gives the same answer every time." >&2
   if [ "$ecosystem" = pip ]; then
-    echo "The audit deliberately runs the DEPLOYED interpreter (build/free2z/backend.Dockerfile, which does" >&2
-    echo "the same 'pip install -r py/free2z/requirements/main.txt' in the production image build), so a pin" >&2
-    echo "the audit cannot install is a pin the production image cannot install either." >&2
-    echo "Fix the pin -- or move build/free2z/backend.Dockerfile and this job's python-version together." >&2
+    echo "The audit reads exact locked versions using the interpreter selected by build/free2z/backend.Dockerfile." >&2
+    echo "Keep that image and the dependency-security job's Python version aligned for marker evaluation." >&2
+    echo "Package installation compatibility is checked separately by the backend and image jobs." >&2
   fi
   echo "No vulnerability conclusion was reached for $ecosystem, so this fails closed." >&2
 }
@@ -210,6 +224,12 @@ report_resolution_failure() {
 audit_ecosystem() {
   local ecosystem="$1" scanner="$2" report="$3"
   local attempt=1 scanner_status checker_status delay
+  local -a inventory_args=()
+  if [ "$ecosystem" = pip ]; then
+    for lock in main.txt test.txt lock-tools.txt language-data.txt; do
+      inventory_args+=(--pip-lock "$repo_root/py/free2z/requirements/$lock")
+    done
+  fi
 
   while :; do
     # `set +e`/`set -e` around the scanner because exit 1 is a LEGITIMATE
@@ -232,7 +252,8 @@ audit_ecosystem() {
       --ecosystem "$ecosystem" \
       --input "$report" \
       --baseline "$baseline" \
-      --scanner-exit "$scanner_status"
+      --scanner-exit "$scanner_status" \
+      ${inventory_args[@]+"${inventory_args[@]}"}
     checker_status=$?
     set -e
 
@@ -280,4 +301,6 @@ audit_ecosystem() {
 }
 
 audit_ecosystem npm scan_npm "$npm_report"
-audit_ecosystem pip scan_pip "$pip_report"
+if [ "$npm_only" = 0 ]; then
+  audit_ecosystem pip scan_pip "$pip_report"
+fi

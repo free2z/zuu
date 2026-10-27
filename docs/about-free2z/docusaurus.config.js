@@ -1,53 +1,74 @@
 // @ts-check
 // Note: type annotations allow type checking and IDEs autocompletion
 
-const lightCodeTheme = require('prism-react-renderer').themes.github;
-const darkCodeTheme = require('prism-react-renderer').themes.dracula;
+const lightCodeTheme = require("prism-react-renderer").themes.github;
+const darkCodeTheme = require("prism-react-renderer").themes.dracula;
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'Free2Z',
-  // tagline: 'Support Creators.<br>Raise Money.<br>Build Community.',
-  url: 'https://free2z.com',
-  baseUrl: '/docs/',
-  onBrokenLinks: 'throw',
-  onBrokenMarkdownLinks: 'warn',
-  favicon: '/docs/img/2Z-Logo.svg',
-  // undefined by default ... c'mon root
+  title: "Free2Z",
+  tagline: "Free to create, publish, and connect.",
+  url: "https://free2z.com",
+  baseUrl: "/docs/",
+  onBrokenLinks: "throw",
+  onBrokenMarkdownLinks: "warn",
+  favicon: "/docs/img/2Z-Logo.svg",
+  // undefined by default... c'mon root
   // trailingSlash: false,
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
-  organizationName: '2Z Inc.', // Usually your GitHub org/user name.
-  projectName: 'Free2Z', // Usually your repo name.
+  organizationName: "2Z Inc.", // Usually your GitHub org/user name.
+  projectName: "Free2Z", // Usually your repo name.
 
   // Even if you don't use internalization, you can use this field to set useful
   // metadata like html lang. For example, if your site is Chinese, you may want
   // to replace "en" with "zh-Hans".
   i18n: {
-    defaultLocale: 'en',
-    // TODO: es! ...
-    locales: ['en'],
+    defaultLocale: "en",
+    // TODO: es!...
+    locales: ["en"],
   },
 
   presets: [
     [
-      'classic',
+      "classic",
       /** @type {import('@docusaurus/preset-classic').Options} */
       ({
         docs: {
-          routeBasePath: '/',
-          sidebarPath: require.resolve('./sidebars.js'),
-          // Please change this to your repo.
-          // Remove this to remove the "edit this page" links.
+          routeBasePath: "/",
+          sidebarPath: require.resolve("./sidebars.js"),
           editUrl:
-            'https://github.com/free2z/zuu/main/docs/',
+            "https://github.com/free2z/zuu/edit/main/docs/about-free2z/",
         },
         blog: false,
         theme: {
-          customCss: require.resolve('./src/css/custom.css'),
+          customCss: require.resolve("./src/css/custom.css"),
         },
       }),
+    ],
+  ],
+
+  plugins: [
+    // The same legal documents at /docs/plain/…, with no navbar, footer or
+    // sidebar and no link except to each other and mailto:. Pages an SDK app
+    // opens (the sign-up sheet's Terms link) must be commerce-free, and the
+    // ordinary docs navigation reaches "2Z credits" -- "the line", zuu
+    // docs/free2z/sdk/INTEGRATION.md. CI checks the built pages
+    // ("Check plain legal pages" in.github/workflows/ci.yml).
+    [
+      "@docusaurus/plugin-content-docs",
+      {
+        id: "plain",
+        // A build-time copy of docs/legal (scripts/sync-legal-plain.mjs).
+        path: "legal-plain-generated",
+        routeBasePath: "plain",
+        sidebarPath: false,
+        beforeDefaultRemarkPlugins: [require("./src/legal-plain/remark-legal-links")],
+        docsRootComponent: "@site/src/legal-plain/DocsRoot",
+        docRootComponent: "@site/src/legal-plain/DocRoot",
+        docItemComponent: "@site/src/legal-plain/DocItem",
+      },
     ],
   ],
 
@@ -55,133 +76,62 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       colorMode: {
-        defaultMode: 'dark',
+        defaultMode: "dark",
         disableSwitch: false,
         respectPrefersColorScheme: false,
       },
       // TODO: doesn't point to relative so points at only prod for
-      // some reason ..
-      image: 'img/2Z-Logo.svg',
+      // some reason..
+      image: "img/2Z-Logo.svg",
       navbar: {
-        title: 'Free2Z',
+        title: "Free2Z",
         logo: {
-          alt: 'Free2z',
-          src: '/docs/img/2Z-Logo.svg',
-          href: 'https://free2z.com'
+          alt: "Free2z",
+          src: "/docs/img/2Z-Logo.svg",
+          href: "https://free2z.com",
           // href: '/'
         },
         items: [
           {
-            // type: 'link',
-            // doc: 'index',
-            to: '/',
-            label: 'Home',
-            activeBaseRegex: '^/docs/$',
+            to: "/docs/",
+            label: "Discover Free2Z",
+            activeBaseRegex: "^/docs/$",
           },
+          { to: "/docs/getting-started/tuzis", label: "2Z credits" },
+          { to: "/docs/revenue-sharing/", label: "Earn" },
+          { to: "/docs/overview/key-features", label: "Features" },
+          { to: "/docs/for-creators/sdk-applications", label: "SDK" },
           {
-            // type: 'doc',
-            // docId: 'overview',
-            // position: 'left',
-            // label: 'Overview',
-            doc: "overview",
-            label: "Overview",
-            to: "overview",
-            // to: '/overview',
-            // activeBaseRegex: '^overview$'
-            // activeBaseRegex: 'overview',
-          },
-          {
-            doc: 'getting-started',
-            label: 'Getting Started',
-            to: 'getting-started',
-          },
-          // {
-          //   doc: 'features',
-          //   label: 'Features',
-          //   to: 'features',
-          //   className: "navbar-item-to-hide",
-          // },
-          {
-            // type: 'doc',
-            doc: 'for-creators',
-            to: 'for-creators',
-            // position: 'left',
-            label: 'For Creators',
-            // to: 'category/for-creators',
-          },
-          {
-            doc: 'for-supporters',
-            to: 'for-supporters',
-            // position: 'left',
-            label: 'For Supporters',
-            // to: '/supporters/overview',
-          },
-          {
-            doc: 'privacy-and-security',
-            to: 'privacy-and-security',
-            label: 'For Anons',
-          },
-          {
-            doc: "revenue-sharing",
-            to: "revenue-sharing",
-            label: "Revenue Sharing",
-            className: "navbar-item-to-hide",
-          },
-          {
-            doc: "privacy-and-security",
-            to: "privacy-and-security",
-            label: "Privacy & Security",
-            className: "navbar-item-to-hide",
-          },
-          {
-            doc: "legal",
-            to: "legal",
-            label: "Legal",
-            // className: "navbar-item-to-hide",
-          },
-          {
-            doc: "consulting",
-            to: "consulting",
-            label: "Consulting",
-            className: "navbar-item-to-hide",
-          },
-          {
-            href: 'https://github.com/free2z',
-            label: 'GitHub',
-            position: 'right',
+            href: "https://free2z.com/",
+            label: "Open Free2Z",
+            position: "right",
           },
         ],
       },
       footer: {
-        style: 'dark',
+        style: "dark",
         links: [
           {
-            title: 'Docs',
+            title: "Docs",
             items: [
+              { label: "Discover Free2Z", to: "/docs/" },
+              { label: "2Z credits", to: "/docs/getting-started/tuzis" },
+              { label: "Earn", to: "/docs/revenue-sharing/" },
+              { label: "Features", to: "/docs/overview/key-features" },
               {
-                label: 'Overview',
-                to: '/docs/overview',
+                label: "SDK preview",
+                to: "/docs/for-creators/sdk-applications",
               },
               {
-                label: 'Getting Started',
-                to: '/docs/getting-started',
+                label: "Help and getting started",
+                to: "/docs/getting-started/",
               },
-              {
-                label: 'For Creators',
-                to: '/docs/for-creators',
-              },
-              {
-                label: 'For Supporters',
-                to: '/docs/for-supporters',
-              },
-              {
-                label: 'What are 2Zs?',
-                to: '/docs/getting-started/tuzis',
-              },
+              { label: "Privacy", to: "/docs/privacy-and-security/" },
+              { label: "Terms of service", to: "/docs/legal/" },
             ],
           },
           {
-            title: 'Social',
+            title: "Social",
             items: [
               // {
               //   label: 'Stack Overflow',
@@ -196,21 +146,21 @@ const config = {
                 href: "https://free2z.com/free2z",
               },
               {
-                label: 'Twitter',
-                href: 'https://twitter.com/free2zcash',
+                label: "Twitter",
+                href: "https://twitter.com/free2zcash",
               },
               {
-                label: 'GitHub',
-                href: 'https://github.com/free2z',
+                label: "GitHub",
+                href: "https://github.com/free2z",
               },
             ],
           },
-          // TODO: kinda needs 3 sections down here ;/
+          // TODO: kinda needs 3 sections down here;/
           // Zcash Forum?
           // Discord?
-          // ...
+          //...
           // Mastodon
-          // ... zPages ... profile, login ... ?
+          //... zPages... profile, login... ?
           // 3 groups of 4 would probably be best
           // {
           //   title: 'Free2Z',

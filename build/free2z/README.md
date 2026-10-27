@@ -49,13 +49,24 @@ The public GitHub release tag is
 `free2z-release.zip` contains exactly:
 
 - `release.json`: schema version 1, source commit, workflow/run identity, the
-  three image repository/digest pairs, and the browser asset inventory hash.
+  three image repository/digest pairs, the browser asset inventory hash, and
+  the registered and scheduled task names verified against the initialized worker.
 - `static-assets.json`: sorted browser asset paths and SHA-256 content hashes.
 - `release.intoto.jsonl`: the manifest's Sigstore provenance bundle.
 
 `APP_RELEASE_ID` is `sha256:` followed by the SHA-256 of the exact `release.json`
 bytes. Deployment consumers verify the successful source run, expected protected
 branch and workflow, manifest bundle, image attestations and image digests.
+Each image digest identifies a single linux/amd64 manifest. The manifest's
+`task_registry` has schema version 1 and sorted, unique `registered` and
+`scheduled` arrays. Registered names are nonempty; scheduled names must be a
+subset. Each list contains at most 1,024 ASCII task names of at most 256
+characters, and the complete release manifest is limited to 64 KiB. The
+secretless backend check exports this inventory only after its static scan
+matches both the live worker registration and scheduling registries. Deployment
+consumers compare new schedules with the verified registrations of every
+running worker release before rollout.
+
 Tags and asset names identify candidates; they do not establish trust.
 
 Keep the image packages public and retain published digests and release evidence.

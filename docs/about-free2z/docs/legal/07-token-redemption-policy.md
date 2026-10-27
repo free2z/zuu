@@ -1,38 +1,25 @@
 ---
-title: Token Redemption Policy
+title: Creator Payments
 ---
 
-## Introduction
+2Z Inc. owes creator earnings in USD for qualifying services under the [creator agreement](./06-revenue-share-agreement.md). Payments are made in shielded Zcash to your authorized address. Your 2Z credit balance cannot be cashed out.
 
-This Token Redemption Policy (the "Policy") outlines the terms under which partners in the Free2Z platform (the "Platform") can redeem 2Z tokens ("2Zs") for a share of the revenue. This Policy is part of the broader Terms of Service of Free2Z.
+## Requesting payment
 
-## Discretionary Redemption
+Open Credits & Earnings, review the available USD balance, and request an amount using your own shielded Zcash address. Verification, tax information, address authority, and applicable sanctions checks must be reviewed before payment.
 
-The allocation of financial rewards in exchange for 2Z tokens within the Free2Z platform **is a discretionary process conducted by Free2Z**. This process is exclusive to our contractors and does not imply a general right or guarantee of conversion for all platform users. The decision to allocate rewards in exchange for 2Z tokens is made solely by the Company, based on internal criteria.
+If you cannot access your account, contact [help@free2z.com](mailto:help@free2z.com) for assistance. Your identity and authority must be verified before support can act on a payment instruction. Never send wallet recovery phrases or spending keys.
 
-## Redemption Eligibility and Process
+## Conversion and fees
 
-- Contractors who have accumulated a specified number of 2Zs may be considered for a discretionary financial reward by the Company, based on their contributions to the Platform. This consideration is not a standard exchange and is unique to the contractor relationship within Free2Z.
+Under the payment method you accept, 2Z converts your requested USD amount to Zcash at an external market rate obtained no more than five minutes before signing. There is no company exchange-rate spread on creator payments. 2Z covers network fees and upward rounding, including for small payments; rounding does not reduce the USD amount paid.
 
-## Revenue Calculation and Payout
+Your receipt records the conversion rate, quote time, Zcash amount, and USD amount settled. Earnings remain owed until payment is confirmed. If a send has an uncertain outcome, use the original request to check its status. It must be reconciled before another send.
 
-- The determination of financial rewards for contractors is based on a range of factors, including the number of 2Zs associated with their platform contributions.
-- The method of financial reward, initially envisaged as Zcash, is subject to the Company's discretion and may evolve in line with business needs and regulatory compliance.
+## Timing and questions
 
-## Compliance and Verification
+The ordinary contractual due date is 30 calendar days after verified settlement, subject to lawful holds. Our review target is seven calendar days after required identity, tax, and address information is complete. This is an operational target, not a guaranteed payment date or a reason to cancel earnings.
 
-- Financial reward considerations for contractors are conducted with due diligence, including necessary compliance checks in line with Anti-Money Laundering (AML) and Know Your Customer (KYC) regulations. These checks are specific to the contractor relationship and are not indicative of financial transaction services.
+A payment requiring withholding needs additional review. The amount remains owed while that is resolved. Ending participation, suspending an account, or a temporary payment-service interruption does not erase a legally owed payment or require a new future-service agreement to collect it.
 
-## Changes to Policy
-
-- The Company may update this Policy at any time. Continued participation in the revenue share program signifies acceptance of the new terms.
-
-## Governing Law
-
-- This Policy is governed by the laws of the Country where the Company is established.
-
-## Contact Information
-
-- For inquiries or concerns regarding this Policy, please contact us at [help@free2z.com](mailto:help@free2z.com).
-
-By participating in the Revenue Share Program and redeeming 2Zs on Free2Z, you acknowledge and agree to be bound by this Token Redemption Policy.
+For a missing payment or another claim, contact [help@free2z.com](mailto:help@free2z.com) with your account and relevant purchase, service, or payment references. Your rights under applicable agreements and law remain protected.

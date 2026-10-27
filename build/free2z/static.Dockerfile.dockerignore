@@ -6,6 +6,12 @@
 !ts/react/
 !ts/react/free2z/
 !ts/react/free2z/**
+!ts/svelte/
+!ts/svelte/free2z/
+!ts/svelte/free2z/src/
+!ts/svelte/free2z/src/lib/
+!ts/svelte/free2z/src/lib/api/
+!ts/svelte/free2z/src/lib/api/f2z.schemas.ts
 !ts/free2z/
 !ts/free2z/bridge/
 !ts/free2z/bridge/**
