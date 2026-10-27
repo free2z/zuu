@@ -2918,13 +2918,20 @@ for (const aggregate of [1, 2]) {
         };
       });
     await expect.poll(async () => (await state()).initialized).toBe(true);
-    await page.evaluate(async () => {
+    const optimisticUnread = await page.evaluate(async () => {
       const module = "/src/lib/stores/eventNotifications.ts";
       const { eventNotifications } = await import(module);
       (window as any).heldRead = eventNotifications.markRead("aggregate-A");
+      // Sample the synchronous optimistic update before an authoritative
+      // metadata response can replace it while the write is still pending.
+      let unread: number | undefined;
+      eventNotifications.subscribe(
+        (current: any) => (unread = current.unreadCount),
+      )();
+      return unread;
     });
+    expect(optimisticUnread).toBe(1);
     await expect.poll(() => Boolean(heldWrite)).toBe(true);
-    expect((await state()).unread).toBe(1);
     recovering = true;
     await page.evaluate(async () => {
       const module = "/src/lib/stores/eventNotifications.ts";
