@@ -27,6 +27,9 @@ printf "fixture-pkg==1.0 --hash=sha256:%064d\n" 0 > "${repo}/py/free2z/requireme
 cp "${repo}/py/free2z/requirements/main.txt" "${repo}/py/free2z/requirements/language-data.txt"
 cp "${repo}/py/free2z/requirements/main.txt" "${repo}/py/free2z/requirements/test.txt"
 cp "${repo}/py/free2z/requirements/main.txt" "${repo}/py/free2z/requirements/lock-tools.txt"
+for lock in ci-audit ci-lint ci-policy; do
+  cp "${repo}/py/free2z/requirements/main.txt" "${repo}/py/free2z/requirements/$lock.txt"
+done
 
 cat > "${repo}/.github/dependency-audit-baseline.json" <<'JSON'
 {
@@ -129,7 +132,7 @@ cat > "${stub}/pyshim" <<'STUB'
 #!/usr/bin/env bash
 set -uo pipefail
 if [ "${1:-}" = "-m" ] && [ "${2:-}" = "pip_audit" ]; then
-  for lock in main.txt test.txt lock-tools.txt language-data.txt; do
+  for lock in main.txt test.txt lock-tools.txt language-data.txt ci-audit.txt ci-lint.txt ci-policy.txt; do
     [[ " $* " == *"/requirements/$lock "* ]] || { echo "missing audited lock $lock" >&2; exit 99; }
   done
   [[ " $* " == *" --require-hashes "* && " $* " == *" --no-deps "* && " $* " == *" --disable-pip "* ]] || exit 99
@@ -228,6 +231,11 @@ if [ "${1:-}" = "-m" ] && [ "${2:-}" = "pip_audit" ]; then
       exec sleep 20 ;;
     *) echo "unknown PIP_BEHAVIOUR ${PIP_BEHAVIOUR}" >&2; exit 99 ;;
   esac
+fi
+if [[ " $* " == *" --ecosystem pip "* ]]; then
+  for lock in main.txt test.txt lock-tools.txt language-data.txt ci-audit.txt ci-lint.txt ci-policy.txt; do
+    [[ " $* " == *"/requirements/$lock "* ]] || { echo "missing inventory lock $lock" >&2; exit 99; }
+  done
 fi
 exec "${REAL_PYTHON}" "$@"
 STUB

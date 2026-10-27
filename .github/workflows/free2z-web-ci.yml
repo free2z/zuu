@@ -330,7 +330,7 @@ jobs:
     if: needs.changes.outputs.application == 'true'
   dependency-security:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - name: Select verified CI trust before clients
         shell: bash
@@ -366,23 +366,33 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # reviewed immutable repository pin
         with:
           python-version: '3.12'
-      - name: Install pinned pip-audit
-        run: python -m pip install 'pip-audit==2.10.1'
+      - name: Install hash-locked audit tools
+        timeout-minutes: 3
+        run: |
+          tool_python="$(python scripts/free2z/install-python-tool-lock.py ci-audit)"
+          echo "CI_AUDIT_PYTHON=$tool_python" >> "$GITHUB_ENV"
+      - name: Verify isolated compiler and language-data artifacts
+        timeout-minutes: 6
+        run: |
+          python scripts/free2z/install-python-tool-lock.py lock-tools --verify-only
+          python scripts/free2z/install-python-tool-lock.py language-data --verify-only
       - name: Dependency audit baseline positive controls
         run: ./scripts/free2z/test-check-dependency-audit.sh
       - name: Python production lock contract
         run: |
           ./scripts/free2z/test-check-python-requirements-lock.sh
           ./scripts/free2z/check-python-requirements-lock.py
-          ./scripts/free2z/check-python-requirements-lock.py --kind test
+          for kind in test ci-audit ci-lint ci-policy; do
+            ./scripts/free2z/check-python-requirements-lock.py --kind "$kind"
+          done
       - name: Installed production package verifier controls
         run: ./scripts/free2z/test-check-python-requirements-installed.sh
       - name: Dependency scanner timeout and rejection controls
         run: |
-          python -m pip install --disable-pip-version-check PyYAML==6.0.3
-          bash scripts/free2z/test-run-dependency-audits.sh
+          tool_python="$(python scripts/free2z/install-python-tool-lock.py ci-policy)"
+          PATH="$(dirname "$tool_python"):$PATH" bash scripts/free2z/test-run-dependency-audits.sh
       - name: Complete Svelte graph and Python runtime dependency audit
-        run: PYTHON=python ./scripts/free2z/run-dependency-audits.sh
+        run: PYTHON="$CI_AUDIT_PYTHON" ./scripts/free2z/run-dependency-audits.sh
     needs: changes
     if: needs.changes.outputs.application == 'true'
   dependency-security-static:
@@ -516,8 +526,11 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # reviewed immutable repository pin
         with:
           python-version: '3.12'
-      - name: Install pinned ruff
-        run: python -m pip install "ruff==${RUFF_VERSION}"
+      - name: Install hash-locked Ruff
+        timeout-minutes: 3
+        run: |
+          tool_python="$(python scripts/free2z/install-python-tool-lock.py ci-lint)"
+          echo "$(dirname "$tool_python")" >> "$GITHUB_PATH"
       - name: Lint rejection control
         run: bash scripts/free2z/test-ruff-lint.sh
       - name: ruff check
@@ -964,8 +977,14 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Install policy parser
-        run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # reviewed immutable repository pin
+        with:
+          python-version: '3.12'
+      - name: Install hash-locked policy parser
+        timeout-minutes: 3
+        run: |
+          tool_python="$(python scripts/free2z/install-python-tool-lock.py ci-policy)"
+          echo "$(dirname "$tool_python")" >> "$GITHUB_PATH"
       - name: Select application changes
         id: select
         env:

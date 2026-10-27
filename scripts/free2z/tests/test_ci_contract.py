@@ -81,6 +81,18 @@ class CIContract(unittest.TestCase):
         step['continue-on-error'] = True
         with self.assertRaises(ValueError): self.check()
 
+    def test_tool_installs_and_developer_acceptance_cannot_be_skipped(self):
+        for job, kind in (('dependency-security', 'ci-audit'), ('dependency-security', 'ci-policy'), ('dependency-security', 'lock-tools'), ('dependency-security', 'language-data'), ('lint-python', 'ci-lint'), ('changes', 'ci-policy')):
+            with self.subTest(job=job, kind=kind):
+                self.setUp()
+                step = next(s for s in self.ci['jobs'][job]['steps'] if f'install-python-tool-lock.py {kind}' in s.get('run', ''))
+                step['run'] = step['run'].replace(f'install-python-tool-lock.py {kind}', 'omitted-tool-check')
+                with self.assertRaises(ValueError): self.check()
+        self.setUp()
+        step = next(s for s in self.ci['jobs']['dependency-security']['steps'] if 'install-python-tool-lock.py lock-tools' in s.get('run', ''))
+        step['continue-on-error'] = True
+        with self.assertRaises(ValueError): self.check()
+
     def test_native_bridge_cannot_silently_skip(self):
         self.ci['jobs']['native-payment-bridge']['env'].pop('PAYMENTD_NATIVE_BRIDGE_TEST')
         with self.assertRaises(ValueError): self.check()

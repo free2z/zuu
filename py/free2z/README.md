@@ -18,7 +18,17 @@ Regenerate a dependency lock from the repository root with
 `scripts/free2z/compile-python-requirements-lock.sh main` or
 `scripts/free2z/compile-python-requirements-lock.sh test`. The helper uses the
 pinned Linux image and hash-verified compiler tools. Test dependencies are
-constrained by the production lock.
+constrained by the production lock. CI tool locks use the same helper with
+`ci-audit`, `ci-lint`, or `ci-policy`. Each has a direct input constrained by the
+production lock; these tools are installed in separate environments.
+
+Website CI audits all seven Python locks and checks every applicable package
+and version in the report. It separately installs compiler and language-data
+tools with required artifact hashes. Tool installations use `--ignore-installed`
+so packages supplied by virtual-environment bootstrap cannot bypass hash checks.
+To verify a developer lock locally with Python 3.12, run
+`python scripts/free2z/install-python-tool-lock.py lock-tools --verify-only`
+from the repository root; `language-data` selects the CLDR tool environment.
 
 The test suite uses PostgreSQL with the pgvector extension. Give each checkout
 its own database and port, then set `DBHOST`, `DBPORT`, `DBNAME`, `DBUSER`, and

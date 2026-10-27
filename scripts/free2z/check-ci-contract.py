@@ -68,6 +68,23 @@ def validate(ci, release, dockerfile, ruff):
     audit_steps = [s for s in static_audits['steps'] if s.get('run') == 'bash scripts/free2z/run-dependency-audits.sh']
     if len(audit_steps) != 1 or audit_steps[0].get('env') != {'NPM_AUDIT_PROJECT': '${{ matrix.project }}', 'DEPENDENCY_AUDIT_NPM_ONLY': '1'} or 'continue-on-error' in audit_steps[0]:
         raise ValueError('static audit matrix must run the fail-closed scanner')
+    installer = 'scripts/free2z/install-python-tool-lock.py'
+    for job_name, kinds in (('dependency-security', ('ci-audit', 'ci-policy', 'lock-tools', 'language-data')), ('lint-python', ('ci-lint',)), ('changes', ('ci-policy',))):
+        commands = '\n'.join(s.get('run', '') for s in jobs[job_name]['steps'])
+        if re.search(r'\bpip install\b', commands):
+            raise ValueError('CI tool installation must use isolated hash locks')
+        for kind in kinds:
+            steps = [s for s in jobs[job_name]['steps'] if f'{installer} {kind}' in s.get('run', '')]
+            if len(steps) != 1 or any(key in steps[0] for key in ('if', 'continue-on-error')):
+                raise ValueError('every CI/developer tool lock needs required installation coverage')
+        if job_name == 'dependency-security':
+            for kind in ('lock-tools', 'language-data'):
+                if f'{installer} {kind} --verify-only' not in commands:
+                    raise ValueError('developer artifact checks must clean their isolated environments')
+            if 'PYTHON="$CI_AUDIT_PYTHON" ./scripts/free2z/run-dependency-audits.sh' not in commands:
+                raise ValueError('audit must execute its installed isolated scanner')
+            if 'for kind in test ci-audit ci-lint ci-policy;' not in commands:
+                raise ValueError('every constrained input must be checked against its hash lock')
     registration = [s for s in jobs['backend']['steps'] if 'check-periodic-register-first.py' in s.get('run', '')]
     if len(registration) != 1 or registration[0].get('if') != 'matrix.group == 1' or 'continue-on-error' in registration[0]:
         raise ValueError('backend must enforce cross-revision periodic task registration')
@@ -81,7 +98,7 @@ def validate(ci, release, dockerfile, ruff):
     if 'cargo test --locked --test financial_delivery --test production_handoff_fixture --no-run' not in native_commands or 'python -m pytest dj/apps/g12f/test_paymentd_native_credit.py -q' not in native_commands:
         raise ValueError('native bridge must compile both fixtures and execute SQL integration tests')
     version=re.search(r'^FROM python:([0-9]+\.[0-9]+)',dockerfile,re.M)[1]
-    for name in ('backend','dependency-security','native-payment-bridge'):
+    for name in ('backend','dependency-security','native-payment-bridge','changes','lint-python'):
         pins=[str(s.get('with',{}).get('python-version','')) for s in jobs[name]['steps'] if s.get('uses','').startswith('actions/setup-python@')]
         if pins!=[version]:raise ValueError('CI Python must equal the application runtime')
     target=re.search(r'^target-version = "py([0-9]+)"',ruff,re.M)[1]
