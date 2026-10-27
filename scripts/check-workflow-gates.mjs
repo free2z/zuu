@@ -193,6 +193,10 @@ const MINIMUM_REGISTRY_REASON = 40;
 /// change-detector job the way `zuuli.yml` and `rs.yml` do.
 const UNGATED_WORKFLOWS = new Map([
   [
+    ".github/workflows/free2z-host-release.yml",
+    "Protected-main manual preparation publisher: requires the signed website release from its exact checkout, secretless native build and relocation qualification before separate opaque-file attestation. Data-only host tests also run in the required website gate's unittest discovery; this workflow has no deployment authority.",
+  ],
+  [
     ".github/workflows/free2z-web-release.yml",
     "Protected-main release publisher: reuses the complete required website gate before publishing prebuilt images and signed manifests. It never runs on pull requests; merge eligibility is decided by free2z-web-ci.yml.",
   ],
