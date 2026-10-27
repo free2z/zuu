@@ -65,6 +65,47 @@ class CIContract(unittest.TestCase):
         self.ci.get('on', self.ci.get(True)).pop('merge_group')
         with self.assertRaises(ValueError): self.check()
 
+    def test_sbom_guard_order_and_attestation_are_required(self):
+        for mutation in ('remove', 'conditional', 'continue', 'after-export', 'wrong-image'):
+            with self.subTest(mutation=mutation):
+                self.setUp()
+                steps = self.ci['jobs']['images']['steps']
+                guard = next(s for s in steps if 'prepare-image-sbom.py prepare' in s.get('run', ''))
+                if mutation == 'remove': steps.remove(guard)
+                elif mutation == 'conditional': guard['if'] = 'false'
+                elif mutation == 'continue': guard['continue-on-error'] = True
+                elif mutation == 'after-export': steps.remove(guard); steps.append(guard)
+                else: guard['run'] = guard['run'].replace('--image-id "$image_id"', '--image-id sha256:wrong')
+                with self.assertRaises(ValueError): self.check()
+        for mutation in ('skip', 'wrong-subject', 'wrong-predicate', 'no-recheck'):
+            with self.subTest(mutation=mutation):
+                self.setUp()
+                steps = self.release['jobs']['publish']['steps']
+                attestation = next(s for s in steps if s.get('with', {}).get('predicate-type') == 'https://spdx.dev/Document')
+                if mutation == 'skip': attestation['continue-on-error'] = True
+                elif mutation == 'wrong-subject': attestation['with']['subject-digest'] = 'sha256:wrong'
+                elif mutation == 'wrong-predicate': attestation['with']['predicate-path'] = 'image-bundle/image.original.spdx.json'
+                else:
+                    step = next(s for s in steps if 'docker push ' in s.get('run', ''))
+                    step['run'] = step['run'].replace('prepare-image-sbom.py check', 'other-check.py check')
+                with self.assertRaises(ValueError): self.check()
+
+    def test_syft_install_and_immutable_scan_cannot_be_bypassed(self):
+        for mutation in ('mutable-installer', 'tag-scan', 'lost-checksum-install', 'conditional'):
+            with self.subTest(mutation=mutation):
+                self.setUp()
+                steps = self.ci['jobs']['images']['steps']
+                scan = next(s for s in steps if 'install-syft.py' in s.get('run', ''))
+                if mutation == 'mutable-installer':
+                    steps.append({'uses': 'anchore/sbom-action@' + 'a' * 40})
+                elif mutation == 'tag-scan':
+                    scan['run'] = scan['run'].replace('docker:$IMAGE_ID', 'free2z-backend:candidate')
+                elif mutation == 'lost-checksum-install':
+                    scan['run'] = scan['run'].replace('install-syft.py', 'download-unchecked.py')
+                else:
+                    scan['if'] = 'false'
+                with self.assertRaises(ValueError): self.check()
+
     def test_static_build_node_matches_ci(self):
         docker = (ROOT / 'build/free2z/static.Dockerfile').read_text()
         versions = re.findall(r'^FROM node:([0-9.]+)-bookworm-slim@sha256:[a-f0-9]{64} AS (?:classic|docs)$', docker, re.M)

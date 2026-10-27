@@ -909,14 +909,32 @@ jobs:
           KIND: ${{ matrix.kind }}
           SOURCE_SHA: ${{ github.sha }}
         run: python3 scripts/free2z/check-web-images.py "$KIND" "free2z-$KIND:candidate" "$SOURCE_SHA"
-      - name: Generate image SBOM
-        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # reviewed immutable repository pin
-        with:
-          image: free2z-${{ matrix.kind }}:candidate
-          format: spdx-json
-          output-file: image.spdx.json
-          upload-artifact: false
-          upload-release-assets: false
+      - name: Record tested image identity before cataloging
+        id: image-identity
+        env:
+          KIND: ${{ matrix.kind }}
+        run: |
+          set -euo pipefail
+          image_id=$(docker image inspect "free2z-$KIND:candidate" --format '{{.Id}}')
+          [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf '%s\n' "$image_id" > image-config.digest
+          printf 'id=%s\n' "$image_id" >> "$GITHUB_OUTPUT"
+      - name: Generate image SBOM with verified Syft
+        env:
+          IMAGE_ID: ${{ steps.image-identity.outputs.id }}
+          SYFT_CHECK_FOR_APP_UPDATE: 'false'
+        run: |
+          set -euo pipefail
+          python3 scripts/free2z/install-syft.py "$RUNNER_TEMP/free2z-syft"
+          printf '{}\n' > "$RUNNER_TEMP/free2z-syft/config.yaml"
+          "$RUNNER_TEMP/free2z-syft/syft" scan "docker:$IMAGE_ID" --config "$RUNNER_TEMP/free2z-syft/config.yaml" --output spdx-json=image.original.spdx.json
+      - name: Validate complete SBOM before publishing authority
+        env:
+          KIND: ${{ matrix.kind }}
+        run: |
+          set -euo pipefail
+          image_id=$(docker image inspect "free2z-$KIND:candidate" --format '{{.Id}}')
+          python3 scripts/free2z/prepare-image-sbom.py prepare image.original.spdx.json --image-id "$image_id" --image-config image-config.digest --output image.spdx.json --binding image-sbom-binding.json
       - name: Export checked image for separate publisher
         if: github.repository == 'free2z/zuu' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
@@ -925,7 +943,7 @@ jobs:
           set -euo pipefail
           mkdir -p image-bundle
           docker save "free2z-$KIND:candidate" -o image-bundle/image.tar
-          mv image.spdx.json image-bundle/image.spdx.json
+          mv image.spdx.json image.original.spdx.json image-sbom-binding.json image-bundle/
           if [[ "$KIND" == web ]]; then
             cid=$(docker create free2z-web:candidate)
             trap 'docker rm "$cid" >/dev/null' EXIT

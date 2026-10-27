@@ -92,6 +92,8 @@ jobs:
           case "$KIND" in backend|web|static) ;; *) exit 1;; esac
           docker load -i image-bundle/image.tar
           test "$(docker image inspect "free2z-$KIND:candidate" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
+          image_id=$(docker image inspect "free2z-$KIND:candidate" --format '{{.Id}}')
+          python3 scripts/free2z/prepare-image-sbom.py check image-bundle/image.spdx.json --image-id "$image_id" --binding image-bundle/image-sbom-binding.json
           repository="ghcr.io/free2z/free2z-$KIND"
           tag="$repository:build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           docker tag "free2z-$KIND:candidate" "$tag"
