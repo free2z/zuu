@@ -43,8 +43,9 @@ def http_smoke(kind, image, commit, options):
                    '--bind', '127.0.0.1:8000', '--workers', '1', '--no-control-socket']
         probe = ['python', '-c', "import json,urllib.request; v=json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/healthz',timeout=3)); assert v['ok'] is True and v['commit']=="+repr(commit)]
     elif kind == 'web':
-        launch += ['-e', 'ORIGIN=http://localhost:3000', image]
-        probe = ['node', '-e', "fetch('http://127.0.0.1:3000/healthz',{signal:AbortSignal.timeout(3000)}).then(async r=>{if(r.status!==200)throw Error(r.status);const v=await r.json();if(v.ok!==true||v.commit!=="+repr(commit)+")throw Error('identity')}).catch(e=>{console.error(e);process.exit(1)})"]
+        launch += ['-e', 'HOST_HEADER=host', '-e', 'PROTOCOL_HEADER=x-forwarded-proto',
+                   '-e', 'DEPLOYMENT_SHA=' + 'd' * 40, '-e', 'APP_RELEASE_ID=sha256:' + 'e' * 64, image]
+        probe = ['node', '-e', "fetch('http://127.0.0.1:3000/healthz',{signal:AbortSignal.timeout(3000)}).then(async r=>{if(r.status!==200)throw Error(r.status);const v=await r.json();if(v.ok!==true||v.commit!=="+repr(commit)+"||v.deployment_commit!=='"+'d'*40+"'||v.release_id!=='sha256:"+'e'*64+"')throw Error('identity')}).catch(e=>{console.error(e);process.exit(1)})"]
     else:
         launch += [image]
         probe = ['sh', '-ec', r'''wget -qO- http://127.0.0.1:8080/healthz | grep -qx ok; wget -qO /tmp/docs.html http://127.0.0.1:8080/docs/; asset=$(grep -oE '/docs/assets/[^" ]+\.js' /tmp/docs.html | head -1); test -n "$asset"; wget -qO /tmp/asset.js "http://127.0.0.1:8080$asset"; test -s /tmp/asset.js; ! grep -q '<!doctype html' /tmp/asset.js; wget -qO /tmp/admin.css http://127.0.0.1:8080/djstatic/admin/css/base.css; test -s /tmp/admin.css; wget -qO /tmp/classic.html http://127.0.0.1:8080/; test -s /tmp/classic.html''']
