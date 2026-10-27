@@ -2,6 +2,12 @@
 # Free2Z application check: compile python requirements lock.
 set -euo pipefail
 
+lock_target="${1:-main}"
+if [[ $# -gt 1 || ! "$lock_target" =~ ^(main|test)$ ]]; then
+  echo "usage: $0 [main|test]" >&2
+  exit 2
+fi
+
 repo_root="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 dockerfile="${repo_root}/build/free2z/backend.Dockerfile"
 image="$(sed -nE 's/^FROM ([^[:space:]]+).*/\1/p' "${dockerfile}")"
@@ -10,7 +16,7 @@ if [[ -z "${image}" ]]; then
   exit 2
 fi
 if ! command -v docker >/dev/null 2>&1; then
-  echo "docker is required to compile the production requirements lock" >&2
+  echo "docker is required to compile requirements locks" >&2
   exit 2
 fi
 
@@ -21,21 +27,22 @@ if docker run --cidfile "$cidfile" --rm --platform linux/amd64 \
   --user "$(id -u):$(id -g)" \
   --env HOME=/tmp \
   --env "LOCK_TARGET_IMAGE=${image}" \
+  --env "LOCK_TARGET=${lock_target}" \
   --volume "${repo_root}:/workspace" \
   --workdir /workspace/py/free2z \
   "${image}" sh -ec '
     python -m venv /tmp/pip-tools
-    /tmp/pip-tools/bin/python -m pip install --disable-pip-version-check --no-cache-dir pip-tools==7.6.1
-    /tmp/pip-tools/bin/pip-compile \
+    /tmp/pip-tools/bin/python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: --require-hashes -r requirements/lock-tools.txt
+    CUSTOM_COMPILE_COMMAND="scripts/free2z/compile-python-requirements-lock.sh $LOCK_TARGET" /tmp/pip-tools/bin/pip-compile \
       --allow-unsafe \
       --generate-hashes \
       --resolver=backtracking \
-      --output-file requirements/main.txt \
-      requirements/main.in
+      --output-file "requirements/$LOCK_TARGET.txt" \
+      "requirements/$LOCK_TARGET.in"
     tmp="$(mktemp)"
     printf "# Target image: %s (linux/amd64)\\n" "$LOCK_TARGET_IMAGE" > "$tmp"
-    cat requirements/main.txt >> "$tmp"
-    cat "$tmp" > requirements/main.txt
+    cat "requirements/$LOCK_TARGET.txt" >> "$tmp"
+    cat "$tmp" > "requirements/$LOCK_TARGET.txt"
     rm "$tmp"
   '; then
   exit 0

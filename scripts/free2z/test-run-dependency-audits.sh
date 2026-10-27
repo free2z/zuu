@@ -24,6 +24,8 @@ cp "${SOURCE_DIR}/run-dependency-audits.sh" "${repo}/scripts/free2z/"
 cp "${SOURCE_DIR}/check-dependency-audit.py" "${repo}/scripts/free2z/"
 : > "${repo}/py/free2z/requirements/main.txt"
 : > "${repo}/py/free2z/requirements/language-data.txt"
+: > "${repo}/py/free2z/requirements/test.txt"
+: > "${repo}/py/free2z/requirements/lock-tools.txt"
 
 cat > "${repo}/.github/dependency-audit-baseline.json" <<'JSON'
 {
@@ -126,6 +128,10 @@ cat > "${stub}/pyshim" <<'STUB'
 #!/usr/bin/env bash
 set -uo pipefail
 if [ "${1:-}" = "-m" ] && [ "${2:-}" = "pip_audit" ]; then
+  for lock in main.txt test.txt lock-tools.txt language-data.txt; do
+    [[ " $* " == *"/requirements/$lock "* ]] || { echo "missing audited lock $lock" >&2; exit 99; }
+  done
+  [[ " $* " == *" --require-hashes "* && " $* " == *" --no-deps "* ]] || exit 99
   echo "pip_audit $*" >> "${PIP_CALLS}"
   attempt="$(wc -l < "${PIP_CALLS}" | tr -d '[:space:]')"
 

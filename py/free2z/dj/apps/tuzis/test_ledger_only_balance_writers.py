@@ -514,7 +514,7 @@ def test_the_wrapper_module_writes_no_balance_itself():
     assert "_ledger.spend(" in source, "the wrapper no longer calls the ledger?"
 
 
-def test_scan_covers_the_tree():
+def test_scan_covers_the_application_tree():
     files = {str(rel) for rel, _ in iter_source_files()}
     assert "dj/apps/comments/views.py" in files
     assert "dj/apps/tuzis/zec.py" in files

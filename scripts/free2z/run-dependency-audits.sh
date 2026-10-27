@@ -117,11 +117,12 @@ scan_npm() {
 }
 
 scan_pip() {
-  # Audit the complete runtime graph and the separate language-data generator
-  # lock. Require hashes and skip resolver expansion so advisory checks use
-  # the exact reviewed versions, including developer-only generation tools.
+  # Audit runtime, tests, lock compilers, and language-data generators.
+  # Require hashes and skip resolver expansion so checks use reviewed versions.
   run_bounded "$python_bin" -m pip_audit \
     -r "$repo_root/py/free2z/requirements/main.txt" \
+    -r "$repo_root/py/free2z/requirements/test.txt" \
+    -r "$repo_root/py/free2z/requirements/lock-tools.txt" \
     -r "$repo_root/py/free2z/requirements/language-data.txt" \
     --require-hashes \
     --no-deps \

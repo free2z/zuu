@@ -10,9 +10,15 @@ Use Python 3.12. From this directory:
 python3.12 -m venv .venv
 . .venv/bin/activate
 python -m pip install --require-hashes -r requirements/main.txt
-python -m pip install -r requirements/test.txt
+python -m pip install --require-hashes -r requirements/test.txt
 export PYTHONPATH="$PWD"
 ```
+
+Regenerate a dependency lock from the repository root with
+`scripts/free2z/compile-python-requirements-lock.sh main` or
+`scripts/free2z/compile-python-requirements-lock.sh test`. The helper uses the
+pinned Linux image and hash-verified compiler tools. Test dependencies are
+constrained by the production lock.
 
 The test suite uses PostgreSQL with the pgvector extension. Give each checkout
 its own database and port, then set `DBHOST`, `DBPORT`, `DBNAME`, `DBUSER`, and
