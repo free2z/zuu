@@ -4,10 +4,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20250419~deb12u2 \
     && rm -rf /var/lib/apt/lists/*
 ENV NODE_OPTIONS=--use-openssl-ca
-WORKDIR /src
+WORKDIR /src/ts/react/free2z
 COPY ts/react/free2z/package*.json ./
 RUN npm ci --legacy-peer-deps
 COPY ts/react/free2z/ ./
+# Classic shares the generated meeting-request type with the Svelte client.
+COPY ts/svelte/free2z/src/lib/api/f2z.schemas.ts /src/ts/svelte/free2z/src/lib/api/f2z.schemas.ts
 RUN CI=false npm run build
 
 FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS docs
@@ -111,7 +113,7 @@ RUN apt-get remove -y build-essential libpcre2-dev zlib1g-dev libssl-dev && apt-
 
 CMD ["/usr/sbin/nginx", "-g", "daemon off;"]
 
-COPY --from=classic /src/build/ /base/build/
+COPY --from=classic /src/ts/react/free2z/build/ /base/build/
 COPY --from=docs /src/docsbuild/ /base/docsbuild/
 COPY --from=django-static /py/dj/free2z/static/ /base/dj/free2z/static/
 COPY ts/free2z/bridge/site/ /base/bridge-pages/site/

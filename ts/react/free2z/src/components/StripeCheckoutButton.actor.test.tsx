@@ -6,7 +6,19 @@ import {
   waitFor,
 } from "@testing-library/react";
 import axios from "axios";
-import StripeCheckoutButton from "./StripeCheckoutButton";
+let StripeCheckoutButton: typeof import("./StripeCheckoutButton").default;
+const previousCheckoutFlag = process.env.REACT_APP_STRIPE_CHECKOUT_ENABLED;
+beforeAll(() => {
+  process.env.REACT_APP_STRIPE_CHECKOUT_ENABLED = "true";
+  StripeCheckoutButton = require("./StripeCheckoutButton").default;
+});
+afterAll(() => {
+  if (previousCheckoutFlag === undefined) {
+    delete process.env.REACT_APP_STRIPE_CHECKOUT_ENABLED;
+  } else {
+    process.env.REACT_APP_STRIPE_CHECKOUT_ENABLED = previousCheckoutFlag;
+  }
+});
 
 jest.mock("axios");
 jest.mock("react-router-dom", () => ({

@@ -759,11 +759,11 @@ class ZPageTranslationQuoteView(_TranslationRouteMixin, APIView):
             "holds its full complement of published translations, or 409 "
             "`draft_variant_limit` when it holds its full complement of draft "
             "translations: a new one could never be published or stored, so "
-            "there is no price to show (#1126, #1159). Answers 409 "
+            "there is no price to show. Answers 409 "
             "`translation_too_long` when the article (or one paragraph of it) "
             "is too long to translate into `language` inside the translation "
             "time limit, estimated from the same output-token estimate as the "
-            "price (#1973).\n\n"
+            "price.\n\n"
             "Owner only; a non-owner gets 404."
         ),
     )
@@ -851,7 +851,7 @@ class ZPageTranslationView(_TranslationRouteMixin, APIView):
             "flips it to `human`. If the translation fails for any reason -- "
             "the provider, unusable output, a safety check, a job that never "
             "runs, our own output cap -- the full amount is credited back and "
-            "nothing is written. The ONE exception (#1908): if the article is "
+            "nothing is written. The ONE exception: if the article is "
             "edited or re-labelled, or its translation is edited or published, "
             "from under a job that has already been paid for, repeatedly "
             "inside one window, the provider work that was already done and "
@@ -872,13 +872,13 @@ class ZPageTranslationView(_TranslationRouteMixin, APIView):
             "live content. Unpublish or delete it first.\n\n"
             "An article already at its published-translation ceiling is "
             "refused (409 `published_variant_limit`) -- the draft it "
-            "would buy could never be published (#1126). An article already "
+            "would buy could never be published. An article already "
             "at its draft-translation ceiling is refused too (409 "
             "`draft_variant_limit`) -- we do not charge for a translation "
-            "that cannot be stored (#1159). An article too long to translate "
+            "that cannot be stored. An article too long to translate "
             "into `language` inside our time limit is refused (409 "
             "`translation_too_long`) -- we do not sell a translation that "
-            "cannot finish (#1973).\n\n"
+            "cannot finish.\n\n"
             "Owner only; a non-owner gets 404."
         ),
     )
@@ -1114,7 +1114,7 @@ class ZPageTranslationView(_TranslationRouteMixin, APIView):
             "`g12f.reap_translation_charges` sweep within ten minutes of its "
             "deadline. A job still WAITING in the queue has not 'never run': "
             "it keeps its charge until it runs, or until the outer deadline "
-            "of six hours from purchase (#2348).\n\n"
+            "of six hours from purchase.\n\n"
             "Owner only; a non-owner gets 404."
         ),
     )

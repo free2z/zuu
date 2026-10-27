@@ -247,7 +247,7 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
         "that completed there for a DIFFERENT creator is not this request at "
         "all, so it is claimed and charged normally under this route's own "
         "per-creator scope. Only a receipt that cannot be attributed to a "
-        "creator -- still running, or recorded before #1585 added the "
+        "creator -- still running, or recorded without a "
         "recipient id -- is answered 409 `idempotency_mismatch`, because it "
         "might be this creator's committed purchase; mint a new key. "
         "That is the price of the two routes being one retry namespace, and "
@@ -2061,7 +2061,7 @@ class CreatorSubscribeView(APIView):
                                 'THIS creator -- including one made on POST '
                                 '/api/tuzis/subscribe-confirmed/{username}/, '
                                 'whose keys share this namespace, or one '
-                                'recorded there before #1585 added the '
+                                'recorded there without a '
                                 'recipient id and so no longer attributable '
                                 'to a creator at all. A confirmed receipt '
                                 'that is positively another creator\'s is '

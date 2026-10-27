@@ -532,10 +532,9 @@ class LocalizedZPageSerializerMixin(serializers.Serializer):
             "Whether this translation was made from content the source has "
             "since changed. THREE states: `true` stale, `false` current, "
             "`null` unknown. `null` is the common case -- the source variant "
-            "has nothing to be stale against, and no pre-#980 translation "
+            "has nothing to be stale against, and no legacy translation "
             "recorded which revision it was made from. Render `null` as "
-            "nothing at all: showing it as 'Stale' fires on almost every "
-            "existing translation, which is the mistake #805 had to undo."
+            "nothing at all: unknown source history cannot prove staleness."
         ),
     )
 
@@ -1100,7 +1099,7 @@ class zPageDetailSerializer(
         allow_null=True,
         help_text=(
             "The page's OWN Zcash address, or `null` when the page inherits "
-            "its creator's profile address (#2061). This is the value an "
+            "its creator's profile address. This is the value an "
             "editor round-trips as `p2paddr`: sending the effective "
             "`p2paddr` back instead pins the creator's current address onto "
             "the page, and a later profile address change never reaches it."
@@ -1233,8 +1232,8 @@ class ZPageVariantSummarySerializer(serializers.Serializer):
         help_text=(
             "`true` the source changed after this translation was made, "
             "`false` it is current, `null` unknown. Render `null` as nothing: "
-            "every translation predating #980 is `null`, and showing those as "
-            "stale is the false-positive flood #805 had to undo."
+            "translations without source-revision metadata are `null`; "
+            "labeling them stale would give a false result."
         ),
     )
     title = serializers.CharField(read_only=True)

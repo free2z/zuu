@@ -106,8 +106,10 @@ test('real development source endpoint validates Host before CRA middleware', { 
   } finally {
     if (server) {
       if (typeof server.close === 'function') {
+        const listener = server.server;
+        assert.ok(listener, 'the real HTTP listener exists before shutdown');
         await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-        assert.equal(server.server.listening, false, 'CRA close callback stops the listening server');
+        assert.equal(listener.listening, false, 'CRA close callback stops the listening server');
       } else {
         await server.stop();
       }

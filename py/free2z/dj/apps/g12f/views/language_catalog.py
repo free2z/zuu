@@ -62,7 +62,7 @@ class LanguageEntrySerializer(serializers.Serializer):
     name = serializers.CharField(
         help_text=(
             "The language's name in the response's `locale`. Never a raw "
-            "subtag (#806)."
+            "subtag."
         )
     )
     autonym = serializers.CharField(

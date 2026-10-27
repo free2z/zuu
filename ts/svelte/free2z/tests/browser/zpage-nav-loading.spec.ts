@@ -726,11 +726,13 @@ test("a donation settling after navigation cannot populate the next page's dialo
   // Close the modal before following the link. This keeps the click a real
   // browser navigation while the payment request remains in flight; the
   // existing dialog-navigation test covers the overlay interception path.
+  // Wait for normal actionability while modal focus and scroll are restored;
+  // forcing the click can use a position the moving link has already left.
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page
     .getByRole("link", { name: "Continue to the navigation target" })
-    .click({ force: true });
+    .click();
   await expect(page.getByTestId("zpage-loading")).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
@@ -788,7 +790,7 @@ test("a subscription settling after navigation cannot subscribe the next page", 
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page
     .getByRole("link", { name: "Continue to the navigation target" })
-    .click({ force: true });
+    .click();
   await expect(page.getByTestId("zpage-loading")).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 

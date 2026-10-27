@@ -354,7 +354,7 @@ LINK_TOKEN_PARAMETER = OpenApiParameter(
     required=True,
     description=(
         'The single credential for this operation: the per-address token '
-        'from the link we emailed. Undocumented until #985.'
+        'from the link we emailed.'
     ),
 )
 
@@ -368,8 +368,8 @@ OPT_OUT_LINK_PARAMETER = OpenApiParameter(
         'The opaque unsubscribe link token from the message we sent: the '
         'per-address token, and the only credential this operation needs. It '
         'is unguessable and carries no information about the address, so the '
-        'address never appears in the URL (#1154).\n\n'
-        'DEPRECATED SHAPE, still accepted: messages sent before #1154 put the '
+        'address never appears in the URL.\n\n'
+        'DEPRECATED SHAPE, still accepted: legacy messages put the '
         'URL-encoded **email address** in this position and the token in the '
         '`token` query parameter. Those links keep working — they are sitting '
         'in inboxes — and are read as the address whenever the value is not a '
@@ -1273,7 +1273,7 @@ class ConfirmEmailView(APIView):
         description=(
             'Renders the page the emailed confirmation link points at. This '
             'operation performs no write, so a prefetching mail client or '
-            'security scanner cannot confirm an address (#985). The page '
+            'security scanner cannot confirm an address. The page '
             'contains a form that POSTs to this same URL; that POST is what '
             'confirms.'
         ),
@@ -1581,9 +1581,8 @@ class OptOutEmailView(APIView):
         summary='Unsubscribe landing page. Changes nothing.',
         description=(
             'Renders the page the emailed unsubscribe link points at. This '
-            'operation performs no write — before #985 it deleted the address '
-            'row, which a prefetching mail client or security scanner could '
-            'trigger without the recipient ever clicking. The page contains a '
+            'operation performs no write, so a prefetching mail client or '
+            'security scanner cannot unsubscribe an address. The page contains a '
             'form that POSTs to this same URL; that POST is the unsubscribe.'
         ),
         parameters=[OPT_OUT_LINK_PARAMETER, OPT_OUT_LEGACY_TOKEN_PARAMETER],

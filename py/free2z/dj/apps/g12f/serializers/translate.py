@@ -143,7 +143,7 @@ class TranslationPurchaseSerializer(serializers.Serializer):
             "(current: `1`). Send `1` only from a screen that states the one "
             "case in which a failed translation is not refunded in full: "
             "repeatedly changing or publishing the article while a translation "
-            "you have already paid for is generating (#1908).\n\n"
+            "you have already paid for is generating.\n\n"
             "**Omit it and every failure is refunded in full, always.** That is "
             "the legacy contract and it is the safe default on purpose -- a "
             "creator can only be charged against terms they actually saw, and "
@@ -204,7 +204,7 @@ class TranslationJobSerializer(serializers.Serializer):
             "`settled` nothing was written and PART of the charge was kept, "
             "covering provider work that had already been done and billed to "
             "us when the buyer changed the article under their own paid job "
-            "again (#1908) -- see `fault` and `billed`. All three of "
+            "again -- see `fault` and `billed`. All three of "
             "`delivered`, `refunded` and `settled` are terminal: stop polling."
         ),
     )
@@ -253,7 +253,7 @@ class TranslationJobSerializer(serializers.Serializer):
         choices=["platform", "provider", "request"],
         required=False,
         help_text=(
-            "Who the failure was attributed to (#1908). `platform` our defect "
+            "Who the failure was attributed to. `platform` our defect "
             "-- a mis-set cap, our timeout, our bug, a kill switch: always a "
             "full refund. `provider` an outage or unusable output: always a "
             "full refund. `request` the buyer changed the article under a job "
@@ -332,7 +332,7 @@ class TranslationJobSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "On `delivered`: the content-preservation checks this draft did "
-            "NOT pass (#2347). The draft was delivered anyway, and billed in "
+            "NOT pass. The draft was delivered anyway, and billed in "
             "full, because it is an unpublished draft the creator reviews -- "
             "these name what to look at before publishing. An empty list is a "
             "clean delivery; the key is absent on records delivered before "
@@ -342,7 +342,7 @@ class TranslationJobSerializer(serializers.Serializer):
     attempted_output_preview = serializers.CharField(
         required=False,
         help_text=(
-            "Reserved (#2347): the start of what the model produced on a "
+            "Reserved: the start of what the model produced on a "
             "failed job, served only for failure codes whose output provably "
             "cannot be a usable translation -- currently NONE, because a "
             "refund that hands back a translation is a free translation. Use "

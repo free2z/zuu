@@ -110,7 +110,7 @@ class IdempotentDonationRequestSerializer(serializers.Serializer):
         help_text=(
             "The paid intent. `donation` and `ppv` are separate replay "
             "identities even when recipient and amount match. `ppv` is "
-            "retired (#1601): it is accepted only so a receipt recorded "
+            "retired: it is accepted only so a receipt recorded "
             "before the retirement replays; a new `ppv` request is refused "
             "with 400 `ppv_unlock_retired` and moves no 2Z."
         ),

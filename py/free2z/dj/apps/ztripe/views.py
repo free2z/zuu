@@ -405,7 +405,7 @@ def _expire_invalid_checkout_session(checkout_session):
                 'same request once with `returnMode: web`. A 503 without it is '
                 '`checkout_not_activated` (the operator switch). Genuine '
                 'outages are 500 (our configuration or infrastructure) or 502 '
-                '(Stripe), never 503 (#2068).'
+                '(Stripe), never 503.'
             ),
         ),
     ],

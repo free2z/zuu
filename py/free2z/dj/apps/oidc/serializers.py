@@ -46,13 +46,13 @@ class AuthorizationRequestSerializer(serializers.Serializer):
     # ignored hint must never fail the authorization (codex review, ).
     f2z_spend_cap = serializers.CharField(
         required=False, allow_blank=True, trim_whitespace=False,
-        help_text="Not an OAuth parameter (#2296): the app's suggested spend "
+        help_text="Not an OAuth parameter: the app's suggested spend "
                   "cap, echoed so the POST's `request_id` still matches. The "
                   "POST never records it; only its own `spend_cap_2z` counts.",
     )
     f2z_spend_period = serializers.CharField(
         required=False, allow_blank=True, trim_whitespace=False,
-        help_text="Not an OAuth parameter (#2296): the period of "
+        help_text="Not an OAuth parameter: the period of "
                   "`f2z_spend_cap`, echoed like it.",
     )
 
@@ -109,7 +109,7 @@ class ConsentPromptSerializer(serializers.Serializer):
         choices=["grant", "app", "platform", "request"],
         help_text="Where `spend_cap` came from: the existing `grant`, the "
                   "`app` registration's default, the `platform` default, or "
-                  "the authorization `request`'s clamped hint (#2296).",
+                  "the authorization `request`'s clamped hint.",
     )
     current_spend_cap = SpendCapSerializer(
         allow_null=True,

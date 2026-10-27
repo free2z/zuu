@@ -113,7 +113,7 @@ _LOGIN_TICKET_DESCRIPTION = (
     "`max_age=0`). An invalid or expired ticket is ignored, never an error."
 )
 _SPEND_CAP_HINT_DESCRIPTION = (
-    "Not an OAuth parameter (#2296): the app's SUGGESTED spend cap for "
+    "Not an OAuth parameter: the app's SUGGESTED spend cap for "
     "`ai:invoke`, a whole number of 2Z from 1. The consent screen may "
     "pre-select it, but only its AMOUNT is ever clamped: a capped "
     "registration default, and the user's capped last grant for the app, "
@@ -127,7 +127,7 @@ _SPEND_CAP_HINT_DESCRIPTION = (
     "value is ignored, never an error."
 )
 _SPEND_PERIOD_HINT_DESCRIPTION = (
-    "Not an OAuth parameter (#2296): the period of `f2z_spend_cap` -- "
+    "Not an OAuth parameter: the period of `f2z_spend_cap` -- "
     "`day`, `week`, `month` or `total` (never resets). Ignored without "
     "`f2z_spend_cap`; an unknown value makes the whole hint ignored. "
     "Absent, the hint keeps the period the screen would have pre-selected. "

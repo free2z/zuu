@@ -49,7 +49,7 @@ MAX_SELECTED_TAGS = 50
 
 LEVEL_HELP = (
     "`broad` or `narrow`, derived from how many published zPages carry the "
-    "tag — NOT a stored attribute (#1208). The boundary is a percentile of "
+    "tag — NOT a stored attribute. The boundary is a percentile of "
     "the corpus, so it means the same thing as the platform grows. Broad tags "
     "are browse vocabulary; narrow tags are what makes long-tail discovery "
     "and “more like this” work. Treat it as a display hint: two tags either "
@@ -538,13 +538,13 @@ def _suggestion_payload(zpage):
 @extend_schema(
     responses={200: ZPageTagSuggestionSerializer(many=True)},
     description=(
-        "Pending AI tag suggestions for one of your own zPages (#1207).\n\n"
+        "Pending AI tag suggestions for one of your own zPages.\n\n"
         "Suggestions are produced asynchronously by the `zpage-tag` "
         "subscriber when a published page's content changes. On a page that "
         "already carries at least one tag they are **never** applied on their "
         "own — this endpoint plus a `POST` to the same path is the only way "
         "one becomes a tag. A published page with **zero** tags when the pass "
-        "finishes has the pass's tags applied directly instead (#2194), so "
+        "finishes has the pass's tags applied directly instead, so "
         "nothing is left pending for it. Tags the page already carries are "
         "filtered out, and a suggestion the creator has previously dismissed "
         "never reappears.\n\n"
@@ -562,8 +562,8 @@ def zpage_tag_suggestions(request, free2zaddr):
     request=ZPageTagDecisionSerializer,
     responses={200: ZPageTagDecisionResultSerializer},
     description=(
-        "Accept or dismiss pending AI tag suggestions on your own zPage "
-        "(#1207).\n\n"
+        "Accept or dismiss pending AI tag suggestions on your own zPage"
+        ".\n\n"
         "Strictly additive: accepting adds tags, and **nothing on this route "
         "can remove a tag you wrote yourself** — dismissing marks the "
         "suggestion, never the tag. Dismissal is remembered per page, so a "
@@ -680,7 +680,7 @@ class TagHubSerializer(serializers.Serializer):
                 "than a 200 with an empty list: an indexable URL with nothing "
                 "on it is a soft-404 that costs sitewide quality, and a tag "
                 "whose every page belongs to a deactivated creator must look "
-                "exactly like a tag that never existed (#931, #1246). Also "
+                "exactly like a tag that never existed. Also "
                 "returned for a slug that is not in canonical form at all — "
                 "`/tag/Zcash`, `/tag/a--b`, `/tag/..` — since none of those "
                 "is a URL this platform emits."

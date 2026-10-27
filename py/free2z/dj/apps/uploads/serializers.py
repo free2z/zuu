@@ -34,7 +34,7 @@ class ImageVariantsMixin(serializers.Serializer):
         """Extracted still for a VIDEO upload; None for everything else.
 
         Served under the video's own access prefix -- never copied to a
-        second, more public location (tuzi#1463). None means no poster
+        second, more public location. None means no poster
         exists: render a blank player, and do NOT declare a `thumbnailUrl`
         for it.
         """

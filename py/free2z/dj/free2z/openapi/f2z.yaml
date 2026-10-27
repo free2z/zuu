@@ -2,18 +2,18 @@ openapi: 3.0.3
 info:
   title: f2z
   version: 0.1.0
-  description: 'Free2z is a tool for content and peer-2-peer giving that does not
-    compromise on privacy. This is the Django REST Framework API contract and the
-    source of the generated clients. It does not cover the non-API surfaces of the
-    same deployment (server-rendered pages, RSS feeds, storage auth subrequests, health
-    probes, the Stripe webhook), nor a short, enumerated backlog of hand-written JSON
-    endpoints not yet ported to DRF -- see issue #1004.'
+  description: Free2z is a tool for content and peer-2-peer giving that does not compromise
+    on privacy. This is the Django REST Framework API contract and the source of the
+    generated clients. It does not cover the non-API surfaces of the same deployment
+    (server-rendered pages, RSS feeds, storage auth subrequests, health probes, the
+    Stripe webhook), nor a short, enumerated backlog of hand-written JSON endpoints
+    not yet ported to DRF.
 paths:
   /api/ai/catalog/v1:
     get:
       operationId: ai_catalog_v1
       description: |-
-        The signed AI model catalogue the f2z-ai gateway prices from (#2227).
+        The signed AI model catalogue the f2z-ai gateway prices from.
 
         PUBLIC, deliberately. Everything in it is already public -- per-model
         provider prices and limits are on ``GET /api/ai/models/`` and the gateway's
@@ -28,7 +28,7 @@ paths:
         hash of the exact body; ``If-None-Match`` answers 304.
 
         No refusal is a 5xx: this is a public URL, and a 5xx here would feed the
-        site-wide page-tier LB alerts (review of #2235).
+        site-wide page-tier LB alerts.
 
         * key not provisioned -> 404 ``catalog_not_provisioned``, logged, NOT
           alerted (the expected state until the owner provisions it);
@@ -3603,8 +3603,8 @@ paths:
       operationId: emails_confirm_retrieve
       description: Renders the page the emailed confirmation link points at. This
         operation performs no write, so a prefetching mail client or security scanner
-        cannot confirm an address (#985). The page contains a form that POSTs to this
-        same URL; that POST is what confirms.
+        cannot confirm an address. The page contains a form that POSTs to this same
+        URL; that POST is what confirms.
       summary: Email-confirmation landing page. Changes nothing.
       parameters:
       - in: query
@@ -3612,7 +3612,7 @@ paths:
         schema:
           type: string
         description: 'The single credential for this operation: the per-address token
-          from the link we emailed. Undocumented until #985.'
+          from the link we emailed.'
         required: true
       tags:
       - emails
@@ -3712,11 +3712,10 @@ paths:
   /api/emails/opt-out/{link}:
     get:
       operationId: emails_opt_out_retrieve
-      description: 'Renders the page the emailed unsubscribe link points at. This
-        operation performs no write — before #985 it deleted the address row, which
-        a prefetching mail client or security scanner could trigger without the recipient
-        ever clicking. The page contains a form that POSTs to this same URL; that
-        POST is the unsubscribe.'
+      description: Renders the page the emailed unsubscribe link points at. This operation
+        performs no write, so a prefetching mail client or security scanner cannot
+        unsubscribe an address. The page contains a form that POSTs to this same URL;
+        that POST is the unsubscribe.
       summary: Unsubscribe landing page. Changes nothing.
       parameters:
       - in: path
@@ -3724,9 +3723,9 @@ paths:
         schema:
           type: string
         description: |-
-          The opaque unsubscribe link token from the message we sent: the per-address token, and the only credential this operation needs. It is unguessable and carries no information about the address, so the address never appears in the URL (#1154).
+          The opaque unsubscribe link token from the message we sent: the per-address token, and the only credential this operation needs. It is unguessable and carries no information about the address, so the address never appears in the URL.
 
-          DEPRECATED SHAPE, still accepted: messages sent before #1154 put the URL-encoded **email address** in this position and the token in the `token` query parameter. Those links keep working — they are sitting in inboxes — and are read as the address whenever the value is not a valid signed token. Do not build new links in that shape: an address whose local part contains `/` cannot be routed at all.
+          DEPRECATED SHAPE, still accepted: legacy messages put the URL-encoded **email address** in this position and the token in the `token` query parameter. Those links keep working — they are sitting in inboxes — and are read as the address whenever the value is not a valid signed token. Do not build new links in that shape: an address whose local part contains `/` cannot be routed at all.
         required: true
       - in: query
         name: token
@@ -3760,9 +3759,9 @@ paths:
         schema:
           type: string
         description: |-
-          The opaque unsubscribe link token from the message we sent: the per-address token, and the only credential this operation needs. It is unguessable and carries no information about the address, so the address never appears in the URL (#1154).
+          The opaque unsubscribe link token from the message we sent: the per-address token, and the only credential this operation needs. It is unguessable and carries no information about the address, so the address never appears in the URL.
 
-          DEPRECATED SHAPE, still accepted: messages sent before #1154 put the URL-encoded **email address** in this position and the token in the `token` query parameter. Those links keep working — they are sitting in inboxes — and are read as the address whenever the value is not a valid signed token. Do not build new links in that shape: an address whose local part contains `/` cannot be routed at all.
+          DEPRECATED SHAPE, still accepted: legacy messages put the URL-encoded **email address** in this position and the token in the `token` query parameter. Those links keep working — they are sitting in inboxes — and are read as the address whenever the value is not a valid signed token. Do not build new links in that shape: an address whose local part contains `/` cannot be routed at all.
         required: true
       - in: query
         name: token
@@ -4277,8 +4276,7 @@ paths:
       description: 'Deprecated alias kept for already-deployed clients. Use `DELETE
         /api/g12f/series/clear-zpage/{free2zaddr}/` instead: the resource being mutated
         belongs in the path, and this form was undocumented — the spec carried no
-        `parameters:` block, so the only documented way to call it could never succeed
-        (#985).'
+        `parameters:` block, so the only documented way to call it could never succeed.'
       summary: 'Deprecated: remove a zPage from every series (query form)'
       parameters:
       - in: query
@@ -5339,22 +5337,22 @@ paths:
         name: f2z_spend_cap
         schema:
           type: string
-        description: 'Not an OAuth parameter (#2296): the app''s SUGGESTED spend cap
-          for `ai:invoke`, a whole number of 2Z from 1. The consent screen may pre-select
-          it, but only its AMOUNT is ever clamped: a capped registration default,
-          and the user''s capped last grant for the app, each fix the period and bound
-          the amount. A hint for another period than either is ignored (a period change
-          is a raise: it starts a fresh spend window), so an applied hint never exceeds
-          the registration''s default nor needs a fresh sign-in. It is never recorded
-          by itself: only the cap the user confirms in the consent POST''s own `spend_cap_2z`
-          / `cap_period` is. A silent (`approve`) authorization ignores it; send `prompt=consent`
+        description: 'Not an OAuth parameter: the app''s SUGGESTED spend cap for `ai:invoke`,
+          a whole number of 2Z from 1. The consent screen may pre-select it, but only
+          its AMOUNT is ever clamped: a capped registration default, and the user''s
+          capped last grant for the app, each fix the period and bound the amount.
+          A hint for another period than either is ignored (a period change is a raise:
+          it starts a fresh spend window), so an applied hint never exceeds the registration''s
+          default nor needs a fresh sign-in. It is never recorded by itself: only
+          the cap the user confirms in the consent POST''s own `spend_cap_2z` / `cap_period`
+          is. A silent (`approve`) authorization ignores it; send `prompt=consent`
           to ask the user again. A malformed value is ignored, never an error.'
       - in: query
         name: f2z_spend_period
         schema:
           type: string
-        description: 'Not an OAuth parameter (#2296): the period of `f2z_spend_cap`
-          -- `day`, `week`, `month` or `total` (never resets). Ignored without `f2z_spend_cap`;
+        description: 'Not an OAuth parameter: the period of `f2z_spend_cap` -- `day`,
+          `week`, `month` or `total` (never resets). Ignored without `f2z_spend_cap`;
           an unknown value makes the whole hint ignored. Absent, the hint keeps the
           period the screen would have pre-selected. Never rewritten: a period the
           registration''s default or the user''s capped grant does not have makes
@@ -6806,7 +6804,7 @@ paths:
                 The client should retry the same request once with `returnMode: web`.
                 A 503 without it is `checkout_not_activated` (the operator switch).
                 Genuine outages are 500 (our configuration or infrastructure) or 502
-                (Stripe), never 503 (#2068).'
+                (Stripe), never 503.'
           content:
             application/json:
               schema:
@@ -7137,10 +7135,9 @@ paths:
           description: 'No live content under this slug. Deliberately a 404 rather
             than a 200 with an empty list: an indexable URL with nothing on it is
             a soft-404 that costs sitewide quality, and a tag whose every page belongs
-            to a deactivated creator must look exactly like a tag that never existed
-            (#931, #1246). Also returned for a slug that is not in canonical form
-            at all — `/tag/Zcash`, `/tag/a--b`, `/tag/..` — since none of those is
-            a URL this platform emits.'
+            to a deactivated creator must look exactly like a tag that never existed.
+            Also returned for a slug that is not in canonical form at all — `/tag/Zcash`,
+            `/tag/a--b`, `/tag/..` — since none of those is a URL this platform emits.'
         '503':
           description: The alias graph exceeded the fixed public traversal bound;
             retry after reconciliation. No partial hub is returned.
@@ -7148,9 +7145,9 @@ paths:
     get:
       operationId: tagging_zpage_suggestions_list
       description: |-
-        Pending AI tag suggestions for one of your own zPages (#1207).
+        Pending AI tag suggestions for one of your own zPages.
 
-        Suggestions are produced asynchronously by the `zpage-tag` subscriber when a published page's content changes. On a page that already carries at least one tag they are **never** applied on their own — this endpoint plus a `POST` to the same path is the only way one becomes a tag. A published page with **zero** tags when the pass finishes has the pass's tags applied directly instead (#2194), so nothing is left pending for it. Tags the page already carries are filtered out, and a suggestion the creator has previously dismissed never reappears.
+        Suggestions are produced asynchronously by the `zpage-tag` subscriber when a published page's content changes. On a page that already carries at least one tag they are **never** applied on their own — this endpoint plus a `POST` to the same path is the only way one becomes a tag. A published page with **zero** tags when the pass finishes has the pass's tags applied directly instead, so nothing is left pending for it. Tags the page already carries are filtered out, and a suggestion the creator has previously dismissed never reappears.
 
         Owner-only; any other caller gets **404**.
       parameters:
@@ -7177,7 +7174,7 @@ paths:
     post:
       operationId: tagging_zpage_suggestions_decide_create
       description: |-
-        Accept or dismiss pending AI tag suggestions on your own zPage (#1207).
+        Accept or dismiss pending AI tag suggestions on your own zPage.
 
         Strictly additive: accepting adds tags, and **nothing on this route can remove a tag you wrote yourself** — dismissing marks the suggestion, never the tag. Dismissal is remembered per page, so a later AI pass will not propose the same tag again.
 
@@ -7647,7 +7644,7 @@ paths:
       description: |-
         Subscribe the request.user as a fan to the star in the urls.
 
-        Add another 30 days if repeated ... hrm ...
+        Add another 30 days if repeated... hrm...
       parameters:
       - in: path
         name: username
@@ -7667,7 +7664,7 @@ paths:
       description: |-
         Subscribe the request.user as a fan to the star in the urls.
 
-        Add another 30 days if repeated ... hrm ...
+        Add another 30 days if repeated... hrm...
       parameters:
       - in: header
         name: Idempotency-Key
@@ -7695,7 +7692,7 @@ paths:
           One that completed there for a DIFFERENT creator is not this request at
           all, so it is claimed and charged normally under this route''s own per-creator
           scope. Only a receipt that cannot be attributed to a creator -- still running,
-          or recorded before #1585 added the recipient id -- is answered 409 `idempotency_mismatch`,
+          or recorded without a recipient id -- is answered 409 `idempotency_mismatch`,
           because it might be this creator''s committed purchase; mint a new key.
           That is the price of the two routes being one retry namespace, and it is
           what stops a route switch charging a second month. It is a guarantee about
@@ -7815,23 +7812,22 @@ paths:
                     description: '`idempotency_mismatch` when this key is already
                       spent on a different request for THIS creator -- including one
                       made on POST /api/tuzis/subscribe-confirmed/{username}/, whose
-                      keys share this namespace, or one recorded there before #1585
-                      added the recipient id and so no longer attributable to a creator
-                      at all. A confirmed receipt that is positively another creator''s
-                      is not this request and is charged normally under this route''s
-                      per-creator scope. It also covers a key spent on a membership
-                      that has since ENDED, on either route: that receipt is real,
-                      but the month it bought is over, so it is neither replayed (you
-                      are not subscribed) nor charged again under the same key --
-                      `key_resolved: true` says to retire it and buy under a fresh
-                      one. `invalid_idempotency_record` when a receipt exists but
-                      cannot be replayed safely -- a stored body this route cannot
-                      read, or one with no membership recorded at all. Absent on the
-                      in-flight answer. `subscription_retryable` means a lock timeout
-                      left the request undecided; reuse the SAME Idempotency-Key.
-                      `subscription_intent_abandoned` means authenticated recovery
-                      fenced this key; retire it and use a fresh key for a deliberate
-                      new purchase.'
+                      keys share this namespace, or one recorded there without a recipient
+                      id and so no longer attributable to a creator at all. A confirmed
+                      receipt that is positively another creator''s is not this request
+                      and is charged normally under this route''s per-creator scope.
+                      It also covers a key spent on a membership that has since ENDED,
+                      on either route: that receipt is real, but the month it bought
+                      is over, so it is neither replayed (you are not subscribed)
+                      nor charged again under the same key -- `key_resolved: true`
+                      says to retire it and buy under a fresh one. `invalid_idempotency_record`
+                      when a receipt exists but cannot be replayed safely -- a stored
+                      body this route cannot read, or one with no membership recorded
+                      at all. Absent on the in-flight answer. `subscription_retryable`
+                      means a lock timeout left the request undecided; reuse the SAME
+                      Idempotency-Key. `subscription_intent_abandoned` means authenticated
+                      recovery fenced this key; retire it and use a fresh key for
+                      a deliberate new purchase.'
                   key_resolved:
                     type: boolean
                     description: 'Only on `idempotency_mismatch`, and only when this
@@ -8143,7 +8139,7 @@ paths:
     post:
       operationId: zpage_create
       description: Create a zPage. Send an `Idempotency-Key` to make a retry of this
-        create safe (#2079); the header documents the exact replay and refusal semantics.
+        create safe; the header documents the exact replay and refusal semantics.
       parameters:
       - in: header
         name: Idempotency-Key
@@ -8151,7 +8147,7 @@ paths:
           type: string
           format: uuid
         description: |-
-          Optional UUIDv4 retry key for ONE page creation (#2079). Scoped to the authenticated user and to this operation: another account's identical key is a different key, and no other endpoint replays it. Parsed as a UUID and stored canonically, so spellings of one UUID are the same key. Semantics:
+          Optional UUIDv4 retry key for ONE page creation. Scoped to the authenticated user and to this operation: another account's identical key is a different key, and no other endpoint replays it. Parsed as a UUID and stored canonically, so spellings of one UUID are the same key. Semantics:
 
           * First use: the page is created and the key is bound to a fingerprint of the request body, atomically with the page.
           * Same key, same body: **no new page**. The response is `201` with the ORIGINAL page (same `free2zaddr`) as it is now and the response header `Idempotent-Replayed: true`. Its `ETag` is the validator the page had when this key CREATED it, so an `If-Match` update sent from the replaying client returns **412** if the page was changed since (the client only knows the body it created). A retry sent while the original is still running waits for it and then replays it.
@@ -8168,10 +8164,10 @@ paths:
         description: 'Which language variant to render in the response body. Affects
           the representation only: it never sets or changes what is persisted. The
           source language comes from the `source_language` body field, on create and
-          on update alike — it is mutable (#980 §3.2), and changing it to a language
-          that already has a translation is a 409. An unsupported `lang` value here
-          is ignored rather than failing the write. `Accept-Language` is NOT negotiated
-          on a write: the response describes the variant that was written.'
+          on update alike — it is mutable, and changing it to a language that already
+          has a translation is a 409. An unsupported `lang` value here is ignored
+          rather than failing the write. `Accept-Language` is NOT negotiated on a
+          write: the response describes the variant that was written.'
       tags:
       - zpage
       requestBody:
@@ -8197,12 +8193,12 @@ paths:
                 type: string
                 enum:
                 - 'true'
-              description: 'Always `true` on every response from this operation (#2079):
-                this server honours `Idempotency-Key` on page creation. A backend
-                that predates the key never sends it, and ignores the key -- so a
-                client must not retry a timed-out create under its key until it has
-                seen this header from the server it is talking to, and should stop
-                trusting it the moment a keyed create is answered without it.'
+              description: 'Always `true` on every response from this operation: this
+                server honours `Idempotency-Key` on page creation. A backend that
+                predates the key never sends it, and ignores the key -- so a client
+                must not retry a timed-out create under its key until it has seen
+                this header from the server it is talking to, and should stop trusting
+                it the moment a keyed create is answered without it.'
             Idempotent-Replayed:
               schema:
                 type: string
@@ -8223,12 +8219,12 @@ paths:
                 type: string
                 enum:
                 - 'true'
-              description: 'Always `true` on every response from this operation (#2079):
-                this server honours `Idempotency-Key` on page creation. A backend
-                that predates the key never sends it, and ignores the key -- so a
-                client must not retry a timed-out create under its key until it has
-                seen this header from the server it is talking to, and should stop
-                trusting it the moment a keyed create is answered without it.'
+              description: 'Always `true` on every response from this operation: this
+                server honours `Idempotency-Key` on page creation. A backend that
+                predates the key never sends it, and ignores the key -- so a client
+                must not retry a timed-out create under its key until it has seen
+                this header from the server it is talking to, and should stop trusting
+                it the moment a keyed create is answered without it.'
           content:
             application/json:
               schema:
@@ -8236,7 +8232,7 @@ paths:
           description: The creator already has a zPage and a balance below `cost`
             (1 2Z). The first page is free; another needs that balance, and creating
             it debits nothing. Nothing was created, and an `Idempotency-Key` sent
-            with this request is not spent (#2612).
+            with this request is not spent.
         '409':
           headers:
             Idempotency-Key-Honored:
@@ -8244,12 +8240,12 @@ paths:
                 type: string
                 enum:
                 - 'true'
-              description: 'Always `true` on every response from this operation (#2079):
-                this server honours `Idempotency-Key` on page creation. A backend
-                that predates the key never sends it, and ignores the key -- so a
-                client must not retry a timed-out create under its key until it has
-                seen this header from the server it is talking to, and should stop
-                trusting it the moment a keyed create is answered without it.'
+              description: 'Always `true` on every response from this operation: this
+                server honours `Idempotency-Key` on page creation. A backend that
+                predates the key never sends it, and ignores the key -- so a client
+                must not retry a timed-out create under its key until it has seen
+                this header from the server it is talking to, and should stop trusting
+                it the moment a keyed create is answered without it.'
           content:
             application/json:
               schema:
@@ -8296,11 +8292,11 @@ paths:
       description: |-
         Buy AI translations of this zPage into several languages at once. **All or nothing**: either every item is bought and enqueued (202, one job per language) or nothing is charged.
 
-        Each item is checked exactly as `POST .../variants/{language}/translate/` checks one: `expected_price` must equal the server's price, nothing published is overwritten, no job for that exact language may already be running, and the result must fit the published- and draft-translation ceilings -- counting the drafts that already-running jobs will create -- and the translation must be able to finish inside the time limit (`translation_too_long`, #1973). Any failure answers 409 `items_refused` listing EVERY failing language with its own `code`. A changed article answers 409 `source_changed`.
+        Each item is checked exactly as `POST .../variants/{language}/translate/` checks one: `expected_price` must equal the server's price, nothing published is overwritten, no job for that exact language may already be running, and the result must fit the published- and draft-translation ceilings -- counting the drafts that already-running jobs will create -- and the translation must be able to finish inside the time limit (`translation_too_long`). Any failure answers 409 `items_refused` listing EVERY failing language with its own `code`. A changed article answers 409 `source_changed`.
 
         Then the batch as a whole: the account's concurrent-translation cap (409 `translation_in_progress`, with `in_flight` and `max_in_flight`), the platform queue (503 `translation_backlog`) and the balance -- 402 if the TOTAL is unaffordable, naming the total. Recent-failure cooldowns answer 429 as on the single-language purchase.
 
-        Every job settles independently afterwards, exactly as a single-language purchase does: each lands as a DRAFT, and each failure is refunded (or, under the #1908 terms, settled) on its own. One edit of the article that aborts several running jobs counts as ONE change toward the #1908 allowance, not one per job.
+        Every job settles independently afterwards, exactly as a single-language purchase does: each lands as a DRAFT, and each failure is refunded (or, under the accepted refund terms, settled) on its own. One edit of the article that aborts several running jobs counts as ONE change toward the accepted edit allowance, not one per job.
 
         Owner only; a non-owner gets 404.
       parameters:
@@ -8448,7 +8444,7 @@ paths:
       description: |-
         The most recent AI translation purchase for this zPage and language, and what became of it. 404 when the creator has never bought one.
 
-        Poll this after a 202. `status` moves `queued` -> `delivered`, `refunded` or `settled` (all three terminal), and never leaves `queued` forever: a charge whose job never ran is refunded in full by the `g12f.reap_translation_charges` sweep within ten minutes of its deadline. A job still WAITING in the queue has not 'never run': it keeps its charge until it runs, or until the outer deadline of six hours from purchase (#2348).
+        Poll this after a 202. `status` moves `queued` -> `delivered`, `refunded` or `settled` (all three terminal), and never leaves `queued` forever: a charge whose job never ran is refunded in full by the `g12f.reap_translation_charges` sweep within ten minutes of its deadline. A job still WAITING in the queue has not 'never run': it keeps its charge until it runs, or until the outer deadline of six hours from purchase.
 
         Owner only; a non-owner gets 404.
       parameters:
@@ -8498,7 +8494,7 @@ paths:
 
         `expected_price` must equal the server's own recomputed price or the purchase is refused with 409 `price_changed` and nothing is charged. New clients must also send the quote's `source_digest`; if the article body changed, the purchase is refused with 409 `source_changed` and nothing is charged. Legacy callers that omit the digest are checked against the body read at request start. `Idempotency-Key` is required: a double-click charges once.
 
-        The result is always a **DRAFT** variant with `origin: "ai"` -- machine translations are never auto-published, and editing one flips it to `human`. If the translation fails for any reason -- the provider, unusable output, a safety check, a job that never runs, our own output cap -- the full amount is credited back and nothing is written. The ONE exception (#1908): if the article is edited or re-labelled, or its translation is edited or published, from under a job that has already been paid for, repeatedly inside one window, the provider work that was already done and billed to us is settled at metered cost (`status: "settled"`) instead of refunded. Never more than the quoted price, and never more than the provider actually did.
+        The result is always a **DRAFT** variant with `origin: "ai"` -- machine translations are never auto-published, and editing one flips it to `human`. If the translation fails for any reason -- the provider, unusable output, a safety check, a job that never runs, our own output cap -- the full amount is credited back and nothing is written. The ONE exception: if the article is edited or re-labelled, or its translation is edited or published, from under a job that has already been paid for, repeatedly inside one window, the provider work that was already done and billed to us is settled at metered cost (`status: "settled"`) instead of refunded. Never more than the quoted price, and never more than the provider actually did.
 
         Deleting the article, an ownership change, and a re-label our own language detector made are deliberately NOT in that set: we cannot tell them from an action of ours, so they refund in full.
 
@@ -8506,7 +8502,7 @@ paths:
 
         A **published** variant in the target language is refused (409 `variant_published`): unreviewed machine output never overwrites live content. Unpublish or delete it first.
 
-        An article already at its published-translation ceiling is refused (409 `published_variant_limit`) -- the draft it would buy could never be published (#1126). An article already at its draft-translation ceiling is refused too (409 `draft_variant_limit`) -- we do not charge for a translation that cannot be stored (#1159). An article too long to translate into `language` inside our time limit is refused (409 `translation_too_long`) -- we do not sell a translation that cannot finish (#1973).
+        An article already at its published-translation ceiling is refused (409 `published_variant_limit`) -- the draft it would buy could never be published. An article already at its draft-translation ceiling is refused too (409 `draft_variant_limit`) -- we do not charge for a translation that cannot be stored. An article too long to translate into `language` inside our time limit is refused (409 `translation_too_long`) -- we do not sell a translation that cannot finish.
 
         Owner only; a non-owner gets 404.
       parameters:
@@ -8611,7 +8607,7 @@ paths:
 
         Pricing is cost-plus and always metered -- the price is what the provider call costs us, rounded up to the next penny, and one penny is one 2Z. There is no flat price and no cap, so this endpoint is not optional: it is the only way a creator can see the number before agreeing to it. The price is computed from the token count of the real prompt for this exact article on the model named in the response.
 
-        Answers 409 `published_variant_limit` when the article already holds its full complement of published translations, or 409 `draft_variant_limit` when it holds its full complement of draft translations: a new one could never be published or stored, so there is no price to show (#1126, #1159). Answers 409 `translation_too_long` when the article (or one paragraph of it) is too long to translate into `language` inside the translation time limit, estimated from the same output-token estimate as the price (#1973).
+        Answers 409 `published_variant_limit` when the article already holds its full complement of published translations, or 409 `draft_variant_limit` when it holds its full complement of draft translations: a new one could never be published or stored, so there is no price to show. Answers 409 `translation_too_long` when the article (or one paragraph of it) is too long to translate into `language` inside the translation time limit, estimated from the same output-token estimate as the price.
 
         Owner only; a non-owner gets 404.
       parameters:
@@ -8736,9 +8732,9 @@ paths:
       operationId: zpage_retrieve
       description: One zPage. The response carries a strong `ETag` for the **canonical**
         article — send it back as `If-Match` on a later PUT/PATCH/DELETE to make that
-        write conditional (#1039). It describes the canonical article even when `?lang=`
-        rendered a translation, because the write on this URL always writes the canonical
-        article (#985); a translation's own validator comes from `GET /api/zpage/{id}/variants/{language}/`.
+        write conditional. It describes the canonical article even when `?lang=` rendered
+        a translation, because the write on this URL always writes the canonical article;
+        a translation's own validator comes from `GET /api/zpage/{id}/variants/{language}/`.
       parameters:
       - in: header
         name: Accept-Language
@@ -8788,22 +8784,21 @@ paths:
     put:
       operationId: zpage_update
       description: |-
-        Update a zPage. `source_language` is the article's language *label* and is mutable (#980 §3.2): changing it renames the source variant and the denormalized column in one transaction. If another variant already holds the target language the change is refused with **409** and an actionable message — never a silent overwrite of the creator's translation.
+        Update a zPage. `source_language` is the article's language *label* and is mutable: changing it renames the source variant and the denormalized column in one transaction. If another variant already holds the target language the change is refused with **409** and an actionable message — never a silent overwrite of the creator's translation.
 
-        Send `If-Match` with the `ETag` from the article read to make this write conditional (#1039): a second tab that saved in the meantime turns this into a **412** instead of silently discarding their edit. Without the header the write is last-write-wins, as it has always been.
+        Send `If-Match` with the `ETag` from the article read to make this write conditional: a second tab that saved in the meantime turns this into a **412** instead of silently discarding their edit. Without the header the write is last-write-wins, as it has always been.
       parameters:
       - in: header
         name: If-Match
         schema:
           type: string
-        description: 'Optimistic-concurrency precondition (#1039). Send the strong
-          `ETag` returned by the corresponding read; the write is applied only if
-          the resource still has that exact state, and otherwise fails with **412**
-          and changes nothing. `*` asserts only that the resource exists. Optional:
-          omitting it keeps the historical last-write-wins behaviour, so existing
-          clients are unaffected — but two editors of the same article will then silently
-          overwrite each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong
-          comparison.'
+        description: 'Optimistic-concurrency precondition. Send the strong `ETag`
+          returned by the corresponding read; the write is applied only if the resource
+          still has that exact state, and otherwise fails with **412** and changes
+          nothing. `*` asserts only that the resource exists. Optional: omitting it
+          keeps the historical last-write-wins behaviour, so existing clients are
+          unaffected — but two editors of the same article will then silently overwrite
+          each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong comparison.'
       - in: header
         name: X-Free2Z-Source-Language
         schema:
@@ -8812,13 +8807,13 @@ paths:
           Two uses. (1) Required for translation writes when the canonical source
           language is unsupported/undetermined; the value must then exactly match
           the article''s current source_language, so stale editors fail closed with
-          409. (2) With `If-Match`, on the canonical article and on translation writes
-          (#2179): if the only change since the client''s read is the background language
-          detector relabelling the article (`language_source` is `detected`), and
-          this write does not itself set `source_language`, the precondition passes
-          instead of returning 412. The response then carries the new `source_language`,
-          and a client that sends this header is declaring that it will adopt it --
-          a client that does not follow the label should not send it on a canonical
+          409. (2) With `If-Match`, on the canonical article and on translation writes:
+          if the only change since the client''s read is the background language detector
+          relabelling the article (`language_source` is `detected`), and this write
+          does not itself set `source_language`, the precondition passes instead of
+          returning 412. The response then carries the new `source_language`, and
+          a client that sends this header is declaring that it will adopt it -- a
+          client that does not follow the label should not send it on a canonical
           write. Omitted, `If-Match` is compared exactly. A write that sets a different
           `source_language` never gets this allowance.'
       - in: path
@@ -8833,10 +8828,10 @@ paths:
         description: 'Which language variant to render in the response body. Affects
           the representation only: it never sets or changes what is persisted. The
           source language comes from the `source_language` body field, on create and
-          on update alike — it is mutable (#980 §3.2), and changing it to a language
-          that already has a translation is a 409. An unsupported `lang` value here
-          is ignored rather than failing the write. `Accept-Language` is NOT negotiated
-          on a write: the response describes the variant that was written.'
+          on update alike — it is mutable, and changing it to a language that already
+          has a translation is a 409. An unsupported `lang` value here is ignored
+          rather than failing the write. `Accept-Language` is NOT negotiated on a
+          write: the response describes the variant that was written.'
       tags:
       - zpage
       requestBody:
@@ -8876,22 +8871,21 @@ paths:
     patch:
       operationId: zpage_partial_update
       description: Partially update a zPage. `source_language` is mutable and owner-only;
-        a target language already held by another variant is refused with **409**
-        (#980 §3.2). Honours the optional `If-Match` precondition (#1039), returning
-        **412** if the article changed since the `ETag` the client is holding.
+        a target language already held by another variant is refused with **409**.
+        Honours the optional `If-Match` precondition, returning **412** if the article
+        changed since the `ETag` the client is holding.
       parameters:
       - in: header
         name: If-Match
         schema:
           type: string
-        description: 'Optimistic-concurrency precondition (#1039). Send the strong
-          `ETag` returned by the corresponding read; the write is applied only if
-          the resource still has that exact state, and otherwise fails with **412**
-          and changes nothing. `*` asserts only that the resource exists. Optional:
-          omitting it keeps the historical last-write-wins behaviour, so existing
-          clients are unaffected — but two editors of the same article will then silently
-          overwrite each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong
-          comparison.'
+        description: 'Optimistic-concurrency precondition. Send the strong `ETag`
+          returned by the corresponding read; the write is applied only if the resource
+          still has that exact state, and otherwise fails with **412** and changes
+          nothing. `*` asserts only that the resource exists. Optional: omitting it
+          keeps the historical last-write-wins behaviour, so existing clients are
+          unaffected — but two editors of the same article will then silently overwrite
+          each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong comparison.'
       - in: header
         name: X-Free2Z-Source-Language
         schema:
@@ -8900,13 +8894,13 @@ paths:
           Two uses. (1) Required for translation writes when the canonical source
           language is unsupported/undetermined; the value must then exactly match
           the article''s current source_language, so stale editors fail closed with
-          409. (2) With `If-Match`, on the canonical article and on translation writes
-          (#2179): if the only change since the client''s read is the background language
-          detector relabelling the article (`language_source` is `detected`), and
-          this write does not itself set `source_language`, the precondition passes
-          instead of returning 412. The response then carries the new `source_language`,
-          and a client that sends this header is declaring that it will adopt it --
-          a client that does not follow the label should not send it on a canonical
+          409. (2) With `If-Match`, on the canonical article and on translation writes:
+          if the only change since the client''s read is the background language detector
+          relabelling the article (`language_source` is `detected`), and this write
+          does not itself set `source_language`, the precondition passes instead of
+          returning 412. The response then carries the new `source_language`, and
+          a client that sends this header is declaring that it will adopt it -- a
+          client that does not follow the label should not send it on a canonical
           write. Omitted, `If-Match` is compared exactly. A write that sets a different
           `source_language` never gets this allowance.'
       - in: path
@@ -8921,10 +8915,10 @@ paths:
         description: 'Which language variant to render in the response body. Affects
           the representation only: it never sets or changes what is persisted. The
           source language comes from the `source_language` body field, on create and
-          on update alike — it is mutable (#980 §3.2), and changing it to a language
-          that already has a translation is a 409. An unsupported `lang` value here
-          is ignored rather than failing the write. `Accept-Language` is NOT negotiated
-          on a write: the response describes the variant that was written.'
+          on update alike — it is mutable, and changing it to a language that already
+          has a translation is a 409. An unsupported `lang` value here is ignored
+          rather than failing the write. `Accept-Language` is NOT negotiated on a
+          write: the response describes the variant that was written.'
       tags:
       - zpage
       requestBody:
@@ -8963,7 +8957,7 @@ paths:
     delete:
       operationId: zpage_destroy
       description: |-
-        Delete a zPage. Owner only. Honours the optional `If-Match` precondition (#1039): a delete issued from a stale editor — one that never saw somebody else's newer draft — returns **412** and deletes nothing.
+        Delete a zPage. Owner only. Honours the optional `If-Match` precondition: a delete issued from a stale editor — one that never saw somebody else's newer draft — returns **412** and deletes nothing.
 
         The validator describes **this article's own fields**. Deleting an article also deletes its translations, and a concurrent write to one of those does *not* invalidate it — deliberately, because an AI translation landing while the creator edits the source would otherwise fail their own autosave and blame someone else for it.
 
@@ -8973,14 +8967,13 @@ paths:
         name: If-Match
         schema:
           type: string
-        description: 'Optimistic-concurrency precondition (#1039). Send the strong
-          `ETag` returned by the corresponding read; the write is applied only if
-          the resource still has that exact state, and otherwise fails with **412**
-          and changes nothing. `*` asserts only that the resource exists. Optional:
-          omitting it keeps the historical last-write-wins behaviour, so existing
-          clients are unaffected — but two editors of the same article will then silently
-          overwrite each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong
-          comparison.'
+        description: 'Optimistic-concurrency precondition. Send the strong `ETag`
+          returned by the corresponding read; the write is applied only if the resource
+          still has that exact state, and otherwise fails with **412** and changes
+          nothing. `*` asserts only that the resource exists. Optional: omitting it
+          keeps the historical last-write-wins behaviour, so existing clients are
+          unaffected — but two editors of the same article will then silently overwrite
+          each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong comparison.'
       - in: path
         name: id
         schema:
@@ -9060,36 +9053,34 @@ paths:
       operationId: zpage_translations_update
       description: '**Deprecated** — use `PUT /api/zpage/{id}/variants/{language}/`,
         which runs the same code and additionally accepts PATCH. Kept for one release
-        because the deployed editor calls this path (#980 §4.2). It has the same 96-published-
+        because the deployed editor calls this path. It has the same 96-published-
         and 96-draft-translation ceilings.'
       parameters:
       - in: header
         name: If-Match
         schema:
           type: string
-        description: 'Optimistic-concurrency precondition (#1039). Send the strong
-          `ETag` returned by the corresponding read; the write is applied only if
-          the resource still has that exact state, and otherwise fails with **412**
-          and changes nothing. `*` asserts only that the resource exists. Optional:
-          omitting it keeps the historical last-write-wins behaviour, so existing
-          clients are unaffected — but two editors of the same article will then silently
-          overwrite each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong
-          comparison.'
+        description: 'Optimistic-concurrency precondition. Send the strong `ETag`
+          returned by the corresponding read; the write is applied only if the resource
+          still has that exact state, and otherwise fails with **412** and changes
+          nothing. `*` asserts only that the resource exists. Optional: omitting it
+          keeps the historical last-write-wins behaviour, so existing clients are
+          unaffected — but two editors of the same article will then silently overwrite
+          each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong comparison.'
       - in: header
         name: If-None-Match
         schema:
           type: string
           enum:
           - '*'
-        description: 'Create-only precondition (#1363). `*` means "apply this write
-          only if this language has no version yet": if one exists -- including the
-          page''s own `source_language`, which is the article itself -- the write
-          fails with **412** and changes nothing, so two clients starting the same
-          new translation cannot silently overwrite each other. Checked under the
-          same lock as the write, so it holds under a real race. Only `*` is supported;
-          any other value, including an empty one, is a **400**. Optional: omitting
-          it keeps the historical create-or-replace behaviour. Evaluated after `If-Match`
-          (RFC 9110 §13.2.2).'
+        description: 'Create-only precondition. `*` means "apply this write only if
+          this language has no version yet": if one exists -- including the page''s
+          own `source_language`, which is the article itself -- the write fails with
+          **412** and changes nothing, so two clients starting the same new translation
+          cannot silently overwrite each other. Checked under the same lock as the
+          write, so it holds under a real race. Only `*` is supported; any other value,
+          including an empty one, is a **400**. Optional: omitting it keeps the historical
+          create-or-replace behaviour. Evaluated after `If-Match` (RFC 9110 §13.2.2).'
       - in: header
         name: X-Free2Z-Source-Language
         schema:
@@ -9098,13 +9089,13 @@ paths:
           Two uses. (1) Required for translation writes when the canonical source
           language is unsupported/undetermined; the value must then exactly match
           the article''s current source_language, so stale editors fail closed with
-          409. (2) With `If-Match`, on the canonical article and on translation writes
-          (#2179): if the only change since the client''s read is the background language
-          detector relabelling the article (`language_source` is `detected`), and
-          this write does not itself set `source_language`, the precondition passes
-          instead of returning 412. The response then carries the new `source_language`,
-          and a client that sends this header is declaring that it will adopt it --
-          a client that does not follow the label should not send it on a canonical
+          409. (2) With `If-Match`, on the canonical article and on translation writes:
+          if the only change since the client''s read is the background language detector
+          relabelling the article (`language_source` is `detected`), and this write
+          does not itself set `source_language`, the precondition passes instead of
+          returning 412. The response then carries the new `source_language`, and
+          a client that sends this header is declaring that it will adopt it -- a
+          client that does not follow the label should not send it on a canonical
           write. Omitted, `If-Match` is compared exactly. A write that sets a different
           `source_language` never gets this allowance.'
       - in: path
@@ -9168,14 +9159,13 @@ paths:
         name: If-Match
         schema:
           type: string
-        description: 'Optimistic-concurrency precondition (#1039). Send the strong
-          `ETag` returned by the corresponding read; the write is applied only if
-          the resource still has that exact state, and otherwise fails with **412**
-          and changes nothing. `*` asserts only that the resource exists. Optional:
-          omitting it keeps the historical last-write-wins behaviour, so existing
-          clients are unaffected — but two editors of the same article will then silently
-          overwrite each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong
-          comparison.'
+        description: 'Optimistic-concurrency precondition. Send the strong `ETag`
+          returned by the corresponding read; the write is applied only if the resource
+          still has that exact state, and otherwise fails with **412** and changes
+          nothing. `*` asserts only that the resource exists. Optional: omitting it
+          keeps the historical last-write-wins behaviour, so existing clients are
+          unaffected — but two editors of the same article will then silently overwrite
+          each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong comparison.'
       - in: header
         name: X-Free2Z-Source-Language
         schema:
@@ -9184,13 +9174,13 @@ paths:
           Two uses. (1) Required for translation writes when the canonical source
           language is unsupported/undetermined; the value must then exactly match
           the article''s current source_language, so stale editors fail closed with
-          409. (2) With `If-Match`, on the canonical article and on translation writes
-          (#2179): if the only change since the client''s read is the background language
-          detector relabelling the article (`language_source` is `detected`), and
-          this write does not itself set `source_language`, the precondition passes
-          instead of returning 412. The response then carries the new `source_language`,
-          and a client that sends this header is declaring that it will adopt it --
-          a client that does not follow the label should not send it on a canonical
+          409. (2) With `If-Match`, on the canonical article and on translation writes:
+          if the only change since the client''s read is the background language detector
+          relabelling the article (`language_source` is `detected`), and this write
+          does not itself set `source_language`, the precondition passes instead of
+          returning 412. The response then carries the new `source_language`, and
+          a client that sends this header is declaring that it will adopt it -- a
+          client that does not follow the label should not send it on a canonical
           write. Omitted, `If-Match` is compared exactly. A write that sets a different
           `source_language` never gets this allowance.'
       - in: path
@@ -9221,11 +9211,11 @@ paths:
   /api/zpage/{id}/variants/:
     get:
       operationId: zpage_variants_list
-      description: 'Every language variant of this zPage with its real status (#980
-        §4.2). The source variant is first and carries `origin: "source"`; translations
-        follow, sorted by tag. The owner sees their unpublished drafts, everyone else
-        sees only published variants. Unpaginated array, no body content — fetch one
-        variant to get its text.'
+      description: 'Every language variant of this zPage with its real status. The
+        source variant is first and carries `origin: "source"`; translations follow,
+        sorted by tag. The owner sees their unpublished drafts, everyone else sees
+        only published variants. Unpaginated array, no body content — fetch one variant
+        to get its text.'
       parameters:
       - in: path
         name: id
@@ -9260,12 +9250,12 @@ paths:
   /api/zpage/{id}/variants/{language}/:
     get:
       operationId: zpage_variants_retrieve
-      description: 'One language variant of a zPage (#980 §4.2). Unlike `GET /api/zpage/{id}/?lang=`,
+      description: 'One language variant of a zPage. Unlike `GET /api/zpage/{id}/?lang=`,
         this does **not** fall back to the source variant: a language with no variant
         is a 404, so a client can use it to tell ''not translated yet'' from ''translated''.
         A draft variant is visible to its owner only. The response carries this variant''s
         strong `ETag`; send it back as `If-Match` to make a write to this variant
-        conditional (#1039).'
+        conditional.'
       parameters:
       - in: path
         name: id
@@ -9307,11 +9297,11 @@ paths:
           description: ''
     put:
       operationId: zpage_variants_update
-      description: 'Create or replace one language variant (#980 §4.2). Owner only;
-        a non-owner gets 404. Writing the page''s own `source_language` updates the
-        canonical article, so the source really is a variant like any other. Creating
-        a variant requires `title` and `content`; send `If-None-Match: *` to create
-        it only if nobody else has meanwhile (412 otherwise). Publishing a 97th translation
+      description: 'Create or replace one language variant. Owner only; a non-owner
+        gets 404. Writing the page''s own `source_language` updates the canonical
+        article, so the source really is a variant like any other. Creating a variant
+        requires `title` and `content`; send `If-None-Match: *` to create it only
+        if nobody else has meanwhile (412 otherwise). Publishing a 97th translation
         returns 409; creating a 97th draft translation returns 409; edit an existing
         published translation, save a draft, or unpublish one instead.'
       parameters:
@@ -9319,29 +9309,27 @@ paths:
         name: If-Match
         schema:
           type: string
-        description: 'Optimistic-concurrency precondition (#1039). Send the strong
-          `ETag` returned by the corresponding read; the write is applied only if
-          the resource still has that exact state, and otherwise fails with **412**
-          and changes nothing. `*` asserts only that the resource exists. Optional:
-          omitting it keeps the historical last-write-wins behaviour, so existing
-          clients are unaffected — but two editors of the same article will then silently
-          overwrite each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong
-          comparison.'
+        description: 'Optimistic-concurrency precondition. Send the strong `ETag`
+          returned by the corresponding read; the write is applied only if the resource
+          still has that exact state, and otherwise fails with **412** and changes
+          nothing. `*` asserts only that the resource exists. Optional: omitting it
+          keeps the historical last-write-wins behaviour, so existing clients are
+          unaffected — but two editors of the same article will then silently overwrite
+          each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong comparison.'
       - in: header
         name: If-None-Match
         schema:
           type: string
           enum:
           - '*'
-        description: 'Create-only precondition (#1363). `*` means "apply this write
-          only if this language has no version yet": if one exists -- including the
-          page''s own `source_language`, which is the article itself -- the write
-          fails with **412** and changes nothing, so two clients starting the same
-          new translation cannot silently overwrite each other. Checked under the
-          same lock as the write, so it holds under a real race. Only `*` is supported;
-          any other value, including an empty one, is a **400**. Optional: omitting
-          it keeps the historical create-or-replace behaviour. Evaluated after `If-Match`
-          (RFC 9110 §13.2.2).'
+        description: 'Create-only precondition. `*` means "apply this write only if
+          this language has no version yet": if one exists -- including the page''s
+          own `source_language`, which is the article itself -- the write fails with
+          **412** and changes nothing, so two clients starting the same new translation
+          cannot silently overwrite each other. Checked under the same lock as the
+          write, so it holds under a real race. Only `*` is supported; any other value,
+          including an empty one, is a **400**. Optional: omitting it keeps the historical
+          create-or-replace behaviour. Evaluated after `If-Match` (RFC 9110 §13.2.2).'
       - in: header
         name: X-Free2Z-Source-Language
         schema:
@@ -9350,13 +9338,13 @@ paths:
           Two uses. (1) Required for translation writes when the canonical source
           language is unsupported/undetermined; the value must then exactly match
           the article''s current source_language, so stale editors fail closed with
-          409. (2) With `If-Match`, on the canonical article and on translation writes
-          (#2179): if the only change since the client''s read is the background language
-          detector relabelling the article (`language_source` is `detected`), and
-          this write does not itself set `source_language`, the precondition passes
-          instead of returning 412. The response then carries the new `source_language`,
-          and a client that sends this header is declaring that it will adopt it --
-          a client that does not follow the label should not send it on a canonical
+          409. (2) With `If-Match`, on the canonical article and on translation writes:
+          if the only change since the client''s read is the background language detector
+          relabelling the article (`language_source` is `detected`), and this write
+          does not itself set `source_language`, the precondition passes instead of
+          returning 412. The response then carries the new `source_language`, and
+          a client that sends this header is declaring that it will adopt it -- a
+          client that does not follow the label should not send it on a canonical
           write. Omitted, `If-Match` is compared exactly. A write that sets a different
           `source_language` never gets this allowance.'
       - in: path
@@ -9415,38 +9403,36 @@ paths:
     patch:
       operationId: zpage_variants_partial_update
       description: 'Update part of one language variant — publish a draft, fix a title
-        — without resending the body (#980 §4.2). Owner only. A PATCH cannot *create*
-        a variant: title and content are required for that, so use PUT. Publishing
-        a 97th translation returns 409; existing published translations, drafts and
-        unpublishes remain valid.'
+        — without resending the body. Owner only. A PATCH cannot *create* a variant:
+        title and content are required for that, so use PUT. Publishing a 97th translation
+        returns 409; existing published translations, drafts and unpublishes remain
+        valid.'
       parameters:
       - in: header
         name: If-Match
         schema:
           type: string
-        description: 'Optimistic-concurrency precondition (#1039). Send the strong
-          `ETag` returned by the corresponding read; the write is applied only if
-          the resource still has that exact state, and otherwise fails with **412**
-          and changes nothing. `*` asserts only that the resource exists. Optional:
-          omitting it keeps the historical last-write-wins behaviour, so existing
-          clients are unaffected — but two editors of the same article will then silently
-          overwrite each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong
-          comparison.'
+        description: 'Optimistic-concurrency precondition. Send the strong `ETag`
+          returned by the corresponding read; the write is applied only if the resource
+          still has that exact state, and otherwise fails with **412** and changes
+          nothing. `*` asserts only that the resource exists. Optional: omitting it
+          keeps the historical last-write-wins behaviour, so existing clients are
+          unaffected — but two editors of the same article will then silently overwrite
+          each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong comparison.'
       - in: header
         name: If-None-Match
         schema:
           type: string
           enum:
           - '*'
-        description: 'Create-only precondition (#1363). `*` means "apply this write
-          only if this language has no version yet": if one exists -- including the
-          page''s own `source_language`, which is the article itself -- the write
-          fails with **412** and changes nothing, so two clients starting the same
-          new translation cannot silently overwrite each other. Checked under the
-          same lock as the write, so it holds under a real race. Only `*` is supported;
-          any other value, including an empty one, is a **400**. Optional: omitting
-          it keeps the historical create-or-replace behaviour. Evaluated after `If-Match`
-          (RFC 9110 §13.2.2).'
+        description: 'Create-only precondition. `*` means "apply this write only if
+          this language has no version yet": if one exists -- including the page''s
+          own `source_language`, which is the article itself -- the write fails with
+          **412** and changes nothing, so two clients starting the same new translation
+          cannot silently overwrite each other. Checked under the same lock as the
+          write, so it holds under a real race. Only `*` is supported; any other value,
+          including an empty one, is a **400**. Optional: omitting it keeps the historical
+          create-or-replace behaviour. Evaluated after `If-Match` (RFC 9110 §13.2.2).'
       - in: header
         name: X-Free2Z-Source-Language
         schema:
@@ -9455,13 +9441,13 @@ paths:
           Two uses. (1) Required for translation writes when the canonical source
           language is unsupported/undetermined; the value must then exactly match
           the article''s current source_language, so stale editors fail closed with
-          409. (2) With `If-Match`, on the canonical article and on translation writes
-          (#2179): if the only change since the client''s read is the background language
-          detector relabelling the article (`language_source` is `detected`), and
-          this write does not itself set `source_language`, the precondition passes
-          instead of returning 412. The response then carries the new `source_language`,
-          and a client that sends this header is declaring that it will adopt it --
-          a client that does not follow the label should not send it on a canonical
+          409. (2) With `If-Match`, on the canonical article and on translation writes:
+          if the only change since the client''s read is the background language detector
+          relabelling the article (`language_source` is `detected`), and this write
+          does not itself set `source_language`, the precondition passes instead of
+          returning 412. The response then carries the new `source_language`, and
+          a client that sends this header is declaring that it will adopt it -- a
+          client that does not follow the label should not send it on a canonical
           write. Omitted, `If-Match` is compared exactly. A write that sets a different
           `source_language` never gets this allowance.'
       - in: path
@@ -9518,23 +9504,22 @@ paths:
           description: ''
     delete:
       operationId: zpage_variants_destroy
-      description: 'Delete one translation variant (#980 §4.2). Owner only; a non-owner
-        gets 404. The variant with `origin: "source"` is the article itself and is
-        refused with 400 — delete or relabel the article instead. Deleting a variant
-        that does not exist is 404.'
+      description: 'Delete one translation variant. Owner only; a non-owner gets 404.
+        The variant with `origin: "source"` is the article itself and is refused with
+        400 — delete or relabel the article instead. Deleting a variant that does
+        not exist is 404.'
       parameters:
       - in: header
         name: If-Match
         schema:
           type: string
-        description: 'Optimistic-concurrency precondition (#1039). Send the strong
-          `ETag` returned by the corresponding read; the write is applied only if
-          the resource still has that exact state, and otherwise fails with **412**
-          and changes nothing. `*` asserts only that the resource exists. Optional:
-          omitting it keeps the historical last-write-wins behaviour, so existing
-          clients are unaffected — but two editors of the same article will then silently
-          overwrite each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong
-          comparison.'
+        description: 'Optimistic-concurrency precondition. Send the strong `ETag`
+          returned by the corresponding read; the write is applied only if the resource
+          still has that exact state, and otherwise fails with **412** and changes
+          nothing. `*` asserts only that the resource exists. Optional: omitting it
+          keeps the historical last-write-wins behaviour, so existing clients are
+          unaffected — but two editors of the same article will then silently overwrite
+          each other. Weak (`W/"..."`) tags never match, per RFC 9110 strong comparison.'
       - in: path
         name: id
         schema:
@@ -10121,7 +10106,7 @@ components:
         * `anthropic_messages` - anthropic_messages
     ApplicationStatusChange:
       type: object
-      description: '`{"status": ...}` from `POST /api/kyc/change-status`.'
+      description: '`{"status":...}` from `POST /api/kyc/change-status`.'
       properties:
         status:
           type: string
@@ -10238,13 +10223,13 @@ components:
             An invalid or expired ticket is ignored.'
         f2z_spend_cap:
           type: string
-          description: 'Not an OAuth parameter (#2296): the app''s suggested spend
-            cap, echoed so the POST''s `request_id` still matches. The POST never
-            records it; only its own `spend_cap_2z` counts.'
+          description: 'Not an OAuth parameter: the app''s suggested spend cap, echoed
+            so the POST''s `request_id` still matches. The POST never records it;
+            only its own `spend_cap_2z` counts.'
         f2z_spend_period:
           type: string
-          description: 'Not an OAuth parameter (#2296): the period of `f2z_spend_cap`,
-            echoed like it.'
+          description: 'Not an OAuth parameter: the period of `f2z_spend_cap`, echoed
+            like it.'
       required:
       - client_id
       - code_challenge
@@ -10974,7 +10959,7 @@ components:
         ``get_fields`` makes ``tuzis`` and ``parent`` read-only on PUT/PATCH. The
         PUT body used to share the ``CommentList`` component with the create body
         and the responses, so once create requires ``tuzis`` a generated client
-        would demand an amount to fix a typo (#2174).
+        would demand an amount to fix a typo.
       properties:
         uuid:
           type: string
@@ -11278,7 +11263,7 @@ components:
           allOf:
           - $ref: '#/components/schemas/SpendCapSourceEnum'
           description: |-
-            Where `spend_cap` came from: the existing `grant`, the `app` registration's default, the `platform` default, or the authorization `request`'s clamped hint (#2296).
+            Where `spend_cap` came from: the existing `grant`, the `app` registration's default, the `platform` default, or the authorization `request`'s clamped hint.
 
             * `grant` - grant
             * `app` - app
@@ -11516,7 +11501,7 @@ components:
       - cover
     CreatorBlock:
       type: object
-      description: One row of "accounts I blocked" (#1749).
+      description: One row of "accounts I blocked".
       properties:
         username:
           type: string
@@ -12204,7 +12189,7 @@ components:
           allOf:
           - $ref: '#/components/schemas/DefaultCapPeriodEnum'
           description: |-
-            The period of `default_spend_cap_2z`; `total` never resets. It also bounds a sign-in's `f2z_spend_cap` / `f2z_spend_period` hint: the consent screen never pre-selects more than this default allows (#2296).
+            The period of `default_spend_cap_2z`; `total` never resets. It also bounds a sign-in's `f2z_spend_cap` / `f2z_spend_period` hint: the consent screen never pre-selects more than this default allows.
 
             * `day` - per day
             * `week` - per week
@@ -12347,7 +12332,7 @@ components:
           allOf:
           - $ref: '#/components/schemas/DefaultCapPeriodEnum'
           description: |-
-            The period of `default_spend_cap_2z`; `total` never resets. It also bounds a sign-in's `f2z_spend_cap` / `f2z_spend_period` hint: the consent screen never pre-selects more than this default allows (#2296).
+            The period of `default_spend_cap_2z`; `total` never resets. It also bounds a sign-in's `f2z_spend_cap` / `f2z_spend_period` hint: the consent screen never pre-selects more than this default allows.
 
             * `day` - per day
             * `week` - per week
@@ -12665,7 +12650,7 @@ components:
           type: boolean
           description: 'True only when an ANONYMOUS request can fetch the bytes: `access
             == "public"` and the owner is still active. Do not advertise a `contentUrl`
-            (or any crawler-visible URL) for a false value -- see tuzi#1463.'
+            (or any crawler-visible URL) for a false value.'
         poster:
           type: string
           nullable: true
@@ -12836,7 +12821,7 @@ components:
     FeaturedImage:
       type: object
       description: |-
-        The image size ladder (#590). `thumb`/`card`/`banner` are
+        The image size ladder. `thumb`/`card`/`banner` are
         purpose-named conveniences into the same ladder `variants` exposes
         in full (for srcset). All are None until the worker has processed
         the upload, and None for non-image files; they never point at the
@@ -12878,9 +12863,9 @@ components:
             Extracted still for a VIDEO upload; None for everything else.
 
             Served under the video's own access prefix -- never copied to a
-            second, more public location (tuzi#1463). None means no poster
+            second, more public location. None means no poster
             exists: render a blank player, and do NOT declare a `thumbnailUrl`
-            for it (#1544).
+            for it.
           readOnly: true
         created_at:
           type: string
@@ -13046,7 +13031,7 @@ components:
     GrantCapUpdate:
       type: object
       description: |-
-        ``PUT /api/oauth/grants/<application_id>/cap/`` (#2244). Both fields are
+        ``PUT /api/oauth/grants/<application_id>/cap/``. Both fields are
         REQUIRED: the cap never fails open, so "no cap" is an explicit null and
         an absent key is a 400, not "keep whatever was there".
       properties:
@@ -13343,7 +13328,7 @@ components:
           - $ref: '#/components/schemas/IdempotentDonationRequestIntentEnum'
           default: donation
           description: |-
-            The paid intent. `donation` and `ppv` are separate replay identities even when recipient and amount match. `ppv` is retired (#1601): it is accepted only so a receipt recorded before the retirement replays; a new `ppv` request is refused with 400 `ppv_unlock_retired` and moves no 2Z.
+            The paid intent. `donation` and `ppv` are separate replay identities even when recipient and amount match. `ppv` is retired: it is accepted only so a receipt recorded before the retirement replays; a new `ppv` request is refused with 400 `ppv_unlock_retired` and moves no 2Z.
 
             * `donation` - donation
             * `ppv` - ppv
@@ -13611,7 +13596,7 @@ components:
       - active
     KYCError:
       type: object
-      description: '`{"error": ...}` — used by the identity-document and status views.'
+      description: '`{"error":...}` — used by the identity-document and status views.'
       properties:
         error:
           type: string
@@ -13622,8 +13607,8 @@ components:
       description: |-
         The 400 body of `/api/kyc/identity-documents`.
 
-        Genuinely two shapes: a rejected *file* answers `{"error": ...}` while the
-        "your application is no longer editable" guard answers `{"message": ...}`.
+        Genuinely two shapes: a rejected *file* answers `{"error":...}` while the
+        "your application is no longer editable" guard answers `{"message":...}`.
         Both keys are declared optional rather than papered over, because a client
         that only reads `error` silently shows nothing when an APPROVED user tries
         to re-upload — which is the more confusing failure.
@@ -13634,7 +13619,7 @@ components:
           type: string
     KYCMessage:
       type: object
-      description: '`{"message": ...}` — the shape of every `can_edit()` rejection.'
+      description: '`{"message":...}` — the shape of every `can_edit()` rejection.'
       properties:
         message:
           type: string
@@ -13678,7 +13663,7 @@ components:
         name:
           type: string
           description: The language's name in the response's `locale`. Never a raw
-            subtag (#806).
+            subtag.
         autonym:
           type: string
           description: The language's name written in itself (`日本語`). Falls back to
@@ -14442,7 +14427,7 @@ components:
         ``get_fields`` makes ``tuzis`` and ``parent`` read-only on PUT/PATCH. The
         PUT body used to share the ``CommentList`` component with the create body
         and the responses, so once create requires ``tuzis`` a generated client
-        would demand an amount to fix a typo (#2174).
+        would demand an amount to fix a typo.
       properties:
         uuid:
           type: string
@@ -14715,7 +14700,7 @@ components:
           allOf:
           - $ref: '#/components/schemas/DefaultCapPeriodEnum'
           description: |-
-            The period of `default_spend_cap_2z`; `total` never resets. It also bounds a sign-in's `f2z_spend_cap` / `f2z_spend_period` hint: the consent screen never pre-selects more than this default allows (#2296).
+            The period of `default_spend_cap_2z`; `total` never resets. It also bounds a sign-in's `f2z_spend_cap` / `f2z_spend_period` hint: the consent screen never pre-selects more than this default allows.
 
             * `day` - per day
             * `week` - per week
@@ -14771,7 +14756,7 @@ components:
     PatchedFeaturedImage:
       type: object
       description: |-
-        The image size ladder (#590). `thumb`/`card`/`banner` are
+        The image size ladder. `thumb`/`card`/`banner` are
         purpose-named conveniences into the same ladder `variants` exposes
         in full (for srcset). All are None until the worker has processed
         the upload, and None for non-image files; they never point at the
@@ -14813,9 +14798,9 @@ components:
             Extracted still for a VIDEO upload; None for everything else.
 
             Served under the video's own access prefix -- never copied to a
-            second, more public location (tuzi#1463). None means no poster
+            second, more public location. None means no poster
             exists: render a blank player, and do NOT declare a `thumbnailUrl`
-            for it (#1544).
+            for it.
           readOnly: true
         created_at:
           type: string
@@ -15074,10 +15059,9 @@ components:
           description: 'Whether this translation was made from content the source
             has since changed. THREE states: `true` stale, `false` current, `null`
             unknown. `null` is the common case -- the source variant has nothing to
-            be stale against, and no pre-#980 translation recorded which revision
-            it was made from. Render `null` as nothing at all: showing it as ''Stale''
-            fires on almost every existing translation, which is the mistake #805
-            had to undo.'
+            be stale against, and no legacy translation recorded which revision it
+            was made from. Render `null` as nothing at all: unknown source history
+            cannot prove staleness.'
     Payment:
       type: object
       properties:
@@ -15215,7 +15199,7 @@ components:
         Declared for the same reason ``ConflictDetailSerializer`` is: ``412: None``
         generates ``void`` in the orval client, and then the editor has nothing to
         show but "Failed to save article" — the withholding-the-useful-fact
-        failure #1039 explicitly asks not to repeat.
+        failure  explicitly asks not to repeat.
       properties:
         detail:
           type: string
@@ -15246,7 +15230,7 @@ components:
         * `metered` - metered
     Pricing:
       type: object
-      description: 'Current live 2Z pricing across ZEC and card payments (issue #579).'
+      description: Current live 2Z pricing across ZEC and card payments.
       properties:
         zec_usd:
           type: string
@@ -16822,7 +16806,7 @@ components:
         Declared for the schema only — the view builds plain dicts and returns a
         `JsonResponse`, so this never validates anything. It exists because the
         endpoint is the only enumeration of the tag vocabulary, and a client that
-        cannot see its shape ends up hardcoding a vocabulary instead (#1181).
+        cannot see its shape ends up hardcoding a vocabulary instead.
       properties:
         name:
           type: string
@@ -16837,7 +16821,7 @@ components:
           allOf:
           - $ref: '#/components/schemas/LevelEnum'
           description: |-
-            `broad` or `narrow`, derived from how many published zPages carry the tag — NOT a stored attribute (#1208). The boundary is a percentile of the corpus, so it means the same thing as the platform grows. Broad tags are browse vocabulary; narrow tags are what makes long-tail discovery and “more like this” work. Treat it as a display hint: two tags either side of the boundary are near-identical in frequency, and the boundary itself moves as the corpus does.
+            `broad` or `narrow`, derived from how many published zPages carry the tag — NOT a stored attribute. The boundary is a percentile of the corpus, so it means the same thing as the platform grows. Broad tags are browse vocabulary; narrow tags are what makes long-tail discovery and “more like this” work. Treat it as a display hint: two tags either side of the boundary are near-identical in frequency, and the boundary itself moves as the corpus does.
 
             * `broad` - broad
             * `narrow` - narrow
@@ -17097,7 +17081,7 @@ components:
       - total
     TranslationBatchPurchase:
       type: object
-      description: '`POST .../translations/` -- buy several translations at once.'
+      description: '`POST.../translations/` -- buy several translations at once.'
       properties:
         items:
           type: array
@@ -17125,7 +17109,7 @@ components:
       - source_digest
     TranslationBatchQuote:
       type: object
-      description: '`GET .../translations/quote/` -- per-language prices plus a total.'
+      description: '`GET.../translations/quote/` -- per-language prices plus a total.'
       properties:
         source_language:
           type: string
@@ -17285,7 +17269,7 @@ components:
       description: |-
         The charge record: what was paid, and what became of it.
 
-        Returned by the purchase (202) and by `GET .../translate/`. Retrying the
+        Returned by the purchase (202) and by `GET.../translate/`. Retrying the
         purchase with the same `Idempotency-Key` replays this same record, so a
         client that lost a response can always recover the truth about its money.
       properties:
@@ -17296,7 +17280,7 @@ components:
           allOf:
           - $ref: '#/components/schemas/TranslationJobStatusEnum'
           description: |-
-            `queued` paid, translation in progress. `delivered` a DRAFT variant now exists -- review it, edit it, publish it; see `warnings` for anything it did not preserve. `refunded` the full amount was credited back and nothing was written. `settled` nothing was written and PART of the charge was kept, covering provider work that had already been done and billed to us when the buyer changed the article under their own paid job again (#1908) -- see `fault` and `billed`. All three of `delivered`, `refunded` and `settled` are terminal: stop polling.
+            `queued` paid, translation in progress. `delivered` a DRAFT variant now exists -- review it, edit it, publish it; see `warnings` for anything it did not preserve. `refunded` the full amount was credited back and nothing was written. `settled` nothing was written and PART of the charge was kept, covering provider work that had already been done and billed to us when the buyer changed the article under their own paid job again -- see `fault` and `billed`. All three of `delivered`, `refunded` and `settled` are terminal: stop polling.
 
             * `queued` - queued
             * `delivered` - delivered
@@ -17344,7 +17328,7 @@ components:
           allOf:
           - $ref: '#/components/schemas/FaultEnum'
           description: |-
-            Who the failure was attributed to (#1908). `platform` our defect -- a mis-set cap, our timeout, our bug, a kill switch: always a full refund. `provider` an outage or unusable output: always a full refund. `request` the buyer changed the article under a job they had already paid for, repeatedly: settled at metered cost.
+            Who the failure was attributed to. `platform` our defect -- a mis-set cap, our timeout, our bug, a kill switch: always a full refund. `provider` an outage or unusable output: always a full refund. `request` the buyer changed the article under a job they had already paid for, repeatedly: settled at metered cost.
 
             * `platform` - platform
             * `provider` - provider
@@ -17409,19 +17393,18 @@ components:
           items:
             $ref: '#/components/schemas/TranslationWarning'
           description: 'On `delivered`: the content-preservation checks this draft
-            did NOT pass (#2347). The draft was delivered anyway, and billed in full,
-            because it is an unpublished draft the creator reviews -- these name what
-            to look at before publishing. An empty list is a clean delivery; the key
-            is absent on records delivered before warnings existed.'
+            did NOT pass. The draft was delivered anyway, and billed in full, because
+            it is an unpublished draft the creator reviews -- these name what to look
+            at before publishing. An empty list is a clean delivery; the key is absent
+            on records delivered before warnings existed.'
         attempted_output_preview:
           type: string
-          description: 'Reserved (#2347): the start of what the model produced on
-            a failed job, served only for failure codes whose output provably cannot
-            be a usable translation -- currently NONE, because a refund that hands
-            back a translation is a free translation. Use `error`, `error_detail`
-            and `attempted_output_chars` to explain a failure. Owner-only if ever
-            served. Untrusted model output: display it as PLAIN TEXT, never render
-            it as Markdown or HTML.'
+          description: 'Reserved: the start of what the model produced on a failed
+            job, served only for failure codes whose output provably cannot be a usable
+            translation -- currently NONE, because a refund that hands back a translation
+            is a free translation. Use `error`, `error_detail` and `attempted_output_chars`
+            to explain a failure. Owner-only if ever served. Untrusted model output:
+            display it as PLAIN TEXT, never render it as Markdown or HTML.'
         attempted_output_chars:
           type: integer
           description: 'On a failure of the output itself: how many characters the
@@ -17451,7 +17434,7 @@ components:
       - zpage_id
     TranslationJobList:
       type: object
-      description: '`GET .../translations/` -- the job tray, rediscoverable from any
+      description: '`GET.../translations/` -- the job tray, rediscoverable from any
         device.'
       properties:
         source_digest:
@@ -17537,9 +17520,9 @@ components:
           items:
             $ref: '#/components/schemas/TranslationWarning'
           description: 'On `delivered`: the content-preservation checks this draft
-            did not pass (#2347), passed through from the charge record. Delivered
-            and billed anyway; these name what the creator should review. Empty for
-            a clean delivery; absent on records delivered before warnings existed.'
+            did not pass, passed through from the charge record. Delivered and billed
+            anyway; these name what the creator should review. Empty for a clean delivery;
+            absent on records delivered before warnings existed.'
         draft:
           allOf:
           - $ref: '#/components/schemas/TranslationDraftReview'
@@ -17551,8 +17534,8 @@ components:
             has no trusted AI provenance.
         has_attempted_output_preview:
           type: boolean
-          description: Whether the charge record carries an `attempted_output_preview`
-            (#2347). The text itself is not listed here; read it from `GET .../variants/{language}/translate/`
+          description: Whether the charge record carries an `attempted_output_preview`.
+            The text itself is not listed here; read it from `GET .../variants/{language}/translate/`
             for the one job being opened.
         is_published:
           type: boolean
@@ -17593,7 +17576,7 @@ components:
         * `settled` - settled
     TranslationPurchase:
       type: object
-      description: '`POST .../translate/` -- confirm the quoted price and buy.'
+      description: '`POST.../translate/` -- confirm the quoted price and buy.'
       properties:
         expected_price:
           type: integer
@@ -17616,7 +17599,7 @@ components:
           type: integer
           minimum: 0
           description: |-
-            Which refund terms the buyer was SHOWN, as a version number (current: `1`). Send `1` only from a screen that states the one case in which a failed translation is not refunded in full: repeatedly changing or publishing the article while a translation you have already paid for is generating (#1908).
+            Which refund terms the buyer was SHOWN, as a version number (current: `1`). Send `1` only from a screen that states the one case in which a failed translation is not refunded in full: repeatedly changing or publishing the article while a translation you have already paid for is generating.
 
             **Omit it and every failure is refunded in full, always.** That is the legacy contract and it is the safe default on purpose -- a creator can only be charged against terms they actually saw, and the server cannot know what an already-open page is displaying. It never changes the price, only what happens if the job fails.
       required:
@@ -17624,7 +17607,7 @@ components:
     TranslationQuote:
       type: object
       description: |-
-        `GET .../translate/quote/` -- the price, and the arithmetic behind it.
+        `GET.../translate/quote/` -- the price, and the arithmetic behind it.
 
         Cost-plus and always metered, so there is no price list to look this up in:
         the number here is what this exact article, on this exact model, costs. It
@@ -17690,7 +17673,7 @@ components:
       - source_language
     TranslationWarning:
       type: object
-      description: One content-preservation check a delivered draft did not pass (#2347).
+      description: One content-preservation check a delivered draft did not pass.
       properties:
         code:
           allOf:
@@ -17809,7 +17792,7 @@ components:
         actionable failure instead of an untyped error — drf-spectacular cannot
         infer a response from an exception raised inside `perform_destroy`, so
         regenerating the spec would otherwise stay green while documenting only
-        the 204 (codex review of #1177, finding 3).
+        the 204 (codex review of, finding 3).
       properties:
         detail:
           type: string
@@ -17906,7 +17889,7 @@ components:
       description: |-
         409 from POST /api/zpage/ when its Idempotency-Key cannot be honoured.
 
-        ``code`` is the stable, machine-readable part (#2079); ``error`` is the
+        ``code`` is the stable, machine-readable part; ``error`` is the
         sentence to show. Nothing was created in either case.
       properties:
         code:
@@ -17936,7 +17919,7 @@ components:
     ZPageCreateNeeds2ZError:
       type: object
       description: |-
-        402 from POST /api/zpage/: a second page needs a balance of 1 2Z (#2612).
+        402 from POST /api/zpage/: a second page needs a balance of 1 2Z.
 
         The ordinary ``insufficient_funds`` contract, so every client that already
         reads it (the composers, ZUULI's wallet) understands this refusal too.
@@ -18036,7 +18019,7 @@ components:
       - tags
     ZPageTagSuggestion:
       type: object
-      description: 'One pending AI suggestion, with the breadth signal #1208 defines.'
+      description: One pending AI suggestion, with the breadth signal  defines.
       properties:
         name:
           type: string
@@ -18049,7 +18032,7 @@ components:
           allOf:
           - $ref: '#/components/schemas/LevelEnum'
           description: |-
-            `broad` or `narrow`, derived from how many published zPages carry the tag — NOT a stored attribute (#1208). The boundary is a percentile of the corpus, so it means the same thing as the platform grows. Broad tags are browse vocabulary; narrow tags are what makes long-tail discovery and “more like this” work. Treat it as a display hint: two tags either side of the boundary are near-identical in frequency, and the boundary itself moves as the corpus does.
+            `broad` or `narrow`, derived from how many published zPages carry the tag — NOT a stored attribute. The boundary is a percentile of the corpus, so it means the same thing as the platform grows. Broad tags are browse vocabulary; narrow tags are what makes long-tail discovery and “more like this” work. Treat it as a display hint: two tags either side of the boundary are near-identical in frequency, and the boundary itself moves as the corpus does.
 
             * `broad` - broad
             * `narrow` - narrow
@@ -18062,7 +18045,7 @@ components:
       description: |-
         One row of `GET /api/zpage/{id}/variants/` — the translation manager's index.
 
-        Not a `ModelSerializer` over `ZPageVariant` on purpose. Until #980 M5 flips
+        Not a `ModelSerializer` over `ZPageVariant` on purpose. Until  M5 flips
         reads, the legacy shape (`zPage` columns + `ZPageTranslation`) is the
         authority for *content* and publication state, while `ZPageVariant` is the
         only place that knows *provenance*. This serializer renders the join of the
@@ -18095,9 +18078,9 @@ components:
           readOnly: true
           nullable: true
           description: '`true` the source changed after this translation was made,
-            `false` it is current, `null` unknown. Render `null` as nothing: every
-            translation predating #980 is `null`, and showing those as stale is the
-            false-positive flood #805 had to undo.'
+            `false` it is current, `null` unknown. Render `null` as nothing: translations
+            without source-revision metadata are `null`; labeling them stale would
+            give a false result.'
         title:
           type: string
           readOnly: true
@@ -18489,7 +18472,7 @@ components:
           readOnly: true
           nullable: true
           description: 'The page''s OWN Zcash address, or `null` when the page inherits
-            its creator''s profile address (#2061). This is the value an editor round-trips
+            its creator''s profile address. This is the value an editor round-trips
             as `p2paddr`: sending the effective `p2paddr` back instead pins the creator''s
             current address onto the page, and a later profile address change never
             reaches it.'
@@ -18635,10 +18618,9 @@ components:
           description: 'Whether this translation was made from content the source
             has since changed. THREE states: `true` stale, `false` current, `null`
             unknown. `null` is the common case -- the source variant has nothing to
-            be stale against, and no pre-#980 translation recorded which revision
-            it was made from. Render `null` as nothing at all: showing it as ''Stale''
-            fires on almost every existing translation, which is the mistake #805
-            had to undo.'
+            be stale against, and no legacy translation recorded which revision it
+            was made from. Render `null` as nothing at all: unknown source history
+            cannot prove staleness.'
         media:
           type: array
           items:
@@ -18817,10 +18799,9 @@ components:
           description: 'Whether this translation was made from content the source
             has since changed. THREE states: `true` stale, `false` current, `null`
             unknown. `null` is the common case -- the source variant has nothing to
-            be stale against, and no pre-#980 translation recorded which revision
-            it was made from. Render `null` as nothing at all: showing it as ''Stale''
-            fires on almost every existing translation, which is the mistake #805
-            had to undo.'
+            be stale against, and no legacy translation recorded which revision it
+            was made from. Render `null` as nothing at all: unknown source history
+            cannot prove staleness.'
       required:
       - actual_language
       - available_languages
@@ -18980,10 +18961,9 @@ components:
           description: 'Whether this translation was made from content the source
             has since changed. THREE states: `true` stale, `false` current, `null`
             unknown. `null` is the common case -- the source variant has nothing to
-            be stale against, and no pre-#980 translation recorded which revision
-            it was made from. Render `null` as nothing at all: showing it as ''Stale''
-            fires on almost every existing translation, which is the mistake #805
-            had to undo.'
+            be stale against, and no legacy translation recorded which revision it
+            was made from. Render `null` as nothing at all: unknown source history
+            cannot prove staleness.'
       required:
       - actual_language
       - available_languages

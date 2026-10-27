@@ -179,7 +179,7 @@ class zPageClearLegacyView(zPageClearView):
             '`DELETE /api/g12f/series/clear-zpage/{free2zaddr}/` instead: the '
             'resource being mutated belongs in the path, and this form was '
             'undocumented — the spec carried no `parameters:` block, so the '
-            'only documented way to call it could never succeed (#985).'
+            'only documented way to call it could never succeed.'
         ),
         deprecated=True,
         parameters=[

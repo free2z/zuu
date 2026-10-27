@@ -140,6 +140,12 @@ test("comments: a client-side navigation is a new page view with its own budget"
     // Follow a card (a client-side route), then come back.
     await resolved.filter({ hasText: PUBLIC }).first().locator("a").click();
     await expect(page).toHaveURL(/\/fp-card-user\/fp-card-public$/);
+    await expect(
+      page.getByRole("heading", { name: PUBLIC, exact: true }),
+    ).toBeVisible();
+    // Returning with the pointer over the card can preload its route again.
+    // This assertion measures the card resolver, separately from route preloads.
+    await page.mouse.move(0, 0);
     await page.goBack();
     await expect(page).toHaveURL(/\/fp-card-user\/fp-card-fanout$/);
     const again = await openCommentsInPlace(page, 30);

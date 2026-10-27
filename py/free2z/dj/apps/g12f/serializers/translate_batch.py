@@ -259,7 +259,7 @@ class TranslationJobListItemSerializer(serializers.Serializer):
         many=True,
         required=False,
         help_text="On `delivered`: the content-preservation checks this draft "
-                  "did not pass (#2347), passed through from the charge record. "
+                  "did not pass, passed through from the charge record. "
                   "Delivered and billed anyway; these name what the creator "
                   "should review. Empty for a clean delivery; absent on records "
                   "delivered before warnings existed.",
@@ -277,7 +277,7 @@ class TranslationJobListItemSerializer(serializers.Serializer):
     )
     has_attempted_output_preview = serializers.BooleanField(
         help_text="Whether the charge record carries an "
-                  "`attempted_output_preview` (#2347). The text itself is not "
+                  "`attempted_output_preview`. The text itself is not "
                   "listed here; read it from `GET .../variants/{language}/"
                   "translate/` for the one job being opened.",
     )

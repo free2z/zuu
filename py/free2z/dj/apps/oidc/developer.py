@@ -117,7 +117,7 @@ class DeveloperAppSerializer(serializers.Serializer):
         choices=CapPeriod.choices, required=False,
         help_text="The period of `default_spend_cap_2z`; `total` never resets. It also bounds "
                   "a sign-in's `f2z_spend_cap` / `f2z_spend_period` hint: the consent screen "
-                  "never pre-selects more than this default allows (#2296).",
+                  "never pre-selects more than this default allows.",
     )
     logo_url = serializers.URLField(max_length=URL_MAX_LENGTH, allow_blank=True, required=False,
                                     help_text="https only.")

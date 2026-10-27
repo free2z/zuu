@@ -192,7 +192,7 @@ ZPAGE_CREATE_RESPONSE_HEADERS = [
         location=OpenApiParameter.HEADER,
         response=True,
         description=(
-            "Always `true` on every response from this operation (#2079): "
+            "Always `true` on every response from this operation: "
             "this server honours `Idempotency-Key` on page creation. A "
             "backend that predates the key never sends it, and ignores the "
             "key -- so a client must not retry a timed-out create under its "
@@ -221,7 +221,7 @@ ZPAGE_CREATE_IDEMPOTENCY_PARAMETER = OpenApiParameter(
     location=OpenApiParameter.HEADER,
     required=False,
     description=(
-        "Optional UUIDv4 retry key for ONE page creation (#2079). Scoped to "
+        "Optional UUIDv4 retry key for ONE page creation. Scoped to "
         "the authenticated user and to this operation: another account's "
         "identical key is a different key, and no other endpoint replays it. "
         "Parsed as a UUID and stored canonically, so spellings of one UUID "
@@ -1056,7 +1056,7 @@ ZPAGE_WRITE_LANGUAGE_PARAMETER = OpenApiParameter(
         "Which language variant to render in the response body. Affects the "
         "representation only: it never sets or changes what is persisted. The "
         "source language comes from the `source_language` body field, on "
-        "create and on update alike — it is mutable (#980 §3.2), and changing "
+        "create and on update alike — it is mutable, and changing "
         "it to a language that already has a translation is a 409. An "
         "unsupported `lang` value here is ignored rather than failing the "
         "write. `Accept-Language` is NOT negotiated on a write: the response "
@@ -1121,7 +1121,7 @@ IF_MATCH_PARAMETER = OpenApiParameter(
     location=OpenApiParameter.HEADER,
     required=False,
     description=(
-        "Optimistic-concurrency precondition (#1039). Send the strong `ETag` "
+        "Optimistic-concurrency precondition. Send the strong `ETag` "
         "returned by the corresponding read; the write is applied only if the "
         "resource still has that exact state, and otherwise fails with **412** "
         "and changes nothing. `*` asserts only that the resource exists. "
@@ -1150,7 +1150,7 @@ IF_NONE_MATCH_PARAMETER = OpenApiParameter(
     required=False,
     enum=["*"],
     description=(
-        "Create-only precondition (#1363). `*` means \"apply this write only "
+        "Create-only precondition. `*` means \"apply this write only "
         "if this language has no version yet\": if one exists -- including "
         "the page's own `source_language`, which is the article itself -- the "
         "write fails with **412** and changes nothing, so two clients starting "
@@ -1208,7 +1208,7 @@ TRANSLATION_SOURCE_LANGUAGE_PARAMETER = OpenApiParameter(
         "language is unsupported/undetermined; the value must then exactly "
         "match the article's current source_language, so stale editors fail "
         "closed with 409. (2) With `If-Match`, on the canonical article and "
-        "on translation writes (#2179): if the only change since the client's "
+        "on translation writes: if the only change since the client's "
         "read is the background language detector relabelling the article "
         "(`language_source` is `detected`), and this write does not itself "
         "set `source_language`, the precondition passes instead of returning "
@@ -1349,10 +1349,10 @@ ZPAGE_MINE_PARAMETER = OpenApiParameter(
         description=(
             "One zPage. The response carries a strong `ETag` for the "
             "**canonical** article — send it back as `If-Match` on a later "
-            "PUT/PATCH/DELETE to make that write conditional (#1039). It "
+            "PUT/PATCH/DELETE to make that write conditional. It "
             "describes the canonical article even when `?lang=` rendered a "
             "translation, because the write on this URL always writes the "
-            "canonical article (#985); a translation's own validator comes "
+            "canonical article; a translation's own validator comes "
             "from `GET /api/zpage/{id}/variants/{language}/`."
         ),
     ),
@@ -1372,7 +1372,7 @@ ZPAGE_MINE_PARAMETER = OpenApiParameter(
                     "`cost` (1 2Z). The first page is free; another needs "
                     "that balance, and creating it debits nothing. Nothing "
                     "was created, and an `Idempotency-Key` sent with this "
-                    "request is not spent (#2612)."
+                    "request is not spent."
                 ),
             ),
             409: OpenApiResponse(
@@ -1387,7 +1387,7 @@ ZPAGE_MINE_PARAMETER = OpenApiParameter(
         },
         description=(
             "Create a zPage. Send an `Idempotency-Key` to make a retry of "
-            "this create safe (#2079); the header documents the exact replay "
+            "this create safe; the header documents the exact replay "
             "and refusal semantics."
         ),
     ),
@@ -1405,13 +1405,13 @@ ZPAGE_MINE_PARAMETER = OpenApiParameter(
         },
         description=(
             "Update a zPage. `source_language` is the article's language "
-            "*label* and is mutable (#980 §3.2): changing it renames the "
+            "*label* and is mutable: changing it renames the "
             "source variant and the denormalized column in one transaction. "
             "If another variant already holds the target language the change "
             "is refused with **409** and an actionable message — never a "
             "silent overwrite of the creator's translation.\n\n"
             "Send `If-Match` with the `ETag` from the article read to make "
-            "this write conditional (#1039): a second tab that saved in the "
+            "this write conditional: a second tab that saved in the "
             "meantime turns this into a **412** instead of silently discarding "
             "their edit. Without the header the write is last-write-wins, as "
             "it has always been."
@@ -1432,8 +1432,8 @@ ZPAGE_MINE_PARAMETER = OpenApiParameter(
         description=(
             "Partially update a zPage. `source_language` is mutable and "
             "owner-only; a target language already held by another variant "
-            "is refused with **409** (#980 §3.2). Honours the optional "
-            "`If-Match` precondition (#1039), returning **412** if the article "
+            "is refused with **409**. Honours the optional "
+            "`If-Match` precondition, returning **412** if the article "
             "changed since the `ETag` the client is holding."
         ),
     ),
@@ -1446,7 +1446,7 @@ ZPAGE_MINE_PARAMETER = OpenApiParameter(
         },
         description=(
             "Delete a zPage. Owner only. Honours the optional `If-Match` "
-            "precondition (#1039): a delete issued from a stale editor — one "
+            "precondition: a delete issued from a stale editor — one "
             "that never saw somebody else's newer draft — returns **412** and "
             "deletes nothing.\n\n"
             "The validator describes **this article's own fields**. Deleting "
@@ -2906,8 +2906,8 @@ class zPageView(
         parameters=[ZPAGE_ID_PATH_PARAMETER, ZPAGE_MINE_PARAMETER],
         responses=ZPageVariantSummarySerializer(many=True),
         description=(
-            "Every language variant of this zPage with its real status "
-            "(#980 §4.2). The source variant is first and carries "
+            "Every language variant of this zPage with its real status"
+            ". The source variant is first and carries "
             "`origin: \"source\"`; translations follow, sorted by tag. The "
             "owner sees their unpublished drafts, everyone else sees only "
             "published variants. Unpaginated array, no body content — fetch "
@@ -2931,14 +2931,14 @@ class zPageView(
             ZPAGE_MINE_PARAMETER,
         ],
         description=(
-            "One language variant of a zPage (#980 §4.2). Unlike "
+            "One language variant of a zPage. Unlike "
             "`GET /api/zpage/{id}/?lang=`, this does **not** fall back to the "
             "source variant: a language with no variant is a 404, so a client "
             "can use it to tell 'not translated yet' from 'translated'. A "
             "draft variant is visible to its owner only."
             " The response carries this variant's strong `ETag`; send it back "
-            "as `If-Match` to make a write to this variant conditional "
-            "(#1039)."
+            "as `If-Match` to make a write to this variant conditional"
+            "."
         ),
     )
     # No `permission_classes` override, and that is the point. DRF applies one
@@ -2999,7 +2999,7 @@ class zPageView(
             412: PreconditionFailedSerializer,
         },
         description=(
-            "Create or replace one language variant (#980 §4.2). Owner only; "
+            "Create or replace one language variant. Owner only; "
             "a non-owner gets 404. Writing the page's own `source_language` "
             "updates the canonical article, so the source really is a variant "
             "like any other. Creating a variant requires `title` and "
@@ -3038,7 +3038,7 @@ class zPageView(
         },
         description=(
             "Update part of one language variant — publish a draft, fix a "
-            "title — without resending the body (#980 §4.2). Owner only. A "
+            "title — without resending the body. Owner only. A "
             "PATCH cannot *create* a variant: title and content are required "
             "for that, so use PUT. Publishing a "
             f"{MAX_PUBLISHED_TRANSLATION_VARIANTS_PER_ZPAGE + 1}th translation "
@@ -3065,7 +3065,7 @@ class zPageView(
         request=None,
         responses={204: None, 412: PreconditionFailedSerializer},
         description=(
-            "Delete one translation variant (#980 §4.2). Owner only; a "
+            "Delete one translation variant. Owner only; a "
             "non-owner gets 404. The variant with `origin: \"source\"` is the "
             "article itself and is refused with 400 — delete or relabel the "
             "article instead. Deleting a variant that does not exist is 404."
@@ -3094,8 +3094,8 @@ class zPageView(
         description=(
             "**Deprecated** — use `PUT /api/zpage/{id}/variants/{language}/`, "
             "which runs the same code and additionally accepts PATCH. Kept "
-            "for one release because the deployed editor calls this path "
-            "(#980 §4.2). It has the same "
+            "for one release because the deployed editor calls this path"
+            ". It has the same "
             f"{MAX_PUBLISHED_TRANSLATION_VARIANTS_PER_ZPAGE}-published- and "
             f"{MAX_DRAFT_TRANSLATION_VARIANTS_PER_ZPAGE}-draft-"
             "translation ceilings."

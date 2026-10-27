@@ -141,7 +141,7 @@ class EmbeddedMediaSerializer(serializers.Serializer):
             "True only when an ANONYMOUS request can fetch the bytes: "
             "`access == \"public\"` and the owner is still active. Do not "
             "advertise a `contentUrl` (or any crawler-visible URL) for a "
-            "false value -- see tuzi#1463."
+            "false value."
         ),
     )
     poster = serializers.CharField(

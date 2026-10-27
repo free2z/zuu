@@ -59,6 +59,9 @@ jobs:
         working-directory: ts/svelte/free2z
         run: npm run check
 
+      - name: Install sitemap XML validator
+        run: sudo "$GITHUB_WORKSPACE/scripts/free2z/install-ubuntu-ci-packages.sh" libxml2-utils
+
       - name: Run tests
         working-directory: ts/svelte/free2z
         run: npm test

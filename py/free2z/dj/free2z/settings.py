@@ -1477,7 +1477,7 @@ SPECTACULAR_SETTINGS = {
         'the non-API surfaces of the same deployment (server-rendered pages, '
         'RSS feeds, storage auth subrequests, health probes, the Stripe '
         'webhook), nor a short, enumerated backlog of hand-written JSON '
-        'endpoints not yet ported to DRF -- see issue #1004.'
+        'endpoints not yet ported to DRF.'
     ),
     'VERSION': '0.1.0',
     # Pinned to what drf-spectacular auto-detected until: the common
