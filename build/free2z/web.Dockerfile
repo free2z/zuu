@@ -3,7 +3,7 @@
 # dependencies even though the runtime install uses --omit=dev. Native resvg
 # remains external and requires the same Alpine/musl base in both stages.
 # Explicit Noto font families support multilingual Open Graph cards.
-FROM node:24.22.1-alpine@sha256:6a1c190e17215d844926b0677f4bf87273ff7d5e54db06d3b5b5863ab0b09a3d AS og-fonts
+FROM node:26.12.1-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS og-fonts
 # Alpine 3.24 security floors: CVE-2026-107891 (musl) and CVE-2026-85091
 # (zlib). Keep build and runtime on the same patched native libraries.
 RUN apk add --no-cache 'ca-certificates>=20261020-r0' 'musl>=1.2.6-r3' 'musl-utils>=1.2.6-r3' 'zlib>=1.3.2-r1' \
@@ -27,7 +27,7 @@ RUN wget -O /og-fonts/NotoEmoji.ttf 'https://raw.githubusercontent.com/google/fo
     && wget -O /og-fonts/NotoEmoji-OFL.txt 'https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/notoemoji/OFL.txt' \
     && echo '500bb1ccf43df7bbb522112f9133a52b16e1c35e809632f5d8609b179152de5b  /og-fonts/NotoEmoji-OFL.txt' | sha256sum -c -
 
-FROM node:24.22.1-alpine@sha256:6a1c190e17215d844926b0677f4bf87273ff7d5e54db06d3b5b5863ab0b09a3d AS builder
+FROM node:26.12.1-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS builder
 
 RUN apk add --no-cache 'ca-certificates>=20261020-r0' 'musl>=1.2.6-r3' 'musl-utils>=1.2.6-r3' 'zlib>=1.3.2-r1'
 ENV NODE_OPTIONS=--use-openssl-ca
@@ -50,7 +50,7 @@ RUN npm run build
 # ---------------------------------------------------------------------------
 # Runtime. Same base image, same digest — deliberately; see the musl note above.
 # ---------------------------------------------------------------------------
-FROM node:24.22.1-alpine@sha256:6a1c190e17215d844926b0677f4bf87273ff7d5e54db06d3b5b5863ab0b09a3d
+FROM node:26.12.1-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797
 
 ARG PUBLIC_BUILD_SHA
 ENV PUBLIC_BUILD_SHA=$PUBLIC_BUILD_SHA
