@@ -129,7 +129,7 @@ def _decorator_attr(node: ast.expr) -> str | None:
     return None
 
 
-def _string_constants(tree: ast.Module) -> dict[str, str]:
+def _string_constants(tree: ast.Module) -> dict[str, str | None]:
     consts: dict[str, str] = {}
     assignments: dict[str, int] = {}
     for stmt in tree.body:
@@ -153,7 +153,10 @@ def _string_constants(tree: ast.Module) -> dict[str, str]:
         ):
             consts[stmt.target.id] = stmt.value.value
     # Rebinding invalidates a value as evidence of what an earlier decorator saw.
-    return {name: value for name, value in consts.items() if assignments[name] == 1}
+    # Keep invalid local bindings so resolution cannot fall back to an import
+    # that the Python assignment shadows. None means explicitly unevaluable.
+    return {name: consts.get(name) if count == 1 else None
+            for name, count in assignments.items()}
 
 
 def _import_aliases(tree: ast.Module, here: str) -> dict[str, str]:
@@ -176,7 +179,7 @@ def _import_aliases(tree: ast.Module, here: str) -> dict[str, str]:
     return aliases
 
 
-def _resolve(expr: ast.expr, here: str, consts: dict[str, dict[str, str]],
+def _resolve(expr: ast.expr, here: str, consts: dict[str, dict[str, str | None]],
              aliases: dict[str, str]) -> str | None:
     """A static string for ``"x"``, ``NAME``, ``module.NAME`` or an imported
     ``NAME``; None for anything computed."""
@@ -197,7 +200,7 @@ def _resolve(expr: ast.expr, here: str, consts: dict[str, dict[str, str]],
 
 
 def _task_name(deco: ast.expr, func: ast.AST, here: str,
-               consts: dict[str, dict[str, str]],
+               consts: dict[str, dict[str, str | None]],
                aliases: dict[str, str]) -> str | None:
     """The registered name, Procrastinate's ``module.func`` default when
     ``name=`` is absent, or None when it is not a static string."""

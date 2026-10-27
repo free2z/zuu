@@ -83,6 +83,14 @@ class PeriodicRevisions(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
         self.assertIn("'new'", result.stdout)
 
+    def test_reassigned_import_cannot_fall_back_to_shadowed_alias(self):
+        (self.source.parent / "constants.py").write_text('NAME = "new"\n')
+        base = self.commit('from constants import NAME\nNAME = "old"\n@app.task(name=NAME)\ndef work(timestamp): pass\nNAME = "old"\n')
+        self.commit('@app.periodic(cron="* * * * *")\n@app.task(name="new")\ndef work(timestamp): pass\n')
+        result = self.check(base)
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        self.assertIn("'new'", result.stdout)
+
     def test_unknown_base_is_not_success(self):
         self.commit(SCHEDULED)
         result = self.check("missing-base")
