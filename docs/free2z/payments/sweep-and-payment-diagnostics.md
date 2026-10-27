@@ -64,7 +64,12 @@ The public helpers do not implement those controls.
 
 ## Payment diagnostics
 
-The command uses the canonical `zcashrpc.wallet_sqlite_client` package. It does
+The command uses the canonical `zcashrpc.wallet_sqlite_client` package and the
+purchase parser in `dj.apps.g12f.paymentd_memo`. Memo checks follow the public
+credit writer: exact JSON, unique keys, supported fields and valid recipient
+identity. Hydrated SQLite text content is zero-padded to the protocol's 512-byte
+representation; embedded NULs in partial content are rejected rather
+than deleted. It does
 not discover an infrastructure checkout or load a Python adapter by file path.
 Supply all wallet selection settings explicitly:
 
@@ -100,7 +105,11 @@ connection helper. Concurrent applications should supply an already configured a
 Exit codes are `0` for all evaluated stages passing, `1` for any failed stage,
 and `2` for an incomplete result without a failure. `--no-db` therefore returns
 `2`, including when the wallet, adapter and memo checks pass. Notes held for
-confirmations are inconclusive. A backfilled receipt, mismatched recipient or
+confirmations or unavailable adapter memo data are inconclusive. Adapter amounts,
+memos and reliable output identities must agree with the directly read notes.
+Every selected note contributes to the verdict: an undecodable memo fails and a
+non-purchase memo is inconclusive, even when another selected note was credited.
+Use the selectors to narrow a transaction containing unrelated outputs. A backfilled receipt, mismatched recipient or
 mismatched amount fails credit verification. The recorded quantity must equal
 amount times rate, rounded half-even to the credit column's 0.001 precision.
 This arithmetic check does not audit ledger balance conservation. A legacy processing marker with
@@ -115,6 +124,9 @@ receipt/replay outcomes retain their units and meaning. The public interfaces
 intentionally reject or qualify ambiguous input that permissive shell or older
 diagnostic parsing could accept:
 
+- Purchase memo parsing follows the current writer rather than the legacy
+  substring extractor. Prefix text, duplicate keys, embedded NULs, unsupported
+  fields and nonstandard JSON constants cannot produce a passing memo verdict.
 - JSON must be complete, unique-keyed and contain an actual bounded integer;
   parsing a digit prefix from malformed JSON is forbidden.
 - Decimal displays cannot contain numeric suffixes, trailing punctuation or
@@ -126,6 +138,9 @@ diagnostic parsing could accept:
   unverified; no arbitrary row is selected.
 - Pending notes without receipts are inconclusive even when a credit database
   is supplied. An unrelated pool's pending note cannot explain an absent note.
+- A selected malformed memo cannot disappear behind another credited note;
+  non-purchase outputs are explicitly inconclusive. Missing adapter memo data
+  is inconclusive; conflicting amounts, memos or unreliable indices fail.
 - An explicit username must match every selected purchase memo, including
   multi-output transactions and amount selections spanning multiple recipients.
 - Incorrect credit quantities fail; missing quantities or rates are inconclusive.

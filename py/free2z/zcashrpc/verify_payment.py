@@ -96,23 +96,32 @@ def note_height(db_path, txid_display):
 
 
 def parse_memo(memo_hex):
-    """Decode the JSON-object envelope accepted by the credit command."""
+    """Apply the public credit writer's parser to SQLite memo content bytes.
+
+    Complete memos contain 512 bytes. Hydrated trimmed text can be restored with
+    trailing zero padding, as in captured-note ingestion; embedded NULs in a
+    partial representation cannot be reconstructed safely.
+    """
+    from dj.apps.g12f.paymentd_memo import parse_memo as parse_instruction
+
     if not memo_hex:
-        return None, "no memo on this note"
+        return None, "missing_memo"
     try:
-        text = codecs.decode(memo_hex, "hex").decode().replace("\x00", "")
+        raw = codecs.decode(memo_hex, "hex")
+        if len(raw) > 512:
+            return None, "invalid_memo_length"
+        if len(raw) < 512:
+            if raw != b"\xf6":
+                if b"\0" in raw or (raw and raw[0] >= 0xF5):
+                    return None, "incomplete_memo_representation"
+                raw.decode("utf-8")
+            raw = raw.ljust(512, b"\0")
     except (ValueError, TypeError, UnicodeError):
-        return None, "memo is not decodable text"
-    start, end = text.find("{"), text.rfind("}") + 1
-    if start < 0 or end <= start:
-        return None, "memo carries no JSON object"
-    try:
-        payload = json.loads(text[start:end])
-    except ValueError:
-        return None, "memo JSON did not parse"
-    if not isinstance(payload, dict):
-        return None, "memo JSON is not an object"
-    return payload, None
+        return None, "invalid_memo_encoding"
+    instruction = parse_instruction(raw)
+    if not instruction.buy:
+        return None, instruction.reason
+    return json.loads(instruction.memo_plain), None
 
 
 def amount_zats(amount):
@@ -294,6 +303,24 @@ def diagnose(db_path, client, *, txid=None, amount=None, username=None, database
     missing_identity = any("pool" not in n or "output_index" not in n for n in reported)
     if missing_identity:
         result.record("2 ADAPTER", FAIL, "adapter omitted pool or per-note index")
+    adapter_complete = not missing_identity
+    selected = {(n["txid"], n["pool"], n["output_index"]): n for n in picked}
+    for note in reported:
+        original = selected.get((note["txid"], note.get("pool"), note.get("output_index")))
+        if original is None:
+            continue
+        if note.get("output_index_reliable") is False:
+            adapter_complete = False
+            result.record("2 ADAPTER", FAIL, "adapter cannot establish a reliable per-note index")
+        if note.get("amountZat") != original["amountZat"]:
+            adapter_complete = False
+            result.record("2 ADAPTER", FAIL, "adapter amount differs from the decrypted note")
+        if note.get("memo_available") is False:
+            adapter_complete = False
+            result.record("2 ADAPTER", SKIP, "adapter memo data is not available for crediting")
+        elif note.get("memo", "") != original.get("memo", ""):
+            adapter_complete = False
+            result.record("2 ADAPTER", FAIL, "adapter memo differs from the decrypted note")
     seen = {(n["txid"], n.get("pool"), n.get("output_index")) for n in reported}
     pending = {(tx, pool) for tx, pool, _depth in getattr(client, "pending", [])}
     unseen = [n for n in picked if (n["txid"], n["pool"], n["output_index"]) not in seen]
@@ -305,12 +332,16 @@ def diagnose(db_path, client, *, txid=None, amount=None, username=None, database
     if absent:
         result.record("2 ADAPTER", FAIL, "decrypted notes are absent from adapter output")
         picked = [n for n in picked if n not in absent]
-    elif not unseen and not missing_identity:
+    elif not unseen and adapter_complete:
         result.record("2 ADAPTER", PASS, "every selected note has a pool and per-note index")
     buys = []
     for note in picked:
         payload, error = parse_memo(note.get("memo", ""))
-        if error or payload.get("act") != "buy_2z":
+        if error == "unsupported_payment_instruction":
+            result.record("3 MEMO", SKIP, "a selected note is not a purchase")
+            continue
+        if error:
+            result.record("3 MEMO", FAIL, "a selected note has no valid purchase instruction: " + error)
             continue
         if not isinstance(payload.get("id"), str) or not payload["id"].strip():
             result.record("3 MEMO", FAIL, "purchase memo has no nonempty recipient name")

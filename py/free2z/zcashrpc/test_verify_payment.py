@@ -48,12 +48,32 @@ class EvidenceDatabase:
 
 
 class MemoTests(unittest.TestCase):
-    def test_memo_envelope_parity(self):
-        for raw in (bytes.fromhex(MEMO), b"prefix " + bytes.fromhex(MEMO) + b"\x00 suffix"):
+    def test_memo_parser_matches_the_canonical_purchase_writer(self):
+        for raw in (bytes.fromhex(MEMO), bytes.fromhex(MEMO).ljust(512, b"\0")):
             self.assertEqual(verify.parse_memo(raw.hex()),
                              ({"act": "buy_2z", "id": "fixture-user"}, None))
         for raw in ("", "zz", "ff", b"no object".hex(), b"{invalid}".hex()):
             self.assertIsNotNone(verify.parse_memo(raw)[1])
+
+    def test_permissive_legacy_envelopes_and_ambiguous_fields_are_rejected(self):
+        from dj.apps.g12f.paymentd_memo import parse_memo as canonical_parser
+
+        rejected = (
+            b'Payment: {"act":"buy_2z","id":"fixture-user"}',
+            b'{"act":"buy_2z","id":"first","id":"fixture-user"}',
+            b'{"act":"buy_2z","id":"fixture-\0user"}',
+            b'{"act":"buy_2z","id":"fixture-user","unsupported":true}',
+            b'{"act":"buy_2z","id":"fixture-user","promo":NaN}',
+        )
+        for raw in rejected:
+            with self.subTest(raw=raw):
+                self.assertFalse(canonical_parser(raw.ljust(512, b"\0")).buy)
+                self.assertIsNotNone(verify.parse_memo(raw.hex())[1])
+        for raw in (bytes.fromhex(MEMO) + b"\0", b"x" * 513):
+            self.assertIsNotNone(verify.parse_memo(raw.hex())[1])
+        accepted = b'{"act":"buy_2z","id":"fixture-user","promo":"fixture-promo"}'
+        self.assertTrue(canonical_parser(accepted.ljust(512, b"\0")).buy)
+        self.assertIsNone(verify.parse_memo(accepted.hex())[1])
 
     def test_exact_amount_selection_and_precedence(self):
         self.assertEqual(verify.select_notes([NOTE], amount="1.23456789"), [NOTE])
@@ -217,6 +237,39 @@ class WalletDiagnosticTests(unittest.TestCase):
         self.assertEqual(result.exit_code(), 1)
         self.assertIn(("3 MEMO", verify.FAIL), [(stage, status) for stage, status, _ in result.stages])
         self.assertEqual(db.queries, [])
+
+    def test_malformed_second_memo_cannot_hide_behind_a_credited_note(self):
+        self.conn.execute("INSERT INTO orchard_received_notes VALUES (1, ?, ?, 3)",
+                          (NOTE["amountZat"], b"{malformed}"))
+        self.conn.commit()
+        second = dict(NOTE, output_index=3, memo=b"{malformed}".hex())
+        db = EvidenceDatabase(receipt=(100, 81, False, "fixture-time", "fixture-user", Decimal("1.23456789")))
+        result = self.diagnose(reported=[NOTE, second], database=db)
+        self.assertEqual(result.exit_code(), 1)
+        self.assertIn(("3 MEMO", verify.FAIL), [(stage, status) for stage, status, _ in result.stages])
+
+    def test_unavailable_or_conflicting_adapter_fields_cannot_pass(self):
+        receipt = (100, 81, False, "fixture-time", "fixture-user", Decimal("1.23456789"))
+        for fields, expected in (({"memo": "", "memo_available": False}, 2),
+                                 ({"memo": ""}, 1), ({"amountZat": 1}, 1),
+                                 ({"output_index_reliable": False}, 1)):
+            with self.subTest(fields=fields):
+                result = self.diagnose(reported=[dict(NOTE, **fields)],
+                                       database=EvidenceDatabase(receipt=receipt))
+                self.assertEqual(result.exit_code(), expected)
+                self.assertNotIn(("2 ADAPTER", verify.PASS),
+                                 [(stage, status) for stage, status, _ in result.stages])
+
+    def test_nonpurchase_second_note_is_explicitly_inconclusive(self):
+        memo = json.dumps({"act": "other", "id": "fixture-user"}).encode()
+        self.conn.execute("INSERT INTO orchard_received_notes VALUES (1, ?, ?, 3)",
+                          (NOTE["amountZat"], memo))
+        self.conn.commit()
+        second = dict(NOTE, output_index=3, memo=memo.hex())
+        db = EvidenceDatabase(receipt=(100, 81, False, "fixture-time", "fixture-user", Decimal("1.23456789")))
+        result = self.diagnose(reported=[NOTE, second], database=db)
+        self.assertEqual(result.exit_code(), 2)
+        self.assertIn(("3 MEMO", verify.SKIP), [(stage, status) for stage, status, _ in result.stages])
 
     def test_canonical_adapter_is_readonly_and_restores_environment(self):
         with patch.dict(os.environ, {"WALLET_DB": "prior-wallet", "WALLET_ACCOUNT": "9",
