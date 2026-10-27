@@ -199,7 +199,7 @@ def publish(args):
                'User-Agent': 'free2z-host-preparation'}
     connection = http.client.HTTPSConnection('api.github.com', timeout=180)
     body = package.json_bytes(dict(tag_name=tag, target_commitish=commit,
-                                  name='Free2Z host preparation ' + commit, prerelease=True,
+                                  name='Free2Z host preparation ' + commit, prerelease=True, draft=True,
                                   make_latest='false', body='Signed native application preparation. Activation requires independent deployment verification and host qualification.'))
     try:
         connection.request('POST', '/repos/free2z/zuu/releases', body,
@@ -208,8 +208,10 @@ def publish(args):
         data = response.read(65537)
         if response.status != 201 or len(data) > 65536:
             raise ValueError('GitHub rejected preparation release creation')
-        identifier = json.loads(data)['id']
-        if type(identifier) is not int or identifier <= 0:
+        release = json.loads(data)
+        identifier = release['id']
+        if (type(identifier) is not int or identifier <= 0 or release.get('draft') is not True
+                or release.get('tag_name') != tag or release.get('target_commitish') != commit):
             raise ValueError('invalid created release identity')
     finally:
         connection.close()
@@ -221,15 +223,37 @@ def publish(args):
                                'Content-Length': str(path.stat().st_size)}.items():
                 connection.putheader(key, value)
             connection.endheaders()
+            uploaded = hashlib.sha256()
+            size = 0
             with path.open('rb') as stream:
                 for block in iter(lambda: stream.read(1024 * 1024), b''):
                     connection.send(block)
+                    uploaded.update(block)
+                    size += len(block)
             response = connection.getresponse()
             data = response.read(65537)
             if response.status != 201 or len(data) > 65536:
                 raise ValueError('GitHub rejected preparation release asset: ' + name)
+            asset = json.loads(data)
+            if (asset.get('name') != name or asset.get('size') != size or asset.get('state') != 'uploaded'
+                    or asset.get('digest') != 'sha256:' + uploaded.hexdigest()):
+                raise ValueError('uploaded release asset identity or digest mismatch: ' + name)
         finally:
             connection.close()
+    connection = http.client.HTTPSConnection('api.github.com', timeout=180)
+    try:
+        connection.request('PATCH', f'/repos/free2z/zuu/releases/{identifier}',
+                           package.json_bytes(dict(draft=False, prerelease=True, make_latest='false')),
+                           {**headers, 'Content-Type': 'application/json'})
+        response = connection.getresponse()
+        data = response.read(65537)
+        if response.status != 200 or len(data) > 65536:
+            raise ValueError('GitHub rejected completed preparation release publication')
+        published = json.loads(data)
+        if published.get('id') != identifier or published.get('draft') is not False or published.get('tag_name') != tag:
+            raise ValueError('published release identity mismatch')
+    finally:
+        connection.close()
 
 
 if __name__ == '__main__':

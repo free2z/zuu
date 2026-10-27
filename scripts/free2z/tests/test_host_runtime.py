@@ -3,13 +3,17 @@ import copy
 import hashlib
 import importlib.util
 import io
+import json
 from pathlib import Path
 import struct
+import subprocess
 import sys
 import tomllib
 import tarfile
 import tempfile
+import textwrap
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -342,6 +346,85 @@ class ProvenanceAndRelocationTests(unittest.TestCase):
         for value in tool_lock['tools'].values():
             self.assertRegex(value['sha256'], r'^[a-f0-9]{64}$')
             self.assertTrue(value['url'].startswith('https://'))
+
+
+class PublicationRecoveryTests(unittest.TestCase):
+    def publication(self, failure=None):
+        producer = load('host-runtime.py')
+        events = []
+        tag = 'free2z-host-' + 'a' * 40 + '-123-1'
+
+        class Connection:
+            def __init__(self, host, timeout):
+                self.host, self.method, self.name = host, None, None
+                self.uploaded = bytearray()
+
+            def request(self, method, path, body, headers):
+                self.method = method
+                value = json.loads(body)
+                events.append((method, value.get('draft')))
+
+            def putrequest(self, method, path):
+                self.name = path.split('?name=')[1]
+
+            def putheader(self, *args):
+                pass
+
+            def endheaders(self):
+                pass
+
+            def send(self, block):
+                self.uploaded.extend(block)
+
+            def getresponse(self):
+                if self.host == 'api.github.com':
+                    value = dict(id=11, draft=self.method == 'POST', tag_name=tag, target_commitish='a' * 40)
+                    status = 201 if self.method == 'POST' else 200
+                else:
+                    events.append(('upload', self.name))
+                    value = dict(name=self.name, state='uploaded', size=len(self.uploaded),
+                                 digest=digest(self.uploaded) if failure != 'digest' else 'sha256:' + '0' * 64)
+                    status = 503 if failure == 'http' else 201
+                return SimpleNamespace(status=status, read=lambda limit: json.dumps(value).encode())
+
+            def close(self):
+                pass
+
+        with patch.object(producer, 'check'), patch.object(producer, 'identity', return_value='a' * 40), \
+                patch.dict('os.environ', dict(GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='1', GH_TOKEN='synthetic'), clear=True), \
+                patch('pathlib.Path.is_symlink', return_value=False), patch('pathlib.Path.is_file', return_value=True), \
+                patch('pathlib.Path.stat', return_value=SimpleNamespace(st_size=1)), \
+                patch('pathlib.Path.open', side_effect=lambda *args, **kwargs: io.BytesIO(b'x')), \
+                patch.object(producer.http.client, 'HTTPSConnection', Connection):
+            if failure:
+                with self.assertRaises(ValueError):
+                    producer.publish(SimpleNamespace(output=Path('/synthetic')))
+            else:
+                producer.publish(SimpleNamespace(output=Path('/synthetic')))
+        return events
+
+    def test_complete_assets_are_verified_before_publication(self):
+        events = self.publication()
+        self.assertEqual(events[0], ('POST', True))
+        self.assertEqual(events[-1], ('PATCH', False))
+        self.assertEqual(len([entry for entry in events if entry[0] == 'upload']), 14)
+
+    def test_upload_error_or_wrong_digest_cannot_publish(self):
+        for failure in ('http', 'digest'):
+            events = self.publication(failure)
+            self.assertEqual(events[0], ('POST', True))
+            self.assertFalse(any(entry[0] == 'PATCH' for entry in events))
+
+    def test_partial_rerun_fails_with_explicit_full_workflow_recovery(self):
+        workflow = (ROOT / '.github/workflows/free2z-host-release.yml').read_text()
+        guard = workflow.split('- name: Require the build and publisher to share one attempt', 1)[1]
+        script = textwrap.dedent(guard.split('        run: |', 1)[1].split('      - ', 1)[0])
+        for built, publishing, expected in [('1', '1', 0), ('2', '2', 0), ('1', '2', 1), ('', '2', 1)]:
+            result = subprocess.run(['bash', '-c', script], capture_output=True, text=True,
+                                    env=dict(BUILT_ATTEMPT=built, GITHUB_RUN_ATTEMPT=publishing), timeout=10)
+            self.assertEqual(result.returncode, expected)
+            if expected:
+                self.assertIn('Re-run all jobs', result.stdout)
 
 
 if __name__ == '__main__':

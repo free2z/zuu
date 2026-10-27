@@ -117,6 +117,13 @@ archive, inventory, separate attestation bundles, and the retained website
 evidence as `website-*` assets. The Actions artifact preserves the website
 evidence under `web-release/`.
 
+Publication creates a draft, uploads and checks every asset's server-reported
+digest, then publishes the complete release. A failed upload leaves an
+unpublished draft. To retry a failed publishing job, choose **Re-run all jobs**
+or start a new dispatch. A publish-only retry is rejected because its attempt
+number no longer matches the qualified build; it cannot relabel an earlier
+artifact with a new invocation identity.
+
 The build requires at least 14 GiB of free scratch disk. Rust compilation and
 tests run with two CPUs, a 6 GiB memory limit, bounded process counts, a
 read-only source/image filesystem, and writable scratch directories. Downloaded
