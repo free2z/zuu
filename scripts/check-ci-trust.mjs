@@ -27,7 +27,9 @@ function metadataLines(source) {
   return lines;
 }
 
-export function inspect(source) {
+const reviewedWebsiteCall = "  checks:\n    if: github.repository == 'free2z/zuu' && github.ref == 'refs/heads/main' && github.ref_protected\n    uses: ./.github/workflows/free2z-web-ci.yml\n    permissions:\n      contents: read";
+
+export function inspect(source, allowWebsiteCall = false) {
   const failures = [];
   const setupLines = [...source.matchAll(/^      (?:- |  )uses: docker\/setup-buildx-action@[^\n]+$/gmi)];
   const boundaries = [...source.matchAll(/^(?:      - |  [A-Za-z0-9_-]+:)/gm)].map(match => match.index);
@@ -79,6 +81,7 @@ export function inspect(source) {
   for (const [index, match] of starts.entries()) {
     const job = jobsSource[1].slice(match.index, starts[index + 1]?.index ?? jobsSource[1].length);
     if (/^    services:/m.test(job)) failures.push(`${match[1]}: start services after bootstrap`);
+    if (allowWebsiteCall && job.trimEnd() === reviewedWebsiteCall) continue;
     const steps = [...job.matchAll(/^    steps:\s*\n/gm)];
     if (steps.length !== 1) {
       failures.push(`${match[1]}: one runnable steps mapping required`);
@@ -92,7 +95,7 @@ export function inspect(source) {
 }
 
 function inspectWorkflow(file, source) {
-  const failures = inspect(source);
+  const failures = inspect(source, file === 'free2z-web-release.yml');
   const count = source.split(buildkitStep).length - 1;
   if (expectedPublishers.has(file) && count !== 2) failures.push('require both reviewed BuildKit publisher setups');
   return failures;
@@ -176,6 +179,11 @@ print('actual inline loader: 6 runtime controls passed')
 function selfTest() {
   const baseline = `name: fixture\nenv:\n  NODE_OPTIONS: --use-openssl-ca\njobs:\n  fixture:\n    runs-on: ubuntu-24.04\n    steps:\n${bootstrapStep}      - uses: actions/checkout@${'a'.repeat(40)}\n`;
   if (inspect(baseline).length) throw new Error('Valid workflow fixture rejected');
+  const reusable = baseline.replace(/  fixture:[\s\S]*$/, reviewedWebsiteCall + '\n');
+  if (inspect(reusable, true).length || !inspect(reusable).length) throw new Error('Reusable website allowlist rejected or widened');
+  for (const changed of [reusable.replace('contents: read', 'contents: write'), reusable.replace('web-ci.yml', 'other.yml'), reusable + '    secrets: inherit\n']) {
+    if (!inspect(changed, true).length) throw new Error('Unreviewed reusable workflow accepted');
+  }
   const cases = [
     [baseline.replace(bootstrapStep, ''), 'first step'],
     [baseline.replace(bootstrapStep, '      - run: curl https://example.com/\n' + bootstrapStep), 'first step'],

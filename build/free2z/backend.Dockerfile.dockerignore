@@ -1,0 +1,13 @@
+**
+!py/
+!py/free2z/
+!py/free2z/**
+!scripts/
+!scripts/free2z/
+!scripts/free2z/package-runtime.py
+**/.env*
+**/*.pem
+**/__pycache__
+**/node_modules
+**/.venv
+**/*.sqlite3
