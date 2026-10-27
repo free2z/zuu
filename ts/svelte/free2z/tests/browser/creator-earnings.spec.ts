@@ -518,7 +518,7 @@ test("reused financial components clear original actor inputs when owner and ses
     document.querySelector("main")?.remove();
     const target = document.createElement("div");
     document.body.append(target);
-    const svelteModule = "/@id/svelte";
+    const svelteModule = "/tests/browser/svelte-runtime.ts";
     const fixtureModule =
       "/tests/browser/economy-owner-boundary-fixture.svelte";
     const [{ mount }, { default: Fixture }] = await Promise.all([

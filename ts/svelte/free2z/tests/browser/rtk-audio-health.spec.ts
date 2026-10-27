@@ -103,7 +103,7 @@ async function mountHealth(page: Page, mode: "host" | "viewer") {
 
       document.body.innerHTML =
         '<main id="harness" style="position:relative;height:600px"></main>';
-      const svelteModule = "/@id/svelte";
+      const svelteModule = "/tests/browser/svelte-runtime.ts";
       const [{ default: RtkAudioHealth }, { mount }] = await Promise.all([
         new Function(loader)(),
         import(/* @vite-ignore */ svelteModule),

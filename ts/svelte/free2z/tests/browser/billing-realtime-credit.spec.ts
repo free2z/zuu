@@ -16,7 +16,7 @@ const TOAST_LOADER = devSourceModuleLoader("/src/lib/toast.ts");
 const EVENT_NOTIFICATIONS_LOADER = devSourceModuleLoader(
   "/src/lib/stores/eventNotifications.ts",
 );
-const SVELTE_LOADER = devSourceModuleLoader("/@id/svelte");
+const SVELTE_LOADER = devSourceModuleLoader("/tests/browser/svelte-runtime.ts");
 const MEDIA_UPLOADER_LOADER = devSourceModuleLoader(
   "/src/lib/components/media/MediaUploader.svelte",
 );
@@ -841,7 +841,7 @@ for (const bulk of [false, true]) {
     await page.evaluate(async (bulk) => {
       const target = document.createElement("div");
       document.body.append(target);
-      const svelteModule = "/@id/svelte";
+      const svelteModule = "/tests/browser/svelte-runtime.ts";
       const fixtureModule =
         "/tests/browser/purchase-balance-dialog-fixture.svelte";
       const [{ mount }, { default: Fixture }] = await Promise.all([
@@ -1043,7 +1043,7 @@ test("a retained insufficient-funds callout shows credited balance and retry gui
   await page.evaluate(async () => {
     const target = document.createElement("div");
     document.body.append(target);
-    const svelteModule = "/@id/svelte";
+    const svelteModule = "/tests/browser/svelte-runtime.ts";
     const fixtureModule =
       "/tests/browser/purchase-insufficient-funds-fixture.svelte";
     const [{ mount }, { default: Fixture }] = await Promise.all([
@@ -1080,7 +1080,7 @@ for (const bulk of [false, true]) {
     await page.evaluate(async (bulk) => {
       const target = document.createElement("div");
       document.body.append(target);
-      const svelteModule = "/@id/svelte";
+      const svelteModule = "/tests/browser/svelte-runtime.ts";
       const fixtureModule =
         "/tests/browser/purchase-balance-dialog-fixture.svelte";
       const [{ mount }, { default: Fixture }] = await Promise.all([
@@ -1137,7 +1137,7 @@ test("a quote refresh cannot replace an unresolved bulk purchase decision", asyn
   await page.evaluate(async () => {
     const target = document.createElement("div");
     document.body.append(target);
-    const svelteModule = "/@id/svelte";
+    const svelteModule = "/tests/browser/svelte-runtime.ts";
     const fixtureModule =
       "/tests/browser/purchase-balance-dialog-fixture.svelte";
     const [{ mount }, { default: Fixture }] = await Promise.all([
@@ -1197,7 +1197,7 @@ test("a no-charge source refusal reprices after purchase settles and needs a new
   await page.evaluate(async () => {
     const target = document.createElement("div");
     document.body.append(target);
-    const svelteModule = "/@id/svelte";
+    const svelteModule = "/tests/browser/svelte-runtime.ts";
     const fixtureModule =
       "/tests/browser/purchase-balance-dialog-fixture.svelte";
     const [{ mount }, { default: Fixture }] = await Promise.all([
@@ -2354,7 +2354,7 @@ for (const generated of [false, true]) {
       async ({ generated }) => {
         const target = document.createElement("div");
         document.body.append(target);
-        const svelteModule = "/@id/svelte";
+        const svelteModule = "/tests/browser/svelte-runtime.ts";
         const fixtureModule =
           "/tests/browser/purchase-insufficient-funds-fixture.svelte";
         const [{ mount }, { default: Fixture }] = await Promise.all([
@@ -2521,7 +2521,7 @@ test("a marked refusal revalidates server truth when its earlier dispatch execut
   await page.evaluate(async () => {
     const target = document.createElement("div");
     document.body.append(target);
-    const svelteModule = "/@id/svelte";
+    const svelteModule = "/tests/browser/svelte-runtime.ts";
     const fixtureModule =
       "/tests/browser/purchase-insufficient-funds-fixture.svelte";
     const [{ mount }, { default: Fixture }] = await Promise.all([
@@ -2589,7 +2589,7 @@ for (const bulk of [false, true]) {
       async ({ bulk }) => {
         const target = document.createElement("div");
         document.body.append(target);
-        const svelteModule = "/@id/svelte";
+        const svelteModule = "/tests/browser/svelte-runtime.ts";
         const fixtureModule =
           "/tests/browser/purchase-balance-dialog-fixture.svelte";
         const [{ mount }, { default: Fixture }] = await Promise.all([
@@ -3706,7 +3706,7 @@ for (const bulk of [false, true]) {
     await page.evaluate(async (bulk) => {
       const target = document.createElement("div");
       document.body.append(target);
-      const svelteModule = "/@id/svelte",
+      const svelteModule = "/tests/browser/svelte-runtime.ts",
         fixtureModule = "/tests/browser/purchase-balance-dialog-fixture.svelte";
       const [{ mount }, { default: Fixture }] = await Promise.all([
         import(svelteModule),
@@ -4844,7 +4844,7 @@ test("a real donation finishing after A to B to A cannot announce the old privat
   await page.evaluate(async () => {
     const target = document.createElement("div");
     document.body.append(target);
-    const svelteModule = "/@id/svelte";
+    const svelteModule = "/tests/browser/svelte-runtime.ts";
     const donateModule = "/src/lib/components/profile/ProfileDonate.svelte";
     const [{ mount }, { default: Donate }] = await Promise.all([
       import(svelteModule),
@@ -4951,7 +4951,7 @@ test("a real expired-session vote still explains the failure after private notic
   await page.evaluate(async () => {
     const target = document.createElement("div");
     document.body.append(target);
-    const svelteModule = "/@id/svelte";
+    const svelteModule = "/tests/browser/svelte-runtime.ts";
     const voteModule = "/src/lib/components/comments/CommentVote.svelte";
     const [{ mount }, { default: Vote }] = await Promise.all([
       import(svelteModule),
@@ -4992,7 +4992,7 @@ test("generated-client expired-session donation gives anonymous guidance without
   await page.evaluate(async () => {
     const target = document.createElement("div");
     document.body.append(target);
-    const svelteModule = "/@id/svelte",
+    const svelteModule = "/tests/browser/svelte-runtime.ts",
       donateModule = "/src/lib/components/profile/ProfileDonate.svelte";
     const [{ mount }, { default: Donate }] = await Promise.all([
       import(svelteModule),
@@ -5065,7 +5065,7 @@ test("a vote begun while identity resolves announces a refusal under its resolve
   );
   await page.evaluate(async () => {
     const authModule = "/src/lib/stores/auth.ts",
-      svelteModule = "/@id/svelte",
+      svelteModule = "/tests/browser/svelte-runtime.ts",
       voteModule = "/src/lib/components/comments/CommentVote.svelte";
     const { authStore } = await import(authModule);
     authStore.hydrateFromSession(null);
@@ -5187,7 +5187,7 @@ test("a saturated urgent queue cannot hide the actual outgoing payment refusal o
   );
   await page.evaluate(async () => {
     const toastModule = "/src/lib/toast.ts",
-      svelteModule = "/@id/svelte",
+      svelteModule = "/tests/browser/svelte-runtime.ts",
       donateModule = "/src/lib/components/profile/ProfileDonate.svelte";
     const { toast } = await import(toastModule);
     for (let index = 0; index < 52; index++)
@@ -5447,7 +5447,7 @@ test("explicit upload retry after reauthentication uses the current account noti
     const target = document.createElement("div");
     target.id = "retry-uploader";
     document.body.append(target);
-    const svelteModule = "/@id/svelte",
+    const svelteModule = "/tests/browser/svelte-runtime.ts",
       uploaderModule = "/src/lib/components/media/MediaUploader.svelte";
     const [{ mount }, { default: Uploader }] = await Promise.all([
       import(svelteModule),
@@ -5505,7 +5505,7 @@ for (const status of [200, 402]) {
         const target = document.createElement("div");
         target.id = "identity-composer";
         document.body.append(target);
-        const svelteModule = "/@id/svelte",
+        const svelteModule = "/tests/browser/svelte-runtime.ts",
           composerModule =
             "/src/lib/components/converse/ConverseComposer.svelte",
           intentModule = "/src/lib/subscribe-idempotency.js";
@@ -5700,7 +5700,7 @@ for (const cleanupFails of [false, true]) {
       const target = document.createElement("div");
       target.id = "replay-vote";
       document.body.append(target);
-      const svelteModule = "/@id/svelte",
+      const svelteModule = "/tests/browser/svelte-runtime.ts",
         voteModule = "/src/lib/components/comments/CommentVote.svelte";
       const [{ mount }, { default: Vote }] = await Promise.all([
         import(svelteModule),
@@ -5766,7 +5766,7 @@ for (const component of ["profile", "stream"] as const) {
           component === "profile"
             ? "/src/lib/components/profile/ProfileSubscribe.svelte"
             : "/src/lib/components/stream/SubscribeToCreator.svelte";
-        const svelte = "/@id/svelte";
+        const svelte = "/tests/browser/svelte-runtime.ts";
         const [{ mount }, { default: Subscribe }] = await Promise.all([
           import(svelte),
           import(module),
@@ -5890,7 +5890,7 @@ for (const component of ["profile", "stream"] as const) {
           component === "profile"
             ? "/src/lib/components/profile/ProfileSubscribe.svelte"
             : "/src/lib/components/stream/SubscribeToCreator.svelte";
-        const svelte = "/@id/svelte",
+        const svelte = "/tests/browser/svelte-runtime.ts",
           intent = "/src/lib/subscribe-idempotency.js";
         const [
           { mount },
@@ -6205,7 +6205,7 @@ for (const component of ["vote", "comment", "boost", "donation"] as const) {
           boost: "/src/lib/components/zpageActions/BoostButton.svelte",
           donation: "/src/lib/components/profile/ProfileDonate.svelte",
         };
-        const svelte = "/@id/svelte";
+        const svelte = "/tests/browser/svelte-runtime.ts";
         const [{ mount }, { default: Component }] = await Promise.all([
           import(svelte),
           import(modules[component]),
@@ -6378,7 +6378,7 @@ for (const component of ["profile", "stream"] as const) {
           component === "profile"
             ? "/src/lib/components/profile/ProfileSubscribe.svelte"
             : "/src/lib/components/stream/SubscribeToCreator.svelte",
-        svelte = "/@id/svelte",
+        svelte = "/tests/browser/svelte-runtime.ts",
         query = "/@id/@tanstack/svelte-query";
       const [{ mount }, { default: Component }, { QueryClient }] =
         await Promise.all([import(svelte), import(module), import(query)]);
@@ -6477,7 +6477,7 @@ test("a generated cover keeps storage cleanup guidance inline even when its prev
     }),
   );
   await page.evaluate(async () => {
-    const svelte = "/@id/svelte",
+    const svelte = "/tests/browser/svelte-runtime.ts",
       module = "/src/lib/components/mdEditor/CoverAIPanel.svelte",
       notice = "/src/lib/toast.ts";
     const [{ mount }, { default: Cover }, { toast }] = await Promise.all([
@@ -6549,7 +6549,7 @@ for (const outcome of ["refusal", "late-success"] as const) {
         : route.fulfill({ json: { max_price: "5" } }),
     );
     await page.evaluate(async () => {
-      const svelte = "/@id/svelte",
+      const svelte = "/tests/browser/svelte-runtime.ts",
         module = "/src/lib/components/subscription/ManageSubscription.svelte",
         query = "/@id/@tanstack/svelte-query";
       const [{ mount }, { default: Manage }, { QueryClient }] =
@@ -6654,7 +6654,7 @@ for (const status of [200, 402]) {
       return route.fulfill({ body: "private" });
     });
     await page.evaluate(async () => {
-      const svelte = "/@id/svelte",
+      const svelte = "/tests/browser/svelte-runtime.ts",
         module = "/src/lib/components/mdEditor/CoverAIPanel.svelte";
       const [{ mount }, { default: Cover }] = await Promise.all([
         import(svelte),
@@ -6845,7 +6845,7 @@ test("a held successful comment retains its replay key and reconciles the draft 
     held = route;
   });
   await page.evaluate(async () => {
-    const svelte = "/@id/svelte",
+    const svelte = "/tests/browser/svelte-runtime.ts",
       module = "/src/lib/components/comments/CommentForm.svelte";
     const [{ mount }, { default: Component }] = await Promise.all([
       import(svelte),
@@ -6940,7 +6940,7 @@ async function mountScopedPaidControl(
         donation: "/src/lib/components/profile/ProfileDonate.svelte",
         cover: "/src/lib/components/mdEditor/CoverAIPanel.svelte",
       },
-      svelte = "/@id/svelte";
+      svelte = "/tests/browser/svelte-runtime.ts";
     const [{ mount }, { default: Component }] = await Promise.all([
       import(svelte),
       import(modules[component]),
@@ -7345,7 +7345,7 @@ async function changeExpiryOwner(
     authRoute.setActor(null);
     await page.evaluate(async () => {
       (window as any).expiryServerActor = null;
-      const svelte = "/@id/svelte";
+      const svelte = "/tests/browser/svelte-runtime.ts";
       await (await import(svelte)).unmount((window as any).scopedPaidMount);
     });
     return;
@@ -7999,7 +7999,7 @@ test("one active legacy stream notice cannot stall a new credit or exceed physic
   await paidExpirySetup(page, "vote");
   await page.evaluate(async () => {
     const module = "/tests/browser/legacy-stream-toast-fixture.svelte",
-      svelte = "/@id/svelte";
+      svelte = "/tests/browser/svelte-runtime.ts";
     const [{ default: Fixture }, { mount }] = await Promise.all([
       import(module),
       import(svelte),

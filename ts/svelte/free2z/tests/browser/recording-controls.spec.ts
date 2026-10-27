@@ -21,7 +21,7 @@ test("mounted host controls start, stop and show provider processing without SDK
   });
   await page.goto("/search");
   await page.evaluate(async (loader) => {
-    const svelteModule = "/@id/svelte";
+    const svelteModule = "/tests/browser/svelte-runtime.ts";
     const [{ default: Controls }, { mount }] = await Promise.all([
       new Function(loader)(),
       import(/* @vite-ignore */ svelteModule),
