@@ -205,6 +205,19 @@ class WalletDiagnosticTests(unittest.TestCase):
             self.conn.commit()
             self.assertEqual(self.diagnose().exit_code(), 1)
 
+    def test_mixed_recipients_do_not_pass_an_explicit_username_check(self):
+        other_memo = json.dumps({"act": "buy_2z", "id": "other-user"}).encode()
+        self.conn.execute("INSERT INTO orchard_received_notes VALUES (1, ?, ?, 3)",
+                          (NOTE["amountZat"], other_memo))
+        self.conn.commit()
+        other_note = dict(NOTE, output_index=3, memo=other_memo.hex())
+        db = EvidenceDatabase()
+        result = self.diagnose(reported=[NOTE, other_note], username="fixture-user",
+                               amount="1.23456789", database=db)
+        self.assertEqual(result.exit_code(), 1)
+        self.assertIn(("3 MEMO", verify.FAIL), [(stage, status) for stage, status, _ in result.stages])
+        self.assertEqual(db.queries, [])
+
     def test_canonical_adapter_is_readonly_and_restores_environment(self):
         with patch.dict(os.environ, {"WALLET_DB": "prior-wallet", "WALLET_ACCOUNT": "9",
                                      "ZEC_MIN_CONFIRMATIONS": "8"}):
@@ -219,6 +232,7 @@ class WalletDiagnosticTests(unittest.TestCase):
         self.assertEqual([(n["txid"], n["amountZat"], n["output_index"]) for n in notes],
                          [(TXID, NOTE["amountZat"], 2)])
         conn = client._conn()
+        self.assertIsNone(conn.row_factory)
         with self.assertRaises(sqlite3.OperationalError):
             conn.execute("DELETE FROM transactions")
         conn.close()

@@ -80,7 +80,7 @@ of the credit adapter being diagnosed. `--txid` selects a lowercase 32-byte hex
 transaction ID in display order. `--amount` accepts an exact nonnegative amount
 in ZEC representable as whole zatoshis. A username selects notes only when
 neither a transaction ID nor an amount is supplied; otherwise it checks the
-selected purchase memos.
+selected purchase memos and requires every selected purchase recipient to match.
 
 For recipient and credit checks, replace `--no-db` with
 `--database-service SERVICE_NAME`. The command requires `psycopg2` and the
@@ -126,6 +126,8 @@ diagnostic parsing could accept:
   unverified; no arbitrary row is selected.
 - Pending notes without receipts are inconclusive even when a credit database
   is supplied. An unrelated pool's pending note cannot explain an absent note.
+- An explicit username must match every selected purchase memo, including
+  multi-output transactions and amount selections spanning multiple recipients.
 - Incorrect credit quantities fail; missing quantities or rates are inconclusive.
 - A credit receipt without an amount is inconclusive; its identity alone cannot
   prove which payment was credited. Invalid recipient types fail memo checking.

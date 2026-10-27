@@ -321,7 +321,7 @@ def diagnose(db_path, client, *, txid=None, amount=None, username=None, database
         return result
     names = sorted({payload["id"] for _, payload in buys})
     result.record("3 MEMO", PASS, "purchase memos name " + ", ".join(map(repr, names)))
-    if username and username not in names:
+    if username and any(name != username for name in names):
         result.record("3 MEMO", FAIL, "memo recipient differs from requested username")
         return result
     if database is None:
