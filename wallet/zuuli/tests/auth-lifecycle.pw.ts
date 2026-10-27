@@ -121,7 +121,8 @@ test("an unmounted recovery cannot continue into challenge verification", async 
   // The destination's feedback form may contain a textarea; no mounted
   // control may retain the recovery phrase from the destroyed login flow.
   expect(await page.locator("textarea").evaluateAll(
-    (elements, phrase) => elements.some((element) => element.value.includes(phrase)),
+    (elements, phrase) => elements.some((element) =>
+      element instanceof HTMLTextAreaElement && element.value.includes(phrase)),
     RECOVERY_PHRASE,
   )).toBe(false);
   await expectNoInvisibleLogin(page);
