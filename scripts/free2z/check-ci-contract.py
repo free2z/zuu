@@ -62,6 +62,31 @@ def validate(ci, release, dockerfile, ruff):
     image_builds = [s for s in jobs['images']['steps'] if s.get('uses', '').startswith('docker/build-push-action@')]
     if len(image_builds) != 1 or any(image_builds[0]['with'].get(key) != value for key, value in {'platforms': 'linux/amd64', 'provenance': False, 'sbom': False}.items()):
         raise ValueError('published image digest must identify one platform manifest')
+    image_steps = jobs['images']['steps']
+    sbom_generators = [s for s in image_steps if s.get('uses', '').startswith('anchore/sbom-action@')]
+    normalizers = [s for s in image_steps if 'prepare-image-sbom.py prepare' in s.get('run', '')]
+    exports = [s for s in image_steps if 'docker save ' in s.get('run', '')]
+    if len(sbom_generators) != 1 or len(normalizers) != 1 or len(exports) != 1:
+        raise ValueError('image inventory must be generated and validated before export')
+    generator, normalizer, export = sbom_generators[0], normalizers[0], exports[0]
+    expected = {'image': 'docker:${{ steps.image-identity.outputs.id }}', 'format': 'spdx-json',
+                'output-file': 'image.original.spdx.json', 'syft-version': 'v1.38.0',
+                'upload-artifact': False, 'upload-release-assets': False}
+    if generator.get('with') != expected or any(key in step for step in (generator, normalizer) for key in ('if', 'continue-on-error')):
+        raise ValueError('complete pinned Syft inventory and validation must be mandatory')
+    snapshots = [s for s in image_steps if s.get('id') == 'image-identity']
+    if len(snapshots) != 1 or image_steps.index(snapshots[0]) >= image_steps.index(generator) or any(key in snapshots[0] for key in ('if', 'continue-on-error')):
+        raise ValueError('record actual image identity before cataloging')
+    if any(fragment not in snapshots[0].get('run', '') for fragment in ('docker image inspect "free2z-$KIND:candidate"', "'{{.Id}}'", '> image-config.digest', '>> "$GITHUB_OUTPUT"', "printf 'id=%s")):
+        raise ValueError('SBOM scan must receive the inspected immutable local image ID')
+    if not image_steps.index(generator) < image_steps.index(normalizer) < image_steps.index(export):
+        raise ValueError('SBOM size/profile check must precede image artifact export')
+    for fragment in ('docker image inspect "free2z-$KIND:candidate" --format',
+                     "'{{.Id}}'", 'prepare image.original.spdx.json --image-id "$image_id" --image-config image-config.digest --output image.spdx.json --binding image-sbom-binding.json'):
+        if fragment not in normalizer['run']:
+            raise ValueError('SBOM must bind the actual tested image configuration')
+    if 'mv image.spdx.json image.original.spdx.json image-sbom-binding.json image-bundle/' not in export['run']:
+        raise ValueError('retain original inventory alongside its lossless predicate')
     static_audits = jobs['dependency-security-static']
     if set(static_audits['strategy']['matrix']['project']) != {'ts/react/free2z', 'docs/about-free2z', 'docs/free2z/website'}:
         raise ValueError('every static website dependency graph must be audited')
@@ -99,6 +124,21 @@ def validate(ci, release, dockerfile, ruff):
     if 'DOCKER_CONFIG="$anonymous_config" docker manifest inspect' not in commands:raise ValueError('release images must be anonymously consumable')
     if 'Release digest must identify one linux/amd64 image manifest' not in commands or '{{.Os}}/{{.Architecture}}' not in commands:
         raise ValueError('publisher must verify platform and reject image indexes')
+    publication = [s for s in publish['steps'] if 'docker push ' in s.get('run', '')]
+    if len(publication) != 1:
+        raise ValueError('expected one checked image publication')
+    command = publication[0]['run']
+    check_command = 'python3 scripts/free2z/prepare-image-sbom.py check image-bundle/image.spdx.json --image-id "$image_id" --binding image-bundle/image-sbom-binding.json'
+    if check_command not in command or not command.index('docker load ') < command.index(check_command) < command.index('docker push '):
+        raise ValueError('publisher must recheck SBOM against loaded image before push')
+    sbom_attestations = [s for s in publish['steps'] if s.get('with', {}).get('predicate-type') == 'https://spdx.dev/Document']
+    expected_attestation = {'subject-name': '${{ steps.image.outputs.repository }}',
+                            'subject-digest': '${{ steps.image.outputs.digest }}',
+                            'predicate-type': 'https://spdx.dev/Document',
+                            'predicate-path': 'image-bundle/image.spdx.json',
+                            'push-to-registry': True}
+    if len(sbom_attestations) != 1 or sbom_attestations[0].get('with') != expected_attestation or any(key in sbom_attestations[0] for key in ('if', 'continue-on-error')):
+        raise ValueError('complete SBOM attestation must bind the exact published image digest')
     final=release['jobs']['release']
     final_commands = '\n'.join(s.get('run', '') for s in final['steps'])
     if '--task-registry task-registry/task-registry.json' not in final_commands:

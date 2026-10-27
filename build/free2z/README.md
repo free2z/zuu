@@ -44,6 +44,22 @@ or execute application containers. All image subjects receive provenance and
 SPDX SBOM attestations. Anonymous registry access must succeed before a release
 is eligible for deployment.
 
+Syft 1.38.0 catalogs each immutable local Docker image ID. The read-only build
+job validates its SPDX 2.3 package/file profile, shortens only document-local
+identifiers and their references, and checks that reversing this mapping
+reconstructs the complete original JSON. Package, file, checksum, license and
+relationship evidence is retained. Unsupported structures, dangling references
+or a normalized predicate larger than the attestation action's 16 MiB limit
+fail the build before publication. This profile check is not a general SPDX
+schema validator.
+
+The image artifact retains the original inventory, normalized predicate and a
+receipt binding the predicate's SHA-256 to the inspected Docker configuration
+ID. The publisher verifies this receipt against the loaded image before pushing,
+then attests the complete predicate against the returned registry manifest
+digest. Syft's source manifest checksum is preserved: archive and registry
+manifest representations may differ, and neither is the Docker configuration ID.
+
 The public GitHub release tag is
 `free2z-web-<source commit>-<workflow run id>-<attempt>`. Its
 `free2z-release.zip` contains exactly:
