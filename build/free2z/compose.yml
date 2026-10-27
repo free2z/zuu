@@ -1,0 +1,114 @@
+# Disposable local services. Ports bind only to localhost; never point these values at production.
+name: free2z-dev
+services:
+  postgres:
+    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
+    environment:
+      POSTGRES_DB: free2z
+      POSTGRES_USER: free2z
+      POSTGRES_PASSWORD: local-development-only
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U free2z]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  redis:
+    image: redis:7-alpine@sha256:6ba19c50b56777f5c11c58eff8ddb69d0d5f27ba131cffb63f180ccfd43c66af
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  migrate:
+    platform: linux/amd64
+    build:
+      context: ../..
+      dockerfile: build/free2z/backend.Dockerfile
+      args:
+        BUILD_SHA: local-development
+    image: free2z-backend:local
+    environment: &backend-environment
+      DJANGO_SETTINGS_MODULE: dj.free2z.dev_settings
+      LOCALDEV: 'true'
+      SECRET_KEY: local-development-fixture-never-use-for-a-public-service
+      DBHOST: postgres
+      DBPORT: '5432'
+      DBNAME: free2z
+      DBUSER: free2z
+      DBPASS: local-development-only
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      CHANNEL_REDIS_HOST: redis
+      CHANNEL_REDIS_PORT: '6379'
+      CANONICAL_ORIGIN: http://localhost:8080
+      STRIPE_CHECKOUT_ENABLED: 'false'
+      OPENAI_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+      XAI_API_KEY: ''
+    command: [/py/dj/free2z/manage.py, migrate, --noinput]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  backend:
+    platform: linux/amd64
+    image: free2z-backend:local
+    environment: *backend-environment
+    command: [-m, gunicorn, 'dj.free2z.wsgi:application', --bind, '0.0.0.0:8000', --workers, '2']
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  asgi:
+    platform: linux/amd64
+    image: free2z-backend:local
+    environment: *backend-environment
+    command: [-m, daphne, -b, 0.0.0.0, -p, '8001', 'dj.free2z.asgi:application']
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  worker:
+    platform: linux/amd64
+    image: free2z-backend:local
+    environment: *backend-environment
+    command: [/py/dj/free2z/manage.py, procrastinate, worker, --concurrency, '1']
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  web:
+    platform: linux/amd64
+    build:
+      context: ../../ts/svelte/free2z
+      dockerfile: ../../../build/free2z/web.Dockerfile
+      args:
+        PUBLIC_BUILD_SHA: local-development
+    environment:
+      PRIVATE_API_BASE_URL: http://backend:8000
+      PRIVATE_BACKEND_TRUSTED_ORIGINS: http://localhost:8080
+      PUBLIC_API_BASE_URL: ''
+      HOST_HEADER: host
+      PROTOCOL_HEADER: x-forwarded-proto
+    depends_on:
+      - backend
+  static:
+    platform: linux/amd64
+    build:
+      context: ../..
+      dockerfile: build/free2z/static.Dockerfile
+      args:
+        BUILD_SHA: local-development
+  edge:
+    image: nginx:1.31.6@sha256:60f0d4e986561e08804f75c211dcaf7fc5455699eada29f42cbe8a0a7253dd86
+    ports:
+      - '127.0.0.1:8080:8080'
+    volumes:
+      - ./dev-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+      - web
+      - asgi
+      - static
+volumes:
+  database:

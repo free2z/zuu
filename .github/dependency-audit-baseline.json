@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "reviewed_on": "2026-10-15",
+  "purpose": "Temporary exact-advisory audit deferrals. Re-review or remove each entry by its expiry. An exception is valid only while no available update removes the advisory; package names, severities and dependency edges are not allowlists.",
+  "findings": [
+    {
+      "ecosystem": "pip",
+      "package": "twisted",
+      "advisory": "GHSA-8pqf-f4m5-798g",
+      "rationale": "No fixed release exists. GHSA-8pqf-f4m5-798g (CVE-2026-106454, CWE-1333, medium) affects Twisted <= 26.4.0 with first_patched_version: null, pip-audit reports fix_versions: [], and 26.4.0 is the newest Twisted on PyPI. The upstream fix (twisted/twisted#12788, commit 2f8a3c2) merged 2026-08-15 but is unreleased, so there is nothing to bump to. Twisted is not a direct pin: daphne==4.2.3 is its only requirer in py/free2z/requirements/main.txt (`twisted[tls]>=22.4`); autobahn, txaio and Automat list it only under extras that are not installed.",
+      "reachability": "The advisory concerns twisted.mail.imap4.wildcardToRegexp(), used by the IMAP4 server LIST/LSUB handler after authentication. The application uses Daphne for HTTP/WebSockets and does not provide an IMAP server. Daphne imports twisted.internet/web/logger/plugin/protocols.policies. The reviewed Daphne startup loaded no twisted.mail modules. Reassess this exception whenever mail protocols or runtime dependencies change.",
+      "follow_up": "Pin the first Twisted release containing twisted/twisted#12788 and remove this exception when a fixed release is available. Re-check by expiry. This exception is void if application code imports twisted.mail or introduces an IMAP server.",
+      "reviewed_on": "2026-10-15",
+      "expires": "2026-11-15"
+    }
+  ]
+}

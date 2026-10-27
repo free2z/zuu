@@ -1,0 +1,832 @@
+name: Free2Z website CI
+on:
+  pull_request: {}
+  workflow_call:
+    outputs:
+      complete:
+        description: Complete public application inputs are present
+        value: ${{ jobs.changes.outputs.complete }}
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: free2z-web-ci-${{ github.event.pull_request.number || github.ref }}-${{ github.workflow }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ts/svelte/free2z
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ts/svelte/free2z/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run check
+      - run: NODE_OPTIONS="$NODE_OPTIONS --max-old-space-size=4096" npm run build
+      - name: Built-adapter root parameter containment
+        run: node tests/built-adapter-root-containment.mjs
+      - name: Built-adapter legacy zPage redirect
+        run: node tests/built-adapter-legacy-zpage-redirect.mjs
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
+  ui-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ts/svelte/free2z
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ts/svelte/free2z/package-lock.json
+      - run: npm ci
+      - name: Preflight guard positive controls
+        run: '"$GITHUB_WORKSPACE/scripts/free2z/test-ui-preflight.sh"'
+      - name: Install xmllint (sitemap schema validation)
+        run: sudo "$GITHUB_WORKSPACE/scripts/free2z/install-ubuntu-ci-packages.sh" libxml2-utils
+      - name: Run node test suite
+        run: npm test
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
+  docs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
+      - name: Use Node 20 for deployed docs
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            docs/about-free2z/package-lock.json
+            docs/free2z/website/package-lock.json
+      - name: Install Docusaurus dependencies
+        run: npm ci
+        working-directory: docs/about-free2z
+      - name: Build Docusaurus docs
+        run: npm run build
+        working-directory: docs/about-free2z
+      - name: Check generated Terms artifact
+        working-directory: docs/about-free2z
+        run: node "$GITHUB_WORKSPACE/scripts/free2z/check-terms-artifact.mjs"
+      - name: Check plain legal pages
+        working-directory: docs/about-free2z
+        run: |
+          node --test src/legal-plain/remark-legal-links.test.js
+          node scripts/check-legal-plain.mjs --self-test
+          node scripts/check-legal-plain.mjs docsbuild
+      - name: Install VitePress dependencies
+        run: npm ci
+        working-directory: docs/free2z/website
+      - name: Build VitePress docs
+        run: npm run build
+        working-directory: docs/free2z/website
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
+  ui-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - 1
+          - 2
+          - 3
+          - 4
+          - 5
+          - 6
+          - 7
+          - 8
+    env:
+      BROWSER_TOTAL_SHARDS: 8
+      BROWSER_BUDGET_SECONDS: 720
+    defaults:
+      run:
+        working-directory: ts/svelte/free2z
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            ts/svelte/free2z/package-lock.json
+      - run: npm ci
+      - name: Install Playwright Chromium headless shell
+        run: |
+          sudo "$GITHUB_WORKSPACE/scripts/free2z/install-ubuntu-ci-packages.sh" --playwright-deps "$(command -v node)" "$PWD/node_modules/playwright/cli.js"
+          npx playwright install --only-shell chromium
+      - name: Verify browser shard test coverage
+        if: matrix.shard == 1
+        run: |
+          bash "$GITHUB_WORKSPACE/scripts/free2z/test-ci-browser-shard.sh"
+          node "$GITHUB_WORKSPACE/scripts/free2z/test-check-ci-browser-test-lists.mjs"
+          node "$GITHUB_WORKSPACE/scripts/free2z/check-ci-browser-test-lists.mjs" .
+      - name: Run rendered UI regressions (shard ${{ matrix.shard }})
+        run: '"$GITHUB_WORKSPACE/scripts/free2z/ci-browser-shard.sh"'
+        env:
+          BROWSER_SHARD: ${{ matrix.shard }}
+      - name: Upload browser test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # reviewed immutable repository pin
+        with:
+          name: playwright-report-shard-${{ matrix.shard }}
+          path: |
+            ts/svelte/free2z/playwright-report/
+            ts/svelte/free2z/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload first-attempt browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # reviewed immutable repository pin
+        with:
+          name: playwright-first-failures-shard-${{ matrix.shard }}
+          path: ts/svelte/free2z/test-results/first-failures/
+          if-no-files-found: ignore
+          retention-days: 7
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
+  api-client:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ts/svelte/free2z
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ts/svelte/free2z/package-lock.json
+      - run: npm ci
+      - name: Regenerate the API client from the committed f2z.yaml
+        run: |
+          set -euo pipefail
+          for dir in src/lib/api/*/; do
+            tag="$(basename "$dir")"
+            rm -f "$dir$tag.ts"
+          done
+          rm -f src/lib/api/f2z.schemas.ts
+          npm run generate:api
+      - name: Fail if the committed client differs from the regenerated one
+        run: |
+          set -euo pipefail
+          # Include newly generated untracked files in the drift check.
+          drift="$(git status --porcelain -- src/lib/api)"
+          if [ -n "$drift" ]; then
+            echo "$drift"
+            git --no-pager diff -- src/lib/api
+            echo "::error file=ts/svelte/free2z/src/lib/api::The generated API client does not match f2z.yaml. Run 'npm run generate:api' in ts/svelte/free2z and commit the result. If you changed the API, regenerate f2z.yaml first (./scripts/free2z/gen-openapi.sh)."
+            exit 1
+          fi
+          echo "Generated API client matches f2z.yaml."
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
+  dependency-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ts/svelte/free2z/package-lock.json
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # reviewed immutable repository pin
+        with:
+          python-version: '3.12'
+      - name: Install pinned pip-audit
+        run: python -m pip install 'pip-audit==2.10.1'
+      - name: Dependency audit baseline positive controls
+        run: ./scripts/free2z/test-check-dependency-audit.sh
+      - name: Python production lock contract
+        run: |
+          ./scripts/free2z/test-check-python-requirements-lock.sh
+          ./scripts/free2z/check-python-requirements-lock.py
+      - name: Installed production package verifier controls
+        run: ./scripts/free2z/test-check-python-requirements-installed.sh
+      - name: Dependency scanner timeout and rejection controls
+        run: |
+          python -m pip install --disable-pip-version-check PyYAML==6.0.3
+          bash scripts/free2z/test-run-dependency-audits.sh
+      - name: Production-only npm and Python dependency audit
+        run: PYTHON=python ./scripts/free2z/run-dependency-audits.sh
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
+  react:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ts/react/free2z
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
+        with:
+          node-version: 18.12.0
+          cache: npm
+          cache-dependency-path: ts/react/free2z/package-lock.json
+      - run: npm ci --legacy-peer-deps
+      - name: Test classic rollback compatibility routes
+        run: npm test -- --watchAll=false --runTestsByPath src/components/AIzPageDialog.test.tsx src/components/LogoutButton.test.tsx src/classicRouteCompatibility.test.ts src/PageDetail.test.tsx src/RootSplitter.test.tsx src/CreatorDetail.test.tsx src/components/SubscribeToCreator.test.tsx src/components/MySubscriptionRow.test.tsx src/eventContentUrl.test.ts src/retiredMemoProtocols.test.ts src/AI2.test.tsx src/components/AITextarea.test.tsx
+      - name: Build classic React app for Chromium tests
+        run: NODE_OPTIONS="$NODE_OPTIONS --max-old-space-size=4096" npm run build
+        env:
+          CI: false
+      - name: Test classic subscription cards in Chromium
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:browser:built
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
+  lint-python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RUFF_VERSION: 0.16.3
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # reviewed immutable repository pin
+        with:
+          python-version: '3.12'
+      - name: Install pinned ruff
+        run: python -m pip install "ruff==${RUFF_VERSION}"
+      - name: Lint rejection control
+        run: bash scripts/free2z/test-ruff-lint.sh
+      - name: ruff check
+        run: ruff check --no-cache --output-format=github py/free2z scripts/free2z
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
+  backend:
+    strategy:
+      fail-fast: false
+      matrix:
+        group:
+          - 1
+          - 2
+          - 3
+          - 4
+          - 5
+          - 6
+          - 7
+          - 8
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: py/free2z
+    env:
+      PYTHONPATH: ${{ github.workspace }}/py/free2z
+      DBHOST: 127.0.0.1
+      DBPORT: '5432'
+      DBNAME: free2z
+      DBUSER: free2z
+      DBPASS: free2z
+      CHANNEL_REDIS_HOST: 127.0.0.1
+      CHANNEL_REDIS_PORT: '6379'
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: '6379'
+      BACKEND_TEST_COMMAND: python -m pytest --durations=25 --durations-path .test_durations --splits 8 --group ${{ matrix.group }} --splitting-algorithm least_duration
+      BACKEND_TEST_LABEL: Backend pytest shard ${{ matrix.group }}/8
+      BACKEND_BUDGET_SECONDS: 600
+      BACKEND_WARN_PERCENT: 85
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
+      - name: Start owned CI databases
+        id: ci-services
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/free2z/ci-services.py start --postgres --redis
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # reviewed immutable repository pin
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            py/free2z/requirements/main.in
+            py/free2z/requirements/main.txt
+            py/free2z/requirements/test.txt
+      - name: Install libpq headers (psycopg2 builds from source)
+        run: sudo "$GITHUB_WORKSPACE/scripts/free2z/install-ubuntu-ci-packages.sh" libpq-dev
+      - name: Install requirements
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements/main.txt
+          python -m pip install --disable-pip-version-check -r requirements/test.txt
+          "$GITHUB_WORKSPACE/scripts/free2z/check-python-requirements-installed.py" --lock requirements/main.txt
+          python -m pip check
+      - name: Validate committed pytest-split durations
+        run: python ../../scripts/free2z/check-pytest-durations.py .test_durations
+      - name: pytest-split 0.11.0 duration allocation contract
+        run: python ../../scripts/free2z/test-pytest-split-durations.py
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
+        if: matrix.group == 1
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ts/svelte/free2z/package-lock.json
+      - name: Install renderer dependencies for the translation oracle
+        if: matrix.group == 1
+        run: npm ci
+        working-directory: ts/svelte/free2z
+      - name: Render Markdown and check payment-address bypasses
+        if: matrix.group == 1
+        run: '"$GITHUB_WORKSPACE/scripts/free2z/check-translation-url-oracle.py"'
+      - name: Django system checks
+        run: python dj/free2z/manage.py check
+      - name: Migration deletion and assertion quality guards
+        if: matrix.group == 1
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "$BASE_SHA" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            git fetch --no-tags --depth=1 https://github.com/free2z/zuu.git "$BASE_SHA"
+            bash "$GITHUB_WORKSPACE/scripts/free2z/check-no-migration-deletions.sh" "$BASE_SHA"
+          fi
+          python "$GITHUB_WORKSPACE/scripts/free2z/check-negative-status-assertions.py" "$GITHUB_WORKSPACE/py/free2z"
+          python "$GITHUB_WORKSPACE/scripts/free2z/check-negative-status-assertions.py" "$GITHUB_WORKSPACE/ts/svelte/free2z"
+      - name: Static task scan equals the initialized worker registry
+        if: matrix.group == 1
+        run: >-
+          python -m pytest -q
+          dj/apps/jobs/test_periodic_register_first.py::test_static_scan_finds_exactly_the_registered_schedules
+          dj/apps/jobs/test_periodic_register_first.py::test_static_scan_sees_every_registered_task_name
+      - name: Periodic tasks registered before scheduling
+        if: matrix.group == 1
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: |
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            git fetch --no-tags --depth=2 https://github.com/free2z/zuu.git "$GITHUB_SHA"
+            BASE_SHA=$(git rev-parse "$GITHUB_SHA^")
+          else
+            git fetch --no-tags --depth=1 https://github.com/free2z/zuu.git "$BASE_SHA"
+          fi
+          if git cat-file -e "$BASE_SHA:py/free2z/requirements/main.txt" 2>/dev/null; then
+            python "$GITHUB_WORKSPACE/scripts/free2z/check-periodic-register-first.py" --base "$BASE_SHA" --head HEAD
+          else
+            echo 'Initial application import: no public backend task registry exists in the base revision.'
+          fi
+      - name: Missing migrations check
+        run: python dj/free2z/manage.py makemigrations --check --dry-run
+      - name: Migration leaf collision guard
+        run: |-
+          git fetch --no-tags --depth=1 https://github.com/free2z/zuu.git +refs/heads/main:refs/remotes/origin/main
+          python "$GITHUB_WORKSPACE/scripts/free2z/check-migration-leaves.py" --no-fetch --py-dir "$GITHUB_WORKSPACE/py/free2z"
+      - name: OpenAPI schema matches application
+        run: |-
+          "$GITHUB_WORKSPACE/scripts/free2z/gen-openapi.sh"
+          git diff --exit-code -- dj/free2z/openapi/f2z.yaml
+      - name: Start owned ledger transaction-pool fixture
+        env:
+          LEDGER_TEST_POSTGRES_CONTAINER: ${{ steps.ci-services.outputs.postgres_id }}
+        run: '"$GITHUB_WORKSPACE/scripts/free2z/start-ledger-test-pooler.sh"'
+      - name: Backend runtime and migration guard controls
+        if: matrix.group == 1
+        run: |
+          bash "$GITHUB_WORKSPACE/scripts/free2z/test-ci-backend-pytest.sh"
+          bash "$GITHUB_WORKSPACE/scripts/free2z/test-check-migration-leaves.sh"
+          bash "$GITHUB_WORKSPACE/scripts/free2z/test-check-no-migration-deletions.sh"
+          bash "$GITHUB_WORKSPACE/scripts/free2z/test-check-negative-status-assertions.sh"
+          python "$GITHUB_WORKSPACE/scripts/free2z/test-ubuntu-ci-packages.py"
+      - name: pytest (real Postgres, under a named time budget)
+        run: '"$GITHUB_WORKSPACE/scripts/free2z/ci-backend-pytest.sh"'
+      - name: Remove owned ledger pooler fixture
+        if: always()
+        run: docker rm -f ledger-ci-pooler || true
+      - name: Remove owned CI databases
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          CI_POSTGRES_CONTAINER_ID: ${{ steps.ci-services.outputs.postgres_id }}
+          CI_REDIS_CONTAINER_ID: ${{ steps.ci-services.outputs.redis_id }}
+        run: python3 scripts/free2z/ci-services.py cleanup
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
+  gate:
+    name: Free2Z website gate
+    if: ${{ always() }}
+    needs:
+      - changes
+      - ui
+      - ui-tests
+      - docs
+      - ui-browser
+      - api-client
+      - dependency-security
+      - react
+      - lint-python
+      - backend
+      - images
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
+      - name: Require every application check
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: python3 scripts/free2z/verify-gate-results.py
+  images:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        kind:
+          - backend
+          - web
+          - static
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
+      - name: Require complete website asset bytes
+        run: python3 scripts/free2z/check-web-assets.py
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        with:
+          driver: docker-container
+          driver-opts: image=moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+      - name: Build application image without publishing credentials
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # reviewed immutable repository pin
+        with:
+          context: ${{ matrix.kind == 'web' && 'ts/svelte/free2z' || '.' }}
+          file: build/free2z/${{ matrix.kind }}.Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: free2z-${{ matrix.kind }}:candidate
+          build-args: |-
+            BUILD_SHA=${{ github.sha }}
+            PUBLIC_BUILD_SHA=${{ github.sha }}
+      - name: Exercise packaged runtime
+        env:
+          KIND: ${{ matrix.kind }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: python3 scripts/free2z/check-web-images.py "$KIND" "free2z-$KIND:candidate" "$SOURCE_SHA"
+      - name: Generate image SBOM
+        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # reviewed immutable repository pin
+        with:
+          image: free2z-${{ matrix.kind }}:candidate
+          format: spdx-json
+          output-file: image.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Export checked image for separate publisher
+        if: github.repository == 'free2z/zuu' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          KIND: ${{ matrix.kind }}
+        run: |
+          set -euo pipefail
+          mkdir -p image-bundle
+          docker save "free2z-$KIND:candidate" -o image-bundle/image.tar
+          mv image.spdx.json image-bundle/image.spdx.json
+          if [[ "$KIND" == web ]]; then
+            cid=$(docker create free2z-web:candidate)
+            trap 'docker rm "$cid" >/dev/null' EXIT
+            mkdir browser-assets
+            docker cp "$cid:/app/build/client/." browser-assets/
+            python3 scripts/free2z/release-manifest.py inventory browser-assets image-bundle/static-assets.json
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # reviewed immutable repository pin
+        if: github.repository == 'free2z/zuu' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        with:
+          name: free2z-image-${{ matrix.kind }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: image-bundle/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
+  changes:
+    name: Free2Z website changes
+    runs-on: ubuntu-24.04
+    outputs:
+      application: ${{ steps.select.outputs.application }}
+      complete: ${{ steps.select.outputs.complete }}
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install policy parser
+        run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
+      - name: Select application changes
+        id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+        run: python3 scripts/free2z/select-web-checks.py
+      - name: Release and selection policy controls
+        run: |-
+          python3 -m unittest discover -s scripts/free2z/tests -p "test_*.py"
+          node scripts/check-ci-trust.mjs --self-test
+          node scripts/check-github-actions-pins.mjs
+env:
+  NODE_OPTIONS: --use-openssl-ca
