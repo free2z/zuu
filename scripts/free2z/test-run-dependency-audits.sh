@@ -22,10 +22,11 @@ repo="${scratch}/repo"
 mkdir -p "${repo}/scripts/free2z" "${repo}/.github" "${repo}/ts/svelte/free2z" "${repo}/py/free2z/requirements"
 cp "${SOURCE_DIR}/run-dependency-audits.sh" "${repo}/scripts/free2z/"
 cp "${SOURCE_DIR}/check-dependency-audit.py" "${repo}/scripts/free2z/"
-: > "${repo}/py/free2z/requirements/main.txt"
-: > "${repo}/py/free2z/requirements/language-data.txt"
-: > "${repo}/py/free2z/requirements/test.txt"
-: > "${repo}/py/free2z/requirements/lock-tools.txt"
+cp "${SOURCE_DIR}/python_requirements_lock.py" "${repo}/scripts/free2z/"
+printf "fixture-pkg==1.0 --hash=sha256:%064d\n" 0 > "${repo}/py/free2z/requirements/main.txt"
+cp "${repo}/py/free2z/requirements/main.txt" "${repo}/py/free2z/requirements/language-data.txt"
+cp "${repo}/py/free2z/requirements/main.txt" "${repo}/py/free2z/requirements/test.txt"
+cp "${repo}/py/free2z/requirements/main.txt" "${repo}/py/free2z/requirements/lock-tools.txt"
 
 cat > "${repo}/.github/dependency-audit-baseline.json" <<'JSON'
 {
@@ -131,18 +132,18 @@ if [ "${1:-}" = "-m" ] && [ "${2:-}" = "pip_audit" ]; then
   for lock in main.txt test.txt lock-tools.txt language-data.txt; do
     [[ " $* " == *"/requirements/$lock "* ]] || { echo "missing audited lock $lock" >&2; exit 99; }
   done
-  [[ " $* " == *" --require-hashes "* && " $* " == *" --no-deps "* ]] || exit 99
+  [[ " $* " == *" --require-hashes "* && " $* " == *" --no-deps "* && " $* " == *" --disable-pip "* ]] || exit 99
   echo "pip_audit $*" >> "${PIP_CALLS}"
   attempt="$(wc -l < "${PIP_CALLS}" | tr -d '[:space:]')"
 
-  emit_clean() { echo '{"dependencies":[]}'; exit 0; }
+  emit_clean() { echo '{"dependencies":[{"name":"fixture-pkg","version":"1.0","vulns":[]}]}'; exit 0; }
   emit_unbaselined() {
-    echo '{"dependencies":[{"name":"evilpkg","vulns":[{"id":"PYSEC-2099-9999","aliases":["GHSA-9999-8888-7777"]}]}]}'
+    echo '{"dependencies":[{"name":"fixture-pkg","version":"1.0","vulns":[]},{"name":"evilpkg","version":"1.0","vulns":[{"id":"PYSEC-2099-9999","aliases":["GHSA-9999-8888-7777"]}]}]}'
     exit 1
   }
   emit_baselined() {
     # Fixture_Pkg vs the baseline's fixture-pkg also exercises PEP 503 naming.
-    echo '{"dependencies":[{"name":"Fixture_Pkg","vulns":[{"id":"PYSEC-2099-1111","aliases":["GHSA-AAAA-BBBB-CCCC"]}]}]}'
+    echo '{"dependencies":[{"name":"Fixture_Pkg","version":"1.0","vulns":[{"id":"PYSEC-2099-1111","aliases":["GHSA-AAAA-BBBB-CCCC"]}]}]}'
     exit 1
   }
   emit_transient() {
@@ -198,6 +199,8 @@ if [ "${1:-}" = "-m" ] && [ "${2:-}" = "pip_audit" ]; then
 
   case "${PIP_BEHAVIOUR}" in
     clean) emit_clean ;;
+    missing-inventory) echo '{"dependencies":[]}'; exit 0 ;;
+    wrong-version) echo '{"dependencies":[{"name":"fixture-pkg","version":"2.0","vulns":[]}]}'; exit 0 ;;
     unbaselined) emit_unbaselined ;;
     baselined) emit_baselined ;;
     transient) emit_transient ;;
@@ -368,6 +371,14 @@ check_calls "npm" "${NPM_CALLS}" 3
 expect_in "  names the operational error" "scanner operational error: exit 137"
 
 # --- pip -------------------------------------------------------------------
+echo "- pip: a successful incomplete or wrong-version inventory fails closed"
+for behavior in missing-inventory wrong-version; do
+  run_audits "pip-$behavior" clean "$behavior"
+  check_exit "incomplete inventory rejected" 1
+  check_calls "pip" "${PIP_CALLS}" 1
+  expect_in "  identifies missing locked coverage" "audit inventory mismatch for fixture-pkg"
+done
+
 echo "- pip: a clean audit is a RESULT, used once"
 run_audits pip-clean clean clean
 check_exit "clean run passes" 0

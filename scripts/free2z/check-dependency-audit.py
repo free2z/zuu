@@ -258,6 +258,36 @@ def pip_findings(payload: Any) -> list[Finding]:
     return deduplicate_findings(findings)
 
 
+def ensure_pip_lock_coverage(payload: Any, locks: list[Path]) -> None:
+    """Require every hash-locked pin applicable to the scanner interpreter."""
+    from python_requirements_lock import RequirementsError, applicable, exact_version, parse_lock
+
+    expected: dict[str, set[str]] = {}
+    try:
+        for lock in locks:
+            for record in parse_lock(lock):
+                if applicable(record.requirement):
+                    name = package_key("pip", record.requirement.name)
+                    expected.setdefault(name, set()).add(exact_version(record.requirement, lock, record.line))
+    except RequirementsError as error:
+        raise AuditFailure(f"invalid audited lock: {error}") from error
+    if not expected:
+        raise AuditFailure("audited locks have no applicable packages")
+    dependencies = payload.get("dependencies") if isinstance(payload, dict) else payload
+    reported: dict[str, set[str]] = {}
+    for dependency in dependencies:
+        name = package_key("pip", dependency["name"])
+        version = dependency.get("version")
+        if not isinstance(version, str) or not version.strip():
+            raise AuditFailure(f"audited package {name} has no version")
+        reported.setdefault(name, set()).add(version)
+    for name, versions in sorted(expected.items()):
+        if len(versions) != 1:
+            raise AuditFailure(f"audited locks select conflicting versions for {name}")
+        if reported.get(name) != versions:
+            raise AuditFailure(f"audit inventory mismatch for {name}: expected {sorted(versions)}, reported {sorted(reported.get(name, set()))}")
+
+
 def deduplicate_findings(findings: Iterable[Finding]) -> list[Finding]:
     # OSV currently exposes duplicate rows for some aliases. De-duplicate by
     # package plus a stable preferred identifier, while retaining the union of
@@ -352,6 +382,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--ecosystem", choices=("npm", "pip"), required=True)
     parser.add_argument("--input", type=Path, required=True, help="scanner JSON report")
     parser.add_argument("--baseline", type=Path, required=True)
+    parser.add_argument("--pip-lock", type=Path, action="append", default=[], help="require complete applicable locked package/version coverage")
     parser.add_argument(
         "--scanner-exit",
         type=int,
@@ -377,6 +408,10 @@ def main(argv: list[str]) -> int:
         )
         findings = parse_findings(args.ecosystem, payload)
         ensure_expected_scanner_status(args.scanner_exit, findings)
+        if args.pip_lock:
+            if args.ecosystem != "pip":
+                raise AuditFailure("--pip-lock requires the pip ecosystem")
+            ensure_pip_lock_coverage(payload, args.pip_lock)
         baseline = [
             entry
             for entry in load_baseline(args.baseline)
