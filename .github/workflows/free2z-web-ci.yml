@@ -913,7 +913,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/free2z/install-syft.py "$RUNNER_TEMP/free2z-syft"
-          "$RUNNER_TEMP/free2z-syft/syft" scan "docker:$IMAGE_ID" --config /dev/null --output spdx-json=image.original.spdx.json
+          printf '{}\n' > "$RUNNER_TEMP/free2z-syft/config.yaml"
+          "$RUNNER_TEMP/free2z-syft/syft" scan "docker:$IMAGE_ID" --config "$RUNNER_TEMP/free2z-syft/config.yaml" --output spdx-json=image.original.spdx.json
       - name: Validate complete SBOM before publishing authority
         env:
           KIND: ${{ matrix.kind }}

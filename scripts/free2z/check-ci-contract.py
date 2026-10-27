@@ -74,7 +74,8 @@ def validate(ci, release, dockerfile, ruff):
     expected_env = {'IMAGE_ID': '${{ steps.image-identity.outputs.id }}', 'SYFT_CHECK_FOR_APP_UPDATE': 'false'}
     expected_scan = '\n'.join(('set -euo pipefail',
                               'python3 scripts/free2z/install-syft.py "$RUNNER_TEMP/free2z-syft"',
-                              '"$RUNNER_TEMP/free2z-syft/syft" scan "docker:$IMAGE_ID" --config /dev/null --output spdx-json=image.original.spdx.json'))
+                              'printf \'{}\\n\' > "$RUNNER_TEMP/free2z-syft/config.yaml"',
+                              '"$RUNNER_TEMP/free2z-syft/syft" scan "docker:$IMAGE_ID" --config "$RUNNER_TEMP/free2z-syft/config.yaml" --output spdx-json=image.original.spdx.json'))
     if generator.get('run', '').strip() != expected_scan or generator.get('env') != expected_env or any(key in step for step in (generator, normalizer) for key in ('if', 'continue-on-error')):
         raise ValueError('complete checksum-pinned Syft inventory and validation must be mandatory')
     snapshots = [s for s in image_steps if s.get('id') == 'image-identity']
