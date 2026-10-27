@@ -48,6 +48,11 @@ def validate(ci, release, dockerfile, ruff):
             raise ValueError('browser runner must bind its matrix shard')
         if name=='ui-browser' and set(runner.get('env',{})) != {'BROWSER_SHARD'}:
             raise ValueError('step must not override browser budget or total')
+    parity = [s for s in jobs['backend']['steps'] if 'test_periodic_register_first.py::' in s.get('run', '')]
+    if len(parity) != 1 or parity[0].get('if') != 'matrix.group == 1' or 'continue-on-error' in parity[0]:
+        raise ValueError('backend must execute live task registry parity checks')
+    if any(name not in parity[0]['run'] for name in ('::test_static_scan_finds_exactly_the_registered_schedules', '::test_static_scan_sees_every_registered_task_name')):
+        raise ValueError('both schedule and registration parity checks are required')
     registration = [s for s in jobs['backend']['steps'] if 'check-periodic-register-first.py' in s.get('run', '')]
     if len(registration) != 1 or registration[0].get('if') != 'matrix.group == 1' or 'continue-on-error' in registration[0]:
         raise ValueError('backend must enforce cross-revision periodic task registration')

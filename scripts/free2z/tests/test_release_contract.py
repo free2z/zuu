@@ -92,10 +92,12 @@ class ReleaseContract(unittest.TestCase):
             with self.assertRaises(ValueError):selector.complete(root,True)
             lock=root/'py/free2z/requirements/main.txt';lock.parent.mkdir(parents=True);lock.write_text('fixture')
             with self.assertRaises(ValueError):selector.complete(root,False)
-            for name in ('py/free2z/requirements/main.in', 'py/free2z/requirements/test.txt', 'py/free2z/dj/free2z/manage.py', 'py/free2z/dj/free2z/openapi/f2z.yaml', 'py/free2z/pytest_settings.py', 'ts/free2z/bridge/site/free2z.html', 'docs/free2z/website/package.json', 'ts/svelte/free2z/src/routes/[username]/private/[secret]/+page.svelte'):
+            for name in ('py/free2z/requirements/main.in', 'py/free2z/requirements/test.txt', 'py/free2z/dj/free2z/manage.py', 'py/free2z/dj/free2z/openapi/f2z.yaml', 'py/free2z/pytest_settings.py', 'py/free2z/dj/apps/jobs/test_periodic_register_first.py', 'ts/free2z/bridge/site/free2z.html', 'docs/free2z/website/package.json', 'ts/svelte/free2z/src/routes/[username]/private/[secret]/+page.svelte'):
                 path=root/name;path.parent.mkdir(parents=True,exist_ok=True);path.touch()
             self.assertTrue(selector.complete(root,False))
             self.assertTrue(selector.complete(root,True))
+            (root / "py/free2z/dj/apps/jobs/test_periodic_register_first.py").unlink()
+            with self.assertRaises(ValueError): selector.complete(root,True)
 
 
 if __name__=='__main__': unittest.main()

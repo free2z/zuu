@@ -63,6 +63,26 @@ class PeriodicRevisions(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stderr + result.stdout)
         self.assertIn("contains no application Python modules", result.stderr)
 
+    def test_function_call_schedule_is_unevaluable(self):
+        base = self.commit("# No task registered\n")
+        self.commit(REGISTERED + 'app.periodic(cron="* * * * *")(work)\n')
+        result = self.check(base)
+        self.assertEqual(result.returncode, 2, result.stderr + result.stdout)
+        self.assertIn("outside a function decorator", result.stdout)
+
+    def test_expanded_keywords_cannot_invent_default_registration(self):
+        base = self.commit('@app.task(name="tasks.work")\ndef work(timestamp): pass\n')
+        self.commit('@app.periodic(cron="* * * * *")\n@app.task(**{"name": "new"})\ndef work(timestamp): pass\n')
+        result = self.check(base)
+        self.assertEqual(result.returncode, 2, result.stderr + result.stdout)
+
+    def test_reassigned_constant_does_not_vouch_for_runtime_registration(self):
+        base = self.commit('NAME = "old"\n@app.task(name=NAME)\ndef work(timestamp): pass\nNAME = "new"\n')
+        self.commit('NAME = "new"\n@app.periodic(cron="* * * * *")\n@app.task(name=NAME)\ndef work(timestamp): pass\n')
+        result = self.check(base)
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        self.assertIn("'new'", result.stdout)
+
     def test_unknown_base_is_not_success(self):
         self.commit(SCHEDULED)
         result = self.check("missing-base")

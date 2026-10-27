@@ -580,6 +580,12 @@ jobs:
           fi
           python "$GITHUB_WORKSPACE/scripts/free2z/check-negative-status-assertions.py" "$GITHUB_WORKSPACE/py/free2z"
           python "$GITHUB_WORKSPACE/scripts/free2z/check-negative-status-assertions.py" "$GITHUB_WORKSPACE/ts/svelte/free2z"
+      - name: Static task scan equals the initialized worker registry
+        if: matrix.group == 1
+        run: >-
+          python -m pytest -q
+          dj/apps/jobs/test_periodic_register_first.py::test_static_scan_finds_exactly_the_registered_schedules
+          dj/apps/jobs/test_periodic_register_first.py::test_static_scan_sees_every_registered_task_name
       - name: Periodic tasks registered before scheduling
         if: matrix.group == 1
         env:

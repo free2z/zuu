@@ -20,7 +20,7 @@ def complete(root, base_has_application, scaffold=None):
     if base_has_application and not present:
         raise ValueError('application production lock cannot be removed')
     if present:
-        required = ('py/free2z/requirements/main.in', 'py/free2z/requirements/test.txt', 'py/free2z/dj/free2z/manage.py', 'py/free2z/dj/free2z/openapi/f2z.yaml', 'py/free2z/pytest_settings.py', 'ts/free2z/bridge/site/free2z.html', 'docs/free2z/website/package.json', 'ts/svelte/free2z/src/routes/[username]/private/[secret]/+page.svelte')
+        required = ('py/free2z/requirements/main.in', 'py/free2z/requirements/test.txt', 'py/free2z/dj/free2z/manage.py', 'py/free2z/dj/free2z/openapi/f2z.yaml', 'py/free2z/pytest_settings.py', 'py/free2z/dj/apps/jobs/test_periodic_register_first.py', 'ts/free2z/bridge/site/free2z.html', 'docs/free2z/website/package.json', 'ts/svelte/free2z/src/routes/[username]/private/[secret]/+page.svelte')
         if any(not (root / name).is_file() for name in required):
             raise ValueError('partial application import cannot pass the full gate')
     else:

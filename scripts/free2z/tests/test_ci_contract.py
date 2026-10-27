@@ -42,6 +42,13 @@ class CIContract(unittest.TestCase):
         guard['continue-on-error'] = True
         with self.assertRaises(ValueError): self.check()
 
+    def test_each_live_registry_parity_check_is_required(self):
+        for name in ('::test_static_scan_finds_exactly_the_registered_schedules', '::test_static_scan_sees_every_registered_task_name'):
+            self.setUp()
+            step = next(s for s in self.ci['jobs']['backend']['steps'] if 'test_periodic_register_first.py::' in s.get('run', ''))
+            step['run'] = step['run'].replace(name, '')
+            with self.assertRaises(ValueError): self.check()
+
     def test_python_drift_fails_both_directions(self):
         for job in ['backend','dependency-security']:
             for mode in ['delete','bump']:

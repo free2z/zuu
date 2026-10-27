@@ -5,7 +5,10 @@ Usage: scripts/free2z/check-periodic-register-first.py --base REV [--head REV]
 
 A rolling deployment can defer work before every consumer knows a new task.
 Register the task in one deployed release before adding its periodic schedule.
-The checker reads Python ASTs; it does not import application code. Compare
+The checker supports direct task/periodic decorators with unambiguous names.
+Runtime registry parity tests must prove that scanned definitions are imported
+and registered, and that no dynamic schedule escapes the scan. The AST check
+alone is not evidence that a worker registered a task. Compare
 against the deployed source revision to validate a release batch. Comparing
 only against a PR base cannot prove an earlier registration was deployed.
 
@@ -128,7 +131,12 @@ def _decorator_attr(node: ast.expr) -> str | None:
 
 def _string_constants(tree: ast.Module) -> dict[str, str]:
     consts: dict[str, str] = {}
+    assignments: dict[str, int] = {}
     for stmt in tree.body:
+        targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target] if isinstance(stmt, (ast.AnnAssign, ast.AugAssign)) else []
+        for target in targets:
+            if isinstance(target, ast.Name):
+                assignments[target.id] = assignments.get(target.id, 0) + 1
         if (
             isinstance(stmt, ast.Assign)
             and len(stmt.targets) == 1
@@ -144,7 +152,8 @@ def _string_constants(tree: ast.Module) -> dict[str, str]:
             and isinstance(stmt.value.value, str)
         ):
             consts[stmt.target.id] = stmt.value.value
-    return consts
+    # Rebinding invalidates a value as evidence of what an earlier decorator saw.
+    return {name: value for name, value in consts.items() if assignments[name] == 1}
 
 
 def _import_aliases(tree: ast.Module, here: str) -> dict[str, str]:
@@ -193,6 +202,8 @@ def _task_name(deco: ast.expr, func: ast.AST, here: str,
     """The registered name, Procrastinate's ``module.func`` default when
     ``name=`` is absent, or None when it is not a static string."""
     if isinstance(deco, ast.Call):
+        if any(kw.arg is None for kw in deco.keywords):
+            return None  # **kwargs may replace the default registration name.
         for kw in deco.keywords:
             if kw.arg == "name":
                 return _resolve(kw.value, here, consts, aliases)
@@ -243,7 +254,17 @@ def scan(sources: dict[str, str], *, strict: bool):
         # in a class, in a function) would otherwise pass silently. It is
         # unreadable, never clean: reported so `evaluate` exits 2 at head.
         top_level = {id(node) for node in tree.body}
+        decorator_calls = {
+            id(decorator)
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            for decorator in node.decorator_list
+            if isinstance(decorator, ast.Call)
+        }
         for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "periodic" and id(node) not in decorator_calls):
+                unresolved.append(f"{path}:{node.lineno} periodic call outside a function decorator")
             if (
                 isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
                 and id(node) not in top_level
