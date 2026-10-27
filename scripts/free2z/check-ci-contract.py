@@ -48,6 +48,12 @@ def validate(ci, release, dockerfile, ruff):
             raise ValueError('browser runner must bind its matrix shard')
         if name=='ui-browser' and set(runner.get('env',{})) != {'BROWSER_SHARD'}:
             raise ValueError('step must not override browser budget or total')
+    registration = [s for s in jobs['backend']['steps'] if 'check-periodic-register-first.py' in s.get('run', '')]
+    if len(registration) != 1 or registration[0].get('if') != 'matrix.group == 1' or 'continue-on-error' in registration[0]:
+        raise ValueError('backend must enforce cross-revision periodic task registration')
+    registration_command = registration[0]['run']
+    if '--base "$BASE_SHA" --head HEAD' not in registration_command or 'github.event.merge_group.base_sha' not in registration[0].get('env', {}).get('BASE_SHA', ''):
+        raise ValueError('periodic registration must compare the selected PR or merge-group base')
     version=re.search(r'^FROM python:([0-9]+\.[0-9]+)',dockerfile,re.M)[1]
     for name in ('backend','dependency-security'):
         pins=[str(s.get('with',{}).get('python-version','')) for s in jobs[name]['steps'] if s.get('uses','').startswith('actions/setup-python@')]

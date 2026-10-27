@@ -580,6 +580,22 @@ jobs:
           fi
           python "$GITHUB_WORKSPACE/scripts/free2z/check-negative-status-assertions.py" "$GITHUB_WORKSPACE/py/free2z"
           python "$GITHUB_WORKSPACE/scripts/free2z/check-negative-status-assertions.py" "$GITHUB_WORKSPACE/ts/svelte/free2z"
+      - name: Periodic tasks registered before scheduling
+        if: matrix.group == 1
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: |
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            git fetch --no-tags --depth=2 https://github.com/free2z/zuu.git "$GITHUB_SHA"
+            BASE_SHA=$(git rev-parse "$GITHUB_SHA^")
+          else
+            git fetch --no-tags --depth=1 https://github.com/free2z/zuu.git "$BASE_SHA"
+          fi
+          if git cat-file -e "$BASE_SHA:py/free2z/requirements/main.txt" 2>/dev/null; then
+            python "$GITHUB_WORKSPACE/scripts/free2z/check-periodic-register-first.py" --base "$BASE_SHA" --head HEAD
+          else
+            echo 'Initial application import: no public backend task registry exists in the base revision.'
+          fi
       - name: Missing migrations check
         run: python dj/free2z/manage.py makemigrations --check --dry-run
       - name: Migration leaf collision guard

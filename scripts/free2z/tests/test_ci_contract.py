@@ -32,6 +32,16 @@ class CIContract(unittest.TestCase):
         self.setUp();self.ci['jobs']['gate']['needs'].remove('images')
         with self.assertRaises(ValueError):self.check()
 
+    def test_periodic_registration_guard_cannot_disappear(self):
+        steps = self.ci['jobs']['backend']['steps']
+        guard = next(s for s in steps if 'check-periodic-register-first.py' in s.get('run', ''))
+        steps.remove(guard)
+        with self.assertRaises(ValueError): self.check()
+        self.setUp()
+        guard = next(s for s in self.ci['jobs']['backend']['steps'] if 'check-periodic-register-first.py' in s.get('run', ''))
+        guard['continue-on-error'] = True
+        with self.assertRaises(ValueError): self.check()
+
     def test_python_drift_fails_both_directions(self):
         for job in ['backend','dependency-security']:
             for mode in ['delete','bump']:
