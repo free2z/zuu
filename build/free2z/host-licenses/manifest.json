@@ -292,7 +292,7 @@
         "manifest_url": "https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/i686/Cargo.toml",
         "manifest_sha256": "2b366e86c69e5c0ca208cb244ad2aaf9c97a7f9310b711dd722f8db827b64c9f",
         "note": "The published crate has no .cargo_vcs_info.json; this commit is selected by matching its repository, package name and version, not by an attested crate VCS identity.",
-        "manifest_path": "winapi-i686-pc-windows-gnu-0.4.0/upstream-Cargo.toml"
+        "manifest_path": "winapi-i686-pc-windows-gnu-0.4.0/upstream-Cargo.toml.txt"
       },
       "files": [
         {
@@ -316,7 +316,7 @@
           "sha256": "ce7bc3499fee93d5022ef430d5e4201e79a6d9154f3974e42f41349f0569e09b"
         },
         {
-          "path": "winapi-i686-pc-windows-gnu-0.4.0/upstream-Cargo.toml",
+          "path": "winapi-i686-pc-windows-gnu-0.4.0/upstream-Cargo.toml.txt",
           "upstream_url": "https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/i686/Cargo.toml",
           "sha256": "2b366e86c69e5c0ca208cb244ad2aaf9c97a7f9310b711dd722f8db827b64c9f"
         }
@@ -334,7 +334,7 @@
         "manifest_url": "https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/x86_64/Cargo.toml",
         "manifest_sha256": "bfae0ed252a110efdc81caa66355772db19cf2a3619d591118e7bc271a661d26",
         "note": "The published crate has no .cargo_vcs_info.json; this commit is selected by matching its repository, package name and version, not by an attested crate VCS identity.",
-        "manifest_path": "winapi-x86_64-pc-windows-gnu-0.4.0/upstream-Cargo.toml"
+        "manifest_path": "winapi-x86_64-pc-windows-gnu-0.4.0/upstream-Cargo.toml.txt"
       },
       "files": [
         {
@@ -358,7 +358,7 @@
           "sha256": "ce7bc3499fee93d5022ef430d5e4201e79a6d9154f3974e42f41349f0569e09b"
         },
         {
-          "path": "winapi-x86_64-pc-windows-gnu-0.4.0/upstream-Cargo.toml",
+          "path": "winapi-x86_64-pc-windows-gnu-0.4.0/upstream-Cargo.toml.txt",
           "upstream_url": "https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/x86_64/Cargo.toml",
           "sha256": "bfae0ed252a110efdc81caa66355772db19cf2a3619d591118e7bc271a661d26"
         }
