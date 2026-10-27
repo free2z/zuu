@@ -21,7 +21,7 @@ from host_runtime.elf import ELF
 from host_runtime.image import Image
 from host_runtime.manifest import check, PROTOCOL, WORKFLOW
 from host_runtime.package import PLATFORM, Package, archive, digest
-from host_runtime import package, provenance, relocation
+from host_runtime import licenses, package, provenance, relocation
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -425,6 +425,107 @@ class PublicationRecoveryTests(unittest.TestCase):
             self.assertEqual(result.returncode, expected)
             if expected:
                 self.assertIn('Re-run all jobs', result.stdout)
+
+
+class LicenseEvidenceTests(unittest.TestCase):
+    def fixture(self, root, files, supplemented=False):
+        crate = 'fixture-1.0.0'
+        cache = root / 'cargo/registry/cache/example'
+        cache.mkdir(parents=True)
+        contents = {'Cargo.toml': b'[package]\nname="fixture"\nversion="1.0.0"\nlicense="MIT"\n',
+                    '.cargo_vcs_info.json': json.dumps({'git': {'sha1': 'a' * 40}}).encode(), **files}
+        archive = cache / (crate + '.crate')
+        with tarfile.open(archive, 'w') as stream:
+            for name, data in contents.items():
+                info = tarfile.TarInfo(crate + '/' + name)
+                info.size = len(data)
+                stream.addfile(info, io.BytesIO(data))
+        checksum = licenses.sha(archive.read_bytes())
+        project = root / 'rs/zcash-payment-hooks'
+        project.mkdir(parents=True)
+        (project / 'Cargo.lock').write_text('[[package]]\nname="fixture"\nversion="1.0.0"\n'
+                                          f'source="{licenses.REGISTRY}"\nchecksum="{checksum}"\n')
+        supplements = root / 'build/free2z/host-licenses'
+        supplements.mkdir(parents=True)
+        rows = []
+        if supplemented:
+            text = b'Exact upstream license text fixture\n'
+            path = supplements / crate / 'LICENSE'
+            path.parent.mkdir()
+            path.write_bytes(text)
+            rows.append(dict(name='fixture', version='1.0.0', checksum=checksum, license='MIT',
+                             repository='https://github.com/example/fixture', commit='a' * 40,
+                             basis=dict(kind='crate-vcs-info', commit='a' * 40),
+                             files=[dict(path=crate + '/LICENSE', sha256=licenses.sha(text),
+                                         upstream_url='https://raw.githubusercontent.com/example/fixture/' + 'a' * 40 + '/LICENSE')]))
+        manifest = supplements / 'manifest.json'
+        manifest.write_text(json.dumps(dict(schema_version=1, packages=rows)))
+        metadata = dict(packages=[dict(name='fixture', version='1.0.0', source=licenses.REGISTRY, license='MIT')])
+        return metadata, manifest, archive
+
+    def test_archive_licenses_and_authors_are_preserved_with_supplements(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            metadata, _, _ = self.fixture(root, {'LICENSE': b'Archive-owned license', 'AUTHORS': b'Authors'}, True)
+            licenses.collect(root, metadata, root / 'cargo', root / 'out')
+            target = root / 'out/fixture-1.0.0'
+            self.assertEqual((target / 'LICENSE').read_bytes(), b'Archive-owned license')
+            self.assertEqual((target / 'AUTHORS').read_bytes(), b'Authors')
+            self.assertEqual((target / 'upstream/LICENSE').read_bytes(), b'Exact upstream license text fixture\n')
+            inventory = json.loads((root / 'out/packages.json').read_text())[0]['files']
+            for path, expected in inventory.items():
+                self.assertEqual('sha256:' + licenses.sha((target / path).read_bytes()), expected)
+
+    def test_unknown_missing_license_and_authors_only_fail(self):
+        for files in ({}, {'AUTHORS': b'Authors without any license grant'}):
+            with self.subTest(files=files), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                metadata, _, _ = self.fixture(root, files)
+                with self.assertRaisesRegex(ValueError, 'no reviewed license'):
+                    licenses.collect(root, metadata, root / 'cargo', root / 'out')
+
+    def test_exact_supplement_fills_missing_archive_license(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            metadata, _, _ = self.fixture(root, {}, True)
+            licenses.collect(root, metadata, root / 'cargo', root / 'out')
+            self.assertTrue((root / 'out/fixture-1.0.0/upstream/provenance.json').is_file())
+
+    def test_changed_archive_or_supplement_identity_and_bytes_fail(self):
+        for mutation in ('archive', 'checksum', 'text', 'vcs', 'license', 'missing', 'url'):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                metadata, path, archive = self.fixture(root, {}, True)
+                value = json.loads(path.read_text())
+                row = value['packages'][0]
+                if mutation == 'archive':
+                    with archive.open('ab') as output:
+                        output.write(b'changed')
+                elif mutation == 'checksum':
+                    row['checksum'] = '0' * 64
+                elif mutation == 'text':
+                    row['files'][0]['sha256'] = '0' * 64
+                elif mutation == 'vcs':
+                    row['commit'] = 'b' * 40
+                    row['basis']['commit'] = 'b' * 40
+                    row['files'][0]['upstream_url'] = row['files'][0]['upstream_url'].replace('a' * 40, 'b' * 40)
+                elif mutation == 'license':
+                    row['license'] = 'Apache-2.0'
+                elif mutation == 'missing':
+                    value['packages'] = []
+                elif mutation == 'url':
+                    row['files'][0]['upstream_url'] = 'https://example.invalid/LICENSE'
+                path.write_text(json.dumps(value))
+                with self.assertRaises(ValueError):
+                    licenses.collect(root, metadata, root / 'cargo', root / 'out')
+
+    def test_checked_in_supplements_match_locked_inputs(self):
+        locked = {(p['name'], p['version'], p.get('source')): p.get('checksum')
+                  for p in tomllib.loads((ROOT / 'rs/zcash-payment-hooks/Cargo.lock').read_text())['package']}
+        rows = licenses.load_supplements(ROOT / 'build/free2z/host-licenses', locked)
+        self.assertEqual(len(rows), 14)
+        self.assertIn('host_runtime/licenses.py', (ROOT / 'scripts/free2z/host-rust-build.sh').read_text())
+        self.assertIn("'build/free2z/host-licenses'", (ROOT / 'scripts/free2z/host-runtime.py').read_text())
 
 
 if __name__ == '__main__':

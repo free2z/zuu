@@ -30,6 +30,16 @@ No compiler, dependency installation, or package download runs on the receiving
 host. Rust dependency license files and their package inventory accompany the
 binary.
 
+Crate license files are read from archives whose checksums match `Cargo.lock`,
+including author and notice files. Packages that omit separate license texts
+use reviewed snapshots in `build/free2z/host-licenses/`, bound to the exact crate
+version, archive checksum, upstream commit, and text digests. Supplements never
+replace files present in the crate archive. The provenance record distinguishes
+crate-supplied VCS identities from an explicitly documented repository/version
+match. Every registered supplement must match the lockfile; only resolved
+packages enter the output. Unknown missing texts and changed checksums fail
+the build; no license material is downloaded during packaging.
+
 The packager parses ELF program headers and dynamic strings without running
 the loader or `ldd`. It copies every declared non-glibc dependency from the
 image. Conflicting library names, unresolved dependencies, unsupported search

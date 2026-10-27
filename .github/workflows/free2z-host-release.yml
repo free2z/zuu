@@ -7,6 +7,7 @@ on:
       - scripts/free2z/host-rust-build.sh
       - scripts/free2z/tests/test_host_runtime.py
       - build/free2z/host-tools.json
+      - build/free2z/host-licenses/**
       - .github/workflows/free2z-host-release.yml
       - rust-toolchain.toml
   workflow_dispatch:

@@ -49,6 +49,7 @@ def fetch(args):
                             args.output / 'web-release')
     names = subprocess.check_output(['git', 'ls-files', '-z', '--', 'rs/zcash-payment-hooks',
                                      'rust-toolchain.toml', 'LICENSE', 'build/free2z/host-tools.json',
+                                     'build/free2z/host-licenses',
                                      'scripts/free2z/host_runtime', 'scripts/free2z/host-runtime.py',
                                      'scripts/free2z/host-runtime-qualify.py', 'scripts/free2z/host-rust-build.sh'],
                                     cwd=ROOT).decode().split('\0')
