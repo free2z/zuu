@@ -104,6 +104,7 @@ jobs:
       - name: Preflight guard positive controls
         run: '"$GITHUB_WORKSPACE/scripts/free2z/test-ui-preflight.sh"'
       - name: Install xmllint (sitemap schema validation)
+        timeout-minutes: 6
         run: sudo "$GITHUB_WORKSPACE/scripts/free2z/install-ubuntu-ci-packages.sh" libxml2-utils
       - name: Static bridge routing controls
         run: node --test "$GITHUB_WORKSPACE/ts/free2z/bridge/test/bridge-pages.test.mjs"
@@ -233,6 +234,7 @@ jobs:
             ts/svelte/free2z/package-lock.json
       - run: npm ci
       - name: Install Playwright Chromium headless shell
+        timeout-minutes: 8
         run: |
           sudo "$GITHUB_WORKSPACE/scripts/free2z/install-ubuntu-ci-packages.sh" --playwright-deps "$(command -v node)" "$PWD/node_modules/playwright/cli.js"
           npx playwright install --only-shell chromium
@@ -610,6 +612,7 @@ jobs:
             py/free2z/requirements/main.txt
             py/free2z/requirements/test.txt
       - name: Install libpq headers (psycopg2 builds from source)
+        timeout-minutes: 6
         run: sudo "$GITHUB_WORKSPACE/scripts/free2z/install-ubuntu-ci-packages.sh" libpq-dev
       - name: Install requirements
         run: |
@@ -774,6 +777,7 @@ jobs:
             py/free2z/requirements/main.txt
             py/free2z/requirements/test.txt
       - name: Install libpq headers (psycopg2 builds from source)
+        timeout-minutes: 6
         run: sudo "$GITHUB_WORKSPACE/scripts/free2z/install-ubuntu-ci-packages.sh" libpq-dev protobuf-compiler
       - name: Install requirements
         run: |
