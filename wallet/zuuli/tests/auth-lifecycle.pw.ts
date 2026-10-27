@@ -117,7 +117,13 @@ test("an unmounted recovery cannot continue into challenge verification", async 
   ).toBeDisabled();
 
   await unmountLoginWithoutReload(page);
-  await expect(page.locator("textarea")).toHaveCount(0);
+  await expect(page.getByLabel("Recovery phrase")).toHaveCount(0);
+  // The destination's feedback form may contain a textarea; no mounted
+  // control may retain the recovery phrase from the destroyed login flow.
+  expect(await page.locator("textarea").evaluateAll(
+    (elements, phrase) => elements.some((element) => element.value.includes(phrase)),
+    RECOVERY_PHRASE,
+  )).toBe(false);
   await expectNoInvisibleLogin(page);
   expect(
     await page.evaluate(
