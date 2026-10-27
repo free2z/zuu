@@ -17,11 +17,22 @@ release = load('release-manifest')
 packager = load('package-runtime')
 selector = load('select-web-checks')
 assets = load('check-web-assets')
+gate = load('verify-gate-results')
 
 
 class ReleaseContract(unittest.TestCase):
     def valid(self):
         return {'schema_version': 1, 'source': {'repository': 'free2z/zuu', 'commit': 'a'*40}, 'build': {'workflow': release.WORKFLOW, 'run_id': '123', 'run_attempt': 1}, 'images': {k: {'repository': v, 'digest': 'sha256:'+'b'*64} for k, v in release.REPOSITORIES.items()}, 'static_assets': {'path': '/app/build/client', 'inventory': 'static-assets.json', 'sha256': 'sha256:'+'c'*64}}
+
+    def test_gate_checks_each_result_and_selection(self):
+        for selected, expected in [('true', 'success'), ('false', 'skipped')]:
+            good = {'changes': {'result': 'success', 'outputs': {'application': selected}}, 'images': {'result': expected}, 'backend': {'result': expected}}
+            gate.verify(good)
+            for bad in ['failure', 'cancelled', 'pending', 'skipped' if selected == 'true' else 'success']:
+                good['images']['result'] = bad
+                with self.assertRaises(ValueError): gate.verify(good)
+        for bad in [{}, {'changes': {'result': 'success'}, 'backend': {'result': 'skipped'}}, {'changes': {'result': 'failure'}, 'backend': {'result': 'skipped'}}]:
+            with self.assertRaises(ValueError): gate.verify(bad)
 
     def test_exact_release_contract(self):
         release.validate(self.valid())

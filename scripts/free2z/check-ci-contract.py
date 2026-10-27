@@ -10,10 +10,13 @@ def validate(ci, release, dockerfile, ruff):
     jobs = ci['jobs']
     if ci['permissions'] != {'contents': 'read'}:
         raise ValueError('application tests must have read-only repository authority')
-    application_jobs = set(jobs)-{'changes', 'web-gate'}
-    gate = jobs['web-gate']
+    application_jobs = set(jobs)-{'changes', 'gate'}
+    gate = jobs['gate']
     if set(gate['needs']) != application_jobs | {'changes'} or gate['if'] != '${{ always() }}':
         raise ValueError('required gate must cover every selected check, including failures')
+    verdicts = [step for step in gate['steps'] if step.get('run') == 'python3 scripts/free2z/verify-gate-results.py']
+    if len(verdicts) != 1 or verdicts[0].get('env') != {'RESULTS': '${{ toJSON(needs) }}'} or 'if' in verdicts[0] or 'continue-on-error' in verdicts[0]:
+        raise ValueError('gate must verify the complete result object without conditions')
     for name in application_jobs:
         job = jobs[name]
         if job.get('needs') != 'changes' or job.get('if') != "needs.changes.outputs.application == 'true'":

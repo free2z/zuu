@@ -617,7 +617,7 @@ jobs:
         run: python3 scripts/free2z/ci-services.py cleanup
     needs: changes
     if: needs.changes.outputs.application == 'true'
-  web-gate:
+  gate:
     name: Free2Z website gate
     if: ${{ always() }}
     needs:
@@ -657,18 +657,13 @@ jobs:
               output.write(data)
           subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
           PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
       - name: Require every application check
         env:
           RESULTS: ${{ toJSON(needs) }}
-          SELECTED: ${{ needs.changes.outputs.application }}
-        run: |-
-          python3 - <<'PY'
-          import json, os
-          r=json.loads(os.environ['RESULTS'])
-          assert r.pop('changes')['result']=='success', r
-          selected=os.environ['SELECTED']=='true'
-          assert r and all(v['result']==('success' if selected else 'skipped') for v in r.values()), r
-          PY
+        run: python3 scripts/free2z/verify-gate-results.py
   images:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -764,6 +759,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.application == 'true'
   changes:
+    name: Free2Z website changes
     runs-on: ubuntu-24.04
     outputs:
       application: ${{ steps.select.outputs.application }}

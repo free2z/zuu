@@ -29,7 +29,7 @@ class CIContract(unittest.TestCase):
         for job in ['backend','ui-browser']:
             self.setUp();self.ci['jobs'][job]['timeout-minutes']=1
             with self.assertRaises(ValueError):self.check()
-        self.setUp();self.ci['jobs']['web-gate']['needs'].remove('images')
+        self.setUp();self.ci['jobs']['gate']['needs'].remove('images')
         with self.assertRaises(ValueError):self.check()
 
     def test_python_drift_fails_both_directions(self):
