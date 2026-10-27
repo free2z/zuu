@@ -94,13 +94,16 @@ Library callers can pass an adapter and an explicit query boundary to
 borrowed connection with the caller, who must configure it read-only.
 `canonical_client` temporarily sets the environment used by the adapter's
 constructor and restores it; this convenience function is for a single-threaded
-CLI. Concurrent applications should supply an already configured adapter.
+CLI. Its narrow adapter subclass opens SQLite through the encoded read-only
+connection helper. Concurrent applications should supply an already configured adapter.
 
 Exit codes are `0` for all evaluated stages passing, `1` for any failed stage,
 and `2` for an incomplete result without a failure. `--no-db` therefore returns
 `2`, including when the wallet, adapter and memo checks pass. Notes held for
 confirmations are inconclusive. A backfilled receipt, mismatched recipient or
-mismatched amount fails credit verification. A legacy processing marker with
+mismatched amount fails credit verification. The recorded quantity must equal
+amount times rate, rounded half-even to the credit column's 0.001 precision.
+This arithmetic check does not audit ledger balance conservation. A legacy processing marker with
 purchase events is inconclusive because those events cannot be linked to that
 transaction. No diagnostic result is an instruction to replay a payment or
 manually issue credit.
@@ -121,6 +124,9 @@ diagnostic parsing could accept:
 - Decreasing spend-row counts are unresolved; they do not prove a safe retry.
 - Multiple transaction rows matching opposite byte orders leave the fee
   unverified; no arbitrary row is selected.
+- Pending notes without receipts are inconclusive even when a credit database
+  is supplied. An unrelated pool's pending note cannot explain an absent note.
+- Incorrect credit quantities fail; missing quantities or rates are inconclusive.
 - A credit receipt without an amount is inconclusive; its identity alone cannot
   prove which payment was credited. Invalid recipient types fail memo checking.
 - Wallet paths are encoded as file URIs and opened read-only, so `?` and `#`

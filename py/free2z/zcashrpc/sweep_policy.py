@@ -40,10 +40,14 @@ def _unique_object(pairs):
     return result
 
 
+def _reject_constant(value):
+    raise PolicyError("nonstandard JSON numeric constant")
+
+
 def json_u64(text, key):
     """Read a top-level integer from complete JSON, rejecting duplicate keys."""
     try:
-        value = json.loads(text, object_pairs_hook=_unique_object)
+        value = json.loads(text, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
     except (TypeError, ValueError) as exc:
         raise PolicyError("invalid JSON object") from exc
     if not isinstance(value, dict) or key not in value:

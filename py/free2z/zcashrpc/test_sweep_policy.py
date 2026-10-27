@@ -23,6 +23,7 @@ class ParsingTests(unittest.TestCase):
                      '{"value":1junk}', '{"value":1}garbage',
                      '{"value":0,"value":1}', '{"value":1,"x":{"a":1,"a":2}}',
                      '{"nested":{"value":1}}', '[]', 'null',
+                     '{"value":1,"other":NaN}', '{"value":1,"other":Infinity}',
                      json.dumps({"value": policy.U64_MAX + 1})):
             with self.subTest(text=text), self.assertRaises(policy.PolicyError):
                 policy.json_u64(text, "value")

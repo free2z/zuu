@@ -2,6 +2,7 @@
 import contextlib
 import io
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -59,7 +60,8 @@ class MemoTests(unittest.TestCase):
         self.assertEqual(verify.select_notes([NOTE], amount="1.23456788"), [])
         self.assertEqual(verify.select_notes([NOTE], txid=TXID.upper(), username="other"), [NOTE])
         self.assertEqual(verify.select_notes([NOTE], username="other"), [])
-        for amount in ("NaN", "Infinity", "-1", "0.000000001", "184467440737.09551616"):
+        for amount in ("NaN", "Infinity", "-1", "0.000000001", "1.234567890000000000000000000001",
+                       "184467440737.09551616"):
             with self.subTest(amount=amount), self.assertRaises(ValueError):
                 verify.select_notes([NOTE], amount=amount)
 
@@ -87,6 +89,19 @@ class CreditTests(unittest.TestCase):
             with self.subTest(receipt=receipt):
                 self.assertEqual(self.run_check(EvidenceDatabase(receipt=receipt))[0], expected)
 
+    def test_wrong_credit_quantities_and_rates_do_not_pass(self):
+        for quantity, rate in ((0, 81), (81000000, 81), (-1, 81), (100, 0),
+                               ("NaN", 81), (100, "Infinity")):
+            receipt = (quantity, rate, False, "fixture-time", "fixture-user", Decimal("1.23456789"))
+            self.assertEqual(self.run_check(EvidenceDatabase(receipt=receipt))[0], 1)
+        for quantity, rate in ((None, 81), (100, None)):
+            receipt = (quantity, rate, False, "fixture-time", "fixture-user", Decimal("1.23456789"))
+            self.assertEqual(self.run_check(EvidenceDatabase(receipt=receipt))[0], 2)
+        # Half-even tie cases at the 0.001 credit column precision.
+        self.assertTrue(verify.credit_quantity_matches(Decimal("0.000"), Decimal("0.0005"), 100000000))
+        self.assertTrue(verify.credit_quantity_matches(Decimal("0.002"), Decimal("0.0015"), 100000000))
+        self.assertFalse(verify.credit_quantity_matches(Decimal("0.001"), Decimal("0.0005"), 100000000))
+
     def test_legacy_or_absent_evidence(self):
         self.assertEqual(self.run_check(EvidenceDatabase())[0], 1)
         marker = (Decimal("1.23456789"), "fixture-action", 1, "fixture-time")
@@ -113,7 +128,7 @@ class WalletDiagnosticTests(unittest.TestCase):
         self.conn = sqlite3.connect(self.path)
         self.addCleanup(self.conn.close)
         self.conn.executescript("""
-            CREATE TABLE transactions(id_tx INTEGER, txid BLOB, mined_height INTEGER);
+            CREATE TABLE transactions(id_tx INTEGER, txid BLOB, mined_height INTEGER, raw BLOB);
             CREATE TABLE blocks(height INTEGER);
             CREATE TABLE addresses(account_id INTEGER, address TEXT, key_scope INTEGER);
             CREATE TABLE orchard_received_notes(transaction_id INTEGER, value INTEGER,
@@ -121,7 +136,7 @@ class WalletDiagnosticTests(unittest.TestCase):
             INSERT INTO blocks VALUES (7), (8), (9);
             INSERT INTO addresses VALUES (5, 'fixture-address', 0);
         """)
-        self.conn.execute("INSERT INTO transactions VALUES (1, ?, 7)", (bytes.fromhex(TXID)[::-1],))
+        self.conn.execute("INSERT INTO transactions VALUES (1, ?, 7, x'01')", (bytes.fromhex(TXID)[::-1],))
         self.conn.execute("INSERT INTO orchard_received_notes VALUES (1, ?, ?, 2)",
                           (NOTE["amountZat"], bytes.fromhex(MEMO)))
         self.conn.commit()
@@ -164,6 +179,16 @@ class WalletDiagnosticTests(unittest.TestCase):
         del missing_pool["pool"]
         self.assertEqual(self.diagnose(reported=[missing_pool]).exit_code(), 1)
 
+    def test_pending_credit_is_inconclusive_with_database(self):
+        result = self.diagnose(reported=(), pending=[(TXID, "orchard", 1)],
+                               database=EvidenceDatabase())
+        self.assertEqual(result.exit_code(), 2)
+        self.assertIn(("5 CREDIT", verify.SKIP), [(stage, status) for stage, status, _ in result.stages])
+        self.assertFalse(any(status == verify.FAIL for _, status, _ in result.stages))
+        # A pending note in a different pool does not explain this missing note.
+        self.assertEqual(self.diagnose(reported=(), pending=[(TXID, "sapling", 1)],
+                                       database=EvidenceDatabase()).exit_code(), 1)
+
     def test_read_errors_are_inconclusive_and_do_not_leak_exceptions(self):
         self.conn.execute("DROP TABLE transactions")
         self.conn.commit()
@@ -174,11 +199,29 @@ class WalletDiagnosticTests(unittest.TestCase):
     def test_valid_credit_and_malformed_recipient(self):
         db = EvidenceDatabase(receipt=(100, 81, False, "fixture-time", "fixture-user", Decimal("1.23456789")))
         self.assertEqual(self.diagnose(database=db).exit_code(), 0)
-        for recipient in (None, [], 5, ""):
+        for recipient in (None, [], 5, "", " "):
             memo = json.dumps({"act": "buy_2z", "id": recipient}).encode()
             self.conn.execute("UPDATE orchard_received_notes SET memo = ?", (memo,))
             self.conn.commit()
             self.assertEqual(self.diagnose().exit_code(), 1)
+
+    def test_canonical_adapter_is_readonly_and_restores_environment(self):
+        with patch.dict(os.environ, {"WALLET_DB": "prior-wallet", "WALLET_ACCOUNT": "9",
+                                     "ZEC_MIN_CONFIRMATIONS": "8"}):
+            with contextlib.redirect_stdout(io.StringIO()):
+                client = verify.canonical_client(self.path, 5, 3)
+                notes = client.recieved_by("")
+            self.assertEqual(os.environ["WALLET_DB"], "prior-wallet")
+            self.assertEqual(os.environ["WALLET_ACCOUNT"], "9")
+            self.assertEqual(os.environ["ZEC_MIN_CONFIRMATIONS"], "8")
+        self.assertEqual(client.account, 5)
+        self.assertEqual(client.min_confirmations, 3)
+        self.assertEqual([(n["txid"], n["amountZat"], n["output_index"]) for n in notes],
+                         [(TXID, NOTE["amountZat"], 2)])
+        conn = client._conn()
+        with self.assertRaises(sqlite3.OperationalError):
+            conn.execute("DELETE FROM transactions")
+        conn.close()
 
     def test_cli_requires_explicit_private_connection_settings(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:

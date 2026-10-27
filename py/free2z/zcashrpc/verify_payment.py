@@ -10,7 +10,7 @@ import json
 import os
 import sqlite3
 import sys
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN, localcontext
 
 from .sweep_policy import readonly_wallet, txid_bytes, u64, ZATS_PER_ZEC
 
@@ -167,7 +167,26 @@ class Database:
             return cur.fetchall()
 
 
-def check_credits(result, db, buys):
+def credit_quantity_matches(credited, rate, amount_zats):
+    """Verify the receipt's conversion at the credit column's 0.001 precision.
+
+    This checks arithmetic, not ledger balance conservation. Half-even rounding
+    matches the credit command's Decimal quantization; no float conversion occurs.
+    """
+    try:
+        with localcontext() as context:
+            context.prec = 80
+            quantity, rate = Decimal(credited), Decimal(rate)
+            if not quantity.is_finite() or not rate.is_finite() or quantity < 0 or rate <= 0:
+                return False
+            expected = (Decimal(u64(amount_zats)) / ZATS_PER_ZEC * rate).quantize(
+                Decimal("0.001"), rounding=ROUND_HALF_EVEN)
+            return quantity == expected
+    except (InvalidOperation, ValueError, TypeError, OverflowError):
+        return False
+
+
+def check_credits(result, db, buys, *, pending_keys=()):
     """Check receipt identity, amount and provenance; never infer a safe replay."""
     creators = {}
     for username in sorted({payload["id"] for _, payload in buys}):
@@ -200,6 +219,10 @@ def check_credits(result, db, buys):
                 result.record("5 CREDIT", SKIP, f"{label}: receipt has no amount to verify")
             elif Decimal(paid_for) != Decimal(note["amountZat"]) / ZATS_PER_ZEC:
                 result.record("5 CREDIT", FAIL, f"{label}: receipt amount differs from this note")
+            elif credited is None or rate is None:
+                result.record("5 CREDIT", SKIP, f"{label}: recorded credit quantity or rate is absent")
+            elif not credit_quantity_matches(credited, rate, note["amountZat"]):
+                result.record("5 CREDIT", FAIL, f"{label}: credit quantity does not match amount and rate")
             else:
                 result.record("5 CREDIT", PASS,
                               f"{label}: {credited} 2Z to {paid_to!r} at {rate} 2Z/ZEC on {when}")
@@ -207,7 +230,10 @@ def check_credits(result, db, buys):
         legacy = db.one("SELECT amount, action, creator_id, created_at"
                         " FROM g12f_transaction WHERE txid = %s", (txid,))
         if legacy is None:
-            result.record("5 CREDIT", FAIL, f"{label}: no receipt or processing marker")
+            if (txid, pool, index) in pending_keys:
+                result.record("5 CREDIT", SKIP, f"{label}: credit awaits confirmation depth")
+            else:
+                result.record("5 CREDIT", FAIL, f"{label}: no receipt or processing marker")
             continue
         events = db.all("SELECT e.amount, e.created_at FROM events_event e"
                         " JOIN g12f_creator c ON c.id = e.receiving_user_id"
@@ -236,10 +262,30 @@ def diagnose(db_path, client, *, txid=None, amount=None, username=None, database
         result.record("1 WALLET", SKIP, "wallet or selector could not be read")
         return result
     print(f"wallet: {facts['blocks']} scanned blocks; range {facts['low']}..{facts['tip']}")
+    print("external addresses watched: " + ", ".join(
+        sorted(address for _, address in facts["external_addresses"])))
+    if facts["blocks"] and facts["tip"] - facts["low"] + 1 != facts["blocks"]:
+        print("wallet scan range has gaps; a missing note may be in an unscanned block")
     if not picked:
-        result.record("1 WALLET", FAIL, "no matching decrypted note")
+        names = sorted({str(payload.get("id")) for payload, _ in
+                        (parse_memo(n.get("memo", "")) for n in notes)
+                        if payload and payload.get("act") == "buy_2z"})
+        detail = "no matching decrypted note"
+        if names:
+            detail += "; other detected purchase memos name " + ", ".join(map(repr, names))
+        result.record("1 WALLET", FAIL, detail)
         return result
     result.record("1 WALLET", PASS, f"{len(picked)} matching decrypted note(s)")
+    for note in picked:
+        height = note["mined_height"]
+        if height is None:
+            depth = "not mined"
+        elif facts["tip"] is None:
+            depth = "confirmation depth unknown"
+        else:
+            depth = f"{facts['tip'] - height + 1} confirmation(s)"
+        print(f"{note['txid']} {note['pool']}:{note['output_index']} "
+              f"{note['amount']} ZEC; {depth}")
     try:
         reported = client.recieved_by("")
     except Exception:
@@ -249,23 +295,24 @@ def diagnose(db_path, client, *, txid=None, amount=None, username=None, database
     if missing_identity:
         result.record("2 ADAPTER", FAIL, "adapter omitted pool or per-note index")
     seen = {(n["txid"], n.get("pool"), n.get("output_index")) for n in reported}
-    pending = {tx for tx, _pool, _depth in getattr(client, "pending", [])}
+    pending = {(tx, pool) for tx, pool, _depth in getattr(client, "pending", [])}
     unseen = [n for n in picked if (n["txid"], n["pool"], n["output_index"]) not in seen]
-    if unseen:
-        held = [n for n in unseen if n["txid"] in pending]
-        if len(held) == len(unseen):
-            result.record("2 ADAPTER", SKIP, "matching notes await confirmation depth")
-        else:
-            result.record("2 ADAPTER", FAIL, "decrypted notes are absent from adapter output")
-            picked = [n for n in picked if n not in unseen]
-    elif not missing_identity:
+    held = [n for n in unseen if (n["txid"], n["pool"]) in pending]
+    held_keys = {(n["txid"], n["pool"], n["output_index"]) for n in held}
+    if held:
+        result.record("2 ADAPTER", SKIP, "matching notes await confirmation depth")
+    absent = [n for n in unseen if n not in held]
+    if absent:
+        result.record("2 ADAPTER", FAIL, "decrypted notes are absent from adapter output")
+        picked = [n for n in picked if n not in absent]
+    elif not unseen and not missing_identity:
         result.record("2 ADAPTER", PASS, "every selected note has a pool and per-note index")
     buys = []
     for note in picked:
         payload, error = parse_memo(note.get("memo", ""))
         if error or payload.get("act") != "buy_2z":
             continue
-        if not isinstance(payload.get("id"), str) or not payload["id"]:
+        if not isinstance(payload.get("id"), str) or not payload["id"].strip():
             result.record("3 MEMO", FAIL, "purchase memo has no nonempty recipient name")
             continue
         buys.append((note, payload))
@@ -282,7 +329,7 @@ def diagnose(db_path, client, *, txid=None, amount=None, username=None, database
         result.record("5 CREDIT", SKIP, "no credit database supplied")
     else:
         try:
-            check_credits(result, database, buys)
+            check_credits(result, database, buys, pending_keys=held_keys)
         except Exception:
             result.record("5 CREDIT", SKIP, "credit database query could not be evaluated")
     return result
@@ -296,6 +343,10 @@ def canonical_client(db_path, account, min_confirmations):
     that construct adapters. Applications should supply their own adapter instance.
     """
     from .wallet_sqlite_client import Client
+    class ReadonlyClient(Client):
+        def _conn(self):
+            return readonly_wallet(self.db_path)
+
     u64(account)
     if type(min_confirmations) is not int or not 0 <= min_confirmations <= Client.MAX_MIN_CONFIRMATIONS:
         raise ValueError("invalid confirmation depth")
@@ -304,7 +355,7 @@ def canonical_client(db_path, account, min_confirmations):
     old = {key: os.environ.get(key) for key in settings}
     try:
         os.environ.update(settings)
-        return Client()
+        return ReadonlyClient()
     finally:
         for key, value in old.items():
             if value is None:
