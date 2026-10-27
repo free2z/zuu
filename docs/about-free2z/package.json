@@ -19,7 +19,7 @@
     "@docusaurus/preset-classic": "^3.5.2",
     "@mdx-js/react": "^3.0.1",
     "@react-three/drei": "^9.112.0",
-    "@react-three/fiber": "^8.17.7",
+    "@react-three/fiber": "^8.18.0",
     "clsx": "^1.2.1",
     "drei": "^2.2.21",
     "prism-react-renderer": "^2.4.0",
