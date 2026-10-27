@@ -260,6 +260,17 @@ class WalletDiagnosticTests(unittest.TestCase):
                 self.assertNotIn(("2 ADAPTER", verify.PASS),
                                  [(stage, status) for stage, status, _ in result.stages])
 
+    def test_only_nonpurchase_notes_are_inconclusive_without_credit_queries(self):
+        memo = json.dumps({"act": "other", "id": "fixture-user"}).encode()
+        self.conn.execute("UPDATE orchard_received_notes SET memo=?", (memo,))
+        self.conn.commit()
+        db = EvidenceDatabase()
+        result = self.diagnose(reported=[dict(NOTE, memo=memo.hex())], database=db)
+        self.assertEqual(result.exit_code(), 2)
+        self.assertIn(("3 MEMO", verify.SKIP), [(stage, status) for stage, status, _ in result.stages])
+        self.assertFalse(any(status == verify.FAIL for _, status, _ in result.stages))
+        self.assertEqual(db.queries, [])
+
     def test_nonpurchase_second_note_is_explicitly_inconclusive(self):
         memo = json.dumps({"act": "other", "id": "fixture-user"}).encode()
         self.conn.execute("INSERT INTO orchard_received_notes VALUES (1, ?, ?, 3)",
