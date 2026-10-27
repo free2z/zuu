@@ -107,8 +107,9 @@ and `2` for an incomplete result without a failure. `--no-db` therefore returns
 `2`, including when the wallet, adapter and memo checks pass. Notes held for
 confirmations or unavailable adapter memo data are inconclusive. Adapter amounts,
 memos and reliable output identities must agree with the directly read notes.
-Every selected note contributes to the verdict: an undecodable memo fails and a
-non-purchase memo is inconclusive, even when another selected note was credited.
+Every selected note contributes to the verdict: a malformed instruction fails;
+unavailable, absent, complete opaque or non-purchase memos are inconclusive, even when
+another selected note was credited.
 Use the selectors to narrow a transaction containing unrelated outputs. A backfilled receipt, mismatched recipient or
 mismatched amount fails credit verification. The recorded quantity must equal
 amount times rate, rounded half-even to the credit column's 0.001 precision.
@@ -139,7 +140,7 @@ diagnostic parsing could accept:
 - Pending notes without receipts are inconclusive even when a credit database
   is supplied. An unrelated pool's pending note cannot explain an absent note.
 - A selected malformed memo cannot disappear behind another credited note;
-  non-purchase outputs are explicitly inconclusive. Missing adapter memo data
+  absent, unavailable and non-purchase outputs are explicitly inconclusive. Missing adapter memo data
   is inconclusive; conflicting amounts, memos or unreliable indices fail.
 - An explicit username must match every selected purchase memo, including
   multi-output transactions and amount selections spanning multiple recipients.

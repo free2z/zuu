@@ -340,6 +340,9 @@ def diagnose(db_path, client, *, txid=None, amount=None, username=None, database
         if error == "unsupported_payment_instruction":
             result.record("3 MEMO", SKIP, "a selected note is not a purchase")
             continue
+        if error in ("missing_memo", "non_text_memo"):
+            result.record("3 MEMO", SKIP, "a selected note has no purchase memo: " + error)
+            continue
         if error:
             result.record("3 MEMO", FAIL, "a selected note has no valid purchase instruction: " + error)
             continue

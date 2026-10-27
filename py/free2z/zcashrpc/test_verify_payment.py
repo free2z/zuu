@@ -260,6 +260,35 @@ class WalletDiagnosticTests(unittest.TestCase):
                 self.assertNotIn(("2 ADAPTER", verify.PASS),
                                  [(stage, status) for stage, status, _ in result.stages])
 
+    def test_canonical_missing_memo_output_cannot_make_a_credited_purchase_fail(self):
+        for memo in (None, b"\xf6"):
+            with self.subTest(memo=memo):
+                self.conn.execute("DELETE FROM orchard_received_notes WHERE action_index=3")
+                self.conn.execute("INSERT INTO orchard_received_notes VALUES (1, ?, ?, 3)",
+                                  (NOTE["amountZat"], memo))
+                self.conn.commit()
+                db = EvidenceDatabase(receipt=(100, 81, False, "fixture-time", "fixture-user", Decimal("1.23456789")))
+                with contextlib.redirect_stdout(io.StringIO()):
+                    client = verify.canonical_client(self.path, 5, 3)
+                    result = verify.diagnose(self.path, client, txid=TXID, database=db)
+                self.assertEqual(result.exit_code(), 2)
+                self.assertIn(("3 MEMO", verify.SKIP), [(stage, status) for stage, status, _ in result.stages])
+                self.assertIn(("5 CREDIT", verify.PASS), [(stage, status) for stage, status, _ in result.stages])
+                self.assertFalse(any(status == verify.FAIL for _, status, _ in result.stages))
+
+    def test_canonical_sole_missing_memo_is_inconclusive_without_credit_queries(self):
+        for memo in (None, b"\xf6"):
+            with self.subTest(memo=memo):
+                self.conn.execute("UPDATE orchard_received_notes SET memo=?", (memo,))
+                self.conn.commit()
+                db = EvidenceDatabase()
+                with contextlib.redirect_stdout(io.StringIO()):
+                    client = verify.canonical_client(self.path, 5, 3)
+                    result = verify.diagnose(self.path, client, txid=TXID, database=db)
+                self.assertEqual(result.exit_code(), 2)
+                self.assertFalse(any(status == verify.FAIL for _, status, _ in result.stages))
+                self.assertEqual(db.queries, [])
+
     def test_only_nonpurchase_notes_are_inconclusive_without_credit_queries(self):
         memo = json.dumps({"act": "other", "id": "fixture-user"}).encode()
         self.conn.execute("UPDATE orchard_received_notes SET memo=?", (memo,))
