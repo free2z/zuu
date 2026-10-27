@@ -44,7 +44,14 @@ or execute application containers. All image subjects receive provenance and
 SPDX SBOM attestations. Anonymous registry access must succeed before a release
 is eligible for deployment.
 
-Syft 1.38.0 catalogs each immutable local Docker image ID. The read-only build
+Syft 1.38.0 catalogs each immutable local Docker image ID. Its Linux/amd64
+release archive is verified against SHA-256
+`bc664debb00db1b9b4b9dae4ba1a29d99621e33b641b94b78b9048374b812a3d`,
+from the [official release checksums](https://github.com/anchore/syft/releases/download/v1.38.0/syft_1.38.0_checksums.txt).
+The installer downloads from allowlisted HTTPS origins with a byte limit and
+writes only the verified regular executable into a new directory. It executes
+no downloaded installer and uses no shared tool cache or repository Syft config.
+The read-only build
 job validates its SPDX 2.3 package/file profile, shortens only document-local
 identifiers and their references, and checks that reversing this mapping
 reconstructs the complete original JSON. Package, file, checksum, license and

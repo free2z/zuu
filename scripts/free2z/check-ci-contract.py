@@ -63,17 +63,20 @@ def validate(ci, release, dockerfile, ruff):
     if len(image_builds) != 1 or any(image_builds[0]['with'].get(key) != value for key, value in {'platforms': 'linux/amd64', 'provenance': False, 'sbom': False}.items()):
         raise ValueError('published image digest must identify one platform manifest')
     image_steps = jobs['images']['steps']
-    sbom_generators = [s for s in image_steps if s.get('uses', '').startswith('anchore/sbom-action@')]
+    if any(s.get('uses', '').startswith('anchore/sbom-action@') for s in image_steps):
+        raise ValueError('SBOM action must not reintroduce its mutable remote installer')
+    sbom_generators = [s for s in image_steps if 'scripts/free2z/install-syft.py' in s.get('run', '')]
     normalizers = [s for s in image_steps if 'prepare-image-sbom.py prepare' in s.get('run', '')]
     exports = [s for s in image_steps if 'docker save ' in s.get('run', '')]
     if len(sbom_generators) != 1 or len(normalizers) != 1 or len(exports) != 1:
         raise ValueError('image inventory must be generated and validated before export')
     generator, normalizer, export = sbom_generators[0], normalizers[0], exports[0]
-    expected = {'image': 'docker:${{ steps.image-identity.outputs.id }}', 'format': 'spdx-json',
-                'output-file': 'image.original.spdx.json', 'syft-version': 'v1.38.0',
-                'upload-artifact': False, 'upload-release-assets': False}
-    if generator.get('with') != expected or any(key in step for step in (generator, normalizer) for key in ('if', 'continue-on-error')):
-        raise ValueError('complete pinned Syft inventory and validation must be mandatory')
+    expected_env = {'IMAGE_ID': '${{ steps.image-identity.outputs.id }}', 'SYFT_CHECK_FOR_APP_UPDATE': 'false'}
+    expected_scan = '\n'.join(('set -euo pipefail',
+                              'python3 scripts/free2z/install-syft.py "$RUNNER_TEMP/free2z-syft"',
+                              '"$RUNNER_TEMP/free2z-syft/syft" scan "docker:$IMAGE_ID" --config /dev/null --output spdx-json=image.original.spdx.json'))
+    if generator.get('run', '').strip() != expected_scan or generator.get('env') != expected_env or any(key in step for step in (generator, normalizer) for key in ('if', 'continue-on-error')):
+        raise ValueError('complete checksum-pinned Syft inventory and validation must be mandatory')
     snapshots = [s for s in image_steps if s.get('id') == 'image-identity']
     if len(snapshots) != 1 or image_steps.index(snapshots[0]) >= image_steps.index(generator) or any(key in snapshots[0] for key in ('if', 'continue-on-error')):
         raise ValueError('record actual image identity before cataloging')

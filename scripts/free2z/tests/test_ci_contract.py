@@ -90,6 +90,22 @@ class CIContract(unittest.TestCase):
                     step['run'] = step['run'].replace('prepare-image-sbom.py check', 'other-check.py check')
                 with self.assertRaises(ValueError): self.check()
 
+    def test_syft_install_and_immutable_scan_cannot_be_bypassed(self):
+        for mutation in ('mutable-installer', 'tag-scan', 'lost-checksum-install', 'conditional'):
+            with self.subTest(mutation=mutation):
+                self.setUp()
+                steps = self.ci['jobs']['images']['steps']
+                scan = next(s for s in steps if 'install-syft.py' in s.get('run', ''))
+                if mutation == 'mutable-installer':
+                    steps.append({'uses': 'anchore/sbom-action@' + 'a' * 40})
+                elif mutation == 'tag-scan':
+                    scan['run'] = scan['run'].replace('docker:$IMAGE_ID', 'free2z-backend:candidate')
+                elif mutation == 'lost-checksum-install':
+                    scan['run'] = scan['run'].replace('install-syft.py', 'download-unchecked.py')
+                else:
+                    scan['if'] = 'false'
+                with self.assertRaises(ValueError): self.check()
+
     def test_static_build_node_matches_ci(self):
         docker = (ROOT / 'build/free2z/static.Dockerfile').read_text()
         versions = re.findall(r'^FROM node:([0-9.]+)-bookworm-slim@sha256:[a-f0-9]{64} AS (?:classic|docs)$', docker, re.M)

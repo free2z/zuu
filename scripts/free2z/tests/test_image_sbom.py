@@ -3,6 +3,8 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -116,6 +118,29 @@ class ImageSBOM(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'must not be truncated'):
             sbom.prepare(value)
         self.assertEqual(value, original)
+
+    def test_cli_receipt_and_scan_identity_are_enforced(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, output, receipt, snapshot = [root / name for name in ('source.json', 'output.json', 'receipt.json', 'config.digest')]
+            source.write_text(json.dumps(document()))
+            config = 'sha256:' + 'c' * 64
+            snapshot.write_text(config + '\n')
+            command = [sys.executable, str(ROOT / 'scripts/free2z/prepare-image-sbom.py')]
+            prepare = command + ['prepare', str(source), '--image-id', config, '--image-config', str(snapshot), '--output', str(output), '--binding', str(receipt)]
+            subprocess.run(prepare, check=True, capture_output=True)
+            check = command + ['check', str(output), '--image-id', config, '--binding', str(receipt)]
+            subprocess.run(check, check=True, capture_output=True)
+            self.assertNotEqual(subprocess.run(prepare, capture_output=True).returncode, 0)
+            original_bytes = output.read_bytes()
+            output.write_bytes(original_bytes + b' ')
+            self.assertNotEqual(subprocess.run(check, capture_output=True).returncode, 0)
+            output.unlink()
+            receipt.unlink()
+            snapshot.write_text(IMAGE)
+            self.assertNotEqual(subprocess.run(prepare, capture_output=True).returncode, 0)
+            self.assertFalse(output.exists())
+            self.assertFalse(receipt.exists())
 
     def test_input_duplicate_keys_nonfinite_oversize_and_symlink_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
