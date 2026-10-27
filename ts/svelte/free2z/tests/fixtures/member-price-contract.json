@@ -1,0 +1,115 @@
+{
+  "_comment": "Shared by tests/member-price.test.mjs (the Settings page's client validator, src/lib/utils/member-price.ts) and py/dj/apps/g12f/test_member_price_contract.py (the real PATCH /api/auth/user/ serializer). `typed` is what the creator types. Accepted: `sends` is what the client puts in the PATCH; the server must answer 200 and store it. Refused: `problem` is the client's reason, and `sends` is what would reach the server WITHOUT the client check; the server must answer 400 naming member_price, which proves the client refuses nothing the server would take. the application contract. Since the application contract 0 is a FREE membership (accepted) and the price can no longer be cleared (empty/null is refused).",
+  "accepted": [
+    {
+      "typed": "0",
+      "sends": "0"
+    },
+    {
+      "typed": "-0",
+      "sends": "0"
+    },
+    {
+      "typed": "0.0",
+      "sends": "0"
+    },
+    {
+      "typed": "1",
+      "sends": "1"
+    },
+    {
+      "typed": " 5 ",
+      "sends": "5"
+    },
+    {
+      "typed": "007",
+      "sends": "7"
+    },
+    {
+      "typed": "+5",
+      "sends": "5"
+    },
+    {
+      "typed": "5.",
+      "sends": "5"
+    },
+    {
+      "typed": "1.0",
+      "sends": "1"
+    },
+    {
+      "typed": "1e3",
+      "sends": "1000"
+    },
+    {
+      "typed": "50",
+      "sends": "50"
+    },
+    {
+      "typed": "999999",
+      "sends": "999999"
+    }
+  ],
+  "refused": [
+    {
+      "typed": "",
+      "problem": "empty",
+      "sends": null
+    },
+    {
+      "typed": "   ",
+      "problem": "empty",
+      "sends": null
+    },
+    {
+      "typed": "-1",
+      "problem": "too-small",
+      "sends": "-1"
+    },
+    {
+      "typed": "0.5",
+      "problem": "not-whole",
+      "sends": "0.5"
+    },
+    {
+      "typed": ".5",
+      "problem": "not-whole",
+      "sends": ".5"
+    },
+    {
+      "typed": "1.5",
+      "problem": "not-whole",
+      "sends": "1.5"
+    },
+    {
+      "typed": "999999.5",
+      "problem": "not-whole",
+      "sends": "999999.5"
+    },
+    {
+      "typed": "1000000",
+      "problem": "too-large",
+      "sends": "1000000"
+    },
+    {
+      "typed": "1e400",
+      "problem": "too-large",
+      "sends": "1e400"
+    },
+    {
+      "typed": "abc",
+      "problem": "not-a-number",
+      "sends": "abc"
+    },
+    {
+      "typed": "0x10",
+      "problem": "not-a-number",
+      "sends": "0x10"
+    },
+    {
+      "typed": "1,000",
+      "problem": "not-a-number",
+      "sends": "1,000"
+    }
+  ]
+}

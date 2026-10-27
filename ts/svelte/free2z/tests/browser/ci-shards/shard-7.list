@@ -1,0 +1,36 @@
+profile-converse-posts.spec.ts
+profile-dashboard-layout.spec.ts
+public-stream-video-geometry.spec.ts
+publication-export-dialog.spec.ts
+raw-write-timeout.spec.ts
+report-block.spec.ts
+reset-password-errors.spec.ts
+rtk-audio-health.spec.ts
+series-editor.spec.ts
+server-error-reason.spec.ts
+settings-member-price.spec.ts
+settings-mobile-layout.spec.ts
+settings-recent-auth.spec.ts
+settings-suppressed-recovery-email.spec.ts
+social-preview-contract.spec.ts
+ssr-article-body.spec.ts
+stream-audience-cards.spec.ts
+zpage-hero.spec.ts › /hero-user/hero-bright-fixture: a cold re-entry paints the resting hero on every frame
+zpage-hero.spec.ts › /hero-user/hero-pano-fixture: a cold re-entry paints the resting hero on every frame
+zpage-hero.spec.ts › headline contrast (dark) › stays legible over a near-white image
+zpage-hero.spec.ts › headline contrast (dark) › stays legible over a near-white image behind boost and ZEC chips
+zpage-hero.spec.ts › headline contrast (dark) › stays legible over a near-white image under a five-line title
+zpage-hero.spec.ts › headline contrast (light) › stays legible over a near-black image behind boost and ZEC chips
+zpage-hero.spec.ts › headline contrast (light) › stays legible over a near-black image in the Arial fallback font
+zpage-hero.spec.ts › headline contrast (light) › stays legible over a near-white image under a five-line title
+zpage-hero.spec.ts › opaque hero controls keep clean contrast in light
+zpage-hero.spec.ts › scrolling leaves /hero-user/hero-pano-fixture static without main style invalidation
+zpage-hero.spec.ts › the bottom of the cover is visible, not covered › the hero's bottom rows read as photograph while it exits
+zpage-hero.spec.ts › the glyph pad resolves from --background in both themes
+zpage-hero.spec.ts › the headline is painted above the hero's scrim layers
+zpage-hero.spec.ts › the headline's treatment stays inside its own radius › the rows above the first line are bare photograph
+zpage-hero.spec.ts › the hero reserves its space, so nothing shifts
+zpage-hero.spec.ts › the published hero keeps its rem fallback without svh support
+zpage-hero.spec.ts › the published hero keeps its responsive geometry token
+
+recording-controls.spec.ts

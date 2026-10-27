@@ -53,14 +53,35 @@ def validate(ci, release, dockerfile, ruff):
         raise ValueError('backend must execute live task registry parity checks')
     if any(name not in parity[0]['run'] for name in ('::test_static_scan_finds_exactly_the_registered_schedules', '::test_static_scan_sees_every_registered_task_name')):
         raise ValueError('both schedule and registration parity checks are required')
+    triggers = ci.get('on', ci.get(True, {}))
+    if 'merge_group' not in triggers:
+        raise ValueError('merge queue must run the required website gate')
+    exports = [s for s in jobs['backend']['steps'] if 'export-task-registry.py' in s.get('run', '')]
+    if len(exports) != 1 or exports[0].get('if') != 'matrix.group == 1' or 'continue-on-error' in exports[0] or jobs['backend']['steps'].index(exports[0]) <= jobs['backend']['steps'].index(parity[0]):
+        raise ValueError('source-bound inventory must follow successful live registry parity')
+    image_builds = [s for s in jobs['images']['steps'] if s.get('uses', '').startswith('docker/build-push-action@')]
+    if len(image_builds) != 1 or any(image_builds[0]['with'].get(key) != value for key, value in {'platforms': 'linux/amd64', 'provenance': False, 'sbom': False}.items()):
+        raise ValueError('published image digest must identify one platform manifest')
+    static_audits = jobs['dependency-security-static']
+    if set(static_audits['strategy']['matrix']['project']) != {'ts/react/free2z', 'docs/about-free2z', 'docs/free2z/website'}:
+        raise ValueError('every static website dependency graph must be audited')
+    audit_steps = [s for s in static_audits['steps'] if s.get('run') == 'bash scripts/free2z/run-dependency-audits.sh']
+    if len(audit_steps) != 1 or audit_steps[0].get('env') != {'NPM_AUDIT_PROJECT': '${{ matrix.project }}', 'DEPENDENCY_AUDIT_NPM_ONLY': '1'} or 'continue-on-error' in audit_steps[0]:
+        raise ValueError('static audit matrix must run the fail-closed scanner')
     registration = [s for s in jobs['backend']['steps'] if 'check-periodic-register-first.py' in s.get('run', '')]
     if len(registration) != 1 or registration[0].get('if') != 'matrix.group == 1' or 'continue-on-error' in registration[0]:
         raise ValueError('backend must enforce cross-revision periodic task registration')
     registration_command = registration[0]['run']
     if '--base "$BASE_SHA" --head HEAD' not in registration_command or 'github.event.merge_group.base_sha' not in registration[0].get('env', {}).get('BASE_SHA', ''):
         raise ValueError('periodic registration must compare the selected PR or merge-group base')
+    native = jobs['native-payment-bridge']
+    if native['env'].get('PAYMENTD_NATIVE_BRIDGE_TEST') != '1':
+        raise ValueError('native financial bridge tests must execute rather than skip')
+    native_commands = '\n'.join(s.get('run', '') for s in native['steps'])
+    if 'cargo test --locked --test financial_delivery --test production_handoff_fixture --no-run' not in native_commands or 'python -m pytest dj/apps/g12f/test_paymentd_native_credit.py -q' not in native_commands:
+        raise ValueError('native bridge must compile both fixtures and execute SQL integration tests')
     version=re.search(r'^FROM python:([0-9]+\.[0-9]+)',dockerfile,re.M)[1]
-    for name in ('backend','dependency-security'):
+    for name in ('backend','dependency-security','native-payment-bridge'):
         pins=[str(s.get('with',{}).get('python-version','')) for s in jobs[name]['steps'] if s.get('uses','').startswith('actions/setup-python@')]
         if pins!=[version]:raise ValueError('CI Python must equal the application runtime')
     target=re.search(r'^target-version = "py([0-9]+)"',ruff,re.M)[1]
@@ -76,7 +97,12 @@ def validate(ci, release, dockerfile, ruff):
         raise ValueError('publisher must not execute application code or dependency installation')
     if 'test "$APPLICATION_COMPLETE" = true' not in commands:raise ValueError('scaffold cannot publish a release')
     if 'DOCKER_CONFIG="$anonymous_config" docker manifest inspect' not in commands:raise ValueError('release images must be anonymously consumable')
+    if 'Release digest must identify one linux/amd64 image manifest' not in commands or '{{.Os}}/{{.Architecture}}' not in commands:
+        raise ValueError('publisher must verify platform and reject image indexes')
     final=release['jobs']['release']
+    final_commands = '\n'.join(s.get('run', '') for s in final['steps'])
+    if '--task-registry task-registry/task-registry.json' not in final_commands:
+        raise ValueError('release manifest must bind the verified task registry')
     if set(final['needs'])!={'checks','publish'}:raise ValueError('release manifest must await checks and all image publications')
 
 

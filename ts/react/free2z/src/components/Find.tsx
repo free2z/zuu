@@ -40,7 +40,7 @@ export interface PageQuery {
     noShowUnverified: boolean
     // categories: string[]
     tags: Tag[]
-    // sort: "-updated_at" | "-f2z_score" | "-total" | "-created_at"
+    // sort: "-published_at" | "-updated_at" | "-f2z_score" | "-total" | "-created_at"
     sort: string
     mine: boolean
 }
@@ -68,7 +68,7 @@ function getPQfromSP(
         showUnfunded: !(sp.get("unfunded") === "0"),
         noShowUnverified: sp.get("unverified") === "0",
         sort: sp.get("ordering") || "",
-        // sort: sp.get("ordering") || "-updated_at",
+        // sort: sp.get("ordering") || "-published_at",
         mine: mine,
         username: username,
     } as PageQuery
@@ -174,7 +174,9 @@ export default function Find(props: FindProps) {
             sp.set("username", props.username)
         }
         if (!sp.get('ordering')) {
-            sp.set('ordering', '-updated_at');
+            // Public lists are chronological by first publication; the
+            // creator's own dashboard remains edit-oriented.
+            sp.set('ordering', props.mine ? '-updated_at' : '-published_at');
         }
         // console.log("ABOUT TO CALL", props, sp.toString())
         return axios.get(`/api/zpage/?${sp}`).then((res) => {

@@ -1,8 +1,14 @@
 <script lang="ts">
+  import * as env from "$app/env/public";
   import { onMount } from "svelte";
+  import { toast, captureAccountToast } from "$lib/toast.js";
   import { Button } from "$lib/components/ui/button";
   import { tStore as t } from "$lib/i18n";
+  import { apiFetch } from "$lib/api/config";
   import { LayoutGrid, List, Loader2, RefreshCw } from "@lucide/svelte";
+  import MediaAccessBadge from "$lib/components/media/MediaAccessBadge.svelte";
+  import { satisfiesSlot } from "$lib/components/media/mediaAccess";
+  import { readCurrentUpload } from "$lib/components/media/promoteMediaAccess";
   import type { CoverLibraryImage } from "./coverTypes";
 
   type LibraryView = "grid" | "list";
@@ -35,10 +41,73 @@
 
   let libraryView = $state<LibraryView>("grid");
   let libraryViewChosen = false;
+  /**
+   * A restricted image the creator picked for the cover, held until they say
+   * yes. `EditorCoverField` crops what it is given and uploads the result as a
+   * NEW public file (`uploadPublicFile`), so the cover it produces is never
+   * broken — but the copy publishes the bytes of a private or subscribers-only
+   * file to anyone, and that is not a thing to do without asking.
+   */
+  let pendingItem = $state<CoverLibraryImage | null>(null);
+  /** The row whose current tier is being read, so its spinner can show. */
+  let checkingItemId = $state<number | null>(null);
+
+  const apiBase = env.PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "";
 
   function chooseLibraryView(view: LibraryView) {
     libraryViewChosen = true;
     libraryView = view;
+  }
+
+  function imageName(item: CoverLibraryImage) {
+    return (
+      item.title ||
+      item.name ||
+      $t("editor.imageFallback", "Image {id}", { id: item.id })
+    );
+  }
+
+  async function requestChoose(item: CoverLibraryImage) {
+    const operationNotice = captureAccountToast();
+    // Ask the server what this file's tier is NOW. The snapshot can be minutes
+    // old, and the consequence of trusting it here is not a broken image — the
+    // cover flow re-uploads a public COPY, which always works — it is that a
+    // file the creator has since made private gets published without the
+    // dialog that would have told them.
+    checkingItemId = item.id;
+    const current = await readCurrentUpload<CoverLibraryImage>({
+      id: item.id,
+      request: apiFetch,
+      apiBase,
+    });
+    checkingItemId = null;
+
+    if (!current) {
+      operationNotice.error(
+        $t(
+          "editor.imageAccessCheckFailed",
+          "Could not check who can open that image. Please try again.",
+        ),
+      );
+      return;
+    }
+
+    // The cover rule does not depend on `is_subscriber_only`: redaction
+    // replaces `content` and leaves `title`, `description` and
+    // `featured_image` in the anonymous response, so a cover is public reach
+    // by definition. See `mediaAccess.ts`.
+    if (satisfiesSlot(current.access, { slot: "cover" })) {
+      await onChoose(current);
+      return;
+    }
+
+    pendingItem = current;
+  }
+
+  function confirmChoose() {
+    const item = pendingItem;
+    pendingItem = null;
+    if (item) void onChoose(item);
   }
 
   onMount(() => {
@@ -58,14 +127,14 @@
   });
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+<div class="relative flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
   <div
     class="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
   >
     <p class="text-sm text-muted-foreground">
       {$t(
         "editor.libraryHint",
-        "Choose an image from your uploaded media, then crop it for the cover.",
+        "Choose an image from your uploaded media to use as the cover.",
       )}
     </p>
     <div class="flex shrink-0 items-center gap-2 self-end sm:self-auto">
@@ -192,15 +261,17 @@
           <button
             type="button"
             class={`group relative overflow-hidden rounded-lg border bg-card text-left transition hover:border-primary/35 hover:shadow-md ${libraryView === "list" ? "flex min-h-20 items-center" : ""}`}
-            onclick={() => void onChoose(item)}
-            disabled={loadingItemId !== null}
+            onclick={() => void requestChoose(item)}
+            disabled={loadingItemId !== null || checkingItemId !== null}
           >
             <div
               class={`${libraryView === "list" ? "h-20 w-24 shrink-0 sm:h-24 sm:w-32" : "aspect-square sm:aspect-[4/3]"} overflow-hidden bg-muted`}
             >
               <img
                 src={buildMediaUrl(item.thumbnail || item.url)}
-                alt={item.title || item.name || "Library image"}
+                alt={item.title ||
+                  item.name ||
+                  $t("editor.libraryImageAlt", "Image from your library")}
                 class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                 loading="lazy"
               />
@@ -209,15 +280,21 @@
               class={`${libraryView === "list" ? "min-w-0 flex-1" : ""} space-y-1 p-2.5 sm:p-3`}
             >
               <p class="truncate text-sm font-medium text-foreground">
-                {item.title || item.name || `Image ${item.id}`}
+                {imageName(item)}
               </p>
-              <p
-                class={`truncate text-xs text-muted-foreground ${libraryView === "grid" ? "hidden sm:block" : ""}`}
-              >
-                {item.access || "private"} • {item.mime_type}
-              </p>
+              <!-- The raw server enum used to be rendered here verbatim and
+                   untranslated — the only hint anybody got that a cover was
+                   about to be published from a private file. -->
+              <div class="flex min-w-0 items-center gap-1.5">
+                <MediaAccessBadge access={item.access} />
+                <span
+                  class={`truncate text-xs text-muted-foreground ${libraryView === "grid" ? "hidden sm:block" : ""}`}
+                >
+                  {item.mime_type}
+                </span>
+              </div>
             </div>
-            {#if loadingItemId === item.id}
+            {#if loadingItemId === item.id || checkingItemId === item.id}
               <div
                 class="absolute inset-0 flex items-center justify-center bg-background/70 backdrop-blur-[2px]"
               >
@@ -245,4 +322,55 @@
       {/if}
     {/if}
   </div>
+
+  {#if pendingItem}
+    <div
+      class="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-background/92 p-4 backdrop-blur-[2px] sm:p-6"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="cover-access-gate-title"
+      data-media-access-gate="cover"
+    >
+      <div class="w-full max-w-md space-y-4">
+        <div class="space-y-2">
+          <h3
+            id="cover-access-gate-title"
+            class="text-base font-semibold text-foreground"
+          >
+            {$t("editor.coverAccessTitle", "A cover is always public")}
+          </h3>
+          <p class="text-sm leading-relaxed text-muted-foreground">
+            {$t(
+              "editor.coverAccessBody",
+              "“{name}” is not public. Covers are shown to everyone — in listings, in search results and in link previews — even for a subscribers-only page, so a public copy of this image will be uploaded and used. The original file keeps the access it has now.",
+              { name: imageName(pendingItem) },
+            )}
+          </p>
+        </div>
+
+        <div class="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>{$t("editor.imageAccessCurrent", "Right now:")}</span>
+          <MediaAccessBadge access={pendingItem.access} />
+        </div>
+
+        <div class="flex flex-wrap justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            data-media-access-gate-action="cancel"
+            onclick={() => (pendingItem = null)}
+          >
+            {$t("common.cancel", "Cancel")}
+          </Button>
+          <Button
+            type="button"
+            data-media-access-gate-action="promote"
+            onclick={confirmChoose}
+          >
+            {$t("editor.coverAccessConfirm", "Use a public copy")}
+          </Button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>

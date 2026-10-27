@@ -4,6 +4,7 @@
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Drawer from "$lib/components/ui/drawer";
   import { cn } from "$lib/utils";
+  import { tStore as t } from "$lib/i18n";
 
   let {
     thumbnailUrl,
@@ -38,7 +39,7 @@
 {#if isDesktop.current}
   <Dialog.Root bind:open>
     <Dialog.Trigger
-      aria-label="View profile picture"
+      aria-label={$t("profile.viewPicture", "View profile picture")}
       class={cn(
         "block cursor-zoom-in overflow-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
         triggerClass,
@@ -49,14 +50,18 @@
     <Dialog.Content
       class="aspect-square w-[min(26rem,calc(100vw-2rem))] max-w-none place-items-center p-8 sm:max-w-none"
     >
-      <Dialog.Title class="sr-only">Profile picture for {alt}</Dialog.Title>
+      <Dialog.Title class="sr-only">
+        {$t("profile.pictureAlt", "Profile picture for {username}", {
+          username: alt,
+        })}
+      </Dialog.Title>
       {@render LightboxImage()}
     </Dialog.Content>
   </Dialog.Root>
 {:else}
   <Drawer.Root bind:open>
     <Drawer.Trigger
-      aria-label="View profile picture"
+      aria-label={$t("profile.viewPicture", "View profile picture")}
       class={cn(
         "block cursor-zoom-in overflow-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
         triggerClass,
@@ -65,13 +70,17 @@
       {@render TriggerImage()}
     </Drawer.Trigger>
     <Drawer.Content class="max-h-[90dvh] p-2 pt-4 pb-4">
-      <Drawer.Title class="sr-only">Profile picture for {alt}</Drawer.Title>
+      <Drawer.Title class="sr-only">
+        {$t("profile.pictureAlt", "Profile picture for {username}", {
+          username: alt,
+        })}
+      </Drawer.Title>
       {@render LightboxImage()}
       <Drawer.Close
         class="absolute top-2 right-2 rounded-md p-1.5 opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       >
         <XIcon class="size-4" />
-        <span class="sr-only">Close</span>
+        <span class="sr-only">{$t("common.close", "Close")}</span>
       </Drawer.Close>
     </Drawer.Content>
   </Drawer.Root>

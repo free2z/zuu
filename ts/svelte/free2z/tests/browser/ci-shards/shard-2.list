@@ -1,0 +1,147 @@
+billing-realtime-credit.spec.ts › 1000 notices cannot starve a payment or grow its actual DOM and retained queue
+billing-realtime-credit.spec.ts › a credit cannot turn an malformed renewal summary into a coverage claim
+billing-realtime-credit.spec.ts › a credit cannot turn an unknown renewal summary into a coverage claim
+billing-realtime-credit.spec.ts › a delayed bulk quote keeps the balance credited before it arrived
+billing-realtime-credit.spec.ts › a delayed generated server refusal cannot hide an already credited balance
+billing-realtime-credit.spec.ts › a delayed profile snapshot cannot overwrite a payment observed later by the database
+billing-realtime-credit.spec.ts › a delayed raw server refusal cannot hide an already credited balance
+billing-realtime-credit.spec.ts › a delayed single quote keeps the balance credited before it arrived
+billing-realtime-credit.spec.ts › a first delayed read credit refreshes auth after its receipt was loaded over HTTP
+billing-realtime-credit.spec.ts › a first delayed unread credit refreshes auth after its receipt was loaded over HTTP
+billing-realtime-credit.spec.ts › a generated cover keeps storage cleanup guidance inline even when its preview succeeds under congestion
+billing-realtime-credit.spec.ts › a generated delayed 401 cannot sign out a new A session after A to B to A
+billing-realtime-credit.spec.ts › a generated delayed 401 cannot sign out account B
+billing-realtime-credit.spec.ts › a generated delayed 403 cannot sign out a new A session after A to B to A
+billing-realtime-credit.spec.ts › a generated delayed 403 cannot sign out account B
+billing-realtime-credit.spec.ts › a held Converse 200 response preserves replay protection across accounts
+billing-realtime-credit.spec.ts › a held Converse 200 response preserves replay protection after reauthentication
+billing-realtime-credit.spec.ts › a held Converse 402 response preserves replay protection across accounts
+billing-realtime-credit.spec.ts › a held Converse 402 response preserves replay protection after reauthentication
+billing-realtime-credit.spec.ts › a held boost 200 cannot change the next account draft, score, funds or receipt
+billing-realtime-credit.spec.ts › a held boost 402 cannot change the next account draft, score, funds or receipt
+billing-realtime-credit.spec.ts › a held comment 200 cannot change the next account draft, score, funds or receipt
+billing-realtime-credit.spec.ts › a held comment 402 cannot change the next account draft, score, funds or receipt
+billing-realtime-credit.spec.ts › a held cover generation 200 does not expose an old account image, funds or callback
+billing-realtime-credit.spec.ts › a held cover generation 402 does not expose an old account image, funds or callback
+billing-realtime-credit.spec.ts › a held donation 200 cannot change the next account draft, score, funds or receipt
+billing-realtime-credit.spec.ts › a held donation 402 cannot change the next account draft, score, funds or receipt
+billing-realtime-credit.spec.ts › a held older page cannot replace the recovered cursor when the same-size feed changes order
+billing-realtime-credit.spec.ts › a held profile subscription 200 cannot change the next account membership or dialog
+billing-realtime-credit.spec.ts › a held profile subscription 402 cannot change the next account membership or dialog
+billing-realtime-credit.spec.ts › a held stream subscription 200 cannot change the next account membership or dialog
+billing-realtime-credit.spec.ts › a held stream subscription 402 cannot change the next account membership or dialog
+billing-realtime-credit.spec.ts › a held successful comment retains its replay key and reconciles the draft after same-account reauthentication
+billing-realtime-credit.spec.ts › a held vote 200 cannot change the next account draft, score, funds or receipt
+billing-realtime-credit.spec.ts › a held vote 402 cannot change the next account draft, score, funds or receipt
+billing-realtime-credit.spec.ts › a late precommit metadata read cannot undo confirmed all-read counts
+billing-realtime-credit.spec.ts › a late precommit metadata read cannot undo confirmed single-read counts
+billing-realtime-credit.spec.ts › a live credit interrupts stalled headers recovery and rejects late results
+billing-realtime-credit.spec.ts › a live credit interrupts stalled metadata-body recovery and rejects late results
+billing-realtime-credit.spec.ts › a live credit interrupts stalled receipt-body recovery and rejects late results
+billing-realtime-credit.spec.ts › a live credit preempts held internal auth body before the old request deadline
+billing-realtime-credit.spec.ts › a live credit preempts held internal auth headers before the old request deadline
+billing-realtime-credit.spec.ts › a marked refusal revalidates server truth when its earlier dispatch executes after a later account read
+billing-realtime-credit.spec.ts › a newer billing snapshot remains visible when cached auth revalidation fails
+billing-realtime-credit.spec.ts › a no-charge source refusal reprices after purchase settles and needs a new decision
+billing-realtime-credit.spec.ts › a purchase updates the open bulk quote balance without changing quoted consent
+billing-realtime-credit.spec.ts › a purchase updates the open single quote balance without changing quoted consent
+billing-realtime-credit.spec.ts › a quote refresh cannot replace an unresolved bulk purchase decision
+billing-realtime-credit.spec.ts › a real donation finishing after A to B to A cannot announce the old private outcome
+billing-realtime-credit.spec.ts › a real expired-session vote still explains the failure after private notices clear
+billing-realtime-credit.spec.ts › a receipt committed between reconnect balance and history reads settles the later balance once
+billing-realtime-credit.spec.ts › a retained insufficient-funds callout shows credited balance and retry guidance without changing a draft
+billing-realtime-credit.spec.ts › a saturated urgent queue cannot hide the actual outgoing payment refusal or leak it across accounts
+billing-realtime-credit.spec.ts › a successful vote replay clears its prior refusal
+billing-realtime-credit.spec.ts › a successful vote replay clears its prior refusal while retaining a new cleanup warning
+billing-realtime-credit.spec.ts › a vote begun while identity resolves announces a refusal under its resolved actor
+billing-realtime-credit.spec.ts › a warning cannot withhold a paid failure when a presentation slot is free
+billing-realtime-credit.spec.ts › account generations clear congestion and reject late A to B to A private outcomes
+billing-realtime-credit.spec.ts › account notifications clear on account switch including private progress
+billing-realtime-credit.spec.ts › account notifications clear on logout including private progress
+billing-realtime-credit.spec.ts › action and cancel buttons reclaim presentation slots while prevented actions stay open
+billing-realtime-credit.spec.ts › an actionable result postpones routine presentation without acknowledging it or evicting important notices
+billing-realtime-credit.spec.ts › an earlier-dispatched bulk quote validates a later database spend after arrival
+billing-realtime-credit.spec.ts › an earlier-dispatched single quote validates a later database spend after arrival
+billing-realtime-credit.spec.ts › an interrupted receipt scan restarts an expired cursor without announcing incomplete history
+billing-realtime-credit.spec.ts › an interrupted receipt scan resumes a transient cursor without announcing incomplete history
+billing-realtime-credit.spec.ts › an old history total cannot resurrect notifications after mark all read
+billing-realtime-credit.spec.ts › billing QR waits beyond its five-second assertion budget for authoritative client auth
+billing-realtime-credit.spec.ts › boost owned authentication expiry explains sign-in without minting or sending a payment
+billing-realtime-credit.spec.ts › boost payment success keeps its paid replay handle until same-account recovery is presented
+billing-realtime-credit.spec.ts › boost rejects original intent before mint and POST when held authentication changes other-account
+billing-realtime-credit.spec.ts › boost rejects original intent before mint and POST when held authentication changes return-original
+billing-realtime-credit.spec.ts › comment owned authentication expiry explains sign-in without minting or sending a payment
+billing-realtime-credit.spec.ts › comment rejects original intent before mint and POST when held authentication changes other-account
+billing-realtime-credit.spec.ts › comment rejects original intent before mint and POST when held authentication changes return-original
+billing-realtime-credit.spec.ts › concurrent notification metadata follows request order
+billing-realtime-credit.spec.ts › confirmed mark-all settles its flag through a same-account filter change
+billing-realtime-credit.spec.ts › confirmed profile subscription remains recorded with inline storage cleanup guidance under congestion
+billing-realtime-credit.spec.ts › confirmed stream subscription remains recorded with inline storage cleanup guidance under congestion
+billing-realtime-credit.spec.ts › converse owned authentication expiry explains sign-in without minting or sending a payment
+billing-realtime-credit.spec.ts › converse rejects original intent before mint and POST when held authentication changes other-account
+billing-realtime-credit.spec.ts › converse rejects original intent before mint and POST when held authentication changes return-original
+billing-realtime-credit.spec.ts › cover owned authentication expiry explains sign-in without minting or sending a payment
+billing-realtime-credit.spec.ts › cover payment success keeps its paid replay handle until same-account recovery is presented
+billing-realtime-credit.spec.ts › cover permits a cold no-actor authentication to hydrate before deriving its paid key
+billing-realtime-credit.spec.ts › cover preview success keeps its paid replay handle until same-account recovery is presented
+billing-realtime-credit.spec.ts › cover rejects original intent before mint and POST when held authentication changes other-account
+billing-realtime-credit.spec.ts › cover rejects original intent before mint and POST when held authentication changes return-original
+billing-realtime-credit.spec.ts › credit refresh preserves text typed after the editor's last autosave
+billing-realtime-credit.spec.ts › delayed generated 401 cannot invalidate same-ID credential session during adopted
+billing-realtime-credit.spec.ts › delayed generated 401 cannot invalidate same-ID credential session during lookup
+billing-realtime-credit.spec.ts › delayed generated 403 cannot invalidate same-ID credential session during adopted
+billing-realtime-credit.spec.ts › delayed generated 403 cannot invalidate same-ID credential session during lookup
+billing-realtime-credit.spec.ts › donation owned authentication expiry explains sign-in without minting or sending a payment
+billing-realtime-credit.spec.ts › donation payment success keeps its paid replay handle until same-account recovery is presented
+billing-realtime-credit.spec.ts › donation rejects original intent before mint and POST when held authentication changes other-account
+billing-realtime-credit.spec.ts › donation rejects original intent before mint and POST when held authentication changes return-original
+billing-realtime-credit.spec.ts › explicit upload retry after reauthentication uses the current account notice scope
+billing-realtime-credit.spec.ts › explicit urgent IDs stay separate from no-ID repeats in either call order
+billing-realtime-credit.spec.ts › failed mixed recovery waits for recipient validation and suppresses deferred metadata
+billing-realtime-credit.spec.ts › full receipt recovery finds a buried older-created credit beyond the first page without announcing history
+billing-realtime-credit.spec.ts › generated write ownership during CSRF preparation: other-account
+billing-realtime-credit.spec.ts › generated write ownership during CSRF preparation: public-omit
+billing-realtime-credit.spec.ts › generated write ownership during CSRF preparation: return-original
+billing-realtime-credit.spec.ts › generated write ownership during CSRF preparation: same-id-balance
+billing-realtime-credit.spec.ts › generated-client expired-session donation gives anonymous guidance without private refusal text
+billing-realtime-credit.spec.ts › identical urgent repeats coalesce while distinct outcomes and account isolation remain intact
+billing-realtime-credit.spec.ts › legacy cached database snapshot cannot block a fresh read after database restore
+billing-realtime-credit.spec.ts › loading and promise notifications finish programmatically and routine outcomes fade
+billing-realtime-credit.spec.ts › notification recovery trusts aggregate1 across a separately observed read and page
+billing-realtime-credit.spec.ts › notification recovery trusts aggregate2 across a separately observed read and page
+billing-realtime-credit.spec.ts › older recovery HTTP cannot erase live receipts, loaded pages, or newer read state
+billing-realtime-credit.spec.ts › oldest recovery fills offline gaps with paced visible traversal and no routine rescans
+billing-realtime-credit.spec.ts › paid-chat and page-vote notifications refresh the visible balance without a purchase receipt
+billing-realtime-credit.spec.ts › explicitly persistent promise outcomes preserve their options without loading or after dismissed loading
+billing-realtime-credit.spec.ts › raw write ownership during CSRF preparation: other-account
+billing-realtime-credit.spec.ts › raw write ownership during CSRF preparation: public-omit
+billing-realtime-credit.spec.ts › raw write ownership during CSRF preparation: return-original
+billing-realtime-credit.spec.ts › raw write ownership during CSRF preparation: same-id-balance
+billing-realtime-credit.spec.ts › receipt delivery shows one snackbar, keeps a normal notification, and refreshes every balance source
+billing-realtime-credit.spec.ts › reclaiming a rendered routine overflow notice preserves its aggregate count
+billing-realtime-credit.spec.ts › reconnection recovers a missed credit and receipt once without toasting initial history
+billing-realtime-credit.spec.ts › reconnection restores pagination after the first notification page failed
+billing-realtime-credit.spec.ts › recovery loads new middle receipts when a partially loaded feed gains pages
+billing-realtime-credit.spec.ts › recovery loads new middle receipts when an exhausted feed gains pages
+billing-realtime-credit.spec.ts › recovery rejects another recipient's records and counts before local logout catches up
+billing-realtime-credit.spec.ts › renewal guidance uses live balance 15 during and after a late old billing reload
+billing-realtime-credit.spec.ts › renewal guidance uses live balance 25 during and after a late old billing reload
+billing-realtime-credit.spec.ts › renewal summary retains its post-charge balance until a successful post-arrival auth read
+billing-realtime-credit.spec.ts › renewed vote UUIDs preserve pending reads and resolve growth after read confirmation
+billing-realtime-credit.spec.ts › renewed vote UUIDs preserve pending reads and resolve growth before read confirmation
+billing-realtime-credit.spec.ts › routine overflow exposes an accessible link to durable notification history
+billing-realtime-credit.spec.ts › subscription cancellation late-success stays account scoped under notification congestion
+billing-realtime-credit.spec.ts › subscription cancellation refusal stays account scoped under notification congestion
+billing-realtime-credit.spec.ts › sustained upload and event outcomes bound mounted notices and retain urgent acknowledgements
+billing-realtime-credit.spec.ts › the bulk translation dialog preserves server refusal provenance and refreshes a later server balance
+billing-realtime-credit.spec.ts › the profile subscription keeps refusal visible under full urgent congestion and clears it across accounts
+billing-realtime-credit.spec.ts › the profile subscription keeps storage visible under full urgent congestion and clears it across accounts
+billing-realtime-credit.spec.ts › the single translation dialog preserves server refusal provenance and refreshes a later server balance
+billing-realtime-credit.spec.ts › the stream subscription keeps refusal visible under full urgent congestion and clears it across accounts
+billing-realtime-credit.spec.ts › the stream subscription keeps storage visible under full urgent congestion and clears it across accounts
+billing-realtime-credit.spec.ts › vote held authentication expiry stays silent after logout
+billing-realtime-credit.spec.ts › vote owned authentication expiry explains sign-in without minting or sending a payment
+billing-realtime-credit.spec.ts › vote payment success keeps its paid replay handle until same-account recovery is presented
+billing-realtime-credit.spec.ts › vote permits a cold no-actor authentication to hydrate before deriving its paid key
+billing-realtime-credit.spec.ts › vote rejects original intent before mint and POST when held authentication changes other-account
+billing-realtime-credit.spec.ts › vote rejects original intent before mint and POST when held authentication changes return-original

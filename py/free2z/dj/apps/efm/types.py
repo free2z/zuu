@@ -15,12 +15,16 @@ class WebSocketMessage(BaseModel):
     type: str
 
 
-# Message for joining the session
+# Message for joining the session.
+# `token` and `uuid` are vestigial: the participant is authenticated during the
+# WebSocket handshake (see SignalingConsumer.connect), so the server uses the
+# identity from the verified JWT and ignores whatever these fields say. They
+# remain optional purely so a message from an older client still parses.
 class JoinMessage(WebSocketMessage):
     type: str = "join"
-    token: str
     name: str
-    uuid: str
+    token: Optional[str] = None
+    uuid: Optional[str] = None
 
 
 # Message for changing a participant's name

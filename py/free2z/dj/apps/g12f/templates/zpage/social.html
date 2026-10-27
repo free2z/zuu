@@ -1,0 +1,84 @@
+{% comment %}
+Crawler prerender card for a zPage.
+
+`canonical_path` is supplied by the view, not built here. It is the
+/{username}/{vanity} shape the sitemap publishes -- deliberately not `get_url`,
+which is still the legacy /{username}/zpage/{vanity} shape kept for the API
+contract -- carrying a `?lang=` suffix when, and only when, the query-free URL
+would negotiate between several published variants. That rule is
+`articleCanonicalHref()` in ts/svelte/free2z/src/lib/zpage-language.js, ported
+in crawler.py: the two tiers answer the same URL, so they must declare the same
+canonical or a search engine throws the whole language cluster away. An
+external `canonical_url` (republished content) still wins over both, matching
+lib/meta.ts in the SvelteKit UI -- and suppresses `alternates`, because Free2Z
+`?lang=` URLs are not alternates of somebody else's page.
+
+`title`/`description`/`body` describe the RESOLVED variant, so a shared
+`?lang=es` link unfurls the Spanish card rather than the English source.
+
+`gated` is set for subscriber-only pages: the card exists, the paywalled body
+copy never leaves the server. `body` is a BOUNDED excerpt supplied by the view
+(crawler.CARD_BODY_CHARS) -- never `zpage.content`, which is up to 100,000
+characters and would be rendered on the single sync gunicorn worker.
+{% endcomment %}<html{% if content_language %} lang="{{ content_language }}"{% endif %}>
+
+<head>
+    <meta charset="utf-8">
+    <!--  Essential META Tags -->
+    <title>{{ title }}</title>
+    <meta name="description" content="{{ description }}" />
+    <link rel="canonical" href="{% if zpage.canonical_url %}{{ zpage.canonical_url }}{% else %}https://{{ request.META.HTTP_HOST }}{{ canonical_path }}{% endif %}">
+    {% for alternate in alternates %}<link rel="alternate" hreflang="{{ alternate.hreflang }}" href="https://{{ request.META.HTTP_HOST }}{{ alternate.href }}">
+    {% endfor %}
+
+    <meta property="og:title" content="{{ title }}">
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://{{ request.META.HTTP_HOST }}{{ zpage.get_featured_image }}">
+    <meta property="og:url" content="{% if zpage.canonical_url %}{{ zpage.canonical_url }}{% else %}https://{{ request.META.HTTP_HOST }}{{ canonical_path }}{% endif %}">
+    <meta property="og:description" content="{{ description }}">
+    <meta property="og:site_name" content="Free2Z - {{ zpage.creator.best_name }}">
+
+    <meta name="twitter:title" content="{{ title }}">
+    <meta name="twitter:description" content="{{ description }}">
+    <meta name="twitter:image" content="https://{{ request.META.HTTP_HOST }}{{ zpage.get_featured_image }}">
+    <meta name="twitter:url" content="{% if zpage.canonical_url %}{{ zpage.canonical_url }}{% else %}https://{{ request.META.HTTP_HOST }}{{ canonical_path }}{% endif %}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@free2zcash">
+    <meta name="twitter:creator" content="@free2zcash">
+    <meta name="twitter:image:alt" content="{{ title }}">
+
+    <meta property="fb:app_id" content="278755727751440" />
+    <meta itemprop="name" content="{{ title }}">
+    <meta itemprop="description" content="{{ description }}">
+    <meta itemprop="image" content="https://{{ request.META.HTTP_HOST }}{{ zpage.get_featured_image }}">
+</head>
+
+{% comment %}
+`dir` on the CONTENT, not on `<html>`. Every element below holds the
+article's own text, so each declares the article's direction; the document
+element keeps the chrome's, exactly as the SvelteKit tier does -- an Arabic
+article does not entitle us to flip a reader whose product UI is English, which
+is the same reason `<html lang>` was the wrong single knob for language.
+
+`content_direction` is never empty: `languages.direction_attribute` answers
+`auto` for an article whose language is unknown, so an unlabelled body is
+resolved by the parser from its own first strong character rather than
+inheriting left-to-right in silence.
+
+The `<pre>` is raw markdown source, deliberately unrendered (see
+`_card_description`), so its direction is the prose's -- but note that a fenced
+code block inside it is NOT separately isolated here the way the SvelteKit
+renderer isolates one. There is no per-block structure to hang an attribute on
+without rendering the markdown, which this tier will not do on the single sync
+worker. This tier is an unfurl card, not the reading experience.
+{% endcomment %}<body>
+    <h1 dir="{{ content_direction|default:"auto" }}">{{ title }}</h1>
+    <h2 dir="{{ content_direction|default:"auto" }}">{{ subtitle }}</h2>
+    {% if not gated %}
+    <pre dir="{{ content_direction|default:"auto" }}">
+        {{ body }}
+    </pre>
+    {% endif %}
+</body>
+
+</html>

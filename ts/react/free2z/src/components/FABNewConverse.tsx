@@ -54,6 +54,7 @@ export default function FABNewConverse() {
                 <DialogTitle>F2Z Converse</DialogTitle>
                 <DialogContent>
                     <CommentForm callback={handleClose}
+                        mode="conversation"
                         height={window.innerHeight * 0.5}
                     />
                 </DialogContent>

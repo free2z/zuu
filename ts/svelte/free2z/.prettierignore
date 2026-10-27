@@ -1,5 +1,29 @@
 node_modules
 .svelte-kit
+.svelte-kit-test-*/
 build
 dist
 coverage
+
+# orval output, byte-compared by the `api-client` CI job against a regeneration
+# from f2z.yaml. prettier and orval disagree about whitespace, so formatting
+# these would put `npm run format` and `npm run generate:api` in a loop that
+# fails CI whichever one ran last. The hand-written modules alongside them
+# (mutator.ts, request.js, config.ts, uploads.ts, zpage.ts) stay formattable.
+# orval.config.ts explicitly formats the generated Stripe surface as part of
+# generation; this broad ignore only prevents a second repository-wide pass.
+src/lib/api/*/
+src/lib/api/f2z.schemas.ts
+src/lib/api/index.ts
+
+# Generated browser reports and traces can change while tests run.
+playwright-report
+playwright-report-local-*
+test-results
+test-results-local-*
+
+# Generated immutable recorder bundles.
+static/_app/
+static/tools/
+
+.recorder-*/

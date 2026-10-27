@@ -1,6 +1,7 @@
 from pathlib import Path
 import importlib.util
 import unittest
+import re
 import yaml
 
 ROOT=Path(__file__).resolve().parents[3]
@@ -48,6 +49,41 @@ class CIContract(unittest.TestCase):
             step = next(s for s in self.ci['jobs']['backend']['steps'] if 'test_periodic_register_first.py::' in s.get('run', ''))
             step['run'] = step['run'].replace(name, '')
             with self.assertRaises(ValueError): self.check()
+
+    def test_inventory_and_single_platform_attestation_cannot_be_bypassed(self):
+        steps = self.ci['jobs']['backend']['steps']
+        export = next(s for s in steps if 'export-task-registry.py' in s.get('run', ''))
+        steps.remove(export)
+        steps.insert(0, export)
+        with self.assertRaises(ValueError): self.check()
+        for key in ('platforms', 'provenance', 'sbom'):
+            self.setUp()
+            build = next(s for s in self.ci['jobs']['images']['steps'] if s.get('uses', '').startswith('docker/build-push-action@'))
+            build['with'].pop(key)
+            with self.assertRaises(ValueError): self.check()
+        self.setUp()
+        self.ci.get('on', self.ci.get(True)).pop('merge_group')
+        with self.assertRaises(ValueError): self.check()
+
+    def test_static_build_node_matches_ci(self):
+        docker = (ROOT / 'build/free2z/static.Dockerfile').read_text()
+        versions = re.findall(r'^FROM node:([0-9.]+)-bookworm-slim@sha256:[a-f0-9]{64} AS (?:classic|docs)$', docker, re.M)
+        self.assertEqual(versions, ['24.22.1', '24.22.1'])
+        for name in ('react', 'docs'):
+            node = next(s for s in self.ci['jobs'][name]['steps'] if s.get('uses', '').startswith('actions/setup-node@'))
+            self.assertEqual(str(node['with']['node-version']), versions[0])
+
+    def test_each_static_dependency_graph_is_audited(self):
+        self.ci['jobs']['dependency-security-static']['strategy']['matrix']['project'].pop()
+        with self.assertRaises(ValueError): self.check()
+        self.setUp()
+        step = next(s for s in self.ci['jobs']['dependency-security-static']['steps'] if s.get('run') == 'bash scripts/free2z/run-dependency-audits.sh')
+        step['continue-on-error'] = True
+        with self.assertRaises(ValueError): self.check()
+
+    def test_native_bridge_cannot_silently_skip(self):
+        self.ci['jobs']['native-payment-bridge']['env'].pop('PAYMENTD_NATIVE_BRIDGE_TEST')
+        with self.assertRaises(ValueError): self.check()
 
     def test_python_drift_fails_both_directions(self):
         for job in ['backend','dependency-security']:

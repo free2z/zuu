@@ -4,11 +4,13 @@ title: Terms of Service Agreement
 sidebar_position: 1
 ---
 
-**Effective Date: February 1, 2024**
+**Effective Date: October 16, 2026**
+
+**Changes in this version:** adds rules for third-party apps connected to a Free2Z account, including the requirements for developers whose apps are used by children; explains that the 13+ age requirement covers direct use of Free2Z and how an adult account holder can connect an app for a child; and points account termination to self-service deletion.
 
 ## Introduction
 
-Welcome to Free2Z, a dynamic and innovative platform offering a range of services including social media sharing, AI image/text generation, livestreams, and a unique revenue sharing model. By accessing or using Free2Z in any manner, including, but not limited to, visiting or browsing the site or contributing content, information, or other materials to the site, you agree to be bound by these Terms of Service. These Terms apply to all users of the site, including without limitation users who are contributors of content, information, and other materials or services on the website. Please read these Terms carefully before using our services.
+Free2Z lets you publish and share content, use AI tools, and host or watch livestreams. 2Z credits pay for platform use and can be shared within Free2Z. Qualifying pay-per-view livestream and SDK services earn USD separately under an expressly accepted creator agreement. By accessing or using Free2Z in any manner, including, but not limited to, visiting or browsing the site or contributing content, information, or other materials to the site, you agree to be bound by these Terms of Service. These Terms apply to all users of the site, including without limitation users who are contributors of content, information, and other materials or services on the website. Please read these Terms carefully before using our services.
 
 ## **Interpretation and Definitions**
 
@@ -33,7 +35,7 @@ For the purposes of these Terms and Conditions:
 - **Third-party Social Media Service** means any services or content (including data, information, products or services) provided by a third-party that may be displayed, included or made available by the Service.
 - **Free2Z** (also referred to as "Website", "platform" or "the platform" or "Free2Z platform") refers to the Free2z web application, accessible from [https://free2z.com](https://free2z.com) and [https://free2z.cash](https://free2z.cash)
 - **You** (also referred to as either "you", "your", "User", or "the User" in this agreeement) means the individual accessing or using the Service, or the company, or other legal entity on behalf of which such individual is accessing or using the Service, as applicable.
-- **2Z Tokens**: Digital units specific to the Free2Z application, used for conducting in-app transactions. These tokens are not to be construed as real money, legal tender, or any form of financial or legal instrument outside the Free2Z platform.
+- **2Z Credits** (also called tuzis): Credits used to pay for and share services within Free2Z. They cannot be cashed out and are separate from USD creator earnings owed by 2Z Inc.
 
 ## Comprehensive Agreement
 
@@ -43,18 +45,19 @@ This Terms of Service document, along with the accompanying documents listed bel
 
 1. [Privacy Policy](./02-privacy-policy.md)
 2. [User Content Agreement](./03-user-content-agreement.md)
-3. [Crypto Contribution Guidelines](./04-crypto-contribution-guidelines.md)
-4. [Token Sale and Usage Terms](./05-token-sale-and-usage-terms.md)
-5. [Revenue Share Agreement](./06-revenue-share-agreement.md)
-6. [Token Redemption Policy](./07-token-redemption-policy.md)
-7. [AML/KYC Policy](./08-aml-kyc-policy.md)
+3. [Direct Zcash Tips](./04-crypto-contribution-guidelines.md)
+4. [2Z Credits and Purchases](./05-token-sale-and-usage-terms.md)
+5. [Creator Earnings and Service Terms](./06-revenue-share-agreement.md)
+6. [Creator Payments](./07-token-redemption-policy.md)
+7. [Creator Verification](./08-aml-kyc-policy.md)
 8. [IP Rights Policy](./09-ip-rights-policy.md)
-9. [Risk Disclosure Statements](./10-risk-disclosure-statements.md)
-10. [Terms of Sale](./11-terms-of-sale.md)
+9. [Zcash and Payment Risks](./10-risk-disclosure-statements.md)
+10. [Purchases, Delivery and Refunds](./11-terms-of-sale.md)
+11. [Giveaway Terms](./12-giveaways.md)
 
 ### Agreement Acceptance
 
-By using Free2Z, You acknowledge and agree to be bound by the terms and conditions set forth in this Terms of Service document and all related policy documents as referenced above. It is your responsibility to read, understand, and comply with each of these documents, as they collectively form the basis of your legal relationship with the Company.
+Using Free2Z means you accept these general Terms and the applicable policies. Creator compensation requires separate verification and express acceptance of the full creator agreement and service terms. Using the site, posting content, or completing verification does not by itself accept that agreement. The creator earnings page explains where to read and accept it.
 
 ### Document Accessibility
 
@@ -74,9 +77,9 @@ For a full understanding of your rights and obligations, we recommend reviewing 
 
 ## Modification of Terms
 
-The Company is dedicated to continuously improving our services and ensuring they remain compliant with evolving legal and regulatory standards. Consequently, we may occasionally update these Terms of Service. Such changes will be effective immediately upon posting on our website, unless otherwise noted.
+The Company may update these Terms with notice and acceptance where required by applicable law or the affected agreement. Creator service and payment terms require your express acceptance; a general terms update does not accept them for you.
 
-We are committed to communicating changes effectively and will strive to inform you of significant updates to these Terms. Nevertheless, we encourage you to review these Terms regularly to keep abreast of any changes. Your ongoing use of Free2Z after the implementation of any changes indicates your acknowledgment and acceptance of these changes. If at any point you find that the updated Terms are not aligned with your preferences, we respect your decision to discontinue using our services.
+Changes do not cancel amounts already owed or your rights under applicable agreements and law, including mandatory consumer and refund rights. Accepted creator agreements continue to govern services already provided and accrued compensation. Review any notice before using a changed service.
 
 ## License
 
@@ -88,7 +91,7 @@ The Company reserves all rights not expressly granted in these Terms of Service.
 
 ### Account Creation and Accessibility
 
-- **Flexible Registration**: Registering on Free2Z requires just a username and password, supporting those who prefer anonymity. This simplicity grants access to our basic platform features.
+- **Flexible Registration**: Password-based registration on Free2Z requires a username, password, and CAPTCHA check, limiting the information required for basic platform features. OAuth sign-in follows the provider's account flow. Neither path hides network or browser metadata or prevents identity inference.
 - **Optional Account Enhancements**: You can optionally enhance your Free2Z experience by adding an email address for password recovery and connecting social media accounts through OAuth, ensuring secure and verified integrations.
 
 ### Information Accuracy and Updates
@@ -113,11 +116,32 @@ Free2Z champions the principle of individual liberty, encouraging users to expre
 Your engagement with Free2Z signifies your agreement to these terms, reflecting our commitment to maintaining a respectful, secure community while upholding your privacy and autonomy.
 
 ### Use of Free2Z by Minors and Blocked Persons
-Free2Z is not available to persons under the age of 13. If you are between the ages of 13 and the age of legal majority in your jurisdiction of residence, you may only use Free2Z under the supervision of a parent or legal guardian who agrees to be bound by these Terms of Service.
 
-Free2Z is also not available to any users previously removed from Free2Z by the Company or to any persons barred from receiving them under the laws of the United States (such as its export and re-export restrictions and regulations) or applicable laws in any other jurisdiction.
+In this section and the SDK sections below, an **adult** means a person who has reached the age of legal majority in their jurisdiction of residence. A **child** means a person under 13, or an older minor for whom applicable law requires the protections or parental authorization at issue; developers must also follow applicable requirements for other minors. A **child-directed app** includes an app aimed at children or at a mixed audience that includes children. Its intended audience, content, presentation and marketing matter; an app can be child-directed even if it has no text input or uploads.
 
-BY DOWNLOADING, INSTALLING, OR OTHERWISE USING FREE2Z, YOU REPRESENT THAT YOU ARE AT LEAST 13 YEARS OF AGE, THAT YOUR PARENT OR LEGAL GUARDIAN AGREES TO BE BOUND BY THESE TERMS OF SERVICE IF YOU ARE BETWEEN 13 AND THE AGE OF LEGAL MAJORITY IN YOUR JURISDICTION OF RESIDENCE, AND THAT YOU HAVE NOT BEEN PREVIOUSLY REMOVED FROM AND ARE NOT PROHIBITED FROM RECEIVING FREE2Z.
+Free2Z accounts and direct use of Free2Z are not available to persons under 13. **Direct use** means visiting or using the Free2Z website or Free2Z's own mobile applications, with or without an account, or creating, signing in to or managing a Free2Z account. It does not include a child's use of features inside a third-party app that an adult account holder has connected under the arrangement below. That arrangement does not permit a child under 13 to sign in to or use Free2Z directly. If you are between 13 and the age of legal majority in your jurisdiction of residence, you may only use Free2Z under the supervision of a parent or legal guardian who agrees to be bound by these Terms, subject to any additional age or consent requirements of applicable law.
+
+**Adult accounts connected to apps for children.** An adult may connect their own Free2Z account to a third-party app for a child in their care, subject to the developer requirements below. The adult controls the account, authorizes access and spending, and is responsible for the credits used. The child must not receive the adult's credentials or access to Free2Z account controls. Account authorization does not verify anyone's age, establish parental authority, or provide any legally required parental consent. A teacher's or another adult's authorization is not automatically a substitute for a parent's or guardian's consent.
+
+Free2Z is also not available to any users previously removed from Free2Z by the Company or to any persons barred from receiving its services under the laws of the United States (such as its export and re-export restrictions and regulations) or applicable laws in any other jurisdiction.
+
+BY DOWNLOADING, INSTALLING, OR OTHERWISE DIRECTLY USING FREE2Z, INCLUDING VISITING ITS WEBSITE WITH OR WITHOUT AN ACCOUNT, OR BY CREATING, SIGNING IN TO, OR MANAGING A FREE2Z ACCOUNT, YOU REPRESENT THAT YOU ARE AT LEAST 13 YEARS OF AGE, THAT YOUR PARENT OR LEGAL GUARDIAN AGREES TO BE BOUND BY THESE TERMS IF YOU ARE BETWEEN 13 AND THE AGE OF LEGAL MAJORITY IN YOUR JURISDICTION OF RESIDENCE, AND THAT YOU HAVE NOT BEEN PREVIOUSLY REMOVED FROM AND ARE NOT PROHIBITED FROM RECEIVING FREE2Z. CONNECTING AN ACCOUNT FOR A CHILD'S USE OF A THIRD-PARTY APP REQUIRES AN ADULT ACCOUNT HOLDER, WHO REPRESENTS THAT THEY ARE AN ADULT, MAKES THE REPRESENTATIONS ABOVE ABOUT THEMSELVES AND ACCEPTS THESE TERMS FOR THAT USE. A CHILD WHO USES FEATURES INSIDE SUCH AN APP UNDER THE ARRANGEMENT BELOW IS NOT USING FREE2Z DIRECTLY AND IS NOT ASKED TO MAKE THESE REPRESENTATIONS.
+
+### Third-Party Apps Connected to Your Account
+
+You may connect your Free2Z account to apps made by other developers. Every app receives a stable account identifier, which is the same for every app, and when and how you last signed in. Beyond that, each app receives only what you allow on the consent screen, such as your username, your 2Z balance, or the ability to spend your 2Z credits on AI features. You can remove an app's access at any time in Connected apps. Accounts without an email address can connect apps in the same way; this does not make their activity anonymous. The app's own privacy notice describes its separate collection and use of information.
+
+### SDK Developer Requirements for Apps Used by Children
+
+These requirements apply to developers using the Free2Z SDK or APIs on behalf of app users. Registering or operating an integration is subject to these Terms. A registration setting or account approval does not certify compliance with law or app-store rules.
+
+- **Declare the audience.** You must accurately classify your app and enable the child-directed setting before any use by children. This applies to child-directed and mixed-audience apps, and to any other app when you know children use its Free2Z features. Keep the classification current and do not bypass its restrictions or route children's use through an unmarked app. To remove the setting, contact help@free2z.com.
+- **Restrict what can be sent.** In an app that has, or must have, the child-directed setting enabled, including a mixed-audience app, every request must be constructed by the app from developer-controlled content and a closed set of bounded choices. For example, a curriculum app can select an explanation from a curriculum topic and a correct/incorrect result. Users must not be able to supply prompt text, substitute content, or attach images, audio, files, links or other uploads. Do not send names, contact details, school or location details, child or device identifiers, per-child profiles, conversation histories or individual learning histories. This restriction applies to all request fields, metadata, retry keys, reports and support submissions, not just the visible prompt. Do not use the adult's account identifier as a child identifier. Correctness data and other constrained choices must be minimized; their association with an account can itself be personal information and is not made anonymous by these restrictions.
+- **Keep account actions with the adult.** Before every transition from children's use to any Free2Z account page, including sign-in, registration, account switching, reconnection, consent, account management or deletion, require an adult-controlled step designed to prevent a child from completing it alone. An existing session must not bypass that step. Protect credentials and tokens, and request only the permissions the feature needs. A device unlock, biometric match or simple age assertion alone does not establish adulthood, parental authority or legally required consent.
+- **Meet your own obligations.** Provide an accurate privacy notice and obtain any permissions, notices and verifiable parental consent required for your app's processing before it occurs. Comply with applicable law, store policies and the AI provider's rules, including appropriate age restrictions and safeguards for AI outputs. Adult account ownership and provider retention controls do not remove these duties or Free2Z's own duties.
+- **Stop and report a breach of these restrictions.** Stop the affected requests promptly if you discover prohibited information or a bypass, notify help@free2z.com without copying the child's content into the report, and cooperate in containment and deletion. Free2Z may restrict or suspend an integration that violates these requirements and may request information needed to investigate or verify its operation.
+
+Free-form conversations and user uploads by children are not permitted through this SDK arrangement, even if a provider offers zero data retention. Contact help@free2z.com about an unsupported use case before enabling it. Free2Z's processing, retention and handling of accidental collection are described in the [Privacy Policy](./02-privacy-policy.md).
 
 ## Services Offered
 
@@ -126,7 +150,7 @@ Free2Z provides a versatile and evolving range of services to meet the diverse n
 - **User Profiles**: A platform for users to create and manage their personal profiles for community interaction.
 - **Content Creation and Sharing**: Tools and features that allow users to create, share, and engage with a variety of content forms, such as blogs, pages, or posts.
 - **Community Interaction**: Features for user engagement, including feedback mechanisms, discussions, and user-to-user connections.
-- **Token-Based Transactions**: The platform offers functionalities for utilizing platform-specific digital units, designated as "2Z" tokens, for various in-application activities, including but not limited to supporting fellow users and accessing exclusive content. *Please be advised: 2Z tokens are proprietary digital units utilized solely within the confines of the Free2Z platform. They do not constitute real currency, legal tender, or any form of financial instrument outside the purview of the Free2Z ecosystem.*
+- **2Z Credits**: Use credits for Free2Z services and share them with other users. Credits stay within Free2Z and cannot be cashed out. Qualifying creator services can earn separate USD amounts owed by 2Z Inc. under an expressly accepted creator agreement.
 - **AI-Enabled Features**: Advanced AI-powered capabilities for creating and interacting with content.
 - **Livestreaming and Digital Events**: A variety of live and interactive digital events, accessible in different formats and access levels.
 
@@ -166,7 +190,7 @@ The Company has the exclusive right to monetize Free2Z, including without limita
 
 To the fullest extent permitted by applicable law, the Company reserves the right, without notice and in our sole discretion, to stop providing Free2Z (or any features) to you or to users generally, to terminate this Terms of Service agreement with you, to terminate your license to use Free2Z (including to post User Content), and to block or prevent your future access to and use of the Free2Z for any reason, including without limitation if: (a) your use of Free2Z violates these Terms of Service or applicable law; (b) you fraudulently use or misuse Free2Z; or (c) we are unable to continue providing Free2Z to you due to technical or business reasons. Our right to terminate our services, this agreement, and your license includes the ability to terminate or to suspend your access to any purchased products or services, including any subscriptions.
 
-- **User-Initiated Termination**: To terminate your account, please send a request to skylar@free2z.com. We will address your request as efficiently as possible, acknowledging that some time may be required to complete this process.
+- **User-Initiated Termination**: You can delete your account yourself at [free2z.cash/account/delete](https://free2z.cash/account/delete). The account is hidden right away, you are signed out everywhere, and the account is scheduled for deletion 30 days after your request. If you sign in before then, you can choose to keep it, which cancels the deletion. Some situations, such as creator earnings still owed to you, need support first. If you cannot sign in or the page cannot delete your account, contact help@free2z.com.
 - **Consequences of Termination**: Terminating an account leads to the cessation of your rights to use the services through that specific account. We may also delete or deactivate any information and data associated with the terminated account. This action does not affect any other accounts you may have with Free2Z.
 
 We are committed to providing users with the freedom to manage their engagement with our services, in accordance with our terms and policies.
@@ -184,7 +208,7 @@ Free2Z is committed to protecting your privacy and personal information. Our dat
 - **Data Collection**: We collect information necessary to provide our services, which may include data you voluntarily provide and data related to your use of the platform.
 - **Use of Data**: The information collected is used to enhance your experience, improve our services, and comply with legal obligations.
 - **Data Protection**: We implement robust security measures to safeguard your data against unauthorized access or misuse.
-- **Sharing and Disclosure**: We do not sell your personal data. Any sharing of data is strictly in line with our Privacy Policy, which may include situations where we are legally required to disclose information.
+- **Sharing and Disclosure**: We will never sell your personal data. Any sharing of data is strictly in line with our Privacy Policy, which may include situations where we are legally required to disclose information.
 
 Your use of Free2Z constitutes your consent to our data practices as described in the Privacy Policy. We encourage you to review this policy to understand your rights and our responsibilities in detail.
 
@@ -194,13 +218,9 @@ By using the Free2Z platform, you acknowledge and agree that there are inherent 
 
 ## Compliance and Legal Obligations
 
-Free2Z operates in strict adherence to applicable laws and regulations:
+Legal duties depend on the actual service, parties and jurisdiction. The Company is responsible for reviewing applicable privacy, intellectual-property, consumer, tax and financial obligations; this page does not establish worldwide legal clearance or certify that every jurisdictional assessment is complete.
 
-- **Legal Compliance**: We are committed to complying with all relevant legal requirements, including those related to data privacy, intellectual property, and online conduct.
-- **Regulatory Observance**: As a platform that facilitates various online interactions and transactions, we adhere to regulatory standards governing these activities, especially in areas like cryptocurrency and digital content.
-- **User Cooperation**: Users are expected to use Free2Z's services in compliance with all applicable laws and regulations. Any activities found in violation may lead to account suspension or termination.
-
-This commitment ensures that Free2Z operates within the legal framework, providing a secure and compliant environment for our users.
+Users must follow applicable law and respect other users' rights. The Company may investigate reported violations and apply lawful service restrictions. Account suspension or ineligibility for future services does not itself cancel recorded debts or mandatory rights. Creator participation and payment review follow the actual accepted agreement and published schedules; identity or tax checks alone do not certify regulatory compliance.
 
 ## Disputes
 - **Indemnification**

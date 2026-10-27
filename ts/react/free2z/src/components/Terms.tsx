@@ -7,6 +7,19 @@ export default function Terms() {
             textAlign: "left"
         }}>
             <h1>Terms and Conditions</h1>
+            <p>
+                Prospective creator compensation has a separate agreement and
+                service schedules, displayed before authenticated acceptance.
+                Usage credits and recorded USD earnings have separate purposes.
+                Posting these documents or an old tax signature does not accept
+                that agreement, convert historical credits or cancel accrued
+                obligations. Read the <Link href="/docs/legal/revenue-share-agreement">
+                    current agreement and schedules
+                </Link> and <Link href="/docs/legal/token-redemption-policy">
+                    historical rights and payment information
+                </Link>. Contact help@free2z.com for delivery, refund or historical
+                claim assistance.
+            </p>
             <p>Last updated: October 17, 2022</p>
             <p>
                 Please read these terms and conditions carefully before using

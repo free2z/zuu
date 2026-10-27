@@ -7,6 +7,7 @@ import CommentVote from "./CommentVoteInfinite";
 import { CommentData } from "./DisplayThreadedComments";
 import MathMarkdown from "./MathMarkdown";
 import TransitionLink from "./TransitionLink";
+import { displayHeadline } from "../utils/commentHeadline";
 import { KeyboardArrowUp, MoveUp } from "@mui/icons-material";
 import moment from "moment";
 
@@ -55,7 +56,7 @@ function CommentCard(props: Props) {
                         </Link>
                     </Tooltip>
                 }
-                title={comment.headline}
+                title={displayHeadline(comment.headline)}
                 subheader={
                     <Link
                         style={linkStyles}

@@ -2,6 +2,9 @@
   import { Eye } from "@lucide/svelte";
   import { tStore as t } from "$lib/i18n";
   import MarkdownContent from "$lib/components/MarkdownContent.svelte";
+  import FeaturedImageFrame from "$lib/components/FeaturedImageFrame.svelte";
+
+  import { contentDirectionAttribute } from "$lib/zpage-language.js";
 
   let {
     title,
@@ -12,7 +15,21 @@
     showSubtitle,
     renderedHtml,
     mode,
+    language = null,
   } = $props();
+
+  /**
+   * The preview declares the article's language and direction on the same
+   * element the reader route declares them on, through the same helper.
+   *
+   * That identity is the point, not a convenience: "reader and editor preview
+   * agree" is only true if both answers come from one function. A creator must
+   * never approve one layout in Preview and publish another — and with Split
+   * mode they are looking at the writing surface and the preview side by side,
+   * so a disagreement is visible in a single glance.
+   */
+  const previewDirection = $derived(contentDirectionAttribute(language));
+  const previewLanguage = $derived(language || undefined);
 </script>
 
 <div
@@ -22,16 +39,18 @@
 >
   {#if title || content}
     <article
+      dir={previewDirection}
+      lang={previewLanguage}
       class="preview-content prose-styles mx-auto w-full max-w-[900px] flex-1 px-6 py-8 leading-relaxed text-foreground md:px-12 md:py-16"
     >
       {#if showCover && coverImage}
-        <div class="mb-8 aspect-[4/1] w-full overflow-hidden rounded-2xl">
-          <img
-            src={coverImage}
-            alt="Cover"
-            class="h-full w-full object-cover"
-          />
-        </div>
+        <FeaturedImageFrame
+          src={coverImage}
+          alt={$t("editor.coverImageAlt", "Article cover")}
+          loading="eager"
+          fit="contain"
+          class="f2z-editorial-hero-frame mb-8 w-full rounded-2xl"
+        />
       {/if}
       {#if title}
         <h1
@@ -124,9 +143,14 @@
     font-size: 0.875rem;
     line-height: 1.6;
   }
+  /* Logical, not left/right: this pane renders the ARTICLE, and in an RTL
+     article the quote bar and the list indent belong on the other side.
+     The reader's `prose` (Tailwind Typography) is already logical throughout,
+     so these three rules were the only place the preview could disagree with
+     the page it is previewing. */
   .prose-styles :global(blockquote) {
-    border-left: 4px solid var(--primary);
-    padding-left: 1rem;
+    border-inline-start: 4px solid var(--primary);
+    padding-inline-start: 1rem;
     margin: 1.5rem 0;
     color: var(--muted-foreground);
     font-style: italic;
@@ -134,7 +158,7 @@
   .prose-styles :global(ul),
   .prose-styles :global(ol) {
     margin: 1.25rem 0;
-    padding-left: 1.75rem;
+    padding-inline-start: 1.75rem;
   }
   .prose-styles :global(ul) {
     list-style-type: disc;
@@ -159,7 +183,12 @@
   .prose-styles :global(ol ol ol) {
     list-style-type: lower-roman;
   }
-  .prose-styles :global(img) {
+  /* MarkdownContent owns the only raw HTML in this article. Keep prose image
+     rules behind that structural boundary: FeaturedImageFrame is a sibling
+     component, not markdown, and its internal SmoothImage must keep its
+     full-frame sizing and zero margins even if its implementation grows more
+     images later. */
+  .prose-styles > :global(.markdown-content) :global(img) {
     max-width: 100%;
     height: auto;
     border-radius: 0.5rem;
@@ -180,7 +209,7 @@
     color: var(--foreground);
     font-weight: 600;
     padding: 0.75rem 1rem;
-    text-align: left;
+    text-align: start;
     border-bottom: 2px solid var(--border);
   }
   .prose-styles :global(td) {

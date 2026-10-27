@@ -47,6 +47,32 @@ AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",
 ]
 
+# WebAuthn relying party for dj.apps.efm, which this standalone project
+# installs above. The relying-party ID and expected origins are the binding a
+# passkey is verified against before its public key is written, so they are
+# configuration and there is no request-derived fallback.
+#
+# NOTE: dj.apps.efm is currently OFFLINE -- this project's URLconf and ASGI
+# router no longer reach it, so nothing reads these settings and the efm
+# system check that used to validate them is no longer registered. They are
+# kept, not live. See dj/apps/efm/__init__.py; anyone re-routing the app must
+# re-register that check in the same commit.
+#
+# These are the local-development values -- the React dev server on:3000
+# talking to Django on:8000; override for any real deployment.
+WEBAUTHN_RP_ID = os.environ.get('WEBAUTHN_RP_ID', '').strip().lower() or 'localhost'
+WEBAUTHN_RP_NAME = os.environ.get('WEBAUTHN_RP_NAME', '').strip() or 'Free2Z EFM'
+WEBAUTHN_EXPECTED_ORIGINS = [
+    o.strip().rstrip('/')
+    for o in os.environ.get('WEBAUTHN_EXPECTED_ORIGINS', '').split(',')
+    if o.strip().rstrip('/')
+] or [
+    'https://localhost:3000',
+    'http://localhost:3000',
+    'http://localhost:8000',
+    'https://localhost:8000',
+]
+
 # Override in production
 CHANNEL_LAYERS = {
     "default": {
@@ -101,8 +127,6 @@ LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 
 USE_I18N = True
-
-USE_L10N = True
 
 USE_TZ = True
 

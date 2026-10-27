@@ -1,0 +1,12 @@
+# Test-only dependencies (CI + local test runs). Not installed in the
+# production image — see docker/py3base/Dockerfile, which installs main.txt.
+factory_boy
+pytest
+# Collection-aware sharding for the fixed eight-way backend CI matrix.
+# CI reads the committed per-test measurements from `py/.test_durations`.
+# The scheduled backend-duration workflow refreshes those measurements on
+# main; PR jobs only read them, so a shard matrix always uses one shared file.
+pytest-split==0.11.0
+pytest-asyncio
+pytest-django
+pytest-mock

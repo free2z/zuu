@@ -1,0 +1,112 @@
+{
+  "provenance": "OpenSSL/cryptography fixed public test keys 1 and 2, plus existing Rust wallet-plugin vector. Signatures verified by OpenSSL; old verifier used only to select compact recovery parity. Digests and addresses independently encoded. High-ID fixtures are synthetic Coincurve recovery inputs, explicitly outside accepted protocol.",
+  "valid": [
+    {
+      "name": "empty",
+      "text": "",
+      "repeat": 1,
+      "digest": "1e3aaf90ea88a4fae4a8f3d597110ce136fb8f478d1c53abc2a76f337a18cec7",
+      "pubkey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+      "address": "t1UYsZVJkLPeMjxEtACvSxfWuNmddpWfxzs",
+      "signature": "IFpBZLiSahMUKMsoEApgpVOCW6IDavmZCsilmlqUPfenZDzfttiSiIj93X5DHzHpOronWNQ8McXIga3Uj5jbhxQ="
+    },
+    {
+      "name": "unicode",
+      "text": "Zcash \u96ea \ud83d\udc07 caf\u00e9",
+      "repeat": 1,
+      "digest": "3dda045a60fe1bc438a8be5ca3089b06e4b07531b03a15131423f82d7b1d9c5e",
+      "pubkey": "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+      "address": "t1JUxhMSGFmzKY5BTp1PsQwG4Ceq642SmnB",
+      "signature": "H2nw6zAlfFx8PRXe+JCRW69CfQIEmXpoUPvv+uc8cTx7cZDz1i+tFVApsiFdRSMSXpOdegtHQXwDDlAGYTtU4lc="
+    },
+    {
+      "name": "compact-252",
+      "text": "a",
+      "repeat": 252,
+      "digest": "d6695039e2ec4642e33944cc12559b62340b2f2ad972a55acb0a7ea21429916f",
+      "pubkey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+      "address": "t1UYsZVJkLPeMjxEtACvSxfWuNmddpWfxzs",
+      "signature": "H54FTZi5wgJyhw4Tk/D2wSbYAem9ICA2Zs+Ws4ADVEDtfh42Dxiy3rG2qCOcXJmImVBR+p7PvoFZonZu/YTB+zY="
+    },
+    {
+      "name": "compact-253",
+      "text": "a",
+      "repeat": 253,
+      "digest": "73d4957a7b7ce4dc17b80973e5223c945abbcfeb8f0d31080a3c2010578bc341",
+      "pubkey": "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+      "address": "t1JUxhMSGFmzKY5BTp1PsQwG4Ceq642SmnB",
+      "signature": "H04hUr5w5j4ust/iqdnkwUa9xb1wyDlWmdF6l8xSrN3Becy2R1laX1CPPduNZl8a6/rRUk9NbVzmdYWz3lJmiLI="
+    },
+    {
+      "name": "compact-65535",
+      "text": "a",
+      "repeat": 65535,
+      "digest": "028141e514c6264a663f99db55841aa2562da7627ac025f6dfeeb1a23d15700d",
+      "pubkey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+      "address": "t1UYsZVJkLPeMjxEtACvSxfWuNmddpWfxzs",
+      "signature": "H2ZJKfLjgSgcoDmaVqpyVOtWG65DaTyhxTkaX5cwhRDTAsSp4l1437Yvj+kE0wN/RpEKvPZ5Mcusfy0jscqJ4M0="
+    },
+    {
+      "name": "compact-65536",
+      "text": "a",
+      "repeat": 65536,
+      "digest": "eb3be60868d8da50a5843e4d6d32fd6a099de07e512d6c8e63c467f2edd88b44",
+      "pubkey": "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+      "address": "t1JUxhMSGFmzKY5BTp1PsQwG4Ceq642SmnB",
+      "signature": "ICm3LDnz0Yp7YC+NGwL9omqXv15Z5ks0LT/pUj6aIymxRhacuZoF9vsItMZav4n/q8OKNz0qz4Odxf6hyAnTd70="
+    },
+    {
+      "name": "rust-wallet-plugin",
+      "text": "ZUULI login challenge: 2026-07-18T00:00:00Z nonce=deadbeef",
+      "repeat": 1,
+      "digest": "215b439ebca0ed46ffa4fd6d161bcf4da860643dfaf544424ec07064cda917a0",
+      "pubkey": "026e8698de2c0d8eeedf93db25c808f271a5a9bf95191d2697fef4593281f815b1",
+      "address": "t1f3vC5hEbAwJdheoFbwaBYssj2Hwp3MFXX",
+      "signature": "IP5b5GpnexctRgyoCK9DH/PVCEUpU1InZOOBEiao65wUHzgc2/Q9/xZGUeLlu+5AACX1QGd/TCbbeqB3ZefwZOU="
+    }
+  ],
+  "unsupported_recovery_ids": [
+    {
+      "recovery_id": 2,
+      "message": "unsupported recovery ID",
+      "signature": "IQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE=",
+      "address": "t1Y2uTZsnGYqD6iKJtcCL56ZukLQUNPcJmS"
+    },
+    {
+      "recovery_id": 3,
+      "message": "unsupported recovery ID",
+      "signature": "IgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE=",
+      "address": "t1P8GtHMqm9FM74naHVLWjpkyoTcKwpVup7"
+    }
+  ],
+  "invalid_scalars": [
+    {
+      "message": "public compatibility fixture",
+      "address": "t1LCqWHygpGeU9cWAh53x9kZN8fKL7nRnYG",
+      "signature": "HwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "r": "2",
+      "s": "0"
+    },
+    {
+      "message": "public compatibility fixture",
+      "address": "t1LCqWHygpGeU9cWAh53x9kZN8fKL7nRnYG",
+      "signature": "HwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC/////////////////////rqu3OavSKA7v9JejNA2QUE=",
+      "r": "2",
+      "s": "115792089237316195423570985008687907852837564279074904382605163141518161494337"
+    },
+    {
+      "message": "public compatibility fixture",
+      "address": "t1XrV1kYVqFyRHFBWaHqeYTBdC6ce28XifX",
+      "signature": "HwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC/////////////////////rqu3OavSKA7v9JejNA2QUI=",
+      "r": "2",
+      "s": "115792089237316195423570985008687907852837564279074904382605163141518161494338"
+    },
+    {
+      "message": "public compatibility fixture",
+      "address": "t1a3aLHCcUfUkbBnPKPLTLbc8ZH4jUVQAfX",
+      "signature": "H/////////////////////66rtzmr0igO7/SXozQNkFDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE=",
+      "r": "115792089237316195423570985008687907852837564279074904382605163141518161494339",
+      "s": "1"
+    }
+  ]
+}

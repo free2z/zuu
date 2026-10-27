@@ -1,0 +1,47 @@
+{
+  "id": "d13ce388-541a-4138-bac1-3f169d728004",
+  "rail": "zcash",
+  "status": "pending",
+  "quantity_2z": 100,
+  "price": {
+    "currency": "USD",
+    "amount_minor": 112
+  },
+  "pricing_version": "zec-funding-v2",
+  "created_at": "2026-10-11T03:49:59.283344Z",
+  "expires_at": "2026-10-11T04:19:59.283344Z",
+  "credited_at": null,
+  "credited_milli_2z": null,
+  "can_replace_instruction": false,
+  "usage_credited_m2z": null,
+  "usage_debt_repaid_m2z": null,
+  "rail_data": {
+    "address": "zs1lm4vumxdpuz08w237n0lpxz490uq5nxasz6mql555f96hql4h7kc3ucf2a42j7mp0slck2uvjjk",
+    "amount_zec": "0.01111112",
+    "memo": "{\"act\":\"buy_2z\",\"id\":\"user25\",\"intent\":\"d13ce388-541a-4138-bac1-3f169d728004\",\"proof\":\"575d0905c3bcf090f9e10d296eb93537f66219b74d6d5533071ff5a078c044f9\"}",
+    "gross_usd": "1.111112000",
+    "associated_value_usd": "1.000000000",
+    "payment_observed": false
+  },
+  "zcash_funding": {
+    "funding_method_version": "zec-funding-v2",
+    "funding_method_digest": "faa147f22adab5567ca3fb9594857657266dbf31617f29d33b5556d3c3994cd9",
+    "funding_method_text": "Zcash funding method: zec-funding-v2\n\nThis is an optional purchase of platform usage credits from 2Z Inc.; it is separate from creator USD payments. Creating an authenticated funding intent reserves a quote and funding capacity. It does not send Zcash or prove that any credits have been issued. Review the original quoted quantity, destination, amount, memo, price and deadline before instructing your wallet to send.\n\nThe quoted sell rate is the recorded multi-source external ZEC/USD spot price multiplied by (1 - 0.10) and by 100 tuzis per USD, rounded down to four decimal places. Thus the rate supplies 90% of nominal spot-value credits per ZEC; it is not spot divided by 1.10. The quoted ZEC amount is the requested quantity divided by that exact displayed sell rate, rounded up to eight ZEC decimal places. This can add less than one zatoshi. No bonus credits are promised. The gross USD spot value and restricted nominal associated value are displayed separately and need not be equal. Your wallet's network fee is separate from the quoted amount sent to the company.\n\nUse the exact destination and original intent matching memo and send the exact quoted amount within the 30-minute send window. The memo contains a stored random purchase matching token. It binds the originally authenticated named buyer's instruction and recipient; it does not independently identify a shielded on-chain sender. A timely first observation by the company's receiving process preserves that original quote through later confirmations. A local wallet send timestamp alone is not proof of timely company receipt.\n\nActual required confirmations and source matching precede credit issuance. A captured transfer that cannot be issued because of funding limits, an unavailable writer, an expired or mismatched instruction or unverified provenance remains under recorded resolution. Preserve the original intent and receipt references; do not create a new payment instruction merely because confirmation or credit issuance is uncertain. The company must resolve actual delivery or a required refund against the original source. Mandatory refund, consumer and unclaimed-property rights and historical rights are preserved. Publication of this method does not activate an unavailable funding writer or establish worldwide legal clearance.\n",
+    "address": "zs1lm4vumxdpuz08w237n0lpxz490uq5nxasz6mql555f96hql4h7kc3ucf2a42j7mp0slck2uvjjk",
+    "amount_zec": "0.01111112",
+    "memo": "{\"act\":\"buy_2z\",\"id\":\"user25\",\"intent\":\"d13ce388-541a-4138-bac1-3f169d728004\",\"proof\":\"575d0905c3bcf090f9e10d296eb93537f66219b74d6d5533071ff5a078c044f9\"}",
+    "gross_usd": "1.111112000",
+    "associated_value_usd": "1.000000000",
+    "payment_observed": false,
+    "quoted_at": "2026-10-11T03:49:59.237595+00:00",
+    "source_names": [
+      "coinbase",
+      "kraken"
+    ],
+    "zec_usd": "100.000000",
+    "spread": "0.1000",
+    "tuzis_per_zec": "9000.0000",
+    "bonus_m2z": "0",
+    "expires_at": "2026-10-11T04:19:59.283344Z"
+  }
+}

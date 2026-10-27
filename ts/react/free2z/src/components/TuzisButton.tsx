@@ -17,10 +17,10 @@ export const SBadge = styled(Badge)(({ theme }) => ({
         // fontWeight: "100",
         // (theme.palette.background.paper,
         // opacity: 0.5,
-        // color: theme.palette.mode === "light" ? "black" : "white",
-        // color: theme.palette.mode === "light" ? "#000" : "#fff",
+        // color: theme.palette.mode === "light" ? "black": "white",
+        // color: theme.palette.mode === "light" ? "": "#fff",
     },
-    // "& .MuiTypography-root": {
+    // "&.MuiTypography-root": {
     //     opacity: 1, // Set the opacity of the text to 1 (fully opaque)
     // },
 }))

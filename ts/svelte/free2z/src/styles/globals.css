@@ -5,9 +5,17 @@
 
 @custom-variant dark (&:is(.dark *));
 
-:root {
-  scroll-behavior: smooth;
+/* Keep touch scrolling available without showing a scrollbar in compact menus. */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
 
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+:root {
   /* Free2Z Design System - Light Mode
    *
    * Neutral warm-gray surfaces — NO green tint.
@@ -26,16 +34,16 @@
 
   --f2z-text-primary: #18181b;
   --f2z-text-secondary: #27272a;
-  --f2z-text-muted: #71717a;
+  --f2z-text-muted: #62626a;
   --f2z-text-tertiary: #a1a1aa;
 
-  --f2z-accent-primary: #65a30d;
-  /* Lime-600 — darker for readability on light bg */
-  --f2z-accent-hover: #4d7c0f;
-  /* Lime-700 */
-  --f2z-accent-light: #84cc16;
-  /* Lime-500 */
-  --f2z-accent-secondary: #4d7c0f;
+  --f2z-accent-primary: #456d0f;
+  /* Accessible signal lime for text and controls in light mode. */
+  --f2z-accent-hover: #3f6212;
+  /* Lime-800 */
+  --f2z-accent-light: #65a30d;
+  /* Original signal lime, reserved for non-text decorative emphasis. */
+  --f2z-accent-secondary: #456d0f;
 
   --f2z-border-primary: rgba(0, 0, 0, 0.1);
   --f2z-border-secondary: rgba(0, 0, 0, 0.05);
@@ -114,6 +122,51 @@
   --sidebar-accent-foreground: var(--f2z-text-primary);
   --sidebar-border: var(--f2z-border-secondary);
   --sidebar-ring: var(--f2z-accent-hover);
+
+  /* The published image hero and editor Preview share this responsive frame.
+   * Keep the default values free of viewport units: an unsupported engine must
+   * be able to compute this variable, rather than invalidating the declaration
+   * that was meant to be its fallback. The svh values are layered below only
+   * when the engine has declared support for them. */
+  --f2z-editorial-hero-height: 22rem;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --f2z-editorial-hero-height: 24rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --f2z-editorial-hero-height: 26rem;
+  }
+}
+
+@supports (height: 1svh) {
+  :root {
+    --f2z-editorial-hero-height: clamp(17rem, 44svh, 28rem);
+  }
+
+  @media (min-width: 640px) {
+    :root {
+      --f2z-editorial-hero-height: clamp(19rem, 48svh, 32rem);
+    }
+  }
+
+  @media (min-width: 1024px) {
+    :root {
+      --f2z-editorial-hero-height: clamp(21rem, 52svh, 34rem);
+    }
+  }
+}
+
+/* FeaturedImageFrame owns the element receiving this class, so this helper
+ * intentionally lives in the global stylesheet rather than a parent scope.
+ * Keep it unlayered: this editorial height contract must win over a generic
+ * Tailwind `h-*` utility if one is ever added to the frame. */
+.f2z-editorial-hero-frame {
+  height: var(--f2z-editorial-hero-height);
 }
 
 .dark {
@@ -224,8 +277,84 @@
     @apply border-border outline-ring/50;
   }
 
+  /*
+   * A pointer is part of the affordance for enabled controls, not a styling
+   * detail each call site should have to remember. Keep this selector inside
+   * `:where()` so an intentional cursor utility (text, move, resize, zoom,
+   * and so on) remains the more specific contract. Disabled controls are
+   * excluded here because their component owns the appropriate explanation
+   * cursor (`not-allowed` or the primitive's inert/default cursor).
+   * `label[for]` is deliberately absent: it cannot state-match a disabled
+   * control elsewhere in the document, so a `for`-associated label opts in
+   * at its call site. A label that WRAPS its control is covered by the
+   * separate rule below.
+   */
+  :where(
+    a[href],
+    button,
+    summary,
+    select,
+    input[type="button"],
+    input[type="submit"],
+    input[type="reset"],
+    input[type="image"],
+    input[type="checkbox"],
+    input[type="radio"],
+    [role="button"],
+    [role="link"],
+    [role="combobox"]:not(input):not(textarea),
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="option"],
+    [role="tab"],
+    [role="checkbox"],
+    [role="radio"],
+    [role="switch"],
+    [role="treeitem"],
+    [data-select-scroll-up-button],
+    [data-select-scroll-down-button],
+    [data-combobox-scroll-up-button],
+    [data-combobox-scroll-down-button]
+  ):where(:not(:disabled):not([aria-disabled="true"]):not([data-disabled])) {
+    cursor: pointer;
+  }
+
+  /*
+   * A label that wraps an action/choice control activates that control when
+   * clicked (#1498 follow-up), so it gets the same pointer — and loses it the
+   * moment anything inside it is disabled, which `label[for]` cannot express.
+   * Only action/choice controls count: a label wrapping a text field focuses
+   * it, and that is not a pointer affordance. `[role=checkbox|radio|switch]`
+   * covers the shared Checkbox/Switch primitives, which render a `<button>`.
+   * Kept as its own rule so an engine that rejected `:has()` would drop only
+   * this, never the baseline above; still zero-specificity `:where()`.
+   */
+  :where(
+    label:has(
+        :is(
+          input[type="checkbox"],
+          input[type="radio"],
+          input[type="file"],
+          [role="checkbox"],
+          [role="radio"],
+          [role="switch"]
+        )
+      ):not(:has(:disabled, [aria-disabled="true"], [data-disabled])):not(
+        [aria-disabled="true"]
+      ):not([data-disabled])
+  ) {
+    cursor: pointer;
+  }
+
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    scroll-behavior: auto;
   }
 }
 
@@ -242,6 +371,26 @@ body {
 
 .markdown-content .katex {
   color: var(--foreground);
+}
+
+/*
+ * Mathematics is left-to-right inside a right-to-left article (#1930, codex
+ * adversarial review, second pass). `dir="rtl"` on the content container is
+ * inherited all the way down, KaTeX's own stylesheet declares no `direction`
+ * (checked: `katex.min.css` contains `flex-direction` and nothing else), and
+ * its renderer lays an expression out as a row of inline-block groups whose
+ * visual order reverses. `$$a = b + c$$` came out backwards while the source
+ * a reader copies was unchanged.
+ *
+ * `unicode-bidi: isolate` for the same reason as the code rule in
+ * `MarkdownContent.svelte`: inline math must be laid out LTR AND must not
+ * reorder the Arabic sentence it sits in.
+ */
+.markdown-content .katex,
+.markdown-content .katex-display,
+.markdown-content .math {
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 .markdown-content .katex-display {
@@ -287,6 +436,37 @@ body {
 .glass-card {
   @apply border border-border/60 bg-white/80 shadow-xs backdrop-blur-md dark:border-primary/10 dark:bg-card/40 dark:shadow-none;
 }
+
+/* Soft decorative glows without oversized blur-filter textures. */
+.glow-radial {
+  background-image: radial-gradient(
+    circle at center,
+    color-mix(in srgb, var(--primary), transparent 85%) 0%,
+    color-mix(in srgb, var(--primary), transparent 93%) 45%,
+    transparent 72%
+  );
+}
+
+.glow-linear {
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--primary), transparent 93%),
+    transparent 70%
+  );
+}
+
+/* Below md every card is a row in a scrolling feed, and each `backdrop-filter`
+ * is its own composited layer that Safari re-blurs as content moves under it —
+ * the single largest source of layer count on a list page (#510). Phones get a
+ * near-opaque fill instead, which is visually indistinguishable over the page
+ * background and costs nothing. Desktop keeps the glass look. */
+@media (max-width: 767px) {
+  .glass-card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    @apply bg-white/95 dark:bg-card/90;
+  }
+}
 .mesh-gradient {
   background-color: var(--background);
   background-image:
@@ -310,4 +490,146 @@ body {
       color-mix(in srgb, var(--primary), transparent 97%) 0px,
       transparent 50%
     );
+}
+
+/* ---------------------------------------------------------------------------
+ * Script coverage for content we already sell (#1930, #1904 item 5)
+ *
+ * Two different problems, and only one of them is "tofu".
+ *
+ * A. GLYPH COVERAGE. Measured on macOS 15 / Chromium 140 against the stack
+ *    above, at 48px, comparing rendered ink against an unassigned private-use
+ *    code point: Ethiopic, Sinhala, Myanmar, Georgian, Armenian, Bengali,
+ *    Tamil, Telugu, Han, Kana, Hangul, Arabic, Hebrew, Thai, Khmer and Lao all
+ *    render real glyphs today — `sans-serif` reaches the OS cascade and the OS
+ *    has them. So this is NOT a live tofu bug on macOS. It is one on a Linux
+ *    or ChromeOS box with a thin font package, which is why the named system
+ *    families below are appended. They cost nothing: no webfont is downloaded,
+ *    and a family that appears AFTER `sans-serif` is only ever consulted for a
+ *    code point every earlier family lacks — so Latin rendering is unchanged,
+ *    byte for byte.
+ *
+ * B. HAN UNIFICATION, which IS live and IS ours. `zh-Hans`, `zh-Hant`,
+ *    `yue-Hant` and `ja` share code points and print them differently. Measured
+ *    the same way: with the generic stack, `骨直令高青` renders to a
+ *    BYTE-IDENTICAL bitmap under lang="zh-Hans", "zh-Hant", "yue-Hant", "ja",
+ *    "ko" and "en" — the `lang` attribute #1907 added does not, on its own,
+ *    select regional glyphs. Naming a regional family per language does: each
+ *    of the five then renders a distinct bitmap. That is what the rules below
+ *    are for, and it is the only reason they PREPEND rather than append.
+ *
+ * Scoped to `[data-content-lang]` — the article body, headline and description
+ * — and not to `:root`. `<html lang>` names the ARTICLE's language on a reader
+ * route (#1907), so a global rule would repaint the product chrome in a
+ * Chinese font for an English-reading visitor. Content direction and chrome
+ * direction are independent axes (#980 §2 principle 8) and so is this.
+ * --------------------------------------------------------------------------- */
+
+:root {
+  /* The base stack Tailwind's preflight puts on `html`, with the script
+     fallbacks of (A) appended. `--default-font-family` is what preflight
+     actually reads; declaring it here, unlayered, outranks the `@layer theme`
+     copy Tailwind emits from its own default theme. */
+  --f2z-font-base:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    "Noto Sans", Arial, sans-serif, "Noto Sans Arabic", "Geeza Pro",
+    "Noto Sans Hebrew", "Arial Hebrew", "Noto Sans Thai", Thonburi,
+    "Leelawadee UI", "Noto Sans Lao", "Lao Sangam MN", "Noto Sans Khmer",
+    "Khmer Sangam MN", "Noto Sans Myanmar", "Myanmar Text", "Myanmar MN",
+    "Noto Sans Ethiopic", Kefa, Nyala, "Noto Sans Sinhala", "Sinhala Sangam MN",
+    "Iskoola Pota", "Noto Sans Georgian", Sylfaen, "Noto Sans Armenian",
+    Mshtakan, "Noto Sans Bengali", "Bangla Sangam MN", "Nirmala UI",
+    "Noto Sans Tamil", "Tamil Sangam MN", "Noto Sans Telugu",
+    "Telugu Sangam MN", "Noto Sans Devanagari", "Devanagari Sangam MN",
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --default-font-family: var(--f2z-font-base);
+
+  --f2z-font-han-sc:
+    "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Noto Sans SC",
+    "Source Han Sans SC", "Microsoft YaHei", "Heiti SC";
+  --f2z-font-han-tc:
+    "PingFang TC", "Noto Sans CJK TC", "Noto Sans TC", "Source Han Sans TC",
+    "Microsoft JhengHei", "Heiti TC", PMingLiU;
+  /* Cantonese is written in traditional script, but Hong Kong has its own
+     regional forms; fall through to TC rather than to SC (#1904). */
+  --f2z-font-han-hk:
+    "PingFang HK", "Noto Sans CJK HK", "Noto Sans HK", var(--f2z-font-han-tc);
+  --f2z-font-kana:
+    "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP",
+    "Noto Sans JP", "Yu Gothic", Meiryo;
+  --f2z-font-hangul:
+    "Apple SD Gothic Neo", "Noto Sans CJK KR", "Noto Sans KR", "Malgun Gothic",
+    NanumGothic;
+}
+
+/* Source order is the cascade here: every one of these is specificity 0-2-0
+   (one attribute selector plus one pseudo-class), so a later rule wins a tie.
+   Simplified is the default for `zh` — `:lang(zh)` matches `zh-Hans`, `zh-CN`
+   and bare `zh` — and the traditional-script tags below take it back. */
+[data-content-lang]:lang(zh) {
+  font-family: var(--f2z-font-han-sc), var(--f2z-font-base);
+}
+
+[data-content-lang]:lang(zh-Hant),
+[data-content-lang]:lang(zh-TW),
+[data-content-lang]:lang(zh-HK),
+[data-content-lang]:lang(zh-MO) {
+  font-family: var(--f2z-font-han-tc), var(--f2z-font-base);
+}
+
+/* An EXPLICIT script outranks a region that disagrees with it, and it has to be
+   said AFTER the regional rules to win the tie.
+ *
+ * DEFENSIVE, and measured as such. The codex review flagged `zh-Hans-HK`
+ * matching `:lang(zh-HK)` above, which is what Selectors-4 extended filtering
+ * says should happen. Chromium 140 does not implement it: probed directly,
+ * `zh-Hans-HK` matches `:lang(zh)` and `:lang(zh-Hans)` and NOT `:lang(zh-HK)`,
+ * and `zh-Hant-HK` likewise matches only `:lang(zh)` and `:lang(zh-Hant)`. So
+ * these two rules change nothing in the engine we ship to today, and the
+ * browser spec that covers them passes with or without them — said plainly in
+ * the PR rather than counted as coverage.
+ *
+ * They stay because they cost two selectors and they are the spec-correct
+ * answer the day an engine does implement extended filtering: a stated script
+ * is a statement, never an inference for a region to override. Same shape and
+ * same reason as the `yue-Hans` rule below. */
+[data-content-lang]:lang(zh-Hans) {
+  font-family: var(--f2z-font-han-sc), var(--f2z-font-base);
+}
+
+[data-content-lang]:lang(zh-Hant) {
+  font-family: var(--f2z-font-han-tc), var(--f2z-font-base);
+}
+
+[data-content-lang]:lang(yue) {
+  font-family: var(--f2z-font-han-hk), var(--f2z-font-base);
+}
+
+[data-content-lang]:lang(yue-Hans) {
+  font-family: var(--f2z-font-han-sc), var(--f2z-font-base);
+}
+
+[data-content-lang]:lang(ja) {
+  font-family: var(--f2z-font-kana), var(--f2z-font-base);
+}
+
+[data-content-lang]:lang(ko) {
+  font-family: var(--f2z-font-hangul), var(--f2z-font-base);
+}
+
+/* A stable composited surface: moving a viewport-wide backdrop filter makes
+   the scrolling content underneath part of every animation frame's work. */
+.scroll-topbar {
+  transform: translate3d(0, 0, 0);
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+.scroll-topbar[data-scroll-hidden="true"] {
+  /* Carry the shadow offscreen too, without changing document flow. */
+  transform: translate3d(0, calc(-100% - 1rem), 0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .scroll-topbar {
+    transition: none;
+  }
 }

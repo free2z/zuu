@@ -41,8 +41,8 @@ Free2Z is a platform for peer to peer communication, collaboration, and commerce
 const P2P_URL = "https://free2z.com/uploadz/public/free2z/A2z-16-9.webp"
 //
 const Z2Z_TEXT = `
-Z to Z with Free2Z. Free2Z is all about privacy, security, and freedom.
-Use Zcash to connect with people on Free2Z using Z2Z technology.
+Z to Z with Free2Z. Send direct Zcash support with the privacy options provided by your wallet.
+Use Zcash to connect with people on Free2Z through a creator's published address.
 `
 const Z2Z_URL = "https://free2z.com/uploadz/public/free2z/A2z-16-9.webp"
 //

@@ -18,7 +18,7 @@ import { createTheme } from "@mui/material";
 //     500: "#fc6852",
 // }
 // const lightError = {
-//     500: "#800020",
+//     500: "",
 // }
 // const lightSuccess = {
 //     500: "#39a35b",

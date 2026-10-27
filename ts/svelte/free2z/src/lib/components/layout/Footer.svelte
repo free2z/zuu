@@ -2,22 +2,45 @@
   import {
     ArrowUpRight,
     BookOpen,
-    Github,
     Heart,
     LockKeyhole,
     MessageCircleQuestion,
+    MessagesSquare,
+    TrendingUp,
+    Users,
   } from "@lucide/svelte";
-  import { loading, tStore as t } from "$lib/i18n";
+  import GitHubBrandIcon from "$lib/components/GitHubBrandIcon.svelte";
+  import { loading, locale, tStore as t } from "$lib/i18n";
   import LanguageSelector from "$lib/components/layout/LanguageSelector.svelte";
   import ModeToggle from "$lib/components/layout/ModeToggle.svelte";
+  import { EXPLORE_LINKS } from "$lib/nav-links.js";
+
+  export let flush = false;
+  export let hideOnMobile = false;
+
+  // The Explore column renders from `$lib/nav-links.js` — the same list the
+  // mobile menu uses — so the two entry points cannot drift. The Resources and
+  // Legal columns below are still hand-written; folding them on is worth doing
+  // and is not this change.
+  const EXPLORE_ICONS: Record<string, typeof MessagesSquare> = {
+    "/creators": Users,
+    "/trending": TrendingUp,
+    "/converse": MessagesSquare,
+  };
 
   const year = new Date().getFullYear();
   const linkClass =
     "group inline-flex w-fit items-center gap-1.5 text-sm text-(--f2z-text-muted) transition-colors hover:text-(--f2z-text-primary) focus-visible:text-(--f2z-accent-primary) focus-visible:outline-none";
 </script>
 
+<!-- See the note in Navbar.svelte: the chrome declares the UI language it is
+     written in, because `<html lang>` names the content's. -->
 <footer
-  class="relative mt-16 overflow-hidden border-t border-(--f2z-border-primary) bg-(--f2z-bg-secondary)"
+  lang={$locale}
+  class:mt-16={!flush}
+  class="relative overflow-hidden border-t border-(--f2z-border-primary) bg-(--f2z-bg-secondary) {hideOnMobile
+    ? 'hidden md:block'
+    : ''}"
   aria-label={$t("footer.label", "Site footer")}
 >
   <div class="pointer-events-none absolute inset-0" aria-hidden="true">
@@ -37,7 +60,7 @@
     class="relative mx-auto max-w-7xl px-5 pt-12 pb-6 sm:px-8 sm:pt-14 lg:px-10"
   >
     <div
-      class="grid gap-10 border-b border-(--f2z-border-primary) pb-10 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1.15fr] lg:gap-12"
+      class="grid gap-10 border-b border-(--f2z-border-primary) pb-10 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr_1.1fr] lg:gap-10"
     >
       <div class="max-w-sm sm:col-span-2 lg:col-span-1">
         <a
@@ -79,6 +102,34 @@
           <ArrowUpRight class="size-2.5 text-(--f2z-text-muted)" />
         </a>
       </div>
+
+      <nav
+        aria-label={$t("navigation.explore", "Explore")}
+        data-testid="footer-explore"
+      >
+        <h2
+          class="text-xs font-semibold tracking-[0.14em] text-(--f2z-text-secondary) uppercase"
+        >
+          {$t("navigation.explore", "Explore")}
+        </h2>
+        <ul class="mt-4 space-y-3">
+          {#each EXPLORE_LINKS as link (link.href)}
+            <li>
+              <a
+                href={link.href}
+                data-sveltekit-reload={link.reload ? true : undefined}
+                class={linkClass}
+              >
+                <svelte:component
+                  this={EXPLORE_ICONS[link.href] ?? ArrowUpRight}
+                  class="size-4 text-(--f2z-text-tertiary) transition-colors group-hover:text-(--f2z-accent-primary)"
+                />
+                {$t(link.key, link.fallback)}
+              </a>
+            </li>
+          {/each}
+        </ul>
+      </nav>
 
       <nav aria-label={$t("footer.resources", "Resources")}>
         <h2
@@ -164,7 +215,7 @@
             rel="noreferrer"
             class="grid size-8 place-items-center rounded-full border border-(--f2z-border-primary) bg-(--f2z-bg-primary)/60 text-(--f2z-text-muted) transition-all hover:-translate-y-0.5 hover:border-(--f2z-accent-primary)/45 hover:text-(--f2z-text-primary) focus-visible:ring-2 focus-visible:ring-(--f2z-accent-primary)/30 focus-visible:outline-none"
             aria-label={$t("footer.githubLabel", "Free2Z on GitHub")}
-            ><Github class="size-3.5" /></a
+            ><GitHubBrandIcon class="size-3.5" /></a
           >
           <a
             href="/free2z"
@@ -229,7 +280,13 @@
     text-align: center;
     mask-image: linear-gradient(to bottom, black 15%, transparent 82%);
     animation: footer-wordmark-glint 14s linear infinite;
-    will-change: background-position;
+  }
+
+  @media (max-width: 767px) {
+    .footer-wordmark {
+      animation: none;
+      background-position: 50% 50%;
+    }
   }
 
   @keyframes footer-wordmark-glint {

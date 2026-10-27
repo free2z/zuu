@@ -1,11 +1,102 @@
 .features {
-  display: flex;
-  align-items: center;
-  padding: 2rem 0;
-  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  padding-top: 1rem;
+  padding-bottom: 3rem;
 }
-
-.featureSvg {
-  height: 200px;
-  width: 200px;
+.path {
+  color: var(--ifm-font-color-base);
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 1.25rem;
+  padding: 1.75rem;
+  min-width: 0;
+  text-decoration: none;
+  background: linear-gradient(
+    145deg,
+    var(--ifm-color-emphasis-100),
+    transparent
+  );
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+.path:hover,
+.path:focus-visible {
+  text-decoration: none;
+  border-color: var(--ifm-color-primary);
+  box-shadow: 0 8px 24px #5c397018;
+}
+.path:focus-visible {
+  outline: 3px solid var(--ifm-color-primary);
+  outline-offset: 3px;
+}
+.path h2 {
+  font-size: 1.35rem;
+}
+.path p {
+  line-height: 1.7;
+  color: var(--ifm-color-emphasis-700);
+}
+.path span {
+  color: var(--ifm-color-primary);
+  font-weight: 600;
+}
+.path .badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  margin-bottom: 0.75rem;
+  border-radius: 1rem;
+  border: 1px solid var(--ifm-color-primary);
+  font-size: 0.75rem;
+}
+.showcases {
+  display: grid;
+  gap: 3rem;
+  padding-top: 1rem;
+  padding-bottom: 3rem;
+}
+.showcase {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 2rem;
+}
+.showcase h2 {
+  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  letter-spacing: -0.025em;
+}
+.showcase p {
+  line-height: 1.8;
+}
+.showcase figure {
+  margin: 0;
+  min-width: 0;
+}
+.showcase img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 1rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  box-shadow: 0 16px 45px #130d2b25;
+}
+.showcase figcaption {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--ifm-color-emphasis-700);
+}
+@media (max-width: 760px) {
+  .features,
+  .showcase {
+    grid-template-columns: 1fr;
+  }
+  .showcase {
+    gap: 1rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .path {
+    transition: none;
+  }
 }

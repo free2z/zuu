@@ -1,0 +1,24 @@
+{
+  "name": "free2z-docs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Free2Z documentation — VitePress site for the new Free2Z platform",
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4",
+    "vue": "^3.5.44"
+  },
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "overrides": {
+    "vitepress": {
+      "vite": "6.4.4"
+    }
+  }
+}

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { PageData } from "./$types";
-  import { env } from "$env/dynamic/public";
+  import * as env from "$app/env/public";
   import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
   import {
@@ -10,15 +10,14 @@
     CardHeader,
     CardTitle,
   } from "$lib/components/ui/card";
+  import StatTile from "$lib/components/dashboard/StatTile.svelte";
   import MediaUploader from "$lib/components/media/MediaUploader.svelte";
   import MarkdownContent from "$lib/components/MarkdownContent.svelte";
   import SocialLinks from "$lib/components/profile/SocialLinks.svelte";
-  import { formatRelativeTime } from "$lib/utils/date";
   import { processMarkdown } from "$lib/utils/markdown";
+  import { useFirstPartyCards } from "$lib/first-party-card-resolver";
   import { parseBioFrontmatter } from "$lib/utils/bio";
-  import { truncateZcashAddress } from "$lib/utils/zcashAddress";
-  import { copyToClipboard } from "$lib/utils/clipboard";
-  import { onDestroy } from "svelte";
+  import { formatRelativeTime, toTimestamp } from "$lib/utils/date";
   import {
     FileText,
     Sparkles,
@@ -33,12 +32,25 @@
     Check,
     Copy,
   } from "@lucide/svelte";
+  import { isSingularCount, locale, tStore as t } from "$lib/i18n";
+  import { formatTuzis, toFiniteNumber } from "$lib/utils/format-tuzis";
+  import { currentUser, authStore } from "$lib/stores/auth";
+  import { createAccountBalanceDisplay } from "$lib/account-balance";
+  import { truncateZcashAddress } from "$lib/utils/zcashAddress";
+  import { copyToClipboard } from "$lib/utils/clipboard";
+  import { onDestroy } from "svelte";
+  import { zpageCanonicalPath } from "$lib/zpage-path";
 
   export let data: PageData;
 
   const apiBase = env.PUBLIC_API_BASE_URL?.replace(/\/$/, "") || "";
 
   $: creator = data.creator;
+  const balanceDisplay = createAccountBalanceDisplay((owner) => {
+    if (typeof window !== "undefined")
+      authStore.observeAccountBalanceSnapshot(owner);
+  });
+  $: accountBalance = balanceDisplay(creator, $currentUser);
   $: zpages = data.zpages || [];
   let publishedPages: any[] = [];
   let drafts: any[] = [];
@@ -57,14 +69,12 @@
     publishedPages = pub;
     drafts = dr;
     sortedDrafts = [...dr].sort(
-      (a, b) =>
-        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+      (a, b) => toTimestamp(b.updated_at) - toTimestamp(a.updated_at),
     );
   }
 
   // `zpages` is a single DRF page (PAGE_SIZE=12), so the array length silently
-  // caps the stats at 12. The `?mine=true` list ships whole-queryset
-  // `published_count`/`draft_count` alongside the 12-row page; fall back to the
+  // caps at 12. The `?mine=true` list ships the real totals; fall back to the
   // array only when the API did not send them.
   $: publishedCount =
     typeof data.publishedCount === "number"
@@ -92,73 +102,68 @@
   }
 
   function pageUrl(page: any) {
+    const canonicalPath = zpageCanonicalPath(page || {});
+    if (canonicalPath) return canonicalPath;
     if (page?.get_url) return page.get_url;
-    if (page?.vanity) return `/${creator.username}/${page.vanity}`;
     return `/article/${page.free2zaddr}`;
   }
 
   $: avatarUrl = buildImageUrl(creator.avatar_image);
   $: bannerUrl = buildImageUrl(creator.banner_image);
   $: parsedBio = parseBioFrontmatter(creator.description || "");
-  $: bioHtml = processMarkdown(parsedBio.body);
+  // The owner's bio as the profile shows it, `::embed[]` cards included
+  //resolved in the browser by the page's resolver, as the viewer —
+  // who is the owner here. The server render is the neutral card; hydration
+  // matches it, and the cards follow.
+  const firstPartyCards = useFirstPartyCards();
+  // Primitives, so each statement re-runs only when ITS value changes: a
+  // card landing elsewhere on the page re-renders nothing here (review F3).
+  $: cardGeneration = $firstPartyCards.generation;
+  $: firstPartyCards.request(parsedBio.body, undefined, cardGeneration);
+  $: cardSignature = firstPartyCards.signature(
+    parsedBio.body,
+    $firstPartyCards,
+  );
+  $: bioHtml = processMarkdown(parsedBio.body, {
+    firstPartyCards: firstPartyCards.cardsFor(parsedBio.body, cardSignature),
+  });
 
   // DRF hands decimals back as STRINGS, and `String.prototype.toLocaleString`
-  // is a no-op that returns the string unchanged — so formatting a raw payload
-  // silently prints it verbatim, e.g. "3.45372709". Coerce first, then format
-  // for real.
-  function toFiniteNumber(value: unknown): number | null {
-    if (typeof value === "number") return Number.isFinite(value) ? value : null;
-    if (typeof value !== "string") return null;
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
+  // is a no-op that returns the string unchanged — so the old
+  // `value.toLocaleString($locale)` silently printed raw payloads like
+  // "3.45372709". The balance formatter lives in `$lib/utils/format-tuzis`,
+  // shared with the billing page: two copies of it is how the billing page
+  // kept the no-op for another dozen releases, and how the profile
+  // copy's `Number()` round-trip went unnoticed.
 
   /** Whole-number counts: grouped, never fractional. */
   function formatCount(value: string | number | null | undefined) {
     const parsed = toFiniteNumber(value);
     if (parsed === null) return "—";
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat($locale, {
       useGrouping: true,
       maximumFractionDigits: 0,
     }).format(parsed);
   }
 
-  /**
-   * Drop everything past 2 decimals by TRUNCATING toward zero, working on the
-   * decimal text so no binary-float error creeps in.
-   *
-   * Never round a balance up. `tuzis` carries 3 decimal places, so a plain
-   * `maximumFractionDigits: 2` renders 4.996 as "5" — a balance that claims
-   * more than the creator has, sitting next to actions priced at 5 that will
-   * then fail. `Math.trunc(n * 100) / 100` is not a fix either: it overflows
-   * 2^53 and turns 99999999999999.999 into 100000000000000, overstating by the
-   * largest possible margin exactly where precision matters most.
-   */
-  function truncateToCents(raw: string | number, fallback: number): number {
-    const text = typeof raw === "number" ? String(raw) : raw.trim();
-    const match = /^([+-]?\d*)(?:\.(\d*))?$/.exec(text);
-    if (!match) return fallback;
-    const whole = match[1] || "0";
-    const cents = (match[2] || "").slice(0, 2);
-    const parsed = Number(cents ? `${whole}.${cents}` : whole);
-    return Number.isFinite(parsed) ? parsed : fallback;
+  function draftsInProgressLabel(value: number) {
+    const count = formatCount(value);
+    return isSingularCount(value, $locale)
+      ? $t("dashboard.profile.draftCountOne", "{count} work in progress", {
+          count,
+        })
+      : $t("dashboard.profile.draftCountMany", "{count} works in progress", {
+          count,
+        });
   }
 
-  /**
-   * 2Z credits carry 3 decimal places, but three decimals of trailing zeros is
-   * noise in a stat tile. Grouping on, at most 2 decimals, no padding — so
-   * "3454.000" reads as "3,454" and "64672.234" as "64,672.23".
-   */
-  function formatTuzis(value: string | number | null | undefined) {
-    const parsed = toFiniteNumber(value);
-    if (parsed === null) return "—";
-    return new Intl.NumberFormat(undefined, {
-      useGrouping: true,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    }).format(truncateToCents(value as string | number, parsed));
+  function livePagesLabel(value: number) {
+    const count = formatCount(value);
+    return isSingularCount(value, $locale)
+      ? $t("dashboard.profile.livePageCountOne", "{count} live page", { count })
+      : $t("dashboard.profile.livePageCountMany", "{count} live pages", {
+          count,
+        });
   }
 
   // The wallet chip cannot fit a Unified address, so it middle-truncates. The
@@ -179,22 +184,28 @@
 
   onDestroy(() => clearTimeout(addressCopyTimer));
 
-  // `min-w-0` on the anchor is load-bearing: it is the grid item, and a grid
-  // item defaults to `min-width: auto`, which refuses to shrink below its
-  // content's min-content width. The 2Z tile rendered a raw multi-decimal
-  // string at `text-2xl`, so at `grid-cols-2` the row demanded more than a
-  // phone is wide and the whole document scrolled sideways.
-  const STAT_CARD_LINK =
-    "group/stat block min-w-0 rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
-  const STAT_CARD =
-    "h-full min-w-0 transition-colors group-hover/stat:border-primary/50 group-focus-visible/stat:border-primary/50";
+  // The stat-tile geometry lives in `$lib/components/dashboard/StatTile.svelte`
+  // now, shared with the billing page. It is documented there; the short of it
+  // is that the icon stacks above the text below `sm` so the label gets the
+  // tile's full inner width, and no UI copy is ever truncated or broken
+  // mid-word to buy that width back.
 </script>
 
 <svelte:head>
-  <title>{displayName} • Profile Dashboard</title>
+  <title
+    >{$t("dashboard.profile.metaTitle", "{name} • Profile Dashboard", {
+      name: displayName,
+    })}</title
+  >
   <meta
     name="description"
-    content={`Manage ${displayName}'s profile, pages, and creator stats.`}
+    content={$t(
+      "dashboard.profile.metaDescription",
+      "Manage {name}'s profile, pages, and creator stats.",
+      {
+        name: displayName,
+      },
+    )}
   />
 </svelte:head>
 
@@ -202,18 +213,28 @@
   <!-- Banner -->
   <div class="relative h-48 w-full overflow-hidden bg-muted md:h-56">
     {#if bannerUrl}
-      <img src={bannerUrl} alt="Banner" class="h-full w-full object-cover" />
+      <img
+        src={bannerUrl}
+        alt={$t("profile.bannerAlt", "Profile banner")}
+        class="h-full w-full object-cover"
+      />
     {/if}
     <div
       class="absolute inset-0 bg-gradient-to-b from-transparent to-background/80"
     ></div>
   </div>
 
-  <div class="relative z-10 container mx-auto -mt-12 max-w-6xl space-y-8 px-4">
+  <!--
+    Issue: the negative margin that lets the avatar peek over the banner
+    belongs to the avatar/name column, NOT to the whole container. On the
+    container it dragged the right-hand button group up onto the banner art,
+    where it had no contrast backing and read as misaligned.
+  -->
+  <div class="relative z-10 container mx-auto max-w-6xl space-y-8 px-4">
     <header
       class="flex flex-col justify-between gap-4 md:flex-row md:items-end"
     >
-      <div class="flex min-w-0 items-end gap-4">
+      <div class="-mt-12 flex min-w-0 items-end gap-4">
         <!-- Avatar -->
         <div class="relative shrink-0">
           <div
@@ -236,7 +257,7 @@
           {#if creator.is_verified}
             <div
               class="absolute -right-1 -bottom-1 rounded-full border-2 border-background bg-primary p-0.5 text-primary-foreground"
-              title="Verified Creator"
+              title={$t("profile.verifiedCreator", "Verified Creator")}
             >
               <CheckCircle2 class="size-3.5" />
             </div>
@@ -260,7 +281,7 @@
                 variant="secondary"
                 class="shrink-0 border-transparent bg-blue-100 text-blue-600 hover:bg-blue-100/80 dark:bg-blue-900/30 dark:text-blue-400"
               >
-                Verified
+                {$t("creators.filters.verified", "Verified")}
               </Badge>
             {/if}
           </div>
@@ -268,137 +289,73 @@
         </div>
       </div>
 
-      <div class="mb-1 flex flex-wrap items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <Button href={`/${creator.username}`} variant="outline">
-          <Eye class="mr-2 size-4" /> Public View
+          <Eye class="mr-2 size-4" />
+          {$t("dashboard.profile.publicView", "Public View")}
         </Button>
         <Button href={`/${creator.username}/dashboard/settings`}>
-          <User class="mr-2 size-4" /> Edit Profile
+          <User class="mr-2 size-4" />
+          {$t("dashboard.profile.editProfile", "Edit Profile")}
         </Button>
       </div>
     </header>
 
     <!--
-      Stats. Every tile is a link — they were inert `<div>`s with no href and no
-      affordance, and "I have 3 drafts but where are they?" had no answer.
-      Drafts jumps to the section further down the same page.
+      Every tile is a link: the owner asked why the stats were not clickable,
+      and "I have 3 drafts but where are they?" — Drafts jumps to the section
+      further down the same page.
     -->
-    <section class="grid grid-cols-2 gap-4 sm:grid-cols-4">
-      <a href={allPagesUrl} class={STAT_CARD_LINK} data-testid="stat-published">
-        <Card class={STAT_CARD}>
-          <CardContent
-            class="flex flex-col items-start gap-2 p-4 sm:flex-row sm:items-center sm:gap-3"
-          >
-            <div class="shrink-0 rounded-full bg-primary/10 p-2.5">
-              <FileText class="size-5 text-primary" />
-            </div>
-            <div class="min-w-0">
-              <p
-                class="text-xl font-bold tabular-nums sm:text-2xl"
-                title={formatCount(publishedCount)}
-              >
-                {formatCount(publishedCount)}
-              </p>
-              <p
-                class="text-xs font-medium tracking-wider text-muted-foreground uppercase"
-              >
-                Published
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </a>
+    <section class="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <StatTile
+        href={allPagesUrl}
+        testId="stat-published"
+        value={formatCount(publishedCount)}
+        label={$t("dashboard.pages.published", "Published pages")}
+      >
+        <FileText slot="icon" class="size-5 text-primary" />
+      </StatTile>
 
-      <a href="#drafts" class={STAT_CARD_LINK} data-testid="stat-drafts">
-        <Card class={STAT_CARD}>
-          <CardContent
-            class="flex flex-col items-start gap-2 p-4 sm:flex-row sm:items-center sm:gap-3"
-          >
-            <div class="shrink-0 rounded-full bg-primary/10 p-2.5">
-              <Edit3 class="size-5 text-primary" />
-            </div>
-            <div class="min-w-0">
-              <p
-                class="text-xl font-bold tabular-nums sm:text-2xl"
-                title={formatCount(draftCount)}
-              >
-                {formatCount(draftCount)}
-              </p>
-              <p
-                class="text-xs font-medium tracking-wider text-muted-foreground uppercase"
-              >
-                Drafts
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </a>
+      <StatTile
+        href="#drafts"
+        testId="stat-drafts"
+        value={formatCount(draftCount)}
+        label={$t("profile.drafts", "Drafts")}
+      >
+        <Edit3 slot="icon" class="size-5 text-primary" />
+      </StatTile>
 
       <!--
         `creator.tuzis` — the spendable 2Z credit balance, the same field the
-        billing page shows. NOT `creator.total`, which is a ZEC-equivalent
-        page-support cache, not a 2Z balance: labelling it "2Zs Earned" was
-        wrong on both the quantity and the unit.
-      -->
-      <a
-        href={`/${creator.username}/dashboard/billing`}
-        class={`${STAT_CARD_LINK} col-span-2 sm:col-span-1`}
-        data-testid="stat-balance"
-      >
-        <Card class={STAT_CARD}>
-          <CardContent
-            class="flex flex-col items-start gap-2 p-4 sm:flex-row sm:items-center sm:gap-3"
-          >
-            <div class="shrink-0 rounded-full bg-primary/10 p-2.5">
-              <Sparkles class="size-5 text-primary" />
-            </div>
-            <div class="min-w-0">
-              <p
-                class="text-xl font-bold tabular-nums sm:text-2xl"
-                title={formatTuzis(creator.tuzis)}
-              >
-                {formatTuzis(creator.tuzis)}
-              </p>
-              <p
-                class="text-xs font-medium tracking-wider text-muted-foreground uppercase"
-              >
-                2Z Balance
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </a>
+        billing page shows. NOT `creator.total`, which `Creator.cache_total()`
+        computes as `Sum(zpage.total) + tuzi_total / 1000`: a ZEC-equivalent
+        page-support cache that is neither 2Z nor earnings.
 
-      <!-- There is no /fans route; subscribers live on the billing page, which
-           reads `?section=subscribers` off the URL and selects that tab. -->
-      <a
-        href={`/${creator.username}/dashboard/billing?section=subscribers`}
-        class={`${STAT_CARD_LINK} col-span-2 sm:col-span-1`}
-        data-testid="stat-fans"
+        Balance and Fans both span the full row on mobile. Both, not one: 4
+        tiles where one spans is 5 cells, which leaves a visible hole beside
+        Fans. With both spanning it is 6 —
+        `[Published | Drafts]`, `[Balance]`, `[Fans]`.
+      -->
+      <StatTile
+        href={`/${creator.username}/dashboard/billing`}
+        testId="stat-balance"
+        wide
+        value={formatTuzis(accountBalance, $locale)}
+        label={$t("dashboard.profile.balance2Z", "2Z Balance")}
       >
-        <Card class={STAT_CARD}>
-          <CardContent
-            class="flex flex-col items-start gap-2 p-4 sm:flex-row sm:items-center sm:gap-3"
-          >
-            <div class="shrink-0 rounded-full bg-primary/10 p-2.5">
-              <Users class="size-5 text-primary" />
-            </div>
-            <div class="min-w-0">
-              <p
-                class="text-xl font-bold tabular-nums sm:text-2xl"
-                title={formatCount(creator.fans?.length || 0)}
-              >
-                {formatCount(creator.fans?.length || 0)}
-              </p>
-              <p
-                class="text-xs font-medium tracking-wider text-muted-foreground uppercase"
-              >
-                Fans
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </a>
+        <Sparkles slot="icon" class="size-5 text-primary" />
+      </StatTile>
+
+      <!-- There is no /fans route; subscribers live on the billing page. -->
+      <StatTile
+        href={`/${creator.username}/dashboard/billing?section=subscribers`}
+        testId="stat-fans"
+        wide
+        value={formatCount(creator.fans_count || 0)}
+        label={$t("dashboard.profile.fans", "Fans")}
+      >
+        <Users slot="icon" class="size-5 text-primary" />
+      </StatTile>
     </section>
 
     <!--
@@ -426,11 +383,10 @@
             <div class="space-y-1">
               <CardTitle class="flex items-center gap-2">
                 <Edit3 class="size-5" />
-                Drafts
+                {$t("profile.drafts", "Drafts")}
               </CardTitle>
               <CardDescription
-                >{formatCount(draftCount)}
-                {draftCount === 1 ? "work" : "works"} in progress</CardDescription
+                >{draftsInProgressLabel(draftCount)}</CardDescription
               >
             </div>
             {#if hiddenDrafts > 0}
@@ -441,7 +397,7 @@
                 class="shrink-0"
                 data-testid="drafts-view-all"
               >
-                View all
+                {$t("dashboard.profile.viewAll", "View all")}
               </Button>
             {/if}
           </CardHeader>
@@ -451,6 +407,20 @@
                 <div
                   class="group space-y-2 rounded-xl border bg-card p-4 transition-colors hover:border-primary/50"
                 >
+                  <!--
+                    NO `items-start`. This one word is what made the page scroll
+                    415px sideways on a phone: `align-items: flex-start` on a
+                    COLUMN flex container sizes children to fit-content on the
+                    CROSS (horizontal) axis, and a fit-content box whose
+                    min-content is wider than the space available takes the
+                    min-content width. The title below is nowrap, so its
+                    min-content width IS the whole title — the inner column
+                    measured 479px inside a 254px parent. `min-w-0` and `flex-1`
+                    are powerless against that: they govern the vertical main
+                    axis. Default `stretch` gives the child the container's
+                    width, which is the entire fix (measured: 801px → 386px).
+                    `sm:items-center` still centres the desktop row.
+                  -->
                   <div
                     class="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"
                   >
@@ -459,26 +429,48 @@
                         <Badge
                           variant="secondary"
                           class="text-[10px] tracking-wide uppercase"
-                          >Draft</Badge
+                          >{$t("dashboard.pages.draft", "Draft")}</Badge
                         >
                         <span class="text-xs text-muted-foreground"
-                          >Modified {formatRelativeTime(draft.updated_at)}</span
+                          >{$t(
+                            "dashboard.profile.modified",
+                            "Modified {time}",
+                            {
+                              time: formatRelativeTime(
+                                draft.updated_at,
+                                $locale,
+                              ),
+                            },
+                          )}</span
                         >
                       </div>
+                      <!--
+                        `truncate` here was `white-space: nowrap`, which is what
+                        made the title unshrinkable in the first place. Titles
+                        are user-authored content, so they may wrap and clamp:
+                        two lines, then an ellipsis only for genuinely long
+                        ones. (UI copy, by contrast, never truncates at all.)
+                        `break-words` covers the one-unbroken-token title.
+                      -->
                       <h3
                         class="line-clamp-2 pr-4 text-base font-semibold break-words text-foreground"
+                        title={draft.title || $t("editor.untitled", "Untitled")}
                       >
-                        {draft.title || "Untitled"}
+                        {draft.title || $t("editor.untitled", "Untitled")}
                       </h3>
                       <p class="line-clamp-1 text-sm text-muted-foreground">
-                        {draft.description || "No description provided yet."}
+                        {draft.description ||
+                          $t(
+                            "dashboard.profile.noDescriptionYet",
+                            "No description provided yet.",
+                          )}
                       </p>
                     </div>
                     <Button
                       href={`/edit?id=${encodeURIComponent(draft.free2zaddr)}`}
                       size="sm"
                     >
-                      Continue Writing
+                      {$t("profile.continueWriting", "Continue Writing")}
                     </Button>
                   </div>
                 </div>
@@ -501,16 +493,29 @@
                     class="max-w-md text-sm text-muted-foreground"
                     data-testid="drafts-elsewhere"
                   >
-                    None of your most recently created pages are drafts, so
-                    there are none to show here.
+                    {$t(
+                      "dashboard.profile.draftsNotRecent",
+                      "None of your most recently created pages are drafts, so there are none to show here.",
+                    )}
                   </p>
                   <Button href={allPagesUrl} variant="link" size="sm"
-                    >View all your drafts</Button
+                    >{$t(
+                      "dashboard.profile.viewAllDrafts",
+                      "View all your drafts",
+                    )}</Button
                   >
                 {:else}
-                  <p class="text-sm text-muted-foreground">No active drafts.</p>
+                  <p class="text-sm text-muted-foreground">
+                    {$t(
+                      "dashboard.profile.noActiveDrafts",
+                      "No active drafts.",
+                    )}
+                  </p>
                   <Button href="/edit" variant="link" size="sm"
-                    >Create a new page</Button
+                    >{$t(
+                      "dashboard.profile.createPage",
+                      "Create a new page",
+                    )}</Button
                   >
                 {/if}
               </div>
@@ -526,12 +531,9 @@
             <div class="space-y-1">
               <CardTitle class="flex items-center gap-2">
                 <CheckCircle2 class="size-5" />
-                Published
+                {$t("dashboard.pages.published", "Published pages")}
               </CardTitle>
-              <CardDescription
-                >{formatCount(publishedCount)} live {publishedCount === 1
-                  ? "page"
-                  : "pages"}</CardDescription
+              <CardDescription>{livePagesLabel(publishedCount)}</CardDescription
               >
             </div>
             {#if hiddenPublished > 0}
@@ -542,7 +544,7 @@
                 class="shrink-0"
                 data-testid="published-view-all"
               >
-                View all
+                {$t("dashboard.profile.viewAll", "View all")}
               </Button>
             {/if}
           </CardHeader>
@@ -552,6 +554,7 @@
                 <div
                   class="group space-y-2 rounded-xl border bg-card p-4 transition-colors hover:border-primary/50"
                 >
+                  <!-- Same `items-start` trap as the drafts row; see above. -->
                   <div
                     class="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"
                   >
@@ -560,14 +563,18 @@
                         <Badge
                           variant="default"
                           class="text-[10px] tracking-wide uppercase"
-                          >Published</Badge
+                          >{$t(
+                            "dashboard.pages.publishedBadge",
+                            "Published",
+                          )}</Badge
                         >
                         <span class="text-xs text-muted-foreground"
-                          >{formatRelativeTime(page.updated_at)}</span
+                          >{formatRelativeTime(page.updated_at, $locale)}</span
                         >
                       </div>
                       <h3
                         class="line-clamp-2 pr-4 text-base font-semibold break-words text-foreground"
+                        title={page.title}
                       >
                         <a
                           href={pageUrl(page)}
@@ -576,7 +583,11 @@
                         >
                       </h3>
                       <p class="line-clamp-1 text-sm text-muted-foreground">
-                        {page.description || "No description provided."}
+                        {page.description ||
+                          $t(
+                            "dashboard.profile.noDescription",
+                            "No description provided.",
+                          )}
                       </p>
                       {#if page.tags?.length}
                         <div class="flex flex-wrap gap-1.5 pt-1">
@@ -594,10 +605,12 @@
                         size="sm"
                         variant="default"
                       >
-                        <Edit3 class="mr-1.5 size-3.5" /> Edit
+                        <Edit3 class="mr-1.5 size-3.5" />
+                        {$t("dashboard.pages.edit", "Edit")}
                       </Button>
                       <Button href={pageUrl(page)} size="sm" variant="outline">
-                        <Eye class="mr-1.5 size-3.5" /> View
+                        <Eye class="mr-1.5 size-3.5" />
+                        {$t("dashboard.pages.view", "View")}
                       </Button>
                     </div>
                   </div>
@@ -614,18 +627,29 @@
                     class="max-w-md text-sm text-muted-foreground"
                     data-testid="published-elsewhere"
                   >
-                    None of your most recently created pages are published, so
-                    there are none to show here.
+                    {$t(
+                      "dashboard.profile.publishedNotRecent",
+                      "None of your most recently created pages are published, so there are none to show here.",
+                    )}
                   </p>
                   <Button href={allPagesUrl} variant="link" size="sm"
-                    >View all your pages</Button
+                    >{$t(
+                      "dashboard.profile.viewAllPages",
+                      "View all your pages",
+                    )}</Button
                   >
                 {:else}
                   <p class="text-sm text-muted-foreground">
-                    Nothing published yet.
+                    {$t(
+                      "dashboard.profile.nothingPublished",
+                      "Nothing published yet.",
+                    )}
                   </p>
                   <Button href="/edit" variant="link" size="sm"
-                    >Create your first page</Button
+                    >{$t(
+                      "dashboard.profile.createFirstPage",
+                      "Create your first page",
+                    )}</Button
                   >
                 {/if}
               </div>
@@ -639,25 +663,33 @@
         <!-- Quick Actions -->
         <Card>
           <CardHeader>
-            <CardTitle class="text-base">Quick Actions</CardTitle>
+            <CardTitle class="text-base"
+              >{$t(
+                "dashboard.profile.quickActions",
+                "Quick Actions",
+              )}</CardTitle
+            >
           </CardHeader>
           <CardContent class="space-y-2">
             <Button href="/edit" class="w-full justify-start" variant="default">
-              <Edit3 class="mr-2 size-4" /> Create New Article
+              <Edit3 class="mr-2 size-4" />
+              {$t("dashboard.profile.createArticle", "Create New Article")}
             </Button>
             <Button
               href={`/${creator.username}/dashboard/stream`}
               variant="outline"
               class="w-full justify-start"
             >
-              <Users class="mr-2 size-4" /> Start Live Stream
+              <Users class="mr-2 size-4" />
+              {$t("dashboard.profile.startStream", "Start Live Stream")}
             </Button>
             <Button
               href={`/${creator.username}/dashboard/media`}
               variant="outline"
               class="w-full justify-start"
             >
-              <UploadCloud class="mr-2 size-4" /> Upload Media
+              <UploadCloud class="mr-2 size-4" />
+              {$t("dashboard.profile.uploadMedia", "Manage Uploads")}
             </Button>
           </CardContent>
         </Card>
@@ -665,7 +697,9 @@
         <!-- Quick Upload -->
         <Card>
           <CardHeader>
-            <CardTitle class="text-base">Quick Upload</CardTitle>
+            <CardTitle class="text-base"
+              >{$t("dashboard.profile.quickUpload", "Quick Upload")}</CardTitle
+            >
           </CardHeader>
           <CardContent>
             <MediaUploader />
@@ -675,7 +709,9 @@
         <!-- About Card -->
         <Card>
           <CardHeader>
-            <CardTitle class="text-base">Creator Bio</CardTitle>
+            <CardTitle class="text-base"
+              >{$t("dashboard.profile.creatorBio", "Creator Bio")}</CardTitle
+            >
           </CardHeader>
           <CardContent class="space-y-4">
             {#if parsedBio.socials.length}
@@ -689,7 +725,10 @@
               </div>
             {:else}
               <p class="text-sm leading-relaxed text-muted-foreground">
-                Add a bio to tell supporters what you are creating.
+                {$t(
+                  "dashboard.profile.bioFallback",
+                  "Add a bio to tell supporters what you are creating.",
+                )}
               </p>
             {/if}
 
@@ -698,7 +737,8 @@
                 <span
                   class="flex shrink-0 items-center text-xs font-medium text-muted-foreground"
                 >
-                  <Wallet class="mr-2 size-4 text-primary" /> Zcash Wallet
+                  <Wallet class="mr-2 size-4 text-primary" />
+                  {$t("dashboard.profile.zcashWallet", "Zcash Wallet")}
                 </span>
                 {#if creator.p2paddr}
                   <!--
@@ -713,7 +753,10 @@
                     type="button"
                     onclick={copyAddress}
                     title={creator.p2paddr}
-                    aria-label="Copy Zcash address"
+                    aria-label={$t(
+                      "dashboard.profile.copyZcashWallet",
+                      "Copy Zcash address",
+                    )}
                     class="flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md border bg-muted px-2 py-1 font-mono text-xs text-foreground transition-colors outline-none hover:bg-muted/60 focus-visible:ring-[3px] focus-visible:ring-ring/50"
                   >
                     <span class="truncate">{truncatedAddress}</span>
@@ -725,25 +768,35 @@
                   </button>
                   <p class="sr-only" role="status" aria-live="polite">
                     {#if addressCopyState === "copied"}
-                      Copied!
+                      {$t("common.copied", "Copied!")}
                     {:else if addressCopyState === "failed"}
-                      Copy failed
+                      {$t("common.copyFailed", "Copy failed")}
                     {/if}
                   </p>
                 {:else}
-                  <Badge variant="secondary">Not Configured</Badge>
+                  <Badge variant="secondary"
+                    >{$t(
+                      "dashboard.profile.notConfigured",
+                      "Not Configured",
+                    )}</Badge
+                  >
                 {/if}
               </div>
               <div class="flex items-center justify-between">
                 <span
                   class="flex items-center text-xs font-medium text-muted-foreground"
                 >
-                  <Star class="mr-2 size-4 text-primary" /> Membership
+                  <Star class="mr-2 size-4 text-primary" />
+                  {$t("dashboard.profile.membership", "Membership")}
                 </span>
                 <span class="text-sm font-semibold">
-                  {creator.member_price
-                    ? `${formatTuzis(creator.member_price)} 2Z/mo`
-                    : "Free"}
+                  {Number(creator.member_price) > 0
+                    ? $t("dashboard.profile.monthlyPrice", "{price} 2Z/month", {
+                        price: Number(creator.member_price).toLocaleString(
+                          $locale,
+                        ),
+                      })
+                    : $t("creators.filters.free", "Free")}
                 </span>
               </div>
             </div>

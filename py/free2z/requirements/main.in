@@ -1,0 +1,169 @@
+anthropic==1.13.0
+apng==0.3.4
+# Remove the compromised emSign trust anchor (GHSA-6q48-6c7w-9gw2).
+certifi==2026.10.19
+# PyAV: video poster-frame extraction for VideoObject structured data.
+# The manylinux wheel STATICALLY BUNDLES FFmpeg's shared libraries, so this is
+# a pure requirements addition -- `docker/py3base/Dockerfile` installs no apt
+# packages and does not need to. Verified to install, import, encode and decode
+# the then-pinned base image (python:3.10-bullseye) AND on 3.12, which is
+# what both CI and the image (python:3.12-bookworm, the application contract) now run; the
+# transcript is in the the application contract PR body. A version without a cp312 wheel would
+# try to compile from source, and that image has no libav*-dev -- the image
+# build would fail at deploy time with a green gate, because CI never builds
+# cloudbuild.yaml.
+#
+# **Pinned to the NEWEST version, on purpose: this is a native media decoder
+# fed attacker-supplied bytes.** 16.0.1 bundles libavcodec 62.11.100 (the
+# FFmpeg 8.0 series); 13.1.0 bundled 61.3.100 (FFmpeg 7.0), which carries
+# published decoder CVEs. Bumping this pin is a security action, not a chore.
+# Note what a pip pin CANNOT tell you: which FFmpeg POINT release is inside
+# the wheel. `av.library_versions` reports the library soname versions only.
+# So the real mitigation is not the pin -- it is
+# `uploads.video_utils.ALLOWED_VIDEO_CODECS`, which refuses to hand a frame to
+# any of FFmpeg's ~200 decoders except the handful a browser can play.
+av==19.0.1
+Django==5.2.18
+# channels/channels_redis must be upgraded together. channels 4.2.1 renamed
+# BaseChannelLayer.valid_channel_name/valid_group_name -> require_valid_*
+# "without deprecation" (upstream considered them internal), which broke every
+# channels_redis <= 4.2.1 group_add/receive with
+# `AttributeError: 'RedisChannelLayer' object has no attribute
+# 'valid_channel_name'` -- i.e. every WebSocket connect failed in prod.
+# channels_redis 4.3.0 uses the new names and declares `channels>=4.2.2`.
+# Do not downgrade either pin below these versions.
+channels==4.3.2
+channels_redis==4.3.0
+# DIRECT dependency of `dj/apps/ktauth/signing.py`, which imports
+# `cryptography.hazmat.primitives.asymmetric.ed25519` at module scope for the
+# KT authority key. It has never been pinned here, and until now it did not
+# need to be: `django-rest-knox` 4.2.0 required it outright (its
+# `SECURE_HASH_ALGORITHM` default was
+# `cryptography.hazmat.primitives.hashes.SHA512`).
+#
+# **knox 5.x drops `cryptography` in favour of `hashlib`.** What is left
+# holding it in the image is a set of packages that merely happen to want it
+# today -- `webauthn>=49.0.0`, `pyOpenSSL<51,>=49.0.0`, `service-identity>=47`,
+# `sendgrid`, `autobahn`, `google-auth` -- none of which this repo pins for
+# that reason. A bump that dropped the last of them would remove KT signing's
+# dependency with a green gate: CI never builds `docker/py3base/Dockerfile`,
+# and `ImportError` at module scope means every ktauth request 500s at deploy.
+# So it is named explicitly, as the direct dependency it actually is.
+#
+# 50.0.1 is what the current requirement set already resolves to; it also
+# satisfies pyOpenSSL's `<51` ceiling, so this pin does not fight a transitive
+# constraint. Raise it deliberately -- it is a compiled crypto primitive, so a
+# bump is a security action, and `pyOpenSSL`'s upper bound must move first.
+cryptography==50.0.2
+daphne==4.2.3
+# Explicit patched prerelease: the five October 2026 Twisted advisories affect 26.4.0.
+# Keep this exact until a stable patched release is verified.
+twisted[tls]==26.10.0rc1
+# Transitive dep of channels_redis + django_redis; previously unpinned, so the
+# deployed image floated to whatever redis-py was newest at build time. Pinned
+# to the version prod already runs (verified working against the WS round-trip
+# test below) so client version drift can't silently break the channel layer.
+redis==8.1.0
+djangorestframework==3.18.3
+# remove?
+# django-allauth==0.49.0
+django-cors-headers==4.9.0
+django-countries==9.1.0
+django-dbbackup==5.3.1
+django_debug_toolbar==8.0.0
+django-ratelimit==4.1.0
+django_redis==7.0.0
+django-storages[google]==1.14.6
+django_taggit==6.1.0
+django_extensions==4.1
+django-filter==26.2
+django-ninja==1.7.1
+# dj-rest-auth 3.x moved all settings under REST_AUTH; keep the pin aligned
+# with settings.py so the custom login serializer is actually resolved.
+dj-rest-auth==7.2.0
+# The OIDC provider. 3.4.1, not an older 3.x, because it is the first
+# release whose RFC 9700 gates cover what the sdk-v1 contract requires:
+# refresh-token families with reuse detection (REFRESH_TOKEN_REUSE_PROTECTION,
+# `token_family`, set-based `revoke_family`), the RFC 9207 `iss` authorization
+# response parameter, refusal of the `plain` PKCE method, exact redirect-URI
+# matching with the RFC 8252 loopback-port exemption, and a fixed revocation
+# scoped to the requesting client. Every model is swapped into dj.apps.oidc.
+# jwcrypto is its JWT/JWK dependency; pinned so the deployed image cannot
+# float to a different signer than the one CI tested.
+django-oauth-toolkit==3.4.1
+jwcrypto==1.6.1
+django-rest-knox==5.1.0
+django-sendgrid-v5==1.3.1
+drf_spectacular==0.30.0
+# zauth "Login with Zcash": libsecp256k1 public-key recovery for Zcash Signed
+# Message verification. CPython 3.12 Linux/amd64 wheels contain the native
+# library; the hash lock and production-base import test cover packaging.
+coincurve==21.0.0
+google-cloud-pubsub==2.42.0
+gunicorn==26.2.0
+# Interactive shell only (django_extensions `shell_plus` picks it up if it is
+# importable). NOTHING in the application imports it -- the only two mentions
+# in the tree are commented-out `import IPython; IPython.embed()` debugger
+# lines. 7.31.1 carried GHSA-29gw-9793-fvw7 / CVE-2023-24816 (command
+# injection through `IPython.utils.terminal.set_term_title` on a
+# non-Windows terminal), fixed in 8.10.0.
+#
+# 9.x needs Python >=3.11. That is why the the application contract bump to 9.17.1 failed: the
+# audit and the image were still on 3.10 and pip could not resolve it at all.
+# docker/py3base/Dockerfile is python:3.12-bookworm since the application contract and the
+# `dependency-security` job resolves under the same 3.12, so the constraint
+# that blocked it is gone -- verified by resolving main.txt under 3.12 here.
+ipython==9.17.1
+jsonlines==4.0.0
+# BCP-47 validation + CLDR canonicalization for the language registry
+# (f2z/languages.py, the application contract). Pure-Python `py3-none-any` wheel, 183 KB, and
+# **zero runtime dependencies** -- it bundles the IANA subtag registry as a
+# text file. Requires-Python >=3.9, so it is fine on the 3.12 image.
+#
+# Deliberately NOT `langcodes[data]`: the `data` extra adds `language_data`
+# (5.6 MB wheel, ~21 MB installed) and `marisa-trie`, a C extension. When
+# this was decided CI ran 3.12 and the image ran 3.10, and marisa-trie shipped
+# no cp310 wheel, so the two would have resolved *different* binaries with CI
+# never building cloudbuild.yaml to notice. The interpreters agree now,
+# but a compiled extension nothing at runtime needs is still not worth the
+# image. The CLDR display names we need are generated at build time by
+# bin/gen-language-names.py and committed as f2z/language_names.py instead.
+langcodes==3.5.1
+markdown2==2.5.5
+openai==3.29.0
+pdfrw==0.4
+pgvector==0.5.1
+procrastinate[django]==3.10.0
+psycopg2==2.9.13
+psycopg==3.3.6
+pydantic==2.14.1
+PyJWT==2.15.1
+pyotp==2.10.0
+pyyaml==6.0.3
+# **A native image decoder fed attacker-supplied bytes** -- the same category
+# as `av` above, and the same rule applies: bumping this pin is a security
+# action, not a chore. `uploads.validation` calls `Image.open()` on every
+# upload and `uploads.tasks` / `uploads.image_utils` decode and re-encode
+# them, so every CVE in a decoder Pillow will try is directly reachable.
+#
+# Pillow 13.0.0 fixes the October 2026 decoder/encoder advisories, including
+# TIFF buffer reads, PDF parser stack exhaustion, and GIF decompression checks.
+# https://pillow.readthedocs.io/en/stable/releasenotes/13.0.0.html
+# Python 3.12 remains supported; the production image uses its binary wheel.
+Pillow==13.0.0
+requests==2.34.2
+requests_oauthlib==2.0.0
+slick-bitcoinrpc==0.1.4
+stripe==16.0.0
+tiktoken==0.14.0
+# NOTE: torch + transformers were removed here. They were only ever imported by
+# dj/apps/search/transform.py, a module with no callers that also imported
+# `langchain` (never in this file), so it raised ModuleNotFoundError on import
+# and was dead. Real embeddings come from the OpenAI API
+# (dj/apps/search/helpers.py + drf_filters.py, text-embedding-3-small).
+# Dropping them also drops numpy: `transformers` was the ONLY non-extra
+# numpy requirer in this file, and pgvector 0.5.0 is numpy-optional (it only
+# touches numpy via `sys.modules.get('numpy')`). Deliberately NOT adding a
+# numpy pin -- there is no numpy left to drift. Anything that needs numpy must
+# add it here explicitly, pinned.
+webauthn==3.0.1

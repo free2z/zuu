@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="robots" content="noindex,nofollow">
+    <meta name="referrer" content="strict-origin">
+    <title>Two-factor authentication</title>
+  </head>
+  <body>
+    <main>
+      <h1>Two-factor authentication</h1>
+      <p>Enter the current code from your authenticator app to finish signing in with X.</p>
+      {% if error %}<p role="alert">{{ error }}</p>{% endif %}
+      <form method="post">
+        {% csrf_token %}
+        <label for="otp-token">Authenticator code</label>
+        <input
+          id="otp-token"
+          name="otp_token"
+          type="text"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          pattern="[0-9]{6,10}"
+          maxlength="10"
+          required
+        >
+        <button type="submit">Continue</button>
+      </form>
+    </main>
+  </body>
+</html>

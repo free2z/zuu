@@ -11,9 +11,12 @@ import TransitionLink from "./TransitionLink";
 
 
 export interface SimpleCreator {
+    id: number,
     username: string,
     avatar_image: FeaturedImage | null,
     p2paddr: string,
+    // Older API responses may omit this field; only explicit false is inactive.
+    is_active?: boolean,
 }
 
 

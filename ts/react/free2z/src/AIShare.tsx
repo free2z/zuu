@@ -2,6 +2,7 @@ import { useParams } from "react-router-dom";
 // import { Card, CardContent, Typography } from "@mui/material";
 import axios from "axios";
 import { PromptResponse } from './AI2';
+import { PublicCreator } from "./CreatorDetail";
 import { useEffect, useState } from "react";
 import { AIConversationRenderer } from "./components/AIConversationRender";
 import DisplayComments from "./components/DisplayComments";
@@ -18,7 +19,7 @@ import Global404 from "./Global404";
 //     "is_subscriber_only": false,
 //     "id": "3702aa06-c3c8-4b0c-9267-cb6065f931d1",
 //     "ai_model": "e4bc34a4-538a-4ab8-8e4f-8aaa9cb53580",
-//     "user": 8,
+//     "user": {"id": 8, "username": "...",...},  // a PublicCreator object
 //     "created_at": "2023-08-14T05:47:06.037162Z",
 //     "updated_at": "2023-08-14T05:47:40.402609Z",
 //     "prompt_response_set": [
@@ -40,7 +41,7 @@ interface Conversation {
     is_public: boolean;
     is_subscriber_only: boolean;
     ai_model: string;
-    user: number;
+    user: PublicCreator;
     created_at: string;
     updated_at: string;
     prompt_response_set: PromptResponse[];

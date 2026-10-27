@@ -1,0 +1,40 @@
+{% extends "emails/link_landing_base.html" %}
+
+{% block title %}{% if state == "ready" %}Confirm your email · Free2Z{% else %}Confirmation link · Free2Z{% endif %}{% endblock %}
+
+{% block content %}
+  {% if state == "ready" %}
+    <h1>Confirm your email address</h1>
+    <p>
+      One click and this address is confirmed for your Free2Z account. We use
+      it to send you account notices and to let you reset your password.
+    </p>
+    {# No `action`: the form posts back to this exact URL. The POST is what
+       writes; loading this page did not. #}
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit">Confirm my email address</button>
+    </form>
+  {% elif state == "missing" %}
+    <h1>This link is incomplete</h1>
+    <p>
+      The confirmation link is missing its token, which usually means a mail
+      client wrapped or truncated it.
+    </p>
+    <p class="muted">
+      Sign in and use “Resend confirmation” on your profile to get a fresh
+      link.
+    </p>
+  {% else %}
+    <h1>This link is no longer valid</h1>
+    <p>
+      Confirmation links expire an hour after they are sent, and requesting a
+      new one replaces the old link.
+    </p>
+    <p class="muted">
+      Sign in and use “Resend confirmation” on your profile to get a fresh
+      link.
+    </p>
+  {% endif %}
+{% endblock %}

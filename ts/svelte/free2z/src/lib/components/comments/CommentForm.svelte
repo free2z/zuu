@@ -1,46 +1,175 @@
 <script lang="ts">
-  import { createEventDispatcher } from "svelte";
+  import { createEventDispatcher, onDestroy } from "svelte";
   import { authStore, currentUser } from "$lib/stores/auth";
-  import { env } from "$env/dynamic/public";
-  import { toast } from "svelte-sonner";
+  import { requestLogin } from "$lib/stores/auth-modal";
+  import { loginDestination } from "$lib/login-destination";
+  import { page } from "$lib/kit-stores";
+  import * as env from "$app/env/public";
+  import { toast, captureAccountToast, toastPresentation } from "$lib/toast.js";
   import MarkdownContent from "$lib/components/MarkdownContent.svelte";
   import { processMarkdown } from "$lib/utils/markdown";
+  import { createFirstPartyPreviewResolver } from "$lib/first-party-card-resolver";
   import { Coins, Eye, Info, Loader2, Send, X } from "@lucide/svelte";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import * as Tooltip from "$lib/components/ui/tooltip";
   import { tStore as t } from "$lib/i18n";
+  import {
+    clearCommentDraft,
+    commentDraftKey,
+    getDraftStorage,
+    readCommentDraft,
+    writeCommentDraft,
+    DEFAULT_TUZIS,
+  } from "$lib/commentDrafts";
+  import { CANONICAL_CONTENT_URL_HEADERS } from "$lib/api/canonical-content-url";
+  import { apiFetch } from "$lib/api/config";
+  import { readApiError } from "$lib/api/api-errors.js";
+  import { requestTimeoutMessage } from "$lib/api/request-timeout.js";
+  import InsufficientFunds from "$lib/components/InsufficientFunds.svelte";
+  import PostingCostNotice from "$lib/components/PostingCostNotice.svelte";
+  import {
+    cannotCoverMinimumPost,
+    introPath,
+    insufficientFundsFromResponse,
+    type InsufficientFundsDetails,
+  } from "$lib/insufficient-funds";
+  import {
+    clearIntentIdempotencyKey,
+    isIdempotencyStorageUnavailable,
+    isIdempotencyStorageCleanupFailure,
+    intentIdempotencyKey,
+  } from "$lib/subscribe-idempotency";
 
   export let object_type: "zpage" | "ai_conversation" | undefined = undefined;
   export let object_uuid: string | undefined = undefined;
   export let parent: string | undefined = undefined;
   export let callback: (() => void) | undefined = undefined;
-  export let mode: "comment" | "conversation" = "comment";
 
-  let headline = "";
   let content = "";
-  let tuzis = 1;
+  let tuzis = DEFAULT_TUZIS;
   let preview = false;
   let submitting = false;
+  let insufficientFunds: InsufficientFundsDetails | null = null;
+  let paymentError: { message: string; generation: number } | null = null;
+  $: if (
+    paymentError &&
+    paymentError.generation !== $toastPresentation.generation
+  )
+    paymentError = null;
+  // Said before anyone writes, not after a refused comment. Only for
+  // a balance the session actually reported; unknown is not zero.
+  $: cannotCoverAComment = cannotCoverMinimumPost($currentUser?.tuzis);
+  $: intro = introPath($currentUser);
+  let requestKey = "";
+  let requestSignature = "";
   const apiBase = env.PUBLIC_API_BASE_URL?.replace(/\/$/, "") || "";
   const dispatch = createEventDispatcher();
 
-  $: isConversation = mode === "conversation" && !parent;
+  // --- draft persistence  -------------------------------------------
+  // The form is inside `{#if !$currentUser}`/`{:else}` and the layout
+  // revalidates the session constantly (mount, pathname change, window focus,
+  // visibilitychange). A transient auth blip - or SvelteKit re-creating the
+  // page component - destroys this component and used to take the user's
+  // half-typed comment with it. The draft therefore lives in sessionStorage,
+  // keyed by what is being commented on, not in the component instance.
+  const draftStorage = getDraftStorage();
+  let draftKey: string | null = null;
+  let draftRestoredFor: string | null = null;
+
+  // Scoped to the signed-in user as well as the target: sessionStorage
+  // outlives a logout, and one account must never inherit another's draft
+  // (nor its staked 2Z amount) on a shared tab.
+  $: draftKey = commentDraftKey({
+    username: $currentUser?.username,
+    object_type,
+    object_uuid,
+    parent,
+  });
+
+  // Load the draft whenever the key changes, guarded by `draftRestoredFor` so
+  // a later reactive run (e.g. `content` changing as the user types) can never
+  // re-run and clobber live input.
+  //
+  // Two distinct transitions, and conflating them is a bug:
+  //
+  //  - null -> key. The target simply became known (SSR, or the article load
+  //    resolving after first paint). Anything already typed belongs to THIS
+  //    key, so keep it and only fill the blanks from the stored draft. This is
+  //    the  window.
+  //
+  //  - keyA -> keyB. A different article, a different parent, or a different
+  //    account. The text on screen belongs to keyA and must not follow the
+  //    user to keyB — that would post one page's comment on another, or hand
+  //    account B account A's words and staked 2Z. Swap wholesale to keyB's
+  //    own draft (or an empty form).
+  $: if (draftKey && draftKey !== draftRestoredFor) {
+    const isFirstResolution = draftRestoredFor === null;
+    draftRestoredFor = draftKey;
+    const draft = readCommentDraft(draftStorage, draftKey);
+
+    if (isFirstResolution) {
+      if (draft) {
+        if (content.trim() === "") content = draft.content;
+        if (tuzis === DEFAULT_TUZIS) tuzis = draft.tuzis;
+      }
+    } else {
+      content = draft?.content ?? "";
+      tuzis = draft?.tuzis ?? DEFAULT_TUZIS;
+      preview = false;
+    }
+  }
+
+  // Persist on every change once the key is known and the restore has run.
+  // Skipped while submitting so the in-flight reset does not race the write.
+  $: if (draftKey && draftKey === draftRestoredFor && !submitting) {
+    writeCommentDraft(draftStorage, draftKey, {
+      headline: "",
+      content,
+      tuzis: Number.isFinite(tuzis) ? tuzis : DEFAULT_TUZIS,
+    });
+  }
+
   $: canSubmit =
     content.trim().length > 0 &&
-    (!isConversation || headline.trim().length > 0) &&
     Number.isInteger(tuzis) &&
     tuzis >= 1 &&
     tuzis <= 10000 &&
     !submitting;
-  $: processedContent = processMarkdown(content);
+  // The composer's preview resolves `::embed[]` cards as its author, only
+  // while the preview is open, debounced and cached for this composer.
+  const previewCards = createFirstPartyPreviewResolver();
+  let destroyed = false;
+  onDestroy(() => {
+    destroyed = true;
+    previewCards.destroy();
+  });
+  $: if (preview) {
+    previewCards.request(content, "comment", $previewCards.generation);
+  }
+  $: processedContent = processMarkdown(content, {
+    firstPartyCards: $previewCards.cards,
+  });
 
   async function handleSubmit() {
+    const preflightActor = $currentUser?.id ?? $currentUser?.username;
+    const authenticationOwner = authStore.captureRequestOwnership();
+    let requestOwnership = authenticationOwner;
+    const ownsPreflight =
+      preflightActor !== undefined ? authenticationOwner : () => true;
+    let operationNotice = captureAccountToast({
+      onError: (message) => {
+        paymentError = {
+          message: String(message),
+          generation: $toastPresentation.generation,
+        };
+      },
+    });
     if (!canSubmit) return;
 
     if (tuzis < 1 || tuzis > 10000 || !Number.isInteger(tuzis)) {
-      toast.error(
+      operationNotice.error(
         $t(
           "comments.tuzisRangeError",
           "Tuzis must be a whole number between 1 and 10000",
@@ -48,6 +177,18 @@
       );
       return;
     }
+
+    const submittedContent = content.trim();
+    const submittedTuzis = tuzis;
+    const submittedParent = parent;
+    const signature = JSON.stringify({
+      object_type,
+      object_uuid,
+      parent: submittedParent,
+      content: submittedContent,
+      tuzis: submittedTuzis,
+    });
+    requestSignature = signature;
 
     let url = "";
     if (object_type && object_uuid) {
@@ -58,92 +199,162 @@
       url = "/api/comments/";
     }
 
+    // Set the lock before authentication/CSRF awaits. Svelte does not get a
+    // chance to re-render between two click handlers, so this synchronous
+    // assignment is the actual double-click guard.
     submitting = true;
+    paymentError = null;
+    insufficientFunds = null;
 
     try {
       const hasActiveSession = await authStore.ensureAuthenticated();
+      if (destroyed) return;
+      if (!ownsPreflight()) {
+        if (!destroyed && authenticationOwner.wasExpired?.()) {
+          operationNotice.error(
+            $t("economy.signInAgain", "Sign in again before continuing."),
+          );
+        }
+        return;
+      }
       if (!hasActiveSession || !$currentUser) {
-        toast.error($t("comments.loginToComment", "Please log in to comment"));
+        operationNotice.error(
+          $t("comments.loginToComment", "Please log in to comment"),
+        );
         submitting = false;
         return;
       }
 
-      const csrf = await authStore.ensureCSRFToken();
-      const res = await fetch(`${apiBase}${url}`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          ...(csrf ? { "X-CSRFToken": csrf } : {}),
+      requestOwnership = authStore.captureRequestOwnership();
+      operationNotice = captureAccountToast({
+        onError: (message) => {
+          paymentError = {
+            message: String(message),
+            generation: $toastPresentation.generation,
+          };
         },
+      });
+      // Do not mint an idempotency key from the pre-hydration null identity.
+      // The captured identity also makes cleanup use the same retry bucket if
+      // auth state changes while this request is in flight.
+      const requestIdentity = {
+        actor: $currentUser.username,
+        action: "comment",
+        resource: url,
+        amount: String(submittedTuzis),
+        intent: signature,
+      };
+      requestKey = intentIdempotencyKey(requestIdentity);
+      const submittedDraftKey = draftKey;
+
+      // `apiFetch`: CSRF, credentials, and the write bound.
+      // A comment the server never answered left "Posting..." up forever.
+      const res = await apiFetch(`${apiBase}${url}`, {
+        method: "POST",
+        headers: {
+          ...CANONICAL_CONTENT_URL_HEADERS,
+          "Content-Type": "application/json",
+          "Idempotency-Key": requestKey,
+        },
+        // No `headline`: plain comments and replies do not have one,
+        // and the backend field is optional (blank=True) as of migration
+        // comments.0006. Sending the old "N/A" sentinel surfaced literally in
+        // the classic React UI and in auto-tweet image prompts.
         body: JSON.stringify({
-          headline: isConversation ? headline.trim() : "N/A",
-          content: content.trim(),
-          tuzis,
-          parent,
+          content: submittedContent,
+          tuzis: submittedTuzis,
+          parent: submittedParent,
         }),
       });
 
       if (!res.ok) {
-        if (authStore.handleAuthFailure(res.status)) {
-          throw new Error(
-            $t("comments.loginToComment", "Please log in to comment"),
-          );
+        if (res.status === 401 || res.status === 403) {
+          if (requestOwnership()) authStore.handleAuthFailure(res.status);
+          if (!destroyed && requestOwnership.wasExpired?.())
+            operationNotice.error(
+              $t("economy.signInAgain", "Sign in again before continuing."),
+            );
+          return;
+        }
+        const funds = await insufficientFundsFromResponse(res);
+        if (operationNotice.isCurrent()) insufficientFunds = funds;
+        if (funds) {
+          retirePaidIntent(requestIdentity, operationNotice);
+          return;
         }
 
-        let errorMessage = $t(
-          "comments.postCommentError",
-          "Failed to post comment",
+        // The server's own sentence, else our copy with the
+        // status. `readApiError` never throws and never invents a reason
+        // (an HTML proxy page yields "").
+        const { message } = await readApiError(res);
+        throw new Error(
+          message ||
+            $t("comments.serverError", "Server error: {status} {statusText}", {
+              status: res.status,
+              statusText: res.statusText,
+            }),
         );
-        try {
-          const contentType = res.headers.get("content-type");
-          if (contentType?.includes("application/json")) {
-            const data = await res.json();
-            if (typeof data === "string") {
-              errorMessage = data;
-            } else if (data?.error || data?.message || data?.detail) {
-              errorMessage = data.error || data.message || data.detail;
-            } else if (Array.isArray(data?.errors) && data.errors.length > 0) {
-              errorMessage = data.errors[0];
-            } else if (data?.errors && typeof data.errors === "object") {
-              const firstKey = Object.keys(data.errors)[0];
-              const firstError = firstKey ? data.errors[firstKey]?.[0] : null;
-              if (firstError) errorMessage = firstError;
-            }
-          } else {
-            errorMessage = $t(
-              "comments.serverError",
-              "Server error: {status} {statusText}",
-            )
-              .replace("{status}", String(res.status))
-              .replace("{statusText}", res.statusText);
-          }
-        } catch (error) {
-          console.error("Error parsing comment response:", error);
-        }
-        throw new Error(errorMessage);
       }
 
-      headline = "";
+      // The comment is durably on the server now, so the draft is spent.
+      const result = await res.json();
+      // A retained draft needs its original replay key until its payer reconciles it.
+      if (!operationNotice.isCurrent()) return;
+      clearCommentDraft(draftStorage, submittedDraftKey);
+      retirePaidIntent(requestIdentity, operationNotice);
       content = "";
-      tuzis = 1;
+      tuzis = DEFAULT_TUZIS;
       preview = false;
+      requestKey = "";
+      requestSignature = "";
 
       callback?.();
       dispatch("success");
-      toast.success(
-        isConversation
-          ? $t("converse.conversationPosted", "Conversation published")
+      operationNotice.success(
+        result?.replayed
+          ? $t(
+              "comments.commentAlreadyPosted",
+              "This comment was already posted.",
+            )
           : $t("comments.commentPosted", "Comment posted!"),
       );
     } catch (error: any) {
+      if (isIdempotencyStorageUnavailable(error)) {
+        operationNotice.error(
+          $t(
+            "payments.storageUnavailable",
+            "Browser storage is unavailable. Restore it and check any previous payment before retrying. This attempt was not sent.",
+          ),
+        );
+        return;
+      }
       console.error(error);
-      toast.error(
-        error.message ||
+      // A timeout keeps `requestKey`, so retrying replays rather than
+      // charging twice.
+      operationNotice.error(
+        requestTimeoutMessage(error) ||
+          error?.message ||
           $t("comments.postCommentError", "Failed to post comment"),
       );
     } finally {
       submitting = false;
+    }
+  }
+
+  function retirePaidIntent(
+    identity: Parameters<typeof clearIntentIdempotencyKey>[0],
+    notice: ReturnType<typeof captureAccountToast>,
+  ) {
+    try {
+      clearIntentIdempotencyKey(identity);
+    } catch (error) {
+      if (!isIdempotencyStorageCleanupFailure(error)) throw error;
+      notice.error(
+        $t(
+          "payments.storageCleanup",
+          "Browser storage could not save this outcome. Check the request's outcome before retrying.",
+        ),
+      );
     }
   }
 </script>
@@ -170,11 +381,19 @@
         )}
       </p>
     </div>
+    <!-- Opens the sign-in modal in place: the article, its scroll
+         position and any draft in sessionStorage stay where they are. The
+         href is the pre-hydration fallback — the real login page, back here. -->
     <Button
-      href="/?login=true"
+      href={loginDestination($page.url.pathname + $page.url.search)}
+      onclick={(e) => {
+        e.preventDefault();
+        requestLogin({ trigger: e.currentTarget });
+      }}
       variant="outline"
       size="sm"
       class="w-full sm:w-auto"
+      data-testid="comment-login-prompt"
     >
       {$t("comments.signIn", "Log in")}
     </Button>
@@ -190,9 +409,7 @@
         class="flex items-center justify-between gap-3 border-b border-border/70 px-3 py-2.5 sm:px-4"
       >
         <span class="text-sm font-semibold tracking-tight text-foreground">
-          {isConversation
-            ? $t("converse.startConversation", "Start a conversation")
-            : $t("comments.joinDiscussion", "Join the discussion")}
+          {$t("comments.joinDiscussion", "Join the discussion")}
         </span>
         <span class="hidden text-xs text-muted-foreground sm:inline">
           {$t("comments.markdownSupported", "Markdown supported")}
@@ -201,48 +418,40 @@
     {/if}
 
     <div class="space-y-3 p-3 sm:p-4">
-      {#if isConversation}
-        <div>
-          <label for="conversation-headline" class="sr-only">
-            {$t("converse.titleLabel", "Conversation title")}
-          </label>
-          <Input
-            id="conversation-headline"
-            type="text"
-            bind:value={headline}
-            placeholder={$t(
-              "converse.titlePlaceholder",
-              "Give your conversation a clear title",
-            )}
-            maxlength={100}
-            class="h-11 bg-background text-base font-semibold placeholder:font-normal"
-          />
-        </div>
+      {#if paymentError}
+        <p
+          role="alert"
+          data-testid="payment-outcome-error"
+          class="rounded-md border border-destructive/40 p-3 text-sm text-destructive"
+        >
+          {paymentError.message}
+        </p>
       {/if}
-
+      {#if insufficientFunds}
+        <InsufficientFunds
+          funds={insufficientFunds}
+          introHref={intro.href}
+          introWritten={intro.written}
+        />
+      {:else if cannotCoverAComment}
+        <PostingCostNotice balance={String($currentUser?.tuzis)} {intro} />
+      {/if}
       <div class="relative">
         <label
           for={parent ? `reply-${parent}` : "comment-content"}
           class="sr-only"
         >
-          {isConversation
-            ? $t("converse.bodyLabel", "Conversation")
-            : $t("comments.content", "Content")}
+          {$t("comments.content", "Content")}
         </label>
         <Textarea
           id={parent ? `reply-${parent}` : "comment-content"}
           bind:value={content}
-          placeholder={isConversation
-            ? $t(
-                "converse.bodyPlaceholder",
-                "Share an idea, ask a question, or start a thoughtful discussion…",
-              )
-            : parent
-              ? $t("comments.replyPlaceholder", "Write a thoughtful reply…")
-              : $t(
-                  "comments.contentPlaceholder",
-                  "Write your comment (Markdown supported)...",
-                )}
+          placeholder={parent
+            ? $t("comments.replyPlaceholder", "Write a thoughtful reply…")
+            : $t(
+                "comments.contentPlaceholder",
+                "Write your comment (Markdown supported)...",
+              )}
           class="max-h-[400px] min-h-[112px] resize-y overflow-y-auto bg-background pb-7 sm:min-h-[128px]"
           maxlength={1000}
         />
@@ -334,11 +543,7 @@
             <span>{$t("comments.posting", "Posting...")}</span>
           {:else}
             <Send strokeWidth={1.5} class="size-4" />
-            <span>
-              {isConversation
-                ? $t("converse.publish", "Publish conversation")
-                : $t("comments.post", "Post")}
-            </span>
+            <span>{$t("comments.post", "Post")}</span>
           {/if}
         </Button>
       </div>

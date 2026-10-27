@@ -7,7 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
-PREFIXES = ('py/free2z/', 'ts/svelte/free2z/', 'ts/react/free2z/', 'ts/free2z/bridge/', 'docs/about-free2z/', 'docs/free2z/website/', 'build/free2z/', 'scripts/free2z/', '.github/')
+PREFIXES = ('rs/zcash-payment-hooks/', 'py/free2z/', 'ts/svelte/free2z/', 'ts/react/free2z/', 'ts/free2z/bridge/', 'docs/about-free2z/', 'docs/free2z/website/', 'build/free2z/', 'scripts/free2z/', '.github/')
 FILES = {'scripts/check-ci-trust.mjs', 'scripts/ci-trust-bootstrap.mjs', 'scripts/check-github-actions-pins.mjs', 'ruff.toml'}
 
 
@@ -34,7 +34,7 @@ def complete(root, base_has_application, scaffold=None):
 if __name__ == '__main__':
     event = os.environ['EVENT']
     base_has_application = False
-    if event == 'pull_request':
+    if event in ('pull_request', 'merge_group'):
         base = os.environ['BASE_SHA']
         head = os.environ['HEAD_SHA']
         if not all(re.fullmatch('[0-9a-f]{40}', x) for x in (base, head)):

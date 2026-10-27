@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>{{ sender_username }} wants to chat with you privately</title>
+</head>
+
+<body>
+    <p>Hi {{ recipient_username }},</p>
+    <p>
+        <strong>{{ sender_username }}</strong> wants to start a private,
+        end-to-end encrypted chat with you. They paid 2Z to ask, and that 2Z
+        has been added to your free2z balance.
+    </p>
+    <p>
+        Encrypted chats happen in the <strong>e2e2z</strong> app, not on the
+        free2z website. To reply, open this link on your phone:
+    </p>
+    <p><a href="{{ chat_url }}">Open the chat in e2e2z</a></p>
+    <p>
+        If you already have e2e2z, the link opens it with
+        {{ sender_username }} ready to add. If you don't, the link shows you
+        how to install it first. No message has been sent yet: the chat
+        starts when you connect.
+    </p>
+    <p>
+        You are receiving this because you turned on email notifications on
+        free2z. To stop receiving these emails,
+        <a href="{{ opt_out_url }}">click here to unsubscribe</a>.
+    </p>
+    <p>
+        You can contact our support team by responding to this email.
+    </p>
+    <p>
+        Thank you,
+        <br>
+        The Free2Z Team
+    </p>
+</body>
+
+</html>

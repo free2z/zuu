@@ -1,6 +1,7 @@
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Swiper as SwiperClass } from 'swiper';
-import SwiperCore, { Autoplay, Navigation } from 'swiper';
+import SwiperCore from 'swiper';
+import { Autoplay, Navigation } from 'swiper/modules';
 import {  CardActionArea, CardContent, CardMedia, Typography } from '@mui/material';
 
 // Import Swiper styles

@@ -39,6 +39,17 @@ fail_configuration() {
   exit 2
 }
 
+npm_project="${NPM_AUDIT_PROJECT:-ts/svelte/free2z}"
+npm_only="${DEPENDENCY_AUDIT_NPM_ONLY:-0}"
+case "$npm_project" in
+  ts/svelte/free2z | ts/react/free2z | docs/about-free2z | docs/free2z/website) ;;
+  *) fail_configuration "unregistered application npm project: $npm_project" ;;
+esac
+case "$npm_only" in
+  0 | 1) ;;
+  *) fail_configuration 'DEPENDENCY_AUDIT_NPM_ONLY must be 0 or 1' ;;
+esac
+
 case "$max_attempts" in
   '' | *[!0-9]*)
     fail_configuration "DEPENDENCY_AUDIT_ATTEMPTS must be a positive integer, got '$max_attempts'"
@@ -100,17 +111,18 @@ run_bounded() {
 
 scan_npm() {
   (
-    cd "$repo_root/ts/svelte/free2z"
+    cd "$repo_root/$npm_project"
     run_bounded npm audit --json
   )
 }
 
 scan_pip() {
-  # main.txt is a complete hash-locked graph, not a set of roots to resolve.
-  # Require hashes and skip resolver expansion so this audit checks advisory
-  # data for the locked package versions installed by Docker.
+  # Audit the complete runtime graph and the separate language-data generator
+  # lock. Require hashes and skip resolver expansion so advisory checks use
+  # the exact reviewed versions, including developer-only generation tools.
   run_bounded "$python_bin" -m pip_audit \
     -r "$repo_root/py/free2z/requirements/main.txt" \
+    -r "$repo_root/py/free2z/requirements/language-data.txt" \
     --require-hashes \
     --no-deps \
     --format json
@@ -280,4 +292,6 @@ audit_ecosystem() {
 }
 
 audit_ecosystem npm scan_npm "$npm_report"
-audit_ecosystem pip scan_pip "$pip_report"
+if [ "$npm_only" = 0 ]; then
+  audit_ecosystem pip scan_pip "$pip_report"
+fi

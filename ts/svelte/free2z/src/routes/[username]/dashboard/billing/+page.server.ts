@@ -1,471 +1,735 @@
-import type { Actions, PageServerLoad } from './$types';
-import { error, fail, redirect } from '@sveltejs/kit';
-import { env } from '$env/dynamic/private';
-import { fetchPricing } from '$lib/pricing';
+import type { Actions, PageServerLoad } from "./$types";
+import { error, fail, redirect } from "@sveltejs/kit";
+import { loginDestination } from "$lib/login-destination";
+import { fetchPricing } from "$lib/pricing";
+import { ACCOUNT_BALANCE_DEPENDENCY } from "$lib/account-balance";
+import { isSubscriptionUsername } from "$lib/subscription-username";
+import { usableClientId } from "$lib/sdk-flow";
+import {
+  authenticatedBackendMutation,
+  BackendBridgeError,
+  getApiBase,
+  getCsrfCookie,
+  getSessionCookie,
+  logBackendFailure,
+  readBackendFailure,
+  requireAuthenticatedUser,
+} from "$lib/server/backend";
 
-const DEFAULT_API_BASE = 'http://localhost:8000';
 const DEFAULT_PAGE_SIZE = 10;
 const MAX_CHECKOUT_QUANTITY = 1_000_000;
+
+function isStripeHostedCheckoutUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const parsed = new URL(value);
+    return (
+      parsed.protocol === "https:" &&
+      parsed.hostname === "checkout.stripe.com" &&
+      parsed.port === "" &&
+      parsed.username === "" &&
+      parsed.password === ""
+    );
+  } catch {
+    return false;
+  }
+}
 const MAX_SUBSCRIPTION_MAX_PRICE = 1_000_000;
 const ACTION_COOLDOWN_MS = 1500;
-const USERNAME_PATTERN = /^[a-zA-Z0-9_]{1,64}$/;
+const RENEWAL_SUMMARY_TIMEOUT_MS = 5_000;
 const CHECKOUT_REF_PATTERN = /^[a-zA-Z0-9_-]{3,128}$/;
+// Module-level and shared by every request that falls back, so it is frozen:
+// a mutation here would poison the summary for every later visitor.
+const EMPTY_RENEWAL_SUMMARY = Object.freeze({
+  status: "unknown",
+  balance: null,
+  total_upcoming: null,
+  shortfall: null,
+  next_renewal: null,
+});
 
-function getSessionCookie(cookies: { get: (name: string) => string | undefined }) {
-    return cookies.get('sessionid');
-}
-
-function getCsrfCookie(cookies: { get: (name: string) => string | undefined }) {
-    return cookies.get('csrftoken');
-}
-
-function buildBackendHeaders(
-    sessionId: string,
-    opts?: {
-        csrfToken?: string;
-        contentType?: string;
-    }
+function missingCsrfFailure(
+  action: "checkout" | "updateSubscription" | "unsubscribe",
 ) {
-    const csrfToken = opts?.csrfToken;
-    const cookieHeader = csrfToken
-        ? `sessionid=${sessionId}; csrftoken=${csrfToken}`
-        : `sessionid=${sessionId}`;
-
-    const headers: Record<string, string> = {
-        Cookie: cookieHeader,
-    };
-
-    if (opts?.contentType) {
-        headers['Content-Type'] = opts.contentType;
-    }
-
-    if (csrfToken) {
-        headers['X-CSRFToken'] = csrfToken;
-    }
-
-    return headers;
+  return fail(403, {
+    action,
+    ok: false,
+    messageKey: "dashboard.billing.errors.missingSecurityToken",
+    messageParams: {},
+  });
 }
 
-function missingCsrfFailure(action: 'checkout' | 'updateSubscription' | 'unsubscribe') {
-    return fail(403, {
-        action,
-        error: 'Your session security token is missing. Please refresh the page and try again. If the issue continues, sign in again.',
-    });
-}
-
+// Django's username rule, not a narrower one: a stricter client pattern made
+// Unsubscribe impossible for creators named like `jane-doe`.
 function validateStarUsername(value: string) {
-    return USERNAME_PATTERN.test(value);
+  return isSubscriptionUsername(value);
 }
 
 function getCheckoutRef(value: string | null) {
-    if (!value) {
-        return '';
-    }
+  if (!value) {
+    return "";
+  }
 
-    return CHECKOUT_REF_PATTERN.test(value) ? value : '';
+  return CHECKOUT_REF_PATTERN.test(value) ? value : "";
 }
 
 function getPostedCheckoutRef(value: FormDataEntryValue | null) {
-    const checkoutRef = typeof value === 'string' ? value.trim() : '';
+  const checkoutRef = typeof value === "string" ? value.trim() : "";
 
-    if (!checkoutRef) {
-        return { checkoutRef: '', isValid: true };
-    }
+  if (!checkoutRef) {
+    return { checkoutRef: "", isValid: true };
+  }
 
-    return {
-        checkoutRef: CHECKOUT_REF_PATTERN.test(checkoutRef) ? checkoutRef : '',
-        isValid: CHECKOUT_REF_PATTERN.test(checkoutRef),
-    };
+  return {
+    checkoutRef: CHECKOUT_REF_PATTERN.test(checkoutRef) ? checkoutRef : "",
+    isValid: CHECKOUT_REF_PATTERN.test(checkoutRef),
+  };
 }
 
-function buildBillingPath(username: string, checkoutRef: string) {
-    const query = new URLSearchParams();
+function buildBillingPath(
+  username: string,
+  checkoutRef: string,
+  app: string | null,
+) {
+  const query = new URLSearchParams();
+  // A card checkout returns to the Card tab; the page otherwise opens on
+  // Zcash.
+  query.set("tab", "stripe");
 
-    if (checkoutRef) {
-        query.set('checkoutRef', checkoutRef);
-    }
+  if (checkoutRef) {
+    query.set("checkoutRef", checkoutRef);
+  }
 
-    const queryString = query.toString();
-    return queryString
-        ? `/${username}/dashboard/billing?${queryString}`
-        : `/${username}/dashboard/billing`;
+  // An app's visitor (`/buy-2z?client_id=`) comes back from Stripe still
+  // told to go back to their app. A representation hint only: an unusable
+  // value is dropped, never a reason to refuse the checkout.
+  if (app) {
+    query.set("app", app);
+  }
+
+  return `/${username}/dashboard/billing?${query.toString()}`;
 }
 
 function getCooldownRemainingMs(
-    cookies: { get: (name: string) => string | undefined; set: (name: string, value: string, opts: { path: string; sameSite: 'lax'; maxAge: number; httpOnly: boolean }) => void },
-    key: string,
-    cooldownMs: number
+  cookies: {
+    get: (name: string) => string | undefined;
+    set: (
+      name: string,
+      value: string,
+      opts: {
+        path: string;
+        sameSite: "lax";
+        maxAge: number;
+        httpOnly: boolean;
+      },
+    ) => void;
+  },
+  key: string,
+  cooldownMs: number,
 ) {
-    const now = Date.now();
-    const lastRaw = cookies.get(key);
-    const last = Number.parseInt(lastRaw || '0', 10);
+  const now = Date.now();
+  const lastRaw = cookies.get(key);
+  const last = Number.parseInt(lastRaw || "0", 10);
 
-    if (Number.isFinite(last) && now - last < cooldownMs) {
-        return cooldownMs - (now - last);
-    }
+  if (Number.isFinite(last) && now - last < cooldownMs) {
+    return cooldownMs - (now - last);
+  }
 
-    cookies.set(key, String(now), {
-        path: '/',
-        sameSite: 'lax',
-        maxAge: 60,
-        httpOnly: true,
-    });
-    return 0;
+  cookies.set(key, String(now), {
+    path: "/",
+    sameSite: "lax",
+    maxAge: 60,
+    httpOnly: true,
+  });
+  return 0;
 }
 
 async function requireDashboardOwner(
-    fetchFn: typeof fetch,
-    apiBase: string,
-    sessionId: string,
-    username: string
+  fetchFn: typeof fetch,
+  cookies: { get: (name: string) => string | undefined },
+  username: string,
+  returnTo: string,
 ) {
-    const userResponse = await fetchFn(`${apiBase}/api/auth/user/`, {
-        headers: {
-            Cookie: `sessionid=${sessionId}`,
-        },
-    });
+  // 401/403 -> /login; a backend 5xx, 429 or timeout -> 503.
+  const currentUser = await requireAuthenticatedUser<any>(
+    fetchFn,
+    cookies,
+    returnTo,
+  );
+  if (currentUser.username !== username) {
+    throw error(403, "errors.dashboard.billingForbidden", { code: 403 });
+  }
 
-    if (!userResponse.ok) {
-        throw redirect(302, '/?login=true');
-    }
-
-    const currentUser = await userResponse.json();
-    if (currentUser.username !== username) {
-        throw error(403, {
-            message: 'You can only access your own billing dashboard',
-            code: 403,
-        });
-    }
-
-    return currentUser;
+  return currentUser;
 }
 
 async function safeJson(fetchFn: typeof fetch, url: string, sessionId: string) {
+  const response = await fetchFn(url, {
+    headers: {
+      Cookie: `sessionid=${sessionId}`,
+    },
+  });
+
+  if (!response.ok) {
+    return { count: 0, next: null, previous: null, results: [] };
+  }
+
+  return response.json();
+}
+
+async function safeRenewalSummaryJson(
+  fetchFn: typeof fetch,
+  url: string,
+  sessionId: string,
+) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    RENEWAL_SUMMARY_TIMEOUT_MS,
+  );
+
+  try {
     const response = await fetchFn(url, {
-        headers: {
-            Cookie: `sessionid=${sessionId}`,
-        },
+      headers: {
+        Cookie: `sessionid=${sessionId}`,
+      },
+      signal: controller.signal,
     });
 
     if (!response.ok) {
-        return { count: 0, next: null, previous: null, results: [] };
+      return EMPTY_RENEWAL_SUMMARY;
     }
 
-    return response.json();
+    return await response.json();
+  } catch {
+    // This indicator is supplementary to the billing page. A transient
+    // backend/network failure, including a hung request, must not turn the
+    // whole dashboard into a 500; the UI will render its fail-closed
+    // "unknown" state instead.
+    return EMPTY_RENEWAL_SUMMARY;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
-export const load: PageServerLoad = async ({ params, cookies, fetch, url }) => {
-    const apiBase = env.PRIVATE_API_BASE_URL || DEFAULT_API_BASE;
-    const sessionId = getSessionCookie(cookies);
+export const load: PageServerLoad = async ({
+  params,
+  cookies,
+  fetch,
+  url,
+  setHeaders,
+  depends,
+}) => {
+  depends(ACCOUNT_BALANCE_DEPENDENCY);
+  const apiBase = getApiBase();
+  const sessionId = getSessionCookie(cookies);
 
-    if (!sessionId) {
-        throw redirect(302, '/?login=true');
+  if (!sessionId) {
+    throw redirect(302, loginDestination(url.pathname + url.search));
+  }
+  setHeaders({ "cache-control": "private, no-cache", vary: "Cookie" });
+
+  const subscriptionsPage = Math.max(
+    1,
+    Number.parseInt(url.searchParams.get("subPage") || "1", 10) || 1,
+  );
+  const transactionsPage = Math.max(
+    1,
+    Number.parseInt(url.searchParams.get("txPage") || "1", 10) || 1,
+  );
+  const subscribersPage = Math.max(
+    1,
+    Number.parseInt(url.searchParams.get("fanPage") || "1", 10) || 1,
+  );
+  const subscriptionOrdering =
+    url.searchParams.get("subOrder") === "expires" ? "expires" : "-max_price";
+  const subscriberOrdering =
+    url.searchParams.get("fanOrder") === "expires" ? "expires" : "-max_price";
+  const checkoutRef = getCheckoutRef(url.searchParams.get("checkoutRef"));
+
+  try {
+    const creator = await requireDashboardOwner(
+      fetch,
+      cookies,
+      params.username,
+      url.pathname + url.search,
+    );
+
+    const subscriptionsQuery = new URLSearchParams({
+      page: String(subscriptionsPage),
+      ordering: subscriptionOrdering,
+    });
+    const subscribersQuery = new URLSearchParams({
+      page: String(subscribersPage),
+      ordering: subscriberOrdering,
+    });
+    const transactionsQuery = new URLSearchParams({
+      page: String(transactionsPage),
+    });
+
+    const [subscriptions, transactions, subscribers, renewalSummary, pricing] =
+      await Promise.all([
+        safeJson(
+          fetch,
+          `${apiBase}/api/tuzis/my-subscriptions?${subscriptionsQuery.toString()}`,
+          sessionId,
+        ),
+        safeJson(
+          fetch,
+          `${apiBase}/api/stripe/transactions/?${transactionsQuery.toString()}`,
+          sessionId,
+        ),
+        safeJson(
+          fetch,
+          `${apiBase}/api/tuzis/my-subscribers?${subscribersQuery.toString()}`,
+          sessionId,
+        ),
+        safeRenewalSummaryJson(
+          fetch,
+          `${apiBase}/api/tuzis/my-subscriptions-summary`,
+          sessionId,
+        ),
+        fetchPricing(fetch, apiBase),
+      ]);
+
+    return {
+      creator,
+      subscriptions,
+      transactions,
+      subscribers,
+      renewalSummary,
+      pricing,
+      subscriptionOrdering,
+      subscriberOrdering,
+      subscriptionsPage,
+      transactionsPage,
+      subscribersPage,
+      checkoutRef,
+      pageSize: DEFAULT_PAGE_SIZE,
+    };
+  } catch (err: any) {
+    console.error("Error loading billing dashboard:", {
+      status: err?.status,
+      name: err?.name,
+      message: err?.message,
+    });
+    if (err?.status) {
+      throw err;
     }
-
-    const subscriptionsPage = Math.max(1, Number.parseInt(url.searchParams.get('subPage') || '1', 10) || 1);
-    const transactionsPage = Math.max(1, Number.parseInt(url.searchParams.get('txPage') || '1', 10) || 1);
-    const subscribersPage = Math.max(1, Number.parseInt(url.searchParams.get('fanPage') || '1', 10) || 1);
-    const subscriptionOrdering = url.searchParams.get('subOrder') === 'expires' ? 'expires' : '-max_price';
-    const subscriberOrdering = url.searchParams.get('fanOrder') === 'expires' ? 'expires' : '-max_price';
-    const checkoutRef = getCheckoutRef(url.searchParams.get('checkoutRef'));
-
-    try {
-        const creator = await requireDashboardOwner(fetch, apiBase, sessionId, params.username);
-
-        const subscriptionsQuery = new URLSearchParams({
-            page: String(subscriptionsPage),
-            ordering: subscriptionOrdering,
-        });
-        const subscribersQuery = new URLSearchParams({
-            page: String(subscribersPage),
-            ordering: subscriberOrdering,
-        });
-        const transactionsQuery = new URLSearchParams({
-            page: String(transactionsPage),
-        });
-
-        const [subscriptions, transactions, subscribers, pricing] = await Promise.all([
-            safeJson(fetch, `${apiBase}/api/tuzis/my-subscriptions?${subscriptionsQuery.toString()}`, sessionId),
-            safeJson(fetch, `${apiBase}/api/stripe/transactions/?${transactionsQuery.toString()}`, sessionId),
-            safeJson(fetch, `${apiBase}/api/tuzis/my-subscribers?${subscribersQuery.toString()}`, sessionId),
-            fetchPricing(fetch, apiBase),
-        ]);
-
-        return {
-            creator,
-            subscriptions,
-            transactions,
-            subscribers,
-            pricing,
-            subscriptionOrdering,
-            subscriberOrdering,
-            subscriptionsPage,
-            transactionsPage,
-            subscribersPage,
-            checkoutRef,
-            pageSize: DEFAULT_PAGE_SIZE,
-        };
-    } catch (err: any) {
-        console.error('Error loading billing dashboard:', {
-            status: err?.status,
-            name: err?.name,
-            message: err?.message,
-        });
-        if (err?.status) {
-            throw err;
-        }
-        throw error(500, { message: 'Failed to load billing dashboard', code: 500 });
-    }
+    throw error(500, "errors.dashboard.billingLoadFailed", { code: 500 });
+  }
 };
 
 export const actions: Actions = {
-    checkout: async ({ params, request, cookies, fetch }) => {
-        const apiBase = env.PRIVATE_API_BASE_URL || DEFAULT_API_BASE;
-        const sessionId = getSessionCookie(cookies);
-        const csrfToken = getCsrfCookie(cookies);
+  checkout: async ({ params, request, cookies, fetch, url }) => {
+    const sessionId = getSessionCookie(cookies);
+    const csrfToken = getCsrfCookie(cookies);
 
-        if (!sessionId) {
-            throw redirect(302, '/?login=true');
-        }
+    if (!sessionId) {
+      throw redirect(302, loginDestination(url.pathname));
+    }
 
-        if (!csrfToken) {
-            return missingCsrfFailure('checkout');
-        }
+    if (!csrfToken) {
+      return missingCsrfFailure("checkout");
+    }
 
-        await requireDashboardOwner(fetch, apiBase, sessionId, params.username);
+    const verifiedOwner = await requireDashboardOwner(
+      fetch,
+      cookies,
+      params.username,
+      url.pathname,
+    );
 
-        const checkoutCooldown = getCooldownRemainingMs(
-            cookies,
-            `billing_checkout_${params.username}`,
-            ACTION_COOLDOWN_MS
-        );
-        if (checkoutCooldown > 0) {
-            return fail(429, {
-                action: 'checkout',
-                error: 'Please wait a moment before starting another checkout.',
-            });
-        }
+    const checkoutCooldown = getCooldownRemainingMs(
+      cookies,
+      `billing_checkout_${params.username}`,
+      ACTION_COOLDOWN_MS,
+    );
+    if (checkoutCooldown > 0) {
+      return fail(429, {
+        action: "checkout",
+        ok: false,
+        messageKey: "dashboard.billing.errors.checkoutCooldown",
+        messageParams: {},
+      });
+    }
 
-        const formData = await request.formData();
-        const quantityRaw = formData.get('quantity');
-        const quantity = Number.parseInt(String(quantityRaw || ''), 10);
-        const postedCheckoutRef = getPostedCheckoutRef(formData.get('checkoutRef'));
+    const formData = await request.formData();
+    const originalActorText = String(formData.get("expected_actor_id") || "");
+    const originalActor = /^\d+$/.test(originalActorText)
+      ? Number(originalActorText)
+      : 0;
+    if (
+      !Number.isSafeInteger(originalActor) ||
+      originalActor <= 0 ||
+      originalActor !== verifiedOwner.id
+    ) {
+      return fail(409, {
+        action: "checkout",
+        ok: false,
+        messageKey: "economy.signInAgain",
+        messageParams: {},
+      });
+    }
+    const quantityRaw = formData.get("quantity");
+    const quantityText = String(quantityRaw || "").trim();
+    const quantity = /^\d+$/.test(quantityText)
+      ? Number(quantityText)
+      : Number.NaN;
+    const postedCheckoutRef = getPostedCheckoutRef(formData.get("checkoutRef"));
+    const postedApp = formData.get("app");
 
-        if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_CHECKOUT_QUANTITY) {
-            return fail(400, {
-                action: 'checkout',
-                error: `Enter a valid 2Z amount between 1 and ${MAX_CHECKOUT_QUANTITY.toLocaleString()}.`,
-            });
-        }
+    if (
+      !Number.isInteger(quantity) ||
+      quantity < 1 ||
+      quantity > MAX_CHECKOUT_QUANTITY
+    ) {
+      return fail(400, {
+        action: "checkout",
+        ok: false,
+        messageKey: "dashboard.billing.errors.invalidCheckoutAmount",
+        messageParams: { minimum: 1, maximum: MAX_CHECKOUT_QUANTITY },
+      });
+    }
 
-        if (!postedCheckoutRef.isValid) {
-            return fail(400, {
-                action: 'checkout',
-                error: 'Invalid checkout reference.',
-            });
-        }
+    if (!postedCheckoutRef.isValid) {
+      return fail(400, {
+        action: "checkout",
+        ok: false,
+        messageKey: "dashboard.billing.errors.invalidCheckoutReference",
+        messageParams: {},
+      });
+    }
 
-        try {
-            const checkoutPayload: {
-                quantity: number;
-                currentPath: string;
-                checkoutRef?: string;
-            } = {
-                quantity,
-                currentPath: buildBillingPath(params.username, postedCheckoutRef.checkoutRef),
-            };
+    try {
+      const checkoutPayload: {
+        quantity: number;
+        expected_actor_id: number;
+        currentPath: string;
+        checkoutRef?: string;
+      } = {
+        quantity,
+        expected_actor_id: originalActor,
+        currentPath: buildBillingPath(
+          params.username,
+          postedCheckoutRef.checkoutRef,
+          usableClientId(typeof postedApp === "string" ? postedApp : null),
+        ),
+      };
 
-            if (postedCheckoutRef.checkoutRef) {
-                checkoutPayload.checkoutRef = postedCheckoutRef.checkoutRef;
-            }
+      if (postedCheckoutRef.checkoutRef) {
+        checkoutPayload.checkoutRef = postedCheckoutRef.checkoutRef;
+      }
 
-            const checkoutResponse = await fetch(`${apiBase}/api/stripe/create-checkout-session/`, {
-                method: 'POST',
-                headers: buildBackendHeaders(sessionId, {
-                    csrfToken,
-                    contentType: 'application/json',
-                }),
-                body: JSON.stringify(checkoutPayload),
-            });
+      const checkoutResponse = await authenticatedBackendMutation({
+        fetchFn: fetch,
+        cookies,
+        requestDestinationOrigin: url.origin,
+        initiatingOrigin: request.headers.get("origin") || "",
+        path: "/api/stripe/create-checkout-session/",
+        method: "POST",
+        json: checkoutPayload,
+      });
 
-            const payload = await checkoutResponse.json().catch(() => ({}));
+      if (!checkoutResponse.ok) {
+        const failure = await readBackendFailure(checkoutResponse);
+        logBackendFailure("billing.checkout", failure);
+        return fail(failure.status >= 400 ? failure.status : 502, {
+          action: "checkout",
+          ok: false,
+          messageKey:
+            failure.kind === "csrf"
+              ? "dashboard.billing.errors.securityTokenRejected"
+              : "dashboard.billing.errors.stripeCheckoutUnavailable",
+          messageParams: {},
+        });
+      }
 
-            if (!checkoutResponse.ok || !payload?.id) {
-                return fail(checkoutResponse.status || 400, {
-                    action: 'checkout',
-                    error: payload?.error || 'Unable to start Stripe checkout.',
-                });
-            }
+      const payload = await checkoutResponse.json().catch(() => ({}));
 
-            return {
-                action: 'checkout',
-                success: 'Redirecting to Stripe checkout…',
-                checkoutSessionId: payload.id,
-            };
-        } catch (err) {
-            console.error('Checkout action failed:', err);
-            return fail(500, {
-                action: 'checkout',
-                error: 'Failed to start checkout session.',
-            });
-        }
-    },
+      const quote = payload?.quote;
+      if (
+        typeof payload?.id !== "string" ||
+        payload.id.length === 0 ||
+        !isStripeHostedCheckoutUrl(payload?.url) ||
+        !quote ||
+        typeof quote.checkout_intent_id !== "string" ||
+        !Number.isInteger(quote.tuzis) ||
+        quote.tuzis !== quantity ||
+        !Number.isInteger(quote.amount_cents) ||
+        quote.amount_cents < 1 ||
+        quote.currency !== "usd" ||
+        typeof quote.pricing_version !== "string" ||
+        quote.pricing_version.length === 0
+      ) {
+        return fail(502, {
+          action: "checkout",
+          ok: false,
+          messageKey: "dashboard.billing.errors.stripeCheckoutUnavailable",
+          messageParams: {},
+        });
+      }
 
-    updateSubscription: async ({ params, request, cookies, fetch }) => {
-        const apiBase = env.PRIVATE_API_BASE_URL || DEFAULT_API_BASE;
-        const sessionId = getSessionCookie(cookies);
-        const csrfToken = getCsrfCookie(cookies);
+      return {
+        action: "checkout",
+        ok: true,
+        messageKey: "dashboard.billing.exactQuoteReady",
+        messageParams: {},
+        checkoutActorId: verifiedOwner.id,
+        checkoutSessionId: payload.id,
+        checkoutUrl: payload.url,
+        checkoutQuote: {
+          checkoutIntentId: quote.checkout_intent_id,
+          tuzis: quote.tuzis,
+          amountCents: quote.amount_cents,
+          currency: quote.currency,
+          pricingVersion: quote.pricing_version,
+        },
+      };
+    } catch (err) {
+      const bridgeCode =
+        err instanceof BackendBridgeError ? err.code : "unexpected";
+      console.error("Checkout action failed", { code: bridgeCode });
+      return fail(bridgeCode === "untrusted-origin" ? 403 : 500, {
+        action: "checkout",
+        ok: false,
+        messageKey:
+          bridgeCode === "untrusted-origin"
+            ? "dashboard.billing.errors.untrustedRequestOrigin"
+            : "dashboard.billing.errors.checkoutStartFailed",
+        messageParams: {},
+      });
+    }
+  },
 
-        if (!sessionId) {
-            throw redirect(302, '/?login=true');
-        }
+  updateSubscription: async ({ params, request, cookies, fetch, url }) => {
+    const sessionId = getSessionCookie(cookies);
+    const csrfToken = getCsrfCookie(cookies);
 
-        if (!csrfToken) {
-            return missingCsrfFailure('updateSubscription');
-        }
+    if (!sessionId) {
+      throw redirect(302, loginDestination(url.pathname));
+    }
 
-        const currentUser = await requireDashboardOwner(fetch, apiBase, sessionId, params.username);
+    if (!csrfToken) {
+      return missingCsrfFailure("updateSubscription");
+    }
 
-        const updateCooldown = getCooldownRemainingMs(
-            cookies,
-            `billing_update_${params.username}`,
-            ACTION_COOLDOWN_MS
-        );
-        if (updateCooldown > 0) {
-            return fail(429, {
-                action: 'updateSubscription',
-                error: 'Please wait a moment before updating again.',
-            });
-        }
+    const currentUser = await requireDashboardOwner(
+      fetch,
+      cookies,
+      params.username,
+      url.pathname,
+    );
 
-        const formData = await request.formData();
-        const starUsername = String(formData.get('starUsername') || '').trim();
-        const maxPriceRaw = formData.get('maxPrice');
-        const maxPrice = Number.parseInt(String(maxPriceRaw || ''), 10);
-        const memberPriceRaw = Number.parseInt(String(formData.get('memberPrice') || '1'), 10);
-        const memberPriceFloor = Number.isFinite(memberPriceRaw) && memberPriceRaw >= 1 ? memberPriceRaw : 1;
+    const updateCooldown = getCooldownRemainingMs(
+      cookies,
+      `billing_update_${params.username}`,
+      ACTION_COOLDOWN_MS,
+    );
+    if (updateCooldown > 0) {
+      return fail(429, {
+        action: "updateSubscription",
+        ok: false,
+        messageKey: "dashboard.billing.errors.updateCooldown",
+        messageParams: {},
+      });
+    }
 
-        if (!starUsername || !validateStarUsername(starUsername)) {
-            return fail(400, {
-                action: 'updateSubscription',
-                error: 'Invalid subscription username.',
-            });
-        }
+    const formData = await request.formData();
+    const starUsername = String(formData.get("starUsername") || "").trim();
+    const maxPriceRaw = formData.get("maxPrice");
+    const maxPrice = Number.parseInt(String(maxPriceRaw || ""), 10);
+    const memberPriceRaw = Number.parseInt(
+      String(formData.get("memberPrice") || "1"),
+      10,
+    );
+    const memberPriceFloor =
+      Number.isFinite(memberPriceRaw) && memberPriceRaw >= 1
+        ? memberPriceRaw
+        : 1;
 
-        if (!Number.isInteger(maxPrice) || maxPrice < 1 || maxPrice > MAX_SUBSCRIPTION_MAX_PRICE) {
-            return fail(400, {
-                action: 'updateSubscription',
-                error: `Enter a valid max monthly amount between 1 and ${MAX_SUBSCRIPTION_MAX_PRICE.toLocaleString()}.`,
-            });
-        }
+    if (!starUsername || !validateStarUsername(starUsername)) {
+      return fail(400, {
+        action: "updateSubscription",
+        ok: false,
+        messageKey: "dashboard.billing.errors.invalidSubscriptionUsername",
+        messageParams: {},
+      });
+    }
 
-        if (maxPrice < memberPriceFloor) {
-            return fail(400, {
-                action: 'updateSubscription',
-                error: `Max monthly amount must be at least ${memberPriceFloor.toLocaleString()} 2Z (the creator's member price).`,
-            });
-        }
+    if (
+      !Number.isInteger(maxPrice) ||
+      maxPrice < 1 ||
+      maxPrice > MAX_SUBSCRIPTION_MAX_PRICE
+    ) {
+      return fail(400, {
+        action: "updateSubscription",
+        ok: false,
+        messageKey: "dashboard.billing.errors.invalidMonthlyMaximum",
+        messageParams: { minimum: 1, maximum: MAX_SUBSCRIPTION_MAX_PRICE },
+      });
+    }
 
-        if (maxPrice > currentUser.tuzis) {
-            return fail(400, {
-                action: 'updateSubscription',
-                error: `Max monthly amount cannot exceed your current balance of ${(currentUser.tuzis as number).toLocaleString()} 2Z.`,
-            });
-        }
+    if (maxPrice < memberPriceFloor) {
+      return fail(400, {
+        action: "updateSubscription",
+        ok: false,
+        messageKey: "dashboard.billing.errors.monthlyMaximumBelowPrice",
+        messageParams: { minimum: memberPriceFloor },
+      });
+    }
 
-        try {
-            const updateResponse = await fetch(`${apiBase}/api/tuzis/subscribe/${starUsername}`, {
-                method: 'PATCH',
-                headers: buildBackendHeaders(sessionId, {
-                    csrfToken,
-                    contentType: 'application/json',
-                }),
-                body: JSON.stringify({ max_price: String(maxPrice) }),
-            });
+    if (maxPrice > currentUser.tuzis) {
+      return fail(400, {
+        action: "updateSubscription",
+        ok: false,
+        messageKey: "dashboard.billing.errors.monthlyMaximumExceedsBalance",
+        messageParams: { balance: currentUser.tuzis as number },
+      });
+    }
 
-            const payload = await updateResponse.json().catch(() => ({}));
+    try {
+      const updateResponse = await authenticatedBackendMutation({
+        fetchFn: fetch,
+        cookies,
+        requestDestinationOrigin: url.origin,
+        initiatingOrigin: request.headers.get("origin") || "",
+        path: `/api/tuzis/subscribe/${encodeURIComponent(starUsername)}`,
+        method: "PATCH",
+        json: { max_price: String(maxPrice) },
+      });
 
-            if (!updateResponse.ok) {
-                return fail(updateResponse.status || 400, {
-                    action: 'updateSubscription',
-                    error: payload?.error || `Unable to update @${starUsername}.`,
-                });
-            }
+      if (!updateResponse.ok) {
+        const failure = await readBackendFailure(updateResponse);
+        logBackendFailure("billing.updateSubscription", failure);
+        return fail(failure.status >= 400 ? failure.status : 502, {
+          action: "updateSubscription",
+          ok: false,
+          messageKey:
+            failure.kind === "csrf"
+              ? "dashboard.billing.errors.securityTokenRejected"
+              : "dashboard.billing.errors.updateSubscriptionFailedForUser",
+          messageParams: { username: starUsername },
+        });
+      }
 
-            return {
-                action: 'updateSubscription',
-                success: `Updated max monthly amount for @${starUsername}.`,
-            };
-        } catch (err) {
-            console.error('Update subscription action failed:', err);
-            return fail(500, {
-                action: 'updateSubscription',
-                error: 'Failed to update subscription.',
-            });
-        }
-    },
+      const subscription = await updateResponse.json().catch(() => null);
+      if (!subscription?.star?.username) {
+        return fail(502, {
+          action: "updateSubscription",
+          ok: false,
+          messageKey:
+            "dashboard.billing.errors.updateSubscriptionFailedForUser",
+          messageParams: { username: starUsername },
+        });
+      }
 
-    unsubscribe: async ({ params, request, cookies, fetch }) => {
-        const apiBase = env.PRIVATE_API_BASE_URL || DEFAULT_API_BASE;
-        const sessionId = getSessionCookie(cookies);
-        const csrfToken = getCsrfCookie(cookies);
+      return {
+        action: "updateSubscription",
+        ok: true,
+        messageKey: "dashboard.billing.subscriptionUpdated",
+        messageParams: { username: starUsername },
+        subscription,
+      };
+    } catch (err) {
+      const bridgeCode =
+        err instanceof BackendBridgeError ? err.code : "unexpected";
+      console.error("Update subscription action failed", { code: bridgeCode });
+      return fail(bridgeCode === "untrusted-origin" ? 403 : 500, {
+        action: "updateSubscription",
+        ok: false,
+        messageKey:
+          bridgeCode === "untrusted-origin"
+            ? "dashboard.billing.errors.untrustedRequestOrigin"
+            : "dashboard.billing.errors.updateSubscriptionFailed",
+        messageParams: {},
+      });
+    }
+  },
 
-        if (!sessionId) {
-            throw redirect(302, '/?login=true');
-        }
+  unsubscribe: async ({ params, request, cookies, fetch, url }) => {
+    const sessionId = getSessionCookie(cookies);
+    const csrfToken = getCsrfCookie(cookies);
 
-        if (!csrfToken) {
-            return missingCsrfFailure('unsubscribe');
-        }
+    if (!sessionId) {
+      throw redirect(302, loginDestination(url.pathname));
+    }
 
-        await requireDashboardOwner(fetch, apiBase, sessionId, params.username);
+    if (!csrfToken) {
+      return missingCsrfFailure("unsubscribe");
+    }
 
-        const unsubscribeCooldown = getCooldownRemainingMs(
-            cookies,
-            `billing_unsubscribe_${params.username}`,
-            ACTION_COOLDOWN_MS
-        );
-        if (unsubscribeCooldown > 0) {
-            return fail(429, {
-                action: 'unsubscribe',
-                error: 'Please wait a moment before retrying unsubscribe.',
-            });
-        }
+    await requireDashboardOwner(fetch, cookies, params.username, url.pathname);
 
-        const formData = await request.formData();
-        const starUsername = String(formData.get('starUsername') || '').trim();
+    const unsubscribeCooldown = getCooldownRemainingMs(
+      cookies,
+      `billing_unsubscribe_${params.username}`,
+      ACTION_COOLDOWN_MS,
+    );
+    if (unsubscribeCooldown > 0) {
+      return fail(429, {
+        action: "unsubscribe",
+        ok: false,
+        messageKey: "dashboard.billing.errors.unsubscribeCooldown",
+        messageParams: {},
+      });
+    }
 
-        if (!starUsername || !validateStarUsername(starUsername)) {
-            return fail(400, {
-                action: 'unsubscribe',
-                error: 'Invalid subscription username.',
-            });
-        }
+    const formData = await request.formData();
+    const starUsername = String(formData.get("starUsername") || "").trim();
 
-        try {
-            const unsubscribeResponse = await fetch(`${apiBase}/api/tuzis/subscribe/${starUsername}`, {
-                method: 'DELETE',
-                headers: buildBackendHeaders(sessionId, { csrfToken }),
-            });
+    if (!starUsername || !validateStarUsername(starUsername)) {
+      return fail(400, {
+        action: "unsubscribe",
+        ok: false,
+        messageKey: "dashboard.billing.errors.invalidSubscriptionUsername",
+        messageParams: {},
+      });
+    }
 
-            if (!unsubscribeResponse.ok) {
-                const payload = await unsubscribeResponse.json().catch(() => ({}));
-                return fail(unsubscribeResponse.status || 400, {
-                    action: 'unsubscribe',
-                    error: payload?.error || `Unable to unsubscribe from @${starUsername}.`,
-                });
-            }
+    try {
+      const unsubscribeResponse = await authenticatedBackendMutation({
+        fetchFn: fetch,
+        cookies,
+        requestDestinationOrigin: url.origin,
+        initiatingOrigin: request.headers.get("origin") || "",
+        path: `/api/tuzis/subscribe/${encodeURIComponent(starUsername)}`,
+        method: "DELETE",
+      });
 
-            return {
-                action: 'unsubscribe',
-                success: `Subscription for @${starUsername} will not renew.`,
-            };
-        } catch (err) {
-            console.error('Unsubscribe action failed:', err);
-            return fail(500, {
-                action: 'unsubscribe',
-                error: 'Failed to unsubscribe.',
-            });
-        }
-    },
+      if (!unsubscribeResponse.ok) {
+        const failure = await readBackendFailure(unsubscribeResponse);
+        logBackendFailure("billing.unsubscribe", failure);
+        return fail(failure.status >= 400 ? failure.status : 502, {
+          action: "unsubscribe",
+          ok: false,
+          messageKey:
+            failure.kind === "csrf"
+              ? "dashboard.billing.errors.securityTokenRejected"
+              : "dashboard.billing.errors.unsubscribeFailedForUser",
+          messageParams: { username: starUsername },
+        });
+      }
+
+      return {
+        action: "unsubscribe",
+        ok: true,
+        messageKey: "dashboard.billing.subscriptionWillNotRenew",
+        messageParams: { username: starUsername },
+      };
+    } catch (err) {
+      const bridgeCode =
+        err instanceof BackendBridgeError ? err.code : "unexpected";
+      console.error("Unsubscribe action failed", { code: bridgeCode });
+      return fail(bridgeCode === "untrusted-origin" ? 403 : 500, {
+        action: "unsubscribe",
+        ok: false,
+        messageKey:
+          bridgeCode === "untrusted-origin"
+            ? "dashboard.billing.errors.untrustedRequestOrigin"
+            : "dashboard.billing.errors.unsubscribeFailed",
+        messageParams: {},
+      });
+    }
+  },
 };

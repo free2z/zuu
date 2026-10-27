@@ -1,6 +1,8 @@
 # Static assets are built without deployment credentials. Runtime configuration is mounted by the operator.
-FROM node:18.12.0@sha256:cef9966b19672effeafcf1a67b8add742c3e46ca7dd5532efff60820526c2e95 AS classic
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS classic
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20250419~deb12u2 \
+    && rm -rf /var/lib/apt/lists/*
 ENV NODE_OPTIONS=--use-openssl-ca
 WORKDIR /src
 COPY ts/react/free2z/package*.json ./
@@ -8,8 +10,10 @@ RUN npm ci --legacy-peer-deps
 COPY ts/react/free2z/ ./
 RUN CI=false npm run build
 
-FROM node:20@sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5 AS docs
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS docs
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20250419~deb12u2 \
+    && rm -rf /var/lib/apt/lists/*
 ENV NODE_OPTIONS=--use-openssl-ca
 WORKDIR /src
 COPY docs/about-free2z/package*.json ./
@@ -18,6 +22,8 @@ COPY docs/about-free2z/ ./
 RUN npm run build
 
 FROM python:3.12-bookworm@sha256:903c1a88edb0a18dbc4e02ef07545d18eefea9839ee40761266a640f8d5213d6 AS django-static
+RUN dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20250419~deb12u2
+ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 COPY py/free2z/requirements/main.txt /requirements.txt
 RUN python -m pip install --disable-pip-version-check --require-hashes -r /requirements.txt
 COPY py/free2z /py
@@ -32,7 +38,8 @@ ARG NGINX_VOD_MODULE_COMMIT=6c305a78b7ab6e4312279bea5c45741bb54a713b
 # PCRE2 headers compile nginx; explicitly retaining its runtime library keeps
 # apt autoremove from removing a library needed by the installed executable.
 RUN apt-get update \
-    && apt-get install -y build-essential libpcre2-dev zlib1g-dev libssl-dev wget git libpcre2-8-0
+    && apt-get install -y build-essential libpcre2-dev zlib1g-dev libssl-dev wget git libpcre2-8-0 ca-certificates \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20250419+deb13u1
 
 # Fetch nginx-vod-module by immutable commit and download the official upstream
 # NGINX source tarball. Verify the tarball before extracting it; its detached

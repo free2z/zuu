@@ -12,6 +12,7 @@ const ResetPassword: React.FC = () => {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
     const [password, setPassword] = useState('');
+    const [otpToken, setOtpToken] = useState('');
     const [passwordVisible, setPasswordVisible] = useState(false);
     const [loading, setLoading] = useState(false);
     const [snackbar, setSnackbar] = useGlobalState('snackbar');
@@ -21,7 +22,12 @@ const ResetPassword: React.FC = () => {
     const handleSubmit = async () => {
         try {
             setLoading(true);
-            const response = await axios.post('/api/emails/do-reset-password', { token, password });
+            const payload: { token: string | null; password: string; otp_token?: string } = {
+                token,
+                password,
+            };
+            if (otpToken.trim()) payload.otp_token = otpToken.trim();
+            const response = await axios.post('/api/emails/do-reset-password', payload);
             // Handle login logic here if needed
             navigate('/');
             window.location.reload();
@@ -78,6 +84,19 @@ const ResetPassword: React.FC = () => {
                             </InputAdornment>
                         ),
                     }}
+                />
+                <TextField
+                    margin="dense"
+                    id="otp-token"
+                    label="Authenticator code (if MFA is enabled)"
+                    type="text"
+                    fullWidth
+                    variant="standard"
+                    color="warning"
+                    value={otpToken}
+                    inputProps={{ inputMode: 'numeric', maxLength: 10 }}
+                    autoComplete="one-time-code"
+                    onChange={(e) => setOtpToken(e.target.value)}
                 />
                 <Button
                     type="submit"

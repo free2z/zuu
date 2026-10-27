@@ -1,60 +1,23 @@
 ---
-title: AML/KYC Policy
+title: Creator Verification
 ---
 
-## Introduction
+Creator earnings require a verified person or organization and an accepted [creator agreement](./06-revenue-share-agreement.md). You do not need a minimum 2Z balance to apply.
 
-This Anti-Money Laundering (AML) and Know Your Customer (KYC) Policy (the "Policy") outlines the standards and procedures for AML and KYC compliance on the Free2Z platform (the "Platform"), specifically for participants in the revenue sharing program.
+## Getting started
 
-## Document Collection and Verification
+Submit the verification application and provide accurate identity and authority information. A reviewer checks who will receive payment and whether you can act for that person or organization. Accept the creator agreement and the displayed service terms separately before providing qualifying paid services.
 
-- Documentation, such as W-9 forms for US residents and W-8BEN forms for non-US residents, is required for our contractors as part of standard tax compliance and identity verification for participants in our rewards program.
-- Verification will be conducted using a government-issued ID and a selfie.
-- Electronic signatures are required to authenticate the provided documents.
+Completing a verification application or signing a tax form alone does not accept that agreement. Your earnings screen shows the verified payee's name and jurisdiction privately to you.
 
-## Data Privacy and Security
+## Before payment
 
-- We commit to the secure and confidential storage of personal data, adhering to strict privacy and security standards.
-- User information is handled with the utmost care, ensuring its confidentiality and integrity.
+We review the payee, your authority, the requested Zcash address, required tax information, and applicable sanctions restrictions. We may ask for clarification or supporting information. A name or location check alone does not complete this review.
 
-## Compliance Checks
+Tax review is required before payment; unfinished tax paperwork does not by itself cancel earnings or prevent a verified creator with accepted terms from providing qualifying services. If withholding is required, additional payment review is needed and the amount remains owed.
 
-- We conduct necessary compliance checks, including global sanctions lists and AML standards, for our contractors. These checks are part of our commitment to responsible and secure operations, specific to our rewards program.
-- Our procedures are regularly updated to stay aligned with current regulatory requirements.
+## Your information and your rights
 
-## User Eligibility and Service Discretion
+Verification and payment records are used for identity, contractual, tax, security, and legal requirements. Retention depends on the type of record and applicable obligations. See our [Privacy Policy](./02-privacy-policy.md) for information requests and deletion rights.
 
-- The Company reserves the right, at its sole discretion, to determine and manage eligibility for participation in the revenue sharing program.
-- The Company exercises discretion in determining eligibility for our rewards program. This process is tailored to ensure the integrity and purpose of the program aligns with our platform's values and legal obligations.
-- The Company also reserves the right to terminate participation in the program for any user at any time, in accordance with the terms of service and applicable laws.
-
-## IRS Compliance and Reporting
-
-- As part of our commitment to legal compliance, we adhere to IRS regulations, which includes the submission of required tax forms by our contractors participating in the rewards program.
-- Compliance with IRS regulations is mandatory, including the submission of required tax forms by participants.
-- Annual tax documentation will be provided to eligible participants in the program.
-
-## Legal Compliance and Data Disclosure
-
-- In the event of a legally mandated request, Free2Z will cooperate with legal authorities as required by law. Our approach to data disclosure is based solely on legal necessity, balancing compliance with legal requirements and the protection of user privacy.
-
-## Data Retention and Disposal
-
-- Documents are retained as per legal requirements and disposed of securely once they are no longer needed.
-
-**Disclaimer of Liability for AML/KYC Data:** While we employ stringent security measures, Free2Z cannot be held liable for any unforeseen loss, damage, or misuse of data collected through AML/KYC processes, which are specifically designed for our contractor rewards program.
-
-## Policy Changes and User Consent
-
-- This Policy may be updated from time to time, with changes effective upon posting on the Platform.
-- Continued participation in the revenue sharing program indicates acceptance of the revised Policy.
-
-## Governing Law and Jurisdiction
-
-- The Policy is governed by the laws of the Country where Free2Z is established.
-
-## Contact Information
-
-For any inquiries or questions about this Policy, please contact [help@free2z.com](mailto:help@free2z.com)
-
-Participation in the Revenue Share Program on Free2Z signifies your acknowledgment and agreement to this AML/KYC Policy.
+Unsuccessful onboarding, account suspension, or ending participation does not erase legally owed payments. For application help or payment assistance, contact [help@free2z.com](mailto:help@free2z.com).

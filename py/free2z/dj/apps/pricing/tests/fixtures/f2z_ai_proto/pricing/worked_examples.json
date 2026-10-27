@@ -1,0 +1,199 @@
+{
+  "schema": 1,
+  "description": "Shared pricing fixtures for f2z-ai-proto::pricing (Rust), and the Python and SQL implementations of the same formula. Expected values were computed independently with exact rationals from the formula as written: p = cost_usd*100*(1+platform_margin), d = p*dev_markup, total = max(min_charge, ceil(p+d)) whole 2Z; provider = ceil(cost), developer = floor(d), platform = total - provider - developer, all in milli-2Z. 1 2Z = $0.01 = 10,000,000 nano-USD. Margins are basis points (10000 = 100%).",
+  "input_unit": "cost_nusd: nano-USD (integer)",
+  "cases": [
+    {
+      "name": "worked_example_0pct",
+      "note": "$0.021 of provider cost at 0% margin, no markup: 2.1 2Z rounds once, up, to 3 2Z.",
+      "input": {
+        "cost_nusd": 21000000,
+        "platform_margin_bps": 0,
+        "dev_markup_bps": 0,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "total_milli": 3000,
+        "provider_milli": 2100,
+        "developer_milli": 0,
+        "platform_milli": 900
+      }
+    },
+    {
+      "name": "single_rounding_with_markup",
+      "note": "$0.021 at 0% margin, 10% developer markup: ceil(2.1 + 0.21) = 3. Rounding p and d separately would give ceil(2.1) + ceil(0.21) = 4.",
+      "input": {
+        "cost_nusd": 21000000,
+        "platform_margin_bps": 0,
+        "dev_markup_bps": 1000,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "total_milli": 3000,
+        "provider_milli": 2100,
+        "developer_milli": 210,
+        "platform_milli": 690
+      }
+    },
+    {
+      "name": "worked_example_50pct",
+      "note": "$0.021 at the current 50% platform margin: ceil(3.15) = 4 2Z.",
+      "input": {
+        "cost_nusd": 21000000,
+        "platform_margin_bps": 5000,
+        "dev_markup_bps": 0,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "total_milli": 4000,
+        "provider_milli": 2100,
+        "developer_milli": 0,
+        "platform_milli": 1900
+      }
+    },
+    {
+      "name": "exact_whole_2z_not_rounded",
+      "note": "$0.02 at 0% margin is exactly 2 2Z; nothing to round.",
+      "input": {
+        "cost_nusd": 20000000,
+        "platform_margin_bps": 0,
+        "dev_markup_bps": 0,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "total_milli": 2000,
+        "provider_milli": 2000,
+        "developer_milli": 0,
+        "platform_milli": 0
+      }
+    },
+    {
+      "name": "zero_cost_pays_min_charge",
+      "note": "A call with no billable usage still pays min_charge.",
+      "input": {
+        "cost_nusd": 0,
+        "platform_margin_bps": 5000,
+        "dev_markup_bps": 0,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "total_milli": 1000,
+        "provider_milli": 0,
+        "developer_milli": 0,
+        "platform_milli": 1000
+      }
+    },
+    {
+      "name": "zero_cost_zero_min",
+      "note": "No usage and min_charge 0: nothing is charged.",
+      "input": {
+        "cost_nusd": 0,
+        "platform_margin_bps": 5000,
+        "dev_markup_bps": 0,
+        "min_charge_2z": 0
+      },
+      "expected": {
+        "total_milli": 0,
+        "provider_milli": 0,
+        "developer_milli": 0,
+        "platform_milli": 0
+      }
+    },
+    {
+      "name": "tiny_cost_provider_rounds_up",
+      "note": "$0.000001 at 50%: 1 2Z total; the provider split ceil(0.1 milli) = 1 milli, never 0.",
+      "input": {
+        "cost_nusd": 1000,
+        "platform_margin_bps": 5000,
+        "dev_markup_bps": 0,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "total_milli": 1000,
+        "provider_milli": 1,
+        "developer_milli": 0,
+        "platform_milli": 999
+      }
+    },
+    {
+      "name": "min_charge_dominates",
+      "note": "$0.001 at 50% is 0.15 2Z; min_charge 5 wins.",
+      "input": {
+        "cost_nusd": 1000000,
+        "platform_margin_bps": 5000,
+        "dev_markup_bps": 0,
+        "min_charge_2z": 5
+      },
+      "expected": {
+        "total_milli": 5000,
+        "provider_milli": 100,
+        "developer_milli": 0,
+        "platform_milli": 4900
+      }
+    },
+    {
+      "name": "one_dollar_margin_and_markup",
+      "note": "$1.00 at 50% margin and 20% markup: p = 150, d = 30, total 180 2Z.",
+      "input": {
+        "cost_nusd": 1000000000,
+        "platform_margin_bps": 5000,
+        "dev_markup_bps": 2000,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "total_milli": 180000,
+        "provider_milli": 100000,
+        "developer_milli": 30000,
+        "platform_milli": 50000
+      }
+    },
+    {
+      "name": "developer_floor_fractional",
+      "note": "d = 0.1157409375 2Z floors to 115 milli; provider ceil(1234.57) = 1235 milli.",
+      "input": {
+        "cost_nusd": 12345700,
+        "platform_margin_bps": 2500,
+        "dev_markup_bps": 750,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "total_milli": 2000,
+        "provider_milli": 1235,
+        "developer_milli": 115,
+        "platform_milli": 650
+      }
+    },
+    {
+      "name": "large_cost_100pct_margin",
+      "note": "$123.456789 at 100% margin, 25% markup.",
+      "input": {
+        "cost_nusd": 123456789000,
+        "platform_margin_bps": 10000,
+        "dev_markup_bps": 2500,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "total_milli": 30865000,
+        "provider_milli": 12345679,
+        "developer_milli": 6172839,
+        "platform_milli": 12346482
+      }
+    },
+    {
+      "name": "just_over_a_boundary",
+      "note": "$0.020000001 at 0%: one nano-USD over 2 2Z rounds to 3.",
+      "input": {
+        "cost_nusd": 20000001,
+        "platform_margin_bps": 0,
+        "dev_markup_bps": 0,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "total_milli": 3000,
+        "provider_milli": 2001,
+        "developer_milli": 0,
+        "platform_milli": 999
+      }
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 name: Free2Z website CI
 on:
   pull_request: {}
+  merge_group: {}
   workflow_call:
     outputs:
       complete:
@@ -48,7 +49,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24
+          node-version: 24.22.1
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
       - run: npm ci
@@ -96,7 +97,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24
+          node-version: 24.22.1
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
       - run: npm ci
@@ -104,6 +105,8 @@ jobs:
         run: '"$GITHUB_WORKSPACE/scripts/free2z/test-ui-preflight.sh"'
       - name: Install xmllint (sitemap schema validation)
         run: sudo "$GITHUB_WORKSPACE/scripts/free2z/install-ubuntu-ci-packages.sh" libxml2-utils
+      - name: Static bridge routing controls
+        run: node --test "$GITHUB_WORKSPACE/ts/free2z/bridge/test/bridge-pages.test.mjs"
       - name: Run node test suite
         run: npm test
     needs: changes
@@ -138,10 +141,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
         with:
           persist-credentials: false
-      - name: Use Node 20 for deployed docs
+      - name: Use the static image Node version
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 20
+          node-version: 24.22.1
           cache: npm
           cache-dependency-path: |
             docs/about-free2z/package-lock.json
@@ -149,6 +152,11 @@ jobs:
       - name: Install Docusaurus dependencies
         run: npm ci
         working-directory: docs/about-free2z
+      - name: Verify Docusaurus types and dependency compatibility
+        working-directory: docs/about-free2z
+        run: |
+          npm run typecheck
+          npm run test:build-dependencies
       - name: Build Docusaurus docs
         run: npm run build
         working-directory: docs/about-free2z
@@ -219,7 +227,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24
+          node-version: 24.22.1
           cache: npm
           cache-dependency-path: |
             ts/svelte/free2z/package-lock.json
@@ -293,7 +301,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24
+          node-version: 24.22.1
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
       - run: npm ci
@@ -352,7 +360,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24
+          node-version: 24.22.1
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # reviewed immutable repository pin
@@ -372,8 +380,52 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check PyYAML==6.0.3
           bash scripts/free2z/test-run-dependency-audits.sh
-      - name: Production-only npm and Python dependency audit
+      - name: Complete Svelte graph and Python runtime dependency audit
         run: PYTHON=python ./scripts/free2z/run-dependency-audits.sh
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
+  dependency-security-static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [ts/react/free2z, docs/about-free2z, docs/free2z/website]
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
+        with:
+          node-version: 24.22.1
+      - name: Audit every bundled and build dependency
+        env:
+          NPM_AUDIT_PROJECT: ${{ matrix.project }}
+          DEPENDENCY_AUDIT_NPM_ONLY: '1'
+        run: bash scripts/free2z/run-dependency-audits.sh
     needs: changes
     if: needs.changes.outputs.application == 'true'
   react:
@@ -411,10 +463,11 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 18.12.0
+          node-version: 24.22.1
           cache: npm
           cache-dependency-path: ts/react/free2z/package-lock.json
       - run: npm ci --legacy-peer-deps
+      - run: npm run test:build-dependencies
       - name: Test classic rollback compatibility routes
         run: npm test -- --watchAll=false --runTestsByPath src/components/AIzPageDialog.test.tsx src/components/LogoutButton.test.tsx src/classicRouteCompatibility.test.ts src/PageDetail.test.tsx src/RootSplitter.test.tsx src/CreatorDetail.test.tsx src/components/SubscribeToCreator.test.tsx src/components/MySubscriptionRow.test.tsx src/eventContentUrl.test.ts src/retiredMemoProtocols.test.ts src/AI2.test.tsx src/components/AITextarea.test.tsx
       - name: Build classic React app for Chromium tests
@@ -557,7 +610,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         if: matrix.group == 1
         with:
-          node-version: 24
+          node-version: 24.22.1
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
       - name: Install renderer dependencies for the translation oracle
@@ -572,7 +625,7 @@ jobs:
       - name: Migration deletion and assertion quality guards
         if: matrix.group == 1
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         run: |
           if [ -n "$BASE_SHA" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ]; then
             git fetch --no-tags --depth=1 https://github.com/free2z/zuu.git "$BASE_SHA"
@@ -586,6 +639,18 @@ jobs:
           python -m pytest -q
           dj/apps/jobs/test_periodic_register_first.py::test_static_scan_finds_exactly_the_registered_schedules
           dj/apps/jobs/test_periodic_register_first.py::test_static_scan_sees_every_registered_task_name
+      - name: Export source-bound task registry after live parity
+        if: matrix.group == 1
+        run: >-
+          python "$GITHUB_WORKSPACE/scripts/free2z/export-task-registry.py"
+          --commit "$GITHUB_SHA" --output "$RUNNER_TEMP/task-registry.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # reviewed immutable repository pin
+        if: matrix.group == 1
+        with:
+          name: free2z-task-registry-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/task-registry.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Periodic tasks registered before scheduling
         if: matrix.group == 1
         env:
@@ -639,6 +704,86 @@ jobs:
         run: python3 scripts/free2z/ci-services.py cleanup
     needs: changes
     if: needs.changes.outputs.application == 'true'
+  native-payment-bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: py/free2z
+    env:
+      PYTHONPATH: ${{ github.workspace }}/py/free2z
+      DBHOST: 127.0.0.1
+      DBPORT: '5432'
+      DBNAME: free2z
+      DBUSER: free2z
+      DBPASS: free2z
+      CHANNEL_REDIS_HOST: 127.0.0.1
+      CHANNEL_REDIS_PORT: '6379'
+      PAYMENTD_NATIVE_BRIDGE_TEST: '1'
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
+      - name: Start owned CI databases
+        id: ci-services
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/free2z/ci-services.py start --postgres --redis
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # reviewed immutable repository pin
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            py/free2z/requirements/main.in
+            py/free2z/requirements/main.txt
+            py/free2z/requirements/test.txt
+      - name: Install libpq headers (psycopg2 builds from source)
+        run: sudo "$GITHUB_WORKSPACE/scripts/free2z/install-ubuntu-ci-packages.sh" libpq-dev protobuf-compiler
+      - name: Install requirements
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements/main.txt
+          python -m pip install --disable-pip-version-check -r requirements/test.txt
+          "$GITHUB_WORKSPACE/scripts/free2z/check-python-requirements-installed.py" --lock requirements/main.txt
+          python -m pip check
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # reviewed immutable repository pin
+        with:
+          toolchain: 1.97.1
+      - name: Compile native financial delivery fixtures
+        working-directory: rs/zcash-payment-hooks
+        run: timeout 1200 cargo test --locked --test financial_delivery --test production_handoff_fixture --no-run
+      - name: Native payments cross the Python SQL boundary
+        run: timeout 300 python -m pytest dj/apps/g12f/test_paymentd_native_credit.py -q
+      - name: Remove owned CI databases
+        if: always()
+        working-directory: ${{ github.workspace }}
+        env:
+          CI_POSTGRES_CONTAINER_ID: ${{ steps.ci-services.outputs.postgres_id }}
+          CI_REDIS_CONTAINER_ID: ${{ steps.ci-services.outputs.redis_id }}
+        run: python3 scripts/free2z/ci-services.py cleanup
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
   gate:
     name: Free2Z website gate
     if: ${{ always() }}
@@ -650,9 +795,11 @@ jobs:
       - ui-browser
       - api-client
       - dependency-security
+      - dependency-security-static
       - react
       - lint-python
       - backend
+      - native-payment-bridge
       - images
     runs-on: ubuntu-24.04
     steps:
@@ -735,6 +882,8 @@ jobs:
           context: ${{ matrix.kind == 'web' && 'ts/svelte/free2z' || '.' }}
           file: build/free2z/${{ matrix.kind }}.Dockerfile
           platforms: linux/amd64
+          provenance: false
+          sbom: false
           load: true
           push: false
           tags: free2z-${{ matrix.kind }}:candidate
@@ -819,7 +968,7 @@ jobs:
       - name: Select application changes
         id: select
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           HEAD_SHA: ${{ github.sha }}
           EVENT: ${{ github.event_name }}
         run: python3 scripts/free2z/select-web-checks.py

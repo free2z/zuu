@@ -1,0 +1,14 @@
+{
+  "producer_commit": "af750b09300f5289a75e96677b2eadfc089b4fcd",
+  "producer_test": "test_real_browser_zec_create_serializes_unobserved_pending_quote",
+  "producer_run_result": "53 focused regression tests passed",
+  "fixture_sha256": "9ea23a9c04bf698a1dc2928a6416c93c92cd59b3dd97b4f32f518afb90f8ba29",
+  "source": "Real authenticated POST handler and PurchaseIntentSerializer on the producer worker’s isolated synthetic PostgreSQL test database.",
+  "funding_method_version": "zec-funding-v2",
+  "funding_method_digest": "faa147f22adab5567ca3fb9594857657266dbf31617f29d33b5556d3c3994cd9",
+  "created_at": "2026-10-11T03:49:59.283344Z",
+  "browser_limit": "Consumer rendering under synthetic fixture authentication. This is not live policy activation, real buyer authentication, funds sent, or credits issued. Original response and memo are preserved; browser clock anchors created_at.",
+  "producer_artifact_file": "economy-fresh-pg-zec-intent.original.raw",
+  "producer_artifact_sha256": "67f4602097bd26715e6eedf5124f36aaae28abfc0f22527c26eefabf69c818a5",
+  "formatting": "Browser JSON copy is formatted by repository Prettier; parsed deep equality with preserved producer bytes was verified. No response values or financial terms changed."
+}

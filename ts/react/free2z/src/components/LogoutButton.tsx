@@ -4,6 +4,7 @@ import axios from "axios"
 import { defaultCreator, useGlobalState } from "../state/global"
 import { MenuItemWithIcon } from "./AvatarMenu"
 import { useQueryClient } from "react-query"
+import { pruneInsertedCreatorAiPromptsOnLogout } from "../lib/creatorAiPromptCache"
 
 type Props = {
     onClick?: () => void
@@ -19,6 +20,7 @@ export default function LogoutButton(props: Props) {
         <MenuItemWithIcon
             onClick={() => {
                 axios.post("/api/auth/logout/", {}).then(() => {
+                    pruneInsertedCreatorAiPromptsOnLogout()
                     setRedirect("")
                     queryClient.clear()
                     setAuthStatus(false)

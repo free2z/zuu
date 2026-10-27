@@ -1,0 +1,283 @@
+{
+  "_source": "Usage payloads in each provider's documented wire shape. The usage blocks are the worked examples the providers publish, not live captures: OpenAI's reasoning guide (completion_tokens INCLUDES reasoning_tokens; total = prompt + completion), xAI's reasoning usage (completion_tokens EXCLUDES reasoning_tokens; total = prompt + completion + reasoning), Anthropic's Messages streaming (message_delta.usage.output_tokens is cumulative and includes thinking). Each chunk/event is validated against the pinned SDK's own model (openai ChatCompletionChunk, anthropic RawMessageStreamEvent) before use, so a shape the SDK would not produce cannot make a test pass.",
+  "openai_reasoning": {
+    "provider": "openai",
+    "model": "gpt-5.6-sol",
+    "visible_text": "The answer is 42.",
+    "expected_input_tokens": 75,
+    "expected_cached_input_tokens": 20,
+    "expected_cache_write_tokens": 30,
+    "expected_output_tokens": 1186,
+    "expected_reasoning_tokens": 1024,
+    "chunks": [
+      {
+        "id": "chatcmpl-1",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "gpt-5.6-sol",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant",
+              "content": ""
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-1",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "gpt-5.6-sol",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "The answer "
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-1",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "gpt-5.6-sol",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "is 42."
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-1",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "gpt-5.6-sol",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-1",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "gpt-5.6-sol",
+        "choices": [],
+        "usage": {
+          "prompt_tokens": 75,
+          "completion_tokens": 1186,
+          "total_tokens": 1261,
+          "prompt_tokens_details": {
+            "cached_tokens": 20,
+            "cache_write_tokens": 30,
+            "audio_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 1024,
+            "audio_tokens": 0,
+            "accepted_prediction_tokens": 0,
+            "rejected_prediction_tokens": 0
+          }
+        }
+      }
+    ]
+  },
+  "xai_reasoning": {
+    "provider": "xai",
+    "model": "grok-4.5",
+    "visible_text": "The answer is 42.",
+    "expected_input_tokens": 32,
+    "expected_cached_input_tokens": 6,
+    "expected_output_tokens": 119,
+    "expected_reasoning_tokens": 110,
+    "chunks": [
+      {
+        "id": "grok-1",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "grok-4.5",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant",
+              "content": "The answer "
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "grok-1",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "grok-4.5",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "is 42."
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "grok-1",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "grok-4.5",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "grok-1",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "grok-4.5",
+        "choices": [],
+        "usage": {
+          "prompt_tokens": 32,
+          "completion_tokens": 9,
+          "total_tokens": 151,
+          "prompt_tokens_details": {
+            "text_tokens": 32,
+            "audio_tokens": 0,
+            "image_tokens": 0,
+            "cached_tokens": 6
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 110,
+            "audio_tokens": 0,
+            "accepted_prediction_tokens": 0,
+            "rejected_prediction_tokens": 0
+          }
+        }
+      }
+    ]
+  },
+  "anthropic_thinking": {
+    "provider": "anthropic",
+    "model": "claude-opus-4-8",
+    "visible_text": "The answer is 42.",
+    "expected_input_tokens": 872,
+    "expected_cached_input_tokens": 200,
+    "expected_cache_write_tokens": 100,
+    "expected_cache_write_1h_tokens": 100,
+    "expected_output_tokens": 3120,
+    "expected_reasoning_tokens": 2900,
+    "events": [
+      {
+        "type": "message_start",
+        "message": {
+          "id": "msg_1",
+          "type": "message",
+          "role": "assistant",
+          "model": "claude-opus-4-8",
+          "content": [],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "usage": {
+            "input_tokens": 472,
+            "output_tokens": 1,
+            "cache_read_input_tokens": 200,
+            "cache_creation_input_tokens": 200,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 100,
+              "ephemeral_1h_input_tokens": 100
+            }
+          }
+        }
+      },
+      {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "thinking",
+          "thinking": "",
+          "signature": ""
+        }
+      },
+      {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "Let me work through this carefully..."
+        }
+      },
+      {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      {
+        "type": "content_block_start",
+        "index": 1,
+        "content_block": {
+          "type": "text",
+          "text": ""
+        }
+      },
+      {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "The answer "
+        }
+      },
+      {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "is 42."
+        }
+      },
+      {
+        "type": "content_block_stop",
+        "index": 1
+      },
+      {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "end_turn",
+          "stop_sequence": null
+        },
+        "usage": {
+          "output_tokens": 3120,
+          "output_tokens_details": {
+            "thinking_tokens": 2900
+          }
+        }
+      },
+      {
+        "type": "message_stop"
+      }
+    ]
+  }
+}

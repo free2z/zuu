@@ -1,16 +1,18 @@
 import { LocalFlorist } from "@mui/icons-material";
 import {
     Dialog, DialogTitle, DialogContent,
-    Divider, DialogActions,
+    Divider, DialogActions, DialogContentText,
     Button, Tooltip, useMediaQuery,
 } from "@mui/material";
 import { useState } from "react";
-import { getURI, current_f2z_address } from "../Constants";
 import { SBadge } from "./PageMetaFund";
 import { PageInterface } from "./PageRenderer";
-import QRAddress from "./QRAddress";
 
 
+// The score badge on the classic zPage speed dial. It used to open a
+// "Donate to F2Z to boost this page" QR that sent ZEC to a Free2Z wallet with
+// a `page_fund` memo. That protocol is retired: boosting is a 2Z
+// action, and ZEC sent to Free2Z is only ever for buying 2Z.
 export default function ZcashPromoteZpage(props: PageInterface) {
     const [open, setOpen] = useState(false)
     const isXS = useMediaQuery('(max-width: 399px)')
@@ -32,21 +34,15 @@ export default function ZcashPromoteZpage(props: PageInterface) {
                 fullScreen={isXS}
             >
                 <DialogTitle id="responsive-dialog-title">
-                    Donate to F2Z to boost this page!
+                    Boost this page with 2Z
                 </DialogTitle>
                 <DialogContent>
                     <Divider style={{ margin: "1em" }} />
-                    <QRAddress
-                        size={222}
-                        addr={getURI(
-                            current_f2z_address,
-                            "0.01",
-                            JSON.stringify({
-                                act: "page_fund",
-                                id: props.free2zaddr,
-                            })
-                        )}
-                    />
+                    <DialogContentText>
+                        Boosts use 2Z, Free2Z's platform credits. Use the
+                        rocket button on the page to boost it. Need 2Z? Buy
+                        them with Zcash or a card from your profile.
+                    </DialogContentText>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={handleClose} autoFocus>
@@ -56,7 +52,7 @@ export default function ZcashPromoteZpage(props: PageInterface) {
             </Dialog>
             <Tooltip
                 placement="left"
-                title="Promote on F2Z"
+                title="Page score"
             >
 
                 <SBadge

@@ -22,7 +22,7 @@ gate = load('verify-gate-results')
 
 class ReleaseContract(unittest.TestCase):
     def valid(self):
-        return {'schema_version': 1, 'source': {'repository': 'free2z/zuu', 'commit': 'a'*40}, 'build': {'workflow': release.WORKFLOW, 'run_id': '123', 'run_attempt': 1}, 'images': {k: {'repository': v, 'digest': 'sha256:'+'b'*64} for k, v in release.REPOSITORIES.items()}, 'static_assets': {'path': '/app/build/client', 'inventory': 'static-assets.json', 'sha256': 'sha256:'+'c'*64}}
+        return {'schema_version': 1, 'task_registry': {'schema_version': 1, 'registered': ['app.a', 'app.b'], 'scheduled': ['app.a']}, 'source': {'repository': 'free2z/zuu', 'commit': 'a'*40}, 'build': {'workflow': release.WORKFLOW, 'run_id': '123', 'run_attempt': 1}, 'images': {k: {'repository': v, 'digest': 'sha256:'+'b'*64} for k, v in release.REPOSITORIES.items()}, 'static_assets': {'path': '/app/build/client', 'inventory': 'static-assets.json', 'sha256': 'sha256:'+'c'*64}}
 
     def test_gate_checks_each_result_and_selection(self):
         for selected, expected in [('true', 'success'), ('false', 'skipped')]:
@@ -42,6 +42,40 @@ class ReleaseContract(unittest.TestCase):
                 value = self.valid()
                 mutate(value)
                 with self.assertRaises(ValueError): release.validate(value)
+
+    def test_task_registry_cannot_expand_authority_or_exceed_bounds(self):
+        mutations = [
+            lambda r: r.update(schema_version=True),
+            lambda r: r.update(registered=[]),
+            lambda r: r.update(registered=['app.a', 'app.a']),
+            lambda r: r.update(registered=['app.b', 'app.a']),
+            lambda r: r.update(scheduled=['app.missing']),
+            lambda r: r.update(registered=['app.é']),
+            lambda r: r.update(registered=['a' * 257]),
+            lambda r: r.update(registered=[f'app.a{i:04}' for i in range(1025)]),
+        ]
+        for mutate in mutations:
+            value = self.valid()
+            mutate(value['task_registry'])
+            with self.assertRaises(ValueError): release.validate(value)
+        value = self.valid()
+        value['task_registry']['scheduled'] = []
+        release.validate(value)
+        value['task_registry']['registered'] = [f'app.{i:04}' + 'a'*240 for i in range(400)]
+        with self.assertRaises(ValueError): release.validate(value)
+
+    def test_registry_artifact_binds_exact_source(self):
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'registry.json'
+            value = self.valid()
+            artifact = {'source': value['source'], 'task_registry': value['task_registry']}
+            path.write_text(json.dumps(artifact))
+            self.assertEqual(release.read_task_registry(path, 'a'*40), value['task_registry'])
+            with self.assertRaises(ValueError): release.read_task_registry(path, 'b'*40)
+            artifact['source']['repository'] = 'other/source'
+            path.write_text(json.dumps(artifact))
+            with self.assertRaises(ValueError): release.read_task_registry(path, 'a'*40)
 
     def test_inventory_requires_real_assets_and_no_symlinks(self):
         with tempfile.TemporaryDirectory() as directory:

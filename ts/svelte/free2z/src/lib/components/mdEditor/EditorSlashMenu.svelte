@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as Kbd from "$lib/components/ui/kbd";
+  import { tStore as t } from "$lib/i18n";
   import { getShortcutLabel } from "./shortcuts";
   import { getMenuPositionStyle } from "./menuPosition";
 
@@ -11,6 +12,11 @@
     insertSlashCommand,
     selectedCommandRefs = $bindable([]),
     isMac = false,
+    menuTitle,
+    // Unique per host: `/converse` renders a composer per open reply, and the
+    // textarea's `aria-activedescendant` must resolve to THIS menu's option.
+    menuId = "editor-command-menu",
+    optionIdPrefix = "editor-command-option",
   } = $props();
 
   function getShortcutKeys(shortcut: { mac: string; windows: string }) {
@@ -21,24 +27,37 @@
 </script>
 
 <div
+  id={menuId}
   bind:this={slashMenuRef}
-  onpointerdown={(event) => event.preventDefault()}
-  class="fixed z-[100] flex max-h-[420px] w-[360px] animate-in flex-col overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md fade-in slide-in-from-bottom-2"
+  role="listbox"
+  aria-label={menuTitle ?? $t("editor.slashMenu.title", "Commands")}
+  onpointerdown={(event) => {
+    if (event.pointerType === "mouse") {
+      event.preventDefault();
+    }
+  }}
+  class="fixed z-[100] flex max-h-[min(420px,var(--editor-menu-space,420px))] w-[min(360px,calc(100vw-16px))] animate-in flex-col overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md fade-in slide-in-from-bottom-2"
   style={positionStyle}
 >
   <div
     class="flex shrink-0 items-center justify-between border-b bg-muted/50 px-3 py-2"
   >
-    <span class="text-xs font-medium text-muted-foreground">Commands</span>
+    <span class="text-xs font-medium text-muted-foreground">
+      {menuTitle ?? $t("editor.slashMenu.title", "Commands")}
+    </span>
     <span class="font-mono text-[10px] text-muted-foreground opacity-70"
-      >↑↓ Navigate · ↵ Select · Esc Close</span
+      >{$t(
+        "editor.menuInstructions",
+        "↑↓ Navigate · ↵ Select · Esc Close",
+      )}</span
     >
   </div>
-  <div class="slash-menu-items max-h-[360px] overflow-y-auto p-1">
+  <div class="slash-menu-items max-h-[360px] min-h-0 overflow-y-auto p-1">
     {#each filteredCommands as command, index}
       {@const Icon = command.icon}
       {@const isSelected = index === selectedSlashCommand}
       <button
+        id={`${optionIdPrefix}-${index}`}
         bind:this={selectedCommandRefs[index]}
         type="button"
         class="group relative flex w-full cursor-pointer items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-sm transition-colors outline-none {isSelected
@@ -46,6 +65,8 @@
           : 'hover:bg-primary/8'}"
         onclick={() => insertSlashCommand(command)}
         onmouseenter={() => (selectedSlashCommand = index)}
+        role="option"
+        aria-selected={isSelected}
       >
         <div
           class="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm border bg-background text-muted-foreground shadow-sm transition-colors {isSelected
@@ -104,7 +125,7 @@
 
     {#if filteredCommands.length === 0}
       <div class="py-6 text-center text-sm text-muted-foreground">
-        No commands found.
+        {$t("editor.slashMenu.empty", "No commands found.")}
       </div>
     {/if}
   </div>

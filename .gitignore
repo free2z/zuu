@@ -18,3 +18,24 @@ ts/svelte/free2z/.svelte-kit/
 ts/svelte/free2z/build/
 
 
+
+# Application route; only unrelated private directories are excluded.
+!ts/svelte/free2z/src/routes/\[username\]/private/
+
+# Browser-test output is not application source or a live-reload input.
+ts/svelte/free2z/playwright-report/
+ts/svelte/free2z/test-results/
+ts/svelte/free2z/playwright-report-local-*/
+ts/svelte/free2z/test-results-local-*/
+# Generated recorder bundles.
+ts/svelte/free2z/static/_app/
+ts/svelte/free2z/static/tools/
+
+# Local Python environments contain installed dependencies, not source.
+/.venv*/
+
+# Generated SvelteKit state belongs to the test process.
+ts/svelte/free2z/.svelte-kit-test-*/
+
+# Recorder publication stages beside, never inside, the served asset tree.
+ts/svelte/free2z/.recorder-*/

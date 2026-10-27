@@ -1,8 +1,8 @@
-import Root from './carousel.svelte';
-import Content from './carousel-content.svelte';
-import Item from './carousel-item.svelte';
-import Previous from './carousel-previous.svelte';
-import Next from './carousel-next.svelte';
+import Root from "./carousel.svelte";
+import Content from "./carousel-content.svelte";
+import Item from "./carousel-item.svelte";
+import Previous from "./carousel-previous.svelte";
+import Next from "./carousel-next.svelte";
 
 // Export as `any` to relax template typing temporarily.
 export const RootAny = Root as unknown as any;

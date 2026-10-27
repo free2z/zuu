@@ -9,6 +9,7 @@ import { CommentData } from "./DisplayThreadedComments";
 import MathMarkdown from "./MathMarkdown";
 import ThreadedCommentReplyAction from "./ThreadedCommentReplyAction";
 import TransitionLink from "./TransitionLink";
+import { displayHeadline } from "../utils/commentHeadline";
 import { KeyboardArrowUp, MoveUp } from "@mui/icons-material";
 
 type Props = {
@@ -59,7 +60,7 @@ export default function CommentCard(props: Props) {
                         </Link>
                     </Tooltip>
                 }
-                title={comment.headline}
+                title={displayHeadline(comment.headline)}
                 subheader={
                     <Link
                         style={{

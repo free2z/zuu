@@ -23,6 +23,7 @@ mkdir -p "${repo}/scripts/free2z" "${repo}/.github" "${repo}/ts/svelte/free2z" "
 cp "${SOURCE_DIR}/run-dependency-audits.sh" "${repo}/scripts/free2z/"
 cp "${SOURCE_DIR}/check-dependency-audit.py" "${repo}/scripts/free2z/"
 : > "${repo}/py/free2z/requirements/main.txt"
+: > "${repo}/py/free2z/requirements/language-data.txt"
 
 cat > "${repo}/.github/dependency-audit-baseline.json" <<'JSON'
 {

@@ -16,15 +16,21 @@ If you find this project useful or interesting, please consider giving it a star
 
 ## Getting Started
 
-This project is built with Create React App using pure TypeScript and `npm`. Follow these steps to set up the project locally:
-
+Use Node 24.22.1 and the committed npm lockfile. This classic interface retains
+Create React App; its older TypeScript peer declaration requires the explicit
+install flag used by CI. Build and browser compatibility checks validate this
+dependency graph.
 
 ```sh
-npm i
-npm start
-npm test
-npm build
+npm ci --legacy-peer-deps
+HOST=127.0.0.1 npm start
+npm test -- --watchAll=false
+npm run test:build-dependencies
+npm run build
 ```
+
+The development server keeps host and cross-origin checks enabled before source
+and proxy middleware, including when no backend proxy is configured.
 
 ### Generate self-signed local dev certificates (optional)
 

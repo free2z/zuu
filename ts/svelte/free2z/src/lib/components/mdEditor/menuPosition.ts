@@ -1,17 +1,26 @@
 import { getCaretCoordinates } from "./utils";
 
-export type MenuPosition = { left: number; top?: number; bottom?: number };
+export type MenuPosition = {
+  left: number;
+  top?: number;
+  bottom?: number;
+  availableHeight?: number;
+};
 
 export const VIEWPORT_MARGIN = 8;
 
 const MENU_GAP = 8;
 
 export function getMenuPositionStyle(position: MenuPosition) {
+  const heightStyle =
+    position.availableHeight === undefined
+      ? ""
+      : ` --editor-menu-space: ${position.availableHeight}px;`;
   if (position.bottom !== undefined) {
-    return `bottom: ${position.bottom}px; left: ${position.left}px;`;
+    return `bottom: ${position.bottom}px; left: ${position.left}px;${heightStyle}`;
   }
 
-  return `top: ${position.top ?? VIEWPORT_MARGIN}px; left: ${position.left}px;`;
+  return `top: ${position.top ?? VIEWPORT_MARGIN}px; left: ${position.left}px;${heightStyle}`;
 }
 
 export function clampMenuPosition(
@@ -33,15 +42,33 @@ export function clampMenuPosition(
     Math.min(left, window.innerWidth - width - VIEWPORT_MARGIN),
   );
 
-  const spaceBelow = window.innerHeight - belowTop - VIEWPORT_MARGIN;
-  const spaceAbove = caretTop - MENU_GAP - VIEWPORT_MARGIN;
+  const viewport = window.visualViewport;
+  const visibleTop = (viewport?.offsetTop ?? 0) + VIEWPORT_MARGIN;
+  const visibleBottom = Math.max(
+    visibleTop,
+    (viewport?.offsetTop ?? 0) +
+      (viewport?.height ?? window.innerHeight) -
+      VIEWPORT_MARGIN,
+  );
+  const top = Math.max(visibleTop, Math.min(belowTop, visibleBottom));
+  const aboveBottom = Math.max(
+    visibleTop,
+    Math.min(caretTop - MENU_GAP, visibleBottom),
+  );
+  const spaceBelow = visibleBottom - top;
+  const spaceAbove = aboveBottom - visibleTop;
 
   if (maxHeight > spaceBelow && spaceAbove > spaceBelow) {
-    const bottom = window.innerHeight - (caretTop - MENU_GAP);
-    return { bottom: Math.max(VIEWPORT_MARGIN, bottom), left };
+    // Fixed-position bottom remains relative to the layout viewport, even
+    // when the keyboard pans the visual viewport.
+    return {
+      bottom: window.innerHeight - aboveBottom,
+      left,
+      availableHeight: spaceAbove,
+    };
   }
 
-  return { top: Math.max(VIEWPORT_MARGIN, belowTop), left };
+  return { top, left, availableHeight: spaceBelow };
 }
 
 export function getTextareaMenuPosition(
