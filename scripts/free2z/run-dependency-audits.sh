@@ -214,7 +214,8 @@ report_resolution_failure() {
   echo "the same requirements file read by the same interpreter (${interpreter_version:-unknown})" >&2
   echo "gives the same answer every time." >&2
   if [ "$ecosystem" = pip ]; then
-    echo "The audit reads exact locked versions under the backend interpreter's marker policy." >&2
+    echo "The audit reads exact locked versions using the interpreter selected by build/free2z/backend.Dockerfile." >&2
+    echo "Keep that image and the dependency-security job's Python version aligned for marker evaluation." >&2
     echo "Package installation compatibility is checked separately by the backend and image jobs." >&2
   fi
   echo "No vulnerability conclusion was reached for $ecosystem, so this fails closed." >&2

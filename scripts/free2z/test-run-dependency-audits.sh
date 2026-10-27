@@ -433,6 +433,7 @@ expect_in "  names the class" "RESOLUTION FAILURE: the pip scanner could not res
 expect_in "  names the requirement" "Unresolvable requirement: foo==9.9.9"
 expect_in "  says it was deliberately not retried" "was NOT retried"
 expect_in "  points at the interpreter the pin must satisfy" "build/free2z/backend.Dockerfile"
+expect_in "  separates artifact installation from inventory auditing" "Package installation compatibility is checked separately"
 expect_in "  still refuses to imply a conclusion" "No vulnerability conclusion was reached for pip"
 refute_in "  NOT mislabelled as an outage" "INFRASTRUCTURE FAILURE: the pip scanner produced no usable report"
 refute_in "  never claims an accepted audit" "accepted 0 exact pip advisory"
