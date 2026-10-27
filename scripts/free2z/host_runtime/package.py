@@ -189,6 +189,12 @@ def prepare(image_path, destination, daemon, patchelf, inputs, rust_licenses):
         # dist-info license metadata. No compiler or package manager is copied.
         for source in image.files('usr/share/doc'):
             package.copy(source, 'runtime/share/licenses/debian/' + source.removeprefix('usr/share/doc/'))
+        for source in image.files('usr/share/zoneinfo'):
+            package.copy(source, 'runtime/share/zoneinfo/' + source.removeprefix('usr/share/zoneinfo/'))
+        for required in ('runtime/share/zoneinfo/UTC', 'runtime/share/zoneinfo/Asia/Tokyo',
+                         'runtime/share/licenses/debian/tzdata/copyright'):
+            if required not in package.sources:
+                raise ValueError('backend timezone data or license is missing')
         package.copy('etc/ssl/certs/ca-certificates.crt', 'runtime/share/ca-certificates.crt')
         for source in image.files('opt/tiktoken-cache'):
             package.copy(source, 'runtime/share/tiktoken-cache/' + source.removeprefix('opt/tiktoken-cache/'))

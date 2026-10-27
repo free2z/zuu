@@ -23,6 +23,15 @@ library, installed application dependencies, application source, certificates,
 cached tokenizer data, and license files are copied into a new tree. A virtual
 environment is not a supported input.
 
+The package includes the backend image's timezone database and its Debian
+copyright notice. Launchers set `PYTHONTZPATH` to the verified
+`runtime/share/zoneinfo` directory before importing application code. They also
+set `SSL_CERT_FILE` to `runtime/share/ca-certificates.crt` and
+`TIKTOKEN_CACHE_DIR` to `runtime/share/tiktoken-cache`, using absolute paths in
+the verified assembly. With Python's `-I`, the trusted launcher must explicitly
+add that assembly's `py` directory to the import path; inherited `PYTHONPATH`
+is ignored.
+
 The daemon must be compiled from the same ZUU commit with the repository's
 locked Rust toolchain and Cargo lockfile, inside the selected backend image.
 The tool archive checksums in `build/free2z/host-tools.json` are build inputs.
@@ -80,6 +89,8 @@ at two unrelated absolute payload prefixes to exercise relocation.
 It checks Python's resolved prefix and import paths, `pip check`, Django's
 application registry, application/native imports, the bundled certificate
 store, and loaded native mappings. It executes the daemon's help command,
+resolves UTC and Asia/Tokyo from the bundle with host timezone data hidden,
+and exercises Django REST Framework timestamp serialization. It
 proves a flock survives direct Python exec with the receiving UID, checks
 SIGTERM delivery/reaping, and reads a synthetic SQLite WAL database through a
 read-only connection. These checks exercise the bundled interpreter and

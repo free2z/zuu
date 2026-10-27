@@ -78,6 +78,11 @@ def image_tar(path, files, links=None):
             output.addfile(entry)
 
 
+def tzif(hours):
+    # Minimal fixed-offset TZif v1 file: one local-time type, no transitions.
+    return b'TZif\0' + b'\0' * 15 + struct.pack('>6I', 0, 0, 0, 0, 1, 4) + struct.pack('>lbb', hours * 3600, 0, 0) + b'TST\0'
+
+
 class NativeTests(unittest.TestCase):
     def test_parse_native_metadata_without_loading(self):
         value = ELF(elf(['libssl.so.3', 'libc.so.6'], runpath='$ORIGIN/../lib',
@@ -164,6 +169,9 @@ class ClosureTests(unittest.TestCase):
                      'usr/local/lib/python3.12/site-packages/psycopg/pq/misc.py': b'fixture resolver',
                      'usr/local/lib/python3.12/LICENSE.txt': b'fixture license',
                      'py/dj/free2z/manage.py': b'# fixture', 'py/zcashrpc/paymentd_mode.py': b'# fixture',
+                     'usr/share/zoneinfo/UTC': tzif(0),
+                     'usr/share/zoneinfo/Asia/Tokyo': tzif(9),
+                     'usr/share/doc/tzdata/copyright': b'fixture timezone copyright',
                      'etc/os-release': b'ID=debian\nVERSION_ID="12"\n',
                      'etc/ssl/certs/ca-certificates.crt': b'fixture'}
             image_tar(root / 'image.tar', files)
@@ -181,6 +189,10 @@ class ClosureTests(unittest.TestCase):
             self.assertFalse(list((root / 'output').rglob('*.o')))
             self.assertFalse(list((root / 'output').rglob('*.a')))
             self.assertTrue((root / 'output/runtime/lib/python3.12/LICENSE.txt').is_file())
+            self.assertEqual((root / 'output/runtime/share/zoneinfo/UTC').read_bytes(), tzif(0))
+            evidence = json.loads((root / 'output/runtime/derivation.json').read_text())
+            self.assertEqual(evidence['files']['runtime/share/zoneinfo/Asia/Tokyo'],
+                             dict(source='image:/usr/share/zoneinfo/Asia/Tokyo', sha256=digest(tzif(9))))
 
     def test_every_transitive_object_gets_relative_runpath(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -526,6 +538,40 @@ class LicenseEvidenceTests(unittest.TestCase):
         self.assertEqual(len(rows), 14)
         self.assertIn('host_runtime/licenses.py', (ROOT / 'scripts/free2z/host-rust-build.sh').read_text())
         self.assertIn("'build/free2z/host-licenses'", (ROOT / 'scripts/free2z/host-runtime.py').read_text())
+
+
+class TimezoneQualificationTests(unittest.TestCase):
+    def qualify(self, root):
+        script = ('import runpy,sys; '
+                  'm=runpy.run_path(sys.argv[1]); '
+                  'm["select_bundled_timezones"](m["Path"](sys.argv[2]))')
+        return subprocess.run([sys.executable, '-I', '-S', '-c', script,
+                               str(ROOT / 'scripts/free2z/host-runtime-qualify.py'), str(root)],
+                              capture_output=True, text=True, env={}, timeout=15)
+
+    def test_isolated_timezone_resolution_relocates_at_two_prefixes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for prefix in ('one', 'unrelated/deeper/two'):
+                root = Path(temp) / prefix
+                zoneinfo = root / 'runtime/share/zoneinfo'
+                (zoneinfo / 'Asia').mkdir(parents=True)
+                (zoneinfo / 'UTC').write_bytes(tzif(0))
+                (zoneinfo / 'Asia/Tokyo').write_bytes(tzif(9))
+                result = self.qualify(root)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_or_wrong_bundle_timezone_cannot_use_host_data(self):
+        for missing, offset in ((True, 9), (False, 0)):
+            with self.subTest(missing=missing, offset=offset), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                zoneinfo = root / 'runtime/share/zoneinfo'
+                (zoneinfo / 'Asia').mkdir(parents=True)
+                if not missing:
+                    (zoneinfo / 'UTC').write_bytes(tzif(0))
+                (zoneinfo / 'Asia/Tokyo').write_bytes(tzif(offset))
+                result = self.qualify(root)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('ZoneInfoNotFoundError' if missing else 'unexpected offset', result.stderr)
 
 
 if __name__ == '__main__':

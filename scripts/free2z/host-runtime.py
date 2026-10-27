@@ -124,6 +124,8 @@ def assemble(args):
     reports = args.work / 'reports'
     reports.mkdir(mode=0o777)
     reports.chmod(0o777)
+    empty_zoneinfo = args.work / 'empty-zoneinfo'
+    empty_zoneinfo.mkdir(mode=0o555)
     results = []
     # Different depths catch accidental assumptions about cwd and path length.
     for index, prefix in enumerate(('/opt/qualification-a', '/srv/relocated/deeper/runtime-b')):
@@ -136,6 +138,7 @@ def assemble(args):
                '--mount', f'type=bind,source={payload},target={prefix},readonly',
                '--mount', f'type=bind,source={ROOT / "scripts/free2z/host-runtime-qualify.py"},target=/qualification.py,readonly',
                '--mount', f'type=bind,source={reports},target=/reports',
+               '--mount', f'type=bind,source={empty_zoneinfo},target=/usr/share/zoneinfo,readonly',
                '--entrypoint=/usr/bin/env', qualification, '-i', prefix + '/runtime/bin/python',
                '-I', '/qualification.py', '--payload', prefix, '--report', '/reports/' + name,
                timeout=300)

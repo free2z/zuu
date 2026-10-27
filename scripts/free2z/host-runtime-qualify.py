@@ -7,6 +7,7 @@ and -I, once for each of two unrelated absolute payload prefixes.
 """
 import argparse
 import ctypes
+from datetime import datetime, timedelta, timezone
 import fcntl
 import importlib
 import json
@@ -19,6 +20,7 @@ import subprocess
 import sys
 import sysconfig
 import tempfile
+import zoneinfo
 
 SYSTEM = {'ld-linux-x86-64.so.2', 'libc.so.6', 'libdl.so.2', 'libm.so.6',
           'libpthread.so.0', 'libresolv.so.2', 'librt.so.1'}
@@ -30,6 +32,28 @@ def check_startup_environment(environment):
     # accepted here, including PYTHONHOME, PYTHONPATH or loader overrides.
     if dict(environment) not in ({}, {'LC_CTYPE': 'C.UTF-8'}):
         raise ValueError('qualification must start with an empty environment')
+
+
+def select_bundled_timezones(root):
+    # Negative control: installed tzdata wheels must not mask missing bundle
+    # files. The container also mounts an empty directory over host zoneinfo.
+    zoneinfo.ZoneInfo.clear_cache()
+    zoneinfo.reset_tzpath([])
+    try:
+        zoneinfo.ZoneInfo('UTC')
+    except zoneinfo.ZoneInfoNotFoundError:
+        pass
+    else:
+        raise ValueError('timezone lookup has an unqualified package fallback')
+    directory = str(root / 'runtime/share/zoneinfo')
+    os.environ['PYTHONTZPATH'] = directory
+    zoneinfo.reset_tzpath()
+    if zoneinfo.TZPATH != (directory,):
+        raise ValueError('timezone search path escaped the bundle')
+    for key, hours in (('UTC', 0), ('Asia/Tokyo', 9)):
+        value = datetime(2024, 1, 1, tzinfo=zoneinfo.ZoneInfo(key))
+        if value.utcoffset() != timedelta(hours=hours):
+            raise ValueError('bundled timezone lookup returned an unexpected offset')
 
 
 def run(root):
@@ -62,6 +86,9 @@ def run(root):
     if os.access(python, os.W_OK):
         raise ValueError('payload is writable')
     subprocess.run([str(python), '-I', '-m', 'pip', 'check'], check=True, env={}, timeout=90)
+    if any(Path('/usr/share/zoneinfo').iterdir()):
+        raise ValueError('qualification requires an empty host timezone directory')
+    select_bundled_timezones(root)
     sys.path.insert(0, str(root / 'py'))
     os.environ.update(DJANGO_SETTINGS_MODULE='dj.free2z.settings',
                       OPENAPI_GEN='1',
@@ -84,6 +111,9 @@ def run(root):
         raise ValueError('psycopg did not select the bundled libpq')
     from django.core.management import call_command
     call_command('check')
+    from rest_framework.fields import DateTimeField
+    if DateTimeField(format='iso-8601').to_representation(datetime(2024, 1, 1, tzinfo=timezone.utc)) != '2024-01-01T00:00:00Z':
+        raise ValueError('Django timestamp serialization did not resolve the bundled timezone')
     import ssl
     if not ssl.create_default_context().get_ca_certs():
         raise ValueError('bundled certificate store is empty')
@@ -175,7 +205,8 @@ def run(root):
                             soabi=sysconfig.get_config_var('SOABI')),
                 prefix=str(root), native_mappings=sorted(mapped),
                 checks=['pip-check', 'django-registry', 'application-imports', 'native-imports', 'nss-files',
-                        'bundled-ca', 'daemon-help', 'uid', 'inherited-flock', 'sigterm', 'readonly-wallet-wal'])
+                        'bundled-ca', 'bundled-timezones', 'timestamp-serialization',
+                        'daemon-help', 'uid', 'inherited-flock', 'sigterm', 'readonly-wallet-wal'])
 
 
 if __name__ == '__main__':
