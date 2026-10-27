@@ -49,6 +49,7 @@ def fetch(args):
                             args.output / 'web-release')
     names = subprocess.check_output(['git', 'ls-files', '-z', '--', 'rs/zcash-payment-hooks',
                                      'rust-toolchain.toml', 'LICENSE', 'build/free2z/host-tools.json',
+                                     'build/free2z/host-nsswitch.conf',
                                      'build/free2z/host-licenses',
                                      'scripts/free2z/host_runtime', 'scripts/free2z/host-runtime.py',
                                      'scripts/free2z/host-runtime-qualify.py', 'scripts/free2z/host-rust-build.sh'],
@@ -126,6 +127,14 @@ def assemble(args):
     reports.chmod(0o777)
     empty_zoneinfo = args.work / 'empty-zoneinfo'
     empty_zoneinfo.mkdir(mode=0o555)
+    qualification_inputs = args.work / 'qualification-inputs'
+    qualification_inputs.mkdir(mode=0o755)
+    (qualification_inputs / 'nsswitch.conf').write_bytes((ROOT / 'build/free2z/host-nsswitch.conf').read_bytes())
+    (qualification_inputs / 'passwd').write_text('qualification:x:65532:65532:Qualification fixture:/nonexistent:/usr/sbin/nologin\n')
+    (qualification_inputs / 'group').write_text('qualification:x:65532:\n')
+    for path in qualification_inputs.iterdir():
+        path.chmod(0o444)
+    (qualification_inputs / 'nscd').mkdir(mode=0o555)
     results = []
     # Different depths catch accidental assumptions about cwd and path length.
     for index, prefix in enumerate(('/opt/qualification-a', '/srv/relocated/deeper/runtime-b')):
@@ -139,6 +148,10 @@ def assemble(args):
                '--mount', f'type=bind,source={ROOT / "scripts/free2z/host-runtime-qualify.py"},target=/qualification.py,readonly',
                '--mount', f'type=bind,source={reports},target=/reports',
                '--mount', f'type=bind,source={empty_zoneinfo},target=/usr/share/zoneinfo,readonly',
+               '--mount', f'type=bind,source={qualification_inputs / "nsswitch.conf"},target=/etc/nsswitch.conf,readonly',
+               '--mount', f'type=bind,source={qualification_inputs / "passwd"},target=/etc/passwd,readonly',
+               '--mount', f'type=bind,source={qualification_inputs / "group"},target=/etc/group,readonly',
+               '--mount', f'type=bind,source={qualification_inputs / "nscd"},target=/run/nscd,readonly',
                '--entrypoint=/usr/bin/env', qualification, '-i', prefix + '/runtime/bin/python',
                '-I', '/qualification.py', '--payload', prefix, '--report', '/reports/' + name,
                timeout=300)

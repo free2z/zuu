@@ -101,6 +101,18 @@ a failure; each attempt builds and signs its own coherent artifact set.
 
 ## Runtime configuration
 
+Native host preparation qualifies the bundled interpreter and payment daemon
+at two extraction paths in an isolated Debian 12 container. Its
+[`host-nsswitch.conf`](host-nsswitch.conf) explicitly selects glibc's built-in
+file lookups for every known name-service database, with DNS also available for
+hostnames. Read-only fixture account files exercise user, group and supplementary
+group lookups; an empty cache directory excludes the nscd socket. Signed
+qualification reports bind the exact profile hash and record these checks.
+The synthetic hostname lookup uses the container's hosts file; it does not
+establish live DNS connectivity. Deployment admission must independently verify
+the receiving process's name-service configuration, cache isolation and account
+identity. Qualification does not authorize changing a host's account services.
+
 The backend keeps `PYTHONPATH=/py`, Django's `dj.*` imports and
 `/py/dj/free2z/manage.py`. Its explicit runtime module allowlist excludes test-only
 settings. The web container serves `/app/build`; its client assets are under

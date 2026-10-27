@@ -9,10 +9,13 @@ import argparse
 import ctypes
 from datetime import datetime, timedelta, timezone
 import fcntl
+import grp
+import hashlib
 import importlib
 import json
 import os
 from pathlib import Path
+import pwd
 import signal
 import socket
 import sqlite3
@@ -24,6 +27,41 @@ import zoneinfo
 
 SYSTEM = {'ld-linux-x86-64.so.2', 'libc.so.6', 'libdl.so.2', 'libm.so.6',
           'libpthread.so.0', 'libresolv.so.2', 'librt.so.1'}
+# glibc 2.36 nss/databases.def. Explicit entries avoid optional nis/compat
+# defaults; this synthetic profile is not a deployed host's configuration.
+NSS_DATABASES = ('aliases', 'ethers', 'group', 'group_compat', 'gshadow', 'hosts',
+                 'initgroups', 'netgroup', 'networks', 'passwd', 'passwd_compat',
+                 'protocols', 'publickey', 'rpc', 'services', 'shadow', 'shadow_compat')
+NSCD_SOCKETS = ('/run/nscd/socket', '/var/run/nscd/socket')
+
+
+def check_nss_profile(configuration):
+    expected = ''.join(name + (': files dns\n' if name == 'hosts' else ': files\n')
+                       for name in NSS_DATABASES).encode('ascii')
+    if configuration != expected:
+        raise ValueError('qualification requires the complete explicit built-in NSS profile')
+    return 'sha256:' + hashlib.sha256(configuration).hexdigest()
+
+
+def check_nscd_absent(paths=NSCD_SOCKETS):
+    # glibc obtains shared cache mappings through this socket. A fresh exec
+    # must have neither inherited mappings nor an observable cache endpoint.
+    for name in paths:
+        try:
+            Path(name).lstat()
+        except FileNotFoundError:
+            continue
+        raise ValueError('qualification must not expose an nscd socket or link')
+
+
+def check_local_identity():
+    user = pwd.getpwuid(os.geteuid())
+    group = grp.getgrgid(os.getegid())
+    if (user.pw_name != 'qualification' or user.pw_uid != 65532 or user.pw_gid != 65532
+            or group.gr_name != 'qualification' or group.gr_gid != 65532
+            or pwd.getpwnam('qualification') != user or grp.getgrnam('qualification') != group
+            or os.getgrouplist('qualification', 65532) != [65532]):
+        raise ValueError('local NSS fixture identity did not resolve through files')
 
 
 def check_startup_environment(environment):
@@ -75,11 +113,9 @@ def run(root):
     result = subprocess.run(['/sbin/ldconfig', '-p'], check=True, env={}, capture_output=True, timeout=10)
     if b'libpq' in result.stdout:
         raise ValueError('qualification OS must not advertise a host libpq')
-    hosts = [line.split('#', 1)[0].split(':', 1)[1].split()
-             for line in Path('/etc/nsswitch.conf').read_text().splitlines()
-             if line.startswith('hosts:')]
-    if hosts != [['files', 'dns']]:
-        raise ValueError('qualification requires only the files/dns NSS providers')
+    nss_configuration_sha256 = check_nss_profile(Path('/etc/nsswitch.conf').read_bytes())
+    check_nscd_absent()
+    check_local_identity()
     addresses = socket.getaddrinfo('host-qualification.invalid', 80, family=socket.AF_INET)
     if not addresses or {entry[4][0] for entry in addresses} != {'192.0.2.1'}:
         raise ValueError('synthetic hosts-file lookup failed')
@@ -204,7 +240,9 @@ def run(root):
     return dict(python=dict(implementation='cpython', version=sys.version.split()[0],
                             soabi=sysconfig.get_config_var('SOABI')),
                 prefix=str(root), native_mappings=sorted(mapped),
+                nss_configuration_sha256=nss_configuration_sha256,
                 checks=['pip-check', 'django-registry', 'application-imports', 'native-imports', 'nss-files',
+                        'nss-profile', 'nscd-unavailable', 'nss-local-identity',
                         'bundled-ca', 'bundled-timezones', 'timestamp-serialization',
                         'daemon-help', 'uid', 'inherited-flock', 'sigterm', 'readonly-wallet-wal'])
 

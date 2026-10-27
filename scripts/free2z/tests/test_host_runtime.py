@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import socket
 import struct
 import subprocess
 import sys
@@ -358,6 +359,37 @@ class ProvenanceAndRelocationTests(unittest.TestCase):
         for value in tool_lock['tools'].values():
             self.assertRegex(value['sha256'], r'^[a-f0-9]{64}$')
             self.assertTrue(value['url'].startswith('https://'))
+
+
+class NameServiceQualificationTests(unittest.TestCase):
+    def test_profile_excludes_external_providers_and_implicit_defaults(self):
+        qualify = load('host-runtime-qualify.py')
+        profile = (ROOT / 'build/free2z/host-nsswitch.conf').read_bytes()
+        self.assertEqual(qualify.check_nss_profile(profile), digest(profile))
+        for changed in (profile.replace(b'passwd: files', b'passwd: files remote'),
+                        profile.replace(b'netgroup: files\n', b''),
+                        profile + b'hosts: files dns\n',
+                        profile.replace(b'group: files\n', b'group: files [SUCCESS=merge]\n'),
+                        profile.rstrip(b'\n')):
+            with self.subTest(profile=changed), self.assertRaisesRegex(ValueError, 'complete explicit'):
+                qualify.check_nss_profile(changed)
+
+    def test_nscd_socket_and_broken_link_are_rejected(self):
+        qualify = load('host-runtime-qualify.py')
+        # Keep the Unix-domain pathname below the platform's sockaddr limit.
+        with tempfile.TemporaryDirectory(dir='/tmp', prefix='nss-') as temporary:
+            endpoint = Path(temporary) / 'socket'
+            qualify.check_nscd_absent([endpoint])
+            with socket.socket(socket.AF_UNIX) as cache:
+                cache.bind(str(endpoint))
+                with self.assertRaisesRegex(ValueError, 'nscd'):
+                    qualify.check_nscd_absent([endpoint])
+            endpoint.unlink()
+            endpoint.symlink_to(Path(temporary) / 'missing')
+            with self.assertRaisesRegex(ValueError, 'nscd'):
+                qualify.check_nscd_absent([endpoint])
+            endpoint.unlink()
+            qualify.check_nscd_absent([endpoint])
 
 
 class PublicationRecoveryTests(unittest.TestCase):
