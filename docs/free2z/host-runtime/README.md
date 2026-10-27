@@ -38,11 +38,26 @@ its own relative `DT_RUNPATH`; an executable's `RUNPATH` alone does not resolve
 an extension's transitive dependencies. Derivation evidence records source and
 patched hashes, dependency edges, and build input identities.
 
+Psycopg 3's Python implementation locates `libpq` through system discovery
+rather than `DT_NEEDED`. One byte-pinned relocation changes that resolver to
+the bundled `runtime/lib/libpq.so.5`; missing files and symlinks fail. Its exact
+upstream input hash and transformed output hash are recorded. A dependency
+update requires reviewing that relocation again. Qualification requires an OS
+loader cache with no `libpq` entry and verifies the selected bundle path; no
+`LD_LIBRARY_PATH` or system-library fallback is supplied.
+
 The receiving host supplies only the glibc 2.36 ABI and its loader. The explicit
 library names are `ld-linux-x86-64.so.2`, `libc.so.6`, `libdl.so.2`, `libm.so.6`,
-`libpthread.so.0`, and `librt.so.1`. This is not an arbitrary Linux portability
+`libpthread.so.0`, `libresolv.so.2`, and `librt.so.1`. This is not an arbitrary Linux portability
 claim. Libraries loaded dynamically by application code require qualification
 coverage as well as static dependency inspection.
+
+Host admission must observe `/etc/nsswitch.conf` and installed name-service
+providers. The qualified profile uses only `files dns` for host lookup.
+Additional modules such as systemd or SSS require an explicitly reviewed
+matching profile or rejection before activation. Qualification performs a
+synthetic `/etc/hosts` lookup with networking disabled; it cannot establish the
+receiving host's live DNS or NSS behavior without that host observation.
 
 ## Qualification
 
@@ -93,6 +108,20 @@ opaque archive and manifest; it must never execute the artifact, application,
 or a dependency installer. A manual producer does not establish an automatic
 release path: automatic promotion requires independent event-provenance checks
 and a consumer that verifies them.
+
+To prepare a candidate, select a successful `free2z-web-<commit>-<run>-<attempt>`
+release whose commit is the current protected `main`, then dispatch
+`free2z-host-release.yml` on `main` with that tag as `web_release_tag`. A source
+mismatch fails before image use. The host release publishes the manifest,
+archive, inventory, separate attestation bundles, and the retained website
+evidence as `website-*` assets. The Actions artifact preserves the website
+evidence under `web-release/`.
+
+The build requires at least 14 GiB of free scratch disk. Rust compilation and
+tests run with two CPUs, a 6 GiB memory limit, bounded process counts, a
+read-only source/image filesystem, and writable scratch directories. Downloaded
+tools are checksum-verified before use. The build container can fetch locked
+public Cargo dependencies; qualification containers have no network.
 
 Run the data-only regression suite without Docker or downloads:
 

@@ -6,12 +6,14 @@ credentials, wallet data, or writable payload. Invoke with the bundled Python
 and -I, once for each of two unrelated absolute payload prefixes.
 """
 import argparse
+import ctypes
 import fcntl
 import importlib
 import json
 import os
 from pathlib import Path
 import signal
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -19,7 +21,15 @@ import sysconfig
 import tempfile
 
 SYSTEM = {'ld-linux-x86-64.so.2', 'libc.so.6', 'libdl.so.2', 'libm.so.6',
-          'libpthread.so.0', 'librt.so.1'}
+          'libpthread.so.0', 'libresolv.so.2', 'librt.so.1'}
+
+
+def check_startup_environment(environment):
+    # CPython may set LC_CTYPE while coercing an empty C locale at startup.
+    # The container launcher supplies env -i; no other inherited variable is
+    # accepted here, including PYTHONHOME, PYTHONPATH or loader overrides.
+    if dict(environment) not in ({}, {'LC_CTYPE': 'C.UTF-8'}):
+        raise ValueError('qualification must start with an empty environment')
 
 
 def run(root):
@@ -27,18 +37,34 @@ def run(root):
     python = root / 'runtime/bin/python'
     if os.geteuid() == 0 or not sys.flags.isolated or Path(sys.executable) != python:
         raise ValueError('qualification requires non-root isolated bundled Python')
-    if os.environ:
-        raise ValueError('qualification must start with an empty environment')
+    check_startup_environment(os.environ)
+    libc = ctypes.CDLL(None)
+    libc.gnu_get_libc_version.restype = ctypes.c_char_p
+    if sys.platform != 'linux' or os.uname().machine != 'x86_64' or libc.gnu_get_libc_version() != b'2.36':
+        raise ValueError('qualification OS does not match the host glibc/architecture contract')
     if Path(sys.prefix) != root / 'runtime' or Path(sys.base_prefix) != root / 'runtime':
         raise ValueError('CPython prefix did not relocate with its runtime')
     for path in sys.path:
         if path and not Path(path).is_relative_to(root / 'runtime'):
             raise ValueError('Python search path escaped the bundle')
+    # A host libpq cache entry would mask a broken dynamic-loader relocation.
+    result = subprocess.run(['/sbin/ldconfig', '-p'], check=True, env={}, capture_output=True, timeout=10)
+    if b'libpq' in result.stdout:
+        raise ValueError('qualification OS must not advertise a host libpq')
+    hosts = [line.split('#', 1)[0].split(':', 1)[1].split()
+             for line in Path('/etc/nsswitch.conf').read_text().splitlines()
+             if line.startswith('hosts:')]
+    if hosts != [['files', 'dns']]:
+        raise ValueError('qualification requires only the files/dns NSS providers')
+    addresses = socket.getaddrinfo('host-qualification.invalid', 80, family=socket.AF_INET)
+    if not addresses or {entry[4][0] for entry in addresses} != {'192.0.2.1'}:
+        raise ValueError('synthetic hosts-file lookup failed')
     if os.access(python, os.W_OK):
         raise ValueError('payload is writable')
     subprocess.run([str(python), '-I', '-m', 'pip', 'check'], check=True, env={}, timeout=90)
     sys.path.insert(0, str(root / 'py'))
     os.environ.update(DJANGO_SETTINGS_MODULE='dj.free2z.settings',
+                      OPENAPI_GEN='1',
                       SECRET_KEY='synthetic-qualification-key-no-credentials',
                       SSL_CERT_FILE=str(root / 'runtime/share/ca-certificates.crt'),
                       TIKTOKEN_CACHE_DIR=str(root / 'runtime/share/tiktoken-cache'))
@@ -50,8 +76,14 @@ def run(root):
     for name in ('_ssl', '_sqlite3', '_ctypes', '_bz2', '_lzma', '_hashlib',
                  'psycopg', 'psycopg2', 'cryptography.hazmat.bindings._rust',
                  'av', 'grpc', 'PIL.Image', 'zcashrpc.paymentd_mode',
-                 'dj.free2z.asgi', 'dj.free2z.wsgi'):
+                 'dj.free2z.asgi', 'dj.free2z.wsgi', 'dj.free2z.urls',
+                 'dj.apps.g12f.paymentd_runtime', 'zcashrpc.nodewatch'):
         importlib.import_module(name)
+    from psycopg.pq.misc import find_libpq_full_path
+    if Path(find_libpq_full_path()) != root / 'runtime/lib/libpq.so.5':
+        raise ValueError('psycopg did not select the bundled libpq')
+    from django.core.management import call_command
+    call_command('check')
     import ssl
     if not ssl.create_default_context().get_ca_certs():
         raise ValueError('bundled certificate store is empty')
@@ -117,6 +149,8 @@ def run(root):
             writer.execute('CREATE TABLE synthetic(value TEXT)')
             writer.execute("INSERT INTO synthetic VALUES ('fixture')")
             writer.commit()
+            if wallet.with_name(wallet.name + '-wal').stat().st_size <= 32:
+                raise ValueError('synthetic wallet has no WAL content')
             for file in wallet_dir.iterdir():
                 file.chmod(0o444)
             wallet_dir.chmod(0o555)
@@ -140,7 +174,7 @@ def run(root):
     return dict(python=dict(implementation='cpython', version=sys.version.split()[0],
                             soabi=sysconfig.get_config_var('SOABI')),
                 prefix=str(root), native_mappings=sorted(mapped),
-                checks=['pip-check', 'django-registry', 'application-imports', 'native-imports',
+                checks=['pip-check', 'django-registry', 'application-imports', 'native-imports', 'nss-files',
                         'bundled-ca', 'daemon-help', 'uid', 'inherited-flock', 'sigterm', 'readonly-wallet-wal'])
 
 

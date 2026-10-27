@@ -6,16 +6,17 @@ signed website release and export its exact backend digest before calling it.
 import hashlib
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 import re
 import subprocess
 import tarfile
 
 from .elf import ELF
 from .image import Image, MAX_FILE, canonical
+from . import relocation
 
 SYSTEM_LIBRARIES = ['ld-linux-x86-64.so.2', 'libc.so.6', 'libdl.so.2',
-                    'libm.so.6', 'libpthread.so.0', 'librt.so.1']
+                    'libm.so.6', 'libpthread.so.0', 'libresolv.so.2', 'librt.so.1']
 PLATFORM = dict(os='linux', distribution='debian', distribution_version='12',
                 architecture='x86_64', libc=dict(family='glibc', version='2.36'),
                 loader='/lib64/ld-linux-x86-64.so.2', system_libraries=SYSTEM_LIBRARIES)
@@ -50,7 +51,7 @@ class Package:
     def __init__(self, image, destination, patchelf):
         if destination.exists():
             raise ValueError('payload destination already exists')
-        destination.mkdir(mode=0o700, parents=True)
+        destination.mkdir(mode=0o755, parents=True)
         self.image, self.root, self.patchelf = image, destination, patchelf
         self.sources, self.elfs, self.edges = {}, {}, {}
         self.library_sources = {}
@@ -137,6 +138,15 @@ class Package:
             self.sources[name]['runpath'] = runpath
 
     def finish(self, inputs):
+        candidates = [name for name in self.sources
+                      if re.fullmatch(r'runtime/lib/python3\.[0-9]+/site-packages/psycopg/pq/misc.py', name)]
+        if len(candidates) != 1:
+            raise ValueError('expected one locked psycopg resolver')
+        name = candidates[0]
+        target = self.root / name
+        target.write_bytes(relocation.psycopg(target.read_bytes()))
+        self.sources[name]['patched_sha256'] = digest(target.read_bytes())
+        self.sources[name]['relocation_patch'] = 'psycopg-3.3.6-bundled-libpq-v1'
         self.close_native_dependencies()
         evidence = dict(schema_version=1, inputs=inputs, files=self.sources,
                         native_dependencies=self.edges, host_platform=PLATFORM)
@@ -152,7 +162,9 @@ class Package:
 def prepare(image_path, destination, daemon, patchelf, inputs, rust_licenses):
     image = Image(image_path)
     try:
-        if image.read('etc/os-release')[1].find(b'VERSION_ID="12"') < 0:
+        os_release = dict(line.split('=', 1) for line in image.read('etc/os-release')[1].decode().splitlines()
+                          if '=' in line and not line.startswith('#'))
+        if os_release.get('ID', '').strip('"') != 'debian' or os_release.get('VERSION_ID', '').strip('"') != '12':
             raise ValueError('backend image is not Debian 12')
         interpreters = [name for name in image.files('usr/local/bin')
                         if re.fullmatch(r'usr/local/bin/python3\.\d+', name)]
@@ -161,9 +173,12 @@ def prepare(image_path, destination, daemon, patchelf, inputs, rust_licenses):
         python = interpreters[0].rsplit('/', 1)[1]
         package = Package(image, destination, patchelf)
         package.copy(interpreters[0], 'runtime/bin/python')
+        # psycopg's ctypes loader is not represented by an ELF DT_NEEDED edge.
+        package.copy('usr/lib/x86_64-linux-gnu/libpq.so.5', 'runtime/lib/libpq.so.5')
         for source in image.files('usr/local/lib/' + python):
             # Bytecode caches and developer entrypoints contain build paths.
-            if '__pycache__' not in PurePosixPath(source).parts and not source.endswith(('.pyc', '.pyo')):
+            if ('__pycache__' not in PurePosixPath(source).parts
+                    and not source.endswith(('.pyc', '.pyo', '.o', '.a'))):
                 package.copy(source, 'runtime/lib/' + source.removeprefix('usr/local/lib/'))
         for source in image.files('py'):
             package.copy(source, source)

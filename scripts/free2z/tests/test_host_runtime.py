@@ -1,11 +1,12 @@
 """Adversarial packaging tests; no payload execution, network, or third-party modules."""
 import copy
 import hashlib
+import importlib.util
 import io
-import json
 from pathlib import Path
 import struct
 import sys
+import tomllib
 import tarfile
 import tempfile
 import unittest
@@ -16,6 +17,16 @@ from host_runtime.elf import ELF
 from host_runtime.image import Image
 from host_runtime.manifest import check, PROTOCOL, WORKFLOW
 from host_runtime.package import PLATFORM, Package, archive, digest
+from host_runtime import package, provenance, relocation
+
+ROOT = Path(__file__).resolve().parents[3]
+
+
+def load(filename):
+    spec = importlib.util.spec_from_file_location(filename, ROOT / 'scripts/free2z' / filename)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def elf(needed=(), runpath=None, rpath=None, glibc='2.36', interpreter=None):
@@ -137,6 +148,36 @@ class ImageTests(unittest.TestCase):
 
 
 class ClosureTests(unittest.TestCase):
+    def test_installed_development_objects_do_not_enter_runtime(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            development = bytearray(elf())
+            struct.pack_into('<H', development, 16, 1)  # ET_REL, not a runnable ELF
+            files = {'usr/local/bin/python3.12': elf(['libc.so.6']),
+                     'usr/lib/x86_64-linux-gnu/libpq.so.5': elf(['libc.so.6']),
+                     'usr/local/lib/python3.12/config-3.12-x86_64-linux-gnu/python.o': bytes(development),
+                     'usr/local/lib/python3.12/config-3.12-x86_64-linux-gnu/libpython.a': b'archive',
+                     'usr/local/lib/python3.12/site-packages/psycopg/pq/misc.py': b'fixture resolver',
+                     'usr/local/lib/python3.12/LICENSE.txt': b'fixture license',
+                     'py/dj/free2z/manage.py': b'# fixture', 'py/zcashrpc/paymentd_mode.py': b'# fixture',
+                     'etc/os-release': b'ID=debian\nVERSION_ID="12"\n',
+                     'etc/ssl/certs/ca-certificates.crt': b'fixture'}
+            image_tar(root / 'image.tar', files)
+            daemon = root / 'daemon'
+            daemon.write_bytes(elf(['libc.so.6']))
+            licenses = root / 'licenses'
+            licenses.mkdir()
+            (licenses / 'packages.json').write_text('[]')
+            def patch_file(command, **kwargs):
+                target = Path(command[-1])
+                target.write_bytes(elf(ELF(target.read_bytes()).needed, runpath=command[-2]))
+            with patch('host_runtime.package.subprocess.run', side_effect=patch_file), \
+                    patch('host_runtime.relocation.psycopg', side_effect=lambda data: data):
+                package.prepare(root / 'image.tar', root / 'output', daemon, Path('/verified/patchelf'), {}, licenses)
+            self.assertFalse(list((root / 'output').rglob('*.o')))
+            self.assertFalse(list((root / 'output').rglob('*.a')))
+            self.assertTrue((root / 'output/runtime/lib/python3.12/LICENSE.txt').is_file())
+
     def test_every_transitive_object_gets_relative_runpath(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -219,6 +260,88 @@ class ArchiveAndManifestTests(unittest.TestCase):
             mutate(candidate)
             with self.assertRaises(ValueError):
                 check(candidate)
+
+
+class ProvenanceAndRelocationTests(unittest.TestCase):
+    def test_numeric_identity_and_exact_run_attempt_are_required(self):
+        build = dict(run_id='1234', run_attempt=2)
+        certificate = dict(runInvocationURI='https://github.com/free2z/zuu/actions/runs/1234/attempts/2',
+                           sourceRepositoryIdentifier='463741105', sourceRepositoryOwnerIdentifier='102555797')
+        def result(value):
+            return [dict(verificationResult=dict(signature=dict(certificate=value)))]
+        provenance.matches_certificate(result(certificate), build)
+        for key in certificate:
+            bad = {**certificate, key: 'wrong'}
+            with self.assertRaises(ValueError):
+                provenance.matches_certificate(result(bad), build)
+        split = result({**certificate, 'sourceRepositoryIdentifier': 'wrong'})
+        split += result({**certificate, 'runInvocationURI': 'https://github.com/free2z/zuu/actions/runs/1234/attempts/1'})
+        with self.assertRaises(ValueError):
+            provenance.matches_certificate(split, build)
+        # Unrelated valid witnesses do not erase the matching witness.
+        provenance.matches_certificate(result({}) + result(certificate), build)
+
+    def test_old_web_source_is_rejected_before_download(self):
+        with patch('host_runtime.provenance.command') as command:
+            with self.assertRaises(ValueError):
+                provenance.verify(ROOT, Path('/unused'), 'free2z-web-' + 'b' * 40 + '-123-1',
+                                  'a' * 40, Path('/not-created'))
+            command.assert_not_called()
+
+    def test_same_checkout_and_manual_protected_main_are_required(self):
+        producer = load('host-runtime.py')
+        good = dict(GITHUB_SHA='a' * 40, GITHUB_REPOSITORY='free2z/zuu',
+                    GITHUB_REF='refs/heads/main', GITHUB_REF_PROTECTED='true', GITHUB_EVENT_NAME='workflow_dispatch')
+        with patch.dict('os.environ', good, clear=True), patch('subprocess.check_output', return_value='a' * 40 + '\n'):
+            self.assertEqual(producer.identity(), 'a' * 40)
+            for key, bad in [('GITHUB_SHA', 'b' * 40), ('GITHUB_REPOSITORY', 'fork/zuu'),
+                             ('GITHUB_REF', 'refs/tags/main'), ('GITHUB_REF_PROTECTED', 'false'),
+                             ('GITHUB_EVENT_NAME', 'workflow_run')]:
+                with patch.dict('os.environ', {key: bad}), self.assertRaises(ValueError):
+                    producer.identity()
+
+    def test_only_interpreter_locale_initialization_is_permitted(self):
+        qualify = load('host-runtime-qualify.py')
+        self.assertEqual(qualify.SYSTEM, set(PLATFORM['system_libraries']))
+        self.assertIn('libresolv.so.2', qualify.SYSTEM)
+        qualify.check_startup_environment({})
+        qualify.check_startup_environment({'LC_CTYPE': 'C.UTF-8'})
+        for environment in ({'PYTHONPATH': '/tmp'}, {'LD_LIBRARY_PATH': '/tmp'}, {'LC_CTYPE': 'other'}):
+            with self.assertRaises(ValueError):
+                qualify.check_startup_environment(environment)
+
+    def test_resolver_relocation_is_exact_and_has_no_host_fallback(self):
+        with self.assertRaises(ValueError):
+            relocation.psycopg(b'arbitrary upstream bytes')
+        body = b'def locate():\n    if True:\n' + relocation.PSYCOPG_ORIGINAL + b'    return libname\n'
+        with patch.object(relocation, 'PSYCOPG_MISC_SHA256', hashlib.sha256(body).hexdigest()):
+            transformed = relocation.psycopg(body)
+        self.assertNotIn(b'find_library', transformed)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'runtime/lib/python3.12/site-packages/psycopg/pq/misc.py'
+            source.parent.mkdir(parents=True)
+            source.write_bytes(transformed)
+            library = root / 'runtime/lib/libpq.so.5'
+            namespace = dict(Path=Path, __file__=str(source))
+            exec(compile(transformed, str(source), 'exec'), namespace)
+            with self.assertRaises(ImportError):
+                namespace['locate']()
+            library.write_bytes(b'fixture')
+            self.assertEqual(namespace['locate'](), str(library.resolve()))
+            library.unlink()
+            library.symlink_to(source)
+            with self.assertRaises(ImportError):
+                namespace['locate']()
+
+    def test_compiler_lock_tracks_repository_authority(self):
+        import json
+        tool_lock = json.loads((ROOT / 'build/free2z/host-tools.json').read_text())
+        rust = tomllib.loads((ROOT / 'rust-toolchain.toml').read_text())
+        self.assertEqual(tool_lock['rust_version'], rust['toolchain']['channel'])
+        for value in tool_lock['tools'].values():
+            self.assertRegex(value['sha256'], r'^[a-f0-9]{64}$')
+            self.assertTrue(value['url'].startswith('https://'))
 
 
 if __name__ == '__main__':
