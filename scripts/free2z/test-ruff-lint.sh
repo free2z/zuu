@@ -12,7 +12,7 @@ trap 'rm -rf "$scratch" "$control_file"' EXIT
 
 if ! command -v ruff >/dev/null 2>&1; then
   echo "ruff is not installed. Install the pinned version, e.g." >&2
-  echo "  python -m pip install 'ruff==\${RUFF_VERSION}'" >&2
+  echo "  python scripts/free2z/install-python-tool-lock.py ci-lint" >&2
   exit 1
 fi
 

@@ -60,6 +60,17 @@ class AuditInventory(unittest.TestCase):
         with self.assertRaisesRegex(guard.AuditFailure, "inventory mismatch for active"):
             self.check()
 
+    def test_actual_seven_lock_inventory_requires_each_ci_tool(self):
+        from python_requirements_lock import applicable, exact_version, package_name, parse_lock
+        root = SCRIPTS.parents[1]
+        locks = [root / 'py/free2z/requirements' / f'{kind}.txt' for kind in ('main', 'test', 'lock-tools', 'language-data', 'ci-audit', 'ci-lint', 'ci-policy')]
+        pairs = {(package_name(record.requirement.name), exact_version(record.requirement, lock, record.line)) for lock in locks for record in parse_lock(lock) if applicable(record.requirement)}
+        rows = [{'name': name, 'version': version, 'vulns': []} for name, version in sorted(pairs)]
+        guard.ensure_pip_lock_coverage({'dependencies': rows}, locks)
+        for omitted in ('pip-audit', 'ruff', 'pyyaml'):
+            with self.subTest(omitted=omitted), self.assertRaisesRegex(guard.AuditFailure, 'inventory mismatch'):
+                guard.ensure_pip_lock_coverage({'dependencies': [row for row in rows if row['name'] != omitted]}, locks)
+
     def test_conflicting_lock_versions_fail(self):
         with self.lock.open("a") as output:
             output.write(f"pip==2.0 --hash=sha256:{'b' * 64}\n")

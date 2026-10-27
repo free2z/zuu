@@ -29,9 +29,9 @@ def docker_image(path: Path) -> str:
 
 
 def check(source_path: Path, lock_path: Path, dockerfile: Path, *, kind: str = "main") -> int:
-    if kind not in {"main", "test"}:
+    if kind not in {"main", "test", "ci-audit", "ci-lint", "ci-policy"}:
         raise RequirementsError(f"unsupported lock kind: {kind}")
-    source = parse_source(source_path, test_constraint=kind == "test")
+    source = parse_source(source_path, runtime_constraint=kind != "main")
     records = parse_lock(lock_path, source_name=f"{kind}.in")
     target = docker_image(dockerfile)
     try:
@@ -85,7 +85,7 @@ def check(source_path: Path, lock_path: Path, dockerfile: Path, *, kind: str = "
         if any(direct for _version, _extras, _marker, direct in entries) and name not in source_names:
             raise RequirementsError(f"{name} has stale direct provenance in {lock_path}")
 
-    if kind == "test":
+    if kind != "main":
         runtime_path = source_path.parent / "main.txt"
         runtime_versions: dict[str, set[str]] = {}
         for record in parse_lock(runtime_path):
@@ -96,7 +96,7 @@ def check(source_path: Path, lock_path: Path, dockerfile: Path, *, kind: str = "
         for name in set(by_name) & set(runtime_versions):
             versions = {version for version, _extras, _marker, _direct in by_name[name]}
             if versions != runtime_versions[name]:
-                raise RequirementsError(f"{name} test lock version differs from runtime constraint")
+                raise RequirementsError(f"{name} {kind} lock version differs from runtime constraint")
 
     print(
         f"Python {kind} lock is hash-complete for {len(records)} records and "
@@ -107,7 +107,7 @@ def check(source_path: Path, lock_path: Path, dockerfile: Path, *, kind: str = "
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--kind", choices=("main", "test"), default="main")
+    parser.add_argument("--kind", choices=("main", "test", "ci-audit", "ci-lint", "ci-policy"), default="main")
     parser.add_argument("--source", type=Path)
     parser.add_argument("--lock", type=Path)
     parser.add_argument("--dockerfile", type=Path, default=Path("build/free2z/backend.Dockerfile"))

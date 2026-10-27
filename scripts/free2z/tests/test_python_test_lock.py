@@ -13,12 +13,13 @@ spec.loader.exec_module(guard)
 
 
 class TestLock(unittest.TestCase):
+    kind = "test"
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
-        self.source = root / "test.in"
-        self.lock = root / "test.txt"
+        self.source = root / f"{self.kind}.in"
+        self.lock = root / f"{self.kind}.txt"
         self.runtime = root / "main.txt"
         self.docker = root / "Dockerfile"
         image = "python:3.12-bookworm@sha256:" + "a" * 64
@@ -27,14 +28,14 @@ class TestLock(unittest.TestCase):
         self.lock.write_text(
             f"# Target image: {image} (linux/amd64)\n"
             f"pytest==9.1.1 --hash=sha256:{'b' * 64}\n"
-            "# via -r requirements/test.in\n"
+            f"# via -r requirements/{self.kind}.in\n"
             f"packaging==26.3 --hash=sha256:{'c' * 64}\n"
             "# via pytest\n"
         )
         self.runtime.write_text(f"packaging==26.3 --hash=sha256:{'c' * 64}\n")
 
     def check(self):
-        return guard.check(self.source, self.lock, self.docker, kind="test")
+        return guard.check(self.source, self.lock, self.docker, kind=self.kind)
 
     def test_matching_test_lock(self):
         self.assertEqual(self.check(), 0)
@@ -61,7 +62,7 @@ class TestLock(unittest.TestCase):
             guard.parse_source(self.source)
 
     def test_main_provenance_cannot_impersonate_test_input(self):
-        self.lock.write_text(self.lock.read_text().replace("requirements/test.in", "requirements/main.in"))
+        self.lock.write_text(self.lock.read_text().replace(f"requirements/{self.kind}.in", "requirements/main.in"))
         with self.assertRaisesRegex(guard.RequirementsError, "missing direct provenance"):
             self.check()
 
@@ -69,6 +70,18 @@ class TestLock(unittest.TestCase):
         self.lock.write_text(self.lock.read_text().replace(f" --hash=sha256:{'c' * 64}", ""))
         with self.assertRaisesRegex(guard.RequirementsError, "has no SHA-256 hash"):
             self.check()
+
+
+class CIAuditLock(TestLock):
+    kind = "ci-audit"
+
+
+class CILintLock(TestLock):
+    kind = "ci-lint"
+
+
+class CIPolicyLock(TestLock):
+    kind = "ci-policy"
 
 
 if __name__ == "__main__":

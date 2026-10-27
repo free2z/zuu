@@ -125,6 +125,9 @@ scan_pip() {
     -r "$repo_root/py/free2z/requirements/test.txt" \
     -r "$repo_root/py/free2z/requirements/lock-tools.txt" \
     -r "$repo_root/py/free2z/requirements/language-data.txt" \
+    -r "$repo_root/py/free2z/requirements/ci-audit.txt" \
+    -r "$repo_root/py/free2z/requirements/ci-lint.txt" \
+    -r "$repo_root/py/free2z/requirements/ci-policy.txt" \
     --require-hashes \
     --no-deps \
     --disable-pip \
@@ -226,7 +229,7 @@ audit_ecosystem() {
   local attempt=1 scanner_status checker_status delay
   local -a inventory_args=()
   if [ "$ecosystem" = pip ]; then
-    for lock in main.txt test.txt lock-tools.txt language-data.txt; do
+    for lock in main.txt test.txt lock-tools.txt language-data.txt ci-audit.txt ci-lint.txt ci-policy.txt; do
       inventory_args+=(--pip-lock "$repo_root/py/free2z/requirements/$lock")
     done
   fi

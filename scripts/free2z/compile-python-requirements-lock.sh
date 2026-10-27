@@ -3,8 +3,8 @@
 set -euo pipefail
 
 lock_target="${1:-main}"
-if [[ $# -gt 1 || ! "$lock_target" =~ ^(main|test)$ ]]; then
-  echo "usage: $0 [main|test]" >&2
+if [[ $# -gt 1 || ! "$lock_target" =~ ^(main|test|ci-audit|ci-lint|ci-policy)$ ]]; then
+  echo "usage: $0 [main|test|ci-audit|ci-lint|ci-policy]" >&2
   exit 2
 fi
 
@@ -32,7 +32,7 @@ if docker run --cidfile "$cidfile" --rm --platform linux/amd64 \
   --workdir /workspace/py/free2z \
   "${image}" sh -ec '
     python -m venv /tmp/pip-tools
-    /tmp/pip-tools/bin/python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: --require-hashes -r requirements/lock-tools.txt
+    /tmp/pip-tools/bin/python -m pip install --disable-pip-version-check --no-cache-dir --ignore-installed --only-binary=:all: --require-hashes -r requirements/lock-tools.txt
     CUSTOM_COMPILE_COMMAND="scripts/free2z/compile-python-requirements-lock.sh $LOCK_TARGET" /tmp/pip-tools/bin/pip-compile \
       --allow-unsafe \
       --generate-hashes \
