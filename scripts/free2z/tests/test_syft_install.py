@@ -57,6 +57,12 @@ class SyftInstaller(unittest.TestCase):
             member.linkname = '/tmp/escape'
             with self.subTest(name=name), self.assertRaises(ValueError):
                 self.verify_fixture(archive(extra=member))
+        for kind in (tarfile.SYMTYPE, tarfile.LNKTYPE, tarfile.DIRTYPE):
+            member = tarfile.TarInfo('syft')
+            member.type = kind
+            member.linkname = 'LICENSE'
+            with self.subTest(allowed_name_type=kind), self.assertRaisesRegex(ValueError, 'unsafe Syft archive member'):
+                self.verify_fixture(archive(extra=member, missing='syft'))
         for data in (archive(missing='LICENSE'), archive(binary=b'not an ELF')):
             with self.assertRaises(ValueError):
                 self.verify_fixture(data)
