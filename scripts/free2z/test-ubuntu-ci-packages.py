@@ -37,8 +37,9 @@ if sys.argv[1:] == ["--wiring-only"]:
 assert len(sys.argv) == 1, "only --wiring-only is supported"
 APT = shutil.which("apt-get")
 GPG = shutil.which("gpg")
-if not APT or not GPG:
-    raise SystemExit("real apt-get and gpg are required for these controls")
+TIMEOUT = shutil.which("timeout")
+if not APT or not GPG or not TIMEOUT:
+    raise SystemExit("real apt-get, gpg and GNU timeout are required for these controls")
 
 
 def run(args, **kwargs):
@@ -107,14 +108,27 @@ with tempfile.TemporaryDirectory(prefix="ubuntu-apt-test-") as tmp:
     bindir.mkdir()
     calls = base / "calls.jsonl"
     adapter = bindir / "apt-get"
-    adapter.write_text("#!/usr/bin/env python3\nimport json, os, sys\n"
+    adapter.write_text("#!/usr/bin/env python3\nimport json, os, sys, time\nfrom pathlib import Path\n"
                        "args = sys.argv[1:]\n"
                        "with open(os.environ['APT_TEST_CALLS'], 'a') as out:\n"
                        "    out.write(json.dumps(args) + '\\n')\n"
+                       "sourceparts = next(arg.split('=', 1)[1] for arg in args if arg.startswith('Dir::Etc::sourceparts='))\n"
+                       "Path(os.environ['APT_TEST_SOURCE_CAPTURE']).write_text((Path(sourceparts) / 'ubuntu.sources').read_text())\n"
+                       "if os.environ.get('APT_TEST_CAPTURE_ONLY'): sys.exit(0)\n"
+                       "if os.environ.get('APT_TEST_HANG') and 'update' in args: time.sleep(60)\n"
                        "if 'install' in args: args.insert(0, '--simulate')\n"
                        f"os.execv({APT!r}, [{APT!r}] + args)\n")
     adapter.chmod(0o755)
+    deadline = bindir / 'timeout'
+    deadline.write_text("#!/usr/bin/env python3\nimport os, sys\n"
+                        "args = sys.argv[1:]\n"
+                        "assert args[:3] == ['--signal=TERM', '--kill-after=15s', '300s'], args\n"
+                        "if os.environ.get('APT_TEST_HANG'): args[1:3] = ['--kill-after=1s', '0.5s']\n"
+                        f"os.execv({TIMEOUT!r}, [{TIMEOUT!r}] + args)\n")
+    deadline.chmod(0o755)
+    captured_source = base / 'captured.sources'
     env = dict(os.environ, APT_CONFIG=str(config), APT_TEST_CALLS=str(calls),
+               APT_TEST_SOURCE_CAPTURE=str(captured_source),
                UBUNTU_APT_SOURCE_FILE=str(parts / "ubuntu.sources"),
                PATH=f"{bindir}:{os.environ['PATH']}", LC_ALL="C")
 
@@ -145,11 +159,13 @@ with tempfile.TemporaryDirectory(prefix="ubuntu-apt-test-") as tmp:
         assert old.returncode != 0 and "Hash Sum mismatch" in old.stdout + old.stderr, old
         print("PASS real APT rejects ambient Chrome index hash mismatch")
         good = helper()
-        assert good.returncode == 0, good.stdout + good.stderr
+        assert good.returncode == 0, good.stdout + good.stderr + calls.read_text()
         assert "Inst ci-ubuntu-fixture (2.0" in good.stdout, good.stdout
         argv = [json.loads(line) for line in calls.read_text().splitlines()]
         assert len(argv) == 2 and "update" in argv[0] and "install" in argv[1], argv
         assert argv[0][:-1] == argv[1][:-3], argv
+        assert {'Acquire::http::Timeout=30', 'Acquire::https::Timeout=30',
+                'Acquire::Retries=2', 'DPkg::Lock::Timeout=30'} <= set(argv[0]), argv
         print("PASS scoped APT excludes broken Chrome, retains security suite, resolves install")
         nested = helper(nested=True)
         assert nested.returncode == 0 and "Inst ci-ubuntu-fixture (2.0" in nested.stdout, nested
@@ -157,6 +173,30 @@ with tempfile.TemporaryDirectory(prefix="ubuntu-apt-test-") as tmp:
         assert len(nested_argv) == 2
         assert nested_argv[0][:-1] == nested_argv[1][:-4]
         print("PASS nested Node/shell dependency install retains identical source isolation")
+        original_source = (parts / 'ubuntu.sources').read_text()
+        runner_source = original_source.replace(ubuntu.as_uri(),
+                                                'mirror+file:/etc/apt/apt-mirrors.txt\n https://azure.archive.ubuntu.com/ubuntu/')
+        (parts / 'ubuntu.sources').write_text(runner_source)
+        env['APT_TEST_CAPTURE_ONLY'] = '1'
+        try:
+            routed = helper()
+            assert routed.returncode == 0, routed
+            expected = runner_source.replace('mirror+file:/etc/apt/apt-mirrors.txt', 'https://archive.ubuntu.com/ubuntu')
+            expected = expected.replace('https://azure.archive.ubuntu.com/ubuntu/', 'https://archive.ubuntu.com/ubuntu')
+            assert captured_source.read_text() == expected
+        finally:
+            del env['APT_TEST_CAPTURE_ONLY']
+            (parts / 'ubuntu.sources').write_text(original_source)
+        print('PASS known runner mirrors route to fixed HTTPS Ubuntu archive with all other source bytes preserved')
+        env['APT_TEST_HANG'] = '1'
+        try:
+            for nested_mode in (False, True):
+                stalled = helper(nested=nested_mode)
+                assert stalled.returncode == 124 and 'five-minute deadline' in stalled.stderr, stalled
+                assert len(calls.read_text().splitlines()) == 1
+        finally:
+            del env['APT_TEST_HANG']
+        print('PASS real deadline terminates stalled direct and nested update before install')
         corrupt(ubuntu, "noble-security")
         bad = helper()
         assert bad.returncode != 0 and "Hash Sum mismatch" in bad.stdout + bad.stderr, bad
