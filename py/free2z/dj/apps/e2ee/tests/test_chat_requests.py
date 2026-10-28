@@ -18,6 +18,7 @@ from dj.apps.e2ee import handles, tasks
 from dj.apps.e2ee.models import ChatRequest
 from dj.apps.e2ee.views import CHAT_REQUEST_SCOPE
 from dj.apps.emails.models import Email, OptOutEmail
+from dj.apps.emails.views import opt_out_link_token
 from dj.apps.events import signals
 from dj.apps.events.models import Event
 from dj.apps.g12f.models import Creator
@@ -624,14 +625,18 @@ def test_email_is_queued_with_the_charge_and_sent(pair, settings):
     assert message.to == [address.email]
     assert message.subject == "alice_s wants to chat with you privately"
     html = message.alternatives[0][0]
+    opt_out = (
+        "https://free2z.cash/api/emails/opt-out/"
+        + opt_out_link_token(address)
+    )
+    assert "token-Bob_R" not in opt_out
     for text in (message.body, html):
         assert LINK_PREFIX + "alice_s" in text
         assert "e2e2z" in text
-        assert "https://free2z.cash/api/emails/opt-out/token-Bob_R" in text
+        assert opt_out in text
     assert "private, end-to-end encrypted chat" in message.body
     assert "install" in message.body
-    assert message.extra_headers["List-Unsubscribe"] == (
-        "<https://free2z.cash/api/emails/opt-out/token-Bob_R>")
+    assert message.extra_headers["List-Unsubscribe"] == f"<{opt_out}>"
     assert message.extra_headers["List-Unsubscribe-Post"] == (
         "List-Unsubscribe=One-Click")
     chat.refresh_from_db()
