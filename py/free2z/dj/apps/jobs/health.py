@@ -44,7 +44,7 @@ from django.utils import timezone
 
 from procrastinate.contrib.django import settings as procrastinate_settings
 
-from dj.apps.jobs import reclaim_policy
+from dj.apps.jobs import lease_schema, reclaim_policy
 
 #The queue ``g12f.translate_zpage`` runs on. Its refunds are reported on this
 #queue's line, because that is the line a responder already reads for it.
@@ -144,8 +144,7 @@ LEFT JOIN LATERAL (
 ) e ON TRUE
 LEFT JOIN LATERAL (
     SELECT lease.job_id, lease.token, lease.last_beat_at,
-           lease.deadline_at, lease.attempt, lease.phase,
-           lease.phase_token, lease.phase_attempt
+           lease.deadline_at, lease.attempt, __LEASE_PHASE_COLUMNS__
     FROM jobs_joblease lease
     WHERE lease.job_id = j.id
 ) l ON TRUE
@@ -202,6 +201,19 @@ WHERE j.status IN ('todo', 'doing', 'failed')
 GROUP BY j.queue_name
 ORDER BY j.queue_name
 """
+
+_LEASE_PHASE_COLUMNS = 'lease.phase, lease.phase_token, lease.phase_attempt'
+#Before ``jobs/0006``/``0007`` apply there is no lease phase; NULLs make the
+#phase proof below false, leaving only the quarantine-marker evidence.
+_LEASE_PHASE_NULLS = (
+    'NULL::varchar AS phase, NULL::uuid AS phase_token, '
+    'NULL::integer AS phase_attempt')
+
+
+def _queue_sql(phase_columns: bool) -> str:
+    return _QUEUE_SQL.replace(
+        '__LEASE_PHASE_COLUMNS__',
+        _LEASE_PHASE_COLUMNS if phase_columns else _LEASE_PHASE_NULLS)
 
 # The tasks whose failure is most worth naming explicitly in the alert
 # payload, so the person woken up knows what broke without a psql session.
@@ -612,7 +624,7 @@ def collect_queue_health(now=None, window_seconds: int | None = None
     }
     queues: dict[str, QueueHealth] = {}
     with _connection().cursor() as cur:
-        cur.execute(_QUEUE_SQL, params)
+        cur.execute(_queue_sql(lease_schema.available_on_cursor(cur)), params)
         for row in cur.fetchall():
             (queue, todo, doing, failed_total, failed_recent, todo_overdue,
              oldest_overdue, oldest_doing, oldest_over_budget, orphaned, oldest_orphaned,

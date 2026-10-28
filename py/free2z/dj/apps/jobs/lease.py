@@ -30,7 +30,9 @@ job the worker runs with a **lease row** in our own table
   ``(job_id, token, attempt)`` transition to ``body_started`` and verify its
   response. A lost response fails closed; a persisted ``body_started`` phase
   is intentionally treated as possibly executed, even if this process died
-  before calling the body;
+  before calling the body. Until ``jobs/0006``/``0007`` apply, the
+  phase columns do not exist and leases use the 0005 statements with no
+  handshake (``lease_schema``), so worker rollout order cannot stop jobs;
 * while the task runs, ONE daemon thread per worker process beats every
   lease this process holds, every ``JOB_LEASE_BEAT_SECONDS``, with
   ``UPDATE... SET last_beat_at = now() WHERE (job_id, token) IN (...)
@@ -377,6 +379,7 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 from procrastinate import exceptions
 
+from dj.apps.jobs import lease_schema
 from dj.apps.jobs.logs import emit_json_line
 
 logger = logging.getLogger(__name__)
@@ -481,6 +484,35 @@ ON CONFLICT (job_id) DO UPDATE SET
 WHERE EXCLUDED.attempt >= {LEASE_TABLE}.attempt
 """
 
+#The same acquisition against the 0005 schema, before ``jobs/0006`` and
+#``jobs/0007`` add the phase columns (see ``lease_schema``). It is the
+#statement this module ran before those columns existed, so an image that
+#runs ahead of its migrations still leases every job instead of failing
+#every acquisition on a missing column.
+_INSERT_SQL_LEGACY = f"""
+INSERT INTO {LEASE_TABLE}
+    (job_id, token, worker_name, pod, task_name, queue,
+     started_at, last_beat_at, deadline_at, attempt)
+SELECT %(job_id)s::bigint, %(token)s::uuid, %(worker_name)s::varchar,
+       %(pod)s::varchar, %(task_name)s::varchar, %(queue)s::varchar,
+       %(started_at)s::timestamptz, now(), %(deadline_at)s::timestamptz,
+       %(attempt)s::integer
+FROM procrastinate_jobs
+WHERE id = %(job_id)s AND status = 'doing' AND attempts = %(attempt)s
+FOR SHARE
+ON CONFLICT (job_id) DO UPDATE SET
+    token = EXCLUDED.token,
+    worker_name = EXCLUDED.worker_name,
+    pod = EXCLUDED.pod,
+    task_name = EXCLUDED.task_name,
+    queue = EXCLUDED.queue,
+    started_at = EXCLUDED.started_at,
+    last_beat_at = now(),
+    deadline_at = EXCLUDED.deadline_at,
+    attempt = EXCLUDED.attempt
+WHERE EXCLUDED.attempt >= {LEASE_TABLE}.attempt
+"""
+
 #Acquisition is not permission to execute the task. The durable phase
 #transition is a second attempt/token-fenced handshake, and middleware only
 #calls user code after receiving its committed result. A lost response leaves
@@ -535,6 +567,22 @@ SELECT %(job_id)s::bigint, %(token)s::uuid, %(worker_name)s::varchar,
        %(pod)s::varchar, %(task_name)s::varchar, %(queue)s::varchar,
        %(started_at)s::timestamptz, now(), %(deadline_at)s::timestamptz,
        %(attempt)s::integer, %(phase)s::varchar, %(token)s::uuid,
+       %(attempt)s::integer
+FROM procrastinate_jobs
+WHERE id = %(job_id)s AND status = 'doing' AND attempts = %(attempt)s
+ON CONFLICT (job_id) DO NOTHING
+"""
+
+#The 0005-schema re-INSERT, for a lease acquired without phase columns.
+#On a table that has them it leaves ``phase = 'unknown'`` and no proof
+#identity, which never authorises a NEVER replay.
+_REINSERT_IF_ABSENT_SQL_LEGACY = f"""
+INSERT INTO {LEASE_TABLE}
+    (job_id, token, worker_name, pod, task_name, queue,
+     started_at, last_beat_at, deadline_at, attempt)
+SELECT %(job_id)s::bigint, %(token)s::uuid, %(worker_name)s::varchar,
+       %(pod)s::varchar, %(task_name)s::varchar, %(queue)s::varchar,
+       %(started_at)s::timestamptz, now(), %(deadline_at)s::timestamptz,
        %(attempt)s::integer
 FROM procrastinate_jobs
 WHERE id = %(job_id)s AND status = 'doing' AND attempts = %(attempt)s
@@ -1430,6 +1478,7 @@ def reset_for_tests() -> None:
     global _acquire_stall_restart_sent
     _beater.stop()
     _table.reset()
+    lease_schema.reset()
     _gate_warned.clear()
     with _acquire_stall_lock:
         _acquire_stall_restart_sent = False
@@ -1513,7 +1562,13 @@ def acquire(
         is no longer this attempt's, or a newer attempt holds the row."""
         if not _table.check(conn):
             return None
-        return conn.execute(_INSERT_SQL, lease.values).rowcount
+        if lease_schema.available_on_connection(conn):
+            return conn.execute(_INSERT_SQL, lease.values).rowcount
+        # Pre-0006 schema: lease exactly as before the phase columns.
+        # ``phase = None`` marks this lease as legacy for its whole life,
+        # so no body-start handshake or phase re-INSERT is attempted.
+        lease.values['phase'] = None
+        return conn.execute(_INSERT_SQL_LEGACY, lease.values).rowcount
 
     try:
         op = _beater.submit(insert, params)
@@ -1578,8 +1633,15 @@ def _begin_body(lease: Lease) -> bool:
     never reaches user code; that false positive is deliberate because it can
     never authorize replay of a body that might have started.
     """
+    if lease.values is None:
+        return False
+    if lease.values.get('phase') is None:
+        # Acquired against the pre-0006 schema: there is no phase to
+        # advance, and the body runs on the acquisition alone, exactly as
+        # it did before the phase columns existed.
+        return True
     params = _beater._params or _connection_params()
-    if params is None or lease.values is None:
+    if params is None:
         return False
 
     def mark(conn) -> int:
@@ -1885,9 +1947,13 @@ def _leave_a_lease_to_go_silent(
         # marker. Acquisition failure is known to be pre-body; exit/status
         # persistence failures happen after the body returned and remain
         # subject to the task's normal retry policy.
+        reinsert_sql = (
+            _REINSERT_IF_ABSENT_SQL
+            if values.get('phase') is not None
+            and lease_schema.available_on_connection(conn)
+            else _REINSERT_IF_ABSENT_SQL_LEGACY)
         with conn.transaction():
-            inserted = conn.execute(
-                _REINSERT_IF_ABSENT_SQL, values).rowcount
+            inserted = conn.execute(reinsert_sql, values).rowcount
             phase = (
                 'before_body' if reason == 'acquire_unverified'
                 else 'after_body')

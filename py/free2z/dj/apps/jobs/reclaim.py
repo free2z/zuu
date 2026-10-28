@@ -77,7 +77,7 @@ from procrastinate.contrib.django import app
 from psycopg_pool import PoolTimeout
 from procrastinate.jobs import Status
 
-from dj.apps.jobs import reclaim_policy
+from dj.apps.jobs import lease_schema, reclaim_policy
 from dj.apps.jobs.logs import emit_json_line
 from dj.apps.jobs.models import JobLease, QuarantinedJob
 
@@ -139,6 +139,24 @@ def _lease_field(lease, name: str, index: int):
     return lease.get(name) if isinstance(lease, dict) else lease[index]
 
 
+def _locked_lease_sql(phase_columns: bool) -> str:
+    """The locked lease read; NULL phase fields on the pre-0006 schema.
+
+    Positions are fixed so ``_abandoned_phase`` reads either shape.
+    """
+    phase = ('phase, attempt, phase_token, phase_attempt' if phase_columns
+             else 'NULL, attempt, NULL, NULL')
+    return (f"SELECT token, last_beat_at, deadline_at, {phase} "
+            "FROM jobs_joblease WHERE job_id=%s FOR UPDATE")
+
+
+def _lease_value_fields(*fields: str) -> tuple[str, ...]:
+    """ORM ``values()`` fields, plus the phase fields once they exist."""
+    if lease_schema.available():
+        return fields + lease_schema.PHASE_COLUMNS
+    return fields
+
+
 def _abandoned_phase(marker, lease, attempts: int) -> str | None:
     """Return durable, attempt-scoped evidence that this body's phase ended.
 
@@ -185,10 +203,8 @@ def _locked_job_and_lease(cursor, job, *, expected_attempt):
             or current[1] != expected_attempt):
         return None, None
     cursor.execute(
-        "SELECT token, last_beat_at, deadline_at, phase, attempt, "
-        "phase_token, phase_attempt "
-        "FROM jobs_joblease "
-        "WHERE job_id=%s FOR UPDATE", [job.id])
+        _locked_lease_sql(lease_schema.available_on_cursor(cursor)),
+        [job.id])
     return current, cursor.fetchone()
 
 
@@ -518,11 +534,10 @@ async def _apply_action_worker_pool_transaction(
                 "WHERE id=%s FOR UPDATE", (current[2],))
             worker = await cursor.fetchone()
             worker_heartbeat = worker[0] if worker else None
+        # The decision that led here already probed through Django, and a
+        # positive answer is permanent, so the cache is authoritative.
         cursor = await conn.execute(
-            "SELECT token, last_beat_at, deadline_at, phase, attempt, "
-            "phase_token, phase_attempt "
-            "FROM jobs_joblease "
-            "WHERE job_id=%s FOR UPDATE", (job.id,))
+            _locked_lease_sql(lease_schema.known_available()), (job.id,))
         current_lease = await cursor.fetchone()
         cursor = await conn.execute(
             "SELECT reason, attempts FROM jobs_quarantined_job "
@@ -757,9 +772,8 @@ async def reclaim_decision(job, *, floor: int, margin: int,
             return {'reason': 'excluded_queue'}
         return {'reason': 'unclassified_task'}
     lease = await _tracked_sync_to_async(lambda: JobLease.objects.filter(
-        job_id=job.id).values(
-            'token', 'last_beat_at', 'deadline_at', 'attempt',
-            'phase', 'phase_token', 'phase_attempt').first())
+        job_id=job.id).values(*_lease_value_fields(
+            'token', 'last_beat_at', 'deadline_at', 'attempt')).first())
     marker = await _tracked_sync_to_async(QuarantinedJob.objects.filter(
         job_id=job.id, requeued_at__isnull=True).values(
             'reason', 'attempts').first)
@@ -864,8 +878,9 @@ async def _stalled_candidates(threshold: int, heartbeat_seconds: float,
     aged_ids = {job.id for job in aged}
     lease_rows = await _tracked_sync_to_async(lambda: list(
         JobLease.objects.filter(job_id__in=aged_ids).values(
-            'job_id', 'last_beat_at', 'deadline_at', 'token', 'attempt',
-            'phase', 'phase_token', 'phase_attempt')))
+            *_lease_value_fields(
+                'job_id', 'last_beat_at', 'deadline_at', 'token',
+                'attempt'))))
     leases = {row['job_id']: row for row in lease_rows}
     marker_rows = await _tracked_sync_to_async(lambda: list(
         QuarantinedJob.objects.filter(
