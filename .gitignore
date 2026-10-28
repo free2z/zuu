@@ -30,6 +30,12 @@ ts/svelte/free2z/test-results-local-*/
 # Generated recorder bundles.
 ts/svelte/free2z/static/_app/
 ts/svelte/free2z/static/tools/
+# Campaign demo proving assets are rebuilt from pinned public inputs and
+# hash-checked by scripts/campaign-proof-assets.mjs; only the manifest and the
+# verifier key are source.
+ts/svelte/free2z/static/projects/campaign-demo-proof/*
+!ts/svelte/free2z/static/projects/campaign-demo-proof/manifest.json
+!ts/svelte/free2z/static/projects/campaign-demo-proof/verification-key.json
 
 # Local Python environments contain installed dependencies, not source.
 /.venv*/
