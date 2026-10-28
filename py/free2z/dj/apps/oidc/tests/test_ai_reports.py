@@ -441,7 +441,7 @@ def test_an_app_with_reports_but_no_grants_is_a_409_not_a_500(
 
 
 @pytest.mark.skipif(not hasattr(F2ZApplication, "child_directed"),
-                    reason="F2ZApplication.child_directed lands with tuzi#2633")
+                    reason="F2ZApplication.child_directed lands with the platform change")
 def test_child_directed_reads_the_registration(web_app):
     assert ai_reports._child_directed(web_app) is False
     type(web_app).objects.filter(pk=web_app.pk).update(child_directed=True)
@@ -609,7 +609,7 @@ def test_the_sweep_survives_one_failing_app(
 def test_the_partial_unsafe_index_matches_the_readers_predicate():
     """The index holds exactly the rows the surge count reads: unsafe reports,
     keyed by app then unsafe_at. If either side's predicate drifts, the
-    planner can no longer use it (tuzi#2654; EXPLAIN in the PR)."""
+    planner can no longer use it (EXPLAIN in the PR)."""
     with connection.cursor() as cursor:
         cursor.execute("SELECT indexdef FROM pg_indexes WHERE indexname = 'oidc_aireport_app_unsafe'")
         [(indexdef,)] = cursor.fetchall()

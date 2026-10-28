@@ -127,7 +127,7 @@ async function logOut(page: Page) {
   // reaches this SAME document reactively, so "navbar-auth-trigger" can
   // become visible pre-navigation for a moment. Racing a follow-up
   // `page.evaluate` against the navigation that follows throws "Execution
-  // context was destroyed" about 1 run in 15 (tuzi#2083). `waitForEvent`
+  // context was destroyed" about 1 run in 15. `waitForEvent`
   // must be armed *before* the click that triggers the navigation, so
   // `Promise.all` — not a bare `await` after the click, which can lose the
   // race the other way if the mock API resolves fast.

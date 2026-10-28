@@ -144,13 +144,13 @@ def validate_return_url(value: str, application) -> str | None:
     return "must be a Free2Z https URL or a loopback URI"
 
 
-#The Free2Z billing page (Zcash first, card second; tuzi#2705). It
+#The Free2Z billing page (Zcash first, card second). It
 #redirects a signed-out user through login.
 BILLING_PATH = "/buy-2z"
 
 
 def zcash_billing_url(application) -> str:
-    """Where a ``rail: zcash`` refusal sends the user (tuzi#2705).
+    """Where a ``rail: zcash`` refusal sends the user.
 
     Built on ``CANONICAL_ORIGIN``, never the request host. An OAuth caller's
     ``client_id`` rides along so the page can name the app that sent the

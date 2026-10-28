@@ -390,7 +390,7 @@ export function isAmbiguousOutcome(error) {
  * watching, keep the money story ("delivered, refunded or settled, never
  * neither") and let the panel show what actually landed.
  *
- * `settled` (tuzi#1908) is a failure in which PART of the charge was kept,
+ * `settled` is a failure in which PART of the charge was kept,
  * covering provider work that had already been done and billed to us when the
  * buyer changed the article under their own paid job again. It is terminal, and
  * it is a distinct state precisely because "all your 2Z came back" must not be
@@ -409,7 +409,7 @@ export function translationJobState(job) {
 }
 
 /**
- * Which refund terms this build's purchase screen displays (tuzi#1908).
+ * Which refund terms this build's purchase screen displays.
  *
  * Sent with every purchase, and the server bills a failure only when it matches
  * the policy it knows. That is not ceremony: an editor tab opened before the

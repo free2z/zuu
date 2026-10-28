@@ -2596,8 +2596,8 @@ JOB_RECLAIM_EXCLUDED_QUEUES = tuple(
     if q.strip()
 )
 # The default protects the export lane from ordinary/ambiguous requeues.
-# An exact durable `before_body` marker is safe to recover through that
-# default; an operator who explicitly excludes a queue still wins.
+# An exact attempt/token-scoped `before_body` lease phase is safe to recover
+# through that default; an operator who explicitly excludes a queue still wins.
 JOB_RECLAIM_OPERATOR_EXCLUDED_QUEUES = tuple(
     q.strip()
     for q in (_JOB_RECLAIM_EXCLUDED_QUEUES_ENV or "").split(",")

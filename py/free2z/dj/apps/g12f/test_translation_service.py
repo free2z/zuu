@@ -974,6 +974,695 @@ def test_backticks_in_link_titles_cannot_hide_a_changed_zip321_amount():
     assert "zip321_amount_not_in_source" in codes
 
 
+def test_nested_reference_title_code_cannot_authorize_a_visible_zip321_amount():
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = (
+        f"Donate {_UNIFIED_ADDRESS}.\n\n"
+        f"[a]: #x (nested (` {uri} `))"
+    )
+    translated = f"Donar {_UNIFIED_ADDRESS}.\n\n{uri}"
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+def test_malformed_angle_reference_destination_remains_nonvisible_control():
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = (
+        f"Donate {_UNIFIED_ADDRESS}.\n\n"
+        "`[x](#<1)`\n\n"
+        f'[a]: <#x> "hidden {uri} "'
+    )
+    translated = source.replace("[a]: <#x>", "[a]: <#<1>")
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert "zip321_amount_not_in_source" not in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+@pytest.mark.parametrize(
+    "title",
+    ['"hidden {uri}"', "'hidden {uri}'", "(hidden {uri})"],
+    ids=["double-quoted", "single-quoted", "parenthesized"],
+)
+def test_reference_definition_title_cannot_authorize_hidden_zip321_amount(title):
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = (
+        f"Donate {_UNIFIED_ADDRESS}.\n\n"
+        f"[label]: #x {title.format(uri=uri)}"
+    )
+    translated = f"Donar {_UNIFIED_ADDRESS}.\n\n{uri}"
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+@pytest.mark.parametrize(
+    "definition",
+    [
+        '[a]: #x\n    "hidden {uri}"',
+        '[a]: #x\n        "hidden {uri}"',
+        '[a]: #x "title"\n[b]: #x "hidden {uri}"',
+    ],
+    ids=[
+        "four-space-multiline-title",
+        "eight-space-multiline-title",
+        "consecutive-definitions",
+    ],
+)
+def test_renderer_consumed_reference_titles_cannot_authorize_zip321_amount(
+    definition,
+):
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = f"Donate {_UNIFIED_ADDRESS}.\n\n{definition.format(uri=uri)}"
+    translated = f"Donar {_UNIFIED_ADDRESS}.\n\n{uri}"
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+@pytest.mark.parametrize(
+    ("block", "definition"),
+    [
+        ("# Example", '[a]: #x "hidden {uri} "'),
+        ("   ### Example", '[a]: #x "hidden {uri} "'),
+        ("Example\n---", '[a]: #x "hidden {uri} "'),
+        ("Example\n===", '[a]: #x "hidden {uri} "'),
+        ("Example\n---\t", '[a]: #x "hidden {uri} "'),
+        ("***", '[a]: #x "hidden {uri} "'),
+        ("    # Example", '[a]: #x "hidden {uri} "'),
+        ("```text\nexample\n```", '[a]: #x "hidden {uri} "'),
+        ("> # Example", '> [a]: #x "hidden {uri} "'),
+        ("> Example\n> ---", '> [a]: #x "hidden {uri} "'),
+        ("> ***", '> [a]: #x "hidden {uri} "'),
+        ("- # Example", '  [a]: #x "hidden {uri} "'),
+        ("- Example\n  ---", '  [a]: #x "hidden {uri} "'),
+        ("- ***", '  [a]: #x "hidden {uri} "'),
+    ],
+    ids=[
+        "atx-heading", "indented-atx-heading", "setext-h2", "setext-h1",
+        "thematic-break-with-trailing-tab",
+        "thematic-break", "indented-code", "fenced-code",
+        "blockquote-heading", "blockquote-setext",
+        "blockquote-thematic-break", "list-heading", "list-setext",
+        "list-thematic-break",
+    ],
+)
+def test_markdown_block_terminators_start_hidden_reference_definitions(
+    block, definition,
+):
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = (
+        f"Donate {_UNIFIED_ADDRESS}.\n\n{block}\n"
+        f"{definition.format(uri=uri)}"
+    )
+    translated = f"Donar {_UNIFIED_ADDRESS}.\n\n{block}\n{uri}"
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert safety._reference_definition_target_ranges(
+        source, titles_only=True,
+    )
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+@pytest.mark.parametrize(
+    ("block", "definition"),
+    [
+        ("Example", '[a]: #x "hidden {uri} "'),
+        ("#Not a heading", '[a]: #x "hidden {uri} "'),
+        ("####### Too many hashes", '[a]: #x "hidden {uri} "'),
+        ("Example\n---x", '[a]: #x "hidden {uri} "'),
+        ("> Example", '> [a]: #x "hidden {uri} "'),
+        ("- Example", '  [a]: #x "hidden {uri} "'),
+        ("<div>Example</div>", '[a]: #x "hidden {uri} "'),
+    ],
+    ids=[
+        "paragraph", "hash-without-space", "seven-hashes", "invalid-setext",
+        "blockquote-paragraph", "list-paragraph", "escaped-html",
+    ],
+)
+def test_nonterminating_markdown_context_keeps_reference_text_visible(
+    block, definition,
+):
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = (
+        f"Donate {_UNIFIED_ADDRESS}.\n\n{block}\n"
+        f"{definition.format(uri=uri)}"
+    )
+    translated = source.replace("Donate", "Donar", 1)
+
+    assert not safety._reference_definition_target_ranges(
+        source, titles_only=True,
+    )
+    assert safety._zip321_amounts(source, source_authorization=True)
+    assert safety.find_violations(source, translated) == []
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r", "\r\n"])
+@pytest.mark.parametrize(
+    "definition",
+    [
+        '[a]:{nl} #x "hidden {uri}"',
+        '[a]:{nl}    #x "hidden {uri}"',
+        '[a]:{nl}\t#x{nl} "hidden {uri}"',
+        '[a]:{nl} #x{nl} "hidden{nl}{uri}{nl}"',
+    ],
+    ids=[
+        "one-space-destination", "four-space-destination",
+        "tab-destination-and-title-line", "multiline-title",
+    ],
+)
+def test_multiline_reference_destinations_cannot_authorize_hidden_zip321_amount(
+    newline, definition,
+):
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    definition = definition.format(nl=newline, uri=uri)
+    source = f"Donate {_UNIFIED_ADDRESS}.\n\n{definition}"
+    translated = f"Donar {_UNIFIED_ADDRESS}.\n\n{uri}"
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert safety._reference_definition_target_ranges(
+        source, titles_only=True,
+    )
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+def test_unchanged_hidden_reference_title_survives_prose_translation():
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1"
+    source = f'Example\n\n[a]: #x "{uri}"'
+    translated = f'Ejemplo\n\n[a]: #x "{uri}"'
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert safety.find_violations(source, translated) == []
+
+
+def test_trailing_tab_makes_reference_title_visible_and_amount_fatal():
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = (
+        f"Donate {_UNIFIED_ADDRESS}.\n\n"
+        f'[a]: #x "hidden {uri}"'
+    )
+    translated = source + "\t"
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert safety._reference_definition_target_ranges(
+        translated, titles_only=True,
+    ) == []
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+def test_missing_space_before_reference_title_makes_amount_visible_and_fatal():
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = (
+        f"Donate {_UNIFIED_ADDRESS}.\n\n"
+        f'[a]: <#x> "hidden {uri}"'
+    )
+    translated = source.replace('<#x> "hidden', '<#x>"hidden', 1)
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert safety._reference_definition_target_ranges(
+        translated, titles_only=True,
+    ) == []
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+def test_fake_definition_inside_multiline_title_cannot_hide_visible_amount():
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    prose = f"Donate {_UNIFIED_ADDRESS}.\n\n"
+    source = prose + f'[a]: #x "outer\n[b]: #x \'inner\n{uri}\nend"\n\''
+    translated = prose.replace("Donate", "Donar") + (
+        f'[a]: #x "outer\n[b]: #x \'inner\nend"\n{uri}\n\''
+    )
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+def test_unchanged_code_uri_multiplicity_does_not_authorize_a_visible_copy():
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = f"Example: ``{uri} ``"
+    translated = f"Ejemplo: ``{uri} ``\n\n{uri}"
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r", "\r\n"])
+@pytest.mark.parametrize(
+    "title",
+    [
+        '"first\nsecond `tick`"',
+        "'first\nsecond `tick`'",
+        "(first\nsecond `tick`)",
+    ],
+    ids=["double-quoted", "single-quoted", "parenthesized"],
+)
+def test_reference_definition_multiline_titles_mask_only_valid_title_context(
+    newline, title,
+):
+    source = f"[valid label]: #x {title.replace(chr(10), newline)}{newline}{newline}end"
+    ranges = safety._reference_definition_target_ranges(source)
+
+    assert len(ranges) == 1
+    start, end = ranges[0]
+    assert source[start:end].endswith(title[-1])
+    assert "`tick`" in source[start:end]
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "(nested (`tick`))",
+        '(nested ("tick"))',
+        "(nested \\( `tick`\\))",
+    ],
+    ids=["nested-paren-code", "nested-paren-quote", "escaped-paren"],
+)
+def test_reference_definition_title_parser_rejects_unrendered_nested_parentheses(title):
+    ranges = safety._reference_definition_target_ranges(f"[label]: #x {title}")
+
+    assert ranges == []
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        '(escaped \\" quote `tick`)',
+        "(backslash \\q `tick`)",
+    ],
+    ids=["escaped-double-quote", "nonpunctuation-escape"],
+)
+def test_reference_title_parser_handles_escapes_without_widening_ranges(title):
+    ranges = safety._reference_definition_target_ranges(f"[label]: #x {title}")
+
+    assert len(ranges) == 1
+    start, end = ranges[0]
+    assert "`tick`" in f"[label]: #x {title}"[start:end]
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "(escaped \\( and \\) `tick`)",
+        "'escaped \\' apostrophe `tick`'",
+    ],
+    ids=["parenthesized-delimiters", "single-quoted-apostrophe"],
+)
+def test_reference_titles_with_renderer_active_escaped_delimiters_are_not_hidden(
+    title,
+):
+    assert safety._reference_definition_target_ranges(
+        f"[label]: #x {title}", titles_only=True,
+    ) == []
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        " ", "\t", "\n", "\r", "\v", "\f", "\u0085", "\u00a0",
+        "\u1680", *[chr(codepoint) for codepoint in range(0x2000, 0x200B)],
+        "\u2028", "\u2029", "\u202f", "\u205f", "\u3000", "\ufeff",
+    ],
+    ids=lambda value: f"u{ord(value):04x}",
+)
+def test_reference_title_mask_uses_marked_destination_whitespace(boundary):
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = f'Donate {_UNIFIED_ADDRESS}.\n\n[a]: #x "hidden {uri}"'
+    translated = (
+        f'Donar {_UNIFIED_ADDRESS}.\n\n[a]: #x{boundary}junk "hidden {uri}"'
+    )
+    expected_renderer_boundary = boundary in safety._MARKED_WHITESPACE
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    if expected_renderer_boundary:
+        assert safety._reference_definition_target_ranges(
+            translated, titles_only=True,
+        ) == []
+        assert "zip321_amount_not_in_source" in {
+            violation.code for violation in safety.find_violations(source, translated)
+        }
+    else:
+        assert safety._reference_definition_target_ranges(
+            translated, titles_only=True,
+        )
+        assert safety.find_violations(source, translated) == []
+
+
+def test_entity_encoded_destination_whitespace_keeps_valid_hidden_title_control():
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = (
+        f'Donate {_UNIFIED_ADDRESS}.\n\n'
+        f'[a]: #x&#160;junk "hidden {uri}"'
+    )
+    translated = (
+        f'Donar {_UNIFIED_ADDRESS}.\n\n'
+        f'[a]: #x&#160;junk "hidden {uri}"'
+    )
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert safety._reference_definition_target_ranges(
+        translated, titles_only=True,
+    )
+    assert safety.find_violations(source, translated) == []
+
+
+@pytest.mark.parametrize(
+    ("source_html", "translated_html"),
+    [
+        (
+            "<pre>example</pre>",
+            '<pre>ejemplo\n\n[a]: #x "hidden {uri}"\n\n</pre>',
+        ),
+        (
+            "<div>example</div>",
+            '<div>ejemplo\n[a]: #x "hidden {uri}"\n</div>',
+        ),
+        (
+            '> <pre>example</pre>\n\n> [a]: #x "hidden {uri}"',
+            '> <pre>ejemplo\n> [a]: #x "hidden {uri}"\n> </pre>',
+        ),
+        (
+            '- <pre>example</pre>\n  [a]: #x "hidden {uri}"',
+            '- <pre>ejemplo\n  [a]: #x "hidden {uri}"\n  </pre>',
+        ),
+        (
+            '<custom>example</custom>\n\n- [a]: #x "hidden {uri}"',
+            '<custom>\n- [a]: #x "hidden {uri}"\n</custom>',
+        ),
+        (
+            '<pre-example>example</pre-example>',
+            '<pre-example>ejemplo</pre-example>\n\n{uri}',
+        ),
+        (
+            '<pre>example</pre>\n\n[a]: #x "hidden {uri}"',
+            '<pre>ejemplo\n</ pre>\n\n[a]: #x "hidden {uri}"',
+        ),
+    ],
+    ids=[
+        "pre-block", "generic-block-tag", "blockquote-pre", "list-pre",
+        "custom-element-block", "pre-prefix-custom-element",
+        "malformed-pre-closer",
+    ],
+)
+def test_reference_title_inside_raw_html_block_cannot_hide_payment(
+    source_html, translated_html,
+):
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=100"
+    source = (
+        f"Donate {_UNIFIED_ADDRESS}.\n\n{source_html}\n\n"
+        f'[a]: #x "hidden {uri}"'
+    )
+    translated = (
+        f"Donar {_UNIFIED_ADDRESS}.\n\n"
+        + translated_html.format(uri=uri)
+    )
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert safety._reference_definition_target_ranges(
+        translated, titles_only=True,
+    ) == []
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+def test_reference_title_moved_into_fenced_code_cannot_hide_payment():
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=100"
+    source = (
+        f"Donate {_UNIFIED_ADDRESS}.\n\n"
+        "```text\nexample\n```\n\n"
+        f'[a]: #x "{uri}"'
+    )
+    translated = (
+        f"Donar {_UNIFIED_ADDRESS}.\n\n"
+        "```text\nexample\n\n"
+        f'[a]: #x "{uri}"\n'
+        "```"
+    )
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert safety._reference_definition_target_ranges(
+        translated, titles_only=True,
+    ) == []
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+@pytest.mark.parametrize(
+    ("source_definition", "translated_payment"),
+    [
+        ('> [a]: #x\n>   "hidden {uri}"', "> {uri}"),
+        ('- [a]: #x\n  "hidden {uri}"', "- {uri}"),
+    ],
+    ids=["blockquote-title", "list-title"],
+)
+def test_multiline_container_reference_title_cannot_authorize_payment(
+    source_definition, translated_payment,
+):
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = f"Donate {_UNIFIED_ADDRESS}.\n\n{source_definition.format(uri=uri)}"
+    translated = (
+        f"Donar {_UNIFIED_ADDRESS}.\n\n{translated_payment.format(uri=uri)}"
+    )
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+@pytest.mark.parametrize(
+    ("source_definition", "translated_definition"),
+    [
+        (
+            '> [a]: #x \'hidden {uri} \'',
+            '> [a]: #x \'hidden\n{uri} \n\'',
+        ),
+    ],
+    ids=["blockquote-prefix-dropped"],
+)
+def test_invalid_multiline_reference_context_cannot_hide_payment(
+    source_definition, translated_definition,
+):
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = f"Donate {_UNIFIED_ADDRESS}.\n\n{source_definition.format(uri=uri)}"
+    translated = (
+        f"Donar {_UNIFIED_ADDRESS}.\n\n"
+        f"{translated_definition.format(uri=uri)}"
+    )
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+def test_following_reference_title_cannot_escape_its_blockquote():
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = (
+        f"Donate {_UNIFIED_ADDRESS}.\n\n"
+        f'> [a]: #x "hidden {uri} "'
+    )
+    translated = (
+        f"Donar {_UNIFIED_ADDRESS}.\n\n"
+        f'> [a]: #x\n"hidden {uri} "'
+    )
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+@pytest.mark.parametrize(
+    "definition",
+    ['> [a]: #x\n> "hidden"', '- [a]: #x\n  "hidden"'],
+    ids=["blockquote-prefix-preserved", "list-indent-preserved"],
+)
+def test_following_reference_title_preserves_valid_container_context(definition):
+    ranges = safety._reference_definition_target_ranges(definition, titles_only=True)
+
+    assert len(ranges) == 1
+    start, end = ranges[0]
+    assert definition[start:end] == '"hidden"'
+
+
+def test_reference_definition_recognition_respects_label_and_list_context():
+    valid_label = '[a label]: #x "`tick`"'
+    escaped_open_bracket = r'[a\[label]: #x "`tick`"'
+    malformed_nested_open_bracket = '[a[label]: #x "`tick`"'
+    footnote_like_label = '[^note]: #x "`tick`"'
+    nested_in_list = '- item\n  [a label]: #x "`tick`"'
+
+    assert len(safety._reference_definition_target_ranges(valid_label)) == 1
+    assert len(safety._reference_definition_target_ranges(escaped_open_bracket)) == 1
+    assert safety._reference_definition_target_ranges(malformed_nested_open_bracket) == []
+    assert safety._reference_definition_target_ranges(footnote_like_label) == []
+    assert safety._reference_definition_target_ranges(nested_in_list) == []
+
+
+@pytest.mark.parametrize(
+    ("marker", "separator"),
+    [
+        ("2.", "\n"), ("2)", "\n"), ("0.", "\n"), ("0)", "\n"),
+        ("١.", "\n\n"), ("１.", "\n\n"),
+    ],
+)
+def test_noninterrupting_ordered_list_marker_cannot_hide_payment(marker, separator):
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = f'Donate {_UNIFIED_ADDRESS}.\n\n[a]: #x "hidden {uri}"'
+    translated = (
+        f'Donar {_UNIFIED_ADDRESS}.{separator}'
+        f'{marker} [a]: #x "hidden {uri}"'
+    )
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+@pytest.mark.parametrize("padding", [" " * count for count in range(1, 7)])
+def test_list_marker_padding_preserves_marked_indented_code_boundary(padding):
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=100 "
+    source = f'Donate {_UNIFIED_ADDRESS}.\n\n[a]: #x "hidden {uri}"'
+    translated = f'Donar {_UNIFIED_ADDRESS}.\n\n-{padding}[a]: #x "hidden {uri}"'
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    codes = {violation.code for violation in safety.find_violations(source, translated)}
+    if len(padding) <= 4:
+        assert "zip321_amount_not_in_source" not in codes
+    else:
+        assert "zip321_amount_not_in_source" in codes
+
+
+@pytest.mark.parametrize(("padding", "is_indented_code"), [("\t", False), (" \t", True)])
+def test_list_marker_tab_padding_matches_marked_context(padding, is_indented_code):
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=100 "
+    source = f'Donate {_UNIFIED_ADDRESS}.\n\n[a]: #x "hidden {uri}"'
+    translated = f'Donar {_UNIFIED_ADDRESS}.\n\n-{padding}[a]: #x "hidden {uri}"'
+    codes = {violation.code for violation in safety.find_violations(source, translated)}
+
+    if is_indented_code:
+        assert "zip321_amount_not_in_source" in codes
+    else:
+        assert "zip321_amount_not_in_source" not in codes
+
+
+@pytest.mark.parametrize(
+    "whitespace",
+    [char for char in safety._MARKED_WHITESPACE if char not in "\r\n"],
+    ids=lambda char: f"u{ord(char):04x}",
+)
+def test_unicode_whitespace_only_reference_label_cannot_hide_payment(whitespace):
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = f'Donate {_UNIFIED_ADDRESS}.\n\n[a]: #x "hidden {uri}"'
+    translated = (
+        f"Donar {_UNIFIED_ADDRESS}.\n\n"
+        f'[{whitespace}]: #x "hidden {uri}"'
+    )
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+def test_malformed_reference_label_cannot_hide_a_visible_zip321_amount():
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = f'Donate {_UNIFIED_ADDRESS}.\n\n[a]: #x "hidden {uri}"'
+    translated = f'Donar {_UNIFIED_ADDRESS}.\n\n[a[b]: #x "hidden {uri}"'
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+def test_malformed_previous_reference_does_not_authorize_a_title_exemption():
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = (
+        f"Donate {_UNIFIED_ADDRESS}.\n\n[b]: #x junk\n\n"
+        f'[a]: #x "hidden {uri}"'
+    )
+    translated = (
+        f"Donar {_UNIFIED_ADDRESS}.\n\n[b]: #x junk\n"
+        f'[a]: #x "hidden {uri}"'
+    )
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+def test_tab_between_reference_destination_and_title_is_not_hidden():
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = f'Donate {_UNIFIED_ADDRESS}.\n\n[a]: #x "hidden {uri}"'
+    translated = f'Donar {_UNIFIED_ADDRESS}.\n\n[a]: #x\t"hidden {uri}"'
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert safety._reference_definition_target_ranges(translated, titles_only=True) == []
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+def test_tab_after_reference_label_colon_does_not_hide_a_visible_amount():
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    source = f'Donate {_UNIFIED_ADDRESS}.\n\n[a]: #x "hidden {uri}"'
+    translated = f'Donar {_UNIFIED_ADDRESS}.\n\n[a]:\t#x "hidden {uri}"'
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert safety._reference_definition_target_ranges(translated, titles_only=True) == []
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
+@pytest.mark.parametrize(
+    ("source_title", "translated_title"),
+    [
+        ("'hidden {uri}'", "'hidden \\' {uri}'"),
+        ("(hidden {uri})", "(hidden \\) {uri})"),
+        ("(hidden {uri})", "(hidden \\( {uri})"),
+    ],
+    ids=["escaped-single-quote", "escaped-close-paren", "escaped-open-paren"],
+)
+def test_renderer_active_escaped_title_delimiters_cannot_hide_zip321_amount(
+    source_title, translated_title,
+):
+    uri = f"zcash:{_UNIFIED_ADDRESS}?amount=1**00**"
+    prose = f"Donate {_UNIFIED_ADDRESS}.\n\n"
+    source = prose + f'[a]: #x {source_title.format(uri=uri)}'
+    translated = prose + f'[a]: #x {translated_title.format(uri=uri)}'
+
+    assert safety._zip321_amounts(source, source_authorization=True) == {}
+    assert "zip321_amount_not_in_source" in {
+        violation.code for violation in safety.find_violations(source, translated)
+    }
+
+
 def test_a_plain_text_zip321_amount_cannot_be_changed_in_translation():
     source = f"Donate: zcash:{_UNIFIED_ADDRESS}?amount=1.25&label=hello"
     translated = f"Donar: zcash:{_UNIFIED_ADDRESS}?amount=2.5&label=hola"
