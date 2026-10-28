@@ -1,6 +1,5 @@
 // Regression gate for Google Search Console's "No thumbnail URL provided —
-// Video isn't on a watch page" on every zPage video (report of 2026-08-31,
-// tuzi#1544).
+// Video isn't on a watch page" on every zPage video (report of 2026-08-31).
 //
 // Before this, a `<video>` in a zPage body was a bare media element: no
 // `poster`, no `VideoObject`, no `thumbnailUrl`, no `uploadDate`. A crawler

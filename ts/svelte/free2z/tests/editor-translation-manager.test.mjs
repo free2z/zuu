@@ -1490,7 +1490,7 @@ test("a published translation is seen in BOTH storage shapes", () => {
   assert.match(task, /occupied_translation\(page\.pk, language, lock=True\)/);
 });
 
-// --- tuzi#1908: `settled` is a fourth terminal status ------------------------
+// --- `settled` is a fourth terminal status ------------------------
 //
 // The money side of  added `settled`: a failure in which part of the charge
 // covers provider work that had already been done. The editor's risk is not the
@@ -1541,7 +1541,7 @@ test("the editor keeps no inline terminal-status list to fall behind", () => {
 });
 
 test("the purchase screen states the terms the settlement actually applies", () => {
-  // codex adversarial review of tuzi#1908, finding 1 (its riskiest line).
+  // codex adversarial review, finding 1 (its riskiest line).
   //
   // This dialog's whole job is that no 2Z is committed from a screen that has
   // not shown the number and said what happens to it.  introduced one
@@ -1698,7 +1698,7 @@ test("the purchase screen states the terms the settlement actually applies", () 
 });
 
 test("the purchase declares which refund terms it displayed", () => {
-  // codex adversarial review of tuzi#1908, round 3, its riskiest line.
+  // codex adversarial review, round 3, its riskiest line.
   //
   // The server bills an attributable failure only when the purchase declared
   // the terms it was bought under, because an editor tab opened before the
