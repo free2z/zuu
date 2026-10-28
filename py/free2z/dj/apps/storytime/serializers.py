@@ -7,6 +7,9 @@ from dj.apps.g12f.serializers.creator import CreatorListSerializer
 
 #Image sizes the Storytime image call accepts. Anything else is refused before
 #the provider is called; the default keeps the endpoint's historical size.
+#The Storytime call names no ``model``, so these are the sizes of the API's
+#default image model, not of ``settings.OPENAI_IMAGE_MODEL`` (which only the
+#/api/openai image endpoint uses). Change both together or neither.
 STORYTIME_IMAGE_SIZES = ("256x256", "512x512", "1024x1024")
 STORYTIME_DEFAULT_IMAGE_SIZE = "512x512"
 

@@ -196,6 +196,9 @@ def test_image_request_uses_inline_image_data_and_an_allowed_size(author, fake):
     assert kind == "image"
     assert kwargs["size"] == "256x256"
     assert kwargs["response_format"] == "b64_json"
+    # The size allow-list is the API default image model's; naming a model
+    # here would change which sizes and parameters the provider accepts.
+    assert "model" not in kwargs
     page = story.pages.get()
     assert page.image is not None
     assert page.image.mime_type == "image/png"
