@@ -12,6 +12,16 @@
       "follow_up": "Pin the first Twisted release containing twisted/twisted#12788 and remove this exception when a fixed release is available. Re-check by expiry. This exception is void if application code imports twisted.mail or introduces an IMAP server.",
       "reviewed_on": "2026-10-15",
       "expires": "2026-11-15"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "deepmerge",
+      "advisory": "GHSA-gcqx-w48m-w2h4",
+      "rationale": "No fixed release exists. GHSA-gcqx-w48m-w2h4 (CVE-2026-93753, low) affects deepmerge >= 4.2.0, <= 4.3.1 with first_patched_version: null, and 4.3.1 (2023-03-16) is the newest deepmerge on npm. Every dependent that pulls an affected copy is already at its newest release and declares ^4.x, so neither an upgrade nor an override removes it; overriding below 4.2.0 would break the declared ^4.3.1 ranges and roll back unrelated fixes. Affected 4.3.1 copies per lockfile: ts/svelte/free2z (dev only) via @sveltejs/vite-plugin-svelte 7.3.1; docs/about-free2z via @svgr/plugin-svgo 8.1.0 (Docusaurus build); ts/react/free2z via @svgr/plugin-svgo 8.1.0, @rollup/plugin-node-resolve 11.2.1 (workbox-build under react-scripts), fork-ts-checker-webpack-plugin 6.5.3, jest-config 27.5.1 and react-player 2.16.1. formik's deepmerge 2.2.1 is outside the affected range. docs/free2z/website has no deepmerge.",
+      "reachability": "The flaw lets a merge TARGET carrying an own __proto__ key (e.g. JSON.parse output) set the prototype of the object deepmerge returns; it does not pollute Object.prototype (verified against 4.3.1: a source-side __proto__ is skipped and ({}).isAdmin stays undefined). The only affected copy that runs in shipped code is react-player 2.16.1 in the ts/react/free2z browser bundle, where deepmerge merges react-player's own defaultProps.config with the component's config prop; our two call sites (src/components/FileImageListItem.tsx, src/components/VideoPlayerTest.tsx, the latter not routed) pass only url/controls/style and no config, so no request or user data reaches deepmerge. Every other dependent runs at build or test time on repository-authored configuration: vite-plugin-svelte merges svelte/vite config, fork-ts-checker and @rollup/plugin-node-resolve merge plugin options, jest-config merges Jest config, and @svgr/plugin-svgo 8.1.0 declares deepmerge but its dist never imports it.",
+      "follow_up": "Pin the first deepmerge release that fixes GHSA-gcqx-w48m-w2h4, or drop it when the dependents above stop requiring it (react-player 3.x has no deepmerge dependency), and remove this exception. Re-check by expiry. This exception is void if any code passes a config prop to ReactPlayer, or otherwise feeds request, user or network data to deepmerge.",
+      "reviewed_on": "2026-10-28",
+      "expires": "2026-11-28"
     }
   ]
 }
