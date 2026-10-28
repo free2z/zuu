@@ -47,7 +47,7 @@ function decodeOnce(value: string): string {
  * The `public/` segment is deliberately folded away: it is derived from the
  * upload's access level (`GenericFile._get_prefix`), so the same asset can
  * legitimately be written both ways, and an access change rewrites every URL
- * for it (tuzi#1463). Keying on the storage name rather than the served
+ * for it. Keying on the storage name rather than the served
  * prefix means the map still resolves either way.
  */
 export function uploadPathKey(url: unknown): string | null {

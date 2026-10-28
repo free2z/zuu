@@ -858,7 +858,7 @@ def generate_video_poster(generic_file_id: int):
     URL follows the video's own `_get_prefix()` -- a members-only video's
     poster is served only through the authenticated `/uploadz/` route, and
     a private video's poster is never public. Nothing is copied to a second
-    location (media access model, tuzi#1463).
+    location (media access model).
 
     Idempotent: a video that already has a variant is left alone, so a
     retry, a re-upload signal and the backfill command can all run over the
@@ -866,8 +866,8 @@ def generate_video_poster(generic_file_id: int):
 
     Terminal on bad input: `extract_poster_bytes` raises only for a
     transient failure (so procrastinate retries it); an undecodable or
-    oversized video, or a source object that is gone from storage
-    (tuzi#2096), simply ends with no poster and no retries. That is the
+    oversized video, or a source object that is gone from storage,
+    simply ends with no poster and no retries. That is the
     intended outcome -- a `thumbnailUrl` that 404s is worse than none at
     all.
     """

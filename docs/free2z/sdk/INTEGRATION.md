@@ -234,7 +234,7 @@ const label = session.preferredUsername ?? "Free2Z account";
   refused, so a name cannot render as a different one.
 - They are **display-only, non-unique and mutable**: the user can rename the
   account, and usernames compare case-insensitively, so two accounts can look
-  alike (tuzi#1348). Key local data, caches and recovery records by
+  alike. Key local data, caches and recovery records by
   `subject` (the OIDC `sub`), never by a username or name.
 - Without `profile` granted, both are **absent** (not `null`). That includes a
   user who declined it on the consent screen, and one who later withdrew it at
