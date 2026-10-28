@@ -1,8 +1,9 @@
+import base64
+import binascii
+from decimal import Decimal
 import logging
-import os
-import urllib.request
+import uuid
 
-from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.core.files.base import ContentFile
@@ -23,13 +24,17 @@ from dj.apps.tuzis import models as idempotency
 from dj.apps.tuzis.serializers import InsufficientFundsErrorSerializer
 
 from .models import Story, Page
-from .serializers import PageSerializer, StoryFullSerializer
+from .serializers import (
+    PageSerializer, StorytimeImageRequestSerializer,
+    StorytimePromptRequestSerializer, StoryFullSerializer,
+)
 
 from f2z.ai.providers import (
     EmptyCompletion, complete_prompt, flat_price_prompt_error,
     prompt_completion_model,
 )
 from f2z.openai.util import get_web_request_openai_client
+from dj.apps.openai.hosted_image import validate_image
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +45,9 @@ oai_client = get_web_request_openai_client()
 #f2z.ai.providers.FLAT_PRICE_CONTEXT_TOKENS (4,096) it leaves 1,024 prompt
 #tokens, the old gpt-3.5-turbo-instruct bound.
 STORYTIME_MAX_TOKENS = 3072
+
+#Flat price of one Storytime page, text or image, in 2Z.
+STORYTIME_PRICE = Decimal("1")
 
 PROVIDER_IDEMPOTENCY_PARAMETER = OpenApiParameter(
     name="Idempotency-Key",
@@ -131,6 +139,55 @@ class StartStory(views.APIView):
         return Response(serializer.data, content_type="application/json")
 
 
+def _reserve_price(request, claim, scope):
+    """Hold the page's price before the provider is called.
+
+    Returns ``(reservation, None)`` or ``(None, 402 response)``. The hold is
+    taken under the creator row lock, so two requests can never both be
+    admitted against the same 2Z: the second one sees the first one's price
+    as already held. A retry under the same Idempotency-Key reuses the
+    original hold instead of taking a second one.
+    """
+    operation_key = claim.key if claim is not None else uuid.uuid4()
+    try:
+        return ledger.reserve(
+            request.user, STORYTIME_PRICE,
+            scope=scope, operation_key=operation_key,
+        ), None
+    except ledger.InsufficientFunds as exc:
+        idempotency.release(claim)
+        return None, Response(
+            ledger.insufficient_funds_payload(exc, action=scope),
+            status=status.HTTP_402_PAYMENT_REQUIRED,
+        )
+
+
+def _abandon(reservation, claim):
+    """Nothing was sold: return the held 2Z and free the key for a retry."""
+    try:
+        ledger.release_reservation(reservation)
+    finally:
+        idempotency.release(claim)
+
+
+def _decode_provider_image(response):
+    """The provider's inline image as bytes, validated before it is stored.
+
+    Inline data (``b64_json``) means there is no second fetch to a URL taken
+    from the provider's response; ``validate_image`` bounds the byte size,
+    format and dimensions before anything is written to storage.
+    """
+    image_b64 = response.data[0].b64_json
+    if not image_b64:
+        raise ValueError("Image provider returned no image data")
+    try:
+        image_data = base64.b64decode(image_b64, validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise ValueError("Image provider returned invalid image data") from error
+    _, _, image_format = validate_image(image_data)
+    return image_data, image_format
+
+
 class PromptView(views.APIView):
     permission_classes = [IsAuthenticated]
     atomic_request = False
@@ -143,12 +200,13 @@ class PromptView(views.APIView):
         }
     )
     def post(self, request, **kwargs):
-        prompt = request.data.get("prompt")
-        if not prompt:
-            raise ParseError("Missing prompt.")
-        if not isinstance(prompt, str):
-            raise ParseError("Prompt must be a string.")
-        # Flat 1 2Z: bound the input before any provider spend.
+        # Every input is validated before anything is claimed, held, or sent
+        # to the provider: a request that cannot be stored must not be paid
+        # for upstream.
+        params = StorytimePromptRequestSerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+        prompt = params.validated_data["prompt"]
+        # Flat 1 2Z: bound the input's token count too.
         too_long = flat_price_prompt_error(
             prompt, max_tokens=STORYTIME_MAX_TOKENS)
         if too_long:
@@ -169,14 +227,9 @@ class PromptView(views.APIView):
             idempotency.release(claim)
             return Response({"detail": "Storytime is unavailable right now."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        if request.user.tuzis < 1:
-            idempotency.release(claim)
-            return Response(
-                ledger.insufficient_funds_payload(
-                    request.user, 1, action="storytime_page"
-                ),
-                status=402,
-            )
+        reservation, refused = _reserve_price(request, claim, "storytime_page")
+        if refused is not None:
+            return refused
 
         try:
             # Chat Completions on PROMPT_COMPLETION_MODEL: the legacy
@@ -189,28 +242,28 @@ class PromptView(views.APIView):
                 max_tokens=STORYTIME_MAX_TOKENS,
             )
         except EmptyCompletion:
-            # Nothing to sell: no page, no debit, and the claim is released
-            # so the same key can try again. Logged the way
+            # Nothing to sell: no page, the hold is released, and the claim
+            # is released so the same key can try again. Logged the way
             # /api/openai/prompt logs it (_ai_error_response), or a model
             # that answers every storytime prompt with nothing is a stream of
             # silent 503s.
             logger.exception(
                 "AI generation failed for %s", prompt_completion_model())
-            idempotency.release(claim)
+            _abandon(reservation, claim)
             return Response(
                 {"detail": "Storytime returned no text. Try again."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         except Exception:
-            # No page or debit exists yet, so this claim can be retried. A
-            # killed request still uses the stale-takeover path above.
-            idempotency.release(claim)
+            # No page exists yet, so the hold is returned and this claim can
+            # be retried. A killed request still uses the stale-takeover path
+            # above, and its hold expires on the same bound.
+            _abandon(reservation, claim)
             raise
 
-        # The page and the charge are ONE transaction: the
-        # balance check above is stale by the time we get here, so a
-        # concurrent spend can make the debit fail — and the page must then
-        # not exist, or the user keeps generated content they never paid for.
+        # The page and the settlement of the hold are ONE transaction, so a
+        # page never exists without its charge and a charge never exists
+        # without its page.
         try:
             with transaction.atomic():
                 # TODO: insert pages anywhere
@@ -221,16 +274,19 @@ class PromptView(views.APIView):
                     content=content,
                     order=num_pages + 1,
                 )
-                ledger.debit(request.user, 1, action="storytime_page")
+                ledger.settle_reservation(reservation)
                 body = PageSerializer(page).data
                 if claim is not None:
                     claim.finish(status.HTTP_200_OK, {"page": body})
         except ledger.InsufficientFunds as exc:
-            idempotency.release(claim)
+            _abandon(reservation, claim)
             return Response(
                 ledger.insufficient_funds_payload(exc, action="storytime_page"),
-                status=402,
+                status=status.HTTP_402_PAYMENT_REQUIRED,
             )
+        except Exception:
+            _abandon(reservation, claim)
+            raise
         return Response(body, content_type="application/json")
 
 
@@ -246,11 +302,13 @@ class ImageView(views.APIView):
         }
     )
     def post(self, request, **kwargs):
-        prompt = request.data.get("prompt")
-        if not prompt:
-            raise ParseError("Missing prompt.")
+        # Validate every input (prompt and size) before anything is claimed,
+        # held, or sent to the provider.
+        params = StorytimeImageRequestSerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+        prompt = params.validated_data["prompt"]
+        size = params.validated_data["size"]
 
-        size = request.data.get("size", "512x512")
         claim, duplicate_response = _provider_claim(
             request, "storytime_image",
             {"action": "storytime_image", "intent": "image", "story": kwargs["slug"], "prompt": prompt, "size": size},
@@ -266,55 +324,44 @@ class ImageView(views.APIView):
             idempotency.release(claim)
             return Response({"detail": "Storytime is unavailable right now."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        if request.user.tuzis < 1:
-            idempotency.release(claim)
-            return Response(
-                ledger.insufficient_funds_payload(
-                    request.user, 1, action="storytime_image"
-                ),
-                status=402,
-            )
+        reservation, refused = _reserve_price(request, claim, "storytime_image")
+        if refused is not None:
+            return refused
 
         try:
             response = oai_client.images.generate(
                 prompt=prompt,
                 n=1,
                 size=size,
-                response_format="url",
+                response_format="b64_json",
             )
-
-            # download the image from the url
-            image_url = response.data[0].url
-            # TODO: should probably save for posterity or sth
-            # print(image_url)
-            # Bounded: urlopen's default is the global socket
-            # timeout, which is None -- block forever.
-            with urllib.request.urlopen(
-                image_url,
-                timeout=settings.OPENAI_IMAGE_DOWNLOAD_TIMEOUT_SECONDS,
-            ) as response:
-                image_data = response.read()
+            image_data, image_format = _decode_provider_image(response)
         except Exception:
             # The external phase did not produce a paid Storytime page.
-            # Release the claim so a normal retry can proceed; stale takeover
-            # remains the crash-only fallback when this handler disappears.
-            idempotency.release(claim)
+            # Return the hold and release the claim so a normal retry can
+            # proceed; stale takeover remains the crash-only fallback when
+            # this handler disappears.
+            _abandon(reservation, claim)
             raise
 
-        # The image records and the charge are ONE transaction,
-        # so a debit that loses a race leaves no GenericFile or Page for the
-        # user to keep. (The bytes themselves stay in the bucket, orphaned —
-        # object storage has no transaction to join. Nothing references them.)
+        # The image records and the settlement are ONE transaction, so no
+        # GenericFile or Page survives without its charge. (Bytes written to
+        # the bucket before a rollback stay there, orphaned -- object storage
+        # has no transaction to join. Nothing references them.)
+        extension, mime_type = (
+            ("png", "image/png") if image_format == "PNG"
+            else ("jpg", "image/jpeg")
+        )
         try:
             with transaction.atomic():
                 # create a ContentFile object
-                file_name = f"{slugify(prompt)[:64]}.png"
+                file_name = f"{slugify(prompt)[:64]}.{extension}"
                 file_data = ContentFile(image_data, name=file_name)
                 file_obj = GenericFile.objects.create(
                     owner=request.user,
                     file=file_data,
                     title=prompt[:64],
-                    mime_type='image/png'
+                    mime_type=mime_type,
                 )
                 file_obj.save()
 
@@ -326,16 +373,19 @@ class ImageView(views.APIView):
                     image=file_obj,
                     order=num_pages + 1,
                 )
-                ledger.debit(request.user, 1, action="storytime_image")
+                ledger.settle_reservation(reservation)
                 body = PageSerializer(page).data
                 if claim is not None:
                     claim.finish(status.HTTP_200_OK, {"page": body})
         except ledger.InsufficientFunds as exc:
-            idempotency.release(claim)
+            _abandon(reservation, claim)
             return Response(
                 ledger.insufficient_funds_payload(exc, action="storytime_image"),
-                status=402,
+                status=status.HTTP_402_PAYMENT_REQUIRED,
             )
+        except Exception:
+            _abandon(reservation, claim)
+            raise
         return Response(
             body,
             content_type="application/json",
