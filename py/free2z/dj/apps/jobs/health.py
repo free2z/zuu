@@ -144,7 +144,8 @@ LEFT JOIN LATERAL (
 ) e ON TRUE
 LEFT JOIN LATERAL (
     SELECT lease.job_id, lease.token, lease.last_beat_at,
-           lease.deadline_at, lease.attempt
+           lease.deadline_at, lease.attempt, lease.phase,
+           lease.phase_token, lease.phase_attempt
     FROM jobs_joblease lease
     WHERE lease.job_id = j.id
 ) l ON TRUE
@@ -158,7 +159,10 @@ LEFT JOIN LATERAL (
               'recovery abandoned attempt before_body:' || l.token::text,
               'recovery abandoned attempt after_body:' || l.token::text
           )
-    ) AS matches
+    ) OR (l.job_id IS NOT NULL AND l.phase = 'before_body'
+          AND l.attempt = j.attempts
+          AND l.phase_token = l.token
+          AND l.phase_attempt = j.attempts) AS matches
 ) abandoned ON TRUE
 LEFT JOIN LATERAL (
     SELECT GREATEST(

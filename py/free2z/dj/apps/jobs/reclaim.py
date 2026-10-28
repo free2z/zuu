@@ -4,14 +4,14 @@ A normal orphan is a ``doing`` row at least
 ``JOB_RECLAIM_MIN_AGE_SECONDS`` old with both a lease older than
 ``JOB_LEASE_STALE_SECONDS`` and a stale (or pruned) worker heartbeat. The
 independent signals avoid replaying a provider call when only the lease
-beater stopped on a still-live worker. A matching durable middleware marker
-in the existing quarantine table identifies an abandoned lease token and
-attempt; only that evidence can bypass the worker heartbeat and estimated task
-runtime gates. The marker distinguishes failure before the body began from a
-status write failure after the body returned. The pre-body phase permits a
-bounded retry of otherwise-``NEVER`` work; an interrupted ``NEVER`` body stays
-excluded. If no lease exists, the worker heartbeat must be stale (or its row
-pruned). A missing lease alone never proves an attempt stopped.
+beater stopped on a still-live worker. A lease's token- and attempt-scoped
+phase, committed before body entry, identifies an abandoned acquisition;
+legacy durable middleware markers in the quarantine table remain supported.
+Only that evidence can bypass the worker heartbeat and estimated task runtime
+gates. The pre-body phase permits a bounded retry of otherwise-``NEVER`` work;
+an interrupted ``NEVER`` body stays excluded. If no lease exists, the worker
+heartbeat must be stale (or its row pruned). A missing lease alone never proves
+an attempt stopped.
 
 A fresh lease past ``deadline_at`` is handled separately. The first sweep
 persists an abort-request marker and asks Procrastinate to abort. A later sweep
@@ -135,12 +135,37 @@ def _lease_token(lease):
     return lease['token'] if isinstance(lease, dict) else lease[0]
 
 
+def _lease_field(lease, name: str, index: int):
+    return lease.get(name) if isinstance(lease, dict) else lease[index]
+
+
 def _abandoned_phase(marker, lease, attempts: int) -> str | None:
-    """Return durable abandonment evidence matching this lease and attempt."""
-    if not marker or not lease or marker[1] != attempts:
+    """Return durable, attempt-scoped evidence that this body's phase ended.
+
+    The lease phase is written with acquisition and advanced before task code.
+    Older deployments used a quarantine marker; retain its token/attempt
+    validation while recognizing the new phase field directly.
+    """
+    if not lease:
+        return None
+    same_attempt = _lease_field(lease, 'attempt', 4) == attempts
+    phase = _lease_field(lease, 'phase', 3)
+    proof_matches = (
+        _lease_field(lease, 'phase_token', 5) == _lease_token(lease)
+        and _lease_field(lease, 'phase_attempt', 6) == attempts
+    )
+    if same_attempt and proof_matches and phase == 'before_body':
+        return 'before_body'
+    if not same_attempt or not marker or marker[1] != attempts:
         return None
     for phase in ('before_body', 'after_body'):
         if marker[0] == _recovery_marker_reason(_lease_token(lease), phase):
+            # A new attempt can only move from before_body to body_started.
+            # A late/ambiguous acquisition cleanup must not downgrade that
+            # monotonic phase with an old-format before_body marker.
+            if same_attempt and phase == 'before_body' \
+                    and _lease_field(lease, 'phase', 3) == 'body_started':
+                return None
             return phase
     return None
 
@@ -160,7 +185,9 @@ def _locked_job_and_lease(cursor, job, *, expected_attempt):
             or current[1] != expected_attempt):
         return None, None
     cursor.execute(
-        "SELECT token, last_beat_at, deadline_at FROM jobs_joblease "
+        "SELECT token, last_beat_at, deadline_at, phase, attempt, "
+        "phase_token, phase_attempt "
+        "FROM jobs_joblease "
         "WHERE job_id=%s FOR UPDATE", [job.id])
     return current, cursor.fetchone()
 
@@ -204,7 +231,8 @@ def _fail_queued_export_after_prebody_exhaustion(
 
 
 def _apply_action_sync(action, job, *, lease, now, attempts, stale_before,
-                       reason=None, worker_stale_before=None):
+                       reason=None, worker_stale_before=None,
+                       recovery_phase=None):
     """Django-connector path; tests and non-worker commands use this seam."""
     worker_stale_before = worker_stale_before or now - timedelta(
         seconds=float(settings.JOB_RECLAIM_WORKER_HEARTBEAT_SECONDS))
@@ -227,6 +255,9 @@ def _apply_action_sync(action, job, *, lease, now, attempts, stale_before,
             recovery_marker = cursor.fetchone()
             abandoned_phase = _abandoned_phase(
                 recovery_marker, current_lease, attempts)
+            if (recovery_phase == 'before_body'
+                    and abandoned_phase != 'before_body'):
+                return 'recovery_proof_changed'
             if (abandoned_phase is not None
                     and (current_lease is None
                          or current_lease[1] >= stale_before)):
@@ -312,7 +343,8 @@ def _apply_action_sync(action, job, *, lease, now, attempts, stale_before,
 
 async def _apply_action_worker_pool(action, job, *, lease, now, attempts,
                                    stale_before, reason=None,
-                                   worker_stale_before=None):
+                                   worker_stale_before=None,
+                                   recovery_phase=None):
     """Bound pool wait, checkout health I/O, row transaction, and disposal."""
     connector = app.job_manager.connector
     timeout_ms = max(1, int(
@@ -356,7 +388,8 @@ async def _apply_action_worker_pool(action, job, *, lease, now, attempts,
                 conn, connector, action, job, lease=lease, now=now,
                 attempts=attempts, stale_before=stale_before, reason=reason,
                 timeout_ms=timeout_ms,
-                worker_stale_before=worker_stale_before)
+                worker_stale_before=worker_stale_before,
+                recovery_phase=recovery_phase)
         finally:
             # The socket is shut down first on timeout, so pool reset/discard
             # cannot wait behind a blocked libpq call while holding its mutex.
@@ -460,7 +493,7 @@ def _cut_worker_pool_socket(state):
 
 async def _apply_action_worker_pool_transaction(
         conn, connector, action, job, *, lease, now, attempts, stale_before,
-        reason, timeout_ms, worker_stale_before):
+        reason, timeout_ms, worker_stale_before, recovery_phase=None):
     """Run one fenced status transition on the caller's pooled connection."""
     async with conn.transaction():
         await conn.execute(
@@ -486,7 +519,9 @@ async def _apply_action_worker_pool_transaction(
             worker = await cursor.fetchone()
             worker_heartbeat = worker[0] if worker else None
         cursor = await conn.execute(
-            "SELECT token, last_beat_at, deadline_at FROM jobs_joblease "
+            "SELECT token, last_beat_at, deadline_at, phase, attempt, "
+            "phase_token, phase_attempt "
+            "FROM jobs_joblease "
             "WHERE job_id=%s FOR UPDATE", (job.id,))
         current_lease = await cursor.fetchone()
         cursor = await conn.execute(
@@ -495,6 +530,9 @@ async def _apply_action_worker_pool_transaction(
         recovery_marker = await cursor.fetchone()
         abandoned_phase = _abandoned_phase(
             recovery_marker, current_lease, attempts)
+        if (recovery_phase == 'before_body'
+                and abandoned_phase != 'before_body'):
+            return 'recovery_proof_changed'
         if (abandoned_phase is not None
                 and (current_lease is None
                      or current_lease[1] >= stale_before)):
@@ -652,8 +690,8 @@ def _is_queue_excluded(queue: str, abandoned_phase: str | None) -> bool:
 
     `exports` is excluded by default because an ordinary duplicate export
     can return from its application claim and be recorded as SUCCEEDED. A
-    matching `before_body` lease marker proves that the claim/body was never
-    reached, so that one queue-level default does not strand a lost
+    matching `before_body` lease phase proves that the claim/body was never
+    authorized, so that one queue-level default does not strand a lost
     acquisition. An operator-supplied exclusion remains authoritative.
     """
     if queue.startswith('paused.'):
@@ -720,7 +758,8 @@ async def reclaim_decision(job, *, floor: int, margin: int,
         return {'reason': 'unclassified_task'}
     lease = await _tracked_sync_to_async(lambda: JobLease.objects.filter(
         job_id=job.id).values(
-            'token', 'last_beat_at', 'deadline_at', 'attempt').first())
+            'token', 'last_beat_at', 'deadline_at', 'attempt',
+            'phase', 'phase_token', 'phase_attempt').first())
     marker = await _tracked_sync_to_async(QuarantinedJob.objects.filter(
         job_id=job.id, requeued_at__isnull=True).values(
             'reason', 'attempts').first)
@@ -731,8 +770,8 @@ async def reclaim_decision(job, *, floor: int, margin: int,
         return {'reason': 'excluded_queue',
                 'abandoned_phase': abandoned_phase}
     if policy.max_runtime_seconds is None:
-        # A failed acquisition is the one safe exception to NEVER: its marker
-        # proves this attempt's body did not run. Bound these infrastructure
+        # A pre-body lease phase is the one safe exception to NEVER: it proves
+        # this attempt's body was not authorized to run. Bound these infrastructure
         # retries with the existing reclaim cap after subtracting ordinary
         # task retries; interrupted task bodies keep the task's NEVER policy.
         if abandoned_phase == 'before_body':
@@ -825,7 +864,8 @@ async def _stalled_candidates(threshold: int, heartbeat_seconds: float,
     aged_ids = {job.id for job in aged}
     lease_rows = await _tracked_sync_to_async(lambda: list(
         JobLease.objects.filter(job_id__in=aged_ids).values(
-            'job_id', 'last_beat_at', 'deadline_at', 'token', 'attempt')))
+            'job_id', 'last_beat_at', 'deadline_at', 'token', 'attempt',
+            'phase', 'phase_token', 'phase_attempt')))
     leases = {row['job_id']: row for row in lease_rows}
     marker_rows = await _tracked_sync_to_async(lambda: list(
         QuarantinedJob.objects.filter(
@@ -836,8 +876,8 @@ async def _stalled_candidates(threshold: int, heartbeat_seconds: float,
     stale_before = now - timedelta(seconds=settings.JOB_LEASE_STALE_SECONDS)
 
     # Ordinary leases require BOTH a stale lease and stale worker heartbeat.
-    # Only a matching durable middleware marker proves that this exact
-    # attempt ended before status persistence (or never entered its body).
+    # Only matching token/attempt evidence proves that this exact attempt
+    # returned before status persistence or never entered its body.
     recovery_signal_ids = {
         job_id for job_id in aged_ids
         if (
@@ -1165,7 +1205,8 @@ async def _reclaim_stalled_jobs(now=None) -> dict[str, Any]:
                     'deadline_abort', job, lease=decision.get('lease'),
                     now=now, attempts=job.attempts or 0,
                     stale_before=now - timedelta(
-                        seconds=float(settings.JOB_LEASE_STALE_SECONDS)))
+                        seconds=float(settings.JOB_LEASE_STALE_SECONDS)),
+                    recovery_phase=decision.get('abandoned_phase'))
             except Exception as exc:  # noqa: BLE001
                 outcome = 'error'
                 _row_error(errors, job, exc)
@@ -1209,6 +1250,7 @@ async def _reclaim_stalled_jobs(now=None) -> dict[str, Any]:
                     seconds=float(settings.JOB_LEASE_STALE_SECONDS)),
                 worker_stale_before=now - timedelta(
                     seconds=heartbeat_seconds),
+                recovery_phase=decision.get('abandoned_phase'),
                 reason=('deadline exceeded after abort request'
                         if deadline_failure else
                         'reclaimer exceeded configured retry bound'))

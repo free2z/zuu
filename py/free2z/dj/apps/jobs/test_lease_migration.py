@@ -10,7 +10,7 @@ descriptions of one table, and every test in ``test_lease.py`` runs
 against the MIGRATED one -- so a divergence between them is invisible to
 all of them:
 
-* the middleware always names all ten columns, so a column that migrated
+* the middleware always names all thirteen columns, so a column that migrated
   without its ``DEFAULT`` behaves identically in every test and
   differently only for a future writer that omits it;
 * ``varchar(255)`` migrated as ``text`` accepts everything the tests
@@ -171,10 +171,15 @@ def _parse_indexes(sql: str, table: str) -> dict[str, list[str]]:
 # ---------------------------------------------------------------------------
 
 def _sqlmigrate() -> str:
-    """The SQL ``migrate`` would run for ``jobs/0004``, applying nothing."""
-    out = io.StringIO()
-    call_command('sqlmigrate', 'jobs', '0004', stdout=out)
-    return out.getvalue()
+    """The SQL that creates the lease table and adds its body phase."""
+    chunks = []
+    for migration in (
+            '0004_joblease', '0006_joblease_body_phase',
+            '0007_joblease_phase_identity'):
+        out = io.StringIO()
+        call_command('sqlmigrate', 'jobs', migration, stdout=out)
+        chunks.append(out.getvalue())
+    return '\n'.join(chunks)
 
 
 def _statements(sql: str) -> list[str]:
@@ -196,6 +201,23 @@ def test_sqlmigrate_matches_the_ddl():
     table = lease.LEASE_TABLE
     ddl_columns = _parse_create_table(lease.LEASE_TABLE_DDL, table)
     migrated_columns = _parse_create_table(migrated_sql, table)
+    phase_add = re.search(
+        r'ALTER TABLE "?jobs_joblease"? ADD COLUMN "phase" '
+        r'varchar\(24\) DEFAULT \'unknown\' NOT NULL',
+        migrated_sql, re.IGNORECASE)
+    assert phase_add, migrated_sql
+    migrated_columns['phase'] = {
+        'type': 'varchar(24)', 'not_null': True,
+        'primary_key': False, 'default': "'unknown'",
+    }
+    migrated_columns['phase_token'] = {
+        'type': 'uuid', 'not_null': False,
+        'primary_key': False, 'default': None,
+    }
+    migrated_columns['phase_attempt'] = {
+        'type': 'integer', 'not_null': False,
+        'primary_key': False, 'default': None,
+    }
 
     # Names AND order: the DDL is a CREATE TABLE and so is the migration,
     # so ordinal position is part of the schema they must agree on.
@@ -214,7 +236,8 @@ def test_sqlmigrate_matches_the_ddl():
     # second index. Everything the migration emits is one of these.
     statements = _statements(migrated_sql)
     assert [s.split()[0].upper() for s in statements] == [
-        'BEGIN', 'CREATE', 'CREATE', 'COMMIT'], migrated_sql
+        'BEGIN', 'CREATE', 'CREATE', 'COMMIT', 'BEGIN', 'ALTER',
+        'COMMIT', 'BEGIN', 'ALTER', 'ALTER', 'COMMIT'], migrated_sql
     assert 'CHECK' not in migrated_sql.upper()
     assert 'REFERENCES' not in migrated_sql.upper()
 
