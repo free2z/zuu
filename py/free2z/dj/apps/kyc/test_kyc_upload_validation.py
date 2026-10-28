@@ -82,13 +82,12 @@ WEBP = _raster_bytes("WEBP")
 GIF = _raster_bytes("GIF")
 TIFF = _raster_bytes("TIFF")
 # A bare ISO-BMFF `ftyp` box with the `heic` brand. This asserts
-# *identification*, not decodability: pinned Pillow 10.3 cannot decode HEIC or
-# AVIF at all, so the shared validator gives them no second stage (documented
-# in uploads/validation.py `_PILLOW_FORMATS`) and neither does this. A
-# truncated HEIC therefore passes validation and reaches the review queue as an
-# unopenable file — annoying, not a security property, and identical to what
-# the uploads app already accepts. Broadening that is a Pillow-version
-# question, not a  one.
+# identification, not decodability: HEIC/AVIF are deliberately absent from
+# uploads/validation.py's _PILLOW_FORMATS second-stage confirmation table,
+# regardless of Pillow's available codecs. A truncated HEIC can therefore
+# pass validation and reach the review queue as an unopenable file, matching
+# the uploads app's policy. Requiring decodable pixels would be a separate
+# validation-policy change; a Pillow upgrade alone must not change this test.
 HEIC = b'\x00\x00\x00\x18ftypheic\x00\x00\x00\x00heicmif1' + b'\x00' * 64
 #the same container with the HEVC image-*sequence* brand. The bytes
 # were already identified; it was the `.heics` extension that 400'd.
