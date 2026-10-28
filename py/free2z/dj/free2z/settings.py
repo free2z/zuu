@@ -1015,9 +1015,17 @@ REST_FRAMEWORK = {
     # That excludes AnonRateThrottle and — note — DRF's stock UserRateThrottle,
     # which quietly falls back to the client IP for unauthenticated requests.
     # AuthenticatedUserRateThrottle is UserRateThrottle without that fallback.
-    # Anonymous limits are opt-in per view, from one of the named scoped lists
-    # in dj/free2z/throttling.py (POLLING_/AUTH_FLOW_/LINK_LANDING_THROTTLES).
+    #
+    # The one anonymous throttle that IS global, DefaultAnonRateThrottle
+    # ('anon-default' below), is safe for exactly that reason: it never keys
+    # a request whose client identity is a cluster-internal address
+    # (API_INTERNAL_SOURCE_NETWORKS), which is what every SSR, prerender and
+    # sidecar fetch resolves to after nginx's realip normalization. It is the
+    # backstop for views with no scoped list; views that name a scoped list
+    # in dj/free2z/throttling.py (POLLING_/LOGIN_PATH_/LINK_LANDING_...)
+    # replace this default and keep their own budget.
     'DEFAULT_THROTTLE_CLASSES': [
+        'dj.free2z.throttling.DefaultAnonRateThrottle',
         'dj.free2z.throttling.AuthenticatedUserRateThrottle',
     ],
     # Two things about the units, because "N/minute" reads like a smooth rate
@@ -1070,6 +1078,53 @@ REST_FRAMEWORK = {
         # Which class maps to which scope: dj/free2z/throttling.py. The full
         # view-to-scope inventory (including the deliberate no-throttle
         # entries) is pinned in dj/apps/test_throttling.py.
+
+        # The GLOBAL anonymous default: every anonymous request to a view
+        # that names no scoped list of its own, keyed per public client
+        # (IPv6 grouped per /64). Cluster-internal sources -- the SvelteKit
+        # SSR pod above all -- are never keyed, so this cannot put the
+        # signed-out site in one bucket.
+        #
+        # 600/minute = 10 req/s per client address. Browser-direct anonymous
+        # API traffic is light: page data for SSR routes is fetched by the SSR
+        # pod (unkeyed), so a visitor's own browser makes a handful of API
+        # calls per navigation, and the machine-paced reads have 'anon-poll'.
+        # A shared office/CGNAT egress of ~20 visitors browsing at a brisk
+        # 30 calls/minute each fits with 2x headroom. It is a brake on a
+        # single source driving the single-worker API pods, not traffic
+        # shaping; the volumetric control is the edge (nginx limit_req).
+        'anon-default': '600/minute',
+
+        # Search-query embedding admission (dj.apps.search.drf_filters).
+        # NOT request throttles: when one of these is spent, ?search= is
+        # answered from Postgres full text instead of a paid embedding call,
+        # so nothing here ever answers 429. A repeated query is served from
+        # the embedding cache and spends none of them.
+        #
+        # Per anonymous public client (IPv6 /64). A person runs a search on
+        # submit, not per keystroke; 20 fresh queries a minute is far above
+        # one searcher and still a 20x brake on a scripted source.
+        'search-embed-anon': '20/minute',
+        # Per logged-in account.
+        'search-embed-user': '30/minute',
+        # ONE shared budget for cluster-internal callers: SSR-rendered
+        # profile searches (/<username>?search=) reach the API from the SSR
+        # pod with no per-visitor identity, so they cannot be keyed per
+        # client. Exhausting it degrades those renders to full text.
+        'search-embed-internal': '60/minute',
+        # Fleet-wide ceiling on query embeddings, across every caller and
+        # pod (the counter lives in the shared Redis). It bounds provider
+        # calls and worker time spent waiting on them whatever the identity
+        # mix -- address rotation included -- and it keeps search from
+        # spending the OpenAI rate limit the indexer shares.
+        'search-embed-global': '120/minute',
+
+        # Storytime generation (text and image), per logged-in account.
+        # Every request is a paid provider call made while holding a sync
+        # worker; the 1200/minute 'user' ceiling is far above any person
+        # composing a story. Exported as STORYTIME_GENERATION_THROTTLES for
+        # the Storytime views to adopt.
+        'storytime-generate': '10/minute',
 
         # Machine-paced public reads: live-status, the public meeting list,
         # DyteMeeting GET. Unchanged at the value  measured for exactly
@@ -1356,6 +1411,32 @@ REST_FRAMEWORK = {
         'anon': '60/minute',
     },
 }
+
+# Client identities that are the cluster itself rather than a visitor.
+# DefaultAnonRateThrottle never keys these, and search-embedding admission
+# gives them one shared budget instead of a per-client one.
+#
+# Why an address range is a sound signal here: nginx's realip trusts
+# X-Forwarded-For only from Google's GFE ranges (and the load balancers'
+# own addresses), recursively, and every ordinary /api/ location then
+# OVERWRITES X-Forwarded-For with the result. A request from the internet
+# therefore resolves to the public address Google saw; nothing a caller sends
+# can make it resolve to one of these. A request that resolves to one of
+# these came from inside the cluster -- the SvelteKit SSR pod's sidecar,
+# prerender, a Job -- or from loopback in local development.
+#
+# RFC 1918, RFC 6598 shared space (GKE accepts it for pod ranges),
+# loopback, link-local and IPv6 unique-local. Overridable as a
+# comma-separated CIDR list; a malformed entry fails at startup.
+API_INTERNAL_SOURCE_NETWORKS = [
+    entry.strip()
+    for entry in os.environ.get(
+        "API_INTERNAL_SOURCE_NETWORKS",
+        "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,"
+        "127.0.0.0/8,169.254.0.0/16,::1/128,fc00::/7,fe80::/10",
+    ).split(",")
+    if entry.strip()
+]
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
@@ -3016,6 +3097,21 @@ SEARCH_OPENAI_MAX_RETRIES = max(0, int(
 # failure falls back to full-text search rather than an error.
 SEARCH_QUERY_EMBED_TIMEOUT_SECONDS = _positive_float_env(
     "SEARCH_QUERY_EMBED_TIMEOUT_SECONDS", 8.0)
+
+# The search query is whitespace-normalized and cut to this many characters
+# before it is embedded or handed to Postgres full text. A search box query
+# is a few words; the cap bounds provider input and tsquery parsing per
+# request, whatever fits in a URL.
+SEARCH_QUERY_MAX_CHARS = _int_env("SEARCH_QUERY_MAX_CHARS", 256, minimum=1)
+
+# How long a query's embedding is reused from the cache. Pagination and
+# repeat searches re-send the same query; each reuse is one provider call
+# and one admission unit not spent. Kept short because every distinct query
+# holds ~6 KB (1536 float32) in the shared Redis: at the
+# 'search-embed-global' ceiling of 120/minute, one hour is at most ~7,200
+# entries (~44 MB) for the duration of a flood.
+SEARCH_QUERY_EMBEDDING_CACHE_SECONDS = _int_env(
+    "SEARCH_QUERY_EMBEDDING_CACHE_SECONDS", 3600, minimum=0)
 
 # Web-request OpenAI calls outside search: the legacy completion view,
 # the AI image view, and storytime. Each pod runs one sync gunicorn worker

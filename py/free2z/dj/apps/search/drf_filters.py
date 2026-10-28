@@ -1,3 +1,5 @@
+import array
+import hashlib
 import math
 import os
 from django.contrib.contenttypes.models import ContentType
@@ -12,11 +14,68 @@ import logging
 
 import openai
 from django.conf import settings
+from django.core.cache import cache
+
+from dj.free2z.throttling import (
+    CACHE_FAILURE_EXCEPTIONS,
+    SearchEmbeddingAdmission,
+    _raised_inside_the_cache,
+)
 
 from .helpers import EMBEDDING_MODEL, get_openai_client, reporting_retired_model
 from .models import SearchIndex
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_search_query(raw):
+    """The query as it is embedded and full-text searched.
+
+    NULs removed (Postgres rejects them), whitespace runs collapsed, and the
+    result cut to ``settings.SEARCH_QUERY_MAX_CHARS``. Whitespace-only input
+    normalizes to the empty string.
+    """
+    text = " ".join(raw.replace("\x00", "").split())
+    return text[:settings.SEARCH_QUERY_MAX_CHARS].rstrip()
+
+
+def _query_embedding_cache_key(query):
+    digest = hashlib.sha256(
+        f"{EMBEDDING_MODEL}\x00{query}".encode()
+    ).hexdigest()
+    return f"search-query-embedding:v1:{digest}"
+
+
+def _cache_call(operation):
+    """Run one cache operation; a counter-store fault reads as a miss."""
+    try:
+        return operation()
+    except Exception as exc:
+        if isinstance(exc, CACHE_FAILURE_EXCEPTIONS) or _raised_inside_the_cache(exc):
+            return None
+        raise
+
+
+def cached_query_embedding(query):
+    """The cached embedding for ``query`` (model-scoped), or None."""
+    if settings.SEARCH_QUERY_EMBEDDING_CACHE_SECONDS <= 0:
+        return None
+    stored = _cache_call(lambda: cache.get(_query_embedding_cache_key(query)))
+    if not isinstance(stored, bytes) or not stored or len(stored) % 4:
+        return None
+    return array.array("f", stored).tolist()
+
+
+def store_query_embedding(query, vector):
+    """Cache ``vector`` as float32 bytes -- the precision pgvector stores."""
+    if settings.SEARCH_QUERY_EMBEDDING_CACHE_SECONDS <= 0:
+        return
+    payload = array.array("f", vector).tobytes()
+    _cache_call(lambda: cache.set(
+        _query_embedding_cache_key(query),
+        payload,
+        timeout=settings.SEARCH_QUERY_EMBEDDING_CACHE_SECONDS,
+    ))
 
 
 def query_embedding_client():
@@ -68,6 +127,14 @@ class VectorSearchFilter(filters.BaseFilterBackend):
       - Avoids 500 errors / external costs in local development without a key.
       - Provides reasonable text search without embeddings.
 
+    Bounds on the semantic path (it runs inside a public, anonymous-readable
+    request): the query is normalized and capped at
+    ``SEARCH_QUERY_MAX_CHARS``; its embedding is cached for
+    ``SEARCH_QUERY_EMBEDDING_CACHE_SECONDS``; and a cache miss must pass
+    ``SearchEmbeddingAdmission`` (per caller and fleet-wide budgets) or the
+    request is answered from full text. This also applies to a detail read
+    carrying ``?search=``, since ``get_object`` runs the filter backends.
+
     To tune:
       - Add weights: e.g. `SearchVector('title', weight='A') + SearchVector('content', weight='B')`.
       - Add a GIN index for performance (suggested):
@@ -114,12 +181,30 @@ class VectorSearchFilter(filters.BaseFilterBackend):
         )
 
     def filter_queryset(self, request, queryset, view):
-        query = request.query_params.get(self.search_param, '').replace('\x00', '')
-        if not query:
+        raw = request.query_params.get(self.search_param, '')
+        if not raw.replace('\x00', ''):
             return queryset
+        query = normalize_search_query(raw)
+        if not query:
+            # Whitespace only: there is nothing to search for, and nothing
+            # worth a provider call.
+            return queryset.none()
 
         # If no OpenAI API key, use PostgreSQL full text search
         if not os.getenv('OPENAI_API_KEY'):
+            return self._full_text(queryset, query)
+
+        # A repeated query (the next page of results, the same search again,
+        # an SSR render and the browser's own fetch) reuses its embedding and
+        # spends neither a provider call nor an admission unit.
+        query_vector = cached_query_embedding(query)
+        if query_vector is not None:
+            return self._semantic(queryset, query_vector)
+
+        # A fresh query is a paid provider call made while holding this
+        # pod's worker. Admission bounds it per caller and fleet-wide; past
+        # either budget the search is answered from full text, never a 429.
+        if SearchEmbeddingAdmission().refusal(request) is not None:
             return self._full_text(queryset, query)
 
         # Vector (semantic) path. This runs INSIDE a web request, on a pod
@@ -151,6 +236,7 @@ class VectorSearchFilter(filters.BaseFilterBackend):
                 type(exc).__name__,
             )
             return self._full_text(queryset, query)
+        store_query_embedding(query, query_vector)
         return self._semantic(queryset, query_vector)
 
     def _full_text(self, queryset, query):
