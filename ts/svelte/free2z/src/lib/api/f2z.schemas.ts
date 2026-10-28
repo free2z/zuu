@@ -4308,9 +4308,9 @@ export interface RecoveryStatus {
   email_on_file: boolean;
   /** A confirmed address is on file. */
   email_confirmed: boolean;
-  /** An unconfirmed address is on file and needs user action. This does not reveal whether a confirmation was sent or whether its token is live; use `next_step: resend_email` for a safe retry. Suppressed addresses are reported separately. */
+  /** An unconfirmed address is on file and needs user action. This does not reveal whether a confirmation was sent, whether its token is live, or whether the address can be mailed at all; use `next_step: resend_email` for a safe retry. */
   email_pending: boolean;
-  /** The address on file is on the opt-out list, so we send it nothing -- neither confirmations nor reset links. False when no address is on file. */
+  /** The confirmed address on file is on the opt-out list, so we send it nothing -- neither confirmations nor reset links. Always false when no address is on file or the address is unconfirmed: suppression is reported only for an address the account has shown it controls. */
   email_suppressed: boolean;
   /** The account has a usable password. Derived from the stored hash (has_usable_password()), not from the Creator.password_set flag that /api/emails/password-is-set reports -- see the view docstring for why those two can disagree. */
   password_set: boolean;
@@ -4323,7 +4323,7 @@ export interface RecoveryStatus {
      */
   risk: AccountRecoveryRiskEnum;
   /**
-     * The one action that would establish recovery, or null when there is nothing to do. 'resend_email' means an unconfirmed address is on file; POST /api/emails/resend safely issues or refreshes its link without revealing whether a prior message was sent. 'replace_email' means the address is on the opt-out list, where resending sends nothing and only a different address helps.
+     * The one action that would establish recovery, or null when there is nothing to do. 'resend_email' means an unconfirmed address is on file; POST /api/emails/resend safely issues or refreshes its link without revealing whether a prior message was sent. 'replace_email' means the confirmed address is on the opt-out list, where resending sends nothing and only a different address helps.
      *
      * * `add_email` - add_email
      * * `confirm_email` - confirm_email

@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import re
 import secrets
 import threading
 from collections import namedtuple
@@ -17,7 +18,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.contrib.auth.password_validation import validate_password
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F
 
 from drf_spectacular.utils import (
@@ -194,43 +195,100 @@ OPT_OUT_LEGACY_URL_SUPPORTED_UNTIL = '2027-08-18'
 #zero-window shape is two releases: teach every replica to ACCEPT the new
 #form first, then a second release that starts EMITTING it. That is cheap
 #when planned and impossible to retrofit once the emitting code is live.
+#
+#The derived credential (`opt_out_link_token`) is the same size of change and
+#takes the same small window: a link a new replica mails during the rollout
+#is a 404 on an old replica until the rollout finishes, and then works. Every
+#link mailed before it keeps working on both.
+
+
+#Domain separation for the unsubscribe credential (see `opt_out_link_token`).
+_OPT_OUT_LINK_PURPOSE = b'free2z/emails/opt-out-link/v1\x00'
+#`<Email.pk>-<64 hex>`: at most 84 characters, so never an 86-character
+#`secrets.token_urlsafe(64)` value. A candidate that matches the shape but no
+#row's digest simply falls through to the older readings.
+_OPT_OUT_LINK_SHAPE = re.compile(r'([1-9][0-9]{0,18})-([0-9a-f]{64})')
+_MAX_EMAIL_PK = 2 ** 63 - 1
+
+
+def _opt_out_link_digest(pk, token):
+    return hashlib.sha256(
+        _OPT_OUT_LINK_PURPOSE + f'{pk}:{token}'.encode(),
+    ).hexdigest()
 
 
 def opt_out_link_token(email_instance):
     """The single opaque value an unsubscribe URL is built from.
 
-    It is the per-address ``Email.token`` itself -- 64 random bytes from
-    ``secrets.token_urlsafe``, already the credential this endpoint checks, and
-    already in the URL before  (in the query string). Reusing it means no
-    new column on ``Email``, no second secret to rotate, and no change to the
-    authorisation story: a rotated address still invalidates old links.
+    ``<row id>-<sha256(purpose, row id, Email.token)>``. It is a credential of
+    its own, derived from ``Email.token`` but not equal to it: the
+    unsubscribe URL travels in a ``List-Unsubscribe`` header and through
+    whatever sees an unsubscribe click, and ``Email.token`` is also the
+    address's confirmation credential, so the URL must not carry it. The
+    digest is one-way, so holding the link does not yield the token, and it is
+    still bound to the token: rotating ``Email.token`` (a resend, a new
+    address) invalidates every link minted before, exactly as before.
 
-    Deliberately NOT ``django.core.signing`` over ``{address, token}``, which
-    was the first attempt and is wrong: ``signing.dumps`` **authenticates
-    without encrypting**, so the first component is base64 JSON that anyone
-    holding the URL -- an access log, a ``Referer``, an analytics pipeline --
-    decodes back to the address in one step. It would have looked opaque,
-    passed a substring assertion, and leaked exactly what this change exists to
-    stop leaking. Caught by the codex review of this PR.
+    Deliberately keyed on nothing but the token, not on ``SECRET_KEY``: the
+    token is already 512 random bits nobody else holds, and a key rotation
+    must not silently break every unsubscribe link sitting in an inbox.
+
+    The row id is there only so the row can be found without storing the
+    digest; it says nothing about the address. Deliberately NOT
+    ``django.core.signing`` over ``{address, token}``: ``signing.dumps``
+    authenticates without encrypting, so its first component decodes back to
+    the address.
     """
-    return email_instance.token
+    return f'{email_instance.pk}-{_opt_out_link_digest(email_instance.pk, email_instance.token)}'
+
+
+def _resolve_derived_opt_out_link(link):
+    """The ``Email`` row an ``opt_out_link_token`` value was minted from."""
+    match = _OPT_OUT_LINK_SHAPE.fullmatch(link)
+    if match is None or int(match[1]) > _MAX_EMAIL_PK:
+        return None
+    row = (
+        Email.objects.filter(pk=int(match[1]))
+        .exclude(token='')
+        .values('email', 'token')
+        .first()
+    )
+    if row is None:
+        return None
+    if not secrets.compare_digest(
+        _opt_out_link_digest(int(match[1]), row['token']), match[2],
+    ):
+        return None
+    return row
 
 
 #What an unsubscribe URL resolved to. ``token_only`` distinguishes the two
-#shapes for the handful of places that must behave differently.
-ResolvedOptOutLink = namedtuple('ResolvedOptOutLink', 'email token token_only')
+#shapes for the handful of places that must behave differently. ``token`` is
+#the row's ``Email.token`` the caller re-checks under lock; ``spent`` is what
+#``OptOutEmail.link_token`` records so the same URL keeps resolving after the
+#row is gone.
+ResolvedOptOutLink = namedtuple(
+    'ResolvedOptOutLink', 'email token token_only spent',
+)
 
 
 def resolve_opt_out_link(link, fallback_token):
-    """Resolve either URL shape to an address + token. Never raises.
+    """Resolve any accepted URL shape to an address + token. Never raises.
 
-    Current shape: ``link`` is the opaque link token, and the address is looked
-    up from it -- first among live ``Email`` rows, then among the spent tokens
-    recorded on ``OptOutEmail``. That second lookup is not a nicety. The write
-    deletes the ``Email`` row, so without it a token-only link stops resolving
-    the moment it is used, and both the post-unsubscribe redirect and a
-    replayed RFC 8058 one-click POST -- which mail providers do send, and which
-    must stay a success -- would answer 404.
+    Current shape: ``link`` is ``opt_out_link_token``'s derived credential and
+    the row is found by the id it carries, then checked against its digest.
+
+    Earlier token-only shape: ``link`` is the row's ``Email.token`` itself.
+    Every message sent before the derived credential carries one of these, so
+    it keeps resolving for the same window as the legacy shape below
+    (``OPT_OUT_LEGACY_URL_SUPPORTED_UNTIL``). No new message emits it.
+
+    Either way the address is looked up from live ``Email`` rows first, then
+    among the spent links recorded on ``OptOutEmail``. That second lookup is
+    not a nicety. The write deletes the ``Email`` row, so without it a link
+    stops resolving the moment it is used, and both the post-unsubscribe
+    redirect and a replayed RFC 8058 one-click POST -- which mail providers do
+    send, and which must stay a success -- would answer 404.
 
     Legacy shape: ``link`` is the address itself (Django has already
     percent-decoded the path segment) and the token arrived separately, in the
@@ -239,19 +297,27 @@ def resolve_opt_out_link(link, fallback_token):
     ``(address, token)`` against a real row before anything happens; refusing
     here would only turn every already-delivered link into an error.
     """
-    live = Email.objects.filter(token=link).values_list(
+    derived = _resolve_derived_opt_out_link(link)
+    if derived is not None:
+        return ResolvedOptOutLink(
+            derived['email'], derived['token'], token_only=True, spent=link,
+        )
+
+    live = Email.objects.filter(token=link).exclude(token='').values_list(
         'email', flat=True).first()
     if live is not None:
-        return ResolvedOptOutLink(live, link, token_only=True)
+        return ResolvedOptOutLink(live, link, token_only=True, spent=link)
 
     spent = OptOutEmail.objects.filter(link_token=link).values_list(
         'email', flat=True).first()
     if spent is not None:
         # The address is already on the do-not-email list, so every caller
         # short-circuits on that before the token is used for anything.
-        return ResolvedOptOutLink(spent, link, token_only=True)
+        return ResolvedOptOutLink(spent, link, token_only=True, spent=link)
 
-    return ResolvedOptOutLink(link, fallback_token, token_only=False)
+    return ResolvedOptOutLink(
+        link, fallback_token, token_only=False, spent=fallback_token,
+    )
 
 
 def build_opt_out_url(email_instance):
@@ -365,10 +431,12 @@ OPT_OUT_LINK_PARAMETER = OpenApiParameter(
     location=OpenApiParameter.PATH,
     required=True,
     description=(
-        'The opaque unsubscribe link token from the message we sent: the '
-        'per-address token, and the only credential this operation needs. It '
+        'The opaque unsubscribe link token from the message we sent, and the '
+        'only credential this operation needs. It is derived one-way from the '
+        'per-address token, so it cannot be used to confirm the address; it '
         'is unguessable and carries no information about the address, so the '
-        'address never appears in the URL.\n\n'
+        'address never appears in the URL. Links in older messages carry the '
+        'per-address token itself here, and keep working.\n\n'
         'DEPRECATED SHAPE, still accepted: legacy messages put the '
         'URL-encoded **email address** in this position and the token in the '
         '`token` query parameter. Those links keep working — they are sitting '
@@ -394,7 +462,8 @@ OPT_OUT_LEGACY_TOKEN_PARAMETER = OpenApiParameter(
 
 def send_confirmation_email(email_instance):
     if OptOutEmail.objects.filter(email=email_instance.email).exists():
-        print(f"Email is in opt-out list. Not sending confirmation email. {email_instance.email}")
+        # No address in the line: the log is not where the list is kept.
+        logger.info("confirmation_email_suppressed_opt_out")
         return False
 
     confirmation_url = build_confirm_url(email_instance)
@@ -523,7 +592,7 @@ def _spend_reset_email_quota(email_address):
 
 def send_password_reset_email(email_instance):
     if OptOutEmail.objects.filter(email=email_instance.email).exists():
-        print(f"Email is in opt-out list. Not sending confirmation email. {email_instance.email}")
+        logger.info("password_reset_email_suppressed_opt_out")
         return
 
     # This is the issuance epoch. Capture it before any possible wait on the
@@ -562,7 +631,7 @@ def send_password_reset_email(email_instance):
                 return
             quota_claim = _spend_reset_email_quota(email_instance.email)
             if quota_claim is False:
-                print("Rate limit exceeded. Try again later.")
+                logger.info("password_reset_email_quota_exhausted")
                 return
             if quota_claim is _UNTRACKED_RESET_EMAIL_QUOTA:
                 # Redis may be unavailable or may have executed without
@@ -577,7 +646,7 @@ def send_password_reset_email(email_instance):
                     created_at__gte=period_start,
                 ).count()
                 if issued >= RESET_EMAIL_LIMIT:
-                    print("Rate limit exceeded. Try again later.")
+                    logger.info("password_reset_email_quota_exhausted")
                     return
             # Only a confirmed claim is safe to compensate. An ambiguous
             # claim may or may not exist in Redis; its durable fallback needs
@@ -757,10 +826,13 @@ class RecoveryStatusView(APIView):
       one; that is why ``can_recover`` does not require ``password_set``.
     * An address on the ``OptOutEmail`` list is **not** a recovery method:
       ``send_password_reset_email`` and ``send_confirmation_email`` both return
-      early for one, silently. That is the single nastiest state on this
-      route -- ``AddEmailView`` answers 201, no mail is ever sent, and the
-      account sits "pending" forever with no explanation -- so it gets its own
-      flag rather than being folded into "not confirmed yet".
+      early for one, silently. For a *confirmed* address that gets its own
+      flag rather than being folded into anything else. For an unconfirmed
+      one it cannot: the caller has not shown the mailbox is theirs, so the
+      list's contents are not theirs to read, and the address is reported as
+      pending like any other. Such an account sits "pending" with no mail
+      arriving; telling the account holder why needs a proof-of-control
+      route, not this flag.
 
     Anti-enumeration
     ----------------
@@ -845,16 +917,19 @@ class RecoveryStatusView(APIView):
                     help_text=(
                         "An unconfirmed address is on file and needs user "
                         "action. This does not reveal whether a "
-                        "confirmation was sent or whether its token is live; use "
-                        "`next_step: resend_email` for a safe retry. Suppressed "
-                        "addresses are reported separately."
+                        "confirmation was sent, whether its token is live, or "
+                        "whether the address can be mailed at all; use "
+                        "`next_step: resend_email` for a safe retry."
                     ),
                 ),
                 'email_suppressed': serializers.BooleanField(
                     help_text=(
-                        "The address on file is on the opt-out list, so we "
-                        "send it nothing -- neither confirmations nor reset "
-                        "links. False when no address is on file."
+                        "The confirmed address on file is on the opt-out "
+                        "list, so we send it nothing -- neither confirmations "
+                        "nor reset links. Always false when no address is on "
+                        "file or the address is unconfirmed: suppression is "
+                        "reported only for an address the account has shown "
+                        "it controls."
                     ),
                 ),
                 'password_set': serializers.BooleanField(
@@ -894,9 +969,9 @@ class RecoveryStatusView(APIView):
                         "means an unconfirmed address is on file; POST "
                         "/api/emails/resend safely issues or refreshes its link "
                         "without revealing whether a prior message was sent. "
-                        "'replace_email' means the address is on the opt-out "
-                        "list, where resending sends nothing and only a "
-                        "different address helps."
+                        "'replace_email' means the confirmed address is on the "
+                        "opt-out list, where resending sends nothing and only "
+                        "a different address helps."
                     ),
                 ),
             },
@@ -922,13 +997,18 @@ class RecoveryStatusView(APIView):
             # still needs user action, not delivery or token validity. A resend
             # is the same safe next step whether the prior link is live, stale,
             # or was never sent.
-            email_suppressed = OptOutEmail.objects.filter(
+            #
+            # Suppression is reported for a CONFIRMED address only. Any
+            # account can put any address on file unconfirmed, so for one the
+            # caller has not proven it controls, the opt-out list is a fact
+            # about somebody else's mailbox and this view must not answer it.
+            # An unconfirmed suppressed address therefore reads exactly like
+            # any other unconfirmed address: pending, resend. The operator
+            # census still classifies it truthfully.
+            email_suppressed = email_confirmed and OptOutEmail.objects.filter(
                 email=email_instance.email,
             ).exists()
-            email_pending = (
-                not email_confirmed
-                and not email_suppressed
-            )
+            email_pending = not email_confirmed
 
         # The HASH, not the ``password_set`` flag. They are allowed to
         # disagree and on this platform they demonstrably do: g12f migration
@@ -1162,6 +1242,21 @@ class AddEmailView(APIView):
                     if account_limited and not recovery_revoked:
                         raise ConfirmationMailThrottled()
 
+                    if not address_changed:
+                        # The caller's own current address. Nothing to bind,
+                        # and nothing to send: `ResendEmailView` is the route
+                        # that issues a fresh link, with its own cooldown.
+                        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+                    # Only now -- after the recent sign-in and the caller's own
+                    # attempt budget -- is anything about the requested address
+                    # looked at. The caller has proven control of nothing yet,
+                    # so another account's binding must not change the answer.
+                    if not _release_stale_binding_elsewhere(new_email, user.pk):
+                        return self._held_elsewhere(
+                            serializer, user, email_instance, recovery_revoked,
+                        )
+
                     # Suppression governs delivery, not removal of the old recovery
                     # principal. Otherwise another account can exhaust the owner's
                     # mailbox quota and prevent them undoing a recovery hijack.
@@ -1183,18 +1278,16 @@ class AddEmailView(APIView):
                             send_allowed = False
                         if not send_allowed:
                             recipient_claim_id = None
-                    if not send_allowed and not address_changed:
-                        # An unchanged, suppressed address keeps its current link.
-                        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
                     email_instance.email = new_email
                     # Never transfer a link sent to the old mailbox to the new
                     # address. Suppressed replacements have no usable link until
                     # a later permitted resend; they do not mint an unmailed token.
                     email_instance.token = generate_token() if send_allowed else ""
-                    # Keep the pending row through the normal confirmation window:
-                    # EmailStatusView removes expired rows, and a later resend must
-                    # still be able to issue the first deliverable link.
+                    # The confirmation window. The pending row itself outlives
+                    # it -- nothing deletes it, and a later resend issues a fresh
+                    # link and a fresh window -- but once the window has closed
+                    # the row no longer reserves the address against another
+                    # account (`_release_stale_binding_elsewhere`).
                     email_instance.expires_at = calculate_expiration()
                     #. The epoch this pending confirmation link is valid
                     # for. Taken from `request.user`, which authentication loaded
@@ -1210,15 +1303,30 @@ class AddEmailView(APIView):
                     # records, and the reason the fix is a stamp rather than a
                     # rotation inside the bump.
                     issuing_epoch = request.user.kt_account_epoch
-                    if address_changed:
-                        email_instance.confirmed_at = None
-                    email_instance.save()
+                    email_instance.confirmed_at = None
+                    try:
+                        # A savepoint, so a concurrent request that bound the
+                        # same address between the check above and this write
+                        # gets the same answer as one that bound it earlier.
+                        with transaction.atomic():
+                            email_instance.save()
+                    except IntegrityError:
+                        if recipient_claim_id is not None:
+                            release_confirmation_recipient(new_email, recipient_claim_id)
+                            recipient_claim_id = None
+                        return self._held_elsewhere(
+                            serializer,
+                            user,
+                            Email.objects.select_for_update().filter(
+                                user_id=user.pk,
+                            ).first() or Email(user=user),
+                            recovery_revoked,
+                        )
 
-                    if address_changed:
-                        PasswordResetToken.objects.filter(
-                            email_id=email_instance.pk,
-                            used=False,
-                        ).update(used=True)
+                    PasswordResetToken.objects.filter(
+                        email_id=email_instance.pk,
+                        used=False,
+                    ).update(used=True)
                     if recovery_revoked:
                         # An account-ownership event: a confirmed recovery
                         # address just lost its standing ability to take the
@@ -1251,6 +1359,62 @@ class AddEmailView(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @staticmethod
+    def _held_elsewhere(serializer, user, email_instance, recovery_revoked):
+        """Answer a request for an address another account holds.
+
+        The response is the one a successful request gets, and nothing is
+        bound to the requested address or sent to it. The caller's previous
+        address is still removed, exactly as a change removes it: a request to
+        replace a recovery address must never leave the old one in place
+        because of who holds the new one. Called inside the view's
+        transaction, with the account row locked.
+        """
+        if email_instance.pk is not None:
+            email_instance.delete()
+        if recovery_revoked:
+            bump_account_epoch(user.pk, event=EVENT_RECOVERY_ADDRESS_CHANGE)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+def _release_stale_binding_elsewhere(address, user_id):
+    """Whether ``address`` is free for ``user_id`` to bind.
+
+    True when no other account holds it, or when the only holder is an
+    unconfirmed binding whose confirmation window has closed -- that binding
+    proved nothing about the mailbox, so it is removed rather than allowed to
+    reserve the address indefinitely. A confirmed binding is never removed,
+    nor is an unconfirmed one whose link may still be in use.
+
+    ``skip_locked`` because the other account's writers lock their own
+    account row first; waiting on their address row while holding ours could
+    deadlock. A row somebody is writing right now is simply treated as held.
+    """
+    holder = (
+        Email.objects.filter(email=address)
+        .exclude(user_id=user_id)
+        .values('pk', 'confirmed_at', 'expires_at')
+        .first()
+    )
+    if holder is None:
+        return True
+    if holder['confirmed_at'] is not None or holder['expires_at'] >= timezone.now():
+        return False
+    stale = (
+        Email.objects.select_for_update(skip_locked=True)
+        .filter(
+            pk=holder['pk'],
+            email=address,
+            confirmed_at__isnull=True,
+            expires_at__lt=timezone.now(),
+        )
+        .first()
+    )
+    if stale is None:
+        return False
+    stale.delete()
+    return True
 
 
 class ConfirmEmailView(APIView):
@@ -1599,7 +1763,7 @@ class OptOutEmailView(APIView):
         },
     )
     def get(self, request, link, *args, **kwargs):
-        email, token, token_only = resolve_opt_out_link(
+        email, token, token_only, _spent = resolve_opt_out_link(
             link, request.query_params.get('token'),
         )
         if OptOutEmail.objects.filter(email=email).exists():
@@ -1693,7 +1857,7 @@ class OptOutEmailView(APIView):
         # Parse the body once: `request.data` can raise on a malformed payload,
         # and DRF turns that into the 400 it should be.
         one_click = _is_one_click_unsubscribe(request)
-        email, token, _token_only = resolve_opt_out_link(
+        email, token, _token_only, spent = resolve_opt_out_link(
             link, _posted_token(request),
         )
 
@@ -1736,7 +1900,7 @@ class OptOutEmailView(APIView):
             # an existing row is somebody's earlier opt-out and its link is
             # not this one's to overwrite.
             OptOutEmail.objects.get_or_create(
-                email=email, defaults={'link_token': token},
+                email=email, defaults={'link_token': spent},
             )
             was_confirmed = email_instance.confirmed_at is not None
             owner_id = email_instance.user_id

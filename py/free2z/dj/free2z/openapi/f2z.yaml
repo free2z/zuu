@@ -3723,7 +3723,7 @@ paths:
         schema:
           type: string
         description: |-
-          The opaque unsubscribe link token from the message we sent: the per-address token, and the only credential this operation needs. It is unguessable and carries no information about the address, so the address never appears in the URL.
+          The opaque unsubscribe link token from the message we sent, and the only credential this operation needs. It is derived one-way from the per-address token, so it cannot be used to confirm the address; it is unguessable and carries no information about the address, so the address never appears in the URL. Links in older messages carry the per-address token itself here, and keep working.
 
           DEPRECATED SHAPE, still accepted: legacy messages put the URL-encoded **email address** in this position and the token in the `token` query parameter. Those links keep working — they are sitting in inboxes — and are read as the address whenever the value is not a valid signed token. Do not build new links in that shape: an address whose local part contains `/` cannot be routed at all.
         required: true
@@ -3759,7 +3759,7 @@ paths:
         schema:
           type: string
         description: |-
-          The opaque unsubscribe link token from the message we sent: the per-address token, and the only credential this operation needs. It is unguessable and carries no information about the address, so the address never appears in the URL.
+          The opaque unsubscribe link token from the message we sent, and the only credential this operation needs. It is derived one-way from the per-address token, so it cannot be used to confirm the address; it is unguessable and carries no information about the address, so the address never appears in the URL. Links in older messages carry the per-address token itself here, and keep working.
 
           DEPRECATED SHAPE, still accepted: legacy messages put the URL-encoded **email address** in this position and the token in the `token` query parameter. Those links keep working — they are sitting in inboxes — and are read as the address whenever the value is not a valid signed token. Do not build new links in that shape: an address whose local part contains `/` cannot be routed at all.
         required: true
@@ -15833,14 +15833,15 @@ components:
         email_pending:
           type: boolean
           description: 'An unconfirmed address is on file and needs user action. This
-            does not reveal whether a confirmation was sent or whether its token is
-            live; use `next_step: resend_email` for a safe retry. Suppressed addresses
-            are reported separately.'
+            does not reveal whether a confirmation was sent, whether its token is
+            live, or whether the address can be mailed at all; use `next_step: resend_email`
+            for a safe retry.'
         email_suppressed:
           type: boolean
-          description: The address on file is on the opt-out list, so we send it nothing
-            -- neither confirmations nor reset links. False when no address is on
-            file.
+          description: 'The confirmed address on file is on the opt-out list, so we
+            send it nothing -- neither confirmations nor reset links. Always false
+            when no address is on file or the address is unconfirmed: suppression
+            is reported only for an address the account has shown it controls.'
         password_set:
           type: boolean
           description: The account has a usable password. Derived from the stored
@@ -15859,7 +15860,7 @@ components:
         next_step:
           nullable: true
           description: |-
-            The one action that would establish recovery, or null when there is nothing to do. 'resend_email' means an unconfirmed address is on file; POST /api/emails/resend safely issues or refreshes its link without revealing whether a prior message was sent. 'replace_email' means the address is on the opt-out list, where resending sends nothing and only a different address helps.
+            The one action that would establish recovery, or null when there is nothing to do. 'resend_email' means an unconfirmed address is on file; POST /api/emails/resend safely issues or refreshes its link without revealing whether a prior message was sent. 'replace_email' means the confirmed address is on the opt-out list, where resending sends nothing and only a different address helps.
 
             * `add_email` - add_email
             * `confirm_email` - confirm_email
