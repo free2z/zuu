@@ -861,7 +861,7 @@ impl ChatBackend for Metered {
         };
         // A retry across a flip or rotation names the call it retries, with
         // the fingerprint in that call's form; `call_claim` resolves an
-        // existing call by id before it looks at the key (tuzi#2639).
+        // existing call by id before it looks at the key.
         let straddle = self.straddled(call, identity, &request, &form).await?;
         let (id, fingerprint) = match &straddle {
             Some((recorded, fingerprint)) => (*recorded, fingerprint.clone()),

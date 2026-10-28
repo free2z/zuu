@@ -20,4 +20,5 @@ homepage-layout.spec.ts
 interactive-cursor.spec.ts
 zpage-hero.spec.ts › a crawler with no JavaScript › an article with no featured image degrades to a clean title
 zpage-hero.spec.ts › a crawler with no JavaScript › still receives the title, the body and the hero image
-zpage-hero.spec.ts › a panorama is letterboxed on a wide hero
+zpage-hero.spec.ts › a portrait shares the desktop header and stacks on a phone
+zpage-hero.spec.ts › the cover costs one request and keeps eager LCP loading

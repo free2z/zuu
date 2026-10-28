@@ -25,12 +25,11 @@ zpage-hero.spec.ts › headline contrast (light) › stays legible over a near-b
 zpage-hero.spec.ts › headline contrast (light) › stays legible over a near-white image under a five-line title
 zpage-hero.spec.ts › opaque hero controls keep clean contrast in light
 zpage-hero.spec.ts › scrolling leaves /hero-user/hero-pano-fixture static without main style invalidation
-zpage-hero.spec.ts › the bottom of the cover is visible, not covered › the hero's bottom rows read as photograph while it exits
-zpage-hero.spec.ts › the glyph pad resolves from --background in both themes
 zpage-hero.spec.ts › the headline is painted above the hero's scrim layers
-zpage-hero.spec.ts › the headline's treatment stays inside its own radius › the rows above the first line are bare photograph
 zpage-hero.spec.ts › the hero reserves its space, so nothing shifts
-zpage-hero.spec.ts › the published hero keeps its rem fallback without svh support
-zpage-hero.spec.ts › the published hero keeps its responsive geometry token
 
 recording-controls.spec.ts
+zpage-hero.spec.ts › SSR and hydration reserve the same hero space while the cover is delayed at 1280px
+zpage-hero.spec.ts › SSR and hydration reserve the same hero space while the cover is delayed at 390px
+zpage-hero.spec.ts › cover frames hug the complete artwork at 1280px
+zpage-hero.spec.ts › cover frames hug the complete artwork at 390px

@@ -746,7 +746,7 @@ async fn a_stream_cut_after_output_settles_partial_on_the_estimate() {
     }
     mock.shutdown().await;
 }
-// The case that fenced the production shelf to gpt-4o (tuzi#2490): a model
+// The case that fenced the production shelf to gpt-4o: a model
 // that reasons silently past the idle limit produced nothing the gateway
 // could see, yet the provider accepted — and bills — the request. The input
 // estimate is charged; the unseen reasoning is the platform's loss, as

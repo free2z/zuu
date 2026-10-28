@@ -54,7 +54,7 @@ const ACCEPTED = [
     },
   ],
   [
-    // The legacy / members-tier alias (tuzi#1463): no `public/` segment.
+    // The legacy / members-tier alias: no `public/` segment.
     "https://free2z.cash/uploadz/alice/photo.png",
     { kind: "image", path: "/uploadz/alice/photo.png", name: "photo.png" },
   ],

@@ -41,7 +41,7 @@ URL = "/api/sdk/v1/purchases"
 ONE = URL + "/"
 LOOPBACK_RETURN = "http://127.0.0.1:49153/purchase-done"
 APP_REDIRECT = "https://tutor.example.com/oauth/callback"
-#The Free2Z billing page a Zcash refusal names (tuzi#2705).
+#The Free2Z billing page a Zcash refusal names.
 BILLING = "https://free2z.cash/buy-2z"
 SPEC_KEYS = {
     "id", "rail", "status", "quantity_2z", "price", "pricing_version",
@@ -231,7 +231,7 @@ def test_refusals_create_nothing_and_do_not_burn_the_key(client, overrides, stat
 
 
 # ------------------------------------------------- zcash: Free2Z billing
-# tuzi#2705: apps don't sell 2Z. A Zcash request is refused as before, and the
+# Apps don't sell 2Z. A Zcash request is refused as before, and the
 # refusal names the user's Free2Z billing page (Zcash first, card second).
 def assert_zcash_refusal_names_billing(api, expected_url, **overrides):
     response, session_create = create(api, key="zec", rail="zcash", **overrides)

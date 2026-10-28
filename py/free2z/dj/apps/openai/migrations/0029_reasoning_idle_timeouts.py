@@ -1,6 +1,6 @@
 """Silent-reasoning OpenAI rows: ``idle_timeout_ms`` and ``ttfb_timeout_ms``
 = 300000; the 1M-window gpt-4.1 rows: ``ttfb_timeout_ms`` = 300000; every
-OpenAI row: ``safety_factor_bps`` = 11000 (tuzi#2492).
+OpenAI row: ``safety_factor_bps`` = 11000.
 
 A reasoning model (gpt-5.x, gpt-6.x, the o-series) streams nothing while it
 thinks. Two gateway deadlines would cut that think off at their 60 s default:

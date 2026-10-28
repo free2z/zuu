@@ -20,7 +20,7 @@ Nothing here stores AI content: the gateway keeps none, and a report records
 the call id, the resolved model id, an enum reason and an optional one-line
 ``detail`` of at most 200 characters. Nothing sensitive travels in the URL --
 the call id is an opaque UUID and the reason and detail are body fields
-(GCLB logs keep query strings, tuzi#1328).
+(GCLB logs keep query strings).
 """
 from __future__ import annotations
 
@@ -338,7 +338,7 @@ def _refuse_over_cap(user, *, unsafe: bool) -> None:
 
 
 def _child_directed(app) -> bool:
-    """The registration's ``child_directed`` declaration (tuzi#2633). Read
+    """The registration's ``child_directed`` declaration. Read
     defensively so this intake ships independently of that column: until it
     exists every app reads as not child-directed, which is today's behaviour."""
     return bool(getattr(app, "child_directed", False))
@@ -539,8 +539,7 @@ def reevaluate_surges() -> int:
     ``paid`` is judged at count time, so a report filed while its call was
     still settling counts once the ledger settles it -- but only when
     something evaluates again. The intake re-evaluates on every unsafe
-    submission; this is the sweep for the case where none arrives
-    (tuzi#2654). Each app is evaluated in its own transaction (the advisory
+    submission; this is the sweep for the case where none arrives. Each app is evaluated in its own transaction (the advisory
     lock is transaction-scoped), and an app already paged this window is
     skipped before any lock."""
     since = timezone.now() - SURGE_WINDOW
