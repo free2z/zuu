@@ -299,14 +299,14 @@ def _row(job_id: int) -> dict | None:
     with _raw() as conn:
         row = conn.execute(
             f'SELECT job_id, token, worker_name, pod, task_name, queue, '
-            f'started_at, last_beat_at, deadline_at, attempt '
+            f'started_at, last_beat_at, deadline_at, attempt, phase '
             f'FROM {lease.LEASE_TABLE} WHERE job_id = %s',
             (job_id,),
         ).fetchone()
     if row is None:
         return None
     keys = ['job_id', 'token', 'worker_name', 'pod', 'task_name', 'queue',
-            'started_at', 'last_beat_at', 'deadline_at', 'attempt']
+            'started_at', 'last_beat_at', 'deadline_at', 'attempt', 'phase']
     return dict(zip(keys, row))
 
 
@@ -854,6 +854,8 @@ def test_fenced_run_never_touches_the_attempt_that_replaced_it(
                     'task_name': 'lease_test.replaced', 'queue': QUEUE,
                     'started_at': timezone.now(), 'deadline_at': None,
                     'attempt': 1,       # the requeued attempt is newer
+                    'phase_token': b_token,
+                    'phase_attempt': 1,
                 },
             )
         deadline = time.monotonic() + FENCE_WAIT_SECONDS
@@ -1887,6 +1889,40 @@ def test_reclaimer_activation_enables_lease_middleware(lease_table, settings):
     monkeypatch.setattr(reclaim, 'READS_LEASES', False)
     assert lease.enabled() is True
     monkeypatch.undo()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_middleware_commits_body_phase_before_entering_task_code(lease_table):
+    """A visible body-start phase is a precondition of every leased body."""
+    context = _fake_context(910050)
+    seen_phases = []
+
+    lease.lease_middleware(
+        lambda: seen_phases.append(_row(context.job.id)['phase']),
+        context, _fake_worker())
+
+    assert seen_phases == ['body_started']
+    assert _row(context.job.id) is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_same_attempt_reacquisition_cannot_downgrade_body_started_phase(
+        lease_table):
+    """A duplicate token at the same attempt cannot regain pre-body status."""
+    worker = _fake_worker()
+    first_context = _fake_context(910051)
+    first = lease.acquire(first_context, worker)
+    assert first is not None
+    assert lease._begin_body(first)
+
+    duplicate_context = _fake_context(910051)
+    duplicate = lease.acquire(duplicate_context, worker)
+    assert duplicate is not None
+    assert _row(910051)['phase'] == 'body_started'
+    assert lease._begin_body(duplicate) is False
+    assert duplicate.lost.is_set()
+    assert _row(910051)['phase'] == 'body_started'
+    _delete_row(910051)
 
 
 @pytest.mark.django_db(transaction=True)
