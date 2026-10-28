@@ -707,6 +707,15 @@
     "scheduleHint": "Leave empty to publish immediately.",
     "zcashLabel": "Zcash Address (Optional Override)",
     "zcashHint": "Use this if it differs from your profile address. Usually a Zcash address.",
+    "localPublish": {
+      "title": "Publish in this browser",
+      "description": "Confirm your local post's details. It won't be sent to Free2Z or receive real payments.",
+      "descriptionLimit": "Up to 250 characters to publish. Your full text is kept; you can adjust it here.",
+      "zcashLabel": "This page's Zcash wallet (optional)",
+      "zcashHint": "Configuration for this test only. No funds will be sent to this address.",
+      "publish": "Publish locally",
+      "keepEditing": "Keep editing"
+    },
     "subscribersOnly": "Subscribers Only",
     "subscribersOnlyHint": "Only your subscribers can view this content.",
     "saveSettings": "Save Settings",

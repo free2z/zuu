@@ -13,7 +13,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "preflight": "node scripts/preflight.mjs",
-    "pretest": "node scripts/preflight.mjs && node scripts/campaign-proof-assets.mjs",
+    "pretest": "node scripts/preflight.mjs",
     "test": "node --test tests/*.test.mjs",
     "pretest:browser": "node scripts/preflight.mjs",
     "test:browser": "playwright test",
@@ -55,6 +55,7 @@
     "prettier": "^3.9.10",
     "prettier-plugin-svelte": "^4.1.1",
     "prettier-plugin-tailwindcss": "^0.8.1",
+    "snarkjs": "0.7.6",
     "svelte": "^5.57.2",
     "svelte-check": "^4.7.6",
     "svelte-eslint-parser": "^1.9.0",
@@ -87,8 +88,7 @@
     "marked-gfm-heading-id": "^4.1.4",
     "mermaid": "^10.9.8",
     "qrcode": "^1.5.4",
-    "sharp": "0.35.5",
-    "snarkjs": "0.7.6"
+    "sharp": "0.35.5"
   },
   "overrides": {
     "@cloudflare/realtimekit": {

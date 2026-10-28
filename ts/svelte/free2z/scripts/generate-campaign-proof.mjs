@@ -1,5 +1,5 @@
-// Rebuild with the pinned compiler/libraries in package-lock.json. The public MPC
-// transcript is authenticated before use; no local ceremony or secret is created.
+// Rebuild with the pinned compiler/libraries in package-lock.json. The committed
+// public MPC transcript is authenticated before use; no local ceremony or secret is created.
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
@@ -17,9 +17,11 @@ const expected =
   "ded2694169b7b08e898f736d5de95af87c3f1a64594013351b1a796dbee393bd825f88f9468c84505ddd11eb0b1465ac9b43b9064aa8ec97f2b73e04758b8a4a";
 const scratch = await mkdtemp(join(tmpdir(), "campaign-proof-build-"));
 const transcript = join(scratch, "public-mpc.ptau");
-const response = await fetch(source);
-if (!response.ok) throw new Error(`MPC download failed: ${response.status}`);
-const bytes = Buffer.from(await response.arrayBuffer());
+// The transcript is committed (circuits/), so regeneration needs no network.
+// `source` is recorded in the manifest as its provenance.
+const bytes = await readFile(
+  process.env.CAMPAIGN_PTAU_FILE || "circuits/powersOfTau28_hez_final_12.ptau",
+);
 if (createHash("blake2b512").update(bytes).digest("hex") !== expected)
   throw new Error("Public MPC transcript BLAKE2b mismatch");
 await writeFile(transcript, bytes);

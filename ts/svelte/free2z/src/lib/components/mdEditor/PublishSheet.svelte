@@ -254,14 +254,17 @@
         class="flex items-center gap-2 text-2xl font-black tracking-tight"
       >
         {localOnly
-          ? "Publicar en este navegador"
+          ? $t("editor.localPublish.title", "Publish in this browser")
           : isPublished
             ? $t("editor.articleSettings", "Article Settings")
             : $t("editor.readyToPublish", "Ready to publish?")}
       </Sheet.Title>
       <Sheet.Description>
         {localOnly
-          ? "Confirma los detalles de tu publicación local. No se enviará a Free2Z ni recibirá pagos reales."
+          ? $t(
+              "editor.localPublish.description",
+              "Confirm your local post's details. It won't be sent to Free2Z or receive real payments.",
+            )
           : isPublished
             ? $t(
                 "editor.settingsDescription",
@@ -315,8 +318,10 @@
         >
           {description.trim().length}/{DESCRIPTION_MAX_LENGTH}
           {#if localOnly}
-            · Máximo 250 caracteres para publicar. Tu texto se conserva
-            completo; puedes ajustarlo aquí.
+            · {$t(
+              "editor.localPublish.descriptionLimit",
+              "Up to 250 characters to publish. Your full text is kept; you can adjust it here.",
+            )}
           {:else if !descriptionTooLong}
             <!-- The mechanism this describes, precisely, because it used to say
                  "we'll create a clean excerpt" and that named nothing:
@@ -592,7 +597,10 @@
       <div class="space-y-2">
         <Label for="zcash-address" class="text-sm font-semibold">
           {localOnly
-            ? "Billetera Zcash de esta página (opcional)"
+            ? $t(
+                "editor.localPublish.zcashLabel",
+                "This page's Zcash wallet (optional)",
+              )
             : $t("editor.zcashLabel", "Zcash Address (Optional Override)")}
         </Label>
         <!-- Wrapping, not a single-line input: the whole payout address must
@@ -622,7 +630,10 @@
         />
         <p class="mt-1 text-xs text-muted-foreground">
           {localOnly
-            ? "Solo configuración para esta prueba. No se enviarán fondos a esta dirección."
+            ? $t(
+                "editor.localPublish.zcashHint",
+                "Configuration for this test only. No funds will be sent to this address.",
+              )
             : $t(
                 "editor.zcashHint",
                 "Use this if it differs from your profile address. Usually a Zcash address.",
@@ -681,7 +692,8 @@
             : undefined}
           onclick={() => runAction(() => onPublish(""))}
         >
-          <Send class="mr-2 h-4 w-4" /> Publicar localmente
+          <Send class="mr-2 h-4 w-4" />
+          {$t("editor.localPublish.publish", "Publish locally")}
         </Button>
         <Sheet.Close class="w-full">
           {#snippet child({ props })}
@@ -689,7 +701,8 @@
               {...props}
               variant="ghost"
               class="w-full text-muted-foreground"
-              disabled={isSaving}>Seguir editando</Button
+              disabled={isSaving}
+              >{$t("editor.localPublish.keepEditing", "Keep editing")}</Button
             >
           {/snippet}
         </Sheet.Close>

@@ -25,6 +25,11 @@ import {
   saveCreator,
 } from "../src/lib/campaign/storage.ts";
 
+import { ensureCampaignProofAssets } from "../scripts/campaign-proof-assets.mjs";
+
+// Build (or confirm) the proving assets here rather than in the global
+// `pretest`, so a failure only affects this file. No network is involved.
+await ensureCampaignProofAssets();
 const root = new URL(
   "../static/projects/campaign-demo-proof/",
   import.meta.url,

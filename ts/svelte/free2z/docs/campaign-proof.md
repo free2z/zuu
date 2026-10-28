@@ -67,20 +67,23 @@ Versions are pinned in package-lock.json: snarkjs 0.7.6, circom2 0.2.22 (compile
 
 ### Proving assets are built, not committed
 
+The public Hermez Powers of Tau power-12 transcript is committed as
+`circuits/powersOfTau28_hez_final_12.ptau` (about 4.8 MB; its original source
+and BLAKE2b-512 are in the manifest), so nothing here needs the network.
+
 The browser proving assets (`threshold.wasm`, about 1.8 MB, and
 `threshold.zkey`, about 9.1 MB) are a deterministic function of the pinned
-circuit, the pinned compiler/library versions and the public transcript, so
-they are not checked in. `scripts/campaign-proof-assets.mjs` runs as part of
-`prebuild` and `pretest` (or directly as `npm run campaign:proof-assets`). It
-downloads the transcript from the manifest's `source`, checks its BLAKE2b-512,
-checks the circuit's SHA-256, compiles the circuit, derives the PLONK key and
-installs the two files into `static/projects/campaign-demo-proof/` only if each
-matches the SHA-256 recorded in the bundled manifest. Any mismatch is a hard
-failure. Files that are already present and match are reused without a
-download. For an offline build, point `CAMPAIGN_PTAU_FILE` at a local copy of
-the transcript; it is hash-checked the same way. This path does not repeat the
-full MPC transcript verification below; that one-time audit is what produced
-the manifest.
+circuit, the pinned compiler/library versions and that transcript, so they are
+not checked in. `scripts/campaign-proof-assets.mjs` runs as part of `prebuild`
+(or directly as `npm run campaign:proof-assets`), and the campaign proof tests
+call it themselves, so no other test depends on it. It checks the transcript's
+BLAKE2b-512 and the circuit's SHA-256, compiles the circuit, derives the PLONK
+key and installs the two files into `static/projects/campaign-demo-proof/` only
+if each matches the SHA-256 recorded in the bundled manifest. Any mismatch is a
+hard failure. Files that are already present and match are reused.
+`CAMPAIGN_PTAU_FILE` overrides the transcript path; it is hash-checked the same
+way. This path does not repeat the full MPC transcript verification below; that
+one-time audit is what produced the manifest.
 
 ### Re-deriving the manifest
 
@@ -97,7 +100,7 @@ Review and commit the resulting `manifest.json` and `verification-key.json`
 changes (in both `static/projects/campaign-demo-proof/` and
 `src/lib/campaign/artifacts/`).
 
-The generator downloads the public Hermez Powers of Tau power-12 MPC transcript,
+The generator reads the committed public Hermez Powers of Tau power-12 MPC transcript,
 checks its official BLAKE2b-512 hash, runs the full snarkjs 0.7.6 Powers of Tau
 source verifier, compiles the circuit and derives its PLONK key. It NEVER creates a local ceremony or a
 known setup secret. The original ceremony has 54 contributions plus a beacon;
@@ -117,8 +120,8 @@ complete equivalent check succeeded.
 
 The exact URL, hash, tool versions, circuit
 SHA-256 and fixed WASM/zkey/verifier-key hashes are in the committed manifest.
-The public transcript and the WASM/zkey derived from it are build-time inputs,
-not runtime downloads or committed files. Browser WASM/zkey assets load from the same origin and are
+The public transcript is a committed build-time input; the WASM/zkey derived
+from it are built at build time, not committed or downloaded at runtime. Browser WASM/zkey assets load from the same origin and are
 SHA-256 checked before proving from the reserved
 `/projects/campaign-demo-proof/` namespace; the verifier key is bundled and fixed. Routine
 unit tests check the source/artifact hashes and exercise actual proofs; they do

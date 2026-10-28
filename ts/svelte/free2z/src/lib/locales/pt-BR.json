@@ -707,6 +707,15 @@
     "scheduleHint": "Deixe em branco para publicar imediatamente.",
     "zcashLabel": "Endereço Zcash alternativo (opcional)",
     "zcashHint": "Use este campo se o endereço for diferente do seu perfil. Normalmente, trata-se de um endereço Zcash.",
+    "localPublish": {
+      "title": "Publicar neste navegador",
+      "description": "Confirme os detalhes da sua publicação local. Ela não será enviada ao Free2Z nem receberá pagamentos reais.",
+      "descriptionLimit": "Máximo de 250 caracteres para publicar. Seu texto é mantido completo; você pode ajustá-lo aqui.",
+      "zcashLabel": "Carteira Zcash desta página (opcional)",
+      "zcashHint": "Configuração apenas para este teste. Nenhum fundo será enviado para este endereço.",
+      "publish": "Publicar localmente",
+      "keepEditing": "Continuar editando"
+    },
     "subscribersOnly": "Somente assinantes",
     "subscribersOnlyHint": "Somente seus assinantes podem ver este conteúdo.",
     "saveSettings": "Salvar configurações",
