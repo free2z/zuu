@@ -15,10 +15,9 @@ notifications-timezone.spec.ts
 oauth-apps.spec.ts
 oauth-consent.spec.ts
 outbound-link.spec.ts
-zpage-hero.spec.ts › a panorama is cropped rather than letterboxed on a phone
+zpage-hero.spec.ts › a crawler with no JavaScript › the pending portrait cover shows all four edges without JavaScript at 1280px
+zpage-hero.spec.ts › a crawler with no JavaScript › the pending portrait cover shows all four edges without JavaScript at 390px
+zpage-hero.spec.ts › a crawler with no JavaScript › the pending wide cover shows all four edges without JavaScript at 1280px
+zpage-hero.spec.ts › a crawler with no JavaScript › the pending wide cover shows all four edges without JavaScript at 390px
 zpage-hero.spec.ts › a subscriber-only zPage keeps its hero and withholds its body
-zpage-hero.spec.ts › even a normal landscape photograph is shown whole
 zpage-hero.spec.ts › expanding the outline re-measures the reading progress
-zpage-hero.spec.ts › recomputes the image fit when hero geometry settles late
-zpage-hero.spec.ts › the blurred layer costs no extra bytes and LCP stays the hero image
-zpage-hero.spec.ts › the contain-fit headline paints nothing over the cover › no band, no backdrop filter, and the photograph is whole
