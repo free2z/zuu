@@ -141,7 +141,7 @@ QUEUE = 'lease-test'
 #Fast beats so a test runs in seconds; the production value is 15.
 BEAT = 0.4
 #How long a test is willing to WAIT for a fence to be observed --
-#deliberately NOT scaled by BEAT (tuzi#2116). ``8 * BEAT`` (3.2s) used to
+#deliberately NOT scaled by BEAT. ``8 * BEAT`` (3.2s) used to
 #be the budget for "the beat thread notices the reclaimer's DELETE and
 #delivers the fence" (a beat, a DB round trip, and -- for the async task
 #-- an event-loop callback all have to land inside it), and under a full
