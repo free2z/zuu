@@ -10,7 +10,6 @@ upload-failure-visible.spec.ts
 zpage-boost-score.spec.ts
 zpage-deletion.spec.ts
 zpage-editor-relabel-follow.spec.ts
-zpage-hero.spec.ts › an image too small to enlarge is letterboxed too
 zpage-hero.spec.ts › headline contrast (dark) › stays legible over a near-black image
 zpage-hero.spec.ts › headline contrast (dark) › stays legible over a near-black image behind boost and ZEC chips
 zpage-hero.spec.ts › headline contrast (dark) › stays legible over a near-black image in the Arial fallback font
@@ -26,6 +25,5 @@ zpage-hero.spec.ts › prefers-reduced-motion: reduce › the hero does not move
 zpage-hero.spec.ts › prefers-reduced-motion: reduce › the reading-progress bar still tracks the reader
 zpage-hero.spec.ts › scrolling leaves /hero-user/hero-bright-fixture static without main style invalidation
 zpage-hero.spec.ts › the 1600x400 cover the editor stores is shown whole on the hero
-zpage-hero.spec.ts › the photograph stays whole and the text remains opaque › the gutter is photograph at every exit and controls stay visible
 zpage-nav-loading.spec.ts
 zpage-support-zcash.spec.ts

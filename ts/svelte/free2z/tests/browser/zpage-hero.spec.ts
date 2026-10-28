@@ -28,141 +28,6 @@ const BODY_SENTINEL = "hero-body-sentinel";
 
 const READING_PROGRESS = "--reading-progress";
 
-const EDITORIAL_HERO_GEOMETRY = {
-  mobile: { min: 17 * 16, preferred: 0.44, max: 28 * 16, fallback: 22 * 16 },
-  tablet: { min: 19 * 16, preferred: 0.48, max: 32 * 16, fallback: 24 * 16 },
-  desktop: {
-    min: 21 * 16,
-    preferred: 0.52,
-    max: 34 * 16,
-    fallback: 26 * 16,
-  },
-} as const;
-
-function editorialHeroGeometry(viewport: { width: number; height: number }) {
-  const token =
-    viewport.width < 640
-      ? EDITORIAL_HERO_GEOMETRY.mobile
-      : viewport.width < 1024
-        ? EDITORIAL_HERO_GEOMETRY.tablet
-        : EDITORIAL_HERO_GEOMETRY.desktop;
-  return {
-    token,
-    expected: Math.min(
-      token.max,
-      Math.max(token.min, viewport.height * token.preferred),
-    ),
-  };
-}
-
-/** Remove the supported-unit override so the live stylesheet uses its rem
- * fallback. */
-async function removeSvhOverride(page: Page) {
-  return page.evaluate(() => {
-    let removed = 0;
-
-    function clearSvhDeclarations(rule: CSSRule) {
-      if (rule instanceof CSSStyleRule) {
-        if (
-          rule.style
-            .getPropertyValue("--f2z-editorial-hero-height")
-            .includes("svh")
-        ) {
-          rule.style.removeProperty("--f2z-editorial-hero-height");
-        }
-        return;
-      }
-      if ("cssRules" in rule) {
-        const nestedRules = (rule as CSSGroupingRule).cssRules;
-        for (let index = 0; index < nestedRules.length; index += 1) {
-          clearSvhDeclarations(nestedRules[index]);
-        }
-      }
-    }
-
-    function removeFrom(container: CSSStyleSheet | CSSGroupingRule) {
-      for (let index = container.cssRules.length - 1; index >= 0; index -= 1) {
-        const rule = container.cssRules[index];
-        if (rule instanceof CSSStyleRule) {
-          clearSvhDeclarations(rule);
-          continue;
-        }
-        if (
-          rule instanceof CSSSupportsRule &&
-          rule.conditionText.includes("svh")
-        ) {
-          // Clearing the declarations first keeps Chromium's computed-style
-          // cache from retaining the custom-property value after the
-          // grouping rule is removed through CSSOM.
-          clearSvhDeclarations(rule);
-          container.deleteRule(index);
-          removed += 1;
-          continue;
-        }
-        if ("cssRules" in rule) {
-          removeFrom(rule as CSSGroupingRule);
-        }
-      }
-    }
-
-    for (const stylesheet of Array.from(document.styleSheets)) {
-      const wasDisabled = stylesheet.disabled;
-      const removedBefore = removed;
-      let replaced = false;
-      try {
-        // Toggling the sheet forces Chromium to discard computed custom
-        // property values that were cached while the nested support rule was
-        // still active.
-        stylesheet.disabled = true;
-        removeFrom(stylesheet);
-        if (
-          removed > removedBefore &&
-          (stylesheet.ownerNode instanceof HTMLStyleElement ||
-            stylesheet.ownerNode instanceof HTMLLinkElement)
-        ) {
-          // CSSOM deletion can leave a computed custom property cached on the
-          // original sheet. Reparse the rules we just kept into a fresh style
-          // node so the fallback cascade is observable like it is in an
-          // engine without svh support.
-          const owner = stylesheet.ownerNode;
-          const replacement = document.createElement("style");
-          replacement.media = owner.media;
-          replacement.textContent = Array.from(stylesheet.cssRules)
-            .map((rule) => rule.cssText)
-            .join("\n");
-          owner.replaceWith(replacement);
-          replaced = true;
-        }
-      } catch {
-        // Ignore cross-origin sheets; the app stylesheet is same-origin.
-      } finally {
-        if (!replaced) stylesheet.disabled = wasDisabled;
-      }
-    }
-    return {
-      removed,
-      value: getComputedStyle(document.documentElement)
-        .getPropertyValue("--f2z-editorial-hero-height")
-        .trim(),
-    };
-  });
-}
-
-async function readHeroGeometry(page: Page) {
-  return page.locator("section.zhero").evaluate((node) => {
-    const style = getComputedStyle(node);
-    const box = node.getBoundingClientRect();
-    return {
-      minHeight: Number.parseFloat(style.minHeight),
-      heroHeightToken: style
-        .getPropertyValue("--f2z-editorial-hero-height")
-        .trim(),
-      width: box.width,
-      height: box.height,
-    };
-  });
-}
-
 /** Wait for either implementation so the same regression can reject the old hero. */
 async function sceneLive(page: Page) {
   await page.waitForFunction(
@@ -308,13 +173,6 @@ async function published(page: Page, _property: string): Promise<number> {
   });
 }
 
-async function heroExit(page: Page) {
-  return page.locator("section.zhero").evaluate((node) => {
-    const rect = node.getBoundingClientRect();
-    return Math.min(1, Math.max(0, -rect.top / rect.height));
-  });
-}
-
 async function sceneAtRest(page: Page) {
   await sceneLive(page);
   await page.evaluate(
@@ -446,60 +304,6 @@ async function worstContrastAroundText(
   return { ratio, pixel, color };
 }
 
-/**
- * Mean luminance of a column of the hero that no glyph can be in.
- *
- * `.zhero__content` is `mx-auto max-w-5xl` with `lg:px-8`, so at a 1024px
- * viewport the text starts at x=32 and this column is clear of it at every
- * scroll position. Clipped below the sticky navbar's live bottom edge: the
- * navbar is opaque and would otherwise average into rows that have nothing to
- * do with the hero.
- */
-async function heroGutterLuminance(page: Page) {
-  const window_ = await page.evaluate(() => {
-    const hero = document
-      .querySelector("section.zhero")!
-      .getBoundingClientRect();
-    const nav = document.querySelector("nav")?.getBoundingClientRect();
-    return {
-      top: Math.round(Math.max(0, hero.top, nav ? nav.bottom : 0)),
-      bottom: Math.round(hero.bottom),
-    };
-  });
-  const height = window_.bottom - window_.top;
-  if (height < 8) return null;
-  const png = decodePng(
-    await page.screenshot({
-      clip: { x: 8, y: window_.top, width: 16, height },
-    }),
-  );
-  let sum = 0;
-  for (let index = 0; index < png.data.length; index += png.channels) {
-    sum +=
-      0.2126 * png.data[index] +
-      0.7152 * png.data[index + 1] +
-      0.0722 * png.data[index + 2];
-  }
-  return { mean: sum / (png.width * png.height), height };
-}
-
-/**
- * Scroll to a fraction of the hero height. The hero sits
- * below the navbar, so `scrollTo(heroHeight * 0.8)` lands at exit ~0.7.
- */
-async function scrollToExit(page: Page, fraction: number) {
-  const geometry = await page.locator("section.zhero").evaluate((node) => {
-    const rect = node.getBoundingClientRect();
-    return { top: rect.top + window.scrollY, height: rect.height };
-  });
-  await scrollTo(page, Math.round(geometry.top + fraction * geometry.height));
-  await sceneAtRest(page);
-  expect(
-    await heroExit(page),
-    `asked for exit ${fraction} and the scene published something else`,
-  ).toBeCloseTo(fraction, 1);
-}
-
 // ---------------------------------------------------------------------------
 // 1. The content and hero must survive without
 //    it — this is the  /  contract, re-asserted for the hero.
@@ -559,7 +363,141 @@ test.describe("a crawler with no JavaScript", () => {
     const text = await page.evaluate(() => document.body.innerText);
     expect(text).toContain(BODY_SENTINEL);
   });
+
+  for (const width of [390, 1280]) {
+    for (const shape of [
+      { name: "wide", width: 1600, height: 400 },
+      { name: "portrait", width: 700, height: 1075 },
+    ]) {
+      test(`the pending ${shape.name} cover shows all four edges without JavaScript at ${width}px`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.route("**/fixture-hero.svg?**", (route) =>
+          route.fulfill({
+            contentType: "image/svg+xml",
+            body: `<svg xmlns="http://www.w3.org/2000/svg" width="${shape.width}" height="${shape.height}"><rect width="100%" height="100%" fill="#3f6212"/><rect width="8%" height="100%" fill="magenta"/><rect x="92%" width="8%" height="100%" fill="magenta"/><rect width="100%" height="8%" fill="cyan"/><rect y="92%" width="100%" height="8%" fill="cyan"/></svg>`,
+          }),
+        );
+        await page.goto(BRIGHT);
+        const frame = page.locator(".hero-media");
+        await expect(frame).toHaveAttribute("data-loading", "");
+        await page.waitForFunction(() => {
+          const image =
+            document.querySelector<HTMLImageElement>(".hero-media__img");
+          return image?.complete && image.naturalWidth > 0;
+        });
+        const geometry = await frame.evaluate(async (node) => {
+          const image = node.querySelector<HTMLImageElement>("img")!;
+          await image.decode();
+          const box = node.getBoundingClientRect();
+          const imageBox = image.getBoundingClientRect();
+          return {
+            width: box.width,
+            height: box.height,
+            imageWidth: imageBox.width,
+            imageHeight: imageBox.height,
+            nativeWidth: image.naturalWidth,
+            nativeHeight: image.naturalHeight,
+            fit: getComputedStyle(image).objectFit,
+            visibility: getComputedStyle(image).visibility,
+            overflow: document.documentElement.scrollWidth - innerWidth,
+          };
+        });
+        expect(geometry.fit).toBe("scale-down");
+        expect(geometry.visibility).toBe("visible");
+        expect(geometry.imageWidth).toBeCloseTo(geometry.width, 1);
+        expect(geometry.imageHeight).toBeCloseTo(geometry.height, 1);
+        expect(geometry.overflow).toBeLessThanOrEqual(1);
+        const scale = Math.min(
+          1,
+          geometry.width / geometry.nativeWidth,
+          geometry.height / geometry.nativeHeight,
+        );
+        const artWidth = geometry.nativeWidth * scale;
+        const artHeight = geometry.nativeHeight * scale;
+        const png = decodePng(await frame.screenshot());
+        const left = (png.width - artWidth) / 2;
+        const top = (png.height - artHeight) / 2;
+        const probes = [
+          { x: left + artWidth * 0.035, y: png.height / 2, cyan: false },
+          { x: left + artWidth * 0.965, y: png.height / 2, cyan: false },
+          { x: png.width / 2, y: top + artHeight * 0.035, cyan: true },
+          { x: png.width / 2, y: top + artHeight * 0.965, cyan: true },
+        ];
+        for (const probe of probes) {
+          const offset =
+            (Math.floor(probe.y) * png.width + Math.floor(probe.x)) *
+            png.channels;
+          const [r, g, b] = Array.from(png.data.subarray(offset, offset + 3));
+          expect(b).toBeGreaterThan(180);
+          if (probe.cyan) {
+            expect(g).toBeGreaterThan(180);
+            expect(r).toBeLessThan(75);
+          } else {
+            expect(r).toBeGreaterThan(180);
+            expect(g).toBeLessThan(75);
+          }
+        }
+      });
+    }
+  }
 });
+
+for (const width of [390, 1280]) {
+  test(`SSR and hydration reserve the same hero space while the cover is delayed at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    let releaseBootstrap!: () => void;
+    let releaseImage!: () => void;
+    const pendingBootstrap = new Promise<void>((resolve) => {
+      releaseBootstrap = resolve;
+    });
+    const pendingImage = new Promise<void>((resolve) => {
+      releaseImage = resolve;
+    });
+    await page.route("**/*", async (route) => {
+      if (route.request().resourceType() === "script") await pendingBootstrap;
+      await route.continue();
+    });
+    await page.route("**/fixture-hero.svg?**", async (route) => {
+      await pendingImage;
+      await route.continue();
+    });
+    const geometry = () =>
+      page.evaluate(() => {
+        const frame = document.querySelector(".hero-media")!;
+        const box = frame.getBoundingClientRect();
+        const title = document
+          .querySelector(".zhero__headline")!
+          .getBoundingClientRect();
+        return { height: box.height, titleTop: title.top };
+      });
+    try {
+      await page.goto(BRIGHT, { waitUntil: "commit" });
+      await expect(page.locator(".hero-media[data-loading]")).toBeVisible();
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+        await new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve)),
+        );
+      });
+      const before = await geometry();
+      expect(before.height).toBeGreaterThan(180);
+      releaseBootstrap();
+      await sceneLive(page);
+      await sceneAtRest(page);
+      await expect(page.locator(".hero-media[data-loading]")).toBeVisible();
+      const after = await geometry();
+      expect(after.height).toBeCloseTo(before.height, 1);
+      expect(after.titleTop).toBeCloseTo(before.titleTop, 1);
+    } finally {
+      releaseBootstrap();
+      releaseImage();
+    }
+  });
+}
 
 // ---------------------------------------------------------------------------
 // 2. prefers-reduced-motion is an accessibility requirement, not an option.
@@ -584,14 +522,12 @@ test.describe("prefers-reduced-motion: reduce", () => {
 
       const state = await page.evaluate(() => {
         const plate = document.querySelector<HTMLElement>(".hero-media__plate");
-        const veil = document.querySelector<HTMLElement>(".hero-media__veil");
         const headline =
           document.querySelector<HTMLElement>(".zhero__headline");
         const styles = (node: HTMLElement | null) =>
           node ? getComputedStyle(node) : null;
         return {
           plate: styles(plate)?.transform,
-          veil: styles(veil)?.opacity,
           headlineTransform: styles(headline)?.transform,
           headlineOpacity: styles(headline)?.opacity,
         };
@@ -602,7 +538,6 @@ test.describe("prefers-reduced-motion: reduce", () => {
       expect(still, `headline moved at scrollY=${offset}`).toContain(
         state.headlineTransform,
       );
-      expect(Number(state.veil), `veil ramped at scrollY=${offset}`).toBe(0);
       expect(
         Number(state.headlineOpacity),
         `headline faded at scrollY=${offset}`,
@@ -719,8 +654,6 @@ for (const fixture of [BRIGHT, PANO]) {
       if (!main) throw new Error("hero is not inside a <main>");
       const tracked = [
         ".hero-media__plate",
-        ".hero-media__bloom",
-        ".hero-media__veil",
         ".zhero__headline",
         ".zhero__content",
         ".zhero__content h1",
@@ -848,152 +781,6 @@ for (const fixture of [BRIGHT, PANO]) {
   });
 }
 
-test("recomputes the image fit when hero geometry settles late", async ({
-  page,
-}) => {
-  // The geometry is chosen so both expectations are settled answers of
-  // `chooseHeroFit` at a *measured* box, not defaults. PANO is 4000x300 and
-  // this suite's viewport is 390x844, so the hero section is ~390px wide:
-  //
-  //   - forced to 12rem (192px), the contained image renders ~390x29 — 15% of
-  //     the box height, above IMAGE_FIT.minContainFraction, so `contain` is
-  //     the settled answer while the forced rule below is live;
-  //   - at the section's natural clamp(17rem, 44svh, 28rem) height (~371px),
-  //     the same render is under 8% of the box — a ribbon — so the settled
-  //     answer flips to `cover`.
-  //
-  // `cover` can therefore only appear if the component re-measures AFTER the
-  // section has grown. The race is made deterministic rather than sampled:
-  //
-  //   - ResizeObserver is muted globally. A live observer would re-measure on
-  //     the geometry change itself and let the old implementation — which only
-  //     measures once per one-shot trigger — pass without doing any of the
-  //     work this regression exists for.
-  //   - document.fonts is replaced with a promise this test controls. With
-  //     observers muted it is the fixed component's one remaining re-measure
-  //     path (the font-settled pass), and holding it shut guarantees nothing
-  //     measures after the style is removed until this test releases it.
-  //   - The image bytes are held back until hydration has run. Hydration's
-  //     complete-check and the load event both fire while the forced rule is
-  //     live, so every measurement lands at 192px; a cold dev server that
-  //     hydrated after the release would otherwise let the old component's
-  //     one-shot read see the final geometry and pass vacuously.
-  await page.addInitScript(() => {
-    class QuietResizeObserver {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    }
-
-    Object.defineProperty(window, "ResizeObserver", {
-      configurable: true,
-      value: QuietResizeObserver,
-    });
-
-    let resolveFonts: (() => void) | undefined;
-    const fontsReady = new Promise<void>((resolve) => {
-      resolveFonts = resolve;
-    });
-    Object.defineProperty(document, "fonts", {
-      configurable: true,
-      value: { ready: fontsReady },
-    });
-    Object.defineProperty(window, "__resolveHeroFonts", {
-      configurable: true,
-      value: () => resolveFonts?.(),
-    });
-
-    const style = document.createElement("style");
-    style.id = "hero-fit-early-layout";
-    style.textContent =
-      "section.zhero.zhero--media { height: 12rem !important; min-height: 12rem !important; }";
-    // At addInitScript time Chromium has neither document.head nor
-    // documentElement yet, so attaching waits for the document to grow them.
-    const attach = () => {
-      const root = document.head ?? document.documentElement;
-      if (!root) return false;
-      root.append(style);
-      return true;
-    };
-    if (!attach()) {
-      const documentObserver = new MutationObserver((_, observer) => {
-        if (attach()) observer.disconnect();
-      });
-      documentObserver.observe(document, { childList: true });
-    }
-  });
-
-  let releaseImage: (() => void) | undefined;
-  const imageGate = new Promise<void>((resolve) => {
-    releaseImage = resolve;
-  });
-  await page.route(/\/fixture-hero\.svg/, async (route) => {
-    await imageGate;
-    await route.continue();
-  });
-
-  // `domcontentloaded`, not the default `load`: the hero image is being held
-  // back below, and `load` waits for it.
-  await page.goto(PANO, { waitUntil: "domcontentloaded" });
-
-  // Probe: the injected rule reached the document at all. An init script that
-  // silently failed to attach its <style> would make everything below pass
-  // against a page that never reproduced the bug.
-  await page.waitForFunction(() =>
-    Boolean(document.getElementById("hero-fit-early-layout")),
-  );
-
-  // Hydration gate: a published scroll scene proves the route's components
-  // have mounted. The image bytes are still held back, so no fit measurement
-  // can have happened yet — everything below measures inside the window.
-  await sceneLive(page);
-
-  releaseImage?.();
-  await page.waitForFunction(() => {
-    const image = document.querySelector<HTMLImageElement>(".hero-media__img");
-    return !!image?.complete && image.naturalWidth > 0;
-  });
-  // Two frames: the load-triggered read runs on rAF and once more on the
-  // frame after, so both passes land inside the short-height window.
-  await page.evaluate(
-    () =>
-      new Promise((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve(null))),
-      ),
-  );
-
-  // Probe: the forced layout is what those reads actually saw...
-  const earlyHeroHeight = await page
-    .locator("section.zhero")
-    .evaluate((node) => node.getBoundingClientRect().height);
-  expect(earlyHeroHeight).toBe(192);
-  //...and what they measured was the settled answer for it.
-  await expect(page.locator(".hero-media")).toHaveAttribute(
-    "data-hero-fit",
-    "contain",
-  );
-
-  // Grow the section and release the font-settled re-measure in one step,
-  // before heroReady: post- that helper awaits document.fonts.ready,
-  // which here is deliberately the promise this test owns.
-  await page.evaluate(() => {
-    document.getElementById("hero-fit-early-layout")?.remove();
-    (
-      window as typeof window & { __resolveHeroFonts?: () => void }
-    ).__resolveHeroFonts?.();
-  });
-
-  await heroReady(page);
-  const settledHeroHeight = await page
-    .locator("section.zhero")
-    .evaluate((node) => node.getBoundingClientRect().height);
-  expect(settledHeroHeight).toBeGreaterThan(earlyHeroHeight);
-  await expect(page.locator(".hero-media")).toHaveAttribute(
-    "data-hero-fit",
-    "cover",
-  );
-});
-
 test("no layout is read for the article while scrolling", async ({ page }) => {
   // The rule the whole implementation is built around. `scrollScene` measures
   // the article on resize only; if a refactor ever puts a `getBoundingClientRect`
@@ -1050,14 +837,10 @@ test("no layout is read for the article while scrolling", async ({ page }) => {
   expect(await published(page, READING_PROGRESS)).toBeGreaterThan(0);
 });
 
-test("the blurred layer costs no extra bytes and LCP stays the hero image", async ({
+test("the cover costs one request and keeps eager LCP loading", async ({
   page,
 }) => {
-  // The bloom is a second `<img>`. Pointing it at a smaller variant would be
-  // the obvious optimisation and is exactly the trap: a second URL is a second
-  // request, and — being an image element of comparable size — a second LCP
-  // candidate that resolves later than the one being optimised for. Same
-  // sources means one request and one candidate.
+  // A cover must not introduce a second, later-arriving image request.
   const requests: string[] = [];
   page.on("request", (request) => {
     if (request.url().includes("fixture-hero.svg"))
@@ -1079,12 +862,11 @@ test("the blurred layer costs no extra bytes and LCP stays the hero image", asyn
   // rather than of the hero. The loading hints on the real element are asserted
   // in the no-JavaScript test above; what matters here is that the bloom did
   // not introduce a second, later-arriving candidate at all.
-  const bloom = page.locator(".hero-media__bloom img");
-  await expect(bloom).toHaveCount(1);
-  expect(
-    await bloom.getAttribute("src"),
-    "the bloom must share the plate's source exactly",
-  ).toBe(await page.locator(".hero-media__img").getAttribute("src"));
+  await expect(page.locator(".hero-media img")).toHaveCount(1);
+  await expect(page.locator(".hero-media__img")).toHaveAttribute(
+    "fetchpriority",
+    "high",
+  );
 });
 
 test("expanding the outline re-measures the reading progress", async ({
@@ -1224,395 +1006,7 @@ test("the headline is painted above the hero's scrim layers", async ({
   ).toBeGreaterThan(0.05);
 });
 
-/**
- * The `contain`-fit headline paints NO full-width layer over the cover.
- *
- * This is the owner's complaint stated directly, and it replaces "the band's
- * top edge is a gradient, not a line". That test measured how gently a band
- * arrived; the answer to the report was that a band arriving gently is still a
- * band. On the reference zPage it covered the character's body, the book and
- * the hands, and 's long ramp gave none of them back.
- *
- * Two halves, because either alone can pass on a broken tree:
- *
- *   1. Computed style — there is no `::before` box, no `backdrop-filter`
- *      anywhere in the headline, and the block itself has no background image
- *      or colour. This catches a band that is present but happens to be
- *      invisible on this fixture.
- *   2. Pixels — neutralising every background the headline could paint changes
- *      NOTHING, because there is nothing to neutralise. That is the same probe
- *      the band test used, run for the opposite answer, so a reintroduced band
- *      fails here whatever element it is painted on.
- *
- * The positive control is the third assertion: the column must actually read
- * as the near-white photograph. Without it, a hero that failed to render its
- * image at all would satisfy both halves.
- *
- * Dark scheme over the near-white fixture, at a 1024px viewport so the x=8
- * column sits outside `.zhero__content`'s `lg:px-8` and contains no glyph and
- * no pad. On `origin/main` this column reads ~10 luminance under the band and
- * removing the band swings it by ~175; here it reads ~250 and removing
- * nothing swings it by ~0.
- */
-test.describe("the contain-fit headline paints nothing over the cover", () => {
-  test.use({ colorScheme: "dark", viewport: { width: 1024, height: 1000 } });
-
-  test("no band, no backdrop filter, and the photograph is whole", async ({
-    page,
-  }) => {
-    await page.goto(BRIGHT);
-    await heroReady(page);
-    await expect(page.locator(".hero-media")).toHaveAttribute(
-      "data-hero-fit",
-      "contain",
-    );
-
-    const layers = await page.evaluate(() => {
-      const headline = document.querySelector<HTMLElement>(".zhero__headline")!;
-      const content = document.querySelector<HTMLElement>(".zhero__content")!;
-      const before = getComputedStyle(headline, "::before");
-      return {
-        beforeContent: before.content,
-        beforeBackgroundImage: before.backgroundImage,
-        headlineBackgroundImage: getComputedStyle(headline).backgroundImage,
-        headlineBackgroundColor: getComputedStyle(headline).backgroundColor,
-        contentBackgroundImage: getComputedStyle(content).backgroundImage,
-        backdrops: [
-          getComputedStyle(headline).backdropFilter,
-          before.backdropFilter,
-          getComputedStyle(content).backdropFilter,
-        ],
-      };
-    });
-
-    // `content: none` is what a pseudo-element that was never generated
-    // reports; a live `::before` reports `""` (or its string).
-    expect(
-      layers.beforeContent,
-      "the contain-fit headline still generates a ::before — that is the band",
-    ).toBe("none");
-    expect(layers.headlineBackgroundImage).toBe("none");
-    expect(
-      ["rgba(0, 0, 0, 0)", "transparent"],
-      `the headline block still paints ${layers.headlineBackgroundColor}`,
-    ).toContain(layers.headlineBackgroundColor);
-    expect(layers.contentBackgroundImage).toBe("none");
-    for (const backdrop of layers.backdrops) {
-      expect(backdrop, "a backdrop-filter survived the band's removal").toBe(
-        "none",
-      );
-    }
-
-    // Neutralises any background the headline could paint, wherever it lives:
-    // the block, a pseudo-element, or the content wrapper.
-    const bandOff = `
-      .zhero__headline, .zhero__headline::before, .zhero__content {
-        background: transparent !important;
-        -webkit-backdrop-filter: none !important;
-        backdrop-filter: none !important;
-      }
-    `;
-
-    const painted = await heroGutterLuminance(page);
-    expect(painted, "the hero is not visible at rest").not.toBeNull();
-    const styleTag = await page.addStyleTag({ content: bandOff });
-    const bare = await heroGutterLuminance(page);
-    await styleTag.evaluate((node) => (node as Element).remove());
-
-    expect(
-      Math.abs(bare!.mean - painted!.mean),
-      `removing the headline's background changed the hero by ` +
-        `${Math.abs(bare!.mean - painted!.mean).toFixed(1)} luminance — it has one`,
-    ).toBeLessThanOrEqual(2);
-
-    // Positive control, and the owner's requirement stated as a number: the
-    // near-white cover is what is on screen. Under the band this column read
-    // ~10.
-    expect(
-      painted!.mean,
-      `the hero's gutter reads ${painted!.mean.toFixed(0)} luminance — ` +
-        `something is still covering the photograph`,
-    ).toBeGreaterThan(140);
-  });
-});
-
-/**
- * The headline's treatment reaches only as far as its own blur radius.
- *
- * The band version of this test forced the band opaque and checked the back
- * arrow still changed pixels, because the band's lead-in genuinely reached the
- * topbar on a five-line title: it painted over the controls AND took them as
- * the backdrop its `blur(14px)` operated on, leaving them soft, washed and —
- * thanks to `pointer-events: none` — still clickable.
- *
- * The half of that hazard which was structural is gone with the band and is
- * pinned above ("no backdrop-filter"). What replaces the other half is the
- * property that made the band unbounded in the first place: a band's reach is
- * whatever its geometry says (7rem, here, and it could have been anything),
- * while a pad's reach is its widest shadow radius and nothing else.
- *
- * So: the rows just ABOVE the first line of the headline must be bare
- * photograph. The widest radius is 12px, so 16px of clearance is measured from
- * 28px to 12px above the `h1`'s box — far enough out that the pad cannot be
- * there, close enough that the band demonstrably was: 's mask reaches
- * full strength 1.25rem (20px) above the `h1`'s top edge, so on `origin/main`
- * this strip is solid `--background` and reads ~10 luminance against the
- * ~250 it reads here.
- *
- * The five-line-title fixture, because it is the case where the headline
- * starts highest in the photograph, and the dark theme over the near-white
- * cover, because there a wash is a ~175-point swing rather than a rounding
- * error.
- */
-test.describe("the headline's treatment stays inside its own radius", () => {
-  test.use({ colorScheme: "dark" });
-
-  test("the rows above the first line are bare photograph", async ({
-    page,
-  }) => {
-    await page.goto(LONG_TITLE);
-    await heroReady(page);
-    await expect(page.locator(".hero-media")).toHaveAttribute(
-      "data-hero-fit",
-      "contain",
-    );
-
-    const headingBox = await page.locator("h1").boundingBox();
-    if (!headingBox) throw new Error("no headline box");
-    const topbarBottom = await page
-      .locator("section.zhero button")
-      .first()
-      .evaluate((node) => node.getBoundingClientRect().bottom);
-
-    const strip = {
-      x: 0,
-      y: Math.round(headingBox.y - 28),
-      width: page.viewportSize()!.width,
-      height: 16,
-    };
-    // The probe has to be measuring the cover, not the topbar row: on a short
-    // hero those can overlap, and a strip that contains the back button reads
-    // dark for a reason that has nothing to do with the headline.
-    expect(
-      strip.y,
-      "the strip overlaps the topbar controls — it is measuring the wrong rows",
-    ).toBeGreaterThan(topbarBottom);
-
-    const png = decodePng(await page.screenshot({ clip: strip }));
-    let sum = 0;
-    for (let index = 0; index < png.data.length; index += png.channels) {
-      sum +=
-        0.2126 * png.data[index] +
-        0.7152 * png.data[index + 1] +
-        0.0722 * png.data[index + 2];
-    }
-    const mean = sum / (png.width * png.height);
-    expect(
-      mean,
-      `the 16px of cover ending 12px above the headline averages ` +
-        `${mean.toFixed(0)} luminance over a near-white image — the ` +
-        `headline's treatment reaches further than its own blur radius`,
-    ).toBeGreaterThan(140);
-
-    //...and the back arrow is still painted. Carried over from the band
-    // version unchanged: a layer sitting ON the control leaves its box
-    // uniform, so hiding the icon then changes nothing. It passed before this
-    // change too — the topbar's `z-10` is what makes it true and that is not
-    // what moved — but deleting a live guard on the way past is how the next
-    // change to this area gets to break it silently.
-    const box = await page
-      .locator("section.zhero button")
-      .first()
-      .boundingBox();
-    if (!box) throw new Error("no back button box");
-    const clip = {
-      x: Math.round(box.x),
-      y: Math.round(box.y),
-      width: Math.round(box.width),
-      height: Math.round(box.height),
-    };
-    const painted = decodePng(await page.screenshot({ clip }));
-    const hideIcon = await page.addStyleTag({
-      content: `section.zhero button svg { opacity: 0 !important; }`,
-    });
-    const blank = decodePng(await page.screenshot({ clip }));
-    await hideIcon.evaluate((node) => (node as Element).remove());
-
-    let differing = 0;
-    for (
-      let index = 0;
-      index < painted.data.length;
-      index += painted.channels
-    ) {
-      if (painted.data[index] !== blank.data[index]) differing += 1;
-    }
-    const total = painted.width * painted.height;
-    expect(
-      differing / total,
-      "the back arrow changed almost no pixels — something is painted over the topbar",
-    ).toBeGreaterThan(0.01);
-  });
-});
-
-/** The image remains unobscured while the static text and controls stay opaque.
- * Hiding the image is a positive control for the gutter pixel measurement. */
-test.describe("the photograph stays whole and the text remains opaque", () => {
-  test.use({ colorScheme: "dark", viewport: { width: 1024, height: 1000 } });
-
-  test("the gutter is photograph at every exit and controls stay visible", async ({
-    page,
-  }) => {
-    await page.goto(BRIGHT);
-    await heroReady(page);
-    await expect(page.locator(".hero-media")).toHaveAttribute(
-      "data-hero-fit",
-      "contain",
-    );
-
-    const contentOpacity = () =>
-      page
-        .locator(".zhero__content")
-        .evaluate((node) => Number(getComputedStyle(node).opacity));
-
-    // Positive control: the gutter really is showing the hero's image.
-    await scrollToExit(page, 0);
-    const withImage = await heroGutterLuminance(page);
-    expect(withImage, "the hero is not visible at rest").not.toBeNull();
-    const mediaOff = await page.addStyleTag({
-      content: `.hero-media { display: none !important; }`,
-    });
-    const withoutImage = await heroGutterLuminance(page);
-    await mediaOff.evaluate((node) => (node as Element).remove());
-    expect(
-      Math.abs(withImage!.mean - withoutImage!.mean),
-      "hiding the hero image changed nothing — the probe is measuring the wrong pixels",
-    ).toBeGreaterThan(60);
-
-    for (const exit of [0, 0.45, 0.8]) {
-      await scrollToExit(page, exit);
-      const gutter = await heroGutterLuminance(page);
-      expect(gutter, `the hero is not visible at ${exit} exit`).not.toBeNull();
-      // Dark theme, near-white cover: anything under this is a layer between
-      // the reader and the picture. Under 's band this read ~10 at rest
-      // and ~10 at 0.45.
-      expect(
-        gutter!.mean,
-        `at ${exit} exit the hero's gutter reads ${gutter!.mean.toFixed(0)} ` +
-          `luminance — something is covering the photograph`,
-      ).toBeGreaterThan(140);
-    }
-
-    for (const exit of [0.45, 0.8]) {
-      await scrollToExit(page, exit);
-      expect(
-        await contentOpacity(),
-        "hero controls must remain fully visible",
-      ).toBe(1);
-    }
-  });
-});
-
-/**
- * The hero's bottom rows show the picture, at every exit.
- *
- * The inverse of the assertion that used to live here, and the inversion IS
- * the change. The old one demanded those rows stay DARK: the band overhung the
- * hero's bottom edge by 3rem so the parallax — headline lifting 1.25rem, plate
- * drifting 5% down — could not part the two and expose a hard-edged strip of
- * sharp image between them. That was a real defect of a design where the
- * bottom of the picture was covered; with nothing covering it there is no edge
- * to open, and demanding darkness down there would now be demanding the bug
- * the owner reported.
- *
- * So the same rows, the same exits, the opposite threshold: over the near-white
- * fixture in the dark theme the hero's last 20px must READ as the photograph.
- * Sampled full width, because the strip in the original report ran edge to
- * edge and a narrow column can sit in the one place it does not.
- */
-test.describe("the bottom of the cover is visible, not covered", () => {
-  test.use({ colorScheme: "dark" });
-
-  test("the hero's bottom rows read as photograph while it exits", async ({
-    page,
-  }) => {
-    await page.goto(BRIGHT);
-    await heroReady(page);
-    await expect(page.locator(".hero-media")).toHaveAttribute(
-      "data-hero-fit",
-      "contain",
-    );
-
-    const heroHeight = await page
-      .locator("section.zhero")
-      .evaluate((node) => node.getBoundingClientRect().height);
-
-    for (const fraction of [0, 0.15, 0.3, 0.45]) {
-      await scrollTo(page, Math.round(heroHeight * fraction));
-      await sceneAtRest(page);
-
-      const box = await page.locator("section.zhero").evaluate((node) => {
-        const rect = node.getBoundingClientRect();
-        return { top: rect.top, bottom: rect.bottom, height: rect.height };
-      });
-
-      // The hero's last 20px — below `.zhero__content`'s own 2rem of bottom
-      // padding, so no glyph and no pad is in them.
-      const height = 20;
-      const y = Math.round(box.bottom - height);
-      if (y < 0) continue;
-
-      const png = decodePng(
-        await page.screenshot({
-          clip: { x: 0, y, width: page.viewportSize()!.width, height },
-        }),
-      );
-
-      // The MEAN, not the brightest pixel: a single bright pixel would let a
-      // 99%-covered strip pass. Under 's band this averaged ~10.
-      let sum = 0;
-      for (let index = 0; index < png.data.length; index += png.channels) {
-        sum +=
-          0.2126 * png.data[index] +
-          0.7152 * png.data[index + 1] +
-          0.0722 * png.data[index + 2];
-      }
-      const mean = sum / (png.width * png.height);
-
-      expect(
-        mean,
-        `at ${Math.round(fraction * 100)}% exit the hero's last ${height}px ` +
-          `average ${mean.toFixed(0)} luminance over a near-white cover — ` +
-          `the bottom of the picture is still behind something`,
-      ).toBeGreaterThan(140);
-    }
-  });
-});
-
-/**
- * The contrast matrix — the whole safety argument for this area of the code.
- *
- * Thresholds and sample points are UNCHANGED from the band: >= 4.5:1 at exits
- * 0, 0.15, 0.30 and 0.45, over a near-white and a near-black cover, in both
- * themes. What changed is how "the background" is obtained, and it had to.
- *
- * A whole-box probe would sample the intentionally unpadded photograph
- * between words. Instead, build a glyph mask with BOTH the text shadows and
- * local filters disabled, then measure the painted backing around that mask.
- * Disabling only filters would leave text shadows in the blank render and
- * corrupt the mask.
- *
- * So the claim is stated locally instead: within 3px of every glyph the reader
- * gets 4.5:1. See `worstContrastAroundText` for why 3px and how the glyph mask
- * is recovered. The photograph BETWEEN the words is deliberately not in the
- * claim — showing it is the change.
- *
- * The description is measured too, and it is not a bonus: regular-weight
- * `text-muted-foreground` over a photograph is the weak spot a pad exposes and
- * a band hid. It could not be padded to 4.5:1 at any density a halo can reach
- * (the light theme needs a ~92% pad everywhere), which is why the hero's
- * secondary text moved to `--f2z-text-secondary`. A test that only ever
- * measured the bold `h1` would have let that ship.
- */
+// Headline, description, byline and controls remain readable in both themes.
 for (const colorScheme of ["light", "dark"] as const) {
   test.describe(`headline contrast (${colorScheme})`, () => {
     test.use({ colorScheme });
@@ -1760,119 +1154,6 @@ for (const colorScheme of ["light", "dark"] as const) {
   });
 }
 
-/**
- * The pad is `var(--background)`, so it is a DIFFERENT colour in each theme.
- *
- * The failure this exists for is specific and would ship an unreadable page:
- * the light theme is `--foreground: #18181b` on `--background: #fafafa`, so
- * the headline text is dark there. A pad hardcoded to black — the obvious
- * thing to write, and the thing that looks right in every dark-mode screenshot
- * is black-on-black in the light theme. Every other assertion in this file
- * runs in both themes and would still pass, because a black pad over a
- * near-BLACK cover measures fine and a near-white cover in the light theme
- * needs no pad at all.
- *
- * Assert the resolved text-shadow colour and that the large content wrapper
- * has no GPU filter: the former protects legibility, the latter protects the
- * headed 120 Hz rendering path that a headless 60 Hz CI run did not expose.
- */
-test("the glyph pad resolves from --background in both themes", async ({
-  browser,
-}) => {
-  const read = async (colorScheme: "light" | "dark") => {
-    const context = await browser.newContext({ colorScheme });
-    const page = await context.newPage();
-    await page.goto(BRIGHT);
-    await heroReady(page);
-    const state = await page.evaluate(() => {
-      const content = document.querySelector<HTMLElement>(".zhero__content")!;
-      const paragraph =
-        document.querySelector<HTMLElement>(".zhero__content p");
-      // Resolve the tokens through a real element rather than reading the
-      // custom property: `getPropertyValue("--background")` can hand back
-      // `var(--f2z-bg-primary)`, which is a token, not a colour.
-      const probe = document.createElement("div");
-      probe.style.display = "none";
-      probe.style.color = "var(--muted-foreground)";
-      probe.style.backgroundColor = "var(--background)";
-      document.body.append(probe);
-      const probed = getComputedStyle(probe);
-      const resolved = {
-        background: probed.backgroundColor,
-        muted: probed.color,
-      };
-      probe.remove();
-      return {
-        filter: getComputedStyle(content).filter,
-        textShadow: getComputedStyle(content).textShadow,
-        paragraphFilter: paragraph
-          ? getComputedStyle(paragraph).filter
-          : "none",
-        paragraphShadow: paragraph
-          ? getComputedStyle(paragraph).textShadow
-          : "none",
-        background: resolved.background,
-        descriptionColor: paragraph ? getComputedStyle(paragraph).color : "",
-        rootMuted: resolved.muted,
-      };
-    });
-    await context.close();
-    return state;
-  };
-
-  const [light, dark] = await Promise.all([read("light"), read("dark")]);
-
-  for (const [scheme, state] of [
-    ["light", light],
-    ["dark", dark],
-  ] as const) {
-    // GPU drop-shadow passes caused the headed 120 Hz first-scroll stalls.
-    expect(state.filter, `${scheme}: headline has a live GPU filter`).toBe(
-      "none",
-    );
-    expect(
-      state.paragraphFilter,
-      `${scheme}: thin description carries no local pad`,
-    ).toMatch(/drop-shadow\(/);
-    expect(
-      state.textShadow,
-      `${scheme}: headline carries no glyph pad`,
-    ).not.toBe("none");
-    expect(
-      state.paragraphShadow,
-      `${scheme}: description carries no glyph pad`,
-    ).toBe(state.textShadow);
-
-    const padColor = parseCssColor(/rgba?\([^)]*\)/.exec(state.textShadow)![0]);
-    const background = parseCssColor(state.background);
-    expect(
-      padColor,
-      `${scheme}: pad rgb(${padColor}) is not --background rgb(${background})`,
-    ).toEqual(background);
-  }
-
-  //...and the two themes really do resolve to different colours, which is the
-  // assertion a hardcoded black cannot satisfy.
-  expect(light.textShadow).not.toBe(dark.textShadow);
-  expect(light.background).not.toBe(dark.background);
-
-  // The hero's secondary text is raised off `--muted-foreground` in `contain`
-  // fit. Pinned here because the mechanism is Tailwind's `@theme inline`
-  // resolving `var(--muted-foreground)` at the using element: if that ever
-  // stops being true the description silently falls back to a colour that
-  // cannot be padded to 4.5:1 in the light theme.
-  for (const [scheme, state] of [
-    ["light", light],
-    ["dark", dark],
-  ] as const) {
-    expect(
-      parseCssColor(state.descriptionColor),
-      `${scheme}: the hero description is still --muted-foreground ` +
-        `(${state.rootMuted}), which cannot carry 4.5:1 over a photograph`,
-    ).not.toEqual(parseCssColor(state.rootMuted));
-  }
-});
-
 // Opaque controls already pair primary foreground/background. Photograph
 // backing would instead shadow their labels with the opposite theme token.
 for (const colorScheme of ["light", "dark"] as const) {
@@ -1932,73 +1213,88 @@ test("light and dark really are different renders", async ({ browser }) => {
 // 5. The image is whatever the creator uploaded.
 // ---------------------------------------------------------------------------
 
-test("a panorama is letterboxed on a wide hero", async ({ page }) => {
-  // Desktop, because on the project's default 390px phone viewport the same
-  // panorama is deliberately *cropped* instead: letterboxed it would be a 29px
-  // ribbon, which is worse than a crop of the real photograph. See
-  // `HERO_FIT.minLetterboxFraction`.
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(PANO);
-  await heroReady(page);
-  await expect(page.locator(".hero-media")).toHaveAttribute(
-    "data-hero-fit",
-    "contain",
-  );
-  // The blurred enlargement moves behind the image and fills the letterbox.
-  const bloomZ = await page
-    .locator(".hero-media__bloom")
-    .evaluate((node) => getComputedStyle(node).zIndex);
-  const plateZ = await page
-    .locator(".hero-media__plate")
-    .evaluate((node) => getComputedStyle(node).zIndex);
-  expect(Number(bloomZ)).toBeLessThan(Number(plateZ));
-});
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 1280, height: 900 },
+]) {
+  test(`cover frames hug the complete artwork at ${viewport.width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    for (const url of [BRIGHT, PANO, TINY, PHOTO_COVER]) {
+      await page.goto(url);
+      await heroReady(page);
+      const geometry = await page.evaluate(() => {
+        const image =
+          document.querySelector<HTMLImageElement>(".hero-media__img")!;
+        const imageBox = image.getBoundingClientRect();
+        const frame = document
+          .querySelector(".hero-media")!
+          .getBoundingClientRect();
+        const headline = document
+          .querySelector(".zhero__headline")!
+          .getBoundingClientRect();
+        return {
+          width: imageBox.width,
+          height: imageBox.height,
+          ratio: image.naturalWidth / image.naturalHeight,
+          nativeWidth: image.naturalWidth,
+          nativeHeight: image.naturalHeight,
+          frameWidth: frame.width,
+          frameHeight: frame.height,
+          imageBottom: imageBox.bottom,
+          headlineTop: headline.top,
+          overflow: document.documentElement.scrollWidth - innerWidth,
+        };
+      });
+      expect(geometry.width / geometry.height).toBeCloseTo(geometry.ratio, 2);
+      expect(geometry.frameWidth).toBeCloseTo(geometry.width, 0);
+      expect(geometry.frameHeight).toBeCloseTo(geometry.height, 0);
+      expect(geometry.width).toBeLessThanOrEqual(geometry.nativeWidth);
+      expect(geometry.height).toBeLessThanOrEqual(geometry.nativeHeight);
+      expect(geometry.headlineTop).toBeGreaterThanOrEqual(
+        geometry.imageBottom - 1,
+      );
+      expect(geometry.overflow).toBeLessThanOrEqual(1);
+    }
+  });
+}
 
-test("a panorama is cropped rather than letterboxed on a phone", async ({
+test("a portrait shares the desktop header and stacks on a phone", async ({
   page,
 }) => {
-  await page.goto(PANO);
-  await heroReady(page);
-  await expect(page.locator(".hero-media")).toHaveAttribute(
-    "data-hero-fit",
-    "cover",
-  );
-});
-
-test("an image too small to enlarge is letterboxed too", async ({ page }) => {
-  await page.goto(TINY);
-  await heroReady(page);
-  await expect(page.locator(".hero-media")).toHaveAttribute(
-    "data-hero-fit",
-    "contain",
-  );
-  // And the hero still occupies its reserved height rather than collapsing to
-  // the 96x64 image.
-  const heroHeight = await page
-    .locator("section.zhero")
-    .evaluate((node) => node.getBoundingClientRect().height);
-  expect(heroHeight).toBeGreaterThan(240);
-});
-
-test("even a normal landscape photograph is shown whole", async ({ page }) => {
-  // This used to assert `cover`, and that is the change: a full-bleed crop
-  // flatters a photograph and destroys a title card, and nothing in the product
-  // can tell the two apart. Covering this 16:9 fixture in the hero throws away
-  // 40% of its height. See `IMAGE_FIT` in `$lib/utils/image-fit`.
-  await page.goto(BRIGHT);
-  await heroReady(page);
-  await expect(page.locator(".hero-media")).toHaveAttribute(
-    "data-hero-fit",
-    "contain",
-  );
-  // The blurred enlargement moves behind the image and fills the letterbox.
-  const bloomZ = await page
-    .locator(".hero-media__bloom")
-    .evaluate((node) => getComputedStyle(node).zIndex);
-  const plateZ = await page
-    .locator(".hero-media__plate")
-    .evaluate((node) => getComputedStyle(node).zIndex);
-  expect(Number(bloomZ)).toBeLessThan(Number(plateZ));
+  await page.route("**/fixture-hero.svg?**", async (route) => {
+    await route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="700" height="1075"><rect width="700" height="1075" fill="magenta"/></svg>',
+    });
+  });
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(BRIGHT);
+    await heroReady(page);
+    const geometry = await page.evaluate(() => {
+      const image = document
+        .querySelector(".hero-media__img")!
+        .getBoundingClientRect();
+      const title = document
+        .querySelector(".zhero__headline")!
+        .getBoundingClientRect();
+      return {
+        imageRight: image.right,
+        imageBottom: image.bottom,
+        titleLeft: title.left,
+        titleTop: title.top,
+        ratio: image.width / image.height,
+        overflow: document.documentElement.scrollWidth - innerWidth,
+      };
+    });
+    expect(geometry.ratio).toBeCloseTo(700 / 1075, 2);
+    if (width >= 1024)
+      expect(geometry.titleLeft).toBeGreaterThan(geometry.imageRight);
+    else expect(geometry.titleTop).toBeGreaterThanOrEqual(geometry.imageBottom);
+    expect(geometry.overflow).toBeLessThanOrEqual(1);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -2080,82 +1376,6 @@ test("the 1600x400 cover the editor stores is shown whole on the hero", async ({
     expect(right, `hero right edge bar missing at ${viewport.width}px`).toBe(
       true,
     );
-  }
-});
-
-test("the published hero keeps its responsive geometry token", async ({
-  page,
-}) => {
-  const cases = [
-    { label: "mobile lower clamp", viewport: { width: 390, height: 500 } },
-    { label: "mobile preferred clamp", viewport: { width: 390, height: 844 } },
-    { label: "mobile upper clamp", viewport: { width: 390, height: 1200 } },
-    { label: "just below 640px", viewport: { width: 639, height: 900 } },
-    { label: "at 640px", viewport: { width: 640, height: 900 } },
-    { label: "tablet lower clamp", viewport: { width: 768, height: 600 } },
-    {
-      label: "tablet preferred clamp",
-      viewport: { width: 768, height: 1024 },
-    },
-    { label: "tablet upper clamp", viewport: { width: 768, height: 1200 } },
-    { label: "desktop lower clamp", viewport: { width: 1024, height: 600 } },
-    {
-      label: "desktop preferred clamp",
-      viewport: { width: 1440, height: 900 },
-    },
-    { label: "desktop upper clamp", viewport: { width: 1440, height: 1200 } },
-  ];
-
-  for (const { label, viewport } of cases) {
-    await page.setViewportSize(viewport);
-    await page.goto(STORED_COVER);
-    await heroReady(page);
-
-    const geometry = await readHeroGeometry(page);
-    const { expected } = editorialHeroGeometry(viewport);
-
-    expect(geometry.minHeight, label).toBeCloseTo(expected, 0);
-    // CSSOM can retain a sub-pixel rounding remainder (e.g. 371.359375px for
-    // a 371.36px preferred value). That is equivalent geometry, not a short
-    // hero, so compare with a tiny CSS-pixel tolerance.
-    expect(geometry.height).toBeGreaterThanOrEqual(geometry.minHeight - 0.01);
-    expect(geometry.width).toBeGreaterThan(0);
-  }
-});
-
-test("the published hero keeps its rem fallback without svh support", async ({
-  page,
-}) => {
-  const cases = [
-    { viewport: { width: 390, height: 844 } },
-    { viewport: { width: 640, height: 900 } },
-    { viewport: { width: 1024, height: 900 } },
-  ];
-
-  for (const { viewport } of cases) {
-    await page.setViewportSize(viewport);
-    await page.goto(STORED_COVER);
-    await heroReady(page);
-
-    // Chromium supports svh, so first verify the shipped @supports rule is
-    // present. Chromium has no switch for disabling one viewport unit, so then
-    // remove the supported-unit override to simulate an older engine that
-    // skips that block; the computed token below observes the shipped rem
-    // fallback. Vite can split the same support block across multiple sheets,
-    // so the count is deliberately only a presence check; the computed token
-    // below is the behavior under test.
-    const removed = await removeSvhOverride(page);
-    expect(removed.removed).toBeGreaterThanOrEqual(1);
-    expect(removed.value).not.toContain("svh");
-    expect(removed.value).toContain("rem");
-
-    const { token } = editorialHeroGeometry(viewport);
-    const geometry = await readHeroGeometry(page);
-    // Negative control: removing the rem declarations from globals.css leaves
-    // this var() invalid, so the observed min-height no longer matches the
-    // fallback token and this assertion fails against that hero.
-    expect(geometry.heroHeightToken).not.toContain("svh");
-    expect(geometry.minHeight).toBeCloseTo(token.fallback, 0);
   }
 });
 
