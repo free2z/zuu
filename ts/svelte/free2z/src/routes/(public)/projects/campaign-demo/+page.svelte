@@ -82,9 +82,12 @@
           ? "Meta alcanzada · sigue recibiendo"
           : "Recibiendo aportes",
   );
+  // Format the exact decimal string, not a Number: 64-bit zatoshi totals exceed
+  // double precision, and the display must match the value that was proved.
+  // Engines without exact string formatting fall back to Number coercion.
   const money = (value: string) =>
     new Intl.NumberFormat("es", { maximumFractionDigits: 8 }).format(
-      Number(value),
+      value as Intl.StringNumericLiteral,
     );
   const fieldClass =
     "w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring";
