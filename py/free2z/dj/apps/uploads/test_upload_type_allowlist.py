@@ -87,8 +87,9 @@ def _mpo_bytes():
 
 MPO = _mpo_bytes()
 
-# HEIF/AVIF: ISO-BMFF with their own unambiguous brands. Pillow 10.3 cannot
-# decode either, so they get no second stage — identification is by brand.
+# HEIF/AVIF: ISO-BMFF with their own unambiguous brands. These fixtures test
+# brand identification, not decodability: the explicit _PILLOW_FORMATS policy
+# excludes these types from second-stage confirmation regardless of codecs.
 def _iso_bmff(major: bytes, compatible: bytes = b'mif1') -> bytes:
     """
     A bare `ftyp` box: 4-byte size, 'ftyp', 4-byte major brand, 4-byte minor

@@ -206,10 +206,11 @@ VARIANT_WIDTHS = [64, 128, 400, 800, 1600]
 UPLOAD_STORAGE_ALIAS = "default"
 
 # Image types the WebP ladder skips, served as-is: animated (gif), vector
-# (legacy svg rows — no longer accepted on upload), and formats our pinned
-# Pillow 10.3 cannot decode at all (heic needs pillow-heif, avif landed in
-# Pillow 11.3). Listing the undecodable ones here keeps the upload signal from
-# enqueuing a variant job per file that can only fail to open.
+# (legacy svg rows — no longer accepted on upload), and HEIC/AVIF. Excluding
+# HEIC/AVIF is an application policy, independent of Pillow's available codecs:
+# adding decoder support must not opt uploads into variant generation. Both
+# the upload signal and variant task enforce this list; validation.py also
+# excludes these formats from its separate _PILLOW_FORMATS confirmation table.
 NON_RASTER_IMAGE_MIME_TYPES = [
     'image/gif', 'image/svg+xml', 'image/heic', 'image/avif',
 ]
