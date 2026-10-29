@@ -67,7 +67,14 @@ loader cache with no `libpq` entry and verifies the selected bundle path; no
 
 The receiving host supplies only the glibc 2.36 ABI and its loader. The explicit
 library names are `ld-linux-x86-64.so.2`, `libc.so.6`, `libdl.so.2`, `libm.so.6`,
-`libpthread.so.0`, `libresolv.so.2`, and `librt.so.1`. This is not an arbitrary Linux portability
+`libmvec.so.1`, `libpthread.so.0`, `libresolv.so.2`, and `librt.so.1`.
+PyAV's bundled x265 library uses `libmvec.so.1`, the vector math library from
+the host's glibc installation. It must resolve on the receiving system; it is
+not copied from the backend image. Bundling it would introduce glibc's private
+ABI into the payload, which the ELF parser rejects. Missing host vector math
+support fails native import qualification. Consumers must admit this exact
+library list and independently qualify the receiving namespace before activation.
+This is not an arbitrary Linux portability
 claim. Libraries loaded dynamically by application code require qualification
 coverage as well as static dependency inspection.
 

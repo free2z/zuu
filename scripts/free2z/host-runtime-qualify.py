@@ -26,7 +26,7 @@ import tempfile
 import zoneinfo
 
 SYSTEM = {'ld-linux-x86-64.so.2', 'libc.so.6', 'libdl.so.2', 'libm.so.6',
-          'libpthread.so.0', 'libresolv.so.2', 'librt.so.1'}
+          'libmvec.so.1', 'libpthread.so.0', 'libresolv.so.2', 'librt.so.1'}
 # glibc 2.36 nss/databases.def. Explicit entries avoid optional nis/compat
 # defaults; this synthetic profile is not a deployed host's configuration.
 NSS_DATABASES = ('aliases', 'ethers', 'group', 'group_compat', 'gshadow', 'hosts',

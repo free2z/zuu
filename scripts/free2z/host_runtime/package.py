@@ -16,7 +16,10 @@ from .image import Image, MAX_FILE, canonical
 from . import relocation
 
 SYSTEM_LIBRARIES = ['ld-linux-x86-64.so.2', 'libc.so.6', 'libdl.so.2',
-                    'libm.so.6', 'libpthread.so.0', 'libresolv.so.2', 'librt.so.1']
+                    'libm.so.6', 'libmvec.so.1', 'libpthread.so.0', 'libresolv.so.2', 'librt.so.1']
+# PyAV's x265 needs glibc's vector math library. Like libm, libmvec belongs
+# to the receiving glibc installation: its GLIBC_PRIVATE coupling must never
+# be copied into the relocatable payload or exempted from ELF validation.
 PLATFORM = dict(os='linux', distribution='debian', distribution_version='12',
                 architecture='x86_64', libc=dict(family='glibc', version='2.36'),
                 loader='/lib64/ld-linux-x86-64.so.2', system_libraries=SYSTEM_LIBRARIES)
@@ -116,7 +119,11 @@ class Package:
                 target = 'runtime/lib/' + dependency
                 self.edges[name][dependency] = target
                 if target not in self.sources:
-                    self.add(target, data, 'image:/' + original)
+                    try:
+                        self.add(target, data, 'image:/' + original)
+                    except ValueError as exc:
+                        raise ValueError('native dependency rejected: ' + source + ' -> '
+                                         + dependency + ' (image:/' + original + '): ' + str(exc)) from exc
                     if target not in self.elfs:
                         raise ValueError('shared library is not ELF')
                     pending.append(target)
