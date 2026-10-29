@@ -25,5 +25,7 @@ test-results-local-*
 # Generated immutable recorder bundles.
 static/_app/
 static/tools/
+static/projects/campaign-demo-proof/threshold.*
+static/projects/campaign-demo-proof/.threshold.*
 
 .recorder-*/

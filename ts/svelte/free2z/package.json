@@ -21,7 +21,9 @@
     "lint:compat": "eslint src",
     "format": "prettier --write .",
     "generate:api": "svelte-kit sync && orval",
-    "prebuild": "node scripts/build-recorder.mjs static"
+    "prebuild": "node scripts/build-recorder.mjs static && node scripts/campaign-proof-assets.mjs",
+    "campaign:proof-assets": "node scripts/campaign-proof-assets.mjs",
+    "campaign:proof-generate": "node scripts/generate-campaign-proof.mjs"
   },
   "devDependencies": {
     "@internationalized/date": "^3.12.4",
@@ -38,6 +40,8 @@
     "@typescript-eslint/parser": "^8.66.0",
     "autoprefixer": "^10.6.1",
     "bits-ui": "^2.19.5",
+    "circom2": "0.2.22",
+    "circomlib": "2.0.5",
     "clsx": "^2.1.1",
     "embla-carousel-svelte": "^8.6.0",
     "esbuild": "0.28.2",
@@ -51,6 +55,7 @@
     "prettier": "^3.9.10",
     "prettier-plugin-svelte": "^4.1.1",
     "prettier-plugin-tailwindcss": "^0.8.1",
+    "snarkjs": "0.7.6",
     "svelte": "^5.57.2",
     "svelte-check": "^4.7.6",
     "svelte-eslint-parser": "^1.9.0",
@@ -98,6 +103,9 @@
     "@tailwindcss/typography": {
       "postcss-selector-parser": "^6.1.5"
     },
-    "runed": "0.38.0"
+    "runed": "0.38.0",
+    "snarkjs": {
+      "underscore": "1.13.8"
+    }
   }
 }
