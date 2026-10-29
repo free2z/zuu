@@ -33,10 +33,14 @@ export function recorderBuildProcesses(signal, diagnostic = console.error) {
       let reapTimer;
       let resolve;
       let reject;
-      const result = new Promise((yes, no) => { resolve = yes; reject = no; });
-      const details = () => `${label.slice(0, 512)} pid=${child.pid ?? "unstarted"} `
-        + `elapsed=${Date.now() - started}ms\nstdout (last ${outputLimit} bytes):\n${stdout}`
-        + `\nstderr (last ${outputLimit} bytes):\n${stderr}`;
+      const result = new Promise((yes, no) => {
+        resolve = yes;
+        reject = no;
+      });
+      const details = () =>
+        `${label.slice(0, 512)} pid=${child.pid ?? "unstarted"} ` +
+        `elapsed=${Date.now() - started}ms\nstdout (last ${outputLimit} bytes):\n${stdout}` +
+        `\nstderr (last ${outputLimit} bytes):\n${stderr}`;
       function finish(error) {
         if (settled) return;
         settled = true;
@@ -69,7 +73,11 @@ export function recorderBuildProcesses(signal, diagnostic = console.error) {
             child.stdout.destroy();
             child.stderr.destroy();
             child.unref();
-            finish(new Error(`Recorder child did not close after SIGKILL: ${details()}`));
+            finish(
+              new Error(
+                `Recorder child did not close after SIGKILL: ${details()}`,
+              ),
+            );
           }, termGraceMs + killWaitMs);
         },
       };
@@ -80,14 +88,21 @@ export function recorderBuildProcesses(signal, diagnostic = console.error) {
       child.stderr.on("data", (chunk) => {
         stderr = Buffer.concat([stderr, chunk]).subarray(-outputLimit);
       });
-      child.on("error", (error) => { spawnError = error; });
+      child.on("error", (error) => {
+        spawnError = error;
+      });
       // close, unlike exit, also waits for inherited stdout/stderr to close.
       child.on("close", (code, exitSignal) => {
         if (code === 0 && !aborted && !spawnError) finish();
         else {
-          if (aborted) diagnostic(`Reaped ${details()}\nexit=${code} signal=${exitSignal}`);
-          const error = new Error(`${aborted ? "Aborted" : "Failed"} ${details()}\n`
-            + `exit=${code} signal=${exitSignal} ${spawnError?.message ?? ""}`);
+          if (aborted)
+            diagnostic(
+              `Reaped ${details()}\nexit=${code} signal=${exitSignal}`,
+            );
+          const error = new Error(
+            `${aborted ? "Aborted" : "Failed"} ${details()}\n` +
+              `exit=${code} signal=${exitSignal} ${spawnError?.message ?? ""}`,
+          );
           error.code = code;
           error.signal = exitSignal;
           finish(error);

@@ -11,7 +11,12 @@ async function alive(pid) {
     process.kill(pid, 0);
     if (process.platform === "linux") {
       const stat = await readFile(`/proc/${pid}/stat`, "utf8");
-      if (["Z", "X"].includes(stat.slice(stat.lastIndexOf(")") + 2, stat.lastIndexOf(")") + 3))) return false;
+      if (
+        ["Z", "X"].includes(
+          stat.slice(stat.lastIndexOf(")") + 2, stat.lastIndexOf(")") + 3),
+        )
+      )
+        return false;
     }
     return true;
   } catch (error) {
@@ -20,18 +25,22 @@ async function alive(pid) {
   }
 }
 
-test("aborting a hanging build reaps it and terminates its owned descendant", {
-  timeout: 10_000,
-  skip: process.platform === "win32" && "requires POSIX process groups",
-}, async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "recorder-abort-"));
-  const marker = join(directory, "ready.json");
-  const controller = new AbortController();
-  const diagnostics = [];
-  const processes = recorderBuildProcesses(
-    AbortSignal.any([t.signal, controller.signal]), (message) => diagnostics.push(message),
-  );
-  const script = `
+test(
+  "aborting a hanging build reaps it and terminates its owned descendant",
+  {
+    timeout: 10_000,
+    skip: process.platform === "win32" && "requires POSIX process groups",
+  },
+  async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "recorder-abort-"));
+    const marker = join(directory, "ready.json");
+    const controller = new AbortController();
+    const diagnostics = [];
+    const processes = recorderBuildProcesses(
+      AbortSignal.any([t.signal, controller.signal]),
+      (message) => diagnostics.push(message),
+    );
+    const script = `
     const { spawn } = require('node:child_process');
     const { writeFileSync, renameSync } = require('node:fs');
     process.on('SIGTERM', () => {});
@@ -49,51 +58,77 @@ test("aborting a hanging build reaps it and terminates its owned descendant", {
     });
     setInterval(() => {}, 1000);
   `;
-  const result = processes.run(["-e", script, marker], "hanging fixture")
-    .then(() => null, (error) => error);
-  try {
-    let pids;
-    const deadline = Date.now() + 4000;
-    while (!pids && Date.now() < deadline) {
-      try { pids = JSON.parse(await readFile(marker, "utf8")); }
-      catch (error) { if (error.code !== "ENOENT") throw error; }
-      if (!pids) await delay(10);
+    const result = processes
+      .run(["-e", script, marker], "hanging fixture")
+      .then(
+        () => null,
+        (error) => error,
+      );
+    try {
+      let pids;
+      const deadline = Date.now() + 4000;
+      while (!pids && Date.now() < deadline) {
+        try {
+          pids = JSON.parse(await readFile(marker, "utf8"));
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+        }
+        if (!pids) await delay(10);
+      }
+      assert.ok(
+        pids,
+        "both owned processes reached their SIGTERM-resistant wait",
+      );
+      assert.equal(await alive(pids[0]), true);
+      assert.equal(await alive(pids[1]), true);
+      controller.abort();
+      const failure = await result;
+      assert.match(failure.message, /Aborted hanging fixture/);
+      assert.equal(failure.signal, "SIGKILL");
+      assert.equal(await alive(pids[0]), false, "direct child was reaped");
+      assert.equal(await alive(pids[1]), false, "owned descendant stopped");
+      // close fires after both pipes drain, unlike the initial abort snapshot.
+      const reaped = diagnostics.find((message) =>
+        message.startsWith("Reaped "),
+      );
+      assert.match(reaped, /hanging fixture ready/);
+      assert.match(reaped, /descendant ignores SIGTERM/);
+      await assert.rejects(processes.run(["-e", "process.exit(0)"]), /aborted/);
+    } finally {
+      await processes.close();
+      await rm(directory, { recursive: true, force: true });
     }
-    assert.ok(pids, "both owned processes reached their SIGTERM-resistant wait");
-    assert.equal(await alive(pids[0]), true);
-    assert.equal(await alive(pids[1]), true);
-    controller.abort();
-    const failure = await result;
-    assert.match(failure.message, /Aborted hanging fixture/);
-    assert.equal(failure.signal, "SIGKILL");
-    assert.equal(await alive(pids[0]), false, "direct child was reaped");
-    assert.equal(await alive(pids[1]), false, "owned descendant stopped");
-    // close fires after both pipes drain, unlike the initial abort snapshot.
-    const reaped = diagnostics.find((message) => message.startsWith("Reaped "));
-    assert.match(reaped, /hanging fixture ready/);
-    assert.match(reaped, /descendant ignores SIGTERM/);
-    await assert.rejects(processes.run(["-e", "process.exit(0)"]), /aborted/);
-  } finally {
-    await processes.close();
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+  },
+);
 
-test("failed build diagnostics retain bounded stdout and stderr tails", { timeout: 5000 }, async (t) => {
-  const processes = recorderBuildProcesses(t.signal);
-  try {
-    await assert.rejects(processes.run(["-e", `
+test(
+  "failed build diagnostics retain bounded stdout and stderr tails",
+  { timeout: 5000 },
+  async (t) => {
+    const processes = recorderBuildProcesses(t.signal);
+    try {
+      await assert.rejects(
+        processes.run(
+          [
+            "-e",
+            `
       process.stdout.write('x'.repeat(100000) + 'STDOUT-END');
       process.stderr.write('y'.repeat(100000) + 'STDERR-END');
       process.exitCode = 7;
-    `], "noisy fixture"), (error) => {
-      assert.equal(error.code, 7);
-      assert.match(error.message, /STDOUT-END/);
-      assert.match(error.message, /STDERR-END/);
-      assert.ok(error.message.length < 17000, "output tails stay bounded");
-      return true;
-    });
-  } finally {
-    await processes.close();
-  }
-});
+    `,
+          ],
+          "noisy fixture",
+        ),
+        (error) => {
+          assert.equal(error.code, 7);
+          assert.match(error.message, /STDOUT-END/);
+          assert.match(error.message, /STDERR-END/);
+          assert.ok(error.message.length < 17000, "output tails stay bounded");
+          return true;
+        },
+      );
+    } finally {
+      await processes.close();
+    }
+  },
+);
