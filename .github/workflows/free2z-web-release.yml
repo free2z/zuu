@@ -4,6 +4,9 @@ on:
     branches:
       - main
     paths:
+      - rs/zcash-payment-hooks/**
+      - rust-toolchain.toml
+      - .github/workflows/free2z-host-release.yml
       - py/free2z/**
       - ts/svelte/free2z/**
       - ts/react/free2z/**

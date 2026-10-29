@@ -1,4 +1,5 @@
 name: Free2Z host preparation
+run-name: Free2Z host preparation ${{ inputs.web_release_tag || github.ref }}
 on:
   pull_request:
     paths:
