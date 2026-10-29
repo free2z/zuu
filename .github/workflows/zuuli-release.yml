@@ -349,7 +349,7 @@ jobs:
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: wallet/zuuli/unsigned-android/CHECKSUMS.sha256
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: unsigned-zuuli-android-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: wallet/zuuli/unsigned-android
@@ -759,7 +759,7 @@ jobs:
             echo "Android credential cleanup failed" >&2
             exit 1
           fi
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: internal-zuuli-android-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: signed-android
@@ -861,7 +861,7 @@ jobs:
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: wallet/zuuli/release-artifacts/*
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: zuuli-android-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: wallet/zuuli/release-artifacts
@@ -1008,7 +1008,7 @@ jobs:
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: wallet/zuuli/unsigned-ios/*
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: internal-zuuli-ios-unsigned-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: wallet/zuuli/unsigned-ios
@@ -1226,7 +1226,7 @@ jobs:
             echo "iOS signing credential cleanup or keychain restoration failed" >&2
             exit 1
           fi
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: internal-zuuli-ios-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: signed-ios
@@ -1303,7 +1303,7 @@ jobs:
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: wallet/zuuli/verified-ios/*
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: internal-zuuli-ios-verified-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: wallet/zuuli/verified-ios
@@ -1420,7 +1420,7 @@ jobs:
             echo "ephemeral ASC credential directory survived cleanup" >&2
             exit 1
           fi
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: internal-zuuli-ios-uploaded-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: uploaded-ios
@@ -1516,7 +1516,7 @@ jobs:
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: wallet/zuuli/release-artifacts/*
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: zuuli-ios-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: wallet/zuuli/release-artifacts
@@ -1695,7 +1695,7 @@ jobs:
           npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with: { subject-path: "wallet/zuuli/release-artifacts/*" }
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           {
             name: "zuuli-linux-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}",
@@ -1837,7 +1837,7 @@ jobs:
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: wallet/zuuli/unsigned-macos/*
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: internal-zuuli-macos-unsigned-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: wallet/zuuli/unsigned-macos
@@ -2234,7 +2234,7 @@ jobs:
             echo "ephemeral macOS Apple keychain survived cleanup" >&2
             exit 1
           fi
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: internal-zuuli-macos-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: signed-macos
@@ -2459,7 +2459,7 @@ jobs:
           node scripts/release-manifest.mjs --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with: { subject-path: "wallet/zuuli/release-artifacts/*" }
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           {
             name: "zuuli-macos-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}",
@@ -2556,7 +2556,7 @@ jobs:
           RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
           RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
         run: wallet/zuuli/scripts/publish-github-release.sh "$RELEASE_TAG" "$RELEASE_IDENTITY" "$RELEASE_SOURCE_SHA" release-downloads
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: zuuli-release-index-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: release-downloads
