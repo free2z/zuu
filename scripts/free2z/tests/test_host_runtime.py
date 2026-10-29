@@ -100,6 +100,16 @@ class NativeTests(unittest.TestCase):
             with self.subTest(data=hashlib.sha256(data).hexdigest()), self.assertRaises(ValueError):
                 ELF(data).compatible()
 
+    def test_private_glibc_abi_is_never_a_payload_contract(self):
+        with self.assertRaisesRegex(ValueError, 'private glibc ABI'):
+            ELF(elf(glibc='PRIVATE'))
+
+    @unittest.skipUnless(sys.platform == 'linux' and Path('/lib/x86_64-linux-gnu/libmvec.so.1').is_file(),
+                         'requires the actual Linux x86-64 glibc vector library')
+    def test_actual_glibc_vector_library_cannot_be_bundled(self):
+        with self.assertRaisesRegex(ValueError, 'private glibc ABI'):
+            ELF(Path('/lib/x86_64-linux-gnu/libmvec.so.1').read_bytes())
+
     def test_reject_non_bare_dependency_and_relative_search(self):
         with self.assertRaises(ValueError):
             ELF(elf(['/tmp/lib.so']))
@@ -158,6 +168,49 @@ class ImageTests(unittest.TestCase):
 
 
 class ClosureTests(unittest.TestCase):
+    def test_vector_math_is_an_exact_host_edge_not_a_bundled_private_abi(self):
+        self.assertEqual(set(package.SYSTEM_LIBRARIES), load('host-runtime-qualify.py').SYSTEM)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image_tar(root / 'image.tar', {
+                'usr/local/lib/libcodec.so': elf(['libmvec.so.1', 'libm.so.6']),
+                'usr/lib/x86_64-linux-gnu/libmvec.so.1': elf(glibc='PRIVATE'),
+            })
+            image = Image(root / 'image.tar')
+            try:
+                bundle = Package(image, root / 'output', Path('/verified/patchelf'))
+                bundle.copy('usr/local/lib/libcodec.so', 'runtime/lib/libcodec.so')
+                def patch_file(command, **kwargs):
+                    target = Path(command[-1])
+                    target.write_bytes(elf(ELF(target.read_bytes()).needed, runpath=command[-2]))
+                with patch('host_runtime.package.subprocess.run', side_effect=patch_file):
+                    bundle.close_native_dependencies()
+                self.assertEqual(bundle.edges['runtime/lib/libcodec.so']['libmvec.so.1'], 'host:libmvec.so.1')
+                self.assertNotIn('runtime/lib/libmvec.so.1', bundle.sources)
+                self.assertFalse((bundle.root / 'runtime/lib/libmvec.so.1').exists())
+                # Direct copies and similarly named libraries do not inherit
+                # the host exemption. Neither can carry a private ABI payload.
+                with self.assertRaisesRegex(ValueError, 'private glibc ABI'):
+                    bundle.copy('usr/lib/x86_64-linux-gnu/libmvec.so.1', 'runtime/lib/libmvec.so.1')
+            finally:
+                image.close()
+
+    def test_unapproved_vector_library_still_rejects_private_abi_with_source_context(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image_tar(root / 'image.tar', {
+                'usr/local/lib/libcodec.so': elf(['libmvec.so.2']),
+                'usr/lib/x86_64-linux-gnu/libmvec.so.2': elf(glibc='PRIVATE'),
+            })
+            image = Image(root / 'image.tar')
+            try:
+                bundle = Package(image, root / 'output', Path('/unused'))
+                bundle.copy('usr/local/lib/libcodec.so', 'runtime/lib/libcodec.so')
+                with self.assertRaisesRegex(ValueError, r'libcodec.so -> libmvec.so.2 .*private glibc ABI'):
+                    bundle.close_native_dependencies()
+            finally:
+                image.close()
+
     def test_installed_development_objects_do_not_enter_runtime(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
