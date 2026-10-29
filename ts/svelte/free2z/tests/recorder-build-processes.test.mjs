@@ -33,15 +33,19 @@ test("aborting a hanging build reaps it and terminates its owned descendant", {
   );
   const script = `
     const { spawn } = require('node:child_process');
-    const { writeFileSync } = require('node:fs');
+    const { writeFileSync, renameSync } = require('node:fs');
     process.on('SIGTERM', () => {});
     const descendant = spawn(process.execPath, ['-e',
       "process.on('SIGTERM', () => {}); process.send('ready'); setInterval(() => {}, 1000)"
     ], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
     descendant.on('message', () => {
-      writeFileSync(process.argv[1], JSON.stringify([process.pid, descendant.pid]));
-      console.log('hanging fixture ready');
-      console.error('descendant ignores SIGTERM');
+      process.stdout.write('hanging fixture ready\\n', () => {
+        process.stderr.write('descendant ignores SIGTERM\\n', () => {
+          const temporary = process.argv[1] + '.tmp';
+          writeFileSync(temporary, JSON.stringify([process.pid, descendant.pid]));
+          renameSync(temporary, process.argv[1]);
+        });
+      });
     });
     setInterval(() => {}, 1000);
   `;
@@ -64,8 +68,10 @@ test("aborting a hanging build reaps it and terminates its owned descendant", {
     assert.equal(failure.signal, "SIGKILL");
     assert.equal(await alive(pids[0]), false, "direct child was reaped");
     assert.equal(await alive(pids[1]), false, "owned descendant stopped");
-    assert.match(diagnostics.join("\n"), /hanging fixture ready/);
-    assert.match(diagnostics.join("\n"), /descendant ignores SIGTERM/);
+    // close fires after both pipes drain, unlike the initial abort snapshot.
+    const reaped = diagnostics.find((message) => message.startsWith("Reaped "));
+    assert.match(reaped, /hanging fixture ready/);
+    assert.match(reaped, /descendant ignores SIGTERM/);
     await assert.rejects(processes.run(["-e", "process.exit(0)"]), /aborted/);
   } finally {
     await processes.close();

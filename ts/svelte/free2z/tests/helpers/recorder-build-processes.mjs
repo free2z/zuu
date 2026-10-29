@@ -85,6 +85,7 @@ export function recorderBuildProcesses(signal, diagnostic = console.error) {
       child.on("close", (code, exitSignal) => {
         if (code === 0 && !aborted && !spawnError) finish();
         else {
+          if (aborted) diagnostic(`Reaped ${details()}\nexit=${code} signal=${exitSignal}`);
           const error = new Error(`${aborted ? "Aborted" : "Failed"} ${details()}\n`
             + `exit=${code} signal=${exitSignal} ${spawnError?.message ?? ""}`);
           error.code = code;
