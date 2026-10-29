@@ -23,6 +23,7 @@ import subprocess
 import sys
 import sysconfig
 import tempfile
+import time
 import zoneinfo
 
 SYSTEM = {'ld-linux-x86-64.so.2', 'libc.so.6', 'libdl.so.2', 'libm.so.6',
@@ -72,9 +73,22 @@ def check_startup_environment(environment):
         raise ValueError('qualification must start with an empty environment')
 
 
+def check_timezone_binding(root, system_directory=Path('/usr/share/zoneinfo')):
+    # Django validates TIME_ZONE at this fixed path before calling tzset().
+    # Require the selected bundle itself, not a copy or host timezone data.
+    directory = root / 'runtime/share/zoneinfo'
+    if system_directory.is_symlink() or not system_directory.samefile(directory):
+        raise ValueError('system timezone directory is not bound to the selected bundle')
+    if not os.statvfs(system_directory).f_flag & os.ST_RDONLY:
+        raise ValueError('system timezone binding must be read-only')
+    for key in ('UTC', 'Asia/Tokyo'):
+        if not (system_directory / key).samefile(directory / key):
+            raise ValueError('system timezone file escaped the selected bundle')
+
+
 def select_bundled_timezones(root):
     # Negative control: installed tzdata wheels must not mask missing bundle
-    # files. The container also mounts an empty directory over host zoneinfo.
+    # files. An empty search path also excludes the system-directory binding.
     zoneinfo.ZoneInfo.clear_cache()
     zoneinfo.reset_tzpath([])
     try:
@@ -85,6 +99,7 @@ def select_bundled_timezones(root):
         raise ValueError('timezone lookup has an unqualified package fallback')
     directory = str(root / 'runtime/share/zoneinfo')
     os.environ['PYTHONTZPATH'] = directory
+    os.environ['TZDIR'] = directory
     zoneinfo.reset_tzpath()
     if zoneinfo.TZPATH != (directory,):
         raise ValueError('timezone search path escaped the bundle')
@@ -92,6 +107,19 @@ def select_bundled_timezones(root):
         value = datetime(2024, 1, 1, tzinfo=zoneinfo.ZoneInfo(key))
         if value.utcoffset() != timedelta(hours=hours):
             raise ValueError('bundled timezone lookup returned an unexpected offset')
+
+
+def check_libc_timezones():
+    try:
+        for key, hour in (('Asia/Tokyo', 9), ('UTC', 0)):
+            os.environ['TZ'] = key
+            time.tzset()
+            if time.localtime(1704067200)[:4] != (2024, 1, 1, hour):
+                raise ValueError('libc timezone lookup returned an unexpected offset')
+    finally:
+        # An unset TZ would make glibc consult the host's /etc/localtime.
+        os.environ['TZ'] = 'UTC'
+        time.tzset()
 
 
 def run(root):
@@ -122,9 +150,9 @@ def run(root):
     if os.access(python, os.W_OK):
         raise ValueError('payload is writable')
     subprocess.run([str(python), '-I', '-m', 'pip', 'check'], check=True, env={}, timeout=90)
-    if any(Path('/usr/share/zoneinfo').iterdir()):
-        raise ValueError('qualification requires an empty host timezone directory')
+    check_timezone_binding(root)
     select_bundled_timezones(root)
+    check_libc_timezones()
     sys.path.insert(0, str(root / 'py'))
     os.environ.update(DJANGO_SETTINGS_MODULE='dj.free2z.settings',
                       OPENAPI_GEN='1',
@@ -243,7 +271,8 @@ def run(root):
                 nss_configuration_sha256=nss_configuration_sha256,
                 checks=['pip-check', 'django-registry', 'application-imports', 'native-imports', 'nss-files',
                         'nss-profile', 'nscd-unavailable', 'nss-local-identity',
-                        'bundled-ca', 'bundled-timezones', 'timestamp-serialization',
+                        'bundled-ca', 'bundled-timezones', 'timezone-binding', 'libc-timezones',
+                        'timestamp-serialization',
                         'daemon-help', 'uid', 'inherited-flock', 'sigterm', 'readonly-wallet-wal'])
 
 
