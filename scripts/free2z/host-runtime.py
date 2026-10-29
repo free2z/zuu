@@ -125,8 +125,6 @@ def assemble(args):
     reports = args.work / 'reports'
     reports.mkdir(mode=0o777)
     reports.chmod(0o777)
-    empty_zoneinfo = args.work / 'empty-zoneinfo'
-    empty_zoneinfo.mkdir(mode=0o555)
     qualification_inputs = args.work / 'qualification-inputs'
     qualification_inputs.mkdir(mode=0o755)
     (qualification_inputs / 'nsswitch.conf').write_bytes((ROOT / 'build/free2z/host-nsswitch.conf').read_bytes())
@@ -147,7 +145,7 @@ def assemble(args):
                '--mount', f'type=bind,source={payload},target={prefix},readonly',
                '--mount', f'type=bind,source={ROOT / "scripts/free2z/host-runtime-qualify.py"},target=/qualification.py,readonly',
                '--mount', f'type=bind,source={reports},target=/reports',
-               '--mount', f'type=bind,source={empty_zoneinfo},target=/usr/share/zoneinfo,readonly',
+               '--mount', f'type=bind,source={payload / "runtime/share/zoneinfo"},target=/usr/share/zoneinfo,readonly',
                '--mount', f'type=bind,source={qualification_inputs / "nsswitch.conf"},target=/etc/nsswitch.conf,readonly',
                '--mount', f'type=bind,source={qualification_inputs / "passwd"},target=/etc/passwd,readonly',
                '--mount', f'type=bind,source={qualification_inputs / "group"},target=/etc/group,readonly',
