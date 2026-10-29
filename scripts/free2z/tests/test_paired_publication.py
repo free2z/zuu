@@ -220,6 +220,7 @@ class PairedPublication(unittest.TestCase):
     def test_workflow_privilege_and_source_boundary(self):
         workflow = (ROOT / paired.DISPATCH).read_text()
         self.assertIn('types: [completed]', workflow)
+        self.assertIn('group: free2z-paired-publication-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}', workflow)
         self.assertIn('ref: ${{ github.sha }}', workflow)
         self.assertIn('persist-credentials: false', workflow)
         self.assertEqual(workflow.count('actions: write'), 1)

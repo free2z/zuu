@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: free2z-paired-publication
+  group: free2z-paired-publication-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
   cancel-in-progress: false
 env:
   NODE_OPTIONS: --use-openssl-ca
