@@ -56,6 +56,53 @@
         "text": ", let's check the weather for San Francisco, CA:"
       },
       {
+        "type": "tool_call_delta",
+        "index": 1,
+        "id": "toolu_01T1x1fJ34qAmk2tNTrN7Up6",
+        "name": "get_weather",
+        "arguments": ""
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 1,
+        "arguments": "{\"location\":"
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 1,
+        "arguments": " \"San"
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 1,
+        "arguments": " Francisc"
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 1,
+        "arguments": "o,"
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 1,
+        "arguments": " CA\""
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 1,
+        "arguments": ", "
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 1,
+        "arguments": "\"unit\": \"fah"
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 1,
+        "arguments": "renheit\"}"
+      },
+      {
         "type": "tool_call",
         "id": "toolu_01T1x1fJ34qAmk2tNTrN7Up6",
         "name": "get_weather",
