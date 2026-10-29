@@ -322,3 +322,35 @@ fn every_pre_call_details_key_is_allowed_to_retry() {
             .any(|(_, k)| k == "total" || k == "missing")
     );
 }
+
+#[test]
+fn affordability_refusal_details_are_pre_call_and_allow_an_uncapped_null() {
+    use f2z_ai_proto::error::{ErrorBody, PRE_CALL_DETAILS};
+
+    let fields = [
+        "input_tokens_estimate",
+        "required_2z",
+        "available_milli_2z",
+        "min_charge_2z",
+        "cap_remaining_milli_2z",
+    ];
+    for field in fields {
+        assert!(
+            PRE_CALL_DETAILS.contains(&field),
+            "affordability refusal detail {field} is not in the pre-call inventory"
+        );
+    }
+
+    let body: ErrorBody = serde_json::from_str(
+        r#"{"error":{"code":"insufficient_balance","message":"too low","details":{
+            "input_tokens_estimate":42,"required_2z":2,"available_milli_2z":1999,
+            "min_charge_2z":1,"cap_remaining_milli_2z":null}}}"#,
+    )
+    .unwrap();
+    assert!(body.error.failed_call().is_none());
+    assert_eq!(
+        body.error.details.as_ref().unwrap()["cap_remaining_milli_2z"],
+        serde_json::Value::Null
+    );
+    assert!(!body.error.retryable());
+}
