@@ -84,31 +84,10 @@ pub const DEFAULT_MAX_VALIDITY_MS: u64 = 900_000;
 /// **This is necessary, not sufficient, and the gap is stated rather than
 /// papered over.** A clock at a coarse granularity — days since the epoch is
 /// about 20,700 — passes the ceiling, and no check on a single `u32` can prove
-/// the value came from durable storage. [`MAX_ACCOUNT_EPOCH_STEP`] closes most
-/// of what is left; what remains is the issuer's obligation, stated in §4.5.4
-/// and in this crate's module documentation.
+/// the value came from durable storage. The issuer's durable-counter
+/// obligation, stated in §4.5.4 and this crate's module documentation, is the
+/// only sound way to distinguish it.
 pub const ACCOUNT_EPOCH_CEILING: u32 = 1 << 20;
-
-/// The largest advance in `account_epoch` between two assertions admitted for
-/// one handle: 16.
-///
-/// A counter increments once per account-ownership event, and only events whose
-/// assertion never reached the log accumulate slack, so the gap between two
-/// *admitted* assertions is a handful at most. A clock's gap is however much
-/// time passed between the two issuances, at whatever granularity the clock
-/// runs.
-///
-/// Together with [`ACCOUNT_EPOCH_CEILING`] this leaves a clock only one narrow
-/// band to hide in — fine enough to tick between two issuances, coarse enough
-/// that it ticks at most 16 times, and small enough in absolute terms to stay
-/// under the ceiling. It is a fixed constant rather than a published policy
-/// number deliberately: the same bound on every log is one a client can apply
-/// without first fetching a policy document, and unlike
-/// [`AuthorityConfig::max_validity_ms`] there is no operational reason for two
-/// logs to disagree about it.
-///
-/// [`AuthorityConfig::max_validity_ms`]: AuthorityConfig::max_validity_ms
-pub const MAX_ACCOUNT_EPOCH_STEP: u32 = 16;
 
 /// The default clock skew allowed on `issued_ms`, in milliseconds: 2 minutes.
 ///
@@ -680,13 +659,12 @@ impl AuthorityConfig {
     /// 16. **The identity key signed the binding.** Without this a stolen
     ///     assertion is usable by the thief; with it, it is useless.
     /// 17. `(authority_id, nonce)` has not been admitted before.
-    /// 18. **`account_epoch` moved like a counter, not like a clock** — it is
-    ///     below [`ACCOUNT_EPOCH_CEILING`] and, where there is a predecessor,
-    ///     advanced by at most [`MAX_ACCOUNT_EPOCH_STEP`]. Rule 15 is
-    ///     satisfiable *unconditionally* by any monotonic clock, so without
-    ///     this rule the field is present and enforcing nothing. Run with rule
-    ///     15 rather than after rule 17, because it costs nothing and a
-    ///     submission that fails it must not burn a nonce.
+    /// 18. **`account_epoch` is below [`ACCOUNT_EPOCH_CEILING`].** This absolute
+    ///     ceiling refuses Unix seconds and milliseconds. The issuer's durable
+    ///     per-account counter obligation remains normative; a value check
+    ///     cannot prove durable provenance. Run this with rule 15 rather than
+    ///     after rule 17, because a submission that fails it must not burn a
+    ///     nonce.
     ///
     /// On a path without an assertion, rules 2–15, 17 and 18 have nothing to run
     /// against and rule 16 is the whole check in this layer — the submitter
@@ -791,8 +769,9 @@ impl AuthorityConfig {
             return Err(AuthorityError::IntentMismatch);
         }
 
-        // 15, 18. Account-epoch monotonicity, and the rule that keeps rule 15
-        //     from being satisfiable unconditionally by a clock.
+        // 15, 18. Account-epoch monotonicity and absolute ceiling. The issuer's
+        //     durable per-account counter requirement remains normative; the log
+        //     cannot distinguish lower clock values from counter values.
         check_account_epoch(body.account_epoch, previous_account_epoch)?;
 
         // 16. The rule that makes the whole thing sound.
@@ -926,35 +905,15 @@ impl AuthorityConfig {
     }
 }
 
-/// Rules 15 and 18: `account_epoch` advanced, **and it moved like a counter**.
-///
-/// Free rather than a method because it takes no policy: both bounds are fixed
-/// constants ([`ACCOUNT_EPOCH_CEILING`], [`MAX_ACCOUNT_EPOCH_STEP`]), so a
-/// client applying them needs nothing from the log.
-///
-/// # What each half catches, and what neither can
-///
-/// | | Rule 15 alone | With rule 18 |
-/// |---|---|---|
-/// | a durable counter, replayed | refused | refused |
-/// | Unix **seconds** in a `uint32` | **accepted, always** | refused on its face — over the ceiling |
-/// | a coarser clock (days, hours) | **accepted, always** | refused as soon as two issuances are more than [`MAX_ACCOUNT_EPOCH_STEP`] ticks apart |
-/// | a clock ticking 1–16 times between two issuances, under the ceiling | accepted | **accepted** |
-///
-/// The last row is the residue, and it is stated rather than hidden: **no check
-/// on a single `u32` can prove the value came from durable storage.** What the
-/// issuer must guarantee, and what `KT.md` §4.5.4 requires of it, is that
-/// `account_epoch` is read from and written to a per-account column that
-/// survives a process restart, and is incremented **only** on the events that
-/// justify invalidating outstanding assertions — account recovery and account
-/// transfer. An issuer that cannot read that column MUST refuse to issue
-/// `intent = reset` rather than substitute a clock.
+/// Rules 15 and 18: `account_epoch` strictly advances and remains below the
+/// absolute ceiling. It is stored per account while the log retains a value
+/// per handle, so a relative step bound would eventually reject a conforming
+/// issuer when other handles advance that account's counter. The issuer must
+/// therefore guarantee durable provenance; a value check cannot prove it.
 fn check_account_epoch(account_epoch: u32, previous: Option<u32>) -> Result<()> {
-    // 18a. Before anything relative: a value this large is not a count of what
-    //      one account did. Checked on every path — including a first `bind`,
-    //      which has no predecessor and is therefore the only place a
-    //      clock-derived epoch can be caught the first time an issuer mints
-    //      one.
+    // 18. A value this large is not a count of what one account did. Checked
+    //     on every path — including a first `bind`, which has no predecessor
+    //     and is where a Unix-seconds epoch is caught the first time.
     if account_epoch >= ACCOUNT_EPOCH_CEILING {
         return Err(AuthorityError::AccountEpochNotACounter);
     }
@@ -967,12 +926,6 @@ fn check_account_epoch(account_epoch: u32, previous: Option<u32>) -> Result<()> 
     if account_epoch <= previous {
         return Err(AuthorityError::AccountEpochRegression);
     }
-    // 18b. …and it advanced by an amount a counter could have advanced by.
-    //      `previous` is below the ceiling because it was admitted under 18a,
-    //      so this cannot overflow.
-    if account_epoch > previous.saturating_add(MAX_ACCOUNT_EPOCH_STEP) {
-        return Err(AuthorityError::AccountEpochStepTooLarge);
-    }
     Ok(())
 }
 
@@ -981,12 +934,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_published_bounds_are_the_ones_this_crate_applies() {
-        // KT.md §4.5.4 states these to clients as fixed constants. A client
-        // that hard-codes the specification and a log that applies something
-        // else disagree about admissibility, not merely about an encoding.
+    fn the_published_ceiling_is_the_one_this_crate_applies() {
+        // KT.md §4.5.4 states this absolute bound to clients. A client that
+        // hard-codes the specification and a log that applies something else
+        // disagree about admissibility, not merely about an encoding.
         assert_eq!(ACCOUNT_EPOCH_CEILING, 1 << 20, "KT.md §4.5.4 A18a");
-        assert_eq!(MAX_ACCOUNT_EPOCH_STEP, 16, "KT.md §4.5.4 A18b");
     }
     use crate::assertion::HandleAssertionTBS;
     use crate::key::SigningKey;
