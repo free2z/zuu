@@ -56,6 +56,9 @@ channels_redis==4.3.0
 # bump is a security action, and `pyOpenSSL`'s upper bound must move first.
 cryptography==50.0.2
 daphne==4.2.3
+# Patched WebSocket compression bounds (GHSA-pjh6-c8mg-3x7m).
+# Pin Daphne's transitive protocol dependency so lock regeneration retains the fix.
+autobahn==26.10.1
 # Explicit patched prerelease: the five October 2026 Twisted advisories affect 26.4.0.
 # Keep this exact until a stable patched release is verified.
 twisted[tls]==26.10.0rc1
