@@ -45,8 +45,9 @@ extension members and `X-F2Z-*` headers that those SDKs tolerate.
    budget, summaries, or thinking-block round-trip (Anthropic needs it for
    tool loops). (§2.5)
 4. **Tool calling is landing but only for Chat Completions models** (#1142,
-   #1140 merged); hosted tools (web search) are not modelled even though
-   `tool_call_nusd` already prices them. (§2.2)
+   #1140 merged); hosted tools (web search) are not modelled. The generic
+   per-call price dimension exists, but the current API has no hosted-tool
+   request path. (§2.2)
 5. **Capabilities are four booleans**; a developer cannot ask "which effort
    levels, which media types, how many tools" and a declared capability has
    no executable proof. (§2.19, §3.3)
@@ -142,17 +143,18 @@ once-per-stream; the encoders synthesise the provider-native placement.
 | `tool_choice` auto/none/required/named | ✓ | ✓ | `auto/none/any/tool` | ✓ | #1142 (CC), #1140 (Anthropic); **Responses refuses in #1142** → §4 S8 |
 | `parallel_tool_calls` | ✓ | ✓ | `disable_parallel_tool_use` | ✓ | #1142/#1140 |
 | `strict` schemas | ✓ | ✓ | `strict` on tool (2026) | undocumented → refused | #1142: catalogue `strict_tools` |
-| Hosted: web search | `web_search_options` on search models | `web_search` tool | `web_search_20250305` | `search_parameters` / agentic `web_search`, `x_search` | **gap**; §3.1.6 — priceable today with `tool_call_nusd` (one hosted tool type per model) |
+| Hosted: web search | `web_search_options` on search models | `web_search` tool | `web_search_20250305` | `search_parameters` / agentic `web_search`, `x_search` | **gap**; §3.1.6 is a proposal, not a shipped request capability. The generic per-call price dimension exists, but the current API does not expose hosted tools |
 | Hosted: code interpreter / execution | — | `code_interpreter` (per container session) | `code_execution` (per session hour) | `code_execution` | **gap**; per-session prices need a price dimension → deferred (§3.5.6) |
 | Hosted: file search / files | — | `file_search` (per call + storage) | Files API + `document` | — | **refuse**: needs a store the platform does not run |
 | MCP / computer use | — | `mcp`, `computer_use_preview` | MCP connector, `computer` | — | **refuse**: remote-tool fan-out is unpriced and unbounded |
 | Tool-call limits | — | `max_tool_calls` | `max_uses` (web search) | — | `tool_budget` in the hold (metering.md §3 `extend`, §4) — expose as `max_tool_calls` in S-hosted |
 
-Unified expression: OpenAI's `tools[].type` discriminator. `function` is
-the client-executed kind we have; `web_search` is a hosted kind the gateway
-*relays to the provider* and bills per invocation (`usage.tool_calls`,
-`tool_call_nusd`). Everything else is refused with `reason:
-"hosted_tool_unsupported"` and `field: "tools[i].type"`.
+Proposed unified expression: OpenAI's `tools[].type` discriminator.
+`function` is the client-executed kind we have; a future `web_search` hosted
+kind would be relayed to the provider and billed per provider-reported
+invocation (`usage.tool_calls`, `tool_call_nusd`). The current API does not
+accept hosted tool definitions. Everything else in this proposal is refused
+with `reason: "hosted_tool_unsupported"` and `field: "tools[i].type"`.
 
 ### 2.3 Structured output
 
@@ -633,7 +635,10 @@ and `GET /v1/calls/{id}` has the rest). A different body → `409`. Without a
 key, a new call — and the compat quickstart tells developers to set
 `idempotencyKey` per logical call exactly as the native SDKs do.
 
-#### 3.1.6 Hosted tools (S-hosted) — web search first
+#### 3.1.6 Proposed hosted tools (S-hosted) — web search first
+
+This is a future API proposal; the current v1 request does not accept hosted
+tool definitions.
 
 Unified: `tools: [{"type": "web_search", "max_uses": 3}]` beside function
 tools. Gate: signed `capabilities.hosted_tools` lists the types a model may
