@@ -156,19 +156,21 @@ for (const interruption of ["SIGINT", "SIGTERM", "exit"]) {
       import { recorderBuildProcesses } from ${JSON.stringify(helper)};
       import { test } from 'node:test';
       test('controlled hanging build', { timeout: 8000 }, async (t) => {
-        process.on('SIGUSR2', () => process.exit(17));
+        const exitTimer = setInterval(() => {
+          if (existsSync(marker + '.exit')) process.exit(17);
+        }, 10);
         const builds = recorderBuildProcesses(t.signal, () => {});
         try { await builds.run(['-e', ${JSON.stringify(fixture)}, ${JSON.stringify(marker)}]); }
-        finally { await builds.close(); }
+        finally { clearInterval(exitTimer); await builds.close(); }
       });
     `;
       const processes = recorderBuildProcesses(t.signal, () => {});
       // Capture the runner separately from its detached build group so the
       // interruption targets only the runner this test created.
       const wrapped = `
-      import { writeFileSync, renameSync } from 'node:fs';
+      import { writeFileSync, renameSync, existsSync } from 'node:fs';
       const marker = ${JSON.stringify(marker)};
-      writeFileSync(marker + '.runner.tmp', JSON.stringify([process.ppid, process.pid]));
+      writeFileSync(marker + '.runner.tmp', JSON.stringify(process.ppid));
       renameSync(marker + '.runner.tmp', marker + '.runner');
       ${runner}
     `;
@@ -191,9 +193,9 @@ for (const interruption of ["SIGINT", "SIGTERM", "exit"]) {
             throw failure;
           }),
         ]);
-        const [runnerPid, workerPid] = await readReady(marker + ".runner");
+        const runnerPid = await readReady(marker + ".runner");
         // Terminal interruption reaches the runner and test worker's group.
-        if (interruption === "exit") process.kill(workerPid, "SIGUSR2");
+        if (interruption === "exit") await writeFile(marker + ".exit", "exit");
         else process.kill(-runnerPid, interruption);
         const failure = await result;
         assert.ok(
