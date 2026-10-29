@@ -491,7 +491,7 @@ jobs:
           java-version: "21.0.12"
       - name: Verify pinned Android signing JVM
         run: java -version 2>&1 | grep -F "$E2E2Z_JAVA_VERSION"
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: unsigned-e2e2z-android-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: unsigned-android
@@ -783,7 +783,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24.22.1"
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: internal-e2e2z-android-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: wallet/e2e2z/signed-android
@@ -983,7 +983,7 @@ jobs:
               output.write(data)
           subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
           PY
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: internal-e2e2z-ios-unsigned-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: unsigned-ios
@@ -1219,7 +1219,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24.22.1"
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: internal-e2e2z-ios-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: wallet/e2e2z/signed-ios
@@ -1321,7 +1321,7 @@ jobs:
               output.write(data)
           subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
           PY
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: internal-e2e2z-ios-verified-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: verified-ios
