@@ -1,7 +1,9 @@
 import copy
 import importlib.util
+import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location('paired', ROOT / 'scripts/free2z/dispatch-host-release.py')
@@ -34,13 +36,16 @@ class PairedPublication(unittest.TestCase):
             dict(name=f'free2z-release-{self.commit}-123-2', expired=False,
                  workflow_run=dict(id=123, head_sha=self.commit))])
         self.runs = dict(total_count=0, workflow_runs=[])
+        self.accepted = dict(workflow_run_id=456,
+                             run_url='https://api.github.com' + paired.PREFIX + '/actions/runs/456',
+                             html_url='https://github.com/' + paired.REPOSITORY + '/actions/runs/456')
         self.calls = []
         self.advance_on_final_check = False
 
     def request(self, method, path, body=None):
         self.calls.append((method, path, body))
         if method == 'POST':
-            return None
+            return self.accepted
         if path.endswith('/branches/main'):
             if self.advance_on_final_check and sum(p.endswith('/branches/main') for _, p, _ in self.calls) > 1:
                 return {**self.branch, 'commit': {'sha': 'b' * 40}}
@@ -181,6 +186,36 @@ class PairedPublication(unittest.TestCase):
         with self.assertRaises(TimeoutError):
             paired.dispatch(self.event, self.environment, self.commit, request)
         self.assertEqual(len(self.posts()), 1)
+
+    def test_dispatch_acceptance_requires_exact_returned_run_identity(self):
+        for changes in [{'workflow_run_id': True}, {'run_url': 'https://evil.invalid/456'},
+                        {'html_url': 'https://github.com/other/repo/actions/runs/456'}]:
+            with self.subTest(changes=changes):
+                self.setUp()
+                self.accepted.update(changes)
+                with self.assertRaises(ValueError):
+                    self.invoke()
+                self.assertEqual(len(self.posts()), 1)
+
+    def test_raw_api_2026_dispatch_response_and_error_contract(self):
+        # Exercise the transport adapter, not only dispatch()'s request stub.
+        for status, payload, valid in [(200, self.accepted, True), (204, None, False),
+                                       (302, {}, False), (403, {}, False), (500, {}, False)]:
+            with self.subTest(status=status), patch.object(paired.http.client, 'HTTPSConnection') as connection, \
+                    patch.dict(paired.os.environ, {'GH_TOKEN': 'test-placeholder'}):
+                client = connection.return_value
+                response = client.getresponse.return_value
+                response.status = status
+                response.read.return_value = b'' if payload is None else json.dumps(payload).encode()
+                if valid:
+                    self.assertEqual(paired.api('POST', paired.PREFIX + '/actions/workflows/free2z-host-release.yml/dispatches', {'ref': 'main'}), payload)
+                else:
+                    with self.assertRaises(ValueError):
+                        paired.api('POST', paired.PREFIX + '/actions/workflows/free2z-host-release.yml/dispatches', {'ref': 'main'})
+                self.assertEqual(client.request.call_count, 1)
+                self.assertEqual(client.request.call_args.args[3]['X-GitHub-Api-Version'], '2026-03-10')
+                connection.assert_called_once_with('api.github.com', timeout=30)
+                client.close.assert_called_once()
 
     def test_workflow_privilege_and_source_boundary(self):
         workflow = (ROOT / paired.DISPATCH).read_text()

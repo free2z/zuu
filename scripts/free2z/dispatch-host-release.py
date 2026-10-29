@@ -32,9 +32,9 @@ def api(method, path, body=None):
         })
         response = connection.getresponse()
         data = response.read(4 * 1024 ** 2 + 1)
-        if response.status != (204 if method == 'POST' else 200) or len(data) > 4 * 1024 ** 2:
+        if response.status != 200 or len(data) > 4 * 1024 ** 2:
             raise ValueError('GitHub rejected bounded publication request')
-        return None if method == 'POST' else json.loads(data)
+        return json.loads(data)
     finally:
         connection.close()
 
@@ -124,9 +124,15 @@ def dispatch(event, environment, checkout, request=api):
     # exact-source check; it cannot create a mixed-source preparation.
     if not current(commit, request):
         return 'Main advanced before dispatch; publish a complete pair from current main.'
-    request('POST', PREFIX + '/actions/workflows/free2z-host-release.yml/dispatches',
-            {'ref': 'main', 'inputs': {'web_release_tag': tag}})
-    return 'Dispatched host preparation for ' + tag
+    accepted = request('POST', PREFIX + '/actions/workflows/free2z-host-release.yml/dispatches',
+                       {'ref': 'main', 'inputs': {'web_release_tag': tag}})
+    # API 2026-03-10 returns HTTP 200 plus the accepted run identity, not 204.
+    run_id = accepted.get('workflow_run_id')
+    if (not positive(run_id)
+            or accepted.get('run_url') != 'https://api.github.com' + PREFIX + f'/actions/runs/{run_id}'
+            or accepted.get('html_url') != f'https://github.com/{REPOSITORY}/actions/runs/{run_id}'):
+        raise ValueError('dispatch acceptance has an invalid run identity; inspect host runs before retrying')
+    return 'Dispatched host preparation for ' + tag + ': ' + accepted['html_url']
 
 
 if __name__ == '__main__':
