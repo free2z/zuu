@@ -1152,7 +1152,16 @@ test("exhausted private-call identity checks do not join with an unverified owne
       json: { auth_token: "synthetic-recovered-owner", e2ee: false },
     });
   });
+  // Document load can precede hydration and both bounded bootstrap retries.
+  // Assert the error UI only after the three failing identity reads complete.
+  const exhaustedChecks = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/auth/user/" &&
+      response.status() === 503 &&
+      authAttempts === 3,
+  );
   await page.goto(`/${USER}/private/${secret}?lang=en`);
+  await (await exhaustedChecks).finished();
   await expect(
     page.getByRole("button", { name: "Try Again", exact: true }),
   ).toBeVisible();

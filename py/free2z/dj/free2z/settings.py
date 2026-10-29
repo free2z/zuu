@@ -1953,7 +1953,9 @@ CAPTCHA_GRANT_NAMESPACE = os.environ.get("DBNAME", "free2z")
 # grant from `sys:promo` with a TuziGrant receipt, issued once per account in
 # the sign-up transaction (dj.apps.tuzis.welcome). 2Z are platform credits,
 # not money; the owner accepted the bot-signup exposure (10 2Z = $0.10 per
-# account, behind the sign-up reCAPTCHA). 0 disables the grant. Whole 2Z only.
+# account). Password sign-up requires reCAPTCHA; social sign-up instead
+# requires a provider account, with no Free2Z CAPTCHA. 0 disables the grant.
+# Whole 2Z only.
 # A value above WELCOME_GRANT_MAX_2Z is treated as a typo (an extra zero mints
 # that on EVERY sign-up) and falls back to the default, loudly, rather than
 # failing the boot -- the same fail-safe shape as `_int_env`. Raising it past
@@ -3227,9 +3229,12 @@ ZUULI_MOBILE_OAUTH_PROVIDER_REDIRECT_URI = os.environ.get(
 # Enable each provider only AFTER registering the exact first-party web
 # callback https://<web-origin>/oauth/reauth-callback in its provider console.
 # Existing native credentials alone do not prove this callback is registered.
+# Modern X uses the canonical key "x"; retain the documented "twitter"
+# environment alias without changing the separate legacy-X authentication path.
 SOCIAL_WEB_REAUTH_PROVIDERS = frozenset(
-    p.strip() for p in os.environ.get("SOCIAL_WEB_REAUTH_PROVIDERS", "").split(",")
-    if p.strip() in {"google", "github", "twitter"}
+    "x" if p.strip() == "twitter" else p.strip()
+    for p in os.environ.get("SOCIAL_WEB_REAUTH_PROVIDERS", "").split(",")
+    if p.strip() in {"google", "github", "x", "twitter"}
 )
 
 SOCIAL_REDIRECT_URI_ALLOWLIST = [

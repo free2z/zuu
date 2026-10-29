@@ -25,18 +25,22 @@ NEGATIVE CONTROLS (run by hand while writing this file; each went red):
     sign-up 500s instead of creating the account (2 failed).
 """
 import ast
+import hashlib
 import secrets
 import subprocess
 import sys
+import threading
+import time
 from decimal import Decimal
 from io import StringIO
 from pathlib import Path
+from queue import Queue
 from types import SimpleNamespace
 
 import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import connection
+from django.db import connection, transaction
 from django.test import Client
 from rest_framework.test import APIClient
 
@@ -509,26 +513,98 @@ def test_a_repair_after_a_grant_that_did_land_pays_nothing(creator_factory):
     assert_welcomed_once(creator)
 
 
+@pytest.mark.django_db(transaction=True)
+def test_racing_identity_grants_wait_for_commit_then_replay(creator_factory):
+    """Different account rows race on ONE external-identity welcome key.
+
+    The first grant is complete but uncommitted when the second arrives.
+    PostgreSQL must show the second connection waiting on that key's advisory
+    lock, then replay without a second receipt once the first commits. Merely
+    asserting one ledger credit would pass with the grant lock removed.
+    """
+    first = creator_factory(tuzis=Decimal("0"))
+    second = creator_factory(tuzis=Decimal("0"))
+    key = welcome.identity_welcome_key("github", "racing-provider-identity")
+    lock_id = int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big")
+    peer_pids = Queue()
+    outcomes = Queue()
+
+    def competing_grant():
+        try:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    # Bound failed controls too; no worker may outlive teardown.
+                    cursor.execute("SET LOCAL lock_timeout = '15s'")
+                    cursor.execute("SET LOCAL statement_timeout = '20s'")
+                    cursor.execute("SELECT pg_backend_pid()")
+                    peer_pids.put(cursor.fetchone()[0])
+                result = welcome.grant_welcome(
+                    second, path="test-race", identity_key=key)
+            outcomes.put(result)
+        except Exception as exc:
+            outcomes.put(exc)
+        finally:
+            connection.close()
+
+    peer = threading.Thread(target=competing_grant)
+    try:
+        with transaction.atomic():
+            grant = welcome.grant_welcome(first, path="test-race", identity_key=key)
+            assert grant is not None
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_backend_pid()")
+                first_pid = cursor.fetchone()[0]
+            peer.start()
+            peer_pid = peer_pids.get(timeout=10)
+            assert peer_pid != first_pid, "the contender must use another connection"
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT 1 FROM pg_locks WHERE pid = %s "
+                        "AND locktype = 'advisory' AND NOT granted "
+                        "AND classid = %s AND objid = %s AND objsubid = 1 "
+                        "AND %s = ANY(pg_blocking_pids(pid))",
+                        [peer_pid, lock_id >> 32, lock_id & 0xffffffff, first_pid],
+                    )
+                    if cursor.fetchone():
+                        break
+                if not peer.is_alive():
+                    pytest.fail("competing welcome grant completed before the first committed")
+                time.sleep(0.01)
+            else:
+                pytest.fail("competing welcome grant never waited on the welcome-key advisory lock")
+        # Commit above releases the peer; do not join while holding its lock.
+    finally:
+        if peer.ident is not None:
+            peer.join(timeout=30)
+            assert not peer.is_alive(), "welcome grant contender did not terminate"
+
+    assert outcomes.get_nowait() is None, "the second identity grant must replay, not fail"
+    assert_welcomed_once(first, key=key)
+    assert_not_welcomed(second)
+    assert TuziGrant.objects.filter(idempotency_key=key).count() == 1
+
+
 # --------------------------------------------------------------------------- #
 # Every place that creates an account is a decided place
 # --------------------------------------------------------------------------- #
-#Non-test modules (relative to py/) that create a Creator for a person
-#signing up. Each must call ``welcome_new_account``.
+#: (Module relative to py/free2z/, qualified function) that creates a person signing
+#: up. Each owns exactly one insert site and calls ``welcome_new_account``.
 WELCOME_SITES = {
-    "dj/apps/g12f/views/creator.py",   # SignUpView: POST /api/start/
-    "dj/apps/social/views.py",         # SocialLoginView: Google, X, GitHub
-    "dj/apps/twitter/views.py",        # X web callback (handle_new_twitter_user)
+    ("dj/apps/g12f/views/creator.py", "SignUpView.create"),
+    ("dj/apps/social/views.py", "SocialLoginView.post"),
+    ("dj/apps/twitter/views.py", "TwitterCallbackView.handle_new_twitter_user"),
 }
 
-#Non-test modules that create a Creator but deliberately do NOT grant, and
-#why. (The staff admin add form, ``createsuperuser`` and fixtures go through
-#Django's own code, not a call site under py/, so they never grant either.)
-EXEMPT_SITES: dict[str, str] = {
-    "dj/apps/zauth/views.py": (
+#: Decided functions that create a Creator but deliberately do NOT grant.
+#: Django's staff admin, createsuperuser and fixture paths live outside py/free2z/.
+EXEMPT_SITES = {
+    ("dj/apps/zauth/views.py", "_provision_identity_and_token"): (
         "Zcash wallet sign-in has no CAPTCHA and a fresh transparent keypair "
         "costs nothing, so a per-account grant there is a 2Z faucet "
-        "(~30 accounts/min/client, consolidated by gifting). The owner's "
-        "accepted exposure (#2698) is premised on the sign-up reCAPTCHA. "
+        "(~30 accounts/min/client, consolidated by gifting). Password sign-up "
+        "requires reCAPTCHA; social sign-up requires a provider account. "
         "Grant here only once wallet sign-up has its own abuse admission."
     ),
 }
@@ -547,32 +623,43 @@ def _root_name(node):
     return node.id if isinstance(node, ast.Name) else None
 
 
+def _scoped_calls(tree, scope=()):
+    """Attribute calls to their lexical scope, never to an enclosing function.
+
+    Include classes and nested functions so a sibling method or inner helper
+    cannot inherit a reviewed function's grant decision or welcome hook.
+    """
+    if isinstance(tree, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+        scope = (*scope, tree.name)
+    if isinstance(tree, ast.Call):
+        yield ".".join(scope) or "<module>", tree
+    for child in ast.iter_child_nodes(tree):
+        yield from _scoped_calls(child, scope)
+
+
 def _account_insert_sites(tree):
-    """Calls that construct or insert a Creator/User row."""
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
+    """Qualified scopes and lines that construct or insert a Creator/User."""
+    for scope, node in _scoped_calls(tree):
         func = node.func
-        # Creator(...) / User(...) -- a model constructor, then.save().
+        # Creator(...) / User(...) -- a model constructor, then .save().
         if isinstance(func, ast.Name) and func.id in _USER_NAMES:
-            yield node.lineno
+            yield scope, node.lineno
         # Creator.objects.create(...), get_user_model().objects.create(...),
         # User._base_manager.get_or_create(...), create_user(...).
         elif isinstance(func, ast.Attribute) and func.attr in _INSERT_METHODS:
             root = _root_name(func.value)
             chain = ast.unparse(func.value)
             if root in _USER_NAMES or "get_user_model()" in chain:
-                yield node.lineno
+                yield scope, node.lineno
             elif func.attr in {"create_user", "create_superuser"}:
-                yield node.lineno
+                yield scope, node.lineno
 
 
 def _welcome_calls(tree):
     return [
-        node.lineno for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and (getattr(node.func, "id", None) == "welcome_new_account"
-             or getattr(node.func, "attr", None) == "welcome_new_account")
+        (scope, node.lineno) for scope, node in _scoped_calls(tree)
+        if (getattr(node.func, "id", None) == "welcome_new_account"
+            or getattr(node.func, "attr", None) == "welcome_new_account")
     ]
 
 
@@ -587,39 +674,92 @@ def _non_test_modules():
         yield rel, ast.parse(path.read_text(), filename=str(path))
 
 
-def test_every_account_insert_site_is_a_welcome_site():
+def _assert_decided_account_sites(modules, welcome_sites=WELCOME_SITES,
+                                  exempt_sites=EXEMPT_SITES):
     found = {}
-    for rel, tree in _non_test_modules():
-        sites = list(_account_insert_sites(tree))
-        if sites:
-            found[rel] = sites
+    for rel, tree in modules.items():
+        for scope, line in _account_insert_sites(tree):
+            found.setdefault((rel, scope), []).append(line)
     undecided = {
-        rel: lines for rel, lines in found.items()
-        if rel not in WELCOME_SITES and rel not in EXEMPT_SITES
+        site: lines for site, lines in found.items()
+        if site not in welcome_sites and site not in exempt_sites
     }
     assert not undecided, (
-        "These modules create an account but are neither a welcome-grant "
-        "site nor an exemption (#2698). If it is a sign-up, call "
+        "These functions create an account but are neither a welcome-grant "
+        "site nor an exemption. If it is a sign-up, call "
         "dj.apps.tuzis.welcome.welcome_new_account(creator, path=...) in the "
         f"same transaction and add it to WELCOME_SITES: {undecided}"
     )
-    # Stale entries fail too: an inert entry reads as live to the next reader.
-    assert WELCOME_SITES <= set(found), WELCOME_SITES - set(found)
-    assert set(EXEMPT_SITES) <= set(found), set(EXEMPT_SITES) - set(found)
+    assert welcome_sites <= set(found), welcome_sites - set(found)
+    assert set(exempt_sites) <= set(found), set(exempt_sites) - set(found)
+    # A second insert inside a listed function needs its own grant decision.
+    multiple = {site: lines for site, lines in found.items() if len(lines) != 1}
+    assert not multiple, f"Expected one account insert per decided function: {multiple}"
+
+
+def _assert_welcome_hooks(modules, welcome_sites=WELCOME_SITES,
+                          exempt_sites=EXEMPT_SITES):
+    calls = {
+        (rel, scope) for rel, tree in modules.items()
+        for scope, _line in _welcome_calls(tree)
+    }
+    for site in sorted(welcome_sites):
+        assert site in calls, (
+            f"{site} creates an account for a sign-up but never calls "
+            "welcome_new_account"
+        )
+    for site in sorted(exempt_sites):
+        assert site not in calls, (
+            f"{site} is exempt from the welcome grant ({exempt_sites[site]}) "
+            "but calls welcome_new_account: remove the call or the exemption"
+        )
+
+
+def test_every_account_insert_site_is_a_welcome_site():
+    _assert_decided_account_sites(dict(_non_test_modules()))
 
 
 def test_every_welcome_site_calls_the_hook():
-    trees = dict(_non_test_modules())
-    for rel in sorted(WELCOME_SITES):
-        assert _welcome_calls(trees[rel]), (
-            f"{rel} creates an account for a sign-up but never calls "
-            "welcome_new_account"
-        )
-    for rel in sorted(EXEMPT_SITES):
-        assert not _welcome_calls(trees[rel]), (
-            f"{rel} is exempt from the welcome grant ({EXEMPT_SITES[rel]}) "
-            "but calls welcome_new_account: remove the call or the exemption"
-        )
+    _assert_welcome_hooks(dict(_non_test_modules()))
+
+
+@pytest.mark.parametrize("extra", [
+    "def another_signup():\n    Creator.objects.create(username='new')",
+    "class AnotherView:\n    def post(self):\n        Creator(username='new').save()",
+    "    async def another_signup(self):\n        await Creator.objects.acreate(username='new')",
+])
+def test_creation_guard_rejects_new_function_in_listed_module(extra):
+    rel = "dj/apps/social/views.py"
+    source = "class SocialLoginView:\n    def post(self):\n        Creator(username='old').save()\n"
+    modules = {rel: ast.parse(source + "\n" + extra)}
+    with pytest.raises(AssertionError, match="neither a welcome-grant"):
+        _assert_decided_account_sites(
+            modules, {(rel, "SocialLoginView.post")}, {})
+
+
+@pytest.mark.parametrize("extra, message", [
+    ("Creator.objects.create(username='new')", "one account insert"),
+    ("def nested():\n            Creator.objects.create(username='new')", "neither a welcome-grant"),
+])
+def test_creation_guard_rejects_added_insert_inside_listed_function(extra, message):
+    rel = "dj/apps/social/views.py"
+    source = ("class SocialLoginView:\n    def post(self):\n"
+              "        Creator(username='old').save()\n        " + extra)
+    with pytest.raises(AssertionError, match=message):
+        _assert_decided_account_sites(
+            {rel: ast.parse(source)}, {(rel, "SocialLoginView.post")}, {})
+
+
+@pytest.mark.parametrize("hook", [
+    "def unrelated():\n    welcome_new_account(creator)",
+    "class OtherView:\n    def post(self):\n        welcome_new_account(creator)",
+    "class SocialLoginView:\n    def post(self):\n        def nested():\n            welcome_new_account(creator)",
+])
+def test_welcome_hook_cannot_be_borrowed_from_another_function(hook):
+    rel = "dj/apps/social/views.py"
+    with pytest.raises(AssertionError, match="never calls welcome_new_account"):
+        _assert_welcome_hooks(
+            {rel: ast.parse(hook)}, {(rel, "SocialLoginView.post")}, {})
 
 
 def test_the_insert_site_scanner_sees_every_shape():

@@ -59,6 +59,13 @@ python dj/free2z/manage.py migrate
 python dj/free2z/manage.py runserver 127.0.0.1:8000
 ```
 
+Web reauthentication is enabled per provider through
+`SOCIAL_WEB_REAUTH_PROVIDERS`, a comma-separated list of `google`, `github`,
+and `x`; `twitter` is accepted as an environment alias for `x`. The default is
+empty. Register the exact first-party `/oauth/reauth-callback` URL with each
+provider before enabling it. Native OAuth configuration alone does not establish
+web callback readiness; the separate legacy-X login path is unchanged.
+
 Production uses `dj.free2z.prod_settings`. It requires explicitly provisioned
 credentials and signing keys; generated test keys are not production keys.
 Deployment, infrastructure configuration, and secret provisioning are maintained
