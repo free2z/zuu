@@ -684,7 +684,9 @@ class TimezoneQualificationTests(unittest.TestCase):
                 (zoneinfo / 'Asia').mkdir(parents=True)
                 (zoneinfo / 'UTC').write_bytes(tzif(0))
                 (zoneinfo / 'Asia/Tokyo').write_bytes(tzif(9))
-                result = self.qualify(root, after='m["check_libc_timezones"]()')
+                result = self.qualify(root, after='m["check_libc_timezones"](); '
+                                      'assert m["os"].environ["TZ"] == "UTC"; '
+                                      'assert m["time"].localtime(1704067200).tm_hour == 0')
                 self.assertEqual(result.returncode, 0, result.stderr)
                 # Python accepts the original file first. Change only the
                 # bundle before libc reads it: a host-data fallback would

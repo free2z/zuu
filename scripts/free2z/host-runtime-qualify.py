@@ -110,7 +110,6 @@ def select_bundled_timezones(root):
 
 
 def check_libc_timezones():
-    previous = os.environ.get('TZ')
     try:
         for key, hour in (('Asia/Tokyo', 9), ('UTC', 0)):
             os.environ['TZ'] = key
@@ -118,10 +117,8 @@ def check_libc_timezones():
             if time.localtime(1704067200)[:4] != (2024, 1, 1, hour):
                 raise ValueError('libc timezone lookup returned an unexpected offset')
     finally:
-        if previous is None:
-            os.environ.pop('TZ', None)
-        else:
-            os.environ['TZ'] = previous
+        # An unset TZ would make glibc consult the host's /etc/localtime.
+        os.environ['TZ'] = 'UTC'
         time.tzset()
 
 
