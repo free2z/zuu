@@ -37,7 +37,11 @@ pub fn entry(handle: &str, version: u32, identity: u8, prev_entry_hash: Digest) 
             log_id: LogId::new([0x11; 32]),
             handle: Handle::new(handle.as_bytes().to_vec()).unwrap(),
             entry_version: version,
-            kind: EntryKind::SameKey,
+            kind: if version == 1 {
+                EntryKind::InitialBind
+            } else {
+                EntryKind::SameKey
+            },
             identity_pk: PublicKey::new([identity; 32]),
             directory_auth_pk: PublicKey::new([identity.wrapping_add(1); 32]),
             devices: VecU16::new(Vec::new()),
@@ -47,8 +51,16 @@ pub fn entry(handle: &str, version: u32, identity: u8, prev_entry_hash: Digest) 
             no_reset: 0,
             created_at_ms: 1_700_000_000_000,
         },
-        authorization: EntryAuthorization::SameKey {
-            auth_signature: Signature::zero(),
+        authorization: if version == 1 {
+            EntryAuthorization::InitialBind {
+                assertion: f2z_codec::types::Payload::new(vec![1]).unwrap(),
+                identity_signature: Signature::zero(),
+                auth_signature: Signature::zero(),
+            }
+        } else {
+            EntryAuthorization::SameKey {
+                auth_signature: Signature::zero(),
+            }
         },
     }
 }

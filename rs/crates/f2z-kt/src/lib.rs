@@ -29,18 +29,21 @@
 //! Neither carrier has a public constructor. `tests/adversarial.rs` is the test
 //! that watches it hold, against a first entry with no assertion, a rotation
 //! signed by one key, a reset inside its cooldown, a device credential signed
-//! by the wrong identity key, and a wrong `prev_entry_hash`.
+//! by the wrong identity key, and a wrong `prev_entry_hash`. The acceptance
+//! suite's feature-gated rewrite hook models a malicious log after admission;
+//! it is not present in default builds.
 //!
-//! # zuu#594 — and what this log does about it
+//! # zuu#594 and the proposed #649 committed first-entry artifact
 //!
-//! `KT.md` §4.4 does not say what authorizes a handle's **first** entry, so a
-//! literal implementation hands `@alice` to whoever asks first. This log
-//! **requires a `HandleAssertion`** for `entry_version == 1`, verified by
-//! [`f2z_authority`], and offers that as the crate proposal against [zuu#594]
-//! rather than as ratified specification. Operators with no authority run the
-//! explicit no-authority mode — and it is **reported**, in the signed document
-//! [`policy`] serves at `/.well-known/free2z-kt/v1/authority`, so a client can
-//! see that handles on such a log are unvouched.
+//! This implementation requires a proposed `InitialBind` authorization at
+//! version 1. The log verifies the v1 submission envelope, the authority
+//! assertion and nonce rules, and the entry signatures before admission. The
+//! committed assertion and identity binding let clients check the first entry
+//! against the current signed policy; they do not prove admission time or
+//! historical policy membership. This future-wire extension is not ratified or
+//! coordinated with the external issuer and production log. Operators with no
+//! authority run the explicit no-authority mode, reported in the signed
+//! [`policy`] document at `/.well-known/free2z-kt/v1/authority`.
 //!
 //! # Deviations, all of them, in one place
 //!
@@ -53,15 +56,14 @@
 //! - **Unproved absence** ([`wire::Presence`]). §8.1 requires a **proof** of
 //!   non-membership for an unregistered handle and `akd` 0.13 has no API that
 //!   produces one. The answer is labelled unproved rather than dressed up.
-//! - **The submission envelope** ([`wire::SubmissionEnvelope`]). §9.2 says
-//!   `/kt/v1/submit` carries a `DirectoryEntry`; it carries the entry plus the
-//!   two fields zuu#594 needs.
+//! - **The submission envelope** ([`wire::SubmissionEnvelope`]). It retains
+//!   the v1 outer binding to the complete entry value. Proposed `InitialBind`
+//!   carries its assertion and additional binding inside the committed entry.
 //! - **The authority policy document** ([`policy`]). A new signed structure and
 //!   a new label, added to §6.2's otherwise closed set.
 //! - **TLS terminates ahead of the process** ([`api`]).
 //!
 //! [`docs/free2z/messaging/KT.md`]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/KT.md
-//! [zuu#594]: https://github.com/free2z/zuu/issues/594
 
 #![forbid(unsafe_code)]
 // Unit tests are host code read by a person looking at a failure. The workspace
