@@ -3,6 +3,37 @@ import { spawn } from "node:child_process";
 const outputLimit = 8192;
 const termGraceMs = 500;
 const killWaitMs = 2000;
+const scopes = new Set();
+const killOwned = () => {
+  for (const scope of scopes) scope.kill();
+};
+const interrupts = new Map(
+  ["SIGINT", "SIGTERM"].map((name) => [
+    name,
+    () => {
+      killOwned();
+      // Existing runner handlers receive the original signal. Otherwise restore
+      // the default handler and preserve the runner's signal exit status.
+      if (process.listenerCount(name) === 1) {
+        removeHooks();
+        process.kill(process.pid, name);
+      }
+    },
+  ]),
+);
+function removeHooks() {
+  for (const [name, handler] of interrupts)
+    process.removeListener(name, handler);
+  process.removeListener("exit", killOwned);
+}
+function register(scope) {
+  if (!scopes.size) {
+    for (const [name, handler] of interrupts)
+      process.prependListener(name, handler);
+    process.prependListener("exit", killOwned);
+  }
+  scopes.add(scope);
+}
 
 // Each POSIX child leads its own group, including its esbuild subprocess.
 // Only groups created here are signalled; never search for processes by name.
@@ -15,19 +46,26 @@ export function recorderBuildProcesses(signal, diagnostic = console.error) {
   }
   signal.addEventListener("abort", abort, { once: true });
 
-  return {
-    run(args, label = "recorder build") {
+  const scope = {
+    kill() {
+      closing = true;
+      for (const child of children) child.kill();
+    },
+    run(args, label = "recorder build", env = process.env) {
       if (closing) return Promise.reject(new Error("recorder builds aborted"));
       const started = Date.now();
       const grouped = process.platform !== "win32";
       const child = spawn(process.execPath, args, {
         detached: grouped,
         stdio: ["ignore", "pipe", "pipe"],
+        env,
       });
       let stdout = Buffer.alloc(0);
       let stderr = Buffer.alloc(0);
       let aborted = false;
       let settled = false;
+      let escalated = false;
+      let closed;
       let spawnError;
       let killTimer;
       let reapTimer;
@@ -61,12 +99,21 @@ export function recorderBuildProcesses(signal, diagnostic = console.error) {
       }
       const owned = {
         result,
+        kill() {
+          send("SIGKILL");
+        },
         terminate() {
           if (settled || aborted) return;
           aborted = true;
           diagnostic(`Aborting ${details()}`);
           send("SIGTERM");
-          killTimer = setTimeout(() => send("SIGKILL"), termGraceMs);
+          killTimer = setTimeout(() => {
+            // The leader can close before descendants with separate pipes.
+            // Retain ownership and escalation through the full grace period.
+            send("SIGKILL");
+            escalated = true;
+            finishClosed();
+          }, termGraceMs);
           reapTimer = setTimeout(() => {
             // Keep cleanup bounded even if the OS cannot reap a killed child.
             send("SIGKILL");
@@ -92,7 +139,11 @@ export function recorderBuildProcesses(signal, diagnostic = console.error) {
         spawnError = error;
       });
       // close, unlike exit, also waits for inherited stdout/stderr to close.
-      child.on("close", (code, exitSignal) => {
+      function finishClosed() {
+        if (!closed || (aborted && !escalated)) return;
+        const [code, exitSignal] = closed;
+        // A completed build must not leave background descendants either.
+        if (!aborted) send("SIGKILL");
         if (code === 0 && !aborted && !spawnError) finish();
         else {
           if (aborted)
@@ -107,6 +158,10 @@ export function recorderBuildProcesses(signal, diagnostic = console.error) {
           error.signal = exitSignal;
           finish(error);
         }
+      }
+      child.on("close", (code, exitSignal) => {
+        closed = [code, exitSignal];
+        finishClosed();
       });
       return result;
     },
@@ -115,6 +170,10 @@ export function recorderBuildProcesses(signal, diagnostic = console.error) {
       const pending = [...children];
       abort();
       await Promise.allSettled(pending.map((child) => child.result));
+      scopes.delete(scope);
+      if (!scopes.size) removeHooks();
     },
   };
+  register(scope);
+  return scope;
 }
