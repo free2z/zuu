@@ -395,13 +395,19 @@ describe("the request is the one ZUULI's authority validates", () => {
 // ── 3. The transport fails closed ───────────────────────────────────────────
 
 describe("the transport seam fails closed", () => {
-  it("ships the fail-closed implementation", () => {
-    expect(installedIntentTransport).toBe(failClosedIntentTransport);
+  it("is the fail-closed implementation outside a native mobile build", () => {
+    // This suite runs with no Tauri host. `appLinkTransport.test.ts` covers the
+    // runtimes that do get a channel.
+    expect(installedIntentTransport()).toBe(failClosedIntentTransport);
   });
 
-  it("rejects with a typed error naming the blocking prerequisite", async () => {
+  it("rejects with a typed error naming where the channel exists", async () => {
     const rejection = failClosedIntentTransport
-      .exchange(new Uint8Array([1, 2, 3]))
+      .exchange(new Uint8Array([1, 2, 3]), {
+        family: "execute-payment",
+        requestId: "00".repeat(32),
+        expiresAtMs: Date.now() + 60_000,
+      })
       .then(
         () => null,
         (error: unknown) => error,
@@ -412,7 +418,9 @@ describe("the transport seam fails closed", () => {
     expect((error as IntentTransportUnavailableError).code).toBe(
       INTENT_TRANSPORT_UNAVAILABLE,
     );
-    expect((error as IntentTransportUnavailableError).reason).toContain("#461");
+    expect((error as IntentTransportUnavailableError).reason).toContain(
+      "iOS and Android",
+    );
   });
 
   it("reports no-transport, and never a txid, by default", async () => {
