@@ -71,8 +71,8 @@
 //! is delivery progress for the stall rule — means the client has taken
 //! everything before it. A client that is not reading data cannot be kept
 //! alive by pings: its data frames wait, so no ping is queued, and the stall
-//! rule runs exactly as before. A ping costs the buffer nothing it could
-//! refuse: it is 8 bytes into a buffer holding none. A non-streamed call
+//! rule runs exactly as before. Pings are evictable, so they can never make a
+//! required event exceed the delivery limit. A non-streamed call
 //! (`stream: false`) gets no pings — its body is one JSON document.
 
 use std::collections::VecDeque;
@@ -191,8 +191,9 @@ enum State {
 
 #[derive(Debug)]
 struct Buffer {
-    /// Each frame, and whether it is optional (a `tool_call_delta`, which
-    /// may be evicted to make room for a frame that is not).
+    /// Each frame, and whether it is optional (a `tool_call_delta` or
+    /// keep-alive ping, which may be evicted to make room for a required
+    /// frame).
     frames: VecDeque<(Bytes, bool)>,
     bytes: usize,
     state: State,
@@ -350,7 +351,7 @@ impl Shared {
             buffer.last_progress = Instant::now();
             self.inflight.add_buffered(frame.len());
             buffer.bytes = buffer.bytes.saturating_add(frame.len());
-            buffer.frames.push_back((frame, false));
+            buffer.frames.push_back((frame, true));
             buffer.waker.take()
         };
         Self::wake(waker);
@@ -780,5 +781,71 @@ impl Drop for SettleGuard {
                 slot,
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metrics::Metrics;
+    use tokio::sync::mpsc;
+
+    fn shared() -> Shared {
+        let (settle, _) = mpsc::unbounded_channel();
+        let inflight = Arc::new(InFlight::new(1, 1, settle, Arc::new(Metrics::default())));
+        Shared {
+            buffer: Mutex::new(Buffer {
+                frames: VecDeque::new(),
+                bytes: 0,
+                state: State::Open,
+                upstream_done: false,
+                error_reported: false,
+                last_progress: Instant::now(),
+                aborted_at: None,
+                killed: false,
+                output_seen: false,
+                waker: None,
+            }),
+            inflight,
+            kill: None,
+        }
+    }
+
+    #[test]
+    fn ping_is_ignored_while_a_frame_is_waiting() {
+        let shared = shared();
+        let data = Bytes::from_static(b"data");
+        shared.push(data.clone(), false, false, 1024, Duration::from_secs(30));
+
+        shared.ping();
+
+        let buffer = shared.lock();
+        assert_eq!(buffer.frames.len(), 1);
+        assert_eq!(buffer.frames.front(), Some(&(data, false)));
+        assert_eq!(buffer.bytes, 4);
+        assert_eq!(shared.inflight.buffered_bytes(), 4);
+    }
+
+    #[test]
+    fn ping_is_evicted_before_a_required_frame_can_fill_the_buffer() {
+        let shared = shared();
+        shared.ping();
+        assert_eq!(shared.inflight.buffered_bytes(), PING.len() as u64);
+
+        let data = Bytes::from_static(b"123456789");
+        shared.push(
+            data.clone(),
+            false,
+            false,
+            PING.len() + 8,
+            Duration::from_secs(30),
+        );
+
+        let buffer = shared.lock();
+        assert_eq!(buffer.state, State::Open);
+        assert_eq!(buffer.frames.len(), 1);
+        assert_eq!(buffer.frames.front(), Some(&(data, false)));
+        assert_eq!(buffer.bytes, 9);
+        assert_eq!(shared.inflight.buffered_bytes(), 9);
     }
 }
