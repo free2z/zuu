@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 
 PREFIXES = ('rs/zcash-payment-hooks/', 'py/free2z/', 'ts/svelte/free2z/', 'ts/react/free2z/', 'ts/free2z/bridge/', 'docs/about-free2z/', 'docs/free2z/website/', 'build/free2z/', 'scripts/free2z/', '.github/')
-FILES = {'rust-toolchain.toml', 'scripts/check-ci-trust.mjs', 'scripts/ci-trust-bootstrap.mjs', 'scripts/check-github-actions-pins.mjs', 'ruff.toml'}
+FILES = {'LICENSE', 'rust-toolchain.toml', 'scripts/check-ci-trust.mjs', 'scripts/ci-trust-bootstrap.mjs', 'scripts/check-github-actions-pins.mjs', 'ruff.toml'}
 
 
 def selected(paths):

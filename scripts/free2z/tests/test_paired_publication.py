@@ -227,7 +227,7 @@ class PairedPublication(unittest.TestCase):
         for forbidden in ('secrets.', 'npm ', 'pip ', 'download-artifact', 'workflow_run.head_sha }}', 'id-token:', 'packages:'):
             self.assertNotIn(forbidden, workflow)
         release = (ROOT / paired.WEB).read_text()
-        for path in ('rs/zcash-payment-hooks/**', 'rust-toolchain.toml', paired.HOST):
+        for path in ('rs/zcash-payment-hooks/**', 'rust-toolchain.toml', 'LICENSE', paired.HOST):
             self.assertIn('      - ' + path + '\n', release)
         host = (ROOT / paired.HOST).read_text()
         self.assertIn('run-name: Free2Z host preparation ${{ inputs.web_release_tag || github.ref }}', host)

@@ -137,7 +137,7 @@ checks the exact successful run attempt, published release asset, source tag,
 retained Actions artifact, and current protected `main`. It dispatches
 `free2z-host-release.yml` on `main` with the immutable
 `free2z-web-<commit>-<run>-<attempt>` tag. Changes to the payment daemon, Rust
-toolchain, and host publisher also trigger website publication so both halves
+toolchain, root license, and host publisher also trigger website publication so both halves
 can use the same source commit.
 
 The dispatcher executes only its trusted default-branch helper. It does not
