@@ -10,7 +10,7 @@
   const labels: Record<string, string> = {
     google: "Google",
     github: "GitHub",
-    twitter: "X",
+    x: "X",
   };
   let providers: string[] = [];
   let error = "";
