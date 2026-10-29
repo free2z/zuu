@@ -432,7 +432,7 @@ jobs:
           echo "payload_sha256=$payload_sha256" >> "$GITHUB_OUTPUT"
       - name: Prove Android credentials remain absent after build
         run: scripts/assert-no-android-credentials.sh
-      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: wallet/e2e2z/unsigned-android/CHECKSUMS.sha256
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -802,7 +802,7 @@ jobs:
           mkdir release-artifacts
           cp "signed-android/e2e2z-${EXPECTED_IDENTITY}-android.aab" signed-android/signing-record.json release-artifacts/
           (cd release-artifacts && sha256sum ./* > CHECKSUMS.sha256)
-      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: wallet/e2e2z/release-artifacts/*
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -937,7 +937,7 @@ jobs:
           echo "payload_sha256=$payload_sha256" >> "$GITHUB_OUTPUT"
       - name: Prove Apple credentials remained absent through the build
         run: scripts/assert-no-apple-credentials.sh
-      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: wallet/e2e2z/unsigned-ios/CHECKSUMS.sha256
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -1277,7 +1277,7 @@ jobs:
           cp "$ipa" signed-ios/signing-record.json verified-ios/
           (cd verified-ios && shasum -a 256 ./* > CHECKSUMS.sha256)
           echo "artifact_sha256=$EXPECTED_IPA_SHA256" >> "$GITHUB_OUTPUT"
-      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: wallet/e2e2z/verified-ios/*
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
