@@ -133,17 +133,52 @@ The release producer requires a successful signed website release from the
 same commit as its trusted protected-main workflow. The preparation build has
 read-only permissions. A separate publishing job may attest and upload the
 opaque archive and manifest; it must never execute the artifact, application,
-or a dependency installer. A manual producer does not establish an automatic
-release path: automatic promotion requires independent event-provenance checks
-and a consumer that verifies them.
+or a dependency installer. Publication does not activate a service: promotion
+requires an independent consumer that verifies the signed evidence.
 
-To prepare a candidate, select a successful `free2z-web-<commit>-<run>-<attempt>`
-release whose commit is the current protected `main`, then dispatch
-`free2z-host-release.yml` on `main` with that tag as `web_release_tag`. A source
-mismatch fails before image use. The host release publishes the manifest,
-archive, inventory, separate attestation bundles, and the retained website
-evidence as `website-*` assets. The Actions artifact preserves the website
-evidence under `web-release/`.
+### Automatic publication and recovery
+
+A successful **Free2Z website release** on protected `main` triggers **Free2Z
+paired publication** after the website workflow completes. The dispatcher
+checks the exact successful run attempt, published release asset, source tag,
+retained Actions artifact, and current protected `main`. It dispatches
+`free2z-host-release.yml` on `main` with the immutable
+`free2z-web-<commit>-<run>-<attempt>` tag. Changes to the payment daemon, Rust
+toolchain, root license, and host publisher also trigger website publication so both halves
+can use the same source commit.
+
+The dispatcher executes only its trusted default-branch helper. It does not
+execute release contents, application code, or dependency installers. Its job
+has `contents: read` and `actions: write`; no deployment credentials are needed.
+GitHub permits `workflow_dispatch` events created with the repository's
+[`GITHUB_TOKEN`](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow),
+and the [dispatch API](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event)
+requires Actions write permission. The host producer retains its protected-main
+`workflow_dispatch` identity and independently verifies website signatures,
+image provenance, and exact source before image use.
+
+If `main` advances before dispatch, the dispatcher skips the stale release.
+An advance after its final check is rejected by the host's source comparison.
+Publish a complete pair from current `main` by running **Free2Z website release**
+on `main`; do not combine an older website release with a newer host checkout.
+The completion workflow does not retry itself or follow advancing commits in a
+loop. Changes outside the website publisher's path filters may require this
+manual full publication.
+
+For a dispatcher retry, an existing host run with the exact website tag in its
+run title suppresses another dispatch, whether queued, running, successful, or
+failed. Recover a failed host preparation with **Re-run all jobs** on that host
+run. The dispatcher inspects at most 100 artifacts and 100 host runs for the
+source; larger histories fail closed. GitHub's dispatch API has no idempotency
+key: a transport failure can occur after acceptance. Inspect host runs before
+retrying an uncertain dispatch; the helper never retries its POST automatically.
+
+To prepare manually, select a successful website release whose commit is
+current protected `main`, then dispatch `free2z-host-release.yml` on `main` with
+that tag as `web_release_tag`. The host release publishes the manifest, archive,
+inventory, separate attestation bundles, and retained website evidence as
+`website-*` assets. The Actions artifact preserves website evidence under
+`web-release/`.
 
 Publication creates a draft, uploads and checks every asset's server-reported
 digest, then publishes the complete release. A failed upload leaves an
