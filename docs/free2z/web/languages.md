@@ -123,8 +123,13 @@ trusting the example counts above.
 The sitemap renderer also enforces a per-article URL budget. Raising `P` beyond
 that budget can silently omit legitimate variants even if rendering succeeds.
 Reduce `C` and re-derive all related bounds when the offering outgrows the
-bracket. Negotiated compatibility widths `32` and `65` are fixed wire-contract
-values; do not recompute them from the current registry size.
+bracket, with a compatible protocol transition. `parseSitemapIndexPayload` rejects
+an API response whose `chunk_size` differs from the reader's compiled constant;
+changing only one side can make the sitemap index unavailable. Before changing
+`C`, design compatibility handling and verify old/new Django and SvelteKit
+combinations. Tests of matching constants in one checkout do not prove that
+transition safe. Negotiated compatibility widths `32` and `65` are fixed
+wire-contract values; do not recompute them from the current registry size.
 
 The byte budget is separate: `MAX_SITEMAP_BYTES` is 50 MiB and each article gets
 `floor(MAX_SITEMAP_BYTES / C / 2)` bytes. URL length varies with encoded usernames,
