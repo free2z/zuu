@@ -636,7 +636,7 @@ def test_spent_notes_do_not_count_towards_the_balance(adapter, wallet_file):
 # End to end: a note in a real wallet file becomes 2Z in real Postgres
 # --------------------------------------------------------------------------
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_a_note_in_a_real_wallet_file_becomes_2z(
         adapter, wallet_file, creator_factory, mocker, capsys):
     """The whole repo-side path, with no fake wallet anywhere.
@@ -670,6 +670,29 @@ def test_a_note_in_a_real_wallet_file_becomes_2z(
     assert receipt.output_index == 2
     assert receipt.pool == "orchard"
     assert "cycle ok" in capsys.readouterr().out
+
+    # A separate read-only session must observe the command's committed receipt.
+    # Exercise the canonical diagnostic SQL, not a synthetic receipt response.
+    import psycopg
+    from django.db import connection
+    from zcashrpc import verify_payment
+
+    assert connection.vendor == "postgresql"
+    with psycopg.connect(**connection.get_connection_params()) as diagnostic:
+        diagnostic.read_only = True
+        evidence = verify_payment.Database(diagnostic)
+        assert evidence.one("SHOW transaction_read_only") == ("on",)
+        result = verify_payment.diagnose(
+            wallet_file.path,
+            verify_payment.canonical_client(wallet_file.path, 1, 3),
+            txid=txid, username=buyer.username, database=evidence,
+        )
+    assert result.exit_code() == 0
+    assert [(stage, status) for stage, status, _ in result.stages] == [
+        ("1 WALLET", verify_payment.PASS), ("2 ADAPTER", verify_payment.PASS),
+        ("3 MEMO", verify_payment.PASS), ("4 RECIPIENT", verify_payment.PASS),
+        ("5 CREDIT", verify_payment.PASS),
+    ]
 
 
 @pytest.mark.django_db
