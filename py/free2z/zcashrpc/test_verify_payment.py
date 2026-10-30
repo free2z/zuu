@@ -161,15 +161,79 @@ class WalletDiagnosticTests(unittest.TestCase):
                           (NOTE["amountZat"], bytes.fromhex(MEMO)))
         self.conn.commit()
 
-    def diagnose(self, reported=(NOTE,), pending=(), **kwargs):
+    def diagnose(self, reported=(NOTE,), pending=(), *, client=None, txid=TXID, **kwargs):
         class Adapter:
             dummy = False
             def recieved_by(self, address):
                 return list(reported)
-        adapter = Adapter()
-        adapter.pending = pending
+        if client is None:
+            client = Adapter()
+            client.pending = pending
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = verify.diagnose(self.path, client, txid=txid, **kwargs)
+        self.output = output.getvalue()
+        return result
+
+    def test_empty_wallet_reports_detection_failure_and_watched_address(self):
+        self.conn.executescript("DELETE FROM orchard_received_notes; DELETE FROM transactions;")
+        result = self.diagnose(reported=())
+        self.assertEqual(result.exit_code(), 1)
+        self.assertEqual([(s, status) for s, status, _ in result.stages],
+                         [("1 WALLET", verify.FAIL)])
+        self.assertIn("external addresses watched: fixture-address", self.output)
+        self.assertIn("no matching decrypted note", self.output)
+
+    def test_username_typo_names_detected_purchase_instead_of_lost_wallet_detection(self):
+        result = self.diagnose(txid=None, username="other")
+        self.assertEqual(result.exit_code(), 1)
+        self.assertEqual([(s, status) for s, status, _ in result.stages],
+                         [("1 WALLET", verify.FAIL)])
+        self.assertIn("other detected purchase memos name 'fixture-user'", self.output)
+
+    def test_unmined_and_shallow_notes_report_depth_without_claiming_credit(self):
+        for height, description in ((None, "not mined"), (9, "1 confirmation(s)")):
+            with self.subTest(height=height):
+                self.conn.execute("UPDATE transactions SET mined_height = ?", (height,))
+                self.conn.commit()
+                client = verify.canonical_client(self.path, 5, 3)
+                result = self.diagnose(client=client)
+                self.assertEqual(result.exit_code(), 2)
+                self.assertIn(description, self.output)
+                self.assertEqual([(s, status) for s, status, _ in result.stages], [
+                    ("1 WALLET", verify.PASS), ("2 ADAPTER", verify.SKIP),
+                    ("3 MEMO", verify.PASS), ("4 RECIPIENT", verify.SKIP),
+                    ("5 CREDIT", verify.SKIP),
+                ])
+
+    def test_dummy_adapter_is_refused_even_when_wallet_evidence_exists(self):
+        client = verify.canonical_client(self.path, 5, 3)
+        client.dummy = True
+        result = self.diagnose(client=client)
+        self.assertEqual(result.exit_code(), 1)
+        self.assertEqual([(s, status) for s, status, _ in result.stages],
+                         [("2 ADAPTER", verify.FAIL)])
+        self.assertIn("dummy adapter", self.output)
+
+    def test_missing_wallet_with_real_adapter_is_inconclusive(self):
+        client = verify.canonical_client(self.path, 5, 3)
+        self.assertFalse(client.dummy)
+        missing = self.path.with_name("missing.sqlite")
         with contextlib.redirect_stdout(io.StringIO()):
-            return verify.diagnose(self.path, adapter, txid=TXID, **kwargs)
+            result = verify.diagnose(missing, client, txid=TXID)
+        self.assertEqual(result.exit_code(), 2)
+        self.assertEqual([(s, status) for s, status, _ in result.stages],
+                         [("1 WALLET", verify.SKIP)])
+        self.assertFalse(missing.exists())
+
+    def test_good_wallet_without_credit_database_passes_only_wallet_adapter_and_memo(self):
+        result = self.diagnose(client=verify.canonical_client(self.path, 5, 3))
+        self.assertEqual(result.exit_code(), 2)
+        self.assertEqual([(s, status) for s, status, _ in result.stages], [
+            ("1 WALLET", verify.PASS), ("2 ADAPTER", verify.PASS),
+            ("3 MEMO", verify.PASS), ("4 RECIPIENT", verify.SKIP),
+            ("5 CREDIT", verify.SKIP),
+        ])
 
     def test_wallet_queries_and_txid_order(self):
         self.assertEqual(verify.wallet_notes(self.path), [NOTE])
@@ -187,7 +251,10 @@ class WalletDiagnosticTests(unittest.TestCase):
         self.conn.commit()
         notes = verify.wallet_notes(self.path)
         self.assertEqual({n["pool"] for n in notes}, {"orchard", 'odd"'})
-        self.assertEqual(self.diagnose().exit_code(), 1)
+        result = self.diagnose()
+        self.assertEqual(result.exit_code(), 1)
+        self.assertEqual([(s, status) for s, status, _ in result.stages[:2]],
+                         [("1 WALLET", verify.PASS), ("2 ADAPTER", verify.FAIL)])
 
     def test_pending_is_inconclusive_but_missing_is_failure(self):
         self.assertEqual(self.diagnose(reported=(), pending=[(TXID, "orchard", 1)]).exit_code(), 2)
