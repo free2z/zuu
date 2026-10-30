@@ -1,10 +1,30 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { recorderBuildProcesses } from "./helpers/recorder-build-processes.mjs";
+
+function processIdentity(pid) {
+  if (process.platform === "linux") {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    // Field 3 is state; field 22 is the process start time, guarding PID reuse.
+    return ["Z", "X"].includes(fields[0]) ? null : fields[19];
+  }
+  return execFileSync(
+    "/bin/ps",
+    ["-p", String(pid), "-o", "lstart=", "-o", "comm="],
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1000,
+    },
+  ).trim();
+}
 
 async function alive(pid) {
   try {
@@ -140,9 +160,18 @@ for (const interruption of ["SIGINT", "SIGTERM", "exit"]) {
         import.meta.url,
       ).href;
       const fixture = `
-      const { spawn } = require('node:child_process');
-      const { writeFileSync, renameSync } = require('node:fs');
+      const { spawn, execFileSync } = require('node:child_process');
+      const { readFileSync, writeFileSync, renameSync } = require('node:fs');
       process.on('SIGTERM', () => {});
+      const identity = (${processIdentity.toString()});
+      const owner = ${process.pid};
+      const expected = ${JSON.stringify(processIdentity(process.pid))};
+      // Only outer-owner death triggers this guard. Inner-runner interruption
+      // must still be handled by the process helper under test.
+      setInterval(() => {
+        try { if (identity(owner) === expected) return; } catch {}
+        process.kill(-process.pid, 'SIGKILL');
+      }, 50).unref();
       const descendant = spawn(process.execPath, ['-e',
         "process.on('SIGTERM', () => {}); process.send('ready'); setInterval(() => {}, 1000)"
       ], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
