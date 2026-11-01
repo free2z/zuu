@@ -157,7 +157,7 @@ Pillow==13.0.0
 requests==2.34.2
 requests_oauthlib==2.0.0
 slick-bitcoinrpc==0.1.4
-stripe==16.0.0
+stripe==16.0.1
 tiktoken==0.14.0
 # NOTE: torch + transformers were removed here. They were only ever imported by
 # dj/apps/search/transform.py, a module with no callers that also imported
