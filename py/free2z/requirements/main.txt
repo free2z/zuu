@@ -732,9 +732,9 @@ google-cloud-core==2.8.0 \
     --hash=sha256:365f8e4518ae81c8101b8dea5fc1c32a960badedb8b511f19db2843cbbd285d2 \
     --hash=sha256:e235b0952f7ffe7b9c71a4cf96b506d9cfb557e22557c412f0df9b7068b5d007
     # via google-cloud-storage
-google-cloud-pubsub==2.42.0 \
-    --hash=sha256:6eff5d2155b5f6967885b0e7f3da6fda91d2cfb15227fffeaef39b7339044a3d \
-    --hash=sha256:92ed998c41ce7d4f6b5b7c950df8291abd27c4d50116714e5c46fac47313e74d
+google-cloud-pubsub==2.43.0 \
+    --hash=sha256:9a0e01876024ecd5e101a3c41cd67fa50ef0c4e39aa56f53b81524599f90e346 \
+    --hash=sha256:db5436dd2d99774171d13c1bf1fb960b6bf3aa23c15694c50090aa569316d19a
     # via -r main.in
 google-cloud-storage==3.16.0 \
     --hash=sha256:3f75cf8ad345d68ef33f0c69db8a8b3f34f160b1524e75d73890602b7b8a4d6e \
