@@ -109,7 +109,7 @@ class CIContract(unittest.TestCase):
     def test_static_build_node_matches_ci(self):
         docker = (ROOT / 'build/free2z/static.Dockerfile').read_text()
         versions = re.findall(r'^FROM node:([0-9.]+)-bookworm-slim@sha256:[a-f0-9]{64} AS (?:classic|docs)$', docker, re.M)
-        self.assertEqual(versions, ['24.22.1', '24.22.1'])
+        self.assertEqual(versions, ['24.22.2', '24.22.2'])
         for name in ('react', 'docs'):
             node = next(s for s in self.ci['jobs'][name]['steps'] if s.get('uses', '').startswith('actions/setup-node@'))
             self.assertEqual(str(node['with']['node-version']), versions[0])

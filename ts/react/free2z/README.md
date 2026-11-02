@@ -16,7 +16,7 @@ If you find this project useful or interesting, please consider giving it a star
 
 ## Getting Started
 
-Use Node 24.22.1 and the committed npm lockfile. This classic interface retains
+Use Node 24.22.2 and the committed npm lockfile. This classic interface retains
 Create React App; its older TypeScript peer declaration requires the explicit
 install flag used by CI. Build and browser compatibility checks validate this
 dependency graph.

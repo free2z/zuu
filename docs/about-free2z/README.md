@@ -1,7 +1,7 @@
 # Free2Z documentation
 
 This site uses Docusaurus 3.10 and builds the public Free2Z documentation.
-Use Node 24.22.1, matching the website build pipeline; the supported minimum
+Use Node 24.22.2, matching the website build pipeline; the supported minimum
 is Node 24.15.
 
 Install the committed dependency graph and build the static site:
