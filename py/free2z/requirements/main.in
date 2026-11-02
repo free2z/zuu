@@ -72,7 +72,7 @@ djangorestframework==3.18.3
 # django-allauth==0.49.0
 django-cors-headers==4.9.0
 django-countries==9.1.0
-django-dbbackup==5.3.1
+django-dbbackup==5.4.0
 django_debug_toolbar==8.0.0
 django-ratelimit==4.1.0
 django_redis==7.0.0
