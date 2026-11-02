@@ -92,6 +92,95 @@ def _run_as_worker(sub):
     return job
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize('remaining_seconds', [7200, 600, 30, -1])
+def test_funding_cap_refusal_preserves_money_and_bounds_retry(
+        creator_factory, monkeypatch, django_capture_on_commit_callbacks,
+        remaining_seconds):
+    """A real SQL cap refusal must not consume the exception retry budget."""
+    from types import SimpleNamespace
+    from dj.apps.economy.tests.test_foundation import activate_for_test
+    from dj.apps.g12f import tasks
+    from dj.apps.ledger.models import Transfer
+
+    fan = creator_factory(tuzis=Decimal('1000'))
+    star = creator_factory(tuzis=Decimal('199990'), member_price=Decimal('11'))
+    now = timezone.now()
+    with django_capture_on_commit_callbacks(execute=True):
+        sub = _make_sub(fan, star, expires=now + timedelta(seconds=remaining_seconds))
+    original_expiry, original_charge = sub.expires, sub.last_charged_at
+    with transaction.atomic():
+        activate_for_test()
+    original_journal_count = Transfer.objects.count()
+    monkeypatch.setattr(tasks, 'timezone', SimpleNamespace(now=lambda: now))
+
+    with django_capture_on_commit_callbacks(execute=True):
+        _run_as_worker(sub)
+    # A duplicate delivery must not amplify the eligibility retry chain.
+    with django_capture_on_commit_callbacks(execute=True):
+        renew_subscription(subscription_id=sub.pk)
+    fan.refresh_from_db()
+    star.refresh_from_db()
+    sub.refresh_from_db()
+    assert (fan.tuzis, star.tuzis) == (Decimal('1000'), Decimal('199990'))
+    assert (sub.expires, sub.last_charged_at) == (original_expiry, original_charge)
+    assert Transfer.objects.count() == original_journal_count
+    assert not _sub_events(sub).exists()
+    pending = _renew_jobs(sub).filter(status='todo')
+    if remaining_seconds <= RENEWAL_LAST_LOOK.total_seconds():
+        assert not pending.exists()
+        return
+    retry = pending.get()
+    assert retry.scheduled_at == min(now + RENEWAL_RETRY, original_expiry - RENEWAL_LAST_LOOK)
+    assert retry.queueing_lock == renewal_queueing_lock(sub.pk, original_expiry)
+
+    # A lower current price fits the unchanged cap. The scheduled attempt must
+    # still renew exactly once after a previous refused attempt rolled back.
+    Creator.objects.filter(pk=star.pk).update(member_price=Decimal('10'))
+    monkeypatch.setattr(tasks, 'timezone', SimpleNamespace(now=lambda: retry.scheduled_at))
+    with django_capture_on_commit_callbacks(execute=True):
+        _run_as_worker(sub)
+    with django_capture_on_commit_callbacks(execute=True):
+        renew_subscription(subscription_id=sub.pk)
+    fan.refresh_from_db()
+    star.refresh_from_db()
+    sub.refresh_from_db()
+    assert (fan.tuzis, star.tuzis) == (Decimal('990'), Decimal('200000'))
+    assert sub.expires == original_expiry + timedelta(days=30)
+    assert sub.last_charged_at is not None
+    assert _sub_events(sub).count() == 2
+    assert _renew_jobs(sub).filter(status='todo').get().scheduled_at == sub.expires - RENEWAL_LEAD
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize('sqlstate, diagnostic', [
+    ('23514', 'unrelated_constraint'),
+    ('40P01', 'usage_daily_funding_limit'),
+])
+def test_renewal_does_not_hide_other_database_errors(
+        creator_factory, monkeypatch, sqlstate, diagnostic):
+    from django.db import DatabaseError
+
+    fan, star = creator_factory(), creator_factory()
+    sub = _make_sub(fan, star)
+    before = list(_renew_jobs(sub).values_list('id', 'status', 'scheduled_at'))
+
+    def fail_extend(self, **kwargs):
+        # A real driver exception, with an atomic boundary matching extend().
+        with transaction.atomic(), connection.cursor() as cursor:
+            cursor.execute(
+                "DO $$ BEGIN RAISE EXCEPTION '%s' USING ERRCODE='%s'; END $$"
+                % (diagnostic, sqlstate))
+
+    monkeypatch.setattr(Subscription, 'extend', fail_extend)
+    with pytest.raises(DatabaseError, match=diagnostic):
+        renew_subscription(subscription_id=sub.pk)
+    assert list(_renew_jobs(sub).values_list('id', 'status', 'scheduled_at')) == before
+    fan.refresh_from_db()
+    star.refresh_from_db()
+    assert (fan.tuzis, star.tuzis) == (Decimal('1000'), Decimal('1000'))
+
+
 # ---------------------------------------------------------------------------
 # Enqueue points: the Subscription post_save signal
 # ---------------------------------------------------------------------------
