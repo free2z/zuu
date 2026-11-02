@@ -103,15 +103,15 @@ const ALLOWED_JOB_SECRETS = new Map([
 // all unenumerated execution paths. Update only after reviewing the full job.
 const CREDENTIAL_JOB_SHA256 = new Map([
   ["android-sign-upload", "2ce62206d126dc8ce20d74ae3b10c1565a92e8e286702a75d4d0c5597072cbe9"],
-  ["ios-sign", "d2c5bfb162163cc4043e6244e5f784a1322a5f8ab3317fa28f940d81293b6295"],
-  ["ios-upload", "e0018e504bcaf8b90aa9dc69c5072ce3630a3df2a6d390e624f2f3743dfa6268"],
-  ["macos-sign", "a77f8ef465edb6328356fcc657c7e15599b202442349c0937bf24341728c3e26"],
+  ["ios-sign", "003784b1d43039827904ef7ecbf93da7cc2bb4893ab0cc9ba9caaf8c739fa2f7"],
+  ["ios-upload", "086492c3eef95b222f4046a09d858f328cd3df8f418dcca022ed19880fb87e47"],
+  ["macos-sign", "76125cd143bf9240acdf2e4973c9a8f1e98bfb83d2fd11b70ed814172315b472"],
 ]);
 // The credential-free builder is also exact: its source-identity check and
 // compile happen in separate steps, so an unreviewed command between them
 // could otherwise build stale bytes while attesting the requested source SHA.
 const ANDROID_BUILD_JOB_SHA256 =
-  "2d776c352119246d430cd991b5baa52841f1e3667424bac5916254e7de380ddf";
+  "dffe19a9877968d60becc8a3d3b395876233a3d517d8ce51262be87390f1ea1d";
 const ANDROID_FINALIZER_JOB_SHA256 =
   "802fbd1ea887602c80e806c63a1f6d3293aaadacd63da241a88cf10e5a6caf12";
 const RELEASE_INDEX_JOB_SHA256 =
@@ -358,7 +358,7 @@ const ROOT_AUTHORITY_SHA256 = new Map([
   ["on", "c58b4535da1019427311bdfdc1bcc62d083a9458e4d9746f1e8ee0e841b23ebe"],
   ["permissions", "248e857abefa9bcd48e29bf205c0ba2260ad4c167937fe37b5506afec6569d6c"],
   ["concurrency", "9e63d742d3a1d8bf26f2f8d8b77427f2bac2d28142d17eecaa75fafc7f95f4f5"],
-  ["env", "1de5240260b489e70d9a6c1006dd363c8b05d875a9a099b7d58cb83717f94c73"],
+  ["env", "0bd4df38cf756a941b9e7ef54fe37da8ef7ee1a428ecae9895f27ff34d2ef877"],
 ]);
 
 function requireText(failures, label, source, needle) {
