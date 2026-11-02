@@ -14,6 +14,7 @@ import {
   safeLiveDiagnostic,
   type LiveConnectionFailure,
 } from "./connection-failure";
+import { MeetingRecordingNotice } from "./MeetingRecordingNotice";
 
 type StageStatus = "connecting" | "connected" | "failed" | "ended";
 
@@ -272,6 +273,7 @@ export function Stage({
           leaveOnUnmount
           className="h-full w-full"
         />
+        <MeetingRecordingNotice meeting={meeting} />
       </div>
     </RealtimeKitProvider>
   );

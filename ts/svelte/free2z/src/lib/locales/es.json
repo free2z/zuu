@@ -1479,6 +1479,14 @@
         "checking": "Comprobando la grabación…"
       },
       "recordingStartDelayed": "La grabación no se ha confirmado. No des por hecho que se guardará una grabación.",
+      "recordingNotice": {
+        "stageStarting": "Estás en el escenario. La grabación está comenzando.",
+        "stageRecording": "Estás en el escenario y esta reunión se está grabando.",
+        "stagePaused": "Estás en el escenario. La grabación está pausada.",
+        "starting": "La grabación está comenzando.",
+        "recording": "Esta reunión se está grabando.",
+        "paused": "La grabación está pausada."
+      },
       "connectionLost": "Se perdió la conexión",
       "insufficientTuzis": "Necesitas al menos 150 2Z para iniciar una transmisión en vivo.",
       "connectionRestored": "¡Se restableció la conexión!",

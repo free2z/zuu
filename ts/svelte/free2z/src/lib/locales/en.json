@@ -1479,6 +1479,14 @@
         "checking": "Checking recording status…"
       },
       "recordingStartDelayed": "Recording has not been confirmed. Do not rely on a recording being saved.",
+      "recordingNotice": {
+        "stageStarting": "You are on stage. Recording is starting.",
+        "stageRecording": "You are on stage and this meeting is being recorded.",
+        "stagePaused": "You are on stage. Recording is paused.",
+        "starting": "Recording is starting.",
+        "recording": "This meeting is being recorded.",
+        "paused": "Recording is paused."
+      },
       "connectionLost": "Connection Lost",
       "insufficientTuzis": "You need at least 150 2Z to start a live stream.",
       "connectionRestored": "Connection restored!",

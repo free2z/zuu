@@ -1479,6 +1479,14 @@
         "checking": "Vérification de l’enregistrement…"
       },
       "recordingStartDelayed": "L’enregistrement n’a pas été confirmé. Ne comptez pas sur la sauvegarde d’un enregistrement.",
+      "recordingNotice": {
+        "stageStarting": "Vous êtes sur scène. L’enregistrement démarre.",
+        "stageRecording": "Vous êtes sur scène et cette réunion est en cours d’enregistrement.",
+        "stagePaused": "Vous êtes sur scène. L’enregistrement est en pause.",
+        "starting": "L’enregistrement démarre.",
+        "recording": "Cette réunion est en cours d’enregistrement.",
+        "paused": "L’enregistrement est en pause."
+      },
       "connectionLost": "Connexion perdue",
       "insufficientTuzis": "Vous devez disposer d’au moins 150 2Z pour lancer un direct.",
       "connectionRestored": "Connexion rétablie !",

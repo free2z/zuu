@@ -11,6 +11,7 @@
   import { generateConfig } from "@cloudflare/realtimekit-ui";
   import { withoutNativeRecording } from "$lib/utils/recording-controls";
   import HostRecordingControls from "$lib/components/stream/HostRecordingControls.svelte";
+  import MeetingRecordingNotice from "$lib/components/stream/MeetingRecordingNotice.svelte";
   import { defineCustomElements } from "@cloudflare/realtimekit-ui/loader";
   import { Loader2, Copy, Check, AlertCircle } from "@lucide/svelte";
   import Button from "$lib/components/ui/button/button.svelte";
@@ -351,14 +352,17 @@
           />
         {/if}
       </div>
-      <!-- @ts-ignore -->
-      <rtk-meeting
-        mode="fill"
-        use:recordingSafeMeeting={meeting}
-        show-setup-screen={true}
-        t={getRtkTranslator($locale)}
-        class="min-h-0 w-full flex-1"
-      ></rtk-meeting>
+      <div class="relative flex min-h-0 w-full flex-1 flex-col">
+        <!-- @ts-ignore -->
+        <rtk-meeting
+          mode="fill"
+          use:recordingSafeMeeting={meeting}
+          show-setup-screen={true}
+          t={getRtkTranslator($locale)}
+          class="min-h-0 w-full flex-1"
+        ></rtk-meeting>
+        <MeetingRecordingNotice {meeting} />
+      </div>
       <RtkAudioHealth
         {meeting}
         mode="call"
