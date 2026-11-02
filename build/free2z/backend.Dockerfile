@@ -1,5 +1,5 @@
 # Build context: repository root. No deployment files or credentials are inputs.
-FROM python:3.12-bookworm@sha256:903c1a88edb0a18dbc4e02ef07545d18eefea9839ee40761266a640f8d5213d6
+FROM python:3.15-bookworm@sha256:b97b63f7b64698bebb0651b6a5842d33f4493a6902291d36acc5a768e383b950
 RUN dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20250419~deb12u2
 COPY py/free2z/requirements/main.txt /requirements.txt
 RUN python -m pip install --disable-pip-version-check --require-hashes -r /requirements.txt
