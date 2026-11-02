@@ -148,6 +148,14 @@
       "transport": "No se pudo contactar con el servicio en vivo. Cambia de red o inténtalo de nuevo.",
       "unknown": "La conexión en vivo falló. Inténtalo de nuevo."
     },
+    "recording": {
+      "active": "Esta reunión se está grabando.",
+      "paused": "La grabación está pausada.",
+      "stagePaused": "Estás en el escenario. La grabación está pausada.",
+      "stageRecording": "Estás en el escenario y esta reunión se está grabando.",
+      "stageStarting": "Estás en el escenario. La grabación está comenzando.",
+      "starting": "La grabación está comenzando."
+    },
     "stage": {
       "connecting": "Conectando con la transmisión…",
       "ended": "La transmisión ha terminado.",

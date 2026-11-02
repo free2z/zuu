@@ -55,6 +55,7 @@
   import * as Select from "$lib/components/ui/select/index.js";
   import AudioRecorder from "$lib/components/stream/AudioRecorder.svelte";
   import HostRecordingControls from "$lib/components/stream/HostRecordingControls.svelte";
+  import MeetingRecordingNotice from "$lib/components/stream/MeetingRecordingNotice.svelte";
   import { withoutNativeRecording } from "$lib/utils/recording-controls";
   import RtkAudioHealth from "$lib/components/stream/RtkAudioHealth.svelte";
   import { captureAccountToast, toast } from "$lib/toast.js";
@@ -1614,15 +1615,18 @@
             {/if}
           </div>
 
-          <!-- @ts-ignore -->
-          <rtk-meeting
-            bind:this={meetingEl}
-            mode="fill"
-            use:hostMeeting={meeting}
-            show-setup-screen={true}
-            t={getRtkTranslator($locale)}
-            class="min-h-0 w-full flex-1"
-          ></rtk-meeting>
+          <div class="relative flex min-h-0 w-full flex-1 flex-col">
+            <!-- @ts-ignore -->
+            <rtk-meeting
+              bind:this={meetingEl}
+              mode="fill"
+              use:hostMeeting={meeting}
+              show-setup-screen={true}
+              t={getRtkTranslator($locale)}
+              class="min-h-0 w-full flex-1"
+            ></rtk-meeting>
+            <MeetingRecordingNotice {meeting} />
+          </div>
           {#if hostMeetingError}
             <div
               role="alert"

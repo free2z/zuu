@@ -27,6 +27,7 @@
   import SubscribeToCreator from "./SubscribeToCreator.svelte";
   import PayPerViewPrompt from "./PayPerViewPrompt.svelte";
   import InlineRtkMeeting from "./InlineRtkMeeting.svelte";
+  import MeetingRecordingNotice from "./MeetingRecordingNotice.svelte";
   import RtkAudioHealth from "./RtkAudioHealth.svelte";
   import InsufficientFunds from "$lib/components/InsufficientFunds.svelte";
   import { createCreatorRetrieve } from "$lib/api/creator/creator";
@@ -666,6 +667,7 @@
     </div>
   {:else if meeting}
     <InlineRtkMeeting {meeting} translator={rtkTranslator} />
+    <MeetingRecordingNotice {meeting} />
     <RtkAudioHealth
       {meeting}
       mode={isHost ? "host" : "viewer"}
