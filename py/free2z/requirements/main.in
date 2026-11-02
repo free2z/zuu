@@ -102,7 +102,7 @@ drf_spectacular==0.30.0
 # Message verification. CPython 3.12 Linux/amd64 wheels contain the native
 # library; the hash lock and production-base import test cover packaging.
 coincurve==21.0.0
-google-cloud-pubsub==2.42.0
+google-cloud-pubsub==2.43.0
 gunicorn==26.2.0
 # Interactive shell only (django_extensions `shell_plus` picks it up if it is
 # importable). NOTHING in the application imports it -- the only two mentions
