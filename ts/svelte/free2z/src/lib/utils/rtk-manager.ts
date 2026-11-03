@@ -68,6 +68,13 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
   let warning: string | undefined;
   let warningCode: string | undefined;
   let meeting: RealtimeKitClient | null = null;
+  let unbindEvents = () => {};
+  const selfListeners: Array<[string, (...args: any[]) => void]> = [];
+
+  const listenToSelf = (event: string, listener: (...args: any[]) => void) => {
+    meeting!.self.on(event as any, listener as any);
+    selfListeners.push([event, listener]);
+  };
 
   try {
     signal?.throwIfAborted();
@@ -126,10 +133,10 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
     liveStreamStore.init(meeting, streamType, isHost);
 
     // Bind events
-    const unbindEvents = bindRtkEvents(meeting);
+    unbindEvents = bindRtkEvents(meeting);
 
     // Listen for room disconnection
-    meeting.self.on("roomLeft", ({ state }: { state: string }) => {
+    listenToSelf("roomLeft", ({ state }: { state: string }) => {
       if (signal?.aborted || get(liveStreamStore).meeting !== meeting) return;
       if (state === "disconnected") {
         liveStreamStore.setConnectionStatus("disconnected");
@@ -148,14 +155,14 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
     });
 
     // Listen for room join
-    meeting.self.on("roomJoined", () => {
+    listenToSelf("roomJoined", () => {
       if (signal?.aborted || get(liveStreamStore).meeting !== meeting) return;
       liveStreamStore.setConnectionStatus("connected");
       liveStreamStore.setError(null, null);
     });
 
     // Listen for media permission errors during the call
-    meeting.self.on("mediaPermissionError", ({ kind }: { kind: string }) => {
+    listenToSelf("mediaPermissionError", ({ kind }: { kind: string }) => {
       console.warn(`Permission denied for ${kind}`);
     });
 
@@ -185,6 +192,9 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
     return {
       cleanup: async () => {
         unbindEvents();
+        for (const [event, listener] of selfListeners.splice(0)) {
+          meeting?.self.off(event as any, listener as any);
+        }
         // Revoke local meeting capabilities before waiting on a remote leave.
         // Cleanup from an old route cannot clear a newer meeting's state.
         if (get(liveStreamStore).meeting === meeting) liveStreamStore.reset();
@@ -209,6 +219,10 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
       warningCode,
     };
   } catch (error: unknown) {
+    unbindEvents();
+    for (const [event, listener] of selfListeners.splice(0)) {
+      meeting?.self.off(event as any, listener as any);
+    }
     if (signal?.aborted) throw error;
     console.error("Failed to initialize RealtimeKit meeting:", error);
 

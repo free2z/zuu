@@ -17,7 +17,7 @@ declare global {
       left: number;
       finishProvider: () => void;
       finishLeave: () => void;
-      endRoom: () => void;
+      endRoom: (state?: string) => void;
     };
   }
 }
@@ -148,11 +148,11 @@ async function stubProvider(
         self: {
           on: (
             name: string,
-            callback: (event: { state: string }) => Promise<void>,
+            callback: (event: any) => Promise<void> | void,
           ) => {
             if (name === "roomLeft")
-              window.hostTest.endRoom = () => {
-                void callback({ state: "left" });
+              window.hostTest.endRoom = (state = "left") => {
+                void callback({ state });
               };
           },
           off: () => {},
@@ -240,6 +240,81 @@ test("same-account private start copies and navigates with the original username
   expect(await page.evaluate(() => window.hostTest.copied)).toEqual([
     new URL(`/${USER}/private/${SECRET}`, page.url()).toString(),
   ]);
+});
+
+test("failed host room reinitializes with the same seat and keeps that seat", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(page);
+  const bodies: any[] = [];
+  const releases: any[] = [];
+  await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+    bodies.push(route.request().postDataJSON());
+    return route.fulfill({
+      json: { auth_token: `host-token-${bodies.length}` },
+    });
+  });
+  await page.route(`**/api/dyte/${USER}/host-session`, (route) => {
+    if (route.request().method() === "GET")
+      return route.fulfill({
+        json: {
+          active: false,
+          host_session: null,
+          meeting_type: null,
+          ttl_seconds: 60,
+        },
+      });
+    releases.push(route.request().postDataJSON());
+    return route.fulfill({ json: {} });
+  });
+
+  await page.getByTestId("stream-start").click();
+  await expect.poll(() => bodies.length).toBe(1);
+  await page.evaluate(() => window.hostTest.endRoom("failed"));
+  await expect.poll(() => bodies.length).toBe(2);
+  expect(bodies[1]).toMatchObject({
+    role: "host",
+    host_session: bodies[0].host_session,
+  });
+  await expect.poll(async () => (await meetingState(page)).calls).toBe(2);
+  expect(releases).toEqual([]);
+  await expect(page.getByTestId("stream-seat-panel")).toHaveCount(0);
+});
+
+test("kicked host ends its seat and gets an explicit reconnect action", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(page);
+  const releases: any[] = [];
+  await page.route(`**/api/dyte/${USER}/broadcast`, (route) =>
+    route.fulfill({ json: { auth_token: "host-token" } }),
+  );
+  await page.route(`**/api/dyte/${USER}/host-session`, (route) => {
+    if (route.request().method() === "GET")
+      return route.fulfill({
+        json: {
+          active: false,
+          host_session: null,
+          meeting_type: null,
+          ttl_seconds: 60,
+        },
+      });
+    releases.push(route.request().postDataJSON());
+    return route.fulfill({ json: {} });
+  });
+  await page.getByTestId("stream-start").click();
+  await expect.poll(async () => (await meetingState(page)).calls).toBe(1);
+  await page.evaluate(() => window.hostTest.endRoom("kicked"));
+  await expect(page.getByTestId("host-reconnect")).toBeVisible();
+  await expect(
+    page.getByText(
+      "You were removed from the live room. Reconnect to start a new broadcast.",
+    ),
+  ).toBeVisible();
+  await expect.poll(() => releases.length).toBe(1);
+  expect(releases[0]).toMatchObject({ action: "release" });
 });
 
 test("late public grant after A -> B -> A releases the original seat without joining and permits retry", async ({
