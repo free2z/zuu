@@ -125,6 +125,7 @@ async function stubLivePpv(page: Page) {
             type: "ppv",
             participant_count: 3,
             price_per_minute: PRICE,
+            session_id: "00000000-0000-4000-8000-000000000010",
           },
         ],
       }),
@@ -235,7 +236,20 @@ test("without a rate on screen the prompt offers no join at all", async ({
   await signInWithBalance(page, "500.000");
   // The quote lookup fails after the refusal, so the price is unknown.
   await page.route(`**/api/dyte/${OWNER}/live-status`, (route) =>
-    route.fulfill({ status: 503, body: "" }),
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        is_live: true,
+        streams: [
+          {
+            type: "ppv",
+            participant_count: 3,
+            session_id: "00000000-0000-4000-8000-000000000011",
+          },
+        ],
+      }),
+    }),
   );
   const joins = await refuseJoins(page, "74.000");
 

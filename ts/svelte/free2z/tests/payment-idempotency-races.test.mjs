@@ -303,15 +303,12 @@ test("a PPV admission key survives until RealtimeKit confirms roomJoined", () =>
   const viewer = read("src/lib/components/stream/LiveStreamViewer.svelte");
   const keys = read("src/lib/ppv-admission-key.js");
   assert.match(service, /admission_idempotency_key:\s*admissionIdempotencyKey/);
-  assert.match(keys, /legacyStorageKey/);
+  assert.match(keys, /meeting session/);
   assert.match(keys, /current !== expectedKey/);
   assert.doesNotMatch(service, /clearPpvJoinKey\(username, originalViewerId\)/);
-  assert.match(viewer, /self\.on\("roomJoined", clearAfterJoin\)/);
-  assert.match(
-    viewer,
-    /clearPpvJoinKey\(username, originalViewerActorId!, admissionKey\)/,
-  );
-  assert.match(viewer, /if \(handled\) return/);
+  assert.match(viewer, /listenForPpvAdmissionJoin\(result\.meeting, signal/);
+  assert.match(viewer, /meetingSessionId/);
+  assert.match(viewer, /checkLiveStatus\(username\)/);
 });
 
 test("payment dialogs clear refusals on close and keep an affordable retry reachable", () => {

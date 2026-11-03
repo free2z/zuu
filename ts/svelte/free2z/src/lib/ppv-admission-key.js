@@ -1,27 +1,19 @@
 const ppvJoinKeys = new Map();
 
-/** @param {string} owner @param {number} actorId @param {string} meetingType */
-function storageKey(owner, actorId, meetingType) {
-  return `f2z:ppv-join:${owner.toLowerCase()}:${meetingType}:${actorId}`;
+/** @param {string} owner @param {number} actorId @param {string} meetingType @param {string} sessionId */
+function storageKey(owner, actorId, meetingType, sessionId) {
+  return `f2z:ppv-join:${owner.toLowerCase()}:${meetingType}:${sessionId}:${actorId}`;
 }
 
-/** @param {string} owner @param {number} actorId */
-function legacyStorageKey(owner, actorId) {
-  return `f2z:ppv-join:${owner.toLowerCase()}:${actorId}`;
-}
-
-/** Reuse the key for retries to one creator's PPV meeting. */
-/** @param {string} owner @param {number} actorId @param {string} [meetingType] */
-export function ppvJoinKey(owner, actorId, meetingType = "ppv") {
-  const scope = storageKey(owner, actorId, meetingType);
+/** Reuse the key for retries to one provider session. */
+/** @param {string} owner @param {number} actorId @param {string} sessionId @param {string} [meetingType] */
+export function ppvJoinKey(owner, actorId, sessionId, meetingType = "ppv") {
+  if (!sessionId) throw new Error("PPV admission requires a meeting session");
+  const scope = storageKey(owner, actorId, meetingType, sessionId);
   let existing = ppvJoinKeys.get(scope) ?? null;
   try {
     if (!existing && typeof sessionStorage !== "undefined") {
       existing = sessionStorage.getItem(scope);
-      // Older bundles used this owner/viewer-only name for PPV joins. Adopt it
-      // so a cached old client cannot turn an ambiguous retry into a new charge.
-      if (!existing && meetingType === "ppv")
-        existing = sessionStorage.getItem(legacyStorageKey(owner, actorId));
     }
   } catch {
     // The in-memory key still keeps retries in this page idempotent.
@@ -49,14 +41,16 @@ export function ppvJoinKey(owner, actorId, meetingType = "ppv") {
 }
 
 /** Clear only the exact completed admission key, never its successor. */
-/** @param {string} owner @param {number} actorId @param {string} expectedKey @param {string} [meetingType] */
+/** @param {string} owner @param {number} actorId @param {string} expectedKey @param {string} sessionId @param {string} [meetingType] */
 export function clearPpvJoinKey(
   owner,
   actorId,
   expectedKey,
+  sessionId,
   meetingType = "ppv",
 ) {
-  const scope = storageKey(owner, actorId, meetingType);
+  if (!sessionId) return;
+  const scope = storageKey(owner, actorId, meetingType, sessionId);
   let current = ppvJoinKeys.get(scope) ?? null;
   try {
     if (!current && typeof sessionStorage !== "undefined")
@@ -68,12 +62,6 @@ export function clearPpvJoinKey(
   ppvJoinKeys.delete(scope);
   try {
     if (typeof sessionStorage !== "undefined") sessionStorage.removeItem(scope);
-    const legacyScope = legacyStorageKey(owner, actorId);
-    if (
-      typeof sessionStorage !== "undefined" &&
-      sessionStorage.getItem(legacyScope) === expectedKey
-    )
-      sessionStorage.removeItem(legacyScope);
   } catch {
     // Keeping a completed key can only replay this same admission safely.
   }

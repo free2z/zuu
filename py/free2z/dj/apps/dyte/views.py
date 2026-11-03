@@ -1491,7 +1491,7 @@ def live_meeting_status(request, username):
         # enum, so one legacy off-enum row would invalidate the
         # whole payload and hide that creator's real streams.
         meeting_type__in=PUBLIC_MEETING_TYPES,
-    ).values('meeting_type', 'meeting_id', 'price_per_minute')
+    ).values('meeting_type', 'meeting_id', 'price_per_minute', 'provider_session_id')
     # this fundamentally ties the whole experience to polling dyte for
     # the participant count. I guess it could be fine though.
     resp = {}
@@ -1507,6 +1507,9 @@ def live_meeting_status(request, username):
             )
             continue
         meeting['participants'] = count
+        session_id = meeting.pop('provider_session_id')
+        if session_id is not None:
+            meeting['session_id'] = str(session_id)
         # bring back count when dyte fixes regression
         # https://discord.com/channels/872824138048352277/1253228307227349004
         if count:

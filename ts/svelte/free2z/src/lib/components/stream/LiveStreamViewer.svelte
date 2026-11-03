@@ -10,6 +10,7 @@
     type StreamInfo,
   } from "$lib/services/stream";
   import { useQueryClient } from "@tanstack/svelte-query";
+  import { listenForPpvAdmissionJoin } from "$lib/ppv-admission-join.js";
   import { initRtkMeeting } from "$lib/utils/rtk-manager";
   import { liveStreamStore } from "$lib/stores/liveStreamStore";
   import type { PublicStreamType } from "$lib/services/stream";
@@ -357,12 +358,26 @@
     insufficientFunds = null;
 
     try {
+      let meetingSessionId: string | undefined;
+      if (streamType === "ppv") {
+        const status = await StreamService.checkLiveStatus(username);
+        if (signal.aborted) return;
+        meetingSessionId = status.streams.find(
+          (stream) => stream.type === "ppv",
+        )?.session_id;
+        if (!meetingSessionId)
+          throw new LocalizedError({
+            key: "stream.errors.notLive",
+            fallback: "This creator is not currently live.",
+          });
+      }
       // 1. Get Auth Token
       const { auth_token, admission_idempotency_key: admissionKey } =
         await StreamService.initStream(username, streamType, {
           role: "viewer",
           expectedActorId: originalViewerActorId,
           signal,
+          meetingSessionId,
         });
 
       if (signal.aborted) return;
@@ -386,18 +401,20 @@
       if (streamType === "ppv" && originalViewerActorId) {
         // RealtimeKit initialization can finish before the room has joined.
         // Keep the admission key through that ambiguous interval.
-        let handled = false;
         const clearAfterJoin = () => {
-          if (handled) return;
-          handled = true;
-          result.meeting?.self.off("roomJoined", clearAfterJoin);
-          if (admissionKey)
-            clearPpvJoinKey(username, originalViewerActorId!, admissionKey);
+          if (admissionKey && meetingSessionId)
+            clearPpvJoinKey(
+              username,
+              originalViewerActorId!,
+              admissionKey,
+              meetingSessionId,
+              "ppv",
+            );
         };
         if ($liveStreamStore.connectionStatus === "connected") {
           clearAfterJoin();
         } else if (result.meeting) {
-          result.meeting.self.on("roomJoined", clearAfterJoin);
+          listenForPpvAdmissionJoin(result.meeting, signal, clearAfterJoin);
         }
       }
       dismissActionToasts();

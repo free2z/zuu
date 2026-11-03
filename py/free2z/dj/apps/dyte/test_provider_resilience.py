@@ -1,12 +1,15 @@
+import multiprocessing
+import threading
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import Mock
 
 import pytest
 import requests
-import multiprocessing
-import threading
-from concurrent.futures import ThreadPoolExecutor
 from django.core.cache import cache
-from dj.apps.dyte.client import DyteClient, _count_cache_keys
+from dj.apps.dyte.client import (
+    DyteClient, _count_cache_keys, _count_generation, _write_count_if_current,
+)
 from dj.apps.dyte.models import PRIVATE, CreatorMeeting
 
 
@@ -16,6 +19,28 @@ class _ProcessSharedCache:
     def __init__(self, values, lock):
         self.values = values
         self.lock = lock
+        self.client = self
+
+    def get_client(self, write=True):
+        return self
+
+    def make_key(self, key):
+        return key
+
+    def eval(self, script, key_count, *args):
+        with self.lock:
+            if key_count == 2:
+                generation_key, current_key, token, *_ = args
+                generation = self.values.get(generation_key, 0) + 1
+                self.values[generation_key] = generation
+                self.values[current_key] = f"{generation}:{token}"
+                return generation
+            current_key, recent_key, stale_key, generation, count, *_ = args
+            if self.values.get(current_key) != generation:
+                return 0
+            self.values[recent_key] = int(count)
+            self.values[stale_key] = int(count)
+            return 1
 
     def get(self, key, default=None):
         with self.lock:
@@ -157,6 +182,23 @@ def test_older_probe_from_another_worker_cannot_overwrite_shared_cache():
         assert shared_backend.get(stale_key) == 9
 
 
+def test_expired_writer_token_cannot_partially_update_count_snapshots(mocker):
+    meeting_id = "atomic-count-fence"
+    recent_key, stale_key = _count_cache_keys(meeting_id)
+    shared = _ProcessSharedCache({}, threading.RLock())
+    mocker.patch("dj.apps.dyte.client.cache", shared)
+
+    old_generation = _count_generation(meeting_id)
+    current_generation = _count_generation(meeting_id)
+    _write_count_if_current(meeting_id, current_generation, 11)
+    # Simulate the old lock lease's former failure mode: its token is no
+    # longer current after a successor has entered, so both values stay put.
+    _write_count_if_current(meeting_id, old_generation, 2)
+
+    assert shared.get(recent_key) == 11
+    assert shared.get(stale_key) == 11
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize("failure", ["http", "transport", "missing-token"])
 def test_public_viewer_provider_failures_are_retryable_503(
@@ -199,7 +241,7 @@ def test_private_viewer_provider_transport_error_is_retryable_503(
     viewer = creator_factory(username="private-provider-viewer")
     meeting = CreatorMeeting.objects.create(
         creator=host, meeting_id="private-provider-room",
-        meeting_type=PRIVATE, is_public=False,
+        meeting_type=PRIVATE, is_public=False, secret=uuid.uuid4(),
     )
     api_client.force_authenticate(user=viewer)
     mocker.patch(
@@ -214,6 +256,27 @@ def test_private_viewer_provider_transport_error_is_retryable_503(
 
     assert result.status_code == 503
     assert result["Retry-After"] == "5"
+
+
+@pytest.mark.django_db
+def test_live_status_exposes_public_provider_session_for_ppv_key_scope(
+    api_client, creator_factory, mocker,
+):
+    host = creator_factory(username="ppv-session-host")
+    session_id = uuid.uuid4()
+    CreatorMeeting.objects.create(
+        creator=host, meeting_id="ppv-session-room", meeting_type="ppv",
+        is_public=True, live_now=True, provider_session_id=session_id,
+    )
+    mocker.patch(
+        "dj.apps.dyte.views.DyteClient.get_cached_participants_count",
+        return_value=2,
+    )
+
+    result = api_client.get(f"/api/dyte/{host.username}/live-status")
+
+    assert result.status_code == 200
+    assert result.data["ppv"]["session_id"] == str(session_id)
 
 
 @pytest.mark.django_db

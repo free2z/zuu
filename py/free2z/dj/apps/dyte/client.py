@@ -15,6 +15,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from requests.auth import HTTPBasicAuth
 from django.core.cache import cache
+from django.core.cache import caches
 
 from django.conf import settings
 
@@ -67,8 +68,6 @@ class _ThreadLocalSessionProxy:
 _SESSION = _ThreadLocalSessionProxy()
 PARTICIPANT_COUNT_TTL = 12
 PARTICIPANT_COUNT_STALE_TTL = 300
-PARTICIPANT_COUNT_WRITE_LOCK_TTL = 5
-PARTICIPANT_COUNT_GENERATION_TTL = PARTICIPANT_COUNT_STALE_TTL
 _COUNT_LOCKS_GUARD = threading.Lock()
 _COUNT_LOCKS = {}
 
@@ -80,65 +79,99 @@ def _count_lock(key):
 
 def _count_cache_keys(meeting_id):
     return (
-        f"dyte:participants:recent:{meeting_id}",
-        f"dyte:participants:last-known:{meeting_id}",
+        f"dyte:participants:v2:recent:{meeting_id}",
+        f"dyte:participants:v2:last-known:{meeting_id}",
     )
 
 
 def _count_generation_key(meeting_id):
-    return f"dyte:participants:generation:{meeting_id}"
+    return f"dyte:participants:v2:generation:{meeting_id}:current"
 
 
-def _count_write_lock_key(meeting_id):
-    return f"dyte:participants:write-lock:{meeting_id}"
+def _count_sequence_key():
+    return "dyte:participants:v2:generation:sequence"
+
+
+_COUNT_BEGIN_LUA = """
+local generation = redis.call('INCR', KEYS[1])
+redis.call('SET', KEYS[2], tostring(generation) .. ':' .. ARGV[1], 'EX', ARGV[2])
+return generation
+"""
+_COUNT_WRITE_LUA = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[4])
+redis.call('SET', KEYS[3], ARGV[2], 'EX', ARGV[5])
+return 1
+"""
+
+
+def _raw_redis():
+    backend = cache
+    if backend.__class__.__module__ == 'django.utils.connection':
+        backend = caches['default']
+    client = getattr(backend, 'client', None)
+    get_client = getattr(client, 'get_client', None)
+    return get_client(write=True) if get_client is not None else None
+
+
+def _cache_key(key):
+    return cache.make_key(key) if hasattr(cache, 'make_key') else key
 
 
 def _count_generation(meeting_id):
-    """Allocate a shared, monotonically increasing probe generation."""
-    key = _count_generation_key(meeting_id)
+    """Allocate a never-reused Redis generation and its unique probe token."""
+    token = uuid.uuid4().hex
+    current_key = _count_generation_key(meeting_id)
+    redis = _raw_redis()
+    if redis is not None:
+        generation = redis.eval(
+            _COUNT_BEGIN_LUA, 2, _cache_key(_count_sequence_key()),
+            _cache_key(current_key), token, PARTICIPANT_COUNT_STALE_TTL,
+        )
+        return f"{generation}:{token}"
+    # The declared non-production backend is LocMemCache: one process and
+    # _count_lock serializes its entire miss/probe/write path. Never expire or
+    # recycle its counter while that process is alive.
+    key = _count_sequence_key()
+    with _COUNT_LOCKS_GUARD:
+        generation = getattr(_count_generation, '_local', {})
+        value = generation.get(key, 0) + 1
+        generation[key] = value
+        _count_generation._local = generation
     try:
-        cache.add(key, 0, PARTICIPANT_COUNT_GENERATION_TTL)
-        generation = cache.incr(key)
-        cache.touch(key, PARTICIPANT_COUNT_GENERATION_TTL)
-        return generation
+        cache.set(
+            current_key, f"{value}:{token}",
+            PARTICIPANT_COUNT_STALE_TTL,
+        )
     except Exception:
         logger.warning("participant count generation unavailable", exc_info=True)
         return None
+    return f"{value}:{token}"
 
 
 def _write_count_if_current(meeting_id, generation, count):
-    """Fence cache writes across workers; old probes cannot replace newer ones."""
+    """Atomically fence and write both count snapshots."""
     if generation is None:
         return
-    lock_key = _count_write_lock_key(meeting_id)
-    token = uuid.uuid4().hex
-    deadline = threading.Event()
-    # Cache.add is atomic on the shared Redis backend. A bounded wait avoids
-    # making the provider result depend on cache availability.
-    for _ in range(100):
-        try:
-            if cache.add(lock_key, token, PARTICIPANT_COUNT_WRITE_LOCK_TTL):
-                break
-        except Exception:
-            logger.warning("participant count cache lock unavailable", exc_info=True)
-            return
-        deadline.wait(0.01)
-    else:
+    recent_key, stale_key = _count_cache_keys(meeting_id)
+    redis = _raw_redis()
+    if redis is not None:
+        redis.eval(
+            _COUNT_WRITE_LUA, 3,
+            _cache_key(_count_generation_key(meeting_id)),
+            _cache_key(recent_key), _cache_key(stale_key), generation,
+            count, PARTICIPANT_COUNT_TTL, PARTICIPANT_COUNT_STALE_TTL,
+        )
         return
-    try:
+    # LocMemCache is explicitly process-local. The caller still owns its
+    # per-meeting process lock here, so this two-key fallback cannot race or
+    # outlive an expiring distributed lease. Unknown backends fail closed.
+    backend = caches['default'] if cache.__class__.__module__ == 'django.utils.connection' else cache
+    if backend.__class__.__module__.endswith('.locmem'):
         if cache.get(_count_generation_key(meeting_id)) != generation:
             return
-        recent_key, stale_key = _count_cache_keys(meeting_id)
         cache.set(recent_key, count, PARTICIPANT_COUNT_TTL)
         cache.set(stale_key, count, PARTICIPANT_COUNT_STALE_TTL)
-    finally:
-        # The lease is short and this compare protects a successor if an
-        # unusually delayed write outlives its lease.
-        try:
-            if cache.get(lock_key) == token:
-                cache.delete(lock_key)
-        except Exception:
-            logger.warning("participant count cache lock release failed", exc_info=True)
 
 
 def _safe_json(response) -> dict:
@@ -375,7 +408,11 @@ class DyteClient(object):
                 cached = None
             if cached is not None:
                 return cached
-            generation = _count_generation(meeting_id)
+            try:
+                generation = _count_generation(meeting_id)
+            except Exception:
+                logger.warning("participant count generation unavailable", exc_info=True)
+                generation = None
             try:
                 count = self.get_participants_count(meeting_id)
             except Exception:

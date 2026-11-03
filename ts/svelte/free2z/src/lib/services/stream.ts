@@ -93,6 +93,7 @@ export const streamInitResponseSchema = z.object({
   auth_token: z.string(),
   room_name: z.string().optional(),
   meeting_id: z.string().optional(),
+  session_id: z.string().uuid().optional(),
   // Host starts only: the broadcaster seat this tab now holds.
   host_session: z.string().optional(),
   meeting_type: z.enum(PUBLIC_STREAM_TYPES).optional(),
@@ -124,6 +125,7 @@ export const streamInfoSchema = z.object({
   // Number() at the payment boundary.
   price_per_minute: z.union([z.string(), z.number()]).optional(),
   meeting_id: z.string().optional(),
+  session_id: z.string().uuid().optional(),
 });
 
 export type StreamInfo = z.infer<typeof streamInfoSchema>;
@@ -141,6 +143,7 @@ const legacyStreamInfoSchema = z.object({
   participants: z.number(),
   price_per_minute: z.union([z.string(), z.number()]).nullable().optional(),
   meeting_id: z.string().optional(),
+  session_id: z.string().uuid().optional(),
 });
 
 const legacyLiveStatusResponseSchema = z.partialRecord(
@@ -158,6 +161,7 @@ export const liveStatusResponseSchema = z.union([
         ? {}
         : { price_per_minute: stream.price_per_minute }),
       ...(stream.meeting_id == null ? {} : { meeting_id: stream.meeting_id }),
+      ...(stream.session_id == null ? {} : { session_id: stream.session_id }),
     }));
 
     return {
@@ -225,6 +229,8 @@ export interface InitStreamOptions {
   expectedActorId?: number;
   /** Cancel admission when the original viewer leaves this page. */
   signal?: AbortSignal;
+  /** Server-issued provider session identity; required for paid PPV retries. */
+  meetingSessionId?: string;
   /**
    * `host` from the broadcaster dashboard, `viewer` from every public stream
    * page -- including the creator's own, which must never publish.
@@ -261,11 +267,14 @@ export class StreamService {
       takeover,
       expectedActorId,
       signal,
+      meetingSessionId,
     } = options;
     const originalViewerId =
       type === "ppv" && role !== "host"
         ? (expectedActorId ?? get(currentUser)?.id)
         : undefined;
+      if (originalViewerId && type === "ppv" && !meetingSessionId)
+        throw new Error("PPV admission requires a meeting session");
     try {
       signal?.throwIfAborted();
       if (type === "ppv" && role !== "host") {
@@ -291,7 +300,7 @@ export class StreamService {
       }
       const admissionIdempotencyKey =
         originalViewerId && type === "ppv"
-          ? ppvJoinKey(username, originalViewerId, type)
+          ? ppvJoinKey(username, originalViewerId, meetingSessionId!, type)
           : undefined;
       const instruction = {
         ...(role ? { role } : {}),
