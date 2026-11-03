@@ -101,6 +101,9 @@ from the repository root. Use a separate Python environment with the hash-locked
 not belong in the runtime image. Regeneration preserves the curated language
 sets defined in `f2z/languages.py`.
 
+See [Content languages](../../docs/free2z/web/languages.md) for registry changes,
+translation evidence, catalog behavior and the limits derived from the offering.
+
 From the repository root, `PYTHONPATH=py/free2z DJANGO_SETTINGS_MODULE=pytest_settings python scripts/free2z/economy-writer-register.py --write` refreshes the model and
 writer source inventory using the installed locked backend dependencies. This
 inventory identifies call sites requiring review; it is not financial approval
