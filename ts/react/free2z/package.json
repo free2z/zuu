@@ -61,7 +61,7 @@
     "react-scripts": "^5.0.1",
     "react-swipeable-views": "npm:react-swipeable-views-react-18-fix@^0.14.1",
     "react-transition-group": "^4.4.5",
-    "react-virtuoso": "^4.14.0",
+    "react-virtuoso": "^4.18.20",
     "react-web-share": "^2.0.2",
     "react-webcam": "^7.2.0",
     "redux": "^4.2.1",
