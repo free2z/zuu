@@ -435,7 +435,7 @@ jobs:
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: wallet/e2e2z/unsigned-android/CHECKSUMS.sha256
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: unsigned-e2e2z-android-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: wallet/e2e2z/unsigned-android
@@ -723,7 +723,7 @@ jobs:
             echo "Android credential cleanup failed" >&2
             exit 1
           fi
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: internal-e2e2z-android-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: signed-android
@@ -805,7 +805,7 @@ jobs:
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: wallet/e2e2z/release-artifacts/*
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e2z-android-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: wallet/e2e2z/release-artifacts
@@ -940,7 +940,7 @@ jobs:
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: wallet/e2e2z/unsigned-ios/CHECKSUMS.sha256
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: internal-e2e2z-ios-unsigned-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: wallet/e2e2z/unsigned-ios
@@ -1164,7 +1164,7 @@ jobs:
             echo "iOS signing credential cleanup or keychain restoration failed" >&2
             exit 1
           fi
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: internal-e2e2z-ios-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: signed-ios
@@ -1280,7 +1280,7 @@ jobs:
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: wallet/e2e2z/verified-ios/*
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: internal-e2e2z-ios-verified-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: wallet/e2e2z/verified-ios
