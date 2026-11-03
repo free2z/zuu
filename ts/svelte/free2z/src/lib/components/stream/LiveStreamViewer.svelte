@@ -13,7 +13,11 @@
   import { streamRetryDelay } from "$lib/utils/stream-recovery";
   import { liveStreamStore, meetingStore } from "$lib/stores/liveStreamStore";
   import type { PublicStreamType } from "$lib/services/stream";
-  import { defineCustomElements } from "@cloudflare/realtimekit-ui/loader";
+  import {
+    markStreamPerformance,
+    observeFirstRtkVideoFrame,
+    preloadRtkMeeting,
+  } from "$lib/utils/rtk-ui";
   import {
     Loader2,
     AlertCircle,
@@ -80,6 +84,7 @@
   let cleanup: (() => void | Promise<void>) | null = null;
   let destroyed = false;
   let joinController: AbortController | null = null;
+  let stopFirstFrameObservation: (() => void) | undefined;
 
   let showSubscribe = false;
   const actionToastIds = new Set<string | number>();
@@ -319,8 +324,7 @@
   }
 
   onMount(async () => {
-    // Register RealtimeKit web components
-    defineCustomElements();
+    markStreamPerformance("viewer-mounted");
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
@@ -355,6 +359,8 @@
       window.removeEventListener("offline", handleOffline);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     }
+    stopFirstFrameObservation?.();
+    stopFirstFrameObservation = undefined;
     clearTimeout(retryTimeout);
     retryTimeout = undefined;
     clearTimeout(disconnectTimeout);
@@ -378,6 +384,7 @@
     }
 
     loading = !meeting;
+    markStreamPerformance(retry ? "retry-start" : "viewer-start");
 
     errorSource = null;
     errorCode = null;
@@ -387,16 +394,45 @@
     insufficientFunds = null;
 
     try {
+      // Start fetching the component entry and its dependency chunks while
+      // stream admission runs. The manager's public-viewer join begins as soon
+      // as its meeting is initialized, while the already-loaded element mounts.
+      markStreamPerformance("rtk-ui-preload-start");
+      const rtkUiReady = preloadRtkMeeting();
+      // Admission can abort before the await below. Mark the promise handled
+      // now so a failed chunk fetch never becomes an unhandled rejection.
+      void rtkUiReady.catch(() => {});
+
       // 1. Get Auth Token
+      markStreamPerformance("stream-init-start");
       const { auth_token } = await StreamService.initStream(
         username,
         streamType,
         { role: "viewer", expectedActorId: originalViewerActorId, signal },
       );
+      markStreamPerformance("stream-init-end");
 
       if (signal.aborted) return;
 
+      await rtkUiReady;
+      markStreamPerformance("rtk-ui-preload-end");
+
+      stopFirstFrameObservation?.();
+      stopFirstFrameObservation = observeFirstRtkVideoFrame(document, () => {
+        markStreamPerformance("first-frame");
+        try {
+          performance.measure(
+            "stream:first-frame",
+            "stream:viewer-start",
+            "stream:first-frame",
+          );
+        } catch {
+          // Performance entries can be cleared by developer tooling.
+        }
+      });
+
       // 2. Initialize Meeting
+      markStreamPerformance("meeting-init-start");
       const result = await initRtkMeeting({
         authToken: auth_token,
         signal,
@@ -407,6 +443,7 @@
           video: isHost,
         },
       });
+      markStreamPerformance("meeting-init-end");
       if (signal.aborted) {
         await result.cleanup();
         return;
