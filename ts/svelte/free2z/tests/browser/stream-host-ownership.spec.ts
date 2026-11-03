@@ -128,6 +128,8 @@ async function stubProvider(
   failDuringInit = false,
   failSecondInit = false,
   failSecondInitWithRoomFailure = false,
+  terminalDuringInit?: "kicked" | "rejected",
+  terminalSecondInit?: "kicked" | "rejected",
 ) {
   await page.evaluate(
     async ({
@@ -137,6 +139,8 @@ async function stubProvider(
       failDuringInit,
       failSecondInit,
       failSecondInitWithRoomFailure,
+      terminalDuringInit,
+      terminalSecondInit,
     }) => {
       const text = await (await fetch("/src/lib/utils/rtk-manager.ts")).text();
       const path = text.match(
@@ -161,6 +165,16 @@ async function stubProvider(
             callback: (event: any) => Promise<void> | void,
           ) => {
             if (name === "roomLeft") {
+              if (terminalDuringInit) {
+                const state = terminalDuringInit;
+                terminalDuringInit = undefined;
+                callback({ state });
+              }
+              if (terminalSecondInit && window.hostTest.sdkCalls.length === 2) {
+                const state = terminalSecondInit;
+                terminalSecondInit = undefined;
+                callback({ state });
+              }
               if (failDuringInit) {
                 failDuringInit = false;
                 // The manager installs its store listener before its promise
@@ -217,6 +231,8 @@ async function stubProvider(
       failDuringInit,
       failSecondInit,
       failSecondInitWithRoomFailure,
+      terminalDuringInit,
+      terminalSecondInit,
     },
   );
 }
@@ -404,6 +420,129 @@ test("room failure during host retry initialization releases the seat without re
   expect(bodies).toHaveLength(2);
   expect(releases).toHaveLength(1);
 });
+
+const hostTerminalCases = [
+  {
+    state: "kicked",
+    message:
+      "You were removed from the live room. Reconnect to start a new broadcast.",
+  },
+  {
+    state: "rejected",
+    message:
+      "The live room rejected the connection. Reconnect to start a new broadcast.",
+  },
+] as const;
+
+for (const { state, message } of hostTerminalCases) {
+  test(`${state} during initial host SDK initialization releases the seat and offers reconnect`, async ({
+    page,
+  }) => {
+    await openDashboard(page);
+    await stubProvider(page, false, false, false, false, false, false, state);
+    const bodies: any[] = [];
+    const releases: any[] = [];
+    await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+      bodies.push(route.request().postDataJSON());
+      return route.fulfill({
+        json: { auth_token: `host-token-${bodies.length}` },
+      });
+    });
+    await page.route(`**/api/dyte/${USER}/host-session`, (route) => {
+      if (route.request().method() === "GET")
+        return route.fulfill({
+          json: {
+            active: false,
+            host_session: null,
+            meeting_type: null,
+            ttl_seconds: 60,
+          },
+        });
+      releases.push(route.request().postDataJSON());
+      return route.fulfill({ json: {} });
+    });
+
+    await page.getByTestId("stream-start").click();
+    await expect(page.getByTestId("host-reconnect")).toBeVisible();
+    await expect(
+      page.locator("main").getByText(message, { exact: false }),
+    ).toBeVisible();
+    await expect.poll(() => releases.length).toBe(1);
+    expect(releases[0]).toMatchObject({
+      action: "release",
+      host_session: bodies[0].host_session,
+    });
+    expect(await meetingState(page)).toMatchObject({ calls: 1, room: null });
+    await expect(
+      page.getByText("The stream started successfully. You are live!", {
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await page.waitForTimeout(300);
+    expect(bodies).toHaveLength(1);
+    expect(releases).toHaveLength(1);
+  });
+
+  test(`${state} during host retry SDK initialization releases the seat without retrying forever`, async ({
+    page,
+  }) => {
+    await openDashboard(page);
+    await stubProvider(
+      page,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      undefined,
+      state,
+    );
+    const bodies: any[] = [];
+    const releases: any[] = [];
+    await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+      bodies.push(route.request().postDataJSON());
+      return route.fulfill({
+        json: { auth_token: `host-token-${bodies.length}` },
+      });
+    });
+    await page.route(`**/api/dyte/${USER}/host-session`, (route) => {
+      if (route.request().method() === "GET")
+        return route.fulfill({
+          json: {
+            active: false,
+            host_session: null,
+            meeting_type: null,
+            ttl_seconds: 60,
+          },
+        });
+      releases.push(route.request().postDataJSON());
+      return route.fulfill({ json: {} });
+    });
+
+    await page.getByTestId("stream-start").click();
+    await expect.poll(async () => (await meetingState(page)).calls).toBe(1);
+    await page.evaluate(() => window.hostTest.endRoom("failed"));
+    await expect(page.getByTestId("host-reconnect")).toBeVisible();
+    await expect(
+      page.locator("main").getByText(message, { exact: false }),
+    ).toBeVisible();
+    await expect.poll(() => releases.length).toBe(1);
+    expect(releases[0]).toMatchObject({
+      action: "release",
+      host_session: bodies[0].host_session,
+    });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toMatchObject({
+      role: "host",
+      host_session: bodies[0].host_session,
+    });
+    expect(await meetingState(page)).toMatchObject({ calls: 2, room: null });
+    await page.waitForTimeout(300);
+    expect(bodies).toHaveLength(2);
+    expect(releases).toHaveLength(1);
+  });
+}
 
 test("kicked host ends its seat and gets an explicit reconnect action", async ({
   page,

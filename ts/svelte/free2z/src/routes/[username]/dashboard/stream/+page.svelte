@@ -903,6 +903,14 @@
         };
         meetingInstance.self.on("roomLeft", onHostRoomLeft);
         meetingInstance.self.on("roomJoined", onHostRoomJoined);
+        const initStatus = get(liveStreamStore).connectionStatus;
+        if (initStatus === "kicked" || initStatus === "rejected") {
+          // The manager can see a terminal roomLeft before this owner
+          // listener exists. Run the normal seat-release path and do not
+          // report this initialization as a successful broadcast.
+          await onHostRoomLeft({ state: initStatus });
+          return;
+        }
         // The manager owns a roomLeft listener while it initializes the
         // meeting. A failure can arrive after that listener is attached but
         // before this host-specific handler is installed. The store retains
@@ -989,12 +997,35 @@
         await initialized.cleanup();
         return;
       }
-      // initRtkMeeting can observe roomLeft:failed before this dashboard
-      // listener is attached. Calling onRoomLeft below would try to re-enter
-      // reconnectHost while its guard is still held, silently losing the
-      // failure. Treat the retry as failed so its seat is released and the
-      // explicit reconnect action is shown.
-      if (get(liveStreamStore).connectionStatus === "failed") {
+      // initRtkMeeting can observe a terminal roomLeft before this dashboard
+      // listener is attached. Handle retained states before adopting the
+      // meeting; calling the failed handler here would re-enter reconnectHost
+      // while its guard is still held.
+      const initStatus = get(liveStreamStore).connectionStatus;
+      if (initStatus === "kicked" || initStatus === "rejected") {
+        await initialized.cleanup();
+        if (
+          !isCurrentOwner(owner) ||
+          seatOwner?.session !== session ||
+          isLeaving
+        )
+          return;
+        error =
+          initStatus === "kicked"
+            ? $t(
+                "dashboard.stream.hostKicked",
+                "You were removed from the live room. Reconnect to start a new broadcast.",
+              )
+            : $t(
+                "dashboard.stream.hostRejected",
+                "The live room rejected the connection. Reconnect to start a new broadcast.",
+              );
+        hostReconnectFailed = true;
+        endSeat();
+        if (notice.isCurrent()) notice.error(error);
+        return;
+      }
+      if (initStatus === "failed") {
         await initialized.cleanup();
         throw new Error("host room failed during reconnect initialization");
       }

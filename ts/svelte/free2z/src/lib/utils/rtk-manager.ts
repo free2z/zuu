@@ -149,6 +149,11 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
           translateMessage(RTK_MESSAGES.connectionFailed),
           RTK_MESSAGES.connectionFailed.key,
         );
+      } else if (state === "kicked" || state === "rejected") {
+        // Host setup awaits this manager before its own roomLeft listener can
+        // attach. Retain terminal admission states so that caller can release
+        // its seat instead of adopting a meeting that can never join.
+        liveStreamStore.setConnectionStatus(state);
       } else if (state === "ended") {
         liveStreamStore.setConnectionStatus("ended");
       }
