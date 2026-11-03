@@ -75,6 +75,8 @@
   let boundRoom: { username: string; secret: string } | null = null;
   let retryCount = 0;
   let recoveryInProgress = false;
+  let privateJoinGeneration = 0;
+  let privateJoinInProgress: Promise<void> | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let disconnectTimer: ReturnType<typeof setTimeout> | undefined;
   $: isOffline = $liveStreamStore.isOffline;
@@ -125,6 +127,26 @@
     clearTimeout(disconnectTimer);
     retryTimer = undefined;
     disconnectTimer = undefined;
+    // An online/visibility event can arrive while the first token request is
+    // still pending. Let that join settle before considering recovery; starting
+    // another token request here can create two provider meetings for one room.
+    const currentJoin = privateJoinInProgress;
+    if (currentJoin) {
+      try {
+        await currentJoin;
+      } finally {
+        recoveryInProgress = false;
+        if (
+          !meeting &&
+          !isOffline &&
+          !callNeedsReload &&
+          !abort.signal.aborted
+        ) {
+          scheduleRetry();
+        }
+      }
+      return;
+    }
     const leave = cleanup;
     cleanup = null;
     meeting = null;
@@ -184,6 +206,7 @@
   }
 
   function invalidateCall(accountChanged = false) {
+    privateJoinGeneration++;
     abort.abort();
     callNeedsReload = true;
     loading = false;
@@ -249,6 +272,7 @@
   });
 
   onDestroy(() => {
+    privateJoinGeneration++;
     abort.abort();
     if (browser) {
       window.removeEventListener("offline", handleOffline);
@@ -261,7 +285,19 @@
     if (cleanup) cleanup();
   });
 
-  async function joinPrivateStream() {
+  function joinPrivateStream(): Promise<void> {
+    if (privateJoinInProgress) return privateJoinInProgress;
+    const generation = ++privateJoinGeneration;
+    const join = performPrivateJoin(generation);
+    privateJoinInProgress = join;
+    const clearJoin = () => {
+      if (privateJoinInProgress === join) privateJoinInProgress = null;
+    };
+    void join.then(clearJoin, clearJoin);
+    return join;
+  }
+
+  async function performPrivateJoin(joinGeneration: number) {
     const operationNotice = captureAccountToast();
     if (!username || !secret) {
       error = $t(
@@ -290,6 +326,7 @@
       const params = get(page).params;
       return (
         !abort.signal.aborted &&
+        joinGeneration === privateJoinGeneration &&
         generation === accountGeneration &&
         actor === accountKey() &&
         params.username === room.username &&
@@ -366,7 +403,7 @@
       );
       if (!isOffline) scheduleRetry();
     } finally {
-      loading = false;
+      if (joinGeneration === privateJoinGeneration) loading = false;
     }
   }
 

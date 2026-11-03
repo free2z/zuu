@@ -1147,6 +1147,42 @@ test("private recovery stays single-flight while provider leave is pending", asy
     .toBe(2);
 });
 
+test("an online event does not overlap a gated initial private join", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await prepareSession(page);
+  const secret = "private-initial-join-online-single-flight";
+  let attempts = 0;
+  let releaseInitial!: () => void;
+  const initialGate = new Promise<void>((resolve) => {
+    releaseInitial = resolve;
+  });
+  await page.route(`**/api/dyte/${USER}/private/${secret}`, async (route) => {
+    attempts++;
+    await initialGate;
+    await route.fulfill({
+      json: { auth_token: `synthetic-private-${attempts}`, e2ee: false },
+    });
+  });
+
+  await page.goto(`/${USER}/private/${secret}?lang=en`);
+  await expect.poll(() => attempts).toBe(1);
+  await stubProvider(page, false, true);
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+
+  // The retry timer is longer than this wait. The still-pending initial token
+  // request must remain the only request even when online recovery fires.
+  await page.waitForTimeout(2_200);
+  expect(attempts).toBe(1);
+  releaseInitial();
+  await expect(page.getByTestId("private-call-header")).toBeVisible();
+  await expect.poll(() => attempts).toBe(1);
+  await expect
+    .poll(() => page.evaluate(() => window.hostTest.sdkCalls.length))
+    .toBe(1);
+});
+
 test("private recovery retries a failed join after coming back online", async ({
   page,
 }) => {
@@ -1162,7 +1198,10 @@ test("private recovery retries a failed join after coming back online", async ({
     attempts++;
     if (attempts === 1) await initialGate;
     if (attempts === 2) {
-      await route.fulfill({ status: 503, json: { detail: "temporary outage" } });
+      await route.fulfill({
+        status: 503,
+        json: { detail: "temporary outage" },
+      });
       return;
     }
     await route.fulfill({
