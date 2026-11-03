@@ -91,7 +91,7 @@ function createLiveStreamStore() {
       update((state) => ({ ...state, activeSpeakerId: participantId }));
     },
 
-    setError: (error: string, errorCode: string | null = null) => {
+    setError: (error: string | null, errorCode: string | null = null) => {
       update((state) => ({ ...state, error, errorCode }));
     },
 

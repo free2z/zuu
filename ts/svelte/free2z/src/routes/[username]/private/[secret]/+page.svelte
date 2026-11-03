@@ -13,12 +13,20 @@
   import HostRecordingControls from "$lib/components/stream/HostRecordingControls.svelte";
   import MeetingRecordingNotice from "$lib/components/stream/MeetingRecordingNotice.svelte";
   import { defineCustomElements } from "@cloudflare/realtimekit-ui/loader";
-  import { Loader2, Copy, Check, AlertCircle } from "@lucide/svelte";
+  import {
+    Loader2,
+    Copy,
+    Check,
+    AlertCircle,
+    WifiOff,
+    RefreshCw,
+  } from "@lucide/svelte";
   import Button from "$lib/components/ui/button/button.svelte";
   import { toast, captureAccountToast } from "$lib/toast.js";
   import { locale, tStore as t } from "$lib/i18n";
   import { getRtkTranslator } from "$lib/rtk-i18n";
   import RtkAudioHealth from "$lib/components/stream/RtkAudioHealth.svelte";
+  import { streamRetryDelay } from "$lib/utils/stream-recovery";
 
   let meeting: RealtimeKitClient | null = null;
   let hostMeetingError = false;
@@ -64,6 +72,73 @@
   let encrypted = false;
   let callNeedsReload = false;
   let boundRoom: { username: string; secret: string } | null = null;
+  let retryCount = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let disconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  $: isOffline = $liveStreamStore.isOffline;
+  $: connectionStatus = $liveStreamStore.connectionStatus;
+  $: if (connectionStatus === "connected") {
+    clearTimeout(retryTimer);
+    clearTimeout(disconnectTimer);
+    retryTimer = undefined;
+    retryCount = 0;
+    error = null;
+  } else if (connectionStatus === "disconnected" && !isOffline) {
+    clearTimeout(disconnectTimer);
+    disconnectTimer = setTimeout(() => {
+      if (connectionStatus === "disconnected" && !isOffline) scheduleRetry();
+    }, 20_000);
+  } else if (connectionStatus === "failed" && !isOffline) {
+    scheduleRetry();
+  }
+
+  function scheduleRetry() {
+    if (
+      retryTimer ||
+      isOffline ||
+      document.visibilityState === "hidden" ||
+      callNeedsReload ||
+      abort.signal.aborted
+    )
+      return;
+    const delay = streamRetryDelay(retryCount);
+    retryCount++;
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      void recoverPrivateStream();
+    }, delay);
+  }
+
+  async function recoverPrivateStream() {
+    if (isOffline || callNeedsReload || abort.signal.aborted) return;
+    clearTimeout(retryTimer);
+    clearTimeout(disconnectTimer);
+    retryTimer = undefined;
+    disconnectTimer = undefined;
+    const leave = cleanup;
+    cleanup = null;
+    meeting = null;
+    if (leave) await leave();
+    if (!abort.signal.aborted) await joinPrivateStream();
+  }
+
+  function handleOffline() {
+    liveStreamStore.setOffline(true);
+  }
+  function handleOnline() {
+    liveStreamStore.setOffline(false);
+    if (!meeting && !callNeedsReload) scheduleRetry();
+  }
+  function handleVisibilityChange() {
+    if (document.visibilityState !== "visible" || isOffline) return;
+    if (connectionStatus === "failed") scheduleRetry();
+    if (connectionStatus === "disconnected") {
+      clearTimeout(disconnectTimer);
+      disconnectTimer = setTimeout(() => {
+        if (connectionStatus === "disconnected" && !isOffline) scheduleRetry();
+      }, 20_000);
+    }
+  }
 
   $: username = $page.params.username;
   $: secret = $page.params.secret;
@@ -112,6 +187,10 @@
     let boundAccount = accountKey();
     let joinStarted = false;
     defineCustomElements();
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    if (!navigator.onLine) handleOffline();
     // Bootstrap can retry a failed session read. Join only after it resolves;
     // subsequent synchronous identity changes invalidate all issued credentials.
     unsubscribeAccount = authStore.subscribe((state) => {
@@ -151,6 +230,11 @@
 
   onDestroy(() => {
     abort.abort();
+    window.removeEventListener("offline", handleOffline);
+    window.removeEventListener("online", handleOnline);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    clearTimeout(retryTimer);
+    clearTimeout(disconnectTimer);
     unsubscribeAccount?.();
     if (cleanup) cleanup();
   });
@@ -168,6 +252,8 @@
 
     loading = true;
     error = null;
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
 
     const actor = accountKey();
     const generation = accountGeneration;
@@ -256,6 +342,7 @@
         "privateCall.errors.joinFailed",
         "Failed to join the private call.",
       );
+      if (!isOffline) scheduleRetry();
     } finally {
       loading = false;
     }
@@ -296,13 +383,84 @@
   />
 </svelte:head>
 
-<div class="flex h-screen w-full flex-col bg-black">
-  {#if loading}
+<div class="relative flex h-screen w-full flex-col bg-black">
+  {#if meeting}
+    <div class="absolute inset-0 flex min-h-0 flex-col">
+      <div
+        data-testid="private-call-header"
+        class="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2"
+      >
+        <Button variant="secondary" size="sm" onclick={copyToClipboard}>
+          {#if copied}<Check class="mr-2 h-4 w-4" />{$t(
+              "privateCall.copied",
+              "Copied",
+            )}{:else}<Copy class="mr-2 h-4 w-4" />{$t(
+              "privateCall.copyLink",
+              "Copy Link",
+            )}{/if}
+        </Button>
+        {#if isOwner && boundRoom && boundRoom.username === username && boundRoom.secret === secret && !encrypted && meeting.self.permissions.canRecord}
+          <HostRecordingControls
+            username={boundRoom.username}
+            privateSecret={boundRoom.secret}
+          />
+        {/if}
+      </div>
+      <div class="relative flex min-h-0 w-full flex-1 flex-col">
+        <!-- @ts-ignore -->
+        <rtk-meeting
+          mode="fill"
+          use:recordingSafeMeeting={meeting}
+          show-setup-screen={true}
+          t={getRtkTranslator($locale)}
+          class="min-h-0 w-full flex-1"
+        ></rtk-meeting>
+        <MeetingRecordingNotice {meeting} />
+      </div>
+      <RtkAudioHealth
+        {meeting}
+        mode="call"
+        onReconnect={recoverPrivateStream}
+      />
+      {#if hostMeetingError}<div
+          role="alert"
+          class="shrink-0 bg-red-950 p-3 text-sm text-white"
+        >
+          {$t(
+            "dashboard.stream.recordingControls.interfaceError",
+            "The meeting interface could not be prepared. Reload before starting a recording.",
+          )}
+        </div>{/if}
+    </div>
+  {/if}
+  {#if loading && !meeting && !isOffline}
     <div
       class="flex flex-1 flex-col items-center justify-center gap-4 text-white"
     >
       <Loader2 class="h-10 w-10 animate-spin" />
       <p>{$t("privateCall.initializing", "Initializing private call...")}</p>
+    </div>
+  {:else if isOffline}
+    <div
+      class="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/80 p-8 text-center text-white"
+      role="status"
+    >
+      <WifiOff class="h-8 w-8 text-yellow-400" />
+      <h3 class="text-xl font-bold">
+        {$t("stream.offlineTitle", "You are Offline")}
+      </h3>
+      <p>
+        {$t(
+          "stream.offlineDescription",
+          "Please check your internet connection.",
+        )}
+      </p>
+      <Button onclick={recoverPrivateStream}
+        ><RefreshCw class="mr-2 h-4 w-4" />{$t(
+          "stream.reconnect",
+          "Reconnect",
+        )}</Button
+      >
     </div>
   {:else if error || callNeedsReload}
     <div
@@ -330,53 +488,25 @@
         {$t("privateCall.tryAgain", "Try Again")}
       </Button>
     </div>
-  {:else if meeting}
-    <div class="relative flex min-h-0 flex-1 flex-col">
-      <div
-        data-testid="private-call-header"
-        class="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2"
-      >
-        <Button variant="secondary" size="sm" onclick={copyToClipboard}>
-          {#if copied}
-            <Check class="mr-2 h-4 w-4" />
-            {$t("privateCall.copied", "Copied")}
-          {:else}
-            <Copy class="mr-2 h-4 w-4" />
-            {$t("privateCall.copyLink", "Copy Link")}
-          {/if}
-        </Button>
-        {#if isOwner && boundRoom && boundRoom.username === username && boundRoom.secret === secret && !encrypted && meeting.self.permissions.canRecord}
-          <HostRecordingControls
-            username={boundRoom.username}
-            privateSecret={boundRoom.secret}
-          />
-        {/if}
-      </div>
-      <div class="relative flex min-h-0 w-full flex-1 flex-col">
-        <!-- @ts-ignore -->
-        <rtk-meeting
-          mode="fill"
-          use:recordingSafeMeeting={meeting}
-          show-setup-screen={true}
-          t={getRtkTranslator($locale)}
-          class="min-h-0 w-full flex-1"
-        ></rtk-meeting>
-        <MeetingRecordingNotice {meeting} />
-      </div>
-      <RtkAudioHealth
-        {meeting}
-        mode="call"
-        onReconnect={() => window.location.reload()}
-      />
-
-      {#if hostMeetingError}
-        <div role="alert" class="shrink-0 bg-red-950 p-3 text-sm text-white">
+  {/if}
+  {#if meeting && (connectionStatus === "disconnected" || connectionStatus === "failed") && !isOffline}
+    <div
+      class="absolute inset-0 z-40 flex items-center justify-center bg-black/70 text-white"
+      role="status"
+    >
+      <div class="flex flex-col items-center gap-3">
+        <Loader2 class="h-8 w-8 animate-spin" />
+        <p>
           {$t(
-            "dashboard.stream.recordingControls.interfaceError",
-            "The meeting interface could not be prepared. Reload before starting a recording.",
+            connectionStatus === "failed"
+              ? "stream.retryingConnection"
+              : "stream.reconnecting",
+            connectionStatus === "failed"
+              ? "Retrying connection..."
+              : "Reconnecting...",
           )}
-        </div>
-      {/if}
+        </p>
+      </div>
     </div>
   {/if}
 </div>
