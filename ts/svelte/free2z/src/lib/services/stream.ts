@@ -26,6 +26,8 @@ import {
   type MessageDescriptor,
 } from "$lib/i18n-message";
 import { PUBLIC_STREAM_TYPES, STREAM_TYPES } from "$lib/streamTypes.js";
+import { ppvJoinKey } from "$lib/ppv-admission-key.js";
+export { clearPpvJoinKey } from "$lib/ppv-admission-key.js";
 import { z } from "zod";
 
 /**
@@ -34,46 +36,6 @@ import { z } from "zod";
  * enum, which is what exposed `private` as never having belonged here.
  */
 export type PublicStreamType = (typeof PUBLIC_STREAM_TYPES)[number];
-
-const ppvJoinKeys = new Map<string, string>();
-
-function ppvJoinKeyStorageKey(owner: string, actorId: number): string {
-  return `f2z:ppv-join:${owner.toLowerCase()}:${actorId}`;
-}
-
-function ppvJoinKey(owner: string, actorId: number): string {
-  const scope = ppvJoinKeyStorageKey(owner, actorId);
-  let existing = ppvJoinKeys.get(scope) ?? null;
-  try {
-    if (!existing && typeof sessionStorage !== "undefined")
-      existing = sessionStorage.getItem(scope);
-  } catch {
-    // The in-memory key still keeps retries in this page idempotent.
-  }
-  if (existing) {
-    ppvJoinKeys.set(scope, existing);
-    return existing;
-  }
-  const key = crypto.randomUUID();
-  ppvJoinKeys.set(scope, key);
-  try {
-    if (typeof sessionStorage !== "undefined")
-      sessionStorage.setItem(scope, key);
-  } catch {
-    // Do not prevent a paid join when browser storage is unavailable.
-  }
-  return key;
-}
-
-export function clearPpvJoinKey(owner: string, actorId: number): void {
-  const scope = ppvJoinKeyStorageKey(owner, actorId);
-  ppvJoinKeys.delete(scope);
-  try {
-    if (typeof sessionStorage !== "undefined") sessionStorage.removeItem(scope);
-  } catch {
-    // Storage is optional; this tab's in-memory key has already been cleared.
-  }
-}
 
 const STREAM_MESSAGES = {
   actorChanged: defineMessage(
@@ -135,6 +97,7 @@ export const streamInitResponseSchema = z.object({
   host_session: z.string().optional(),
   meeting_type: z.enum(PUBLIC_STREAM_TYPES).optional(),
   resumed: z.boolean().optional(),
+  admission_idempotency_key: z.string().uuid().optional(),
 });
 
 export type StreamInitResponse = z.infer<typeof streamInitResponseSchema>;
@@ -326,6 +289,10 @@ export class StreamService {
         if (actual?.id !== originalViewerId)
           throw localizedError(STREAM_MESSAGES.actorChanged);
       }
+      const admissionIdempotencyKey =
+        originalViewerId && type === "ppv"
+          ? ppvJoinKey(username, originalViewerId, type)
+          : undefined;
       const instruction = {
         ...(role ? { role } : {}),
         ...(hostSession ? { host_session: hostSession } : {}),
@@ -334,7 +301,7 @@ export class StreamService {
         ...(originalViewerId ? { expected_actor_id: originalViewerId } : {}),
         ...(originalViewerId
           ? {
-              admission_idempotency_key: ppvJoinKey(username, originalViewerId),
+              admission_idempotency_key: admissionIdempotencyKey,
             }
           : {}),
       };
@@ -354,7 +321,12 @@ export class StreamService {
       signal?.throwIfAborted();
 
       const parsed = streamInitResponseSchema.parse(response);
-      return parsed;
+      return {
+        ...parsed,
+        ...(admissionIdempotencyKey
+          ? { admission_idempotency_key: admissionIdempotencyKey }
+          : {}),
+      };
     } catch (error) {
       if (signal?.aborted) throw error;
       if (error instanceof z.ZodError) {

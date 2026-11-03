@@ -2,11 +2,68 @@ from unittest.mock import Mock
 
 import pytest
 import requests
+import multiprocessing
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from django.core.cache import cache
 from dj.apps.dyte.client import DyteClient, _count_cache_keys
 from dj.apps.dyte.models import PRIVATE, CreatorMeeting
+
+
+class _ProcessSharedCache:
+    """Small atomic cache surface backed by state shared across processes."""
+
+    def __init__(self, values, lock):
+        self.values = values
+        self.lock = lock
+
+    def get(self, key, default=None):
+        with self.lock:
+            return self.values.get(key, default)
+
+    def add(self, key, value, timeout=None):
+        with self.lock:
+            if key in self.values:
+                return False
+            self.values[key] = value
+            return True
+
+    def incr(self, key, delta=1):
+        with self.lock:
+            value = self.values[key] + delta
+            self.values[key] = value
+            return value
+
+    def touch(self, key, timeout=None):
+        with self.lock:
+            return key in self.values
+
+    def set(self, key, value, timeout=None):
+        with self.lock:
+            self.values[key] = value
+            return True
+
+    def delete(self, key):
+        with self.lock:
+            return self.values.pop(key, None) is not None
+
+
+def _run_count_probe_worker(shared_cache, first_started, release_first,
+                            result_queue, result):
+    import dj.apps.dyte.client as client_module
+
+    client_module.cache = shared_cache
+    client = DyteClient("org")
+
+    def probe(_meeting_id):
+        if result == 1:
+            first_started.set()
+            if not release_first.wait(5):
+                raise TimeoutError("newer worker did not release the older probe")
+        return result
+
+    client.get_participants_count = probe
+    result_queue.put(client.get_cached_participants_count("cross-worker-count-order"))
 
 
 @pytest.mark.django_db
@@ -63,6 +120,41 @@ def test_concurrent_participant_count_misses_are_coalesced(mocker):
         release.set()
         assert [first.result(), second.result()] == [2, 2]
     assert calls == [meeting_id]
+
+
+@pytest.mark.django_db
+def test_older_probe_from_another_worker_cannot_overwrite_shared_cache():
+    meeting_id = "cross-worker-count-order"
+    recent_key, stale_key = _count_cache_keys(meeting_id)
+    context = multiprocessing.get_context("fork")
+    with context.Manager() as manager:
+        shared_backend = _ProcessSharedCache(
+            manager.dict(), manager.RLock(),
+        )
+        first_entered = manager.Event()
+        release_first = manager.Event()
+        result_queue = manager.Queue()
+        older = context.Process(
+            target=_run_count_probe_worker,
+            args=(shared_backend, first_entered, release_first, result_queue, 1),
+        )
+        newer = context.Process(
+            target=_run_count_probe_worker,
+            args=(shared_backend, first_entered, release_first, result_queue, 9),
+        )
+        older.start()
+        assert first_entered.wait(3)
+        newer.start()
+        assert result_queue.get(timeout=5) == 9
+        release_first.set()
+        assert result_queue.get(timeout=5) == 1
+        older.join(timeout=3)
+        newer.join(timeout=3)
+        assert older.exitcode == 0
+        assert newer.exitcode == 0
+
+        assert shared_backend.get(recent_key) == 9
+        assert shared_backend.get(stale_key) == 9
 
 
 @pytest.mark.django_db

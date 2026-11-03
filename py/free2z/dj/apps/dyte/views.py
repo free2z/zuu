@@ -2189,9 +2189,14 @@ class DyteMeeting(APIView):
                     return Response({'code': 'actor_changed', 'error': 'The signed-in viewer changed. Review the original paid join.'}, status=409)
                 admission_key = body.validated_data.get('admission_idempotency_key')
                 if version == 1 and admission_key is None:
+                    # Pre-v1 cached clients cannot safely identify a retry
+                    # after an ambiguous provider response. Refuse before
+                    # reserving or delivering anything; compatibility must
+                    # come from updating the client, never inventing a key
+                    # per HTTP attempt and risking a duplicate admission.
                     return Response({
                         'code': 'admission_idempotency_key_required',
-                        'error': 'Retry this paid join with its original request key.',
+                        'error': 'Update the app to retry this paid join safely.',
                     }, status=400)
                 if version == 1:
                     actors = {actor.pk: actor for actor in Creator.objects.select_for_update().filter(

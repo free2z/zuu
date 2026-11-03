@@ -67,6 +67,8 @@ class _ThreadLocalSessionProxy:
 _SESSION = _ThreadLocalSessionProxy()
 PARTICIPANT_COUNT_TTL = 12
 PARTICIPANT_COUNT_STALE_TTL = 300
+PARTICIPANT_COUNT_WRITE_LOCK_TTL = 5
+PARTICIPANT_COUNT_GENERATION_TTL = PARTICIPANT_COUNT_STALE_TTL
 _COUNT_LOCKS_GUARD = threading.Lock()
 _COUNT_LOCKS = {}
 
@@ -81,6 +83,62 @@ def _count_cache_keys(meeting_id):
         f"dyte:participants:recent:{meeting_id}",
         f"dyte:participants:last-known:{meeting_id}",
     )
+
+
+def _count_generation_key(meeting_id):
+    return f"dyte:participants:generation:{meeting_id}"
+
+
+def _count_write_lock_key(meeting_id):
+    return f"dyte:participants:write-lock:{meeting_id}"
+
+
+def _count_generation(meeting_id):
+    """Allocate a shared, monotonically increasing probe generation."""
+    key = _count_generation_key(meeting_id)
+    try:
+        cache.add(key, 0, PARTICIPANT_COUNT_GENERATION_TTL)
+        generation = cache.incr(key)
+        cache.touch(key, PARTICIPANT_COUNT_GENERATION_TTL)
+        return generation
+    except Exception:
+        logger.warning("participant count generation unavailable", exc_info=True)
+        return None
+
+
+def _write_count_if_current(meeting_id, generation, count):
+    """Fence cache writes across workers; old probes cannot replace newer ones."""
+    if generation is None:
+        return
+    lock_key = _count_write_lock_key(meeting_id)
+    token = uuid.uuid4().hex
+    deadline = threading.Event()
+    # Cache.add is atomic on the shared Redis backend. A bounded wait avoids
+    # making the provider result depend on cache availability.
+    for _ in range(100):
+        try:
+            if cache.add(lock_key, token, PARTICIPANT_COUNT_WRITE_LOCK_TTL):
+                break
+        except Exception:
+            logger.warning("participant count cache lock unavailable", exc_info=True)
+            return
+        deadline.wait(0.01)
+    else:
+        return
+    try:
+        if cache.get(_count_generation_key(meeting_id)) != generation:
+            return
+        recent_key, stale_key = _count_cache_keys(meeting_id)
+        cache.set(recent_key, count, PARTICIPANT_COUNT_TTL)
+        cache.set(stale_key, count, PARTICIPANT_COUNT_STALE_TTL)
+    finally:
+        # The lease is short and this compare protects a successor if an
+        # unusually delayed write outlives its lease.
+        try:
+            if cache.get(lock_key) == token:
+                cache.delete(lock_key)
+        except Exception:
+            logger.warning("participant count cache lock release failed", exc_info=True)
 
 
 def _safe_json(response) -> dict:
@@ -308,9 +366,8 @@ class DyteClient(object):
             cached = None
         if cached is not None:
             return cached
-        # Coalesce misses in this process. Django cache backends do not offer
-        # a portable distributed single-flight primitive; cross-worker misses
-        # remain safe and bounded by the provider timeout.
+        # Coalesce misses in this process. Separate workers may still probe
+        # concurrently; the shared generation fences their cache writes below.
         with _count_lock(meeting_id):
             try:
                 cached = cache.get(recent_key)
@@ -318,6 +375,7 @@ class DyteClient(object):
                 cached = None
             if cached is not None:
                 return cached
+            generation = _count_generation(meeting_id)
             try:
                 count = self.get_participants_count(meeting_id)
             except Exception:
@@ -330,8 +388,7 @@ class DyteClient(object):
                     return stale
                 raise
             try:
-                cache.set(recent_key, count, PARTICIPANT_COUNT_TTL)
-                cache.set(stale_key, count, PARTICIPANT_COUNT_STALE_TTL)
+                _write_count_if_current(meeting_id, generation, count)
             except Exception:
                 logger.warning("participant count cache write failed", exc_info=True)
             return count

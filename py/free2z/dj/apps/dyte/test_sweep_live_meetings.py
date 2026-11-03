@@ -134,6 +134,31 @@ def test_stale_zero_probe_cannot_clear_newer_positive_observation(
 
 
 @pytest.mark.django_db
+def test_sweep_counts_only_a_zero_clear_that_updated_the_row(
+    mocker, creator_factory, caplog,
+):
+    creator = creator_factory()
+    old_zero = timezone.now() - timedelta(
+        seconds=settings.DYTE_LIVE_SWEEP_GRACE_SECONDS + 1)
+    cm = _make_meeting(
+        creator, "zero-clear-loses-race",
+        zero_probe_since=old_zero,
+    )
+
+    def concurrent_clear(_client, _meeting_id):
+        CreatorMeeting.objects.filter(pk=cm.pk).update(live_now=False)
+        return 0
+
+    _patch_count(mocker, side_effect=concurrent_clear)
+    sweep_live_meetings(0)
+
+    assert any(
+        "checked=1 refreshed=0 cleared=0" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+@pytest.mark.django_db
 def test_stale_first_zero_cannot_replace_newer_positive_observation(
     mocker, creator_factory,
 ):

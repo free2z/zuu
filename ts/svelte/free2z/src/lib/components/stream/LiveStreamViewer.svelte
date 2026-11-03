@@ -358,11 +358,12 @@
 
     try {
       // 1. Get Auth Token
-      const { auth_token } = await StreamService.initStream(
-        username,
-        streamType,
-        { role: "viewer", expectedActorId: originalViewerActorId, signal },
-      );
+      const { auth_token, admission_idempotency_key: admissionKey } =
+        await StreamService.initStream(username, streamType, {
+          role: "viewer",
+          expectedActorId: originalViewerActorId,
+          signal,
+        });
 
       if (signal.aborted) return;
 
@@ -385,8 +386,14 @@
       if (streamType === "ppv" && originalViewerActorId) {
         // RealtimeKit initialization can finish before the room has joined.
         // Keep the admission key through that ambiguous interval.
-        const clearAfterJoin = () =>
-          clearPpvJoinKey(username, originalViewerActorId!);
+        let handled = false;
+        const clearAfterJoin = () => {
+          if (handled) return;
+          handled = true;
+          result.meeting?.self.off("roomJoined", clearAfterJoin);
+          if (admissionKey)
+            clearPpvJoinKey(username, originalViewerActorId!, admissionKey);
+        };
         if ($liveStreamStore.connectionStatus === "connected") {
           clearAfterJoin();
         } else if (result.meeting) {

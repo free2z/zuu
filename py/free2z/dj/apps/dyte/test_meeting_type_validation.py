@@ -293,3 +293,27 @@ def test_policy_v1_ppv_join_requires_the_original_actor_id(
     assert response.status_code == 409
     assert response.data['code'] == 'actor_changed'
     dyte_client.add_participant.assert_not_called()
+
+
+def test_policy_v1_refuses_legacy_ppv_clients_without_a_retry_key(
+    api_client, dyte_client, streamer, creator_factory, mocker,
+):
+    cm = CreatorMeeting.objects.create(
+        creator=streamer, meeting_id='live-ppv-legacy-key-required',
+        meeting_type=PAY_PER_VIEW, is_public=True, live_now=True,
+        price_per_minute=Decimal('1'),
+    )
+    viewer = creator_factory(tuzis=Decimal('1000'))
+    api_client.force_authenticate(user=viewer)
+    mocker.patch('dj.apps.dyte.views.pin_supported_policy', return_value=1)
+
+    response = api_client.post(
+        _url(streamer.username, cm.meeting_type),
+        {'role': 'viewer', 'expected_actor_id': int(viewer.pk)},
+        format='json',
+    )
+
+    assert response.status_code == 400
+    assert response.data['code'] == 'admission_idempotency_key_required'
+    assert 'Update the app' in response.data['error']
+    dyte_client.add_participant.assert_not_called()

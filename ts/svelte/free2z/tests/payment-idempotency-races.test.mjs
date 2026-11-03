@@ -301,10 +301,17 @@ test("the PPV prompt moves no money and gates on the join reserve", () => {
 test("a PPV admission key survives until RealtimeKit confirms roomJoined", () => {
   const service = read("src/lib/services/stream.ts");
   const viewer = read("src/lib/components/stream/LiveStreamViewer.svelte");
-  assert.match(service, /admission_idempotency_key:\s*ppvJoinKey\(/);
+  const keys = read("src/lib/ppv-admission-key.js");
+  assert.match(service, /admission_idempotency_key:\s*admissionIdempotencyKey/);
+  assert.match(keys, /legacyStorageKey/);
+  assert.match(keys, /current !== expectedKey/);
   assert.doesNotMatch(service, /clearPpvJoinKey\(username, originalViewerId\)/);
   assert.match(viewer, /self\.on\("roomJoined", clearAfterJoin\)/);
-  assert.match(viewer, /clearPpvJoinKey\(username, originalViewerActorId!/);
+  assert.match(
+    viewer,
+    /clearPpvJoinKey\(username, originalViewerActorId!, admissionKey\)/,
+  );
+  assert.match(viewer, /if \(handled\) return/);
 });
 
 test("payment dialogs clear refusals on close and keep an affordable retry reachable", () => {
