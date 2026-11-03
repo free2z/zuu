@@ -15,6 +15,27 @@ import { PublicCreator } from "./CreatorDetail";
 import { useGlobalState } from "./state/global";
 import { useStoreState } from "./state/persist";
 
+const paidJoinKeys = new Map<string, string>();
+
+function paidJoinKey(owner: string, actorId: number): string {
+  const storageKey = `f2z:ppv-join:${owner.toLowerCase()}:${actorId}`;
+  let existing = paidJoinKeys.get(storageKey);
+  try {
+    existing ??= sessionStorage.getItem(storageKey) ?? undefined;
+  } catch {
+    // The in-memory key still makes retries within this page idempotent.
+  }
+  if (existing) return existing;
+  const key = crypto.randomUUID();
+  paidJoinKeys.set(storageKey, key);
+  try {
+    sessionStorage.setItem(storageKey, key);
+  } catch {
+    // Storage is optional; retain the key in memory for this page.
+  }
+  return key;
+}
+
 export default function CreatorLive() {
   const params = useParams();
   const owner = params.id;
@@ -34,6 +55,7 @@ export default function CreatorLive() {
     username: string;
     owner: string | undefined;
     type: string | undefined;
+    admissionKey: string;
   }>();
   const [showPay, setShowPay] = useState(false);
   const [star, setStar] = useState({} as PublicCreator);
@@ -115,6 +137,7 @@ export default function CreatorLive() {
         username: creator.username,
         owner,
         type,
+        admissionKey: paidJoinKey(owner || "", creator.id),
       };
     const originalViewer = paidIntentRef.current || {
       id: creator.id,
@@ -126,6 +149,9 @@ export default function CreatorLive() {
         ? { price_per_minute: String(ppvPrice) }
         : {}),
       ...(paidViewer ? { expected_actor_id: originalViewer.id } : {}),
+      ...(paidViewer
+        ? { admission_idempotency_key: originalViewer.admissionKey }
+        : {}),
     };
     const body: MeetingJoinRequestSchema = instruction;
     const join = async () => {
@@ -151,6 +177,15 @@ export default function CreatorLive() {
           (cancelled || viewerRef.current.id !== originalViewer.id)
         )
           return;
+        if (paidViewer && owner) {
+          const key = `f2z:ppv-join:${owner.toLowerCase()}:${originalViewer.id}`;
+          paidJoinKeys.delete(key);
+          try {
+            sessionStorage.removeItem(key);
+          } catch {
+            // The accepted join remains represented by the in-memory ref.
+          }
+        }
         // console.log("INIT MEETING", res)
         initMeeting({
           authToken: res.data.auth_token,

@@ -44,7 +44,10 @@ test("paid viewer assertion uses the original displayed actor after fresh authen
   mocked.post.mockResolvedValue({ data: { auth_token: "synthetic-token" } });
   render(<CreatorLive />);
   await waitFor(() => expect(mocked.post).toHaveBeenCalledTimes(1));
-  expect(mocked.post.mock.calls[0][1]).toEqual({ expected_actor_id: 100 });
+  expect(mocked.post.mock.calls[0][1]).toEqual({
+    expected_actor_id: 100,
+    admission_idempotency_key: expect.stringMatching(/^[0-9a-f-]{36}$/),
+  });
 });
 
 test("a cookie-switched paid viewer never creates a meeting for another actor", async () => {
@@ -113,5 +116,8 @@ test("backend actor_changed after the fresh identity check explains the refusal 
     ),
   );
   expect(mocked.post).toHaveBeenCalledTimes(1);
-  expect(mocked.post.mock.calls[0][1]).toEqual({ expected_actor_id: 100 });
+  expect(mocked.post.mock.calls[0][1]).toEqual({
+    expected_actor_id: 100,
+    admission_idempotency_key: expect.stringMatching(/^[0-9a-f-]{36}$/),
+  });
 });

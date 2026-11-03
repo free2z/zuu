@@ -8,7 +8,8 @@ mocked, the DB is real):
 - DyteClient.get_participants_count: a provider 404 on /active-session is
   the documented "no session running" answer and must read as a confirmed
   zero; only real failures (401/403/5xx) may raise.
-- dyte.sweep_live_meetings: a confirmed zero clears live_now; a positive
+- dyte.sweep_live_meetings: consecutive confirmed zeros clear live_now after
+  a bounded grace; a positive
   count refreshes last_seen_at and keeps live_now; a provider API error
   leaves a recently-seen room unchanged but stale-clears one nobody has
   been seen in for DYTE_LIVE_STALE_CLEAR_SECONDS; a just-went-live room
@@ -67,7 +68,7 @@ def _patch_count(mocker, side_effect=None, return_value=None):
 
 
 @pytest.mark.django_db
-def test_zero_count_clears_live_now(mocker, creator_factory):
+def test_zero_count_gets_bounded_grace_then_clears(mocker, creator_factory):
     creator = creator_factory()
     cm = _make_meeting(creator, "zero-count-1")
     _patch_count(mocker, return_value=0)
@@ -75,7 +76,17 @@ def test_zero_count_clears_live_now(mocker, creator_factory):
     sweep_live_meetings(0)
 
     cm.refresh_from_db()
+    assert cm.live_now is True
+    assert cm.zero_probe_since is not None
+
+    CreatorMeeting.objects.filter(pk=cm.pk).update(
+        zero_probe_since=timezone.now() - timedelta(
+            seconds=settings.DYTE_LIVE_SWEEP_GRACE_SECONDS + 1))
+    sweep_live_meetings(1)
+
+    cm.refresh_from_db()
     assert cm.live_now is False
+    assert cm.zero_probe_since is None
 
 
 @pytest.mark.django_db
@@ -92,6 +103,7 @@ def test_positive_count_refreshes_last_seen_and_keeps_live(
     cm.refresh_from_db()
     assert cm.live_now is True
     assert cm.last_seen_at > stale
+    assert cm.zero_probe_since is None
 
 
 @pytest.mark.django_db

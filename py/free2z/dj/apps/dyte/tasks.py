@@ -362,10 +362,10 @@ def sweep_live_meetings(timestamp: int):
     active-session endpoint for the live participant count and:
 
     - count > 0: presence confirmed -> refresh last_seen_at (stays live).
-    - count == 0: confirmed empty -> clear live_now, UNLESS last_seen_at is
-      within DYTE_LIVE_SWEEP_GRACE_SECONDS, which protects a room that just
-      went live (creator's client still connecting, provider still reporting
-      0). The grace only delays a real clear by at most that window.
+    - count == 0: start or continue a consecutive-zero window. Clear only
+      after DYTE_LIVE_SWEEP_GRACE_SECONDS of confirmed zeros; a positive or
+      failed probe resets that window. This protects established rooms from
+      one transient zero while keeping empty rooms boundedly reclaimable.
     - provider error: get_participants_count raises (network/5xx/auth/JSON).
       A transient error NEVER flips a live room off on its own — but it must
       not be able to pin live_now on forever either. If presence has not been
@@ -474,25 +474,39 @@ def sweep_live_meetings(timestamp: int):
             # Provider/network error: unknown state, not a confirmed zero.
             errors += 1
             error_kinds[f"{type(exc).__name__}: {exc}"] += 1
+            # A failed probe breaks a consecutive-zero run. Keep the existing
+            # stale-presence safety valve below, but require fresh zero
+            # evidence before clearing a recently seen room.
+            CreatorMeeting.objects.filter(pk=cm.pk, live_now=True).update(
+                zero_probe_since=None)
             # Safety valve: an unreachable provider must not pin a room
             # "live" indefinitely. Presence that has gone stale is cleared
             # even without a confirmed zero.
             if _is_stale(cm):
-                CreatorMeeting.objects.filter(pk=cm.pk).update(live_now=False)
+                CreatorMeeting.objects.filter(pk=cm.pk, live_now=True).update(
+                    live_now=False, zero_probe_since=None)
                 stale_cleared += 1
             continue
 
         if count > 0:
-            CreatorMeeting.objects.filter(pk=cm.pk).update(last_seen_at=now)
+            CreatorMeeting.objects.filter(pk=cm.pk, live_now=True).update(
+                last_seen_at=now, zero_probe_since=None)
             refreshed += 1
             continue
 
-        # Confirmed zero. Protect a room that just went live from being
-        # flipped off before its participants can register.
-        if cm.last_seen_at is not None and cm.last_seen_at > grace_cutoff:
+        # A single provider zero can be transient even for an established
+        # stream. Start a persisted, bounded grace on the first zero and only
+        # clear after consecutive confirmed zeros span the whole window.
+        if cm.zero_probe_since is None:
+            CreatorMeeting.objects.filter(
+                pk=cm.pk, live_now=True, zero_probe_since__isnull=True,
+            ).update(zero_probe_since=now)
+            continue
+        if cm.zero_probe_since > grace_cutoff:
             continue
 
-        CreatorMeeting.objects.filter(pk=cm.pk).update(live_now=False)
+        CreatorMeeting.objects.filter(pk=cm.pk, live_now=True).update(
+            live_now=False, zero_probe_since=None)
         cleared += 1
 
     # Advance the round robin. Written even when the sweep reached every

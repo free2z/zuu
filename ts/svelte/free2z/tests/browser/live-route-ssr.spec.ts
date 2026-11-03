@@ -367,7 +367,13 @@ test.describe("#2420 paid-stream links unfurl as the creator's card", () => {
           ).toMatchObject({
             method: "POST",
             path: `/api/dyte/${PAID_USER}/ppv`,
-            body: { role: "viewer", expected_actor_id: 4498 },
+            body: {
+              role: "viewer",
+              expected_actor_id: 4498,
+              admission_idempotency_key: expect.stringMatching(
+                /^[0-9a-f-]{36}$/,
+              ),
+            },
           });
         } else {
           await expect

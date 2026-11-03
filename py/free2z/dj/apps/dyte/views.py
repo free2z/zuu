@@ -1022,6 +1022,7 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
             event_data.meeting.id,
         )
         cm.live_now = True
+        cm.zero_probe_since = None
         # Stamp presence so the just-went-live room is inside the public
         # list's last_seen_at window and safe from the sweep's grace before
         # the first dyte.sweep_live_meetings probe runs.
@@ -1030,7 +1031,7 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
         # event was processed, would write back a stale broadcaster seat
         # (host_session_id) over a start or take-over that committed in
         # between.
-        cm.save(update_fields=['live_now', 'last_seen_at'])
+        cm.save(update_fields=['live_now', 'last_seen_at', 'zero_probe_since'])
 
     elif event_data.event == "meeting.ended":
         logger.info(
@@ -1039,7 +1040,8 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
             event_data.meeting.id,
         )
         cm.live_now = False
-        cm.save(update_fields=['live_now'])
+        cm.zero_probe_since = None
+        cm.save(update_fields=['live_now', 'zero_probe_since'])
 
     elif event_data.event == "meeting.participantJoined":
         logger.info(
@@ -2185,6 +2187,12 @@ class DyteMeeting(APIView):
                 expected_actor = body.validated_data.get('expected_actor_id')
                 if (expected_actor is not None and expected_actor != request.user.pk) or (version == 1 and expected_actor != request.user.pk):
                     return Response({'code': 'actor_changed', 'error': 'The signed-in viewer changed. Review the original paid join.'}, status=409)
+                admission_key = body.validated_data.get('admission_idempotency_key')
+                if version == 1 and admission_key is None:
+                    return Response({
+                        'code': 'admission_idempotency_key_required',
+                        'error': 'Retry this paid join with its original request key.',
+                    }, status=400)
                 if version == 1:
                     actors = {actor.pk: actor for actor in Creator.objects.select_for_update().filter(
                         pk__in=sorted({cm.creator_id, request.user.pk})).order_by('pk')}
@@ -2195,7 +2203,9 @@ class DyteMeeting(APIView):
                     try:
                         compensation_admission = prepare_livestream_admission(host_id=cm.creator_id,
                             viewer_id=request.user.pk, meeting_id=cm.meeting_id,
-                            price_per_minute=cm.price_per_minute, viewer_account_epoch=request.user.kt_account_epoch)
+                            price_per_minute=cm.price_per_minute,
+                            idempotency_key=str(admission_key),
+                            viewer_account_epoch=request.user.kt_account_epoch)
                     except EconomicRefusal as exc:
                         return Response({'code': str(exc), 'error': 'Paid livestream compensation is unavailable.'}, status=409)
         logger.info(f"Adding Participant! {request.user.username}")
@@ -2425,12 +2435,14 @@ class DyteMeeting(APIView):
             cm.host_session_seen_at = now
             cm.host_participant_id = new_participant_id
             cm.live_now = True
+            cm.zero_probe_since = None
             # Stamp presence at go-live so the room shows on the public list
             # immediately and is protected by the sweep's grace window until
             # its participants register with the provider.
             cm.last_seen_at = timezone.now()
             cm.save(update_fields=[
                 'price_per_minute', 'live_now', 'last_seen_at',
+                'zero_probe_since',
                 'host_session_id', 'host_session_seen_at',
                 'host_participant_id', 'host_evictions',
             ])

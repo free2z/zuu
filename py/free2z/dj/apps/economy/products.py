@@ -199,7 +199,8 @@ def lookup_usage_purchase_receipt(*, creator_id, amount_nusd, idempotency_key, q
 
 
 @transaction.atomic
-def prepare_livestream_admission(*, host_id, viewer_id, meeting_id, price_per_minute, viewer_account_epoch=None):
+def prepare_livestream_admission(*, host_id, viewer_id, meeting_id, price_per_minute,
+    idempotency_key, viewer_account_epoch=None):
     """Capture the supplier before a viewer receives a provider join token.
 
     Repeated provider delivery requires the reviewed child-receipt ABI. Its
@@ -233,8 +234,13 @@ def prepare_livestream_admission(*, host_id, viewer_id, meeting_id, price_per_mi
         raise money.EconomicRefusal('livestream_offer_unavailable')
     if meeting.price_per_minute != price:
         raise money.EconomicRefusal('livestream_price_changed')
-    return admit_product_service(creator_id=host_id, subject_creator_id=viewer_id,
-        service='livestream_ppv', event_id=str(uuid.uuid4()), source={
+    try:
+        idempotency_key = str(uuid.UUID(str(idempotency_key)))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise money.EconomicRefusal('livestream_admission_identity_required') from exc
+    if len(idempotency_key) > 200:
+        raise money.EconomicRefusal('livestream_admission_identity_required')
+    source = {
             'source_kind': 'licensed_livestream', 'source_id': str(meeting_id),
             'authorization_reference': f'authenticated-viewer:{viewer_id}',
             'delivery_scope_reference': f'live-room:{meeting_id}',
@@ -244,7 +250,28 @@ def prepare_livestream_admission(*, host_id, viewer_id, meeting_id, price_per_mi
             'host_session_id': str(meeting.host_session_id),
             'price_per_minute_2z': str(price), 'price_currency': 'restricted_usage_2Z',
             'allocation_method': 'whole-minute duration rounded up; platform fee collected first; creator allocation is the collected portion of ceil(price_per_minute_2z * whole_minutes)',
-            'subject_creator_id': viewer_id})
+            'subject_creator_id': viewer_id}
+    # The admission is created before the remote provider call. A timeout can
+    # therefore leave a committed admission even though the client sees 503.
+    # Reuse only when the caller repeats the same per-join key: another key
+    # represents a distinct intentional join and must keep its own admission
+    # and settlement, even in the same provider session.
+    from .models import ServiceAdmission
+    event_id = f'ppv-viewer:{viewer_id}:join:{idempotency_key}'
+    existing = ServiceAdmission.objects.filter(
+        service='livestream_ppv', event_id=event_id,
+    ).first()
+    if existing is not None:
+        original = existing.source
+        if (existing.creator_id != host_id
+            or original.get('meeting_id') != str(meeting_id)
+            or original.get('provider_session_id') != str(meeting.provider_session_id)
+            or original.get('host_session_id') != str(meeting.host_session_id)
+            or original.get('subject_creator_id') != viewer_id):
+            raise money.EconomicRefusal('livestream_admission_identity_conflict')
+        return existing
+    return admit_product_service(creator_id=host_id, subject_creator_id=viewer_id,
+        service='livestream_ppv', event_id=event_id, source=source)
 
 
 @transaction.atomic

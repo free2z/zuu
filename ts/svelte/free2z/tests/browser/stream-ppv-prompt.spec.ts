@@ -194,7 +194,8 @@ test("under the reserve the prompt explains it and offers nothing to buy", async
   // it is the join again, never a payment.
   await dialog.getByTestId("ppv-retry-join").click();
   await expect.poll(() => joins.length).toBe(2);
-  expect(joins[1]).toEqual({ role: "viewer", expected_actor_id: 4498 });
+  expect(joins[1]).toMatchObject({ role: "viewer", expected_actor_id: 4498 });
+  expect(joins[1].admission_idempotency_key).toBe(joins[0].admission_idempotency_key);
   expect(money).toEqual([]);
 });
 
@@ -218,7 +219,8 @@ test("at the reserve Start Watching joins again and pays nothing", async ({
   await dialog.getByRole("button", { name: /^Start Watching/ }).click();
 
   await expect.poll(() => joins.length).toBe(2);
-  expect(joins[1]).toEqual({ role: "viewer", expected_actor_id: 4498 });
+  expect(joins[1]).toMatchObject({ role: "viewer", expected_actor_id: 4498 });
+  expect(joins[1].admission_idempotency_key).toBe(joins[0].admission_idempotency_key);
   expect(money).toEqual([]);
 });
 
@@ -305,7 +307,9 @@ test("a server-side actor switch refusal is visible without automatic paid-join 
       .getByText("Sign in again before continuing.", { exact: false })
       .first(),
   ).toBeVisible();
-  expect(joins).toEqual([{ role: "viewer", expected_actor_id: 4498 }]);
+  expect(joins).toHaveLength(1);
+  expect(joins[0]).toMatchObject({ role: "viewer", expected_actor_id: 4498 });
+  expect(joins[0].admission_idempotency_key).toMatch(/^[0-9a-f-]{36}$/);
   await expect(
     page.getByText("Retrying connection...", { exact: true }),
   ).toHaveCount(0);
@@ -354,7 +358,9 @@ test("temporary paid-viewer verification failure blocks admission and retries th
   expect(joins).toEqual([]);
   releaseRecovery();
   await expect.poll(() => joins.length).toBe(1);
-  expect(joins).toEqual([{ role: "viewer", expected_actor_id: 4498 }]);
+  expect(joins).toHaveLength(1);
+  expect(joins[0]).toMatchObject({ role: "viewer", expected_actor_id: 4498 });
+  expect(joins[0].admission_idempotency_key).toMatch(/^[0-9a-f-]{36}$/);
 });
 
 async function leaveStreamWithoutReload(page: Page) {

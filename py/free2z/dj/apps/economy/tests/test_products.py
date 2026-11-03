@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from dj.apps.economy import funding, products, services as money
 from dj.apps.economy.contracts import CREATOR_CONTRACT_DIGEST, SERVICE_SCHEDULES
-from dj.apps.economy.models import CompensationSchedule, CreatorPayable
+from dj.apps.economy.models import CompensationSchedule, CreatorPayable, ServiceAdmission
 from dj.apps.economy.tests.test_foundation import activate_for_test
 from dj.apps.g12f.models import Creator
 from dj.apps.pricing.models import ZecPriceSnapshot
@@ -252,7 +252,9 @@ def test_prepared_ppv_captures_real_original_offer_and_refuses_changed_price(cre
     cursor.fetchone.return_value = ('economy.settle_service_delivery',)
     admission = mocker.patch.object(products, 'admit_product_service')
     products.prepare_livestream_admission(host_id=host.pk, viewer_id=viewer.pk,
-        meeting_id=meeting.meeting_id, price_per_minute=Decimal('1.23'), viewer_account_epoch=viewer.kt_account_epoch)
+        meeting_id=meeting.meeting_id, price_per_minute=Decimal('1.23'),
+        idempotency_key=str(uuid.uuid4()),
+        viewer_account_epoch=viewer.kt_account_epoch)
     source = admission.call_args.kwargs['source']
     assert source['creator_meeting_id'] == meeting.pk
     assert source['provider_session_id'] == str(meeting.provider_session_id)
@@ -261,5 +263,63 @@ def test_prepared_ppv_captures_real_original_offer_and_refuses_changed_price(cre
     CreatorMeeting.objects.filter(pk=meeting.pk).update(price_per_minute=Decimal('2.34'))
     with pytest.raises(money.EconomicRefusal, match='livestream_price_changed'):
         products.prepare_livestream_admission(host_id=host.pk, viewer_id=viewer.pk,
-            meeting_id=meeting.meeting_id, price_per_minute=Decimal('1.23'), viewer_account_epoch=viewer.kt_account_epoch)
+            meeting_id=meeting.meeting_id, price_per_minute=Decimal('1.23'),
+            idempotency_key=str(uuid.uuid4()),
+            viewer_account_epoch=viewer.kt_account_epoch)
     admission.assert_not_called()
+
+
+def test_livestream_ppv_retry_after_ambiguous_provider_timeout_reuses_admission(
+    creator_factory, enabled, mocker,
+):
+    """The DB commit can survive a provider timeout; the retry reuses it."""
+    import uuid
+    from dj.apps.dyte.models import CreatorMeeting, PAY_PER_VIEW, LIFECYCLE_LIVE
+
+    host, viewer = creator_factory(tuzis=0), creator_factory(tuzis=500)
+    supplier_contract(host)
+    publish('livestream_ppv')
+    meeting = CreatorMeeting.objects.create(
+        creator=host, meeting_id='ambiguous-ppv-retry', meeting_type=PAY_PER_VIEW,
+        live_now=True, lifecycle_state=LIFECYCLE_LIVE,
+        price_per_minute=Decimal('1.23'), host_session_id=uuid.uuid4(),
+        provider_session_id=uuid.uuid4(),
+    )
+    cursor = mocker.patch.object(products, 'connection').cursor.return_value.__enter__.return_value
+    cursor.fetchone.return_value = ('economy.settle_service_delivery',)
+    request_key = str(uuid.uuid4())
+    provider_participant_ids = []
+
+    def add_to_provider(admission):
+        provider_participant_ids.append(f'ea_{admission.pk.hex}')
+        if len(provider_participant_ids) == 1:
+            raise TimeoutError('provider response timed out after accepting request')
+
+    admission = products.prepare_livestream_admission(
+        host_id=host.pk, viewer_id=viewer.pk, meeting_id=meeting.meeting_id,
+        price_per_minute=meeting.price_per_minute,
+        idempotency_key=request_key,
+        viewer_account_epoch=viewer.kt_account_epoch,
+    )
+    with pytest.raises(TimeoutError):
+        add_to_provider(admission)
+
+    retry = products.prepare_livestream_admission(
+        host_id=host.pk, viewer_id=viewer.pk, meeting_id=meeting.meeting_id,
+        price_per_minute=meeting.price_per_minute,
+        idempotency_key=request_key,
+        viewer_account_epoch=viewer.kt_account_epoch,
+    )
+    add_to_provider(retry)
+
+    assert retry.pk == admission.pk
+    assert len(provider_participant_ids) == 2
+    assert provider_participant_ids[0] == provider_participant_ids[1]
+    assert ServiceAdmission.objects.filter(
+        service='livestream_ppv', creator_id=host.pk,
+        source__meeting_id=meeting.meeting_id,
+        source__subject_creator_id=viewer.pk,
+    ).count() == 1
+    host.refresh_from_db()
+    viewer.refresh_from_db()
+    assert (host.tuzis, viewer.tuzis) == (0, 500)

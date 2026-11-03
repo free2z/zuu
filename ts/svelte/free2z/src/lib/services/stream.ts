@@ -35,6 +35,45 @@ import { z } from "zod";
  */
 export type PublicStreamType = (typeof PUBLIC_STREAM_TYPES)[number];
 
+const ppvJoinKeys = new Map<string, string>();
+
+function ppvJoinKeyStorageKey(owner: string, actorId: number): string {
+  return `f2z:ppv-join:${owner.toLowerCase()}:${actorId}`;
+}
+
+function ppvJoinKey(owner: string, actorId: number): string {
+  const scope = ppvJoinKeyStorageKey(owner, actorId);
+  let existing = ppvJoinKeys.get(scope) ?? null;
+  try {
+    if (!existing && typeof sessionStorage !== "undefined")
+      existing = sessionStorage.getItem(scope);
+  } catch {
+    // The in-memory key still keeps retries in this page idempotent.
+  }
+  if (existing) {
+    ppvJoinKeys.set(scope, existing);
+    return existing;
+  }
+  const key = crypto.randomUUID();
+  ppvJoinKeys.set(scope, key);
+  try {
+    if (typeof sessionStorage !== "undefined") sessionStorage.setItem(scope, key);
+  } catch {
+    // Do not prevent a paid join when browser storage is unavailable.
+  }
+  return key;
+}
+
+function clearPpvJoinKey(owner: string, actorId: number): void {
+  const scope = ppvJoinKeyStorageKey(owner, actorId);
+  ppvJoinKeys.delete(scope);
+  try {
+    if (typeof sessionStorage !== "undefined") sessionStorage.removeItem(scope);
+  } catch {
+    // Storage is optional; this tab's in-memory key has already been cleared.
+  }
+}
+
 const STREAM_MESSAGES = {
   actorChanged: defineMessage(
     "economy.signInAgain",
@@ -292,6 +331,9 @@ export class StreamService {
         ...(takeover ? { takeover: true } : {}),
         ...(pricePerMinute ? { price_per_minute: String(pricePerMinute) } : {}),
         ...(originalViewerId ? { expected_actor_id: originalViewerId } : {}),
+        ...(originalViewerId
+          ? { admission_idempotency_key: ppvJoinKey(username, originalViewerId) }
+          : {}),
       };
       const body: MeetingJoinRequestSchema = instruction;
       // `/api/dyte/{username}/{type}` is a CLOSED enum in the contract — its
@@ -308,7 +350,9 @@ export class StreamService {
       )) as unknown;
       signal?.throwIfAborted();
 
-      return streamInitResponseSchema.parse(response);
+      const parsed = streamInitResponseSchema.parse(response);
+      if (originalViewerId) clearPpvJoinKey(username, originalViewerId);
+      return parsed;
     } catch (error) {
       if (signal?.aborted) throw error;
       if (error instanceof z.ZodError) {

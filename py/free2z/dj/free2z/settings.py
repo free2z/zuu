@@ -2135,11 +2135,10 @@ DYTE_LIVE_SWEEP_CRON = os.environ.get(
 #   a just-started room is always inside the window before the first sweep.
 DYTE_LIVE_LAST_SEEN_TTL_SECONDS = int(
     os.environ.get("DYTE_LIVE_LAST_SEEN_TTL_SECONDS", "300"))
-# DYTE_LIVE_SWEEP_GRACE_SECONDS: the sweep will not clear a room whose
-#   last_seen_at is newer than this, so a room that just went live (creator's
-#   client still connecting, provider still reporting 0) is not flipped off
-#   before it can report presence. This only delays a real clear by at most
-#   this grace, never prevents it.
+# DYTE_LIVE_SWEEP_GRACE_SECONDS: after the first confirmed zero, the sweep
+#   requires consecutive zero probes spanning this window before clearing the
+#   room. Positive or failed probes reset the window, so a transient zero is
+#   tolerated without keeping a truly empty room live indefinitely.
 DYTE_LIVE_SWEEP_GRACE_SECONDS = int(
     os.environ.get("DYTE_LIVE_SWEEP_GRACE_SECONDS", "60"))
 # DYTE_LIVE_STALE_CLEAR_SECONDS: safety valve. If the provider probe *fails*
