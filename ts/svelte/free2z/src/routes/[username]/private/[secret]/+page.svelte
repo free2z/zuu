@@ -5,6 +5,7 @@
   import { page } from "$lib/kit-stores";
   import { authStore } from "$lib/stores/auth";
   import { liveStreamStore } from "$lib/stores/liveStreamStore";
+  import { apiFetch } from "$lib/api/config";
   import { StreamService } from "$lib/services/stream";
   import { initRtkMeeting } from "$lib/utils/rtk-manager";
   import type RealtimeKitClient from "@cloudflare/realtimekit";
@@ -21,6 +22,8 @@
   import RtkAudioHealth from "$lib/components/stream/RtkAudioHealth.svelte";
 
   let meeting: RealtimeKitClient | null = null;
+  let serverRecording = false;
+  let recordingTimer: ReturnType<typeof setInterval> | undefined;
   let hostMeetingError = false;
   const abort = new AbortController();
   // Disable native recording before attaching the meeting: its provider-default
@@ -108,7 +111,24 @@
     if (leave) void Promise.resolve(leave()).catch(console.warn);
   }
 
+  async function refreshRecording() {
+    if (!username || !secret) return;
+    try {
+      const response = await apiFetch(
+        `/api/dyte/${encodeURIComponent(username)}/private/${encodeURIComponent(secret)}/recording-visibility`,
+        { method: "GET", timeoutMs: 8000 },
+      );
+      if (!response.ok) return;
+      const body = (await response.json()) as { recording?: boolean };
+      serverRecording = body.recording === true;
+    } catch {
+      // Keep the last answer. A missed poll must not hide an active recording.
+    }
+  }
+
   onMount(() => {
+    void refreshRecording();
+    recordingTimer = setInterval(() => void refreshRecording(), 8000);
     let boundAccount = accountKey();
     let joinStarted = false;
     defineCustomElements();
@@ -150,6 +170,7 @@
   });
 
   onDestroy(() => {
+    clearInterval(recordingTimer);
     abort.abort();
     unsubscribeAccount?.();
     if (cleanup) cleanup();
@@ -361,7 +382,7 @@
           t={getRtkTranslator($locale)}
           class="min-h-0 w-full flex-1"
         ></rtk-meeting>
-        <MeetingRecordingNotice {meeting} />
+        <MeetingRecordingNotice {meeting} {serverRecording} />
       </div>
       <RtkAudioHealth
         {meeting}

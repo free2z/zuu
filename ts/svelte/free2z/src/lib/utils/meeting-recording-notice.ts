@@ -34,6 +34,7 @@ const STAGED_VIEW_TYPES = new Set(["LIVESTREAM", "WEBINAR"]);
 
 export interface RecordingListenerTarget {
   recordingState: string;
+  recordings?: Array<{ state?: string | null }>;
   addListener(
     event: "recordingUpdate",
     listener: (state: string) => void,
@@ -89,19 +90,50 @@ export function meetingStageStatus(
   );
 }
 
+const ACTIVE_RECORDING_STATES = new Set([
+  "STARTING",
+  "RECORDING",
+  "PAUSED",
+  "INVOKED",
+]);
+
+/** The SDK's aggregate hides INVOKED. The raw list still has the server state. */
+export function observedRecordingState(
+  recording: RecordingListenerTarget | null | undefined,
+): string | undefined {
+  const declared = recording?.recordingState;
+  if (
+    declared === "RECORDING" ||
+    declared === "PAUSED" ||
+    declared === "STARTING"
+  ) {
+    return declared;
+  }
+  const states = (recording?.recordings ?? []).map((item) =>
+    String(item?.state ?? "").toUpperCase(),
+  );
+  if (states.includes("RECORDING")) return "RECORDING";
+  if (states.includes("PAUSED")) return "PAUSED";
+  if (states.includes("STARTING") || states.includes("INVOKED")) {
+    return "STARTING";
+  }
+  return declared;
+}
+
 export function recordingNoticeFor(input: {
   recordingState?: string | null;
   viewType?: string | null;
   stageStatus?: string | null;
 }): RecordingNotice | null {
   const state = input.recordingState;
-  if (state !== "STARTING" && state !== "RECORDING" && state !== "PAUSED") {
+  if (!state || !ACTIVE_RECORDING_STATES.has(state)) {
     return null;
   }
+  const visibleState = state === "INVOKED" ? "STARTING" : state;
   const staged = STAGED_VIEW_TYPES.has(input.viewType ?? "");
   const onStage = staged && input.stageStatus === "ON_STAGE";
   return {
-    state,
+    state: visibleState as RecordingNoticeState,
     onStage,
     emphasis: !staged || onStage ? "stage" : "audience",
   };
@@ -116,14 +148,15 @@ export function watchMeetingRecordingNotice(
 
   function publish() {
     if (stopped) return;
+    const stageStatus = meetingStageStatus(meeting);
     const notice = recordingNoticeFor({
-      recordingState: meeting.recording.recordingState,
+      recordingState: observedRecordingState(meeting.recording),
       viewType: meetingViewType(meeting),
-      stageStatus: meetingStageStatus(meeting),
+      stageStatus,
     });
     const key = notice
       ? `${notice.emphasis}:${notice.onStage}:${notice.state}`
-      : "hidden";
+      : `hidden:${stageStatus ?? ""}`;
     if (key === lastKey) return;
     lastKey = key;
     onChange(notice);
