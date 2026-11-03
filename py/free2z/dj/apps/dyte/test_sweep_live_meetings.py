@@ -227,6 +227,28 @@ def test_client_returns_live_participants_on_200(mocker):
     assert DyteClient("org").get_participants_count("m-200") == 4
 
 
+def test_client_preserves_confirmed_zero_on_200(mocker):
+    mocker.patch(
+        "dj.apps.dyte.client._SESSION.get",
+        return_value=_FakeResponse(200, {
+            "success": True, "data": {"live_participants": 0},
+        }),
+    )
+
+    assert DyteClient("org").get_participants_count("m-zero") == 0
+
+
+@pytest.mark.parametrize("payload", [{}, {"data": {}}, {"data": {"live_participants": None}}])
+def test_client_does_not_treat_malformed_count_as_confirmed_zero(mocker, payload):
+    mocker.patch(
+        "dj.apps.dyte.client._SESSION.get",
+        return_value=_FakeResponse(200, payload),
+    )
+
+    with pytest.raises(ValueError):
+        DyteClient("org").get_participants_count("m-malformed")
+
+
 @pytest.mark.parametrize("status_code", [401, 403, 500, 502])
 def test_client_raises_on_real_failures(mocker, status_code):
     """Auth/provider failures must stay distinguishable from an empty room."""

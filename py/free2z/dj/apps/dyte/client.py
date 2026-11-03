@@ -9,6 +9,7 @@ dc.get_participants_count(c.livestream.meeting_id)
 """
 import re
 import uuid
+import threading
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -28,19 +29,51 @@ logger = logging.getLogger(__name__)
 
 # Reuse TCP/TLS connections across provider calls in each worker. Only GETs
 # are retried: POSTs create meetings/participants and must remain single-shot.
-_SESSION = requests.Session()
-_SESSION.mount("https://", HTTPAdapter(
-    pool_connections=20,
-    pool_maxsize=50,
-    max_retries=Retry(
-        total=2, connect=2, read=2, status=2, backoff_factor=0.2,
-        status_forcelist=(502, 503, 504),
-        allowed_methods=frozenset({"GET"}),
-        respect_retry_after_header=True,
-    ),
-))
+_SESSION_LOCAL = threading.local()
+
+
+def _session():
+    """Return a connection-pooled session owned by the current worker thread."""
+    session = getattr(_SESSION_LOCAL, "session", None)
+    if session is None:
+        session = requests.Session()
+        session.mount("https://", HTTPAdapter(
+            pool_connections=20,
+            pool_maxsize=50,
+            max_retries=Retry(
+                total=2, connect=2, read=2, status=2, backoff_factor=0.2,
+                status_forcelist=(502, 503, 504),
+                allowed_methods=frozenset({"GET"}),
+                respect_retry_after_header=True,
+            ),
+        ))
+        _SESSION_LOCAL.session = session
+    return session
+
+
+class _ThreadLocalSessionProxy:
+    def get(self, *args, **kwargs):
+        return _session().get(*args, **kwargs)
+
+    def post(self, *args, **kwargs):
+        return _session().post(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        return _session().delete(*args, **kwargs)
+
+
+# Keep the established patch seam while routing real requests to thread-local
+# Sessions (requests.Session itself is not documented as thread-safe).
+_SESSION = _ThreadLocalSessionProxy()
 PARTICIPANT_COUNT_TTL = 12
 PARTICIPANT_COUNT_STALE_TTL = 300
+_COUNT_LOCKS_GUARD = threading.Lock()
+_COUNT_LOCKS = {}
+
+
+def _count_lock(key):
+    with _COUNT_LOCKS_GUARD:
+        return _COUNT_LOCKS.setdefault(key, threading.Lock())
 
 
 def _count_cache_keys(meeting_id):
@@ -257,25 +290,51 @@ class DyteClient(object):
         # Any other non-2xx (401/403 auth, 5xx provider,...) is a genuine
         # failure and must not be mistaken for an empty room.
         response.raise_for_status()
-        logger.debug(f"get_participants_count response = {response.json()}")
-        return response.json().get('data', {}).get('live_participants', 0)
+        body = response.json()
+        data = body.get('data') if isinstance(body, dict) else None
+        count = data.get('live_participants') if isinstance(data, dict) else None
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise ValueError("Provider response has no valid live participant count")
+        logger.debug("get_participants_count response = %s", body)
+        return count
 
     def get_cached_participants_count(self, meeting_id) -> int:
         """Return a short-cached count, retaining the last result on failure."""
         recent_key, stale_key = _count_cache_keys(meeting_id)
-        cached = cache.get(recent_key)
+        try:
+            cached = cache.get(recent_key)
+        except Exception:
+            logger.warning("participant count cache read failed", exc_info=True)
+            cached = None
         if cached is not None:
             return cached
-        try:
-            count = self.get_participants_count(meeting_id)
-        except Exception:
-            stale = cache.get(stale_key)
-            if stale is not None:
-                return stale
-            raise
-        cache.set(recent_key, count, PARTICIPANT_COUNT_TTL)
-        cache.set(stale_key, count, PARTICIPANT_COUNT_STALE_TTL)
-        return count
+        # Coalesce misses in this process. Django cache backends do not offer
+        # a portable distributed single-flight primitive; cross-worker misses
+        # remain safe and bounded by the provider timeout.
+        with _count_lock(meeting_id):
+            try:
+                cached = cache.get(recent_key)
+            except Exception:
+                cached = None
+            if cached is not None:
+                return cached
+            try:
+                count = self.get_participants_count(meeting_id)
+            except Exception:
+                try:
+                    stale = cache.get(stale_key)
+                except Exception:
+                    logger.warning("stale participant count cache read failed", exc_info=True)
+                    stale = None
+                if stale is not None:
+                    return stale
+                raise
+            try:
+                cache.set(recent_key, count, PARTICIPANT_COUNT_TTL)
+                cache.set(stale_key, count, PARTICIPANT_COUNT_STALE_TTL)
+            except Exception:
+                logger.warning("participant count cache write failed", exc_info=True)
+            return count
 
     # Dyte carnage on backwards compatibility
     # Actually a regression

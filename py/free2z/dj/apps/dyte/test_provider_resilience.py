@@ -2,6 +2,8 @@ from unittest.mock import Mock
 
 import pytest
 import requests
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from django.core.cache import cache
 from dj.apps.dyte.client import DyteClient, _count_cache_keys
 from dj.apps.dyte.models import PRIVATE, CreatorMeeting
@@ -24,6 +26,43 @@ def test_participant_count_is_cached_and_survives_a_probe_failure(mocker):
     cache.delete(recent_key)
     probe.side_effect = requests.Timeout("provider timeout")
     assert client.get_cached_participants_count(meeting_id) == 4
+
+
+@pytest.mark.django_db
+def test_participant_count_cache_backend_errors_do_not_break_probe(mocker):
+    meeting_id = "cache-backend-down"
+    probe = mocker.patch.object(
+        DyteClient, "get_participants_count", return_value=0,
+    )
+    mocker.patch("dj.apps.dyte.client.cache.get", side_effect=RuntimeError("cache down"))
+    mocker.patch("dj.apps.dyte.client.cache.set", side_effect=RuntimeError("cache down"))
+
+    assert DyteClient("org").get_cached_participants_count(meeting_id) == 0
+    probe.assert_called_once_with(meeting_id)
+
+
+@pytest.mark.django_db
+def test_concurrent_participant_count_misses_are_coalesced(mocker):
+    meeting_id = "coalesced-count"
+    entered = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def probe(_meeting_id):
+        calls.append(_meeting_id)
+        entered.set()
+        assert release.wait(2)
+        return 2
+
+    mocker.patch.object(DyteClient, "get_participants_count", side_effect=probe)
+    client = DyteClient("org")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(client.get_cached_participants_count, meeting_id)
+        assert entered.wait(2)
+        second = pool.submit(client.get_cached_participants_count, meeting_id)
+        release.set()
+        assert [first.result(), second.result()] == [2, 2]
+    assert calls == [meeting_id]
 
 
 @pytest.mark.django_db
