@@ -15,23 +15,28 @@ import { PublicCreator } from "./CreatorDetail";
 import { useGlobalState } from "./state/global";
 import { useStoreState } from "./state/persist";
 
-const paidJoinKeys = new Map<string, string>();
-
-function paidJoinKey(owner: string, actorId: number): string {
-  const storageKey = `f2z:ppv-join:${owner.toLowerCase()}:${actorId}`;
-  let existing = paidJoinKeys.get(storageKey);
+function paidJoinKey(
+  owner: string,
+  actorId: number,
+  sessionId: string,
+): string {
+  const storageKey = `f2z:ppv-join:${owner.toLowerCase()}:${actorId}:${sessionId}`;
+  let existing: string | null;
   try {
-    existing ??= sessionStorage.getItem(storageKey) ?? undefined;
+    existing = sessionStorage.getItem(storageKey);
   } catch {
-    // The in-memory key still makes retries within this page idempotent.
+    throw new Error("Paid stream retry storage is unavailable.");
   }
   if (existing) return existing;
+  // A module cache is not durable across reloads. Never send a paid request
+  // until the retry identity can be read back from session storage.
   const key = crypto.randomUUID();
-  paidJoinKeys.set(storageKey, key);
   try {
     sessionStorage.setItem(storageKey, key);
+    if (sessionStorage.getItem(storageKey) !== key)
+      throw new Error("readback failed");
   } catch {
-    // Storage is optional; retain the key in memory for this page.
+    throw new Error("Paid stream retry storage is unavailable.");
   }
   return key;
 }
@@ -55,7 +60,8 @@ export default function CreatorLive() {
     username: string;
     owner: string | undefined;
     type: string | undefined;
-    admissionKey: string;
+    admissionKey?: string;
+    sessionId?: string;
   }>();
   const [showPay, setShowPay] = useState(false);
   const [star, setStar] = useState({} as PublicCreator);
@@ -137,9 +143,13 @@ export default function CreatorLive() {
         username: creator.username,
         owner,
         type,
-        admissionKey: paidJoinKey(owner || "", creator.id),
       };
-    const originalViewer = paidIntentRef.current || {
+    const originalViewer: {
+      id: number;
+      username: string;
+      admissionKey?: string;
+      sessionId?: string;
+    } = paidIntentRef.current || {
       id: creator.id,
       username: creator.username,
     };
@@ -149,11 +159,8 @@ export default function CreatorLive() {
         ? { price_per_minute: String(ppvPrice) }
         : {}),
       ...(paidViewer ? { expected_actor_id: originalViewer.id } : {}),
-      ...(paidViewer
-        ? { admission_idempotency_key: originalViewer.admissionKey }
-        : {}),
     };
-    const body: MeetingJoinRequestSchema = instruction;
+    let body: MeetingJoinRequestSchema = instruction;
     const join = async () => {
       if (paidViewer) {
         const fresh = await axios.get("/api/auth/user/");
@@ -167,6 +174,33 @@ export default function CreatorLive() {
           cancelled
         )
           throw new Error("Sign in again before joining this paid stream.");
+        if (!owner) throw new Error("This paid stream is unavailable.");
+        const { data: liveStatus } = await axios.get(
+          `/api/dyte/${owner}/live-status`,
+        );
+        const providerSessionId = liveStatus?.ppv?.meeting_id;
+        if (
+          typeof providerSessionId !== "string" ||
+          !providerSessionId.trim()
+        ) {
+          throw new Error("This paid stream is unavailable.");
+        }
+        const sessionId = providerSessionId.trim();
+        // Tie the durable key to the provider session so a later stream cannot
+        // inherit an ambiguous admission from an earlier one.
+        if (originalViewer.sessionId !== sessionId) {
+          originalViewer.sessionId = sessionId;
+          originalViewer.admissionKey = undefined;
+        }
+        originalViewer.admissionKey ??= paidJoinKey(
+          owner,
+          originalViewer.id,
+          sessionId,
+        );
+        body = {
+          ...instruction,
+          admission_idempotency_key: originalViewer.admissionKey,
+        };
       }
       return axios.post(`/api/dyte/${owner}/${type}`, body);
     };
@@ -188,8 +222,7 @@ export default function CreatorLive() {
             if (paidViewer && owner) {
               const key = `f2z:ppv-join:${owner.toLowerCase()}:${
                 originalViewer.id
-              }`;
-              paidJoinKeys.delete(key);
+              }:${originalViewer.sessionId}`;
               try {
                 sessionStorage.removeItem(key);
               } catch {
