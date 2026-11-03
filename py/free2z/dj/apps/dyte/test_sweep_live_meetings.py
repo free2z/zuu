@@ -206,7 +206,7 @@ def test_client_treats_404_as_zero_participants(mocker):
     treat the normal case as an error and never clear live_now.
     """
     mocker.patch(
-        "dj.apps.dyte.client.requests.get",
+        "dj.apps.dyte.client._SESSION.get",
         return_value=_FakeResponse(404, {
             "success": False,
             "error": {"code": 404, "message": "No active session found"},
@@ -218,7 +218,7 @@ def test_client_treats_404_as_zero_participants(mocker):
 
 def test_client_returns_live_participants_on_200(mocker):
     mocker.patch(
-        "dj.apps.dyte.client.requests.get",
+        "dj.apps.dyte.client._SESSION.get",
         return_value=_FakeResponse(200, {
             "success": True, "data": {"live_participants": 4},
         }),
@@ -231,7 +231,7 @@ def test_client_returns_live_participants_on_200(mocker):
 def test_client_raises_on_real_failures(mocker, status_code):
     """Auth/provider failures must stay distinguishable from an empty room."""
     mocker.patch(
-        "dj.apps.dyte.client.requests.get",
+        "dj.apps.dyte.client._SESSION.get",
         return_value=_FakeResponse(status_code, {"success": False}),
     )
 
@@ -245,7 +245,7 @@ def test_sweep_clears_live_now_on_provider_404(mocker, creator_factory):
     creator = creator_factory()
     cm = _make_meeting(creator, "e2e-404")
     mocker.patch(
-        "dj.apps.dyte.client.requests.get",
+        "dj.apps.dyte.client._SESSION.get",
         return_value=_FakeResponse(404, {
             "success": False,
             "error": {"code": 404, "message": "No active session found"},
@@ -316,7 +316,7 @@ def test_live_status_reports_idle_room_as_not_live(
     creator = creator_factory()
     _make_meeting(creator, "live-status-404")
     mocker.patch(
-        "dj.apps.dyte.client.requests.get",
+        "dj.apps.dyte.client._SESSION.get",
         return_value=_FakeResponse(404, {"success": False}),
     )
 

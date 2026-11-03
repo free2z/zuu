@@ -10,7 +10,10 @@ dc.get_participants_count(c.livestream.meeting_id)
 import re
 import uuid
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from requests.auth import HTTPBasicAuth
+from django.core.cache import cache
 
 from django.conf import settings
 
@@ -21,6 +24,30 @@ from .models import CreatorMeeting
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# Reuse TCP/TLS connections across provider calls in each worker. Only GETs
+# are retried: POSTs create meetings/participants and must remain single-shot.
+_SESSION = requests.Session()
+_SESSION.mount("https://", HTTPAdapter(
+    pool_connections=20,
+    pool_maxsize=50,
+    max_retries=Retry(
+        total=2, connect=2, read=2, status=2, backoff_factor=0.2,
+        status_forcelist=(502, 503, 504),
+        allowed_methods=frozenset({"GET"}),
+        respect_retry_after_header=True,
+    ),
+))
+PARTICIPANT_COUNT_TTL = 12
+PARTICIPANT_COUNT_STALE_TTL = 300
+
+
+def _count_cache_keys(meeting_id):
+    return (
+        f"dyte:participants:recent:{meeting_id}",
+        f"dyte:participants:last-known:{meeting_id}",
+    )
 
 
 def _safe_json(response) -> dict:
@@ -218,7 +245,7 @@ class DyteClient(object):
         headers = {
             "Content-Type": "application/json",
         }
-        response = requests.get(
+        response = _SESSION.get(
             url, headers=headers, auth=auth, timeout=_timeout()
         )
         if response.status_code == 404:
@@ -232,6 +259,23 @@ class DyteClient(object):
         response.raise_for_status()
         logger.debug(f"get_participants_count response = {response.json()}")
         return response.json().get('data', {}).get('live_participants', 0)
+
+    def get_cached_participants_count(self, meeting_id) -> int:
+        """Return a short-cached count, retaining the last result on failure."""
+        recent_key, stale_key = _count_cache_keys(meeting_id)
+        cached = cache.get(recent_key)
+        if cached is not None:
+            return cached
+        try:
+            count = self.get_participants_count(meeting_id)
+        except Exception:
+            stale = cache.get(stale_key)
+            if stale is not None:
+                return stale
+            raise
+        cache.set(recent_key, count, PARTICIPANT_COUNT_TTL)
+        cache.set(stale_key, count, PARTICIPANT_COUNT_STALE_TTL)
+        return count
 
     # Dyte carnage on backwards compatibility
     # Actually a regression
@@ -336,7 +380,7 @@ class DyteClient(object):
             "Content-Type": "application/json",
         }
         auth = HTTPBasicAuth(self.org, settings.DYTE_KEY)
-        response = requests.post(
+        response = _SESSION.post(
             url, json=payload, headers=headers, auth=auth, timeout=_timeout()
         )
         #.data.id
@@ -361,7 +405,7 @@ class DyteClient(object):
         )
         auth = HTTPBasicAuth(self.org, settings.DYTE_KEY)
         try:
-            response = requests.post(
+            response = _SESSION.post(
                 url, json={"participant_ids": ids},
                 headers={"Content-Type": "application/json"},
                 auth=auth, timeout=_timeout(),
@@ -394,7 +438,7 @@ class DyteClient(object):
         )
         auth = HTTPBasicAuth(self.org, settings.DYTE_KEY)
         try:
-            response = requests.delete(
+            response = _SESSION.delete(
                 url, headers={"Content-Type": "application/json"},
                 auth=auth, timeout=_timeout(),
             )
@@ -411,7 +455,8 @@ class DyteClient(object):
         return kicked and deleted
 
     def add_participant(
-        self, creator: Creator, meeting_id: str, *, role: str = None, custom_participant_id: str = None,
+        self, creator: Creator, meeting_id: str, *, role: str = None,
+        custom_participant_id: str = None, cm: CreatorMeeting = None,
     ) -> requests.Response:
         """
         import requests
@@ -433,9 +478,10 @@ class DyteClient(object):
         """
         # url = /v2/meetings/{meetingId}/participants
         url = f"{settings.RTK_API_BASE_URL}/v2/meetings/{meeting_id}/participants"
-        cm = CreatorMeeting.objects.get(meeting_id=meeting_id)
+        if cm is None:
+            cm = CreatorMeeting.objects.select_related('creator').get(meeting_id=meeting_id)
 
-        logger.info(f"meeting owner = {cm.creator.username}, participant = {creator.username}")
+        logger.info("meeting owner id=%s, participant=%s", cm.creator_id, creator.username)
 
         # RealtimeKit fetches participant pictures in the browser. Legacy
         # free2z.com URLs redirect across origins and fail CSP/CORS on the
@@ -466,13 +512,6 @@ class DyteClient(object):
             logger.info("participant is joining someone else's meeting")
             preset = "webinar-participant"
 
-        if custom_participant_id is None and cm.meeting_type=='ppv' and creator.is_authenticated and creator.pk==cm.creator_id:
-            from dj.apps.economy.models import EconomicPolicy
-            if EconomicPolicy.objects.filter(pk=True,version=1).exists():
-                # Usernames cannot impersonate a compensated admission. Both
-                # host starts and the host's own viewer seat use this identity.
-                custom_participant_id=f'ph_{creator.public_id.hex}'
-
         payload = {
             "name": username,
             "picture": picture_url,
@@ -483,7 +522,7 @@ class DyteClient(object):
             "Content-Type": "application/json",
         }
         auth = HTTPBasicAuth(self.org, settings.DYTE_KEY)
-        response = requests.post(
+        response = _SESSION.post(
             url, json=payload, headers=headers, auth=auth, timeout=_timeout()
         )
         # NEVER log the response body, on ANY path. On success it contains

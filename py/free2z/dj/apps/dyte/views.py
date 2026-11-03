@@ -84,6 +84,35 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+VIEWER_PROVIDER_RETRY_AFTER = "5"
+
+
+def _provider_retry_response():
+    return Response(
+        {"error": "The live-stream provider did not respond; try again."},
+        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        headers={"Retry-After": VIEWER_PROVIDER_RETRY_AFTER},
+    )
+
+
+def _viewer_token(response):
+    """Return a usable provider token, or None for any provider failure."""
+    if response is None:
+        return None
+    status_code = getattr(response, "status_code", None)
+    if isinstance(status_code, int) and status_code >= 400:
+        return None
+    try:
+        body = response.json()
+    except (ValueError, requests.RequestException):
+        return None
+    if not isinstance(body, dict) or body.get("error"):
+        return None
+    data = body.get("data")
+    token = data.get("token") if isinstance(data, dict) else None
+    return token if isinstance(token, str) and token else None
+
 PUBLIC_DISCOVERY_LIMIT = 12
 
 STREAM_PAYMENT_REQUIRED_RESPONSE = OpenApiResponse(
@@ -1466,11 +1495,10 @@ def live_meeting_status(request, username):
     resp = {}
     for meeting in live_meetings:
         try:
-            count = dc.get_participants_count(meeting['meeting_id'])
+            count = dc.get_cached_participants_count(meeting['meeting_id'])
         except Exception as exc:
             # A provider hiccup must never 500 a public, bot-crawled page.
-            # Unknown presence reads as "not live" for this response only;
-            # dyte.sweep_live_meetings owns reconciling live_now.
+            # A prior count is served by the short last-known cache.
             logger.warning(
                 "live_meeting_status: probe failed for %s (%s): %s",
                 meeting['meeting_id'], username, exc,
@@ -1842,8 +1870,14 @@ class PrivateMeeting(APIView):
         # if not cm.meeting_id:
         #     cm = _create_meeting(cm, dc)
 
-        resp = dc.add_participant(request.user, cm.meeting_id)
-        auth_token = resp.json()['data']['token']
+        try:
+            resp = dc.add_participant(request.user, cm.meeting_id, cm=cm)
+            auth_token = _viewer_token(resp)
+        except requests.RequestException as exc:
+            logger.warning("private viewer join provider request failed (%s)", type(exc).__name__)
+            return _provider_retry_response()
+        if auth_token is None:
+            return _provider_retry_response()
         return Response({
             # "meeting_id": cm.meeting_id,
             "e2ee": cm.e2ee,
@@ -1968,7 +2002,7 @@ class DyteMeeting(APIView):
             live_now=True,
         )
         try:
-            participants = dc.get_participants_count(cm.meeting_id)
+            participants = dc.get_cached_participants_count(cm.meeting_id)
         except Exception as exc:
             # Don't 500 on a provider error — report "Not Live" instead.
             logger.warning(
@@ -2097,10 +2131,8 @@ class DyteMeeting(APIView):
         )
 
         if meeting_type == PAY_PER_VIEW and not is_own_stream:
-            from dj.apps.economy.models import EconomicPolicy
             expected_actor = body.validated_data.get('expected_actor_id')
-            if (expected_actor is not None and expected_actor != request.user.pk) or (
-                    EconomicPolicy.objects.get(pk=True).version == 1 and expected_actor != request.user.pk):
+            if expected_actor is not None and expected_actor != request.user.pk:
                 return Response({'code': 'actor_changed', 'error': 'The signed-in viewer changed. Review the original paid join.'}, status=409)
 
         # User must be subscribed for subscribers-only
@@ -2121,6 +2153,11 @@ class DyteMeeting(APIView):
                 )
 
         compensation_admission = None
+        participant_custom_id = None
+        if meeting_type == PAY_PER_VIEW and is_own_stream:
+            from dj.apps.economy.models import EconomicPolicy
+            if EconomicPolicy.objects.filter(pk=True, version=1).exists():
+                participant_custom_id = f'ph_{request.user.public_id.hex}'
         if meeting_type == PAY_PER_VIEW and not is_own_stream:
             # User must have enough tuzis
             price_per_minute = cm.price_per_minute
@@ -2164,11 +2201,21 @@ class DyteMeeting(APIView):
         logger.info(f"Adding Participant! {request.user.username}")
         # role=viewer, always: this branch must never hand out the host
         # preset, whoever the caller is.
-        if compensation_admission is not None:
-            resp = dc.add_participant(request.user, cm.meeting_id, role=VIEWER_ROLE,
-                custom_participant_id=f'ea_{compensation_admission.pk.hex}')
-        else:
-            resp = dc.add_participant(request.user, cm.meeting_id, role=VIEWER_ROLE)
+        try:
+            if compensation_admission is not None:
+                resp = dc.add_participant(request.user, cm.meeting_id, role=VIEWER_ROLE,
+                    custom_participant_id=f'ea_{compensation_admission.pk.hex}', cm=cm)
+            else:
+                resp = dc.add_participant(
+                    request.user, cm.meeting_id, role=VIEWER_ROLE,
+                    custom_participant_id=participant_custom_id, cm=cm,
+                )
+            auth_token = _viewer_token(resp)
+        except requests.RequestException as exc:
+            logger.warning("public viewer join provider request failed (%s)", type(exc).__name__)
+            return _provider_retry_response()
+        if auth_token is None:
+            return _provider_retry_response()
         # Neither resp.text nor resp.json() may be logged: the success
         # body carries data.token, a bearer credential for joining this
         # meeting, and root logging is INFO in prod. DyteClient.
@@ -2178,8 +2225,6 @@ class DyteMeeting(APIView):
         # broken call in its own right -- a positional arg with no %s in
         # the message makes logging raise "not all arguments converted"
         # internally, so it emitted a formatting error, not a log line.
-        auth_token = resp.json()['data']['token']
-
         return Response({
             "meeting_id": cm.meeting_id,
             "auth_token": auth_token,
@@ -2277,7 +2322,15 @@ class DyteMeeting(APIView):
                 cm = _create_meeting(cm, dc)
 
             logger.info(f"Adding Host! {creator.username}")
-            resp = dc.add_participant(creator, cm.meeting_id, role=HOST_ROLE)
+            host_participant_id = (
+                f'ph_{creator.public_id.hex}'
+                if meeting_type == PAY_PER_VIEW and policy_version == 1
+                else None
+            )
+            resp = dc.add_participant(
+                creator, cm.meeting_id, role=HOST_ROLE, cm=cm,
+                custom_participant_id=host_participant_id,
+            )
             d = resp.json()
 
             # This could probably be removed but we can try one more
@@ -2293,7 +2346,10 @@ class DyteMeeting(APIView):
                 # viewers. Those fall through to the 502 below.
                 cm = _create_meeting(cm, dc)
                 # try once more
-                resp = dc.add_participant(creator, cm.meeting_id, role=HOST_ROLE)
+                resp = dc.add_participant(
+                    creator, cm.meeting_id, role=HOST_ROLE, cm=cm,
+                    custom_participant_id=host_participant_id,
+                )
 
             data = (resp.json() or {}).get('data') or {}
             auth_token = data.get('token')

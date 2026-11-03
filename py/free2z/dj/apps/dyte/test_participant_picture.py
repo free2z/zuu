@@ -29,7 +29,7 @@ def test_participant_picture_uses_canonical_origin(mocker, settings, origin, kin
         "dj.apps.dyte.client.CreatorMeeting.objects.get",
         return_value=SimpleNamespace(creator=owner, meeting_type="broadcast"),
     )
-    post = mocker.patch("dj.apps.dyte.client.requests.post")
+    post = mocker.patch("dj.apps.dyte.client._SESSION.post")
     post.return_value.status_code = 200
     post.return_value.json.return_value = {"success": True}
 
