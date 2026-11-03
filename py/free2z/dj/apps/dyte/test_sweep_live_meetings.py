@@ -293,27 +293,61 @@ def test_sweep_success_logs_at_info_not_warning(mocker, creator_factory, caplog)
 
 
 @pytest.mark.django_db
-def test_live_status_reports_a_recording_the_host_published(
-    mocker, api_client, creator_factory
+@pytest.mark.parametrize("meeting_type", ["broadcast", "subscribers-only", "ppv"])
+def test_live_status_reports_a_recording_for_every_public_stream(
+    mocker, api_client, creator_factory, meeting_type
 ):
-    """Viewers learn a server-started recording from live status, not the SDK."""
+    """Broadcast, subscribers-only, and PPV viewers share this flag."""
     from django.core.cache import cache
 
     from dj.apps.dyte.recording_control import publish_public_recording
 
     creator = creator_factory()
-    _make_meeting(creator, "rec-room")
+    room = f"rec-{meeting_type}"
+    _make_meeting(creator, room, meeting_type=meeting_type)
     _patch_count(mocker, return_value=2)
-    publish_public_recording("rec-room", "RECORDING")
+    publish_public_recording(room, "RECORDING")
 
     resp = api_client.get(reverse("live_meeting_status", args=[creator.username]))
 
     assert resp.status_code == 200
-    assert resp.json()["broadcast"]["recording"] is True
-    cache.delete("rtk-recording-public:rec-room")
+    assert resp.json()[meeting_type]["recording"] is True
+    cache.delete(f"rtk-recording-public:{room}")
 
     quiet = api_client.get(reverse("live_meeting_status", args=[creator.username]))
-    assert quiet.json()["broadcast"]["recording"] is False
+    assert quiet.json()[meeting_type]["recording"] is False
+
+
+@pytest.mark.django_db
+def test_private_invitees_can_see_that_the_call_is_being_recorded(
+    api_client, creator_factory
+):
+    import uuid
+
+    from django.core.cache import cache
+
+    from dj.apps.dyte.recording_control import publish_public_recording
+
+    creator = creator_factory()
+    secret = uuid.uuid4()
+    _make_meeting(
+        creator,
+        "rec-private",
+        meeting_type="private",
+        is_public=False,
+        secret=secret,
+    )
+    publish_public_recording("rec-private", "RECORDING")
+    api_client.force_authenticate(user=creator)
+    resp = api_client.get(
+        reverse(
+            "private_recording_visibility",
+            args=[creator.username, secret],
+        )
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"recording": True}
+    cache.delete("rtk-recording-public:rec-private")
 
 
 @pytest.mark.django_db

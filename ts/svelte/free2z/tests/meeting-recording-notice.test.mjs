@@ -217,6 +217,25 @@ test("view type and stage status fall back to the local participant", () => {
   stop();
 });
 
+test("every livestream type reaches the recording notice", () => {
+  for (const type of ["broadcast", "subscribers-only", "ppv"]) {
+    const page = read(`src/routes/[username]/${type}/+page.svelte`);
+    assert.match(
+      page,
+      /LiveStreamPage/,
+      `${type} must use the shared viewer that reads the recording flag`,
+    );
+  }
+  const viewer = read("src/lib/components/stream/LiveStreamViewer.svelte");
+  assert.match(viewer, /stream\.type === streamType && stream\.recording/);
+  const priv = read("src/routes/[username]/private/[secret]/+page.svelte");
+  assert.match(priv, /recording-visibility/);
+  assert.match(
+    priv,
+    /<MeetingRecordingNotice\s+\{meeting\}\s+\{serverRecording\}\s*\/>/,
+  );
+});
+
 test("every human meeting surface mounts the notice on that meeting", () => {
   const surfaces = [
     "src/lib/components/stream/LiveStreamViewer.svelte",
@@ -232,7 +251,7 @@ test("every human meeting surface mounts the notice on that meeting", () => {
     );
     assert.match(
       source,
-      /<MeetingRecordingNotice\s+\{meeting\}(?:\s+\{serverRecording\})?\s*\/>/,
+      /<MeetingRecordingNotice\s+\{meeting\}[^>]*\/>/,
       `${file} must bind the notice to its meeting`,
     );
   }
@@ -245,7 +264,7 @@ test("host and private meetings pin the notice to the video, not the page header
   ]) {
     const source = read(file);
     const region = source.match(
-      /<div class="relative flex min-h-0 w-full flex-1 flex-col">[\s\S]*?<MeetingRecordingNotice \{meeting\} \/>\s*<\/div>/,
+      /<div class="relative flex min-h-0 w-full flex-1 flex-col">[\s\S]*?<MeetingRecordingNotice \{meeting\}[^>]*\/>\s*<\/div>/,
     )?.[0];
     assert.ok(region, `${file} must wrap the meeting and the notice together`);
     assert.match(region, /<rtk-meeting\b/);

@@ -16,10 +16,12 @@
     username,
     hostSession = "",
     privateSecret,
+    onRecording,
   }: {
     username: string;
     hostSession?: string;
     privateSecret?: string;
+    onRecording?: (active: boolean) => void;
   } = $props();
   let view = $state<RecordingView>({ state: null, busy: true, error: false });
   let controls: ReturnType<typeof recordingControls> | undefined;
@@ -67,6 +69,11 @@
       },
       (next) => {
         view = next;
+        onRecording?.(
+          next.state === "INVOKED" ||
+            next.state === "RECORDING" ||
+            next.state === "PAUSED",
+        );
       },
     );
     controls = handle;

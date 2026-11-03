@@ -6,6 +6,7 @@ import requests
 from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from requests.auth import HTTPBasicAuth
@@ -380,6 +381,32 @@ class PrivateRecordingControl(RecordingControl):
     @extend_schema(request=None, responses={200: RecordingStatusSerializer})
     def post(self, request, username, **kwargs):
         return self._mutate(request, username, action="start")
+
+
+class PrivateRecordingVisibility(APIView):
+    """Whether a private room is being recorded, for anyone holding its secret.
+
+    The owner recording API stays owner-only. Invitees on stage need the same
+    yes-or-no the public live status gives broadcast, subscribers-only, and
+    pay-per-view viewers.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = POLLING_THROTTLES
+
+    @extend_schema(responses={200: serializers.Serializer})
+    def get(self, request, username, secret, **kwargs):
+        cm = get_object_or_404(
+            CreatorMeeting,
+            creator__username__iexact=username,
+            creator__is_active=True,
+            meeting_type=PRIVATE,
+            is_public=False,
+            secret=secret,
+        )
+        return Response({
+            "recording": public_recording(cm.meeting_id) if cm.meeting_id else False,
+        })
 
 
 class PrivateRecordingStopControl(PrivateRecordingControl):
