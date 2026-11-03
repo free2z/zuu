@@ -6,6 +6,7 @@
   import { page } from "$lib/kit-stores";
   import { authStore } from "$lib/stores/auth";
   import { liveStreamStore } from "$lib/stores/liveStreamStore";
+  import { apiFetch } from "$lib/api/config";
   import { StreamService } from "$lib/services/stream";
   import { initRtkMeeting } from "$lib/utils/rtk-manager";
   import type RealtimeKitClient from "@cloudflare/realtimekit";
@@ -30,6 +31,8 @@
   import { streamRetryDelay } from "$lib/utils/stream-recovery";
 
   let meeting: RealtimeKitClient | null = null;
+  let serverRecording = false;
+  let recordingTimer: ReturnType<typeof setInterval> | undefined;
   let hostMeetingError = false;
   const abort = new AbortController();
   // Disable native recording before attaching the meeting: its provider-default
@@ -226,7 +229,24 @@
     if (leave) void Promise.resolve(leave()).catch(console.warn);
   }
 
+  async function refreshRecording() {
+    if (!username || !secret) return;
+    try {
+      const response = await apiFetch(
+        `/api/dyte/${encodeURIComponent(username)}/private/${encodeURIComponent(secret)}/recording-visibility`,
+        { method: "GET", timeoutMs: 8000 },
+      );
+      if (!response.ok) return;
+      const body = (await response.json()) as { recording?: boolean };
+      serverRecording = body.recording === true;
+    } catch {
+      // Keep the last answer. A missed poll must not hide an active recording.
+    }
+  }
+
   onMount(() => {
+    void refreshRecording();
+    recordingTimer = setInterval(() => void refreshRecording(), 8000);
     let boundAccount = accountKey();
     let joinStarted = false;
     defineCustomElements();
@@ -273,6 +293,7 @@
 
   onDestroy(() => {
     privateJoinGeneration++;
+    clearInterval(recordingTimer);
     abort.abort();
     if (browser) {
       window.removeEventListener("offline", handleOffline);
@@ -443,55 +464,6 @@
 </svelte:head>
 
 <div class="relative flex h-screen w-full flex-col bg-black">
-  {#if meeting}
-    <div class="absolute inset-0 flex min-h-0 flex-col">
-      <div
-        data-testid="private-call-header"
-        class="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2"
-      >
-        <Button variant="secondary" size="sm" onclick={copyToClipboard}>
-          {#if copied}<Check class="mr-2 h-4 w-4" />{$t(
-              "privateCall.copied",
-              "Copied",
-            )}{:else}<Copy class="mr-2 h-4 w-4" />{$t(
-              "privateCall.copyLink",
-              "Copy Link",
-            )}{/if}
-        </Button>
-        {#if isOwner && boundRoom && boundRoom.username === username && boundRoom.secret === secret && !encrypted && meeting.self.permissions.canRecord}
-          <HostRecordingControls
-            username={boundRoom.username}
-            privateSecret={boundRoom.secret}
-          />
-        {/if}
-      </div>
-      <div class="relative flex min-h-0 w-full flex-1 flex-col">
-        <!-- @ts-ignore -->
-        <rtk-meeting
-          mode="fill"
-          use:recordingSafeMeeting={meeting}
-          show-setup-screen={true}
-          t={getRtkTranslator($locale)}
-          class="min-h-0 w-full flex-1"
-        ></rtk-meeting>
-        <MeetingRecordingNotice {meeting} />
-      </div>
-      <RtkAudioHealth
-        {meeting}
-        mode="call"
-        onReconnect={recoverPrivateStream}
-      />
-      {#if hostMeetingError}<div
-          role="alert"
-          class="shrink-0 bg-red-950 p-3 text-sm text-white"
-        >
-          {$t(
-            "dashboard.stream.recordingControls.interfaceError",
-            "The meeting interface could not be prepared. Reload before starting a recording.",
-          )}
-        </div>{/if}
-    </div>
-  {/if}
   {#if loading && !meeting && !isOffline}
     <div
       class="flex flex-1 flex-col items-center justify-center gap-4 text-white"
@@ -546,6 +518,53 @@
       >
         {$t("privateCall.tryAgain", "Try Again")}
       </Button>
+    </div>
+  {:else if meeting}
+    <div class="relative flex min-h-0 flex-1 flex-col">
+      <div
+        data-testid="private-call-header"
+        class="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2"
+      >
+        <Button variant="secondary" size="sm" onclick={copyToClipboard}>
+          {#if copied}
+            <Check class="mr-2 h-4 w-4" />
+            {$t("privateCall.copied", "Copied")}
+          {:else}
+            <Copy class="mr-2 h-4 w-4" />
+            {$t("privateCall.copyLink", "Copy Link")}
+          {/if}
+        </Button>
+        {#if isOwner && boundRoom && boundRoom.username === username && boundRoom.secret === secret && !encrypted && meeting.self.permissions.canRecord}
+          <HostRecordingControls
+            username={boundRoom.username}
+            privateSecret={boundRoom.secret}
+          />
+        {/if}
+      </div>
+      <div class="relative flex min-h-0 w-full flex-1 flex-col">
+        <!-- @ts-ignore -->
+        <rtk-meeting
+          mode="fill"
+          use:recordingSafeMeeting={meeting}
+          show-setup-screen={true}
+          t={getRtkTranslator($locale)}
+          class="min-h-0 w-full flex-1"
+        ></rtk-meeting>
+        <MeetingRecordingNotice {meeting} {serverRecording} />
+      </div>
+      <RtkAudioHealth
+        {meeting}
+        mode="call"
+        onReconnect={recoverPrivateStream}
+      />
+      {#if hostMeetingError}
+        <div role="alert" class="shrink-0 bg-red-950 p-3 text-sm text-white">
+          {$t(
+            "dashboard.stream.recordingControls.interfaceError",
+            "The meeting interface could not be prepared. Reload before starting a recording.",
+          )}
+        </div>
+      {/if}
     </div>
   {/if}
   {#if meeting && (connectionStatus === "disconnected" || connectionStatus === "failed") && !isOffline}
