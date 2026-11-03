@@ -177,20 +177,25 @@ export default function CreatorLive() {
           (cancelled || viewerRef.current.id !== originalViewer.id)
         )
           return;
-        if (paidViewer && owner) {
-          const key = `f2z:ppv-join:${owner.toLowerCase()}:${originalViewer.id}`;
-          paidJoinKeys.delete(key);
-          try {
-            sessionStorage.removeItem(key);
-          } catch {
-            // The accepted join remains represented by the in-memory ref.
-          }
-        }
         // console.log("INIT MEETING", res)
         initMeeting({
           authToken: res.data.auth_token,
         })
           .then((client) => {
+            // The backend admission can succeed while the SDK join fails. Keep
+            // its idempotency key until the client has actually joined so a
+            // reload or retry cannot create a second paid admission.
+            if (paidViewer && owner) {
+              const key = `f2z:ppv-join:${owner.toLowerCase()}:${
+                originalViewer.id
+              }`;
+              paidJoinKeys.delete(key);
+              try {
+                sessionStorage.removeItem(key);
+              } catch {
+                // The in-memory ref still protects this page's retries.
+              }
+            }
             setSnackbarState({
               message: "Thanks for joining",
               severity: "info",
