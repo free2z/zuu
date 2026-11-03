@@ -156,6 +156,43 @@ def test_stale_first_zero_cannot_replace_newer_positive_observation(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("outcome", ["positive", "error"])
+def test_late_probe_cannot_overwrite_newer_cross_worker_evidence(
+    mocker, creator_factory, outcome,
+):
+    creator = creator_factory()
+    old_seen = timezone.now() - timedelta(seconds=30)
+    old_zero = timezone.now() - timedelta(seconds=10)
+    cm = _make_meeting(
+        creator, f"late-probe-{outcome}",
+        last_seen_at=old_seen, zero_probe_since=old_zero,
+    )
+    newer_seen = timezone.now()
+    newer_zero = timezone.now() - timedelta(seconds=2)
+
+    def newer_worker_finished(_client, _meeting_id):
+        CreatorMeeting.objects.filter(pk=cm.pk).update(
+            last_seen_at=newer_seen, zero_probe_since=newer_zero,
+        )
+        if outcome == "error":
+            raise Exception("late provider failure")
+        return 2
+
+    mocker.patch(
+        "dj.apps.dyte.client.DyteClient.get_participants_count",
+        autospec=True,
+        side_effect=newer_worker_finished,
+    )
+
+    sweep_live_meetings(0)
+
+    cm.refresh_from_db()
+    assert cm.live_now is True
+    assert cm.last_seen_at == newer_seen
+    assert cm.zero_probe_since == newer_zero
+
+
+@pytest.mark.django_db
 def test_api_error_leaves_live_now_unchanged(mocker, creator_factory):
     creator = creator_factory()
     # Seen recently: not stale, so the safety valve must not fire.
@@ -220,9 +257,14 @@ def test_error_does_not_abort_remaining_rooms(mocker, creator_factory):
     # Recently seen, so the error room is left alone rather than stale-cleared.
     bad = _make_meeting(
         creator, "iso-bad", meeting_type="broadcast",
-        last_seen_at=timezone.now() - timedelta(seconds=5),
+        last_seen_at=timezone.now() - timedelta(seconds=20),
     )
-    good = _make_meeting(creator, "iso-good", meeting_type="ppv")
+    good = _make_meeting(
+        creator, "iso-good", meeting_type="ppv",
+        last_seen_at=timezone.now() - timedelta(seconds=5),
+        zero_probe_since=timezone.now() - timedelta(
+            seconds=settings.DYTE_LIVE_SWEEP_GRACE_SECONDS + 1),
+    )
 
     def by_meeting(self, meeting_id):
         if meeting_id == bad.meeting_id:
@@ -326,7 +368,11 @@ def test_client_raises_on_real_failures(mocker, status_code):
 def test_sweep_clears_live_now_on_provider_404(mocker, creator_factory):
     """End-to-end regression for the prod bug, through the real client."""
     creator = creator_factory()
-    cm = _make_meeting(creator, "e2e-404")
+    cm = _make_meeting(
+        creator, "e2e-404",
+        zero_probe_since=timezone.now() - timedelta(
+            seconds=settings.DYTE_LIVE_SWEEP_GRACE_SECONDS + 1),
+    )
     mocker.patch(
         "dj.apps.dyte.client._SESSION.get",
         return_value=_FakeResponse(404, {

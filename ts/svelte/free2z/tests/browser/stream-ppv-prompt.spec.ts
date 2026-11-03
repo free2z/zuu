@@ -134,7 +134,7 @@ async function stubLivePpv(page: Page) {
 
 /** Every join POST, refused as the server refuses an under-reserve viewer. */
 async function refuseJoins(page: Page, balance: string) {
-  const joins: unknown[] = [];
+  const joins: Array<Record<string, unknown>> = [];
   await page.route(`**/api/dyte/${OWNER}/ppv`, (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     joins.push(route.request().postDataJSON() ?? {});
@@ -195,7 +195,9 @@ test("under the reserve the prompt explains it and offers nothing to buy", async
   await dialog.getByTestId("ppv-retry-join").click();
   await expect.poll(() => joins.length).toBe(2);
   expect(joins[1]).toMatchObject({ role: "viewer", expected_actor_id: 4498 });
-  expect(joins[1].admission_idempotency_key).toBe(joins[0].admission_idempotency_key);
+  expect(joins[1].admission_idempotency_key).toBe(
+    joins[0].admission_idempotency_key,
+  );
   expect(money).toEqual([]);
 });
 
@@ -220,7 +222,9 @@ test("at the reserve Start Watching joins again and pays nothing", async ({
 
   await expect.poll(() => joins.length).toBe(2);
   expect(joins[1]).toMatchObject({ role: "viewer", expected_actor_id: 4498 });
-  expect(joins[1].admission_idempotency_key).toBe(joins[0].admission_idempotency_key);
+  expect(joins[1].admission_idempotency_key).toBe(
+    joins[0].admission_idempotency_key,
+  );
   expect(money).toEqual([]);
 });
 
@@ -292,7 +296,7 @@ test("a server-side actor switch refusal is visible without automatic paid-join 
 }) => {
   await signInWithBalance(page, "100.000");
   await stubLivePpv(page);
-  const joins: unknown[] = [];
+  const joins: Array<Record<string, unknown>> = [];
   await page.route(`**/api/dyte/${OWNER}/ppv`, (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     joins.push(route.request().postDataJSON());

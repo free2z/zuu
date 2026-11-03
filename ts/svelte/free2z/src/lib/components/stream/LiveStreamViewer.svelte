@@ -4,6 +4,7 @@
   import { fade } from "svelte/transition";
   import {
     StreamService,
+    clearPpvJoinKey,
     PaymentRequiredError,
     liveStatusQueryKey,
     type StreamInfo,
@@ -381,6 +382,17 @@
         return;
       }
       cleanup = result.cleanup;
+      if (streamType === "ppv" && originalViewerActorId) {
+        // RealtimeKit initialization can finish before the room has joined.
+        // Keep the admission key through that ambiguous interval.
+        const clearAfterJoin = () =>
+          clearPpvJoinKey(username, originalViewerActorId!);
+        if ($liveStreamStore.connectionStatus === "connected") {
+          clearAfterJoin();
+        } else if (result.meeting) {
+          result.meeting.self.on("roomJoined", clearAfterJoin);
+        }
+      }
       dismissActionToasts();
       warningSource = result.warning ?? null;
       warningCode = result.warningCode ?? null;

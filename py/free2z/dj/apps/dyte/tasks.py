@@ -468,6 +468,16 @@ def sweep_live_meetings(timestamp: int):
             break
         last_reached = cm.pk
         checked += 1
+        # The row was read before the provider request. Only apply this
+        # response if neither last-seen nor zero-probe evidence changed while
+        # the request was in flight; another worker may have completed a
+        # newer probe first.
+        observed = CreatorMeeting.objects.filter(
+            pk=cm.pk,
+            live_now=True,
+            last_seen_at=cm.last_seen_at,
+            zero_probe_since=cm.zero_probe_since,
+        )
         try:
             count = dc.get_participants_count(cm.meeting_id)
         except Exception as exc:
@@ -477,21 +487,19 @@ def sweep_live_meetings(timestamp: int):
             # A failed probe breaks a consecutive-zero run. Keep the existing
             # stale-presence safety valve below, but require fresh zero
             # evidence before clearing a recently seen room.
-            CreatorMeeting.objects.filter(pk=cm.pk, live_now=True).update(
-                zero_probe_since=None)
             # Safety valve: an unreachable provider must not pin a room
             # "live" indefinitely. Presence that has gone stale is cleared
             # even without a confirmed zero.
             if _is_stale(cm):
-                CreatorMeeting.objects.filter(pk=cm.pk, live_now=True).update(
+                stale_cleared += observed.update(
                     live_now=False, zero_probe_since=None)
-                stale_cleared += 1
+            else:
+                observed.update(zero_probe_since=None)
             continue
 
         if count > 0:
-            CreatorMeeting.objects.filter(pk=cm.pk, live_now=True).update(
+            refreshed += observed.update(
                 last_seen_at=now, zero_probe_since=None)
-            refreshed += 1
             continue
 
         # A single provider zero can be transient even for an established

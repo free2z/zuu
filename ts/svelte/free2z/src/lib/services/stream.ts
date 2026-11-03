@@ -57,14 +57,15 @@ function ppvJoinKey(owner: string, actorId: number): string {
   const key = crypto.randomUUID();
   ppvJoinKeys.set(scope, key);
   try {
-    if (typeof sessionStorage !== "undefined") sessionStorage.setItem(scope, key);
+    if (typeof sessionStorage !== "undefined")
+      sessionStorage.setItem(scope, key);
   } catch {
     // Do not prevent a paid join when browser storage is unavailable.
   }
   return key;
 }
 
-function clearPpvJoinKey(owner: string, actorId: number): void {
+export function clearPpvJoinKey(owner: string, actorId: number): void {
   const scope = ppvJoinKeyStorageKey(owner, actorId);
   ppvJoinKeys.delete(scope);
   try {
@@ -332,7 +333,9 @@ export class StreamService {
         ...(pricePerMinute ? { price_per_minute: String(pricePerMinute) } : {}),
         ...(originalViewerId ? { expected_actor_id: originalViewerId } : {}),
         ...(originalViewerId
-          ? { admission_idempotency_key: ppvJoinKey(username, originalViewerId) }
+          ? {
+              admission_idempotency_key: ppvJoinKey(username, originalViewerId),
+            }
           : {}),
       };
       const body: MeetingJoinRequestSchema = instruction;
@@ -351,7 +354,6 @@ export class StreamService {
       signal?.throwIfAborted();
 
       const parsed = streamInitResponseSchema.parse(response);
-      if (originalViewerId) clearPpvJoinKey(username, originalViewerId);
       return parsed;
     } catch (error) {
       if (signal?.aborted) throw error;

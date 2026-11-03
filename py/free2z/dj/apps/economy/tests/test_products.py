@@ -31,6 +31,17 @@ def price():
         sources={'coinbase': '100', 'kraken': '100'})
 
 
+def fund_viewer(viewer, amount_m2z, ref_id):
+    """Create valid viewer funds through the ledger, not Creator.tuzis."""
+    from dj.apps.ledger import api as usage
+
+    usage.credit_user(
+        viewer.pk, amount_m2z, 'sys:promo', 'grant',
+        'livestream-test-funding', ref_id, f'livestream-test-funding:{ref_id}',
+    )
+    viewer.refresh_from_db()
+
+
 def supplier_contract(creator, schedules=None):
     payee = money.register_legal_payee(creator_id=creator.pk, legal_name='Actual Supplier LLC', jurisdiction='US-NY',
         verification={'identity_reference': 'actual:id', 'authority_reference': 'actual:authority'}, operator='staff:actual')
@@ -233,10 +244,14 @@ def test_card_intent_split_requires_original_ledger_evidence(creator_factory, de
 
 
 def test_installed_ppv_still_refuses_unknown_offer_before_delivery(creator_factory, enabled):
+    import uuid
+
     host, viewer = creator_factory(tuzis=0), creator_factory(tuzis=0)
     with pytest.raises(money.EconomicRefusal, match='livestream_offer_unavailable'):
         products.prepare_livestream_admission(host_id=host.pk, viewer_id=viewer.pk,
-            meeting_id='actual-provider-room', price_per_minute=Decimal('1.23'),viewer_account_epoch=viewer.kt_account_epoch)
+            meeting_id='actual-provider-room', price_per_minute=Decimal('1.23'),
+            idempotency_key=str(uuid.uuid4()),
+            viewer_account_epoch=viewer.kt_account_epoch)
 
 
 def test_prepared_ppv_captures_real_original_offer_and_refuses_changed_price(creator_factory, enabled, mocker):
@@ -276,7 +291,8 @@ def test_livestream_ppv_retry_after_ambiguous_provider_timeout_stays_unresolved(
     import uuid
     from dj.apps.dyte.models import CreatorMeeting, PAY_PER_VIEW, LIFECYCLE_LIVE
 
-    host, viewer = creator_factory(tuzis=0), creator_factory(tuzis=500)
+    host, viewer = creator_factory(tuzis=0), creator_factory(tuzis=0)
+    fund_viewer(viewer, 500_000, 'ambiguous-ppv-viewer')
     supplier_contract(host)
     publish('livestream_ppv')
     meeting = CreatorMeeting.objects.create(
@@ -335,7 +351,8 @@ def test_livestream_ppv_replay_rejects_changed_admission_identity(
     import uuid
     from dj.apps.dyte.models import CreatorMeeting, PAY_PER_VIEW, LIFECYCLE_LIVE
 
-    host, viewer = creator_factory(tuzis=0), creator_factory(tuzis=500)
+    host, viewer = creator_factory(tuzis=0), creator_factory(tuzis=0)
+    fund_viewer(viewer, 500_000, f'ppv-identity-viewer-{field}')
     supplier_contract(host)
     publish('livestream_ppv')
     meeting = CreatorMeeting.objects.create(
@@ -352,13 +369,20 @@ def test_livestream_ppv_replay_rejects_changed_admission_identity(
         price_per_minute=meeting.price_per_minute, idempotency_key=key,
         viewer_account_epoch=viewer.kt_account_epoch,
     )
-    changed_source = dict(admission.source)
-    changed_source[field] = replacement
-    ServiceAdmission.objects.filter(pk=admission.pk).update(source=changed_source)
+    changed_meeting_id = meeting.meeting_id
+    changed_price = meeting.price_per_minute
+    if field == 'price_per_minute_2z':
+        changed_price = Decimal(replacement)
+        CreatorMeeting.objects.filter(pk=meeting.pk).update(
+            price_per_minute=changed_price)
+    else:
+        changed_meeting_id = replacement
+        CreatorMeeting.objects.filter(pk=meeting.pk).update(
+            meeting_id=changed_meeting_id)
 
     with pytest.raises(money.EconomicRefusal, match='livestream_admission_identity_conflict'):
         products.prepare_livestream_admission(
-            host_id=host.pk, viewer_id=viewer.pk, meeting_id=meeting.meeting_id,
-            price_per_minute=meeting.price_per_minute, idempotency_key=key,
+            host_id=host.pk, viewer_id=viewer.pk, meeting_id=changed_meeting_id,
+            price_per_minute=changed_price, idempotency_key=key,
             viewer_account_epoch=viewer.kt_account_epoch,
         )
