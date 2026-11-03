@@ -13,22 +13,27 @@
     meeting,
     serverRecording = false,
   }: { meeting: unknown; serverRecording?: boolean } = $props();
-  let notice = $state<RecordingNotice | null>(null);
-  let stageRevision = $state(0);
+  let latest = $state<{
+    notice: RecordingNotice | null;
+    stage: string;
+  }>({ notice: null, stage: "" });
 
   $effect(() => {
-    notice = null;
     const current = meeting as RecordingNoticeMeeting | null;
-    if (!current?.recording?.addListener) return;
+    if (!current?.recording?.addListener) {
+      latest = { notice: null, stage: "" };
+      return;
+    }
     return watchMeetingRecordingNotice(current, (next) => {
-      notice = next;
-      stageRevision += 1;
+      latest = {
+        notice: next,
+        stage: meetingStageStatus(current) ?? "",
+      };
     });
   });
 
   const shown = $derived.by(() => {
-    void stageRevision;
-    if (notice) return notice;
+    if (latest.notice) return latest.notice;
     if (!serverRecording) return null;
     const current = meeting as RecordingNoticeMeeting | null;
     if (!current) {
@@ -37,7 +42,7 @@
     return recordingNoticeFor({
       recordingState: "RECORDING",
       viewType: meetingViewType(current),
-      stageStatus: meetingStageStatus(current),
+      stageStatus: latest.stage || meetingStageStatus(current),
     });
   });
 </script>
