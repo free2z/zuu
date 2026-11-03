@@ -133,7 +133,7 @@
     "@types/uuid": "^10.0.0",
     "prettier": "2.8.8",
     "react-app-rewired": "^2.2.1",
-    "acorn": "^8.15.0"
+    "acorn": "^8.19.0"
   },
   "overrides": {
     "minimatch": "11.0.1",
