@@ -357,7 +357,7 @@ test("a stale roomJoined callback cannot clear the key for a later join", async 
   expect(sessionStorage.getItem(storageKey)).toBe(laterKey);
 });
 
-test("roomJoined remains safe when session storage refuses key removal", async () => {
+test("failed key cleanup blocks an intentional same-session paid rejoin", async () => {
   mocked.get.mockImplementation((url: any) =>
     Promise.resolve({
       data:
@@ -391,17 +391,24 @@ test("roomJoined remains safe when session storage refuses key removal", async (
     expect(sessionStorage.getItem(storageKey)).toBe(firstKey);
     expect(roomJoinedListeners.size).toBe(0);
 
-    // Since persistence could not be cleared, a later effect safely reuses
-    // the durable identity instead of minting an unpersisted replacement.
+    // The completed admission key cannot identify a new intentional join.
     mockViewer = { id: 101, username: "viewer-b", can_stream: true };
     view.rerender(<CreatorLive />);
     await waitFor(() => expect(mocked.get).toHaveBeenCalledTimes(4));
     mockViewer = { id: 100, username: "viewer-a", can_stream: true };
     view.rerender(<CreatorLive />);
-    await waitFor(() => expect(mocked.post).toHaveBeenCalledTimes(2));
-    expect(
-      (mocked.post.mock.calls[1][1] as any).admission_idempotency_key,
-    ).toBe(firstKey);
+    await waitFor(() =>
+      expect(mockSetState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message:
+            "Paid stream joined, but retry storage could not be cleared. Clear this stream's session storage before rejoining.",
+          severity: "error",
+          duration: null,
+        }),
+      ),
+    );
+    expect(mocked.post).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem(storageKey)).toBe(firstKey);
   } finally {
     removeItem.mockRestore();
   }

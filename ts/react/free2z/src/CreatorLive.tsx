@@ -62,6 +62,7 @@ export default function CreatorLive() {
     type: string | undefined;
     admissionKey?: string;
     sessionId?: string;
+    admissionCleanupFailedSessionId?: string;
   }>();
   const [showPay, setShowPay] = useState(false);
   const [star, setStar] = useState({} as PublicCreator);
@@ -149,6 +150,7 @@ export default function CreatorLive() {
       username: string;
       admissionKey?: string;
       sessionId?: string;
+      admissionCleanupFailedSessionId?: string;
     } = paidIntentRef.current || {
       id: creator.id,
       username: creator.username,
@@ -198,7 +200,12 @@ export default function CreatorLive() {
         if (originalViewer.sessionId !== sessionId) {
           originalViewer.sessionId = sessionId;
           originalViewer.admissionKey = undefined;
+          originalViewer.admissionCleanupFailedSessionId = undefined;
         }
+        if (originalViewer.admissionCleanupFailedSessionId === sessionId)
+          throw new Error(
+            "Paid stream joined, but retry storage could not be cleared. Clear this stream's session storage before rejoining.",
+          );
         originalViewer.admissionKey ??= paidJoinKey(
           owner,
           originalViewer.id,
@@ -257,7 +264,10 @@ export default function CreatorLive() {
                   sessionStorage.removeItem(key);
                   originalViewer.admissionKey = undefined;
                 } catch {
-                  // The in-memory ref still protects this page's retries.
+                  // This key has already completed an admission. Keep it out
+                  // of future joins even though storage could not be cleared.
+                  originalViewer.admissionCleanupFailedSessionId =
+                    originalViewer.sessionId;
                 }
               };
               self.on("roomJoined", onRoomJoined);
@@ -291,6 +301,20 @@ export default function CreatorLive() {
           setSnackbarState({
             message: "Sign in again before joining this paid stream.",
             severity: "warning",
+            duration: null,
+            open: true,
+          });
+          return;
+        }
+        if (
+          paidViewer &&
+          reason instanceof Error &&
+          reason.message ===
+            "Paid stream joined, but retry storage could not be cleared. Clear this stream's session storage before rejoining."
+        ) {
+          setSnackbarState({
+            message: reason.message,
+            severity: "error",
             duration: null,
             open: true,
           });
