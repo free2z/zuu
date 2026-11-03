@@ -32,7 +32,12 @@ export type SlashCommand = {
   name: string;
   icon: Component;
   insert?: string;
-  action?: "open-image-picker" | "open-video-picker";
+  action?:
+    | "open-image-picker"
+    | "open-video-picker"
+    | "open-audio-picker"
+    | "open-document-picker"
+    | "open-embed-link";
   description: string;
   shortcut?: PlatformShortcut;
   keywords?: string[];
@@ -280,28 +285,35 @@ export function createSlashCommands(t: TranslationFunction): SlashCommand[] {
       description: t("editor.slashCommands.image", "Insert image"),
       keywords: ["media", "photo", "upload", "cloud", "free2z"],
     },
+    ...(["video", "audio", "document"] as const).map((kind) => ({
+      id: kind,
+      name: t(
+        `editor.commandNames.${kind}`,
+        kind === "document" ? "Document" : kind === "audio" ? "Audio" : "Video",
+      ),
+      icon: kind === "audio" ? AudioLines : Video,
+      action: `open-${kind}-picker` as
+        "open-video-picker" | "open-audio-picker" | "open-document-picker",
+      description: t(
+        `editor.insert.${kind}`,
+        kind === "document"
+          ? "Upload or choose a PDF"
+          : `Upload or choose ${kind}`,
+      ),
+      keywords: [
+        kind,
+        "upload",
+        "cloud",
+        ...(kind === "document" ? ["pdf"] : []),
+      ],
+    })),
     {
       id: "embed",
-      name: t("editor.commandNames.embed", "Embed"),
+      name: t("editor.commandNames.embedLink", "Embed link"),
       icon: Link2,
-      insert: "::embed[https://example.com]",
-      description: t("editor.slashCommands.embed", "Insert external embed"),
-      keywords: ["video", "youtube", "iframe", "oembed"],
-      selectionStartOffset: 8,
-      selectionEndOffset: 27,
-    },
-    {
-      id: "audioEmbed",
-      name: t("editor.commandNames.audioEmbed", "Audio embed"),
-      icon: AudioLines,
-      insert: "::embed[/uploadz/path/to/audio.mp3]",
-      description: t(
-        "editor.slashCommands.audioEmbed",
-        "Insert an uploaded audio player",
-      ),
-      keywords: ["audio", "music", "mp3", "wav", "upload"],
-      selectionStartOffset: 8,
-      selectionEndOffset: 34,
+      action: "open-embed-link",
+      description: t("editor.insertEmbedLink", "Embed an HTTP(S) URL"),
+      keywords: ["url", "external", "embed"],
     },
     {
       id: "iframe",
@@ -369,6 +381,14 @@ export function createConverseSlashCommands(
     createSlashCommands(t),
     CONVERSE_SLASH_COMMAND_IDS,
   );
+  // Converse retains its existing raw external-embed command.
+  const embed = commands.find((command) => command.id === "embed");
+  if (embed) {
+    embed.action = undefined;
+    embed.insert = "::embed[https://example.com]";
+    embed.selectionStartOffset = 8;
+    embed.selectionEndOffset = 27;
+  }
   commands.splice(1, 0, {
     id: "video",
     name: t("editor.videoPicker.addImage", "Add Video"),
