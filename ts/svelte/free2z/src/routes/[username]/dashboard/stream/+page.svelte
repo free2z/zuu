@@ -989,6 +989,15 @@
         await initialized.cleanup();
         return;
       }
+      // initRtkMeeting can observe roomLeft:failed before this dashboard
+      // listener is attached. Calling onRoomLeft below would try to re-enter
+      // reconnectHost while its guard is still held, silently losing the
+      // failure. Treat the retry as failed so its seat is released and the
+      // explicit reconnect action is shown.
+      if (get(liveStreamStore).connectionStatus === "failed") {
+        await initialized.cleanup();
+        throw new Error("host room failed during reconnect initialization");
+      }
       let onRoomLeft: ((event: { state: string }) => void) | null = null;
       const onRoomJoined = () => {
         if (ownedMeeting === initialized.meeting) reconnecting = false;
@@ -1047,10 +1056,6 @@
       nextMeeting.self.on("roomLeft", onRoomLeft);
       nextMeeting.self.on("roomJoined", onRoomJoined);
       liveStreamStore.setError(null, null);
-      // As above, preserve a failure observed by initRtkMeeting before this
-      // retry's host handler was attached.
-      if (get(liveStreamStore).connectionStatus === "failed")
-        void onRoomLeft({ state: "failed" });
     } catch (err) {
       if (!isCurrentOwner(owner) || seatOwner?.session !== session || isLeaving)
         return;
