@@ -948,6 +948,10 @@ def _acknowledge_unresolved_meeting(
 @transaction.atomic
 def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
     """Apply one validated delivery atomically with its unique claim."""
+    if event_data.event in ('meeting.started', 'meeting.ended'):
+        # The caller resolved this row before our transaction. Serialize both
+        # lifecycle events and compare against the current, locked session.
+        cm = CreatorMeeting.objects.select_for_update().get(pk=cm.pk)
     if event_data.event == 'meeting.participantLeft' and cm.meeting_type in (BROADCAST, PAY_PER_VIEW):
         version=pin_supported_policy()
         if version==1 and cm.meeting_type==PAY_PER_VIEW and event_data.participant.customParticipantId==f'ph_{cm.creator.public_id.hex}':
@@ -1016,8 +1020,9 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
         # restarted in the same room. Only the end for the session currently
         # recorded by meeting.started may take that room offline.
         if (
-            cm.provider_session_id is not None
-            and cm.provider_session_id != event_data.meeting.sessionId
+            (cm.provider_session_id is not None
+             and cm.provider_session_id != event_data.meeting.sessionId)
+            or (cm.provider_session_id is None and _seat_is_fresh(cm, timezone.now()))
         ):
             logger.info(
                 "ignoring stale meeting ended meeting_id=%s session_id=%s current_session_id=%s",

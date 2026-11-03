@@ -260,6 +260,25 @@ def test_late_meeting_ended_from_previous_session_keeps_room_live(
     assert broadcast.provider_session_id == session_b
 
 
+def test_end_with_unknown_recorded_session_preserves_fresh_seat(
+    api_client, keypair, broadcast,
+):
+    private_key, _ = keypair
+    CreatorMeeting.objects.filter(pk=broadcast.pk).update(
+        live_now=True, provider_session_id=None, host_session_id=uuid.uuid4(),
+        host_session_seen_at=timezone.now(),
+    )
+    api_client.force_authenticate(user=None)
+    response = _post(
+        api_client, private_key,
+        _lifecycle('meeting.ended', broadcast.meeting_id, 'Big_dre',
+                   session_id=uuid.uuid4()),
+    )
+    assert response.status_code == 200
+    broadcast.refresh_from_db()
+    assert broadcast.live_now is True
+
+
 # --------------------------------------------------------------------------
 # an unresolvable meeting: 2xx, and exactly what it was
 # --------------------------------------------------------------------------
