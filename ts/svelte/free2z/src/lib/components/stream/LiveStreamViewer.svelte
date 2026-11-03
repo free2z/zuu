@@ -85,6 +85,7 @@
   let destroyed = false;
   let joinController: AbortController | null = null;
   let stopFirstFrameObservation: (() => void) | undefined;
+  let firstFrameRecorded = false;
 
   let showSubscribe = false;
   const actionToastIds = new Set<string | number>();
@@ -418,18 +419,20 @@
       markStreamPerformance("rtk-ui-preload-end");
 
       stopFirstFrameObservation?.();
-      stopFirstFrameObservation = observeFirstRtkVideoFrame(document, () => {
-        markStreamPerformance("first-frame");
-        try {
-          performance.measure(
-            "stream:first-frame",
-            "stream:viewer-start",
-            "stream:first-frame",
-          );
-        } catch {
-          // Performance entries can be cleared by developer tooling.
-        }
-      });
+      if (!firstFrameRecorded)
+        stopFirstFrameObservation = observeFirstRtkVideoFrame(document, () => {
+          firstFrameRecorded = true;
+          markStreamPerformance("first-frame");
+          try {
+            performance.measure(
+              "stream:first-frame",
+              "stream:viewer-start",
+              "stream:first-frame",
+            );
+          } catch {
+            // Performance entries can be cleared by developer tooling.
+          }
+        });
 
       // 2. Initialize Meeting
       markStreamPerformance("meeting-init-start");
