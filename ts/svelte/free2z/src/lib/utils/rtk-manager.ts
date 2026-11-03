@@ -198,7 +198,9 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
       cleanup: async () => {
         unbindEvents();
         for (const [event, listener] of selfListeners.splice(0)) {
-          meeting?.self.off(event as any, listener as any);
+          if (typeof meeting?.self?.off === "function") {
+            meeting.self.off(event as any, listener as any);
+          }
         }
         // Revoke local meeting capabilities before waiting on a remote leave.
         // Cleanup from an old route cannot clear a newer meeting's state.
@@ -226,7 +228,9 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
   } catch (error: unknown) {
     unbindEvents();
     for (const [event, listener] of selfListeners.splice(0)) {
-      meeting?.self.off(event as any, listener as any);
+      if (typeof meeting?.self?.off === "function") {
+        meeting.self.off(event as any, listener as any);
+      }
     }
     if (signal?.aborted) throw error;
     console.error("Failed to initialize RealtimeKit meeting:", error);

@@ -1158,6 +1158,7 @@
     if (!owner || !sharePath || !browser) return;
     const operationNotice = captureAccountToast();
     const isCurrentCopy = () =>
+      !isLeaving &&
       isCurrentOwner(owner) &&
       operationNotice.isCurrent() &&
       streamSharePath === sharePath;

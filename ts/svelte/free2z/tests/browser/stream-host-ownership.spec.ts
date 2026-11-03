@@ -1144,6 +1144,7 @@ test("a failed viewer copy completion after client navigation cannot leave a sta
 }) => {
   await openLiveHost(page);
   await holdViewerCopy(page, true);
+  page.once("dialog", (dialog) => dialog.accept());
   await page.evaluate(async () => {
     const path =
       "/node_modules/@sveltejs/kit/src/runtime/app/navigation/client.js";
