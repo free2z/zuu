@@ -815,6 +815,9 @@ def test_worker_reclaims_abandoned_start_claim_and_retries_minted_host(
             'meeting_id': 'abandoned-room', 'participant_id': custom_id,
             'attempts': 0, 'state': 'start_pending',
             'claim_id': str(claim), 'retry_after': 0,
+        }, {
+            'meeting_id': 'abandoned-room', 'participant_id': 'manual-host',
+            'attempts': 40, 'state': 'manual_review',
         }],
     )
     provider.retire_participant.return_value = False
@@ -828,7 +831,10 @@ def test_worker_reclaims_abandoned_start_claim_and_retries_minted_host(
     provider.retire_participant.assert_called_once_with(
         'abandoned-room', custom_id,
     )
-    assert cm.host_evictions[0]['attempts'] == 1
+    assert any(entry['participant_id'] == custom_id and entry['attempts'] == 1
+               for entry in cm.host_evictions)
+    assert any(entry['participant_id'] == 'manual-host' and entry['state'] == 'manual_review'
+               for entry in cm.host_evictions)
 
 
 def test_live_claim_worker_persists_expiry_recheck_after_request_dies(

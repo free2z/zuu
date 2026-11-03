@@ -134,7 +134,8 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
                 'host_session_id', 'host_session_seen_at',
             ])
             cm = current
-            snapshot = entries
+            snapshot = [entry for entry in entries
+                        if entry.get('state') != 'manual_review']
     snapshot = [entry for entry in snapshot if entry not in active and entry not in waiting]
     if not snapshot:
         return
