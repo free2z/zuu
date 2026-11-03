@@ -1556,20 +1556,57 @@ HOST_EVICTION_MAX_ATTEMPTS = 40
 
 def _defer_host_evictions(cm):
     """Persist a retry job in the caller's transaction when evictions exist."""
-    if not cm.host_evictions:
+    if not any(entry.get('state') != 'manual_review'
+               for entry in (cm.host_evictions or [])):
         return
     from .tasks import retire_host_evictions
     from procrastinate.exceptions import AlreadyEnqueued
 
     try:
+        retry_after = [entry.get('retry_after') for entry in cm.host_evictions
+                       if entry.get('state') == 'start_pending'
+                       and entry.get('retry_after')]
+        schedule_at = None
+        if retry_after and all(entry.get('state') == 'start_pending'
+                               for entry in cm.host_evictions):
+            schedule_at = timezone.datetime.fromtimestamp(
+                min(retry_after), tz=timezone.get_current_timezone())
         # One pending job per meeting coalesces repeated heartbeats without
         # defeating the worker's retry backoff.
         with transaction.atomic():
             retire_host_evictions.configure(
                 queueing_lock=f"dyte-host-evictions-{cm.pk}",
+                schedule_at=schedule_at,
             ).defer(creator_id=cm.creator_id, meeting_id=cm.pk)
     except AlreadyEnqueued:
         pass
+
+
+def _abandon_host_start(creator, meeting_id, host_session, claim, *, keep_cleanup):
+    """Release a failed provider start without overwriting a newer generation."""
+    with transaction.atomic():
+        _lock_host_seat(creator)
+        cm = CreatorMeeting.objects.filter(pk=meeting_id, creator=creator).first()
+        if cm is None or cm.host_start_claim != claim:
+            return
+        cm.host_start_claim = None
+        if cm.host_session_id == host_session:
+            cm.host_session_id = None
+            cm.host_session_seen_at = None
+        if keep_cleanup:
+            cm.host_evictions = [
+                {**entry, 'state': 'start_pending', 'retry_after':
+                    timezone.now().timestamp() + 300}
+                if entry.get('claim_id') == str(claim) else entry
+                for entry in cm.host_evictions
+            ]
+        else:
+            cm.host_evictions = [entry for entry in cm.host_evictions
+                                 if entry.get('claim_id') != str(claim)]
+        cm.save(update_fields=['host_start_claim', 'host_session_id',
+                               'host_session_seen_at', 'host_evictions'])
+        if keep_cleanup:
+            _defer_host_evictions(cm)
 
 
 def _held_host_seat(creator):
@@ -2178,6 +2215,8 @@ class DyteMeeting(APIView):
         creator = request.user
         if host_session is None:
             host_session = uuid.uuid4()
+        start_claim = uuid.uuid4()
+        participant_id = f'host_{start_claim.hex}'
 
         # Decide under the seat lock, then release it before provider I/O.
         with transaction.atomic():
@@ -2193,9 +2232,28 @@ class DyteMeeting(APIView):
             held_fresh = _seat_is_fresh(held, timezone.now())
             if held_fresh and held.host_session_id != host_session and not takeover:
                 return _seat_conflict_response(held, code='already_live_elsewhere')
+            if held_fresh and held.host_session_id != host_session and takeover:
+                # Invalidate an in-flight provider start on the old holder
+                # before this takeover can wait on provider I/O.
+                held.host_start_claim = None
+                held.save(update_fields=['host_start_claim', 'host_evictions'])
+                _defer_host_evictions(held)
             cm, created = CreatorMeeting.objects.get_or_create(
                 creator=creator, meeting_type=meeting_type, is_public=True,
             )
+            if held is not None and held.pk != cm.pk and takeover:
+                inherited = list(held.host_evictions or [])
+                if held.host_participant_id and held.meeting_id:
+                    inherited.append({'meeting_id': held.meeting_id,
+                        'participant_id': held.host_participant_id, 'attempts': 0})
+                cm.host_evictions = list(cm.host_evictions or []) + inherited
+                held.host_session_id = None
+                held.host_session_seen_at = None
+                held.host_participant_id = ''
+                held.host_start_claim = None
+                held.host_evictions = []
+                held.save(update_fields=['host_session_id', 'host_session_seen_at',
+                    'host_participant_id', 'host_start_claim', 'host_evictions'])
             resumed = held_fresh and held.pk == cm.pk
             if not resumed and (created or not cm.live_now):
                 cm.price_per_minute = request.data.get('price_per_minute', cm.price_per_minute)
@@ -2208,55 +2266,138 @@ class DyteMeeting(APIView):
             )
             row_id, original_meeting_id = cm.pk, cm.meeting_id
             price = cm.price_per_minute
+            if (cm.host_session_id is not None
+                    and cm.host_session_id != host_session
+                    and cm.host_participant_id and cm.meeting_id):
+                cm.host_evictions = list(cm.host_evictions or []) + [{
+                    'meeting_id': cm.meeting_id,
+                    'participant_id': cm.host_participant_id, 'attempts': 0,
+                }]
+                cm.host_participant_id = ''
+            cm.host_start_claim = start_claim
+            cm.host_session_id = host_session
+            cm.host_session_seen_at = timezone.now()
+            cm.host_evictions = list(cm.host_evictions or []) + [{
+                  'meeting_id': original_meeting_id or '',
+                  'participant_id': participant_id, 'attempts': 0,
+                  'state': 'start_pending', 'claim_id': str(start_claim),
+                  'retry_after': timezone.now().timestamp() + 300}]
+            cm.save(update_fields=['host_start_claim', 'host_session_id',
+                                   'host_session_seen_at', 'host_participant_id',
+                                   'host_evictions'])
 
         # Create the provider room outside the transaction, then persist its id
         # with a compare-and-set so a killed request cannot roll it back.
         if rotate:
-            response = dc.create_meeting(creator.username)
+            try:
+                response = dc.create_meeting(creator.username)
+            except Exception:
+                _abandon_host_start(creator, row_id, host_session, start_claim,
+                                    keep_cleanup=False)
+                raise
             payload = response.json()
             if payload.get('error'):
+                _abandon_host_start(creator, row_id, host_session, start_claim,
+                                    keep_cleanup=False)
                 return Response(status=status.HTTP_502_BAD_GATEWAY,
                     data="The live-stream provider did not respond; try again.")
             proposed_id = payload['data']['id']
             with transaction.atomic():
                 _lock_host_seat(creator)
                 cm = CreatorMeeting.objects.get(pk=row_id)
+                if cm.host_start_claim != start_claim:
+                    return _seat_conflict_response(
+                        _held_host_seat(creator), code='host_session_superseded')
                 if cm.meeting_id == original_meeting_id:
                     cm.meeting_id = proposed_id
-                    cm.save(update_fields=['meeting_id'])
+                    cm.host_evictions = [
+                        {**entry, 'meeting_id': proposed_id}
+                        if entry.get('claim_id') == str(start_claim) else entry
+                        for entry in cm.host_evictions
+                    ]
+                    cm.save(update_fields=['meeting_id', 'host_evictions'])
                 meeting_id = cm.meeting_id
         else:
             meeting_id = original_meeting_id
 
         logger.info("Adding Host! %s", creator.username)
-        resp = dc.add_participant(creator, meeting_id, role=HOST_ROLE)
+        try:
+            resp = dc.add_participant(creator, meeting_id, role=HOST_ROLE,
+                                      custom_participant_id=participant_id)
+        except Exception:
+            _abandon_host_start(creator, row_id, host_session, start_claim,
+                                keep_cleanup=True)
+            raise
         payload = resp.json() or {}
         error = payload.get('error') if isinstance(payload, dict) else None
         error_code = error.get('code') if isinstance(error, dict) else None
         if error_code in (404, '404') or getattr(resp, 'status_code', None) == 404:
             # Only a confirmed missing room permits rotation.
-            room_response = dc.create_meeting(creator.username)
+            try:
+                room_response = dc.create_meeting(creator.username)
+            except Exception:
+                _abandon_host_start(creator, row_id, host_session, start_claim,
+                                    keep_cleanup=False)
+                raise
             room_payload = room_response.json()
             if room_payload.get('error'):
+                _abandon_host_start(creator, row_id, host_session, start_claim,
+                                    keep_cleanup=False)
                 return Response(status=status.HTTP_502_BAD_GATEWAY,
                     data="The live-stream provider did not respond; try again.")
             proposed_id = room_payload['data']['id']
             with transaction.atomic():
                 _lock_host_seat(creator)
                 cm = CreatorMeeting.objects.get(pk=row_id)
+                if cm.host_start_claim != start_claim:
+                    return _seat_conflict_response(
+                        _held_host_seat(creator), code='host_session_superseded')
                 if cm.meeting_id == meeting_id:
                     cm.meeting_id = proposed_id
-                    cm.save(update_fields=['meeting_id'])
+                    cm.host_evictions = [
+                        {**entry, 'meeting_id': proposed_id}
+                        if entry.get('claim_id') == str(start_claim) else entry
+                        for entry in cm.host_evictions
+                    ]
+                    cm.save(update_fields=['meeting_id', 'host_evictions'])
                     meeting_id = proposed_id
                 else:
                     meeting_id = cm.meeting_id
-            resp = dc.add_participant(creator, meeting_id, role=HOST_ROLE)
+            try:
+                resp = dc.add_participant(creator, meeting_id, role=HOST_ROLE,
+                                          custom_participant_id=participant_id)
+            except Exception:
+                _abandon_host_start(creator, row_id, host_session, start_claim,
+                                    keep_cleanup=True)
+                raise
             payload = resp.json() or {}
 
         data = (payload.get('data') or {}) if isinstance(payload, dict) else {}
         auth_token = data.get('token')
-        participant_id = str(data.get('id') or '')[:128]
+        provider_participant_id = str(data.get('id') or participant_id)[:128]
+        # Reconcile the provider's canonical participant id into the durable
+        # pre-mint obligation before any response path can return or race a
+        # takeover. The custom id is the crash-recovery key; this update keeps
+        # provider-specific normalization represented as well.
+        with transaction.atomic():
+            _lock_host_seat(creator)
+            cm = CreatorMeeting.objects.get(pk=row_id)
+            updated = False
+            for entry in cm.host_evictions:
+                if entry.get('claim_id') == str(start_claim):
+                    entry['participant_id'] = provider_participant_id
+                    entry['meeting_id'] = meeting_id
+                    if cm.host_start_claim != start_claim:
+                        entry['state'] = 'pending'
+                        entry['claim_id'] = None
+                    updated = True
+            if updated:
+                cm.save(update_fields=['host_evictions'])
+                if cm.host_start_claim != start_claim:
+                    _defer_host_evictions(cm)
         if not auth_token:
+            _abandon_host_start(creator, row_id, host_session, start_claim,
+                                keep_cleanup=True)
             return Response(status=status.HTTP_502_BAD_GATEWAY,
                 data="The live-stream provider did not respond; try again.")
 
@@ -2266,10 +2407,12 @@ class DyteMeeting(APIView):
             now = timezone.now()
             current_held = _held_host_seat(creator)
             current_fresh = _seat_is_fresh(current_held, now)
-            if current_fresh and current_held.host_session_id != host_session and not takeover:
+            cm = CreatorMeeting.objects.filter(pk=row_id).first()
+            if cm is None or cm.host_start_claim != start_claim:
+                lost_race = True
+            elif current_fresh and current_held.host_session_id != host_session and not takeover:
                 lost_race = True
             else:
-                cm = CreatorMeeting.objects.get(pk=row_id)
                 if cm.meeting_id != meeting_id:
                     lost_race = True
                 else:
@@ -2286,44 +2429,52 @@ class DyteMeeting(APIView):
                             'participant_id': current_held.host_participant_id, 'attempts': 0})
                     if (current_held is not None and current_held.host_session_id == host_session
                             and current_held.host_participant_id
-                            and current_held.host_participant_id != participant_id
+                            and current_held.host_participant_id != provider_participant_id
                             and current_held.meeting_id):
                         pending.append({'meeting_id': current_held.meeting_id,
                             'participant_id': current_held.host_participant_id, 'attempts': 0})
                     cm.price_per_minute = price
+                    pending = [entry for entry in pending
+                               if entry.get('claim_id') != str(start_claim)]
                     cm.host_evictions = pending
                     cm.host_session_id = host_session
                     cm.host_session_seen_at = now
-                    cm.host_participant_id = participant_id
+                    cm.host_participant_id = provider_participant_id
+                    cm.host_start_claim = None
                     cm.live_now = True
                     cm.last_seen_at = now
                     cm.save(update_fields=['price_per_minute', 'live_now', 'last_seen_at',
-                        'host_session_id', 'host_session_seen_at', 'host_participant_id', 'host_evictions'])
+                        'host_session_id', 'host_session_seen_at', 'host_participant_id', 'host_evictions', 'host_start_claim'])
                     _defer_host_evictions(cm)
 
         if lost_race:
-            # Compensate for a token minted after this request lost the seat.
+            # Release the claim and hand the precommitted obligation to the
+            # durable worker. Synchronous cleanup is only a fast path.
+            with transaction.atomic():
+                _lock_host_seat(creator)
+                cm = CreatorMeeting.objects.get(pk=row_id)
+                if cm.host_start_claim == start_claim:
+                    cm.host_start_claim = None
+                cm.host_evictions = [
+                    {**entry, 'state': 'pending', 'claim_id': None}
+                    if entry.get('claim_id') == str(start_claim) else entry
+                    for entry in cm.host_evictions
+                ]
+                cm.save(update_fields=['host_start_claim', 'host_evictions'])
+                _defer_host_evictions(cm)
             try:
-                retired = not participant_id or dc.retire_participant(
-                    meeting_id, participant_id)
+                retired = dc.retire_participant(meeting_id, provider_participant_id)
             except Exception:
                 logger.exception("Could not compensate losing host start creator=%s", creator.pk)
                 retired = False
-            if not retired:
+            if retired:
                 with transaction.atomic():
                     _lock_host_seat(creator)
-                    owner = CreatorMeeting.objects.filter(
-                        creator=creator, host_session_id__isnull=False,
-                    ).first()
-                    if owner is None:
-                        owner = CreatorMeeting.objects.get(pk=row_id)
-                    owner.host_evictions = list(owner.host_evictions or []) + [{
-                        'meeting_id': meeting_id,
-                        'participant_id': participant_id,
-                        'attempts': 0,
-                    }]
+                    owner = CreatorMeeting.objects.get(pk=row_id)
+                    owner.host_evictions = [entry for entry in owner.host_evictions
+                        if not (entry.get('participant_id') == provider_participant_id
+                                and entry.get('meeting_id') == meeting_id)]
                     owner.save(update_fields=['host_evictions'])
-                    _defer_host_evictions(owner)
             return _seat_conflict_response(_held_host_seat(creator), code='already_live_elsewhere')
 
         if held_fresh and held.host_session_id != host_session:
@@ -2411,9 +2562,11 @@ class HostSession(APIView):
                     released.host_session_id = None
                     released.host_session_seen_at = None
                     released.host_participant_id = ''
+                    released.host_start_claim = None
                     released.save(update_fields=[
                         'host_evictions', 'host_session_id',
                         'host_session_seen_at', 'host_participant_id',
+                        'host_start_claim',
                     ])
                     _defer_host_evictions(released)
                 return Response(_host_seat_status(creator, now))

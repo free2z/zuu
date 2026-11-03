@@ -537,6 +537,8 @@ def test_a_takeover_kicks_the_previous_host_at_the_provider(
     provider.add_participant.return_value = _FakeResponse(
         {'data': {'token': 'auth-token', 'id': 'participant-b'}})
     _start(api_client, host, session=uuid.uuid4(), takeover=True)
+    pending = CreatorMeeting.objects.get(creator=host).host_evictions
+    assert [entry['participant_id'] for entry in pending] == ['participant-a']
     _run_evictions(host)
 
     provider.retire_participant.assert_called_once_with(room, 'participant-a')
@@ -686,6 +688,58 @@ def test_release_retires_the_host_and_remembers_a_failure(
     _run_evictions(host)
     cm.refresh_from_db()
     assert cm.host_evictions == []
+
+
+def test_release_during_provider_start_invalidates_the_claim_and_keeps_cleanup(
+    api_client, provider, host,
+):
+    tab = uuid.uuid4()
+
+    def release_while_provider_is_minting(*args, **kwargs):
+        released = _seat(api_client, host, tab, 'release')
+        assert released.status_code == 200
+        _run_evictions(host)
+        provider.retire_participant.assert_not_called()
+        participant = kwargs['custom_participant_id']
+        return _FakeResponse({'data': {'token': 'late-token', 'id': participant}})
+
+    provider.add_participant.side_effect = release_while_provider_is_minting
+    provider.retire_participant.return_value = False
+
+    response = _start(api_client, host, session=tab)
+
+    assert response.status_code == 409
+    cm = CreatorMeeting.objects.get(creator=host, meeting_type=BROADCAST)
+    assert cm.host_session_id is None
+    assert cm.host_start_claim is None
+    assert len(cm.host_evictions) == 1
+    assert cm.host_evictions[0]['participant_id'].startswith('host_')
+    assert cm.host_evictions[0]['state'] == 'pending'
+
+
+def test_a_stale_room_rotation_cannot_replace_a_newer_released_generation(
+    api_client, provider, host,
+):
+    original = _start(api_client, host, session=uuid.uuid4()).data['meeting_id']
+    CreatorMeeting.objects.filter(creator=host).update(
+        live_now=False, created_at=timezone.now() - timedelta(days=3),
+        host_session_seen_at=timezone.now() - HOST_SESSION_TTL - timedelta(seconds=1))
+    tab = uuid.uuid4()
+
+    def release_before_rotation_returns(title):
+        released = _seat(api_client, host, tab, 'release')
+        assert released.status_code == 200
+        return _FakeResponse({'data': {'id': 'late-room'}})
+
+    provider.create_meeting.side_effect = release_before_rotation_returns
+
+    response = _start(api_client, host, session=tab)
+
+    assert response.status_code == 409
+    cm = CreatorMeeting.objects.get(creator=host, meeting_type=BROADCAST)
+    assert cm.meeting_id == original
+    assert cm.host_session_id is None
+    provider.add_participant.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

@@ -59,7 +59,63 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
     if cm is None or not cm.host_evictions:
         return
 
-    snapshot = list(cm.host_evictions)
+    snapshot = [entry for entry in cm.host_evictions
+                if entry.get('state') != 'manual_review']
+    if not snapshot:
+        return
+    # A start claim is written before provider I/O. A released claim still
+    # waits out the bounded provider request timeout before retirement, since
+    # a fast 404 followed by a late provider mint would otherwise resurrect
+    # the participant. A currently held claim remains protected indefinitely.
+    claim = cm.host_start_claim
+    now_epoch = timezone.now().timestamp()
+    active = [entry for entry in snapshot if (
+        entry.get('state') == 'start_pending'
+        and entry.get('claim_id') == str(claim)
+    )]
+    waiting = [entry for entry in snapshot if (
+        entry.get('state') == 'start_pending'
+        and entry.get('retry_after', 0) > now_epoch
+        and entry not in active
+    )]
+    if waiting:
+        try:
+            with transaction.atomic():
+                retire_host_evictions.configure(
+                    queueing_lock=f"dyte-host-evictions-{meeting_id}",
+                    schedule_at=timezone.datetime.fromtimestamp(
+                        min(entry['retry_after'] for entry in waiting),
+                        tz=timezone.get_current_timezone()),
+                ).defer(creator_id=creator_id, meeting_id=meeting_id)
+        except AlreadyEnqueued:
+            pass
+    expired = [entry for entry in snapshot if (
+        entry.get('state') == 'start_pending'
+        and entry not in active and entry not in waiting
+    )]
+    if expired:
+        with transaction.atomic():
+            _lock_host_seat(cm.creator)
+            current = CreatorMeeting.objects.select_for_update().filter(
+                pk=meeting_id, creator_id=creator_id,
+            ).first()
+            if current is None:
+                return
+            entries = list(current.host_evictions or [])
+            for expired_entry in expired:
+                for index, entry in enumerate(entries):
+                    if entry == expired_entry:
+                        entries[index] = {
+                            **entry, 'state': 'pending', 'claim_id': None,
+                        }
+                        break
+            current.host_evictions = entries
+            current.save(update_fields=['host_evictions'])
+            cm = current
+            snapshot = entries
+    snapshot = [entry for entry in snapshot if entry not in active and entry not in waiting]
+    if not snapshot:
+        return
     from .client import DyteClient
     dc = DyteClient(settings.DYTE_ORG)
     outcomes = []
@@ -89,20 +145,24 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
             if entry not in current_entries:
                 continue
             current_entries.remove(entry)
-            if retired is False:
+            if retired is not True:
                 attempts = int(entry.get('attempts') or 0) + 1
                 if attempts >= HOST_EVICTION_MAX_ATTEMPTS:
                     logger.error(
-                        "host seat handoff: previous host NOT retired after %s attempts creator=%s meeting=%s participant=%s",
+                        "host seat handoff: previous host NOT retired after %s attempts creator=%s meeting=%s participant=%s; obligation retained for manual cleanup",
                         attempts, creator_id, entry.get('meeting_id'), entry.get('participant_id'),
                     )
-                else:
-                    current_entries.append({
-                        **entry, 'attempts': attempts,
-                    })
+                current_entries.append({
+                    **entry,
+                    'state': ('manual_review' if attempts >= HOST_EVICTION_MAX_ATTEMPTS
+                              else 'pending'),
+                    'claim_id': None,
+                    'attempts': attempts,
+                })
         current.host_evictions = current_entries
         current.save(update_fields=['host_evictions'])
-        if current_entries:
+        if any(entry.get('state') != 'manual_review'
+               for entry in current_entries):
             # Retry outside this transaction, but retain the durable queue
             # handoff if this worker dies after committing the updated state.
             attempts = max(int(entry.get('attempts') or 0)

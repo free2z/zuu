@@ -137,6 +137,9 @@ class CreatorMeeting(models.Model):
     # "one seat per creator" a database fact across every meeting type, not
     # a convention the view happens to follow.
     host_session_id = models.UUIDField(null=True, blank=True, editable=False)
+    # Persisted before provider I/O. Every host start owns one generation;
+    # release/takeover invalidates it so a late response cannot resurrect it.
+    host_start_claim = models.UUIDField(null=True, blank=True, editable=False)
     host_session_seen_at = models.DateTimeField(
         null=True, blank=True, editable=False,
         help_text=(
