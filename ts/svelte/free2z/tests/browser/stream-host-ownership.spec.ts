@@ -557,7 +557,7 @@ test("public host can review and publish a Converse live link without leaving th
   await body.fill(
     `I'm live — come watch! ${new URL(`/${USER}/broadcast`, page.url())}`,
   );
-  await expect(composer).toContainText("cost");
+  await expect(composer).toContainText("2Z");
   await expect(page).toHaveURL(new RegExp(`${USER}/dashboard/stream`));
   expect(await meetingState(page)).toMatchObject(hostBefore);
 
@@ -573,6 +573,23 @@ test("public host can review and publish a Converse live link without leaving th
   await expect.poll(() => posts.length).toBe(1);
   expect(posts[0].content).toContain(`/${USER}/broadcast`);
   expect(await meetingState(page)).toMatchObject(hostBefore);
+
+  const reader = await page.context().newPage();
+  await reader.route(`**/${USER}/broadcast**`, async (route) =>
+    route.fulfill({ status: 200, body: "viewer route reached" }),
+  );
+  await reader.goto(new URL(`/${USER}/broadcast`, page.url()).toString());
+  await expect(reader).toHaveURL(new RegExp(`/${USER}/broadcast`));
+  await reader.close();
+});
+
+test("share action is absent when stream is inactive or configured private", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await expect(page.getByTestId("share-live-to-converse")).toHaveCount(0);
+  await page.locator('label[for="stream-audience-private"]').click();
+  await expect(page.getByTestId("share-live-to-converse")).toHaveCount(0);
 });
 
 async function holdViewerCopy(page: Page, fail = false) {

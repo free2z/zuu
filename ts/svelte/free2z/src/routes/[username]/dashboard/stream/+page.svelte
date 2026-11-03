@@ -1593,7 +1593,7 @@
             <!-- Copy only, deliberately no "open in a new tab": opening
                the public page from the broadcaster's own browser is one more
                way to put a second copy of them into the room. -->
-            {#if connected && seatState === "live" && streamType === "broadcast" && streamSharePath}
+            {#if seatState === "live" && streamType === "broadcast" && streamSharePath}
               <div class="flex shrink-0 items-center gap-2">
                 <Button
                   variant="secondary"
@@ -1672,7 +1672,7 @@
         "Review and edit your announcement before posting. Your livestream will continue while you write.",
       )}</Dialog.Description
     >
-    {#if connected && seatState === "live" && streamType === "broadcast" && streamSharePath}
+    {#if seatState === "live" && streamType === "broadcast" && streamSharePath}
       <ConverseComposer
         initialContent={`I'm live — come watch! ${new URL(streamSharePath, browser ? window.location.origin : "https://free2z.com").toString()}`}
       />
