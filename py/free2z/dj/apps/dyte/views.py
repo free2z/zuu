@@ -57,6 +57,7 @@ from .models import (
     PUBLIC_MEETING_TYPES,
     SUBSCRIBERS_ONLY,
     CreatorMeeting,
+    ProviderRoomCleanup,
     RecordingDeliveryTarget,
     WebhookDelivery,
 )
@@ -1531,6 +1532,14 @@ HOST_SESSION_HEARTBEAT_SECONDS = 15
 # which exempts it from Chrome's intensive background-timer throttling, but a
 # network blip or a slow mobile radio should not hand the seat to nobody.
 HOST_SESSION_TTL = timezone.timedelta(seconds=60)
+# create + add participant, including the one 404 recovery path, is bounded by
+# four provider calls. Honor configured connect/read timeouts plus a margin;
+# the five-minute floor also prevents rapid reuse on the defaults.
+HOST_START_CLAIM_TTL = timezone.timedelta(seconds=max(
+    300,
+    4 * (settings.DYTE_CONNECT_TIMEOUT_SECONDS
+         + settings.DYTE_READ_TIMEOUT_SECONDS) + 30,
+))
 
 
 def _lock_host_seat(creator):
@@ -1590,23 +1599,61 @@ def _abandon_host_start(creator, meeting_id, host_session, claim, *, keep_cleanu
         if cm is None or cm.host_start_claim != claim:
             return
         cm.host_start_claim = None
+        cm.host_start_claim_at = None
         if cm.host_session_id == host_session:
             cm.host_session_id = None
             cm.host_session_seen_at = None
         if keep_cleanup:
             cm.host_evictions = [
                 {**entry, 'state': 'start_pending', 'retry_after':
-                    timezone.now().timestamp() + 300}
+                    (timezone.now() + HOST_START_CLAIM_TTL).timestamp()}
                 if entry.get('claim_id') == str(claim) else entry
                 for entry in cm.host_evictions
             ]
         else:
             cm.host_evictions = [entry for entry in cm.host_evictions
                                  if entry.get('claim_id') != str(claim)]
-        cm.save(update_fields=['host_start_claim', 'host_session_id',
+        cm.save(update_fields=['host_start_claim', 'host_start_claim_at', 'host_session_id',
                                'host_session_seen_at', 'host_evictions'])
         if keep_cleanup:
             _defer_host_evictions(cm)
+
+
+def _host_start_claim_is_current(cm, claim, now=None):
+    now = now or timezone.now()
+    claim_at = getattr(cm, 'host_start_claim_at', None)
+    # A claim written by the immediately preceding release has no dedicated
+    # timestamp; its initial seat heartbeat timestamp is the conservative
+    # compatibility fallback during rollout.
+    claim_at = claim_at or getattr(cm, 'host_session_seen_at', None)
+    return bool(
+        cm is not None and cm.host_start_claim == claim
+        and claim_at is not None and claim_at + HOST_START_CLAIM_TTL > now
+    )
+
+
+def _record_unidentified_room(creator, meeting_id, meeting_type, *, room_id=None,
+                              claim=None,
+                              error='Provider create outcome requires reconciliation'):
+    """Record a provider room that cannot be safely deleted automatically."""
+    if room_id:
+        record, _ = ProviderRoomCleanup.objects.update_or_create(
+            provider_meeting_id=room_id,
+            defaults={
+                'creator': creator, 'creator_meeting_id': meeting_id,
+                'meeting_type': meeting_type, 'provider_title': creator.username,
+                'start_id': claim, 'status': 'manual_review',
+                'last_error': error[:255],
+            },
+        )
+    else:
+        record = ProviderRoomCleanup.objects.create(
+            provider_meeting_id=None, creator=creator,
+            creator_meeting_id=meeting_id, meeting_type=meeting_type,
+            provider_title=creator.username, start_id=claim,
+            status='manual_review', last_error=error[:255],
+        )
+    return record
 
 
 def _held_host_seat(creator):
@@ -2236,7 +2283,8 @@ class DyteMeeting(APIView):
                 # Invalidate an in-flight provider start on the old holder
                 # before this takeover can wait on provider I/O.
                 held.host_start_claim = None
-                held.save(update_fields=['host_start_claim', 'host_evictions'])
+                held.host_start_claim_at = None
+                held.save(update_fields=['host_start_claim', 'host_start_claim_at', 'host_evictions'])
                 _defer_host_evictions(held)
             cm, created = CreatorMeeting.objects.get_or_create(
                 creator=creator, meeting_type=meeting_type, is_public=True,
@@ -2251,9 +2299,10 @@ class DyteMeeting(APIView):
                 held.host_session_seen_at = None
                 held.host_participant_id = ''
                 held.host_start_claim = None
+                held.host_start_claim_at = None
                 held.host_evictions = []
                 held.save(update_fields=['host_session_id', 'host_session_seen_at',
-                    'host_participant_id', 'host_start_claim', 'host_evictions'])
+                    'host_participant_id', 'host_start_claim', 'host_start_claim_at', 'host_evictions'])
             resumed = held_fresh and held.pk == cm.pk
             if not resumed and (created or not cm.live_now):
                 cm.price_per_minute = request.data.get('price_per_minute', cm.price_per_minute)
@@ -2275,28 +2324,42 @@ class DyteMeeting(APIView):
                 }]
                 cm.host_participant_id = ''
             cm.host_start_claim = start_claim
+            cm.host_start_claim_at = timezone.now()
             cm.host_session_id = host_session
             cm.host_session_seen_at = timezone.now()
             cm.host_evictions = list(cm.host_evictions or []) + [{
                   'meeting_id': original_meeting_id or '',
                   'participant_id': participant_id, 'attempts': 0,
                   'state': 'start_pending', 'claim_id': str(start_claim),
-                  'retry_after': timezone.now().timestamp() + 300}]
-            cm.save(update_fields=['host_start_claim', 'host_session_id',
+                  'retry_after': (
+                      timezone.now() + HOST_START_CLAIM_TTL
+                  ).timestamp()}]
+            cm.save(update_fields=['host_start_claim', 'host_start_claim_at', 'host_session_id',
                                    'host_session_seen_at', 'host_participant_id',
                                    'host_evictions'])
+            _defer_host_evictions(cm)
 
         # Create the provider room outside the transaction, then persist its id
         # with a compare-and-set so a killed request cannot roll it back.
         if rotate:
+            room_reconciliation = _record_unidentified_room(
+                creator, row_id, meeting_type, claim=start_claim,
+                error='Room create is in flight; provider IDs are generated by RealtimeKit',
+            )
             try:
                 response = dc.create_meeting(creator.username)
             except Exception:
+                room_reconciliation.last_error = (
+                    'Room create outcome is unknown; inspect RealtimeKit meetings '
+                    'for this creator/title and reconcile manually'
+                )
+                room_reconciliation.save(update_fields=['last_error'])
                 _abandon_host_start(creator, row_id, host_session, start_claim,
                                     keep_cleanup=False)
                 raise
             payload = response.json()
             if payload.get('error'):
+                room_reconciliation.delete()
                 _abandon_host_start(creator, row_id, host_session, start_claim,
                                     keep_cleanup=False)
                 return Response(status=status.HTTP_502_BAD_GATEWAY,
@@ -2305,7 +2368,13 @@ class DyteMeeting(APIView):
             with transaction.atomic():
                 _lock_host_seat(creator)
                 cm = CreatorMeeting.objects.get(pk=row_id)
-                if cm.host_start_claim != start_claim:
+                if not _host_start_claim_is_current(cm, start_claim):
+                    _record_unidentified_room(
+                        creator, row_id, meeting_type, room_id=proposed_id,
+                        claim=start_claim,
+                        error='Provider room was created after this start claim expired; meeting deletion is unsupported',
+                    )
+                    room_reconciliation.delete()
                     return _seat_conflict_response(
                         _held_host_seat(creator), code='host_session_superseded')
                 if cm.meeting_id == original_meeting_id:
@@ -2316,7 +2385,15 @@ class DyteMeeting(APIView):
                         for entry in cm.host_evictions
                     ]
                     cm.save(update_fields=['meeting_id', 'host_evictions'])
-                meeting_id = cm.meeting_id
+                    meeting_id = cm.meeting_id
+                    room_reconciliation.delete()
+                else:
+                    _record_unidentified_room(
+                        creator, row_id, meeting_type, room_id=proposed_id,
+                        claim=start_claim,
+                        error='Created room was not adopted by the current meeting generation; deletion is unsupported',
+                    )
+                    room_reconciliation.delete()
         else:
             meeting_id = original_meeting_id
 
@@ -2333,14 +2410,24 @@ class DyteMeeting(APIView):
         error_code = error.get('code') if isinstance(error, dict) else None
         if error_code in (404, '404') or getattr(resp, 'status_code', None) == 404:
             # Only a confirmed missing room permits rotation.
+            room_reconciliation = _record_unidentified_room(
+                creator, row_id, meeting_type, claim=start_claim,
+                error='Replacement room create is in flight; provider IDs are generated by RealtimeKit',
+            )
             try:
                 room_response = dc.create_meeting(creator.username)
             except Exception:
+                room_reconciliation.last_error = (
+                    'Replacement room create outcome is unknown; inspect '
+                    'RealtimeKit meetings for this creator/title and reconcile manually'
+                )
+                room_reconciliation.save(update_fields=['last_error'])
                 _abandon_host_start(creator, row_id, host_session, start_claim,
                                     keep_cleanup=False)
                 raise
             room_payload = room_response.json()
             if room_payload.get('error'):
+                room_reconciliation.delete()
                 _abandon_host_start(creator, row_id, host_session, start_claim,
                                     keep_cleanup=False)
                 return Response(status=status.HTTP_502_BAD_GATEWAY,
@@ -2349,7 +2436,13 @@ class DyteMeeting(APIView):
             with transaction.atomic():
                 _lock_host_seat(creator)
                 cm = CreatorMeeting.objects.get(pk=row_id)
-                if cm.host_start_claim != start_claim:
+                if not _host_start_claim_is_current(cm, start_claim):
+                    _record_unidentified_room(
+                        creator, row_id, meeting_type, room_id=proposed_id,
+                        claim=start_claim,
+                        error='Replacement room was created after this start claim expired; meeting deletion is unsupported',
+                    )
+                    room_reconciliation.delete()
                     return _seat_conflict_response(
                         _held_host_seat(creator), code='host_session_superseded')
                 if cm.meeting_id == meeting_id:
@@ -2361,7 +2454,14 @@ class DyteMeeting(APIView):
                     ]
                     cm.save(update_fields=['meeting_id', 'host_evictions'])
                     meeting_id = proposed_id
+                    room_reconciliation.delete()
                 else:
+                    _record_unidentified_room(
+                        creator, row_id, meeting_type, room_id=proposed_id,
+                        claim=start_claim,
+                        error='Replacement room was not adopted by the current meeting generation; deletion is unsupported',
+                    )
+                    room_reconciliation.delete()
                     meeting_id = cm.meeting_id
             try:
                 resp = dc.add_participant(creator, meeting_id, role=HOST_ROLE,
@@ -2387,7 +2487,7 @@ class DyteMeeting(APIView):
                 if entry.get('claim_id') == str(start_claim):
                     entry['participant_id'] = provider_participant_id
                     entry['meeting_id'] = meeting_id
-                    if cm.host_start_claim != start_claim:
+                    if not _host_start_claim_is_current(cm, start_claim):
                         entry['state'] = 'pending'
                         entry['claim_id'] = None
                     updated = True
@@ -2408,9 +2508,14 @@ class DyteMeeting(APIView):
             current_held = _held_host_seat(creator)
             current_fresh = _seat_is_fresh(current_held, now)
             cm = CreatorMeeting.objects.filter(pk=row_id).first()
-            if cm is None or cm.host_start_claim != start_claim:
-                lost_race = True
-            elif current_fresh and current_held.host_session_id != host_session and not takeover:
+            if (
+                not _host_start_claim_is_current(cm, start_claim, now)
+                or (
+                    current_fresh
+                    and current_held.host_session_id != host_session
+                    and not takeover
+                )
+            ):
                 lost_race = True
             else:
                 if cm.meeting_id != meeting_id:
@@ -2441,10 +2546,11 @@ class DyteMeeting(APIView):
                     cm.host_session_seen_at = now
                     cm.host_participant_id = provider_participant_id
                     cm.host_start_claim = None
+                    cm.host_start_claim_at = None
                     cm.live_now = True
                     cm.last_seen_at = now
                     cm.save(update_fields=['price_per_minute', 'live_now', 'last_seen_at',
-                        'host_session_id', 'host_session_seen_at', 'host_participant_id', 'host_evictions', 'host_start_claim'])
+                        'host_session_id', 'host_session_seen_at', 'host_participant_id', 'host_evictions', 'host_start_claim', 'host_start_claim_at'])
                     _defer_host_evictions(cm)
 
         if lost_race:
@@ -2455,12 +2561,19 @@ class DyteMeeting(APIView):
                 cm = CreatorMeeting.objects.get(pk=row_id)
                 if cm.host_start_claim == start_claim:
                     cm.host_start_claim = None
+                    cm.host_start_claim_at = None
+                    if cm.host_session_id == host_session:
+                        cm.host_session_id = None
+                        cm.host_session_seen_at = None
                 cm.host_evictions = [
                     {**entry, 'state': 'pending', 'claim_id': None}
                     if entry.get('claim_id') == str(start_claim) else entry
                     for entry in cm.host_evictions
                 ]
-                cm.save(update_fields=['host_start_claim', 'host_evictions'])
+                cm.save(update_fields=[
+                    'host_start_claim', 'host_start_claim_at',
+                    'host_session_id', 'host_session_seen_at', 'host_evictions',
+                ])
                 _defer_host_evictions(cm)
             try:
                 retired = dc.retire_participant(meeting_id, provider_participant_id)
@@ -2563,10 +2676,12 @@ class HostSession(APIView):
                     released.host_session_seen_at = None
                     released.host_participant_id = ''
                     released.host_start_claim = None
+                    released.host_start_claim_at = None
                     released.save(update_fields=[
                         'host_evictions', 'host_session_id',
                         'host_session_seen_at', 'host_participant_id',
                         'host_start_claim',
+                        'host_start_claim_at',
                     ])
                     _defer_host_evictions(released)
                 return Response(_host_seat_status(creator, now))

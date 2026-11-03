@@ -51,7 +51,9 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
     from procrastinate.exceptions import AlreadyEnqueued
 
     from .models import CreatorMeeting
-    from .views import HOST_EVICTION_MAX_ATTEMPTS, _lock_host_seat
+    from .views import (
+        HOST_EVICTION_MAX_ATTEMPTS, HOST_START_CLAIM_TTL, _lock_host_seat,
+    )
 
     cm = CreatorMeeting.objects.filter(
         pk=meeting_id, creator_id=creator_id,
@@ -63,14 +65,19 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
                 if entry.get('state') != 'manual_review']
     if not snapshot:
         return
-    # A start claim is written before provider I/O. A released claim still
-    # waits out the bounded provider request timeout before retirement, since
-    # a fast 404 followed by a late provider mint would otherwise resurrect
-    # the participant. A currently held claim remains protected indefinitely.
+    # A start claim is written before provider I/O. A released claim waits out
+    # the bounded provider request timeout before retirement; an abandoned
+    # claim expires and is reclaimed so a killed worker cannot hold the seat.
     claim = cm.host_start_claim
+    claim_at = cm.host_start_claim_at or cm.host_session_seen_at
     now_epoch = timezone.now().timestamp()
+    claim_live = bool(
+        claim and claim_at is not None
+        and claim_at + HOST_START_CLAIM_TTL > timezone.now()
+    )
     active = [entry for entry in snapshot if (
-        entry.get('state') == 'start_pending'
+        claim_live
+        and entry.get('state') == 'start_pending'
         and entry.get('claim_id') == str(claim)
     )]
     waiting = [entry for entry in snapshot if (
@@ -105,12 +112,28 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
             for expired_entry in expired:
                 for index, entry in enumerate(entries):
                     if entry == expired_entry:
-                        entries[index] = {
-                            **entry, 'state': 'pending', 'claim_id': None,
-                        }
+                        if not entry.get('meeting_id'):
+                            # A room create that died before its provider ID
+                            # was persisted cannot yet have reached participant
+                            # minting. The room intent is separately visible
+                            # for operator reconciliation.
+                            entries.pop(index)
+                        else:
+                            entries[index] = {
+                                **entry, 'state': 'pending', 'claim_id': None,
+                            }
                         break
+            if (current.host_start_claim == claim and claim
+                    and not claim_live):
+                current.host_start_claim = None
+                current.host_start_claim_at = None
+                current.host_session_id = None
+                current.host_session_seen_at = None
             current.host_evictions = entries
-            current.save(update_fields=['host_evictions'])
+            current.save(update_fields=[
+                'host_evictions', 'host_start_claim', 'host_start_claim_at',
+                'host_session_id', 'host_session_seen_at',
+            ])
             cm = current
             snapshot = entries
     snapshot = [entry for entry in snapshot if entry not in active and entry not in waiting]

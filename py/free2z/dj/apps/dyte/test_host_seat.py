@@ -25,8 +25,9 @@ from dj.apps.dyte.models import (
     PAY_PER_VIEW,
     SUBSCRIBERS_ONLY,
     CreatorMeeting,
+    ProviderRoomCleanup,
 )
-from dj.apps.dyte.views import HOST_SESSION_TTL
+from dj.apps.dyte.views import HOST_SESSION_TTL, HOST_START_CLAIM_TTL
 
 pytestmark = pytest.mark.django_db
 
@@ -739,7 +740,42 @@ def test_a_stale_room_rotation_cannot_replace_a_newer_released_generation(
     cm = CreatorMeeting.objects.get(creator=host, meeting_type=BROADCAST)
     assert cm.meeting_id == original
     assert cm.host_session_id is None
+    orphan = ProviderRoomCleanup.objects.get(provider_meeting_id='late-room')
+    assert orphan.status == 'manual_review'
+    assert orphan.provider_title == host.username
+    assert orphan.start_id is not None
+    assert 'deletion is unsupported' in orphan.last_error
     provider.add_participant.assert_called_once()
+
+
+def test_late_participant_response_after_claim_expiry_cannot_restore_the_seat(
+    api_client, provider, host,
+):
+    tab = uuid.uuid4()
+
+    def expire_claim_during_mint(*args, **kwargs):
+        cm = CreatorMeeting.objects.get(creator=host)
+        CreatorMeeting.objects.filter(pk=cm.pk).update(
+            host_start_claim_at=timezone.now() - HOST_START_CLAIM_TTL
+            - timedelta(seconds=1),
+        )
+        return _FakeResponse({'data': {
+            'token': 'late-token', 'id': '5f342f6e-c78b-4b2a-9ed0-58edb562c1df',
+        }})
+
+    provider.add_participant.side_effect = expire_claim_during_mint
+    provider.retire_participant.return_value = False
+    response = _start(api_client, host, session=tab)
+
+    assert response.status_code == 409
+    cm = CreatorMeeting.objects.get(creator=host)
+    assert cm.host_start_claim is None
+    assert cm.host_session_id is None
+    assert cm.live_now is False
+    assert cm.host_evictions[0]['state'] == 'pending'
+    provider.retire_participant.assert_called_once_with(
+        cm.meeting_id, '5f342f6e-c78b-4b2a-9ed0-58edb562c1df',
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -759,6 +795,76 @@ def test_a_row_inserted_by_the_previous_release_still_saves(host):
     cm = CreatorMeeting.objects.get(meeting_id='old-pod')
     assert cm.host_evictions == []
     assert cm.host_participant_id == ''
+
+
+def test_worker_reclaims_abandoned_start_claim_and_retries_minted_host(
+    provider, host,
+):
+    from dj.apps.dyte.tasks import retire_host_evictions
+
+    claim = uuid.uuid4()
+    custom_id = f'host_{claim.hex}'
+    cm = CreatorMeeting.objects.create(
+        creator=host, meeting_id='abandoned-room', meeting_type=BROADCAST,
+        host_start_claim=claim,
+        host_start_claim_at=timezone.now() - HOST_START_CLAIM_TTL
+        - timedelta(seconds=1),
+        host_session_id=uuid.uuid4(), host_session_seen_at=timezone.now(),
+        host_evictions=[{
+            'meeting_id': 'abandoned-room', 'participant_id': custom_id,
+            'attempts': 0, 'state': 'start_pending',
+            'claim_id': str(claim), 'retry_after': 0,
+        }],
+    )
+    provider.retire_participant.return_value = False
+
+    retire_host_evictions(creator_id=host.pk, meeting_id=cm.pk)
+
+    cm.refresh_from_db()
+    assert cm.host_start_claim is None
+    assert cm.host_start_claim_at is None
+    assert cm.host_session_id is None
+    provider.retire_participant.assert_called_once_with(
+        'abandoned-room', custom_id,
+    )
+    assert cm.host_evictions[0]['attempts'] == 1
+
+
+def test_worker_expires_a_killed_room_create_to_operator_reconciliation(
+    provider, host,
+):
+    from dj.apps.dyte.tasks import retire_host_evictions
+
+    claim = uuid.uuid4()
+    cm = CreatorMeeting.objects.create(
+        creator=host, meeting_id='', meeting_type=BROADCAST,
+        host_start_claim=claim,
+        host_start_claim_at=timezone.now() - HOST_START_CLAIM_TTL
+        - timedelta(seconds=1),
+        host_session_id=uuid.uuid4(), host_session_seen_at=timezone.now(),
+        host_evictions=[{
+            'meeting_id': '', 'participant_id': f'host_{claim.hex}',
+            'attempts': 0, 'state': 'start_pending',
+            'claim_id': str(claim), 'retry_after': 0,
+        }],
+    )
+    intent = ProviderRoomCleanup.objects.create(
+        provider_meeting_id=None, creator=host, creator_meeting=cm,
+        meeting_type=BROADCAST, provider_title=host.username,
+        start_id=claim, status='manual_review',
+        last_error='Room create outcome is unknown; inspect provider title',
+    )
+
+    retire_host_evictions(creator_id=host.pk, meeting_id=cm.pk)
+
+    cm.refresh_from_db()
+    intent.refresh_from_db()
+    assert cm.host_start_claim is None
+    assert cm.host_session_id is None
+    assert cm.host_evictions == []
+    assert intent.status == 'manual_review'
+    assert intent.provider_meeting_id is None
+    provider.retire_participant.assert_not_called()
 
 
 def test_heartbeat_commits_before_queued_retirement_runs(

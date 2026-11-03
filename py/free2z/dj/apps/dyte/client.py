@@ -387,6 +387,20 @@ class DyteClient(object):
         could leave the kick resolving nothing (404) while a live connection
         survives. True only when both are confirmed (404 = already gone).
         """
+        # A host_... value is our custom_participant_id, NOT RealtimeKit's
+        # provider participant UUID. Resolve it through the documented list
+        # endpoint before calling kick/delete (which require provider ID).
+        if str(participant_id).startswith('host_'):
+            resolved = self._provider_id_for_custom_participant(
+                meeting_id, str(participant_id),
+            )
+            if resolved is None:
+                # Complete list with no match means it was never minted or
+                # was already deleted by an earlier worker attempt.
+                return True
+            if not resolved:
+                return False
+            participant_id = resolved
         kicked = self.kick_participants(meeting_id, [participant_id])
         url = (
             f"{settings.RTK_API_BASE_URL}/v2/meetings/{meeting_id}"
@@ -409,6 +423,43 @@ class DyteClient(object):
                 "retire_participant: delete status=%s meeting=%s",
                 response.status_code, meeting_id)
         return kicked and deleted
+
+    def _provider_id_for_custom_participant(self, meeting_id, custom_id):
+        url = (
+            f"{settings.RTK_API_BASE_URL}/v2/meetings/{meeting_id}/participants"
+        )
+        auth = HTTPBasicAuth(self.org, settings.DYTE_KEY)
+        page_no = 1
+        try:
+            while page_no <= 20:
+                response = requests.get(
+                    url, params={'page_no': page_no, 'per_page': 100},
+                    headers={'Content-Type': 'application/json'},
+                    auth=auth, timeout=_timeout(),
+                )
+                if response.status_code == 404:
+                    return None
+                if response.status_code >= 300:
+                    return None
+                payload = _safe_json(response)
+                data = payload.get('data') or []
+                if isinstance(data, dict):
+                    data = [data]
+                for participant in data:
+                    if participant.get('custom_participant_id') == custom_id:
+                        provider_id = participant.get('id')
+                        return str(provider_id) if provider_id else None
+                if len(data) < 100:
+                    return None
+                page_no += 1
+        except requests.RequestException as exc:
+            logger.warning(
+                "resolve participant id failed meeting=%s: %s",
+                meeting_id, type(exc).__name__,
+            )
+        # Reaching the page cap without exhausting the provider's list is an
+        # unresolved lookup, not evidence that this participant is absent.
+        return False
 
     def add_participant(
         self, creator: Creator, meeting_id: str, *, role: str = None, custom_participant_id: str = None,

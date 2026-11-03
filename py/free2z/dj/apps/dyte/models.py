@@ -44,10 +44,12 @@ MEETING_LIFECYCLE_CHOICES = [
 CLEANUP_PENDING = 'pending'
 CLEANUP_IN_PROGRESS = 'in_progress'
 CLEANUP_COMPLETE = 'complete'
+CLEANUP_MANUAL_REVIEW = 'manual_review'
 CLEANUP_STATUS_CHOICES = [
     (CLEANUP_PENDING, 'Pending'),
     (CLEANUP_IN_PROGRESS, 'In progress'),
     (CLEANUP_COMPLETE, 'Complete'),
+    (CLEANUP_MANUAL_REVIEW, 'Manual review required'),
 ]
 
 
@@ -140,6 +142,7 @@ class CreatorMeeting(models.Model):
     # Persisted before provider I/O. Every host start owns one generation;
     # release/takeover invalidates it so a late response cannot resurrect it.
     host_start_claim = models.UUIDField(null=True, blank=True, editable=False)
+    host_start_claim_at = models.DateTimeField(null=True, blank=True, editable=False)
     host_session_seen_at = models.DateTimeField(
         null=True, blank=True, editable=False,
         help_text=(
@@ -198,11 +201,13 @@ class CreatorMeeting(models.Model):
 
 
 class ProviderRoomCleanup(models.Model):
-    """Durable disable work for a provider room we no longer use.
+    """Durable cleanup or operator reconciliation for a provider room.
 
     The provider room ID and start generation are immutable here.  A newer
     start may reuse the CreatorMeeting row, but it can never cause this record
-    to point at (or disable) the newer room.
+    to point at (or disable) the newer room. A missing provider ID records a
+    create whose response was lost; RealtimeKit generates IDs and exposes no
+    meeting-delete operation, so those rows require operator reconciliation.
     """
 
     creator_meeting = models.ForeignKey(
@@ -225,10 +230,15 @@ class ProviderRoomCleanup(models.Model):
     meeting_type = models.CharField(
         max_length=20, choices=MEETING_TYPE_CHOICES, null=True, blank=True,
     )
+    provider_title = models.CharField(max_length=255, blank=True, default='')
     price_per_minute = models.DecimalField(
         max_digits=6, decimal_places=2, null=True, blank=True,
     )
-    provider_meeting_id = models.CharField(max_length=64, unique=True)
+    # NULL is an explicit operator reconciliation record for a provider
+    # create whose response was lost before its provider-generated ID arrived.
+    provider_meeting_id = models.CharField(
+        max_length=64, unique=True, null=True, blank=True,
+    )
     provider_session_id = models.UUIDField(null=True, blank=True)
     start_id = models.UUIDField(null=True, blank=True, editable=False)
     status = models.CharField(
