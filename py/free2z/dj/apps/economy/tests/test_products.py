@@ -340,6 +340,54 @@ def test_livestream_ppv_retry_after_ambiguous_provider_timeout_stays_unresolved(
     assert (host.tuzis, viewer.tuzis) == (0, 500)
 
 
+def test_ppv_endpoint_does_not_repeat_provider_post_after_ambiguous_timeout(
+    creator_factory, enabled, mocker,
+):
+    """Replay the actual HTTP path: the same key must stop before provider POST #2."""
+    import uuid
+    import requests
+    from rest_framework.test import APIClient
+    from dj.apps.dyte.models import CreatorMeeting, PAY_PER_VIEW, LIFECYCLE_LIVE
+
+    host, viewer = creator_factory(tuzis=1000), creator_factory(tuzis=1000)
+    fund_viewer(viewer, 500_000, 'ppv-endpoint-timeout-viewer')
+    supplier_contract(host)
+    publish('livestream_ppv')
+    meeting = CreatorMeeting.objects.create(
+        creator=host, meeting_id='ppv-endpoint-timeout', meeting_type=PAY_PER_VIEW,
+        is_public=True, live_now=True, lifecycle_state=LIFECYCLE_LIVE,
+        price_per_minute=Decimal('1.23'), host_session_id=uuid.uuid4(),
+        provider_session_id=uuid.uuid4(),
+    )
+    cursor = mocker.patch.object(products, 'connection').cursor.return_value.__enter__.return_value
+    cursor.fetchone.return_value = ('economy.settle_service_delivery',)
+    mocker.patch('dj.apps.dyte.views.pin_supported_policy', return_value=1)
+    provider = mocker.MagicMock()
+    provider.add_participant.side_effect = requests.Timeout('response lost after provider accepted POST')
+    mocker.patch('dj.apps.dyte.views.DyteClient', return_value=provider)
+    client = APIClient()
+    client.force_authenticate(user=Creator.objects.get(pk=viewer.pk))
+    url = f'/api/dyte/{host.username}/{PAY_PER_VIEW}'
+    body = {
+        'role': 'viewer',
+        'expected_actor_id': viewer.pk,
+        'admission_idempotency_key': str(uuid.uuid4()),
+    }
+
+    first = client.post(url, body, format='json')
+    second = client.post(url, body, format='json')
+
+    assert first.status_code == 503
+    assert second.status_code == 409
+    assert second.data['code'] == 'livestream_provider_outcome_unknown'
+    provider.add_participant.assert_called_once()
+    assert ServiceAdmission.objects.filter(
+        service='livestream_ppv', creator_id=host.pk,
+        source__meeting_id=meeting.meeting_id,
+        source__subject_creator_id=viewer.pk,
+    ).count() == 1
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     ('field', 'replacement'),

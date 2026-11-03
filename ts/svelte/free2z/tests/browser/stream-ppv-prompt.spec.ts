@@ -133,6 +133,38 @@ async function stubLivePpv(page: Page) {
   );
 }
 
+test("paid join fails closed when live status has no provider session identity", async ({
+  page,
+}) => {
+  await signInWithBalance(page, "500.000");
+  let statusChecks = 0;
+  await page.route(`**/api/dyte/${OWNER}/live-status`, (route) => {
+    statusChecks += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        is_live: true,
+        participant_count: 3,
+        streams: [
+          { type: "ppv", participant_count: 3, price_per_minute: PRICE },
+        ],
+      }),
+    });
+  });
+  const joins: unknown[] = [];
+  await page.route(`**/api/dyte/${OWNER}/ppv`, (route) => {
+    if (route.request().method() === "POST") {
+      joins.push(route.request().postDataJSON());
+    }
+    return route.fulfill({ status: 500, body: "unexpected paid join" });
+  });
+
+  await page.goto(`/${OWNER}/ppv?lang=en`);
+  await expect.poll(() => statusChecks).toBeGreaterThan(0);
+  await expect.poll(() => joins.length).toBe(0);
+});
+
 /** Every join POST, refused as the server refuses an under-reserve viewer. */
 async function refuseJoins(page: Page, balance: string) {
   const joins: Array<Record<string, unknown>> = [];
