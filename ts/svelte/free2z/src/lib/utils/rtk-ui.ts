@@ -41,10 +41,25 @@ export function observeFirstRtkVideoFrame(
   const observedVideos = new WeakSet<HTMLVideoElement>();
   const observers: MutationObserver[] = [];
 
-  const scan = (root: ParentNode) => {
-    const elements = root instanceof Element
-      ? [root, ...root.querySelectorAll("*")]
-      : root.querySelectorAll("*");
+  const watchMeeting = (meeting: Element) => {
+    watch(meeting);
+    if (meeting.shadowRoot) watch(meeting.shadowRoot);
+  };
+
+  const scanMeetings = (root: ParentNode) => {
+    if (root instanceof Element && root.matches("rtk-meeting")) {
+      watchMeeting(root);
+    }
+    for (const meeting of root.querySelectorAll("rtk-meeting")) {
+      watchMeeting(meeting);
+    }
+  };
+
+  const scanMeetingTree = (root: ParentNode) => {
+    const elements =
+      root instanceof Element
+        ? [root, ...root.querySelectorAll("*")]
+        : root.querySelectorAll("*");
     for (const element of elements) {
       if (element instanceof HTMLVideoElement && !observedVideos.has(element)) {
         observedVideos.add(element);
@@ -52,8 +67,11 @@ export function observeFirstRtkVideoFrame(
           element.requestVideoFrameCallback(() => {
             if (finished) return;
             finished = true;
-            onFrame();
-            stop();
+            try {
+              onFrame();
+            } finally {
+              stop();
+            }
           });
         }
       }
@@ -61,21 +79,17 @@ export function observeFirstRtkVideoFrame(
     }
   };
 
-  const watch = (root: ParentNode) => {
+  const watch = (root: ParentNode, discoverMeetings = false) => {
     if (observedRoots.has(root)) return;
     observedRoots.add(root);
     const observer = new MutationObserver((records) => {
       for (const record of records) {
         for (const node of record.addedNodes) {
-          if (node instanceof Element) {
-            if (
-              node.matches("video") &&
-              !observedVideos.has(node as HTMLVideoElement)
-            ) {
-              scan(node.parentNode ?? root);
-            } else {
-              scan(node);
-            }
+          if (finished) return;
+          if (discoverMeetings) {
+            scanMeetings(node instanceof Element ? node : root);
+          } else {
+            scanMeetingTree(node instanceof Element ? node : root);
           }
         }
       }
@@ -84,7 +98,11 @@ export function observeFirstRtkVideoFrame(
       observer.observe(root, { childList: true, subtree: true });
     }
     observers.push(observer);
-    scan(root);
+    if (discoverMeetings) {
+      scanMeetings(root);
+    } else {
+      scanMeetingTree(root);
+    }
   };
 
   const stop = () => {
@@ -93,6 +111,6 @@ export function observeFirstRtkVideoFrame(
     observers.length = 0;
   };
 
-  watch(root);
+  watch(root, true);
   return stop;
 }
