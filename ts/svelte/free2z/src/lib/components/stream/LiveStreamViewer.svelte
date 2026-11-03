@@ -558,7 +558,7 @@
   {#if meeting && connectionStatus !== "ended"}
     <div class="absolute inset-0">
       <InlineRtkMeeting {meeting} translator={rtkTranslator} />
-      <MeetingRecordingNotice {meeting} />
+      <MeetingRecordingNotice {meeting} {serverRecording} />
       <RtkAudioHealth
         {meeting}
         mode={isHost ? "host" : "viewer"}
@@ -755,13 +755,6 @@
       {/if}
     </div>
   {:else if meeting}
-    <InlineRtkMeeting {meeting} translator={rtkTranslator} />
-    <MeetingRecordingNotice {meeting} {serverRecording} />
-    <RtkAudioHealth
-      {meeting}
-      mode={isHost ? "host" : "viewer"}
-      onReconnect={handleRetry}
-    />
     <!-- Persistent Warning for Host (e.g. Permission Denied) -->
     {#if warning && isHost}
       <div
