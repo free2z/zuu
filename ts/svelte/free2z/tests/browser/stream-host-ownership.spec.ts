@@ -730,8 +730,12 @@ for (const [owner, encrypted, mixedCase, lateJoin = false] of [
     await page.route(
       `**/api/dyte/${routeUser}/private/${secret}/recording**`,
       (route) => {
+        const path = new URL(route.request().url()).pathname;
+        if (path.endsWith("/recording-visibility")) {
+          return route.fulfill({ json: { recording: false } });
+        }
         const method = route.request().method();
-        const stop = new URL(route.request().url()).pathname.endsWith("/stop");
+        const stop = path.endsWith("/stop");
         requests.push(`${method}:${stop ? "stop" : "recording"}`);
         if (method === "POST") state = stop ? "STOPPING" : "INVOKED";
         return route.fulfill({ json: { recording_state: state } });
@@ -820,6 +824,10 @@ for (const [owner, encrypted, mixedCase, lateJoin = false] of [
       await page.route(
         `**/api/dyte/${routeUser}/private/${otherSecret}/recording**`,
         (route) => {
+          const path = new URL(route.request().url()).pathname;
+          if (path.endsWith("/recording-visibility")) {
+            return route.fulfill({ json: { recording: false } });
+          }
           otherRoomRequests.push(route.request().url());
           return route.fulfill({ json: { recording_state: "IDLE" } });
         },
