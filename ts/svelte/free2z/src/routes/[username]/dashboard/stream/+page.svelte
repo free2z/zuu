@@ -903,6 +903,12 @@
         };
         meetingInstance.self.on("roomLeft", onHostRoomLeft);
         meetingInstance.self.on("roomJoined", onHostRoomJoined);
+        // The manager owns a roomLeft listener while it initializes the
+        // meeting. A failure can arrive after that listener is attached but
+        // before this host-specific handler is installed. The store retains
+        // that state, so hand it to the normal recovery path now.
+        if (get(liveStreamStore).connectionStatus === "failed")
+          void onHostRoomLeft({ state: "failed" });
       }
 
       operationNotice.success(
@@ -1041,6 +1047,10 @@
       nextMeeting.self.on("roomLeft", onRoomLeft);
       nextMeeting.self.on("roomJoined", onRoomJoined);
       liveStreamStore.setError(null, null);
+      // As above, preserve a failure observed by initRtkMeeting before this
+      // retry's host handler was attached.
+      if (get(liveStreamStore).connectionStatus === "failed")
+        void onRoomLeft({ state: "failed" });
     } catch (err) {
       if (!isCurrentOwner(owner) || seatOwner?.session !== session || isLeaving)
         return;
