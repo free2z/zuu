@@ -349,7 +349,7 @@ def test_ppv_endpoint_does_not_repeat_provider_post_after_ambiguous_timeout(
     from rest_framework.test import APIClient
     from dj.apps.dyte.models import CreatorMeeting, PAY_PER_VIEW, LIFECYCLE_LIVE
 
-    host, viewer = creator_factory(tuzis=1000), creator_factory(tuzis=1000)
+    host, viewer = creator_factory(tuzis=0), creator_factory(tuzis=0)
     fund_viewer(viewer, 500_000, 'ppv-endpoint-timeout-viewer')
     supplier_contract(host)
     publish('livestream_ppv')
