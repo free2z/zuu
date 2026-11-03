@@ -18,10 +18,39 @@
   }: Props = $props();
 
   let image = $state<HTMLImageElement | null>(null);
+  let frame = $state<HTMLElement | null>(null);
+  let bloom = $state<HTMLCanvasElement | null>(null);
   let settledSource = $state<string | null>(null);
   let failedSource = $state<string | null>(null);
   const awaitingImage = $derived(settledSource !== src && failedSource !== src);
   const failed = $derived(failedSource === src);
+
+  function paintBloom() {
+    const canvas = bloom;
+    const img = image;
+    const box = frame;
+    if (!canvas || !box || !img?.naturalWidth || !img.naturalHeight) return;
+    const width = Math.max(1, Math.round(box.clientWidth));
+    const height = Math.max(1, Math.round(box.clientHeight));
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    // Draw past the frame so the blur's transparent fringe is clipped off.
+    const scale =
+      Math.max(width / img.naturalWidth, height / img.naturalHeight) * 1.35;
+    const drawnWidth = img.naturalWidth * scale;
+    const drawnHeight = img.naturalHeight * scale;
+    context.clearRect(0, 0, width, height);
+    context.filter = "blur(16px)";
+    context.drawImage(
+      img,
+      (width - drawnWidth) / 2,
+      (height - drawnHeight) / 2,
+      drawnWidth,
+      drawnHeight,
+    );
+  }
 
   function measureImage() {
     if (!image?.complete || image.getAttribute("src") !== src) return;
@@ -29,6 +58,7 @@
       compact = image.naturalWidth / image.naturalHeight <= 1.1;
       settledSource = src;
       failedSource = null;
+      paintBloom();
     } else {
       failedSource = src;
       compact = false;
@@ -42,15 +72,26 @@
     void src;
     measureImage();
   });
+
+  $effect(() => {
+    const box = frame;
+    if (!box || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => paintBloom());
+    observer.observe(box);
+    paintBloom();
+    return () => observer.disconnect();
+  });
 </script>
 
 <div
+  bind:this={frame}
   class="hero-media"
   data-hero-fit="contain"
   data-compact={compact ? "" : undefined}
   data-loading={awaitingImage ? "" : undefined}
   data-failed={failed ? "" : undefined}
 >
+  <canvas class="hero-media__bloom" aria-hidden="true" bind:this={bloom}></canvas>
   <div class="hero-media__plate">
     {#key src}
       <picture>
@@ -77,15 +118,44 @@
 <style>
   .hero-media {
     position: relative;
+    width: 100%;
     max-width: 100%;
     margin-inline: auto;
     overflow: hidden;
     border-radius: 0.75rem;
     isolation: isolate;
+    background: var(--muted, #111);
+  }
+
+  /* Same bytes as the sharp plate, painted from the decoded image so the
+     letterbox does not start a second cover request. The title stays outside
+     this frame. */
+  .hero-media__bloom {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  .hero-media__bloom::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgb(0 0 0 / 0.18);
+    background: color-mix(in oklab, var(--background) 34%, transparent);
+  }
+
+  .hero-media[data-loading] .hero-media__bloom,
+  .hero-media[data-failed] .hero-media__bloom {
+    display: none;
   }
 
   .hero-media__plate,
   .hero-media__plate picture {
+    position: relative;
+    z-index: 1;
     display: flex;
     justify-content: center;
     max-width: 100%;
