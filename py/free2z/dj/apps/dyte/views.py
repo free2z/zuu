@@ -2394,6 +2394,8 @@ class DyteMeeting(APIView):
                         error='Created room was not adopted by the current meeting generation; deletion is unsupported',
                     )
                     room_reconciliation.delete()
+                    return _seat_conflict_response(
+                        _held_host_seat(creator), code='host_session_superseded')
         else:
             meeting_id = original_meeting_id
 
@@ -2462,7 +2464,8 @@ class DyteMeeting(APIView):
                         error='Replacement room was not adopted by the current meeting generation; deletion is unsupported',
                     )
                     room_reconciliation.delete()
-                    meeting_id = cm.meeting_id
+                    return _seat_conflict_response(
+                        _held_host_seat(creator), code='host_session_superseded')
             try:
                 resp = dc.add_participant(creator, meeting_id, role=HOST_ROLE,
                                           custom_participant_id=participant_id)

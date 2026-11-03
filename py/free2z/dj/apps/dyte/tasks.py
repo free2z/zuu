@@ -83,7 +83,6 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
     waiting = [entry for entry in snapshot if (
         entry.get('state') == 'start_pending'
         and entry.get('retry_after', 0) > now_epoch
-        and entry not in active
     )]
     if waiting:
         try:

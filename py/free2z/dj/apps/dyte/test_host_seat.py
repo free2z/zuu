@@ -18,6 +18,7 @@ from decimal import Decimal
 import pytest
 from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
+from procrastinate.contrib.django.models import ProcrastinateJob
 from rest_framework.test import APIClient
 
 from dj.apps.dyte.models import (
@@ -828,6 +829,76 @@ def test_worker_reclaims_abandoned_start_claim_and_retries_minted_host(
         'abandoned-room', custom_id,
     )
     assert cm.host_evictions[0]['attempts'] == 1
+
+
+def test_live_claim_worker_persists_expiry_recheck_after_request_dies(
+    provider, host,
+):
+    """A worker that sees an in-flight claim must leave a durable wakeup."""
+    from dj.apps.dyte.tasks import retire_host_evictions
+
+    claim = uuid.uuid4()
+    expires_at = timezone.now() + HOST_START_CLAIM_TTL
+    participant_id = f'host_{claim.hex}'
+    cm = CreatorMeeting.objects.create(
+        creator=host, meeting_id='claim-expiry-room', meeting_type=BROADCAST,
+        host_start_claim=claim, host_start_claim_at=timezone.now(),
+        host_session_id=uuid.uuid4(), host_session_seen_at=timezone.now(),
+        host_evictions=[{
+            'meeting_id': 'claim-expiry-room', 'participant_id': participant_id,
+            'attempts': 0, 'state': 'start_pending', 'claim_id': str(claim),
+            'retry_after': expires_at.timestamp(),
+        }],
+    )
+
+    retire_host_evictions(creator_id=host.pk, meeting_id=cm.pk)
+
+    job = ProcrastinateJob.objects.get(
+        task_name='dyte.retire_host_evictions',
+        args={'creator_id': host.pk, 'meeting_id': cm.pk},
+    )
+    assert job.status == 'todo'
+    assert abs(job.scheduled_at - expires_at) < timedelta(seconds=1)
+    provider.retire_participant.assert_not_called()
+
+    # The request process is gone: only its persisted claim and the scheduled
+    # worker remain. At expiry, a worker reclaims and retires the participant.
+    CreatorMeeting.objects.filter(pk=cm.pk).update(
+        host_start_claim_at=timezone.now() - HOST_START_CLAIM_TTL - timedelta(seconds=1),
+        host_evictions=[{**cm.host_evictions[0], 'retry_after': 0}],
+    )
+    provider.retire_participant.return_value = True
+    retire_host_evictions(creator_id=host.pk, meeting_id=cm.pk)
+
+    cm.refresh_from_db()
+    assert cm.host_start_claim is None
+    assert cm.host_evictions == []
+    provider.retire_participant.assert_called_once_with(
+        'claim-expiry-room', participant_id,
+    )
+
+
+def test_initial_room_rotation_cas_mismatch_returns_conflict(
+    api_client, provider, host,
+):
+    """A losing room CAS must not use an uninitialized meeting_id."""
+    def create_then_race(title):
+        CreatorMeeting.objects.filter(
+            creator=host, meeting_type=BROADCAST, is_public=True,
+        ).update(meeting_id='concurrent-room')
+        return _FakeResponse({'data': {'id': 'unadopted-room'}})
+
+    provider.create_meeting.side_effect = create_then_race
+
+    response = _start(api_client, host, session=uuid.uuid4())
+
+    assert response.status_code == 409
+    assert response.data['code'] == 'host_session_superseded'
+    assert response.data.get('meeting_id') != 'unadopted-room'
+    provider.add_participant.assert_not_called()
+    assert ProviderRoomCleanup.objects.filter(
+        provider_meeting_id='unadopted-room', status='manual_review',
+    ).exists()
 
 
 def test_worker_expires_a_killed_room_create_to_operator_reconciliation(
