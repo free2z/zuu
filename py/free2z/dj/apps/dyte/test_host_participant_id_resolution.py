@@ -38,6 +38,64 @@ def test_custom_host_id_is_resolved_before_provider_delete(mocker):
     )
 
 
+def test_all_matching_custom_ids_across_pages_are_retired(mocker):
+    custom_id = 'host_0123456789abcdef'
+    first_page = Mock(status_code=200)
+    first_page.json.return_value = {'data': [
+        {'id': 'provider-first', 'custom_participant_id': custom_id},
+        *[{'id': f'other-{i}', 'custom_participant_id': 'someone-else'}
+          for i in range(99)],
+    ]}
+    second_page = Mock(status_code=200)
+    second_page.json.return_value = {'data': [
+        {'id': 'provider-second', 'custom_participant_id': custom_id},
+    ]}
+    get = mocker.patch('dj.apps.dyte.client.requests.get',
+                       side_effect=[first_page, second_page])
+    post = mocker.patch('dj.apps.dyte.client.requests.post',
+                        return_value=Mock(status_code=200))
+    delete = mocker.patch('dj.apps.dyte.client.requests.delete',
+                          return_value=Mock(status_code=204))
+
+    assert DyteClient('org').retire_participant('meeting', custom_id) is True
+
+    assert get.call_count == 2
+    assert [call.kwargs['json'] for call in post.call_args_list] == [
+        {'participant_ids': ['provider-first']},
+        {'participant_ids': ['provider-second']},
+    ]
+    assert [call.args[0].rsplit('/', 1)[-1]
+            for call in delete.call_args_list] == [
+        'provider-first', 'provider-second',
+    ]
+
+
+def test_partial_duplicate_retirement_failure_is_not_success(mocker):
+    custom_id = 'host_0123456789abcdef'
+    listing = Mock(status_code=200)
+    listing.json.return_value = {'data': [
+        {'id': 'provider-first', 'custom_participant_id': custom_id},
+        *[{'id': f'other-{i}', 'custom_participant_id': 'someone-else'}
+          for i in range(98)],
+        {'id': 'provider-second', 'custom_participant_id': custom_id},
+    ]}
+    final_page = Mock(status_code=200)
+    final_page.json.return_value = {'data': []}
+    get = mocker.patch('dj.apps.dyte.client.requests.get',
+                       side_effect=[listing, final_page])
+    mocker.patch('dj.apps.dyte.client.requests.post',
+                 return_value=Mock(status_code=200))
+    delete = mocker.patch(
+        'dj.apps.dyte.client.requests.delete',
+        side_effect=[Mock(status_code=204), Mock(status_code=503)],
+    )
+
+    assert DyteClient('org').retire_participant('meeting', custom_id) is False
+
+    assert get.call_count == 2  # all matches were resolved before deletion
+    assert delete.call_count == 2
+
+
 def test_empty_lookup_remains_pending_until_a_late_mint_can_be_retired(
     mocker,
 ):
@@ -121,8 +179,10 @@ def test_invalid_participant_list_payload_is_retryable(mocker, payload):
 def test_participant_list_page_cap_is_retryable(mocker):
     listing = Mock(status_code=200)
     listing.json.return_value = {'data': [
-        {'id': f'provider-{index}', 'custom_participant_id': 'someone-else'}
-        for index in range(100)
+        {'id': 'provider-match',
+         'custom_participant_id': 'host_0123456789abcdef'},
+        *[{'id': f'provider-{index}', 'custom_participant_id': 'someone-else'}
+          for index in range(99)],
     ]}
     get = mocker.patch('dj.apps.dyte.client.requests.get',
                        return_value=listing)
@@ -134,5 +194,28 @@ def test_participant_list_page_cap_is_retryable(mocker):
     ) is False
 
     assert get.call_count == 20
+    post.assert_not_called()
+    delete.assert_not_called()
+
+
+def test_page_error_after_a_match_is_retryable_without_partial_retirement(
+    mocker,
+):
+    custom_id = 'host_0123456789abcdef'
+    first_page = Mock(status_code=200)
+    first_page.json.return_value = {'data': [
+        {'id': 'provider-match', 'custom_participant_id': custom_id},
+        *[{'id': f'provider-{index}', 'custom_participant_id': 'someone-else'}
+          for index in range(99)],
+    ]}
+    failed_page = Mock(status_code=503)
+    get = mocker.patch('dj.apps.dyte.client.requests.get',
+                       side_effect=[first_page, failed_page])
+    post = mocker.patch('dj.apps.dyte.client.requests.post')
+    delete = mocker.patch('dj.apps.dyte.client.requests.delete')
+
+    assert DyteClient('org').retire_participant('meeting', custom_id) is False
+
+    assert get.call_count == 2
     post.assert_not_called()
     delete.assert_not_called()

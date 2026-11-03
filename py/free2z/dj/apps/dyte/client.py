@@ -400,10 +400,23 @@ class DyteClient(object):
                 # finish an already accepted add request after this lookup.
                 # Keep retrying until the participant appears and is retired.
                 return False
-            if not resolved:
+            if resolved is False:
                 return False
-            participant_id = resolved
+            if resolved is None:
+                return False
+            # A custom ID is not unique at the provider. Retire every match
+            # found in the complete listing; success requires each one gone.
+            retired = True
+            for provider_id in resolved:
+                if not self._retire_provider_participant(meeting_id, provider_id):
+                    retired = False
+            return retired
+        return self._retire_provider_participant(meeting_id, participant_id)
+
+    def _retire_provider_participant(self, meeting_id, participant_id):
         kicked = self.kick_participants(meeting_id, [participant_id])
+        if not kicked:
+            return False
         url = (
             f"{settings.RTK_API_BASE_URL}/v2/meetings/{meeting_id}"
             f"/participants/{participant_id}"
@@ -424,7 +437,7 @@ class DyteClient(object):
             logger.warning(
                 "retire_participant: delete status=%s meeting=%s",
                 response.status_code, meeting_id)
-        return kicked and deleted
+        return deleted
 
     def _provider_id_for_custom_participant(self, meeting_id, custom_id):
         url = (
@@ -432,6 +445,7 @@ class DyteClient(object):
         )
         auth = HTTPBasicAuth(self.org, settings.DYTE_KEY)
         page_no = 1
+        matches = []
         try:
             while page_no <= 20:
                 response = requests.get(
@@ -468,9 +482,9 @@ class DyteClient(object):
                                 and not isinstance(participant_custom_id, str))):
                         return False
                     if participant_custom_id == custom_id:
-                        return provider_id
+                        matches.append(provider_id)
                 if len(data) < 100:
-                    return None
+                    return matches or None
                 page_no += 1
         except requests.RequestException as exc:
             logger.warning(
