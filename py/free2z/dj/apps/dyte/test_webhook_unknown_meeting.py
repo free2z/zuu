@@ -121,10 +121,12 @@ def _left(meeting_id, title, participant_id):
     }).encode()
 
 
-def _lifecycle(event, meeting_id, title, *, session_id=None):
+def _lifecycle(event, meeting_id, title, *, session_id=None, started_at=None):
     meeting = _meeting(meeting_id, title)
     if session_id is not None:
         meeting['sessionId'] = str(session_id)
+    if started_at is not None:
+        meeting['startedAt'] = started_at
     return json.dumps({
         'event': event,
         'meeting': meeting,
@@ -258,6 +260,117 @@ def test_late_meeting_ended_from_previous_session_keeps_room_live(
     broadcast.refresh_from_db()
     assert broadcast.live_now is True
     assert broadcast.provider_session_id == session_b
+
+
+@pytest.mark.parametrize('current_started_at,incoming_started_at', [
+    ('2026-09-07T17:53:52Z', '2026-09-07T17:53:51Z'),
+    ('2026-09-07T17:53:52Z', '2026-09-07T17:53:52Z'),
+])
+def test_late_or_tied_meeting_started_cannot_replace_current_session(
+    api_client, keypair, broadcast, current_started_at, incoming_started_at,
+):
+    private_key, _ = keypair
+    current_session, delayed_session = uuid.uuid4(), uuid.uuid4()
+    CreatorMeeting.objects.filter(pk=broadcast.pk).update(
+        live_now=True, provider_session_id=current_session,
+        provider_session_started_at=current_started_at,
+        host_session_id=None, host_session_seen_at=None,
+    )
+    api_client.force_authenticate(user=None)
+
+    response = _post(
+        api_client, private_key,
+        _lifecycle(
+            'meeting.started', broadcast.meeting_id, 'Big_dre',
+            session_id=delayed_session, started_at=incoming_started_at,
+        ),
+    )
+
+    assert response.status_code == 200
+    broadcast.refresh_from_db()
+    assert broadcast.live_now is True
+    assert broadcast.provider_session_id == current_session
+    assert broadcast.provider_session_started_at.isoformat().startswith(
+        '2026-09-07T17:53:52'
+    )
+
+
+@pytest.mark.parametrize('seat_seen_at', [
+    None, timezone.now() - timedelta(days=1),
+])
+def test_newer_meeting_started_wins_without_a_fresh_host_seat(
+    api_client, keypair, broadcast, seat_seen_at,
+):
+    private_key, _ = keypair
+    session_a, session_b = uuid.uuid4(), uuid.uuid4()
+    CreatorMeeting.objects.filter(pk=broadcast.pk).update(
+        live_now=True, provider_session_id=session_a,
+        provider_session_started_at='2026-09-07T17:53:52Z',
+        host_session_id=(uuid.uuid4() if seat_seen_at is not None else None),
+        host_session_seen_at=seat_seen_at,
+    )
+    api_client.force_authenticate(user=None)
+
+    response = _post(
+        api_client, private_key,
+        _lifecycle(
+            'meeting.started', broadcast.meeting_id, 'Big_dre',
+            session_id=session_b, started_at='2026-09-07T17:53:53Z',
+        ),
+    )
+
+    assert response.status_code == 200
+    broadcast.refresh_from_db()
+    assert broadcast.live_now is True
+    assert broadcast.provider_session_id == session_b
+
+
+def test_start_uses_fresh_locked_row_and_preserves_new_host_seat(
+    broadcast,
+):
+    from dj.apps.dyte.types import WebhookEvent
+    from dj.apps.dyte.views import _process_webhook_event
+
+    stale_cm = CreatorMeeting.objects.get(pk=broadcast.pk)
+    seat = uuid.uuid4()
+    CreatorMeeting.objects.filter(pk=broadcast.pk).update(
+        host_session_id=seat, host_session_seen_at=timezone.now(),
+    )
+    event = WebhookEvent.model_validate({
+        'event': 'meeting.started',
+        'meeting': _meeting(broadcast.meeting_id, 'Big_dre'),
+    })
+
+    _process_webhook_event(
+        event_data=event,
+        cm=stale_cm,
+        provider_event_id=uuid.uuid4(),
+        payload=b'{}',
+    )
+
+    broadcast.refresh_from_db()
+    assert broadcast.host_session_id == seat
+    assert broadcast.provider_session_id == event.meeting.sessionId
+
+
+def test_replacing_room_resets_recorded_provider_session(
+    api_client, provider, broadcast,
+):
+    old_room, old_session = broadcast.meeting_id, uuid.uuid4()
+    CreatorMeeting.objects.filter(pk=broadcast.pk).update(
+        created_at=timezone.now() - timedelta(days=3),
+        provider_session_id=old_session,
+        provider_session_started_at='2026-09-07T17:53:52Z',
+    )
+
+    response = api_client.post(
+        f'/api/dyte/{broadcast.creator.username}/broadcast', {}, format='json')
+
+    assert response.status_code == 200
+    broadcast.refresh_from_db()
+    assert broadcast.meeting_id != old_room
+    assert broadcast.provider_session_id is None
+    assert broadcast.provider_session_started_at is None
 
 
 def test_end_with_unknown_recorded_session_preserves_fresh_seat(
