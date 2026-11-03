@@ -179,6 +179,12 @@ export default function CreatorLive() {
         const { data: liveStatus } = await axios.get(
           `/api/dyte/${owner}/live-status`,
         );
+        if (
+          cancelled ||
+          viewerRef.current.id !== originalViewer.id ||
+          viewerRef.current.username !== originalViewer.username
+        )
+          throw new Error("Sign in again before joining this paid stream.");
         const providerSessionId = liveStatus?.ppv?.session_id;
         if (
           typeof providerSessionId !== "string" ||
