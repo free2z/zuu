@@ -8,7 +8,7 @@
     liveStatusQueryKey,
     type StreamInfo,
   } from "$lib/services/stream";
-  import { useQueryClient } from "@tanstack/svelte-query";
+  import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { initRtkMeeting } from "$lib/utils/rtk-manager";
   import { streamRetryDelay } from "$lib/utils/stream-recovery";
   import { liveStreamStore, meetingStore } from "$lib/stores/liveStreamStore";
@@ -285,6 +285,23 @@
   }
 
   const creatorQuery = createCreatorRetrieve(username);
+  // The host starts recording through our API. RealtimeKit does not push that
+  // change to someone already on stage, so the viewer reads the flag the host
+  // control publishes onto live status.
+  const recordingQuery = createQuery({
+    queryKey: liveStatusQueryKey(username),
+    queryFn: ({ signal }: { signal: AbortSignal }) =>
+      StreamService.fetchLiveStatus(username, signal),
+    enabled: browser && Boolean(username),
+    refetchInterval: 8000,
+    staleTime: 4000,
+    retry: false,
+  });
+  $: serverRecording = Boolean(
+    $recordingQuery.data?.streams?.some(
+      (stream) => stream.type === streamType && stream.recording === true,
+    ),
+  );
   $: creator = $creatorQuery.data;
   $: isSubscribed = $authStore.creator?.star_ids
     ? creator?.id !== undefined &&
@@ -738,6 +755,13 @@
       {/if}
     </div>
   {:else if meeting}
+    <InlineRtkMeeting {meeting} translator={rtkTranslator} />
+    <MeetingRecordingNotice {meeting} {serverRecording} />
+    <RtkAudioHealth
+      {meeting}
+      mode={isHost ? "host" : "viewer"}
+      onReconnect={handleRetry}
+    />
     <!-- Persistent Warning for Host (e.g. Permission Denied) -->
     {#if warning && isHost}
       <div
