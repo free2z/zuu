@@ -91,7 +91,8 @@
   data-loading={awaitingImage ? "" : undefined}
   data-failed={failed ? "" : undefined}
 >
-  <canvas class="hero-media__bloom" aria-hidden="true" bind:this={bloom}></canvas>
+  <canvas class="hero-media__bloom" aria-hidden="true" bind:this={bloom}
+  ></canvas>
   <div class="hero-media__plate">
     {#key src}
       <picture>
