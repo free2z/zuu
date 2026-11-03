@@ -255,6 +255,7 @@ export default function CreatorLive() {
                 }:${originalViewer.sessionId}`;
                 try {
                   sessionStorage.removeItem(key);
+                  originalViewer.admissionKey = undefined;
                 } catch {
                   // The in-memory ref still protects this page's retries.
                 }
