@@ -28,3 +28,4 @@ zpage-hero.spec.ts › scrolling leaves /hero-user/hero-bright-fixture static wi
 zpage-hero.spec.ts › the 1600x400 cover the editor stores is shown whole on the hero
 zpage-nav-loading.spec.ts
 zpage-support-zcash.spec.ts
+meeting-identity.spec.ts
