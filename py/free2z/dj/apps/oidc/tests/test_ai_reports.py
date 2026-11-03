@@ -21,6 +21,7 @@ import uuid
 from datetime import timedelta
 
 import pytest
+from django.core.cache import caches
 from django.db import connection
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -458,12 +459,15 @@ def test_a_dedupe_store_that_swallows_errors_still_pages(
     for _ in range(3):
         payer = creator_factory(tuzis=100)
         unsafe_report(payer, web_app, ledger_call(payer, web_app, outcome="settled"))
-    monkeypatch.setattr(ai_reports.cache, "get", lambda *a, **k: None)
-    monkeypatch.setattr(ai_reports.cache, "set", lambda *a, **k: None)
+    # Patch the concrete backend. Pytest 9.2 undoes a patch on Django's
+    # cache proxy with delattr, and that proxy cannot delete a method.
+    backend = caches["default"]
+    monkeypatch.setattr(backend, "get", lambda *a, **k: None)
+    monkeypatch.setattr(backend, "set", lambda *a, **k: None)
     ai_reports._maybe_page(web_app)
     ai_reports._maybe_page(web_app)
     assert len(surge_lines(caplog)) == 2
-    monkeypatch.setattr(ai_reports.cache, "get", lambda *a, **k: 1)
+    monkeypatch.setattr(backend, "get", lambda *a, **k: 1)
     ai_reports._maybe_page(web_app)
     assert len(surge_lines(caplog)) == 2
 
