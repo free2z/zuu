@@ -50,6 +50,7 @@ def provider(mocker):
     client.add_participant.return_value = _FakeResponse(
         {'data': {'token': 'auth-token'}})
     mocker.patch('dj.apps.dyte.views.DyteClient', return_value=client)
+    mocker.patch('dj.apps.dyte.client.DyteClient', return_value=client)
     return client
 
 
@@ -79,6 +80,13 @@ def _seat(client, creator, session, action):
 
 def _roles(provider):
     return [c.kwargs.get('role') for c in provider.add_participant.call_args_list]
+
+
+def _run_evictions(host):
+    from dj.apps.dyte.tasks import retire_host_evictions
+
+    for cm in CreatorMeeting.objects.filter(creator=host).exclude(host_evictions=[]):
+        retire_host_evictions(creator_id=host.pk, meeting_id=cm.pk)
 
 
 # ---------------------------------------------------------------------------
@@ -529,6 +537,7 @@ def test_a_takeover_kicks_the_previous_host_at_the_provider(
     provider.add_participant.return_value = _FakeResponse(
         {'data': {'token': 'auth-token', 'id': 'participant-b'}})
     _start(api_client, host, session=uuid.uuid4(), takeover=True)
+    _run_evictions(host)
 
     provider.retire_participant.assert_called_once_with(room, 'participant-a')
     cm = CreatorMeeting.objects.get(creator=host)
@@ -549,13 +558,16 @@ def test_a_failed_kick_never_blocks_the_takeover(api_client, provider, host):
     assert cm.host_session_id == tab_b
     #...but the unconfirmed eviction is remembered, not forgotten.
     assert [e['participant_id'] for e in cm.host_evictions] == ['participant-a']
+    _run_evictions(host)
 
     # The new holder's heartbeats keep retrying it until the provider confirms.
     _seat(api_client, host, tab_b, 'heartbeat')
+    _run_evictions(host)
     cm.refresh_from_db()
     assert cm.host_evictions[0]['attempts'] == 2
     provider.retire_participant.return_value = True
     _seat(api_client, host, tab_b, 'heartbeat')
+    _run_evictions(host)
     cm.refresh_from_db()
     assert cm.host_evictions == []
 
@@ -643,6 +655,7 @@ def test_a_same_tab_retry_retires_the_participant_it_replaces(
         {'data': {'token': 't', 'id': 'second'}})
 
     _start(api_client, host, session=tab)
+    _run_evictions(host)
 
     provider.retire_participant.assert_called_once_with(room, 'first')
     assert CreatorMeeting.objects.get(creator=host).host_participant_id == 'second'
@@ -658,7 +671,8 @@ def test_release_retires_the_host_and_remembers_a_failure(
     provider.retire_participant.return_value = False
 
     _seat(api_client, host, tab, 'release')
-
+    provider.retire_participant.assert_not_called()
+    _run_evictions(host)
     provider.retire_participant.assert_called_once_with(room, 'released-host')
     cm = CreatorMeeting.objects.get(creator=host)
     assert cm.host_session_id is None
@@ -669,6 +683,7 @@ def test_release_retires_the_host_and_remembers_a_failure(
     provider.add_participant.return_value = _FakeResponse(
         {'data': {'token': 't', 'id': 'next-host'}})
     _start(api_client, host, session=uuid.uuid4())
+    _run_evictions(host)
     cm.refresh_from_db()
     assert cm.host_evictions == []
 
@@ -692,7 +707,7 @@ def test_a_row_inserted_by_the_previous_release_still_saves(host):
     assert cm.host_participant_id == ''
 
 
-def test_slow_retirements_never_commit_a_lapsed_looking_heartbeat(
+def test_heartbeat_commits_before_queued_retirement_runs(
     api_client, provider, host, mocker,
 ):
     tab = uuid.uuid4()
@@ -711,6 +726,8 @@ def test_slow_retirements_never_commit_a_lapsed_looking_heartbeat(
                  side_effect=lambda: clock['now'])
 
     assert _seat(api_client, host, tab, 'heartbeat').status_code == 200
+    provider.retire_participant.assert_not_called()
 
     cm = CreatorMeeting.objects.get(creator=host)
-    assert cm.host_session_seen_at == clock['now']
+    assert cm.host_session_seen_at == start
+    _run_evictions(host)

@@ -38,6 +38,88 @@ from .models import RecordingDelivery
 logger = logging.getLogger(__name__)
 
 
+@app.task(name="dyte.retire_host_evictions", queue="default")
+def retire_host_evictions(creator_id: int, meeting_id: int):
+    """Retire queued host participants without holding a database lock.
+
+    The queue row is inserted in the same transaction as the eviction state,
+    so a request or process exit cannot lose the handoff. Provider work runs
+    between short reads/writes; compare-and-update keeps a stale job from
+    overwriting newer evictions.
+    """
+    from django.db import transaction
+    from procrastinate.exceptions import AlreadyEnqueued
+
+    from .models import CreatorMeeting
+    from .views import HOST_EVICTION_MAX_ATTEMPTS, _lock_host_seat
+
+    cm = CreatorMeeting.objects.filter(
+        pk=meeting_id, creator_id=creator_id,
+    ).first()
+    if cm is None or not cm.host_evictions:
+        return
+
+    snapshot = list(cm.host_evictions)
+    from .client import DyteClient
+    dc = DyteClient(settings.DYTE_ORG)
+    outcomes = []
+    for entry in snapshot:
+        meeting = entry.get('meeting_id')
+        participant = entry.get('participant_id')
+        if not meeting or not participant:
+            outcomes.append((entry, None))
+            continue
+        try:
+            retired = dc.retire_participant(meeting, participant)
+        except Exception:
+            logger.exception("Could not retire queued host participant creator=%s", creator_id)
+            retired = False
+        outcomes.append((entry, retired))
+
+    with transaction.atomic():
+        creator = cm.creator
+        _lock_host_seat(creator)
+        current = CreatorMeeting.objects.filter(
+            pk=meeting_id, creator_id=creator_id,
+        ).first()
+        if current is None:
+            return
+        current_entries = list(current.host_evictions or [])
+        for entry, retired in outcomes:
+            if entry not in current_entries:
+                continue
+            current_entries.remove(entry)
+            if retired is False:
+                attempts = int(entry.get('attempts') or 0) + 1
+                if attempts >= HOST_EVICTION_MAX_ATTEMPTS:
+                    logger.error(
+                        "host seat handoff: previous host NOT retired after %s attempts creator=%s meeting=%s participant=%s",
+                        attempts, creator_id, entry.get('meeting_id'), entry.get('participant_id'),
+                    )
+                else:
+                    current_entries.append({
+                        **entry, 'attempts': attempts,
+                    })
+        current.host_evictions = current_entries
+        current.save(update_fields=['host_evictions'])
+        if current_entries:
+            # Retry outside this transaction, but retain the durable queue
+            # handoff if this worker dies after committing the updated state.
+            attempts = max(int(entry.get('attempts') or 0)
+                           for entry in current_entries)
+            delay = min(15 * (2 ** min(attempts, 6)), 15 * 60)
+            try:
+                with transaction.atomic():
+                    retire_host_evictions.configure(
+                        queueing_lock=f"dyte-host-evictions-{meeting_id}",
+                        schedule_at=timezone.now() + timedelta(seconds=delay),
+                    ).defer(creator_id=creator_id, meeting_id=meeting_id)
+            except AlreadyEnqueued:
+                # A heartbeat may have queued this meeting while the provider
+                # call was in flight. That job will observe the updated state.
+                pass
+
+
 # Registered, deliberately NOT periodic ( review). Every worker lane
 # runs procrastinate's periodic deferrer for every @app.periodic task it
 # knows, and bin/bazel-apply.sh rolls ledger-worker, outbox-worker and five
