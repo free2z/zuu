@@ -4,6 +4,16 @@ import CreatorLive from "./CreatorLive";
 
 jest.mock("axios");
 const mockInitMeeting = jest.fn();
+const roomJoinedListeners = new Set<() => void>();
+const mockSelf = {
+  on: jest.fn((event: string, listener: () => void) => {
+    if (event === "roomJoined") roomJoinedListeners.add(listener);
+  }),
+  removeListener: jest.fn((event: string, listener: () => void) => {
+    if (event === "roomJoined") roomJoinedListeners.delete(listener);
+  }),
+};
+const mockMeeting = { self: mockSelf };
 Object.defineProperty(globalThis, "crypto", {
   configurable: true,
   value: require("crypto").webcrypto,
@@ -36,8 +46,17 @@ jest.mock("./state/global", () => ({
 const mocked = axios as jest.Mocked<typeof axios>;
 beforeEach(() => {
   jest.clearAllMocks();
+  mockSelf.on.mockImplementation((event: string, listener: () => void) => {
+    if (event === "roomJoined") roomJoinedListeners.add(listener);
+  });
+  mockSelf.removeListener.mockImplementation(
+    (event: string, listener: () => void) => {
+      if (event === "roomJoined") roomJoinedListeners.delete(listener);
+    },
+  );
+  roomJoinedListeners.clear();
   sessionStorage.clear();
-  mockInitMeeting.mockResolvedValue({});
+  mockInitMeeting.mockResolvedValue(mockMeeting);
   mockViewer = { id: 100, username: "viewer-a", can_stream: true };
 });
 
@@ -48,7 +67,7 @@ test("paid viewer assertion uses the original displayed actor after fresh authen
         url === "/api/auth/user/"
           ? mockViewer
           : url.endsWith("/live-status")
-            ? { ppv: { meeting_id: "provider-session-1" } }
+            ? { ppv: { session_id: "provider-session-1" } }
             : { username: "stream-owner" },
     }),
   );
@@ -68,7 +87,7 @@ test("a cookie-switched paid viewer never creates a meeting for another actor", 
         url === "/api/auth/user/"
           ? { id: 101, username: "viewer-b" }
           : url.endsWith("/live-status")
-            ? { ppv: { meeting_id: "provider-session-1" } }
+            ? { ppv: { session_id: "provider-session-1" } }
             : { username: "stream-owner" },
     }),
   );
@@ -92,7 +111,7 @@ test("a late auth result and actor change to the stream owner cannot reinterpret
         }) as any)
       : Promise.resolve({
           data: url.endsWith("/live-status")
-            ? { ppv: { meeting_id: "provider-session-1" } }
+            ? { ppv: { session_id: "provider-session-1" } }
             : { username: "stream-owner" },
         }),
   );
@@ -118,7 +137,7 @@ test("backend actor_changed after the fresh identity check explains the refusal 
         url === "/api/auth/user/"
           ? mockViewer
           : url.endsWith("/live-status")
-            ? { ppv: { meeting_id: "provider-session-1" } }
+            ? { ppv: { session_id: "provider-session-1" } }
             : { username: "stream-owner" },
     }),
   );
@@ -143,7 +162,7 @@ test("backend actor_changed after the fresh identity check explains the refusal 
   });
 });
 
-test("paid admission retry identity remains until the SDK confirms the join", async () => {
+test("paid admission retry identity remains until roomJoined on its SDK client", async () => {
   mockViewer = { id: 105, username: "viewer-e", can_stream: true };
   mocked.get.mockImplementation((url: any) =>
     Promise.resolve({
@@ -151,7 +170,7 @@ test("paid admission retry identity remains until the SDK confirms the join", as
         url === "/api/auth/user/"
           ? mockViewer
           : url.endsWith("/live-status")
-            ? { ppv: { meeting_id: "provider-session-1" } }
+            ? { ppv: { session_id: "provider-session-1" } }
             : { username: "stream-owner" },
     }),
   );
@@ -167,8 +186,89 @@ test("paid admission retry identity remains until the SDK confirms the join", as
   const admissionKey = sessionStorage.getItem(storageKey);
   expect(admissionKey).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/));
 
-  await act(async () => confirmJoin({}));
+  await act(async () => confirmJoin(mockMeeting));
+  expect(sessionStorage.getItem(storageKey)).toBe(admissionKey);
+  expect(roomJoinedListeners.size).toBe(1);
+  expect(mockSelf.on).toHaveBeenCalledWith(
+    "roomJoined",
+    expect.any(Function),
+  );
+
+  await act(async () => {
+    for (const listener of Array.from(roomJoinedListeners)) listener();
+  });
   await waitFor(() => expect(sessionStorage.getItem(storageKey)).toBeNull());
+  expect(roomJoinedListeners.size).toBe(0);
+});
+
+test("a cancelled paid admission unregisters its roomJoined listener", async () => {
+  mocked.get.mockImplementation((url: any) =>
+    Promise.resolve({
+      data:
+        url === "/api/auth/user/"
+          ? mockViewer
+          : url.endsWith("/live-status")
+            ? { ppv: { session_id: "provider-session-1" } }
+            : { username: "stream-owner" },
+    }),
+  );
+  mocked.post.mockResolvedValue({ data: { auth_token: "synthetic-token" } });
+  const view = render(<CreatorLive />);
+  await waitFor(() => expect(mockSelf.on).toHaveBeenCalledTimes(1));
+
+  view.unmount();
+
+  expect(mockSelf.removeListener).toHaveBeenCalledWith(
+    "roomJoined",
+    expect.any(Function),
+  );
+  expect(roomJoinedListeners.size).toBe(0);
+  expect(
+    sessionStorage.getItem("f2z:ppv-join:stream-owner:100:provider-session-1"),
+  ).not.toBeNull();
+});
+
+test("a failed SDK join retains the same key across a reload retry", async () => {
+  mocked.get.mockImplementation((url: any) =>
+    Promise.resolve({
+      data:
+        url === "/api/auth/user/"
+          ? mockViewer
+          : url.endsWith("/live-status")
+            ? { ppv: { session_id: "provider-session-1" } }
+            : { username: "stream-owner" },
+    }),
+  );
+  mocked.post.mockResolvedValue({ data: { auth_token: "synthetic-token" } });
+  const reload = jest.fn();
+  const originalLocation = window.location;
+  Object.defineProperty(window, "location", {
+    configurable: true,
+    value: { reload },
+  });
+  try {
+    mockInitMeeting.mockRejectedValueOnce(new Error("SDK join failed"));
+    const first = render(<CreatorLive />);
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    const storageKey =
+      "f2z:ppv-join:stream-owner:100:provider-session-1";
+    const firstKey = sessionStorage.getItem(storageKey);
+    expect(firstKey).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/));
+    first.unmount();
+
+    mockInitMeeting.mockResolvedValue(mockMeeting);
+    render(<CreatorLive />);
+    await waitFor(() => expect(mocked.post).toHaveBeenCalledTimes(2));
+    expect((mocked.post.mock.calls[1][1] as any).admission_idempotency_key).toBe(
+      firstKey,
+    );
+    expect(sessionStorage.getItem(storageKey)).toBe(firstKey);
+  } finally {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: originalLocation,
+    });
+  }
 });
 
 test("blocked retry storage fails closed, including after a reload", async () => {
@@ -178,7 +278,7 @@ test("blocked retry storage fails closed, including after a reload", async () =>
         url === "/api/auth/user/"
           ? mockViewer
           : url.endsWith("/live-status")
-            ? { ppv: { meeting_id: "provider-session-1" } }
+            ? { ppv: { session_id: "provider-session-1" } }
             : { username: "stream-owner" },
     }),
   );
@@ -211,29 +311,42 @@ test("blocked retry storage fails closed, including after a reload", async () =>
   setItem.mockRestore();
 });
 
-test("a new provider session uses a separate paid admission retry key", async () => {
+test("the same meeting uses a separate retry key for a different provider session", async () => {
+  let providerSessionId = "provider-session-1";
   mocked.get.mockImplementation((url: any) =>
     Promise.resolve({
       data:
         url === "/api/auth/user/"
           ? mockViewer
           : url.endsWith("/live-status")
-            ? { ppv: { meeting_id: "provider-session-2" } }
+            ? {
+                ppv: {
+                  meeting_id: "same-meeting",
+                  session_id: providerSessionId,
+                },
+              }
             : { username: "stream-owner" },
     }),
   );
-  let confirmJoin!: (value: unknown) => void;
-  mockInitMeeting.mockImplementation(
-    () => new Promise((resolve) => (confirmJoin = resolve)),
-  );
   mocked.post.mockResolvedValue({ data: { auth_token: "synthetic-token" } });
-  render(<CreatorLive />);
+  const first = render(<CreatorLive />);
   await waitFor(() => expect(mocked.post).toHaveBeenCalledTimes(1));
-  const postedKey = (mocked.post.mock.calls[0][1] as any)
+  const firstKey = (mocked.post.mock.calls[0][1] as any)
     .admission_idempotency_key;
-  expect(postedKey).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/));
+  expect(firstKey).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/));
+  expect(
+    sessionStorage.getItem("f2z:ppv-join:stream-owner:100:provider-session-1"),
+  ).toBe(firstKey);
+  first.unmount();
+
+  providerSessionId = "provider-session-2";
+  render(<CreatorLive />);
+  await waitFor(() => expect(mocked.post).toHaveBeenCalledTimes(2));
+  const secondKey = (mocked.post.mock.calls[1][1] as any)
+    .admission_idempotency_key;
+  expect(secondKey).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/));
+  expect(secondKey).not.toBe(firstKey);
   expect(
     sessionStorage.getItem("f2z:ppv-join:stream-owner:100:provider-session-2"),
-  ).toBe(postedKey);
-  await act(async () => confirmJoin({}));
+  ).toBe(secondKey);
 });

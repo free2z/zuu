@@ -154,6 +154,7 @@ export default function CreatorLive() {
       username: creator.username,
     };
     let cancelled = false;
+    let unregisterRoomJoined: (() => void) | undefined;
     const instruction = {
       ...(type === "ppv" && is_owner && !paidViewer
         ? { price_per_minute: String(ppvPrice) }
@@ -178,7 +179,7 @@ export default function CreatorLive() {
         const { data: liveStatus } = await axios.get(
           `/api/dyte/${owner}/live-status`,
         );
-        const providerSessionId = liveStatus?.ppv?.meeting_id;
+        const providerSessionId = liveStatus?.ppv?.session_id;
         if (
           typeof providerSessionId !== "string" ||
           !providerSessionId.trim()
@@ -208,7 +209,9 @@ export default function CreatorLive() {
       .then((res) => {
         if (
           paidViewer &&
-          (cancelled || viewerRef.current.id !== originalViewer.id)
+          (cancelled ||
+            viewerRef.current.id !== originalViewer.id ||
+            viewerRef.current.username !== originalViewer.username)
         )
           return;
         // console.log("INIT MEETING", res)
@@ -216,18 +219,44 @@ export default function CreatorLive() {
           authToken: res.data.auth_token,
         })
           .then((client) => {
-            // The backend admission can succeed while the SDK join fails. Keep
-            // its idempotency key until the client has actually joined so a
-            // reload or retry cannot create a second paid admission.
-            if (paidViewer && owner) {
-              const key = `f2z:ppv-join:${owner.toLowerCase()}:${
-                originalViewer.id
-              }:${originalViewer.sessionId}`;
-              try {
-                sessionStorage.removeItem(key);
-              } catch {
-                // The in-memory ref still protects this page's retries.
-              }
+            if (
+              paidViewer &&
+              (cancelled ||
+                viewerRef.current.id !== originalViewer.id ||
+                viewerRef.current.username !== originalViewer.username)
+            )
+              return;
+            if (
+              paidViewer &&
+              owner &&
+              originalViewer.sessionId &&
+              client?.self
+            ) {
+              // initMeeting only initializes the SDK client. The admission is
+              // complete once this exact client's room reports that it joined.
+              const self = client.self;
+              const onRoomJoined = () => {
+                self.removeListener("roomJoined", onRoomJoined);
+                unregisterRoomJoined = undefined;
+                if (
+                  cancelled ||
+                  viewerRef.current.id !== originalViewer.id ||
+                  viewerRef.current.username !== originalViewer.username
+                )
+                  return;
+                const key = `f2z:ppv-join:${owner.toLowerCase()}:${
+                  originalViewer.id
+                }:${originalViewer.sessionId}`;
+                try {
+                  sessionStorage.removeItem(key);
+                } catch {
+                  // The in-memory ref still protects this page's retries.
+                }
+              };
+              self.on("roomJoined", onRoomJoined);
+              unregisterRoomJoined = () => {
+                self.removeListener("roomJoined", onRoomJoined);
+              };
             }
             setSnackbarState({
               message: "Thanks for joining",
@@ -291,6 +320,8 @@ export default function CreatorLive() {
       });
     return () => {
       cancelled = true;
+      unregisterRoomJoined?.();
+      unregisterRoomJoined = undefined;
     };
   }, [creator.id, creator.username, showPay, star.username, owner, type]);
 
