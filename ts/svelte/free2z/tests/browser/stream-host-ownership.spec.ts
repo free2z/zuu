@@ -16,6 +16,7 @@ declare global {
       joinCalls: number;
       left: number;
       finishProvider: () => void;
+      finishSecondProvider: () => void;
       finishLeave: () => void;
       endRoom: (state?: string) => void;
     };
@@ -38,6 +39,7 @@ async function prepareSession(page: Page) {
       joinCalls: 0,
       left: 0,
       finishProvider: () => {},
+      finishSecondProvider: () => {},
       finishLeave: () => {},
       endRoom: () => {},
     };
@@ -130,6 +132,7 @@ async function stubProvider(
   failSecondInitWithRoomFailure = false,
   terminalDuringInit?: "kicked" | "rejected",
   terminalSecondInit?: "kicked" | "rejected",
+  heldSecondInit = false,
 ) {
   await page.evaluate(
     async ({
@@ -141,6 +144,7 @@ async function stubProvider(
       failSecondInitWithRoomFailure,
       terminalDuringInit,
       terminalSecondInit,
+      heldSecondInit,
     }) => {
       const text = await (await fetch("/src/lib/utils/rtk-manager.ts")).text();
       const path = text.match(
@@ -221,6 +225,11 @@ async function stubProvider(
             window.hostTest.finishProvider = resolve;
           });
         }
+        if (heldSecondInit && window.hostTest.sdkCalls.length === 2) {
+          await new Promise<void>((resolve) => {
+            window.hostTest.finishSecondProvider = resolve;
+          });
+        }
         return meeting;
       };
     },
@@ -233,9 +242,111 @@ async function stubProvider(
       failSecondInitWithRoomFailure,
       terminalDuringInit,
       terminalSecondInit,
+      heldSecondInit,
     },
   );
 }
+
+test("takeover during host retry SDK initialization abandons and cleans up the stale meeting", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(
+    page,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    undefined,
+    undefined,
+    true,
+  );
+  const bodies: any[] = [];
+  await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+    bodies.push(route.request().postDataJSON());
+    return route.fulfill({
+      json: { auth_token: `host-token-${bodies.length}` },
+    });
+  });
+  await page.route(`**/api/dyte/${USER}/host-session`, (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({
+          json: {
+            active: false,
+            host_session: null,
+            meeting_type: null,
+            ttl_seconds: 60,
+          },
+        })
+      : route.fulfill({ json: {} }),
+  );
+
+  await page.getByTestId("stream-start").click();
+  await expect.poll(async () => (await meetingState(page)).calls).toBe(1);
+  await page.evaluate(() => window.hostTest.endRoom("failed"));
+  await expect.poll(async () => (await meetingState(page)).calls).toBe(2);
+  await page.evaluate((user) => {
+    const channel = new BroadcastChannel(`f2z:host-seat:${user}`);
+    channel.postMessage({
+      kind: "takeover",
+      session: "new-host",
+      meetingType: "broadcast",
+    });
+    channel.close();
+  }, USER);
+  await expect(page.getByTestId("stream-seat-panel")).toHaveAttribute(
+    "data-seat-state",
+    "superseded",
+  );
+  await page.evaluate(() => window.hostTest.finishSecondProvider());
+  await expect.poll(async () => (await meetingState(page)).room).toBeNull();
+  expect(bodies).toHaveLength(2);
+  await expect(page.getByTestId("host-reconnecting")).toHaveCount(0);
+  await expect
+    .poll(async () => page.evaluate(() => window.hostTest.left))
+    .toBeGreaterThanOrEqual(2);
+});
+
+test("initial host SDK failure does not announce success while recovery is pending", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(page, false, false, false, true);
+  const bodies: any[] = [];
+  let finishRetry!: () => void;
+  const retryHeld = new Promise<void>((resolve) => (finishRetry = resolve));
+  await page.route(`**/api/dyte/${USER}/broadcast`, async (route) => {
+    bodies.push(route.request().postDataJSON());
+    if (bodies.length === 2) await retryHeld;
+    return route.fulfill({
+      json: { auth_token: `host-token-${bodies.length}` },
+    });
+  });
+  await page.route(`**/api/dyte/${USER}/host-session`, (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({
+          json: {
+            active: false,
+            host_session: null,
+            meeting_type: null,
+            ttl_seconds: 60,
+          },
+        })
+      : route.fulfill({ json: {} }),
+  );
+
+  await page.getByTestId("stream-start").click();
+  await expect.poll(() => bodies.length).toBe(2);
+  await expect(
+    page.getByText("The stream started successfully. You are live!", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  finishRetry();
+  await expect.poll(async () => (await meetingState(page)).calls).toBe(2);
+});
 
 test("failed room during gated host initialization retries with the same seat", async ({
   page,

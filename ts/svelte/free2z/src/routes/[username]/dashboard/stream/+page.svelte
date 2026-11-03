@@ -269,6 +269,7 @@
   let accountGeneration = 0;
   let account: { id: number; username: string } | null = null;
   let startController: AbortController | null = null;
+  let hostReconnectController: AbortController | null = null;
   type OwnedSeat = { actor: HostOwner; session: string };
   let seatOwner: OwnedSeat | null = null;
   // One creator can hold only one seat. Keep that abandoned grant until its
@@ -349,6 +350,8 @@
         accountGeneration++;
         startController?.abort();
         startController = null;
+        hostReconnectController?.abort();
+        hostReconnectController = null;
         endSeat();
         if (abandonedSeat && isSameAccount(abandonedSeat.actor)) {
           const released = abandonedSeat;
@@ -572,6 +575,8 @@
     if (!owner || superseded) return;
     superseded = true;
     startController?.abort();
+    startController = null;
+    hostReconnectController?.abort();
     stopHeartbeat?.();
     stopHeartbeat = null;
     seatState = "superseded";
@@ -692,6 +697,7 @@
     destroyed = true;
     unsubscribeAccount();
     startController?.abort();
+    hostReconnectController?.abort();
     authGuardReady = false;
     endSeat();
     clearInterval(recheckTimer);
@@ -746,6 +752,7 @@
       isCurrentOwner(owner) &&
       operationNotice.isCurrent() &&
       startController === controller;
+    let recoveryPending = false;
 
     try {
       if (startType === "private") {
@@ -915,8 +922,14 @@
         // meeting. A failure can arrive after that listener is attached but
         // before this host-specific handler is installed. The store retains
         // that state, so hand it to the normal recovery path now.
-        if (get(liveStreamStore).connectionStatus === "failed")
+        if (get(liveStreamStore).connectionStatus === "failed") {
+          // Initial SDK failure starts recovery. Do not complete the start
+          // operation or announce success while that recovery is pending.
+          recoveryPending = true;
+          reconnecting = true;
           void onHostRoomLeft({ state: "failed" });
+          return;
+        }
       }
 
       operationNotice.success(
@@ -943,7 +956,7 @@
         err.code.startsWith("privateCall.recording");
       operationNotice.error(error);
     } finally {
-      if (isCurrentStart()) loading = false;
+      if (!recoveryPending && isCurrentStart()) loading = false;
     }
   }
 
@@ -959,6 +972,18 @@
     )
       return;
     hostReconnectRunning = true;
+    const controller = new AbortController();
+    hostReconnectController = controller;
+    const isCurrentReconnect = () =>
+      !controller.signal.aborted &&
+      hostReconnectController === controller &&
+      !superseded &&
+      seatState === "live" &&
+      isCurrentOwner(owner) &&
+      seatOwner?.session === session &&
+      seatOwner.actor.id === owner.id &&
+      seatOwner.actor.username === owner.username &&
+      !isLeaving;
     reconnecting = true;
     hostReconnectFailed = false;
     error = null;
@@ -969,8 +994,7 @@
     let waitingForRoomJoin = false;
     try {
       if (oldCleanup) await oldCleanup();
-      if (!isCurrentOwner(owner) || seatOwner?.session !== session || isLeaving)
-        return;
+      if (!isCurrentReconnect()) return;
       // Reissuing the host token with this tab's existing session resumes its
       // seat and avoids a competing broadcaster during provider recovery.
       const { auth_token } = await StreamService.initStream(
@@ -979,21 +1003,18 @@
         {
           role: "host",
           hostSession: session,
+          signal: controller.signal,
         },
       );
-      if (!isCurrentOwner(owner) || seatOwner?.session !== session || isLeaving)
-        return;
+      if (!isCurrentReconnect()) return;
       const initialized = await initRtkMeeting({
         authToken: auth_token,
         streamType: type,
         isHost: true,
+        signal: controller.signal,
         ...getHostStreamMediaOptions(videoQuality),
       });
-      if (
-        !isCurrentOwner(owner) ||
-        seatOwner?.session !== session ||
-        isLeaving
-      ) {
+      if (!isCurrentReconnect()) {
         await initialized.cleanup();
         return;
       }
@@ -1004,12 +1025,7 @@
       const initStatus = get(liveStreamStore).connectionStatus;
       if (initStatus === "kicked" || initStatus === "rejected") {
         await initialized.cleanup();
-        if (
-          !isCurrentOwner(owner) ||
-          seatOwner?.session !== session ||
-          isLeaving
-        )
-          return;
+        if (!isCurrentReconnect()) return;
         error =
           initStatus === "kicked"
             ? $t(
@@ -1021,6 +1037,7 @@
                 "The live room rejected the connection. Reconnect to start a new broadcast.",
               );
         hostReconnectFailed = true;
+        startController = null;
         endSeat();
         if (notice.isCurrent()) notice.error(error);
         return;
@@ -1031,7 +1048,10 @@
       }
       let onRoomLeft: ((event: { state: string }) => void) | null = null;
       const onRoomJoined = () => {
-        if (ownedMeeting === initialized.meeting) reconnecting = false;
+        if (ownedMeeting === initialized.meeting) {
+          reconnecting = false;
+          startController = null;
+        }
       };
       cleanup = async () => {
         if (onRoomLeft) initialized.meeting?.self.off("roomLeft", onRoomLeft);
@@ -1088,11 +1108,11 @@
       nextMeeting.self.on("roomJoined", onRoomJoined);
       liveStreamStore.setError(null, null);
     } catch (err) {
-      if (!isCurrentOwner(owner) || seatOwner?.session !== session || isLeaving)
-        return;
+      if (!isCurrentReconnect()) return;
       console.error("Failed to reconnect host stream:", err);
       endSeat();
       hostReconnectFailed = true;
+      startController = null;
       error = $t(
         "dashboard.stream.hostReconnectFailed",
         "The stream could not reconnect. Reconnect to start a new broadcast.",
@@ -1101,6 +1121,8 @@
       reconnecting = false;
     } finally {
       hostReconnectRunning = false;
+      if (hostReconnectController === controller)
+        hostReconnectController = null;
       if (!waitingForRoomJoin) reconnecting = false;
     }
   }
