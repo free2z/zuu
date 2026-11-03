@@ -395,9 +395,11 @@ class DyteClient(object):
                 meeting_id, str(participant_id),
             )
             if resolved is None:
-                # Complete list with no match means it was never minted or
-                # was already deleted by an earlier worker attempt.
-                return True
+                # A pre-mint obligation can outlive the request that minted
+                # it. An empty list is only a snapshot: the provider may
+                # finish an already accepted add request after this lookup.
+                # Keep retrying until the participant appears and is retired.
+                return False
             if not resolved:
                 return False
             participant_id = resolved
@@ -437,18 +439,36 @@ class DyteClient(object):
                     headers={'Content-Type': 'application/json'},
                     auth=auth, timeout=_timeout(),
                 )
-                if response.status_code == 404:
-                    return None
                 if response.status_code >= 300:
-                    return None
-                payload = _safe_json(response)
-                data = payload.get('data') or []
+                    logger.warning(
+                        "resolve participant id: provider status=%s meeting=%s",
+                        response.status_code, meeting_id)
+                    return False
+                try:
+                    payload = response.json()
+                except (ValueError, TypeError, AttributeError):
+                    return False
+                if not isinstance(payload, dict) or 'data' not in payload:
+                    return False
+                data = payload['data']
                 if isinstance(data, dict):
                     data = [data]
+                if not isinstance(data, list):
+                    return False
                 for participant in data:
-                    if participant.get('custom_participant_id') == custom_id:
-                        provider_id = participant.get('id')
-                        return str(provider_id) if provider_id else None
+                    if not isinstance(participant, dict):
+                        return False
+                    provider_id = participant.get('id')
+                    participant_custom_id = participant.get(
+                        'custom_participant_id',
+                    )
+                    if (not isinstance(provider_id, str) or not provider_id
+                            or ('custom_participant_id' not in participant)
+                            or (participant_custom_id is not None
+                                and not isinstance(participant_custom_id, str))):
+                        return False
+                    if participant_custom_id == custom_id:
+                        return provider_id
                 if len(data) < 100:
                     return None
                 page_no += 1
