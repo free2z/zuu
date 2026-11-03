@@ -22,10 +22,12 @@
   import { initRtkMeeting } from "$lib/utils/rtk-manager";
   import {
     liveStreamStore,
+    meetingStore,
     participantCount,
     isConnected,
   } from "$lib/stores/liveStreamStore";
   import type { StreamType } from "$lib/stores/liveStreamStore";
+  import { getHostStreamMediaOptions } from "$lib/utils/stream-media-config";
   import { defineCustomElements } from "@cloudflare/realtimekit-ui/loader";
   import {
     provideRtkDesignSystem,
@@ -73,7 +75,7 @@
   // We can use the currentUser store directly as it was in the component
   $: user = $currentUser;
   let authGuardReady = false;
-  $: meeting = $liveStreamStore.meeting;
+  $: meeting = $meetingStore;
   $: connected = $isConnected;
   $: count = $participantCount;
   $: isOffline = $liveStreamStore.isOffline;
@@ -375,7 +377,7 @@
     streamType === "private" ? null : streamWatchPath(username, streamType);
 
   // Stream Settings
-  let videoQuality = "720p";
+  let videoQuality = "480p";
   let qualityOptions: { value: string; label: string }[] = [];
   $: videoQualityLabel =
     qualityOptions.find((o) => o.value === videoQuality)?.label ??
@@ -807,22 +809,6 @@
       }
       beginSeat(startType, takeover, owner, session);
 
-      // Helper to get constraints
-      const getVideoConstraints = (quality: string) => {
-        switch (quality) {
-          case "1080p":
-            return { height: { ideal: 1080 }, width: { ideal: 1920 } };
-          case "720p":
-            return { height: { ideal: 720 }, width: { ideal: 1280 } };
-          case "480p":
-            return { height: { ideal: 480 }, width: { ideal: 854 } };
-          case "360p":
-            return { height: { ideal: 360 }, width: { ideal: 640 } };
-          default:
-            return { height: { ideal: 720 }, width: { ideal: 1280 } };
-        }
-      };
-
       // 2. Initialize RealtimeKit Meeting
       const { cleanup: cleanupFn, meeting: meetingInstance } =
         await initRtkMeeting({
@@ -830,13 +816,7 @@
           streamType: startType,
           isHost: true,
           signal: controller.signal,
-          defaults: {
-            audio: true,
-            video: true,
-            mediaConfiguration: {
-              video: getVideoConstraints(quality),
-            },
-          },
+          ...getHostStreamMediaOptions(quality),
         });
       // The seat may have moved while RealtimeKit was initializing (a camera
       // permission prompt can take as long as the user likes), or the page

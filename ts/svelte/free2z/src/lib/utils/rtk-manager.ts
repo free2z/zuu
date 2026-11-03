@@ -45,6 +45,9 @@ export interface RtkInitOptions {
   streamType: StreamType;
   isHost: boolean;
   defaults?: Record<string, unknown>;
+  overrides?: {
+    [key: string]: boolean | string | number | Record<string, any>;
+  };
   signal?: AbortSignal;
 }
 
@@ -60,7 +63,8 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
   if (!browser)
     return { cleanup: async () => {}, meeting: null, warning: undefined };
 
-  const { authToken, streamType, isHost, defaults, signal } = options;
+  const { authToken, streamType, isHost, defaults, overrides, signal } =
+    options;
   let warning: string | undefined;
   let warningCode: string | undefined;
   let meeting: RealtimeKitClient | null = null;
@@ -77,6 +81,7 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
           video: false,
           ...defaults,
         },
+        overrides,
       });
     } catch (initError: unknown) {
       const err = initError as { message?: string; name?: string };
