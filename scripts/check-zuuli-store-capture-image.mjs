@@ -20,7 +20,7 @@ const imageRepository = "ghcr.io/free2z/zuuli-store-capture";
 const allowedActions = new Set([
   "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
   "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e",
-  "docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a",
+  "docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc",
   "docker/login-action@dbcb813823bdd20940b903addbd779551569679f",
   "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
 ]);
