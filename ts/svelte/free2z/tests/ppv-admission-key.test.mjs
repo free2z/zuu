@@ -52,6 +52,54 @@ test("unscoped legacy keys are not adopted and meeting types remain isolated", (
   }
 });
 
+test("a paid admission key is unavailable until storage persists and reads it back", () => {
+  const previous = globalThis.sessionStorage;
+  globalThis.sessionStorage = {
+    getItem: () => null,
+    setItem: () => {
+      throw new DOMException("Storage is blocked", "SecurityError");
+    },
+    removeItem: () => {},
+  };
+  try {
+    assert.throws(
+      () =>
+        ppvJoinKey(
+          "ppv-key-storage-blocked",
+          719003,
+          "00000000-0000-4000-8000-000000000004",
+        ),
+      { name: "PpvAdmissionStorageError" },
+    );
+  } finally {
+    if (previous === undefined) delete globalThis.sessionStorage;
+    else globalThis.sessionStorage = previous;
+  }
+});
+
+test("a paid admission key is unavailable when storage silently drops its write", () => {
+  const previous = globalThis.sessionStorage;
+  globalThis.sessionStorage = {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {},
+  };
+  try {
+    assert.throws(
+      () =>
+        ppvJoinKey(
+          "ppv-key-storage-no-readback",
+          719004,
+          "00000000-0000-4000-8000-000000000005",
+        ),
+      { name: "PpvAdmissionStorageError" },
+    );
+  } finally {
+    if (previous === undefined) delete globalThis.sessionStorage;
+    else globalThis.sessionStorage = previous;
+  }
+});
+
 test("aborting an admission attempt unregisters its roomJoined listener", () => {
   const handlers = new Set();
   const meeting = {

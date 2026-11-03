@@ -450,6 +450,15 @@
         loading = false;
         return;
       }
+      if (
+        err instanceof LocalizedError &&
+        err.code === "stream.subscribe.storageUnavailable"
+      ) {
+        clearTimeout(retryTimeout);
+        operationNotice.error(localizedStreamError(err, null, $t));
+        loading = false;
+        return;
+      }
 
       if (streamType === "ppv" && isPaymentRequired) {
         const status = await StreamService.checkLiveStatus(username);

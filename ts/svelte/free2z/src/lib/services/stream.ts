@@ -26,7 +26,10 @@ import {
   type MessageDescriptor,
 } from "$lib/i18n-message";
 import { PUBLIC_STREAM_TYPES, STREAM_TYPES } from "$lib/streamTypes.js";
-import { ppvJoinKey } from "$lib/ppv-admission-key.js";
+import {
+  PpvAdmissionStorageError,
+  ppvJoinKey,
+} from "$lib/ppv-admission-key.js";
 export { clearPpvJoinKey } from "$lib/ppv-admission-key.js";
 import { z } from "zod";
 
@@ -45,6 +48,10 @@ const STREAM_MESSAGES = {
   verificationUnavailable: defineMessage(
     "stream.errors.verificationUnavailable",
     "We couldn't verify your account just now. Please retry.",
+  ),
+  storageUnavailable: defineMessage(
+    "stream.subscribe.storageUnavailable",
+    "Browser storage is unavailable. Restore it and check any previous payment before retrying. This attempt was not sent.",
   ),
   invalidResponse: defineMessage(
     "stream.errors.invalidResponse",
@@ -338,6 +345,12 @@ export class StreamService {
       };
     } catch (error) {
       if (signal?.aborted) throw error;
+      if (error instanceof PpvAdmissionStorageError)
+        throw localizedError(
+          STREAM_MESSAGES.storageUnavailable,
+          undefined,
+          error,
+        );
       if (error instanceof z.ZodError) {
         console.error(
           "Stream initialization response validation failed:",

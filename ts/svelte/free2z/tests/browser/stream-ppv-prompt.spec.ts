@@ -165,6 +165,44 @@ test("paid join fails closed when live status has no provider session identity",
   await expect.poll(() => joins.length).toBe(0);
 });
 
+test("paid join fails closed when retry-key storage throws, including after reload", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await signInWithBalance(page, "500.000");
+  await stubLivePpv(page);
+  const joins: Array<Record<string, unknown>> = [];
+  await page.route(`**/api/dyte/${OWNER}/ppv`, (route) => {
+    if (route.request().method() === "POST") {
+      joins.push(route.request().postDataJSON() ?? {});
+    }
+    return route.fulfill({ status: 500, body: "unexpected paid join" });
+  });
+  await page.addInitScript(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith("f2z:ppv-join:")) {
+        throw new DOMException("Storage is blocked", "SecurityError");
+      }
+      return originalSetItem.call(this, key, value);
+    };
+  });
+
+  await page.goto(`/${OWNER}/ppv?lang=en`);
+  const storageError = page
+    .getByText(
+      "Browser storage is unavailable. Restore it and check any previous payment before retrying. This attempt was not sent.",
+      { exact: true },
+    )
+    .first();
+  await expect(storageError).toBeVisible();
+  expect(joins).toEqual([]);
+
+  await page.reload();
+  await expect(storageError).toBeVisible();
+  expect(joins).toEqual([]);
+});
+
 /** Every join POST, refused as the server refuses an under-reserve viewer. */
 async function refuseJoins(page: Page, balance: string) {
   const joins: Array<Record<string, unknown>> = [];
