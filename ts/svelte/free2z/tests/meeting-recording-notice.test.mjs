@@ -25,10 +25,17 @@ test("shows a notice while a recording is starting, active, or paused", () => {
       recordingState,
     );
   }
+  assert.equal(
+    recordingNoticeFor({
+      recordingState: "INVOKED",
+      viewType: "WEBINAR",
+      stageStatus: "ON_STAGE",
+    })?.state,
+    "STARTING",
+  );
   for (const recordingState of [
     "IDLE",
     "STOPPING",
-    "INVOKED",
     "UPLOADING",
     "UPLOADED",
     "FAILED",
@@ -157,6 +164,23 @@ test("the watch follows recording and stage updates and drops its listeners", ()
   assert.equal(changes.length, 6);
 });
 
+test("an invoked server recording still shows while the SDK aggregate says idle", () => {
+  const current = meeting({
+    recordingState: "IDLE",
+    viewType: "WEBINAR",
+    stageStatus: "ON_STAGE",
+  });
+  current.recording.recordings = [{ state: "INVOKED" }];
+  const changes = [];
+  const stop = watchMeetingRecordingNotice(current, (notice) => {
+    changes.push(notice);
+  });
+  assert.deepEqual(changes, [
+    { state: "STARTING", emphasis: "stage", onStage: true },
+  ]);
+  stop();
+});
+
 test("a joined room that is already recording is announced immediately", () => {
   const current = meeting({
     recordingState: "RECORDING",
@@ -208,7 +232,7 @@ test("every human meeting surface mounts the notice on that meeting", () => {
     );
     assert.match(
       source,
-      /<MeetingRecordingNotice\s+\{meeting\}\s*\/>/,
+      /<MeetingRecordingNotice\s+\{meeting\}(?:\s+\{serverRecording\})?\s*\/>/,
       `${file} must bind the notice to its meeting`,
     );
   }

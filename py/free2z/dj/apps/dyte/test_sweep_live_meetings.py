@@ -293,6 +293,30 @@ def test_sweep_success_logs_at_info_not_warning(mocker, creator_factory, caplog)
 
 
 @pytest.mark.django_db
+def test_live_status_reports_a_recording_the_host_published(
+    mocker, api_client, creator_factory
+):
+    """Viewers learn a server-started recording from live status, not the SDK."""
+    from django.core.cache import cache
+
+    from dj.apps.dyte.recording_control import publish_public_recording
+
+    creator = creator_factory()
+    _make_meeting(creator, "rec-room")
+    _patch_count(mocker, return_value=2)
+    publish_public_recording("rec-room", "RECORDING")
+
+    resp = api_client.get(reverse("live_meeting_status", args=[creator.username]))
+
+    assert resp.status_code == 200
+    assert resp.json()["broadcast"]["recording"] is True
+    cache.delete("rtk-recording-public:rec-room")
+
+    quiet = api_client.get(reverse("live_meeting_status", args=[creator.username]))
+    assert quiet.json()["broadcast"]["recording"] is False
+
+
+@pytest.mark.django_db
 def test_live_status_does_not_500_on_provider_error(
     mocker, api_client, creator_factory
 ):

@@ -19,6 +19,25 @@ from dj.free2z.throttling import POLLING_THROTTLES
 from .models import CreatorMeeting, PUBLIC_MEETING_TYPES, PRIVATE
 
 ACTIVE = {"INVOKED", "RECORDING", "PAUSED"}
+PUBLIC_RECORDING_TTL = 120
+
+
+def publish_public_recording(meeting_id, status):
+    """Remember whether a room is being recorded, for people who cannot poll it.
+
+    The browser SDK only learns about a server-started recording if it receives
+    a room event. Someone already on stage often does not. Viewers read this
+    flag from live status instead of the owner recording API.
+    """
+    cache.set(
+        f"rtk-recording-public:{meeting_id}",
+        status in ACTIVE,
+        PUBLIC_RECORDING_TTL,
+    )
+
+
+def public_recording(meeting_id):
+    return cache.get(f"rtk-recording-public:{meeting_id}") is True
 STATES = ACTIVE | {"STOPPING", "UPLOADING", "UPLOADED", "FAILED", "ERRORED"}
 # Provider requests that time out can still have started a recording. Keep an
 # admission marker through the maximum capture duration; never blindly retry.
@@ -189,6 +208,7 @@ class RecordingControl(APIView):
                 {"error": "Only the stream owner can manage recordings."}, status=403
             )
         cm = None
+        announced = None
         try:
             with transaction.atomic():
                 cm = self._meeting(request, request.data, lock=True)
@@ -203,6 +223,7 @@ class RecordingControl(APIView):
                         "STOPPING",
                         "UPLOADING",
                     }:
+                        announced = current["status"]
                         return Response({"recording_state": current["status"]})
                     if not can_record():
                         return Response(
@@ -236,6 +257,7 @@ class RecordingControl(APIView):
                         raise
                     cache.set(key, current["id"], MAX_SECONDS + 3600)
                     cache.delete(f"{key}:pending")
+                    announced = current["status"]
                 elif action == "stop" and current and current["status"] in ACTIVE:
                     stopped = provider(
                         "PUT", f"recordings/{current['id']}", payload={"action": "stop"}
@@ -244,9 +266,11 @@ class RecordingControl(APIView):
                     # state comes from subsequent GETs, not a fabricated event.
                     if stopped is None:
                         raise ProviderUnavailable()
+                    announced = "STOPPING"
                     return Response({"recording_state": "STOPPING"})
+                announced = current["status"] if current else "IDLE"
                 return Response(
-                    {"recording_state": current["status"] if current else "IDLE"}
+                    {"recording_state": announced}
                 )
         except (
             ProviderUnavailable,
@@ -264,6 +288,8 @@ class RecordingControl(APIView):
         finally:
             if cm is not None:
                 cache.delete(f"rtk-recording-status:{cm.meeting_id}")
+                if announced is not None:
+                    publish_public_recording(cm.meeting_id, announced)
 
     @extend_schema(
         parameters=[RecordingRequestSerializer],
@@ -291,8 +317,10 @@ class RecordingControl(APIView):
             )
             if cached is None:
                 cache.set(status_key, {"recording": current}, 5)
+            state = current["status"] if current else "IDLE"
+            publish_public_recording(cm.meeting_id, state)
             return Response(
-                {"recording_state": current["status"] if current else "IDLE"}
+                {"recording_state": state}
             )
         except (
             ProviderUnavailable,
