@@ -993,6 +993,7 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
             event_data.meeting.id,
         )
         cm.live_now = True
+        cm.provider_session_id = event_data.meeting.sessionId
         # Stamp presence so the just-went-live room is inside the public
         # list's last_seen_at window and safe from the sweep's grace before
         # the first dyte.sweep_live_meetings probe runs.
@@ -1001,7 +1002,9 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
         # event was processed, would write back a stale broadcaster seat
         # (host_session_id) over a start or take-over that committed in
         # between.
-        cm.save(update_fields=['live_now', 'last_seen_at'])
+        cm.save(update_fields=[
+            'live_now', 'last_seen_at', 'provider_session_id',
+        ])
 
     elif event_data.event == "meeting.ended":
         logger.info(
@@ -1009,6 +1012,20 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
             event_data.event,
             event_data.meeting.id,
         )
+        # Dyte can deliver the previous session's end after a host has
+        # restarted in the same room. Only the end for the session currently
+        # recorded by meeting.started may take that room offline.
+        if (
+            cm.provider_session_id is not None
+            and cm.provider_session_id != event_data.meeting.sessionId
+        ):
+            logger.info(
+                "ignoring stale meeting ended meeting_id=%s session_id=%s current_session_id=%s",
+                event_data.meeting.id,
+                event_data.meeting.sessionId,
+                cm.provider_session_id,
+            )
+            return
         cm.live_now = False
         cm.save(update_fields=['live_now'])
 

@@ -121,10 +121,13 @@ def _left(meeting_id, title, participant_id):
     }).encode()
 
 
-def _lifecycle(event, meeting_id, title):
+def _lifecycle(event, meeting_id, title, *, session_id=None):
+    meeting = _meeting(meeting_id, title)
+    if session_id is not None:
+        meeting['sessionId'] = str(session_id)
     return json.dumps({
         'event': event,
-        'meeting': _meeting(meeting_id, title),
+        'meeting': meeting,
     }).encode()
 
 
@@ -224,6 +227,37 @@ def test_a_host_restart_orphans_the_old_room_and_its_leaves_are_counted(
     broadcast.refresh_from_db()
     assert broadcast.meeting_id == room_b
     assert broadcast.live_now is True
+
+
+def test_late_meeting_ended_from_previous_session_keeps_room_live(
+    api_client, keypair, broadcast,
+):
+    """A late end for session A cannot take the fresh session B offline."""
+    private_key, _ = keypair
+    session_a, session_b = uuid.uuid4(), uuid.uuid4()
+    now = timezone.now()
+    CreatorMeeting.objects.filter(pk=broadcast.pk).update(
+        live_now=False, host_session_id=uuid.uuid4(),
+        host_session_seen_at=now,
+    )
+    api_client.force_authenticate(user=None)
+
+    started = _post(
+        api_client, private_key,
+        _lifecycle('meeting.started', broadcast.meeting_id, 'Big_dre',
+                   session_id=session_b),
+    )
+    ended = _post(
+        api_client, private_key,
+        _lifecycle('meeting.ended', broadcast.meeting_id, 'Big_dre',
+                   session_id=session_a),
+    )
+
+    assert started.status_code == 200
+    assert ended.status_code == 200
+    broadcast.refresh_from_db()
+    assert broadcast.live_now is True
+    assert broadcast.provider_session_id == session_b
 
 
 # --------------------------------------------------------------------------
