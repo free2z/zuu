@@ -265,11 +265,19 @@ def prepare_livestream_admission(*, host_id, viewer_id, meeting_id, price_per_mi
         original = existing.source
         if (existing.creator_id != host_id
             or original.get('meeting_id') != str(meeting_id)
+            or original.get('creator_meeting_id') != meeting.pk
             or original.get('provider_session_id') != str(meeting.provider_session_id)
             or original.get('host_session_id') != str(meeting.host_session_id)
-            or original.get('subject_creator_id') != viewer_id):
+            or original.get('subject_creator_id') != viewer_id
+            or original.get('price_per_minute_2z') != str(price)):
             raise money.EconomicRefusal('livestream_admission_identity_conflict')
-        return existing
+        # RealtimeKit does not document Add Participant as idempotent by
+        # custom_participant_id. A retry after an ambiguous POST must not mint
+        # a second provider participant. Listing participants can identify an
+        # existing record, but does not return its token; refresh requires its
+        # provider ID and cannot prove that a missing list result means the
+        # original POST did not commit. Leave this retry unresolved.
+        raise money.EconomicRefusal('livestream_provider_outcome_unknown')
     return admit_product_service(creator_id=host_id, subject_creator_id=viewer_id,
         service='livestream_ppv', event_id=event_id, source=source)
 

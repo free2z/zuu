@@ -107,6 +107,55 @@ def test_positive_count_refreshes_last_seen_and_keeps_live(
 
 
 @pytest.mark.django_db
+def test_stale_zero_probe_cannot_clear_newer_positive_observation(
+    mocker, creator_factory,
+):
+    creator = creator_factory()
+    old_zero = timezone.now() - timedelta(
+        seconds=settings.DYTE_LIVE_SWEEP_GRACE_SECONDS + 1)
+    cm = _make_meeting(
+        creator, "stale-zero-race",
+        last_seen_at=timezone.now() - timedelta(minutes=1),
+        zero_probe_since=old_zero,
+    )
+
+    def observe_positive_before_stale_zero_finishes(_client, _meeting_id):
+        CreatorMeeting.objects.filter(pk=cm.pk).update(
+            last_seen_at=timezone.now(), zero_probe_since=None)
+        return 0
+
+    _patch_count(mocker, side_effect=observe_positive_before_stale_zero_finishes)
+    sweep_live_meetings(0)
+
+    cm.refresh_from_db()
+    assert cm.live_now is True
+    assert cm.zero_probe_since is None
+    assert cm.last_seen_at > old_zero
+
+
+@pytest.mark.django_db
+def test_stale_first_zero_cannot_replace_newer_positive_observation(
+    mocker, creator_factory,
+):
+    creator = creator_factory()
+    old_seen = timezone.now() - timedelta(minutes=1)
+    cm = _make_meeting(creator, "stale-first-zero-race", last_seen_at=old_seen)
+
+    def observe_positive_before_stale_zero_finishes(_client, _meeting_id):
+        CreatorMeeting.objects.filter(pk=cm.pk).update(
+            last_seen_at=timezone.now(), zero_probe_since=None)
+        return 0
+
+    _patch_count(mocker, side_effect=observe_positive_before_stale_zero_finishes)
+    sweep_live_meetings(0)
+
+    cm.refresh_from_db()
+    assert cm.live_now is True
+    assert cm.zero_probe_since is None
+    assert cm.last_seen_at > old_seen
+
+
+@pytest.mark.django_db
 def test_api_error_leaves_live_now_unchanged(mocker, creator_factory):
     creator = creator_factory()
     # Seen recently: not stale, so the safety valve must not fire.

@@ -500,12 +500,19 @@ def sweep_live_meetings(timestamp: int):
         if cm.zero_probe_since is None:
             CreatorMeeting.objects.filter(
                 pk=cm.pk, live_now=True, zero_probe_since__isnull=True,
+                last_seen_at=cm.last_seen_at,
             ).update(zero_probe_since=now)
             continue
         if cm.zero_probe_since > grace_cutoff:
             continue
 
-        CreatorMeeting.objects.filter(pk=cm.pk, live_now=True).update(
+        # The provider call ran without a row lock. A newer sweep may have
+        # observed presence while this zero was in flight; compare both pieces
+        # of evidence we read before allowing this stale result to clear live.
+        CreatorMeeting.objects.filter(
+            pk=cm.pk, live_now=True, zero_probe_since=cm.zero_probe_since,
+            last_seen_at=cm.last_seen_at,
+        ).update(
             live_now=False, zero_probe_since=None)
         cleared += 1
 
