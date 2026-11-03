@@ -12,5 +12,3 @@ audio-preload.spec.ts
 auth-mfa.spec.ts
 auth-resolving-flash.spec.ts
 billing-mobile-layout.spec.ts
-meeting-identity.spec.ts › activeSpeaker updates keep one audio watch alive through an in-flight mic restart
-rtk-manager-prejoin.spec.ts › host and private meetings wait for pre-join while viewers route join failures
