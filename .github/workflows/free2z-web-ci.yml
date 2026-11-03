@@ -497,7 +497,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      RUFF_VERSION: 0.16.3
+      RUFF_VERSION: 0.17.3
     steps:
       - name: Select verified CI trust before clients
         shell: bash
