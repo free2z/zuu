@@ -952,6 +952,9 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
         # The caller resolved this row before our transaction. Serialize both
         # lifecycle events and compare against the current, locked session.
         cm = CreatorMeeting.objects.select_for_update().get(pk=cm.pk)
+        if str(cm.meeting_id) != str(event_data.meeting.id):
+            logger.info("ignoring lifecycle event for replaced meeting_id=%s", event_data.meeting.id)
+            return
     if event_data.event == 'meeting.participantLeft' and cm.meeting_type in (BROADCAST, PAY_PER_VIEW):
         version=pin_supported_policy()
         if version==1 and cm.meeting_type==PAY_PER_VIEW and event_data.participant.customParticipantId==f'ph_{cm.creator.public_id.hex}':
