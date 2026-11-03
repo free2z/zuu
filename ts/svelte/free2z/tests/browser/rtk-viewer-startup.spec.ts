@@ -30,10 +30,10 @@ test("RealtimeKit viewer chunks preload and first-frame timing observes shadow D
           return 1;
         },
       });
-      document.body.append(meeting);
       let frames = 0;
       const stop = observeFirstRtkVideoFrame(document, () => frames++);
       nestedShadow.append(video);
+      document.body.append(meeting);
       await new Promise((resolve) => setTimeout(resolve, 0));
       frameCallback?.();
       frameCallback?.();

@@ -42,7 +42,10 @@ export function observeFirstRtkVideoFrame(
   const observers: MutationObserver[] = [];
 
   const scan = (root: ParentNode) => {
-    for (const element of root.querySelectorAll("*")) {
+    const elements = root instanceof Element
+      ? [root, ...root.querySelectorAll("*")]
+      : root.querySelectorAll("*");
+    for (const element of elements) {
       if (element instanceof HTMLVideoElement && !observedVideos.has(element)) {
         observedVideos.add(element);
         if (typeof element.requestVideoFrameCallback === "function") {
