@@ -59,7 +59,7 @@ test("the live and private routes keep provider meetings mounted under overlays"
     ),
     "utf8",
   );
-  assert.match(live, /\{#if meeting\}[\s\S]*?<InlineRtkMeeting/);
+  assert.match(live, /\{#if meeting\b[\s\S]*?<InlineRtkMeeting/);
   assert.match(live, /connectionStatus === "disconnected"[\s\S]*?Reconnecting/);
   assert.match(privateRoute, /\{#if meeting\}[\s\S]*?<rtk-meeting/);
   assert.match(privateRoute, /connectionStatus === "disconnected"/);

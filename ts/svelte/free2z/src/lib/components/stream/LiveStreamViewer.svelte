@@ -248,22 +248,29 @@
     errorSource = storeError;
     errorCode = storeErrorCode;
     loading = false;
-    // If we are disconnected unexpectedly, we might want to try auto-reconnecting
-    if (connectionStatus === "disconnected" && !isOffline) {
-      clearTimeout(disconnectTimeout);
-      disconnectTimeout = setTimeout(() => {
-        if (connectionStatus === "disconnected" && !isOffline) scheduleRetry();
-      }, DISCONNECT_GRACE);
-    } else if (connectionStatus === "connected") {
-      clearTimeout(disconnectTimeout);
-      clearTimeout(retryTimeout);
-      retryCount = 0;
-      errorSource = null;
-      errorCode = null;
-      loading = false;
-    } else if (connectionStatus === "failed" && !isOffline) {
-      scheduleRetry();
-    }
+  }
+
+  // Connection state, rather than the optional provider error, owns recovery.
+  // RealtimeKit clears its error as soon as a transient disconnect begins.
+  $: if (connectionStatus === "connected") {
+    clearTimeout(disconnectTimeout);
+    clearTimeout(retryTimeout);
+    disconnectTimeout = undefined;
+    retryTimeout = undefined;
+    retryCount = 0;
+    errorSource = null;
+    errorCode = null;
+    loading = false;
+  } else if (connectionStatus === "disconnected" && !isOffline) {
+    clearTimeout(disconnectTimeout);
+    disconnectTimeout = setTimeout(() => {
+      disconnectTimeout = undefined;
+      if (connectionStatus === "disconnected" && !isOffline) scheduleRetry();
+    }, DISCONNECT_GRACE);
+  } else {
+    clearTimeout(disconnectTimeout);
+    disconnectTimeout = undefined;
+    if (connectionStatus === "failed" && !isOffline) scheduleRetry();
   }
 
   // React to stream end

@@ -1,9 +1,12 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { AUTH_STORE_LOADER } from "./dev-source-module";
+import { AUTH_STORE_LOADER, devSourceModuleLoader } from "./dev-source-module";
 
 const USER = "streamaudienceowner";
 const DASHBOARD = `/${USER}/dashboard/stream`;
 const SECRET = "owner-a-private-secret";
+const LIVE_STREAM_STORE_LOADER = devSourceModuleLoader(
+  "/src/lib/stores/liveStreamStore.ts",
+);
 
 declare global {
   interface Window {
@@ -132,6 +135,7 @@ async function stubProvider(
       const { default: SDK } = await import(path);
       const meeting = {
         meta: { meetingTitle: "owner-a-room" },
+        join: async () => {},
         recording: {
           recordingState: "IDLE",
           addListener: () => {},
@@ -1083,6 +1087,53 @@ for (const initialFailure of [false, true]) {
     ).toHaveCount(0);
   });
 }
+
+test("private recovery stays single-flight while provider leave is pending", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await prepareSession(page);
+  const secret = "3f961c9d-aee4-4d87-83eb-6f7ba892e1c4";
+  let releaseJoin!: () => void;
+  let joinRequested = false;
+  const joinGate = new Promise<void>((resolve) => {
+    releaseJoin = resolve;
+  });
+  let joins = 0;
+  await page.route(`**/api/dyte/${USER}/private/${secret}`, async (route) => {
+    joinRequested = true;
+    joins++;
+    await joinGate;
+    await route.fulfill({
+      json: { auth_token: `synthetic-private-${joins}`, e2ee: false },
+    });
+  });
+  await page.goto(`/${USER}/private/${secret}?lang=en`);
+  await expect.poll(() => joinRequested).toBe(true);
+  await stubProvider(page, false, true, true);
+  releaseJoin();
+  await expect(page.getByTestId("private-call-header")).toBeVisible();
+  await expect.poll(() => joins).toBe(1);
+
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("failed");
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect.poll(() => page.evaluate(() => window.hostTest.left)).toBe(1);
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("connected");
+    liveStreamStore.setConnectionStatus("failed");
+  }, LIVE_STREAM_STORE_LOADER);
+  await page.waitForTimeout(2_000);
+  expect(joins).toBe(1);
+
+  await page.evaluate(() => window.hostTest.finishLeave());
+  await expect.poll(() => joins).toBe(2);
+  await expect
+    .poll(() => page.evaluate(() => window.hostTest.sdkCalls.length))
+    .toBe(2);
+});
 
 test("a private-call route change during a rejected join retains reload controls", async ({
   page,

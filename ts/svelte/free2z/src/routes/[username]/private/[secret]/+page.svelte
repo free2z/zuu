@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import { browser } from "$app/env";
   import { get } from "svelte/store";
   import { goto } from "$app/navigation";
   import { page } from "$lib/kit-stores";
@@ -73,6 +74,7 @@
   let callNeedsReload = false;
   let boundRoom: { username: string; secret: string } | null = null;
   let retryCount = 0;
+  let recoveryInProgress = false;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let disconnectTimer: ReturnType<typeof setTimeout> | undefined;
   $: isOffline = $liveStreamStore.isOffline;
@@ -95,6 +97,7 @@
   function scheduleRetry() {
     if (
       retryTimer ||
+      recoveryInProgress ||
       isOffline ||
       document.visibilityState === "hidden" ||
       callNeedsReload ||
@@ -110,7 +113,14 @@
   }
 
   async function recoverPrivateStream() {
-    if (isOffline || callNeedsReload || abort.signal.aborted) return;
+    if (
+      recoveryInProgress ||
+      isOffline ||
+      callNeedsReload ||
+      abort.signal.aborted
+    )
+      return;
+    recoveryInProgress = true;
     clearTimeout(retryTimer);
     clearTimeout(disconnectTimer);
     retryTimer = undefined;
@@ -118,8 +128,12 @@
     const leave = cleanup;
     cleanup = null;
     meeting = null;
-    if (leave) await leave();
-    if (!abort.signal.aborted) await joinPrivateStream();
+    try {
+      if (leave) await leave();
+      if (!abort.signal.aborted) await joinPrivateStream();
+    } finally {
+      recoveryInProgress = false;
+    }
   }
 
   function handleOffline() {
@@ -230,9 +244,11 @@
 
   onDestroy(() => {
     abort.abort();
-    window.removeEventListener("offline", handleOffline);
-    window.removeEventListener("online", handleOnline);
-    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    if (browser) {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    }
     clearTimeout(retryTimer);
     clearTimeout(disconnectTimer);
     unsubscribeAccount?.();
