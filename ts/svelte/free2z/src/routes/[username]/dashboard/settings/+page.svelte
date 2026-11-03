@@ -686,7 +686,7 @@
                   <div class="space-y-1.5">
                     <div class="flex min-h-11 items-center gap-3">
                       <Switch id="updateAll" bind:checked={updateAll} />
-                      <Label for="updateAll" class="font-normal"
+                      <Label for="updateAll" control class="font-normal"
                         >{$t(
                           "dashboard.settings.applyToAll",
                           "Apply to all existing articles",

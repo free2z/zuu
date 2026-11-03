@@ -347,6 +347,11 @@
     cursor: pointer;
   }
 
+  /* Resolved by Label after mount because CSS cannot follow a sibling `for`. */
+  :where(label[data-associated-control-enabled="true"]) {
+    cursor: pointer;
+  }
+
   body {
     @apply bg-background text-foreground;
   }
