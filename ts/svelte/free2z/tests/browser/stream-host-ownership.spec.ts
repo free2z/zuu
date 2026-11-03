@@ -542,6 +542,39 @@ async function openLiveHost(page: Page) {
   ).toBeVisible();
 }
 
+test("public host can review and publish a Converse live link without leaving the broadcast", async ({
+  page,
+}) => {
+  await openLiveHost(page);
+  const hostBefore = await meetingState(page);
+  await page.getByTestId("share-live-to-converse").click();
+  const composer = page.getByTestId("live-converse-composer");
+  await expect(composer).toBeVisible();
+  const body = composer.locator("#converse-content");
+  await expect(body).toHaveValue(
+    `I'm live — come watch! ${new URL(`/${USER}/broadcast`, page.url()).toString()}`,
+  );
+  await body.fill(
+    `I'm live — come watch! ${new URL(`/${USER}/broadcast`, page.url())}`,
+  );
+  await expect(composer).toContainText("cost");
+  await expect(page).toHaveURL(new RegExp(`${USER}/dashboard/stream`));
+  expect(await meetingState(page)).toMatchObject(hostBefore);
+
+  const posts: any[] = [];
+  await page.route("**/api/comments/", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    posts.push(route.request().postDataJSON());
+    return route.fulfill({
+      json: { uuid: "live-announcement", content: posts[0].content },
+    });
+  });
+  await composer.getByRole("button", { name: /post/i }).click();
+  await expect.poll(() => posts.length).toBe(1);
+  expect(posts[0].content).toContain(`/${USER}/broadcast`);
+  expect(await meetingState(page)).toMatchObject(hostBefore);
+});
+
 async function holdViewerCopy(page: Page, fail = false) {
   await page.evaluate((fail) => {
     Object.defineProperty(navigator, "clipboard", {
