@@ -276,6 +276,137 @@ test("paid admission retry identity remains until roomJoined on its SDK client",
   expect(roomJoinedListeners.size).toBe(0);
 });
 
+test("roomJoined clears the paid key so an intentional same-session join gets a new key", async () => {
+  mocked.get.mockImplementation((url: any) =>
+    Promise.resolve({
+      data:
+        url === "/api/auth/user/"
+          ? mockViewer
+          : url.endsWith("/live-status")
+            ? { ppv: { session_id: "provider-session-1" } }
+            : { username: "stream-owner" },
+    }),
+  );
+  mocked.post.mockResolvedValue({ data: { auth_token: "synthetic-token" } });
+
+  const view = render(<CreatorLive />);
+  await waitFor(() => expect(mocked.post).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(roomJoinedListeners.size).toBe(1));
+  const storageKey =
+    "f2z:ppv-join:stream-owner:100:provider-session-1";
+  const firstKey = sessionStorage.getItem(storageKey);
+  expect(firstKey).toBe(
+    (mocked.post.mock.calls[0][1] as any).admission_idempotency_key,
+  );
+
+  await act(async () => {
+    for (const listener of Array.from(roomJoinedListeners)) listener();
+  });
+  expect(sessionStorage.getItem(storageKey)).toBeNull();
+
+  // Rerun the effect without remounting CreatorLive. The paid intent's
+  // in-memory admission key must have been cleared along with storage.
+  mockViewer = { id: 101, username: "viewer-b", can_stream: true };
+  view.rerender(<CreatorLive />);
+  await waitFor(() => expect(mocked.get).toHaveBeenCalledTimes(4));
+  mockViewer = { id: 100, username: "viewer-a", can_stream: true };
+  view.rerender(<CreatorLive />);
+
+  await waitFor(() => expect(mocked.post).toHaveBeenCalledTimes(2));
+  const secondKey = (mocked.post.mock.calls[1][1] as any)
+    .admission_idempotency_key;
+  expect(secondKey).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/));
+  expect(secondKey).not.toBe(firstKey);
+  expect(sessionStorage.getItem(storageKey)).toBe(secondKey);
+});
+
+test("a stale roomJoined callback cannot clear the key for a later join", async () => {
+  mocked.get.mockImplementation((url: any) =>
+    Promise.resolve({
+      data:
+        url === "/api/auth/user/"
+          ? mockViewer
+          : url.endsWith("/live-status")
+            ? { ppv: { session_id: "provider-session-1" } }
+            : { username: "stream-owner" },
+    }),
+  );
+  mocked.post.mockResolvedValue({ data: { auth_token: "synthetic-token" } });
+
+  const view = render(<CreatorLive />);
+  await waitFor(() => expect(mocked.post).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(roomJoinedListeners.size).toBe(1));
+  const staleCallback = Array.from(roomJoinedListeners)[0];
+
+  await act(async () => staleCallback());
+  mockViewer = { id: 101, username: "viewer-b", can_stream: true };
+  view.rerender(<CreatorLive />);
+  await waitFor(() => expect(mocked.get).toHaveBeenCalledTimes(4));
+  mockViewer = { id: 100, username: "viewer-a", can_stream: true };
+  view.rerender(<CreatorLive />);
+  await waitFor(() => expect(mocked.post).toHaveBeenCalledTimes(2));
+  const storageKey =
+    "f2z:ppv-join:stream-owner:100:provider-session-1";
+  const laterKey = sessionStorage.getItem(storageKey);
+  expect(laterKey).toBe(
+    (mocked.post.mock.calls[1][1] as any).admission_idempotency_key,
+  );
+  expect(laterKey).not.toBeNull();
+
+  await act(async () => staleCallback());
+  expect(sessionStorage.getItem(storageKey)).toBe(laterKey);
+});
+
+test("roomJoined remains safe when session storage refuses key removal", async () => {
+  mocked.get.mockImplementation((url: any) =>
+    Promise.resolve({
+      data:
+        url === "/api/auth/user/"
+          ? mockViewer
+          : url.endsWith("/live-status")
+            ? { ppv: { session_id: "provider-session-1" } }
+            : { username: "stream-owner" },
+    }),
+  );
+  mocked.post.mockResolvedValue({ data: { auth_token: "synthetic-token" } });
+  const removeItem = jest
+    .spyOn(Storage.prototype, "removeItem")
+    .mockImplementation(() => {
+      throw new Error("storage is unavailable");
+    });
+
+  try {
+    const view = render(<CreatorLive />);
+    await waitFor(() => expect(mocked.post).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(roomJoinedListeners.size).toBe(1));
+    const storageKey =
+      "f2z:ppv-join:stream-owner:100:provider-session-1";
+    const firstKey = sessionStorage.getItem(storageKey);
+
+    await expect(
+      act(async () => {
+        for (const listener of Array.from(roomJoinedListeners)) listener();
+      }),
+    ).resolves.toBeUndefined();
+    expect(sessionStorage.getItem(storageKey)).toBe(firstKey);
+    expect(roomJoinedListeners.size).toBe(0);
+
+    // Since persistence could not be cleared, a later effect safely reuses
+    // the durable identity instead of minting an unpersisted replacement.
+    mockViewer = { id: 101, username: "viewer-b", can_stream: true };
+    view.rerender(<CreatorLive />);
+    await waitFor(() => expect(mocked.get).toHaveBeenCalledTimes(4));
+    mockViewer = { id: 100, username: "viewer-a", can_stream: true };
+    view.rerender(<CreatorLive />);
+    await waitFor(() => expect(mocked.post).toHaveBeenCalledTimes(2));
+    expect(
+      (mocked.post.mock.calls[1][1] as any).admission_idempotency_key,
+    ).toBe(firstKey);
+  } finally {
+    removeItem.mockRestore();
+  }
+});
+
 test("a cancelled paid admission unregisters its roomJoined listener", async () => {
   mocked.get.mockImplementation((url: any) =>
     Promise.resolve({
