@@ -79,7 +79,7 @@
     "three": "^0.168.0",
     "typescript": "^5.9.3",
     "unified": "^11.0.5",
-    "unist-util-visit": "^5.0.0",
+    "unist-util-visit": "^5.2.0",
     "url": "^0.11.4",
     "web-vitals": "^2.1.4",
     "zod": "^4.6.7",
