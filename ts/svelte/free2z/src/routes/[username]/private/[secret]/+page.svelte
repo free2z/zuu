@@ -133,6 +133,12 @@
       if (!abort.signal.aborted) await joinPrivateStream();
     } finally {
       recoveryInProgress = false;
+      // joinPrivateStream can request a retry while this recovery owns the
+      // single-flight guard. Re-arm it only after dropping that guard, or a
+      // transient token/provider failure leaves the call stuck indefinitely.
+      if (!meeting && !isOffline && !callNeedsReload && !abort.signal.aborted) {
+        scheduleRetry();
+      }
     }
   }
 

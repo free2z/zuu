@@ -488,6 +488,7 @@ test("late provider initialization leaves its abandoned meeting without replacin
       });
       const initialized = {
         meta: {},
+        join: async () => {},
         self: {
           on: (name: string, callback: (event?: unknown) => void) => {
             handlers[name] = callback;

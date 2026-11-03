@@ -159,21 +159,26 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
       console.warn(`Permission denied for ${kind}`);
     });
 
-    // Join here so errors from rtk-meeting's internal pre-join screen enter
-    // the same retry path as token and client initialization failures.
-    try {
-      await meeting.join();
-      signal?.throwIfAborted();
-      liveStreamStore.setConnectionStatus("connected");
-    } catch (joinError) {
-      unbindEvents();
-      if (get(liveStreamStore).meeting === meeting) liveStreamStore.reset();
+    // Host and private meetings expose the provider's pre-join screen so the
+    // user can review and change camera/microphone settings before joining.
+    // Calling join() here would skip that deliberate user action. Public
+    // viewers join immediately; keep that explicit join in this manager so
+    // provider join failures reach the viewer's normal retry/error path.
+    if (!isHost && streamType !== "private") {
       try {
-        await meeting.leave();
-      } catch {
-        /* A rejected join may already have torn the room down. */
+        await meeting.join();
+        signal?.throwIfAborted();
+        liveStreamStore.setConnectionStatus("connected");
+      } catch (joinError) {
+        unbindEvents();
+        if (get(liveStreamStore).meeting === meeting) liveStreamStore.reset();
+        try {
+          await meeting.leave();
+        } catch {
+          /* A rejected join may already have torn the room down. */
+        }
+        throw joinError;
       }
-      throw joinError;
     }
 
     // Return cleanup function and meeting instance
