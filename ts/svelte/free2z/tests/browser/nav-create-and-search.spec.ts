@@ -145,16 +145,14 @@ test("the user menu links to the creator's stream dashboard", async ({
   page,
 }) => {
   await page.setViewportSize(DESKTOP_VIEWPORT);
-  await page
-    .context()
-    .addCookies([
-      {
-        name: "sessionid",
-        value: "stream-audience-owner-session",
-        domain: "127.0.0.1",
-        path: "/",
-      },
-    ]);
+  await page.context().addCookies([
+    {
+      name: "sessionid",
+      value: "stream-audience-owner-session",
+      domain: "127.0.0.1",
+      path: "/",
+    },
+  ]);
   await page.goto("/?lang=en");
 
   await page.getByTestId("navbar-profile-trigger").click();
