@@ -358,10 +358,12 @@ def test_replacing_room_resets_recorded_provider_session(
 ):
     old_room, old_session = broadcast.meeting_id, uuid.uuid4()
     CreatorMeeting.objects.filter(pk=broadcast.pk).update(
+        live_now=False,
         created_at=timezone.now() - timedelta(days=3),
         provider_session_id=old_session,
         provider_session_started_at='2026-09-07T17:53:52Z',
     )
+    api_client.force_authenticate(user=broadcast.creator)
 
     response = api_client.post(
         f'/api/dyte/{broadcast.creator.username}/broadcast', {}, format='json')
