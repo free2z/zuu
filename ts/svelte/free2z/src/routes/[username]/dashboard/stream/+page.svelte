@@ -86,6 +86,7 @@
   }
 
   let streamType: StreamType = "broadcast";
+  let hostRecording = false;
   let ppvPrice: number = 1;
   type AudienceMode = {
     value: StreamType;
@@ -1611,7 +1612,11 @@
             {/if}
 
             {#if streamType !== "private" && meeting.self.permissions.canRecord}
-              <HostRecordingControls {username} {hostSession} />
+              <HostRecordingControls
+                {username}
+                {hostSession}
+                onRecording={(active) => (hostRecording = active)}
+              />
             {/if}
           </div>
 
@@ -1625,7 +1630,7 @@
               t={getRtkTranslator($locale)}
               class="min-h-0 w-full flex-1"
             ></rtk-meeting>
-            <MeetingRecordingNotice {meeting} />
+            <MeetingRecordingNotice {meeting} serverRecording={hostRecording} />
           </div>
           {#if hostMeetingError}
             <div

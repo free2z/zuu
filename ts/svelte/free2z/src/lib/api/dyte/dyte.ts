@@ -729,6 +729,81 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return createMutation(getDytePrivateRecordingCreateMutationOptions(options));
     }
     /**
+ * Whether a private room is being recorded, for anyone holding its secret.
+ *
+ * The owner recording API stays owner-only. Invitees on stage need the same
+ * yes-or-no the public live status gives broadcast, subscribers-only, and
+ * pay-per-view viewers.
+ */
+export const dytePrivateRecordingVisibilityRetrieve = (
+    username: string,
+    secret: string,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<void>(
+      {url: `/api/dyte/${username}/private/${secret}/recording-visibility`, method: 'GET', signal
+    },
+      options);
+    }
+
+
+
+
+export const getDytePrivateRecordingVisibilityRetrieveQueryKey = (username: string,
+    secret: string,) => {
+    return [
+    `/api/dyte/${username}/private/${secret}/recording-visibility`
+    ] as const;
+    }
+
+
+export const getDytePrivateRecordingVisibilityRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof dytePrivateRecordingVisibilityRetrieve>>, TError = unknown>(username: string,
+    secret: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof dytePrivateRecordingVisibilityRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDytePrivateRecordingVisibilityRetrieveQueryKey(username,secret);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof dytePrivateRecordingVisibilityRetrieve>>> = ({ signal }) => dytePrivateRecordingVisibilityRetrieve(username,secret, requestOptions, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: username !== null && username !== undefined && secret !== null && secret !== undefined, ...queryOptions} as CreateQueryOptions<Awaited<ReturnType<typeof dytePrivateRecordingVisibilityRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type DytePrivateRecordingVisibilityRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof dytePrivateRecordingVisibilityRetrieve>>>
+export type DytePrivateRecordingVisibilityRetrieveQueryError = unknown
+
+
+
+export function createDytePrivateRecordingVisibilityRetrieve<TData = Awaited<ReturnType<typeof dytePrivateRecordingVisibilityRetrieve>>, TError = unknown>(
+ username: string,
+    secret: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof dytePrivateRecordingVisibilityRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ): CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getDytePrivateRecordingVisibilityRetrieveQueryOptions(username,secret,options)
+
+  const query = createQuery(queryOptions, queryClient) as CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+
+
+
+
+
+/**
  * Manage only the owner's existing secret-scoped private room.
  *
  * Unlike public broadcasts, private calls have no public host-seat lease.

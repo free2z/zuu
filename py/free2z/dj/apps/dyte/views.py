@@ -1513,6 +1513,9 @@ def live_meeting_status(request, username):
         # bring back count when dyte fixes regression
         # https://discord.com/channels/872824138048352277/1253228307227349004
         if count:
+            from .recording_control import public_recording
+
+            meeting['recording'] = public_recording(meeting['meeting_id'])
             resp[meeting['meeting_type']] = meeting
     return Response(resp)
 
