@@ -74,10 +74,18 @@ test("paid viewer assertion uses the original displayed actor after fresh authen
   mocked.post.mockResolvedValue({ data: { auth_token: "synthetic-token" } });
   render(<CreatorLive />);
   await waitFor(() => expect(mocked.post).toHaveBeenCalledTimes(1));
+  expect(mocked.get).toHaveBeenCalledWith(
+    "/api/dyte/stream-owner/live-status",
+  );
   expect(mocked.post.mock.calls[0][1]).toEqual({
     expected_actor_id: 100,
     admission_idempotency_key: expect.stringMatching(/^[0-9a-f-]{36}$/),
   });
+  expect(
+    sessionStorage.getItem(
+      "f2z:ppv-join:stream-owner:100:provider-session-1",
+    ),
+  ).toBe((mocked.post.mock.calls[0][1] as any).admission_idempotency_key);
 });
 
 test("a cookie-switched paid viewer never creates a meeting for another actor", async () => {
@@ -128,6 +136,73 @@ test("a late auth result and actor change to the stream owner cannot reinterpret
     ),
   );
   expect(mocked.post).not.toHaveBeenCalled();
+});
+
+test("an actor change while live status is pending stores no retry key and sends no paid join", async () => {
+  let releaseLiveStatus!: (value: unknown) => void;
+  mocked.get.mockImplementation((url: any) =>
+    url === "/api/auth/user/"
+      ? Promise.resolve({ data: mockViewer })
+      : url.endsWith("/live-status")
+        ? (new Promise((resolve) => {
+            releaseLiveStatus = resolve;
+          }) as any)
+        : Promise.resolve({ data: { username: "stream-owner" } }),
+  );
+  const setItem = jest.spyOn(Storage.prototype, "setItem");
+  const view = render(<CreatorLive />);
+  await waitFor(() => expect(releaseLiveStatus).toBeDefined());
+
+  mockViewer = { id: 101, username: "viewer-b", can_stream: true };
+  view.rerender(<CreatorLive />);
+  await act(async () =>
+    releaseLiveStatus({ data: { ppv: { session_id: "provider-session-1" } } }),
+  );
+
+  expect(setItem).not.toHaveBeenCalledWith(
+    "f2z:ppv-join:stream-owner:100:provider-session-1",
+    expect.any(String),
+  );
+  expect(
+    sessionStorage.getItem(
+      "f2z:ppv-join:stream-owner:100:provider-session-1",
+    ),
+  ).toBeNull();
+  expect(mocked.post).not.toHaveBeenCalled();
+  setItem.mockRestore();
+});
+
+test("unmounting while live status is pending stores no retry key and sends no paid join", async () => {
+  let releaseLiveStatus!: (value: unknown) => void;
+  mocked.get.mockImplementation((url: any) =>
+    url === "/api/auth/user/"
+      ? Promise.resolve({ data: mockViewer })
+      : url.endsWith("/live-status")
+        ? (new Promise((resolve) => {
+            releaseLiveStatus = resolve;
+          }) as any)
+        : Promise.resolve({ data: { username: "stream-owner" } }),
+  );
+  const setItem = jest.spyOn(Storage.prototype, "setItem");
+  const view = render(<CreatorLive />);
+  await waitFor(() => expect(releaseLiveStatus).toBeDefined());
+
+  view.unmount();
+  await act(async () =>
+    releaseLiveStatus({ data: { ppv: { session_id: "provider-session-1" } } }),
+  );
+
+  expect(setItem).not.toHaveBeenCalledWith(
+    "f2z:ppv-join:stream-owner:100:provider-session-1",
+    expect.any(String),
+  );
+  expect(
+    sessionStorage.getItem(
+      "f2z:ppv-join:stream-owner:100:provider-session-1",
+    ),
+  ).toBeNull();
+  expect(mocked.post).not.toHaveBeenCalled();
+  setItem.mockRestore();
 });
 
 test("backend actor_changed after the fresh identity check explains the refusal without retrying", async () => {
