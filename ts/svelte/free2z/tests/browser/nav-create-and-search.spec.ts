@@ -141,6 +141,29 @@ test("the user menu offers a New post shortcut to the editor", async ({
   await expect(newPost).toContainText("New post");
 });
 
+test("the user menu links to the creator's stream dashboard", async ({
+  page,
+}) => {
+  await page.setViewportSize(DESKTOP_VIEWPORT);
+  await page.context().addCookies([
+    {
+      name: "sessionid",
+      value: "stream-audience-owner-session",
+      domain: "127.0.0.1",
+      path: "/",
+    },
+  ]);
+  await page.goto("/?lang=en");
+
+  await page.getByTestId("navbar-profile-trigger").click();
+  const goLive = page.getByRole("menuitem", { name: "Go live" });
+  await expect(goLive).toBeVisible();
+  await goLive.focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/streamaudienceowner\/dashboard\/stream/);
+  await expect(page.getByTestId("stream-audience-grid")).toBeVisible();
+});
+
 test("⌘K focuses the search input so the first keystrokes are not swallowed", async ({
   page,
 }) => {
