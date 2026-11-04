@@ -31,10 +31,10 @@
 //!
 //! # Content
 //!
-//! `text_delta` → `delta`; a `tool_use` block is buffered from
-//! `content_block_start` through its `input_json_delta` fragments and emitted
-//! as one `tool_call` at its `content_block_stop`, its `id` unchanged — the
-//! same id comes back as a `tool` message's `tool_call_id` and goes out as
+//! `text_delta` → `delta`; a `tool_use` block emits `tool_call_delta`
+//! fragments as its name and `input_json_delta` arguments arrive, then emits
+//! one complete `tool_call` at its `content_block_stop`, its `id` unchanged —
+//! the same id comes back as a `tool` message's `tool_call_id` and goes out as
 //! the `tool_result` block's `tool_use_id`. Thinking, signatures,
 //! server-tool blocks and citations are not streamed (chat-api.md §3.3).
 //!
@@ -84,6 +84,7 @@ use f2z_ai_proto::catalog::{ApiStyle, CatalogModel};
 use f2z_ai_proto::chat::{
     ChatRequest, ContentPart, FinishReason, ResponseFormat, Role, ToolCall, ToolChoice, Usage,
 };
+use f2z_ai_proto::event::ToolCallDelta;
 use f2z_ai_proto::{ErrorCode, OrderedJson};
 use reqwest::header::{HeaderMap, HeaderValue};
 use secrecy::{ExposeSecret as _, SecretString};
@@ -586,6 +587,14 @@ impl StreamParser for Parser {
                             initial: block.get("input").cloned().unwrap_or_else(|| json!({})),
                         },
                     );
+                    let tool = self.tools.get(&index).ok_or(Malformed("tool_use"))?;
+                    out.push(Content::ToolCallDelta(ToolCallDelta {
+                        index: u32::try_from(index)
+                            .map_err(|_| Malformed("tool call index out of range"))?,
+                        id: Some(tool.id.clone()),
+                        name: Some(tool.name.clone()),
+                        arguments: String::new(),
+                    }));
                 }
             }
             "content_block_delta" => {
@@ -624,6 +633,15 @@ impl StreamParser for Parser {
                                 return Err(Malformed("tool call arguments too large"));
                             }
                             tool.json.push_str(part);
+                            if !part.is_empty() {
+                                out.push(Content::ToolCallDelta(ToolCallDelta {
+                                    index: u32::try_from(index)
+                                        .map_err(|_| Malformed("tool call index out of range"))?,
+                                    id: None,
+                                    name: None,
+                                    arguments: part.to_owned(),
+                                }));
+                            }
                         }
                     }
                     // thinking, signature, citations: not streamed in v1.
@@ -813,21 +831,35 @@ mod tests {
     fn a_tool_use_block_is_one_complete_call() {
         let mut p = Parser::default();
         start(&mut p);
-        feed(
+        let out = feed(
             &mut p,
             "content_block_start",
             json!({"type":"content_block_start","index":0,
                    "content_block":{"type":"tool_use","id":"toolu_1","name":"f","input":{}}}),
         );
+        assert_eq!(
+            out,
+            vec![Content::ToolCallDelta(ToolCallDelta {
+                index: 0,
+                id: Some("toolu_1".into()),
+                name: Some("f".into()),
+                arguments: String::new(),
+            })]
+        );
         for part in ["{\"a\"", ": 1}"] {
-            assert!(
+            assert_eq!(
                 feed(
                     &mut p,
                     "content_block_delta",
                     json!({"type":"content_block_delta","index":0,
                            "delta":{"type":"input_json_delta","partial_json":part}}),
-                )
-                .is_empty()
+                ),
+                vec![Content::ToolCallDelta(ToolCallDelta {
+                    index: 0,
+                    id: None,
+                    name: None,
+                    arguments: part.into(),
+                })]
             );
         }
         let out = feed(

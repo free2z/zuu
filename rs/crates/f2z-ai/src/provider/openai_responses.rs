@@ -29,12 +29,15 @@
 //! # Content
 //!
 //! `response.output_text.delta` (and `response.refusal.delta`) → `delta`. A
-//! `function_call` output item is emitted as one `tool_call` from its
-//! `response.output_item.done`, whose item carries the complete arguments.
-//! Reasoning is not streamed.
+//! `function_call` output item emits argument `tool_call_delta` fragments as
+//! `response.function_call_arguments.delta` arrives, then one complete
+//! `tool_call` from its `response.output_item.done`. Reasoning is not streamed.
+
+use std::collections::BTreeMap;
 
 use f2z_ai_proto::catalog::{ApiStyle, CatalogModel};
 use f2z_ai_proto::chat::{ChatRequest, ContentPart, FinishReason, Role, ToolCall, Usage};
+use f2z_ai_proto::event::ToolCallDelta;
 use f2z_ai_proto::{ErrorCode, OrderedJson};
 use reqwest::header::{HeaderMap, HeaderValue};
 use secrecy::{ExposeSecret as _, SecretString};
@@ -212,7 +215,16 @@ struct Parser {
     error: Option<ProviderFailure>,
     hosted_tool_calls: u64,
     function_calls: u64,
+    pending_functions: BTreeMap<u64, PendingFunction>,
+    pending_bytes: usize,
     terminal: Option<Terminal>,
+}
+
+#[derive(Debug, Default)]
+struct PendingFunction {
+    id: String,
+    name: String,
+    arguments: String,
 }
 
 #[derive(Debug)]
@@ -311,11 +323,78 @@ impl StreamParser for Parser {
                     out.push(Content::Text(text.to_owned()));
                 }
             }
+            "response.output_item.added" => {
+                let output_index = data
+                    .get("output_index")
+                    .and_then(Value::as_u64)
+                    .ok_or(Malformed("output_item.added output_index"))?;
+                let item = data
+                    .get("item")
+                    .ok_or(Malformed("output_item.added item"))?;
+                if item.get("type").and_then(Value::as_str) == Some("function_call") {
+                    if !self.pending_functions.contains_key(&output_index)
+                        && self.pending_functions.len() >= super::MAX_PENDING_TOOLS
+                    {
+                        return Err(Malformed("too many pending tool calls"));
+                    }
+                    let field = |key: &str| item.get(key).and_then(Value::as_str);
+                    let function = self.pending_functions.entry(output_index).or_default();
+                    function.id = field("call_id")
+                        .ok_or(Malformed("function_call call_id"))?
+                        .to_owned();
+                    function.name = field("name")
+                        .ok_or(Malformed("function_call name"))?
+                        .to_owned();
+                    out.push(Content::ToolCallDelta(ToolCallDelta {
+                        index: u32::try_from(output_index)
+                            .map_err(|_| Malformed("tool call index out of range"))?,
+                        id: Some(function.id.clone()),
+                        name: Some(function.name.clone()),
+                        arguments: String::new(),
+                    }));
+                }
+            }
+            "response.function_call_arguments.delta" => {
+                let output_index = data
+                    .get("output_index")
+                    .and_then(Value::as_u64)
+                    .ok_or(Malformed("function_call_arguments.delta output_index"))?;
+                let part = data
+                    .get("delta")
+                    .and_then(Value::as_str)
+                    .ok_or(Malformed("function_call_arguments.delta delta"))?;
+                if !self.pending_functions.contains_key(&output_index)
+                    && self.pending_functions.len() >= super::MAX_PENDING_TOOLS
+                {
+                    return Err(Malformed("too many pending tool calls"));
+                }
+                let function = self.pending_functions.entry(output_index).or_default();
+                self.pending_bytes = self.pending_bytes.saturating_add(part.len());
+                if self.pending_bytes > super::MAX_PENDING_TOOL_BYTES {
+                    return Err(Malformed("tool call arguments too large"));
+                }
+                function.arguments.push_str(part);
+                if !part.is_empty() {
+                    out.push(Content::ToolCallDelta(ToolCallDelta {
+                        index: u32::try_from(output_index)
+                            .map_err(|_| Malformed("tool call index out of range"))?,
+                        id: None,
+                        name: None,
+                        arguments: part.to_owned(),
+                    }));
+                }
+            }
             "response.output_item.done" => {
                 let item = data.get("item").ok_or(Malformed("output_item.done item"))?;
                 match item.get("type").and_then(Value::as_str) {
                     Some("function_call") => {
                         self.function_calls = self.function_calls.saturating_add(1);
+                        if let Some(output_index) = data.get("output_index").and_then(Value::as_u64)
+                            && let Some(function) = self.pending_functions.remove(&output_index)
+                        {
+                            self.pending_bytes =
+                                self.pending_bytes.saturating_sub(function.arguments.len());
+                        }
                         let field =
                             |k: &str| item.get(k).and_then(Value::as_str).map(str::to_owned);
                         out.push(Content::ToolCall(ToolCall {
@@ -443,6 +522,56 @@ mod tests {
             },
             &mut out,
         )
+    }
+
+    #[test]
+    fn an_interrupted_function_call_keeps_its_name_and_argument_deltas() {
+        let mut parser = Parser::default();
+        let mut content = Vec::new();
+        for data in [
+            json!({"type":"response.output_item.added","output_index":2,
+                "item":{"type":"function_call","call_id":"call_2","name":"lookup","arguments":""}}),
+            json!({"type":"response.function_call_arguments.delta","output_index":2,"delta":"{\"query\":"}),
+            json!({"type":"response.function_call_arguments.delta","output_index":2,"delta":"\"harbor\""}),
+        ] {
+            parser
+                .feed(
+                    &SseEvent {
+                        event: String::new(),
+                        data: data.to_string(),
+                    },
+                    &mut content,
+                )
+                .unwrap();
+        }
+        let ending = parser.end(false);
+        assert_eq!(
+            ending.failure.as_ref().map(|failure| failure.reason),
+            Some("truncated")
+        );
+        let fragments: Vec<ToolCallDelta> = content
+            .iter()
+            .filter_map(|item| match item {
+                Content::ToolCallDelta(fragment) => Some(fragment.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(fragments.len(), 3);
+        assert_eq!(fragments[0].index, 2);
+        assert_eq!(fragments[0].id.as_deref(), Some("call_2"));
+        assert_eq!(fragments[0].name.as_deref(), Some("lookup"));
+        assert_eq!(
+            fragments
+                .iter()
+                .map(|fragment| fragment.arguments.as_str())
+                .collect::<String>(),
+            "{\"query\":\"harbor\""
+        );
+        assert!(
+            !content
+                .iter()
+                .any(|item| matches!(item, Content::ToolCall(_)))
+        );
     }
 
     #[test]
