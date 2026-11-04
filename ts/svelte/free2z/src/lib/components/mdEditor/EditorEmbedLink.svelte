@@ -42,7 +42,10 @@
       onInsert(safe);
       open = false;
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : "Unable to insert link.";
+      error =
+        cause instanceof Error
+          ? cause.message
+          : $t("editor.insertLinkFailed", "Unable to insert link.");
     }
   }
 </script>

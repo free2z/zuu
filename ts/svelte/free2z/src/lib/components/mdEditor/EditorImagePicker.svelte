@@ -9,6 +9,7 @@
     mediaAccept,
     mediaMimeTypes,
     acceptsEditorMedia,
+    acceptsEditorMediaFile,
     type EditorMediaKind,
   } from "./editorMedia";
   import {
@@ -52,6 +53,9 @@
 
   interface Props {
     mediaType?: "image" | EditorMediaKind;
+    /** Inline hosts own placeholders and pending-post guards; long-form embeds
+     * upload inside the dialog and insert only after successful completion. */
+    uploadMode?: "inline" | "embed";
     onChooseCloudImage: (item: CoverLibraryImage) => void | Promise<void>;
     /** Resolving `false` means "refused": the picker stays open. */
     onUploadLocalImages: (
@@ -94,6 +98,7 @@
     onChooseCloudImage,
     onUploadLocalImages,
     mediaType = "image",
+    uploadMode = "inline",
     subscriberOnly = false,
     accessSlot = "body",
     localUploadsAllowed = true,
@@ -124,6 +129,21 @@
 
   const translate: TranslationFunction = (key, fallback, params) => {
     if (mediaType === "image") return $t(key, fallback, params);
+    if (
+      [
+        "editor.imageAccessMakeMembersBody",
+        "editor.imageAccessMakePublicBody",
+        "editor.imageAccessMakeMembers",
+        "editor.imageAccessMakePublic",
+      ].includes(key)
+    ) {
+      return $t(
+        key.replace("editor.", "editor.mediaPicker."),
+        fallback,
+        params,
+      );
+    }
+    if (!videoPickerCopy[key]) return $t(key, fallback, params);
     let copy =
       videoPickerCopy[key] ??
       (fallback ?? key)
@@ -220,7 +240,9 @@
 
   function imageFilesFromList(files: FileList | File[]) {
     return Array.from(files).filter((file) =>
-      matchesMedia(file.type, file.name),
+      mediaType === "image"
+        ? file.type.startsWith("image/")
+        : acceptsEditorMediaFile(mediaType, file.type, file.name),
     );
   }
 
@@ -244,7 +266,10 @@
       .map((item) => item.getAsFile())
       .filter(
         (file): file is File =>
-          file !== null && matchesMedia(file.type, file.name),
+          file !== null &&
+          (mediaType === "image"
+            ? file.type.startsWith("image/")
+            : acceptsEditorMediaFile(mediaType, file.type, file.name)),
       );
   }
 
@@ -363,7 +388,7 @@
       return;
     }
 
-    if (mediaType === "image") {
+    if (mediaType === "image" || uploadMode === "inline") {
       const accepted = await onUploadLocalImages(
         images.map((image) => image.file),
       );
@@ -818,11 +843,11 @@
           max="100"
           value={uploadProgress}
           class="min-w-0 flex-1"
-          aria-label="Upload progress"
+          aria-label={$t("editor.uploadProgress", "Upload progress")}
         ></progress>
         <span>{uploadProgress}%</span>
         <Button variant="outline" onclick={() => uploadAbort?.abort()}
-          >Cancel upload</Button
+          >{$t("editor.cancelUpload", "Cancel upload")}</Button
         >
       </div>
     {/if}
@@ -1004,7 +1029,9 @@
                       {:else if mediaType === "audio" || mediaType === "document"}
                         <span
                           class="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-muted text-xs"
-                          >{mediaType === "document" ? "PDF" : "Audio"}</span
+                          >{mediaType === "document"
+                            ? "PDF"
+                            : $t("editor.commandNames.audio", "Audio")}</span
                         >
                       {:else}
                         <img
@@ -1254,7 +1281,9 @@
                     {:else if mediaType === "audio" || mediaType === "document"}
                       <span
                         class="flex h-full items-center justify-center text-sm text-muted-foreground"
-                        >{mediaType === "document" ? "PDF" : "Audio"}</span
+                        >{mediaType === "document"
+                          ? "PDF"
+                          : $t("editor.commandNames.audio", "Audio")}</span
                       >
                     {:else}
                       <img

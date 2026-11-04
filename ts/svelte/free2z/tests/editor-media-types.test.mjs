@@ -14,9 +14,10 @@ const result = await build({
   platform: "node",
   alias: { $lib: fileURLToPath(new URL("../src/lib", import.meta.url)) },
 });
-const { acceptsEditorMedia, mediaAccept } = await import(
-  `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
-);
+const { acceptsEditorMedia, acceptsEditorMediaFile, mediaAccept } =
+  await import(
+    `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
+  );
 
 test("PDF mode accepts browser aliases and unknown PDF associations, excluding other documents", () => {
   for (const mime of [
@@ -45,5 +46,29 @@ test("audio and video accept MIME aliases and exclude other Cloud families", () 
   assert.equal(
     acceptsEditorMedia("audio", "application/pdf", "paper.pdf"),
     false,
+  );
+});
+
+test("neutral-MIME device filenames treat query and fragment characters literally", () => {
+  for (const mime of ["", "application/octet-stream"]) {
+    assert.equal(acceptsEditorMediaFile("video", mime, "Lesson #1?.mp4"), true);
+    assert.equal(acceptsEditorMediaFile("audio", mime, "Track #1?.mp3"), true);
+    assert.equal(
+      acceptsEditorMediaFile("document", mime, "Chapter #1?.pdf"),
+      true,
+    );
+    assert.equal(
+      acceptsEditorMediaFile("video", mime, "Lesson.mp4?notes.txt"),
+      false,
+    );
+    assert.equal(
+      acceptsEditorMediaFile("document", mime, "Chapter.pdf#notes.zip"),
+      false,
+    );
+  }
+  // Cloud URLs retain their URL semantics, including signed URLs and fragments.
+  assert.equal(
+    acceptsEditorMedia("video", "", "/uploadz/public/clip.mp4?token=x#t=1"),
+    true,
   );
 });

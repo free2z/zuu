@@ -35,3 +35,12 @@ export function acceptsEditorMedia(
   }
   return mediaMimeTypes(kind).includes(DECLARED_TYPE_ALIASES[type] || type);
 }
+
+/** Device filenames may contain literal URL delimiters such as # and ?. */
+export function acceptsEditorMediaFile(
+  kind: EditorMediaKind,
+  mime: string,
+  name: string,
+) {
+  return acceptsEditorMedia(kind, mime, encodeURIComponent(name));
+}

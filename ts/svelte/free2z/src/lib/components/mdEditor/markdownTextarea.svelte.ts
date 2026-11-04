@@ -1157,7 +1157,10 @@ export class MarkdownTextareaController {
     return (url: string) => {
       if (this.#options.isAbandoned() || this.#value !== value) {
         throw new Error(
-          "The document changed. Choose the insertion point again.",
+          this.#t(
+            "editor.documentChanged",
+            "The document changed. Choose the insertion point again.",
+          ),
         );
       }
       const markdown = buildVideoMarkdown(url);

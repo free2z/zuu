@@ -336,6 +336,7 @@
 <EditorImagePicker
   bind:this={mediaPickerRef}
   {mediaType}
+  uploadMode="embed"
   onChooseCloudImage={(item) => insertEmbed(item.url)}
   onUploadLocalImages={() => false}
   {subscriberOnly}
