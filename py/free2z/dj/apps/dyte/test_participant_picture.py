@@ -9,6 +9,7 @@ from dj.apps.g12f.models import Creator
 from dj.apps.uploads.models import GenericFile
 
 
+@pytest.mark.django_db
 @pytest.mark.parametrize("origin", ["https://free2z.cash", "https://stage.free2z.cash/"])
 @pytest.mark.parametrize("kind", ["guest", "default-avatar", "uploaded-avatar", "no-thumbnail"])
 def test_participant_picture_uses_canonical_origin(mocker, settings, origin, kind):
