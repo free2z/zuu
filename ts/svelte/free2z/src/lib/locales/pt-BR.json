@@ -2643,6 +2643,8 @@
     "pricePerMinuteShort": "{amount} 2Z/min",
     "reconnect": "Reconectar",
     "retryAttempt": "Tentativa {current}/{total}",
+    "reconnecting": "Reconectando à transmissão...",
+    "retryAttemptUnbounded": "Tentativa de reconexão {current}",
     "retryingConnection": "Tentando reconectar...",
     "retryNow": "Tentar novamente agora",
     "selection": {

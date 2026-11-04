@@ -110,7 +110,7 @@ def test_anonymous_head_is_charged_to_the_polling_budget(
         live_now=True,
     )
     get_participants_count = mocker.patch(
-        "dj.apps.dyte.views.DyteClient.get_participants_count",
+        "dj.apps.dyte.views.DyteClient.get_cached_participants_count",
         return_value=1,
     )
     rates = {

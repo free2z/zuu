@@ -1,15 +1,19 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { AUTH_STORE_LOADER } from "./dev-source-module";
+import { AUTH_STORE_LOADER, devSourceModuleLoader } from "./dev-source-module";
 
 const USER = "streamaudienceowner";
 const DASHBOARD = `/${USER}/dashboard/stream`;
 const SECRET = "owner-a-private-secret";
+const LIVE_STREAM_STORE_LOADER = devSourceModuleLoader(
+  "/src/lib/stores/liveStreamStore.ts",
+);
 
 declare global {
   interface Window {
     hostTest: {
       copied: string[];
       sdkCalls: any[];
+      joinCalls: number;
       left: number;
       finishProvider: () => void;
       finishLeave: () => void;
@@ -31,6 +35,7 @@ async function prepareSession(page: Page) {
     window.hostTest = {
       copied: [],
       sdkCalls: [],
+      joinCalls: 0,
       left: 0,
       finishProvider: () => {},
       finishLeave: () => {},
@@ -132,6 +137,9 @@ async function stubProvider(
       const { default: SDK } = await import(path);
       const meeting = {
         meta: { meetingTitle: "owner-a-room" },
+        join: async () => {
+          window.hostTest.joinCalls++;
+        },
         recording: {
           recordingState: "IDLE",
           addListener: () => {},
@@ -730,6 +738,10 @@ for (const width of [320, 390, 1280]) {
     await expect(record).toBeVisible();
     await expect(copy).toBeVisible();
     const media = page.locator("rtk-meeting");
+    await expect(media).toBeVisible();
+    // The host opened the meeting, but the provider's setup screen still owns
+    // the final join action so the host can choose pre-join media settings.
+    expect(await page.evaluate(() => window.hostTest.joinCalls)).toBe(0);
     const h = (await header.boundingBox())!;
     const m = (await media.boundingBox())!;
     expect(m.y).toBeGreaterThanOrEqual(h.y + h.height - 1);
@@ -834,6 +846,10 @@ for (const [owner, encrypted, mixedCase, lateJoin = false] of [
     }
     const header = page.getByTestId("private-call-header");
     await expect(header).toBeVisible();
+    await expect(page.locator("rtk-meeting")).toBeVisible();
+    // Private rooms also retain the provider setup screen; initializing the
+    // meeting must not implicitly enable camera/microphone or enter the room.
+    expect(await page.evaluate(() => window.hostTest.joinCalls)).toBe(0);
     await expect(
       header.getByRole("button", { name: "Copy Link", exact: true }),
     ).toBeVisible();
@@ -1141,6 +1157,142 @@ for (const initialFailure of [false, true]) {
     ).toHaveCount(0);
   });
 }
+
+test("private recovery stays single-flight while provider leave is pending", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await prepareSession(page);
+  const secret = "3f961c9d-aee4-4d87-83eb-6f7ba892e1c4";
+  let releaseJoin!: () => void;
+  let joinRequested = false;
+  const joinGate = new Promise<void>((resolve) => {
+    releaseJoin = resolve;
+  });
+  let joins = 0;
+  await page.route(`**/api/dyte/${USER}/private/${secret}`, async (route) => {
+    joinRequested = true;
+    joins++;
+    await joinGate;
+    await route.fulfill({
+      json: { auth_token: `synthetic-private-${joins}`, e2ee: false },
+    });
+  });
+  await page.goto(`/${USER}/private/${secret}?lang=en`);
+  await expect.poll(() => joinRequested).toBe(true);
+  await stubProvider(page, false, true, true);
+  releaseJoin();
+  await expect(page.getByTestId("private-call-header")).toBeVisible();
+  await expect.poll(() => joins).toBe(1);
+
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("failed");
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect.poll(() => page.evaluate(() => window.hostTest.left)).toBe(1);
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("connected");
+    liveStreamStore.setConnectionStatus("failed");
+  }, LIVE_STREAM_STORE_LOADER);
+  await page.waitForTimeout(2_000);
+  expect(joins).toBe(1);
+
+  await page.evaluate(() => window.hostTest.finishLeave());
+  await expect.poll(() => joins).toBe(2);
+  await expect
+    .poll(() => page.evaluate(() => window.hostTest.sdkCalls.length))
+    .toBe(2);
+});
+
+test("an online event does not overlap a gated initial private join", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await prepareSession(page);
+  const secret = "private-initial-join-online-single-flight";
+  let attempts = 0;
+  let releaseInitial!: () => void;
+  const initialGate = new Promise<void>((resolve) => {
+    releaseInitial = resolve;
+  });
+  await page.route(`**/api/dyte/${USER}/private/${secret}`, async (route) => {
+    attempts++;
+    await initialGate;
+    await route.fulfill({
+      json: { auth_token: `synthetic-private-${attempts}`, e2ee: false },
+    });
+  });
+
+  await page.goto(`/${USER}/private/${secret}?lang=en`);
+  await expect.poll(() => attempts).toBe(1);
+  await stubProvider(page, false, true);
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+
+  // The retry timer is longer than this wait. The still-pending initial token
+  // request must remain the only request even when online recovery fires.
+  await page.waitForTimeout(2_200);
+  expect(attempts).toBe(1);
+  releaseInitial();
+  await expect(page.getByTestId("private-call-header")).toBeVisible();
+  await expect.poll(() => attempts).toBe(1);
+  await expect
+    .poll(() => page.evaluate(() => window.hostTest.sdkCalls.length))
+    .toBe(1);
+});
+
+test("private recovery retries a failed join after coming back online", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await prepareSession(page);
+  const secret = "private-recovery-retries-room";
+  let attempts = 0;
+  let releaseInitial!: () => void;
+  const initialGate = new Promise<void>((resolve) => {
+    releaseInitial = resolve;
+  });
+  await page.route(`**/api/dyte/${USER}/private/${secret}`, async (route) => {
+    attempts++;
+    if (attempts === 1) await initialGate;
+    if (attempts === 2) {
+      await route.fulfill({
+        status: 503,
+        json: { detail: "temporary outage" },
+      });
+      return;
+    }
+    await route.fulfill({
+      json: { auth_token: `synthetic-private-${attempts}`, e2ee: false },
+    });
+  });
+  await page.goto(`/${USER}/private/${secret}?lang=en`);
+  await expect.poll(() => attempts).toBe(1);
+  await stubProvider(page, false, true);
+  releaseInitial();
+  await expect(page.getByTestId("private-call-header")).toBeVisible();
+  await expect.poll(() => attempts).toBe(1);
+
+  // A failed room while offline must not start recovery. Returning online
+  // should re-arm recovery; the first attempt fails transiently and a later
+  // scheduled attempt must proceed after the in-flight guard is released.
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setOffline(true);
+    liveStreamStore.setConnectionStatus("failed");
+  }, LIVE_STREAM_STORE_LOADER);
+  await page.waitForTimeout(1_300);
+  expect(attempts).toBe(1);
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setOffline(false);
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect.poll(() => attempts, { timeout: 10_000 }).toBe(3);
+  await expect
+    .poll(() => page.evaluate(() => window.hostTest.sdkCalls.length))
+    .toBe(2);
+  await expect(page.getByTestId("private-call-header")).toBeVisible();
+});
 
 test("a private-call route change during a rejected join retains reload controls", async ({
   page,
