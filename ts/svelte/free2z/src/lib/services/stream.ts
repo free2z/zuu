@@ -116,6 +116,9 @@ export const streamInfoSchema = z.object({
   // Public discovery (the bounded live rail) omits the viewer count, so this
   // stays optional rather than becoming a false zero in the UI.
   participant_count: z.number().optional(),
+  // True while the host's recording control has an active capture. Omitted
+  // by older payloads and by discovery lists that do not know.
+  recording: z.boolean().optional(),
   // Django DecimalField values arrive as strings. Keep numbers accepted for
   // the legacy stream payload, but never coerce the authoritative price with
   // Number() at the payment boundary.
@@ -138,6 +141,7 @@ const legacyStreamInfoSchema = z.object({
   participants: z.number(),
   price_per_minute: z.union([z.string(), z.number()]).nullable().optional(),
   meeting_id: z.string().optional(),
+  recording: z.boolean().optional(),
 });
 
 const legacyLiveStatusResponseSchema = z.partialRecord(
@@ -155,6 +159,7 @@ export const liveStatusResponseSchema = z.union([
         ? {}
         : { price_per_minute: stream.price_per_minute }),
       ...(stream.meeting_id == null ? {} : { meeting_id: stream.meeting_id }),
+      ...(stream.recording == null ? {} : { recording: stream.recording }),
     }));
 
     return {

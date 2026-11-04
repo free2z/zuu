@@ -14,7 +14,12 @@ export interface SlashCommandShape {
   description: string;
   keywords?: string[];
   insert?: string;
-  action?: "open-image-picker" | "open-video-picker";
+  action?:
+    | "open-image-picker"
+    | "open-video-picker"
+    | "open-audio-picker"
+    | "open-document-picker"
+    | "open-embed-link";
   selectionStartOffset?: number;
   selectionEndOffset?: number;
 }
@@ -59,6 +64,7 @@ export interface SlashCommandResult {
   /** The command is "insert an image": the host opens its picker. */
   openImagePicker: boolean;
   openVideoPicker?: boolean;
+  mediaPicker?: "video" | "audio" | "document" | "link";
 }
 
 /**
@@ -74,6 +80,7 @@ export function applySlashCommand(
   caret: number,
   command: SlashCommandShape,
   fromPalette: boolean,
+  selectionEnd = caret,
 ): SlashCommandResult | null {
   const textBeforeCursor = value.substring(0, caret);
   const textAfterCursor = value.substring(caret);
@@ -94,13 +101,23 @@ export function applySlashCommand(
 
   if (
     command.action === "open-image-picker" ||
-    command.action === "open-video-picker"
+    command.action === "open-video-picker" ||
+    command.action === "open-audio-picker" ||
+    command.action === "open-document-picker" ||
+    command.action === "open-embed-link"
   ) {
     const insertionPoint = newTextBefore.length;
     return {
       nextValue: newTextBefore + textAfterCursor,
       selectionStart: insertionPoint,
-      selectionEnd: insertionPoint,
+      selectionEnd: fromPalette ? selectionEnd : insertionPoint,
+      ...(command.action === "open-audio-picker"
+        ? { mediaPicker: "audio" as const }
+        : command.action === "open-document-picker"
+          ? { mediaPicker: "document" as const }
+          : command.action === "open-embed-link"
+            ? { mediaPicker: "link" as const }
+            : {}),
       openImagePicker: command.action === "open-image-picker",
       ...(command.action === "open-video-picker"
         ? { openVideoPicker: true }

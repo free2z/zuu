@@ -3,6 +3,7 @@ editor-inherited-address.spec.ts
 editor-insert-control.spec.ts
 editor-language-picker.spec.ts
 editor-media-access-gate.spec.ts
+editor-media-insertion.spec.ts
 editor-reauth-account-switch.spec.ts
 editor-save-response-address.spec.ts
 editor-save-timeout.spec.ts

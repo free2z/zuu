@@ -109,6 +109,7 @@ export interface MarkdownTextareaOptions {
   /** "The page this document belongs to is gone." Read live. */
   isAbandoned: () => boolean;
   openImagePicker: (defaultTab?: "device" | "cloud") => void;
+  openMediaPicker?: (kind: "video" | "audio" | "document" | "link") => void;
   openVideoPicker?: (defaultTab?: "device" | "cloud") => void;
   /** Re-measure the host's layout after a programmatic edit. */
   resize?: () => void;
@@ -627,6 +628,7 @@ export class MarkdownTextareaController {
       textarea.selectionStart,
       command,
       this.showCommandPalette,
+      textarea.selectionEnd,
     );
 
     // The caret moved off the "/..." line while the menu was open.
@@ -647,7 +649,12 @@ export class MarkdownTextareaController {
         result.selectionEnd,
       );
       this.handleSelectionChange();
-      if (result.openImagePicker || result.openVideoPicker) {
+      if (
+        result.mediaPicker ||
+        (result.openVideoPicker && this.#options.openMediaPicker)
+      ) {
+        this.#options.openMediaPicker?.(result.mediaPicker ?? "video");
+      } else if (result.openImagePicker || result.openVideoPicker) {
         const slot = this.#options.mediaSlot();
         if (slot) {
           const openPicker = result.openVideoPicker
@@ -1141,6 +1148,29 @@ export class MarkdownTextareaController {
   // -------------------------------------------------------------------------
   // Image picker callbacks
   // -------------------------------------------------------------------------
+
+  /** A modal owns this range until it closes; refuse a changed document. */
+  captureEmbedInsertion = () => {
+    let value = this.#value;
+    let start = this.#textarea?.selectionStart ?? value.length;
+    let end = this.#textarea?.selectionEnd ?? start;
+    return (url: string) => {
+      if (this.#options.isAbandoned() || this.#value !== value) {
+        throw new Error(
+          this.#t(
+            "editor.documentChanged",
+            "The document changed. Choose the insertion point again.",
+          ),
+        );
+      }
+      const markdown = buildVideoMarkdown(url);
+      this.#splice(start, end, markdown, "end");
+      value = this.#value;
+      start += markdown.length;
+      end = start;
+      this.#textarea?.focus();
+    };
+  };
 
   /**
    * `EditorImagePicker`'s `onUploadLocalImages`. Resolves `false` when the
