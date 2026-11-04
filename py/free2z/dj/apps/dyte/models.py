@@ -117,6 +117,13 @@ class CreatorMeeting(models.Model):
             "stalled worker cannot leave stale rooms visible forever."
         ),
     )
+    zero_probe_since = models.DateTimeField(
+        null=True, blank=True,
+        help_text=(
+            "First consecutive provider zero; live-state clearing waits a "
+            "bounded grace so a transient zero cannot hide an active room."
+        ),
+    )
     created_at = models.DateTimeField(default=timezone.now)
     price_per_minute = models.DecimalField(
         max_digits=6, decimal_places=2, default=0,

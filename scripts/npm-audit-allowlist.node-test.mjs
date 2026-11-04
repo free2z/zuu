@@ -68,12 +68,25 @@ test("empty Svelte baseline and unknown roots cannot inherit wallet exceptions",
   assert.match(svelte.problems.join("\n"), /braces/);
 });
 test("a package-scoped baseline cannot inherit another root's reasons", () => {
-  const scoped = allowlistForScope("ts/svelte/free2z");
-  assert.deepEqual(scoped, []);
-  assert.deepEqual(allowlistForScope("wallet/zuuli").map((entry) => entry.id), [
+  assert.deepEqual(allowlistForScope("ts/svelte/free2z"), []);
+  assert.deepEqual(allowlistForScope("wallet/zuuli"), []);
+  const walletOnly = [{
+    id: "GHSA-5gmw-xhrv-c9v3",
+    package: "tinypool",
+    expires: "2026-11-04",
+    issue: "https://github.com/free2z/zuu/issues/1173",
+    reason: "wallet-only fixture",
+    scope: "wallet/zuuli",
+  }];
+  assert.deepEqual(allowlistForScope("wallet/zuuli", walletOnly).map((entry) => entry.id), [
     "GHSA-5gmw-xhrv-c9v3",
-    "GHSA-85c8-ppgw-ccpr",
   ]);
+  assert.deepEqual(allowlistForScope("ts/svelte/free2z", walletOnly), []);
+  const { scope: _scope, ...legacy } = walletOnly[0];
+  assert.deepEqual(allowlistForScope("wallet/zuuli", [legacy]).map((entry) => entry.id), [
+    "GHSA-5gmw-xhrv-c9v3",
+  ]);
+  assert.deepEqual(allowlistForScope("ts/svelte/free2z", [legacy]), []);
 });
 test("npm audit rejects vulnerable devalue in prod and dev fixtures under production omit-dev config", { timeout: 120_000 }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "npm-audit-devalue-test-"));
@@ -130,11 +143,8 @@ test("npm audit network errors and unexpected exits fail closed", () => {
 });
 test("allowlist is exact and expiring per package root", () => {
   assert.deepEqual(
-    ALLOWLIST.filter((e) => !e.scope).map((e) => [e.id, e.package, e.issue.split("/").pop()]),
-    [
-      ["GHSA-5gmw-xhrv-c9v3", "tinypool", "1173"],
-      ["GHSA-85c8-ppgw-ccpr", "tinypool", "1174"],
-    ],
+    ALLOWLIST.map((e) => [e.id, e.package, e.issue.split("/").pop()]),
+    [],
   );
   for (const e of ALLOWLIST) assert.equal(e.expires, "2026-11-04");
   assert.deepEqual(allowlistForScope("ts/svelte/free2z"), []);
@@ -155,4 +165,16 @@ test("retired source-map-js advisory fails without an exception", () => {
   const r = evaluate(report(adv("source-map-js", "GHSA-68fv-2mgg-jv7q")), ALLOWLIST, before);
   assert.equal(r.problems.length, 1);
   assert.deepEqual(r.waived, []);
+});
+
+test("retired braces and tinypool exceptions cannot waive a regression", () => {
+  for (const [name, id] of [
+    ["braces", BR],
+    ["tinypool", "GHSA-5gmw-xhrv-c9v3"],
+    ["tinypool", "GHSA-85c8-ppgw-ccpr"],
+  ]) {
+    const r = evaluate(report(adv(name, id, "critical")), ALLOWLIST, before);
+    assert.equal(r.problems.length, 1);
+    assert.deepEqual(r.waived, []);
+  }
 });
